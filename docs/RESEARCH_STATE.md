@@ -18,6 +18,13 @@ Q8 = does echoed interaction-intent leak app content into the instruction channe
 Q9 = RESOLVED (e3ce924): RegisteredSource extends MosaicClient genuinely (base class inert without coordinator — MosaicClient.js:20-233 no-op defaults; instanceof satisfied). One deliberate cast remains in bench/x4 (benchmarks raw Mosaic, out of layer).
 Q10 = LORD++ γ-constant choice (0.0722 paper vs 0.07720838 onlineFDR vs finite-horizon) — document at L4 promotion.
 Q11 = the one unreproduced test flake (suspect: 10k-sim FDR tests at 5s default timeout — codify testTimeout 30000 at L4).
+D24 [GROUNDED] Engine strategies: ONE coordination model (typed clauses), THREE execution engines behind the
+def's data seam — memory (in-JS predicates over arrays/CSV; X4-proven: bench/x4/runner.mjs:46-50 ran mosaic-core
+with DuckDB stubbed) | wasm (DuckDB-WASM in-browser; loadCSV/loadObjects/loadParquet, mosaic-sql index.js:34) |
+server (connector) | auto. INVARIANT: engine never changes commit semantics — cross-engine replay byte-identical
+(acceptance test at L5/data-provider packet). Keysets stay eliminated as coordination; the VizAdapter small-data
+insight lives as the memory ENGINE.
+Q12 [OPEN] auto-engine thresholds (rows/bytes for memory→wasm→server) — measure with an X4-style bench, don't guess.
 ## Orchestrator adjudications of SPEC §11 conflicts
 C1 ACCEPT rename JoinRecord→CorrelationEnvelope. C2 ACCEPT: L6 must prove a SECOND target kind before claiming
 why(target) generality. C3 ACCEPT: L3 greenfield/highest-risk — packet starts with a mini-spike validating the
