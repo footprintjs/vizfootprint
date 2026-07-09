@@ -15,7 +15,7 @@ Q3 = cite QUDE by DOI (venue-year label discrepancy; cosmetic).
 Q4 = upstream two-slot cause to hcifootprint's one-slot Principal (atom/types.ts:33), later hcifootprint major.
 Q6 = is the 7-verb dispatch vocabulary complete vs the DashboardQA task suite? (validate in L5).
 Q8 = does echoed interaction-intent leak app content into the instruction channel? (two-string firewall check, L5).
-Q9 = replace L2's `as unknown as MosaicClient` cast with a real MosaicClient impl or upstream typing fix.
+Q9 = RESOLVED (e3ce924): RegisteredSource extends MosaicClient genuinely (base class inert without coordinator — MosaicClient.js:20-233 no-op defaults; instanceof satisfied). One deliberate cast remains in bench/x4 (benchmarks raw Mosaic, out of layer).
 Q10 = LORD++ γ-constant choice (0.0722 paper vs 0.07720838 onlineFDR vs finite-horizon) — document at L4 promotion.
 Q11 = the one unreproduced test flake (suspect: 10k-sim FDR tests at 5s default timeout — codify testTimeout 30000 at L4).
 ## Orchestrator adjudications of SPEC §11 conflicts
