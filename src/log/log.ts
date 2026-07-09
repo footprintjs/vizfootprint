@@ -1,24 +1,40 @@
 /**
- * x1-replay log substrate — the append-only, branch-capable commit log that
- * carries cause-tagged Mosaic clauses AND can rebuild them into a fresh
- * Selection with fresh source identity.
+ * L1 — the append-only, branch-capable commit log that carries cause-tagged
+ * Mosaic clauses AND can rebuild them into a fresh Selection with fresh
+ * source identity.
  *
- * This is the "L0 wire shape" every later layer consumes. It is a thin bespoke
- * JSONL+branch record (see the Q1 evaluation): a clause is NOT serialized as an
- * object graph (impossible — `source` is an identity, `predicate` is an AST).
- * Instead each commit stores the DETERMINISTIC RECIPE (kind, field, value) plus
- * the registry id of its source, so replay reconstructs an identical clause.
+ * Promoted verbatim from spikes/x1-replay/log.ts (D17: the proven wire
+ * shape). This is the "L0 wire shape" every later layer consumes. It is a
+ * thin bespoke JSONL+branch record (see the Q1 evaluation, SPEC.md §10): a
+ * clause is NOT serialized as an object graph (impossible — `source` is an
+ * identity, `predicate` is an AST). Instead each commit stores the
+ * DETERMINISTIC RECIPE (kind, field, value) plus the registry id of its
+ * source, so replay reconstructs an identical clause.
+ *
+ * R# satisfied (SPEC.md §3):
+ *  - R2  replay is a MODE — replayLog only ADDS `cause.replayed = true`.
+ *  - R5  commits carry DATA-space values (not pixels); replay rebuilds
+ *        identical predicate SQL in a fresh selection.
+ *  - R8  append-only branching via parent pointers. There is deliberately NO
+ *        delete/remove/edit API on the log — enforced by construction: (a)
+ *        the only way to add a record is `commit()`, which always appends;
+ *        (b) every appended record is frozen, so a caller holding a
+ *        reference cannot mutate history in place either.
+ *  - R10 first-class `CommitRecord.correlationId` cross-tier join key.
+ *  - R13 commit-on-intent — `commit()` is a single synchronous write; the
+ *        log has no batching/debounce path a caller could accidentally rely
+ *        on (proven out-of-hot-path at bench/x4).
  */
 
 import { Selection } from '@uwdata/mosaic-core';
 import type { SelectionClause } from '@uwdata/mosaic-core';
-import { markReplayed, validateCause, type Cause } from '../../src/cause/index.js';
+import { markReplayed, validateCause, type Cause } from '../cause/index.js';
 import {
   SourceRegistry,
   causeClause,
   type ActorMeta,
   type CauseClauseSpec,
-} from '../../src/mosaic/index.js';
+} from '../mosaic/index.js';
 
 /** The serializable commit — one interaction's worth of clause + provenance. */
 export interface CommitRecord {
@@ -128,6 +144,11 @@ export class CauseSelectionSession {
       cause,
       ts: input.ts ?? this.records.length,
     };
+    // R8, enforced by construction: once a commit lands, it cannot be edited
+    // in place. Only `commit()` ever grows `records` (always via push, never
+    // splice/assign); freezing each record additionally blocks a caller
+    // holding a reference from rewriting history under the log's feet.
+    Object.freeze(record);
     this.records.push(record);
     return { record, clause };
   }

@@ -25,7 +25,7 @@
 
 import { Agent, defineTool } from 'agentfootprint';
 import { mock } from 'agentfootprint/llm-providers';
-import { CauseSelectionSession, type CommitRecord } from '../x1-replay/log.js';
+import { CauseSelectionSession, type CommitRecord } from '../../src/log/index.js';
 import type { Cause } from '../../src/cause/index.js';
 import { runKernel, type KernelResult } from './kernel.js';
 

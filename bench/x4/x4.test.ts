@@ -21,7 +21,7 @@
  *
  * Environment: real Chromium (pinned chrome-headless-shell 1208) driven by
  * playwright-core; the page runs the real @uwdata/mosaic-core Selection and
- * the real CauseSelectionSession from spikes/x1-replay/log.ts, bundled by
+ * the real CauseSelectionSession from src/log/log.ts (L1), bundled by
  * esbuild at test time. Runs are interleaved (nolog, log, nolog, log, …) to
  * cancel warm-up/thermal drift.
  */

@@ -7,7 +7,7 @@
  * seeded synthetic rows (the stand-in for the client-side reaction Mosaic
  * views would perform). COMMIT ONLY ON GESTURE END (commit-on-intent):
  *
- *   mode 'log'   — a real CauseSelectionSession (spikes/x1-replay/log.ts) is
+ *   mode 'log'   — a real CauseSelectionSession (src/log/log.ts, L1) is
  *                  attached; the gesture ends with exactly ONE session.commit.
  *   mode 'nolog' — no session exists anywhere; raw Mosaic only.
  *
@@ -21,7 +21,7 @@
 
 import { Selection, clauseInterval } from '@uwdata/mosaic-core';
 import type { MosaicClient } from '@uwdata/mosaic-core';
-import { CauseSelectionSession } from '../../spikes/x1-replay/log.js';
+import { CauseSelectionSession } from '../../src/log/index.js';
 import { causeOf } from '../../src/mosaic/index.js';
 import type { RegisteredSource, ActorMeta } from '../../src/mosaic/index.js';
 import type { Cause } from '../../src/cause/index.js';

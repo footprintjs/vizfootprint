@@ -1,16 +1,17 @@
 /**
- * x1-replay experiment (runnable narrative).
+ * Branching-log fixture + runnable narrative (promoted from
+ * spikes/x1-replay/replay.spike.ts).
  *
  * Authors a BRANCHING cause-log over two coordinated Mosaic views, serializes
  * it, then replays two different branch paths into fresh Selections + fresh
  * registries — proving (H4) that identity-dependent behavior survives replay
  * and (R8) that the append-only log supports branching timelines.
  *
- * Run it with a TS-aware runner, e.g. `npx vitest run spikes/x1-replay` executes
- * branch.test.ts which calls runSpike(); or import runSpike() from anywhere.
+ * Run it with a TS-aware runner, e.g. `npx vitest run src/log` executes
+ * branch.test.ts which calls runBranchingReplay(); or import it from anywhere.
  */
 
-import type { RegisteredSource } from '../../src/mosaic/index.js';
+import type { RegisteredSource } from '../mosaic/index.js';
 import {
   CauseSelectionSession,
   causeHistogram,
@@ -58,7 +59,7 @@ const clauseSummary = (session: CauseSelectionSession) =>
     .map((c) => `${(c.source as RegisteredSource).viewId}:${String(c.predicate)}`)
     .sort();
 
-export interface SpikeResult {
+export interface BranchingReplayResult {
   serialized: string;
   branchLow: string[];
   branchHigh: string[];
@@ -67,7 +68,7 @@ export interface SpikeResult {
   allReplayed: boolean;
 }
 
-export function runSpike(log: readonly CommitInput[] = BRANCHING_LOG): SpikeResult {
+export function runBranchingReplay(log: readonly CommitInput[] = BRANCHING_LOG): BranchingReplayResult {
   // author the full branching log live
   const live = new CauseSelectionSession();
   for (const c of log) live.commit(c);
@@ -91,7 +92,7 @@ export function runSpike(log: readonly CommitInput[] = BRANCHING_LOG): SpikeResu
 
 // Print a readable narrative when executed directly.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const r = runSpike();
+  const r = runBranchingReplay();
   // eslint-disable-next-line no-console
   console.log(JSON.stringify(r, null, 2));
 }
