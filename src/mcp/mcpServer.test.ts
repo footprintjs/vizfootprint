@@ -81,11 +81,25 @@ describe('mcpServer — a real MCP server backed by a live session', () => {
     expect(after).toBe(before);
   });
 
-  it('why over MCP comes back as a typed not-implemented marker (not isError)', async () => {
+  it('why over MCP comes back as a machine-shaped cross-tier result (not isError)', async () => {
     const client = await connectClient(freshSession());
+    // An unknown column on a fresh session is a TYPED miss — a normal result the
+    // model reads, never an isError crash, and never a fabricated slice.
     const res = await client.callTool({ name: 'viz.why', arguments: { target: 'rowCount' } });
     expect(res.isError).toBeFalsy();
-    expect(text(res)['owner']).toBe('L6');
+    expect(text(res)).toEqual({ ok: false, missing: 'no-such-target', target: { kind: 'column', column: 'rowCount' } });
+  });
+
+  it('why over MCP returns a threaded slice once an analysis has materialized the column', async () => {
+    const client = await connectClient(freshSession());
+    await client.callTool({ name: 'viz.declare_analysis', arguments: { analysisId: 'clustering' } });
+    const res = await client.callTool({ name: 'viz.why', arguments: { target: 'cluster_id' } });
+    expect(res.isError).toBeFalsy();
+    const slice = text(res);
+    expect(slice['ok']).toBe(true);
+    expect(slice['targetKind']).toBe('column');
+    // machine-shaped: a flat {tier,id,kind} commit array, no prose.
+    expect(Array.isArray(slice['commits'])).toBe(true);
   });
 
   it('an unknown tool comes back as isError, never a crash', async () => {

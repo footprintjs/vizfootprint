@@ -119,14 +119,8 @@ export interface ViewAdapter {
   applyClause?(clause: CauseClause): void;
 }
 
-/** The L6 `why(x)` seam — a typed not-implemented marker until L6 promotes it. */
-export interface WhyNotImplemented {
-  readonly ok: false;
-  readonly reason: 'not-implemented';
-  readonly owner: 'L6';
-  readonly detail: string;
-  readonly target: unknown;
-}
+// The L6 `why(target)` result types now live in `../why` (promoted P3-L6); the
+// session re-exports them from its barrel for family symmetry.
 
 // ── Session construction + the whats_here projection. ──────────────────────────
 

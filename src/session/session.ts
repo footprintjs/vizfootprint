@@ -37,6 +37,9 @@ import type {
   RegisteredAnalysis,
 } from '../def/types.js';
 import { GapLedger } from './gapLedger.js';
+import { why } from '../why/index.js';
+import type { RuntimeSnapshot } from 'footprintjs';
+import type { AgentEventFrame, WhyResult, WhyTarget } from '../why/index.js';
 import type {
   AnalysisCommit,
   Checkpoint,
@@ -49,8 +52,28 @@ import type {
   Overview,
   SessionOptions,
   ViewAdapter,
-  WhyNotImplemented,
 } from './types.js';
+
+/**
+ * Per-invocation provenance the session captures DURING a `declareAnalysis` (the
+ * L6 `why()` inputs — gathered live, never post-processed). One record per
+ * analysis result that landed a commit.
+ */
+interface WhyProvenance {
+  readonly analysisId: string;
+  /** The viz commit `declareAnalysis` landed for this invocation. */
+  readonly declaringCommitId: string;
+  /** The select/filter commits that formed the analysis input (empty for a full-table transform). */
+  readonly inputSelectionCommitIds: readonly string[];
+  /** The footprintjs run this analysis executed (the kernel tier), if it ran. */
+  readonly snapshot?: RuntimeSnapshot;
+  /** The kernel state key the target's value lives under (column name / resolved scalar key). */
+  readonly kernelKey?: string;
+  /** The cross-tier join key stamped on the landed commit. */
+  readonly correlationId?: string;
+  /** kind:'test' — the online-FDR ledger row. */
+  readonly fdrStep?: FdrStep;
+}
 
 /** Reserved log fields the session lands non-filter commits under (never real data columns). */
 const ANALYSIS_FIELD = '__analysis__';
@@ -86,8 +109,15 @@ export interface InteractionSession {
   hasAnalysis(id: string): boolean;
   analysisIds(): string[];
 
-  /** The L6 seam — a typed not-implemented marker until L6 promotes `why(x)`. */
-  why(target: unknown): WhyNotImplemented;
+  /**
+   * The L6 cross-tier `why(target)` — the MINIMAL commit set the target depends
+   * on, machine-shaped (viz declaring + input-selection commits, agent frame,
+   * kernel stages), or a typed miss. `target` names a materialised COLUMN or a
+   * SCALAR/hypothesis (analysis id). Pass a caller-harvested `agentEventLog`
+   * (sanctioned `EventMeta` frames) to thread the agent tier; omit it for an
+   * honest `no-agent-tier` miss.
+   */
+  why(target: WhyTarget, opts?: { agentEventLog?: readonly AgentEventFrame[] }): WhyResult;
 
   /** The gap ledger (R14 / D14). */
   gaps(): readonly GapRow[];
@@ -114,6 +144,12 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly adapters = new Map<string, ViewAdapter>();
   private readonly localAnalyses = new Map<string, RegisteredAnalysis>();
   private readonly activeFilters = new Map<string, PredicateClause>();
+  /** viewId → the latest still-active select/filter commit id (the L6 input-selection provenance). */
+  private readonly activeFilterCommits = new Map<string, string>();
+  /** materialised column name → its producing analysis provenance (L6 `why({kind:'column'})`). */
+  private readonly whyByColumn = new Map<string, WhyProvenance>();
+  /** analysisId → the last invocation's provenance (L6 `why({kind:'hypothesis'})`). */
+  private readonly whyByAnalysisId = new Map<string, WhyProvenance>();
   private readonly fdrStepper: FdrStepper;
   private readonly _ledger: FdrStep[] = [];
   private readonly _checkpoints: Checkpoint[] = [];
@@ -320,8 +356,13 @@ class InteractionSessionImpl implements InteractionSession {
       cause: stamped,
     });
     this._head = record.id;
-    if (kind === 'interval' && value === null) this.activeFilters.delete(viewId);
-    else this.activeFilters.set(viewId, kind === 'point' ? { kind, field, value } : { kind, field, value: value as [number, number] });
+    if (kind === 'interval' && value === null) {
+      this.activeFilters.delete(viewId);
+      this.activeFilterCommits.delete(viewId); // a cleared filter is no longer an input dependency
+    } else {
+      this.activeFilters.set(viewId, kind === 'point' ? { kind, field, value } : { kind, field, value: value as [number, number] });
+      this.activeFilterCommits.set(viewId, record.id); // a superseded select on the same view drops out here
+    }
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
     this.adapters.get(viewId)?.applyClause?.(clause as CauseClause);
     return { ok: true, verb, intent, commit: record };
@@ -510,6 +551,42 @@ class InteractionSessionImpl implements InteractionSession {
       }
     }
 
+    // ── L6 provenance capture (collect during the run, never post-process) ──────
+    // A full-table columns transform has NO selection dependency (its input is
+    // the whole table, not the selection) — record an EMPTY input-selection set
+    // so `why()` honestly excludes an active-but-unused filter (minimality). Any
+    // other channel ran over the selection, so the active filter commits ARE the
+    // causal input.
+    const inputSelectionCommitIds =
+      analysis.def.produces === 'columns' && opts.input === undefined
+        ? []
+        : [...this.activeFilterCommits.values()];
+    const baseProv: WhyProvenance = {
+      analysisId: id,
+      declaringCommitId: record.id,
+      inputSelectionCommitIds,
+      ...(run.snapshot ? { snapshot: run.snapshot } : {}),
+      ...(opts.correlationId !== undefined ? { correlationId: opts.correlationId } : {}),
+      ...(fdrStep ? { fdrStep } : {}),
+    };
+    const output = run.result.output;
+    if (output.as === 'columns') {
+      // Kernel key == the column name (the flowchart writes the column directly
+      // into committed state — session.ts reads `sharedState[name]` above).
+      for (const name of materialized ?? []) {
+        this.whyByColumn.set(name, { ...baseProv, kernelKey: name });
+      }
+    } else if (output.as === 'scalar') {
+      // The scalar's kernel key is the (unique) committed state key holding its
+      // value; unresolved (ambiguous/absent) → `why()` reports a kernel miss.
+      const kernelKey = this.resolveScalarKernelKey(run.snapshot, output.value);
+      this.whyByAnalysisId.set(id, { ...baseProv, ...(kernelKey !== undefined ? { kernelKey } : {}) });
+    } else {
+      // table / geometry — indexed for `why({kind:'hypothesis'})`; no scalar key
+      // (kernel tier reports `kernel-key-unresolved`, honestly).
+      this.whyByAnalysisId.set(id, baseProv);
+    }
+
     return {
       analysisId: id,
       kind: analysis.kind,
@@ -522,15 +599,30 @@ class InteractionSessionImpl implements InteractionSession {
     };
   }
 
-  // ── L6 seam ──────────────────────────────────────────────────────────────────
-  why(target: unknown): WhyNotImplemented {
-    return {
-      ok: false,
-      reason: 'not-implemented',
-      owner: 'L6',
-      detail: 'why(x) is owned by vizfootprint/why (L6) — not wired into L5',
-      target,
-    };
+  /** The unique committed state key whose value === `value`, or undefined if 0/≥2 match. */
+  private resolveScalarKernelKey(snapshot: RuntimeSnapshot | undefined, value: unknown): string | undefined {
+    if (!snapshot) return undefined;
+    const state = snapshot.sharedState;
+    const hits = Object.keys(state).filter((k) => state[k] === value);
+    return hits.length === 1 ? hits[0] : undefined;
+  }
+
+  // ── L6 why(target) ─────────────────────────────────────────────────────────────
+  why(target: WhyTarget, opts: { agentEventLog?: readonly AgentEventFrame[] } = {}): WhyResult {
+    const prov = target.kind === 'column'
+      ? this.whyByColumn.get(target.column)
+      : this.whyByAnalysisId.get(target.analysisId);
+    if (!prov) return { ok: false, missing: 'no-such-target', target };
+    return why(target, {
+      vizRecords: this.log.records,
+      declaringCommitId: prov.declaringCommitId,
+      inputSelectionCommitIds: prov.inputSelectionCommitIds,
+      ...(prov.snapshot ? { kernelSnapshot: prov.snapshot } : {}),
+      ...(prov.kernelKey !== undefined ? { kernelKey: prov.kernelKey } : {}),
+      ...(prov.correlationId !== undefined ? { correlationId: prov.correlationId } : {}),
+      ...(opts.agentEventLog ? { agentEventLog: opts.agentEventLog } : {}),
+      ...(prov.fdrStep ? { fdrStep: prov.fdrStep } : {}),
+    });
   }
 
   // ── ledgers ────────────────────────────────────────────────────────────────

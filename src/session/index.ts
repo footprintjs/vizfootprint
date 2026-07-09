@@ -17,7 +17,6 @@ export type {
   GapOp,
   ViewAdapter,
   AdapterCapabilities,
-  WhyNotImplemented,
   SessionOptions,
   DeclareAnalysisOptions,
   Overview,
@@ -27,3 +26,18 @@ export type {
   FdrSummary,
   ColumnFacet,
 } from './types.js';
+
+// L6 `why(target)` result types (promoted P3-L6; owned by `../why`).
+export type {
+  AgentEventFrame,
+  CorrelationEnvelope,
+  CrossTierMiss,
+  CrossTierSlice,
+  Tier,
+  TierCommit,
+  TierCommitKind,
+  WhyFlags,
+  WhyResult,
+  WhyTarget,
+  WhyTargetMiss,
+} from '../why/index.js';

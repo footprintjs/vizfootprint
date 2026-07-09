@@ -1,26 +1,26 @@
 /**
- * x3 — BACKEND (kernel) tier: a tiny footprintjs flowchart.
+ * L6 test fixture — the BACKEND (kernel) tier: a tiny footprintjs flowchart.
+ * Promoted verbatim from `spikes/x3-why-join/kernel.ts` (P3-L6 retirement).
+ * A `.fixture.ts` (vitest ignores it), like `src/log/branching.fixture.ts`.
  *
- * The bottom tier of the R10 kill-test. A three-stage data pipeline whose
- * final key `rowCount` is the thing `why(x)` will be asked about:
+ * A three-stage data pipeline whose final key `rowCount` is the thing the
+ * promoted `why({kind:'column', column:'rowCount'})` is asked about:
  *
  *   load → decoy → filter → count
  *
- * - `load`   reads the run INPUT (frozen args) and writes `rows`, plus the
- *            three threaded values (`correlationId`, `field`, `range`). The
- *            correlationId is written into COMMITTED STATE here — that is the
- *            only way the join key survives into `getSnapshot().commitLog`
- *            (footprintjs input is a frozen, UNTRACKED args channel, so it
- *            never lands in a commit on its own).
- * - `decoy`  is the intra-kernel DECOY (A2): it writes `auditNote`, a key that
- *            nothing downstream reads. sliceForKey('rowCount') must exclude it.
- * - `filter` reads `rows`/`field`/`range`, writes `filtered`.
+ * - `load`   reads the run INPUT (frozen args) and writes `rows`, plus the three
+ *            threaded values (`corrId`, `filterField`, `filterRange`). The
+ *            correlationId is written into COMMITTED STATE here — the only way
+ *            the join key survives into `getSnapshot().commitLog` (footprintjs
+ *            input is a frozen, UNTRACKED args channel; it never lands on its own).
+ * - `decoy`  is the intra-kernel DECOY (A2): it writes `auditNote`, a key nothing
+ *            downstream reads. `sliceForKey('rowCount')` must exclude it.
+ * - `filter` reads `rows`/`filterField`/`filterRange`, writes `filtered`.
  * - `count`  reads `filtered`, writes `rowCount`.
  *
- * Reads use tracked property/`$getValue` access so the executor records them
- * into `StageSnapshot.stageReads` (readTracking defaults to 'full' for a bare
- * FlowChartExecutor), which is what `keysReadFromExecutionTree` feeds to the
- * slicer.
+ * Reads use tracked `$getValue` access so the executor records them into
+ * `StageSnapshot.stageReads` (readTracking defaults to 'full' for a bare
+ * FlowChartExecutor) — what `keysReadFromExecutionTree` feeds the slicer.
  */
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
@@ -44,28 +44,19 @@ export const DATASET: readonly Row[] = [
 
 /** What the kernel run is told to do — the threaded join key rides in here. */
 export interface KernelInput {
-  /** The cross-tier join key (equals the viz commit id). */
   readonly correlationId: string;
-  /** Column the filter predicate applies to. */
   readonly field: 'amount';
-  /** Inclusive [min,max] interval the filter keeps. */
   readonly range: readonly [number, number];
 }
 
-/**
- * Build the kernel chart. One immutable chart, re-runnable per correlationId.
- * Stage ids are stable ('load'/'decoy'/'filter'/'count') so the slice's node
- * set is assertable by id.
- */
+/** Build the kernel chart. Stable stage ids so the slice's node set is assertable by id. */
 export function buildKernelChart() {
   return flowChart<Record<string, unknown>>(
     'load rows',
     (scope) => {
       const args = scope.$getArgs<KernelInput>();
-      // Thread the join key into COMMITTED state (frozen args never commit).
-      // NOTE: committed keys must NOT collide with input key names — footprintjs
-      // guards input keys as readonly (scope/protection/readonlyInput.ts:23), so
-      // `corrId`/`filterField`/`filterRange` are distinct from the args names.
+      // committed keys must NOT collide with input key names (footprintjs guards
+      // input keys as readonly) — `corrId`/`filterField`/`filterRange` are distinct.
       scope.$setValue('corrId', args.correlationId);
       scope.$setValue('filterField', args.field);
       scope.$setValue('filterRange', [args.range[0], args.range[1]]);
@@ -79,7 +70,6 @@ export function buildKernelChart() {
     .addFunction(
       'audit note (decoy)',
       (scope) => {
-        // Reads corrId, writes a key nobody downstream consumes.
         const corr = scope.$getValue('corrId') as string;
         scope.$setValue('auditNote', `run for ${corr}`);
       },
@@ -116,7 +106,7 @@ export interface KernelResult {
   readonly committedCorrelationId: string;
 }
 
-/** Run the kernel chart once for a given input. Fresh executor = fresh run. */
+/** Run the kernel chart once. Fresh executor = fresh run. */
 export async function runKernel(input: KernelInput): Promise<KernelResult> {
   const chart = buildKernelChart();
   const executor = new FlowChartExecutor(chart);

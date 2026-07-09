@@ -203,11 +203,11 @@ describe('fork / checkpoint (R8 branching + named positions)', () => {
   });
 });
 
-describe('L6 seam — why() is a typed not-implemented marker', () => {
-  it('returns owner:L6, never a fabricated answer', () => {
+describe('L6 seam — why(target) is promoted (real cross-tier slice)', () => {
+  it('an unknown target is a typed no-such-target miss, never a fabricated answer', () => {
     const s = freshSession();
-    const w = s.why({ key: 'rowCount' });
-    expect(w).toMatchObject({ ok: false, reason: 'not-implemented', owner: 'L6' });
+    const w = s.why({ kind: 'column', column: 'nope' });
+    expect(w).toEqual({ ok: false, missing: 'no-such-target', target: { kind: 'column', column: 'nope' } });
   });
 });
 

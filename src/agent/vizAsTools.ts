@@ -25,7 +25,7 @@
 import type { Actor, Cause } from '../cause/index.js';
 import { DISPATCH_VERBS } from '../def/index.js';
 import type { InteractionSession } from '../session/index.js';
-import type { DispatchAction, DispatchResult, AnalysisCommit } from '../session/index.js';
+import type { DispatchAction, DispatchResult, AnalysisCommit, WhyTarget } from '../session/index.js';
 
 /** One tool descriptor (shape-compatible with footprintjs `MCPToolDescription` / the MCP SDK `Tool`). */
 export interface VizTool {
@@ -72,8 +72,10 @@ const DECLARE_ANALYSIS_DESCRIPTION =
   'their readiness.';
 
 const WHY_DESCRIPTION =
-  'Ask why a value is what it is (a cross-tier dependency set). NOT YET IMPLEMENTED at this layer — ' +
-  'returns a typed not-implemented marker naming the owning layer (L6).';
+  'Ask why a value is what it is: returns the MINIMAL cross-tier dependency set (declaring commit, ' +
+  'input-selection commits, kernel stages) as machine-shaped {tier,id,kind} records — never prose. ' +
+  'target is a materialized column name (string) or { analysisId } for a scalar/test result. Tiers ' +
+  'that were not threaded come back as typed misses, never faked.';
 
 const FORK_DESCRIPTION =
   'Branch the provenance timeline off a prior commit id: the next dispatch commits as a sibling of ' +
@@ -121,9 +123,23 @@ const DECLARE_ANALYSIS_SCHEMA = {
 
 const WHY_SCHEMA = {
   type: 'object',
-  properties: { target: { description: 'The value/id to explain.' } },
+  properties: {
+    target: { description: 'A materialized column name (string), or { column } / { analysisId } for a scalar/test.' },
+  },
+  required: ['target'],
   additionalProperties: false,
 } as const;
+
+/** Coerce a raw tool `target` into a typed {@link WhyTarget} (Mode B fire-time validation). */
+function coerceWhyTarget(raw: unknown): WhyTarget | { error: string } {
+  if (typeof raw === 'string') return { kind: 'column', column: raw };
+  if (raw !== null && typeof raw === 'object') {
+    const o = raw as Record<string, unknown>;
+    if (typeof o['column'] === 'string') return { kind: 'column', column: o['column'] };
+    if (typeof o['analysisId'] === 'string') return { kind: 'hypothesis', analysisId: o['analysisId'] };
+  }
+  return { error: 'why requires target: a column name (string), or { column } / { analysisId }' };
+}
 
 const FORK_SCHEMA = {
   type: 'object',
@@ -274,8 +290,11 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
           }
           return callDispatch({ verb: 'analyze', analysisId: args['analysisId'], ...(args['intent'] !== undefined ? { intent: args['intent'] } : {}) });
         }
-        case NAMES.why:
-          return { ...session.why(args['target']) };
+        case NAMES.why: {
+          const target = coerceWhyTarget(args['target']);
+          if ('error' in target) return { ok: false, reason: 'PAYLOAD_INVALID', detail: target.error };
+          return { ...session.why(target) };
+        }
         case NAMES.fork:
           return callDispatch({ verb: 'fork', ...args });
         case NAMES.checkpoint:
