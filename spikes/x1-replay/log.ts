@@ -1,0 +1,184 @@
+/**
+ * x1-replay log substrate — the append-only, branch-capable commit log that
+ * carries cause-tagged Mosaic clauses AND can rebuild them into a fresh
+ * Selection with fresh source identity.
+ *
+ * This is the "L0 wire shape" every later layer consumes. It is a thin bespoke
+ * JSONL+branch record (see the Q1 evaluation): a clause is NOT serialized as an
+ * object graph (impossible — `source` is an identity, `predicate` is an AST).
+ * Instead each commit stores the DETERMINISTIC RECIPE (kind, field, value) plus
+ * the registry id of its source, so replay reconstructs an identical clause.
+ */
+
+import { Selection } from '@uwdata/mosaic-core';
+import type { SelectionClause } from '@uwdata/mosaic-core';
+import { markReplayed, validateCause, type Cause } from '../../src/cause/index.js';
+import {
+  SourceRegistry,
+  causeClause,
+  type ActorMeta,
+  type CauseClauseSpec,
+} from '../../src/mosaic/index.js';
+
+/** The serializable commit — one interaction's worth of clause + provenance. */
+export interface CommitRecord {
+  /** Stable commit id (unique within a log). */
+  id: string;
+  /** Parent commit id, or null for a root. Enables branching timelines (R8). */
+  parent: string | null;
+  /** Registry key that resolves to the clause `source` identity on replay. */
+  viewId: string;
+  /** Serializable actor metadata so a fresh registry can rebuild the source. */
+  actorMeta: ActorMeta;
+  /** Which clause factory to reconstruct with. */
+  kind: 'point' | 'interval';
+  /** Column / expression the clause filters on. */
+  field: string;
+  /** The selected value (must be JSON-serializable). */
+  value: unknown;
+  /** Registry ids whose sources form the cross-filter self-exclusion set. */
+  clientViewIds: string[];
+  /** Predicate SQL string — a descriptor for verification / replay determinism. */
+  predicateSQL: string;
+  /** The two-slot cause (+ `replayed:true` once re-emitted by a replay). */
+  cause: Cause;
+  /** Authoring timestamp (logical ok; not load-bearing). */
+  ts: number;
+}
+
+/** Input to author one commit. `cause` is validated before anything is built. */
+export interface CommitInput {
+  id: string;
+  parent: string | null;
+  viewId: string;
+  actorMeta: ActorMeta;
+  kind: 'point' | 'interval';
+  field: string;
+  value: unknown;
+  cause: Cause;
+  /** Defaults to [viewId] — a view excludes only its own clause. */
+  clientViewIds?: string[];
+  ts?: number;
+}
+
+/**
+ * A live authoring/replay session: a Mosaic Selection, the registry that owns
+ * its source identities, and the growing commit log. Live authoring and replay
+ * both drive `commit()`, so their behavior is identical by construction.
+ */
+export class CauseSelectionSession {
+  readonly selection: Selection;
+  readonly registry: SourceRegistry;
+  readonly records: CommitRecord[] = [];
+
+  constructor(selection = Selection.crossfilter(), registry = new SourceRegistry()) {
+    this.selection = selection;
+    this.registry = registry;
+  }
+
+  /**
+   * Author one commit: reconstruct source identity from the registry, build the
+   * cause-tagged clause, apply it to the selection, and append the record.
+   * Returns both the record and the live clause.
+   */
+  commit(input: CommitInput): { record: CommitRecord; clause: SelectionClause } {
+    const cause = validateCause(input.cause); // R12 gate at the log boundary too
+    const source = this.registry.register(input.viewId, input.actorMeta);
+    const clientViewIds = input.clientViewIds ?? [input.viewId];
+    const clients = clientViewIds.map((id) =>
+      // client sources must be registered too; default self-client is `source`.
+      id === input.viewId ? source : this.registry.require(id),
+    );
+
+    const spec: CauseClauseSpec = {
+      kind: input.kind,
+      source,
+      field: input.field,
+      value: input.value as never,
+      cause,
+      clients,
+    };
+    const clause = causeClause(spec);
+    this.selection.update(clause);
+
+    const record: CommitRecord = {
+      id: input.id,
+      parent: input.parent,
+      viewId: input.viewId,
+      actorMeta: source.meta,
+      kind: input.kind,
+      field: input.field,
+      value: input.value,
+      clientViewIds,
+      predicateSQL: String(clause.predicate),
+      cause,
+      ts: input.ts ?? this.records.length,
+    };
+    this.records.push(record);
+    return { record, clause };
+  }
+}
+
+/** Serialize a commit log to a portable JSON string. */
+export function serializeLog(records: readonly CommitRecord[]): string {
+  return JSON.stringify(records);
+}
+
+/** Parse a serialized log back into records (a plain structural round-trip). */
+export function deserializeLog(json: string): CommitRecord[] {
+  const parsed = JSON.parse(json);
+  if (!Array.isArray(parsed)) throw new Error('log must be a JSON array');
+  return parsed as CommitRecord[];
+}
+
+/**
+ * Replay a serialized (or in-memory) log into a FRESH selection + FRESH
+ * registry. Every re-emitted commit gets `replayed:true` added to its cause
+ * (R2: the two slots are untouched). Returns the rebuilt session; its
+ * `records` are the post-replay log.
+ *
+ * @param log  serialized JSON string OR an array of records
+ * @param order optional commit-id path to walk (branch selection). Defaults to
+ *              the log's own order (the linear main line).
+ */
+export function replayLog(
+  log: string | readonly CommitRecord[],
+  order?: readonly string[],
+): CauseSelectionSession {
+  const source = typeof log === 'string' ? deserializeLog(log) : log;
+  const byId = new Map(source.map((r) => [r.id, r]));
+  const path = order ?? source.map((r) => r.id);
+
+  const session = new CauseSelectionSession();
+  for (const id of path) {
+    const rec = byId.get(id);
+    if (!rec) throw new Error(`replay path references unknown commit "${id}"`);
+    session.commit({
+      id: rec.id,
+      parent: rec.parent,
+      viewId: rec.viewId,
+      actorMeta: rec.actorMeta,
+      kind: rec.kind,
+      field: rec.field,
+      value: rec.value,
+      clientViewIds: rec.clientViewIds,
+      cause: markReplayed(rec.cause), // R2: additive replay marker
+      ts: rec.ts,
+    });
+  }
+  return session;
+}
+
+/**
+ * A cause histogram over a log: counts of (requestedBy -> computedBy) pairs.
+ * Deliberately EXCLUDES the `replayed` flag and `intent`, so it is invariant
+ * across a replay (the R2 check). Keys are `"requestedBy>computedBy"`.
+ */
+export function causeHistogram(records: readonly CommitRecord[]): Record<string, number> {
+  const hist: Record<string, number> = {};
+  for (const r of records) {
+    const key = `${r.cause.requestedBy}>${r.cause.computedBy}`;
+    hist[key] = (hist[key] ?? 0) + 1;
+  }
+  return hist;
+}
