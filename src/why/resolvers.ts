@@ -3,17 +3,22 @@
  * `why()` (in `./why.ts`) composes them. None of them post-processes a trace —
  * they read structure gathered during the run.
  *
- * Cited footprintjs APIs (installed 9.10.1):
+ * Cited footprintjs APIs (installed 9.11.0):
  *   - `sliceForKey(commitLog, key, keysRead, opts?)` → `VariableSlice`
  *     (`node_modules/footprintjs/dist/esm/lib/slice/sliceForKey.d.ts:47`).
  *   - `keysReadFromExecutionTree(tree)` → `KeysReadSource`
  *     (`.../slice/keysReadSources.d.ts:40`).
  *   - `sliceToJSON(slice)` → `SliceJSON` ({ writerId?, nodes?, missing?, … })
  *     (`.../slice/serialize.d.ts:25`, `.../slice/types.d.ts:211-240`).
- *   NOTE: `RuntimeSnapshot` (`.../runner/ExecutionRuntime.d.ts:27`) has NO
- *   `runId` field in 9.10.1 — the `snapshot.runId` the L6 design calls for
- *   (footprintjs fba2886) is NOT in this published version, so the kernel
- *   resolver returns `runId: null` and flags it. See `WhyFlags`.
+ *   C4/HONEST-GAP CLOSED: `RuntimeSnapshot.runId: string`
+ *     (`.../runner/ExecutionRuntime.d.ts:39`, shipped footprintjs 9.11.0,
+ *     source fba2886) — `getSnapshot()` now stamps the run's id on every
+ *     snapshot, disambiguating kernel commits across independent runs of the
+ *     same chart (their `runtimeStageId` strings still collide by design —
+ *     execution indices reset per run). Read defensively below anyway: a
+ *     snapshot handed in by an older/duck-typed kernel may still omit it, and
+ *     that stays an honest `runId: null` / `kernelRunIdAvailable: false`
+ *     fallback, never a crash.
  */
 
 import { keysReadFromExecutionTree, sliceForKey, sliceToJSON } from 'footprintjs/trace';
@@ -79,7 +84,7 @@ export interface KernelResolution {
   readonly commitIds: readonly string[];
   /** Stable, index-free stage ids parallel to `commitIds`. */
   readonly stageIds: readonly string[];
-  /** `snapshot.runId` — `null` under fp 9.10.1 (field absent; see resolver header). */
+  /** `snapshot.runId` — `null` only when the snapshot predates fp 9.11.0 (field absent; see resolver header). */
   readonly runId: string | null;
 }
 
@@ -107,7 +112,9 @@ export function resolveKernelTier(
     return { miss: { tier: 'kernel', missing: 'kernel-key-unresolved' } };
   }
   const stageIds = commitIds.map((id) => nodes[id]!.stageId);
-  // fp 9.10.1's RuntimeSnapshot has no runId field — read defensively, flag absence.
-  const runId = (snapshot as { runId?: string }).runId ?? null;
+  // fp ≥9.11.0 stamps `snapshot.runId`; read defensively so a snapshot from an
+  // older/duck-typed kernel degrades to the honest `null` fallback instead of
+  // a crash — `why()` turns that into `flags.kernelRunIdAvailable: false`.
+  const runId = (snapshot as { readonly runId?: string }).runId ?? null;
   return { writerId: json.writerId ?? '', commitIds, stageIds, runId };
 }

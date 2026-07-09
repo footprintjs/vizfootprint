@@ -289,4 +289,19 @@ describe('A4 — honest misses are typed, never faked', () => {
     const unresolved = resolveKernelTier('never-written-key', kernel.snapshot);
     expect('miss' in unresolved && unresolved.miss).toEqual({ tier: 'kernel', missing: 'kernel-key-unresolved' });
   });
+
+  it('runId-absent fallback stays honest: an older/duck-typed kernel snapshot without runId resolves with runId:null', async () => {
+    // C4 closed fp 9.11.0's snapshot.runId — but the resolver must still
+    // degrade gracefully for a snapshot from an OLDER kernel (or any
+    // duck-typed object) that predates the field, never crash on it.
+    const kernel = await runKernel({ correlationId: 'legacy-k', field: 'amount', range: [10, 20] });
+    const { runId: _droppedRunId, ...legacyFields } = kernel.snapshot;
+    const legacySnapshot = legacyFields as unknown as typeof kernel.snapshot;
+
+    const res = resolveKernelTier('rowCount', legacySnapshot);
+    expect('miss' in res).toBe(false);
+    if ('miss' in res) throw new Error('expected a resolution');
+    expect(res.runId).toBeNull(); // honest fallback, not a crash or a fake id
+    expect(res.commitIds.length).toBeGreaterThan(0); // the slice itself still resolves fine
+  });
 });

@@ -164,16 +164,22 @@ describe('A2 — decoys are excluded from the slice', () => {
     for (const id of result.kernel!.commitIds) expect(trackedIds.has(id)).toBe(true);
   });
 
-  it('HONEST FINDING: kernel runtimeStageIds COLLIDE across independent runs (fp 9.10.1 gap)', () => {
+  it('C4 CLOSED: runtimeStageIds still COLLIDE across independent runs, but snapshot.runId now disambiguates them', () => {
     // The decoy run over the SAME chart reuses execution indices, so its
-    // runtimeStageId STRINGS coincide with the tracked run's (e.g. 'count#…').
-    // The slice stays correct only because it is sourced from the tracked
-    // snapshot; cross-run disambiguation would need `snapshot.runId`
-    // (footprintjs fba2886), which is ABSENT in the installed 9.10.1.
+    // runtimeStageId STRINGS still coincide with the tracked run's (e.g.
+    // 'count#…') — that collision is structural, not a gap. What WAS the
+    // fp 9.10.1 gap (footprintjs fba2886) is now closed on 9.11.0:
+    // `snapshot.runId` disambiguates the two runs even though their stage-id
+    // strings collide.
     const decoyIds = new Set(decoyKernel.snapshot.commitLog.map((b) => b.runtimeStageId));
-    expect(result.kernel!.commitIds.every((id) => decoyIds.has(id))).toBe(true); // the collision
-    expect(result.kernel!.runId).toBeNull(); // the gap that makes it unresolvable globally
-    expect(result.flags.kernelRunIdAvailable).toBe(false);
+    expect(result.kernel!.commitIds.every((id) => decoyIds.has(id))).toBe(true); // the collision persists
+    expect(typeof result.kernel!.runId).toBe('string');
+    expect(result.kernel!.runId!.length).toBeGreaterThan(0);
+    expect(result.flags.kernelRunIdAvailable).toBe(true);
+    // the disambiguator itself: two independent runs over the identical chart
+    // carry DIFFERENT runIds despite the colliding runtimeStageId strings.
+    expect(kernel.snapshot.runId).not.toBe(decoyKernel.snapshot.runId);
+    expect(result.kernel!.runId).toBe(kernel.snapshot.runId);
   });
 });
 
@@ -198,8 +204,9 @@ describe('A3 — the composed slice is machine-shaped, not prose', () => {
     );
   });
 
-  it('documents the fp 9.10.1 gap honestly: snapshot.runId is absent → kernel runId null', () => {
-    expect(result.kernel!.runId).toBeNull();
-    expect(result.flags.kernelRunIdAvailable).toBe(false);
+  it('C4 CLOSED: fp 9.11.0 stamps snapshot.runId → kernel runId is a real, present string', () => {
+    expect(result.kernel!.runId).not.toBeNull();
+    expect(result.kernel!.runId).toBe(kernel.snapshot.runId);
+    expect(result.flags.kernelRunIdAvailable).toBe(true);
   });
 });

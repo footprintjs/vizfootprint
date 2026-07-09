@@ -5,17 +5,17 @@
  * `EventMeta.correlationId` FIELD — NOT by a tool-args echo (the x3 workaround
  * is retired: the tool schema no longer carries `correlationId`).
  *
- * HONEST REGISTRY FINDING (pinned): the installed agentfootprint (7.3.1)
- * does NOT populate `EventMeta.correlationId` from a run option — `createExecutor`
- * builds the run context with only `{ runStartMs, runId, compositionPath }`
- * (`node_modules/agentfootprint/dist/esm/core/Agent.js:639-643`); the
- * `EventMeta.correlationId` SLOT and its forwarding exist
- * (`.../bridge/eventMeta.js:39`, `.d.ts:35`) but nothing fills the source. The
- * sanctioned wiring (af source 9524460 / SPEC §11 C4) POSTDATES 7.3.1. So the
- * gap manifests HONESTLY as a typed `no-agent-frame` miss when the frame is
- * built straight from `ev.meta.correlationId`; the resolver's CONTRACT is proven
- * against the sanctioned field position (the join key the caller passed to
- * `run()`, which a wired runtime copies verbatim into that field).
+ * C4 CLOSED (pinned): the installed agentfootprint (7.4.0) DOES populate
+ * `EventMeta.correlationId` from `run({ correlationId })` — `createExecutor`
+ * folds it into the run context (`node_modules/agentfootprint/dist/esm/core/
+ * Agent.js:639,645`) and `buildEventMeta` forwards it onto every emitted event
+ * (`.../bridge/eventMeta.js:39`, typed at `.d.ts:35`; the run option itself is
+ * `AgentRunOptions.correlationId` at `.../core/Agent.d.ts:51`). The sanctioned
+ * wiring (af source 9524460 / SPEC §11 C4) is now live, so the resolver finds
+ * the agent frame straight off the real run's harvested `EventMeta` — no
+ * manual stamping workaround needed. A mismatched correlationId (no matching
+ * frame) still degrades to the honest typed `no-agent-frame` miss (kept below)
+ * — the fallback stays honest even on the now-wired path.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -72,7 +72,7 @@ async function runAgentHarvestingFrames(): Promise<{
   const frames: AgentEventFrame[] = [];
   const off = agent.on('agentfootprint.stream.tool_start', (ev) => {
     // Harvest the SANCTIONED shape straight from EventMeta — correlationId taken
-    // VERBATIM from ev.meta (never fabricated); it is `undefined` on 7.3.1.
+    // VERBATIM from ev.meta (never fabricated); it is populated on af ≥7.4.0.
     frames.push({
       toolCallId: ev.payload.toolCallId,
       runId: ev.meta.runId,
@@ -80,8 +80,9 @@ async function runAgentHarvestingFrames(): Promise<{
       ...(ev.meta.correlationId !== undefined ? { correlationId: ev.meta.correlationId } : {}),
     });
   });
-  // The SANCTIONED call: the join key rides in the run options.
-  await agent.run({ message: 'filter amount 10..20' }, { correlationId: CORR } as never);
+  // The SANCTIONED call: the join key rides in the run options
+  // (`AgentRunOptions.correlationId`, publicly typed — no cast needed).
+  await agent.run({ message: 'filter amount 10..20' }, { correlationId: CORR });
   off();
 
   return { frames, toolArgsSeen, toolHasCorrelationIdProp };
@@ -96,31 +97,24 @@ describe('A3 — sanctioned agent-tier path (C4)', () => {
     expect(Object.prototype.hasOwnProperty.call(toolArgsSeen[0]!, 'correlationId')).toBe(false);
   });
 
-  it('EventMeta gives a real (runId, runtimeStageId); correlationId is the honest 7.3.1 gap', async () => {
+  it('EventMeta gives a real (runId, runtimeStageId, correlationId) — the C4 gap is CLOSED on af 7.4.0', async () => {
     const { frames } = await runAgentHarvestingFrames();
     expect(frames).toHaveLength(1);
     expect(typeof frames[0]!.runId).toBe('string');
     expect(frames[0]!.runId.length).toBeGreaterThan(0);
     expect(typeof frames[0]!.runtimeStageId).toBe('string');
     expect(frames[0]!.runtimeStageId.length).toBeGreaterThan(0);
-    // PINNED C4 gap: installed af 7.3.1 does NOT populate EventMeta.correlationId.
-    expect(frames[0]!.correlationId).toBeUndefined();
+    // CLOSED C4 gap: installed af 7.4.0 DOES populate EventMeta.correlationId
+    // from the run-option join key, verbatim.
+    expect(frames[0]!.correlationId).toBe(CORR);
   });
 
-  it('the gap manifests as a TYPED miss, never a crash or a fake (resolver over the raw frames)', async () => {
+  it('the resolver finds the frame via the SANCTIONED EventMeta FIELD directly off the real run — no manual stamping', async () => {
     const { frames } = await runAgentHarvestingFrames();
+    // Unlike the retired x3 workaround, this is the RAW harvested frame log —
+    // nothing stamped or fabricated. af ≥7.4.0 already copied the run-option
+    // correlationId into ev.meta.correlationId (SANCTIONED field position).
     const res = resolveAgentTier(CORR, frames);
-    expect('miss' in res && res.miss.missing).toBe('no-agent-frame');
-  });
-
-  it('the resolver finds the frame via the SANCTIONED EventMeta FIELD (join key from run options)', async () => {
-    const { frames } = await runAgentHarvestingFrames();
-    // A wired af (≥9524460) copies the run-option correlationId into
-    // ev.meta.correlationId; on 7.3.1 the harness stamps that SAME join key
-    // (the value the caller passed to run) into the sanctioned field position —
-    // it is the join key by construction, never invented.
-    const sanctioned: AgentEventFrame[] = frames.map((f) => ({ ...f, correlationId: CORR }));
-    const res = resolveAgentTier(CORR, sanctioned);
     expect('miss' in res).toBe(false);
     if ('miss' in res) throw new Error('expected a frame');
     expect(res.toolCallId).toBe(`call-${CORR}`);
@@ -128,9 +122,17 @@ describe('A3 — sanctioned agent-tier path (C4)', () => {
     // proven: it resolved by the correlationId FIELD, not by any tool-args echo.
   });
 
-  it('why() threads the agent tier end-to-end over the sanctioned frame log', async () => {
+  it('a mismatched correlationId still degrades to the typed no-agent-frame miss (fallback stays honest)', async () => {
     const { frames } = await runAgentHarvestingFrames();
-    const sanctioned: AgentEventFrame[] = frames.map((f) => ({ ...f, correlationId: CORR }));
+    // Same real, wired frame log — but asked about a join key that never ran.
+    // The now-live sanctioned path must still fail HONESTLY, not silently
+    // fall back to the wrong frame or a fake match.
+    const res = resolveAgentTier('corr-never-ran', frames);
+    expect('miss' in res && res.miss).toEqual({ tier: 'agent', missing: 'no-agent-frame' });
+  });
+
+  it('why() threads the agent tier end-to-end over the real, wired frame log', async () => {
+    const { frames } = await runAgentHarvestingFrames();
 
     // viz + kernel tiers (a real footprintjs run) so the composed answer is full.
     const viz = new CauseSelectionSession();
@@ -148,7 +150,7 @@ describe('A3 — sanctioned agent-tier path (C4)', () => {
       kernelSnapshot: kernel.snapshot,
       kernelKey: 'rowCount',
       correlationId: CORR,
-      agentEventLog: sanctioned,
+      agentEventLog: frames,
     };
     const r = why({ kind: 'column', column: 'rowCount' }, sources);
     expect(r.ok).toBe(true);

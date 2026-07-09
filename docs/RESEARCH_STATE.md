@@ -51,9 +51,18 @@ built-in MODULES not just raw defs; why is an L5 stub).
 ## WAVE COMPLETE 2026-07-09 — L0-L6 ALL SHIPPED, orchestrator-verified at 308/308
 H5 SUPPORTED (ecaa0b8): why(target) minimal-set contract proven for TWO target kinds (column + hypothesis),
 decoys excluded incl. active-but-unused selects; x3 retired into src/why; machine-shaped slices.
-C4 HONEST GAP pinned: installed af 7.3.1 predates the correlationId wire (source 9524460) → typed no-agent-frame
-miss, tool-args workaround RETIRED; fp 9.10.1 snapshot lacks runId (source fba2886) → flags.kernelRunIdAvailable=false,
-kernel runtimeStageId collision pinned. BOTH gaps close by releasing af 7.4 + fp 9.11 (owner's word).
+C4 CLOSED 2026-07-09 (DEP-BUMP packet, src/why commit after ecaa0b8): af 7.4.0 (npm-live) wires the
+correlationId path — `run({correlationId})` → `AgentRunOptions.correlationId` (source 9524460,
+`node_modules/agentfootprint/dist/esm/core/Agent.d.ts:51`) is folded into the run context
+(`Agent.js:639,645`) and forwarded onto every emitted `EventMeta.correlationId`
+(`bridge/eventMeta.js:39`); `sanctioned-path.test.ts` now asserts the SANCTIONED field is populated
+end-to-end (no manual stamping), keeping a typed `no-agent-frame` miss test for a correlationId that
+never ran (fallback stays honest). fp 9.11.0 (npm-live) ships `RuntimeSnapshot.runId: string`
+(source fba2886, `node_modules/footprintjs/dist/esm/lib/runner/ExecutionRuntime.d.ts:39`) →
+`flags.kernelRunIdAvailable=true` when present, `result.kernel.runId` populated; `x3.test.ts` adds
+the disambiguation proof (two independent kernel runs share colliding `runtimeStageId` strings but
+carry different `runId`s) and `why.test.ts` keeps a runId-absent fallback test (older/duck-typed
+kernel snapshot → honest `runId:null`/`kernelRunIdAvailable:false`, never a crash).
 NEW Q14 (from DEMO-2): sanctioned read-back of materialized column VALUES through the session (demo recomputes
 locally to render) — L5 addendum candidate.
 Demo: LIVE :5180, real tool-port agent + gaps panel (b13af40). Repo local-only, head ecaa0b8 — push/publish = owner's word.

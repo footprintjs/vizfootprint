@@ -93,10 +93,13 @@ export type WhyTarget =
 /** Documented registry gaps the answer surfaces honestly (never faked). */
 export interface WhyFlags {
   /**
-   * `snapshot.runId` availability (footprintjs fba2886). `false` = the installed
-   * fp predates it (9.10.1) — kernel commits are addressed by `runtimeStageId`
-   * ONLY, scoped to this snapshot; a runId qualifier would be needed to
-   * disambiguate the same stage across independent kernel runs.
+   * `snapshot.runId` availability (footprintjs fba2886, shipped 9.11.0 —
+   * C4 CLOSED). `true` on any snapshot from an installed fp ≥9.11.0.
+   * `false` only for a snapshot from an older/duck-typed kernel predating the
+   * field — kernel commits then fall back to `runtimeStageId` ONLY, scoped to
+   * this snapshot; a runId qualifier is needed to disambiguate the same stage
+   * across independent kernel runs (their `runtimeStageId` strings collide by
+   * design — execution indices reset per run).
    */
   readonly kernelRunIdAvailable: boolean;
 }
@@ -135,7 +138,7 @@ export interface CrossTierSlice {
     readonly writerId: string;
     readonly commitIds: readonly string[];
     readonly stageIds: readonly string[];
-    /** `snapshot.runId` — `null` under fp 9.10.1 (see {@link WhyFlags.kernelRunIdAvailable}). */
+    /** `snapshot.runId` — `null` only for a pre-9.11.0 snapshot (see {@link WhyFlags.kernelRunIdAvailable}). */
     readonly runId: string | null;
   } | null;
   /** The flat, tier-tagged union of every commit in the composed set. */

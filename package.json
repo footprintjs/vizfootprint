@@ -17,7 +17,7 @@
     "@trrack/core": "^1.6.1",
     "@types/node": "^22.0.0",
     "@uwdata/mosaic-spec": "^0.28.1",
-    "agentfootprint": "^7.3.1",
+    "agentfootprint": "^7.4.0",
     "esbuild": "^0.28.1",
     "playwright-core": "^1.58.2",
     "typescript": "^5.5.0",
@@ -25,7 +25,7 @@
   },
   "dependencies": {
     "@uwdata/mosaic-core": "^0.28.1",
-    "footprintjs": "^9.10.1"
+    "footprintjs": "^9.11.0"
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": ">=1.0.0"
