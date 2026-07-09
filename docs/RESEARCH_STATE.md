@@ -48,6 +48,15 @@ steps L4, materializes columns R11] + gaps() [D14 taxonomy] + why() [typed L6 st
 like hcifootprint]. src/def, src/session, src/agent, src/mcp; +38 tests (278 total), tsc clean. SPEC §7-signature
 refinements flagged in §7 (declareAnalysis runs+lands not just registers; gaps() is a method; analyses accept L3
 built-in MODULES not just raw defs; why is an L5 stub).
+## WAVE COMPLETE 2026-07-09 — L0-L6 ALL SHIPPED, orchestrator-verified at 308/308
+H5 SUPPORTED (ecaa0b8): why(target) minimal-set contract proven for TWO target kinds (column + hypothesis),
+decoys excluded incl. active-but-unused selects; x3 retired into src/why; machine-shaped slices.
+C4 HONEST GAP pinned: installed af 7.3.1 predates the correlationId wire (source 9524460) → typed no-agent-frame
+miss, tool-args workaround RETIRED; fp 9.10.1 snapshot lacks runId (source fba2886) → flags.kernelRunIdAvailable=false,
+kernel runtimeStageId collision pinned. BOTH gaps close by releasing af 7.4 + fp 9.11 (owner's word).
+NEW Q14 (from DEMO-2): sanctioned read-back of materialized column VALUES through the session (demo recomputes
+locally to render) — L5 addendum candidate.
+Demo: LIVE :5180, real tool-port agent + gaps panel (b13af40). Repo local-only, head ecaa0b8 — push/publish = owner's word.
 ## Next
 P3 packets per SPEC §12, order L1→L6; L1-L5 SHIPPED, L6 (why) remaining. Every packet = R#s + pre-written acceptance
 tests + boundary + diff/test-output artifacts; orchestrator re-runs all tests. Fresh-chat rehydration: read THIS file + SPEC.md.
