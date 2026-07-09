@@ -9,8 +9,10 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "typecheck:demo": "tsc -p demo/tsconfig.json --noEmit",
+    "typecheck:demo-agent": "tsc -p demo-agent/tsconfig.json --noEmit",
     "demo": "node demo/server.mjs",
-    "demo:data": "node demo/gen-data.mjs"
+    "demo:data": "node demo/gen-data.mjs",
+    "demo:agent": "node demo-agent/server.mjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
