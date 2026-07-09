@@ -269,6 +269,16 @@ type CauseClauseSpec =                                    // causeClause.ts:31-4
 
 function causeClause(spec: CauseClauseSpec): CauseClause;  // causeClause.ts:66 — validates cause first (R12)
 function causeOf(clause: SelectionClause): Cause | undefined;  // causeClause.ts:85
+
+// R3 OUTBOUND contract (built here at L2, NOT deferred to L5): a chart emits an
+// inert ChartEmission (a DATA-space rawValue + an encoding naming field+kind);
+// this is the ONLY path from an emission to a clause — clausePoint/clauseInterval
+// are never re-exported, so a chart cannot build a clause itself (emission.ts:13-19).
+type ChartEmission =                                       // emission.ts:47
+  | { rawValue: unknown;                 encoding: { kind: 'point';    field: string } }
+  | { rawValue: [number, number] | null; encoding: { kind: 'interval'; field: string } };
+interface EmissionContext { source: RegisteredSource; cause: Cause; clients?: RegisteredSource[] }  // emission.ts:71
+function causeClauseFromEmission(emission: ChartEmission, ctx: EmissionContext): CauseClause;  // emission.ts:85
 ```
 
 Why the meta superset is safe (Q2, **resolved**): Mosaic's pre-aggregator reads clause metadata
@@ -278,11 +288,14 @@ citing installed `PreAggregator.js:192-206`).
 
 ### R# satisfied
 - **R1** the cause is *carried on the clause* (`CauseMetadata.cause` — `causeClause.ts:20-23`).
-- **R3** symmetric adapter — **echo suppression is from the clause, never a flag**: the registry
-  source identity + cross-filter `clients` self-exclusion is what makes a view not see its own
-  clause (`causeClause.ts:50-60`; `SourceRegistry.ts:10-14`), proven identity-stable across replay
-  in `src/log/log.test.ts:88-124`. *(The **mandatory outbound typed emit carrying origin** half of R3
-  is designed at L5's adapter contract — see §6 and Q3.)*
+- **R3** symmetric adapter — BOTH halves live at L2. *Inbound apply + echo suppression from the
+  clause, never a flag*: the registry source identity + cross-filter `clients` self-exclusion is
+  what makes a view not see its own clause (`causeClause.ts:50-60`; `SourceRegistry.ts:10-14`),
+  proven identity-stable across replay in `src/log/log.test.ts:88-124`. *Outbound typed emit
+  carrying origin* — **built here, not deferred to L5** (was SPEC §10 Q3): a chart emits an inert
+  `ChartEmission` and ONLY `causeClauseFromEmission` turns it into a cause-tagged clause; the clause
+  factories are never re-exported, so "the chart never builds a clause" is enforced by construction,
+  not convention (`src/mosaic/emission.ts:13-19,85`; `src/mosaic/emission.test.ts`).
 - **R12** malformed causes never enter the clause stream — `causeClause` calls `validateCause`
   before building anything (`causeClause.ts:67`).
 
@@ -298,89 +311,131 @@ citing installed `PreAggregator.js:192-206`).
   `MosaicClient` (`causeClause.ts:14-15`). **This is the package's sole runtime dependency**
   (`package.json:23-25`).
 
-### Non-goals / known seam
-- **Q9 (open)**: `clients` is typed `Set<MosaicClient>` but the only runtime use is identity
-  `Set.has`, so the spike localizes an unsafe cast `new Set(sources) as unknown as Set<MosaicClient>`
-  (`causeClause.ts:58-60`; repeated `replay.test.ts:78-81`). L2 promotion must **resolve this cast
-  properly** — see §7 Q9. Not a correctness bug today (identity-only use), but a type-honesty debt.
+### Non-goals / resolved seam
+- **Q9 (RESOLVED — e3ce924; canonical `docs/RESEARCH_STATE.md`)**: `clients` is typed
+  `Set<MosaicClient>` and used only for identity `Set.has`. The promotion resolves it **genuinely,
+  not by cast**: `RegisteredSource extends MosaicClient` for real (`SourceRegistry.ts:38,67`), so
+  `instanceof MosaicClient` holds and `Set<RegisteredSource>` IS a `Set<MosaicClient>` — the L2
+  clause path (`causeClause.ts:50-59` `asClients`) carries **no** `as unknown` double-cast. The base
+  class is inert without a coordinator (no-op `prepare`/`query` defaults, MosaicClient.js:119-128).
+  One deliberate cast remains only in `bench/x4` (benchmarks raw Mosaic, out of layer).
 
 ---
 
-## 5. L3 — analysis (`vizfootprint/analysis`) · GREENFIELD
+## 5. L3 — analysis (`vizfootprint/analysis`) · SHIPPED (P3-L3)
 
 Declared analyses executed **as footprintjs flowcharts**, whose outputs **extend the data space**
 so the agent (L5) and the log (L1) treat an analysis result as *just more columns/geometry/scalars/
 tables* — filterable through ordinary predicates, with **zero new dispatch verbs**.
 
-> No L3 code exists yet. The **execution pattern** is demonstrated by the x3 kernel
-> (`spikes/x3-why-join/kernel.ts:60-108`): a footprintjs `flowChart(...).addFunction(...).build()`
-> whose stages read tracked keys and write named outputs into committed state, so
-> `getSnapshot().commitLog` + `sliceForKey` can slice it (R9). L3 generalizes that into a declared,
-> schema-validated analysis module. This is the **highest design risk** in the package.
+> **C3 adjudication (highest-risk layer): a mini-spike validated the four `AnalysisOutput` channels
+> BEFORE the API was frozen.** `spikes/l3-channels/` proves each of column/scalar/geometry/table runs
+> as a footprintjs `flowChart(...).addFunction(...).build()` (`spikes/l3-channels/analysis.ts`) with
+> stages that write named outputs into committed state so `getSnapshot().commitLog` + `sliceForKey`
+> can slice them (R9), records each output as a cause-carrying commit whose `computedBy` is `'system'`
+> **by construction**, and pins that 100 interval brushes produce **zero** test commits (R6) and a
+> degenerate fit carries `{n, fitDegenerate:true}` (R14) — 17 tests, all four channels **survived**
+> (`spikes/l3-channels/channels.test.ts`). The frozen API below promotes exactly what the spike proved.
 
-### Proposed public API
+### Frozen public API (`src/analysis/`, barrelled at `src/analysis/index.ts`)
 
 ```ts
-type AnalysisKind = 'test' | 'transform';   // 'test' arms L4 (R6/R7); 'transform' is FDR-exempt
+type AnalysisKind = 'test' | 'transform';   // types.ts:34 — 'test' arms L4 (R6/R7); 'transform' is FDR-exempt
 
-// Output shapes — the R11 vocabulary. NEVER a row-id list.
+// Output CHANNELS — the R11 vocabulary. NEVER a row-id list. Value-bearing result types
+// (produced at RUN time from the snapshot), NOT static def fields.        // types.ts:39-55
 type AnalysisOutput =
-  | { as: 'columns';  table: string; columns: Record<string, ColumnSpec> }  // e.g. adds cluster_id : int
-  | { as: 'geometry'; layer: string; features: GeoSpec }                    // hulls, contours, regressions
-  | { as: 'scalar';   name: string;  value: number | string | boolean }     // e.g. corr coefficient
-  | { as: 'table';    name: string;  schema: TableSchema };                  // summary tables
+  | { as: 'columns';  table: string; columns: Record<string, { type: 'int'|'float'|'string' }> }
+  | { as: 'geometry'; layer: string; features: { slope: number; intercept: number; domain: [number,number] } }
+  | { as: 'scalar';   name: string;  value: number | string | boolean }
+  | { as: 'table';    name: string;  schema: Record<string,'int'|'float'|'string'>; rows: Record<string,unknown>[] };
+const OUTPUT_CHANNELS = ['columns','geometry','scalar','table'] as const;   // types.ts:58
 
-interface AnalysisDef<I = unknown> {
-  readonly id: string;
+// R14 honest result — a typed degenerate flag, never a fabricated fit.
+type DegenerateResult = { ok: false; reason: 'degenerate-fit'; n: number; fitDegenerate: true };  // types.ts:63
+type AnalysisResult<O> = { ok: true; output: O } | DegenerateResult;        // types.ts:76
+
+interface AnalysisDef<I, O extends AnalysisOutput> {                        // types.ts:125
+  readonly id: string;                        // inert; also the emitted HypothesisRecord.hypothesisId
   readonly kind: AnalysisKind;
-  readonly inputs: InputBinding[];            // columns/params/selection state read (feeds sliceForKey read-set)
-  readonly output: AnalysisOutput;            // how the result RE-ENTERS the data space (R11)
-  readonly test?: TestDecl;                   // required iff kind==='test': statistic + null + p-value fn (R6)
-  readonly honesty?: HonestyDecl;             // degenerate-fit flags, min-n, typed rejections (R14)
-  build(): FlowChart;                         // → a footprintjs flowchart (kernel.ts pattern)
+  readonly inputs: InputBinding[];            // declarative read-set (columns/params) — docs + slice hint
+  readonly produces: O['as'];                 // the R11 channel discriminant (declarative)
+  build(): FlowChart;                         // developer fn → footprintjs flowchart (NOT a model code string)
+  toRunInput(input: I): unknown;              // caller input → flowchart run payload
+  readOutput(ctx: { snapshot; input }): AnalysisResult<O>;   // extract the value-bearing output
+  precheck?(input: I): DegenerateResult | undefined;         // R14 pre-run honesty gate
+  readonly test?: TestDecl<I>;                // required iff kind==='test': statistic + caller p-value (R6)
+  readonly honesty?: HonestyDecl;             // min-n floor + inert notes (R14)
 }
 
-function defineAnalysis<I>(def: AnalysisDef<I>): AnalysisModule<I>;   // validates the def (R12)
-// used via the session: session.declareAnalysis(id, def) → AnalysisHandle (declares → L4-gated)
+function validateAnalysisDef(def: unknown): string[];               // defineAnalysis.ts:72 — R12 firewall, never evals
+class    AnalysisDefError extends Error { problems }                // defineAnalysis.ts:36
+function defineAnalysis<I,O>(def): AnalysisModule<I,O>;             // defineAnalysis.ts:147 — throws on malformed def
+// AnalysisModule.run(input, { sink?, timestamp? }) → { result; snapshot?; hypothesis? }   // types.ts:165
+//   a kind:'test' run emits a HypothesisRecord into the caller-provided `sink` (the L4 seam; P3.4 wires the stepper).
+
+// Four built-ins, one per channel (builtins.ts) — promoted from the spike:
+clusteringAnalysis({ column, k })        // :58  → 'columns' (transform): materializes cluster_id
+correlationAnalysis({ x, y, pValue? })   // :109 → 'scalar'  (test):     Pearson r + caller p-value → HypothesisRecord
+regressionAnalysis({ x, y, minPoints? }) // :179 → 'geometry'(transform): OLS line; precheck flags degeneracy (R14)
+groupByAnalysis({ by, measure })         // :261 → 'table'   (transform): groupby summary
 ```
 
 ### R# satisfied
-- **R6** hypotheses **declared never inferred** — a `kind:'test'` analysis must be *declared* with
-  its statistic/null before it runs; a brush is not a test. (x2's stream is built from *declared*
-  `HypothesisRecord`s, never from brushing alone — `spikes/x2-fdr/scenario.ts:52-71`.) L3's
-  acceptance gate: **brush 100× → 0 test commits** unless `declareAnalysis` was called.
-- **R9** `why(x)` returns the **minimal** commit set — because L3 stages write named outputs and
-  read tracked keys, footprintjs `sliceForKey` finds the exact dependency chain
-  (`spikes/x3-why-join/whyJoin.ts:73-82`; kernel proves the `decoy` stage is excluded —
-  `x3.test.ts:109-121`).
-- **R11** analysis **extends the data space** — outputs are columns/geometry/scalar/table; a
-  `cluster_id` column filters through an *ordinary point/interval predicate* (L2 `causeClause`),
-  introducing **no new verb** (this is the R11 acceptance criterion; see Q11).
-- **R14** honest by construction — `honesty` declarations surface degenerate-fit flags and typed
-  rejections rather than silently returning a fit (R14; mirrors the family's "honest absence" arm).
+- **R6** hypotheses **declared never inferred** — `kind:'test'` requires a `test` declaration
+  (statistic + caller p-value) or `defineAnalysis` throws (`defineAnalysis.ts:120-134`); only a
+  declared run emits a `HypothesisRecord`. **Brush 100× → 0 test emissions; one declared run → one**
+  (`src/analysis/builtins.test.ts:158`).
+- **R9** analysis outputs are **sliceable** — stages write named outputs and read tracked keys, so
+  `sliceForKey('cluster_id', …)` returns EXACTLY `{cluster, load}` (`src/analysis/builtins.test.ts:64`;
+  same rail L6 `why(x)` joins over).
+- **R11** analysis **extends the data space with zero new verbs** — a materialized `cluster_id`
+  filters through an *ordinary* L2 point clause via `causeClauseFromEmission`, **indistinguishable in
+  KIND** from a human bar-click (same top-level + `meta` keys, `meta.type='point'`); the new groupby
+  table is likewise predicate-filterable; geometry **selects no rows** (no clause)
+  (`src/analysis/builtins.test.ts:70,113,146`; **resolves SPEC §10 Q11**).
+- **R14** honest by construction — the pre-run `precheck` gate returns a **typed** degenerate flag and
+  **never runs the chart** on too few points (`defineAnalysis.ts:163-164`;
+  `src/analysis/builtins.test.ts:127` — `regressionAnalysis` on n=8 → `{n:8, fitDegenerate:true}`, no snapshot).
+- **R12** no model-authored code — `validateAnalysisDef` is a strict allowlist (rejects unknown keys
+  incl. `__proto__`); every declarative string (`id`, `test.statistic`, input column, `honesty.notes`)
+  is inert data, proven against an injection corpus (`src/analysis/defineAnalysis.test.ts:83`).
 
-### Acceptance tests (to write)
-- **Declared-only** (R6): a session that brushes 100 times and never calls `declareAnalysis`
-  produces **0** analysis/test commits; exactly one `declareAnalysis` produces exactly one.
-- **Minimal slice** (R9): an analysis with a decoy stage (writes an unread key) is sliced to
-  exactly its true dependency set (port `x3.test.ts:35-44,109-121`).
-- **Re-entry as predicate** (R11): a `kind:'test'` clustering analysis emits `cluster_id`; a
-  subsequent `select cluster_id = 2` is an *ordinary* L2 point clause (assert the dispatch verb set
-  did not grow, and the clause carries a normal cause).
-- **Honest degeneracy** (R14): a regression on < min-n rows returns `{ ok:false, reason:'degenerate-fit' }`
-  (typed), not a fabricated coefficient.
+### Acceptance tests (shipped)
+- **Def validation + injection corpus** (R12) — happy path, structural rejection fuzz (17 cases:
+  bad kind/produces, non-fn build, test-without-statistic, transform-with-test, unknown key), and an
+  injection corpus proving strings are inert (`src/analysis/defineAnalysis.test.ts`).
+- **Four channels through the API** — each built-in produces its typed output; column slices to
+  `{cluster,load}` and re-enters as a predicate; scalar emits a `HypothesisRecord` that steps the real
+  `createLordPlusPlus` stepper to a discovery; geometry selects no rows + degenerate flag; table is a
+  new queryable relation (`src/analysis/builtins.test.ts`).
+- **Run seam** — a transform run returns `{ok:true, output, snapshot}` and emits no hypothesis; a test
+  run emits into the sink stamped with `timestamp`; a `precheck` short-circuits with no snapshot and an
+  empty sink (`src/analysis/defineAnalysis.test.ts:124`).
 
 ### Consumes
-- L0 (cause on emitted clauses), L1 (writes outputs as commits), L2 (outputs re-enter as clauses),
-  L4 (a `kind:'test'` output feeds the online-FDR stepper), `footprintjs` (`flowChart`,
-  `FlowChartExecutor`, `getSnapshot`, `sliceForKey` — `kernel.ts:26-27`, `whyJoin.ts:20`).
+- L0 `validateCause` (spike commit path) + `Actor`/`Cause`; L4 `HypothesisRecord` (imported, never
+  redefined — `types.ts:17`); L2 `causeClauseFromEmission` for predicate re-entry (test-side);
+  `footprintjs` (`flowChart`, `FlowChartExecutor`, `getSnapshot`/`RuntimeSnapshot` — `defineAnalysis.ts:26-27`,
+  `builtins.ts:25-26`) and `footprintjs/trace` (`sliceForKey`, `keysReadFromExecutionTree`, `sliceToJSON`
+  — test-side). **`footprintjs` is now a runtime `dependency`** (was devDependency) — L3 imports it (`package.json`).
 
-### Non-goals
-- **Never emits a row-id list** as an output (R11 forbids it — outputs are schema shapes that
+### Non-goals / §5-vs-reality flags
+- **Never emits a row-id list** as an output (R11 forbids it — outputs are schema/value shapes that
   filter through predicates).
-- Not a stats library — `test.pValue` is caller-supplied (the package brings the *machinery*
-  — declaration, FDR, provenance — not the judge; cf. the family rule "we ship machinery, the
-  consumer brings the metric").
+- Not a stats library — `test.pValue` is **caller-supplied** (the package ships declaration/FDR/
+  provenance machinery, not the judge). `normalApproxPValue` (`stats.ts`) is only a deterministic
+  *default* judge for the built-ins.
+- **API-shape refinements from the freeze (flag):** SPEC's proposed `AnalysisDef.output:
+  AnalysisOutput` was a *static* field, but an output is **value-bearing and produced at run time** —
+  the freeze split it into a declarative `produces: O['as']` discriminant + a `readOutput(snapshot)`
+  extractor, and added `toRunInput` (input→run mapping) and `precheck` (the R14 pre-run gate). These
+  are additive to the SPEC signature, not conflicts.
+- **The cause-tagged COMMIT is L5's job (flag):** the spike recorded each output as a cause-carrying
+  `AnalysisCommit` (`computedBy:'system'` stamped). The shipped L3 API deliberately stops at *execution
+  + typed output + the `HypothesisRecord` emission seam*; stamping the `computedBy:'system'` cause and
+  landing the analysis invocation in the L1 log is `session.declareAnalysis` (L5, P3.5). L3 stays a pure
+  compute+emit layer.
 
 ---
 
