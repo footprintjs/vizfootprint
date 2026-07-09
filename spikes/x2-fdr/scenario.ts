@@ -6,12 +6,29 @@
  * Pure noise => every null is true => any rejection is a FALSE discovery. That
  * is the honest worst case for a value proof: it isolates the multiplicity
  * problem (an agent p-hacking over noise) from any real signal.
+ *
+ * REWIRED onto REAL L1 (P3-L4): declared-analysis test results are authored
+ * as real `CommitRecord`s through a live `CauseSelectionSession` (the SAME
+ * class `src/log/log.test.ts` and `src/analysis/builtins.test.ts` use), then
+ * read back through `hypothesisRecordsFromLog` (`src/fdr/fromLog.ts`) — the
+ * adapter that replaces the throwaway `spikes/x2-fdr/commit-log-stub.ts`
+ * (deleted; SPEC.md §3 always called it "explicitly throwaway ... L1 replaces
+ * it wholesale"). A commit is a declared test iff it is a point commit on the
+ * reserved field `'pValue'` (see `fromLog.ts`'s "test-analog" convention).
+ *
+ * Branching (A3): when `branchOf` assigns more than one label, the labels'
+ * FIRST commits fork off a shared, non-test-analog `'root'` commit (a plain
+ * marker, field `'origin'`, never read as a hypothesis) into independent
+ * per-label lineages — a REAL L1 DAG fork, not a caller-supplied string. The
+ * adapter's `branchIdFromLog` then DERIVES each commit's branchId from that
+ * real parent-chain topology (see `fromLog.test.ts`'s fork case) — this file
+ * never stamps a branchId directly.
  */
 
 import type { HypothesisRecord, Rng } from '../../src/fdr/index.js';
-import { makeRng, normalVector } from '../../src/fdr/index.js';
+import { makeRng, normalVector, hypothesisRecordsFromLog } from '../../src/fdr/index.js';
 import { correlationPValue } from './stats.js';
-import { DeclaredAnalysisLog } from './commit-log-stub.js';
+import { CauseSelectionSession } from '../../src/log/index.js';
 
 /**
  * One "brush": draw two independent noise vectors of length `len` and return
@@ -39,18 +56,24 @@ export interface BrushStreamOptions {
   /** Optional: force the FIRST p-value to this exact value (A1 uses p*=0.03). */
   readonly firstPValue?: number;
   /**
-   * Optional branch assignment per index. Default: everything on 'main'.
-   * (A3 puts half on an abandoned branch.)
+   * Optional branch assignment per index. Default: everything is ONE
+   * unforked lineage (no branch label — see `fromLog.ts`). Returning more
+   * than one distinct label (A3) forks each label's own lineage off a shared
+   * `'root'` commit; the eventual branchId is DERIVED, not this label
+   * verbatim (though by construction here it IS this label, suffixed `-1` —
+   * see the module doc).
    */
   readonly branchOf?: (index: number) => string;
 }
 
 /**
- * Build a declared-analysis stream by brushing noise, via the (stub) commit
- * log. Returns both the log and its stream so tests can show provenance.
+ * Build a declared-analysis stream by brushing noise, authored into a REAL L1
+ * `CauseSelectionSession` and read back through `hypothesisRecordsFromLog`.
+ * Returns the live session (so tests can inspect real `CommitRecord`s), the
+ * derived `HypothesisRecord` stream, and the raw p-values.
  */
 export function buildBrushStream(opts: BrushStreamOptions): {
-  readonly log: DeclaredAnalysisLog;
+  readonly session: CauseSelectionSession;
   readonly stream: readonly HypothesisRecord[];
   readonly pValues: readonly number[];
 } {
@@ -58,14 +81,50 @@ export function buildBrushStream(opts: BrushStreamOptions): {
   const pValues = brushNoisePValues(rng, opts.n, opts.len);
   if (opts.firstPValue !== undefined) pValues[0] = opts.firstPValue;
 
-  const log = new DeclaredAnalysisLog();
-  for (let i = 0; i < opts.n; i++) {
-    log.declare({
-      hypothesisId: `brush#${i + 1}`,
-      pValue: pValues[i]!,
-      timestamp: i + 1,
-      branchId: opts.branchOf ? opts.branchOf(i) : 'main',
+  const session = new CauseSelectionSession();
+  const branchOf = opts.branchOf;
+
+  if (branchOf) {
+    session.commit({
+      id: 'root',
+      parent: null,
+      viewId: 'brush',
+      actorMeta: { actor: 'agent' },
+      kind: 'point',
+      field: 'origin', // NOT 'pValue' — never a test-analog commit (R6 at the L1 rail)
+      value: null,
+      cause: { requestedBy: 'agent', computedBy: 'system' },
+      ts: 0,
     });
   }
-  return { log, stream: log.stream(), pValues };
+
+  const tipOf = new Map<string, string | null>();
+  const seqOf = new Map<string, number>();
+  let mainTip: string | null = null;
+
+  for (let i = 0; i < opts.n; i++) {
+    const label = branchOf?.(i);
+    const seq = (seqOf.get(label ?? '') ?? 0) + 1;
+    seqOf.set(label ?? '', seq);
+    const id = label ? `${label}-${seq}` : `brush-${seq}`;
+    const parent = label ? (tipOf.get(label) ?? 'root') : mainTip;
+
+    session.commit({
+      id,
+      parent,
+      correlationId: `brush#${i + 1}`,
+      viewId: 'brush',
+      actorMeta: { actor: 'agent' },
+      kind: 'point',
+      field: 'pValue',
+      value: pValues[i]!,
+      cause: { requestedBy: 'agent', computedBy: 'system' },
+      ts: i + 1,
+    });
+
+    if (label) tipOf.set(label, id);
+    else mainTip = id;
+  }
+
+  return { session, stream: hypothesisRecordsFromLog(session.records), pValues };
 }

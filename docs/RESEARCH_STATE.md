@@ -16,7 +16,7 @@ Q4 = upstream two-slot cause to hcifootprint's one-slot Principal (atom/types.ts
 Q6 = is the 7-verb dispatch vocabulary complete vs the DashboardQA task suite? (validate in L5).
 Q8 = does echoed interaction-intent leak app content into the instruction channel? (two-string firewall check, L5).
 Q9 = RESOLVED (e3ce924): RegisteredSource extends MosaicClient genuinely (base class inert without coordinator — MosaicClient.js:20-233 no-op defaults; instanceof satisfied). One deliberate cast remains in bench/x4 (benchmarks raw Mosaic, out of layer).
-Q10 = LORD++ γ-constant choice (0.0722 paper vs 0.07720838 onlineFDR vs finite-horizon) — document at L4 promotion.
+Q10 = RESOLVED (P3-L4, viz gamma.ts:26-77 / gamma.q10.test.ts): ship 0.0722 (Ramdas et al. 2017 Sec. 3.1) as default — horizon-independent, the more conservative of the two published constants; onlineFDR's 0.07720838 (~6.94% looser at every j≤100, measured) stays available not-default via {gamma: lordGammaOnlineFDR} — conservative-vs-calibrated power tradeoff, not a validity one.
 Q11 = the one unreproduced test flake (suspect: 10k-sim FDR tests at 5s default timeout — codify testTimeout 30000 at L4).
 D24 [GROUNDED] Engine strategies: ONE coordination model (typed clauses), THREE execution engines behind the
 def's data seam — memory (in-JS predicates over arrays/CSV; X4-proven: bench/x4/runner.mjs:46-50 ran mosaic-core

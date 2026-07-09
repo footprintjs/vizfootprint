@@ -22,10 +22,59 @@
  * constants summing to one (Section 3.1). See `sumGamma` /
  * `normalizingConstant` below for the exact numeric check, and the A4 test for
  * the reported sum under the published constant.
+ *
+ * ---- Q10 (RESOLVED — docs/RESEARCH_STATE.md canonical Q10 / SPEC.md §6) ----
+ * A second, independently-published leading constant exists for this SAME
+ * shape g(j): the R/Bioconductor package `onlineFDR` (which implements LORD,
+ * LOND and alpha-investing) defaults its gamma sequence to
+ * `gamma_j = 0.07720838 * log(j v 2) / (j * e^{sqrt(log j)})` — i.e. the
+ * identical shape, citing the identical source (Javanmard & Montanari 2018,
+ * eq. 31) ("The theory behind onlineFDR",
+ * https://bioconductor.org/packages/devel/bioc/vignettes/onlineFDR/inst/doc/theory.html,
+ * retrieved 2026-07-09).
+ *
+ * Because gamma_j = C * g(j) is LINEAR in C, swapping the constant scales
+ * EVERY LORD++ threshold alpha_t by the SAME ratio, for any shared rejection
+ * history (eq. 5 in `../lordPlusPlus.ts` is a sum of gamma terms, each
+ * linear in C). Measured (`gamma.q10.test.ts`) at j in {1,2,5,10,20,40,60,100}
+ * — the realistic per-session range — the ratio is a CONSTANT
+ * 0.07720838 / 0.0722 = 1.06937: `onlineFDR`'s constant is uniformly ~6.94%
+ * LOOSER (more powerful, marginally less conservative) than the published
+ * paper constant, at every step, with no crossover.
+ *
+ * Both are, at any horizon a real session will ever reach, deeply
+ * conservative relative to their own "sums to one" design target: the
+ * partial sum sum_{j=1..100} gamma_j is 0.194 under 0.0722 and 0.208 under
+ * 0.07720838 — nowhere near 1 (convergence is brutally slow: even at
+ * j=2,000,000 the sums are only 0.504 / 0.539 respectively — see I2 in
+ * `a4-invariants.test.ts`). Neither constant is "more correct" than the
+ * other; the choice is a conservative-vs-calibrated POWER tradeoff, not a
+ * validity one — every A4 invariant (positive, nonincreasing, wealth >= 0,
+ * monotone) holds identically under either.
+ *
+ * DECIDED DEFAULT: 0.0722 stays the shipped default — it is the number
+ * printed in the primary source this package implements "EXACTLY from" (see
+ * every file header in this directory), it is horizon-independent, and it is
+ * the (marginally) more conservative of the two known published choices, which
+ * matches this package's honesty-first posture (SPEC.md R14). Callers who
+ * want parity with `onlineFDR`'s calibration (~6.94% more power, still
+ * provably conservative at any realistic horizon) can pass
+ * `{ gamma: lordGammaOnlineFDR }` to `createLordPlusPlus` / `lordPlusPlus` —
+ * the override seam already on `LordPlusPlusOptions.gamma`; nothing new to
+ * wire.
  */
 
-/** The leading constant printed in Ramdas et al. (2017), Section 3.1. */
+/** The leading constant printed in Ramdas et al. (2017), Section 3.1. Shipped default (Q10). */
 export const LORD_GAMMA_CONSTANT = 0.0722;
+
+/**
+ * The R/Bioconductor package `onlineFDR`'s default leading constant for the
+ * SAME gamma shape (Q10) — an available, NOT default, alternative. ~6.94%
+ * looser thresholds than `LORD_GAMMA_CONSTANT` at every step (see the Q10
+ * note above); still conservative at any realistic session horizon. Pass
+ * `{ gamma: lordGammaOnlineFDR }` to opt in.
+ */
+export const LORD_GAMMA_CONSTANT_ONLINEFDR = 0.0772_0838;
 
 /**
  * The unnormalized LORD gamma *shape* g(j) = log(j v 2) / ( j e^{ sqrt(log j) } ).
@@ -47,6 +96,16 @@ export function lordGammaShape(j: number): number {
  */
 export function lordGamma(j: number): number {
   return LORD_GAMMA_CONSTANT * lordGammaShape(j);
+}
+
+/**
+ * The `onlineFDR`-calibrated gamma sequence (Q10, see the header note above):
+ *   gamma_j = 0.07720838 * log(j v 2) / ( j e^{ sqrt(log j) } ).
+ * Same shape as `lordGamma`, ~6.94% looser at every step. Opt in via
+ * `{ gamma: lordGammaOnlineFDR }`; not the shipped default.
+ */
+export function lordGammaOnlineFDR(j: number): number {
+  return LORD_GAMMA_CONSTANT_ONLINEFDR * lordGammaShape(j);
 }
 
 /** Partial sum sum_{j=1..upTo} gamma_j, for verifying the sum-to-one property. */

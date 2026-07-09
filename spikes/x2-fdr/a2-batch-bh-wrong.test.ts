@@ -24,11 +24,18 @@
  * BH being a bad procedure.
  *
  * Serves R7 (online correction is necessary; batch is wrong under adaptivity).
+ *
+ * REWIRED onto REAL L1 (P3-L4): each sim's p-values are authored into a real
+ * `CauseSelectionSession` and read back through `hypothesisRecordsFromLog`
+ * via `buildBrushStream` — the same path A1/A3 use (see `scenario.ts`) —
+ * rather than a hand-built `HypothesisRecord[]`. Measured overhead for 10k
+ * sims x 40 real commits: well under a second (see the P3-L4 packet report);
+ * `vitest.config.ts`'s `testTimeout: 30_000` (Q11) already accommodates it.
  */
 
 import { describe, it, expect } from 'vitest';
-import { lordPlusPlus, makeRng, type HypothesisRecord } from '../../src/fdr/index.js';
-import { brushNoisePValues } from './scenario.js';
+import { lordPlusPlus } from '../../src/fdr/index.js';
+import { buildBrushStream } from './scenario.js';
 import { bhRejectsAny, benjaminiHochberg } from './batch-bh.js';
 
 const ALPHA = 0.05;
@@ -52,8 +59,8 @@ describe('A2 — realized FDR: batch BH (peeking) violates alpha, LORD++ holds',
     let lordFalse = 0;
 
     for (let s = 0; s < SIMS; s++) {
-      const rng = makeRng(BASE_SEED + s);
-      const pvals = brushNoisePValues(rng, N, LEN);
+      // Real L1 commit log -> real hypothesisRecordsFromLog adapter -> stream.
+      const { stream, pValues: pvals } = buildBrushStream({ seed: BASE_SEED + s, n: N, len: LEN });
 
       // (i) adaptive/peeking BH
       if (bhPeekEverRejects(pvals, ALPHA)) bhPeekFalse++;
@@ -61,12 +68,7 @@ describe('A2 — realized FDR: batch BH (peeking) violates alpha, LORD++ holds',
       // (0) control: BH once on the fixed family of N
       if (benjaminiHochberg(pvals, ALPHA).length > 0) bhOnceFalse++;
 
-      // (ii) LORD++ online over the same stream
-      const stream: HypothesisRecord[] = pvals.map((p, i) => ({
-        hypothesisId: `h${i + 1}`,
-        pValue: p,
-        timestamp: i + 1,
-      }));
+      // (ii) LORD++ online over the same (now log-derived) stream
       if (lordPlusPlus(stream, { alpha: ALPHA }).discoveries.length > 0) lordFalse++;
     }
 

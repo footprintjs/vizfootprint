@@ -15,6 +15,15 @@
  *
  * There is no refund operation in either procedure, so R8 holds by construction;
  * this test pins that behavior.
+ *
+ * REWIRED onto REAL L1 (P3-L4): `stream` now comes from a real
+ * `CauseSelectionSession` fork (`buildBrushStream`'s `branchOf` path) read
+ * back through `hypothesisRecordsFromLog`/`branchIdFromLog`
+ * (`src/fdr/fromLog.ts`) — `branchId` is DERIVED from the log's real
+ * parent-chain, not a caller-stamped label. By construction (see
+ * `scenario.ts`) the derived label for a lineage started at arrival index i
+ * is `"<label>-1"` (the id of that lineage's fork-entry commit, always its
+ * FIRST-seen occurrence) — hence `MAIN_BRANCH`/`ABANDONED_BRANCH` below.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -28,14 +37,23 @@ const SEED = 20260709;
 
 /** Odd-indexed brushes live on an abandoned branch. */
 const branchOf = (i: number): string => (i % 2 === 1 ? 'abandoned' : 'main');
+// Derived branchIds (see the module doc above): the fork-entry commit id of
+// each lineage, i.e. `"<label>-1"` — NOT the raw `branchOf` label.
+const MAIN_BRANCH = 'main-1';
+const ABANDONED_BRANCH = 'abandoned-1';
 
 describe('A3 — abandoning a branch does not refund alpha (R8)', () => {
   it('abandoned tests consume wealth and stay in the denominator', () => {
-    const { stream } = buildBrushStream({ seed: SEED, n: N, len: LEN, branchOf });
+    const { stream, session } = buildBrushStream({ seed: SEED, n: N, len: LEN, branchOf });
+
+    // Sanity: the branch split is REAL L1 topology, not a relabeled stream —
+    // root forks into exactly two lineages, each of length N/2.
+    expect(session.records.filter((r) => r.field === 'pValue')).toHaveLength(N);
+    expect(stream).toHaveLength(N);
 
     // Counterfactual: the agent had NEVER explored the abandoned branch.
     const mainOnly: HypothesisRecord[] = stream
-      .filter((h) => h.branchId === 'main')
+      .filter((h) => h.branchId === MAIN_BRANCH)
       .map((h, i) => ({ ...h, timestamp: i + 1 }));
 
     for (const runProc of [
@@ -46,7 +64,7 @@ describe('A3 — abandoning a branch does not refund alpha (R8)', () => {
       const refunded = runProc.fn(mainOnly, { alpha: ALPHA });
 
       // (a) every abandoned-branch, non-rejected test consumed wealth.
-      const abandoned = full.audit.filter((s) => s.branchId === 'abandoned');
+      const abandoned = full.audit.filter((s) => s.branchId === ABANDONED_BRANCH);
       expect(abandoned.length).toBe(N / 2);
       for (const s of abandoned) {
         if (!s.reject) expect(s.wealthAfter).toBeLessThan(s.wealthBefore);

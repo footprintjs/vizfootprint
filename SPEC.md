@@ -393,7 +393,8 @@ groupByAnalysis({ by, measure })         // :261 → 'table'   (transform): grou
   filters through an *ordinary* L2 point clause via `causeClauseFromEmission`, **indistinguishable in
   KIND** from a human bar-click (same top-level + `meta` keys, `meta.type='point'`); the new groupby
   table is likewise predicate-filterable; geometry **selects no rows** (no clause)
-  (`src/analysis/builtins.test.ts:70,113,146`; **resolves SPEC §10 Q11**).
+  (`src/analysis/builtins.test.ts:70,113,146`; **resolves SPEC §10 Q13** — renumbered from Q11
+  this packet; Q11 is now the canonical test-flake question, see §10).
 - **R14** honest by construction — the pre-run `precheck` gate returns a **typed** degenerate flag and
   **never runs the chart** on too few points (`defineAnalysis.ts:163-164`;
   `src/analysis/builtins.test.ts:127` — `regressionAnalysis` on n=8 → `{n:8, fitDegenerate:true}`, no snapshot).
@@ -439,11 +440,13 @@ groupByAnalysis({ by, measure })         // :261 → 'table'   (transform): grou
 
 ---
 
-## 6. L4 — fdr (`vizfootprint/fdr`) · SHIPPED
+## 6. L4 — fdr (`vizfootprint/fdr`) · SHIPPED (P3-L4: L1 wired, Q10 resolved)
 
 Online false-discovery control over the stream of declared analyses. Two procedures implemented
 **exactly from the primary literature**, each exposed twice: a streaming stepper (`create*`, the
-true online interface L3/L1 drive one record at a time) and a pure whole-stream fold.
+true online interface L3/L1 drive one record at a time) and a pure whole-stream fold. P3-L4 wires
+the streaming steppers onto a **real L1 commit log** (`hypothesisRecordsFromLog`) and **resolves
+Q10** (the γ leading-constant choice) with measured evidence.
 
 ### Public API (`src/fdr/`, barrelled at `src/fdr/index.ts`)
 
@@ -464,48 +467,98 @@ function createAlphaInvesting(o: AlphaInvestingOptions): { state; step(h): FdrSt
 function alphaInvesting(stream, o: AlphaInvestingOptions): FdrRun;                      // alphaInvesting.ts:135
 // AlphaInvestingOptions { alpha; w0?/*=alpha*/; omega?/*=alpha*/ }
 
-const LORD_GAMMA_CONSTANT = 0.0722;               // gamma.ts:28 — Ramdas Sec. 3.1 published constant
-function lordGamma(j): number; lordGammaShape(j): number;                        // gamma.ts:48,34
-function sumGamma(gamma, upTo): number; normalizingConstant(upTo): number;       // gamma.ts:53,65
+// Q10 (RESOLVED this packet): TWO published γ leading constants over the SAME shape g(j).
+const LORD_GAMMA_CONSTANT = 0.0722;               // gamma.ts:68 — Ramdas Sec. 3.1 published constant; SHIPPED DEFAULT
+const LORD_GAMMA_CONSTANT_ONLINEFDR = 0.07720838; // gamma.ts:77 — R/Bioconductor `onlineFDR` LORD default; opt-in
+function lordGamma(j): number;          // gamma.ts:97  — default sequence, C=LORD_GAMMA_CONSTANT
+function lordGammaOnlineFDR(j): number; // gamma.ts:107 — opt-in sequence, C=LORD_GAMMA_CONSTANT_ONLINEFDR
+function lordGammaShape(j): number;                                              // gamma.ts:83
+function sumGamma(gamma, upTo): number; normalizingConstant(upTo): number;       // gamma.ts:112,124
 function makeRng(seed): Rng; mulberry32(seed); normalVector(rng, n);             // rng.ts (seeded, reproducible)
+
+// P3-L4: the L1 -> L4 adapter (retires spikes/x2-fdr/commit-log-stub.ts).
+function hypothesisRecordsFromLog(records: readonly CommitRecord[]): HypothesisRecord[];  // fromLog.ts:111
+function branchIdFromLog(records: readonly CommitRecord[]): Map<string, string | undefined>; // fromLog.ts:74
+const TEST_ANALOG_FIELD = 'pValue';  // fromLog.ts:43 — the L1-native "this IS a test's p-value" marker
 ```
 
 ### R# satisfied
 - **R6** declared hypotheses — the stepper consumes `HypothesisRecord`s (declared analyses), not
-  brushes (`types.ts:19-33`).
+  brushes (`types.ts:19-33`). Now proven at the **L1 rail too**: `hypothesisRecordsFromLog` reads a
+  commit as a test emission iff it is a `kind:'point'` commit on the reserved field `'pValue'`
+  (`fromLog.ts:43-55`); ordinary point/interval brushes are silently skipped
+  (`fromLog.test.ts:12-35`), the L1 analog of the L3 proof at `src/analysis/builtins.test.ts:158-182`.
 - **R7** **online** correction (batch is wrong) — LORD++/alpha-investing make an immediate valid
   decision per arrival; x2/A2 shows adaptive/peeking BH grossly exceeds α while LORD++ holds
-  (`a2-batch-bh-wrong.test.ts:105-113`).
+  (measured this packet: BH-peek realized FDR = **0.1947** vs α = 0.05, a **66 SE** violation;
+  LORD++ realized FDR = **0.0029** — `a2-batch-bh-wrong.test.ts:48-114`, now driven by a real L1
+  log per sim via `buildBrushStream`).
 - **R8** **dead ends stay in the denominator** — no procedure exposes a refund; every test draws
   wealth via `phi_t` regardless of `branchId` (`types.ts:11-17`; `lordPlusPlus.ts:105`;
-  `alphaInvesting.ts:109-111`), pinned in `a3-dead-ends.test.ts:32-71`.
+  `alphaInvesting.ts:109-111`), pinned in `a3-dead-ends.test.ts:32-90` — **end-to-end from a REAL L1
+  branching log**: `buildBrushStream`'s `branchOf` path forks two lineages off a shared non-test
+  `'root'` commit (`scenario.ts:87-123`), and `branchIdFromLog` **derives** each commit's branchId
+  from that real parent-chain (`fromLog.ts:74-100`) — no test stamps a branch label directly.
+- **R10-support** — `hypothesisId` prefers `CommitRecord.correlationId` (L1's first-class
+  cross-tier join key) over the commit's own `id`, so a declared analysis threaded across
+  viz/agent/kernel tiers (the L6 `why()` rail) keeps ONE id as its `hypothesisId` too
+  (`fromLog.ts:120`; `fromLog.test.ts:37-54`).
 
 ### Acceptance tests (all shipped)
 - **A1 "reviewer number"** — p\*=0.03 (significant uncorrected) is **not** a discovery online among
-  40 brushes; prints exact thresholds at n=1 vs n=40 (`a1-reviewer-number.test.ts:24-85`).
+  40 brushes; prints exact thresholds at n=1 vs n=40 (`a1-reviewer-number.test.ts:24-86`, now via a
+  real L1 log). Reproduced this packet: LORD++(n=1) threshold = **1.2511e-3**, LORD++(n=40)
+  threshold = **2.4389e-5** (closed form matches) — byte-identical to pre-rewire.
 - **A2 realized FDR over 10k sims** — peeking-BH VIOLATES α by ≫10 SE; LORD++ holds ≤ α; control:
-  BH-once-on-fixed-family sits at α within MC error (`a2-batch-bh-wrong.test.ts:48-114`).
+  BH-once-on-fixed-family sits at α within MC error (`a2-batch-bh-wrong.test.ts:48-113`, now via
+  10 000 real per-sim `CauseSelectionSession` logs — measured overhead <2s, well inside
+  `vitest.config.ts`'s `testTimeout: 30_000`).
 - **A3 dead ends** — abandoning half the branch does not refund α; counterfactual removal leaves
-  strictly *more* wealth (`a3-dead-ends.test.ts:32-71`).
+  strictly *more* wealth (`a3-dead-ends.test.ts:33-90`, now against a real L1 fork).
 - **A4 paper invariants** — γ positive & nonincreasing; partial sums ≤ 1 (conservative);
   thresholds nonincreasing with no rejections; monotone (eq. 3); wealth never negative for both
-  procedures (`src/fdr/a4-invariants.test.ts:43-143`).
+  procedures (`src/fdr/a4-invariants.test.ts:43-144`).
+- **Q10 decision** (`gamma.q10.test.ts:1-124`) — the constant ratio 0.07720838/0.0722 = **1.06937**
+  holds UNIFORMLY for j∈{1,2,5,10,20,40,60,100} (measured, not assumed: `gamma.q10.test.ts:26-56`);
+  both constants stay conservative (partial sum at H=100 is 0.194 vs 0.208; even at H=2 000 000 only
+  0.504 vs 0.539 — `gamma.q10.test.ts:60-87`); the override seam reproduces the same ratio end-to-end
+  through the real stepper (`gamma.q10.test.ts:90-116`).
+- **`hypothesisRecordsFromLog` / `branchIdFromLog` unit suite** (`fromLog.test.ts:1-182`) — R6 skip,
+  correlationId-preferred `hypothesisId`, id fallback, an out-of-range `'pValue'` value read as "not
+  a test" (never fabricated), unforked-chain branchId=`undefined`, a real two-lineage fork resolving
+  to two stable branch labels, and log-arrival-order preservation independent of DAG topology.
 
 ### Consumes
-- Nothing from vizfootprint's other layers (pure). L3 drives it; L1 supplies the arrival stream.
-  The x2 `DeclaredAnalysisLog` stub is throwaway — L1 replaces it (`commit-log-stub.ts:1-9`).
+- L1 `CommitRecord` (`src/log/index.ts`, type-only import) via the `fromLog.ts` adapter — the x2 stub
+  `DeclaredAnalysisLog` is **retired** (`spikes/x2-fdr/commit-log-stub.ts` deleted this packet; A1–A3
+  now author into a real `CauseSelectionSession` via `spikes/x2-fdr/scenario.ts`'s `buildBrushStream`).
+  Otherwise pure: L3 (`defineAnalysis`'s `sink` seam, `src/analysis/defineAnalysis.ts:180`) and L1
+  both drive the stepper; L4 itself computes nothing about *how* a hypothesis arrived.
 
-### Non-goals / open decisions
-- **Q10 (open)**: the shipped default γ uses the published constant `0.0722`, which is
-  horizon-**independent** and makes LORD++ *conservative* (partial sums reach 1 only in the
-  infinite limit; `normalizingConstant` offers a horizon-normalized alternative)
-  (`gamma.ts:59-67`; honest finding `a4-invariants.test.ts:55-82`). L4 must **decide** which is the
-  user-facing default — see §7 Q10.
+### Non-goals / decided
+- **Q10 — RESOLVED this packet** (`docs/RESEARCH_STATE.md` canonical Q10). Two published leading
+  constants exist for the identical γ shape: `0.0722` (Ramdas et al. 2017, Sec. 3.1 — the number
+  printed in the primary paper) and `0.07720838` (the R/Bioconductor package `onlineFDR`'s LORD
+  default, "The theory behind onlineFDR",
+  https://bioconductor.org/packages/devel/bioc/vignettes/onlineFDR/inst/doc/theory.html, retrieved
+  2026-07-09 — citing the SAME Javanmard & Montanari 2018 eq. 31 source). Because γ_j = C·g(j) is
+  linear in C, swapping constants scales **every** LORD++ threshold by the fixed ratio **1.06937**
+  (~6.94% looser under `onlineFDR`'s constant) at **every** j≤100 — measured, not assumed
+  (`gamma.q10.test.ts`). Both are deeply conservative at any realistic session horizon (partial sum
+  at j=100 is 0.194 vs 0.208; convergence to the "sums to one" target is brutally slow either way —
+  0.504 vs 0.539 even at j=2 000 000, `a4-invariants.test.ts:55-82`). **Verdict: ship `0.0722` as the
+  default** (horizon-independent, the more conservative of the two, the number printed in the source
+  this package implements "exactly from") — **conservative-vs-calibrated tradeoff stated honestly**:
+  callers who want `onlineFDR` parity (~6.94% more power, still provably conservative) opt in with
+  `{ gamma: lordGammaOnlineFDR }`, the override seam already on `LordPlusPlusOptions.gamma` — no new
+  API surface (`gamma.ts:26-65`).
 - alpha-investing controls **mFDR** (a ratio of expectations), *weaker* than the FDR LORD++
   controls — documented, not hidden (`alphaInvesting.ts:36-39`). L4 does not claim they are
   interchangeable.
 - `branchId` is **optional** and drives **no** control decision (`types.ts:26-33`) — R8 holds
-  structurally (no refund op), independent of whether provenance is present.
+  structurally (no refund op), independent of whether provenance is present. At the L1 rail,
+  `branchId` is additionally never *authored* directly — it is always `branchIdFromLog`'s derivation
+  from the real parent-chain (`fromLog.ts:74-100`).
 
 ---
 
@@ -753,12 +806,15 @@ DashboardQA-style task set (§7, §10 Q6).
 
 ## 10. Open questions (carried honestly)
 
-> **Provenance caveat.** `RESEARCH_STATE` (the canonical Q-number index) is **not present in the
-> repo** (searched: repo tree, git history, user memory — absent). Q1/Q2 are *resolved in code*
-> and cited below. **Q6/Q9/Q10 are grounded** in the P2 packet text + code seams and are stated
-> with confidence. **Q3/Q4/Q8/Q11 are RECONSTRUCTED** from the architectural seams the code leaves
-> open; each is flagged `[reconstructed]` and should be reconciled against the orchestrator's
-> canonical RESEARCH_STATE text before it is treated as authoritative.
+> **Provenance note (updated P3-L4).** `docs/RESEARCH_STATE.md` **is now present in the repo** and
+> IS the canonical Q-number index (persisted 2026-07-09) — the earlier caveat here ("not present in
+> the repo") predates it and is stale. This packet reconciles Q10 and Q11 against that canonical
+> text. **Q1/Q2/Q9/Q10 are resolved in code**, cited below. **Q6/Q11 are grounded** — Q11 directly
+> against the canonical `docs/RESEARCH_STATE.md` text, Q6 in the P2 packet text + code seams.
+> **Q3/Q4/Q8/Q13 remain RECONSTRUCTED** from the architectural seams the code leaves open; each is
+> flagged `[reconstructed]` and should be reconciled against the orchestrator's canonical
+> RESEARCH_STATE text before being treated as authoritative. (Q9 is resolved in code per §4 but the
+> canonical `docs/RESEARCH_STATE.md` Q9 line is the source of truth if the two ever disagree.)
 
 **Resolved (for context):**
 - **Q1** — log wire shape. *Resolved:* store the deterministic **recipe** (`kind, field, value` +
@@ -766,6 +822,16 @@ DashboardQA-style task set (§7, §10 Q6).
   JSONL+branch (`log.ts:1-11`).
 - **Q2** — can `cause` ride on Mosaic clause metadata? *Resolved: yes* — Mosaic reads known meta
   fields only, never rejects unknown keys (`causeClause.ts:1-12` citing `PreAggregator.js:192-206`).
+- **Q9** — `MosaicClient` cast. *Resolved (e3ce886/e3ce924, §4):* `RegisteredSource extends
+  MosaicClient` for real — no `as unknown` double-cast in `src/mosaic/**`
+  (`SourceRegistry.ts:38,67`).
+- **Q10 — LORD γ constant — RESOLVED this packet (P3-L4).** Ship `0.0722` (Ramdas et al. 2017,
+  Sec. 3.1 — horizon-independent, the more conservative of two published choices) as the default;
+  the R/Bioconductor `onlineFDR` package's `0.07720838` (~6.94% looser at every j≤100, measured —
+  `gamma.q10.test.ts`) is available, not default, via `{ gamma: lordGammaOnlineFDR }`. Full evidence
+  + citation in §6 ("Non-goals / decided"); code in `gamma.ts:26-77`. Superseded the old
+  `normalizingConstant(H)` recommendation here (horizon-normalization is still exposed but was never
+  the shipped choice).
 
 **Grounded open questions:**
 - **Q6 — dispatch vocabulary completeness.** Is `{select, filter, annotate, navigate, analyze,
@@ -773,17 +839,14 @@ DashboardQA-style task set (§7, §10 Q6).
   Proposed resolution: measure verb coverage against a **DashboardQA**-style task battery; a task
   that cannot be expressed files a `needs-*` gap, and the gap distribution is the completeness
   signal. **Open until benchmarked.**
-- **Q9 — `MosaicClient` cast.** `clients` is `Set<MosaicClient>` but used only for identity
-  `Set.has`; the spike casts `Set<RegisteredSource> as unknown as Set<MosaicClient>`
-  (`causeClause.ts:58-60`; `replay.test.ts:78-81`). Resolve on promotion by one of: (a)
-  `RegisteredSource implements MosaicClient` (stub the protocol methods), (b) a branded
-  `ClientIdentity` type Mosaic accepts, or (c) upstream a narrower `ClauseClient = { }` identity
-  type. **Decision needed; no correctness impact today.**
-- **Q10 — LORD γ constant.** Ship the published horizon-independent `0.0722` (conservative; sums to
-  1 only in the limit) or the horizon-normalized `normalizingConstant(H)` (calibrated per session,
-  looser thresholds)? (`gamma.ts:44-67`; `a4-invariants.test.ts:55-82`). Recommendation to
-  adjudicate: **default `0.0722`** (thresholds independent of horizon, provably conservative),
-  expose `gamma` override for callers who want horizon normalization.
+- **Q11 — the one unreproduced test flake** (canonical `docs/RESEARCH_STATE.md`: "the one
+  unreproduced test flake (suspect: 10k-sim FDR tests at 5s default timeout — codify testTimeout
+  30000 at L4)"). The suggested codification is **already in place**: `vitest.config.ts:12` sets
+  `testTimeout: 30_000` repo-wide, with a comment citing this exact Q11. P3-L4 adds a second,
+  heavier 10k-sim consumer of that timeout (`a2-batch-bh-wrong.test.ts`, now driving 10 000 real
+  per-sim L1 logs — see §6) and it stays comfortably inside the ceiling (~2s measured). Left
+  **grounded-open, not resolved**: the canonical doc has not itself marked Q11 resolved, only
+  described the mitigation to codify — this packet did not re-adjudicate that call.
 
 **Reconstructed open questions `[reconstructed]`:**
 - **Q3 `[reconstructed]` — the R3 outbound-emit half.** L2 proves the *inbound apply* + *echo
@@ -803,11 +866,17 @@ DashboardQA-style task set (§7, §10 Q6).
   `toolCallId` (unambiguous but agentfootprint-specific) or the `(runId, runtimeStageId)` pair
   (portable but two-part)? Related: adopt the now-available `AgentRunOptions.correlationId` path
   (see §11 C4). *Seam:* `whyJoin.ts:84-98`.
-- **Q11 `[reconstructed]` — analysis output re-entry (R11).** R11 says outputs (e.g. `cluster_id`)
-  "filter through ordinary predicates with zero new verbs." No L3 code exists to prove a computed
-  column round-trips as a normal L2 clause with a normal cause. Open: do *all four* output shapes
-  (columns/geometry/scalar/table) re-enter as predicates uniformly, or do geometry/table need a
-  distinct (still verb-free) binding? *Seam:* L3 `AnalysisOutput` (§5, greenfield).
+- **Q13 `[reconstructed, renumbered from Q11]` — analysis output re-entry (R11) — ANSWERED by §5.**
+  R11 says outputs (e.g. `cluster_id`) "filter through ordinary predicates with zero new verbs." This
+  question predates L3's promotion (P3-L3, prior to this packet), when "No L3 code exists to prove a
+  computed column round-trips as a normal L2 clause with a normal cause" was still true. It no longer
+  is: §5's R11 bullet proves all four output shapes re-enter through the ordinary L2 predicate path —
+  columns/table as filterable relations, scalar as a value, geometry deliberately selecting no rows —
+  with the materialized-column case shown **indistinguishable in KIND** from a human bar-click
+  (`src/analysis/builtins.test.ts:70,113,146`). Renumbered to Q13 (was misnumbered Q11, colliding
+  with the canonical test-flake Q11 above) so it stops shadowing the canonical index; kept here,
+  not moved to "Resolved", only because it was never independently re-verified against the canonical
+  `docs/RESEARCH_STATE.md` Q-index the way Q1/Q2/Q9/Q10 have been.
 
 ---
 
@@ -853,8 +922,8 @@ last (joins all tiers). Each packet is **write-tests-first** (Convention 2/3 fam
 |---|---|---|---|---|---|---|
 | **P3.1** | **L1 log** | `spikes/x1-replay/log.ts` → `src/log/`; re-home `CommitRecord`/`CommitInput`/`CauseSelectionSession`/`replayLog`/`serializeLog`/`causeHistogram`; delete `x2` stub dependency | R2, R5, R8, R13, R10-support | port A1/A2/A3/A5 (`replay.test.ts`) + branch (`branch.test.ts`); add `parseCause` firewall + `markReplayed` idempotence | `src/log/**`, `src/cause/**` (L0 test top-up); **no** L3+ | **S–M** (mostly move + retest) |
 | **P3.2** | **L2 mosaic** | resolve **Q9** cast; finalize `causeClause`/`SourceRegistry` public surface | R1, R3(inbound+echo), R12 | keep `SourceRegistry.test`/`causeClause.test`; add cross-filter + `causeOf` round-trip; a `MosaicClient`-shape conformance test | `src/mosaic/**` | **S** |
-| **P3.3** | **L4 fdr** | already shipped; **decide Q10 default**; wire the streaming `create*` steppers to consume L1 records | R6, R7, R8 | keep A1–A4; add "L1 stream → stepper" integration (one commit → one `FdrStep`) | `src/fdr/**` (+ read-only L1 import) | **S** (decision + glue) |
-| **P3.4** | **L3 analysis** | **build** `defineAnalysis`, `AnalysisOutput` (columns/geometry/scalar/table), footprintjs-flowchart execution (port `kernel.ts` pattern), honesty decls | R6, R9, R11, R14 | declared-only (brush 100× → 0 test commits); minimal slice w/ decoy; **cluster_id re-enters as ordinary predicate** (Q11); degenerate-fit typed rejection | `src/analysis/**`; consumes L0/L1/L2/L4 + `footprintjs` | **L** (greenfield, highest risk) |
+| **P3.3** | **L4 fdr** | **DONE this packet (P3-L4)** — **decided Q10 default** (`0.0722`, `onlineFDR`'s `0.07720838` opt-in); wired the streaming `create*` steppers to consume L1 records via `hypothesisRecordsFromLog`/`branchIdFromLog` (`fromLog.ts`); retired `commit-log-stub.ts` | R6, R7, R8 | kept A1–A4 (numbers reproduce verbatim); added `fromLog.test.ts` + `gamma.q10.test.ts`; A1–A3 now drive a real L1 log ("L1 stream → stepper" integration, one commit → one `FdrStep`) | `src/fdr/**`, `spikes/x2-fdr/**` (+ read-only L1 import) | **S** (decision + glue) — shipped |
+| **P3.4** | **L3 analysis** | **build** `defineAnalysis`, `AnalysisOutput` (columns/geometry/scalar/table), footprintjs-flowchart execution (port `kernel.ts` pattern), honesty decls | R6, R9, R11, R14 | declared-only (brush 100× → 0 test commits); minimal slice w/ decoy; **cluster_id re-enters as ordinary predicate** (Q13, was misnumbered Q11); degenerate-fit typed rejection | `src/analysis/**`; consumes L0/L1/L2/L4 + `footprintjs` | **L** (greenfield, highest risk) |
 | **P3.5** | **L5 agent** | **build** `buildDashboard`/`createSession`/`dispatch`; `DashboardDef` (mosaic-spec superset); dispatch verbs; gap ledger; `vizAsTools` + `mcpServer` | R4, R11(dual-intent), R12, R14 | zero-synthetic-input; every unmet request → typed gap; injection corpus inert; `vizAsTools`≡`mcpServer` verb parity; **Q6** DashboardQA coverage harness | `src/agent/**`, `src/mcp/**`; consumes L0–L4 + `agentfootprint`, `hcifootprint` grammar | **L** |
 | **P3.6** | **L6 why** | promote `whyJoin.ts`/`chain.ts` → `src/why/`; rename `JoinRecord`→`CorrelationEnvelope` (**C1**); generalize `whyRowCount`→`why(target)` (**C2**); adopt `AgentRunOptions.correlationId` path (**C4**), retire tool-args workaround | R9, R10 | port A1/A2/A3 (`x3.test.ts`); add a non-`rowCount` slice; add an envelope built via `AgentRunOptions.correlationId` (no tool-args) | `src/why/**`; consumes L1/L5 + `footprintjs/trace`, `agentfootprint` | **M** |
 

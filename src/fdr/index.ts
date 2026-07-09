@@ -27,10 +27,14 @@ export type {
 export {
   lordGamma,
   lordGammaShape,
+  lordGammaOnlineFDR,
   LORD_GAMMA_CONSTANT,
+  LORD_GAMMA_CONSTANT_ONLINEFDR,
   sumGamma,
   normalizingConstant,
 } from './gamma.js';
+
+export { hypothesisRecordsFromLog, branchIdFromLog, TEST_ANALOG_FIELD } from './fromLog.js';
 
 export {
   lordPlusPlus,
