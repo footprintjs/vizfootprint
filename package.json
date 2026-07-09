@@ -26,5 +26,13 @@
   "dependencies": {
     "@uwdata/mosaic-core": "^0.28.1",
     "footprintjs": "^9.10.1"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    }
   }
 }
