@@ -7,9 +7,13 @@
   "license": "MIT",
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typecheck:demo": "tsc -p demo/tsconfig.json --noEmit",
+    "demo": "node demo/server.mjs",
+    "demo:data": "node demo/gen-data.mjs"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@trrack/core": "^1.6.1",
     "@types/node": "^22.0.0",
     "@uwdata/mosaic-spec": "^0.28.1",
