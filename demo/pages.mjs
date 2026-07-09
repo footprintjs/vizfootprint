@@ -73,6 +73,20 @@ table.ledger tr.discovery { background: rgba(0,179,164,.12); }
 table.ledger .verdict { font-weight: 700; }
 .headline { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--chip); border: 1px solid var(--line); font-weight: 600; }
 .sel-readout { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+.agent-section { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 18px; }
+.agent-section .agent-panel { flex: 2 1 480px; min-width: 320px; }
+.agent-section .gaps { flex: 1 1 300px; min-width: 260px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; box-shadow: var(--shadow); }
+.btn[data-action="run-agent-task"], .btn[data-action="agent-gap"] { border-color: var(--agent); }
+.activity { display: flex; flex-direction: column; gap: 6px; min-height: 32px; margin-top: 10px; }
+.activity-step { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; background: var(--chip); border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; font-size: 12px; }
+.activity-step .tool { font-weight: 700; color: var(--agent); white-space: nowrap; }
+.activity-step .args { color: var(--muted); font-variant-numeric: tabular-nums; word-break: break-all; }
+.activity-step .result { word-break: break-all; }
+.gap-row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.gap-row:last-child { border-bottom: none; }
+.gap-row .gap-code { font-weight: 700; text-transform: uppercase; font-size: 10px; padding: 1px 6px; border-radius: 5px; background: rgba(255,92,157,.16); border: 1px solid rgba(255,92,157,.4); }
+.gap-row .gap-op { color: var(--muted); }
+.gap-row .gap-detail { color: var(--fg); }
 `;
 
 function shell({ title, subtitle, active, bundle }) {

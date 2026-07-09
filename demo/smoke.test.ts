@@ -113,6 +113,45 @@ describe.skipIf(!existsSync(CHROME))('demo smoke (real headless Chromium)', () =
     await page.screenshot({ path: path.join(SHOTS, 'analyst.png'), fullPage: true });
   }, 60_000);
 
+  it('analyst: "Run agent task" drives the REAL viz.dispatch/viz.declare_analysis tools — activity strip + ledger row', async () => {
+    await page.goto(`${handle.url}/analyst`); // fresh session
+    await page.waitForSelector('svg.scatter');
+
+    expect(await page.locator('.activity-step').count()).toBe(0);
+    expect(await page.locator('table.ledger tbody tr').count()).toBe(0);
+
+    await page.locator('[data-action="run-agent-task"]').click();
+    // the scripted agent makes 5 tool calls: whats_here, dispatch(filter),
+    // declare_analysis(clustering), dispatch(select cluster), declare_analysis
+    // (correlation) — plus a final whats_here read-back (6 total).
+    await page.waitForFunction(() => document.querySelectorAll('.activity-step').length >= 6, undefined, {
+      timeout: 10_000,
+    });
+    expect(await page.locator('.activity-step').count()).toBeGreaterThanOrEqual(6);
+    // every activity row names the REAL tool it called (never a raw event).
+    expect(await page.locator('.activity-step .tool').first().textContent()).toBe('viz.whats_here');
+
+    await page.waitForFunction(() => document.querySelectorAll('table.ledger tbody tr').length >= 1, undefined, {
+      timeout: 5000,
+    });
+    expect(await page.locator('table.ledger tbody tr').count()).toBeGreaterThanOrEqual(1);
+    expect(await page.locator('.gap-row').count()).toBe(0); // the scripted task hits no gaps (R4)
+
+    await page.screenshot({ path: path.join(SHOTS, 'analyst-agent.png'), fullPage: true });
+  }, 60_000);
+
+  it('analyst: the agent asking for a nonexistent column files exactly one typed gap', async () => {
+    await page.goto(`${handle.url}/analyst`); // fresh session
+    await page.waitForSelector('svg.scatter');
+
+    expect(await page.locator('.gap-row').count()).toBe(0);
+    await page.locator('[data-action="agent-gap"]').click();
+    await page.waitForFunction(() => document.querySelectorAll('.gap-row').length >= 1, undefined, { timeout: 5000 });
+    expect(await page.locator('.gap-row').count()).toBe(1);
+    expect(await page.locator('.gap-row[data-gap="needs-column"]').count()).toBe(1);
+    expect(await page.locator('.activity-step').count()).toBe(1); // exactly the one tool call
+  }, 30_000);
+
   it('both pages ran with zero console errors', () => {
     expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
     expect(pageErrors, pageErrors.join('\n')).toEqual([]);

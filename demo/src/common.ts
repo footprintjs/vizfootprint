@@ -15,6 +15,8 @@
 // The REAL landed CSV parser (src/data) — not duplicated here.
 import { parseCSVTyped } from '../../src/data/csv.js';
 import type { ChartEmission } from '../../src/mosaic/index.js';
+import type { CommitRecord } from '../../src/log/index.js';
+import type { PredicateClause } from '../../src/data/index.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 
@@ -368,4 +370,28 @@ export class BarChart {
 
 export function fmtInterval(iv: [number, number] | null): string {
   return iv ? `$${iv[0]}–$${iv[1]}` : '(cleared)';
+}
+
+// ── shared L5-session wiring helpers (both demo pages drive `session.dispatch`) ──
+
+/** A clickable toolbar button (all label text via textContent). */
+export function actionButton(id: string, label: string, onClick: () => void): HTMLButtonElement {
+  const b = el('button', { class: 'btn', text: label, dataset: { action: id } });
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+/**
+ * Recover the in-JS `PredicateClause` a landed `CommitRecord` represents — the
+ * same recipe `src/log`'s `replayLog` uses to rebuild a clause, just kept as a
+ * `{kind,field,value}` triple for `matchesClause` rather than a live Mosaic
+ * clause. `null` means "this commit clears its field" (an interval commit with
+ * `value: null`).
+ */
+export function specFromRecord(rec: CommitRecord): PredicateClause | null {
+  if (rec.kind === 'interval') {
+    const v = rec.value as [number, number] | null;
+    return v === null ? null : { kind: 'interval', field: rec.field, value: v };
+  }
+  return { kind: 'point', field: rec.field, value: rec.value };
 }
