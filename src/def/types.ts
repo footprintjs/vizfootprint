@@ -1,0 +1,209 @@
+/**
+ * L5 — def (`vizfootprint/agent`, the declarative half) · shared types.
+ *
+ * A `DashboardDef` is a **Mosaic-spec superset** (D10 / SPEC §7). Mosaic's own
+ * spec parser destructures its top level as
+ *   `{ meta, config, data = {}, params, plotDefaults = {}, ...root }`
+ *   (`node_modules/@uwdata/mosaic-spec/dist/src/parse-spec.js:60`; `SpecNode`
+ *    carries `root, meta, config, data, params, plotDefaults` —
+ *    `.../ast/SpecNode.d.ts:2-7`).
+ * vizfootprint MIRRORS those exact top-level keys (`meta`, `config`, `data`,
+ * `params`, `plotDefaults`, plus the `...views` plot tree) as opaque
+ * pass-through — vizfootprint renders nothing (SPEC §1 non-goal "No charting
+ * library"), so the VL encodings ride untouched — and ADDS the vizfootprint
+ * keys below (`actors`, `analyses`, `capabilities`, `fdr`, `agent`,
+ * `defaultTable`).
+ *
+ * R12 firewall (mirrors L0 `parseCause` / L3 `validateAnalysisDef`): every
+ * DECLARATIVE field is validated against a strict allowlist and treated as
+ * inert data. A hostile string in `meta`/`label`/an analysis `id` is stored and
+ * echoed verbatim, NEVER interpreted. The only executable parts are
+ * developer-authored functions already firewalled by L3 (`AnalysisDef.build`
+ * etc.) and an optional developer-authored `fdr.gamma` sequence — never a
+ * model-supplied code string.
+ */
+
+import type { Actor, Cause } from '../cause/index.js';
+import type { ActorMeta } from '../mosaic/index.js';
+import type {
+  AnalysisDef,
+  AnalysisKind,
+  AnalysisModule,
+  AnalysisOutput,
+  AnalysisRunResult,
+  RunAnalysisOptions,
+} from '../analysis/index.js';
+import type { FdrStep, GammaSequence, HypothesisRecord } from '../fdr/index.js';
+import type { ColumnInfo, DataProvider, Engine, Row } from '../data/index.js';
+
+// ── The dispatch verb vocabulary (SPEC §9; Q6 flagged open). ───────────────────
+
+/** The seven semantic verbs the agent drives every interaction through (R4). */
+export type DispatchVerb =
+  | 'select'
+  | 'filter'
+  | 'annotate'
+  | 'navigate'
+  | 'analyze'
+  | 'fork'
+  | 'checkpoint';
+
+/** The seven verbs, frozen (used for validation + tool-schema enumeration). */
+export const DISPATCH_VERBS: readonly DispatchVerb[] = [
+  'select',
+  'filter',
+  'annotate',
+  'navigate',
+  'analyze',
+  'fork',
+  'checkpoint',
+] as const;
+
+/**
+ * Dual intent (D13 / R11): a verb is either **mandatory-analytical** (must be
+ * honored or a gap is filed) or **optional-interaction** (best-effort UI
+ * affordance). Per SPEC §7 the defaults are: `analyze` mandatory-analytical;
+ * `annotate`/`navigate` optional-interaction; the state-changing analytical
+ * verbs (`select`/`filter`/`fork`/`checkpoint`) mandatory-analytical.
+ */
+export type IntentClass = 'mandatory-analytical' | 'optional-interaction';
+
+export interface IntentDecl {
+  readonly verb: DispatchVerb;
+  readonly intent: IntentClass;
+}
+
+/** The default dual-intent tagging (SPEC §7). Overridable per verb via `def.agent.intents`. */
+export const DEFAULT_INTENTS: Readonly<Record<DispatchVerb, IntentClass>> = {
+  select: 'mandatory-analytical',
+  filter: 'mandatory-analytical',
+  analyze: 'mandatory-analytical',
+  fork: 'mandatory-analytical',
+  checkpoint: 'mandatory-analytical',
+  annotate: 'optional-interaction',
+  navigate: 'optional-interaction',
+};
+
+// ── The def schema (mosaic-spec superset). ─────────────────────────────────────
+
+/** One table's data source — a Mosaic-spec `data` entry, superset (D24 engine key). */
+export interface DataSourceDef {
+  /** Inline row objects. Mutually exclusive with `csv`. */
+  readonly rows?: readonly Row[];
+  /** CSV text (parsed by `src/data/csv`). Mutually exclusive with `rows`. */
+  readonly csv?: string;
+  /** D24 engine key: `memory` | `wasm` | `server` | `auto`. Default `memory`. */
+  readonly engine?: Engine;
+  /** Memory engine internal storage layout (pass-through; default `row`). */
+  readonly layout?: 'row' | 'column';
+}
+
+/** R14 honest capability envelope for a view (its adapter may narrow this further at mount). */
+export interface CapabilityDecl {
+  readonly viewId: string;
+  /** Can this view emit selections at all? A `false` here makes every probe a typed `guard-failed` gap. */
+  readonly canProbe: boolean;
+  /** Which emission kinds it can produce. Default: both. */
+  readonly encodings?: readonly ('point' | 'interval')[];
+  /** Which data fields it encodes (informational; drives readiness hints). */
+  readonly fields?: readonly string[];
+}
+
+/** L4 defaults for the session's online-FDR stepper. `gamma` is a developer-authored sequence (optional). */
+export interface FdrDecl {
+  readonly procedure: 'LORD++' | 'alpha-investing';
+  readonly alpha: number;
+  readonly w0?: number;
+  readonly omega?: number;
+  readonly gamma?: GammaSequence;
+}
+
+export interface AgentDecl {
+  /** Per-verb dual-intent overrides (R11). Absent verbs use {@link DEFAULT_INTENTS}. */
+  readonly intents?: readonly IntentDecl[];
+}
+
+/**
+ * A declared analysis in a def is either a raw {@link AnalysisDef} (promoted via
+ * `defineAnalysis` at build time, re-firewalled by L3's `validateAnalysisDef`)
+ * or an already-built {@link AnalysisModule} (e.g. the L3 built-ins
+ * `clusteringAnalysis(...)` / `correlationAnalysis(...)`, validated at their own
+ * construction). SPEC §7's `analyses?: Record<id, AnalysisDef>` is widened to
+ * accept both (flagged §7 refinement) — the built-ins are the common case.
+ */
+export type AnalysisSlot =
+  | AnalysisDef<unknown, AnalysisOutput>
+  | AnalysisModule<any, AnalysisOutput>; // eslint-disable-line @typescript-eslint/no-explicit-any -- heterogeneous registry; input variance erased at the boundary
+
+/**
+ * The declarative dashboard definition — a Mosaic-spec superset (see file
+ * header). Offline, no API key; validated by `buildDashboard` (R12).
+ */
+export interface DashboardDef {
+  // ── inherited Mosaic-spec top-level keys (opaque pass-through) ──
+  readonly meta?: unknown;
+  readonly config?: unknown;
+  readonly data: Record<string, DataSourceDef>;
+  readonly params?: unknown;
+  readonly plotDefaults?: unknown;
+  /** The vconcat/hconcat/plot tree (VL encodings). Opaque to vizfootprint. */
+  readonly views?: unknown;
+  // ── vizfootprint additions ──
+  /** Who drives each view (the L2 registry seed). The declared view identities. */
+  readonly actors: Record<string, ActorMeta>;
+  /** Declared analyses (kind:'test' arms L4; kind:'transform' is FDR-exempt). */
+  readonly analyses?: Record<string, AnalysisSlot>;
+  /** R14 honest capability envelope, per view. */
+  readonly capabilities?: readonly CapabilityDecl[];
+  /** Online-FDR defaults (L4). Absent = LORD++ at alpha 0.05. */
+  readonly fdr?: FdrDecl;
+  /** Dual-intent tagging overrides for dispatch verbs (R4/R11). */
+  readonly agent?: AgentDecl;
+  /** The default table `select`/`filter`/`analyze` operate over. Default: the first `data` key. */
+  readonly defaultTable?: string;
+}
+
+// ── The resolved runtime bundle `buildDashboard` produces for a session. ───────
+
+/** A registered analysis with input variance erased at the registry boundary. */
+export interface RegisteredAnalysis {
+  readonly id: string;
+  readonly kind: AnalysisKind;
+  readonly def: AnalysisDef<unknown, AnalysisOutput>;
+  run(input: readonly Row[], opts?: RunAnalysisOptions): Promise<AnalysisRunResult<AnalysisOutput>>;
+}
+
+/** One declared view: its actor identity + resolved capability envelope. */
+export interface ViewDecl {
+  readonly viewId: string;
+  readonly meta: ActorMeta;
+  readonly capability?: CapabilityDecl;
+}
+
+/** The minimal online-FDR stepper contract a session drives (uniform over both procedures). */
+export interface FdrStepper {
+  step(h: HypothesisRecord): FdrStep;
+}
+
+/**
+ * The resolved bundle a `Dashboard` hands each session: data providers, promoted
+ * analyses, declared views, a fresh-per-session FDR stepper factory, and the
+ * dual-intent resolver. Engine choice is already resolved (D24) — the session
+ * never re-decides an engine.
+ */
+export interface DashboardRuntime {
+  readonly def: DashboardDef;
+  readonly defaultTable: string;
+  readonly tables: readonly string[];
+  providerFor(table: string): DataProvider | undefined;
+  readonly engines: Readonly<Record<string, Engine>>; // resolved engine per table (D24 audit)
+  readonly analyses: ReadonlyMap<string, RegisteredAnalysis>;
+  readonly views: ReadonlyMap<string, ViewDecl>;
+  makeFdrStepper(): FdrStepper;
+  readonly fdrProcedure: 'LORD++' | 'alpha-investing';
+  readonly fdrAlpha: number;
+  intentOf(verb: DispatchVerb): IntentClass;
+}
+
+// Re-exports the def layer commonly hands onward.
+export type { Actor, ActorMeta, Cause, ColumnInfo, Row };
