@@ -5,14 +5,16 @@
  *
  * ONE correlationId is threaded end to end. The agent's `apply_filter` tool is
  * the single seam where all three tiers meet: it (a) dispatches a cause-tagged
- * interval commit into the viz log using the correlationId AS the commit id,
- * (b) runs the footprintjs kernel with the correlationId in the run input (so it
- * lands in committed state), and (c) records the join row. A tool_start listener
- * harvests the agent-side frame (runId + runtimeStageId from EventMeta) which is
- * merged in by toolCallId after the run.
+ * interval commit into the viz log carrying the correlationId as a FIRST-CLASS
+ * `CommitRecord.correlationId` field (D20/P3 — the commit `id` is its own
+ * identity again, no longer overloaded as the join key), (b) runs the
+ * footprintjs kernel with the correlationId in the run input (so it lands in
+ * committed state), and (c) records the join row. A tool_start listener
+ * harvests the agent-side frame (runId + runtimeStageId from EventMeta) which
+ * is merged in by toolCallId after the run.
  *
  * Where the join key lives in each tier (verified in the report):
- *   - viz:    CommitRecord.id           (no dedicated field — id IS the key)
+ *   - viz:    CommitRecord.correlationId (first-class field; id stays identity-only)
  *   - agent:  ToolStartPayload.args.correlationId   (rides in tool args)
  *   - kernel: committed state key `corrId` (written by the `load` stage)
  *
@@ -30,7 +32,7 @@ import { runKernel, type KernelResult } from './kernel.js';
 /** The composed join row — the mapping table entry for one correlationId. */
 export interface JoinRecord {
   readonly correlationId: string;
-  /** Viz tier: the cause-tagged commit (id === correlationId). */
+  /** Viz tier: the cause-tagged commit (correlationId rides as its own field; commitId is identity-only). */
   readonly viz: { readonly commitId: string; readonly viewId: string; readonly cause: Cause };
   /** Agent tier: the tool-call frame. runId/runtimeStageId come from EventMeta. */
   readonly agent: {
@@ -109,10 +111,13 @@ export async function buildChain(): Promise<Chain> {
       args: { field: 'amount'; range: [number, number]; correlationId: string },
       ctx,
     ) => {
-      // (a) viz tier — cause-tagged interval commit; id === the join key.
+      // (a) viz tier — cause-tagged interval commit. The join key rides in the
+      //     FIRST-CLASS `correlationId` field (D20/P3); the commit id is its
+      //     own identity (`viz-…` prefix proves no id/key overload remains).
       //     requestedBy:agent, computedBy:system (packet §4).
       const vizCommit = viz.commit({
-        id: args.correlationId,
+        id: `viz-${args.correlationId}`,
+        correlationId: args.correlationId,
         parent: lastVizId,
         viewId: 'B',
         actorMeta: { actor: 'agent', label: 'Amount brush' },
@@ -205,6 +210,6 @@ export async function buildChain(): Promise<Chain> {
     decoy: DECOY_Q,
     joinTable,
     vizRecords: viz.records,
-    decoyVizCommitIds: ['decoy-cat', DECOY_Q],
+    decoyVizCommitIds: ['decoy-cat', `viz-${DECOY_Q}`],
   };
 }

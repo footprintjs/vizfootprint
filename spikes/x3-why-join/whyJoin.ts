@@ -6,7 +6,9 @@
  *     MINIMAL kernel commit set rowCount causally depends on (R9);
  *   - agent:  the tool-call frame recorded in the join table (its runtimeStageId
  *     is the agentfootprint slicer's address for that step);
- *   - viz:    the cause-tagged commit, addressed by id.
+ *   - viz:    the cause-tagged commit, addressed by its FIRST-CLASS
+ *     `CommitRecord.correlationId` field (D20/P3 — the log is scanned for
+ *     that field; the commit `id` is identity-only, never the join key).
  * The correlationId is the join key that stitches them. If it cannot be
  * recovered from the kernel's COMMITTED state, the whole thesis is invalidated
  * for that run — reported honestly as `threaded: false`, never faked.
@@ -47,11 +49,11 @@ export interface CrossTierSlice {
   readonly commits: readonly TierCommit[];
 }
 
-/** Honest miss: no join row for this correlationId. */
+/** Honest miss: no join row / no viz commit carries this correlationId. */
 export interface CrossTierMiss {
   readonly correlationId: string;
   readonly key: 'rowCount';
-  readonly missing: 'no-join-key';
+  readonly missing: 'no-join-key' | 'no-viz-commit';
 }
 
 /**
@@ -61,6 +63,12 @@ export interface CrossTierMiss {
 export function whyRowCount(correlationId: string, chain: Chain): CrossTierSlice | CrossTierMiss {
   const rec = chain.joinTable.get(correlationId);
   if (!rec) return { correlationId, key: 'rowCount', missing: 'no-join-key' };
+
+  // Viz tier — resolve the commit by its first-class correlationId field
+  // (D20/P3). Before the field existed, this lookup was `id === key` (an
+  // overload). Honest miss if no commit carries the key.
+  const vizRecord = chain.vizRecords.find((r) => r.correlationId === correlationId);
+  if (!vizRecord) return { correlationId, key: 'rowCount', missing: 'no-viz-commit' };
 
   // Kernel slicer — the R9 minimal set for rowCount.
   const slice = sliceForKey(
@@ -81,7 +89,10 @@ export function whyRowCount(correlationId: string, chain: Chain): CrossTierSlice
   // chart → same execution index, e.g. 'tool-calls#22'), so it is NOT a
   // globally-unique commit id — the unique address is (runId, runtimeStageId).
   const commits: TierCommit[] = [
-    { tier: 'viz', id: rec.viz.commitId },
+    // viz commit id comes from the FIELD-resolved record (never from an
+    // id===key assumption; `rec.viz.commitId` recorded at commit time must
+    // agree — both point at the same commit).
+    { tier: 'viz', id: vizRecord.id },
     { tier: 'agent', id: rec.agent.toolCallId },
     ...commitIds.map((id) => ({ tier: 'kernel' as const, id, stageId: nodes[id]!.stageId })),
   ];
@@ -92,7 +103,7 @@ export function whyRowCount(correlationId: string, chain: Chain): CrossTierSlice
     threaded,
     kernel: { writerId: json.writerId ?? '', commitIds, stageIds },
     agent: { toolCallId: rec.agent.toolCallId, runtimeStageId: rec.agent.runtimeStageId, runId: rec.agent.runId },
-    viz: { commitId: rec.viz.commitId },
+    viz: { commitId: vizRecord.id },
     commits,
   };
 }

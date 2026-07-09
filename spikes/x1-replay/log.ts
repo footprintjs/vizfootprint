@@ -26,6 +26,17 @@ export interface CommitRecord {
   id: string;
   /** Parent commit id, or null for a root. Enables branching timelines (R8). */
   parent: string | null;
+  /**
+   * Optional cross-tier join key (x3 / R10): ties this commit to a
+   * correlated event in another tier (agent tool call, kernel run, …).
+   * First-class field — NOT the commit `id`. Before this field existed the
+   * x3 spike overloaded `id` as the join key (id === correlationId), which
+   * conflated "this commit's own identity" with "the cross-tier address to
+   * find it by". Independent concerns: `id` must stay unique per log entry
+   * (parent-pointer chaining relies on it); `correlationId` may be shared,
+   * absent, or reused by a caller's own scheme.
+   */
+  correlationId?: string;
   /** Registry key that resolves to the clause `source` identity on replay. */
   viewId: string;
   /** Serializable actor metadata so a fresh registry can rebuild the source. */
@@ -50,6 +61,8 @@ export interface CommitRecord {
 export interface CommitInput {
   id: string;
   parent: string | null;
+  /** Optional cross-tier join key — see {@link CommitRecord.correlationId}. */
+  correlationId?: string;
   viewId: string;
   actorMeta: ActorMeta;
   kind: 'point' | 'interval';
@@ -104,6 +117,7 @@ export class CauseSelectionSession {
     const record: CommitRecord = {
       id: input.id,
       parent: input.parent,
+      ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
       viewId: input.viewId,
       actorMeta: source.meta,
       kind: input.kind,
@@ -156,6 +170,10 @@ export function replayLog(
     session.commit({
       id: rec.id,
       parent: rec.parent,
+      // Preserve the cross-tier join key verbatim — a replayed commit still
+      // answers to the same correlationId (no markReplayed analog: the key
+      // is an ADDRESS, not provenance).
+      ...(rec.correlationId !== undefined && { correlationId: rec.correlationId }),
       viewId: rec.viewId,
       actorMeta: rec.actorMeta,
       kind: rec.kind,

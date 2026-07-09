@@ -43,11 +43,14 @@ describe('A1 — composed slice equals the hand-computed minimal set', () => {
     expect(result.kernel.writerId.startsWith('count#')).toBe(true);
   });
 
-  it('agent frame is the corr-amt-1 tool call; viz commit is corr-amt-1', () => {
+  it('agent frame is the corr-amt-1 tool call; viz commit resolved by its correlationId FIELD', () => {
     expect(result.agent.toolCallId).toBe('call-corr-amt-1');
     expect(result.agent.runtimeStageId.length).toBeGreaterThan(0);
     expect(result.agent.runId.length).toBeGreaterThan(0);
-    expect(result.viz.commitId).toBe('corr-amt-1');
+    // D20/P3: the commit id is identity-only — the join key rides in the
+    // first-class field, so id !== correlationId by construction now.
+    expect(result.viz.commitId).toBe('viz-corr-amt-1');
+    expect(result.viz.commitId).not.toBe(result.correlationId);
   });
 
   it('the composed cross-tier set is exactly the hand-listed commits', () => {
@@ -56,13 +59,25 @@ describe('A1 — composed slice equals the hand-computed minimal set', () => {
       .map((c) => `${c.tier}:${c.stageId ?? c.id}`)
       .sort();
     const EXPECTED = [
-      'viz:corr-amt-1',
+      'viz:viz-corr-amt-1', // own id; joined via CommitRecord.correlationId
       'agent:call-corr-amt-1', // agent commit id = toolCallId (unambiguous)
       'kernel:count',
       'kernel:filter',
       'kernel:load',
     ].sort();
     expect(composed).toEqual(EXPECTED);
+  });
+
+  it('the viz commit carries the join key as a FIRST-CLASS field (no id overload)', () => {
+    const vizRecord = chain.vizRecords.find((r) => r.correlationId === 'corr-amt-1');
+    expect(vizRecord).toBeDefined();
+    expect(vizRecord!.id).toBe('viz-corr-amt-1');
+    expect(vizRecord!.correlationId).toBe('corr-amt-1');
+    expect(vizRecord!.id).not.toBe(vizRecord!.correlationId);
+    // commits that never joined a cross-tier run simply have NO key.
+    const decoyCat = chain.vizRecords.find((r) => r.id === 'decoy-cat');
+    expect(decoyCat).toBeDefined();
+    expect(decoyCat!.correlationId).toBeUndefined();
   });
 });
 
@@ -73,7 +88,7 @@ describe('A2 — decoys are excluded from the slice', () => {
       expect(ids.has(decoyId)).toBe(false);
     }
     expect(result.viz.commitId).not.toBe('decoy-cat');
-    expect(result.viz.commitId).not.toBe('corr-amt-2');
+    expect(result.viz.commitId).not.toBe('viz-corr-amt-2');
   });
 
   it('the DECOY agent tool call (corr-amt-2) never appears', () => {

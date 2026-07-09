@@ -219,3 +219,38 @@ describe('A4 — validator rejects malformed cause; injection strings are inert 
     expect(rec.cause.computedBy).toBe('agent');
   });
 });
+
+describe('A5 — correlationId is a first-class, replay-preserved field (D20/P3)', () => {
+  const base = {
+    parent: null,
+    viewId: 'A',
+    actorMeta: { actor: 'user' as const },
+    kind: 'point' as const,
+    field: 'category',
+    value: 'Data',
+    cause: { requestedBy: 'user' as const, computedBy: 'user' as const },
+  };
+
+  it('commit() lands correlationId on the record; absent (no key) when not supplied', () => {
+    const s = new CauseSelectionSession();
+    const withKey = s.commit({ ...base, id: 'k1', correlationId: 'corr-42' }).record;
+    const withoutKey = s.commit({ ...base, id: 'k2', parent: 'k1' }).record;
+
+    expect(withKey.correlationId).toBe('corr-42');
+    expect(withKey.id).toBe('k1'); // id stays identity-only — NOT the join key
+    expect('correlationId' in withoutKey).toBe(false); // absent, not undefined-valued
+  });
+
+  it('serialize → replay preserves correlationId verbatim (and still marks replayed)', () => {
+    const s = new CauseSelectionSession();
+    s.commit({ ...base, id: 'k1', correlationId: 'corr-42' });
+    s.commit({ ...base, id: 'k2', parent: 'k1' });
+
+    const replayed = replayLog(serializeLog(s.records));
+    const [r1, r2] = replayed.records;
+
+    expect(r1!.correlationId).toBe('corr-42'); // the ADDRESS survives replay
+    expect(r1!.cause.replayed).toBe(true); // provenance marker still applied
+    expect('correlationId' in r2!).toBe(false); // absence survives replay too
+  });
+});
