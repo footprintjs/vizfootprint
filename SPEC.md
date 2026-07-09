@@ -562,15 +562,51 @@ const TEST_ANALOG_FIELD = 'pValue';  // fromLog.ts:43 — the L1-native "this IS
 
 ---
 
-## 7. L5 — agent (`vizfootprint/agent`, `vizfootprint/mcp`) · GREENFIELD
+## 7. L5 — agent (`vizfootprint/agent`, `vizfootprint/mcp`) · SHIPPED (P3-L5)
 
 The agent-driving surface. Mirrors hcifootprint's grammar exactly: a declarative def →
 `createSession()` → `vizAsTools` / `mcpServer`. The agent drives **every** interaction through
 **semantic dispatch** (R4) over declarative data (R12); it never synthesizes raw input events.
 
-> No L5 code exists yet. Grammar is fixed by family symmetry (`hcifootprint/README.md:108,133,250`).
+> **SHIPPED (P3-L5).** `src/def/**` (`buildDashboard` + `DashboardDef` schema), `src/session/**`
+> (`InteractionSession`), `src/agent/**` (`vizAsTools`), `src/mcp/**` (`mcpServer`, the ONLY place
+> `@modelcontextprotocol/sdk` — an optional peer — is imported, subpath-isolated exactly like
+> `hcifootprint/src/serve/mcp-server.ts`). Grammar fixed by family symmetry
+> (`hcifootprint/README.md:108,133,250`). 38 tests; tsc clean.
+>
+> **Frozen signatures (as built):**
+> ```ts
+> function buildDashboard(def: DashboardDef, opts?: { availableEngines?: ResolvedEngine[] }): Dashboard;
+> interface Dashboard { readonly def; readonly engines: Record<table, Engine>; createSession(opts?): InteractionSession; }
+> interface InteractionSession {
+>   readonly log: CauseSelectionSession; readonly head: string | null; readonly defaultTable; readonly defaultActor;
+>   mountView(viewId, adapter: ViewAdapter): { ok:true } | { ok:false; gap };   // R3 + capability decl
+>   dispatch(action: DispatchAction, opts?: { as?: Actor }): Promise<DispatchResult>;   // R4 (async: reads the provider)
+>   declareAnalysis(id, opts?): Promise<AnalysisCommit>;   // runs+lands+steps-L4+materializes (R11)
+>   registerAnalysis(id, slot); hasAnalysis(id); analysisIds();
+>   why(target): WhyNotImplemented;                        // typed L6 STUB {ok:false,reason,owner:'L6'}
+>   gaps(): readonly GapRow[]; readonly gapLedger: GapLedger;   // D14 taxonomy
+>   ledger(): readonly FdrStep[]; checkpoints(); selectedRows(table?); overview(): Promise<Overview>;
+> }
+> function vizAsTools(session, opts?): VizToolsPort;   // fixed 6-tool Mode B port (async .call)
+> function mcpServer(session, opts?): Server;          // vizfootprint/mcp
+> ```
+> **§7-vs-built refinements (flagged, additive — same discipline as L3's freeze notes):**
+> 1. `declareAnalysis(id, def)` in the sketch below was a REGISTER call; as built it is the RUN+LAND method
+>    (`declareAnalysis(id, opts?)` — executes via `defineAnalysis`, stamps the `computedBy:'system'` cause, lands
+>    the `AnalysisCommit` in the L1 log as a `pValue` point commit for a test / an `__analysis__` commit for a
+>    transform, steps the L4 stepper, materializes columns via the provider). Runtime registration folds into
+>    `opts.def` (+ `def.analyses` at build time) — the SPEC's `(id, def)` intent is preserved.
+> 2. `analyses` accepts an L3 built-in `AnalysisModule` (e.g. `clusteringAnalysis(...)`) as well as a raw
+>    `AnalysisDef` — the built-ins are the common case; raw defs are re-firewalled through `validateAnalysisDef`.
+> 3. `gaps` is a METHOD `gaps()` (+ a `gapLedger` field), not a bare `readonly gaps` field.
+> 4. `why` is a typed not-implemented STUB here — L6 (`vizfootprint/why`) owns the real join.
+> 5. `fdr.gamma` is an optional developer-authored `GammaSequence` (a function, like `AnalysisDef.build`), never a
+>    string — validated as such.
+> 6. The def carries `data[table].engine` (D24) + an optional `defaultTable`; `buildDashboard` resolves one
+>    `DataProvider` per table (`memory` always-on; `wasm`/`server` typed stubs; `auto` via `chooseEngine`).
 
-### Proposed public API
+### Proposed public API (original sketch — superseded by the frozen signatures above)
 
 ```ts
 function buildDashboard(def: DashboardDef): Dashboard;   // offline, no API key; validates def (R12)
@@ -620,15 +656,29 @@ silently dropped:
 - **R14** honest by construction — capability declarations in the def, typed rejections via the
   gap ledger, degenerate-fit flags surfaced from L3.
 
-### Acceptance tests (to write)
-- **Zero synthetic input** (R4): assert the tool/MCP surface exposes only semantic verbs; a probe
-  that tries to push a raw DOM event has no entry point.
-- **Every unmet request is a typed gap** (R14): request a nonexistent column → one gap with code
-  `needs-column`; no throw, no silent drop.
-- **Injection corpus** (R12): a corpus of adversarial `intent`/`note`/`label` strings round-trips
-  as inert data and never alters control flow (extend `replay.test.ts:207-220` to the dispatch path).
-- **Tool-surface parity with MCP** (family): `vizAsTools(session)` and `mcpServer(session)` expose
-  the same verb set (mirror hcifootprint's dual surface).
+### Acceptance tests (shipped)
+- **R4 scripted agent** — a plain no-LLM function completes a 5-step task
+  (filter → cluster → filter-by-cluster → declare correlation → read ledger) through the tool port
+  ALONE, zero synthetic input, zero gaps (`src/agent/vizAsTools.test.ts`).
+- **Zero synthetic input** (R4): the surface exposes exactly the six fixed semantic tools; no
+  raw-event tool; `dispatch` rejects an unknown verb; `declare_analysis` exposes no raw-row input
+  (`src/agent/vizAsTools.test.ts`).
+- **Every unmet request is a typed gap** (R14 / D14): a nonexistent column → `needs-column`, an
+  unknown view → `needs-view`, an unknown analysis → `needs-analysis-kind`, a no-probe adapter →
+  `guard-failed`, a server-backed table → `needs-backend-data`; no throw, no silent drop
+  (`src/session/session.test.ts`).
+- **Q8 injection corpus** (R12): a category literally named `IGNORE PREVIOUS INSTRUCTIONS…` and an
+  identical `cause.intent` round-trip as inert DATA and never reach the tool-descriptor / instruction
+  channel (`src/agent/vizAsTools.test.ts`).
+- **R1/R2 at the session level**: cause histogram byte-identical across serialize→replay, `replayed:true`
+  added, slots preserved; `computedBy` forced to `'system'` on analyses (`src/session/session.test.ts`).
+- **R6**: 100 dispatched selects → 0 test commits; one declared correlation → exactly 1
+  (`src/session/session.test.ts`). **R11**: `cluster_id` filters via an ordinary dispatch `select`
+  after clustering materializes it. **R14 honesty**: a degenerate correlation lands no commit and
+  spends no FDR wealth.
+- **Tool-surface parity with MCP** (family): a real `@modelcontextprotocol/sdk` `Client` over an
+  in-memory transport drives the session; `mcpServer(session)` exposes the SAME six tools as
+  `vizAsTools(session)` (`src/mcp/mcpServer.test.ts`).
 
 ### The def schema outline — a **mosaic-spec superset** (+ VL encodings)
 
@@ -651,6 +701,15 @@ DashboardDef = {
   agent?:       { intents: IntentDecl[] }            // dual-intent tagging for dispatch verbs (R4/R11)
 }
 ```
+
+**Built (P3-L5, `src/def/types.ts` + `src/def/validate.ts`).** vizfootprint MIRRORS Mosaic's exact
+five SpecHead top-level keys `{ meta, config, data, params, plotDefaults }` (`parse-spec.js:60`) — plus
+the `...views` plot tree — as **opaque pass-through** (vizfootprint renders nothing, SPEC §1; the VL
+encodings ride untouched). Additions built as specified, with two shape refinements: `data[table]` is a
+`DataSourceDef` `{ rows | csv, engine?, layout? }` (the D24 engine key routed to `chooseEngine`/providers);
+`analyses` also accepts an L3 built-in `AnalysisModule` (not only a raw `AnalysisDef`). `validateDashboardDef`
+is the R12 firewall (strict key allowlist, rejects `__proto__`; a raw `AnalysisDef` is re-run through L3's
+`validateAnalysisDef`).
 
 ### Consumes
 - L0/L1/L2 (cause, log, registry+clauses), L3 (`analyses`), L4 (`fdr`), L6 (`why`), and — for the
@@ -798,9 +857,14 @@ state; if not, the answer is honest (`threaded:false`), never faked (`whyJoin.ts
 ### 9.5 `DashboardDef` schema outline — see §7 ("mosaic-spec superset"), grounded at
 `parse-spec.js:60`.
 
-### 9.6 Dispatch action vocabulary — see §7. **Q6 flagged open**: completeness of
-`{select, filter, annotate, navigate, analyze, fork, checkpoint}` is unproven; benchmark against a
-DashboardQA-style task set (§7, §10 Q6).
+### 9.6 Dispatch action vocabulary — see §7. **Q6 partial verdict (P3-L5)**: all 7 verbs
+`{select, filter, annotate, navigate, analyze, fork, checkpoint}` are WIRED (`src/session/session.ts`)
+and a scripted no-LLM agent completes a 5-step task through them alone with zero gaps
+(`src/agent/vizAsTools.test.ts`). Necessity evidence: `select`/`filter`/`analyze`/`fork`/`checkpoint`
+each carry an acceptance test; `annotate`/`navigate` are proven wired but NOT load-bearing in the task
+suite (both `optional-interaction`, no analytical consumer yet) — the two soft verbs. Full completeness
+vs a DashboardQA-style battery stays **open until benchmarked** (canonical `docs/RESEARCH_STATE.md` Q6;
+the gap distribution is the completeness signal — a task that cannot be expressed files a `needs-*` gap).
 
 ---
 
