@@ -164,68 +164,70 @@ them into a fresh `Selection` with fresh source identity. Currently `spikes/x1-r
 L1 promotes it verbatim into `src/log/` (the x2 stub `DeclaredAnalysisLog` is explicitly
 throwaway — `spikes/x2-fdr/commit-log-stub.ts:1-9`).
 
-### Public API (from `spikes/x1-replay/log.ts`)
+### Public API (from `src/log/log.ts` — promoted P3.1, commit `a24dc50`)
 
 ```ts
-class CauseSelectionSession {                             // log.ts:82
+class CauseSelectionSession {                             // src/log/log.ts:98
   readonly selection: Selection;                          // a real Mosaic Selection
   readonly registry: SourceRegistry;                      // owns source identities (L2)
   readonly records: CommitRecord[];
   constructor(selection?: Selection, registry?: SourceRegistry);
-  commit(input: CommitInput): { record: CommitRecord; clause: SelectionClause };  // log.ts:97
+  commit(input: CommitInput): { record: CommitRecord; clause: SelectionClause };  // src/log/log.ts:113
 }
 
-function serializeLog(records: readonly CommitRecord[]): string;                   // log.ts:137
-function deserializeLog(json: string): CommitRecord[];                             // log.ts:142
+function serializeLog(records: readonly CommitRecord[]): string;                   // src/log/log.ts:158
+function deserializeLog(json: string): CommitRecord[];                             // src/log/log.ts:163
 function replayLog(log: string | readonly CommitRecord[],
-                   order?: readonly string[]): CauseSelectionSession;              // log.ts:158
-function causeHistogram(records: readonly CommitRecord[]): Record<string, number>; // log.ts:195
+                   order?: readonly string[]): CauseSelectionSession;              // src/log/log.ts:179
+function causeHistogram(records: readonly CommitRecord[]): Record<string, number>; // src/log/log.ts:216
 ```
 
 `commit()` is the single write path shared by live authoring **and** replay, so their behavior
-is identical by construction (`log.ts:82-85`). It: validates the cause (R12 gate again at the
-log boundary — `log.ts:98`), reconstructs source identity from the registry, builds the
+is identical by construction (`src/log/log.ts:93-98`). It: validates the cause (R12 gate again at the
+log boundary — `src/log/log.ts:114`), reconstructs source identity from the registry, builds the
 cause-tagged clause, applies it to the `Selection`, and appends the record.
 
 ### R# satisfied
 - **R2** (replay mode) + **byte-identical histogram** — `causeHistogram` deliberately excludes
-  `replayed`/`intent` so it is invariant across replay (`log.ts:190-201`); proven byte-identical
-  in `replay.test.ts:147-158`.
+  `replayed`/`intent` so it is invariant across replay (`src/log/log.ts:211-223`); proven byte-identical
+  in `src/log/log.test.ts:167-173`.
 - **R5** spatial interactions commit **DATA-space** values — `CommitRecord.value` stores the data
   interval `[10,20]` / point `'Data'`, not pixels; replay rebuilds identical predicate SQL in a
-  fresh selection (`replay.test.ts:172-179`; `branch.test.ts:25-33`). *(Viewport/library
-  independence is asserted via SQL determinism, not yet across two rendering libraries — see Q4.)*
+  fresh selection (`src/log/log.test.ts:187-194`; `src/log/branch.test.ts:27-35`). *(Viewport/library
+  independence is asserted via SQL determinism, not yet across two rendering libraries — see Q4.
+  P3-L2 strengthens the DATA-space-in half explicitly — see `src/log/viewport-replay.test.ts` and
+  `src/mosaic/emission.test.ts`'s R5 block — but does not close Q4's cross-library claim.)*
 - **R8** append-only branching — `parent: string | null` chains commits; siblings branch off one
-  parent; each branch replays into its own fresh selection (`replay.spike.ts:22-54`;
-  `branch.test.ts:10-40`).
+  parent; each branch replays into its own fresh selection (`src/log/branching.fixture.ts:24-91`;
+  `src/log/branch.test.ts:12-41`).
 - **R13** commit-on-intent — one commit per gesture (the session's single write at gesture end);
   proven in x4 (`bench/x4/x4.test.ts:64-81`).
 - **R15** the log stays out of the 60 Hz hot path — x4 (see §6).
-- Supports **R10** — first-class `CommitRecord.correlationId` cross-tier join key (`log.ts:24-58`).
+- Supports **R10** — first-class `CommitRecord.correlationId` cross-tier join key (`src/log/log.ts:45-55`).
 
 ### Acceptance tests
 - **Self-exclusion identical pre/post replay** (A1): view A never sees its own clause but does
   see B, before AND after replay into a fresh Selection+registry; fresh objects (`!== `), identical
-  predicate sets (`replay.test.ts:89-127`).
+  predicate sets (`src/log/log.test.ts:88-124`).
 - **`remove(source)` after replay** (A2): removing the replayed source-for-A leaves exactly B;
-  original selection unchanged (remove returns a clone) (`replay.test.ts:129-145`).
+  original selection unchanged (remove returns a clone) (`src/log/log.test.ts:128-142`).
 - **Branching replays independently** (R8): two sibling branches off `c1` produce different,
   deterministic selections; same path replays byte-identically twice; unknown commit id in a path
-  throws (`branch.test.ts:10-40`).
+  throws (`src/log/branch.test.ts:12-41`).
 - **`correlationId` is first-class, replay-preserved** (A5, D20/P3): `commit()` lands
   `correlationId` on the record; **absent** (not undefined-valued) when unsupplied; survives
   serialize→replay verbatim while still marking `replayed:true`; `id !== correlationId`
-  (`replay.test.ts:223-256`).
+  (`src/log/log.test.ts:238-271`).
 
 ### Consumes
-- L0 `validateCause`, `markReplayed`, `Cause` (`log.ts:15`).
-- L2 `SourceRegistry`, `causeClause`, `ActorMeta`, `CauseClauseSpec` (`log.ts:16-21`).
-- `@uwdata/mosaic-core` `Selection`, `SelectionClause` (`log.ts:13-14`).
+- L0 `validateCause`, `markReplayed`, `Cause` (`src/log/log.ts:31`).
+- L2 `SourceRegistry`, `causeClause`, `ActorMeta`, `CauseClauseSpec` (`src/log/log.ts:32-37`).
+- `@uwdata/mosaic-core` `Selection`, `SelectionClause` (`src/log/log.ts:29-30`).
 
 ### Non-goals
 - **Not** a general event bus — it logs *state-changing clause commits*, not every UI event.
 - **Not** a persistence layer — `serializeLog`/`deserializeLog` are plain JSON round-trips
-  (`log.ts:137-146`); a caller chooses storage. `value` **must be JSON-serializable** (`log.ts:49`).
+  (`src/log/log.ts:158-167`); a caller chooses storage. `value` **must be JSON-serializable** (`src/log/log.ts:64-65`).
 - Branch *selection* is by explicit id-path (`replayLog(log, order)`); the log does not choose a
   branch policy.
 
@@ -279,7 +281,7 @@ citing installed `PreAggregator.js:192-206`).
 - **R3** symmetric adapter — **echo suppression is from the clause, never a flag**: the registry
   source identity + cross-filter `clients` self-exclusion is what makes a view not see its own
   clause (`causeClause.ts:50-60`; `SourceRegistry.ts:10-14`), proven identity-stable across replay
-  in `replay.test.ts:89-127`. *(The **mandatory outbound typed emit carrying origin** half of R3
+  in `src/log/log.test.ts:88-124`. *(The **mandatory outbound typed emit carrying origin** half of R3
   is designed at L5's adapter contract — see §6 and Q3.)*
 - **R12** malformed causes never enter the clause stream — `causeClause` calls `validateCause`
   before building anything (`causeClause.ts:67`).

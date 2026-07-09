@@ -50,13 +50,12 @@ export type CauseClauseSpec =
 /**
  * A registered source is used as BOTH the clause `source` and (via `clients`)
  * the cross-filter "client" — matching Mosaic's own note that a source "in many
- * cases is a reference to the originating component itself". Mosaic's `clients`
- * is typed `Set<MosaicClient>`, but the only runtime use is an identity
- * `Set.has(client)` (SelectionResolver.skip, Selection.js:278-283), so a
- * registry object stands in safely. This cast localizes that fact.
+ * cases is a reference to the originating component itself". Q9 (resolved,
+ * see `SourceRegistry.ts` file header): `RegisteredSource` genuinely extends
+ * `MosaicClient`, so this is a real `Set<MosaicClient>` — no cast required.
  */
 function asClients(sources: RegisteredSource[]): Set<MosaicClient> {
-  return new Set(sources) as unknown as Set<MosaicClient>;
+  return new Set(sources);
 }
 
 /**

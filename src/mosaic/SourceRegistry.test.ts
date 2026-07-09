@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { MosaicClient } from '@uwdata/mosaic-core';
+import type { MosaicClient as MosaicClientType } from '@uwdata/mosaic-core';
 import { SourceRegistry, SourceRegistryError } from './index.js';
 
 describe('SourceRegistry — identity stability within a registry', () => {
@@ -27,6 +29,25 @@ describe('SourceRegistry — identity stability within a registry', () => {
     expect(() => r.register('', { actor: 'user' })).toThrow(SourceRegistryError);
     // @ts-expect-error bad actor
     expect(() => r.register('v', { actor: 'robot' })).toThrow(SourceRegistryError);
+  });
+
+  it('Q9 (resolved) — a registered source genuinely IS a MosaicClient, no cast required', () => {
+    const r = new SourceRegistry();
+    const a = r.register('viewA', { actor: 'user' });
+
+    // nominal: the SAME instanceof check Mosaic's own isMosaicClient() uses
+    // (node_modules/@uwdata/mosaic-core/dist/src/MosaicClient.js:2-4).
+    expect(a).toBeInstanceOf(MosaicClient);
+
+    // structural + compile-time: a Set<RegisteredSource> IS a Set<MosaicClient>
+    // with no `as unknown as` anywhere — if this line failed to compile,
+    // `tsc --noEmit` would fail the build, not just this assertion.
+    const clients: Set<MosaicClientType> = new Set([a]);
+    expect(clients.has(a)).toBe(true);
+
+    // and it is inert: never connected to a coordinator, never initialized.
+    expect(a.coordinator).toBeNull();
+    expect(a.initialized).toBe(false);
   });
 });
 

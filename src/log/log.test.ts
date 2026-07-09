@@ -11,7 +11,6 @@
 
 import { describe, it, expect } from 'vitest';
 import { Selection } from '@uwdata/mosaic-core';
-import type { MosaicClient } from '@uwdata/mosaic-core';
 import type { RegisteredSource } from '../mosaic/index.js';
 import {
   CauseSelectionSession,
@@ -74,9 +73,9 @@ function authorMainLine(): CauseSelectionSession {
  * Selection.js:278-283) from the transient "active source" skip.
  */
 function visibleSQL(sel: Selection, client: RegisteredSource): string[] {
-  // Mosaic types the client param as MosaicClient, but the only runtime use is
-  // an identity Set.has (SelectionResolver.skip); a registry source stands in.
-  const pred = sel.predicate(client as unknown as MosaicClient, true);
+  // Q9 (resolved, src/mosaic/SourceRegistry.ts): RegisteredSource genuinely
+  // extends MosaicClient, so `client` IS a MosaicClient — no cast needed.
+  const pred = sel.predicate(client, true);
   if (pred == null) return [];
   const arr = Array.isArray(pred) ? pred : [pred];
   return arr.map((p) => String(p)).sort();

@@ -16,8 +16,33 @@
  * RECONSTRUCTION: a stable string id -> a live source object, created once per
  * registry. Serialize the id; on replay build a FRESH registry with the SAME
  * ids, and every clause rebuilt against it shares one consistent identity again.
+ *
+ * Q9 (RESOLVED — docs/RESEARCH_STATE.md canonical Q9 / SPEC.md §10 Q9):
+ * `SelectionClause.clients` is typed `Set<MosaicClient>`
+ *   node_modules/@uwdata/mosaic-core/dist/src/SelectionClause.d.ts (the
+ *   `clients` option on `clausePoint`/`clauseInterval`, mirrored on the
+ *   returned clause shape).
+ * but its ONLY runtime read anywhere in the installed package is an identity
+ * `Set.has(client)` check:
+ *   node_modules/@uwdata/mosaic-core/dist/src/Selection.js:278-283
+ *     `skip(client, clause) { ... return Boolean(this.cross && clause?.clients?.has(client)); }`
+ * (confirmed exhaustively: `grep -rn '\.clients' dist/src` turns up exactly
+ * one other `.clients` — Coordinator.js's OWN unrelated connected-clients
+ * set — and zero property/method access on a `clients` SET MEMBER anywhere).
+ * `MosaicClient` (node_modules/@uwdata/mosaic-core/dist/src/MosaicClient.js:20-233)
+ * is a plain class with ONLY public fields/accessors/methods — no `#private`
+ * fields — so it is honestly *implementable*, not just cast-around; and its
+ * safe defaults (`prepare()` no-ops at MosaicClient.js:119-120, `query()`
+ * returns `null` at MosaicClient.js:126-128) mean a subclass that never
+ * connects to a coordinator (`_coordinator` stays `null`) is inert.
+ * `RegisteredSource` therefore EXTENDS `MosaicClient` for real: it IS one
+ * (`instanceof MosaicClient` — the same nominal check `isMosaicClient` uses,
+ * MosaicClient.js:2-4 — is genuinely true, not merely cast to type-check),
+ * so `Set<RegisteredSource>` is a real `Set<MosaicClient>` — no double-cast
+ * through `unknown` to force the type checker anywhere in src/mosaic/**.
  */
 
+import { MosaicClient } from '@uwdata/mosaic-core';
 import type { Actor } from '../cause/index.js';
 
 /** Serializable metadata describing who drives a registered view/source. */
@@ -32,14 +57,28 @@ export interface ActorMeta {
  * A live source object handed to Mosaic as a clause `source` (and, for
  * self-exclusion, as a member of the clause `clients` set). Its IDENTITY is the
  * load-bearing property; the fields exist so the log can reference it by id.
+ *
+ * Genuinely extends `MosaicClient` (Q9, see file header) rather than merely
+ * satisfying its shape. It is never `coordinator`-connected and never
+ * `enabled`/`initialize()`d — only its identity and the two data fields below
+ * are used. `viewId`/`meta` are added instance fields on top of the inherited
+ * `MosaicClient` surface (which stays default/inert).
  */
-export interface RegisteredSource {
+export class RegisteredSource extends MosaicClient {
   /** Stable registry key. Survives serialization; identity does not. */
   readonly viewId: string;
   /** Serializable actor metadata for this source. */
   readonly meta: ActorMeta;
   /** Optional Mosaic reset hook (called by Selection.reset / single-mode). */
   reset?: () => void;
+
+  constructor(viewId: string, meta: ActorMeta) {
+    // MosaicClient.d.ts:40 — filterSelection is optional; this source is
+    // identity-only and is never connected to a coordinator.
+    super();
+    this.viewId = viewId;
+    this.meta = meta;
+  }
 }
 
 /** Thrown when a registry is asked to do something that would break identity. */
@@ -93,7 +132,7 @@ export class SourceRegistry {
       }
       return existing;
     }
-    const source: RegisteredSource = { viewId, meta };
+    const source = new RegisteredSource(viewId, meta);
     this.sources.set(viewId, source);
     return source;
   }

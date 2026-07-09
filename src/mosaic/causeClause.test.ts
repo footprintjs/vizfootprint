@@ -66,4 +66,45 @@ describe('causeClause — builds a real Mosaic clause carrying a cause', () => {
     // and Mosaic's own meta.type is intact alongside our cause
     expect(live!.meta?.type).toBe('interval');
   });
+
+  it('causeOf round-trips exactly through causeClause (equality, not just presence)', () => {
+    const reg = new SourceRegistry();
+    const a = reg.register('A', { actor: 'system' });
+    const original = cause({ requestedBy: 'agent', computedBy: 'system', intent: 'recompute' });
+    const clause = causeClause({ kind: 'point', source: a, field: 'status', value: 'ok', cause: original });
+    expect(causeOf(clause)).toEqual(original);
+    expect(causeOf(clause)).not.toBe(original); // validated/rebuilt, not the same reference
+  });
+
+  it('causeOf returns undefined for a clause with no cause on its meta', () => {
+    // A bare Mosaic clause (no CauseMetadata) — causeOf must not throw or fabricate one.
+    expect(causeOf({ source: {}, predicate: null, meta: { type: 'point' } } as never)).toBeUndefined();
+  });
+
+  it('cross-filter: clients excludes only self across a TWO-view registry', () => {
+    const reg = new SourceRegistry();
+    const a = reg.register('A', { actor: 'user' });
+    const b = reg.register('B', { actor: 'agent' });
+
+    // A's clause explicitly lists BOTH as clients (self + peer) — the
+    // self-exclusion contract only ever excludes the literal member(s)
+    // named in `clients`, driven by identity, never a flag.
+    const clauseA = causeClause({
+      kind: 'point',
+      source: a,
+      field: 'category',
+      value: 'Data',
+      cause: cause(),
+      clients: [a, b],
+    });
+    expect(clauseA.clients?.has(a)).toBe(true);
+    expect(clauseA.clients?.has(b)).toBe(true);
+    expect(clauseA.clients?.size).toBe(2);
+
+    // the default (clients omitted) excludes ONLY the source itself
+    const clauseB = causeClause({ kind: 'point', source: b, field: 'category', value: 'X', cause: cause() });
+    expect(clauseB.clients?.has(b)).toBe(true);
+    expect(clauseB.clients?.has(a)).toBe(false);
+    expect(clauseB.clients?.size).toBe(1);
+  });
 });
