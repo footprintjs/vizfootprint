@@ -1,0 +1,58 @@
+{
+  "name": "vizfootprint-ui",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The designed, reusable component library for vizfootprint — a headless session-view adapter plus layout, chart, time-travel, and panel React components that render a coordinated, cause-tagged, branching-provenance dashboard. Part of the footprintjs family.",
+  "type": "module",
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "module": "./dist/vizfootprint-ui.js",
+  "main": "./dist/vizfootprint-ui.js",
+  "unpkg": "./dist/vizfootprint-ui.umd.js",
+  "jsdelivr": "./dist/vizfootprint-ui.umd.js",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./dist/vizfootprint-ui.js",
+      "default": "./dist/vizfootprint-ui.js"
+    },
+    "./umd": "./dist/vizfootprint-ui.umd.js",
+    "./styles.css": "./dist/vizfootprint-ui.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "types",
+    "README.md"
+  ],
+  "sideEffects": [
+    "**/*.css",
+    "dist/vizfootprint-ui.umd.js"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "types": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "gallery": "node gallery/serve.mjs"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "esbuild": "^0.28.1",
+    "jsdom": "^25.0.0",
+    "playwright-core": "^1.58.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.5.0",
+    "vitest": "^4.0.0"
+  }
+}

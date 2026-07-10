@@ -5,6 +5,9 @@
   "description": "Causal/agent provenance layer for coordinated interactive visualization — cause-tagged clauses over Mosaic, append-only branching provenance, declared analyses with online FDR. Part of the footprintjs family.",
   "type": "module",
   "license": "MIT",
+  "workspaces": [
+    "ui"
+  ],
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
@@ -12,7 +15,11 @@
     "typecheck:demo-agent": "tsc -p demo-agent/tsconfig.json --noEmit",
     "demo": "node demo/server.mjs",
     "demo:data": "node demo/gen-data.mjs",
-    "demo:agent": "node demo-agent/server.mjs"
+    "demo:agent": "node demo-agent/server.mjs",
+    "build:ui": "npm run build -w vizfootprint-ui",
+    "test:ui": "npm run test -w vizfootprint-ui",
+    "typecheck:ui": "npm run typecheck -w vizfootprint-ui",
+    "gallery:ui": "npm run gallery -w vizfootprint-ui"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
