@@ -1,0 +1,12 @@
+export { VizScatter } from './VizScatter.js';
+export type { VizScatterProps, ScatterDatum, RegressionGeom } from './VizScatter.js';
+export { VizBar } from './VizBar.js';
+export type { VizBarProps, BarDatum } from './VizBar.js';
+export { EncodingPicker } from './EncodingPicker.js';
+export type { EncodingPickerProps } from './EncodingPicker.js';
+export { AxisLabel } from './AxisLabel.js';
+export type { AxisLabelProps } from './AxisLabel.js';
+export { defaultCompat } from './compat.js';
+export type { Compatibility } from './compat.js';
+export { linearScale, extent, ticks } from './scales.js';
+export type { LinearScale } from './scales.js';
