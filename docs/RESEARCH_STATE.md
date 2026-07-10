@@ -66,6 +66,13 @@ kernel snapshot → honest `runId:null`/`kernelRunIdAvailable:false`, never a cr
 NEW Q14 (from DEMO-2): sanctioned read-back of materialized column VALUES through the session (demo recomputes
 locally to render) — L5 addendum candidate.
 Demo: LIVE :5180, real tool-port agent + gaps panel (b13af40). Repo local-only, head ecaa0b8 — push/publish = owner's word.
+## TIME-TRAVEL SHIPPED (6764dcc + b2c05ff, 334/334 verified): branch-on-act ruling honored — seek = read-only
+cursor + pure fold; act-from-past = atomic sibling branch (fork verb COMPLETED: old doFork moved _head and lost
+the tip — fixed to cursor semantics); named checkpoints (R12-validated); branch-scoped column visibility AT THE
+FOLD (cluster_id on branch A honestly needs-column on sibling B; provider persists physically — documented seam);
+ledger NEVER rewinds (cursorTests vs global monotone wealth — the two-truths display, verbatim honesty line).
+Dashboard :5181 has the time bar + git-graph branch map + checkpoints; analyst reaches seek/checkpoint via tools.
+NOT mirrored to :5180 (out of packet boundary — candidate follow-up).
 ## Next
 P3 packets per SPEC §12, order L1→L6; L1-L5 SHIPPED, L6 (why) remaining. Every packet = R#s + pre-written acceptance
 tests + boundary + diff/test-output artifacts; orchestrator re-runs all tests. Fresh-chat rehydration: read THIS file + SPEC.md.
