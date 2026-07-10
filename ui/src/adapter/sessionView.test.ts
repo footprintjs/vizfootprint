@@ -127,6 +127,27 @@ describe('createSessionView — poll source with injected fetch', () => {
     expect(re?.body).toMatchObject({ verb: 'reencode', viewId: 'scatter', channel: 'y', field: 'rating' });
     view.dispose();
   });
+
+  it('checkpoint posts to its OWN endpoint (endpoints.checkpoint), never endpoints.dispatch (UI-2 regression — found dogfooding)', async () => {
+    const { impl, calls } = fakeFetch();
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    await view.checkpoint('opening brush');
+    const ckptCall = calls.find((c) => c.url === '/api/checkpoint');
+    expect(ckptCall?.body).toMatchObject({ label: 'opening brush' });
+    // never fell through to the generic dispatch endpoint
+    expect(calls.some((c) => c.url === '/api/dispatch' && (c.body as { label?: string } | undefined)?.label === 'opening brush')).toBe(false);
+    view.dispose();
+  });
+
+  it('checkpoint honors a custom endpoints override, same as seek/dispatch', async () => {
+    const { impl, calls } = fakeFetch();
+    const view = createSessionView(pollingSource({ fetchImpl: impl, endpoints: { checkpoint: '/custom/checkpoint' } }));
+    await view.refresh();
+    await view.checkpoint('custom point');
+    expect(calls.some((c) => c.url === '/custom/checkpoint' && (c.body as { label?: string })?.label === 'custom point')).toBe(true);
+    view.dispose();
+  });
 });
 
 describe('createSessionView — in-process session source', () => {
@@ -182,6 +203,15 @@ describe('createSessionView — in-process session source', () => {
       field: 'rating',
       cause: { requestedBy: 'user' },
     });
+    view.dispose();
+  });
+
+  it('checkpoint dispatches the checkpoint verb over an in-process session too', async () => {
+    const session = fakeSession();
+    const view = createSessionView(sessionSource(session), { as: 'user' });
+    await view.refresh();
+    await view.checkpoint('opening brush');
+    expect(session.dispatched[0]).toMatchObject({ verb: 'checkpoint', label: 'opening brush', cause: { requestedBy: 'user' } });
     view.dispose();
   });
 });

@@ -488,7 +488,16 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
     },
 
     async checkpoint(label) {
-      await dispatch({ verb: 'checkpoint', label, cause: cause(`checkpoint ${label}`) }, { label });
+      // NOT routed through the generic dispatch() helper: for a poll source that
+      // helper always POSTs to endpoints.dispatch, but the demo's checkpoint
+      // route is its OWN endpoint (endpoints.checkpoint = '/api/checkpoint',
+      // matching seek's own-endpoint pattern below) — bug found dogfooding UI-2
+      // (the checkpoint composer silently no-opped over a polled session; only
+      // the in-process `sessionSource` path, which never used this helper's poll
+      // branch, was ever exercised before).
+      if (source.kind === 'session') await Promise.resolve(source.session.dispatch({ verb: 'checkpoint', label, cause: cause(`checkpoint ${label}`) }, { as }));
+      else await postJson(endpoints.checkpoint, { label });
+      await afterAction();
     },
 
     async returnToNow() {
