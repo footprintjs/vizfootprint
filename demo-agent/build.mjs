@@ -8,13 +8,15 @@
  *      bundles only our TypeScript (esbuild resolves the `.js` import specifiers
  *      to their `.ts` sources, the same convention src/** uses).
  *
- *   2. the BROWSER APP (src/app.ts) → a single IIFE on `globalThis.VizAgentApp`,
- *      the combined dashboard + chat page. footprintjs's data layer only lazily
- *      imports @duckdb/duckdb-wasm (memory engine never touches it), but the stub
- *      keeps the browser bundle clean regardless.
+ *   2. the BROWSER APP (src/app.tsx) → a single IIFE on `globalThis.VizAgentApp`,
+ *      the combined dashboard + chat page — the dashboard is React over
+ *      vizfootprint-ui (UI-2), the chat popup + 🐛 debugger stay plain DOM.
+ *      footprintjs's data layer only lazily imports @duckdb/duckdb-wasm (memory
+ *      engine never touches it), but the stub keeps the browser bundle clean
+ *      regardless.
  */
 import { fileURLToPath } from 'node:url';
-import { mkdirSync, copyFileSync } from 'node:fs';
+import { mkdirSync, copyFileSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import esbuild from 'esbuild';
@@ -55,6 +57,17 @@ export async function buildCoreModule() {
 }
 
 /**
+ * Read the vizfootprint-ui package's built stylesheet (UI-2 — the migrated
+ * dashboard is styled by the PACKAGE, never re-authored here). Resolved via
+ * node_modules (the workspace symlink `vizfootprint-ui` -> `../ui`), so this
+ * throws a clear error if `ui/` hasn't been built yet (`cd ui && npm run build`).
+ * @returns {Buffer}
+ */
+export function readUiStylesheet() {
+  return readFileSync(require2.resolve('vizfootprint-ui/styles.css'));
+}
+
+/**
  * Vendor the AgentThinkingUI debugger's browser assets into `demo-agent/vendor/`
  * so the /debug page loads them LOCALLY — never a CDN (hardened + works offline).
  * Mirrors the dress-shop's local-atui serving (dress-shop/src/web/server.ts:39-41
@@ -88,18 +101,21 @@ export function vendorDebuggerAssets() {
 }
 
 /**
- * Bundle the combined browser page into one IIFE string.
+ * Bundle the combined browser page into one IIFE string. UI-2: the dashboard
+ * portion is React (JSX, automatic runtime) over vizfootprint-ui; the chat
+ * popup + 🐛 debugger chrome stay plain DOM (kept, not migrated).
  * @returns {Promise<string>} the bundled JS
  */
 export async function buildAppBundle() {
   const result = await esbuild.build({
-    entryPoints: [path.join(__dirname, 'src', 'app.ts')],
+    entryPoints: [path.join(__dirname, 'src', 'app.tsx')],
     bundle: true,
     write: false,
     format: 'iife',
     globalName: 'VizAgentApp',
     platform: 'browser',
     target: 'es2022',
+    jsx: 'automatic',
     logLevel: 'silent',
     plugins: [stubDuckDb],
   });
