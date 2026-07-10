@@ -18,6 +18,7 @@ import path from 'node:path';
 import { startServer } from './server.mjs';
 import { buildAppBundle } from './build.mjs';
 import { createAnalyst } from './src/core.js';
+import { stepBackTarget, stepForwardTarget } from './src/stepNav.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CSV = readFileSync(path.join(__dirname, '..', 'demo', 'data', 'dresses.csv'), 'utf8');
@@ -131,6 +132,50 @@ describe('time-travel: seek + branch-on-act + two-truths (Phase B wiring)', () =
       await handle.close();
     }
   }, 60_000);
+});
+
+describe('time-travel: step back/forward (fork-safe navigation — replaces drag-to-scrub)', () => {
+  it('forward at a fork follows the ACTIVE lane (not the earliest-created sibling); back returns the parent; both edges disable', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+
+    // a genuine ROOT, then a common-prefix commit that becomes the FORK point
+    const r0 = await analyst.dispatchUser({ verb: 'filter', viewId: 'scatter', field: 'price', range: [0, 500], intent: 'seed root' });
+    const rootId = (r0 as { commit: { id: string } }).commit.id;
+    const f0 = await analyst.dispatchUser({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', intent: 'common prefix (fork point)' });
+    const forkId = (f0 as { commit: { id: string } }).commit.id;
+
+    // branch A: the FIRST child of the fork point, created before branch B
+    const a0 = await analyst.dispatchUser({ verb: 'select', viewId: 'bar', field: 'category', value: 'Casual', intent: 'branch A tip' });
+    const branchATip = (a0 as { commit: { id: string } }).commit.id;
+
+    // seek back to the fork point and act again → branch B sprouts as a SIBLING
+    // and becomes the new active lane (R8 branch-on-act)
+    await analyst.seek(forkId);
+    const b0 = await analyst.dispatchUser({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', intent: 'branch B tip' });
+    const branchBTip = (b0 as { commit: { id: string } }).commit.id;
+
+    const st = await analyst.state();
+    expect(st.head).toBe(branchBTip);
+    expect(st.branches.length).toBe(2); // two lineages via the API — the packet's "2-branch history"
+    const records = st.records as { id: string; parent: string | null }[];
+
+    // THE at-fork rule: forward from the fork point follows the ACTIVE lane
+    // (branch B), even though branch A was created first.
+    expect(stepForwardTarget(records, forkId, st.head)).toBe(branchBTip);
+    // forward at the true root is unambiguous (one child, no fork yet)
+    expect(stepForwardTarget(records, rootId, st.head)).toBe(forkId);
+
+    // back from either tip returns to the shared fork point
+    expect(stepBackTarget(records, branchBTip)).toBe(forkId);
+    expect(stepBackTarget(records, branchATip)).toBe(forkId);
+    // back at the true root is disabled (no parent)
+    expect(stepBackTarget(records, rootId)).toBe(null);
+
+    // forward is disabled at both leaves: the abandoned (off-lane) branch A
+    // tip, and the live head itself
+    expect(stepForwardTarget(records, branchATip, st.head)).toBe(null);
+    expect(stepForwardTarget(records, st.head, st.head)).toBe(null);
+  }, 30_000);
 });
 
 describe('mock chat turn drives the real tool surface', () => {

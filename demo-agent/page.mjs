@@ -125,8 +125,9 @@ table.ledger .verdict { font-weight: 700; }
 /* ── time-travel bar (timeline + branch map + cursor + two-truths) ── */
 .timecard .bm-head { margin-top: 14px; }
 .past-banner { background: rgba(230,184,77,.14); border: 1px solid var(--agent); color: var(--fg); border-radius: 8px; padding: 7px 11px; font-size: 12.5px; margin-bottom: 10px; }
-.timeline { display: flex; gap: 3px; align-items: flex-end; overflow-x: auto; padding: 4px 2px; min-height: 48px; touch-action: none; cursor: grab; }
-.timeline:active { cursor: grabbing; }
+.timeline-row { display: flex; align-items: center; gap: 8px; }
+.step-btn { flex: 0 0 auto; white-space: nowrap; font-size: 12px; padding: 6px 11px; }
+.timeline { display: flex; gap: 3px; align-items: flex-end; overflow-x: auto; padding: 4px 2px; min-height: 48px; flex: 1 1 auto; min-width: 0; }
 .tl-empty { color: var(--muted); font-style: italic; font-size: 12px; }
 .tl-dot { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; background: transparent; border: 0; cursor: pointer; padding: 2px 4px; border-radius: 7px; }
 .tl-dot:hover { background: var(--chip); }

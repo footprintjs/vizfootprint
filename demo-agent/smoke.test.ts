@@ -236,3 +236,124 @@ describe.skipIf(!existsSync(CHROME))('time-travel bar (real headless Chromium, m
     expect(pageErrors, pageErrors.join('\n')).toEqual([]);
   });
 });
+
+/**
+ * Phase C — step navigation (real headless Chromium, mock provider): the
+ * ⟵/⟶ buttons AND ArrowLeft/ArrowRight move the cursor (charts + readout
+ * re-render), disable correctly at the root/leaf edges, never hijack the
+ * checkpoint field's (or composer's) own arrow-key text-cursor movement, and
+ * — the demotion half of the ruling — the OLD drag-to-scrub gesture on the
+ * timeline is now provably inert. ZERO console errors. Screenshots the bar.
+ */
+describe.skipIf(!existsSync(CHROME))('step navigation — ⟵/⟶ buttons + keyboard (drag removed)', () => {
+  let handle: Awaited<ReturnType<typeof startServer>>;
+  let browser: Browser;
+  let page: Page;
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+
+  beforeAll(async () => {
+    mkdirSync(SHOTS, { recursive: true });
+    handle = await startServer({ port: 0, mock: true });
+    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    page = await browser.newPage({ viewport: { width: 1320, height: 1150 } });
+    page.on('console', (m) => {
+      if (m.type() === 'error') consoleErrors.push(m.text());
+    });
+    page.on('pageerror', (e) => pageErrors.push(String(e)));
+  }, 120_000);
+
+  afterAll(async () => {
+    await browser?.close();
+    await handle?.close();
+  });
+
+  it('step buttons start disabled, then move the cursor + re-render as the history grows; disabled again at the edges', async () => {
+    await page.goto(handle.url);
+    await page.waitForSelector('#dashboard svg.scatter');
+    await page.waitForSelector('[data-timecard]');
+
+    // no commits yet: both step buttons start disabled
+    await page.waitForFunction(() => (document.querySelector('[data-step="back"]') as HTMLButtonElement | null)?.disabled === true);
+    expect(await page.locator('[data-step="forward"]').isDisabled()).toBe(true);
+
+    // three linear brushes → a 3-commit chain on the (single, active) lane
+    await brush(page, 0.1, 0.35);
+    await page.waitForFunction(() => document.querySelectorAll('.timeline [data-commit]').length >= 1);
+    await brush(page, 0.4, 0.6);
+    await page.waitForFunction(() => document.querySelectorAll('.timeline [data-commit]').length >= 2);
+    await brush(page, 0.65, 0.9);
+    await page.waitForFunction(() => document.querySelectorAll('.timeline [data-commit]').length >= 3);
+
+    // at the (leaf) head: forward disabled, back enabled (there is a parent)
+    expect(await page.locator('[data-step="forward"]').isDisabled()).toBe(true);
+    expect(await page.locator('[data-step="back"]').isDisabled()).toBe(false);
+    const selAtHead = await page.locator('.sel-readout').textContent();
+
+    // ⟵ Step back TWICE → lands on the ROOT; the readout re-rendered en route
+    await page.locator('[data-step="back"]').click();
+    await page.waitForSelector('.past-banner:not([hidden])', { timeout: 8000 });
+    await page.locator('[data-step="back"]').click();
+    await page.waitForFunction(() => (document.querySelector('[data-step="back"]') as HTMLButtonElement | null)?.disabled === true, undefined, {
+      timeout: 8000,
+    });
+    const selAtRoot = await page.locator('.sel-readout').textContent();
+    expect(selAtRoot).not.toBe(selAtHead); // the dashboard re-rendered at the new cursor
+
+    // ⟶ Step forward TWICE → symmetric return to the (single-lane) head
+    await page.locator('[data-step="forward"]').click();
+    await page.waitForFunction(() => (document.querySelector('[data-step="back"]') as HTMLButtonElement | null)?.disabled === false, undefined, {
+      timeout: 8000,
+    });
+    await page.locator('[data-step="forward"]').click();
+    await page.waitForSelector('.past-banner', { state: 'hidden', timeout: 8000 });
+    await page.waitForFunction(() => (document.querySelector('[data-step="forward"]') as HTMLButtonElement | null)?.disabled === true, undefined, {
+      timeout: 8000,
+    });
+    const selBackAtHead = await page.locator('.sel-readout').textContent();
+    expect(selBackAtHead).toBe(selAtHead); // same cursor again → same readout
+
+    await page.screenshot({ path: path.join(SHOTS, 'time-travel-step-nav.png'), fullPage: true });
+  }, 60_000);
+
+  it('ArrowLeft/ArrowRight seek, but NOT while the checkpoint field has focus', async () => {
+    // starts at head (past-banner hidden) from the previous test's end state
+    expect(await page.locator('.past-banner').isHidden()).toBe(true);
+
+    // focused on an <input>: ArrowLeft must be swallowed by the field, not seek
+    await page.locator('.ckpt-input').click();
+    await page.keyboard.press('ArrowLeft');
+    await page.waitForTimeout(250);
+    expect(await page.locator('.past-banner').isHidden()).toBe(true); // no seek happened
+
+    // blur the field — ArrowLeft now DOES seek
+    await page.locator('.ckpt-input').evaluate((node) => (node as HTMLElement).blur());
+    await page.keyboard.press('ArrowLeft');
+    await page.waitForSelector('.past-banner:not([hidden])', { timeout: 8000 });
+
+    // ArrowRight steps forward again, back to the head
+    await page.keyboard.press('ArrowRight');
+    await page.waitForSelector('.past-banner', { state: 'hidden', timeout: 8000 });
+  }, 30_000);
+
+  it('the drag-to-scrub gesture is GONE — dragging across the timeline no longer moves the cursor', async () => {
+    const cursorIdBefore = await page.locator('.tl-dot.cursor').getAttribute('data-commit');
+    const box = await page.locator('.timeline').boundingBox();
+    if (!box) throw new Error('timeline not found');
+    const y = box.y + box.height / 2;
+    // the exact snap-to-nearest drag sequence the OLD handler used to seek on
+    await page.mouse.move(box.x + box.width * 0.1, y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.5, y, { steps: 8 });
+    await page.mouse.move(box.x + box.width * 0.9, y, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(250); // let any (now-absent) handler settle
+    const cursorIdAfter = await page.locator('.tl-dot.cursor').getAttribute('data-commit');
+    expect(cursorIdAfter).toBe(cursorIdBefore); // unchanged — the drag is inert
+  }, 30_000);
+
+  it('the step-navigation page ran with zero console errors', () => {
+    expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
+    expect(pageErrors, pageErrors.join('\n')).toEqual([]);
+  });
+});

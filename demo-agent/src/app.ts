@@ -23,6 +23,7 @@ import {
 } from '../../demo/src/common.js';
 import { matchesClause } from '../../src/data/predicate.js';
 import type { PredicateClause } from '../../src/data/types.js';
+import { pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
 
 // ── server-state shapes (mirror core.ts AnalystState; structural only) ─────────
 interface CommitCause {
@@ -118,23 +119,6 @@ function svgEl(tag: string, attrs: Record<string, string | number> = {}): SVGEle
   const node = document.createElementNS(SVGNS, tag);
   for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
   return node;
-}
-
-/** The root→`id` ancestor chain (a branch path), cycle-guarded. */
-function pathToRoot(records: CommitRec[], id: string | null): CommitRec[] {
-  if (!id) return [];
-  const byId = new Map(records.map((r) => [r.id, r]));
-  const chain: CommitRec[] = [];
-  const seen = new Set<string>();
-  let cur: string | null = id;
-  while (cur && !seen.has(cur)) {
-    seen.add(cur);
-    const rec = byId.get(cur);
-    if (!rec) break;
-    chain.push(rec);
-    cur = rec.parent;
-  }
-  return chain.reverse();
 }
 
 /** A short human label for a commit dot/chip (never a raw value dump). */
@@ -271,6 +255,19 @@ async function main(): Promise<void> {
   const pastBanner = el('div', { class: 'past-banner' });
   pastBanner.hidden = true;
   const timelineTrack = el('div', { class: 'timeline', dataset: { timeline: '1' } });
+  const stepBackBtn = el('button', {
+    class: 'btn step-btn',
+    text: '⟵ Step back',
+    title: "Seek to the cursor's parent commit (ArrowLeft)",
+    dataset: { step: 'back' },
+  }) as HTMLButtonElement;
+  const stepForwardBtn = el('button', {
+    class: 'btn step-btn',
+    text: 'Step forward ⟶',
+    title: 'Seek to the next commit on this lane (ArrowRight)',
+    dataset: { step: 'forward' },
+  }) as HTMLButtonElement;
+  const timelineRow = el('div', { class: 'timeline-row' }, [stepBackBtn, timelineTrack, stepForwardBtn]);
   const branchMapWrap = el('div', { class: 'branchmap-wrap', dataset: { branchmap: '1' } });
   const ckptInput = el('input', { class: 'ckpt-input' }) as HTMLInputElement;
   ckptInput.type = 'text';
@@ -283,9 +280,9 @@ async function main(): Promise<void> {
   replaceChildren(
     dashRoot,
     el('div', { class: 'card timecard', dataset: { timecard: '1' } }, [
-      el('div', { class: 'section-head', text: 'Time travel — drag the cursor or click a commit to seek; act from the past to branch' }),
+      el('div', { class: 'section-head', text: 'Time travel — click a commit, use ⟵/⟶, or click the branch map to seek; act from the past to branch' }),
       pastBanner,
-      timelineTrack,
+      timelineRow,
       el('div', { class: 'time-controls' }, [ckptInput, ckptBtn, nowBtn, branchCount]),
       el('div', { class: 'section-head bm-head', text: 'Branch map — siblings fork downward; the active lineage is the top lane' }),
       branchMapWrap,
@@ -415,41 +412,34 @@ async function main(): Promise<void> {
     if (lastState?.head) void seekTo(lastState.head);
   });
 
-  // Drag the cursor along the timeline: on release, snap to the nearest commit
-  // and seek there. A pure click (no drag) is handled by the dot's own listener.
-  let dragStartX: number | null = null;
-  let dragMoved = false;
-  function nearestCommitId(clientX: number): string | null {
-    const dots = Array.from(timelineTrack.querySelectorAll('[data-commit]')) as HTMLElement[];
-    let best: string | null = null;
-    let bestDist = Infinity;
-    for (const d of dots) {
-      const r = d.getBoundingClientRect();
-      const dist = Math.abs(r.left + r.width / 2 - clientX);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = d.dataset['commit'] ?? null;
-      }
-    }
-    return best;
+  // Step back/forward — the orchestrator's fork-safe replacement for drag-to-
+  // scrub (a linear slider is ambiguous the moment history forks; see
+  // stepNav.ts for the rule). Both read the LAST rendered state — a stale
+  // click just no-ops (there is always a fresher one seconds later).
+  async function stepBack(): Promise<void> {
+    if (!lastState) return;
+    const target = stepBackTarget(lastState.records, lastState.cursor);
+    if (target) await seekTo(target);
   }
-  timelineTrack.addEventListener('pointerdown', (e) => {
-    dragStartX = (e as PointerEvent).clientX;
-    dragMoved = false;
-  });
-  timelineTrack.addEventListener('pointermove', (e) => {
-    if (dragStartX !== null && Math.abs((e as PointerEvent).clientX - dragStartX) > 6) dragMoved = true;
-  });
-  window.addEventListener('pointerup', (e) => {
-    if (dragStartX === null) return;
-    const moved = dragMoved;
-    const x = (e as PointerEvent).clientX;
-    dragStartX = null;
-    dragMoved = false;
-    if (moved) {
-      const id = nearestCommitId(x);
-      if (id) void seekTo(id);
-    }
+  async function stepForward(): Promise<void> {
+    if (!lastState) return;
+    const target = stepForwardTarget(lastState.records, lastState.cursor, lastState.head);
+    if (target) await seekTo(target);
+  }
+  stepBackBtn.addEventListener('click', () => void stepBack());
+  stepForwardBtn.addEventListener('click', () => void stepForward());
+
+  // Keyboard ArrowLeft/ArrowRight mirror the step buttons — but never while an
+  // <input>/<textarea> has focus (the chat composer, the checkpoint field, …
+  // must keep the arrow keys for text-cursor movement).
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const focused = document.activeElement;
+    const tag = focused instanceof HTMLElement ? focused.tagName : '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    e.preventDefault();
+    if (e.key === 'ArrowLeft') void stepBack();
+    else void stepForward();
   });
 
   // ── rendering ────────────────────────────────────────────────────────────────
@@ -586,6 +576,8 @@ async function main(): Promise<void> {
     }
     const b = state.branches.length;
     branchCount.textContent = `${b} branch${b === 1 ? '' : 'es'} · cursor ${state.cursor ? '#' + state.cursor : '—'}`;
+    stepBackBtn.disabled = stepBackTarget(state.records, state.cursor) === null;
+    stepForwardBtn.disabled = stepForwardTarget(state.records, state.cursor, state.head) === null;
   }
 
   function renderCharts(state: AnalystState): void {
