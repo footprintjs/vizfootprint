@@ -170,7 +170,7 @@ const SUGGESTIONS = [
 
 async function main(): Promise<void> {
   const dashRoot = document.getElementById('dashboard') as HTMLElement;
-  const chatRoot = document.getElementById('chat') as HTMLElement;
+  const chatRoot = document.getElementById('chatbody') as HTMLElement;
   const rows = (await loadRows()) as DemoRow[];
   const knownFields = new Set(Object.keys(rows[0] ?? {}));
 
@@ -252,7 +252,7 @@ async function main(): Promise<void> {
     ]),
   );
 
-  transcript.appendChild(el('div', { class: 'bubble sys', text: 'Brush the scatter or click a bar on the left, then ask me to analyze. Every move we both make lands in the shared commit log.' }));
+  transcript.appendChild(el('div', { class: 'bubble sys', text: 'Brush the scatter or click a bar on the dashboard, then ask me to analyze. Every move we both make lands in the shared commit log.' }));
   for (const s of SUGGESTIONS) {
     const b = el('button', { text: s }) as HTMLButtonElement;
     b.addEventListener('click', () => {
@@ -260,6 +260,60 @@ async function main(): Promise<void> {
     });
     suggestRow.appendChild(b);
   }
+
+  // ── floating popup + 🐛 debugger wiring (chrome lives in page.mjs) ────────────
+  const fab = document.getElementById('fab') as HTMLButtonElement;
+  const chatpanel = document.getElementById('chatpanel') as HTMLElement;
+  const chatclose = document.getElementById('chatclose') as HTMLButtonElement;
+  const chatreset = document.getElementById('chatreset') as HTMLButtonElement;
+  const dbgmodal = document.getElementById('dbgmodal') as HTMLElement;
+  const dbgframe = document.getElementById('dbgframe') as HTMLIFrameElement;
+  const dbgx = document.getElementById('dbgx') as HTMLButtonElement;
+
+  function openChat(): void {
+    chatpanel.hidden = false;
+    fab.hidden = true;
+    window.setTimeout(() => input.focus(), 40);
+    transcript.scrollTop = transcript.scrollHeight;
+  }
+  function closeChat(): void {
+    chatpanel.hidden = true;
+    fab.hidden = false;
+  }
+  fab.addEventListener('click', openChat);
+  chatclose.addEventListener('click', closeChat);
+
+  // Start fresh: rebuild the session + analyst server-side, clear the transcript.
+  chatreset.addEventListener('click', () => {
+    void (async () => {
+      chatreset.disabled = true;
+      await post('/api/reset', {});
+      replaceChildren(transcript, el('div', { class: 'bubble sys', text: '✨ Fresh session — chat and shared log cleared. Ask away!' }));
+      chatreset.disabled = false;
+      await refresh();
+    })();
+  });
+
+  // The 🐛 debugger is a CENTRAL MODAL iframing the ISOLATED /debug?embed page.
+  // atui scopes its CSS with zero-specificity :where(.atui …) so a host can theme
+  // it; the flip side is the dashboard's naked global classes (.card, .chart…)
+  // would leak IN and break atui's layout. An iframe is a clean document boundary
+  // — the consumer's job — so none of the dashboard's CSS can reach atui.
+  function openDebugger(): void {
+    dbgframe.src = '/debug?embed=1&t=' + Date.now();
+    dbgmodal.hidden = false;
+  }
+  function closeDebugger(): void {
+    dbgmodal.hidden = true;
+    dbgframe.src = 'about:blank';
+  }
+  dbgx.addEventListener('click', closeDebugger);
+  dbgmodal.addEventListener('click', (e) => {
+    if (e.target === dbgmodal) closeDebugger();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !dbgmodal.hidden) closeDebugger();
+  });
 
   // ── rendering ────────────────────────────────────────────────────────────────
   let prevIds = new Set<string>();
@@ -398,6 +452,11 @@ async function main(): Promise<void> {
       const reply = (await post('/api/chat', { message })) as { text?: string; error?: string } | null;
       const answer = reply?.text ?? reply?.error ?? 'The analyst did not reply.';
       transcript.appendChild(el('div', { class: 'bubble analyst', text: answer }));
+      // Offer the 🐛 debugger for THIS turn — opens the central modal iframing
+      // the isolated /debug?embed page, which replays the reasoning via atui.
+      const dbg = el('button', { class: 'dbgbtn', text: '🐛 See the thinking' }) as HTMLButtonElement;
+      dbg.addEventListener('click', openDebugger);
+      transcript.appendChild(dbg);
     } finally {
       window.clearInterval(live);
       sendBtn.disabled = false;

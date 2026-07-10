@@ -14,12 +14,15 @@
  *      keeps the browser bundle clean regardless.
  */
 import { fileURLToPath } from 'node:url';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, copyFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import esbuild from 'esbuild';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CACHE = path.join(__dirname, '.cache');
+const VENDOR = path.join(__dirname, 'vendor');
+const require2 = createRequire(import.meta.url);
 
 /** The DuckDB-WASM stub plugin (verbatim shape from demo/build.mjs). */
 const stubDuckDb = {
@@ -49,6 +52,39 @@ export async function buildCoreModule() {
     plugins: [stubDuckDb],
   });
   return outfile;
+}
+
+/**
+ * Vendor the AgentThinkingUI debugger's browser assets into `demo-agent/vendor/`
+ * so the /debug page loads them LOCALLY — never a CDN (hardened + works offline).
+ * Mirrors the dress-shop's local-atui serving (dress-shop/src/web/server.ts:39-41
+ * reads `agentthinkingui/umd` + `agentthinkingui/styles.css`), and goes one step
+ * further: React + ReactDOM are vendored too (the dress-shop debug page pulled
+ * those from unpkg), so the debugger has ZERO external requests and the Playwright
+ * smoke's iframe-isolation check renders with no network.
+ *
+ * Copies once at boot; returns the route→file map the server serves from.
+ * @returns {Record<string,string>} route path → absolute vendored file path
+ */
+export function vendorDebuggerAssets() {
+  mkdirSync(VENDOR, { recursive: true });
+  // React 18's `exports` field doesn't expose its UMD subpaths, so resolve each
+  // package's package.json (always exported) and join the UMD file beside it.
+  const pkgDir = (name) => path.dirname(require2.resolve(`${name}/package.json`));
+  const sources = {
+    '/vendor/atui.umd.js': require2.resolve('agentthinkingui/umd'),
+    '/vendor/atui.css': require2.resolve('agentthinkingui/styles.css'),
+    '/vendor/react.js': path.join(pkgDir('react'), 'umd', 'react.production.min.js'),
+    '/vendor/react-dom.js': path.join(pkgDir('react-dom'), 'umd', 'react-dom.production.min.js'),
+  };
+  /** @type {Record<string,string>} */
+  const routes = {};
+  for (const [route, src] of Object.entries(sources)) {
+    const dest = path.join(VENDOR, path.basename(route));
+    copyFileSync(src, dest);
+    routes[route] = dest;
+  }
+  return routes;
 }
 
 /**

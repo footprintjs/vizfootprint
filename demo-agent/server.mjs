@@ -21,12 +21,33 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { loadDotEnv } from './env.mjs';
-import { buildCoreModule, buildAppBundle } from './build.mjs';
+import { buildCoreModule, buildAppBundle, vendorDebuggerAssets } from './build.mjs';
+import { DEBUG_PAGE } from './debug-page.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CSV = readFileSync(path.join(__dirname, '..', 'demo', 'data', 'dresses.csv'), 'utf8');
 
 export const DEFAULT_PORT = 5181;
+
+/** MIME by vendored asset extension — served LOCAL (never a CDN). */
+const VENDOR_TYPE = { '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
+
+/** Claude's REAL "why this tool?" — a raw fetch to the Anthropic Messages API
+ *  (same transport as the demo's `browserAnthropic`; no @anthropic-ai/sdk peer
+ *  dep). Reads the key from process.env; a missing key surfaces as a clean 401. */
+async function explainWithClaude(prompt) {
+  const apiKey = process.env['ANTHROPIC_API_KEY'];
+  if (!apiKey) throw new Error('No usable Claude API key');
+  const model = process.env['ANTHROPIC_MODEL'] ?? 'claude-opus-4-8';
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model, max_tokens: 500, messages: [{ role: 'user', content: String(prompt ?? '') }] }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message ?? `Anthropic API ${res.status}`);
+  return (data.content ?? []).map((b) => (b.type === 'text' ? b.text : '')).join('').trim();
+}
 
 async function readBody(req) {
   const chunks = [];
@@ -54,6 +75,17 @@ export async function startServer({ port = DEFAULT_PORT, mock } = {}) {
   const core = await import(pathToFileURL(coreFile).href);
   const { PAGE } = await import('./page.mjs');
 
+  // Vendor the atui + React UMD/CSS into demo-agent/vendor and read them once —
+  // the /debug page loads them all LOCALLY (never a CDN), so the debugger works
+  // offline and the iframe-isolation smoke check renders with no network.
+  const vendorRoutes = vendorDebuggerAssets();
+  const vendor = Object.fromEntries(
+    Object.entries(vendorRoutes).map(([route, file]) => [
+      route,
+      { body: readFileSync(file), type: VENDOR_TYPE[path.extname(file)] ?? 'application/octet-stream' },
+    ]),
+  );
+
   // One live analyst; POST /api/reset swaps it for a fresh one (a session is cheap).
   let analyst = core.createAnalyst({ csv: CSV, mock: useMock });
 
@@ -62,9 +94,32 @@ export async function startServer({ port = DEFAULT_PORT, mock } = {}) {
       try {
         const url = (req.url ?? '/').split('?')[0];
         if (req.method === 'GET' && url === '/') return send(res, 200, PAGE, 'text/html; charset=utf-8');
+        if (req.method === 'GET' && url === '/debug') {
+          // The agent debugger — atui renders the live reasoning trace. `?embed=1`
+          // strips the chrome for iframing inside the dashboard's 🐛 modal.
+          return send(res, 200, DEBUG_PAGE, 'text/html; charset=utf-8');
+        }
+        if (req.method === 'GET' && vendor[url]) {
+          res.writeHead(200, { 'content-type': vendor[url].type, 'cache-control': 'no-store' });
+          return res.end(vendor[url].body);
+        }
         if (req.method === 'GET' && url === '/bundle/app.js') return send(res, 200, appBundle, 'application/javascript; charset=utf-8');
         if (req.method === 'GET' && url === '/data/dresses.csv') return send(res, 200, CSV, 'text/csv; charset=utf-8');
         if (req.method === 'GET' && url === '/api/state') return send(res, 200, await analyst.state());
+        if (req.method === 'GET' && url === '/api/trace') {
+          // The current turn's reasoning as an AgentThinkingUI trace (grows live).
+          return send(res, 200, analyst.trace());
+        }
+        if (req.method === 'POST' && url === '/api/explain') {
+          // The REAL "why this tool?" — hand atui's prepared prompt (task +
+          // trajectory + tool menu) to Claude for the model's own reasoning.
+          const { prompt } = await readBody(req);
+          try {
+            return send(res, 200, { reason: await explainWithClaude(prompt) });
+          } catch (error) {
+            return send(res, 200, { error: String(error instanceof Error ? error.message : error) });
+          }
+        }
 
         if (req.method === 'POST' && url === '/api/dispatch') {
           const result = await analyst.dispatchUser(await readBody(req));
@@ -107,6 +162,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     // eslint-disable-next-line no-console
     console.log(`\n  vizfootprint mixed-principal analyst → ${url}`);
     console.log(`  provider: ${m ? 'scripted MOCK (no API calls)' : `Anthropic (${process.env['ANTHROPIC_MODEL'] ?? 'claude-opus-4-8'}) — key ${hasKey ? 'loaded' : 'MISSING'}`}`);
-    console.log('  Left: brush the scatter / click a bar (you). Right: ask the analyst to work alongside you.\n');
+    console.log(`  debugger: ${url}/debug  ·  atui served LOCAL from /vendor (not a CDN)`);
+    console.log('  Brush the scatter / click a bar (you). Ask the analyst (bottom-right popup). 🐛 replays its thinking.\n');
   });
 }

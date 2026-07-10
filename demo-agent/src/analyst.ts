@@ -16,6 +16,7 @@
  */
 import { Agent, defineTool, isPaused } from 'agentfootprint';
 import { browserAnthropic, mock, type LLMProvider, type LLMRequest, type LLMResponse } from 'agentfootprint/llm-providers';
+import { agentThinkingTrace, type AttTrace } from 'agentfootprint/observe';
 import type { VizToolResult, VizToolsPort } from '../../src/agent/index.js';
 
 const MODEL = process.env['ANTHROPIC_MODEL'] ?? 'claude-opus-4-8';
@@ -65,6 +66,14 @@ export interface TurnResult {
 
 export interface Assistant {
   send(userMessage: string): Promise<TurnResult>;
+  /**
+   * The current turn's reasoning as an AgentThinkingUI `Trace` (prompt → ask →
+   * return → answer beats). Built from agentfootprint's emit stream by the
+   * `agentThinkingTrace` recorder attached below — atui's native shape, no
+   * adapter. Grows LIVE during a run (the /debug page polls it) and resets per
+   * user message. `task` defaults to the last user message.
+   */
+  trace(): AttTrace;
 }
 
 /** Anthropic tool names allow [a-zA-Z0-9_-] only — drop the `viz.` namespace. */
@@ -92,6 +101,12 @@ export function createAssistant(port: VizToolsPort, options: AssistantOptions = 
     });
   });
 
+  // Captures each turn's reasoning as an AgentThinkingUI Trace — attached to the
+  // agent below via .recorder(). It maps agentfootprint's emit stream (llm/tool/
+  // thinking beats) straight into atui's Trace shape; no adapter needed. The
+  // /debug page polls `trace()` and renders it beat-by-beat.
+  const think = agentThinkingTrace({ agent: 'Viz Analyst', model: MODEL, asker: 'you' });
+
   let builder = Agent.create({
     // The live provider is the fetch-based `browserAnthropic` — zero peer deps
     // (no @anthropic-ai/sdk to install), works in node's global fetch, and reads
@@ -105,20 +120,27 @@ export function createAssistant(port: VizToolsPort, options: AssistantOptions = 
     model: 'anthropic',
   })
     .system(SYSTEM)
-    .maxIterations(options.maxIterations ?? 14);
+    .maxIterations(options.maxIterations ?? 14)
+    .recorder(think);
   for (const tool of tools) builder = builder.tool(tool);
   const agent = builder.build();
 
   const transcript: string[] = [];
   let turn = 0;
+  let lastTask = '';
 
   return {
+    trace(): AttTrace {
+      return think.getTrace({ task: lastTask });
+    },
     async send(userMessage: string): Promise<TurnResult> {
       const correlationId = `turn-${++turn}`;
       const message =
         (transcript.length > 0 ? `Recent conversation:\n${transcript.slice(-6).join('\n')}\n\n` : '') +
         `User: ${userMessage}`;
       transcript.push(`User: ${userMessage}`);
+      lastTask = userMessage;
+      think.clear(); // fresh trace per user message (the /debug view shows this turn)
       // 7.4.0 sanctioned cross-tier join key: rides onto every event's EventMeta.
       const result = await agent.run({ message }, { correlationId });
       if (isPaused(result)) {

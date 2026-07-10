@@ -22,10 +22,9 @@ header { padding: 16px 24px; border-bottom: 1px solid var(--line); background: v
 header h1 { margin: 0; font-size: 18px; }
 header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 header .legend { margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); }
-main { display: flex; gap: 18px; padding: 18px 24px 40px; align-items: flex-start; flex-wrap: wrap; }
+main { padding: 18px 24px 40px; }
 .pane { background: transparent; }
-.dashboard { flex: 1 1 560px; min-width: 380px; }
-.chatpane { flex: 1 1 380px; min-width: 320px; display: flex; flex-direction: column; }
+.dashboard { width: 100%; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; box-shadow: var(--shadow); margin-bottom: 14px; }
 .section-head { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 8px; }
 .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -74,9 +73,10 @@ table.ledger .verdict { font-weight: 700; }
 .gap-row .gap-op { color: var(--muted); }
 .muted { color: var(--muted); font-size: 12px; }
 
-/* ── chat ── */
-.chatpane .card { display: flex; flex-direction: column; flex: 1 1 auto; }
-.transcript { display: flex; flex-direction: column; gap: 10px; min-height: 260px; max-height: 52vh; overflow-y: auto; padding: 4px 2px; }
+/* ── chat (rendered by app.ts into the floating popup body) ── */
+.chatbody .card { display: flex; flex-direction: column; flex: 1 1 auto; border: 0; box-shadow: none; margin: 0; border-radius: 0; background: transparent; padding: 0; min-height: 0; }
+.chatbody .section-head { display: none; }
+.transcript { display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 2px; }
 .bubble { max-width: 92%; padding: 8px 12px; border-radius: 12px; font-size: 13px; white-space: pre-wrap; word-wrap: break-word; }
 .bubble.you { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
 .bubble.analyst { align-self: flex-start; background: var(--chip); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
@@ -92,6 +92,35 @@ table.ledger .verdict { font-weight: 700; }
 .working { color: var(--agent); font-size: 12px; font-style: italic; min-height: 16px; margin-top: 6px; }
 .suggest { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .suggest button { font: inherit; font-size: 12px; padding: 4px 9px; border: 1px dashed var(--line); background: transparent; color: var(--accent); border-radius: 999px; cursor: pointer; }
+
+/* ── floating analyst popup ── */
+[hidden] { display: none !important; }
+.fab { position: fixed; right: 24px; bottom: 24px; z-index: 40; display: inline-flex; align-items: center; gap: 10px; background: var(--accent); color: #fff; border: 0; border-radius: 999px; padding: 14px 20px; font: 600 15px inherit; cursor: pointer; box-shadow: 0 16px 34px -12px rgba(30,60,120,.5); transition: .2s; }
+.fab:hover { transform: translateY(-2px); filter: brightness(1.05); }
+.fab .pulse { width: 9px; height: 9px; border-radius: 999px; background: #7CFFB2; animation: beat 1.8s infinite; }
+@keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(124,255,178,.6); } 70% { box-shadow: 0 0 0 9px rgba(124,255,178,0); } 100% { box-shadow: 0 0 0 0 rgba(124,255,178,0); } }
+.chatpanel { position: fixed; right: 24px; bottom: 24px; z-index: 41; width: 400px; max-width: calc(100vw - 32px); height: 620px; max-height: calc(100vh - 48px); background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 30px 70px -20px rgba(20,30,60,.45); display: flex; flex-direction: column; overflow: hidden; transform-origin: bottom right; animation: pop .2s cubic-bezier(.2,.9,.3,1.2); }
+@keyframes pop { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
+.cphead { display: flex; align-items: center; gap: 11px; padding: 13px 15px; background: linear-gradient(135deg, var(--accent), #2f6fed); color: #fff; }
+.cphead .av { width: 34px; height: 34px; border-radius: 999px; background: rgba(255,255,255,.18); display: grid; place-items: center; font-size: 17px; }
+.cphead .ct { font: 600 15px inherit; line-height: 1.15; }
+.cphead .ct small { display: block; font-weight: 400; opacity: .82; font-size: 11px; }
+.cphead .x { background: rgba(255,255,255,.16); border: 0; color: #fff; width: 30px; height: 30px; border-radius: 999px; font-size: 15px; cursor: pointer; }
+.cphead .x:hover { background: rgba(255,255,255,.3); }
+.cphead #chatreset { margin-left: auto; }
+.chatbody { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 12px 14px; }
+
+/* ── 🐛 debugger: a central modal iframing the ISOLATED /debug?embed page ── */
+.dbgbtn { align-self: flex-start; margin: 2px 0 2px; background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 999px; padding: 3px 10px; font: 600 11.5px inherit; cursor: pointer; }
+.dbgbtn:hover { color: var(--accent); border-color: var(--accent); }
+.dbgmodal { position: fixed; inset: 0; z-index: 60; background: rgba(15,20,35,.55); display: flex; align-items: center; justify-content: center; padding: 24px; animation: fade .18s ease; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+.dbgcard { background: var(--card); border-radius: 16px; width: min(1120px, 96vw); height: min(780px, 92vh); display: grid; grid-template-rows: auto 1fr; overflow: hidden; box-shadow: 0 40px 90px -20px rgba(10,20,40,.6); }
+.dbghead { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.dbghead small { color: var(--muted); font-weight: 400; }
+.dbghead .dbgopen { margin-left: auto; color: var(--accent); text-decoration: none; font-weight: 600; font-size: 12px; }
+.dbghead .x { background: transparent; border: 0; font-size: 17px; cursor: pointer; color: var(--muted); }
+.dbgframe { width: 100%; height: 100%; border: 0; display: block; background: var(--card); }
 `;
 
 export const PAGE = `<!doctype html><html lang="en"><head>
@@ -100,7 +129,7 @@ export const PAGE = `<!doctype html><html lang="en"><head>
 <body>
 <header>
   <h1>vizfootprint — mixed-principal analyst</h1>
-  <p>One live session, two principals. You brush and click on the left; a real Claude analyst chats and works on the right. Every gesture is one cause-tagged commit — the mixed author log below is the whole point.</p>
+  <p>One live session, two principals. You brush and click the dashboard; a real Claude analyst works alongside you from the popup (bottom-right). Every gesture is one cause-tagged commit — the mixed author log below is the whole point.</p>
   <div class="legend">
     <span><span class="badge user">user</span> your gestures</span>
     <span><span class="badge agent">agent</span> the analyst's tool calls</span>
@@ -109,7 +138,30 @@ export const PAGE = `<!doctype html><html lang="en"><head>
 </header>
 <main>
   <section class="pane dashboard" id="dashboard"></section>
-  <section class="pane chatpane" id="chat"></section>
 </main>
+
+<button id="fab" class="fab" type="button"><span class="pulse"></span> Ask the analyst</button>
+
+<aside id="chatpanel" class="chatpanel" hidden>
+  <div class="cphead">
+    <div class="av">📊</div>
+    <div class="ct">Viz Analyst<small id="cpsub">real Claude · same live session</small></div>
+    <button id="chatreset" class="x" title="Start a fresh session — clears the chat + shared log">↺</button>
+    <button id="chatclose" class="x" title="Close">✕</button>
+  </div>
+  <div id="chatbody" class="chatbody"></div>
+</aside>
+
+<div id="dbgmodal" class="dbgmodal" hidden>
+  <div class="dbgcard">
+    <div class="dbghead">
+      <b>🐛 Analyst reasoning</b><small>this turn — via AgentThinkingUI</small>
+      <a href="/debug" target="_blank" rel="noopener" class="dbgopen">open full ↗</a>
+      <button id="dbgx" class="x" title="Close">✕</button>
+    </div>
+    <iframe id="dbgframe" class="dbgframe" title="Analyst reasoning"></iframe>
+  </div>
+</div>
+
 <script src="/bundle/app.js"></script>
 </body></html>`;

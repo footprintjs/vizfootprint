@@ -104,3 +104,80 @@ describe('mock chat turn drives the real tool surface', () => {
     expect(gaps[0]!.code).toBe('needs-column');
   }, 30_000);
 });
+
+/**
+ * The AgentThinkingUI (atui) debugger surface:
+ *   - GET /debug (and ?embed) return the isolated debugger page (200 HTML);
+ *   - the atui + React UMD/CSS are served LOCALLY from /vendor (200, NOT a
+ *     redirect to a CDN — hardened + offline, mirroring the dress-shop);
+ *   - GET /api/trace returns agentfootprint's `agentThinkingTrace()` output —
+ *     atui's NATIVE Trace shape (no adapter) — after one mock turn.
+ */
+describe('agent debugger surface (atui, served local)', () => {
+  let handle: Awaited<ReturnType<typeof startServer>>;
+  beforeAll(async () => {
+    handle = await startServer({ port: 0, mock: true });
+  }, 60_000);
+  afterAll(async () => {
+    await handle.close();
+  });
+
+  it('serves /debug and /debug?embed as HTML 200 wired to the local vendor assets', async () => {
+    for (const p of ['/debug', '/debug?embed=1']) {
+      const res = await fetch(handle.url + p);
+      expect(res.status, p).toBe(200);
+      expect(res.headers.get('content-type'), p).toContain('text/html');
+      const html = await res.text();
+      expect(html, p).toContain('AgentThinkingUI'); // mounts atui
+      expect(html, p).toContain('/vendor/atui.umd.js'); // from OUR origin, not a CDN
+      expect(html, p).toContain('/vendor/react.js');
+      expect(html, p).not.toContain('unpkg.com'); // proves no CDN fallback
+    }
+  });
+
+  it('serves the atui + React UMD/CSS LOCALLY — 200, never redirected to a CDN', async () => {
+    const assets: [string, string][] = [
+      ['/vendor/atui.umd.js', 'javascript'],
+      ['/vendor/atui.css', 'css'],
+      ['/vendor/react.js', 'javascript'],
+      ['/vendor/react-dom.js', 'javascript'],
+    ];
+    for (const [p, kind] of assets) {
+      const res = await fetch(handle.url + p);
+      expect(res.status, p).toBe(200);
+      expect(res.redirected, `${p} must not be bounced to a CDN`).toBe(false);
+      expect(res.url, p).toBe(handle.url + p); // stayed on our own origin
+      expect(res.headers.get('content-type'), p).toContain(kind);
+      expect((await res.text()).length, p).toBeGreaterThan(1000);
+    }
+    // the vendored UMD is the REAL atui build (exposes its browser global)
+    const umd = await (await fetch(handle.url + '/vendor/atui.umd.js')).text();
+    expect(umd).toContain('AgentThinkingUI');
+  });
+
+  it('/api/trace returns an atui-shaped Trace after a mock turn', async () => {
+    // empty (but well-formed) before any turn
+    const before = (await (await fetch(handle.url + '/api/trace')).json()) as { steps: unknown[] };
+    expect(Array.isArray(before.steps)).toBe(true);
+
+    // one scripted turn: whats_here → dispatch(filter) → declare_analysis → answer
+    await postJSON(handle.url + '/api/chat', { message: 'Is price correlated with rating? Declare it and read the ledger honestly.' });
+
+    const t = (await (await fetch(handle.url + '/api/trace')).json()) as {
+      task: string;
+      agent: string;
+      model: string;
+      asker: string;
+      steps: { kind: string; tool?: string }[];
+    };
+    expect(t.agent).toBe('Viz Analyst');
+    expect(t.asker).toBe('you');
+    expect(typeof t.model).toBe('string');
+    expect(t.task.length).toBeGreaterThan(0);
+    expect(t.steps.length).toBeGreaterThan(0);
+    const kinds = t.steps.map((s) => s.kind);
+    expect(kinds).toContain('answer'); // the turn finished
+    const asks = t.steps.filter((s) => s.kind === 'ask').map((s) => s.tool);
+    expect(asks).toEqual(['whats_here', 'dispatch', 'declare_analysis']); // the real tool beats
+  }, 60_000);
+});

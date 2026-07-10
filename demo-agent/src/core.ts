@@ -13,6 +13,7 @@
  */
 import { buildAnalystSurface } from './def.js';
 import { createAssistant, scriptedAnalystMock, type ActivityStep } from './analyst.js';
+import type { AttTrace } from 'agentfootprint/observe';
 import type { Cause } from '../../src/cause/index.js';
 import type { DispatchAction, DispatchResult } from '../../src/agent/index.js';
 
@@ -53,6 +54,9 @@ export interface Analyst {
   chat(message: string): Promise<{ text: string; correlationId: string }>;
   dispatchUser(body: UserDispatchBody): Promise<DispatchResult | { ok: false; error: string }>;
   state(): Promise<AnalystState>;
+  /** The current turn's AgentThinkingUI Trace — served at GET /api/trace, polled
+   *  by the /debug page. Grows live during a run; resets per user message. */
+  trace(): AttTrace;
 }
 
 export function createAnalyst(options: CreateAnalystOptions): Analyst {
@@ -77,6 +81,10 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
   }
 
   return {
+    trace() {
+      return assistant.trace();
+    },
+
     async chat(message: string) {
       activity = []; // fresh strip per turn
       turnActive = true;

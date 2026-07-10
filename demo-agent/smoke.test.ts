@@ -1,10 +1,16 @@
 /**
  * Playwright smoke for the mixed-principal demo — real headless Chromium (the
  * pinned chrome-headless-shell 1208 the repo's demo also uses), the scripted
- * MOCK provider (no API calls). Proves the ONE page renders BOTH panes, that a
- * human brush and a mock chat turn both land in the SAME commit log (a `user`
- * chip AND an `agent` chip), that the declared correlation lands a ledger row,
- * and that the page runs with ZERO console errors. Screenshots the page.
+ * MOCK provider (no API calls). It proves the full dress-shop UX:
+ *   - the dashboard renders FULL-WIDTH; a human brush lands a `user` commit;
+ *   - the floating LAUNCHER opens the analyst chat POPUP (not a fixed column);
+ *   - a mock chat turn lands an `agent` commit + one online-FDR ledger row in the
+ *     SAME shared log, and produces a grounded reply;
+ *   - the 🐛 button opens a CENTRAL MODAL iframing the isolated /debug?embed page,
+ *     and atui's `.atui` / `.flowscene` root renders NON-zero width inside it —
+ *     the dress-shop's exact regression check that the iframe CSS-isolation held;
+ *   - ZERO console errors throughout.
+ * Screenshots the dashboard, the open popup, and the open debugger modal.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { chromium, type Browser, type Page } from 'playwright-core';
@@ -52,24 +58,30 @@ describe.skipIf(!existsSync(CHROME))('demo-agent smoke (real headless Chromium, 
     await handle?.close();
   });
 
-  it('renders both panes; a human brush + a mock chat turn share one commit log', async () => {
+  it('full-width dashboard + a human brush share one commit log with the popup analyst', async () => {
     await page.goto(handle.url);
 
-    // both panes render
+    // the dashboard renders full-width; the chat is a launcher, NOT a fixed column
     await page.waitForSelector('#dashboard svg.scatter');
     await page.waitForSelector('#dashboard svg.bar');
-    await page.waitForSelector('#chat .composer input');
-    expect(await page.locator('#chat .composer input').count()).toBe(1);
+    expect(await page.locator('#fab').isVisible()).toBe(true); // the "Ask the analyst" launcher
+    expect(await page.locator('#chatpanel').isHidden()).toBe(true); // popup closed until launched
 
     // the human moves first → exactly one USER chip, no agent chip yet
     await brush(page, 0.22, 0.72);
     await page.waitForSelector('[data-chip]');
     await page.waitForFunction(() => document.querySelectorAll('[data-chip] [data-actor="user"]').length >= 1);
     expect(await page.locator('[data-chip] [data-actor="agent"]').count()).toBe(0);
+    await page.screenshot({ path: path.join(SHOTS, 'dashboard.png'), fullPage: true });
 
-    // the analyst works alongside — send a message through the real composer
-    await page.locator('#chat .composer input').fill('Is price correlated with rating? Declare it and read the ledger honestly.');
-    await page.locator('#chat .composer input').press('Enter');
+    // launch the popup — the composer lives inside it, not in a fixed pane
+    await page.locator('#fab').click();
+    await page.waitForSelector('#chatpanel:not([hidden]) .composer input');
+    expect(await page.locator('#chatpanel .composer input').count()).toBe(1);
+
+    // the analyst works alongside — send a message through the popup composer
+    await page.locator('#chatpanel .composer input').fill('Is price correlated with rating? Declare it and read the ledger honestly.');
+    await page.locator('#chatpanel .composer input').press('Enter');
 
     // the mock drives whats_here → filter → declare correlation: an AGENT chip appears
     await page.waitForFunction(() => document.querySelectorAll('[data-chip] [data-actor="agent"]').length >= 1, undefined, { timeout: 20_000 });
@@ -81,11 +93,32 @@ describe.skipIf(!existsSync(CHROME))('demo-agent smoke (real headless Chromium, 
     await page.waitForFunction(() => document.querySelectorAll('table.ledger tbody tr').length >= 1, undefined, { timeout: 20_000 });
     expect(await page.locator('table.ledger tbody tr').count()).toBe(1);
 
-    // the analyst's reply bubble arrived
-    await page.waitForSelector('.bubble.analyst');
-    expect((await page.locator('.bubble.analyst').first().textContent())?.length ?? 0).toBeGreaterThan(20);
+    // the analyst's reply bubble arrived (inside the popup)
+    await page.waitForSelector('#chatpanel .bubble.analyst');
+    expect((await page.locator('#chatpanel .bubble.analyst').first().textContent())?.length ?? 0).toBeGreaterThan(20);
+    await page.screenshot({ path: path.join(SHOTS, 'analyst-popup.png'), fullPage: true });
+  }, 60_000);
 
-    await page.screenshot({ path: path.join(SHOTS, 'analyst-agent.png'), fullPage: true });
+  it('the 🐛 button opens the debugger modal and atui renders NON-zero width in the iframe', async () => {
+    // the 🐛 button sits under the analyst reply
+    const dbgBtn = page.locator('#chatpanel .dbgbtn').first();
+    await dbgBtn.waitFor({ timeout: 20_000 });
+    await dbgBtn.click();
+
+    // a central modal iframing the isolated /debug?embed page opens
+    await page.waitForSelector('#dbgmodal:not([hidden]) #dbgframe');
+    const frame = page.frameLocator('#dbgframe');
+
+    // THE regression check: atui's root renders with real width — proving the host
+    // dashboard's global CSS did NOT leak into the iframe and collapse its layout.
+    const atui = frame.locator('.atui');
+    await atui.waitFor({ timeout: 15_000 });
+    const box = await atui.boundingBox();
+    expect(box?.width ?? 0, 'atui root width must be > 0 (iframe isolation held)').toBeGreaterThan(0);
+    const scene = await frame.locator('.flowscene').first().boundingBox();
+    expect(scene?.width ?? 0, 'atui .flowscene width must be > 0').toBeGreaterThan(0);
+
+    await page.screenshot({ path: path.join(SHOTS, 'debugger-modal.png'), fullPage: true });
   }, 60_000);
 
   it('the page ran with zero console errors', () => {
