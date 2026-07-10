@@ -82,6 +82,10 @@ export function ols(
 
 /** Standard-normal CDF via the Abramowitz-Stegun 7.1.26 erf approximation. */
 function phi(z: number): number {
+  /* v8 ignore next -- `phi` is module-private; its ONLY call site (below, `normalApproxPValue`)
+   * always passes `Math.abs(t)`, so `z < 0` is structurally unreachable via the public API. The
+   * sign-handling stays (rather than hardcoding `sign = 1`) so `phi` remains a correct, honest
+   * standard-normal CDF in its own right, not one silently coupled to how its one caller uses it. */
   const sign = z < 0 ? -1 : 1;
   const x = Math.abs(z) / Math.SQRT2;
   const t = 1 / (1 + 0.3275911 * x);

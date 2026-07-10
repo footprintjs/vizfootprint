@@ -118,6 +118,10 @@ export function EncodingPicker(props: EncodingPickerProps): JSX.Element | null {
                   title={c.ok ? undefined : c.reason}
                   data-field={col.field}
                   onClick={() => {
+                    /* v8 ignore next -- defense-in-depth: this button's own `disabled={!c.ok}` prop
+                       means React's event system (shouldPreventMouseEvent) never dispatches a click
+                       to this handler while c.ok is false, so the guard can't observe a true value
+                       via any real click; unreachable via the public API */
                     if (!c.ok) return;
                     onReencode(viewId, channel, col.field);
                     onClose();

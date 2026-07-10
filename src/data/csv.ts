@@ -171,11 +171,17 @@ export function parseCSVTyped(text: string, options?: { delimiter?: string }): S
   const { header, rows } = parseCSV(text, options);
   const columnTypes: Record<string, ColumnType> = {};
   for (const h of header) {
+    /* v8 ignore next -- the `?? ''` fallback is structurally unreachable: `rows` here is
+     * `parseCSV(text, options)`'s OWN output, whose row-building (above, `r[idx] ?? ''`) already
+     * guarantees every row object has an entry for every `h` in this SAME `header`. */
     columnTypes[h] = sniffColumnType(rows.map((r) => r[h] ?? ''));
   }
   const typedRows: Row[] = rows.map((r) => {
     const out: Row = {};
-    for (const h of header) out[h] = sniffCell(r[h] ?? '', columnTypes[h]!);
+    for (const h of header) {
+      /* v8 ignore next -- same reason as the `?? ''` above: `r` always already has key `h`. */
+      out[h] = sniffCell(r[h] ?? '', columnTypes[h]!);
+    }
     return out;
   });
   return { header, columnTypes, rows: typedRows };

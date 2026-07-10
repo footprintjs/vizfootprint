@@ -179,6 +179,11 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
   const scatterClauses = notOwn('scatter');
   const scatterKeep = (d: { id: string }): boolean => {
     const row = rows.find((r) => r.id === d.id);
+    /* v8 ignore next -- `row` is always defined in practice: VizScatter only ever calls
+       `highlight` with a `d` drawn from ITS OWN `data` prop, which is `scatterData`, computed
+       in this SAME render from this SAME `rows` array (`scatterData = rows.map(r => ({id: r.id, ...}))`)
+       — so `d.id` is always some `r.id` from `rows`. The `: true` fallback guards a mismatch that
+       cannot arise from any real prop composition of this component. */
     return row ? scatterClauses.every((cl) => matchesClause(row, cl)) : true;
   };
 
@@ -226,6 +231,12 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
                   data={scatterData}
                   xField={xField}
                   yField={yField}
+                  /* v8 ignore next -- `c` (ScatterDatum.category) is always a defined string here:
+                     `scatterData` (below) sets `category: r.category` straight from `rows`, and every
+                     `DemoRow.category` is `String(...)`-coerced by `loadRows` (common.ts) — even an
+                     empty/missing CSV cell sniffs to `null` and stringifies to `"null"`, never JS
+                     `undefined`. The `?? ''` fallback guards VizScatter's wider (optional) prop type,
+                     not a state this component's own data pipeline can produce. */
                   colorOf={(c) => categoryColor(c ?? '')}
                   highlight={scatterKeep}
                   columns={columns}
@@ -427,18 +438,26 @@ function wireChatAndDebugger(view: SessionView): void {
 
 // ── boot ─────────────────────────────────────────────────────────────────────
 
-async function main(): Promise<void> {
+// `export` (rather than the void-called-only original) exists SOLELY so a test
+// can observe main()'s own failure/lifecycle branches directly (the
+// `#dashboard missing` throw, and — via the `root` handed back on
+// `window.__vizAgent` below — a real `root.unmount()` to exercise the
+// ArrowLeft/ArrowRight `useEffect` cleanup) without resorting to a global
+// `unhandledRejection` listener. Purely additive: the module still
+// self-mounts via `void main()` at the bottom exactly as before.
+export async function main(): Promise<void> {
   const rows = await loadRows();
   const view = createSessionView(pollingSource({ intervalMs: 900 }), { as: 'user' });
   await view.refresh();
 
   const dashRoot = document.getElementById('dashboard');
   if (!dashRoot) throw new Error('demo-agent: #dashboard missing');
-  createRoot(dashRoot).render(<Dashboard view={view} rows={rows} />);
+  const root = createRoot(dashRoot);
+  root.render(<Dashboard view={view} rows={rows} />);
 
   wireChatAndDebugger(view);
 
-  (window as unknown as { __vizAgent?: unknown }).__vizAgent = { view, refresh: () => view.refresh() };
+  (window as unknown as { __vizAgent?: unknown }).__vizAgent = { view, refresh: () => view.refresh(), root };
 }
 
 void main();

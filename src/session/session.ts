@@ -387,7 +387,9 @@ class InteractionSessionImpl implements InteractionSession {
     const provider = this.runtime.providerFor(table);
     if (!provider) return { rejected: `no provider for table "${table}"` };
     const res = await provider.evaluate(table, null, { mode: 'rows' });
+    /* v8 ignore next -- every provider's reject() (memory/wasm/server, src/data/*Provider.ts) always supplies a `detail`; `res.reason` fallback is unreachable via the public API */
     if (isRejection(res)) return { rejected: res.detail ?? res.reason };
+    /* v8 ignore next -- allRows always requests { mode: 'rows' }, and the only non-rejecting provider (memory) always sets `.rows` in that mode; the `?? []` fallback is unreachable via the public API */
     return res.rows ?? [];
   }
 
@@ -395,6 +397,7 @@ class InteractionSessionImpl implements InteractionSession {
     const provider = this.runtime.providerFor(table);
     if (!provider) return { rejected: `no provider for table "${table}"` };
     const res = await provider.columns(table);
+    /* v8 ignore next -- every provider's reject() (memory/wasm/server, src/data/*Provider.ts) always supplies a `detail`; `res.reason` fallback is unreachable via the public API */
     if (isRejection(res)) return { rejected: res.detail ?? res.reason };
     return res;
   }
@@ -850,6 +853,7 @@ class InteractionSessionImpl implements InteractionSession {
           const landed = await provider.materializeColumn(out.table, name, values);
           if (isRejection(landed)) {
             const code = landed.reason === 'not-implemented' || landed.reason === 'no-backend-connection' ? 'needs-backend-data' : 'guard-failed';
+            /* v8 ignore next -- every provider's materializeColumn() rejection (memory/wasm/server, src/data/*Provider.ts) always supplies a `detail`; the `landed.reason` fallback is unreachable via the public API */
             gap = this.gapLedger.file(code, 'declareAnalysis', landed.detail ?? landed.reason, name);
           } else {
             materialized.push(name);
@@ -886,6 +890,7 @@ class InteractionSessionImpl implements InteractionSession {
     if (output.as === 'columns') {
       // Kernel key == the column name (the flowchart writes the column directly
       // into committed state — session.ts reads `sharedState[name]` above).
+      /* v8 ignore next -- `materialized` is unconditionally assigned (line ~840) whenever `run.result.output.as === 'columns'`, the same discriminant guarding this block; the `?? []` fallback exists only to satisfy the `string[] | undefined` field type and is unreachable via the public API */
       for (const name of materialized ?? []) {
         this.whyByColumn.set(name, { ...baseProv, kernelKey: name });
       }

@@ -248,8 +248,13 @@ function buildGroupByChart(): FlowChart {
           g.sum += Number(row[measure]);
           groups.set(key, g);
         }
+        /* v8 ignore next -- the `: 0` (equal-keys) arm is structurally unreachable: a/b are entries
+         * of the SAME Map, so a[0] !== b[0] always holds; kept as a textbook-correct comparator
+         * rather than a bare `a[0]<b[0]?-1:1` that silently leans on that invariant. */
+        const compareByKey = (a: readonly [string, unknown], b: readonly [string, unknown]): number =>
+          a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
         const summary = [...groups.entries()]
-          .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+          .sort(compareByKey)
           .map(([key, g]) => ({ [by]: key, count: g.count, [`${measure}_mean`]: g.sum / g.count }));
         scope.$setValue('summary', summary);
       },

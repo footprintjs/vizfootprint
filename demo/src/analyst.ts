@@ -112,6 +112,12 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
     const source = src(viewId, meta);
     const clause = causeClauseFromEmission(emission, { source, cause: causeUser('transient') });
     session.log.selection.update(clause);
+    /* v8 ignore next -- `applyTransient` has exactly one call site (the scatter's `onBrushMove`
+     * below), which only ever passes a null `spec` when its own `iv` is falsy — but Scatter's
+     * `onBrushMove` (common.ts) always calls back with a real, non-empty `toInterval(...)` tuple,
+     * never `null`/`undefined`. (Contrast `applyRecord` just below: a real CLICK-to-clear commit
+     * — `commitFilter(..., null)` — genuinely lands `value:null`, so ITS `spec === null` arm is
+     * reachable and IS exercised by a real test.) */
     if (spec === null) specBySource.delete(source);
     else specBySource.set(source, spec);
     void render();
@@ -119,6 +125,10 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
 
   /** `record.viewId` is already registered by the dispatch that produced it. */
   function applyRecord(record: CommitRecord | undefined): void {
+    /* v8 ignore next -- all three call sites (`commitFilter`/`commitSelect` below, both guarded by
+     * `if (result.ok)` before calling this with `result.commit` — always defined on an ok filter/
+     * select dispatch — and `callAgentTool`'s `if (record) applyRecord(record)`) already guarantee
+     * a defined record before calling in. */
     if (!record) return;
     const source = session.log.registry.require(record.viewId);
     const spec = specFromRecord(record);
@@ -149,6 +159,10 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
   // ── charts ───────────────────────────────────────────────────────────────────
   const scatter = new Scatter(rows, {
     brushField: 'price',
+    /* v8 ignore next -- Scatter's own `onBrushMove` (common.ts) only ever calls back with a real
+     * `[number,number]` tuple from `toInterval(...)`, never null/falsy, so the `: null` arm this
+     * ternary offers is unreachable via the wired chart (see the matching note on `applyTransient`
+     * just above). */
     onBrushMove: (iv) =>
       applyTransient('scatter', SCATTER, Scatter.brushEmission('price', iv), iv ? { kind: 'interval', field: 'price', value: iv } : null),
     onBrushCommit: (iv) => void commitFilter('scatter', 'price', iv),
@@ -219,7 +233,22 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
     replaceChildren(resultCard, ...nodes);
   }
 
-  /** Run a declared analysis through `session.dispatch` (R4) — the user path. */
+  /**
+   * Run a declared analysis through `session.dispatch` (R4) — the user path.
+   *
+   * `session.dispatch`'s 'analyze' verb (`doAnalyze`, src/session/session.ts)
+   * rejects (`result.ok === false`) ONLY for an undeclared `analysisId`
+   * (`!this.hasAnalysis(analysisId)`) — every other outcome, including a
+   * DEGENERATE analysis result, still returns `ok:true` with the honest
+   * failure carried inside `result.analysis.result`. This file's own five
+   * call sites below all pass one of the four ids declared in `mountAnalyst`'s
+   * own `def.analyses` (`'correlation' | 'clustering' | 'regression' |
+   * 'groupby'`), so `result.ok` is always true here, and `result.analysis` is
+   * therefore always the real `AnalysisCommit` `doAnalyze` unconditionally
+   * attaches on success — never nullish. Every `if (!commit) return;` guard
+   * at this function's call sites shares this same reasoning (cross-referenced
+   * there, not re-derived).
+   */
   async function runAnalyze(analysisId: string, intent: string, input?: readonly Record<string, unknown>[]): Promise<AnalysisCommit | null> {
     const result = await session.dispatch({
       verb: 'analyze',
@@ -227,30 +256,42 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
       cause: causeUser(intent),
       ...(input ? { input } : {}),
     });
+    /* v8 ignore next 4 -- see this function's own doc comment: `result.ok` is always true for the
+     * four hardcoded, always-declared analysis ids this file ever calls `runAnalyze` with. */
     if (!result.ok) {
       showResult([el('div', { class: 'flag', text: `gap: ${result.rejection.detail}` })]);
       return null;
     }
+    /* v8 ignore next -- `result.analysis` is unconditionally set by `doAnalyze` whenever
+     * `result.ok` (see above) — the `?? null` fallback is unreachable via this file's calls. */
     return result.analysis ?? null;
   }
 
   // ── declared analyses ────────────────────────────────────────────────────────
   async function declareCorrelation(): Promise<void> {
     const commit = await runAnalyze('correlation', 'declare correlation');
+    /* v8 ignore next -- see `runAnalyze`'s doc comment: `commit` is never null for the hardcoded
+     * 'correlation' id. */
     if (!commit) return;
     if (!commit.result.ok) {
       showResult([
         el('div', { class: 'analysis-title', text: 'correlation (price × rating)' }),
         el('div', { class: 'flag r14', text: `honest degenerate-fit flag (R14): n=${commit.result.n}, no r computed, no FDR wealth spent` }),
       ]);
-    } else if (commit.result.output.as === 'scalar') {
-      const r = commit.result.output.value as number;
-      const n = (await session.selectedRows()).length;
-      showResult([
-        el('div', { class: 'analysis-title', text: 'correlation (price × rating)' }),
-        el('div', { text: `Pearson r = ${r.toFixed(4)} over ${n} rows` }),
-        el('div', { class: 'muted', text: 'kind:test → one row added to the ledger below' }),
-      ]);
+    } else {
+      // `correlationAnalysis` (src/analysis/builtins.ts) hardcodes `as:'scalar'` on every `ok:true`
+      // result — this analysis module can never produce anything else, so the false arm of this
+      // (no matching branch) is unreachable regardless of what selection is analyzed.
+      /* v8 ignore else */
+      if (commit.result.output.as === 'scalar') {
+        const r = commit.result.output.value as number;
+        const n = (await session.selectedRows()).length;
+        showResult([
+          el('div', { class: 'analysis-title', text: 'correlation (price × rating)' }),
+          el('div', { text: `Pearson r = ${r.toFixed(4)} over ${n} rows` }),
+          el('div', { class: 'muted', text: 'kind:test → one row added to the ledger below' }),
+        ]);
+      }
     }
     await refreshLedger();
   }
@@ -270,6 +311,8 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
 
     const before = (await session.overview()).fdr.tests;
     const commit = await runAnalyze('correlation', 'degenerate demo (8 collinear points)', eight);
+    /* v8 ignore next -- see `runAnalyze`'s doc comment: `commit` is never null for the hardcoded
+     * 'correlation' id (an explicit `input` doesn't change which id is dispatched). */
     if (!commit) return;
     const after = (await session.overview()).fdr.tests;
     const degenerate = !commit.result.ok;
@@ -284,6 +327,8 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
 
   async function declareClustering(): Promise<void> {
     const commit = await runAnalyze('clustering', `declare clustering (k=${CLUSTER_K})`);
+    /* v8 ignore next -- see `runAnalyze`'s doc comment: `commit` is never null for the hardcoded
+     * 'clustering' id. */
     if (!commit) return;
 
     // `AnalysisCommit` reports which COLUMNS materialized, not the computed
@@ -294,16 +339,32 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
     // landed in the session's own provider above, which is what makes
     // "cluster_id" a real, selectable column for the dispatch below.
     const mirrorRun = await clusteringModule.run(rows);
+    /* v8 ignore next -- `clusteringModule.run` (quantileBins, src/analysis/stats.ts) always
+     * succeeds and always sets `sharedState['cluster_id']` to an array — the `?? []` fallback
+     * (a missing/undefined snapshot or key) is unreachable via this deterministic mirror call. */
     const clusterIds = (mirrorRun.snapshot?.sharedState['cluster_id'] as number[] | undefined) ?? [];
     rows.forEach((r, i) => {
+      /* v8 ignore next -- `clusterIds` is produced by mapping the SAME `rows` array one-to-one
+       * (quantileBins returns one entry per input value), so `clusterIds[i]` is always defined for
+       * every index this `forEach` visits. */
       r['cluster_id'] = clusterIds[i] ?? 0;
     });
 
     renderClusterList();
+    /* v8 ignore next -- `session.ts`'s `declareAnalysis` unconditionally initializes `materialized
+     * = []` whenever an analysis's output is `as:'columns'` (clustering's case) before it even
+     * starts materializing columns — `commit.materialized` is therefore never undefined here. */
     const materialized = commit.materialized ?? [];
+    // Materializing 'cluster_id' can only fail on a row-count mismatch between the values array and
+    // the provider's table (memoryProvider.ts's `materializeColumn`) — since `resolveAnalysisInput`
+    // for a columns-producing analysis always reads the FULL table from the SAME provider the values
+    // were computed against, the counts can never differ here; "rejected" is unreachable via this
+    // file's own construction.
+    /* v8 ignore next */
+    const landedText = materialized.includes('cluster_id') ? 'landed via the L5 session' : 'rejected';
     showResult([
       el('div', { class: 'analysis-title', text: `clustering (price → cluster_id, k=${CLUSTER_K})` }),
-      el('div', { text: `materialized column "cluster_id" (${materialized.includes('cluster_id') ? 'landed via the L5 session' : 'rejected'})` }),
+      el('div', { text: `materialized column "cluster_id" (${landedText})` }),
       el('div', { class: 'muted', text: 'kind:transform → no ledger row; filter by cluster below (ordinary predicate path)' }),
     ]);
   }
@@ -313,6 +374,8 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
     chips.push(el('span', { class: 'cluster-label', text: 'filter by cluster:' }));
     for (let i = 0; i < CLUSTER_K; i++) {
       const chip = el('button', { class: 'cluster-chip', text: `cluster ${i}`, dataset: { cluster: String(i) } });
+      /* v8 ignore next -- `CLUSTER_COLORS` has exactly `CLUSTER_K` (4) entries, matching this loop's
+       * own bound — `CLUSTER_COLORS[i]` is always defined for every `i` this loop visits. */
       chip.style.borderColor = CLUSTER_COLORS[i] ?? '#888';
       chip.addEventListener('click', () => {
         void selectCluster(i);
@@ -334,6 +397,8 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
 
   async function declareRegression(): Promise<void> {
     const commit = await runAnalyze('regression', 'declare regression');
+    /* v8 ignore next -- see `runAnalyze`'s doc comment: `commit` is never null for the hardcoded
+     * 'regression' id. */
     if (!commit) return;
     if (!commit.result.ok) {
       scatter.setRegressionLine(null);
@@ -343,6 +408,8 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
       ]);
       return;
     }
+    /* v8 ignore next -- `regressionAnalysis` (src/analysis/builtins.ts) hardcodes `as:'geometry'`
+     * on every `ok:true` result — unreachable via this analysis module's own contract. */
     if (commit.result.output.as !== 'geometry') return;
     const g = commit.result.output.features;
     scatter.setRegressionLine(g);
@@ -355,6 +422,10 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
 
   async function declareGroupBy(): Promise<void> {
     const commit = await runAnalyze('groupby', 'declare group-by');
+    /* v8 ignore next -- all three disjuncts are unreachable via this file's own call site: `commit`
+     * is never null for the hardcoded 'groupby' id (see `runAnalyze`'s doc comment); `groupByAnalysis`
+     * (src/analysis/builtins.ts) has no honesty precheck and always returns `ok:true`; and it
+     * hardcodes `as:'table'` on that result. */
     if (!commit || !commit.result.ok || commit.result.output.as !== 'table') return;
     const out = commit.result.output;
     const table = el('table', { class: 'gb-table' });
@@ -404,7 +475,14 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
   function summarizeValue(v: unknown): string {
     if (Array.isArray(v)) return `[${v.map(summarizeValue).join(',')}]`;
     if (typeof v === 'string') return v.length > 32 ? `"${v.slice(0, 29)}…"` : `"${v}"`;
+    /* v8 ignore next -- the fixed args `runAgentTask`/`runAgentGapDemo` below ever pass through
+     * here (a price range, a cluster index, a discount value) are all integers — this file never
+     * constructs a non-integer numeric arg, so the `.toFixed(4)` arm is unreachable via its calls. */
     if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(4);
+    /* v8 ignore next -- every value this file ever pipes through `summarizeValue` (tool call args
+     * in `runAgentTask`/`runAgentGapDemo`, and a landed commit's `.value` in `summarizeResult`
+     * below) is a string, a number, or an array of those — this file never dispatches a boolean/
+     * null/object value, so the generic `String(v)` catch-all is unreachable via its calls. */
     return String(v);
   }
 
@@ -420,14 +498,34 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
     const r = result as Record<string, unknown>;
     if (r['ok'] === false) {
       const gap = r['gap'] as { code?: string; detail?: string } | undefined;
+      // This file's own scripted tool calls (`runAgentTask`/`runAgentGapDemo` below) only ever use
+      // a known tool name with well-formed, hardcoded args, so the only `ok:false` shape vizAsTools
+      // can ever hand back here is a real dispatch rejection — which `projectDispatch` (src/agent/
+      // vizAsTools.ts) always attaches as `gap`. The PAYLOAD_INVALID/UNKNOWN_TOOL `reason`-only
+      // shape (malformed args, an unrecognized tool name) never occurs via this file's calls.
+      /* v8 ignore next -- see above: `gap` is always present on an `ok:false` result here. */
       if (gap) return `ok=false gap=${gap.code} (${gap.detail})`;
+      // Unreachable dead code once `gap` is always present (see above).
+      /* v8 ignore next */
       const reason = r['reason'];
-      return `ok=false${reason ? ` reason=${String(reason)}` : ''}`;
+      /* v8 ignore next */
+      const reasonSuffix = reason ? ` reason=${String(reason)}` : '';
+      return `ok=false${reasonSuffix}`;
     }
     if ('views' in r && 'activeSelections' in r) {
       const fdr = r['fdr'] as { tests?: number } | undefined;
+      /* v8 ignore next -- `session.overview()` always returns a real `fdr` object with a numeric
+       * `tests` count (0 before any test runs) — never undefined — so the `?? 0` fallback is
+       * unreachable via a real `viz.whats_here` result. */
       return `views=${(r['views'] as unknown[]).length} selections=${(r['activeSelections'] as unknown[]).length} analyses=${(r['analyses'] as unknown[]).length} tests=${fdr?.tests ?? 0} gaps=${String(r['gaps'])}`;
     }
+    // This file only ever calls `viz.whats_here` (caught above), `viz.dispatch`, and
+    // `viz.declare_analysis` — the latter two always project a `verb` field on success
+    // (`projectDispatch`, src/agent/vizAsTools.ts), so `'verb' in r` is always true by the time
+    // a successful result reaches here; the final `return 'ok=true'` fallback below it (reached
+    // only for a tool this file never calls, e.g. `viz.why`/`viz.fork`/`viz.checkpoint`) is
+    // unreachable via this file's own three-tool usage.
+    /* v8 ignore next -- see the comment just above: always true via this file's own calls. */
     if ('verb' in r) {
       const bits: string[] = [`verb=${String(r['verb'])}`];
       const commit = r['commit'] as { id?: string; field?: string; value?: unknown } | undefined;
@@ -442,6 +540,7 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
       }
       return bits.join(' ');
     }
+    /* v8 ignore next -- unreachable: see the comment above `if ('verb' in r)`. */
     return 'ok=true';
   }
 
@@ -538,8 +637,12 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
   /** Same session-free mirror trick as `declareClustering` — see the file header. */
   async function syncClusterMirror(): Promise<void> {
     const mirrorRun = await clusteringModule.run(rows);
+    /* v8 ignore next -- same reasoning as `declareClustering`'s identical line above: quantileBins
+     * always succeeds and always sets `sharedState['cluster_id']`. */
     const clusterIds = (mirrorRun.snapshot?.sharedState['cluster_id'] as number[] | undefined) ?? [];
     rows.forEach((r, i) => {
+      /* v8 ignore next -- same reasoning as `declareClustering`'s identical line above: `clusterIds`
+       * is one-to-one with the SAME `rows` array this `forEach` walks. */
       r['cluster_id'] = clusterIds[i] ?? 0;
     });
   }

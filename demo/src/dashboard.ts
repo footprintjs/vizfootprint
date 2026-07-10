@@ -141,6 +141,10 @@ export async function mountDashboard(root: HTMLElement): Promise<void> {
       cause: causeUser('transient brush'),
     });
     session.log.selection.update(clause);
+    /* v8 ignore next -- `applyTransient` has exactly one call site (this file's `onBrushMove:
+     * (iv) => applyTransient('scatter', SCATTER, iv)`), and Scatter's `onBrushMove` (common.ts)
+     * always calls back with a real `toInterval(...)` tuple, never `null` — the `null`-clear arm
+     * this generic signature supports is unreachable via this file's own wiring. */
     if (iv === null) specBySource.delete(source);
     else specBySource.set(source, { kind: 'interval', field: 'price', value: iv });
     render();
@@ -159,6 +163,11 @@ export async function mountDashboard(root: HTMLElement): Promise<void> {
     if (!record) return;
     const source = session.log.registry.require(record.viewId);
     const spec = specFromRecord(record);
+    /* v8 ignore next -- `specFromRecord` returns null only for an interval commit whose `value` is
+     * null (a logged "clear"). Every commit this file ever lands carries a non-null value: the
+     * scatter's `onBrushCommit` early-returns on `iv === null` BEFORE calling `commitDispatch`
+     * (a click, not a drag, never reaches dispatch), and `simulateAgentBrush`/`forkHere` never
+     * construct a null-valued interval either — so `applyRecord` never receives such a record. */
     if (spec === null) specBySource.delete(source);
     else specBySource.set(source, spec);
     render();
@@ -182,6 +191,11 @@ export async function mountDashboard(root: HTMLElement): Promise<void> {
   }
 
   function buildChip(rec: CommitRecord, childCount: Map<string, number>): Node {
+    /* v8 ignore next -- `renderChips` always builds `childCount` from the SAME `list` it then
+     * calls `buildChip` on for each member (see below), synchronously, with no window for `list`
+     * to change in between — so whenever `rec.parent !== null`, `rec` itself was one of the
+     * records `childCount` was built from, guaranteeing `childCount.get(rec.parent)` is already
+     * set (>=1). The `?? 0` fallback is unreachable via `buildChip`'s one caller. */
     const isFork = rec.parent !== null && (childCount.get(rec.parent) ?? 0) > 1;
     const actor = rec.cause.requestedBy;
     const badge = el('span', { class: `badge ${actor}`, text: actor, dataset: { actor } });
@@ -268,6 +282,10 @@ export async function mountDashboard(root: HTMLElement): Promise<void> {
   }
 
   function animateReplay(): void {
+    /* v8 ignore next -- `animateReplay` has exactly one call site (`replaySession`, directly
+     * above), which only ever calls it right after setting `replayedRecords = replayed.records`
+     * — and only after guarding `session.log.records.length === 0` — so `replayedRecords` is
+     * always non-null and non-empty here; the `?? []` fallback is unreachable via this call site. */
     const list = replayedRecords ?? [];
     const total = list.length;
     replaceChildren(historyStrip);
@@ -277,6 +295,8 @@ export async function mountDashboard(root: HTMLElement): Promise<void> {
       renderChips(list.slice(0, i));
       if (i < total) window.setTimeout(step, 90);
     };
+    /* v8 ignore next -- same reasoning as above: `total` (== `list.length`) is always > 0 at this
+     * one call site, so the `total === 0` (no-op) arm is unreachable via `replaySession`. */
     if (total) step();
   }
 

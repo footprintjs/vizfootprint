@@ -36,7 +36,9 @@ export function BranchMap(props: BranchMapProps): JSX.Element {
 
   const W = PADX * 2 + maxDepth * DX + 70;
   const H = PADY * 2 + maxLane * DY + 16;
+  /* v8 ignore next -- `pos` is built from `layoutBranches(commits, head).nodes`, which maps 1:1 over this same `commits` array, and xOf is only ever called with ids drawn from `commits` or from `edges` (whose endpoints are also always members of `commits`); the `?? 0` fallback can't observe a miss without breaking that invariant from outside this component */
   const xOf = (id: string): number => PADX + (pos.get(id)?.depth ?? 0) * DX;
+  /* v8 ignore next -- same invariant as xOf above: pos.get(id) is always defined for every id yOf is called with */
   const yOf = (id: string): number => PADY + (pos.get(id)?.lane ?? 0) * DY;
 
   return (

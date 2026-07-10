@@ -84,6 +84,9 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   const clampX = (px: number): number => Math.max(PAD.l, Math.min(width - PAD.r, px));
   const pxFromEvent = (ev: ReactPointerEvent): number => {
     const svg = svgRef.current;
+    /* v8 ignore next -- pxFromEvent is only called from onPointerDown/Move/Up, all three
+       bound directly to this same ref'd <svg>; React attaches the ref before any pointer
+       event can reach these handlers, so svgRef.current is never null here in practice */
     if (!svg) return PAD.l;
     const rect = svg.getBoundingClientRect();
     const scale = width / (rect.width || width);

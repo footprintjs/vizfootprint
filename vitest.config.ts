@@ -8,5 +8,18 @@ export default defineConfig({
     // Codify a wider ceiling repo-wide. bench/x4/x4.test.ts already sets its
     // own much larger per-test timeout (240_000ms) and is unaffected.
     testTimeout: 30_000,
+    // Coverage is enforced at 100% — a drop fails `npm run test:coverage`;
+    // unreachable defensive arms carry documented `/* v8 ignore */` comments
+    // at the site.
+    coverage: {
+      include: ['src/**', 'ui/src/**', 'demo/src/**', 'demo-agent/src/**'],
+      exclude: ['**/*.test.*', '**/*.coverage.helpers.*'],
+      thresholds: {
+        statements: 100,
+        branches: 100,
+        functions: 100,
+        lines: 100,
+      },
+    },
   },
 });

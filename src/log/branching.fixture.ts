@@ -91,6 +91,11 @@ export function runBranchingReplay(log: readonly CommitInput[] = BRANCHING_LOG):
 }
 
 // Print a readable narrative when executed directly.
+/* v8 ignore next 5 -- CLI-only entry guard: `import.meta.url` is this file's
+   own URL and `process.argv[1]` is the runner's entry (vitest's own binary
+   under any test invocation), so this narrative-printing branch can never be
+   true inside a test process — only reachable via `node branching.fixture.ts`
+   run directly, outside any coverage-instrumented harness. */
 if (import.meta.url === `file://${process.argv[1]}`) {
   const r = runBranchingReplay();
   // eslint-disable-next-line no-console

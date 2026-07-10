@@ -92,6 +92,10 @@ export interface Scale {
   invert(px: number): number;
 }
 function linearScale(d0: number, d1: number, r0: number, r1: number): Scale {
+  /* v8 ignore next -- `linearScale` is module-private with exactly two call sites (both inside
+   * Scatter's constructor): the x-scale's domain is `[pMin-5, pMax+5]` and the y-scale's is the
+   * fixed `[0.5, 5.5]` — both always have `d1-d0 >= 5` (the +-5 padding forbids a zero span even
+   * when every row shares one price). The `|| 1` zero-guard cannot be reached via any DemoRow set. */
   const m = (r1 - r0) / (d1 - d0 || 1);
   const f = ((v: number) => r0 + (v - d0) * m) as Scale;
   f.invert = (px: number) => d0 + (px - r0) / m;

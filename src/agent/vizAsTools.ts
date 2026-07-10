@@ -247,6 +247,12 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
           return { error: 'reencode requires string viewId, channel, and field' };
         }
         return { verb: 'reencode', viewId: args['viewId'], channel: args['channel'], field: args['field'], cause };
+      /* v8 ignore next 2 -- defensive exhaustiveness fallback: `verb` was already checked against
+         (DISPATCH_VERBS as readonly string[]).includes(verb) above, and the switch enumerates all
+         8 DISPATCH_VERBS members as cases, so `verb` can never reach `default` through any public
+         call path (vizAsTools.call / mcpServer's tools/call route only ever construct `args` from
+         JSON-typed tool arguments, never bypass buildAction). Kept as a type-narrowing belt, not a
+         reachable branch. */
       default:
         return { error: `unhandled verb "${verb}"` };
     }

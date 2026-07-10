@@ -198,9 +198,14 @@ export function memoryProvider(
     async columns(table) {
       const store = tableMap.get(table);
       if (!store) return reject('memory', 'columns', 'unknown-table', `no such table "${table}"`);
-      return storeColumnNames(store).map(
-        (name): ColumnInfo => ({ name, type: store.columnTypes[name] ?? 'unknown' }),
-      );
+      return storeColumnNames(store).map((name): ColumnInfo => {
+        /* v8 ignore next -- the `?? 'unknown'` fallback is structurally unreachable: `storeColumnNames`
+         * and `columnTypes` are always populated in lockstep (construction derives both from the same
+         * rows/order snapshot; materializeColumn extends both together — see its two call sites below),
+         * so every name this map() sees already has a columnTypes entry. */
+        const type = store.columnTypes[name] ?? 'unknown';
+        return { name, type };
+      });
     },
 
     async evaluate(

@@ -10,6 +10,7 @@
   ],
   "scripts": {
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "typecheck:demo": "tsc -p demo/tsconfig.json --noEmit",
     "typecheck:demo-agent": "tsc -p demo-agent/tsconfig.json --noEmit",
@@ -26,6 +27,7 @@
     "@trrack/core": "^1.6.1",
     "@types/node": "^22.0.0",
     "@uwdata/mosaic-spec": "^0.28.1",
+    "@vitest/coverage-v8": "^4.1.10",
     "agentfootprint": "^7.4.0",
     "agentthinkingui": "^0.23.0",
     "esbuild": "^0.28.1",

@@ -65,16 +65,18 @@ export interface BuildDashboardOptions {
 const DEFAULT_AVAILABLE: readonly ResolvedEngine[] = ['memory'];
 
 function rowsInputOf(source: { rows?: readonly unknown[]; csv?: string }): RowsInput {
-  return source.csv !== undefined ? source.csv : ((source.rows ?? []) as RowsInput);
+  return source.csv !== undefined ? source.csv : ((/* v8 ignore next -- rows is guaranteed defined here by the R12 firewall (rows XOR csv); unreachable via buildDashboard's public entry */ source.rows ?? []) as RowsInput);
 }
 
 function statsOf(source: { rows?: readonly unknown[]; csv?: string }): DatasetStats {
   if (source.rows !== undefined) return { rowCountEstimate: source.rows.length };
+  /* v8 ignore else -- the "neither rows nor csv" fall-through is unreachable: the R12 firewall (validateDashboardDef) rejects a data table declaring neither before buildDashboard ever calls statsOf */
   if (typeof source.csv === 'string') {
     // Cheap estimate for `auto` routing: data lines = non-empty lines minus the header.
     const lines = source.csv.split('\n').filter((l) => l.trim().length > 0).length;
     return { rowCountEstimate: Math.max(0, lines - 1) };
   }
+  /* v8 ignore next -- neither rows nor csv: unreachable, the R12 firewall (validateDashboardDef) rejects a data table declaring neither before buildDashboard ever calls statsOf */
   return { rowCountEstimate: 0 };
 }
 

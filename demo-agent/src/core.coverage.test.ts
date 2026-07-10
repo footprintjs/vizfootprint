@@ -1,0 +1,178 @@
+/**
+ * Coverage packet COV-demo-agent — closes the remaining gaps in `core.ts`:
+ * the `/api/dispatch` rejection arms (`dispatchUser`'s per-verb shape guards),
+ * the default-intent state projection (`${verb} ${field ?? analysisId ?? ''}`),
+ * `seek`/`checkpoint`'s own guards, the live/no-provider mode branch, the
+ * `trace()` passthrough, and the 60-entry activity ring-buffer cap.
+ *
+ * These call `createAnalyst` DIRECTLY (same style as the "time-travel" and
+ * "mock chat turn" describe blocks in server.test.ts) rather than through
+ * `startServer` — the server's `/api/*` routes run the esbuild-bundled
+ * `.cache/core.mjs` (a separate compiled module), so exercising them over
+ * HTTP does not instrument `demo-agent/src/core.ts` itself. Always the
+ * scripted mock (`mock: true`) — no network calls, no fixed ports.
+ */
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import { mock, type LLMResponse } from 'agentfootprint/llm-providers';
+import { createAnalyst } from './core.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CSV = readFileSync(path.join(__dirname, '..', '..', 'demo', 'data', 'dresses.csv'), 'utf8');
+
+describe('createAnalyst — mode + provider fallback (core.ts:109-124)', () => {
+  it('mode defaults to "live" and falls through toward the real browserAnthropic provider when neither mock nor a provider is given — surfaces the provider\'s own construction error rather than crashing silently or secretly using the mock', () => {
+    expect(process.env['ANTHROPIC_API_KEY']).toBeUndefined();
+    expect(() => createAnalyst({ csv: CSV })).toThrow(
+      'BrowserAnthropicProvider requires `apiKey`. Browser providers do not read environment variables.',
+    );
+  });
+
+  it('mode is "mock" and state()/trace() both work when mock:true is given (no provider construction, no throw)', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const state = await analyst.state();
+    expect(state.mode).toBe('mock');
+
+    // trace() forwards to the assistant's AgentThinkingUI trace (core.ts:131-133) —
+    // never invoked over HTTP in the existing suite (that goes through the
+    // bundled core), so exercise it directly here.
+    const trace = analyst.trace();
+    expect(trace.agent).toBe('Viz Analyst');
+    expect(trace.asker).toBe('you');
+    expect(Array.isArray(trace.steps)).toBe(true);
+  });
+});
+
+describe('dispatchUser — per-verb rejection arms (core.ts:145-167)', () => {
+  it('filter without viewId/field is rejected with a named error, not a silent no-op', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res = await analyst.dispatchUser({ verb: 'filter' } as any);
+    expect(res).toEqual({ ok: false, error: 'filter needs viewId and field' });
+  });
+
+  it('filter WITHOUT a range defaults the commit\'s range to null (the `body.range ?? null` fallback)', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res: any = await analyst.dispatchUser({ verb: 'filter', viewId: 'scatter', field: 'price', intent: 'no range given' });
+    expect(res.ok).toBe(true);
+    expect(res.commit.value).toBeNull();
+    expect(res.commit.cause.requestedBy).toBe('user');
+  });
+
+  it('select without viewId/field is rejected with a named error', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res = await analyst.dispatchUser({ verb: 'select' } as any);
+    expect(res).toEqual({ ok: false, error: 'select needs viewId and field' });
+  });
+
+  it('select without an explicit intent derives one from verb+field ("select category")', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res: any = await analyst.dispatchUser({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal' });
+    expect(res.ok).toBe(true);
+    expect(res.commit.cause.intent).toBe('select category');
+  });
+
+  it('analyze without analysisId is rejected with a named error', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res = await analyst.dispatchUser({ verb: 'analyze' } as any);
+    expect(res).toEqual({ ok: false, error: 'analyze needs analysisId' });
+  });
+
+  it('analyze without an explicit intent derives one from verb+analysisId when field is absent ("analyze correlation")', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res: any = await analyst.dispatchUser({ verb: 'analyze', analysisId: 'correlation' });
+    expect(res.ok).toBe(true);
+    // 'analyze' results nest the landed commit under `analysis.commit` (unlike
+    // filter/select/reencode, which put it at the top level).
+    expect(res.analysis.commit.cause.intent).toBe('analyze correlation');
+  });
+
+  it('reencode missing viewId/channel/field (all absent) is rejected with the reencode-specific error', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res = await analyst.dispatchUser({ verb: 'reencode' } as any);
+    expect(res).toEqual({ ok: false, error: 'reencode needs viewId, channel, and field' });
+  });
+
+  it('reencode missing only field (viewId + channel present) is STILL rejected — the third OR operand', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res = await analyst.dispatchUser({ verb: 'reencode', viewId: 'scatter', channel: 'x' } as any);
+    expect(res).toEqual({ ok: false, error: 'reencode needs viewId, channel, and field' });
+  });
+
+  it('a FULLY valid reencode dispatch lands a user-badged commit under viewId "encoding:<viewId>"', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res: any = await analyst.dispatchUser({ verb: 'reencode', viewId: 'scatter', channel: 'x', field: 'rating', intent: 'axis swap' });
+    expect(res.ok).toBe(true);
+    expect(res.commit.viewId).toBe('encoding:scatter');
+    expect(res.commit.field).toBe('x');
+    expect(res.commit.value).toBe('rating');
+    expect(res.commit.cause.requestedBy).toBe('user');
+
+    const state = await analyst.state();
+    expect((state.encodings as Record<string, Record<string, string>>)['scatter']).toEqual({ x: 'rating', y: 'rating' });
+  });
+
+  it('an unsupported verb is rejected by name, quoting the bad verb — and the intent-projection fallback (verb, no field, no analysisId) does not throw even though it is never surfaced', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res = await analyst.dispatchUser({ verb: 'bogus' } as any);
+    expect(res).toEqual({ ok: false, error: 'unsupported human verb "bogus"' });
+  });
+});
+
+describe('seek — commitId guard + unknown-commit gap (core.ts:170-174)', () => {
+  it('an empty commitId is rejected before touching the session', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res = await analyst.seek('');
+    expect(res).toEqual({ ok: false, error: 'seek needs a commitId' });
+  });
+
+  it('a well-formed but unknown commitId surfaces the session\'s own gap detail', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res = await analyst.seek('totally-bogus-id');
+    expect(res).toEqual({ ok: false, error: 'no commit "totally-bogus-id" to seek to' });
+  });
+});
+
+describe('checkpoint — label guard (core.ts:176-180)', () => {
+  it('an empty label is rejected', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res = await analyst.checkpoint('');
+    expect(res).toEqual({ ok: false, error: 'checkpoint needs a non-empty label' });
+  });
+
+  it('a whitespace-only label is ALSO rejected (the guard trims before checking length)', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res = await analyst.checkpoint('   ');
+    expect(res).toEqual({ ok: false, error: 'checkpoint needs a non-empty label' });
+  });
+});
+
+describe('the per-turn activity ring buffer caps at 60 entries (core.ts:120-123)', () => {
+  it('caps the retained activity strip at 60 even when far more than 60 tool calls land across concurrent turns', async () => {
+    // A provider that NEVER answers with final text — every request comes back
+    // as another `whats_here` tool call, so each concurrent `chat()` turn runs
+    // the full documented default of 14 ReAct iterations (AssistantOptions'
+    // "ReAct iteration cap. Default 14.") before hitting the loop's budget exit.
+    let calls = 0;
+    const foreverToolCalls = mock({
+      name: 'forever-tool-calls',
+      respond: (): Partial<LLMResponse> => {
+        calls += 1;
+        return { content: '', toolCalls: [{ id: `f${calls}`, name: 'whats_here', args: {} }], stopReason: 'tool_use' };
+      },
+    });
+
+    const analyst = createAnalyst({ csv: CSV, provider: foreverToolCalls });
+    // core.ts resets `activity` at the START of every chat() call, so the cap
+    // can only be proven by OVERLAPPING (concurrent, un-awaited) turns sharing
+    // the one buffer — 5 turns x 14 tool calls each = 70 real pushes, none of
+    // which reset each other's progress mid-flight.
+    await Promise.all([1, 2, 3, 4, 5].map((i) => analyst.chat(`turn ${i}`)));
+
+    expect(calls).toBe(70); // proves 70 real tool round-trips actually happened
+    const state = await analyst.state();
+    expect(state.activity.length).toBe(60); // yet the retained buffer never exceeds the cap
+    expect(state.activity.every((step) => step.tool === 'whats_here')).toBe(true);
+  }, 30_000);
+});

@@ -87,6 +87,11 @@ export function branchIdFromLog(
     if (cache.has(id)) return cache.get(id);
     const rec = byId.get(id);
     if (!rec) return undefined;
+    /* v8 ignore next -- structurally unreachable: `rec` is only reachable here once `byId.get(id)` has
+     * succeeded, which means `rec` is literally one of the elements of `records`; the `childrenOf` map
+     * (built above by iterating ALL of `records`) therefore already contains an entry for `rec.parent`
+     * seeded with at least `[rec.id]` itself, for every such `rec`, with no way through the public API
+     * to reach this line for a record whose own parent-key entry is missing. */
     const siblings = childrenOf.get(rec.parent) ?? [];
     const label: string | undefined =
       siblings.length > 1 ? id : rec.parent === null ? undefined : resolve(rec.parent);
