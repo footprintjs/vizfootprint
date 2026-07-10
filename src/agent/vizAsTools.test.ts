@@ -87,6 +87,45 @@ describe('R4 — zero synthetic input (only semantic verbs, no raw-event path)',
   });
 });
 
+describe('Q6 — reencode is wired through the dispatch tool (the 8th verb, agent surface)', () => {
+  it('dispatch schema enumerates reencode and exposes a channel property', () => {
+    const port = vizAsTools(buildDashboard(makeDashboardDef()).createSession());
+    const dispatch = port.tools().find((t) => t.name === 'viz.dispatch')!;
+    const schema = dispatch.inputSchema as { properties: { verb: { enum: string[] } } & Record<string, unknown> };
+    expect(schema.properties.verb.enum).toContain('reencode');
+    expect(Object.keys(schema.properties)).toContain('channel');
+  });
+
+  it('a scripted agent rebinds a channel through viz.dispatch and reads it back via whats_here', async () => {
+    const session = buildDashboard(makeDashboardDef()).createSession();
+    const port = vizAsTools(session);
+
+    const res = await port.call('viz.dispatch', {
+      verb: 'reencode',
+      viewId: 'scatter',
+      channel: 'x',
+      field: 'rating',
+      intent: 'swap x to rating',
+    });
+    expect(get(res, 'ok')).toBe(true);
+    expect(get(res, 'reencoded')).toEqual({ viewId: 'scatter', channel: 'x', field: 'rating' });
+
+    const here = await port.call('viz.whats_here');
+    const views = get(here, 'views') as { viewId: string; encodings: Record<string, string>; columns: { field: string }[] }[];
+    const scatter = views.find((v) => v.viewId === 'scatter')!;
+    expect(scatter.encodings).toEqual({ x: 'rating', y: 'rating' });
+    // Per-view available columns, so a chat agent can answer "what can I put on x?" from one entry.
+    expect(scatter.columns.map((c) => c.field).sort()).toEqual(['category', 'id', 'price', 'rating']);
+  });
+
+  it('an invalid channel rejects with a typed guard-failed gap over the tool port', async () => {
+    const port = vizAsTools(buildDashboard(makeDashboardDef()).createSession());
+    const res = await port.call('viz.dispatch', { verb: 'reencode', viewId: 'scatter', channel: 'nope', field: 'price' });
+    expect(get(res, 'ok')).toBe(false);
+    expect((get(res, 'gap') as { code: string }).code).toBe('guard-failed');
+  });
+});
+
 describe('Q8 — two-string discipline against a prompt-injection corpus', () => {
   it('a category named "IGNORE PREVIOUS INSTRUCTIONS" stays inert DATA, never the instruction channel', async () => {
     const session = buildDashboard(makeDashboardDef({ rows: INJECTION_ROWS })).createSession();

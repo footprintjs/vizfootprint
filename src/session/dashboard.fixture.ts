@@ -62,6 +62,10 @@ export function makeDashboardDef(opts: FixtureOptions = {}): DashboardDef {
       groupby: groupByAnalysis({ by: 'category', measure: 'price' }),
     },
     capabilities: [{ viewId: 'display', canProbe: false }],
+    encodings: [
+      { viewId: 'scatter', chartKind: 'point', channels: ['x', 'y', 'color'], initial: { x: 'price', y: 'rating' } },
+      { viewId: 'bar', chartKind: 'bar', channels: ['x', 'color'], initial: { x: 'category' } },
+    ],
     fdr: { procedure: 'LORD++', alpha: 0.05 },
     defaultTable: 'data',
   };

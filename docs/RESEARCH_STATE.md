@@ -21,6 +21,23 @@ ZERO gaps (src/agent/vizAsTools.test.ts). Necessity evidence: select/filter/anal
 by an acceptance test; annotate/navigate proven wired but NOT load-bearing in the task suite (optional-interaction,
 no analytical consumer yet) — flagged as the two soft verbs. Completeness vs a full DashboardQA battery stays OPEN
 until benchmarked (gap distribution = the signal; a task that can't be expressed files a needs-* gap).
+**Q6 FIRST COMPLETENESS EVIDENCE (UI-0, 2026-07-10, orchestrator-adjudicated ruling):** the 7-verb set was
+INCOMPLETE, not merely unbenchmarked — changing a view's visual encoding (e.g. scatter `x: price → rating`) is a
+STATE-CHANGING TRANSITION (must land a cause-tagged commit, replay deterministically, and restore under
+time-travel seek), which none of the 7 verbs covered. Added `reencode` as the 8th verb (`src/def/types.ts`
+`DispatchVerb`; `mandatory-analytical`, same class as select/filter/fork/checkpoint). Lands via the same
+synthetic-viewId commit pattern `doAnnotate`/`declareAnalysis` already use (`encoding:${viewId}`, `field`=channel,
+`value`=target field — no `src/log` wire-union change); the session fold carries per-view channel→field state
+(`overview().views[].encodings` + the flattened `overview().encodings[viewId]` + a sync `session.viewEncodings(viewId)`
+read API), branch-scoped and seek-restorable exactly like `activeFilters` (`src/session/session.ts` `rebuildFold`).
+A view's valid channel vocabulary is an explicit per-view declaration (`DashboardDef.encodings: ViewEncodingDecl[]`
+— chart kind is informational/echoed, `channels` is the validated list; R14 — never guess a vocabulary for an
+undeclared chart kind, mirrors D12 "skills on sparse surfaces": no encoding surface declared ⇒ honest
+`guard-failed`, not silent allow). This is DIRECT completeness evidence, not a benchmark result: the 7-verb set was
+proven insufficient BY CONSTRUCTION (an authoring-op class was missing outright, discovered by the orchestrator's
+own ruling, not by running a task battery). The DashboardQA benchmark question stays OPEN for the remaining 8-verb
+set. 13 new tests (`src/session/session.test.ts`, `src/session/timeTravel.test.ts`, `src/agent/vizAsTools.test.ts`,
+`src/def/buildDashboard.test.ts`), tsc clean.
 Q8 = does echoed interaction-intent leak app content into the instruction channel? RESOLVED-NO (P3-L5,
 src/agent/vizAsTools.test.ts): tool DESCRIPTORS are authored constants (no runtime interpolation); a category
 literally named "IGNORE PREVIOUS INSTRUCTIONS…" and an identical cause.intent round-trip as inert DATA

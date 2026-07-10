@@ -23,6 +23,7 @@ export type {
   DashboardDef,
   DataSourceDef,
   CapabilityDecl,
+  ViewEncodingDecl,
   FdrDecl,
   AgentDecl,
   IntentDecl,

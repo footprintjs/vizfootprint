@@ -84,6 +84,20 @@ const ANALYSIS_FIELD = '__analysis__';
 const ANNOTATION_FIELD = '__annotation__';
 
 /**
+ * The `reencode` verb's commit-landing namespace (mirrors the `annotation:`/
+ * `analysis:` synthetic-viewId pattern doAnnotate/declareAnalysis already use
+ * — see `doAnnotate` above and `declareAnalysis` below): a reencode commit's
+ * `viewId` is `encoding:${targetViewId}`, so it is structurally distinct from
+ * a real probe on that view (`runtime.views.has()` is false for it) and
+ * `rebuildFold` can recognize + fold it without touching `src/log`'s wire
+ * union (CommitRecord stays `kind:'point'|'interval'`; `field` carries the
+ * CHANNEL, `value` carries the target field — both plain strings, same shape
+ * every other commit already uses).
+ */
+const ENCODING_VIEW_PREFIX = 'encoding:';
+const encodingViewId = (viewId: string): string => `${ENCODING_VIEW_PREFIX}${viewId}`;
+
+/**
  * Fields a `select`/`filter` may NOT target — a clause on one of these would
  * collide with a session-authored commit. `pValue` (`TEST_ANALOG_FIELD`) is the
  * load-bearing one: an unguarded point select on a data column literally named
@@ -154,6 +168,14 @@ export interface InteractionSession {
   /** Rows under the current selection (across all views). */
   selectedRows(table?: string): Promise<readonly Row[]>;
 
+  /**
+   * The current channel→field visual-encoding map for one view, branch-scoped
+   * at the cursor (the `reencode` verb's fold — SPEC Q6 8th verb). Empty if
+   * the view declares no encoding surface or is unknown. Synchronous — no
+   * backend read, unlike `overview()` (which also exposes this per-view).
+   */
+  viewEncodings(viewId: string): Readonly<Record<string, string>>;
+
   /** The structured `whats_here` projection (views/selections/analyses+readiness/fdr/gaps). */
   overview(): Promise<Overview>;
 }
@@ -170,6 +192,8 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly activeFilters = new Map<string, PredicateClause>();
   /** viewId → the latest still-active select/filter commit id (the L6 input-selection provenance). */
   private readonly activeFilterCommits = new Map<string, string>();
+  /** viewId → its current channel→field visual-encoding map (the `reencode` fold; SPEC Q6 8th verb). */
+  private readonly activeEncodings = new Map<string, Record<string, string>>();
   /** materialised column name → its producing analysis provenance (L6 `why({kind:'column'})`). */
   private readonly whyByColumn = new Map<string, WhyProvenance>();
   /** analysisId → the last invocation's provenance (L6 `why({kind:'hypothesis'})`). */
@@ -207,6 +231,10 @@ class InteractionSessionImpl implements InteractionSession {
     const fdr = runtime.def.fdr;
     this.initialWealth =
       fdr?.w0 ?? (runtime.fdrProcedure === 'LORD++' ? runtime.fdrAlpha / 2 : runtime.fdrAlpha);
+    // Seed the encoding fold at its root (cursor === null → an empty branch
+    // path, so this only applies each declared view's `initial` map — no
+    // filter/commit state exists yet to touch).
+    this.rebuildFold(this._cursor);
   }
 
   get head(): string | null {
@@ -269,14 +297,29 @@ class InteractionSessionImpl implements InteractionSession {
   /**
    * Rebuild the resolved selection fold (active filters + their input-selection
    * commit ids) as the PURE fold of the branch path root→cursor. Only real view
-   * probes fold into the selection; annotation/analysis commits (whose viewIds
-   * are not declared views) and reserved-field commits are inert. A cleared
-   * interval drops the view's filter, exactly as `doProbe` does live.
+   * probes fold into the selection; annotation/analysis/encoding commits (whose
+   * viewIds are not declared views) and reserved-field commits are inert. A
+   * cleared interval drops the view's filter, exactly as `doProbe` does live.
+   *
+   * Also rebuilds `activeEncodings` (the `reencode` verb's fold, SPEC Q6 8th
+   * verb): seeded from each declared view's `initial` map, then overridden by
+   * every `encoding:` commit on the path, in order — so `seek` restores
+   * whatever channel→field mapping was live at that point in history.
    */
   private rebuildFold(cursorId: string | null): void {
     this.activeFilters.clear();
     this.activeFilterCommits.clear();
+    this.activeEncodings.clear();
+    for (const view of this.runtime.views.values()) {
+      if (view.encoding?.initial) this.activeEncodings.set(view.viewId, { ...view.encoding.initial });
+    }
     for (const rec of this.branchPath(cursorId)) {
+      if (rec.viewId.startsWith(ENCODING_VIEW_PREFIX)) {
+        const targetViewId = rec.viewId.slice(ENCODING_VIEW_PREFIX.length);
+        const current = this.activeEncodings.get(targetViewId) ?? {};
+        this.activeEncodings.set(targetViewId, { ...current, [rec.field]: String(rec.value) });
+        continue;
+      }
       if (!this.runtime.views.has(rec.viewId)) continue; // skip annotation:/analysis: commits
       if (RESERVED_PROBE_FIELDS.has(rec.field)) continue;
       if (rec.kind === 'interval' && rec.value === null) {
@@ -376,6 +419,11 @@ class InteractionSessionImpl implements InteractionSession {
     return cols.filter((c) => !this.allMaterialized.has(`${table}::${c.name}`) || visible.has(c.name));
   }
 
+  /** The current channel→field visual-encoding map for one view, branch-scoped at the cursor. */
+  viewEncodings(viewId: string): Readonly<Record<string, string>> {
+    return this.activeEncodings.get(viewId) ?? {};
+  }
+
   /**
    * Rows under the current selection (across all views). A pure best-effort
    * PROJECTION: a rejecting backend yields `[]` (the authoritative
@@ -469,6 +517,8 @@ class InteractionSessionImpl implements InteractionSession {
         return this.doFork(action.fromCommitId, intent);
       case 'checkpoint':
         return this.doCheckpoint(action.label, intent);
+      case 'reencode':
+        return this.doReencode(action.viewId, action.channel, action.field, action.cause, as, intent, action.correlationId);
     }
   }
 
@@ -534,6 +584,74 @@ class InteractionSessionImpl implements InteractionSession {
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
     this.adapters.get(viewId)?.applyClause?.(clause as CauseClause);
     return { ok: true, verb, intent, commit: record };
+  }
+
+  /**
+   * `reencode` — rebind a view's visual CHANNEL to a different data field (the
+   * 8th dispatch verb; SPEC Q6, orchestrator-adjudicated). A state-changing
+   * transition, same class as `doProbe`: one cause-tagged commit, parented at
+   * the cursor (R8 branch-on-act), folded by `rebuildFold` on `seek`.
+   *
+   * Lands under the `encoding:${viewId}` synthetic identity (mirrors
+   * `doAnnotate`'s `annotation:${actor}` / `declareAnalysis`'s `analysis:${id}`
+   * pattern above) rather than a new `CommitRecord.kind` — `field` carries the
+   * CHANNEL, `value` carries the target field name, both plain strings.
+   */
+  private async doReencode(
+    viewId: string,
+    channel: string,
+    field: string,
+    cause: Cause,
+    as: Actor | undefined,
+    intent: DispatchResult['intent'],
+    correlationId: string | undefined,
+  ): Promise<DispatchResult> {
+    // 1. the view must be declared (R14: needs-view).
+    if (!this.runtime.views.has(viewId)) {
+      return this.reject('reencode', intent, this.gapLedger.file('needs-view', 'reencode', `no declared view "${viewId}"`, viewId));
+    }
+    // 2. the view must declare an encoding surface at all (R14: guard-failed —
+    //    never guess a channel vocabulary for an undeclared chart kind).
+    const decl = this.runtime.views.get(viewId)!.encoding;
+    if (!decl) {
+      return this.reject('reencode', intent, this.gapLedger.file('guard-failed', 'reencode', `view "${viewId}" declares no encoding surface`, viewId));
+    }
+    // 3. the channel must be valid for this view's declared chart kind (R14: guard-failed).
+    if (!decl.channels.includes(channel)) {
+      return this.reject(
+        'reencode',
+        intent,
+        this.gapLedger.file('guard-failed', 'reencode', `view "${viewId}" (${decl.chartKind}) has no "${channel}" channel — valid: ${decl.channels.join(', ')}`, channel),
+      );
+    }
+    // 4. the field must be a column VISIBLE on this branch (R14: needs-column /
+    //    needs-backend-data) — branch-scoped, same guard as doProbe step 3: a
+    //    materialized column absent from the cursor's fold honestly gap-rejects.
+    const cols = await this.effectiveColumnsOf(this.defaultTable);
+    if ('rejected' in cols) {
+      return this.reject('reencode', intent, this.gapLedger.file('needs-backend-data', 'reencode', cols.rejected, field));
+    }
+    if (!cols.some((c) => c.name === field)) {
+      return this.reject('reencode', intent, this.gapLedger.file('needs-column', 'reencode', `no column "${field}" in table "${this.defaultTable}"`, field));
+    }
+    // 5. land ONE cause-tagged commit (commit-on-intent). Parent is the CURSOR:
+    //    a reencode from a past cursor branches (R8 branch-on-act), exactly like doProbe.
+    const stamped = this.stampCause(cause, 'reencode', as);
+    const { record } = this.log.commit({
+      id: this.nextId(),
+      parent: this._cursor,
+      ...(correlationId !== undefined ? { correlationId } : {}),
+      viewId: encodingViewId(viewId),
+      actorMeta: { actor: stamped.requestedBy },
+      kind: 'point',
+      field: channel,
+      value: field,
+      cause: stamped,
+    });
+    this.landed(record.id);
+    const current = this.activeEncodings.get(viewId) ?? {};
+    this.activeEncodings.set(viewId, { ...current, [channel]: field });
+    return { ok: true, verb: 'reencode', intent, commit: record, reencoded: { viewId, channel, field } };
   }
 
   private doAnnotate(
@@ -858,9 +976,16 @@ class InteractionSessionImpl implements InteractionSession {
         viewId: view.viewId,
         actor: view.meta.actor,
         ...(view.meta.label !== undefined ? { label: view.meta.label } : {}),
-        encodings: cap?.encodings ?? (['point', 'interval'] as const),
+        selectionKinds: cap?.encodings ?? (['point', 'interval'] as const),
         canProbe: cap?.canProbe ?? true,
         mounted: this.adapters.has(view.viewId),
+        // The `reencode` fold (SPEC Q6 8th verb), branch-scoped at the cursor —
+        // empty for a view with no declared encoding surface.
+        encodings: this.viewEncodings(view.viewId),
+        // Every view currently reads the session's single default table (D14
+        // token-lean discipline: names+types only, so a chat agent can answer
+        // "what can I put on x?" from this one entry).
+        columns: columns[this.defaultTable] ?? [],
       };
     });
 
@@ -928,6 +1053,7 @@ class InteractionSessionImpl implements InteractionSession {
         ledger: [...this._ledger],
       },
       columns,
+      encodings: Object.fromEntries(views.map((v) => [v.viewId, v.encodings])),
       gaps: this.gapLedger.size,
       currentView: this._currentView,
       engines: this.runtime.engines,

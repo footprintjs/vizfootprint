@@ -37,6 +37,7 @@ import {
   type IntentClass,
   type RegisteredAnalysis,
   type ViewDecl,
+  type ViewEncodingDecl,
 } from './types.js';
 import { createInteractionSession, type InteractionSession } from '../session/session.js';
 import type { SessionOptions } from '../session/types.js';
@@ -153,15 +154,18 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
     analyses.set(id, registerAnalysisSlot(id, slot));
   }
 
-  // ── declared views + capability envelope ──
+  // ── declared views + capability envelope + encoding surface ──
   const capabilityByView = new Map<string, CapabilityDecl>();
   for (const cap of def.capabilities ?? []) capabilityByView.set(cap.viewId, cap);
+  const encodingByView = new Map<string, ViewEncodingDecl>();
+  for (const enc of def.encodings ?? []) encodingByView.set(enc.viewId, enc);
   const views = new Map<string, ViewDecl>();
   for (const [viewId, meta] of Object.entries(def.actors)) {
     views.set(viewId, {
       viewId,
       meta,
       ...(capabilityByView.has(viewId) ? { capability: capabilityByView.get(viewId)! } : {}),
+      ...(encodingByView.has(viewId) ? { encoding: encodingByView.get(viewId)! } : {}),
     });
   }
 

@@ -229,6 +229,55 @@ describe('R8/R11 — materialized columns are branch-scoped by the fold', () => 
     expect((await s.overview()).columns['data']!.map((c) => c.field)).toContain('cluster_id');
   });
 
+  it('reencode is branch-scoped: seeking back restores the old channel mapping; act-from-past branches', async () => {
+    const s = freshSession();
+    const a = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', cause: userCause() });
+    const aId = a.ok ? a.commit!.id : '';
+    expect((await s.overview()).views.find((v) => v.viewId === 'scatter')!.encodings).toEqual({ x: 'price', y: 'rating' });
+
+    // Main line: reencode x -> rating.
+    const b = await s.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'x', field: 'rating', cause: userCause('x=rating') });
+    const bId = b.ok ? b.commit!.id : '';
+    expect(s.viewEncodings('scatter')).toEqual({ x: 'rating', y: 'rating' });
+
+    // seek before the reencode: the OLD encoding is restored (R2 / time-travel).
+    s.seek(aId);
+    expect(s.viewEncodings('scatter')).toEqual({ x: 'price', y: 'rating' });
+    expect((await s.overview()).views.find((v) => v.viewId === 'scatter')!.encodings).toEqual({ x: 'price', y: 'rating' });
+
+    // act-from-past: reencoding y from the past cursor branches off `a`, a sibling of `b`.
+    const c = await s.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'y', field: 'price', cause: userCause('y=price') });
+    const cId = c.ok ? c.commit!.id : '';
+    const cRec = s.log.records.find((r) => r.id === cId)!;
+    const bRec = s.log.records.find((r) => r.id === bId)!;
+    expect(cRec.parent).toBe(aId);
+    expect(cRec.parent).toBe(bRec.parent); // a real sibling branch, same parent as `b`
+    expect(s.viewEncodings('scatter')).toEqual({ x: 'price', y: 'price' }); // only y changed on THIS branch
+    expect(s.head).toBe(cId); // the new lineage became active
+
+    // seeking forward to the old tip `b` restores ITS encoding (x rebound, y untouched).
+    s.seek(bId);
+    expect(s.viewEncodings('scatter')).toEqual({ x: 'rating', y: 'rating' });
+  });
+
+  it('reencode to a branch-foreign materialized column is an honest needs-column gap-reject', async () => {
+    const s = freshSession();
+    const a = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', cause: userCause() });
+    const aId = a.ok ? a.commit!.id : '';
+
+    // Branch A: cluster -> materializes cluster_id; reencoding a color channel onto it succeeds.
+    await s.declareAnalysis('clustering');
+    const onA = await s.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'color', field: 'cluster_id', cause: userCause() });
+    expect(onA.ok).toBe(true);
+
+    // Sibling branch B (seek back before clustering): cluster_id is a branch-foreign
+    // column there — reencode honestly gap-rejects needs-column (D14), same as select.
+    s.seek(aId);
+    const onB = await s.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'color', field: 'cluster_id', cause: userCause() });
+    expect(onB.ok).toBe(false);
+    if (!onB.ok) expect(onB.rejection.code).toBe('needs-column');
+  });
+
   it('an analysis reading cluster_id is not-ready on a branch where it was never materialized', async () => {
     const s = freshSession();
     const a = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', cause: userCause() });

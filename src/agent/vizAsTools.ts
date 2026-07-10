@@ -54,16 +54,19 @@ export interface VizToolsOptions {
 // ── authored-constant descriptions (never interpolate runtime data — Q8) ───────
 
 const WHATS_HERE_DESCRIPTION =
-  'Describe the current analytical position: the declared views and their encodings, the active ' +
-  'selections in DATA space, the declared analyses with their readiness, the online-FDR ledger, and ' +
-  'the count of unmet requests (gaps). Call this first, then act with dispatch.';
+  'Describe the current analytical position: the declared views, their current channel->field visual ' +
+  'encodings and the columns available to put on them, the active selections in DATA space, the ' +
+  'declared analyses with their readiness, the online-FDR ledger, and the count of unmet requests ' +
+  '(gaps). Call this first, then act with dispatch.';
 
 const DISPATCH_DESCRIPTION =
   'Perform ONE semantic interaction. verb is one of: select (a point value on a field), filter (an ' +
   'interval [lo,hi] on a field, or null to clear), annotate (an inert note), navigate (focus a view), ' +
   'analyze (run a declared analysis over the current selection), fork (travel the cursor back to a ' +
   'prior commit so your NEXT act branches off it — a sibling, no history rewritten), checkpoint (name ' +
-  'the current position to return to). This is the ONLY way to change state — there is no raw-event path.';
+  'the current position to return to), reencode (rebind a view\'s visual channel, e.g. x, to a ' +
+  'different data field — must be a channel valid for that view and a column that exists). This is ' +
+  'the ONLY way to change state — there is no raw-event path.';
 
 const DECLARE_ANALYSIS_DESCRIPTION =
   'Run a DECLARED analysis by id over the current selection (a columns analysis runs over the full ' +
@@ -97,8 +100,8 @@ const DISPATCH_SCHEMA = {
   type: 'object',
   properties: {
     verb: { type: 'string', enum: [...DISPATCH_VERBS], description: 'The semantic verb.' },
-    viewId: { type: 'string', description: 'The view identity a select/filter/navigate targets.' },
-    field: { type: 'string', description: 'The data-space column a select/filter acts on.' },
+    viewId: { type: 'string', description: 'The view identity a select/filter/navigate/reencode targets.' },
+    field: { type: 'string', description: 'The data-space column a select/filter acts on, or the target field a reencode rebinds a channel to.' },
     value: { description: 'The selected DATA-space point value (select).' },
     range: {
       type: ['array', 'null'],
@@ -109,6 +112,7 @@ const DISPATCH_SCHEMA = {
     analysisId: { type: 'string', description: 'A declared analysis id (analyze).' },
     fromCommitId: { type: 'string', description: 'The commit id to branch off (fork).' },
     label: { type: 'string', description: 'A checkpoint label (checkpoint).' },
+    channel: { type: 'string', description: 'The visual channel to rebind, e.g. "x" | "y" | "color" (reencode) — must be valid for the view.' },
     ...OPTIONAL_INTENT,
   },
   required: ['verb'],
@@ -238,6 +242,11 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
       case 'checkpoint':
         if (typeof args['label'] !== 'string') return { error: 'checkpoint requires a string label' };
         return { verb: 'checkpoint', label: args['label'], cause };
+      case 'reencode':
+        if (typeof args['viewId'] !== 'string' || typeof args['channel'] !== 'string' || typeof args['field'] !== 'string') {
+          return { error: 'reencode requires string viewId, channel, and field' };
+        }
+        return { verb: 'reencode', viewId: args['viewId'], channel: args['channel'], field: args['field'], cause };
       default:
         return { error: `unhandled verb "${verb}"` };
     }
@@ -256,6 +265,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
       ...(result.checkpoint ? { checkpoint: result.checkpoint } : {}),
       ...(result.annotated ? { annotated: result.annotated } : {}),
       ...(result.navigatedTo ? { navigatedTo: result.navigatedTo } : {}),
+      ...(result.reencoded ? { reencoded: result.reencoded } : {}),
     };
   }
 

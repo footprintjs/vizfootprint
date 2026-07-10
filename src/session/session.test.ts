@@ -215,6 +215,82 @@ describe('fork / checkpoint (R8 branching + named positions)', () => {
   });
 });
 
+describe('Q6 — reencode: the 8th dispatch verb (a state-changing view-encoding transition)', () => {
+  it('rebinds a channel to a field, lands one commit, and shows in overview + viewEncodings', async () => {
+    const s = freshSession();
+    expect(s.viewEncodings('scatter')).toEqual({ x: 'price', y: 'rating' }); // the declared initial mapping
+
+    const res = await s.dispatch({
+      verb: 'reencode',
+      viewId: 'scatter',
+      channel: 'x',
+      field: 'rating',
+      cause: userCause('swap x to rating'),
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.reencoded).toEqual({ viewId: 'scatter', channel: 'x', field: 'rating' });
+      expect(res.commit).toMatchObject({ viewId: 'encoding:scatter', kind: 'point', field: 'x', value: 'rating' });
+    }
+    expect(s.log.records).toHaveLength(1);
+    expect(s.viewEncodings('scatter')).toEqual({ x: 'rating', y: 'rating' });
+
+    const ov = await s.overview();
+    const scatter = ov.views.find((v) => v.viewId === 'scatter')!;
+    expect(scatter.encodings).toEqual({ x: 'rating', y: 'rating' });
+    expect(scatter.columns.map((c) => c.field).sort()).toEqual(['category', 'id', 'price', 'rating']);
+    // The old point/interval capability field is unaffected by the rename.
+    expect(scatter.selectionKinds).toEqual(['point', 'interval']);
+    // The top-level convenience projection (viewId -> its encodings) agrees with `views[]`.
+    expect(ov.encodings['scatter']).toEqual(scatter.encodings);
+    expect(ov.encodings['bar']).toEqual({ x: 'category' }); // untouched — reencode only targeted scatter
+  });
+
+  it('an invalid channel for the view is a typed guard-failed gap; no commit lands', async () => {
+    const s = freshSession();
+    const res = await s.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'size', field: 'price', cause: userCause() });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.rejection.code).toBe('guard-failed');
+    expect(s.log.records).toHaveLength(0);
+    expect(s.viewEncodings('scatter')).toEqual({ x: 'price', y: 'rating' }); // unchanged
+  });
+
+  it('a view with no declared encoding surface is a typed guard-failed gap', async () => {
+    const s = freshSession();
+    const res = await s.dispatch({ verb: 'reencode', viewId: 'cluster', channel: 'x', field: 'price', cause: userCause() });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.rejection.code).toBe('guard-failed');
+  });
+
+  it('an unknown view is a typed needs-view gap', async () => {
+    const s = freshSession();
+    const res = await s.dispatch({ verb: 'reencode', viewId: 'ghost', channel: 'x', field: 'price', cause: userCause() });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.rejection.code).toBe('needs-view');
+  });
+
+  it('a field absent from the table is a typed needs-column gap', async () => {
+    const s = freshSession();
+    const res = await s.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'x', field: 'nope', cause: userCause() });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.rejection.code).toBe('needs-column');
+  });
+
+  it('reencode commits replay byte-identically (R2)', async () => {
+    const s = freshSession();
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
+    await s.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'y', field: 'price', cause: userCause('swap y') });
+
+    const before = causeHistogram(s.log.records);
+    const replayed = replayLog(serializeLog(s.log.records));
+    expect(causeHistogram(replayed.records)).toEqual(before);
+    expect(replayed.records.map((r) => ({ viewId: r.viewId, field: r.field, value: r.value, kind: r.kind }))).toEqual(
+      s.log.records.map((r) => ({ viewId: r.viewId, field: r.field, value: r.value, kind: r.kind })),
+    );
+    for (const r of replayed.records) expect(r.cause.replayed).toBe(true);
+  });
+});
+
 describe('L6 seam — why(target) is promoted (real cross-tier slice)', () => {
   it('an unknown target is a typed no-such-target miss, never a fabricated answer', () => {
     const s = freshSession();

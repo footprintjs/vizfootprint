@@ -51,7 +51,14 @@ export type DispatchAction =
   | { readonly verb: 'navigate'; readonly viewId: string; readonly cause: Cause }
   | { readonly verb: 'analyze'; readonly analysisId: string; readonly input?: readonly Record<string, unknown>[]; readonly cause: Cause; readonly correlationId?: string }
   | { readonly verb: 'fork'; readonly fromCommitId: string; readonly cause: Cause }
-  | { readonly verb: 'checkpoint'; readonly label: string; readonly cause: Cause };
+  | { readonly verb: 'checkpoint'; readonly label: string; readonly cause: Cause }
+  /**
+   * The 8th verb (Q6 completeness gap, orchestrator-adjudicated): rebind a
+   * view's visual CHANNEL (e.g. `x`) to a different data `field` — a
+   * state-changing transition (R1: lands a cause-tagged commit; R2: replays;
+   * time-travel: the fold carries the encoding, so `seek` restores the old one).
+   */
+  | { readonly verb: 'reencode'; readonly viewId: string; readonly channel: string; readonly field: string; readonly cause: Cause; readonly correlationId?: string };
 
 /** A named log position (the `checkpoint` verb). A NAMED pointer to a commit — stored as inert data, listable. */
 export interface Checkpoint {
@@ -137,6 +144,7 @@ export type DispatchResult =
       readonly checkpoint?: Checkpoint;
       readonly annotated?: { readonly target: string; readonly note: string };
       readonly navigatedTo?: string;
+      readonly reencoded?: { readonly viewId: string; readonly channel: string; readonly field: string };
     }
   | {
       readonly ok: false;
@@ -184,9 +192,28 @@ export interface ViewInfo {
   readonly viewId: string;
   readonly actor: Actor;
   readonly label?: string;
-  readonly encodings: readonly ('point' | 'interval')[];
+  /**
+   * Which point/interval SELECTION kinds this view can emit (R3 capability —
+   * renamed from the old `encodings` to free that name for the visual-channel
+   * sense below; nothing shipped ever read the old name off `Overview`).
+   */
+  readonly selectionKinds: readonly ('point' | 'interval')[];
   readonly canProbe: boolean;
   readonly mounted: boolean;
+  /**
+   * The current CHANNEL→field visual-encoding map at the cursor (the
+   * `reencode` verb's fold; SPEC Q6 8th-verb). Empty if the view declares no
+   * encoding surface. Seeking the cursor back in time restores the OLD map.
+   */
+  readonly encodings: Readonly<Record<string, string>>;
+  /**
+   * The columns available to encode onto, branch-scoped at the cursor (D14
+   * token-lean discipline: names + types only, never values — Q8). Currently
+   * every view reads the session's single default table, so this mirrors
+   * `Overview.columns[defaultTable]`; surfaced per-view so a chat agent can
+   * answer "what can I put on x?" from one `whats_here` entry.
+   */
+  readonly columns: readonly ColumnFacet[];
 }
 
 /** An active DATA-space selection (never pixels; R5). */
@@ -236,6 +263,14 @@ export interface Overview {
   readonly analyses: readonly AnalysisReadiness[];
   readonly fdr: FdrSummary;
   readonly columns: Readonly<Record<string, readonly ColumnFacet[]>>;
+  /**
+   * viewId → the same channel→field map as `views[].encodings` (SPEC Q6 8th
+   * verb), flattened to a lookup for a caller that wants one view's mapping
+   * without scanning `views`. Redundant with `views[].encodings` by design —
+   * a convenience projection, not a second source of truth (both are read
+   * off the identical `activeEncodings` fold in the same `overview()` call).
+   */
+  readonly encodings: Readonly<Record<string, Readonly<Record<string, string>>>>;
   readonly gaps: number;
   readonly currentView: string | null;
   readonly engines: Readonly<Record<string, string>>;

@@ -34,6 +34,7 @@ const DEF_KEYS = new Set([
   'actors',
   'analyses',
   'capabilities',
+  'encodings',
   'fdr',
   'agent',
   'defaultTable',
@@ -157,6 +158,38 @@ export function validateDashboardDef(def: unknown): string[] {
         }
         if (cap.fields !== undefined && (!Array.isArray(cap.fields) || cap.fields.some((f) => typeof f !== 'string'))) {
           problems.push(`capabilities[${i}].fields must be an array of strings`);
+        }
+      });
+    }
+  }
+
+  // ── encodings (optional) — the `reencode` verb's per-view validation surface ──
+  if (def.encodings !== undefined) {
+    if (!Array.isArray(def.encodings)) {
+      problems.push('encodings, if present, must be an array of ViewEncodingDecl');
+    } else {
+      def.encodings.forEach((enc, i) => {
+        if (!isObject(enc)) {
+          problems.push(`encodings[${i}] must be an object`);
+          return;
+        }
+        if (typeof enc.viewId !== 'string' || enc.viewId.length === 0) {
+          problems.push(`encodings[${i}].viewId must be a non-empty string`);
+        }
+        if (typeof enc.chartKind !== 'string' || enc.chartKind.length === 0) {
+          problems.push(`encodings[${i}].chartKind must be a non-empty string`);
+        }
+        if (
+          !Array.isArray(enc.channels) ||
+          enc.channels.length === 0 ||
+          enc.channels.some((c) => typeof c !== 'string' || c.length === 0)
+        ) {
+          problems.push(`encodings[${i}].channels must be a non-empty array of non-empty strings`);
+        }
+        if (enc.initial !== undefined) {
+          if (!isObject(enc.initial) || Object.values(enc.initial).some((v) => typeof v !== 'string')) {
+            problems.push(`encodings[${i}].initial, if present, must be an object mapping channel -> field (strings)`);
+          }
         }
       });
     }

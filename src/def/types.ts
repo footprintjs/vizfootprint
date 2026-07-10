@@ -36,9 +36,11 @@ import type {
 import type { FdrStep, GammaSequence, HypothesisRecord } from '../fdr/index.js';
 import type { ColumnInfo, DataProvider, Engine, Row } from '../data/index.js';
 
-// ── The dispatch verb vocabulary (SPEC §9; Q6 flagged open). ───────────────────
+// ── The dispatch verb vocabulary (SPEC §9; Q6 — the 7-verb set was INCOMPLETE:
+// changing a view's visual encoding is a state-changing transition too, not an
+// optional-interaction affordance — docs/RESEARCH_STATE.md Q6/D-note). ────────
 
-/** The seven semantic verbs the agent drives every interaction through (R4). */
+/** The eight semantic verbs the agent drives every interaction through (R4). */
 export type DispatchVerb =
   | 'select'
   | 'filter'
@@ -46,9 +48,10 @@ export type DispatchVerb =
   | 'navigate'
   | 'analyze'
   | 'fork'
-  | 'checkpoint';
+  | 'checkpoint'
+  | 'reencode';
 
-/** The seven verbs, frozen (used for validation + tool-schema enumeration). */
+/** The eight verbs, frozen (used for validation + tool-schema enumeration). */
 export const DISPATCH_VERBS: readonly DispatchVerb[] = [
   'select',
   'filter',
@@ -57,6 +60,7 @@ export const DISPATCH_VERBS: readonly DispatchVerb[] = [
   'analyze',
   'fork',
   'checkpoint',
+  'reencode',
 ] as const;
 
 /**
@@ -80,6 +84,10 @@ export const DEFAULT_INTENTS: Readonly<Record<DispatchVerb, IntentClass>> = {
   analyze: 'mandatory-analytical',
   fork: 'mandatory-analytical',
   checkpoint: 'mandatory-analytical',
+  // reencode changes what a view SHOWS, not just what it highlights — a
+  // state-changing transition (the orchestrator ruling), same class as
+  // select/filter/fork/checkpoint: must be honored or filed as a typed gap.
+  reencode: 'mandatory-analytical',
   annotate: 'optional-interaction',
   navigate: 'optional-interaction',
 };
@@ -96,6 +104,27 @@ export interface DataSourceDef {
   readonly engine?: Engine;
   /** Memory engine internal storage layout (pass-through; default `row`). */
   readonly layout?: 'row' | 'column';
+}
+
+/**
+ * One view's declared VISUAL-ENCODING surface (the `reencode` verb's
+ * validation + fold seed; D10 VL vocab). NOT to be confused with
+ * `CapabilityDecl.encodings` / `ChartEncoding` (`mosaic/emission.ts`) — those
+ * name the point/interval SELECTION kind a view emits. This names which
+ * plot CHANNEL (x/y/color/…) a data field is bound to.
+ *
+ * A view absent from `DashboardDef.encodings` has no declared encoding
+ * surface at all — `reencode` against it is an honest `guard-failed` gap
+ * (R14: never guess a channel vocabulary for an undeclared chart kind).
+ */
+export interface ViewEncodingDecl {
+  readonly viewId: string;
+  /** Informational VL/Mosaic mark name (e.g. 'point', 'bar', 'line'). Echoed verbatim, never parsed (R12). */
+  readonly chartKind: string;
+  /** The channels this view's chart kind accepts (e.g. `['x','y','color']` for a scatter). */
+  readonly channels: readonly string[];
+  /** The channel→field mapping this view starts with — the session fold's ROOT, before any `reencode` commit. */
+  readonly initial?: Readonly<Record<string, string>>;
 }
 
 /** R14 honest capability envelope for a view (its adapter may narrow this further at mount). */
@@ -155,6 +184,8 @@ export interface DashboardDef {
   readonly analyses?: Record<string, AnalysisSlot>;
   /** R14 honest capability envelope, per view. */
   readonly capabilities?: readonly CapabilityDecl[];
+  /** Per-view visual-encoding declarations (R14; the `reencode` verb's validation + fold seed). */
+  readonly encodings?: readonly ViewEncodingDecl[];
   /** Online-FDR defaults (L4). Absent = LORD++ at alpha 0.05. */
   readonly fdr?: FdrDecl;
   /** Dual-intent tagging overrides for dispatch verbs (R4/R11). */
@@ -178,6 +209,8 @@ export interface ViewDecl {
   readonly viewId: string;
   readonly meta: ActorMeta;
   readonly capability?: CapabilityDecl;
+  /** This view's declared encoding surface (chart kind + valid channels + initial mapping), if any. */
+  readonly encoding?: ViewEncodingDecl;
 }
 
 /** The minimal online-FDR stepper contract a session drives (uniform over both procedures). */
