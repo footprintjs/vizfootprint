@@ -10,6 +10,8 @@ export interface ReadinessPanelProps {
   readonly analyses: readonly ReadinessView[];
   /** When present, a ready analysis becomes clickable to declare it. */
   readonly onAnalyze?: (analysisId: string) => void;
+  /** Render the built-in heading (default true — pass false inside a titled VizPanel). */
+  readonly heading?: boolean;
   readonly className?: string;
 }
 
@@ -17,7 +19,7 @@ export function ReadinessPanel(props: ReadinessPanelProps): JSX.Element {
   const { analyses, onAnalyze } = props;
   return (
     <div className={props.className} data-vzf="readiness-panel">
-      <div className="vzf-section-head">Declared analyses — readiness at the cursor</div>
+      {(props.heading ?? true) && <div className="vzf-section-head">Declared analyses — readiness at the cursor</div>}
       {analyses.length === 0 ? (
         <div className="vzf-muted" style={{ fontSize: '0.85em' }}>
           no analyses declared

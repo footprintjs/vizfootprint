@@ -96,6 +96,10 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   };
 
   const onPointerDown = (ev: ReactPointerEvent<SVGSVGElement>): void => {
+    // the axis labels live inside this svg — a click there opens the encoding
+    // picker and must NOT start (or, on release, clear) a brush
+    const target = ev.target as Element;
+    if (typeof target.closest === 'function' && target.closest('.vzf-axis-group')) return;
     const px = pxFromEvent(ev);
     dragRef.current = { x0: px };
     svgRef.current?.setPointerCapture?.(ev.pointerId);
@@ -190,7 +194,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         )}
         {/* interactive axis labels */}
         <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />
-        <AxisLabel x={16} y={height / 2} text={yLabel} channel="y" anchor="middle" onOpen={openPicker} />
+        <AxisLabel x={14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={-90} onOpen={openPicker} />
       </svg>
       <EncodingPicker
         open={pickerChannel !== null}

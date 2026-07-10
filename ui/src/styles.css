@@ -283,7 +283,10 @@
 /* ============================================================
    LAYOUT — VizDashboard shell
    ============================================================ */
-:where(.vzf) .vzf-root {
+/* the shell root carries BOTH classes (`class="vzf vzf-root"`), so this must
+   be a COMPOUND selector — `:where(.vzf) .vzf-root` would demand descent and
+   silently never match, breaking the height constraint the scroller needs */
+:where(.vzf.vzf-root) {
   height: 100%;
   min-height: 0;
   display: flex;

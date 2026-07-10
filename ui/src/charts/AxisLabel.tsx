@@ -14,11 +14,13 @@ export interface AxisLabelProps {
   /** Approx label box (viewBox units) for the affordance ring + hit area. */
   readonly boxWidth?: number;
   readonly boxHeight?: number;
+  /** Rotate the whole affordance around (x, y) — e.g. -90 for a vertical y-axis label. */
+  readonly rotate?: number;
   readonly onOpen: (channel: string) => void;
 }
 
 export function AxisLabel(props: AxisLabelProps): JSX.Element {
-  const { x, y, text, channel, anchor = 'middle', boxWidth = Math.max(60, text.length * 7 + 24), boxHeight = 18, onOpen } = props;
+  const { x, y, text, channel, anchor = 'middle', boxWidth = Math.max(60, text.length * 7 + 24), boxHeight = 18, rotate, onOpen } = props;
   const bx = anchor === 'middle' ? x - boxWidth / 2 : anchor === 'end' ? x - boxWidth : x;
   const onKey = (e: KeyboardEvent<SVGGElement>) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -33,6 +35,7 @@ export function AxisLabel(props: AxisLabelProps): JSX.Element {
       tabIndex={0}
       aria-label={`Encode the ${channel} axis (currently ${text})`}
       data-axis-channel={channel}
+      transform={rotate ? `rotate(${rotate} ${x} ${y})` : undefined}
       onClick={() => onOpen(channel)}
       onKeyDown={onKey}
       style={{ cursor: 'pointer' }}

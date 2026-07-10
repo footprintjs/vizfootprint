@@ -124,6 +124,15 @@ describe('VizScatter', () => {
     fireEvent.pointerUp(svg, { clientX: 151, pointerId: 1 });
     expect(onEmit).toHaveBeenCalledWith({ rawValue: null, encoding: { kind: 'interval', field: 'price' } });
   });
+
+  it('a pointer-down on an axis label never starts (or clears) a brush', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizScatter data={data} xField="price" columns={COLS} onEmit={onEmit} />);
+    const axisText = container.querySelector('.vzf-axis-group .vzf-axis-label')!;
+    fireEvent.pointerDown(axisText, { clientX: 260, pointerId: 1 });
+    fireEvent.pointerUp(axisText, { clientX: 260, pointerId: 1 });
+    expect(onEmit).not.toHaveBeenCalled(); // no null-interval "clear" emission
+  });
 });
 
 describe('VizBar', () => {
