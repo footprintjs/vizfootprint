@@ -13,6 +13,7 @@
  */
 import { buildAnalystSurface } from './def.js';
 import { createAssistant, scriptedAnalystMock, type ActivityStep } from './analyst.js';
+import type { LLMProvider } from 'agentfootprint/llm-providers';
 import type { AttTrace } from 'agentfootprint/observe';
 import type { Cause } from '../../src/cause/index.js';
 import type { DispatchAction, DispatchResult } from '../../src/agent/index.js';
@@ -22,16 +23,24 @@ export interface CreateAnalystOptions {
   readonly csv: string;
   /** Use the scripted mock provider (tests / no-API-key mode) instead of Anthropic. */
   readonly mock?: boolean;
+  /**
+   * Override the provider outright (tests that need a DIFFERENT scripted
+   * sequence than the default `scriptedAnalystMock`, e.g. the reencode path).
+   * Takes precedence over `mock`.
+   */
+  readonly provider?: LLMProvider;
 }
 
 /** The human's dispatch request, straight off `/api/dispatch`. */
 export interface UserDispatchBody {
-  readonly verb: 'filter' | 'select' | 'analyze';
+  readonly verb: 'filter' | 'select' | 'analyze' | 'reencode';
   readonly viewId?: string;
   readonly field?: string;
   readonly value?: unknown;
   readonly range?: readonly [number, number] | null;
   readonly analysisId?: string;
+  /** The visual channel a `reencode` rebinds (e.g. 'x', 'y', 'category'). */
+  readonly channel?: string;
   readonly intent?: string;
 }
 
@@ -60,6 +69,12 @@ export interface AnalystState {
   readonly gaps: unknown;
   readonly selectedCount: number;
   readonly totalRows: number;
+  /** The table `select`/`filter`/`analyze`/`reencode` operate over (vizfootprint-ui's adapter needs this). */
+  readonly defaultTable: string;
+  /** table → column facets (schema; UI-2 — feeds the EncodingPicker). */
+  readonly columns: unknown;
+  /** viewId → channel→field map (UI-0's `reencode` fold; UI-2 — feeds chart axis fields). */
+  readonly encodings: unknown;
   readonly activity: readonly ActivityStep[];
   readonly turnActive: boolean;
   readonly mode: 'mock' | 'live';
@@ -101,7 +116,7 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
   let turnActive = false;
 
   const assistant = createAssistant(port, {
-    provider: options.mock ? scriptedAnalystMock() : undefined,
+    provider: options.provider ?? (options.mock ? scriptedAnalystMock() : undefined),
     onActivity: (step) => {
       activity.push(step);
       if (activity.length > 60) activity.shift();
@@ -140,6 +155,11 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
       } else if (body.verb === 'analyze') {
         if (typeof body.analysisId !== 'string') return { ok: false, error: 'analyze needs analysisId' };
         action = { verb: 'analyze', analysisId: body.analysisId, cause };
+      } else if (body.verb === 'reencode') {
+        if (typeof body.viewId !== 'string' || typeof body.channel !== 'string' || typeof body.field !== 'string') {
+          return { ok: false, error: 'reencode needs viewId, channel, and field' };
+        }
+        action = { verb: 'reencode', viewId: body.viewId, channel: body.channel, field: body.field, cause };
       } else {
         return { ok: false, error: `unsupported human verb "${String((body as { verb?: unknown }).verb)}"` };
       }
@@ -171,6 +191,9 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
         gaps: session.gaps(),
         selectedCount: selected.length,
         totalRows: rows.length,
+        defaultTable: overview.defaultTable,
+        columns: overview.columns,
+        encodings: overview.encodings,
         activity,
         turnActive,
         mode,

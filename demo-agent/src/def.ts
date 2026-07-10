@@ -74,6 +74,13 @@ export function buildAnalystSurface(csv: string): AnalystSurface {
     meta: { title: 'vizfootprint — mixed-principal analyst' },
     data: { data: { rows } },
     actors: { scatter: SCATTER, bar: BAR, agent: AGENT, cluster: CLUSTER },
+    // UI-2: a declared visual-encoding surface per view — without this, ANY
+    // reencode (human axis-click or agent dispatch) is an honest guard-failed
+    // gap (R14: never guess a channel vocabulary for an undeclared chart kind).
+    encodings: [
+      { viewId: 'scatter', chartKind: 'point', channels: ['x', 'y', 'color'], initial: { x: 'price', y: 'rating' } },
+      { viewId: 'bar', chartKind: 'bar', channels: ['category'], initial: { category: 'category' } },
+    ],
     analyses: {
       correlation: correlationAnalysis({ x: 'price', y: 'rating' }),
       clustering: clusteringAnalysis({ column: 'price', k: CLUSTER_K, table: 'data', outColumn: 'cluster_id' }),

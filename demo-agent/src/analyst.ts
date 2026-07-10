@@ -32,8 +32,9 @@ export const SYSTEM = `You are a data analyst working a LIVE coordinated dashboa
 Your tools are FIXED: whats_here, dispatch, declare_analysis, why, fork, checkpoint. You drive the dashboard ONLY through these tools; there is no raw-event path and no way to compute a number outside them.
 
 Work method, every turn:
-1. Call whats_here FIRST. It reports the declared views and their ids, the active DATA-space selections, the declared analyses and whether each is ready to run, the online-FDR ledger, and how many requests have gone unmet (gaps). Orient before you act.
-2. Change the selection with dispatch: verb 'filter' takes an interval [lo, hi] on a numeric field (or null to clear); verb 'select' takes a point value on a field. Name a viewId from whats_here — 'scatter' encodes price, 'bar' encodes category. One dispatch is one semantic interaction.
+1. Call whats_here FIRST. It reports the declared views and their ids, EACH view's current channel->field visual encodings and the columns available to put on them (branch-scoped, names+types only), the active DATA-space selections, the declared analyses and whether each is ready to run, the online-FDR ledger, and how many requests have gone unmet (gaps). Orient before you act — the columns list is how you know which fields actually exist before you name one.
+2. Change the selection with dispatch: verb 'filter' takes an interval [lo, hi] on a numeric field (or null to clear); verb 'select' takes a point value on a field. Name a viewId from whats_here — 'scatter' starts encoding price (x) by rating (y), 'bar' encodes category. One dispatch is one semantic interaction.
+2b. Change what an axis SHOWS with dispatch verb 'reencode': give viewId, channel (e.g. 'x', 'y', 'color' on the scatter; 'category' on the bar), and field — field must be one of the columns whats_here listed for that view, and the channel must be one whats_here's view.encodings already has an entry for. An invalid channel or a column that doesn't exist comes back as a typed gap, not a guess.
 3. Never compute a statistic yourself. For ANY statistical claim — a correlation, a regression, a clustering, a group summary — call declare_analysis with the analysis id. It runs over the CURRENT selection; a test lands exactly one row in the FDR ledger.
 4. Read the result HONESTLY. Report the ledger's own verdict via whats_here (its fdr field) — never keep your own count. A test that is significant alone but NOT rejected by the online procedure at the current test count is not a discovery; say so plainly. A degenerate fit returns an honest flag and spends no wealth — report the non-discovery, do not invent a number.
 5. If you cannot serve an ask because a column, view, or analysis does not exist, or a guard blocks it, the dispatch returns a typed gap and the gap ledger records it. Cite that gap to the user — that is how the team learns what to build — instead of inventing a capability.
@@ -193,6 +194,37 @@ export function scriptedAnalystMock(): LLMProvider {
         'one row landed in the online-FDR ledger. Read its verdict in the ledger panel: a p that is ' +
         'significant on its own but not rejected by LORD++ at the current test count is NOT a discovery.'
       );
+    },
+  });
+}
+
+/**
+ * A second scripted mock — drives the reencode path end to end (UI-2): the SAME
+ * six-tool surface, but the scripted sequence is whats_here → dispatch(reencode
+ * x -> rating on the scatter) → a grounded reply. Used by the agent-path E2E
+ * test (the chat's "change the x axis of the scatter to rating" flow) with the
+ * LLM stubbed — it exercises the exact tool boundary the real chat uses.
+ */
+export function scriptedReencodeMock(): LLMProvider {
+  const toolStep = (id: string, name: string, args: Record<string, unknown>): Partial<LLMResponse> => ({
+    content: '',
+    toolCalls: [{ id, name, args }],
+    stopReason: 'tool_use',
+  });
+  return mock({
+    name: 'scripted-reencode',
+    respond: (req: LLMRequest): Partial<LLMResponse> | string => {
+      const done = req.messages.filter((m) => m.role === 'tool').length;
+      if (done === 0) return toolStep('r0', 'whats_here', {});
+      if (done === 1)
+        return toolStep('r1', 'dispatch', {
+          verb: 'reencode',
+          viewId: 'scatter',
+          channel: 'x',
+          field: 'rating',
+          intent: 'change the x axis of the scatter to rating',
+        });
+      return 'Done — the scatter now encodes rating on the x axis.';
     },
   });
 }

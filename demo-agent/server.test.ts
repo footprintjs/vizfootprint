@@ -16,8 +16,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { startServer } from './server.mjs';
-import { buildAppBundle } from './build.mjs';
+import { buildAppBundle, readUiStylesheet } from './build.mjs';
 import { createAnalyst } from './src/core.js';
+import { scriptedReencodeMock } from './src/analyst.js';
 import { stepBackTarget, stepForwardTarget } from './src/stepNav.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -53,6 +54,12 @@ describe('demo-agent server + bundle', () => {
     expect(js).toContain('scatter');
   }, 60_000);
 
+  it('the vizfootprint-ui stylesheet reads as non-empty CSS (UI-2 — the dashboard is styled by the package)', () => {
+    const css = readUiStylesheet().toString('utf8');
+    expect(css.length).toBeGreaterThan(1000);
+    expect(css).toContain('.vzf');
+  });
+
   it('a human dispatch lands a user-badged commit', async () => {
     const res = await postJSON(handle.url + '/api/dispatch', {
       verb: 'select',
@@ -65,6 +72,88 @@ describe('demo-agent server + bundle', () => {
     const commit = res['commit'] as { cause?: { requestedBy?: string } };
     expect(commit.cause?.requestedBy).toBe('user');
   });
+
+  it('/api/state exposes columns/encodings/defaultTable — what the vizfootprint-ui adapter needs (UI-2)', async () => {
+    const state = (await (await fetch(handle.url + '/api/state')).json()) as {
+      defaultTable: string;
+      columns: Record<string, { field: string; type: string }[]>;
+      encodings: Record<string, Record<string, string>>;
+    };
+    expect(state.defaultTable).toBe('data');
+    expect(state.columns['data']?.map((c) => c.field).sort()).toEqual(['category', 'id', 'price', 'rating']);
+    expect(state.encodings['scatter']).toEqual({ x: 'price', y: 'rating' });
+  });
+});
+
+describe('UI-2: reencode — the human dashboard path (axis click -> POST /api/dispatch) and the agent path (chat tool call)', () => {
+  it('a human reencode dispatch lands a user-badged commit under viewId "encoding:<viewId>" and updates the fold', async () => {
+    const handle = await startServer({ port: 0, mock: true });
+    try {
+      const res = await postJSON(handle.url + '/api/dispatch', {
+        verb: 'reencode',
+        viewId: 'scatter',
+        channel: 'x',
+        field: 'rating',
+        intent: 'human reencode: x -> rating',
+      });
+      expect(res['ok']).toBe(true);
+      const commit = res['commit'] as { viewId?: string; field?: string; value?: unknown; cause?: { requestedBy?: string } };
+      expect(commit.viewId).toBe('encoding:scatter');
+      expect(commit.field).toBe('x');
+      expect(commit.value).toBe('rating');
+      expect(commit.cause?.requestedBy).toBe('user');
+
+      const state = (await (await fetch(handle.url + '/api/state')).json()) as { encodings: Record<string, Record<string, string>> };
+      expect(state.encodings['scatter']).toEqual({ x: 'rating', y: 'rating' });
+    } finally {
+      await handle.close();
+    }
+  }, 30_000);
+
+  it('an invalid reencode verb payload is rejected with a clear error, not a silent no-op', async () => {
+    const handle = await startServer({ port: 0, mock: true });
+    try {
+      const res = await postJSON(handle.url + '/api/dispatch', { verb: 'reencode', viewId: 'scatter' }); // missing channel/field
+      expect(res['ok']).toBe(false);
+      expect(String(res['error'])).toContain('reencode needs');
+    } finally {
+      await handle.close();
+    }
+  }, 30_000);
+
+  it('the agent drives reencode through the SAME tool boundary the chat uses (scriptedReencodeMock, provider override)', async () => {
+    // scriptedReencodeMock scripts whats_here -> dispatch(reencode x->rating on
+    // the scatter) -> a grounded answer — the exact tool sequence a real "change
+    // the x axis of the scatter to rating" chat turn drives, LLM stubbed.
+    const analyst = createAnalyst({ csv: CSV, mock: true, provider: scriptedReencodeMock() });
+    const reply = await analyst.chat('Change the x axis of the scatter to rating.');
+    expect(reply.text.length).toBeGreaterThan(0);
+
+    const state = await analyst.state();
+    const records = state.records as { viewId: string; field: string; value: unknown; cause: { requestedBy: string } }[];
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ viewId: 'encoding:scatter', field: 'x', value: 'rating', cause: { requestedBy: 'agent' } });
+    expect((state.encodings as Record<string, Record<string, string>>)['scatter']).toEqual({ x: 'rating', y: 'rating' });
+
+    const tools = state.activity.map((a) => a.tool);
+    expect(tools).toEqual(['whats_here', 'dispatch']);
+  }, 30_000);
+
+  it('POST /api/chat with a custom provider drives the same reencode through the live server + /api/state', async () => {
+    const handle = await startServer({ port: 0, mock: true, provider: scriptedReencodeMock() });
+    try {
+      const reply = await postJSON(handle.url + '/api/chat', { message: 'change the x axis of the scatter to rating' });
+      expect(String(reply['text']).length).toBeGreaterThan(0);
+      const state = (await (await fetch(handle.url + '/api/state')).json()) as {
+        records: { viewId: string; cause: { requestedBy: string } }[];
+        encodings: Record<string, Record<string, string>>;
+      };
+      expect(state.records.some((r) => r.viewId === 'encoding:scatter' && r.cause.requestedBy === 'agent')).toBe(true);
+      expect(state.encodings['scatter']).toEqual({ x: 'rating', y: 'rating' });
+    } finally {
+      await handle.close();
+    }
+  }, 30_000);
 });
 
 describe('time-travel: seek + branch-on-act + two-truths (Phase B wiring)', () => {
