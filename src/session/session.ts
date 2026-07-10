@@ -25,6 +25,7 @@
 import type { Actor, Cause } from '../cause/index.js';
 import { validateCause } from '../cause/index.js';
 import { CauseSelectionSession } from '../log/index.js';
+import type { CommitRecord } from '../log/index.js';
 import { TEST_ANALOG_FIELD, type FdrStep } from '../fdr/index.js';
 import { isRejection, matchesClause, type ColumnInfo, type PredicateClause, type Row } from '../data/index.js';
 import type { CauseClause } from '../mosaic/index.js';
@@ -42,6 +43,7 @@ import type { RuntimeSnapshot } from 'footprintjs';
 import type { AgentEventFrame, WhyResult, WhyTarget } from '../why/index.js';
 import type {
   AnalysisCommit,
+  BranchInfo,
   Checkpoint,
   ColumnFacet,
   DeclareAnalysisOptions,
@@ -50,7 +52,9 @@ import type {
   GapCode,
   GapRow,
   Overview,
+  SeekResult,
   SessionOptions,
+  TimeState,
   ViewAdapter,
 } from './types.js';
 
@@ -93,7 +97,27 @@ export interface InteractionSession {
   readonly log: CauseSelectionSession;
   readonly defaultTable: string;
   readonly defaultActor: Actor;
+  /** The ACTIVE branch head — the tip of the lineage linear commits extend (moves only when an act lands a commit). */
   readonly head: string | null;
+
+  /**
+   * Move the read-only CURSOR to a prior commit and rebuild the resolved fold
+   * (visible selections + materialized columns) as the pure fold of the branch
+   * path root→commitId. The active head is UNCHANGED — seek is navigation, not
+   * mutation, and refunds no alpha. The NEXT act parents from the cursor, so a
+   * dispatch/declareAnalysis from a past cursor branches (see the file header).
+   */
+  seek(commitId: string): SeekResult;
+
+  /** The current read-only cursor position (the parent the next act commits from). */
+  cursor(): string | null;
+
+  /**
+   * The divergent lineages in the append-only branch DAG (R8), one per leaf
+   * (tip) commit, with the active branch flagged. Derived from the parent-pointer
+   * topology; old branches always stay in this list (and in the FDR denominator).
+   */
+  branches(): readonly BranchInfo[];
 
   /** Register a view adapter under a declared view identity (R3). */
   mountView(viewId: string, adapter: ViewAdapter): { ok: true } | { ok: false; gap: GapRow };
@@ -155,7 +179,21 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly _checkpoints: Checkpoint[] = [];
   private readonly initialWealth: number;
 
+  /**
+   * commitId → the (table, column) pairs an analysis materialized AT that commit.
+   * Column visibility is branch-scoped through the FOLD: a materialized column is
+   * visible iff its producing commit is on the cursor's branch path. (The memory
+   * provider physically stores the column globally — see the branch-isolation
+   * note in `effectiveColumnsOf` — so the session scopes visibility itself.)
+   */
+  private readonly materializedByCommit = new Map<string, { table: string; name: string }[]>();
+  /** `${table}::${name}` for every column ever materialized in this session (across all branches). */
+  private readonly allMaterialized = new Set<string>();
+
+  /** The ACTIVE branch head — tip of the lineage linear commits extend. Moves only on a landed act. */
   private _head: string | null = null;
+  /** The read-only navigation cursor — the parent the next act commits from. `seek`/`fork` move it. */
+  private _cursor: string | null = null;
   private seq = 0;
   private testClock = 0;
   private _currentView: string | null = null;
@@ -173,6 +211,113 @@ class InteractionSessionImpl implements InteractionSession {
 
   get head(): string | null {
     return this._head;
+  }
+
+  // ── time travel: cursor / seek / branch-on-act (R8, Phase A) ─────────────────
+  cursor(): string | null {
+    return this._cursor;
+  }
+
+  /**
+   * Advance BOTH pointers to a freshly-landed commit. After any act the active
+   * branch tip and the cursor coincide: a branch-on-act (an act from a past
+   * cursor) makes the new sibling lineage the active branch (R8 ruling — "the
+   * active branch becomes the new lineage").
+   */
+  private landed(recordId: string): void {
+    this._head = recordId;
+    this._cursor = recordId;
+  }
+
+  /** Move the cursor + rebuild the fold at `commitId` (no head change, no validation — callers pre-validate). */
+  private seekTo(commitId: string): void {
+    this._cursor = commitId;
+    this.rebuildFold(commitId);
+  }
+
+  seek(commitId: string): SeekResult {
+    if (!this.log.records.some((r) => r.id === commitId)) {
+      return { ok: false, gap: this.gapLedger.file('guard-failed', 'seek', `no commit "${commitId}" to seek to`, commitId) };
+    }
+    this.seekTo(commitId);
+    return { ok: true, cursor: commitId };
+  }
+
+  /**
+   * The root→`cursorId` ancestor chain (the branch path). Walks parent pointers
+   * up to the root and reverses. `null` (no commits yet, or a root-before-any-act
+   * cursor) yields the empty path. Cycle-guarded defensively (the append-only log
+   * cannot form one, but a fold must never loop).
+   */
+  private branchPath(cursorId: string | null): CommitRecord[] {
+    if (cursorId === null) return [];
+    const byId = new Map(this.log.records.map((r) => [r.id, r]));
+    const chain: CommitRecord[] = [];
+    const seen = new Set<string>();
+    let cur: string | null = cursorId;
+    while (cur !== null && !seen.has(cur)) {
+      seen.add(cur);
+      const rec = byId.get(cur);
+      if (!rec) break;
+      chain.push(rec);
+      cur = rec.parent;
+    }
+    chain.reverse();
+    return chain;
+  }
+
+  /**
+   * Rebuild the resolved selection fold (active filters + their input-selection
+   * commit ids) as the PURE fold of the branch path root→cursor. Only real view
+   * probes fold into the selection; annotation/analysis commits (whose viewIds
+   * are not declared views) and reserved-field commits are inert. A cleared
+   * interval drops the view's filter, exactly as `doProbe` does live.
+   */
+  private rebuildFold(cursorId: string | null): void {
+    this.activeFilters.clear();
+    this.activeFilterCommits.clear();
+    for (const rec of this.branchPath(cursorId)) {
+      if (!this.runtime.views.has(rec.viewId)) continue; // skip annotation:/analysis: commits
+      if (RESERVED_PROBE_FIELDS.has(rec.field)) continue;
+      if (rec.kind === 'interval' && rec.value === null) {
+        this.activeFilters.delete(rec.viewId);
+        this.activeFilterCommits.delete(rec.viewId);
+      } else {
+        const clause: PredicateClause =
+          rec.kind === 'point'
+            ? { kind: 'point', field: rec.field, value: rec.value }
+            : { kind: 'interval', field: rec.field, value: rec.value as [number, number] };
+        this.activeFilters.set(rec.viewId, clause);
+        this.activeFilterCommits.set(rec.viewId, rec.id);
+      }
+    }
+  }
+
+  branches(): readonly BranchInfo[] {
+    const records = this.log.records;
+    if (records.length === 0) return [];
+    const childCount = new Map<string, number>();
+    for (const r of records) {
+      if (r.parent !== null) childCount.set(r.parent, (childCount.get(r.parent) ?? 0) + 1);
+    }
+    return records
+      .filter((r) => (childCount.get(r.id) ?? 0) === 0) // a leaf (no children) is a branch tip
+      .map((leaf) => ({
+        tip: leaf.id,
+        length: this.branchPath(leaf.id).length,
+        actor: leaf.cause.requestedBy,
+        active: leaf.id === this._head,
+      }));
+  }
+
+  /** The materialized columns visible on the current cursor's branch path, for one table. */
+  private visibleMaterialized(table: string): Set<string> {
+    const out = new Set<string>();
+    for (const rec of this.branchPath(this._cursor)) {
+      const cols = this.materializedByCommit.get(rec.id);
+      if (cols) for (const c of cols) if (c.table === table) out.add(c.name);
+    }
+    return out;
   }
 
   // ── ids ────────────────────────────────────────────────────────────────────
@@ -209,6 +354,26 @@ class InteractionSessionImpl implements InteractionSession {
     const res = await provider.columns(table);
     if (isRejection(res)) return { rejected: res.detail ?? res.reason };
     return res;
+  }
+
+  /**
+   * The columns VISIBLE on the current cursor's branch (branch-scoped fold).
+   * Base columns are always visible; a MATERIALIZED column (produced by an
+   * analysis on some branch) is visible only when its producing commit is on the
+   * cursor's path. This is where branch isolation for materialized columns is
+   * enforced: the memory provider mutates its column store IN PLACE and cannot
+   * un-materialize per branch (`materializeColumn`, memoryProvider.ts:235-257),
+   * so `cluster_id` materialized on branch A physically persists in the shared
+   * store — but the SESSION FOLD hides it on any branch whose path excludes the
+   * clustering commit, so a `select cluster_id` on branch B is an honest
+   * `needs-column` and `overview().columns` omits it there.
+   */
+  private async effectiveColumnsOf(table: string): Promise<readonly ColumnInfo[] | { rejected: string }> {
+    const cols = await this.columnsOf(table);
+    if ('rejected' in cols) return cols;
+    if (this.allMaterialized.size === 0) return cols; // fast path: nothing materialized yet
+    const visible = this.visibleMaterialized(table);
+    return cols.filter((c) => !this.allMaterialized.has(`${table}::${c.name}`) || visible.has(c.name));
   }
 
   /**
@@ -334,8 +499,10 @@ class InteractionSessionImpl implements InteractionSession {
     if (RESERVED_PROBE_FIELDS.has(field)) {
       return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `field "${field}" is reserved by the session and cannot be selected on`, field));
     }
-    // 3. the field must be a real column (R14: needs-column / needs-backend-data).
-    const cols = await this.columnsOf(this.defaultTable);
+    // 3. the field must be a column VISIBLE on this branch (R14: needs-column /
+    //    needs-backend-data). A materialized column absent from the cursor's
+    //    branch fold is honestly `needs-column` here — branch isolation.
+    const cols = await this.effectiveColumnsOf(this.defaultTable);
     if ('rejected' in cols) {
       return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, cols.rejected, field));
     }
@@ -343,10 +510,11 @@ class InteractionSessionImpl implements InteractionSession {
       return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${field}" in table "${this.defaultTable}"`, field));
     }
     // 4. land the cause-tagged clause commit (commit-on-intent) + update the active filter set.
+    //    Parent is the CURSOR: a probe from a past cursor branches (R8 branch-on-act).
     const stamped = this.stampCause(cause, verb, as);
     const { record, clause } = this.log.commit({
       id: this.nextId(),
-      parent: this._head,
+      parent: this._cursor,
       ...(correlationId !== undefined ? { correlationId } : {}),
       viewId,
       actorMeta: this.runtime.views.get(viewId)!.meta,
@@ -355,7 +523,7 @@ class InteractionSessionImpl implements InteractionSession {
       value,
       cause: stamped,
     });
-    this._head = record.id;
+    this.landed(record.id);
     if (kind === 'interval' && value === null) {
       this.activeFilters.delete(viewId);
       this.activeFilterCommits.delete(viewId); // a cleared filter is no longer an input dependency
@@ -380,7 +548,7 @@ class InteractionSessionImpl implements InteractionSession {
     const viewId = `annotation:${stamped.requestedBy}`;
     const { record } = this.log.commit({
       id: this.nextId(),
-      parent: this._head,
+      parent: this._cursor, // R8 branch-on-act: an annotation from a past cursor branches too
       viewId,
       actorMeta: { actor: stamped.requestedBy },
       kind: 'point',
@@ -388,7 +556,7 @@ class InteractionSessionImpl implements InteractionSession {
       value: note,
       cause: stamped,
     });
-    this._head = record.id;
+    this.landed(record.id);
     return { ok: true, verb: 'annotate', intent, commit: record, annotated: { target, note } };
   }
 
@@ -425,13 +593,34 @@ class InteractionSessionImpl implements InteractionSession {
     if (!exists) {
       return this.reject('fork', intent, this.gapLedger.file('guard-failed', 'fork', `no commit "${fromCommitId}" to fork from`, fromCommitId));
     }
-    // Set the head to the fork point — the NEXT commit branches off it (R8).
-    this._head = fromCommitId;
+    // R8 (DEMO-2 fix): `fork` is an EXPLICIT branch-at-cursor. It moves the
+    // read-only CURSOR to the fork point and rebuilds the fold there; the active
+    // branch HEAD (the old tip) is left INTACT so the old lineage stays a live,
+    // replayable branch. The next dispatch/declareAnalysis parents from the
+    // cursor and lands a real sibling (append-only; no history rewritten).
+    //
+    // Before this fix `doFork` mutated `this._head = fromCommitId` directly (the
+    // packet's quoted DEMO-2 flag: "fork only moves the head pointer"): that
+    // conflated cursor and head (losing the old tip pointer) AND never rebuilt
+    // the resolved selection at the fork point, so `overview()` still reported
+    // the pre-fork selection. `fork` and `seek` now share `seekTo` (act-from-past
+    // is the IMPLICIT fork; `fork` is the explicit one).
+    this.seekTo(fromCommitId);
     return { ok: true, verb: 'fork', intent };
   }
 
   private doCheckpoint(label: string, intent: DispatchResult['intent']): DispatchResult {
-    const checkpoint: Checkpoint = { label, commitId: this._head, ts: this._checkpoints.length };
+    // R12: the label is validated as inert data — a non-empty, length-capped
+    // string, stored VERBATIM and never parsed or dispatched on.
+    if (typeof label !== 'string' || label.trim().length === 0) {
+      return this.reject('checkpoint', intent, this.gapLedger.file('guard-failed', 'checkpoint', 'checkpoint label must be a non-empty string', ''));
+    }
+    if (label.length > 200) {
+      return this.reject('checkpoint', intent, this.gapLedger.file('guard-failed', 'checkpoint', 'checkpoint label too long (max 200 chars)', label.slice(0, 40)));
+    }
+    // A NAMED pointer to the CURRENT position (the cursor) — stored as data,
+    // listable via `checkpoints()`. Naming from a past cursor names that commit.
+    const checkpoint: Checkpoint = { label, commitId: this._cursor, ts: this._checkpoints.length };
     Object.freeze(checkpoint);
     this._checkpoints.push(checkpoint);
     return { ok: true, verb: 'checkpoint', intent, checkpoint };
@@ -512,7 +701,7 @@ class InteractionSessionImpl implements InteractionSession {
     }
     const { record } = this.log.commit({
       id: this.nextId(),
-      parent: this._head,
+      parent: this._cursor, // R8 branch-on-act: declaring from a past cursor branches first, then lands
       ...(opts.correlationId !== undefined ? { correlationId: opts.correlationId } : {}),
       viewId: analysisViewId,
       actorMeta: { actor: 'system' },
@@ -521,7 +710,7 @@ class InteractionSessionImpl implements InteractionSession {
       value: landValue,
       cause: stamped,
     });
-    this._head = record.id;
+    this.landed(record.id);
 
     // R11: a columns-channel output materializes back into the data space so it
     // re-enters as ordinary, filterable columns.
@@ -548,6 +737,12 @@ class InteractionSessionImpl implements InteractionSession {
             materialized.push(name);
           }
         }
+      }
+      // Branch-scope the materialized columns to THIS commit (the fold makes them
+      // visible only on branches whose path includes it — see effectiveColumnsOf).
+      if (materialized.length > 0) {
+        this.materializedByCommit.set(record.id, materialized.map((name) => ({ table: out.table, name })));
+        for (const name of materialized) this.allMaterialized.add(`${out.table}::${name}`);
       }
     }
 
@@ -646,7 +841,7 @@ class InteractionSessionImpl implements InteractionSession {
     const columns: Record<string, ColumnFacet[]> = {};
     const colNamesByTable = new Map<string, Set<string>>();
     for (const table of this.runtime.tables) {
-      const cols = await this.columnsOf(table);
+      const cols = await this.effectiveColumnsOf(table); // branch-scoped: hides columns off the cursor's branch
       if ('rejected' in cols) {
         columns[table] = [];
         colNamesByTable.set(table, new Set());
@@ -705,6 +900,20 @@ class InteractionSessionImpl implements InteractionSession {
     const discoveries = this._ledger.filter((s) => s.reject).length;
     const wealth = this._ledger.length ? this._ledger[this._ledger.length - 1]!.wealthAfter : this.initialWealth;
 
+    // ── the two-truths inputs (Phase A): cursor-local vs global (below in `fdr`) ──
+    const cursorPath = this.branchPath(this._cursor);
+    const cursorTests = cursorPath.filter(
+      (r) => r.kind === 'point' && r.field === TEST_ANALOG_FIELD && typeof r.value === 'number',
+    ).length;
+    const time: TimeState = {
+      cursor: this._cursor,
+      head: this._head,
+      branches: this.branches().length,
+      checkpoints: this._checkpoints.length,
+      cursorTests,
+      viewingPast: this._cursor !== this._head,
+    };
+
     return {
       defaultTable: this.defaultTable,
       views,
@@ -722,6 +931,7 @@ class InteractionSessionImpl implements InteractionSession {
       gaps: this.gapLedger.size,
       currentView: this._currentView,
       engines: this.runtime.engines,
+      time,
     };
   }
 }

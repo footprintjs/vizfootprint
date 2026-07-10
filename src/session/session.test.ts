@@ -175,25 +175,37 @@ describe('R14 — honest degenerate fit (no commit, no wealth spent)', () => {
 });
 
 describe('fork / checkpoint (R8 branching + named positions)', () => {
-  it('fork sets the head so the next commit is a sibling; checkpoint names a position', async () => {
+  it('fork moves the cursor (not the head) so the next commit is a sibling; checkpoint names the cursor', async () => {
     const s = freshSession();
     const c1 = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Casual', cause: userCause() });
     const c2 = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
     const firstId = c1.ok ? c1.commit!.id : '';
     const secondId = c2.ok ? c2.commit!.id : '';
     expect(s.head).toBe(secondId);
+    expect(s.cursor()).toBe(secondId); // linear flow: cursor == head
 
     const cp = await s.dispatch({ verb: 'checkpoint', label: 'after-two', cause: userCause() });
     expect(cp.ok && cp.checkpoint?.commitId).toBe(secondId);
 
-    // Fork back to c1: the next commit branches off it (same parent as c2).
+    // Fork back to c1 (DEMO-2 fix): the CURSOR moves to the fork point; the head
+    // (old tip) is left INTACT so the old lineage stays a live branch. The next
+    // commit branches off c1 (same parent as c2) — a real sibling, no rewrite.
     await s.dispatch({ verb: 'fork', fromCommitId: firstId, cause: userCause() });
-    expect(s.head).toBe(firstId);
+    expect(s.cursor()).toBe(firstId); // fork moved the cursor…
+    expect(s.head).toBe(secondId); // …NOT the head — the old branch tip is preserved
     const sibling = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', cause: userCause() });
     const siblingId = sibling.ok ? sibling.commit!.id : '';
     const siblingRec = s.log.records.find((r) => r.id === siblingId)!;
     const secondRec = s.log.records.find((r) => r.id === secondId)!;
     expect(siblingRec.parent).toBe(secondRec.parent); // both children of c1 — a real branch
+    // acting made the new lineage active: head + cursor now coincide on the sibling
+    expect(s.head).toBe(siblingId);
+    expect(s.cursor()).toBe(siblingId);
+    // the old tip (c2) is still a leaf — branches() lists BOTH lineages
+    const tips = s.branches().map((b) => b.tip).sort();
+    expect(tips).toEqual([secondId, siblingId].sort());
+    expect(s.branches().find((b) => b.tip === siblingId)!.active).toBe(true);
+    expect(s.branches().find((b) => b.tip === secondId)!.active).toBe(false);
   });
 
   it('fork from an unknown commit is a typed guard-failed gap', async () => {

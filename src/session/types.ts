@@ -28,7 +28,7 @@ export type GapCode =
   | 'needs-backend-data';
 
 /** The operation a gap was filed against. */
-export type GapOp = DispatchVerb | 'declareAnalysis' | 'mountView';
+export type GapOp = DispatchVerb | 'declareAnalysis' | 'mountView' | 'seek';
 
 /** One unmet request, filed with a taxonomy code. `detail`/`target` are INERT data (R12). */
 export interface GapRow {
@@ -53,12 +53,61 @@ export type DispatchAction =
   | { readonly verb: 'fork'; readonly fromCommitId: string; readonly cause: Cause }
   | { readonly verb: 'checkpoint'; readonly label: string; readonly cause: Cause };
 
-/** A named log position (the `checkpoint` verb). */
+/** A named log position (the `checkpoint` verb). A NAMED pointer to a commit — stored as inert data, listable. */
 export interface Checkpoint {
   readonly label: string;
   readonly commitId: string | null;
   readonly ts: number;
 }
+
+/**
+ * One divergent lineage in the append-only branch DAG (R8), identified by its
+ * TIP — the leaf commit that terminates it. Branches are never stored; they are
+ * DERIVED from the parent-pointer topology (a commit with no children is a tip).
+ * Old branches stay intact and replayable; a branch-on-act only ever adds a new
+ * sibling leaf, it never rewrites or removes an existing lineage.
+ */
+export interface BranchInfo {
+  /** The leaf commit id that terminates this lineage. */
+  readonly tip: string;
+  /** Commits from the root down to (and including) the tip. */
+  readonly length: number;
+  /** The principal that authored the tip commit (for badging in a branch map). */
+  readonly actor: Actor;
+  /** True iff this is the ACTIVE branch (its tip === the current branch head). */
+  readonly active: boolean;
+}
+
+/**
+ * The time-travel position (Phase A): a read-only CURSOR distinct from the
+ * active branch HEAD. `seek()`/`fork` move the cursor and rebuild the resolved
+ * fold there; the head only moves when an act LANDS a commit (a branch-on-act
+ * from a past cursor makes the new sibling lineage active). Rendered by the
+ * dashboard's two-truths ledger and time-travel bar (Phase B).
+ */
+export interface TimeState {
+  /** The read-only cursor — the root of the fold and the parent the next act commits from. */
+  readonly cursor: string | null;
+  /** The active branch head — the tip of the lineage linear commits extend. */
+  readonly head: string | null;
+  /** Number of divergent lineages (leaves) currently in the log. */
+  readonly branches: number;
+  /** Number of named checkpoints. */
+  readonly checkpoints: number;
+  /**
+   * Test-analog commits visible on the cursor's branch path — the CURSOR-LOCAL
+   * truth ("tests visible at this point on this branch"). The GLOBAL truth (all
+   * tests across all branches, monotone, never refunded) lives in {@link FdrSummary}.
+   */
+  readonly cursorTests: number;
+  /** True iff the cursor is behind the active head (you are viewing the past). */
+  readonly viewingPast: boolean;
+}
+
+/** The result of a `seek(commitId)` navigation — read-only, never a mutation. */
+export type SeekResult =
+  | { readonly ok: true; readonly cursor: string }
+  | { readonly ok: false; readonly gap: GapRow };
 
 /** The typed record of a declared-analysis invocation (the L3-flags landing spot). */
 export interface AnalysisCommit {
@@ -190,6 +239,8 @@ export interface Overview {
   readonly gaps: number;
   readonly currentView: string | null;
   readonly engines: Readonly<Record<string, string>>;
+  /** Time-travel position: cursor vs active head, branch/checkpoint counts, cursor-local test count (Phase A). */
+  readonly time: TimeState;
 }
 
 /** Options for a direct `declareAnalysis` invocation. */
