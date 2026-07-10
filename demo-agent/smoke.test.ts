@@ -30,6 +30,14 @@ const CHROME =
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SHOTS = path.join(__dirname, 'screenshots');
 
+// Screenshot bytes are nondeterministic (antialiasing/timing), so a plain
+// `npx vitest run` must NOT rewrite the committed PNGs — that leaves the git
+// tree dirty on every run. Refresh them deliberately with:
+//   UPDATE_SCREENSHOTS=1 npx vitest run demo-agent/smoke.test.ts
+async function maybeScreenshot(page: Page, options: Parameters<Page['screenshot']>[0]): Promise<void> {
+  if (process.env.UPDATE_SCREENSHOTS) await page.screenshot(options);
+}
+
 async function brush(page: Page, fromFrac: number, toFrac: number): Promise<void> {
   const box = await page.locator('svg.vzf-scatter').boundingBox();
   if (!box) throw new Error('scatter not found');
@@ -79,7 +87,7 @@ describe.skipIf(!existsSync(CHROME))('demo-agent smoke (real headless Chromium, 
     await page.waitForSelector('[data-vzf="commit-log"] .vzf-chip');
     await page.waitForFunction(() => document.querySelectorAll('[data-vzf="commit-log"] .vzf-chip[data-actor="user"]').length >= 1);
     expect(await page.locator('[data-vzf="commit-log"] .vzf-chip[data-actor="agent"]').count()).toBe(0);
-    await page.screenshot({ path: path.join(SHOTS, 'dashboard.png'), fullPage: true });
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'dashboard.png'), fullPage: true });
 
     // launch the popup — the composer lives inside it, not in a fixed pane
     await page.locator('#fab').click();
@@ -107,7 +115,7 @@ describe.skipIf(!existsSync(CHROME))('demo-agent smoke (real headless Chromium, 
     // the analyst's reply bubble arrived (inside the popup)
     await page.waitForSelector('#chatpanel .bubble.analyst');
     expect((await page.locator('#chatpanel .bubble.analyst').first().textContent())?.length ?? 0).toBeGreaterThan(20);
-    await page.screenshot({ path: path.join(SHOTS, 'analyst-popup.png'), fullPage: true });
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'analyst-popup.png'), fullPage: true });
   }, 60_000);
 
   it('the 🐛 button opens the debugger modal and atui renders NON-zero width in the iframe', async () => {
@@ -129,7 +137,7 @@ describe.skipIf(!existsSync(CHROME))('demo-agent smoke (real headless Chromium, 
     const scene = await frame.locator('.flowscene').first().boundingBox();
     expect(scene?.width ?? 0, 'atui .flowscene width must be > 0').toBeGreaterThan(0);
 
-    await page.screenshot({ path: path.join(SHOTS, 'debugger-modal.png'), fullPage: true });
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'debugger-modal.png'), fullPage: true });
   }, 60_000);
 
   it('the page ran with zero console errors', () => {
@@ -180,7 +188,7 @@ describe.skipIf(!existsSync(CHROME))('UI-2: axis click -> EncodingPicker -> reen
     const catOpt = page.locator('[data-vzf-modal="encoding-picker"] [data-field="category"]');
     expect(await catOpt.isDisabled()).toBe(true);
     expect((await catOpt.getAttribute('title')) ?? '').toContain('numeric or date');
-    await page.screenshot({ path: path.join(SHOTS, 'encoding-picker.png'), fullPage: false });
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'encoding-picker.png'), fullPage: false });
 
     // pick price for y → dispatch({verb:'reencode'}) → a new commit lands + the scatter re-renders
     const chipsBefore = await page.locator('[data-vzf="commit-log"] .vzf-chip').count();
@@ -213,7 +221,7 @@ describe.skipIf(!existsSync(CHROME))('UI-2: axis click -> EncodingPicker -> reen
     // the shell dims + blocks acting surfaces
     await page.waitForSelector('[data-vzf="dashboard"][data-readonly="true"]');
     expect(await page.locator('.vzf-readonly-note').count()).toBe(1);
-    await page.screenshot({ path: path.join(SHOTS, 'present-mode.png'), fullPage: false });
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'present-mode.png'), fullPage: false });
 
     // back to explore — acting returns
     await page.locator('[data-vzf="time-travel-bar"] [role="tab"]:has-text("Explore")').click();
@@ -298,7 +306,7 @@ describe.skipIf(!existsSync(CHROME))('UI-2: agent-driven reencode via chat (LLM 
     await page.waitForSelector('#chatpanel .bubble.analyst');
     expect((await page.locator('#chatpanel .bubble.analyst').first().textContent())?.length ?? 0).toBeGreaterThan(0);
 
-    await page.screenshot({ path: path.join(SHOTS, 'agent-reencode.png'), fullPage: true });
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'agent-reencode.png'), fullPage: true });
   }, 30_000);
 
   it('ran with zero console errors', () => {
@@ -382,7 +390,7 @@ describe.skipIf(!existsSync(CHROME))('time-travel bar (real headless Chromium, m
     }, firstId);
     expect(oldTipIntact).toBe(true);
 
-    await page.screenshot({ path: path.join(SHOTS, 'time-travel-fork.png'), fullPage: true });
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'time-travel-fork.png'), fullPage: true });
   }, 60_000);
 
   it('the global FDR ledger survives travel; the two-truths honesty line is verbatim', async () => {
@@ -415,7 +423,7 @@ describe.skipIf(!existsSync(CHROME))('time-travel bar (real headless Chromium, m
     const cursorLocal = (await page.locator('.vzf-two-truths .vzf-tt-line').first().textContent()) ?? '';
     expect(cursorLocal).toContain('at cursor');
 
-    await page.screenshot({ path: path.join(SHOTS, 'time-travel-two-truths.png'), fullPage: true });
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'time-travel-two-truths.png'), fullPage: true });
   }, 60_000);
 
   it('the time-travel page ran with zero console errors', () => {
@@ -497,7 +505,7 @@ describe.skipIf(!existsSync(CHROME))('step navigation — ⟵/⟶ buttons + keyb
     const xLabelBackAtHead = await page.locator('svg.vzf-scatter [data-axis-channel="x"] .vzf-axis-label').textContent();
     expect(xLabelBackAtHead).toBe(xLabelAtHead); // same cursor again → same axis label
 
-    await page.screenshot({ path: path.join(SHOTS, 'time-travel-step-nav.png'), fullPage: true });
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'time-travel-step-nav.png'), fullPage: true });
   }, 60_000);
 
   it('ArrowLeft/ArrowRight seek, but NOT while the checkpoint field has focus', async () => {

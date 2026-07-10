@@ -27,6 +27,14 @@ const CHROME =
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SHOTS = path.join(__dirname, 'screenshots');
 
+// Screenshot bytes are nondeterministic (antialiasing/timing), so a plain
+// `npx vitest run` must NOT rewrite the committed PNGs — that leaves the git
+// tree dirty on every run. Refresh them deliberately with:
+//   UPDATE_SCREENSHOTS=1 npx vitest run ui/gallery/smoke.test.ts
+async function maybeScreenshot(page: Page, options: Parameters<Page['screenshot']>[0]): Promise<void> {
+  if (process.env.UPDATE_SCREENSHOTS) await page.screenshot(options);
+}
+
 describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headless Chromium)', () => {
   let handle: Awaited<ReturnType<typeof startGallery>>;
   let browser: Browser;
@@ -74,7 +82,7 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     expect((await page.locator('[data-vzf="gaps-panel"]').textContent()) ?? '').toContain('reencode');
     // readiness: correlation runnable, regression honestly blocked (missing column)
     expect((await page.locator('[data-analysis="regression"] .vzf-blocked').textContent()) ?? '').toContain('needs-column');
-    await page.screenshot({ path: path.join(SHOTS, 'gallery-dashboard.png'), fullPage: false });
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-dashboard.png'), fullPage: false });
   }, 30_000);
 
   it('the dashboard scrolls on height; the page body never scrolls sideways', async () => {
@@ -113,7 +121,7 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     const catOpt = page.locator('[data-vzf-modal="encoding-picker"] [data-field="category"]');
     expect(await catOpt.isDisabled()).toBe(true);
     expect((await catOpt.getAttribute('title')) ?? '').toContain('numeric or date');
-    await page.screenshot({ path: path.join(SHOTS, 'gallery-encoding-picker.png'), fullPage: false });
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-encoding-picker.png'), fullPage: false });
     // pick price for y → dispatch({verb:'reencode'}) → a new commit lands + scatter re-renders
     await page.locator('[data-vzf-modal="encoding-picker"] [data-field="price"]').click();
     await page.waitForSelector('[data-vzf-modal="encoding-picker"]', { state: 'detached' });
@@ -125,7 +133,7 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     // the scatter now encodes y=price — its y-axis label re-rendered
     const yLabel = await page.locator('svg.vzf-scatter [data-axis-channel="y"] .vzf-axis-label').textContent();
     expect(yLabel ?? '').toContain('price');
-    await page.screenshot({ path: path.join(SHOTS, 'gallery-reencoded.png'), fullPage: false });
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-reencoded.png'), fullPage: false });
   }, 30_000);
 
   it('present mode = checkpoint-ONLY traversal, read-only shell', async () => {
@@ -150,7 +158,7 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
       await prevBtn.click();
       await page.waitForFunction((t) => document.querySelector('.vzf-beat-title')?.textContent !== t, title0, { timeout: 8000 });
     }
-    await page.screenshot({ path: path.join(SHOTS, 'gallery-present.png'), fullPage: false });
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-present.png'), fullPage: false });
     // back to explore — acting returns
     await page.locator('[data-vzf="time-travel-bar"] [role="tab"]:has-text("Explore")').click();
     await page.waitForSelector('[data-vzf="dashboard"][data-readonly="false"]');
@@ -159,7 +167,7 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
   it('dark theme renders (prefers-color-scheme)', async () => {
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.waitForTimeout(150);
-    await page.screenshot({ path: path.join(SHOTS, 'gallery-dark.png'), fullPage: false });
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-dark.png'), fullPage: false });
     await page.emulateMedia({ colorScheme: 'light' });
   }, 30_000);
 
