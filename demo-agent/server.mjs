@@ -125,6 +125,15 @@ export async function startServer({ port = DEFAULT_PORT, mock } = {}) {
           const result = await analyst.dispatchUser(await readBody(req));
           return send(res, 200, result);
         }
+        if (req.method === 'POST' && url === '/api/seek') {
+          // Time-travel: move the read-only cursor (charts/log/ledger re-render at it).
+          const { commitId } = await readBody(req);
+          return send(res, 200, await analyst.seek(commitId));
+        }
+        if (req.method === 'POST' && url === '/api/checkpoint') {
+          const { label } = await readBody(req);
+          return send(res, 200, await analyst.checkpoint(label));
+        }
         if (req.method === 'POST' && url === '/api/chat') {
           const { message } = await readBody(req);
           if (typeof message !== 'string' || !message.trim()) return send(res, 400, { error: 'message required' });

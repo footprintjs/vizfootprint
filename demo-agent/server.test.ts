@@ -66,6 +66,73 @@ describe('demo-agent server + bundle', () => {
   });
 });
 
+describe('time-travel: seek + branch-on-act + two-truths (Phase B wiring)', () => {
+  it('seeking back then acting branches; the branch map gains a second lineage; the fold rebuilds at the cursor', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const c1 = await analyst.dispatchUser({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', intent: 'pick Formal' });
+    await analyst.dispatchUser({ verb: 'filter', viewId: 'scatter', field: 'price', range: [60, 120], intent: 'brush price' });
+    const firstId = (c1 as { commit: { id: string } }).commit.id;
+
+    let st = await analyst.state();
+    expect(st.branches.length).toBe(1);
+    expect(st.cursor).toBe(st.head);
+    expect((st.activeSelections as unknown[]).length).toBe(2);
+
+    // seek back to c1 (read-only): the fold rebuilds to just the bar select
+    const seek = await analyst.seek(firstId);
+    expect(seek.ok).toBe(true);
+    st = await analyst.state();
+    expect(st.cursor).toBe(firstId);
+    expect(st.viewingPast).toBe(true);
+    expect((st.activeSelections as unknown[]).length).toBe(1);
+
+    // act from the past → a SIBLING branch sprouts, and the new lineage is active
+    await analyst.dispatchUser({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', intent: 'branch pick' });
+    st = await analyst.state();
+    expect(st.branches.length).toBe(2);
+    expect(st.viewingPast).toBe(false);
+    expect(st.branches.filter((b) => b.active).length).toBe(1);
+  }, 30_000);
+
+  it('checkpoint names the cursor; the GLOBAL ledger survives travel (cursor-local 0 vs global 1)', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    await analyst.dispatchUser({ verb: 'filter', viewId: 'scatter', field: 'price', range: [0, 500], intent: 'brush all' });
+    const cp = await analyst.checkpoint('before-test');
+    expect((cp as { ok: boolean }).ok).toBe(true);
+
+    await analyst.dispatchUser({ verb: 'analyze', analysisId: 'correlation', intent: 'declare correlation' });
+    let st = await analyst.state();
+    expect((st.fdr as { tests: number }).tests).toBe(1);
+    const cid = st.checkpoints.find((c) => c.label === 'before-test')!.commitId!;
+
+    // travel back to the checkpoint: cursor-local sees 0 tests, global stays 1 (never rewinds)
+    await analyst.seek(cid);
+    st = await analyst.state();
+    expect(st.cursor).toBe(cid);
+    expect(st.cursorTests).toBe(0);
+    expect((st.fdr as { tests: number }).tests).toBe(1);
+  }, 30_000);
+
+  it('POST /api/seek and /api/checkpoint drive the shared session', async () => {
+    const handle = await startServer({ port: 0, mock: true });
+    try {
+      const c1 = await postJSON(handle.url + '/api/dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Work', intent: 'pick Work' });
+      const id = (c1['commit'] as { id: string }).id;
+      const ck = await postJSON(handle.url + '/api/checkpoint', { label: 'p1' });
+      expect(ck['ok']).toBe(true);
+      await postJSON(handle.url + '/api/dispatch', { verb: 'filter', viewId: 'scatter', field: 'price', range: [10, 90], intent: 'brush' });
+      const seek = await postJSON(handle.url + '/api/seek', { commitId: id });
+      expect(seek['ok']).toBe(true);
+      const st = (await (await fetch(handle.url + '/api/state')).json()) as { cursor: string; viewingPast: boolean; checkpoints: { label: string }[] };
+      expect(st.cursor).toBe(id);
+      expect(st.viewingPast).toBe(true);
+      expect(st.checkpoints.map((c) => c.label)).toContain('p1');
+    } finally {
+      await handle.close();
+    }
+  }, 60_000);
+});
+
 describe('mock chat turn drives the real tool surface', () => {
   it('whats_here → filter → declare correlation → agent commits + one ledger row', async () => {
     const analyst = createAnalyst({ csv: CSV, mock: true });

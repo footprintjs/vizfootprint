@@ -35,6 +35,21 @@ export interface UserDispatchBody {
   readonly intent?: string;
 }
 
+/** One branch tip in the branch map (a leaf of the append-only commit DAG). */
+export interface BranchDot {
+  readonly tip: string;
+  readonly length: number;
+  readonly actor: string;
+  readonly active: boolean;
+}
+
+/** One named log position (the checkpoint verb). */
+export interface CheckpointInfo {
+  readonly label: string;
+  readonly commitId: string | null;
+  readonly ts: number;
+}
+
 /** Everything `/api/state` returns — the single render source for the browser. */
 export interface AnalystState {
   readonly records: unknown;
@@ -48,11 +63,28 @@ export interface AnalystState {
   readonly activity: readonly ActivityStep[];
   readonly turnActive: boolean;
   readonly mode: 'mock' | 'live';
+  // ── time-travel (Phase B) ──
+  /** The read-only cursor (where the next act branches from); null before any commit. */
+  readonly cursor: string | null;
+  /** The active branch head (tip of the lineage linear commits extend). */
+  readonly head: string | null;
+  /** Every divergent lineage (leaf) in the DAG, active flagged — the branch map. */
+  readonly branches: readonly BranchDot[];
+  /** Named log positions (checkpoint flags on the timeline). */
+  readonly checkpoints: readonly CheckpointInfo[];
+  /** Test-analog commits visible on the cursor's branch path (the cursor-local truth). */
+  readonly cursorTests: number;
+  /** Whether the cursor is behind the active head (you are viewing the past). */
+  readonly viewingPast: boolean;
 }
 
 export interface Analyst {
   chat(message: string): Promise<{ text: string; correlationId: string }>;
   dispatchUser(body: UserDispatchBody): Promise<DispatchResult | { ok: false; error: string }>;
+  /** Move the read-only cursor to a prior commit + rebuild the fold there (charts/log/ledger re-render). */
+  seek(commitId: string): Promise<{ ok: boolean; cursor?: string | null; error?: string }>;
+  /** Name the current cursor position (the checkpoint verb, badged `user`). */
+  checkpoint(label: string): Promise<DispatchResult | { ok: false; error: string }>;
   state(): Promise<AnalystState>;
   /** The current turn's AgentThinkingUI Trace — served at GET /api/trace, polled
    *  by the /debug page. Grows live during a run; resets per user message. */
@@ -115,6 +147,18 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
       return session.dispatch(action, { as: 'user' });
     },
 
+    async seek(commitId: string) {
+      if (typeof commitId !== 'string' || commitId.length === 0) return { ok: false, error: 'seek needs a commitId' };
+      const res = session.seek(commitId);
+      return res.ok ? { ok: true, cursor: res.cursor } : { ok: false, error: res.gap.detail };
+    },
+
+    async checkpoint(label: string) {
+      if (typeof label !== 'string' || label.trim().length === 0) return { ok: false, error: 'checkpoint needs a non-empty label' };
+      // The human path names the position (badged `user`); the agent uses its own checkpoint tool.
+      return session.dispatch({ verb: 'checkpoint', label, cause: userCause(`checkpoint ${label}`) }, { as: 'user' });
+    },
+
     async state(): Promise<AnalystState> {
       const overview = await session.overview();
       const selected = await session.selectedRows();
@@ -130,6 +174,12 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
         activity,
         turnActive,
         mode,
+        cursor: overview.time.cursor,
+        head: overview.time.head,
+        branches: session.branches().map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
+        checkpoints: session.checkpoints().map((c) => ({ label: c.label, commitId: c.commitId, ts: c.ts })),
+        cursorTests: overview.time.cursorTests,
+        viewingPast: overview.time.viewingPast,
       };
     },
   };

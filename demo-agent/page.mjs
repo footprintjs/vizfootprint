@@ -121,6 +121,47 @@ table.ledger .verdict { font-weight: 700; }
 .dbghead .dbgopen { margin-left: auto; color: var(--accent); text-decoration: none; font-weight: 600; font-size: 12px; }
 .dbghead .x { background: transparent; border: 0; font-size: 17px; cursor: pointer; color: var(--muted); }
 .dbgframe { width: 100%; height: 100%; border: 0; display: block; background: var(--card); }
+
+/* ── time-travel bar (timeline + branch map + cursor + two-truths) ── */
+.timecard .bm-head { margin-top: 14px; }
+.past-banner { background: rgba(230,184,77,.14); border: 1px solid var(--agent); color: var(--fg); border-radius: 8px; padding: 7px 11px; font-size: 12.5px; margin-bottom: 10px; }
+.timeline { display: flex; gap: 3px; align-items: flex-end; overflow-x: auto; padding: 4px 2px; min-height: 48px; touch-action: none; cursor: grab; }
+.timeline:active { cursor: grabbing; }
+.tl-empty { color: var(--muted); font-style: italic; font-size: 12px; }
+.tl-dot { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; background: transparent; border: 0; cursor: pointer; padding: 2px 4px; border-radius: 7px; }
+.tl-dot:hover { background: var(--chip); }
+.tl-flag { font-size: 11px; color: var(--agent); line-height: 1; height: 13px; }
+.tl-node { width: 13px; height: 13px; border-radius: 999px; background: var(--muted); box-shadow: 0 0 0 1px var(--line); }
+.tl-dot[data-actor="user"] .tl-node { background: var(--user); }
+.tl-dot[data-actor="agent"] .tl-node { background: var(--agent); }
+.tl-dot[data-actor="system"] .tl-node { background: var(--muted); }
+.tl-dot.cursor .tl-node { box-shadow: 0 0 0 3px var(--accent); transform: scale(1.18); }
+.tl-cid { font-size: 9px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.time-controls { display: flex; gap: 8px; align-items: center; margin: 10px 0 2px; flex-wrap: wrap; }
+.ckpt-input { font: inherit; font-size: 12px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--fg); width: 150px; }
+.ckpt-input:focus { outline: none; border-color: var(--accent); }
+.time-controls .btn { font-size: 12px; padding: 5px 10px; }
+.bm-count { margin-left: auto; font-variant-numeric: tabular-nums; }
+.branchmap-wrap { overflow-x: auto; padding: 2px 0; }
+.bm-empty { color: var(--muted); font-style: italic; font-size: 12px; padding: 6px 0; }
+svg.branchmap { display: block; }
+svg.branchmap .bm-node { cursor: pointer; }
+.bm-edge { fill: none; stroke: var(--line); stroke-width: 2; }
+.bm-dot { stroke: var(--card); stroke-width: 2; }
+.bm-dot.user { fill: var(--user); }
+.bm-dot.agent { fill: var(--agent); }
+.bm-dot.system { fill: var(--muted); }
+.bm-dot.head { stroke: var(--fg); stroke-width: 2.5; }
+.bm-dot.cursor { stroke: var(--accent); stroke-width: 3.5; }
+.bm-flag { fill: var(--agent); font-size: 13px; }
+.two-truths { display: flex; flex-direction: column; gap: 3px; margin: 4px 0 10px; padding: 9px 12px; background: var(--chip); border: 1px solid var(--line); border-radius: 9px; }
+.tt-line { font-size: 12.5px; }
+.tt-k { color: var(--muted); font-weight: 700; margin-right: 8px; text-transform: uppercase; font-size: 10.5px; letter-spacing: .03em; }
+.tt-v { font-variant-numeric: tabular-nums; }
+.tt-honest { font-size: 11.5px; color: var(--agent); font-style: italic; margin-top: 3px; }
+.history .chip { cursor: pointer; }
+.history .chip.offbranch { opacity: .42; }
+.history .chip.cursor { outline: 2px solid var(--accent); outline-offset: 1px; }
 `;
 
 export const PAGE = `<!doctype html><html lang="en"><head>

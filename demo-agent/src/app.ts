@@ -81,6 +81,17 @@ interface ActivityStep {
   args: Record<string, unknown>;
   result?: Record<string, unknown>;
 }
+interface BranchDot {
+  tip: string;
+  length: number;
+  actor: string;
+  active: boolean;
+}
+interface CheckpointInfo {
+  label: string;
+  commitId: string | null;
+  ts: number;
+}
 interface AnalystState {
   records: CommitRec[];
   fdr: Fdr;
@@ -92,6 +103,46 @@ interface AnalystState {
   activity: ActivityStep[];
   turnActive: boolean;
   mode: 'mock' | 'live';
+  // ── time-travel (Phase B) ──
+  cursor: string | null;
+  head: string | null;
+  branches: BranchDot[];
+  checkpoints: CheckpointInfo[];
+  cursorTests: number;
+  viewingPast: boolean;
+}
+
+const SVGNS = 'http://www.w3.org/2000/svg';
+/** A local namespaced SVG element builder (the demo's `el` is HTML-only). */
+function svgEl(tag: string, attrs: Record<string, string | number> = {}): SVGElement {
+  const node = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
+  return node;
+}
+
+/** The root→`id` ancestor chain (a branch path), cycle-guarded. */
+function pathToRoot(records: CommitRec[], id: string | null): CommitRec[] {
+  if (!id) return [];
+  const byId = new Map(records.map((r) => [r.id, r]));
+  const chain: CommitRec[] = [];
+  const seen = new Set<string>();
+  let cur: string | null = id;
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const rec = byId.get(cur);
+    if (!rec) break;
+    chain.push(rec);
+    cur = rec.parent;
+  }
+  return chain.reverse();
+}
+
+/** A short human label for a commit dot/chip (never a raw value dump). */
+function commitLabel(rec: CommitRec): string {
+  if (rec.field === '__analysis__') return 'analysis';
+  if (rec.field === 'pValue') return 'test';
+  if (rec.field === '__annotation__') return 'note';
+  return rec.field;
 }
 
 // ── tiny http helpers (all failures swallowed → zero uncaught console errors) ──
@@ -212,11 +263,33 @@ async function main(): Promise<void> {
     ledgerBody,
   );
   const headline = el('div', { class: 'headline', dataset: { headline: '1' }, text: 'No test declared yet — brushing never adds a ledger row; only a declared analysis does.' });
+  const twoTruths = el('div', { class: 'two-truths' });
   const analysesList = el('div', { class: 'analyses-list' });
   const gapsPanel = el('div', {});
 
+  // ── time-travel bar (Phase B): timeline + branch map + cursor + checkpoint ──
+  const pastBanner = el('div', { class: 'past-banner' });
+  pastBanner.hidden = true;
+  const timelineTrack = el('div', { class: 'timeline', dataset: { timeline: '1' } });
+  const branchMapWrap = el('div', { class: 'branchmap-wrap', dataset: { branchmap: '1' } });
+  const ckptInput = el('input', { class: 'ckpt-input' }) as HTMLInputElement;
+  ckptInput.type = 'text';
+  ckptInput.placeholder = 'name this point';
+  const ckptBtn = el('button', { class: 'btn ckpt-btn', text: '⚑ Checkpoint' }) as HTMLButtonElement;
+  const nowBtn = el('button', { class: 'btn now-btn', text: '⏭ Return to now' }) as HTMLButtonElement;
+  nowBtn.hidden = true;
+  const branchCount = el('span', { class: 'muted bm-count' });
+
   replaceChildren(
     dashRoot,
+    el('div', { class: 'card timecard', dataset: { timecard: '1' } }, [
+      el('div', { class: 'section-head', text: 'Time travel — drag the cursor or click a commit to seek; act from the past to branch' }),
+      pastBanner,
+      timelineTrack,
+      el('div', { class: 'time-controls' }, [ckptInput, ckptBtn, nowBtn, branchCount]),
+      el('div', { class: 'section-head bm-head', text: 'Branch map — siblings fork downward; the active lineage is the top lane' }),
+      branchMapWrap,
+    ]),
     el('div', { class: 'card' }, [
       selReadout,
       el('div', { class: 'charts' }, [
@@ -224,8 +297,14 @@ async function main(): Promise<void> {
         el('figure', { class: 'chartbox' }, [bar.root, el('figcaption', { text: 'Bar — click a category (you drive this)' })]),
       ]),
     ]),
-    el('div', { class: 'card' }, [el('div', { class: 'section-head', text: 'Commit log — one cause-tagged record per gesture, two authors' }), historyStrip]),
-    el('div', { class: 'card' }, [el('div', { class: 'section-head', text: 'Online-FDR ledger (LORD++) — only declared tests land a row' }), ledgerHead, ledgerTable, headline]),
+    el('div', { class: 'card' }, [el('div', { class: 'section-head', text: 'Commit log — one cause-tagged record per gesture, two authors (click a chip to seek)' }), historyStrip]),
+    el('div', { class: 'card' }, [
+      el('div', { class: 'section-head', text: 'Online-FDR ledger (LORD++) — two truths: cursor-local vs global' }),
+      twoTruths,
+      ledgerHead,
+      ledgerTable,
+      headline,
+    ]),
     el('div', { class: 'card' }, [el('div', { class: 'section-head', text: 'Declared analyses — readiness at the current cursor' }), analysesList]),
     el('div', { class: 'card' }, [gapsPanel]),
   );
@@ -315,8 +394,199 @@ async function main(): Promise<void> {
     if (e.key === 'Escape' && !dbgmodal.hidden) closeDebugger();
   });
 
+  // ── time-travel wiring ────────────────────────────────────────────────────────
+  let lastState: AnalystState | null = null;
+
+  async function seekTo(commitId: string): Promise<void> {
+    await post('/api/seek', { commitId });
+    await refresh();
+  }
+  async function addCheckpoint(): Promise<void> {
+    const label = ckptInput.value.trim() || `cp-${(lastState?.checkpoints.length ?? 0) + 1}`;
+    ckptInput.value = '';
+    await post('/api/checkpoint', { label });
+    await refresh();
+  }
+  ckptBtn.addEventListener('click', () => void addCheckpoint());
+  ckptInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') void addCheckpoint();
+  });
+  nowBtn.addEventListener('click', () => {
+    if (lastState?.head) void seekTo(lastState.head);
+  });
+
+  // Drag the cursor along the timeline: on release, snap to the nearest commit
+  // and seek there. A pure click (no drag) is handled by the dot's own listener.
+  let dragStartX: number | null = null;
+  let dragMoved = false;
+  function nearestCommitId(clientX: number): string | null {
+    const dots = Array.from(timelineTrack.querySelectorAll('[data-commit]')) as HTMLElement[];
+    let best: string | null = null;
+    let bestDist = Infinity;
+    for (const d of dots) {
+      const r = d.getBoundingClientRect();
+      const dist = Math.abs(r.left + r.width / 2 - clientX);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = d.dataset['commit'] ?? null;
+      }
+    }
+    return best;
+  }
+  timelineTrack.addEventListener('pointerdown', (e) => {
+    dragStartX = (e as PointerEvent).clientX;
+    dragMoved = false;
+  });
+  timelineTrack.addEventListener('pointermove', (e) => {
+    if (dragStartX !== null && Math.abs((e as PointerEvent).clientX - dragStartX) > 6) dragMoved = true;
+  });
+  window.addEventListener('pointerup', (e) => {
+    if (dragStartX === null) return;
+    const moved = dragMoved;
+    const x = (e as PointerEvent).clientX;
+    dragStartX = null;
+    dragMoved = false;
+    if (moved) {
+      const id = nearestCommitId(x);
+      if (id) void seekTo(id);
+    }
+  });
+
   // ── rendering ────────────────────────────────────────────────────────────────
   let prevIds = new Set<string>();
+
+  function renderTimeline(state: AnalystState): void {
+    const active = pathToRoot(state.records, state.head);
+    const ckptAt = new Map(state.checkpoints.filter((c) => c.commitId).map((c) => [c.commitId!, c.label]));
+    if (active.length === 0) {
+      replaceChildren(timelineTrack, el('div', { class: 'tl-empty', text: 'no commits yet — brush, click a bar, or ask the analyst to start the timeline' }));
+      return;
+    }
+    const dots = active.map((rec) => {
+      const actor = rec.cause.requestedBy;
+      const isCursor = rec.id === state.cursor;
+      const intent = rec.cause.intent ? `: ${rec.cause.intent}` : '';
+      const dot = el(
+        'button',
+        { class: `tl-dot${isCursor ? ' cursor' : ''}`, dataset: { actor, commit: rec.id }, title: `#${rec.id} ${commitLabel(rec)} (${actor})${intent}` },
+        [
+          ckptAt.has(rec.id) ? el('span', { class: 'tl-flag', text: '⚑', title: ckptAt.get(rec.id) }) : el('span', { class: 'tl-flag', text: ' ' }),
+          el('span', { class: 'tl-node' }),
+          el('span', { class: 'tl-cid', text: `#${rec.id}` }),
+        ],
+      );
+      dot.addEventListener('click', () => void seekTo(rec.id));
+      return dot;
+    });
+    replaceChildren(timelineTrack, ...dots);
+  }
+
+  function renderBranchMap(state: AnalystState): void {
+    const records = state.records;
+    if (records.length === 0) {
+      replaceChildren(branchMapWrap, el('div', { class: 'bm-empty', text: 'the branch map sprouts a fork once you seek back and act (or the analyst does)' }));
+      return;
+    }
+    const byId = new Map(records.map((r) => [r.id, r]));
+    const childCount = new Map<string, number>();
+    for (const r of records) if (r.parent) childCount.set(r.parent, (childCount.get(r.parent) ?? 0) + 1);
+    const activeSet = new Set(pathToRoot(records, state.head).map((r) => r.id));
+    // leaves; the ACTIVE branch's tip first (top lane), then by arrival order
+    const leaves = records
+      .filter((r) => !childCount.get(r.id))
+      .sort((a, b) => (activeSet.has(b.id) ? 1 : 0) - (activeSet.has(a.id) ? 1 : 0) || records.indexOf(a) - records.indexOf(b));
+    const lane = new Map<string, number>();
+    let nextLane = 0;
+    for (const leaf of leaves) {
+      let laneForThis: number | null = null;
+      for (const r of pathToRoot(records, leaf.id)) {
+        if (lane.has(r.id)) continue;
+        if (laneForThis === null) laneForThis = nextLane++;
+        lane.set(r.id, laneForThis);
+      }
+    }
+    const depthOf = (id: string): number => pathToRoot(records, id).length - 1;
+    const DX = 56;
+    const DY = 36;
+    const PADX = 26;
+    const PADY = 24;
+    const R = 8;
+    const maxDepth = Math.max(0, ...records.map((r) => depthOf(r.id)));
+    const maxLane = Math.max(0, ...lane.values());
+    const W = PADX * 2 + maxDepth * DX + 70;
+    const H = PADY * 2 + maxLane * DY + 16;
+    const xOf = (id: string): number => PADX + depthOf(id) * DX;
+    const yOf = (id: string): number => PADY + (lane.get(id) ?? 0) * DY;
+    const root = svgEl('svg', { class: 'branchmap', viewBox: `0 0 ${W} ${H}`, width: String(W), height: String(H) });
+    // edges (parent → child); a lane change forks downward as a smooth curve
+    for (const r of records) {
+      const p = r.parent ? byId.get(r.parent) : undefined;
+      if (!p) continue;
+      root.appendChild(
+        svgEl('path', {
+          class: 'bm-edge',
+          d: `M ${xOf(p.id)} ${yOf(p.id)} C ${xOf(p.id) + DX * 0.5} ${yOf(p.id)}, ${xOf(r.id) - DX * 0.5} ${yOf(r.id)}, ${xOf(r.id)} ${yOf(r.id)}`,
+        }),
+      );
+    }
+    // nodes
+    const ckptAt = new Map(state.checkpoints.filter((c) => c.commitId).map((c) => [c.commitId!, c.label]));
+    for (const r of records) {
+      const isCursor = r.id === state.cursor;
+      const isHead = r.id === state.head;
+      const g = svgEl('g', { class: 'bm-node' });
+      g.setAttribute('data-commit', r.id);
+      g.appendChild(
+        svgEl('circle', {
+          class: `bm-dot ${r.cause.requestedBy}${isCursor ? ' cursor' : ''}${isHead ? ' head' : ''}`,
+          cx: xOf(r.id),
+          cy: yOf(r.id),
+          r: isCursor ? R + 2 : R,
+        }),
+      );
+      if (ckptAt.has(r.id)) {
+        const flag = svgEl('text', { class: 'bm-flag', x: xOf(r.id), y: yOf(r.id) - R - 5, 'text-anchor': 'middle' });
+        flag.textContent = '⚑';
+        g.appendChild(flag);
+      }
+      const title = svgEl('title');
+      title.textContent = `#${r.id} ${commitLabel(r)} (${r.cause.requestedBy})${r.cause.intent ? ': ' + r.cause.intent : ''}`;
+      g.appendChild(title);
+      g.addEventListener('click', () => void seekTo(r.id));
+      root.appendChild(g);
+    }
+    replaceChildren(branchMapWrap, root);
+  }
+
+  function renderTwoTruths(state: AnalystState): void {
+    const n = state.cursorTests;
+    const m = state.fdr.tests;
+    replaceChildren(
+      twoTruths,
+      el('div', { class: 'tt-line' }, [
+        el('span', { class: 'tt-k', text: 'at cursor' }),
+        el('span', { class: 'tt-v', text: `${n} test${n === 1 ? '' : 's'} visible on this branch` }),
+      ]),
+      el('div', { class: 'tt-line' }, [
+        el('span', { class: 'tt-k', text: 'global' }),
+        el('span', { class: 'tt-v', text: `W(t)=${state.fdr.wealth.toFixed(4)} wealth · ${m} test${m === 1 ? '' : 's'} across all branches` }),
+      ]),
+      el('div', { class: 'tt-honest', text: 'alpha spent on abandoned branches is never refunded' }),
+    );
+  }
+
+  function updateTimeControls(state: AnalystState): void {
+    if (state.viewingPast) {
+      pastBanner.hidden = false;
+      nowBtn.hidden = false;
+      replaceChildren(pastBanner, el('span', { text: '⏱ Viewing the past — the cursor is behind the live head. Act now (brush, click a bar, or ask the analyst) to branch here.' }));
+    } else {
+      pastBanner.hidden = true;
+      nowBtn.hidden = true;
+    }
+    const b = state.branches.length;
+    branchCount.textContent = `${b} branch${b === 1 ? '' : 'es'} · cursor ${state.cursor ? '#' + state.cursor : '—'}`;
+  }
 
   function renderCharts(state: AnalystState): void {
     const clauses = state.activeSelections.map((s) => ({ viewId: s.viewId, clause: clauseOf(s) })).filter((c) => c.clause !== null) as { viewId: string; clause: PredicateClause }[];
@@ -336,16 +606,23 @@ async function main(): Promise<void> {
 
   function renderHistory(state: AnalystState): void {
     const ids = new Set(state.records.map((r) => r.id));
+    const activeSet = new Set(pathToRoot(state.records, state.head).map((r) => r.id));
     const chips = state.records.map((rec) => {
       const actor = rec.cause.requestedBy;
       const valText = rec.kind === 'interval' ? fmtInterval(rec.value as [number, number] | null) : String(rec.value);
-      const cls = `chip${prevIds.size > 0 && !prevIds.has(rec.id) ? ' fresh' : ''}`;
-      return el('div', { class: cls, title: rec.cause.intent ?? '', dataset: { chip: rec.id, actor } }, [
+      const onBranch = activeSet.has(rec.id);
+      const isCursor = rec.id === state.cursor;
+      const cls =
+        `chip${prevIds.size > 0 && !prevIds.has(rec.id) ? ' fresh' : ''}` +
+        `${onBranch ? '' : ' offbranch'}${isCursor ? ' cursor' : ''}`;
+      const chip = el('div', { class: cls, title: rec.cause.intent ?? '', dataset: { chip: rec.id, actor } }, [
         el('span', { class: `badge ${actor}`, text: actor, dataset: { actor } }),
         el('span', { class: 'k', text: rec.kind }),
         el('span', { class: 'body', text: `${rec.field} = ${valText}` }),
         el('span', { class: 'cid', text: `#${rec.id}` }),
       ]);
+      chip.addEventListener('click', () => void seekTo(rec.id));
+      return chip;
     });
     replaceChildren(historyStrip, chips.length ? null : el('div', { class: 'empty', text: 'no commits yet — brush the scatter, click a bar, or ask the analyst' }), ...chips);
     prevIds = ids;
@@ -422,7 +699,13 @@ async function main(): Promise<void> {
   }
 
   function render(state: AnalystState): void {
-    selReadout.textContent = `current selection: ${state.selectedCount} of ${state.totalRows} rows  ·  provider: ${state.mode === 'mock' ? 'scripted mock' : 'live Claude'}`;
+    lastState = state;
+    const past = state.viewingPast ? '  ·  ⏱ viewing the past (cursor behind head)' : '';
+    selReadout.textContent = `current selection: ${state.selectedCount} of ${state.totalRows} rows  ·  provider: ${state.mode === 'mock' ? 'scripted mock' : 'live Claude'}${past}`;
+    renderTimeline(state);
+    renderBranchMap(state);
+    renderTwoTruths(state);
+    updateTimeControls(state);
     renderCharts(state);
     renderHistory(state);
     renderLedger(state.fdr);

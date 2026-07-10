@@ -61,9 +61,9 @@ const WHATS_HERE_DESCRIPTION =
 const DISPATCH_DESCRIPTION =
   'Perform ONE semantic interaction. verb is one of: select (a point value on a field), filter (an ' +
   'interval [lo,hi] on a field, or null to clear), annotate (an inert note), navigate (focus a view), ' +
-  'analyze (run a declared analysis over the current selection), fork (branch off a prior commit), ' +
-  'checkpoint (name the current log position). This is the ONLY way to change state — there is no ' +
-  'raw-event path.';
+  'analyze (run a declared analysis over the current selection), fork (travel the cursor back to a ' +
+  'prior commit so your NEXT act branches off it — a sibling, no history rewritten), checkpoint (name ' +
+  'the current position to return to). This is the ONLY way to change state — there is no raw-event path.';
 
 const DECLARE_ANALYSIS_DESCRIPTION =
   'Run a DECLARED analysis by id over the current selection (a columns analysis runs over the full ' +
@@ -78,10 +78,14 @@ const WHY_DESCRIPTION =
   'that were not threaded come back as typed misses, never faked.';
 
 const FORK_DESCRIPTION =
-  'Branch the provenance timeline off a prior commit id: the next dispatch commits as a sibling of ' +
-  'that commit (append-only; no history is rewritten).';
+  'Travel back: move the read-only cursor to a prior commit id and rebuild the visible selection there. ' +
+  'The active branch head is left intact, so the old lineage stays a live branch; your NEXT dispatch or ' +
+  'declare_analysis lands as a SIBLING off the fork point (append-only — no history is rewritten, and ' +
+  'alpha spent on the branch you left is never refunded).';
 
-const CHECKPOINT_DESCRIPTION = 'Name the current log position so it can be referred to later.';
+const CHECKPOINT_DESCRIPTION =
+  'Name the current cursor position (a checkpoint) so you can fork back to it later. Stored as inert ' +
+  'data; never parsed.';
 
 // ── static input schemas (Mode B: cannot enforce per-verb shape; fire-time validates) ──
 
