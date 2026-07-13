@@ -64,6 +64,7 @@ import type {
   DeclareAnalysisOptions,
   DispatchAction,
   DispatchResult,
+  FilterRange,
   GapCode,
   GapRow,
   NewPathResult,
@@ -412,7 +413,7 @@ class InteractionSessionImpl implements InteractionSession {
         const clause: PredicateClause =
           rec.kind === 'point'
             ? { kind: 'point', field: rec.field, value: rec.value }
-            : { kind: 'interval', field: rec.field, value: rec.value as [number, number] };
+            : { kind: 'interval', field: rec.field, value: rec.value as FilterRange };
         this.activeFilters.set(rec.viewId, clause);
         this.activeFilterCommits.set(rec.viewId, rec.id);
       }
@@ -504,7 +505,7 @@ class InteractionSessionImpl implements InteractionSession {
       clauses.push(
         entry.clause.kind === 'point'
           ? { kind: 'point', field: entry.clause.field, value: entry.clause.value }
-          : { kind: 'interval', field: entry.clause.field, value: entry.clause.value as [number, number] },
+          : { kind: 'interval', field: entry.clause.field, value: entry.clause.value as FilterRange },
       );
     }
     return base.filter((r) => clauses.every((c) => matchesClause(r, c))).length;
@@ -590,7 +591,7 @@ class InteractionSessionImpl implements InteractionSession {
       case 'selection':
         return recipe.kind === 'point'
           ? { verb: 'select', viewId: recipe.viewId, field: recipe.field, value: recipe.value, cause }
-          : { verb: 'filter', viewId: recipe.viewId, field: recipe.field, range: recipe.value as readonly [number, number] | null, cause };
+          : { verb: 'filter', viewId: recipe.viewId, field: recipe.field, range: recipe.value as FilterRange, cause };
       case 'clear-selection':
         return { verb: 'filter', viewId: recipe.viewId, field: recipe.field, range: null, cause };
       case 'encoding':
@@ -768,7 +769,7 @@ class InteractionSessionImpl implements InteractionSession {
         return this.doProbe(
           action.viewId,
           action.field,
-          action.range === null ? null : [action.range[0], action.range[1]],
+          action.range,
           'interval',
           action.cause,
           as,
@@ -846,7 +847,7 @@ class InteractionSessionImpl implements InteractionSession {
       this.activeFilters.delete(viewId);
       this.activeFilterCommits.delete(viewId); // a cleared filter is no longer an input dependency
     } else {
-      this.activeFilters.set(viewId, kind === 'point' ? { kind, field, value } : { kind, field, value: value as [number, number] });
+      this.activeFilters.set(viewId, kind === 'point' ? { kind, field, value } : { kind, field, value: value as FilterRange });
       this.activeFilterCommits.set(viewId, record.id); // a superseded select on the same view drops out here
     }
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.

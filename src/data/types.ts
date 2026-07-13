@@ -71,21 +71,38 @@ export interface PointClause {
 }
 
 /**
+ * One side of an interval, or `null` for "no bound on this side" — a
+ * HALF-OPEN interval (e.g. field >= lo with no ceiling, or field <= hi with
+ * no floor). This is this layer's own extension beyond what a real Mosaic
+ * `clauseInterval` expresses (mirrors the `'match'` clause precedent above:
+ * a genuinely useful addition, not a Mosaic-mirroring concern — see
+ * `predicate.ts`'s `resolveIntervalSQL`). Both sides `null` is deliberately
+ * UNREPRESENTABLE by this type — "no filter at all" is
+ * `IntervalClause.value === null` (the whole clause cleared), never a
+ * `[null, null]` tuple.
+ */
+export type IntervalBounds<T> = readonly [T, T] | readonly [T, null] | readonly [null, T];
+
+/**
  * `value === null` clears the interval (no predicate — matches everything),
  * mirroring `clauseInterval`'s `value != null ? isBetween(...) : null`
  * (`SelectionClause.js:70-82`). `[lo, hi]` is inclusive on both ends
- * (`isBetween` → SQL `BETWEEN`), matching Mosaic exactly.
+ * (`isBetween` → SQL `BETWEEN`), matching Mosaic exactly. A bound may itself
+ * be `null` for a HALF-OPEN interval — `[150, null]` is "150 or more",
+ * `[null, 150]` is "up to 150" — this layer's own extension (see
+ * {@link IntervalBounds}); at least one side must be non-null.
  *
- * A `[string, string]` pair is a DATE interval: the bounds are ISO-8601 date
- * strings (the format a time-series chart's brush emits), compared
- * lexicographically — for uniform ISO-8601 that IS chronological order,
- * exactly what SQL `BETWEEN` does over string operands. The two bound types
- * never mix: one interval is either numeric or string on both ends.
+ * A string-bounded pair is a DATE interval: the bounds are ISO-8601 date
+ * strings (the format a time-series chart's brush emits, or an agent's
+ * `filter` tool call), compared lexicographically — for uniform ISO-8601
+ * that IS chronological order, exactly what SQL `BETWEEN` does over string
+ * operands. The two bound types never mix: one interval is either numeric or
+ * string on both (non-null) ends.
  */
 export interface IntervalClause {
   readonly kind: 'interval';
   readonly field: string;
-  readonly value: readonly [number, number] | readonly [string, string] | null;
+  readonly value: IntervalBounds<number> | IntervalBounds<string> | null;
 }
 
 /**

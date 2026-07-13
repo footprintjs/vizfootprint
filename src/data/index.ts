@@ -7,6 +7,7 @@ export type {
   Engine,
   EvaluateOptions,
   EvaluateResult,
+  IntervalBounds,
   IntervalClause,
   MatchClause,
   PointClause,

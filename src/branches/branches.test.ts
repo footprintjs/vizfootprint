@@ -350,6 +350,21 @@ describe('foldDiff — the structured state diff computed from the log ALONE (la
     expect(d).toEqual({ ok: false, reason: 'unknown-commit', missing: ['ghost'] });
   });
 
+  it('FILTER-1: a half-open interval ([lo, null]) folds and diffs by VALUE, same as any other bound', () => {
+    const log = [
+      rec('c1', null, { viewId: 'scatter', kind: 'interval', field: 'price', value: [150, null] }), // "150 or more"
+      rec('x', 'c1', { value: 'Work' }), // A: sibling bar select, keeps the half-open filter
+      rec('y', 'c1', { viewId: 'scatter', kind: 'interval', field: 'price', value: [null, 150] }), // B: "up to 150" — same key, different value
+    ];
+    expect(foldStateAt(log, 'x').get('selection:scatter')).toMatchObject({ clause: { value: [150, null] } });
+    const d = foldDiff(log, 'x', 'y');
+    expect(d.ok).toBe(true);
+    if (!d.ok) return;
+    expect(d.changed.map((c) => c.key)).toEqual(['selection:scatter']);
+    expect(d.changed[0]).toMatchObject({ a: { clause: { value: [150, null] } }, b: { clause: { value: [null, 150] } } });
+    expect(d.onlyA.map((e) => e.key)).toEqual(['selection:bar']);
+  });
+
   it('foldStateAt of a null tip is the empty state (the fold of the empty path)', () => {
     expect(foldStateAt(LOG, null).size).toBe(0);
   });

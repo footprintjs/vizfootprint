@@ -38,7 +38,7 @@
  * the resolved SQL text (the D24 invariant), even before those engines ship.
  */
 
-import type { IntervalClause, MatchClause, PointClause, PredicateClause, Row } from './types.js';
+import type { IntervalBounds, IntervalClause, MatchClause, PointClause, PredicateClause, Row } from './types.js';
 
 /** The JS string Mosaic itself produces for a cleared/inactive clause: `String(null)`. */
 const CLEARED_SQL = 'null';
@@ -89,20 +89,32 @@ function resolvePointSQL(clause: PointClause): string {
 }
 
 /**
- * ONE documented divergence from the byte-parity contract in the file header:
- * STRING interval bounds (ISO-8601 dates) render as SQL string LITERALS here,
- * while real Mosaic's `isBetween` (operators.js:219-221) maps extents through
- * `asNode` (ast.js:16-17: `isString(value) ? column(value) : asLiteral(value)`)
- * and so renders a string extent as a quoted COLUMN IDENTIFIER — a reference
- * to a nonexistent column (Mosaic's interval extents are meant to be
- * numbers/Dates; strings fall outside its input domain). Replicating that
- * would fabricate non-executable SQL, so this seam stays honest instead
- * (pinned in predicate.test.ts against the real factory's output).
+ * TWO documented divergences from the byte-parity contract in the file header:
+ *
+ * 1. STRING interval bounds (ISO-8601 dates) render as SQL string LITERALS
+ *    here, while real Mosaic's `isBetween` (operators.js:219-221) maps
+ *    extents through `asNode` (ast.js:16-17: `isString(value) ?
+ *    column(value) : asLiteral(value)`) and so renders a string extent as a
+ *    quoted COLUMN IDENTIFIER — a reference to a nonexistent column
+ *    (Mosaic's interval extents are meant to be numbers/Dates; strings fall
+ *    outside its input domain). Replicating that would fabricate
+ *    non-executable SQL, so this seam stays honest instead (pinned in
+ *    predicate.test.ts against the real factory's output).
+ *
+ * 2. HALF-OPEN bounds (one side `null`) have no Mosaic analog at all — a real
+ *    `clauseInterval` only ever builds `BETWEEN`. This is this layer's own
+ *    extension (see `IntervalBounds` in types.ts, mirroring the `'match'`
+ *    clause precedent below): a `null` bound renders as a one-sided `>=`/`<=`
+ *    comparison instead of `BETWEEN`, honest SQL for a shape Mosaic cannot
+ *    express.
  */
 function resolveIntervalSQL(clause: IntervalClause): string {
   if (clause.value === null) return CLEARED_SQL; // clauseInterval: value==null -> no predicate
   const [lo, hi] = clause.value;
-  return `(${quoteIdent(clause.field)} BETWEEN ${literalToSQL(lo)} AND ${literalToSQL(hi)})`;
+  const field = quoteIdent(clause.field);
+  if (lo === null) return `(${field} <= ${literalToSQL(hi)})`;
+  if (hi === null) return `(${field} >= ${literalToSQL(lo)})`;
+  return `(${field} BETWEEN ${literalToSQL(lo)} AND ${literalToSQL(hi)})`;
 }
 
 /**
@@ -140,16 +152,19 @@ export function isClearedSQL(sql: string): boolean {
 }
 
 /**
- * An interval's bounds are either both numbers or both strings (see
- * `IntervalClause` in types.ts — the two never mix), so the first element
- * decides the pair. String bounds are ISO-8601 dates: SQL `BETWEEN` over
- * strings is lexicographic, and for uniform ISO-8601 lexicographic IS
- * chronological — the resolved SQL and this in-process filter agree.
+ * An interval's (non-null) bounds are either all numbers or all strings (see
+ * `IntervalClause` in types.ts — the two never mix), and at least one side is
+ * non-null (`IntervalBounds` forbids `[null, null]`), so checking EITHER
+ * element for `'string'` decides the pair — whichever side is the null one
+ * carries no type information, but the other side always does. String bounds
+ * are ISO-8601 dates: SQL `BETWEEN`/`>=`/`<=` over strings is lexicographic,
+ * and for uniform ISO-8601 lexicographic IS chronological — the resolved SQL
+ * and this in-process filter agree.
  */
 function isStringBounds(
-  value: readonly [number, number] | readonly [string, string],
-): value is readonly [string, string] {
-  return typeof value[0] === 'string';
+  value: IntervalBounds<number> | IntervalBounds<string>,
+): value is IntervalBounds<string> {
+  return typeof value[0] === 'string' || typeof value[1] === 'string';
 }
 
 /**
@@ -165,6 +180,9 @@ function isStringBounds(
  *     SQL-style implicit type coercion between e.g. `"5"` and `5`. A string
  *     interval (ISO-8601 date bounds) therefore only ever matches STRING row
  *     values, and a numeric interval only numeric ones — never across.
+ *   - a HALF-OPEN interval (one bound `null`) only tests the side that is
+ *     present — `[150, null]` matches every row `>= 150`, `[null, hi]` every
+ *     row `<= hi` — never a fabricated opposite bound.
  */
 export function matchesClause(row: Row, clause: PredicateClause | null): boolean {
   if (clause === null) return true;
@@ -178,12 +196,17 @@ export function matchesClause(row: Row, clause: PredicateClause | null): boolean
       if (clause.value === null) return true; // cleared
       const v = row[clause.field];
       if (isStringBounds(clause.value)) {
+        if (typeof v !== 'string') return false; // no cross-type coercion
         const [lo, hi] = clause.value;
-        return typeof v === 'string' && v >= lo && v <= hi;
+        if (lo !== null && v < lo) return false;
+        if (hi !== null && v > hi) return false;
+        return true;
       }
-      const [lo, hi] = clause.value;
       if (typeof v !== 'number' || Number.isNaN(v)) return false;
-      return v >= lo && v <= hi;
+      const [lo, hi] = clause.value;
+      if (lo !== null && v < lo) return false;
+      if (hi !== null && v > hi) return false;
+      return true;
     }
     case 'match': {
       if (clause.values.length === 0) return false; // real FALSE, not "cleared"

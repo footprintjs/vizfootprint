@@ -37,6 +37,7 @@ export type {
   InteractionSession,
   DispatchAction,
   DispatchResult,
+  FilterRange,
   AnalysisCommit,
   Checkpoint,
   BranchInfo,

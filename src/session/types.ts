@@ -14,7 +14,7 @@ import type { CommitRecord } from '../log/index.js';
 import type { CauseClause } from '../mosaic/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
 import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
-import type { ColumnType } from '../data/index.js';
+import type { ColumnType, IntervalClause } from '../data/index.js';
 import type { DispatchVerb, IntentClass } from '../def/types.js';
 import type { DiffChange, DiffOnly, PlanRecipe, RefEvent } from '../branches/index.js';
 
@@ -55,9 +55,18 @@ export interface GapRow {
 
 // ── The dispatch action vocabulary (SPEC §9). ──────────────────────────────────
 
+/**
+ * The `filter` verb's interval shape — single-sourced from `src/data`'s
+ * `IntervalClause` (the seam that actually EVALUATES it), so this type and
+ * the data layer's own can never drift: `[lo, hi]`, a half-open pair with one
+ * bound `null` (e.g. `[150, null]` — "150 or more"), numeric or ISO-8601
+ * date-string bounds (never mixed), or `null` to clear the filter entirely.
+ */
+export type FilterRange = IntervalClause['value'];
+
 export type DispatchAction =
   | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly value: unknown; readonly cause: Cause; readonly correlationId?: string }
-  | { readonly verb: 'filter'; readonly viewId: string; readonly field: string; readonly range: readonly [number, number] | null; readonly cause: Cause; readonly correlationId?: string }
+  | { readonly verb: 'filter'; readonly viewId: string; readonly field: string; readonly range: FilterRange; readonly cause: Cause; readonly correlationId?: string }
   | { readonly verb: 'annotate'; readonly target: string; readonly note: string; readonly cause: Cause }
   | { readonly verb: 'navigate'; readonly viewId: string; readonly cause: Cause }
   | { readonly verb: 'analyze'; readonly analysisId: string; readonly input?: readonly Record<string, unknown>[]; readonly cause: Cause; readonly correlationId?: string }

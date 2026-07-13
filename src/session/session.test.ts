@@ -36,6 +36,28 @@ describe('R4 — dispatch is the single semantic entry', () => {
     await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: null, cause: userCause() });
     expect((await s.overview()).activeSelections.find((a) => a.viewId === 'scatter')).toBeUndefined();
   });
+
+  it('FILTER-1: a half-open filter ([lo, null]) commits the DATA-space value verbatim and selectedRows honors it — no fabricated ceiling', async () => {
+    // SAMPLE_ROWS price = 50 + 2i + (i mod 5), i in [0,40) → spans ~50..132.
+    const s = freshSession();
+    await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [100, null], cause: userCause('over $100') });
+    expect((await s.overview()).activeSelections[0]).toMatchObject({ field: 'price', kind: 'interval', value: [100, null] });
+    const rows = await s.selectedRows();
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeLessThan(SAMPLE_ROWS.length);
+    expect(rows.every((r) => (r['price'] as number) >= 100)).toBe(true);
+  });
+
+  it('FILTER-1: a half-open filter ([null, hi]) survives seek/time-travel — the fold restores the SAME half-open value', async () => {
+    const s = freshSession();
+    const res = await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [null, 100], cause: userCause('up to 100') });
+    expect(res.ok).toBe(true);
+    const commitId = res.ok ? res.commit!.id : '';
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
+    const seeked = s.seek(commitId);
+    expect(seeked.ok).toBe(true);
+    expect((await s.overview()).activeSelections).toEqual([{ viewId: 'scatter', field: 'price', kind: 'interval', value: [null, 100] }]);
+  });
 });
 
 describe('R1 — computedBy is forced to system on an analysis (never caller-supplied)', () => {

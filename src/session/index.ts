@@ -10,6 +10,7 @@ export { GapLedger } from './gapLedger.js';
 export type {
   DispatchAction,
   DispatchResult,
+  FilterRange,
   AnalysisCommit,
   Checkpoint,
   BranchInfo,

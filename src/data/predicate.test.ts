@@ -193,3 +193,58 @@ describe('date intervals — ISO-8601 STRING bounds (the time-series brush emiss
     expect(tsRows.filter((r) => matchesClause(r, c)).map((r) => r['id'])).toEqual(['x']);
   });
 });
+
+describe('half-open intervals — one bound null (FILTER-1: "no upper/lower bound")', () => {
+  const numRows: Row[] = [
+    { id: 'a', amount: 100 },
+    { id: 'b', amount: 150 },
+    { id: 'c', amount: 200 },
+    { id: 'd', amount: 'not-a-number' },
+  ];
+  const dateRows: Row[] = [
+    { id: 'x', date: '2026-04-01' },
+    { id: 'y', date: '2026-05-15' },
+    { id: 'z', date: '2026-06-01' },
+    { id: 'w', date: 999 }, // non-string row value — no cross-type coercion
+  ];
+
+  it('resolvePredicateSQL: [lo, null] renders a one-sided >= comparison, never a fabricated hi', () => {
+    const clause: IntervalClause = { kind: 'interval', field: 'amount', value: [150, null] };
+    expect(resolvePredicateSQL(clause)).toBe('("amount" >= 150)');
+  });
+
+  it('resolvePredicateSQL: [null, hi] renders a one-sided <= comparison, never a fabricated lo', () => {
+    const clause: IntervalClause = { kind: 'interval', field: 'amount', value: [null, 150] };
+    expect(resolvePredicateSQL(clause)).toBe('("amount" <= 150)');
+  });
+
+  it('resolvePredicateSQL: a half-open DATE bound renders the string literal, not a bare BETWEEN', () => {
+    const clause: IntervalClause = { kind: 'interval', field: 'date', value: [null, '2026-05-31'] };
+    expect(resolvePredicateSQL(clause)).toBe(`("date" <= '2026-05-31')`);
+  });
+
+  it('matchesClause: [150, null] ("150 or more") matches every row >= 150, never fabricates a ceiling', () => {
+    const clause: IntervalClause = { kind: 'interval', field: 'amount', value: [150, null] };
+    expect(numRows.filter((r) => matchesClause(r, clause)).map((r) => r['id'])).toEqual(['b', 'c']);
+  });
+
+  it('matchesClause: [null, 150] ("up to 150") matches every row <= 150, never fabricates a floor', () => {
+    const clause: IntervalClause = { kind: 'interval', field: 'amount', value: [null, 150] };
+    expect(numRows.filter((r) => matchesClause(r, clause)).map((r) => r['id'])).toEqual(['a', 'b']);
+  });
+
+  it('matchesClause: a half-open interval still rejects a non-numeric row value', () => {
+    const clause: IntervalClause = { kind: 'interval', field: 'amount', value: [150, null] };
+    expect(matchesClause({ amount: 'not-a-number' }, clause)).toBe(false);
+  });
+
+  it('matchesClause: a half-open DATE lower bound ("from May onward") — lexicographic == chronological', () => {
+    const clause: IntervalClause = { kind: 'interval', field: 'date', value: ['2026-05-01', null] };
+    expect(dateRows.filter((r) => matchesClause(r, clause)).map((r) => r['id'])).toEqual(['y', 'z']);
+  });
+
+  it('matchesClause: a half-open DATE upper bound ("through May") never matches a non-string row value', () => {
+    const clause: IntervalClause = { kind: 'interval', field: 'date', value: [null, '2026-05-31'] };
+    expect(dateRows.filter((r) => matchesClause(r, clause)).map((r) => r['id'])).toEqual(['x', 'y']);
+  });
+});

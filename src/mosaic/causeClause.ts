@@ -42,7 +42,23 @@ export type CauseClauseSpec =
       kind: 'interval';
       source: RegisteredSource;
       field: string;
-      value: [number, number] | null;
+      /**
+       * `[lo, hi]`, a half-open pair with one bound `null` ("no bound on this
+       * side" — e.g. `[150, null]` is "150 or more"; see `src/data`'s
+       * `IntervalBounds`, the seam that actually EVALUATES this shape), or
+       * `null` to clear. ISO-8601 date-string bounds ride this rail too (a
+       * time-series brush, or an agent `filter` call). This spec only
+       * forwards the value into the REAL Mosaic `clauseInterval` below, whose
+       * sole consumer is the inert, descriptor-only `CommitRecord.predicateSQL`
+       * string (`src/log/log.ts`) — nothing executes it. Mosaic itself has no
+       * half-open/string-extent concept, so for those shapes that descriptor
+       * can render a technically-nonsensical-but-non-throwing fragment
+       * (already true for date strings pre-dating this type — `asNode`
+       * treats a string extent as a column reference, see `predicate.ts`'s
+       * documented divergence comment); `src/data`'s `resolvePredicateSQL` is
+       * the one honest SQL descriptor this package actually relies on.
+       */
+      value: [number, number] | [number, null] | [null, number] | [string, string] | [string, null] | [null, string] | null;
       cause: Cause;
       clients?: RegisteredSource[];
     };
@@ -71,7 +87,14 @@ export function causeClause(spec: CauseClauseSpec): CauseClause {
   if (spec.kind === 'point') {
     clause = clausePoint(spec.field, spec.value, { source, clients });
   } else {
-    clause = clauseInterval(spec.field, spec.value, { source, clients });
+    // Real Mosaic's own .d.ts types `clauseInterval`'s value as a plain
+    // `[number, number]` domain — it has no half-open/string-extent concept
+    // (see the CauseClauseSpec doc above). `as never` is the same escape
+    // `src/log/log.ts` already uses at this exact boundary: the CALL is
+    // proven non-throwing for every shape this spec accepts (verified
+    // against the real factory — predicate.ts's file header), only the
+    // THIRD-PARTY type declaration is too narrow to say so.
+    clause = clauseInterval(spec.field, spec.value as never, { source, clients });
   }
 
   // Merge cause into whatever meta the factory produced ({type:'point'} etc.).
