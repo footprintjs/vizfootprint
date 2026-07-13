@@ -1,17 +1,21 @@
 /**
- * The gallery page — the visual acceptance surface. Mounts EVERY component of
- * vizfootprint-ui against the scripted real session, wired the way a consumer
- * would: one `createSessionView` store, `useSessionView` for state, action
- * callbacks back into the store. The charts read their axis fields from the
+ * The gallery page — the visual acceptance surface. Mounts the FLAGSHIP
+ * cockpit (`<VizCockpit>`) against the scripted real session, wired the way a
+ * consumer would: one `createSessionView` store, `useSessionView` for state,
+ * action callbacks back into the store.
+ *
+ * Single screen, nothing to scroll: the compact time bar rides the top strip
+ * (⚑ opens the checkpoint naming modal), the charts FILL all remaining height
+ * at their measured size (crisp SVG), and the panels live behind the report
+ * chips on the slim status strip — each chip carries a live badge and opens a
+ * large frosted-glass modal. The charts read their axis fields from the
  * ENCODINGS fold — pick a new column in the axis picker and the scatter
  * re-renders on the new field (the reencode verb, end to end).
  */
 import { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  VizDashboard,
-  VizPanel,
-  VizCard,
+  VizCockpit,
   VizScatter,
   VizBar,
   TimeTravelBar,
@@ -86,84 +90,109 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
   const selectedCount = rows.filter((r) => clauses.every((c) => matches(r, c))).length;
 
   return (
-    <VizDashboard
+    <VizCockpit
       readOnly={readOnly}
       top={
-        <VizCard>
-          <TimeTravelBar
-            mode={mode}
-            onModeChange={setMode}
-            commits={state.commits}
-            cursor={state.cursor}
-            head={state.head}
-            checkpoints={state.checkpoints}
-            branches={state.branches}
-            viewingPast={state.viewingPast}
-            onSeek={(id) => void view.seek(id)}
-            onStepBack={() => void view.stepBack()}
-            onStepForward={() => void view.stepForward()}
-            onCheckpoint={(label) => void view.checkpoint(label)}
-            onReturnToNow={() => void view.returnToNow()}
-          />
-        </VizCard>
+        <TimeTravelBar
+          compact
+          checkpointNaming="modal"
+          mode={mode}
+          onModeChange={setMode}
+          commits={state.commits}
+          cursor={state.cursor}
+          head={state.head}
+          checkpoints={state.checkpoints}
+          branches={state.branches}
+          viewingPast={state.viewingPast}
+          onSeek={(id) => void view.seek(id)}
+          onStepBack={() => void view.stepBack()}
+          onStepForward={() => void view.stepForward()}
+          onCheckpoint={(label) => void view.checkpoint(label)}
+          onReturnToNow={() => void view.returnToNow()}
+        />
       }
-      main={
-        <>
-          <VizCard title={`Charts — ${selectedCount} of ${rows.length} rows selected · axis labels open the encoding picker`}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)', gap: 'var(--vzf-space-4)' }}>
-              <figure className="vzf-chartbox">
-                <VizScatter
-                  viewId="scatter"
-                  data={scatterData}
-                  xField={xField}
-                  yField={yField}
-                  colorOf={(c) => CATEGORY_COLORS[c ?? ''] ?? 'var(--vzf-brand)'}
-                  highlight={scatterKeep}
-                  columns={columns}
-                  encoding={enc}
-                  onEmit={(e) => void view.emit('scatter', e, 'scatter gesture')}
-                  onReencode={(v, c, f) => void view.reencode(v, c, f)}
-                />
-                <figcaption className="vzf-chart-caption">Scatter — drag to brush {xField}; click an axis label to re-encode</figcaption>
-              </figure>
-              <figure className="vzf-chartbox">
-                <VizBar
-                  viewId="bar"
-                  data={barData}
-                  field="category"
-                  colorOf={(c) => CATEGORY_COLORS[c] ?? 'var(--vzf-brand)'}
-                  selected={barSelected ? String(barSelected.value) : null}
-                  columns={columns}
-                  onEmit={(e) => void view.emit('bar', e, 'bar click')}
-                  onReencode={(v, c, f) => void view.reencode(v, c, f)}
-                />
-                <figcaption className="vzf-chart-caption">Bar — click a category to select</figcaption>
-              </figure>
-            </div>
-          </VizCard>
-          <VizPanel title="Branch map — siblings fork downward; the active lineage rides the top lane">
+      charts={[
+        {
+          id: 'scatter',
+          weight: 3,
+          caption: `Scatter — drag to brush ${xField}; click an axis label to re-encode`,
+          render: ({ width, height }) => (
+            <VizScatter
+              viewId="scatter"
+              data={scatterData}
+              xField={xField}
+              yField={yField}
+              width={width}
+              height={height}
+              colorOf={(c) => CATEGORY_COLORS[c ?? ''] ?? 'var(--vzf-brand)'}
+              highlight={scatterKeep}
+              columns={columns}
+              encoding={enc}
+              onEmit={(e) => void view.emit('scatter', e, 'scatter gesture')}
+              onReencode={(v, c, f) => void view.reencode(v, c, f)}
+            />
+          ),
+        },
+        {
+          id: 'bar',
+          weight: 2,
+          caption: 'Bar — click a category to select',
+          render: ({ width, height }) => (
+            <VizBar
+              viewId="bar"
+              data={barData}
+              field="category"
+              width={width}
+              height={height}
+              colorOf={(c) => CATEGORY_COLORS[c] ?? 'var(--vzf-brand)'}
+              selected={barSelected ? String(barSelected.value) : null}
+              columns={columns}
+              onEmit={(e) => void view.emit('bar', e, 'bar click')}
+              onReencode={(v, c, f) => void view.reencode(v, c, f)}
+            />
+          ),
+        },
+      ]}
+      reports={[
+        {
+          id: 'commits',
+          title: 'Commit log',
+          icon: '🧾',
+          badge: state.commits.length,
+          content: <CommitLog commits={state.commits} onSeek={(id) => void view.seek(id)} />,
+        },
+        {
+          id: 'branches',
+          title: 'Branch map',
+          icon: '🌿',
+          badge: state.branches.length,
+          content: (
             <BranchMap commits={state.commits} cursor={state.cursor} head={state.head} checkpoints={state.checkpoints} onSeek={(id) => void view.seek(id)} />
-          </VizPanel>
-          <VizPanel title="Commit log — one cause-tagged record per gesture; click a chip to seek">
-            <CommitLog commits={state.commits} onSeek={(id) => void view.seek(id)} />
-          </VizPanel>
-        </>
-      }
-      side={
-        <>
-          <VizPanel title="Declared analyses — readiness at the cursor">
-            <ReadinessPanel heading={false} analyses={state.readiness} onAnalyze={(id) => void view.analyze(id)} />
-          </VizPanel>
-          <VizPanel title={`Gaps — unmet requests (${state.gaps.length})`}>
-            <GapsPanel heading={false} gaps={state.gaps} />
-          </VizPanel>
-        </>
-      }
-      bottom={
-        <VizPanel title="Online-FDR ledger (LORD++) — two truths">
-          <FdrLedger ledger={state.ledger} />
-        </VizPanel>
-      }
+          ),
+        },
+        {
+          id: 'ledger',
+          title: 'FDR ledger',
+          icon: '⚖️',
+          badge: state.ledger.discoveries,
+          content: <FdrLedger ledger={state.ledger} />,
+        },
+        {
+          id: 'analyses',
+          title: 'Analyses',
+          icon: '🧪',
+          badge: state.readiness.filter((r) => r.ready).length,
+          content: <ReadinessPanel heading={false} analyses={state.readiness} onAnalyze={(id) => void view.analyze(id)} />,
+        },
+        {
+          id: 'gaps',
+          title: 'Gaps',
+          icon: '⚠️',
+          badge: state.gaps.length,
+          content: <GapsPanel heading={false} gaps={state.gaps} />,
+        },
+      ]}
+      status={`${selectedCount} of ${rows.length} rows selected · provider: scripted session`}
     />
   );
 }
