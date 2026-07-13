@@ -75,7 +75,8 @@ describe('viz.dispatch — select/filter PAYLOAD_INVALID guards', () => {
   it('a malformed filter.range (wrong arity) is a typed PAYLOAD_INVALID', async () => {
     const port = freshPort();
     const res = await port.call('viz.dispatch', { verb: 'filter', viewId: 'scatter', field: 'price', range: [1, 2, 3] });
-    expect(res).toEqual({ ok: false, reason: 'PAYLOAD_INVALID', detail: 'filter.range must be a [lo, hi] number pair or null' });
+    expect(get(res, 'reason')).toBe('PAYLOAD_INVALID');
+    expect(get(res, 'detail')).toMatch(/filter\.range must be/);
   });
 
   it('filter range: null clears an existing filter through the dispatch tool', async () => {
@@ -86,6 +87,59 @@ describe('viz.dispatch — select/filter PAYLOAD_INVALID guards', () => {
     expect(get(cleared, 'ok')).toBe(true);
     const commit = get(cleared, 'commit') as { value: unknown };
     expect(commit.value).toBeNull();
+  });
+});
+
+describe('viz.dispatch — filter FILTER-1: half-open ranges and ISO date ranges (the two closed gaps)', () => {
+  it('a half-open range [lo, null] ("over $100") lands the commit verbatim — no invented ceiling', async () => {
+    const port = freshPort();
+    const res = await port.call('viz.dispatch', { verb: 'filter', viewId: 'scatter', field: 'price', range: [100, null], intent: 'over $100' });
+    expect(get(res, 'ok')).toBe(true);
+    const commit = get(res, 'commit') as { value: unknown };
+    expect(commit.value).toEqual([100, null]);
+  });
+
+  it('a half-open range [null, hi] ("up to $100") lands the commit verbatim — no invented floor', async () => {
+    const port = freshPort();
+    const res = await port.call('viz.dispatch', { verb: 'filter', viewId: 'scatter', field: 'price', range: [null, 100] });
+    expect(get(res, 'ok')).toBe(true);
+    const commit = get(res, 'commit') as { value: unknown };
+    expect(commit.value).toEqual([null, 100]);
+  });
+
+  it('an ISO date range [string, string] is accepted — the agent can now date-filter', async () => {
+    const port = freshPort();
+    const res = await port.call('viz.dispatch', { verb: 'filter', viewId: 'scatter', field: 'price', range: ['2026-05-01', '2026-05-31'] });
+    expect(get(res, 'ok')).toBe(true);
+    const commit = get(res, 'commit') as { value: unknown };
+    expect(commit.value).toEqual(['2026-05-01', '2026-05-31']);
+  });
+
+  it('an ISO date half-open range [string, null] is accepted (date + open-ended compose)', async () => {
+    const port = freshPort();
+    const res = await port.call('viz.dispatch', { verb: 'filter', viewId: 'scatter', field: 'price', range: ['2026-05-01', null] });
+    expect(get(res, 'ok')).toBe(true);
+    const commit = get(res, 'commit') as { value: unknown };
+    expect(commit.value).toEqual(['2026-05-01', null]);
+  });
+
+  it('both bounds null is a typed PAYLOAD_INVALID — not "open both ways", use range: null to clear', async () => {
+    const port = freshPort();
+    const res = await port.call('viz.dispatch', { verb: 'filter', viewId: 'scatter', field: 'price', range: [null, null] });
+    expect(get(res, 'reason')).toBe('PAYLOAD_INVALID');
+    expect(get(res, 'detail')).toMatch(/filter\.range must be/);
+  });
+
+  it('mixed-type bounds (a number and a string) are a typed PAYLOAD_INVALID — the two never mix', async () => {
+    const port = freshPort();
+    const res = await port.call('viz.dispatch', { verb: 'filter', viewId: 'scatter', field: 'price', range: [100, '2026-05-31'] });
+    expect(get(res, 'reason')).toBe('PAYLOAD_INVALID');
+  });
+
+  it('a boolean bound is a typed PAYLOAD_INVALID (not a number, string, or null)', async () => {
+    const port = freshPort();
+    const res = await port.call('viz.dispatch', { verb: 'filter', viewId: 'scatter', field: 'price', range: [true, 100] });
+    expect(get(res, 'reason')).toBe('PAYLOAD_INVALID');
   });
 });
 

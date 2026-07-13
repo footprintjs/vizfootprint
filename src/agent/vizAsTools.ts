@@ -26,7 +26,7 @@
 import type { Actor, Cause } from '../cause/index.js';
 import { DISPATCH_VERBS } from '../def/index.js';
 import type { InteractionSession } from '../session/index.js';
-import type { DispatchAction, DispatchResult, AnalysisCommit, WhyTarget } from '../session/index.js';
+import type { DispatchAction, DispatchResult, AnalysisCommit, FilterRange, WhyTarget } from '../session/index.js';
 
 /** One tool descriptor (shape-compatible with footprintjs `MCPToolDescription` / the MCP SDK `Tool`). */
 export interface VizTool {
@@ -63,7 +63,8 @@ const WHATS_HERE_DESCRIPTION =
 
 const DISPATCH_DESCRIPTION =
   'Perform ONE semantic interaction. verb is one of: select (a point value on a field), filter (an ' +
-  'interval [lo,hi] on a field, or null to clear), annotate (an inert note), navigate (focus a view), ' +
+  'interval [lo, hi] on a field, or null to clear — see the range parameter for the full shape, ' +
+  'including open-ended and date ranges), annotate (an inert note), navigate (focus a view), ' +
   'analyze (run a declared analysis over the current selection), fork (travel the cursor back to a ' +
   'prior commit so your NEXT act branches off it — a sibling, no history rewritten), checkpoint (name ' +
   'the current position to return to), reencode (rebind a view\'s visual channel, e.g. x, to a ' +
@@ -121,7 +122,12 @@ const DISPATCH_SCHEMA = {
     value: { description: 'The selected DATA-space point value (select).' },
     range: {
       type: ['array', 'null'],
-      description: 'The DATA-space interval [lo, hi] (filter), or null to clear.',
+      description:
+        'The DATA-space interval for filter, or null to clear. [lo, hi] with both numbers (e.g. price), ' +
+        'or both ISO-8601 date strings "YYYY-MM-DD" (e.g. a date column) — the two never mix. Either bound ' +
+        'may be null for an OPEN-ENDED range: [150, null] means "150 or more", [null, "2026-05-31"] means ' +
+        '"up to that date" — never invent a made-up ceiling/floor number when the user names only one side. ' +
+        'Both bounds cannot be null (use range: null on the whole call to clear instead).',
     },
     target: { type: 'string', description: 'The annotation target (annotate).' },
     note: { type: 'string', description: 'The inert annotation text (annotate).' },
@@ -207,6 +213,29 @@ function sanitize(name: string): string {
   return name.replace(/[^A-Za-z0-9_.-]/g, '_');
 }
 
+/** One bound of a `filter` range as it arrives off the wire: a concrete value, or `null` (open-ended). */
+type RawBound = number | string | null;
+
+/**
+ * Validate a raw `filter.range` array against the `FilterRange` shape
+ * (mirrors `src/data`'s `IntervalBounds`, fire-time validated here since Mode
+ * B cannot enforce per-verb shape ahead of the call): exactly two elements,
+ * each a number, a string, or null; not both null (that is not "open-ended
+ * both ways", it is malformed — `range: null` on the whole call is how a
+ * model clears a filter); and non-null bounds must share a type — a
+ * [number, string] pair is never a legal interval (see `IntervalClause` in
+ * `src/data/types.ts`: numeric and date-string bounds never mix).
+ */
+function isValidFilterRange(range: unknown): range is readonly [RawBound, RawBound] {
+  if (!Array.isArray(range) || range.length !== 2) return false;
+  const isBound = (v: unknown): v is RawBound => v === null || typeof v === 'number' || typeof v === 'string';
+  const [lo, hi] = range as [unknown, unknown];
+  if (!isBound(lo) || !isBound(hi)) return false;
+  if (lo === null && hi === null) return false;
+  if (lo !== null && hi !== null && typeof lo !== typeof hi) return false;
+  return true;
+}
+
 export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions): VizToolsPort {
   const ns = opts?.namespace ?? 'viz';
   const source: Actor = opts?.as ?? session.defaultActor;
@@ -256,14 +285,18 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
           return { error: 'filter requires string viewId and field' };
         }
         const range = args['range'];
-        if (range !== null && !(Array.isArray(range) && range.length === 2 && range.every((n) => typeof n === 'number'))) {
-          return { error: 'filter.range must be a [lo, hi] number pair or null' };
+        if (range !== null && !isValidFilterRange(range)) {
+          return {
+            error:
+              'filter.range must be [lo, hi] — both numbers, both ISO date strings ("YYYY-MM-DD"), or one bound ' +
+              'null for an open-ended range (e.g. [150, null] means "150 or more") — or null to clear',
+          };
         }
         return {
           verb: 'filter',
           viewId: args['viewId'],
           field: args['field'],
-          range: range === null ? null : ([range[0], range[1]] as [number, number]),
+          range: range === null ? null : ([range[0], range[1]] as FilterRange),
           cause,
         };
       }
