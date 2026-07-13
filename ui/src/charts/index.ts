@@ -2,6 +2,8 @@ export { VizScatter } from './VizScatter.js';
 export type { VizScatterProps, ScatterDatum, RegressionGeom } from './VizScatter.js';
 export { VizBar } from './VizBar.js';
 export type { VizBarProps, BarDatum } from './VizBar.js';
+export { ChartFrame } from './ChartFrame.js';
+export type { ChartFrameProps, ChartSize } from './ChartFrame.js';
 export { EncodingPicker } from './EncodingPicker.js';
 export type { EncodingPickerProps } from './EncodingPicker.js';
 export { AxisLabel } from './AxisLabel.js';

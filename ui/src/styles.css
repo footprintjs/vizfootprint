@@ -403,6 +403,199 @@
   margin-top: var(--vzf-space-3);
 }
 
+/* ============================================================
+   LAYOUT — VizCockpit (the flagship single-viewport shell)
+   ------------------------------------------------------------
+   One screen, nothing to scroll: the root locks to the viewport
+   (dvh so mobile browser chrome is accounted for), the charts
+   band flexes to ALL remaining height, and the only scrolling
+   surfaces are internal (a modal body, the timeline strip, the
+   mobile chart carousel).
+   ============================================================ */
+:where(.vzf.vzf-cockpit-root) {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+:where(.vzf) .vzf-cockpit {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--vzf-space-3);
+  padding: var(--vzf-space-3) var(--vzf-space-4);
+  overflow: hidden;
+  background: var(--vzf-paper);
+}
+:where(.vzf) .vzf-cockpit .vzf-readonly-note {
+  flex: none;
+}
+:where(.vzf) .vzf-cockpit-top {
+  flex: none;
+  min-width: 0;
+  background: var(--vzf-surface);
+  border: 1px solid var(--vzf-line);
+  border-radius: var(--vzf-r-lg);
+  box-shadow: var(--vzf-shadow-sm);
+  padding: var(--vzf-space-2) var(--vzf-space-3);
+}
+:where(.vzf) .vzf-cockpit-charts {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  gap: var(--vzf-space-4);
+  overflow: hidden;
+}
+:where(.vzf) .vzf-cockpit-cell {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--vzf-space-1);
+  background: var(--vzf-surface);
+  border: 1px solid var(--vzf-line);
+  border-radius: var(--vzf-r-lg);
+  box-shadow: var(--vzf-shadow-sm);
+  padding: var(--vzf-space-3);
+}
+:where(.vzf) .vzf-cockpit-cell .vzf-chart-caption {
+  flex: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* the measured frame a chart fills (ChartFrame) — viewBox == CSS box, 1:1 */
+:where(.vzf) .vzf-chart-frame {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+}
+:where(.vzf) .vzf-chart-frame .vzf-chart {
+  height: 100%;
+}
+/* read-only (present mode): dim + block the acting charts; nav + reports stay live */
+:where(.vzf) .vzf-cockpit.vzf-readonly .vzf-cockpit-charts {
+  opacity: 0.62;
+  filter: saturate(0.75);
+  pointer-events: none;
+}
+/* carousel dots — mobile only */
+:where(.vzf) .vzf-cockpit-dots {
+  display: none;
+}
+:where(.vzf) .vzf-cockpit-dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: none;
+  border-radius: var(--vzf-r-pill);
+  background: var(--vzf-line);
+  cursor: pointer;
+}
+:where(.vzf) .vzf-cockpit-dot.vzf-active {
+  background: var(--vzf-brand);
+}
+:where(.vzf) .vzf-cockpit-dot:focus-visible {
+  outline: none;
+  box-shadow: var(--vzf-focus);
+}
+/* the slim status strip: readout left, report chips right */
+:where(.vzf) .vzf-cockpit-status {
+  flex: none;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vzf-space-3);
+  font-size: 0.84em;
+}
+:where(.vzf) .vzf-cockpit-readout {
+  color: var(--vzf-ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:where(.vzf) .vzf-cockpit-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--vzf-space-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+:where(.vzf) .vzf-cockpit-chips::-webkit-scrollbar {
+  display: none;
+}
+:where(.vzf) .vzf-report-chip {
+  font: inherit;
+  font-size: 0.98em;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--vzf-ink-soft);
+  background: var(--vzf-surface);
+  border: 1px solid var(--vzf-line);
+  border-radius: var(--vzf-r-pill);
+  padding: 3px 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+:where(.vzf) .vzf-report-chip:hover {
+  color: var(--vzf-ink);
+  border-color: var(--vzf-brand);
+  background: var(--vzf-brand-tint);
+}
+:where(.vzf) .vzf-report-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--vzf-focus);
+}
+:where(.vzf) .vzf-report-badge {
+  font-family: var(--vzf-font-mono);
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--vzf-brand-deep);
+  background: var(--vzf-brand-tint);
+  border-radius: var(--vzf-r-pill);
+  padding: 0 7px;
+  line-height: 1.5;
+}
+/* ── mobile (≤700px): charts become swipeable snap pages ────── */
+@media (max-width: 700px) {
+  :where(.vzf) .vzf-cockpit {
+    padding: var(--vzf-space-2) var(--vzf-space-3);
+    gap: var(--vzf-space-2);
+  }
+  :where(.vzf) .vzf-cockpit-charts {
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  :where(.vzf) .vzf-cockpit-charts::-webkit-scrollbar {
+    display: none;
+  }
+  :where(.vzf) .vzf-cockpit-cell {
+    flex: 0 0 100%;
+    scroll-snap-align: center;
+    scroll-snap-stop: always;
+  }
+  :where(.vzf) .vzf-cockpit-dots {
+    display: flex;
+    flex: none;
+    justify-content: center;
+    gap: var(--vzf-space-2);
+  }
+}
+
 /* any wide content scrolls WITHIN its own container — never the page body */
 :where(.vzf) .vzf-scroll-x {
   overflow-x: auto;
