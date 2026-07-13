@@ -18,6 +18,8 @@ import {
   VizCockpit,
   VizScatter,
   VizBar,
+  VizLine,
+  VizMap,
   TimeTravelBar,
   BranchMap,
   BranchPill,
@@ -36,7 +38,7 @@ import {
   type TimeMode,
 } from '../src/index.js';
 import { buildScriptedSession } from './scripted.js';
-import { CATEGORIES, CATEGORY_COLORS, type GalleryRow } from './data.js';
+import { CATEGORIES, CATEGORY_COLORS, GALLERY_GEO, REGIONS, type GalleryRow } from './data.js';
 
 // ── tiny local clause matcher (crossfilter self-exclusion in the page) ────────
 interface Clause {
@@ -48,9 +50,17 @@ interface Clause {
 function matches(row: GalleryRow, c: Clause): boolean {
   const v = row[c.field];
   if (c.kind === 'interval') {
-    const iv = c.value as [number, number] | null;
-    return iv === null || (typeof v === 'number' && v >= iv[0] && v <= iv[1]);
+    // numeric OR ISO-date-string bounds — mirrors src/data matchesClause
+    // (lexicographic == chronological for the uniform ISO format)
+    const iv = c.value as [number, number] | [string, string] | null;
+    if (iv === null) return true;
+    if (typeof iv[0] === 'string') return typeof v === 'string' && v >= iv[0] && v <= (iv[1] as string);
+    return typeof v === 'number' && v >= iv[0] && v <= (iv[1] as number);
   }
+  // a CLEARED point selection surfaces as a null/undefined value through the
+  // adapter (the session keeps the entry; src/data treats it as "no filter").
+  // Gallery data has no null cells, so null here can only mean "cleared".
+  if (c.value == null) return true;
   return v === c.value;
 }
 
@@ -94,6 +104,33 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
     count: rows.filter((r) => r.category === category && barClauses.every((c) => matches(r, c))).length,
   }));
   const barSelected = state.selections.find((s) => s.viewId === 'bar' && s.kind === 'point');
+
+  // the line's fields come from ITS encoding fold; its data recomputes under
+  // the OTHER views' selections (crossfilter self-exclusion, like the bar)
+  const encL = state.encodings['line'] ?? {};
+  const lineX = encL['x'] ?? 'date';
+  const lineY = encL['y'] ?? 'price';
+  const lineClauses = notOwn('line');
+  const lineData = useMemo(
+    () =>
+      rows
+        .filter((r) => lineClauses.every((c) => matches(r, c)))
+        .map((r) => ({
+          date: String(r[lineX]),
+          value: typeof r[lineY] === 'number' ? (r[lineY] as number) : 0,
+          series: r.category,
+        })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- lineClauses is derived fresh from state.selections each render
+    [rows, lineX, lineY, state.selections],
+  );
+
+  // the map's value per region = the crossfiltered row COUNT (the canonical wiring)
+  const mapClauses = notOwn('map');
+  const mapData = REGIONS.map((region) => ({
+    region: region as string,
+    value: rows.filter((r) => r.region === region && mapClauses.every((c) => matches(r, c))).length,
+  }));
+  const mapSelected = state.selections.find((s) => s.viewId === 'map' && s.kind === 'point');
 
   const selectedCount = rows.filter((r) => clauses.every((c) => matches(r, c))).length;
 
@@ -165,8 +202,28 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
           ),
         },
         {
+          id: 'line',
+          weight: 3,
+          caption: `Line — drag to brush ${lineX}; mean ${lineY} per week by category`,
+          render: ({ width, height }) => (
+            <VizLine
+              viewId="line"
+              data={lineData}
+              dateField={lineX}
+              valueField={lineY}
+              width={width}
+              height={height}
+              colorOf={(s) => CATEGORY_COLORS[s ?? ''] ?? 'var(--vzf-brand)'}
+              columns={columns}
+              encoding={encL}
+              onEmit={(e) => void view.emit('line', e, 'time brush')}
+              onReencode={(v, c, f) => void view.reencode(v, c, f)}
+            />
+          ),
+        },
+        {
           id: 'bar',
-          weight: 2,
+          weight: 2.5,
           caption: 'Bar — click a category to select',
           render: ({ width, height }) => (
             <VizBar
@@ -180,6 +237,24 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
               columns={columns}
               onEmit={(e) => void view.emit('bar', e, 'bar click')}
               onReencode={(v, c, f) => void view.reencode(v, c, f)}
+            />
+          ),
+        },
+        {
+          id: 'map',
+          weight: 2.5,
+          caption: 'Map — click a region to select; click again to clear',
+          render: ({ width, height }) => (
+            <VizMap
+              viewId="map"
+              geo={GALLERY_GEO}
+              regionField="region"
+              data={mapData}
+              valueLabel="rows"
+              width={width}
+              height={height}
+              selected={mapSelected && mapSelected.value != null ? String(mapSelected.value) : null}
+              onEmit={(e) => void view.emit('map', e, 'region click')}
             />
           ),
         },

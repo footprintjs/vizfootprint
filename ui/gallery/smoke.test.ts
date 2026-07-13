@@ -12,6 +12,11 @@
  *   - clicking an axis label opens the EncodingPicker (now on VizModal); an
  *     incompatible column is disabled-with-reason; picking a compatible one
  *     lands a REAL reencode commit and the scatter re-renders on the new field;
+ *   - the LINE's time brush lands a REAL date-interval commit (ISO string
+ *     bounds through the fixed src/data string-interval path) and crossfilters
+ *     the other charts; the MAP's region click lands a REAL point commit,
+ *     clicking the selected region again clears it; the line's y axis
+ *     re-encodes through its restricted picker (x = date columns only);
  *   - a report chip opens a LARGE frosted-glass modal hosting the panel, with
  *     scrolling allowed only INSIDE the modal body;
  *   - ⚑ opens the checkpoint naming modal; Enter lands a REAL checkpoint;
@@ -99,9 +104,18 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
   });
 
   it('every layer renders against the scripted session (charts, compact bar, badged chips)', async () => {
-    // fill-height charts
+    // fill-height charts — all FOUR
     expect(await page.locator('svg.vzf-scatter circle.vzf-dot').count()).toBe(60);
     expect(await page.locator('svg.vzf-bar rect.vzf-barrect').count()).toBe(5);
+    expect(await page.locator('svg.vzf-line path.vzf-line-path').count()).toBe(5); // one per category series
+    expect(await page.locator('svg.vzf-line circle.vzf-line-dot').count()).toBeGreaterThan(0);
+    expect(await page.locator('svg.vzf-map path.vzf-region').count()).toBe(5);
+    // the uninhabited region is HONESTLY empty: neutral fill class + no-rows tooltip
+    const isles = page.locator('svg.vzf-map [data-region="Outer Isles"]');
+    expect((await isles.getAttribute('class')) ?? '').toContain('vzf-region-empty');
+    expect((await isles.locator('title').textContent()) ?? '').toContain('no rows');
+    await maybeElementShot(page, '[data-chart="line"]', path.join(SHOTS, 'gallery-line.png'));
+    await maybeElementShot(page, '[data-chart="map"]', path.join(SHOTS, 'gallery-map.png'));
     // the compact time bar rides the top strip
     await page.waitForSelector('[data-vzf="cockpit-top"] [data-vzf="time-travel-bar"][data-mode="explore"]');
     expect(await page.locator('.vzf-timebar.vzf-compact').count()).toBe(1);
@@ -153,6 +167,102 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     const yLabel = await page.locator('svg.vzf-scatter [data-axis-channel="y"] .vzf-axis-label').textContent();
     expect(yLabel ?? '').toContain('price');
     await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-reencoded.png'), fullPage: false });
+  }, 30_000);
+
+  it('the line time brush lands a REAL date-interval commit and crossfilters the other charts', async () => {
+    const readout = async (): Promise<number> =>
+      Number((((await page.locator('.vzf-cockpit-readout').textContent()) ?? '').match(/^(\d+) of 60/) ?? [])[1]);
+    const commitsBefore = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    const rowsBefore = await readout();
+    const scatterDimBefore = await page.locator('svg.vzf-scatter circle.vzf-dim').count();
+
+    // drag across the RIGHT half of the line plot (the late, high-price weeks,
+    // overlapping the scripted price brush so the intersection stays non-empty)
+    const box = (await page.locator('svg.vzf-line').boundingBox())!;
+    const midY = box.y + box.height / 2;
+    await page.mouse.move(box.x + box.width * 0.45, midY);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.95, midY, { steps: 8 });
+    await page.mouse.up();
+
+    // one REAL filter commit on the date field
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      commitsBefore,
+      { timeout: 8000 },
+    );
+    // the interval CROSSFILTERS: fewer rows selected, scatter dims dated-out points
+    const rowsAfter = await readout();
+    expect(rowsAfter).toBeLessThan(rowsBefore);
+    expect(rowsAfter).toBeGreaterThan(0); // ISO string bounds actually MATCH (the src/data fix, end to end)
+    expect(await page.locator('svg.vzf-scatter circle.vzf-dim').count()).toBeGreaterThan(scatterDimBefore);
+  }, 30_000);
+
+  it('a map region click lands a REAL point commit; clicking the selected region again clears it', async () => {
+    const readout = async (): Promise<number> =>
+      Number((((await page.locator('.vzf-cockpit-readout').textContent()) ?? '').match(/^(\d+) of 60/) ?? [])[1]);
+    const commitsBefore = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    const rowsBefore = await readout();
+
+    // select Northlands → a point commit + the selection stroke + a narrower selection
+    await page.locator('svg.vzf-map [data-region="Northlands"]').click();
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      commitsBefore,
+      { timeout: 8000 },
+    );
+    await page.waitForSelector('svg.vzf-map [data-region="Northlands"].vzf-selected');
+    expect(await page.locator('svg.vzf-map [data-region="Northlands"]').getAttribute('aria-pressed')).toBe('true');
+    const rowsSelected = await readout();
+    expect(rowsSelected).toBeLessThan(rowsBefore);
+    // the fully crossfiltered cockpit: time brush + region selection together
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-crossfiltered.png'), fullPage: false });
+
+    // clicking the SELECTED region again clears the point selection (a real commit, not a UI trick)
+    const commitsMid = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    await page.locator('svg.vzf-map [data-region="Northlands"]').click();
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      commitsMid,
+      { timeout: 8000 },
+    );
+    await page.waitForSelector('svg.vzf-map [data-region="Northlands"]:not(.vzf-selected)');
+    expect(await readout()).toBeGreaterThan(rowsSelected); // the region filter released
+
+    // leave Northlands SELECTED for the later story (compare diff shows the map selection)
+    await page.locator('svg.vzf-map [data-region="Northlands"]').click();
+    await page.waitForSelector('svg.vzf-map [data-region="Northlands"].vzf-selected');
+  }, 30_000);
+
+  it("the line's axis pickers are honestly restricted; picking a numeric column re-encodes y", async () => {
+    // x: only date-capable columns — a numeric column is disabled WITH the reason
+    await page.locator('svg.vzf-line [data-axis-channel="x"]').click();
+    await page.waitForSelector('[data-vzf-modal="encoding-picker"] [role="dialog"]');
+    const priceOpt = page.locator('[data-vzf-modal="encoding-picker"] [data-field="price"]');
+    expect(await priceOpt.isDisabled()).toBe(true);
+    expect((await priceOpt.getAttribute('title')) ?? '').toContain('needs a date column');
+    const dateOpt = page.locator('[data-vzf-modal="encoding-picker"] [data-field="date"]');
+    expect(await dateOpt.isDisabled()).toBe(false); // vouched for by the chart itself
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-vzf-modal="encoding-picker"]', { state: 'detached' });
+
+    // y: numeric only — category refuses with its reason; rating re-encodes for real
+    const commitsBefore = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    await page.locator('svg.vzf-line [data-axis-channel="y"]').click();
+    await page.waitForSelector('[data-vzf-modal="encoding-picker"] [role="dialog"]');
+    const catOpt = page.locator('[data-vzf-modal="encoding-picker"] [data-field="category"]');
+    expect(await catOpt.isDisabled()).toBe(true);
+    expect((await catOpt.getAttribute('title')) ?? '').toContain('y needs a numeric column');
+    await page.locator('[data-vzf-modal="encoding-picker"] [data-field="rating"]').click();
+    await page.waitForSelector('[data-vzf-modal="encoding-picker"]', { state: 'detached' });
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      commitsBefore,
+      { timeout: 8000 },
+    );
+    // the line now encodes y=rating — its y-axis label re-rendered from the fold
+    const yLabel = await page.locator('svg.vzf-line [data-axis-channel="y"] .vzf-axis-label').textContent();
+    expect(yLabel ?? '').toContain('rating');
   }, 30_000);
 
   it('a report chip opens a LARGE glass modal hosting the panel; scroll lives INSIDE the body', async () => {
@@ -366,6 +476,9 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.waitForTimeout(150);
     await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-dark.png'), fullPage: false });
+    // the new charts in the dark palette (the map's ramp flips its anchor: high = brightest)
+    await maybeElementShot(page, '[data-chart="line"]', path.join(SHOTS, 'gallery-line-dark.png'));
+    await maybeElementShot(page, '[data-chart="map"]', path.join(SHOTS, 'gallery-map-dark.png'));
     await page.emulateMedia({ colorScheme: 'light' });
   }, 30_000);
 
@@ -387,9 +500,12 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     });
     expect(strip.snapType, 'the charts band is a snap carousel on mobile').toContain('x');
     expect(strip.dotsDisplay, 'dot indicators show on mobile').not.toBe('none');
-    expect(strip.dotCount).toBe(2);
+    expect(strip.dotCount).toBe(4); // scatter · line · bar · map — all four ride the carousel
     expect(Math.abs(strip.cellW - strip.stripW), 'each chart is one full-width page').toBeLessThanOrEqual(2);
-    // tapping the second dot swipes to the bar chart page (one full width + gap) and activates the dot
+    // both NEW charts are carousel cells with live content
+    expect(await page.locator('[data-chart="line"] svg.vzf-line').count()).toBe(1);
+    expect(await page.locator('[data-chart="map"] svg.vzf-map path.vzf-region').count()).toBe(5);
+    // tapping the second dot swipes to the LINE page (one full width + gap) and activates the dot
     await page.locator('[data-vzf="cockpit-dots"] .vzf-cockpit-dot').nth(1).click();
     await page.waitForFunction(
       () => {

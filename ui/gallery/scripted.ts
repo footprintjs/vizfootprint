@@ -38,10 +38,14 @@ export async function buildScriptedSession(): Promise<ScriptedGallery> {
     actors: {
       scatter: { actor: 'user', label: 'Price × rating' },
       bar: { actor: 'user', label: 'Category' },
+      line: { actor: 'user', label: 'Price over time' },
+      map: { actor: 'user', label: 'Rows by region' },
     },
     encodings: [
       { viewId: 'scatter', chartKind: 'point', channels: ['x', 'y', 'color'], initial: { x: 'price', y: 'rating' } },
       { viewId: 'bar', chartKind: 'bar', channels: ['category'], initial: { category: 'category' } },
+      { viewId: 'line', chartKind: 'line', channels: ['x', 'y', 'color'], initial: { x: 'date', y: 'price' } },
+      { viewId: 'map', chartKind: 'map', channels: ['region'], initial: { region: 'region' } },
     ],
     analyses: {
       correlation: correlationAnalysis({ x: 'price', y: 'rating' }),
