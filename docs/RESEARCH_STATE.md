@@ -90,6 +90,38 @@ FOLD (cluster_id on branch A honestly needs-column on sibling B; provider persis
 ledger NEVER rewinds (cursorTests vs global monotone wealth — the two-truths display, verbatim honesty line).
 Dashboard :5181 has the time bar + git-graph branch map + checkpoints; analyst reaches seek/checkpoint via tools.
 NOT mirrored to :5180 (out of packet boundary — candidate follow-up).
+## D26 [SHIPPED BR-1] Named branching: `src/branches` + session paths (packet said "D25" — that id was already
+taken by the P3-L5 entry above; shipped as D26 to keep this record unique)
+Git-style NAMED refs over the append-only log, as a PURE subpath `src/branches` — imports ONLY `src/log` (boundary
+pinned by a structural test in branches.test.ts), usable against a raw CommitRecord[]. Refs `{name → tip}` + HEAD
+live BESIDE the log, never in it (commits stay frozen; R8 untouched; refs are the one thing allowed to move).
+Rules: act-at-tip ADVANCES the ref; act-while-detached (seek/fork travel BY ID → detached, git parity; switchPath
+travels BY NAME → attached) AUTO-CREATES a cause-slugged counter-unique ref — the old anonymous branch-on-act, NOW
+NAMED. Every create/advance/switch/rename lands in a frozen ref-event JOURNAL (lightweight events, never commits;
+logical ts) — even branch bookkeeping is auditable. `deriveBranches(records)` names every lane of a legacy
+anonymous log deterministically (first leaf lane = 'main'; siblings slug from their divergence commit; same input
+→ same names). `commonAncestor` = loop-safe LCA, missing-id honest. `foldDiff(tipA,tipB)` = the structured state
+diff FROM THE LOG ALONE, last-wins per key (selection=(viewId) · encoding=(viewId,channel) · analysis=(id);
+annotations inert; a cleared interval DROPS the key), deterministically ordered, deliberately NO row counts at
+this layer. `planBringOver`/`planUndo` = plan-don't-execute `{recipe, conflicts[]}`: a conflict = the same key
+touched on the target path since the LCA, NAMED by the overriding commit id — the plan stays executable; undo
+restores the key's value at the commit's PARENT (absent → clear recipe; a clear-encoding resolves to the view's
+declared initial at the session); analysis undo is honestly not-undoable (the FDR ledger never refunds),
+annotation inert. NO NEW VERBS: the session executes plans through the ONE dispatch entry; the landed cause
+carries the minimal L0 extension `replayedFrom`/`revertOf` (+`conflicts` when any) — three new allowlisted
+inert-data keys (src/cause), structuredClone + JSON round-trip proven. Session surface (plain names):
+`paths()` / `switchPath` / `renamePath` / `newPathAt` / `compare` (foldDiff enriched with per-side ROW COUNTS via
+the data provider; honest null when the backend can't count) / `bringOver` / `undo`; `overview().paths` =
+{current, detachedAt, list, events}; the synthetic-viewId prefixes are now SINGLE-SOURCED from branches/fold
+(session imports them — the two fold layers cannot drift). Tools: the fixed Mode B set grew 6→8 (`viz.paths`
+list|switch|rename|new — mutations route through the session methods; `viz.compare` read-only structured diff);
+`whats_here` discloses current path + list; mcpServer parity pinned by a real in-memory MCP Client test.
+ROOT-CAUSE FIX shaken out by the acceptance tests: `doReencode` registered the shared `encoding:${viewId}` source
+with actor-DEPENDENT meta → the second actor's reencode (or any cross-actor undo/bring-over) threw
+SourceRegistryError; the source now carries the view's declared meta (stable identity, same as doProbe) — WHO
+acted stays in the cause; regression pinned. Existing tests: only the two fixed-tool-list assertions changed
+(6→8); zero coverage deleted. Gate: 1086 tests at 100/100/100/100; all four typechecks clean.
+
 ## Next
 P3 packets per SPEC §12, order L1→L6; L1-L5 SHIPPED, L6 (why) remaining. Every packet = R#s + pre-written acceptance
 tests + boundary + diff/test-output artifacts; orchestrator re-runs all tests. Fresh-chat rehydration: read THIS file + SPEC.md.
