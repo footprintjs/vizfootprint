@@ -81,6 +81,17 @@ async function openReport(page: Page, id: string): Promise<void> {
   await page.waitForSelector(`[data-vzf-modal="report-${id}"] [role="dialog"]`);
 }
 
+/**
+ * Close a VizModal by its own ✕ button rather than `Escape` — robust when the
+ * action that just ran (e.g. a branch-map context-menu pick) removed the
+ * focused element from the DOM: the browser drops focus to `<body>`, which
+ * sits OUTSIDE the modal, so a keyboard Escape never reaches its handler.
+ */
+async function closeModal(page: Page, modalName: string): Promise<void> {
+  await page.locator(`[data-vzf-modal="${modalName}"] button[aria-label="Close"]`).click();
+  await page.waitForSelector(`[data-vzf-modal="${modalName}"]`, { state: 'detached' });
+}
+
 describe.skipIf(!existsSync(CHROME))('demo-agent smoke (real headless Chromium, mock provider) — the cockpit', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
@@ -661,16 +672,24 @@ describe.skipIf(!existsSync(CHROME))('mobile viewport — scroll-snap chart caro
     await handle?.close();
   });
 
-  it('the EMPTY session (a fresh visitor) keeps the top strip one slim row — the "no commits yet" hint never wraps into a tall column', async () => {
+  it('the EMPTY session (a fresh visitor) keeps the top strip a slim one-or-two-row band — the "no commits yet" hint never wraps into a tall column', async () => {
     // regression: .vzf-tl-empty used to wrap its long hint into a one-word-wide
     // column inside the squeezed compact track, ballooning the (stretch-aligned)
     // top strip to ~250px at 390px width until the first commit landed.
+    //
+    // BR-3: the always-visible BranchPill now rides the pathPill slot beside
+    // the Explore/Present toggle (measured ~71px at "no paths yet"). At the
+    // narrowest (390px) width with zero commits, pill+toggle (~223px) no
+    // longer fit alongside the timeline row and the ⚑ Checkpoint control on
+    // one line, so `.vzf-time-controls` wraps to a SECOND row (measured
+    // ~103px total) — still one clean extra row, not the historical
+    // wrapped-column collapse this test guards against.
     const m = await page.evaluate(() => {
       const top = document.querySelector('[data-vzf="cockpit-top"]')!.getBoundingClientRect();
       const empty = document.querySelector('.vzf-tl-empty')!.getBoundingClientRect();
       return { topH: top.height, emptyH: empty.height };
     });
-    expect(m.topH, 'empty-state top strip stays one slim row (was ~250px before the fix)').toBeLessThan(90);
+    expect(m.topH, 'empty-state top strip stays a slim one-or-two-row band (was ~250px before the original fix)').toBeLessThan(115);
     expect(m.emptyH, 'the hint renders on ONE line (nowrap + ellipsis), never a wrapped column').toBeLessThan(40);
     await expectNoPageOrShellScroll(page);
   }, 30_000);
@@ -724,6 +743,130 @@ describe.skipIf(!existsSync(CHROME))('mobile viewport — scroll-snap chart caro
   }, 30_000);
 
   it('the mobile page ran with zero console errors', () => {
+    expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
+    expect(pageErrors, pageErrors.join('\n')).toEqual([]);
+  });
+});
+
+/**
+ * BR-3 — named branching wired into the live cockpit (real headless Chromium,
+ * mock provider): forking off a past cursor auto-names a path (the ForkToast
+ * announces it, the always-visible pill shows it); the pill opens PathsModal
+ * and a real switch moves the cursor there; the branch-map context menu's
+ * "Bring this step over" lands a `↷`-tagged commit in the log; "Compare with
+ * current" opens a real (settled, non-stuck) structured diff. ZERO page/shell
+ * scroll and ZERO console errors preserved throughout.
+ */
+describe.skipIf(!existsSync(CHROME))('BR-3: named branching — fork toast + pill, PathsModal switch, bring-over provenance tag, compare diff', () => {
+  let handle: Awaited<ReturnType<typeof startServer>>;
+  let browser: Browser;
+  let page: Page;
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+
+  beforeAll(async () => {
+    mkdirSync(SHOTS, { recursive: true });
+    handle = await startServer({ port: 0, mock: true });
+    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    page = await browser.newPage({ viewport: { width: 1320, height: 1150 } });
+    page.on('console', (m) => {
+      if (m.type() === 'error') consoleErrors.push(m.text());
+    });
+    page.on('pageerror', (e) => pageErrors.push(String(e)));
+    await page.goto(handle.url);
+    await page.waitForSelector('svg.vzf-scatter');
+  }, 120_000);
+
+  afterAll(async () => {
+    await browser?.close();
+    await handle?.close();
+  });
+
+  it('two linear brushes name the first path; seeking back then brushing again forks a NEW named path — the toast announces it and the pill shows it', async () => {
+    await brush(page, 0.15, 0.4); // c1 — the first-ever ref creation (never a "fork", per ForkToast's own honesty rule)
+    await page.waitForFunction(() => document.querySelectorAll('[data-vzf="timeline"] [data-commit]').length >= 1);
+    await brush(page, 0.45, 0.7); // c2 — advances the SAME path (linear, no new ref)
+    await page.waitForFunction(() => document.querySelectorAll('[data-vzf="timeline"] [data-commit]').length >= 2);
+    await page.waitForFunction(() => document.querySelector('[data-vzf="branch-pill"]')?.getAttribute('data-state') === 'on-path');
+    expect(await page.locator('[data-vzf="fork-toast"]').count(), 'the first-ever path never toasts').toBe(0);
+
+    // seek BACK to c1 (now behind head) — HEAD detaches, the pill flips to "viewing past"
+    await page.locator('[data-vzf="timeline"] [data-commit]').first().click();
+    await page.waitForSelector('.vzf-past-banner', { timeout: 8000 });
+    await page.waitForFunction(() => document.querySelector('[data-vzf="branch-pill"]')?.getAttribute('data-state') === 'viewing-past');
+
+    // act from the past → a SIBLING commit lands and AUTO-NAMES a brand-new path
+    await brush(page, 0.75, 0.95); // c3, sibling of c2
+    await page.waitForSelector('[data-vzf="fork-toast"]', { timeout: 8000 });
+    const toastText = (await page.locator('[data-vzf="fork-toast"]').textContent()) ?? '';
+    expect(toastText).toContain('Forked a new path');
+
+    // the pill is back to "on-path" — showing the NEW forked path (HEAD re-attached to it)
+    await page.waitForFunction(() => document.querySelector('[data-vzf="branch-pill"]')?.getAttribute('data-state') === 'on-path');
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'fork-toast-and-pill.png'), fullPage: false });
+    await expectNoPageOrShellScroll(page);
+  }, 60_000);
+
+  it('the pill opens PathsModal listing both paths; switching to the ORIGINAL (non-active) one really moves the pill + cursor there', async () => {
+    await page.locator('[data-vzf="branch-pill"]').click();
+    await page.waitForSelector('[data-vzf-modal="paths"] [role="dialog"]');
+    expect(await page.locator('[data-vzf="paths-list"] [data-path]').count()).toBe(2);
+
+    const otherRow = page.locator('[data-vzf="paths-list"] .vzf-path-row:not(.vzf-active)').first();
+    const otherName = await otherRow.getAttribute('data-path');
+    expect(otherName).toBeTruthy();
+    await otherRow.locator('[data-vzf="path-switch"]').click();
+    await page.waitForSelector('[data-vzf-modal="paths"]', { state: 'detached' });
+
+    // the pill now reads the path we switched to
+    await page.waitForFunction((name) => document.querySelector('[data-vzf="branch-pill"] .vzf-branch-pill-name')?.textContent === name, otherName);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'paths-modal.png'), fullPage: false });
+  }, 30_000);
+
+  it('branch-map context menu: "Bring this step over" lands a ↷-tagged commit in the commit log', async () => {
+    await openReport(page, 'branches');
+    // we are now on the ORIGINAL path (tip c2, 2 steps); bring over the tip of
+    // the OTHER (forked) lineage — the third node drawn (c3), never the cursor
+    const node = page.locator('[data-vzf="branch-map"] [data-commit]').nth(2);
+    const nodeId = await node.getAttribute('data-commit');
+    await node.click();
+    await page.waitForSelector('[data-vzf="ctx-menu"]');
+    await page.locator('[data-ctx="bring-over"]').click();
+    // the clicked ctx-menu item unmounts on pick, taking focus with it (down to
+    // <body>) — close via the ✕ button, not Escape (see closeModal's docstring).
+    await page.waitForSelector('[data-vzf="ctx-menu"]', { state: 'detached' });
+    await closeModal(page, 'report-branches');
+
+    await openReport(page, 'commits');
+    const lastChip = page.locator('[data-vzf-modal="report-commits"] .vzf-chip').last();
+    expect((await lastChip.textContent()) ?? '').toContain(`↷ brought over from #${nodeId}`);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'bring-over-provenance.png'), fullPage: false });
+    await closeModal(page, 'report-commits');
+  }, 30_000);
+
+  it('branch-map context menu: "Compare with current" opens a real, SETTLED diff — never stuck on "comparing…"', async () => {
+    await openReport(page, 'branches');
+    const node = page.locator('[data-vzf="branch-map"] [data-commit]').first(); // c1 — always comparable, no disabled reason
+    await node.click();
+    await page.waitForSelector('[data-vzf="ctx-menu"]');
+    await page.locator('[data-ctx="compare"]').click();
+    await page.waitForSelector('[data-vzf-modal="compare"] [role="dialog"]');
+
+    // a real settled result renders EITHER the ancestor line (a real diff / the
+    // honest "identical" note) or a rejected-compare gap row — never leaves the
+    // modal frozen on "comparing…". Waiting on this selector directly (rather
+    // than polling textContent via waitForFunction, whose default rAF-based
+    // polling proved unreliable for a text-ABSENCE check in this headless
+    // shell) is the robust check.
+    await page.waitForSelector('[data-vzf="compare-ancestor"], .vzf-gap-row', { timeout: 10_000 });
+    expect(await page.locator('[data-vzf="compare-ancestor"]').count()).toBeGreaterThan(0);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'compare-modal.png'), fullPage: false });
+    await closeModal(page, 'compare');
+    // the branch-map's own report modal is still open underneath — close it too
+    await closeModal(page, 'report-branches');
+  }, 30_000);
+
+  it('ran with zero console errors', () => {
     expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
     expect(pageErrors, pageErrors.join('\n')).toEqual([]);
   });

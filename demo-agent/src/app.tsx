@@ -30,6 +30,10 @@ import {
   FdrLedger,
   GapsPanel,
   ReadinessPanel,
+  BranchPill,
+  PathsModal,
+  CompareModal,
+  ForkToast,
   createSessionView,
   pollingSource,
   useSessionView,
@@ -120,6 +124,7 @@ const SUGGESTIONS = [
   'Filter the scatter to dresses over $150, then give me the group-by of price per category.',
   'Cluster the dresses by price, then tell me why the cluster_id column has the values it does.',
   'Change the x axis of the scatter to rating.',
+  'Compare my two paths — what\'s different?',
 ];
 
 // ── crossfilter self-exclusion (real src/data predicate matcher — never a
@@ -154,6 +159,17 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
   const state: SessionViewState = useSessionView(view);
   const [mode, setMode] = useState<TimeMode>('explore');
   const readOnly = mode === 'present';
+
+  // BR-3: named paths — the pill opens PathsModal; the branch-map's "Compare
+  // with current" context-menu item seeds CompareModal's A side with that
+  // commit (B defaults to the current path — CompareModal's own seeding logic).
+  const [pathsOpen, setPathsOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [compareRefs, setCompareRefs] = useState<{ a?: string; b?: string }>({});
+  const openCompareWith = (commitId: string): void => {
+    setCompareRefs({ a: commitId, b: undefined });
+    setCompareOpen(true);
+  };
 
   // step-nav keyboard mirror (ArrowLeft/ArrowRight), but never while an
   // <input>/<textarea> has focus (the checkpoint modal's field, the chat composer).
@@ -225,6 +241,7 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
           compact
           mode={mode}
           onModeChange={setMode}
+          pathPill={<BranchPill paths={state.paths} onClick={() => setPathsOpen(true)} />}
           commits={state.commits}
           cursor={state.cursor}
           head={state.head}
@@ -237,6 +254,42 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
           onCheckpoint={(label) => void view.checkpoint(label)}
           onReturnToNow={() => void view.returnToNow()}
         />
+      }
+      toast={
+        <>
+          <ForkToast events={state.paths.events} onOpenPaths={() => setPathsOpen(true)} />
+          {/*
+            BR-3 bugfix: PathsModal/CompareModal must render INSIDE this
+            `toast` slot, not as siblings of <VizCockpit>. Every rule in
+            vizfootprint-ui's stylesheet is scoped `:where(.vzf) …`, and
+            `.vzf` only lives on VizCockpit's OWN root div — a modal
+            rendered as a sibling gets NONE of that CSS (not even
+            `z-index: 50`), so it silently lands BEHIND an open report
+            modal and becomes unclickable (real headless-Chromium repro:
+            a click at the Compare modal's own ✕ button hit-tested to the
+            report-branches backdrop instead). Slotting them here puts
+            them in the SAME `.vzf` subtree as every report modal, in the
+            correct stacking order (rendered after — on top).
+          */}
+          <PathsModal
+            open={pathsOpen}
+            onClose={() => setPathsOpen(false)}
+            paths={state.paths}
+            cursor={state.cursor}
+            readOnly={readOnly}
+            onSwitch={(name) => void view.switchPath(name)}
+            onRename={(from, to) => void view.renamePath(from, to)}
+            onNewPath={(id) => void view.newPathAt(id)}
+          />
+          <CompareModal
+            open={compareOpen}
+            onClose={() => setCompareOpen(false)}
+            paths={state.paths}
+            initialA={compareRefs.a}
+            initialB={compareRefs.b}
+            onCompare={view.compare}
+          />
+        </>
       }
       charts={[
         {
@@ -300,7 +353,18 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
           icon: '🌿',
           badge: state.branches.length,
           content: (
-            <BranchMap commits={state.commits} cursor={state.cursor} head={state.head} checkpoints={state.checkpoints} onSeek={(id) => void view.seek(id)} />
+            <BranchMap
+              commits={state.commits}
+              cursor={state.cursor}
+              head={state.head}
+              checkpoints={state.checkpoints}
+              paths={state.paths.list}
+              onSeek={(id) => void view.seek(id)}
+              onNewPath={(id) => void view.newPathAt(id)}
+              onBringOver={(id) => void view.bringOver(id)}
+              onUndo={(id) => void view.undo(id)}
+              onCompare={openCompareWith}
+            />
           ),
         },
         {

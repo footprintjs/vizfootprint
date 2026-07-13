@@ -39,6 +39,7 @@ import {
   STATE_VIEWING_PAST,
   STATE_NONNUMERIC_XY,
   STATE_EDGE_SELECTION,
+  STATE_WITH_PATHS,
 } from './app.coverage.helpers.js';
 
 let api: FakeApi;
@@ -192,11 +193,11 @@ describe('boot — rich fixture (STATE_A): renders every "has value" branch', ()
     expect(document.querySelector('[data-vzf="fdr-ledger"]')).toBeTruthy();
   });
 
-  it('the chat popup starts closed with the fab visible, the sys greeting, and 4 suggestion chips', () => {
+  it('the chat popup starts closed with the fab visible, the sys greeting, and 5 suggestion chips', () => {
     expect((document.getElementById('chatpanel') as HTMLElement).hidden).toBe(true);
     expect((document.getElementById('fab') as HTMLElement).hidden).toBe(false);
     expect(screen.getByText(/Brush the scatter or click a bar/)).toBeTruthy();
-    expect(document.querySelectorAll('.suggest button')).toHaveLength(4);
+    expect(document.querySelectorAll('.suggest button')).toHaveLength(5);
   });
 
   it('window.__vizAgent exposes the live view + a working refresh()', async () => {
@@ -377,7 +378,12 @@ describe('dashboard interactions — time travel', () => {
   it('seeking from the branch map, the commit log, and the timeline all fire view.seek()', async () => {
     await boot(STATE_A);
     await openReport('branches'); // both live inside their report-chip modals now
+    // BR-3: the branch map now wires onNewPath/onBringOver/onUndo/onCompare, so
+    // a node click opens the context menu instead of seeking directly — go
+    // through its "Jump here" item (see the dedicated BR-3 describe block below
+    // for the other menu items).
     await click(document.querySelector('[data-vzf="branch-map"] [data-commit="c1"]'));
+    await click(document.querySelector('[data-ctx="jump"]'));
     expect(api.callsTo('/api/seek').at(-1)?.body).toMatchObject({ commitId: 'c1' });
 
     await openReport('commits'); // switches the SAME modal's content — no close needed first
@@ -432,6 +438,97 @@ describe('dashboard interactions — readiness', () => {
     await click(screen.getByRole('button', { name: 'run' }));
     const post = api.callsTo('/api/dispatch').at(-1);
     expect(post?.body).toMatchObject({ verb: 'analyze', analysisId: 'correlation', intent: 'analyze correlation' });
+  });
+});
+
+describe('BR-3 — named paths: BranchPill/PathsModal/ForkToast/CompareModal, and the branch-map context menu', () => {
+  it('the branch pill opens PathsModal; closing it (Escape) closes it again', async () => {
+    await boot(STATE_WITH_PATHS);
+    expect(screen.queryByRole('dialog', { name: /Paths/ })).toBeNull();
+    await click(document.querySelector('[data-vzf="branch-pill"]'));
+    expect(document.querySelector('[data-vzf-modal="paths"] [role="dialog"]')).toBeTruthy();
+    await act(async () => {
+      fireEvent.keyDown(document.querySelector('[data-vzf-modal="paths"] [role="dialog"]')!, { key: 'Escape' });
+      await flush();
+    });
+    expect(document.querySelector('[data-vzf-modal="paths"]')).toBeNull();
+  });
+
+  it('PathsModal: switching to the non-active path posts the switch action', async () => {
+    await boot(STATE_WITH_PATHS);
+    await click(document.querySelector('[data-vzf="branch-pill"]'));
+    await click(document.querySelector('[data-path="side-quest"] [data-vzf="path-switch"]'));
+    expect(api.callsTo('/api/paths').at(-1)?.body).toMatchObject({ action: 'switch', name: 'side-quest' });
+  });
+
+  it('PathsModal: renaming a path posts the rename action with from/to', async () => {
+    await boot(STATE_WITH_PATHS);
+    await click(document.querySelector('[data-vzf="branch-pill"]'));
+    await click(document.querySelector('[data-path="side-quest"] [data-vzf="path-rename"]'));
+    const input = document.querySelector('.vzf-path-rename-input') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'renamed-quest' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      await flush();
+    });
+    expect(api.callsTo('/api/paths').at(-1)?.body).toMatchObject({ action: 'rename', from: 'side-quest', to: 'renamed-quest' });
+  });
+
+  it('PathsModal: "New path from here" posts the new action at the cursor', async () => {
+    await boot(STATE_WITH_PATHS); // cursor === 'c2'
+    await click(document.querySelector('[data-vzf="branch-pill"]'));
+    await click(document.querySelector('[data-vzf="path-new"]'));
+    expect(api.callsTo('/api/paths').at(-1)?.body).toMatchObject({ action: 'new', commitId: 'c2' });
+  });
+
+  it('branch-map context menu: new path / bring over / undo / compare all fire through the adapter', async () => {
+    await boot(STATE_WITH_PATHS);
+    await openReport('branches');
+
+    await click(document.querySelector('[data-vzf="branch-map"] [data-commit="c1"]'));
+    await click(document.querySelector('[data-ctx="new-path"]'));
+    expect(api.callsTo('/api/paths').at(-1)?.body).toMatchObject({ action: 'new', commitId: 'c1' });
+
+    await click(document.querySelector('[data-vzf="branch-map"] [data-commit="c1"]'));
+    await click(document.querySelector('[data-ctx="bring-over"]'));
+    expect(api.callsTo('/api/bring-over').at(-1)?.body).toMatchObject({ commitId: 'c1' });
+
+    await click(document.querySelector('[data-vzf="branch-map"] [data-commit="c1"]'));
+    await click(document.querySelector('[data-ctx="undo"]'));
+    expect(api.callsTo('/api/undo').at(-1)?.body).toMatchObject({ commitId: 'c1' });
+
+    await click(document.querySelector('[data-vzf="branch-map"] [data-commit="c1"]'));
+    await click(document.querySelector('[data-ctx="compare"]'));
+    // CompareModal opened, seeded with A = the clicked commit; its own effect
+    // fires the (read-only) compare through the SAME adapter action app.tsx wires.
+    expect(document.querySelector('[data-vzf-modal="compare"] [role="dialog"]')).toBeTruthy();
+    expect((document.querySelector('[data-vzf="compare-a"]') as HTMLSelectElement).value).toBe('c1');
+    expect(api.callsTo('/api/compare').at(-1)?.body).toEqual({ a: 'c1', b: 'main' });
+
+    // …and its ✕ really closes it (the app's onClose wiring for CompareModal)
+    await click(document.querySelector('[data-vzf-modal="compare"] button[aria-label="Close"]'));
+    expect(document.querySelector('[data-vzf-modal="compare"]')).toBeNull();
+  });
+
+  it('ForkToast: an auto-fork journal entry that arrives AFTER mount toasts; "See paths" opens PathsModal', async () => {
+    await boot(STATE_WITH_PATHS); // one create event already at mount — never toasts on its own
+    expect(document.querySelector('[data-vzf="fork-toast"]')).toBeNull();
+
+    api.state = {
+      ...STATE_WITH_PATHS,
+      paths: {
+        ...STATE_WITH_PATHS.paths,
+        events: [...STATE_WITH_PATHS.paths.events, { type: 'create', name: 'forked-branch', at: 'c1', auto: true, ts: 3000 }],
+      },
+    };
+    await advance(900); // the dashboard's own poll interval picks up the new journal entry
+
+    const toast = document.querySelector('[data-vzf="fork-toast"]');
+    expect(toast).toBeTruthy();
+    expect(toast!.textContent).toContain('forked-branch');
+
+    await click(document.querySelector('[data-vzf="fork-toast-paths"]'));
+    expect(document.querySelector('[data-vzf-modal="paths"] [role="dialog"]')).toBeTruthy();
   });
 });
 

@@ -139,6 +139,26 @@ export const STATE_EDGE_SELECTION = {
   viewingPast: false,
 };
 
+/**
+ * BR-3: STATE_A plus a populated named-paths surface — two paths ('main'
+ * active, 'side-quest' not), and exactly ONE ref-create journal entry (the
+ * first-ever create, which ForkToast never treats as a fork). A test that
+ * wants to prove the toast fires appends a SECOND auto-create event to this
+ * same base (see the ForkToast describe block).
+ */
+export const STATE_WITH_PATHS = {
+  ...STATE_A,
+  paths: {
+    current: 'main',
+    detachedAt: null,
+    list: [
+      { name: 'main', tip: 'c2', steps: 2, lastTs: 2000, active: true },
+      { name: 'side-quest', tip: 'c1', steps: 1, lastTs: 1500, active: false },
+    ],
+    events: [{ type: 'create', name: 'main', at: 'c1', auto: true, ts: 1000 }],
+  },
+};
+
 export interface Call {
   readonly url: string;
   readonly method: string;
@@ -193,6 +213,17 @@ export class FakeApi {
       // rewriting a snapshot a prior fetch already handed out.
       const snapshot = JSON.parse(JSON.stringify(this.state)) as unknown;
       return { ok: true, json: async () => snapshot } as unknown as Response;
+    }
+    if (url === '/api/compare' && method === 'POST') {
+      // A well-formed CompareResult (src/session shape) — the app's own
+      // `onCompare` wiring just needs a real response to pass through
+      // `mapCompareResult` without crashing; the diff's CONTENT is
+      // vizfootprint-ui's own concern (CompareModal is tested there).
+      const { a, b } = body as { a: string; b: string };
+      return {
+        ok: true,
+        json: async () => ({ ok: true, a: { ref: a, tip: a, rows: 3 }, b: { ref: b, tip: b, rows: 4 }, ancestor: 'c1', changed: [], onlyA: [], onlyB: [] }),
+      } as unknown as Response;
     }
     if (url === '/api/chat' && method === 'POST') {
       const next = this.chatQueue.shift();
