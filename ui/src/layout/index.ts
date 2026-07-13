@@ -1,3 +1,5 @@
+export { VizModal } from './VizModal.js';
+export type { VizModalProps } from './VizModal.js';
 export { VizDashboard } from './VizDashboard.js';
 export type { VizDashboardProps } from './VizDashboard.js';
 export { VizPanel, VizCard } from './VizPanel.js';

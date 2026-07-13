@@ -4,12 +4,15 @@
  * the channel is disabled and shows WHY (honest affordance, not a silent drop).
  * Picking a column fires `onReencode(viewId, channel, field)` — the UI-0 verb.
  *
- * Accessibility: `role="dialog" aria-modal`, focus is trapped and restored, Esc
- * and a backdrop click close it, and every data value (column name/type) is a
- * React text node (textContent) — never innerHTML.
+ * It rides {@link VizModal} (the library's one modal system): frosted-glass
+ * backdrop, `role="dialog" aria-modal`, focus trapped and restored, Esc and a
+ * backdrop click close it. Initial focus lands on the first actionable COLUMN
+ * so keyboard users start on the choices, not the close button. Every data
+ * value (column name/type) is a React text node (textContent) — never innerHTML.
  */
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import type { ColumnView } from '../adapter/types.js';
+import { VizModal } from '../layout/VizModal.js';
 import { defaultCompat, type Compatibility } from './compat.js';
 
 export interface EncodingPickerProps {
@@ -27,118 +30,58 @@ export interface EncodingPickerProps {
   readonly title?: string;
 }
 
-const FOCUSABLE = 'button:not([disabled]), [href], input, [tabindex]:not([tabindex="-1"])';
-
 export function EncodingPicker(props: EncodingPickerProps): JSX.Element | null {
   const { open, viewId, channel, columns, currentField, onReencode, onClose } = props;
   const compat = props.compatible ?? defaultCompat;
-  const modalRef = useRef<HTMLDivElement | null>(null);
-  const restoreRef = useRef<Element | null>(null);
   const titleId = useMemo(() => `vzf-enc-${viewId}-${channel}`, [viewId, channel]);
 
-  // focus management: remember the opener, focus the first option, restore on close
-  useEffect(() => {
-    if (!open) return;
-    restoreRef.current = document.activeElement;
-    // land on the first actionable COLUMN so keyboard users start on the choices,
-    // not the close button; fall back to any focusable if there are none
-    const target =
-      modalRef.current?.querySelector<HTMLElement>('.vzf-col-option:not([disabled])') ??
-      modalRef.current?.querySelector<HTMLElement>(FOCUSABLE);
-    target?.focus();
-    return () => {
-      if (restoreRef.current instanceof HTMLElement) restoreRef.current.focus();
-    };
-  }, [open]);
-
-  const onKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const nodes = Array.from(modalRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
-      if (nodes.length === 0) return;
-      const first = nodes[0]!;
-      const last = nodes[nodes.length - 1]!;
-      const active = document.activeElement;
-      if (e.shiftKey && active === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    },
-    [onClose],
-  );
-
-  if (!open) return null;
-
   return (
-    <div
-      className="vzf-modal-backdrop"
-      data-vzf-modal="encoding-picker"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <VizModal
+      open={open}
+      onClose={onClose}
+      size="small"
+      name="encoding-picker"
+      titleId={titleId}
+      initialFocus=".vzf-col-option:not([disabled])"
+      title={props.title ?? `Encode the ${channel} channel`}
     >
-      <div
-        className="vzf-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        ref={modalRef}
-        onKeyDown={onKeyDown}
-      >
-        <div className="vzf-modal-head">
-          <span className="vzf-modal-title" id={titleId}>
-            {props.title ?? `Encode the ${channel} channel`}
-          </span>
-          <button type="button" className="vzf-btn vzf-btn-ghost" aria-label="Close" onClick={onClose}>
-            ✕
-          </button>
-        </div>
-        <div className="vzf-modal-body" role="listbox" aria-label={`columns for ${channel}`}>
-          {columns.length === 0 ? (
-            <div className="vzf-empty">no columns available yet</div>
-          ) : (
-            columns.map((col) => {
-              const c = compat(channel, col);
-              const isCurrent = col.field === currentField;
-              return (
-                <button
-                  type="button"
-                  key={col.field}
-                  className={`vzf-col-option${isCurrent ? ' vzf-current' : ''}`}
-                  disabled={!c.ok}
-                  aria-current={isCurrent ? 'true' : undefined}
-                  title={c.ok ? undefined : c.reason}
-                  data-field={col.field}
-                  onClick={() => {
-                    /* v8 ignore next -- defense-in-depth: this button's own `disabled={!c.ok}` prop
-                       means React's event system (shouldPreventMouseEvent) never dispatches a click
-                       to this handler while c.ok is false, so the guard can't observe a true value
-                       via any real click; unreachable via the public API */
-                    if (!c.ok) return;
-                    onReencode(viewId, channel, col.field);
-                    onClose();
-                  }}
-                >
-                  <span className="vzf-col-name">{col.field}</span>
-                  {c.ok ? (
-                    <span className="vzf-col-type">{col.type}</span>
-                  ) : (
-                    <span className="vzf-col-reason">{c.reason}</span>
-                  )}
-                </button>
-              );
-            })
-          )}
-        </div>
+      <div role="listbox" aria-label={`columns for ${channel}`}>
+        {columns.length === 0 ? (
+          <div className="vzf-empty">no columns available yet</div>
+        ) : (
+          columns.map((col) => {
+            const c = compat(channel, col);
+            const isCurrent = col.field === currentField;
+            return (
+              <button
+                type="button"
+                key={col.field}
+                className={`vzf-col-option${isCurrent ? ' vzf-current' : ''}`}
+                disabled={!c.ok}
+                aria-current={isCurrent ? 'true' : undefined}
+                title={c.ok ? undefined : c.reason}
+                data-field={col.field}
+                onClick={() => {
+                  /* v8 ignore next -- defense-in-depth: this button's own `disabled={!c.ok}` prop
+                     means React's event system (shouldPreventMouseEvent) never dispatches a click
+                     to this handler while c.ok is false, so the guard can't observe a true value
+                     via any real click; unreachable via the public API */
+                  if (!c.ok) return;
+                  onReencode(viewId, channel, col.field);
+                  onClose();
+                }}
+              >
+                <span className="vzf-col-name">{col.field}</span>
+                {c.ok ? (
+                  <span className="vzf-col-type">{col.type}</span>
+                ) : (
+                  <span className="vzf-col-reason">{c.reason}</span>
+                )}
+              </button>
+            );
+          })
+        )}
       </div>
-    </div>
+    </VizModal>
   );
 }

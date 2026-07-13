@@ -92,6 +92,11 @@
   --vzf-shadow-lg: 0 18px 46px rgba(16, 24, 38, 0.18), 0 4px 12px rgba(16, 24, 38, 0.1);
   --vzf-focus: 0 0 0 3px rgba(124, 92, 255, 0.4);
 
+  /* ── frosted glass (VizModal scrim + surface) ───────────────── */
+  --vzf-scrim: rgba(23, 32, 48, 0.38);
+  --vzf-glass: rgba(255, 255, 255, 0.78);
+  --vzf-glass-line: rgba(255, 255, 255, 0.55);
+
   /* base surface + ink applied to the root itself */
   color: var(--vzf-ink);
   background: var(--vzf-paper);
@@ -124,6 +129,10 @@
     --vzf-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --vzf-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);
     --vzf-shadow-lg: 0 18px 46px rgba(0, 0, 0, 0.6);
+    /* blur over dark loses contrast — RAISE the scrim opacity to keep it */
+    --vzf-scrim: rgba(2, 5, 10, 0.62);
+    --vzf-glass: rgba(19, 25, 36, 0.84);
+    --vzf-glass-line: rgba(125, 145, 175, 0.28);
   }
 }
 
@@ -150,6 +159,10 @@
   --vzf-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --vzf-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);
   --vzf-shadow-lg: 0 18px 46px rgba(0, 0, 0, 0.6);
+  /* blur over dark loses contrast — RAISE the scrim opacity to keep it */
+  --vzf-scrim: rgba(2, 5, 10, 0.62);
+  --vzf-glass: rgba(19, 25, 36, 0.84);
+  --vzf-glass-line: rgba(125, 145, 175, 0.28);
 }
 
 :where(.vzf, .vzf *) {
@@ -495,20 +508,36 @@
   opacity: 1;
 }
 
-/* ── encoding picker (modal) ────────────────────────────────── */
+/* ── VizModal — the ONE modal system (frosted glass) ────────── */
+@keyframes vzf-modal-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes vzf-modal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}
 :where(.vzf) .vzf-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(16, 24, 38, 0.42);
+  background: var(--vzf-scrim);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  backdrop-filter: blur(14px) saturate(1.15);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--vzf-space-4);
   z-index: 50;
+  animation: vzf-modal-fade 0.16s ease;
 }
 :where(.vzf) .vzf-modal {
-  background: var(--vzf-surface);
-  border: 1px solid var(--vzf-line);
+  background: var(--vzf-glass);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  border: 1px solid var(--vzf-glass-line);
   border-radius: var(--vzf-r-lg);
   box-shadow: var(--vzf-shadow-lg);
   width: min(420px, 100%);
@@ -516,6 +545,21 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  animation: vzf-modal-rise 0.18s ease;
+}
+/* 'large' = a report surface — internal scroll lives in the body, never the page */
+:where(.vzf) .vzf-modal-large .vzf-modal {
+  width: min(92vw, 1100px);
+  height: 82vh;
+  height: 82dvh;
+  max-height: 82vh;
+  max-height: 82dvh;
+}
+@media (prefers-reduced-motion: reduce) {
+  :where(.vzf) .vzf-modal-backdrop,
+  :where(.vzf) .vzf-modal {
+    animation: none;
+  }
 }
 :where(.vzf) .vzf-modal-head {
   padding: var(--vzf-space-4);
@@ -533,6 +577,18 @@
 :where(.vzf) .vzf-modal-body {
   padding: var(--vzf-space-2);
   overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+:where(.vzf) .vzf-modal-large .vzf-modal-body {
+  padding: var(--vzf-space-4);
+}
+:where(.vzf) .vzf-modal-foot {
+  padding: var(--vzf-space-3) var(--vzf-space-4);
+  border-top: 1px solid var(--vzf-line-soft);
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--vzf-space-2);
 }
 :where(.vzf) .vzf-col-option {
   display: flex;
