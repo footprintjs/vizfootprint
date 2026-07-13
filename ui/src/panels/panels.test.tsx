@@ -45,6 +45,17 @@ describe('formatCommitValue', () => {
     expect(formatCommitValue({ kind: 'point', value: 'Formal' })).toBe('Formal');
     expect(formatCommitValue({ kind: 'point', value: 3.14159 })).toBe('3.14');
   });
+
+  it('FILTER-1: renders a half-open numeric interval as "at least"/"up to", never a fabricated opposite bound', () => {
+    expect(formatCommitValue({ kind: 'interval', value: [150, null] })).toBe('at least 150');
+    expect(formatCommitValue({ kind: 'interval', value: [null, 150] })).toBe('up to 150');
+  });
+
+  it('FILTER-1: renders an ISO-8601 date interval verbatim (no numeric rounding on a string bound)', () => {
+    expect(formatCommitValue({ kind: 'interval', value: ['2026-05-01', '2026-05-31'] })).toBe('2026-05-01 – 2026-05-31');
+    expect(formatCommitValue({ kind: 'interval', value: [null, '2026-05-31'] })).toBe('up to 2026-05-31');
+    expect(formatCommitValue({ kind: 'interval', value: ['2026-05-01', null] })).toBe('at least 2026-05-01');
+  });
 });
 
 describe('CommitLog', () => {

@@ -42,7 +42,28 @@ describe('entryLabel / entryDetail — plain language for each fold-entry kind',
     // word(): null/undefined → '—'; an object value never dumps
     expect(entryDetail({ kind: 'selection', clause: { kind: 'point', field: 'f', value: undefined } })).toBe('f is —');
     expect(entryDetail({ kind: 'selection', clause: { kind: 'point', field: 'f', value: { deep: true } } })).toBe('f is a value');
-    expect(entryDetail({ kind: 'selection', clause: { kind: 'interval', field: 'f', value: [null, 9] } })).toBe('f between — and 9');
+    expect(entryDetail({ kind: 'selection', clause: { kind: 'interval', field: 'f', value: [null, 9] } })).toBe('f up to 9');
+  });
+});
+
+describe('entryDetail — FILTER-1: half-open interval bounds read as "at least"/"up to"', () => {
+  it('a lower-bound-only interval ([lo, null]) reads "at least lo"', () => {
+    expect(entryDetail({ kind: 'selection', clause: { kind: 'interval', field: 'price', value: [150, null] } })).toBe('price at least 150');
+  });
+
+  it('an upper-bound-only interval ([null, hi]) reads "up to hi"', () => {
+    expect(entryDetail({ kind: 'selection', clause: { kind: 'interval', field: 'price', value: [null, 150] } })).toBe('price up to 150');
+  });
+
+  it('a half-open DATE interval reads in the same words, with the date string verbatim', () => {
+    expect(entryDetail({ kind: 'selection', clause: { kind: 'interval', field: 'date', value: [null, '2026-05-31'] } })).toBe('date up to 2026-05-31');
+    expect(entryDetail({ kind: 'selection', clause: { kind: 'interval', field: 'date', value: ['2026-05-01', null] } })).toBe('date at least 2026-05-01');
+  });
+
+  it('a full [lo, hi] interval still reads "between lo and hi" (unchanged)', () => {
+    expect(entryDetail({ kind: 'selection', clause: { kind: 'interval', field: 'date', value: ['2026-05-01', '2026-05-31'] } })).toBe(
+      'date between 2026-05-01 and 2026-05-31',
+    );
   });
 });
 

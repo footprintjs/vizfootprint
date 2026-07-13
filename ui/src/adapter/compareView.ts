@@ -7,6 +7,8 @@
  * each entry into words a non-developer can read:
  *
  *   selection  → "price between 30 and 210" / "category is Formal"
+ *              → "price at least 150" / "date up to 2026-05-31" (FILTER-1:
+ *                a half-open interval bound)
  *   encoding   → "x axis shows price"
  *   analysis   → "test ran (p = 0.004)" / "ran"
  */
@@ -57,7 +59,15 @@ export function entryDetail(e: RawFoldEntry): string {
     if (c.kind === 'point') return `${c.field} is ${word(c.value)}`;
     if (c.value === null) return `${c.field} filter cleared`;
     const range = c.value as readonly [unknown, unknown];
-    return `${c.field} between ${word(range[0])} and ${word(range[1])}`;
+    const [lo, hi] = range;
+    // FILTER-1: a half-open bound (lo or hi absent) reads as "at least"/"up
+    // to", never the generic "between — and X" — both wire-absence spellings
+    // (a real bound is `null`; `undefined` guards a stray poll shape).
+    const loOpen = lo === null || lo === undefined;
+    const hiOpen = hi === null || hi === undefined;
+    if (loOpen && !hiOpen) return `${c.field} up to ${word(hi)}`;
+    if (hiOpen && !loOpen) return `${c.field} at least ${word(lo)}`;
+    return `${c.field} between ${word(lo)} and ${word(hi)}`;
   }
   if (e.kind === 'encoding') return `${e.channel ?? '?'} axis shows ${word(e.value)}`;
   // analysis: a declared-test entry lands under the pValue analog — surface p when
