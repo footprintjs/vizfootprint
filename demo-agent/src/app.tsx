@@ -24,6 +24,10 @@ import {
   VizCockpit,
   VizScatter,
   VizBar,
+  VizLine,
+  VizMap,
+  VizTable,
+  type TableRow,
   TimeTravelBar,
   BranchMap,
   CommitLog,
@@ -41,9 +45,11 @@ import {
   type SessionViewState,
   type TimeMode,
 } from 'vizfootprint-ui';
-import { CATEGORIES, categoryColor, loadRows, el, replaceChildren, type DemoRow } from '../../demo/src/common.js';
+import { CATEGORIES, categoryColor, el, replaceChildren } from '../../demo/src/common.js';
+import { loadRows, type DemoRow } from './rows.js';
+import { DEMO_GEO, REGIONS } from './geo.js';
 import { matchesClause } from '../../src/data/predicate.js';
-import type { PredicateClause } from '../../src/data/types.js';
+import type { PredicateClause, Row } from '../../src/data/types.js';
 
 // ── the chat/activity slice of /api/state — NOT part of vizfootprint-ui's
 // adapter contract (agent tool-call activity is this demo's own chrome, not a
@@ -125,6 +131,8 @@ const SUGGESTIONS = [
   'Cluster the dresses by price, then tell me why the cluster_id column has the values it does.',
   'Change the x axis of the scatter to rating.',
   'Compare my two paths — what\'s different?',
+  'Filter to May and tell me what changed.',
+  'Select the Midlands region on the map and tell me what changed.',
 ];
 
 // ── crossfilter self-exclusion (real src/data predicate matcher — never a
@@ -227,6 +235,39 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
   }));
   const barSelected = state.selections.find((s) => s.viewId === 'bar' && s.kind === 'point');
 
+  // the line's fields ride ITS OWN encoding fold; its data recomputes under
+  // the OTHER views' selections (crossfilter self-exclusion, the bar pattern)
+  const encLine = state.encodings['line'] ?? {};
+  const lineX = encLine['x'] ?? 'date';
+  const lineY = encLine['y'] ?? 'price';
+  const lineClauses = notOwn('line');
+  const lineData = useMemo(
+    () =>
+      rows
+        .filter((r) => lineClauses.every((cl) => matchesClause(r, cl)))
+        .map((r) => ({
+          date: String(r[lineX]),
+          value: typeof r[lineY] === 'number' ? (r[lineY] as number) : 0,
+          series: r.category,
+        })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- lineClauses is derived fresh from state.selections each render
+    [rows, lineX, lineY, state.selections],
+  );
+
+  // the map's value per region = the crossfiltered row COUNT (the canonical wiring)
+  const mapClauses = notOwn('map');
+  const mapData = REGIONS.map((region) => ({
+    region: region as string,
+    value: rows.filter((r) => r.region === region && mapClauses.every((cl) => matchesClause(r, cl))).length,
+  }));
+  const mapSelected = state.selections.find((s) => s.viewId === 'map' && s.kind === 'point');
+
+  // the table shows every row (DIM, never hide — VizTable's own design call);
+  // `keep` applies every OTHER view's selection, exactly the scatter's `highlight` pattern
+  const tableClauses = notOwn('table');
+  const tableKeep = (row: TableRow): boolean => tableClauses.every((cl) => matchesClause(row as Row, cl));
+  const tableSelected = state.selections.find((s) => s.viewId === 'table' && s.kind === 'point');
+
   const allClauses = clauses.map((c) => c.clause);
   const selectedCount = rows.filter((r) => allClauses.every((cl) => matchesClause(r, cl))).length;
 
@@ -306,7 +347,7 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
               height={height}
               /* v8 ignore next -- `c` (ScatterDatum.category) is always a defined string here:
                  `scatterData` (above) sets `category: r.category` straight from `rows`, and every
-                 `DemoRow.category` is `String(...)`-coerced by `loadRows` (common.ts) — even an
+                 `DemoRow.category` is `String(...)`-coerced by `loadRows` (./rows.ts) — even an
                  empty/missing CSV cell sniffs to `null` and stringifies to `"null"`, never JS
                  `undefined`. The `?? ''` fallback guards VizScatter's wider (optional) prop type,
                  not a state this component's own data pipeline can produce. */
@@ -315,6 +356,30 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
               columns={columns}
               encoding={enc}
               onEmit={(e) => void view.emit('scatter', e, `brush ${xField}`)}
+              onReencode={(v, c, f) => void view.reencode(v, c, f)}
+            />
+          ),
+        },
+        {
+          id: 'line',
+          weight: 2.5,
+          caption: `Line — drag to brush ${lineX}; mean ${lineY} per date by category (you drive this)`,
+          render: ({ width, height }) => (
+            <VizLine
+              viewId="line"
+              data={lineData}
+              dateField={lineX}
+              valueField={lineY}
+              width={width}
+              height={height}
+              /* v8 ignore next -- same reasoning as the scatter's colorOf above: `series`
+                 (LinePoint.series) is always `r.category` here, a defined string coming straight
+                 from `rows` — the `?? ''` fallback guards VizLine's wider (optional) prop type,
+                 not a state this component's own data pipeline can produce. */
+              colorOf={(c) => categoryColor(c ?? '')}
+              columns={columns}
+              encoding={encLine}
+              onEmit={(e) => void view.emit('line', e, `brush ${lineX}`)}
               onReencode={(v, c, f) => void view.reencode(v, c, f)}
             />
           ),
@@ -335,6 +400,41 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
               columns={columns}
               onEmit={(e) => void view.emit('bar', e, 'select category')}
               onReencode={(v, c, f) => void view.reencode(v, c, f)}
+            />
+          ),
+        },
+        {
+          id: 'map',
+          weight: 2,
+          caption: 'Map — click a region to select; click again to clear (you drive this)',
+          render: ({ width, height }) => (
+            <VizMap
+              viewId="map"
+              geo={DEMO_GEO}
+              regionField="region"
+              data={mapData}
+              valueLabel="rows"
+              width={width}
+              height={height}
+              selected={mapSelected && mapSelected.value != null ? String(mapSelected.value) : null}
+              onEmit={(e) => void view.emit('map', e, 'select region')}
+            />
+          ),
+        },
+        {
+          id: 'table',
+          weight: 2.5,
+          caption: 'Table — click a header to sort, click a row to select (you drive this)',
+          render: ({ width, height }) => (
+            <VizTable
+              viewId="table"
+              data={rows}
+              columns={['id', 'category', 'price', 'rating', 'date', 'region']}
+              selected={tableSelected && tableSelected.value != null ? String(tableSelected.value) : null}
+              highlight={tableKeep}
+              width={width}
+              height={height}
+              onEmit={(e) => void view.emit('table', e, 'select row')}
             />
           ),
         },

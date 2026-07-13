@@ -40,6 +40,7 @@ import {
   STATE_NONNUMERIC_XY,
   STATE_EDGE_SELECTION,
   STATE_WITH_PATHS,
+  STATE_MAP_SELECTED,
 } from './app.coverage.helpers.js';
 
 let api: FakeApi;
@@ -193,11 +194,11 @@ describe('boot — rich fixture (STATE_A): renders every "has value" branch', ()
     expect(document.querySelector('[data-vzf="fdr-ledger"]')).toBeTruthy();
   });
 
-  it('the chat popup starts closed with the fab visible, the sys greeting, and 5 suggestion chips', () => {
+  it('the chat popup starts closed with the fab visible, the sys greeting, and 7 suggestion chips', () => {
     expect((document.getElementById('chatpanel') as HTMLElement).hidden).toBe(true);
     expect((document.getElementById('fab') as HTMLElement).hidden).toBe(false);
     expect(screen.getByText(/Brush the scatter or click a bar/)).toBeTruthy();
-    expect(document.querySelectorAll('.suggest button')).toHaveLength(5);
+    expect(document.querySelectorAll('.suggest button')).toHaveLength(7);
   });
 
   it('window.__vizAgent exposes the live view + a working refresh()', async () => {
@@ -303,7 +304,11 @@ describe('boot — default/fallback fixture (STATE_B): every "??" and ternary-fa
   });
 
   it('columns falls back to [] when the defaultTable has none — the x-axis picker shows the empty state', async () => {
-    const xAxis = screen.getByRole('button', { name: /Encode the x axis/ });
+    // the line chart ALSO has an 'x' channel now (a second axis-group with the
+    // same aria-label prefix) — scope to the scatter's own svg so this stays a
+    // single, unambiguous match regardless of the line's current x field text.
+    const scatterSvg = document.querySelector('svg.vzf-scatter') as HTMLElement;
+    const xAxis = within(scatterSvg).getByRole('button', { name: /Encode the x axis/ });
     await click(xAxis);
     expect(screen.getByText('no columns available yet')).toBeTruthy();
   });
@@ -325,12 +330,32 @@ describe('scatterData numeric fallback: a non-numeric xField/yField renders 0 wi
     expect(screen.getByText(/Scatter — drag to brush category/)).toBeTruthy();
     expect(document.querySelectorAll('circle.vzf-dot')).toHaveLength(7);
   });
+
+  it('lineData numeric fallback: a non-numeric yField renders every point at value 0 without crashing', async () => {
+    await boot(STATE_NONNUMERIC_XY);
+    expect(screen.getByText(/mean category per date by category/)).toBeTruthy();
+    // 7 rows, all real dates -> 7 dots, every one pinned to y=0 (the `: 0` fallback arm)
+    expect(document.querySelectorAll('circle.vzf-line-dot')).toHaveLength(7);
+  });
 });
 
 describe('edge selection: a bar-viewId selection that is NOT kind:point', () => {
-  it('barSelected stays undefined (the && short-circuits on kind, not viewId)', async () => {
+  it('barSelected stays undefined (the && short-circuits on kind, not viewId); the table\'s real selection and the map\'s cleared one both render', async () => {
     await boot(STATE_EDGE_SELECTION);
     expect(document.querySelectorAll('.vzf-barrect.vzf-selected')).toHaveLength(0);
+    // tableSelected: present WITH a value ("r3") -> the String(...) arm
+    expect(document.querySelector('[aria-label="row r3 selected"]')).toBeTruthy();
+    // mapSelected: present but NULLISH -> the null arm (no region wears .vzf-selected)
+    expect(document.querySelectorAll('svg.vzf-map .vzf-selected')).toHaveLength(0);
+  });
+});
+
+describe('mapSelected: present WITH a value renders the selected region', () => {
+  it('the Northlands region wears the selection outline', async () => {
+    await boot(STATE_MAP_SELECTED);
+    const region = document.querySelector('svg.vzf-map [data-region="Northlands"]')!;
+    expect(region.getAttribute('aria-pressed')).toBe('true');
+    expect(region.classList.contains('vzf-selected')).toBe(true);
   });
 });
 
@@ -358,7 +383,9 @@ describe('dashboard interactions — chart emit + reencode', () => {
   });
 
   it('picking a column in the scatter x-axis picker dispatches a reencode', async () => {
-    await click(screen.getByRole('button', { name: /Encode the x axis/ }));
+    // scope to the scatter's own svg — the line chart also renders an 'x' axis-group now
+    const scatterSvg = document.querySelector('svg.vzf-scatter') as HTMLElement;
+    await click(within(scatterSvg).getByRole('button', { name: /Encode the x axis/ }));
     const dialog = screen.getByRole('dialog');
     await click(within(dialog).getByRole('button', { name: /^price/ }));
     const post = api.callsTo('/api/dispatch').at(-1);
@@ -371,6 +398,43 @@ describe('dashboard interactions — chart emit + reencode', () => {
     await click(within(dialog).getByRole('button', { name: /^rating/ }));
     const post = api.callsTo('/api/dispatch').at(-1);
     expect(post?.body).toMatchObject({ verb: 'reencode', viewId: 'bar', channel: 'category', field: 'rating' });
+  });
+
+  it('a horizontal line-chart brush dispatches a date-interval filter on the CURRENT dateField', async () => {
+    const svg = document.querySelector('svg.vzf-line')!;
+    await act(async () => {
+      fireEvent.pointerDown(svg, { clientX: 100, pointerId: 1 });
+      fireEvent.pointerMove(svg, { clientX: 300, pointerId: 1 });
+      fireEvent.pointerUp(svg, { clientX: 300, pointerId: 1 });
+      await flush();
+    });
+    const post = api.callsTo('/api/dispatch').at(-1);
+    expect(post?.body).toMatchObject({ verb: 'filter', viewId: 'line', field: 'date' });
+    expect(Array.isArray((post?.body as { range?: unknown }).range)).toBe(true);
+  });
+
+  it('picking a column in the line y-axis picker dispatches a reencode', async () => {
+    // scope to the line's own svg — the scatter also has a 'y' axis-group
+    const lineSvg = document.querySelector('svg.vzf-line') as HTMLElement;
+    await click(within(lineSvg).getByRole('button', { name: /Encode the y axis/ }));
+    const dialog = screen.getByRole('dialog');
+    await click(within(dialog).getByRole('button', { name: /^rating/ }));
+    const post = api.callsTo('/api/dispatch').at(-1);
+    expect(post?.body).toMatchObject({ verb: 'reencode', viewId: 'line', channel: 'y', field: 'rating' });
+  });
+
+  it('clicking a map region dispatches a point select on region', async () => {
+    const region = document.querySelector('svg.vzf-map [data-region="Northlands"]');
+    await click(region);
+    const post = api.callsTo('/api/dispatch').at(-1);
+    expect(post?.body).toMatchObject({ verb: 'select', viewId: 'map', field: 'region', value: 'Northlands', intent: 'select region' });
+  });
+
+  it('clicking a table row dispatches a point select on id', async () => {
+    const row = screen.getByRole('row', { name: 'row r1' });
+    await click(row);
+    const post = api.callsTo('/api/dispatch').at(-1);
+    expect(post?.body).toMatchObject({ verb: 'select', viewId: 'table', field: 'id', value: 'r1', intent: 'select row' });
   });
 });
 

@@ -694,7 +694,7 @@ describe.skipIf(!existsSync(CHROME))('mobile viewport — scroll-snap chart caro
     await expectNoPageOrShellScroll(page);
   }, 30_000);
 
-  it('renders a two-page dot carousel with zero page/shell scroll; tapping a dot swipes to that chart', async () => {
+  it('renders a five-page dot carousel with zero page/shell scroll; tapping a dot swipes to that chart', async () => {
     await expectNoPageOrShellScroll(page);
     const strip = await page.evaluate(() => {
       const el = document.querySelector('[data-vzf="cockpit-charts"]') as HTMLElement;
@@ -710,10 +710,11 @@ describe.skipIf(!existsSync(CHROME))('mobile viewport — scroll-snap chart caro
     });
     expect(strip.snapType, 'the charts band is a snap carousel on mobile').toContain('x');
     expect(strip.dotsDisplay, 'dot indicators show on mobile').not.toBe('none');
-    expect(strip.dotCount).toBe(2);
+    // 5 charts now ride the band: scatter, line, bar, map, table
+    expect(strip.dotCount).toBe(5);
     expect(Math.abs(strip.cellW - strip.stripW), 'each chart is one full-width page').toBeLessThanOrEqual(2);
 
-    // tapping the second dot swipes to the bar chart page and activates the dot
+    // tapping the second dot swipes to the line chart page and activates the dot
     await page.locator('[data-vzf="cockpit-dots"] .vzf-cockpit-dot').nth(1).click();
     await page.waitForFunction(
       () => {
@@ -743,6 +744,125 @@ describe.skipIf(!existsSync(CHROME))('mobile viewport — scroll-snap chart caro
   }, 30_000);
 
   it('the mobile page ran with zero console errors', () => {
+    expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
+    expect(pageErrors, pageErrors.join('\n')).toEqual([]);
+  });
+});
+
+/** Parse the status readout's leading "N of M rows selected" count. */
+function parseSelectedCount(text: string | null): number {
+  const m = (text ?? '').match(/^(\d+) of/);
+  if (!m) throw new Error(`unexpected status readout text: ${text}`);
+  return Number(m[1]);
+}
+
+/**
+ * CH-2 — the three new charts (real headless Chromium, mock provider), all
+ * driven through the HUMAN dispatch path (a UI drag/click), never chat:
+ *   - dragging the line chart lands a date-INTERVAL filter commit and the
+ *     status readout's row count visibly DROPS;
+ *   - clicking a map region lands a point-selection commit; clicking it
+ *     again clears it (the VizBar/VizMap gesture);
+ *   - clicking a table column header sorts it (aria-sort flips); clicking a
+ *     row lands a point-selection commit.
+ * ZERO console errors throughout. Screenshots each interaction.
+ */
+describe.skipIf(!existsSync(CHROME))('the new charts — line date-brush, map region click, table sort + row-select', () => {
+  let handle: Awaited<ReturnType<typeof startServer>>;
+  let browser: Browser;
+  let page: Page;
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+
+  beforeAll(async () => {
+    mkdirSync(SHOTS, { recursive: true });
+    handle = await startServer({ port: 0, mock: true });
+    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    page = await browser.newPage({ viewport: { width: 1400, height: 1150 } });
+    page.on('console', (m) => {
+      if (m.type() === 'error') consoleErrors.push(m.text());
+    });
+    page.on('pageerror', (e) => pageErrors.push(String(e)));
+    await page.goto(handle.url);
+    await page.waitForSelector('svg.vzf-scatter');
+    await page.waitForSelector('svg.vzf-line');
+    await page.waitForSelector('svg.vzf-map');
+    await page.waitForSelector('.vzf-table');
+  }, 120_000);
+
+  afterAll(async () => {
+    await browser?.close();
+    await handle?.close();
+  });
+
+  it('dragging the line chart lands a date-interval filter commit; the status readout row count drops', async () => {
+    const commitsBefore = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    const readoutBefore = parseSelectedCount(await page.locator('[data-vzf="cockpit-status"] .vzf-cockpit-readout').textContent());
+
+    const box = await page.locator('svg.vzf-line').boundingBox();
+    if (!box) throw new Error('line chart not found');
+    const y = box.y + box.height * 0.5;
+    await page.mouse.move(box.x + box.width * 0.25, y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.5, y, { steps: 6 });
+    await page.mouse.move(box.x + box.width * 0.7, y, { steps: 6 });
+    await page.mouse.up();
+
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      commitsBefore,
+    );
+    await openReport(page, 'commits');
+    const lastChip = page.locator('[data-vzf-modal="report-commits"] .vzf-chip').last();
+    expect(await lastChip.getAttribute('data-actor')).toBe('user');
+    expect((await lastChip.textContent()) ?? '').toContain('date');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-vzf-modal="report-commits"]', { state: 'detached' });
+
+    const readoutAfter = parseSelectedCount(await page.locator('[data-vzf="cockpit-status"] .vzf-cockpit-readout').textContent());
+    expect(readoutAfter, 'a real date interval narrows the crossfilter').toBeLessThan(readoutBefore);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'line-brush.png'), fullPage: false });
+  }, 30_000);
+
+  it('clicking a map region lands a point selection commit; clicking it again clears it', async () => {
+    const region = page.locator('svg.vzf-map [data-region="Northlands"]');
+
+    const before = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    await region.click();
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      before,
+    );
+    expect(await region.getAttribute('aria-pressed')).toBe('true');
+
+    const afterSelect = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    await region.click(); // click again clears
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      afterSelect,
+    );
+    expect(await region.getAttribute('aria-pressed')).toBe('false');
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'map-region.png'), fullPage: false });
+  }, 30_000);
+
+  it('clicking a table column header sorts it (aria-sort flips); clicking a row lands a point selection', async () => {
+    const priceHeader = page.locator('.vzf-table th[aria-label="sort by price"]');
+    expect(await priceHeader.getAttribute('aria-sort')).toBe('none');
+    await priceHeader.click();
+    await page.waitForFunction(() => document.querySelector('.vzf-table th[aria-label="sort by price"]')?.getAttribute('aria-sort') === 'ascending');
+
+    const before = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    const firstRow = page.locator('.vzf-table tbody tr').first();
+    await firstRow.click();
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      before,
+    );
+    expect(await firstRow.getAttribute('aria-selected')).toBe('true');
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'table-sort-select.png'), fullPage: false });
+  }, 30_000);
+
+  it('ran with zero console errors', () => {
     expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
     expect(pageErrors, pageErrors.join('\n')).toEqual([]);
   });

@@ -22,7 +22,8 @@ import { scriptedReencodeMock } from './src/analyst.js';
 import { stepBackTarget, stepForwardTarget } from './src/stepNav.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CSV = readFileSync(path.join(__dirname, '..', 'demo', 'data', 'dresses.csv'), 'utf8');
+// demo-agent's own seeded copy (id/category/price/rating + date/region — see gen-data.mjs)
+const CSV = readFileSync(path.join(__dirname, 'data', 'dresses.csv'), 'utf8');
 
 async function postJSON(url: string, body: unknown): Promise<Record<string, unknown>> {
   const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -80,8 +81,18 @@ describe('demo-agent server + bundle', () => {
       encodings: Record<string, Record<string, string>>;
     };
     expect(state.defaultTable).toBe('data');
-    expect(state.columns['data']?.map((c) => c.field).sort()).toEqual(['category', 'id', 'price', 'rating']);
+    expect(state.columns['data']?.map((c) => c.field).sort()).toEqual(['category', 'date', 'id', 'price', 'rating', 'region']);
     expect(state.encodings['scatter']).toEqual({ x: 'price', y: 'rating' });
+    expect(state.encodings['line']).toEqual({ x: 'date', y: 'price' });
+    expect(state.encodings['map']).toEqual({ region: 'region' });
+    // 'table' has no visual-encoding surface at all (no channels to rebind) —
+    // it appears as a declared view (below) but with an EMPTY encoding fold.
+    expect(state.encodings['table']).toEqual({});
+  });
+
+  it('/api/state declares the line/map/table views too — whats_here (the SAME overview) is what the agent reads', async () => {
+    const state = (await (await fetch(handle.url + '/api/state')).json()) as { views: { viewId: string }[] };
+    expect(state.views.map((v) => v.viewId).sort()).toEqual(['agent', 'bar', 'cluster', 'line', 'map', 'scatter', 'table']);
   });
 });
 

@@ -22,21 +22,24 @@ import { fireEvent } from '@testing-library/react';
 // @ts-expect-error page.mjs is untyped JS — PAGE is a plain exported string, verified by every test that boots the app against it.
 import { PAGE } from '../page.mjs';
 
-// ── fixture rows / CSV (7 rows, one per CATEGORIES entry + 2 extra Casual/Formal) ──
-export const CSV_TEXT = `id,category,price,rating
-r1,Casual,50,4
-r2,Casual,65,3.5
-r3,Formal,220,2
-r4,Formal,180,4.5
-r5,Party,90,5
-r6,Work,60,1
-r7,Summer,300,3
+// ── fixture rows / CSV (7 rows, one per CATEGORIES entry + 2 extra Casual/Formal;
+// date/region added alongside the real demo-agent schema — see gen-data.mjs) ──
+export const CSV_TEXT = `id,category,price,rating,date,region
+r1,Casual,50,4,2026-04-05,Northlands
+r2,Casual,65,3.5,2026-04-20,Coastal Strip
+r3,Formal,220,2,2026-05-10,Midlands
+r4,Formal,180,4.5,2026-05-25,Southreach
+r5,Party,90,5,2026-06-01,Northlands
+r6,Work,60,1,2026-06-15,Coastal Strip
+r7,Summer,300,3,2026-06-28,Midlands
 `;
 
 export const COLS = [
   { field: 'price', type: 'number' },
   { field: 'rating', type: 'number' },
   { field: 'category', type: 'string' },
+  { field: 'date', type: 'string' },
+  { field: 'region', type: 'string' },
 ];
 
 /** The full boot fixture: rich enough to exercise every non-default app.tsx branch. */
@@ -53,6 +56,12 @@ export const STATE_A = {
     { viewId: 'scatter', field: 'price', kind: 'interval', value: [40, 250] },
     { viewId: 'ghost', field: 'x', kind: 'interval', value: null },
     { viewId: 'bar', field: 'category', kind: 'point', value: 'Casual' },
+    // a CLEARED table selection (the three-way point split's `undefined` arm —
+    // src/data/types.ts) — contributes no filtering (matchesClause('point',
+    // undefined) is always true), so it exercises `tableSelected`'s "present
+    // but nullish" branch WITHOUT perturbing any of the row-count assertions
+    // above, which were tuned against exactly the scatter+bar clauses.
+    { viewId: 'table', field: 'id', kind: 'point', value: undefined },
   ],
   analyses: [
     { id: 'correlation', kind: 'stat', produces: 'r', ready: true, selectedRows: 2, minPoints: 2 },
@@ -63,7 +72,12 @@ export const STATE_A = {
   branches: [{ tip: 'c2', length: 2, actor: 'agent', active: true }],
   checkpoints: [{ label: 'start', commitId: 'c1', ts: 1000 }],
   columns: { data: COLS },
-  encodings: { scatter: { x: 'rating', y: 'price' } },
+  // 'line' is explicitly present (exercises the encodings["line"] ?? {} TRUTHY
+  // arm) but names the SAME fields the app-side default would — x MUST stay
+  // the real 'date' column so the line chart has actually-parseable dates to
+  // brush (a non-date field like 'price' stringifies to e.g. "50", which
+  // Date.parse() rejects, and VizLine silently skips every unparseable point).
+  encodings: { scatter: { x: 'rating', y: 'price' }, line: { x: 'date', y: 'price' } },
   cursor: 'c2',
   head: 'c2',
   viewingPast: false,
@@ -126,17 +140,42 @@ export const STATE_B = {
 /** Cursor sits BEHIND head (viewingPast) — for return-to-now / step-forward. */
 export const STATE_VIEWING_PAST = { ...STATE_A, cursor: 'c1', viewingPast: true };
 
-/** BOTH axes reencoded onto a NON-numeric column (agent-driven; bypasses the picker's own gate). */
-export const STATE_NONNUMERIC_XY = { ...STATE_B, encodings: { scatter: { x: 'category', y: 'category' } } };
+/**
+ * BOTH scatter axes reencoded onto a NON-numeric column (agent-driven;
+ * bypasses the picker's own gate) — plus the line's own y channel reencoded
+ * onto a non-numeric column too (lineData's `typeof r[lineY] === 'number' ? … : 0` false arm).
+ */
+export const STATE_NONNUMERIC_XY = {
+  ...STATE_B,
+  encodings: { scatter: { x: 'category', y: 'category' }, line: { x: 'date', y: 'category' } },
+};
 
-/** One selection whose viewId IS 'bar' but whose kind is NOT 'point' (barSelected `&&` 2nd-operand-false). */
+/**
+ * One selection whose viewId IS 'bar' but whose kind is NOT 'point' (barSelected
+ * `&&` 2nd-operand-false) — plus a CLEARED map selection and a REAL table
+ * selection, the opposite combo from STATE_A/STATE_MAP_SELECTED, so every
+ * "present but nullish" vs "present with a value" arm of both the
+ * `mapSelected`/`tableSelected` ternaries gets exercised somewhere.
+ */
 export const STATE_EDGE_SELECTION = {
   ...STATE_B,
-  activeSelections: [{ viewId: 'bar', field: 'price', kind: 'interval', value: [1, 2] }],
+  activeSelections: [
+    { viewId: 'bar', field: 'price', kind: 'interval', value: [1, 2] },
+    { viewId: 'map', field: 'region', kind: 'point', value: undefined },
+    { viewId: 'table', field: 'id', kind: 'point', value: 'r3' },
+  ],
   columns: { data: COLS },
   encodings: { scatter: { x: 'price', y: 'rating' } },
   mode: 'mock' as const,
   viewingPast: false,
+};
+
+/** A real map region selection (Northlands) over an otherwise-empty baseline — mapSelected's "present with a value" arm. */
+export const STATE_MAP_SELECTED = {
+  ...STATE_B,
+  activeSelections: [{ viewId: 'map', field: 'region', kind: 'point', value: 'Northlands' }],
+  columns: { data: COLS },
+  mode: 'mock' as const,
 };
 
 /**

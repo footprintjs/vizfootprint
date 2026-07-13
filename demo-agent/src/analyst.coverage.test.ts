@@ -24,7 +24,8 @@ import { buildAnalystSurface } from './def.js';
 import type { VizToolResult, VizToolsPort } from '../../src/agent/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CSV = readFileSync(path.join(__dirname, '..', '..', 'demo', 'data', 'dresses.csv'), 'utf8');
+// demo-agent's own seeded copy (id/category/price/rating + date/region — see gen-data.mjs)
+const CSV = readFileSync(path.join(__dirname, '..', 'data', 'dresses.csv'), 'utf8');
 
 describe('createAssistant — provider-absent construction falls back toward the real provider (analyst.ts:117-119)', () => {
   it('with no provider and no ANTHROPIC_API_KEY set, constructing throws the real provider\'s own clean error (never silently substitutes a mock)', () => {

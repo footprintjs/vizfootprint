@@ -20,7 +20,8 @@ import { mock, type LLMResponse } from 'agentfootprint/llm-providers';
 import { createAnalyst } from './core.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CSV = readFileSync(path.join(__dirname, '..', '..', 'demo', 'data', 'dresses.csv'), 'utf8');
+// demo-agent's own seeded copy (id/category/price/rating + date/region — see gen-data.mjs)
+const CSV = readFileSync(path.join(__dirname, '..', 'data', 'dresses.csv'), 'utf8');
 
 describe('createAnalyst — mode + provider fallback (core.ts:109-124)', () => {
   it('mode defaults to "live" and falls through toward the real browserAnthropic provider when neither mock nor a provider is given — surfaces the provider\'s own construction error rather than crashing silently or secretly using the mock', () => {

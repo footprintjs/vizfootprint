@@ -31,18 +31,25 @@ import { parseCSVTyped } from '../../src/data/csv.js';
 const ALPHA = 0.05;
 const CLUSTER_K = 4;
 
-/** The four declared views: two the human drives, two the agent drives. */
+/** The seven declared views: five the human drives, two the agent drives. */
 const SCATTER: ActorMeta = { actor: 'user', label: 'Price brush' };
 const BAR: ActorMeta = { actor: 'user', label: 'Category' };
+const LINE: ActorMeta = { actor: 'user', label: 'Price over time' };
+const MAP: ActorMeta = { actor: 'user', label: 'Rows by region' };
+const TABLE: ActorMeta = { actor: 'user', label: 'Row table' };
 const AGENT: ActorMeta = { actor: 'agent', label: 'Analyst' };
 const CLUSTER: ActorMeta = { actor: 'agent', label: 'Cluster picker' };
 
-/** One row of the seeded dataset (dresses.csv). */
+/** One row of the seeded dataset (demo-agent/data/dresses.csv — see gen-data.mjs). */
 export interface AnalystRow {
   readonly id: string;
   readonly category: string;
   readonly price: number;
   readonly rating: number;
+  /** ISO-8601 date — the VizLine time axis + brush field. */
+  readonly date: string;
+  /** Sales region — matches a DEMO_GEO feature name (the VizMap field). */
+  readonly region: string;
   [k: string]: string | number;
 }
 
@@ -60,6 +67,8 @@ export function parseAnalystRows(csv: string): AnalystRow[] {
     category: String(r['category']),
     price: Number(r['price']),
     rating: Number(r['rating']),
+    date: String(r['date']),
+    region: String(r['region']),
   }));
 }
 
@@ -73,13 +82,19 @@ export function buildAnalystSurface(csv: string): AnalystSurface {
   const def: DashboardDef = {
     meta: { title: 'vizfootprint — mixed-principal analyst' },
     data: { data: { rows } },
-    actors: { scatter: SCATTER, bar: BAR, agent: AGENT, cluster: CLUSTER },
+    actors: { scatter: SCATTER, bar: BAR, line: LINE, map: MAP, table: TABLE, agent: AGENT, cluster: CLUSTER },
     // UI-2: a declared visual-encoding surface per view — without this, ANY
     // reencode (human axis-click or agent dispatch) is an honest guard-failed
     // gap (R14: never guess a channel vocabulary for an undeclared chart kind).
+    // 'table' is deliberately ABSENT here — it has no visual channel to
+    // rebind (only a fixed id-based row selection), so it stays a declared
+    // view (via `actors` above, appearing in whats_here's views/columns)
+    // with no encoding surface, exactly per ViewEncodingDecl's own contract.
     encodings: [
       { viewId: 'scatter', chartKind: 'point', channels: ['x', 'y', 'color'], initial: { x: 'price', y: 'rating' } },
       { viewId: 'bar', chartKind: 'bar', channels: ['category'], initial: { category: 'category' } },
+      { viewId: 'line', chartKind: 'line', channels: ['x', 'y', 'color'], initial: { x: 'date', y: 'price' } },
+      { viewId: 'map', chartKind: 'map', channels: ['region'], initial: { region: 'region' } },
     ],
     analyses: {
       correlation: correlationAnalysis({ x: 'price', y: 'rating' }),

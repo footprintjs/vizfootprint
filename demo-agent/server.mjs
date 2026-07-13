@@ -34,7 +34,9 @@ import { buildCoreModule, buildAppBundle, vendorDebuggerAssets, readUiStylesheet
 import { DEBUG_PAGE } from './debug-page.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CSV = readFileSync(path.join(__dirname, '..', 'demo', 'data', 'dresses.csv'), 'utf8');
+// demo-agent owns its own seeded copy of the dataset (id/category/price/rating
+// byte-identical to demo/data/dresses.csv, plus date/region) — see gen-data.mjs.
+const CSV = readFileSync(path.join(__dirname, 'data', 'dresses.csv'), 'utf8');
 
 export const DEFAULT_PORT = 5181;
 
