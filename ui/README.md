@@ -168,6 +168,42 @@ never dressed up as "low".
 
 ![the region map](gallery/screenshots/gallery-map.png)
 
+## VizTable — sort, click a row to select
+
+A sortable HTML table over the crossfiltered rows. Click a column header to
+sort it — the first click is ascending, the second descending, the third
+clears back to the input order (an arrow glyph and `aria-sort` track the
+live state). Click a row to select it by the table's id field; **click it
+again to clear** — the same gesture as `VizBar`/`VizMap`.
+
+**Selection semantics (design call): dim, never hide.** `highlight` is the
+exact keep-predicate prop `VizScatter` takes — a row failing it gets a dimmed
+style, it is never removed. `VizBar`/`VizMap` instead recompute their data (a
+count per category/region) under a crossfilter; a table has no aggregate to
+recompute, only real rows, so it follows the scatter's precedent instead.
+Hiding rows would also make sorted row POSITIONS jump around as some other
+view's selection changes — surprising for a component whose whole point is a
+stable, scannable order. Dimming keeps every row addressable (still
+clickable, still sortable) while making "what's currently included" honest.
+
+Numeric cells render right-aligned in the shared monospace/tabular-nums
+style so digits line up in a column. Rows are keyboard-reachable (Tab to a
+row, Enter selects); an empty table says so plainly ("no rows to show")
+rather than rendering a blank card. The consumer decides which columns to
+show (`columns`) — the chart never guesses a "sane" count from the data.
+
+```tsx
+<VizTable
+  viewId="table"
+  data={rows}
+  columns={['category', 'price', 'rating']}
+  idField="id"
+  selected={tableSelected}
+  highlight={(row) => matchesEveryOtherSelection(row)}
+  onEmit={(e) => void view.emit('table', e)}
+/>
+```
+
 ## The layers (each importable alone)
 
 | module | job |
@@ -175,7 +211,7 @@ never dressed up as "low".
 | `tokens/` | design tokens + theme engine — scoped CSS variables on the `.vzf` root (never `:root`), light+dark via `prefers-color-scheme` with a `data-theme` override that wins both ways |
 | `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView` |
 | `layout/` | `<VizCockpit>` (the flagship — and only — single-screen shell) + `<VizModal>` (the one modal system) + `<VizPanel>`/`<VizCard>` |
-| `charts/` | `<VizScatter>`, `<VizBar>`, `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click) — controlled SVG; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); `<ChartFrame>` measures a cell so charts fill it; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) which fires `onReencode(viewId, channel, field)` — the `reencode` dispatch verb |
+| `charts/` | `<VizScatter>`, `<VizBar>`, `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click), `<VizTable>` (sortable rows, click-to-select) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); `<ChartFrame>` measures a cell so charts fill it; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) which fires `onReencode(viewId, channel, field)` — the `reencode` dispatch verb |
 | `time/` | `<TimeTravelBar>` with `explore` (full commit timeline + fork-safe ⟵/⟶ step rules, `compact` for the cockpit) and `present` (checkpoint-ONLY story beats, acting disabled, `onReadOnlyChange` up to the shell) + `<CheckpointModal>` + `<BranchMap>` |
 | `panels/` | `<CommitLog>` (cause badges, click-to-seek, off-branch dimming), `<FdrLedger>` (two truths + the verbatim honesty line), `<GapsPanel>`, `<ReadinessPanel>` — cockpit hosts these inside report modals, unchanged |
 

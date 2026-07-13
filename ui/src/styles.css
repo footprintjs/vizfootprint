@@ -678,6 +678,73 @@
   font-weight: 600;
 }
 
+/* ── VizTable (sortable rows) ──────────────────────────────── */
+:where(.vzf) .vzf-table-frame {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vzf-space-1);
+  overflow: hidden;
+}
+:where(.vzf) .vzf-table-status {
+  font-size: 0.78em;
+  flex-shrink: 0;
+}
+:where(.vzf) .vzf-table-scroll {
+  overflow: auto;
+  border: 1px solid var(--vzf-line);
+  border-radius: var(--vzf-r-md);
+  flex: 1;
+  min-height: 0;
+}
+:where(.vzf) .vzf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84em;
+}
+:where(.vzf) .vzf-table thead th {
+  position: sticky;
+  top: 0;
+  text-align: left;
+  font-family: var(--vzf-font-mono);
+  font-size: 0.86em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--vzf-ink-faint);
+  background: var(--vzf-surface);
+  padding: var(--vzf-space-1) var(--vzf-space-2);
+  border-bottom: 1px solid var(--vzf-line);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+:where(.vzf) .vzf-table thead th:hover,
+:where(.vzf) .vzf-table thead th:focus-visible {
+  color: var(--vzf-brand);
+  outline: none;
+}
+:where(.vzf) .vzf-table tbody td {
+  padding: var(--vzf-space-1) var(--vzf-space-2);
+  border-bottom: 1px solid var(--vzf-line-soft);
+}
+:where(.vzf) .vzf-table-row {
+  cursor: pointer;
+  transition: opacity 0.15s ease, background 0.12s ease;
+}
+:where(.vzf) .vzf-table-row.vzf-dim {
+  opacity: 0.42;
+}
+:where(.vzf) .vzf-table-row.vzf-selected td {
+  background: var(--vzf-brand-tint);
+}
+:where(.vzf) .vzf-table-row:hover td {
+  background: var(--vzf-surface-2);
+}
+:where(.vzf) .vzf-table-row:focus-visible {
+  outline: 2px solid var(--vzf-brand);
+  outline-offset: -2px;
+}
+
 /* axis label = an interactive affordance (opens the encoding picker) */
 :where(.vzf) .vzf-axis-label {
   font-family: var(--vzf-font-display);

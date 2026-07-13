@@ -6,6 +6,8 @@ export { VizLine, lineCompat } from './VizLine.js';
 export type { VizLineProps, LinePoint } from './VizLine.js';
 export { VizMap } from './VizMap.js';
 export type { VizMapProps, RegionDatum, GeoFeature, GeoFeatureCollection, GeoGeometry, GeoRing } from './VizMap.js';
+export { VizTable } from './VizTable.js';
+export type { VizTableProps, TableRow, SortDirection, TableSortState } from './VizTable.js';
 export { ChartFrame } from './ChartFrame.js';
 export type { ChartFrameProps, ChartSize } from './ChartFrame.js';
 export { EncodingPicker } from './EncodingPicker.js';
