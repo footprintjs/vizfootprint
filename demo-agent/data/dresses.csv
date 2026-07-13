@@ -1,0 +1,301 @@
+id,category,price,rating,date,region
+d001,Work,132.4,3.5,2026-05-05,Northlands
+d002,Formal,169.9,3.5,2026-06-21,Southreach
+d003,Casual,126.04,2.5,2026-05-21,Northlands
+d004,Formal,161.28,2,2026-04-30,Southreach
+d005,Casual,52.31,1,2026-04-07,Southreach
+d006,Party,188.48,2,2026-06-06,Northlands
+d007,Work,85.24,3,2026-04-11,Northlands
+d008,Work,79.72,2.5,2026-06-10,Northlands
+d009,Party,151.25,3.5,2026-06-13,Southreach
+d010,Casual,55.12,1.5,2026-05-18,Southreach
+d011,Summer,68.56,2.5,2026-05-03,Southreach
+d012,Work,139.15,2,2026-06-24,Southreach
+d013,Formal,128.57,3.5,2026-04-06,Midlands
+d014,Formal,156.58,2.5,2026-06-18,Midlands
+d015,Summer,35.74,3,2026-06-30,Northlands
+d016,Summer,42.28,3,2026-04-17,Midlands
+d017,Formal,152.98,1.5,2026-05-15,Midlands
+d018,Work,134.4,3,2026-06-02,Coastal Strip
+d019,Work,144.84,4,2026-05-09,Northlands
+d020,Summer,136.86,3,2026-06-10,Southreach
+d021,Work,157.5,3,2026-04-26,Coastal Strip
+d022,Party,179.35,3.5,2026-05-23,Southreach
+d023,Formal,139.9,3.5,2026-05-30,Midlands
+d024,Casual,36.43,3,2026-05-04,Midlands
+d025,Work,146.71,2,2026-04-07,Southreach
+d026,Summer,128.09,1.5,2026-06-29,Southreach
+d027,Formal,190.32,4,2026-04-23,Midlands
+d028,Work,143.94,2.5,2026-06-23,Midlands
+d029,Summer,93.42,2,2026-06-03,Northlands
+d030,Summer,58.84,3,2026-04-12,Northlands
+d031,Formal,198.98,4,2026-05-25,Northlands
+d032,Casual,33.29,2.5,2026-06-24,Northlands
+d033,Summer,130.48,1.5,2026-05-16,Northlands
+d034,Work,77.51,3.5,2026-04-13,Northlands
+d035,Casual,121.44,3.5,2026-04-06,Northlands
+d036,Summer,68.42,3,2026-06-20,Coastal Strip
+d037,Work,124.13,3,2026-04-13,Southreach
+d038,Party,201.14,3,2026-05-30,Southreach
+d039,Party,96.02,2,2026-04-18,Midlands
+d040,Summer,68.97,1,2026-05-25,Midlands
+d041,Casual,39.2,1.5,2026-05-01,Coastal Strip
+d042,Work,149.99,4,2026-06-01,Coastal Strip
+d043,Work,103.46,2,2026-04-13,Northlands
+d044,Summer,39.39,2,2026-04-12,Midlands
+d045,Work,158.65,1.5,2026-05-30,Northlands
+d046,Summer,139.93,3,2026-04-02,Coastal Strip
+d047,Summer,86.96,1.5,2026-05-02,Midlands
+d048,Party,106.16,3,2026-05-04,Northlands
+d049,Work,168.53,3.5,2026-06-30,Midlands
+d050,Party,98.73,3.5,2026-05-01,Southreach
+d051,Casual,84.19,3,2026-04-09,Coastal Strip
+d052,Casual,96.35,2,2026-04-04,Northlands
+d053,Work,166.58,2,2026-04-07,Coastal Strip
+d054,Summer,141.48,3.5,2026-05-28,Southreach
+d055,Party,170.73,2,2026-05-31,Midlands
+d056,Casual,29.48,3,2026-05-30,Northlands
+d057,Summer,110.54,1.5,2026-06-14,Southreach
+d058,Casual,133.3,2,2026-04-13,Coastal Strip
+d059,Party,133.45,2,2026-04-13,Southreach
+d060,Party,114.08,2,2026-05-02,Midlands
+d061,Formal,147.59,3,2026-05-26,Southreach
+d062,Casual,70.79,1.5,2026-06-06,Northlands
+d063,Casual,117.99,4,2026-06-23,Midlands
+d064,Formal,110.58,1.5,2026-04-18,Midlands
+d065,Casual,115.63,1.5,2026-05-03,Midlands
+d066,Party,105.12,2,2026-06-23,Midlands
+d067,Party,185.16,3.5,2026-06-20,Northlands
+d068,Work,120.42,2.5,2026-05-06,Southreach
+d069,Summer,61.68,2.5,2026-04-24,Coastal Strip
+d070,Work,72.01,2,2026-05-24,Southreach
+d071,Casual,86.41,2.5,2026-06-30,Midlands
+d072,Casual,108.95,3,2026-04-30,Northlands
+d073,Summer,59.29,3.5,2026-06-26,Northlands
+d074,Summer,112.13,2,2026-06-23,Coastal Strip
+d075,Formal,215.18,2,2026-06-20,Coastal Strip
+d076,Casual,112.37,3,2026-05-12,Southreach
+d077,Summer,85.55,2,2026-06-19,Midlands
+d078,Formal,146.63,3.5,2026-05-09,Midlands
+d079,Casual,62.5,1.5,2026-06-09,Southreach
+d080,Party,163.19,3.5,2026-06-23,Northlands
+d081,Party,150.03,4,2026-04-02,Southreach
+d082,Work,93.08,1.5,2026-04-28,Midlands
+d083,Casual,114.11,3.5,2026-04-29,Northlands
+d084,Party,183.16,3,2026-04-09,Midlands
+d085,Summer,34.48,1.5,2026-05-11,Northlands
+d086,Formal,117.76,3.5,2026-06-21,Midlands
+d087,Formal,183.6,2.5,2026-05-27,Midlands
+d088,Casual,84.46,3.5,2026-05-05,Midlands
+d089,Work,150.5,1.5,2026-05-24,Coastal Strip
+d090,Party,157.28,2,2026-05-26,Midlands
+d091,Work,127.65,2.5,2026-06-08,Northlands
+d092,Summer,106.32,2,2026-04-01,Northlands
+d093,Formal,135.24,2.5,2026-04-18,Midlands
+d094,Summer,40.52,2,2026-06-12,Midlands
+d095,Work,100.89,1.5,2026-04-14,Coastal Strip
+d096,Casual,22.3,2.5,2026-04-03,Northlands
+d097,Party,209.17,2,2026-04-08,Midlands
+d098,Casual,79.52,2,2026-04-21,Midlands
+d099,Formal,144.26,1.5,2026-05-18,Northlands
+d100,Summer,88.5,2.5,2026-04-24,Coastal Strip
+d101,Work,150.91,3,2026-06-18,Coastal Strip
+d102,Casual,82.44,3,2026-04-29,Coastal Strip
+d103,Summer,99.61,3,2026-05-16,Southreach
+d104,Party,116.43,2.5,2026-04-14,Southreach
+d105,Work,146.41,3,2026-06-23,Southreach
+d106,Party,164.36,2.5,2026-06-27,Southreach
+d107,Party,90.37,3.5,2026-06-12,Coastal Strip
+d108,Formal,162.96,3.5,2026-05-27,Midlands
+d109,Summer,135.41,2.5,2026-04-17,Northlands
+d110,Party,136.73,3.5,2026-04-08,Northlands
+d111,Casual,46.6,2.5,2026-04-28,Southreach
+d112,Summer,87.62,3,2026-05-22,Coastal Strip
+d113,Party,155.76,2,2026-06-06,Coastal Strip
+d114,Casual,44.58,1.5,2026-05-29,Southreach
+d115,Formal,186.09,4,2026-04-12,Coastal Strip
+d116,Work,107.44,2.5,2026-05-01,Northlands
+d117,Summer,117.94,2,2026-05-24,Coastal Strip
+d118,Summer,111.71,3.5,2026-05-10,Southreach
+d119,Work,64.29,3.5,2026-04-07,Midlands
+d120,Work,63.38,2,2026-06-30,Midlands
+d121,Formal,177.91,3.5,2026-04-10,Midlands
+d122,Casual,54.73,3.5,2026-04-18,Midlands
+d123,Work,130.63,1.5,2026-06-05,Midlands
+d124,Formal,218.1,2,2026-04-04,Southreach
+d125,Work,79.76,3.5,2026-06-09,Coastal Strip
+d126,Work,77.87,2,2026-06-03,Coastal Strip
+d127,Summer,129.36,2,2026-06-24,Midlands
+d128,Casual,93.73,3,2026-06-16,Coastal Strip
+d129,Party,175.33,3,2026-05-06,Midlands
+d130,Summer,125.42,3.5,2026-04-23,Coastal Strip
+d131,Summer,62.55,3.5,2026-05-11,Midlands
+d132,Summer,78.64,2.5,2026-05-09,Northlands
+d133,Summer,47.12,2,2026-05-15,Northlands
+d134,Party,190.36,3.5,2026-04-26,Midlands
+d135,Work,61.44,3,2026-06-03,Midlands
+d136,Work,156.52,4,2026-05-16,Southreach
+d137,Party,125.77,2,2026-06-26,Midlands
+d138,Casual,18.12,2.5,2026-04-29,Southreach
+d139,Formal,125.22,2.5,2026-05-12,Midlands
+d140,Summer,44.51,3,2026-06-20,Coastal Strip
+d141,Summer,68.06,2.5,2026-05-31,Midlands
+d142,Formal,182.26,2,2026-05-17,Midlands
+d143,Casual,75.84,3.5,2026-06-30,Coastal Strip
+d144,Summer,50.88,1.5,2026-05-01,Coastal Strip
+d145,Work,164.5,3,2026-04-19,Coastal Strip
+d146,Casual,117,2.5,2026-06-06,Midlands
+d147,Formal,146.89,3.5,2026-05-04,Coastal Strip
+d148,Formal,206.25,2,2026-06-02,Northlands
+d149,Summer,149.66,2.5,2026-05-15,Southreach
+d150,Casual,21.8,3,2026-04-12,Coastal Strip
+d151,Party,142.57,3.5,2026-06-25,Midlands
+d152,Casual,26.34,2,2026-06-10,Southreach
+d153,Summer,140.95,2.5,2026-06-25,Midlands
+d154,Summer,63.18,2.5,2026-04-13,Southreach
+d155,Formal,175.19,2,2026-06-29,Southreach
+d156,Work,177.18,2.5,2026-05-30,Southreach
+d157,Formal,167.47,2,2026-06-20,Midlands
+d158,Work,70.13,2.5,2026-06-24,Southreach
+d159,Work,95.66,3.5,2026-06-09,Midlands
+d160,Formal,112.01,3,2026-05-27,Southreach
+d161,Work,146.57,4,2026-06-30,Southreach
+d162,Casual,51.51,1.5,2026-05-15,Southreach
+d163,Casual,98.17,2.5,2026-04-12,Coastal Strip
+d164,Summer,90.3,3,2026-05-09,Coastal Strip
+d165,Summer,61.35,1.5,2026-05-01,Coastal Strip
+d166,Formal,223.31,2.5,2026-05-27,Southreach
+d167,Summer,98.03,2.5,2026-05-15,Southreach
+d168,Casual,97.03,3.5,2026-06-06,Northlands
+d169,Summer,138.68,1.5,2026-06-28,Coastal Strip
+d170,Summer,46.3,2,2026-04-27,Northlands
+d171,Work,155.58,3,2026-06-24,Southreach
+d172,Summer,57.76,2.5,2026-06-27,Northlands
+d173,Party,112.06,2,2026-05-17,Coastal Strip
+d174,Party,128.57,2,2026-06-06,Coastal Strip
+d175,Work,123.82,3.5,2026-04-09,Northlands
+d176,Summer,144.59,2,2026-06-17,Southreach
+d177,Casual,98.37,1.5,2026-05-21,Northlands
+d178,Casual,76.22,2.5,2026-04-04,Coastal Strip
+d179,Party,141.88,2,2026-05-20,Southreach
+d180,Work,124.02,1.5,2026-05-03,Midlands
+d181,Casual,103.2,2,2026-05-06,Midlands
+d182,Summer,51.41,2.5,2026-04-20,Southreach
+d183,Summer,149.92,2,2026-06-14,Northlands
+d184,Casual,87.14,3.5,2026-05-28,Southreach
+d185,Casual,24.1,1.5,2026-06-20,Southreach
+d186,Casual,133.34,3.5,2026-06-28,Coastal Strip
+d187,Party,203.1,3,2026-04-17,Northlands
+d188,Casual,26.58,3,2026-06-03,Midlands
+d189,Formal,218.17,2,2026-05-15,Northlands
+d190,Summer,111.06,3.5,2026-06-11,Midlands
+d191,Casual,47.07,2.5,2026-06-12,Southreach
+d192,Formal,150.1,3,2026-06-29,Midlands
+d193,Work,178.01,3,2026-04-23,Southreach
+d194,Work,152.25,3.5,2026-04-20,Midlands
+d195,Party,150.3,2,2026-04-04,Coastal Strip
+d196,Work,120.13,1.5,2026-06-16,Midlands
+d197,Party,130.97,2.5,2026-06-13,Southreach
+d198,Formal,124.78,3.5,2026-06-14,Northlands
+d199,Summer,146.96,3,2026-05-31,Southreach
+d200,Formal,123.51,4,2026-04-27,Midlands
+d201,Work,135.96,3.5,2026-04-02,Southreach
+d202,Summer,121.51,2,2026-05-24,Midlands
+d203,Casual,87.84,3,2026-05-28,Southreach
+d204,Formal,186.12,2,2026-04-25,Southreach
+d205,Party,116.75,3.5,2026-05-18,Northlands
+d206,Summer,86.7,3.5,2026-05-05,Coastal Strip
+d207,Party,117.14,1.5,2026-06-08,Coastal Strip
+d208,Casual,83.82,3,2026-04-13,Northlands
+d209,Work,117.94,3.5,2026-04-27,Midlands
+d210,Work,94.8,3,2026-04-16,Midlands
+d211,Party,164.63,2.5,2026-06-26,Northlands
+d212,Party,126.51,2,2026-05-27,Northlands
+d213,Work,110.71,2.5,2026-04-26,Midlands
+d214,Casual,38.71,3,2026-05-26,Coastal Strip
+d215,Work,96.39,3.5,2026-06-13,Northlands
+d216,Formal,217.54,3,2026-05-01,Northlands
+d217,Work,98.23,1.5,2026-04-24,Northlands
+d218,Party,198.94,2.5,2026-06-23,Northlands
+d219,Formal,165.78,3,2026-04-12,Southreach
+d220,Summer,81.53,2.5,2026-06-06,Northlands
+d221,Formal,161.72,2.5,2026-05-01,Midlands
+d222,Summer,139.56,3.5,2026-04-27,Coastal Strip
+d223,Formal,116.63,2,2026-06-01,Midlands
+d224,Work,173.67,2.5,2026-05-28,Coastal Strip
+d225,Summer,77.98,2,2026-06-26,Midlands
+d226,Formal,164.16,3,2026-06-03,Southreach
+d227,Work,156.52,2,2026-05-29,Northlands
+d228,Casual,61.09,3.5,2026-04-19,Midlands
+d229,Formal,170.83,3,2026-05-28,Southreach
+d230,Formal,193.13,2,2026-06-16,Coastal Strip
+d231,Summer,129.34,3.5,2026-06-10,Midlands
+d232,Party,141.56,2,2026-05-09,Midlands
+d233,Casual,79.83,2,2026-04-22,Northlands
+d234,Work,174.45,3,2026-04-25,Southreach
+d235,Formal,175.25,2,2026-04-28,Midlands
+d236,Summer,100.04,2.5,2026-05-15,Northlands
+d237,Summer,87.52,3,2026-04-27,Southreach
+d238,Summer,49.49,3,2026-04-17,Northlands
+d239,Casual,50.15,3.5,2026-05-16,Southreach
+d240,Casual,54.73,3,2026-04-06,Southreach
+d241,Casual,61.22,2.5,2026-05-17,Coastal Strip
+d242,Work,105.46,3,2026-05-20,Southreach
+d243,Casual,63.27,3.5,2026-05-02,Midlands
+d244,Party,91.33,2.5,2026-05-16,Southreach
+d245,Work,75.18,3,2026-04-10,Southreach
+d246,Summer,50.02,2,2026-05-09,Midlands
+d247,Work,134.02,3,2026-06-27,Midlands
+d248,Casual,91.05,2,2026-05-25,Coastal Strip
+d249,Party,172.43,2.5,2026-06-17,Midlands
+d250,Work,132.3,3,2026-06-10,Southreach
+d251,Work,130.8,3,2026-04-17,Coastal Strip
+d252,Casual,18.17,3,2026-06-01,Northlands
+d253,Party,132.79,1.5,2026-05-01,Northlands
+d254,Party,116.66,3.5,2026-06-25,Coastal Strip
+d255,Summer,92.56,1.5,2026-04-29,Coastal Strip
+d256,Work,142.82,3,2026-05-20,Midlands
+d257,Casual,75.84,3,2026-05-18,Midlands
+d258,Summer,133.28,2,2026-04-17,Northlands
+d259,Summer,53.33,3.5,2026-06-24,Northlands
+d260,Casual,99.29,1.5,2026-04-20,Southreach
+d261,Casual,65.19,2.5,2026-04-02,Coastal Strip
+d262,Party,200.07,2.5,2026-04-19,Coastal Strip
+d263,Party,143.37,2,2026-04-12,Southreach
+d264,Summer,149.98,2,2026-05-28,Midlands
+d265,Casual,86.29,3.5,2026-05-30,Northlands
+d266,Party,120.37,4,2026-05-25,Southreach
+d267,Summer,31.08,1,2026-05-10,Southreach
+d268,Casual,112.53,3.5,2026-06-07,Coastal Strip
+d269,Summer,50.09,2.5,2026-05-15,Northlands
+d270,Work,172.8,2.5,2026-05-28,Northlands
+d271,Party,169.33,3.5,2026-06-19,Northlands
+d272,Summer,35.98,1.5,2026-04-28,Northlands
+d273,Party,187.04,2.5,2026-06-05,Midlands
+d274,Party,115.18,3,2026-05-29,Northlands
+d275,Casual,26.48,3,2026-06-16,Northlands
+d276,Formal,194.54,4,2026-04-16,Southreach
+d277,Casual,44.74,2.5,2026-05-18,Coastal Strip
+d278,Summer,122.84,1.5,2026-04-07,Midlands
+d279,Work,92.33,3.5,2026-06-17,Southreach
+d280,Summer,141.8,3,2026-05-29,Southreach
+d281,Casual,60.42,2.5,2026-04-07,Midlands
+d282,Summer,115.73,2.5,2026-05-27,Coastal Strip
+d283,Formal,149.78,3.5,2026-04-04,Coastal Strip
+d284,Summer,85.24,1.5,2026-04-24,Northlands
+d285,Formal,183.59,3,2026-05-02,Northlands
+d286,Party,206.83,2,2026-05-15,Coastal Strip
+d287,Formal,216.59,2.5,2026-06-28,Northlands
+d288,Formal,131.21,2,2026-05-27,Southreach
+d289,Work,178.97,2,2026-04-04,Southreach
+d290,Casual,128.16,2,2026-06-19,Coastal Strip
+d291,Work,105.07,4,2026-04-01,Southreach
+d292,Formal,124.97,3.5,2026-06-12,Midlands
+d293,Summer,91.85,2,2026-05-10,Coastal Strip
+d294,Party,109.44,4,2026-06-10,Southreach
+d295,Summer,63.11,2,2026-04-30,Coastal Strip
+d296,Party,139.38,2.5,2026-04-11,Southreach
+d297,Casual,58.98,1,2026-06-28,Midlands
+d298,Formal,195.64,4,2026-05-26,Coastal Strip
+d299,Party,138.82,3.5,2026-06-22,Midlands
+d300,Party,137.95,1.5,2026-04-10,Midlands

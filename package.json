@@ -17,6 +17,7 @@
     "demo": "node demo/server.mjs",
     "demo:data": "node demo/gen-data.mjs",
     "demo:agent": "node demo-agent/server.mjs",
+    "demo:agent:data": "node demo-agent/gen-data.mjs",
     "build:ui": "npm run build -w vizfootprint-ui",
     "test:ui": "npm run test -w vizfootprint-ui",
     "typecheck:ui": "npm run typecheck -w vizfootprint-ui",
