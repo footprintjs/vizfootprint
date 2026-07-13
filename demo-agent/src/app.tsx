@@ -49,7 +49,7 @@ import { CATEGORIES, categoryColor, el, replaceChildren } from '../../demo/src/c
 import { loadRows, type DemoRow } from './rows.js';
 import { DEMO_GEO, REGIONS } from './geo.js';
 import { matchesClause } from '../../src/data/predicate.js';
-import type { PredicateClause, Row } from '../../src/data/types.js';
+import type { IntervalClause, PredicateClause, Row } from '../../src/data/types.js';
 
 // ── the chat/activity slice of /api/state — NOT part of vizfootprint-ui's
 // adapter contract (agent tool-call activity is this demo's own chrome, not a
@@ -139,7 +139,10 @@ const SUGGESTIONS = [
 // duplicate reimplementation) ─────────────────────────────────────────────────
 function clauseOf(sel: { field: string; kind: 'point' | 'interval'; value: unknown }): PredicateClause | null {
   if (sel.kind === 'interval') {
-    const v = sel.value as [number, number] | null;
+    // FILTER-1: a half-open or ISO-date range rides this same poll-wire value
+    // — the cast widens to the real IntervalClause shape (never [number,
+    // number]-only), matchesClause below handles every arm honestly.
+    const v = sel.value as IntervalClause['value'];
     return v === null ? null : { kind: 'interval', field: sel.field, value: v };
   }
   return { kind: 'point', field: sel.field, value: sel.value };

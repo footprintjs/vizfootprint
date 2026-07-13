@@ -33,7 +33,7 @@ Your tools are FIXED: whats_here, dispatch, declare_analysis, why, fork, checkpo
 
 Work method, every turn:
 1. Call whats_here FIRST. It reports the declared views and their ids, EACH view's current channel->field visual encodings and the columns available to put on them (branch-scoped, names+types only), the active DATA-space selections, the declared analyses and whether each is ready to run, the online-FDR ledger, how many requests have gone unmet (gaps), and the NAMED PATHS of the history (which path you're on, every path with its tip). Orient before you act — the columns list is how you know which fields actually exist before you name one.
-2. Change the selection with dispatch: verb 'filter' takes an interval [lo, hi] of two NUMBERS on a numeric field (or null to clear) — narrowing a DATE range is a human gesture (dragging the line chart), not something your filter tool accepts yet, so say so plainly if asked to filter to a date window rather than guessing a workaround. Verb 'select' takes a single point value on any field — a category, a region name, or a row id. Name a viewId from whats_here — 'scatter' starts encoding price (x) by rating (y), 'bar' encodes category, 'line' encodes date (x) by price (y) (view-only for you), 'map' selects a region by name, 'table' selects a row by id. One dispatch is one semantic interaction.
+2. Change the selection with dispatch: verb 'filter' takes an interval [lo, hi] on a field — both NUMBERS on a numeric field (e.g. price), or both ISO-8601 date strings "YYYY-MM-DD" on a date field (e.g. date), never mixed. Either bound can be null for an OPEN-ENDED range: asked to filter "over $150", dispatch range [150, null] — never invent a made-up ceiling number; asked for "up to May", dispatch [null, "2026-05-31"]. Pass range: null (on the whole call) to clear a filter. Verb 'select' takes a single point value on any field — a category, a region name, or a row id. Name a viewId from whats_here — 'scatter' starts encoding price (x) by rating (y), 'bar' encodes category, 'line' encodes date (x) by price (y) — filterable by you too, same as any other view, 'map' selects a region by name, 'table' selects a row by id. One dispatch is one semantic interaction.
 2b. Change what an axis SHOWS with dispatch verb 'reencode': give viewId, channel (e.g. 'x', 'y', 'color' on the scatter; 'category' on the bar), and field — field must be one of the columns whats_here listed for that view, and the channel must be one whats_here's view.encodings already has an entry for. An invalid channel or a column that doesn't exist comes back as a typed gap, not a guess.
 3. Never compute a statistic yourself. For ANY statistical claim — a correlation, a regression, a clustering, a group summary — call declare_analysis with the analysis id. It runs over the CURRENT selection; a test lands exactly one row in the FDR ledger.
 4. Read the result HONESTLY. Report the ledger's own verdict via whats_here (its fdr field) — never keep your own count. A test that is significant alone but NOT rejected by the online procedure at the current test count is not a discovery; say so plainly. A degenerate fit returns an honest flag and spends no wealth — report the non-discovery, do not invent a number.
@@ -195,6 +195,38 @@ export function scriptedAnalystMock(): LLMProvider {
         'one row landed in the online-FDR ledger. Read its verdict in the ledger panel: a p that is ' +
         'significant on its own but not rejected by LORD++ at the current test count is NOT a discovery.'
       );
+    },
+  });
+}
+
+/**
+ * A third scripted mock — drives the FILTER-1 date-filter path end to end: the
+ * SAME six-tool surface, but the scripted sequence is whats_here →
+ * dispatch(filter, an ISO-8601 date range on the line view's 'date' field) → a
+ * grounded reply. Proves the "Filter to May and tell me what changed" chip
+ * (previously a gap — the filter tool validated range as numbers-only) now
+ * lands a real date-interval commit, with the LLM stubbed.
+ */
+export function scriptedDateFilterMock(): LLMProvider {
+  const toolStep = (id: string, name: string, args: Record<string, unknown>): Partial<LLMResponse> => ({
+    content: '',
+    toolCalls: [{ id, name, args }],
+    stopReason: 'tool_use',
+  });
+  return mock({
+    name: 'scripted-date-filter',
+    respond: (req: LLMRequest): Partial<LLMResponse> | string => {
+      const done = req.messages.filter((m) => m.role === 'tool').length;
+      if (done === 0) return toolStep('m0', 'whats_here', {});
+      if (done === 1)
+        return toolStep('m1', 'dispatch', {
+          verb: 'filter',
+          viewId: 'line',
+          field: 'date',
+          range: ['2026-05-01', '2026-05-31'],
+          intent: 'filter to May',
+        });
+      return 'Filtered the line to May 2026 (2026-05-01 through 2026-05-31) — every other chart now reflects just that window.';
     },
   });
 }

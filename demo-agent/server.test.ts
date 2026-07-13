@@ -18,7 +18,7 @@ import path from 'node:path';
 import { startServer } from './server.mjs';
 import { buildAppBundle, readUiStylesheet } from './build.mjs';
 import { createAnalyst } from './src/core.js';
-import { scriptedReencodeMock } from './src/analyst.js';
+import { scriptedReencodeMock, scriptedDateFilterMock } from './src/analyst.js';
 import { stepBackTarget, stepForwardTarget } from './src/stepNav.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -145,6 +145,23 @@ describe('UI-2: reencode — the human dashboard path (axis click -> POST /api/d
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({ viewId: 'encoding:scatter', field: 'x', value: 'rating', cause: { requestedBy: 'agent' } });
     expect((state.encodings as Record<string, Record<string, string>>)['scatter']).toEqual({ x: 'rating', y: 'rating' });
+
+    const tools = state.activity.map((a) => a.tool);
+    expect(tools).toEqual(['whats_here', 'dispatch']);
+  }, 30_000);
+
+  it('FILTER-1: the agent can now date-filter through the SAME tool boundary ("Filter to May", scriptedDateFilterMock)', async () => {
+    // Previously a gap: the filter tool validated range as numbers-only, so a
+    // date window had no way in. scriptedDateFilterMock drives the exact
+    // sequence a real "Filter to May and tell me what changed" turn does.
+    const analyst = createAnalyst({ csv: CSV, mock: true, provider: scriptedDateFilterMock() });
+    const reply = await analyst.chat('Filter to May and tell me what changed.');
+    expect(reply.text.length).toBeGreaterThan(0);
+
+    const state = await analyst.state();
+    const records = state.records as { viewId: string; field: string; value: unknown; cause: { requestedBy: string } }[];
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ viewId: 'line', field: 'date', value: ['2026-05-01', '2026-05-31'], cause: { requestedBy: 'agent' } });
 
     const tools = state.activity.map((a) => a.tool);
     expect(tools).toEqual(['whats_here', 'dispatch']);

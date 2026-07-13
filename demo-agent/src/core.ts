@@ -16,7 +16,7 @@ import { createAssistant, scriptedAnalystMock, type ActivityStep } from './analy
 import type { LLMProvider } from 'agentfootprint/llm-providers';
 import type { AttTrace } from 'agentfootprint/observe';
 import type { Cause } from '../../src/cause/index.js';
-import type { DispatchAction, DispatchResult } from '../../src/agent/index.js';
+import type { DispatchAction, DispatchResult, FilterRange } from '../../src/agent/index.js';
 // BR-3: the named-paths result/state types are owned by `src/session` — the
 // `src/agent` barrel re-exports the tool port but never re-exported these
 // BR-1 types (src/ is frozen; nothing to fix here), so read them from the
@@ -49,7 +49,7 @@ export interface UserDispatchBody {
   readonly viewId?: string;
   readonly field?: string;
   readonly value?: unknown;
-  readonly range?: readonly [number, number] | null;
+  readonly range?: FilterRange;
   readonly analysisId?: string;
   /** The visual channel a `reencode` rebinds (e.g. 'x', 'y', 'category'). */
   readonly channel?: string;
