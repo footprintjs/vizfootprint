@@ -855,6 +855,18 @@
   color: var(--vzf-ink-faint);
   font-size: 0.85em;
   padding: var(--vzf-space-2);
+  /* ONE LINE, always. As a flex item the hint's min-width is its content by
+     default, and its text may wrap — at narrow (mobile) widths the compact
+     bar squeezes the empty track to a sliver, and without these rules the
+     long hint wraps into a tall one-word-wide column that (via the row's
+     align-items: stretch) balloons the whole top strip to ~250px. Shrinkable
+     (min-width: 0) + nowrap + ellipsis keeps the empty state the same slim
+     single row as the with-commits state at every width. */
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 :where(.vzf) .vzf-present-beat {
   text-align: center;

@@ -661,6 +661,20 @@ describe.skipIf(!existsSync(CHROME))('mobile viewport — scroll-snap chart caro
     await handle?.close();
   });
 
+  it('the EMPTY session (a fresh visitor) keeps the top strip one slim row — the "no commits yet" hint never wraps into a tall column', async () => {
+    // regression: .vzf-tl-empty used to wrap its long hint into a one-word-wide
+    // column inside the squeezed compact track, ballooning the (stretch-aligned)
+    // top strip to ~250px at 390px width until the first commit landed.
+    const m = await page.evaluate(() => {
+      const top = document.querySelector('[data-vzf="cockpit-top"]')!.getBoundingClientRect();
+      const empty = document.querySelector('.vzf-tl-empty')!.getBoundingClientRect();
+      return { topH: top.height, emptyH: empty.height };
+    });
+    expect(m.topH, 'empty-state top strip stays one slim row (was ~250px before the fix)').toBeLessThan(90);
+    expect(m.emptyH, 'the hint renders on ONE line (nowrap + ellipsis), never a wrapped column').toBeLessThan(40);
+    await expectNoPageOrShellScroll(page);
+  }, 30_000);
+
   it('renders a two-page dot carousel with zero page/shell scroll; tapping a dot swipes to that chart', async () => {
     await expectNoPageOrShellScroll(page);
     const strip = await page.evaluate(() => {
