@@ -37,10 +37,31 @@ export interface Cause {
    * never dispatched on. An injection string here is just a string.
    */
   intent?: string;
+  /**
+   * BR-1 bring-over (cherry-pick) marker: the id of the commit this commit
+   * REPLAYS onto another path. A bring-over is an ordinary commit — no new
+   * verb — so the provenance rides here. Inert data, like `intent`: the id
+   * is a plain string, never parsed or dereferenced by the validator.
+   */
+  replayedFrom?: string;
+  /**
+   * BR-1 undo (revert) marker: the id of the commit this commit REVERTS
+   * (the new commit restores the key's value at that commit's parent).
+   * Same inert-data discipline as `replayedFrom`.
+   */
+  revertOf?: string;
+  /**
+   * BR-1 conflict note: the ids of the commits that touched the SAME state
+   * key on the target path since the common ancestor, at the moment a
+   * bring-over/undo plan was executed. Present only when the plan reported
+   * conflicts — the plan stays executable, the note is explicit + audited.
+   * Inert data: ids are plain strings.
+   */
+  conflicts?: readonly string[];
 }
 
 /** The exhaustive set of keys a Cause may carry. Anything else is rejected. */
-const CAUSE_KEYS = new Set(['requestedBy', 'computedBy', 'replayed', 'intent']);
+const CAUSE_KEYS = new Set(['requestedBy', 'computedBy', 'replayed', 'intent', 'replayedFrom', 'revertOf', 'conflicts']);
 
 /** Error thrown when a value is not a well-formed Cause. Carries every problem. */
 export class CauseValidationError extends Error {
@@ -103,6 +124,21 @@ export function parseCause(value: unknown): CauseParseResult {
     problems.push('intent, if present, must be a string');
   }
 
+  if ('replayedFrom' in record && typeof record.replayedFrom !== 'string') {
+    problems.push('replayedFrom, if present, must be a string commit id');
+  }
+
+  if ('revertOf' in record && typeof record.revertOf !== 'string') {
+    problems.push('revertOf, if present, must be a string commit id');
+  }
+
+  if ('conflicts' in record) {
+    const c = record.conflicts;
+    if (!Array.isArray(c) || !c.every((id) => typeof id === 'string')) {
+      problems.push('conflicts, if present, must be an array of string commit ids');
+    }
+  }
+
   if (problems.length) return { ok: false, problems };
 
   // Rebuild from scratch — this is the data-only firewall. Whatever else was
@@ -113,6 +149,9 @@ export function parseCause(value: unknown): CauseParseResult {
   };
   if (record.replayed === true) cause.replayed = true;
   if (typeof record.intent === 'string') cause.intent = record.intent;
+  if (typeof record.replayedFrom === 'string') cause.replayedFrom = record.replayedFrom;
+  if (typeof record.revertOf === 'string') cause.revertOf = record.revertOf;
+  if (Array.isArray(record.conflicts)) cause.conflicts = [...(record.conflicts as string[])]; // fresh array — the firewall copies, never aliases
   return { ok: true, cause };
 }
 
