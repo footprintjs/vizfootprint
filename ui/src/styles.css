@@ -58,6 +58,20 @@
   --vzf-clay: #b45309;
   --vzf-clay-tint: #f7ecd9;
 
+  /* ── sequential magnitude ramp (VizMap choropleth) ─────────
+     One-hue TEAL, five quantized steps, light→dark — a hue deliberately
+     absent from the semantic accents above so magnitude never impersonates
+     identity. Validator-checked (dataviz six-checks script, ordinal mode):
+     monotone lightness, adjacent ΔL ≥ 0.06, single hue; the light end
+     recedes toward the surface by design (sequential "near zero"), while
+     "NO data" is the separate --vzf-map-empty neutral, never step 1. */
+  --vzf-seq-1: #c9e7e3;
+  --vzf-seq-2: #9cd0cb;
+  --vzf-seq-3: #6bb2ae;
+  --vzf-seq-4: #3d8b8a;
+  --vzf-seq-5: #1d5f63;
+  --vzf-map-empty: var(--vzf-surface-2);
+
   /* contrast-aware foregrounds over coloured fills */
   --vzf-on-brand: #ffffff;
   --vzf-on-user: #ffffff;
@@ -126,6 +140,13 @@
     --vzf-danger-tint: #331620;
     --vzf-clay: #e0913a;
     --vzf-clay-tint: #2c2113;
+    /* dark sequential ramp: the anchor FLIPS — high magnitude = brightest
+       (validator-checked against the dark surface, same monotone-L rule) */
+    --vzf-seq-1: #16383e;
+    --vzf-seq-2: #1e565d;
+    --vzf-seq-3: #2d7d81;
+    --vzf-seq-4: #4fa8a6;
+    --vzf-seq-5: #8ed5cd;
     --vzf-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --vzf-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);
     --vzf-shadow-lg: 0 18px 46px rgba(0, 0, 0, 0.6);
@@ -156,6 +177,13 @@
   --vzf-danger-tint: #331620;
   --vzf-clay: #e0913a;
   --vzf-clay-tint: #2c2113;
+  /* dark sequential ramp: the anchor FLIPS — high magnitude = brightest
+     (validator-checked against the dark surface, same monotone-L rule) */
+  --vzf-seq-1: #16383e;
+  --vzf-seq-2: #1e565d;
+  --vzf-seq-3: #2d7d81;
+  --vzf-seq-4: #4fa8a6;
+  --vzf-seq-5: #8ed5cd;
   --vzf-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --vzf-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);
   --vzf-shadow-lg: 0 18px 46px rgba(0, 0, 0, 0.6);
@@ -589,6 +617,59 @@
   stroke: var(--vzf-brand-deep);
   stroke-width: 2;
   stroke-dasharray: 5 4;
+}
+
+/* ── VizLine (time series) ─────────────────────────────────── */
+:where(.vzf) .vzf-line-path {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+:where(.vzf) .vzf-line-dot {
+  transition: opacity 0.15s ease;
+}
+
+/* ── VizMap (choropleth) ───────────────────────────────────── */
+:where(.vzf) .vzf-region {
+  /* a 1px surface-coloured border = the mark-spec "surface gap" between fills */
+  stroke: var(--vzf-surface);
+  stroke-width: 1;
+  cursor: pointer;
+  transition: opacity 0.15s ease, stroke 0.12s ease;
+}
+:where(.vzf) .vzf-region.vzf-region-empty {
+  /* HONEST absence: the neutral empty fill + a dashed edge — visibly "no
+     data", never the ramp's lowest step (that means "low", not "none") */
+  stroke: var(--vzf-line);
+  stroke-dasharray: 3 3;
+}
+:where(.vzf) .vzf-region.vzf-selected {
+  stroke: var(--vzf-ink);
+  stroke-width: 2;
+  stroke-dasharray: none;
+}
+:where(.vzf) .vzf-region:focus-visible {
+  outline: none;
+  stroke: var(--vzf-brand);
+  stroke-width: 2;
+  stroke-dasharray: none;
+}
+:where(.vzf) .vzf-map-minmax {
+  fill: var(--vzf-ink-faint);
+  font-family: var(--vzf-font-mono);
+  font-size: 10px;
+}
+:where(.vzf) .vzf-map-note {
+  fill: var(--vzf-ink-faint);
+  font-size: 11px;
+  font-style: italic;
+}
+:where(.vzf) .vzf-map-field {
+  fill: var(--vzf-ink-faint);
+  font-family: var(--vzf-font-display);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 /* axis label = an interactive affordance (opens the encoding picker) */

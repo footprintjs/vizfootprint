@@ -6,7 +6,8 @@
  *   • adapter/  — `createSessionView`, the framework-light store every
  *                 component reads (over a live session OR a polled endpoint).
  *   • layout/   — `<VizCockpit>` shell + `<VizModal>` + `<VizPanel>`/`<VizCard>`.
- *   • charts/   — `<VizScatter>`, `<VizBar>`, `<EncodingPicker>` (axis affordance).
+ *   • charts/   — `<VizScatter>`, `<VizBar>`, `<VizLine>`, `<VizMap>`,
+ *                 `<EncodingPicker>` (axis affordance).
  *   • time/     — `<TimeTravelBar>` (explore/present) + `<BranchMap>`.
  *   • branches/ — `<BranchPill>`, `<PathsModal>`, `<CompareModal>`, `<ForkToast>`
  *                 (the NAMED-paths family over the adapter's BR-1 actions).
