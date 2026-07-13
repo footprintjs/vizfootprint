@@ -31,7 +31,7 @@ const text = (res: unknown) =>
   JSON.parse(((res as { content: { type: string; text: string }[] }).content[0]!).text) as Record<string, unknown>;
 
 describe('mcpServer — a real MCP server backed by a live session', () => {
-  it('tools/list returns the FIXED six semantic tools', async () => {
+  it('tools/list returns the FIXED eight semantic tools', async () => {
     const client = await connectClient(freshSession());
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name)).toEqual([
@@ -41,6 +41,8 @@ describe('mcpServer — a real MCP server backed by a live session', () => {
       'viz.why',
       'viz.fork',
       'viz.checkpoint',
+      'viz.paths',
+      'viz.compare',
     ]);
   });
 
@@ -100,6 +102,33 @@ describe('mcpServer — a real MCP server backed by a live session', () => {
     expect(slice['targetKind']).toBe('column');
     // machine-shaped: a flat {tier,id,kind} commit array, no prose.
     expect(Array.isArray(slice['commits'])).toBe(true);
+  });
+
+  it('routes paths + compare (BR-1) — branch by name over MCP, then read the structured diff', async () => {
+    const client = await connectClient(freshSession());
+    const a = text(await client.callTool({ name: 'viz.dispatch', arguments: { verb: 'select', viewId: 'bar', field: 'category', value: 'Formal' } }));
+    const aId = (a['commit'] as { id: string }).id;
+    await client.callTool({ name: 'viz.dispatch', arguments: { verb: 'filter', viewId: 'scatter', field: 'price', range: [60, 130] } });
+    await client.callTool({ name: 'viz.fork', arguments: { fromCommitId: aId } });
+    await client.callTool({ name: 'viz.dispatch', arguments: { verb: 'select', viewId: 'bar', field: 'category', value: 'Casual', intent: 'premium focus' } });
+
+    const listed = text(await client.callTool({ name: 'viz.paths', arguments: { action: 'list' } }));
+    expect(listed['current']).toBe('premium-focus');
+    expect((listed['paths'] as { name: string }[]).map((p) => p.name).sort()).toEqual(['main', 'premium-focus']);
+
+    const switched = text(await client.callTool({ name: 'viz.paths', arguments: { action: 'switch', name: 'main' } }));
+    expect(switched['ok']).toBe(true);
+
+    const cmp = text(await client.callTool({ name: 'viz.compare', arguments: { a: 'main', b: 'premium-focus' } }));
+    expect(cmp['ok']).toBe(true);
+    expect(cmp['ancestor']).toBe(aId);
+    expect((cmp['changed'] as { key: string }[]).map((c) => c.key)).toEqual(['selection:bar']);
+    expect((cmp['a'] as { rows: number }).rows).toBe(7);
+    expect((cmp['b'] as { rows: number }).rows).toBe(8);
+
+    // whats_here surfaces the current path over MCP too
+    const here = text(await client.callTool({ name: 'viz.whats_here', arguments: {} }));
+    expect((here['paths'] as { current: string }).current).toBe('main');
   });
 
   it('an unknown tool comes back as isError, never a crash', async () => {

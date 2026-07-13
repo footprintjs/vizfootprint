@@ -236,3 +236,11 @@ describe('viz.declare_analysis — projectAnalysis omits absent commit/gap field
     expect('commit' in analysis).toBe(false);
   });
 });
+
+describe('viz.paths list — the no-active-path arm (BR-1)', () => {
+  it('a fresh session lists no paths and a null current (main is unborn until the first commit)', async () => {
+    const port = freshPort();
+    const listed = await port.call('viz.paths', { action: 'list' });
+    expect(listed).toEqual({ ok: true, current: null, paths: [] });
+  });
+});

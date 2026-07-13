@@ -2,10 +2,11 @@
  * vizAsTools(session) — the FIXED agent tool surface (Mode B, mirroring
  * hcifootprint's `skillsAsTools`). The tool array NEVER changes for the life of
  * a session: `whats_here`, `dispatch`, `declare_analysis`, `why`, `fork`,
- * `checkpoint`. Disclosure rides the RESULT channel (`whats_here` returns the
- * current views/selections/analyses-with-readiness), never the tool channel —
- * so the byte-identical tool list keeps prompt caches stable and the library is
- * a PLAIN MCP server for any host (no `tools/list_changed`).
+ * `checkpoint`, `paths`, `compare` (BR-1). Disclosure rides the RESULT channel
+ * (`whats_here` returns the current views/selections/analyses-with-readiness
+ * plus the named paths), never the tool channel — so the byte-identical tool
+ * list keeps prompt caches stable and the library is a PLAIN MCP server for
+ * any host (no `tools/list_changed`).
  *
  * R4 (zero synthetic input): the ONLY way to change state is a SEMANTIC verb.
  * There is no `emit_event` / `pointermove` tool — a probe that tries to push a
@@ -56,8 +57,9 @@ export interface VizToolsOptions {
 const WHATS_HERE_DESCRIPTION =
   'Describe the current analytical position: the declared views, their current channel->field visual ' +
   'encodings and the columns available to put on them, the active selections in DATA space, the ' +
-  'declared analyses with their readiness, the online-FDR ledger, and the count of unmet requests ' +
-  '(gaps). Call this first, then act with dispatch.';
+  'declared analyses with their readiness, the online-FDR ledger, the count of unmet requests ' +
+  '(gaps), and the NAMED PATHS of the history (which path you are on, every path with its tip). ' +
+  'Call this first, then act with dispatch.';
 
 const DISPATCH_DESCRIPTION =
   'Perform ONE semantic interaction. verb is one of: select (a point value on a field), filter (an ' +
@@ -84,11 +86,25 @@ const FORK_DESCRIPTION =
   'Travel back: move the read-only cursor to a prior commit id and rebuild the visible selection there. ' +
   'The active branch head is left intact, so the old lineage stays a live branch; your NEXT dispatch or ' +
   'declare_analysis lands as a SIBLING off the fork point (append-only — no history is rewritten, and ' +
-  'alpha spent on the branch you left is never refunded).';
+  'alpha spent on the branch you left is never refunded). The sibling starts a NAMED path, auto-named ' +
+  'from its cause — see the paths tool to list, switch, or rename.';
 
 const CHECKPOINT_DESCRIPTION =
   'Name the current cursor position (a checkpoint) so you can fork back to it later. Stored as inert ' +
   'data; never parsed.';
+
+const PATHS_DESCRIPTION =
+  'Work with the NAMED paths (branches) of the analysis history. action=list shows every path with its ' +
+  'tip commit, step count, and which one is current; switch moves to a path by name (the cursor jumps ' +
+  'to its tip and your next act extends it); rename gives a path a better name; new starts a named path ' +
+  'at a prior commit (auto-named from that commit when name is omitted). Every action is journaled — ' +
+  'branch bookkeeping is auditable, and nothing rewrites history.';
+
+const COMPARE_DESCRIPTION =
+  'Compare two positions of the analysis history — path names or commit ids. Returns the common ' +
+  'ancestor, what CHANGED between the two sides (selections, visual encodings, analyses — the last ' +
+  'state per key), what exists on only one side, and per-side row counts under each side\'s ' +
+  'selections. Read-only: nothing moves.';
 
 // ── static input schemas (Mode B: cannot enforce per-verb shape; fire-time validates) ──
 
@@ -163,6 +179,28 @@ const CHECKPOINT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+const PATHS_SCHEMA = {
+  type: 'object',
+  properties: {
+    action: { type: 'string', enum: ['list', 'switch', 'rename', 'new'], description: 'What to do with the named paths.' },
+    name: { type: 'string', description: 'The path name (switch target / rename source / optional custom name for new).' },
+    newName: { type: 'string', description: 'The new name (rename only).' },
+    commitId: { type: 'string', description: 'The commit id to start the new path at (new only).' },
+  },
+  required: ['action'],
+  additionalProperties: false,
+} as const;
+
+const COMPARE_SCHEMA = {
+  type: 'object',
+  properties: {
+    a: { type: 'string', description: 'One side: a path name or a commit id.' },
+    b: { type: 'string', description: 'The other side: a path name or a commit id.' },
+  },
+  required: ['a', 'b'],
+  additionalProperties: false,
+} as const;
+
 const NO_PARAMS = { type: 'object', properties: {}, additionalProperties: false } as const;
 
 function sanitize(name: string): string {
@@ -180,6 +218,8 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     why: sanitize(`${ns}.why`),
     fork: sanitize(`${ns}.fork`),
     checkpoint: sanitize(`${ns}.checkpoint`),
+    paths: sanitize(`${ns}.paths`),
+    compare: sanitize(`${ns}.compare`),
   };
 
   const staticTools: VizTool[] = [
@@ -189,6 +229,8 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     { name: NAMES.why, description: WHY_DESCRIPTION, inputSchema: structuredClone(WHY_SCHEMA) },
     { name: NAMES.fork, description: FORK_DESCRIPTION, inputSchema: structuredClone(FORK_SCHEMA) },
     { name: NAMES.checkpoint, description: CHECKPOINT_DESCRIPTION, inputSchema: structuredClone(CHECKPOINT_SCHEMA) },
+    { name: NAMES.paths, description: PATHS_DESCRIPTION, inputSchema: structuredClone(PATHS_SCHEMA) },
+    { name: NAMES.compare, description: COMPARE_DESCRIPTION, inputSchema: structuredClone(COMPARE_SCHEMA) },
   ];
 
   /** Build the two-slot cause from the port's principal + an inert intent (Q8: intent is data). */
@@ -295,6 +337,41 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     return projectDispatch(result);
   }
 
+  /** Route the `paths` tool — mutations go through the SESSION methods (never the refs directly). */
+  function callPaths(args: Record<string, unknown>): VizToolResult {
+    switch (args['action']) {
+      case 'list': {
+        const list = session.paths();
+        return { ok: true, current: list.find((p) => p.active)?.name ?? null, paths: list };
+      }
+      case 'switch': {
+        if (typeof args['name'] !== 'string') {
+          return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'paths switch requires a string name' };
+        }
+        return { ...session.switchPath(args['name']) };
+      }
+      case 'rename': {
+        if (typeof args['name'] !== 'string' || typeof args['newName'] !== 'string') {
+          return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'paths rename requires string name and newName' };
+        }
+        return { ...session.renamePath(args['name'], args['newName']) };
+      }
+      case 'new': {
+        const commitId = args['commitId'];
+        const name = args['name'];
+        if (typeof commitId !== 'string') {
+          return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'paths new requires a string commitId' };
+        }
+        if (name !== undefined && typeof name !== 'string') {
+          return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'paths new name, if present, must be a string' };
+        }
+        return { ...session.newPathAt(commitId, name) };
+      }
+      default:
+        return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'paths action must be one of list|switch|rename|new' };
+    }
+  }
+
   return {
     tools: () => structuredClone(staticTools),
     async call(name: string, rawArgs?: unknown): Promise<VizToolResult> {
@@ -319,6 +396,14 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
           return callDispatch({ verb: 'fork', ...args });
         case NAMES.checkpoint:
           return callDispatch({ verb: 'checkpoint', ...args });
+        case NAMES.paths:
+          return callPaths(args);
+        case NAMES.compare: {
+          if (typeof args['a'] !== 'string' || typeof args['b'] !== 'string') {
+            return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'compare requires string a and b (path names or commit ids)' };
+          }
+          return { ...(await session.compare(args['a'], args['b'])) };
+        }
         default:
           return { ok: false, reason: 'UNKNOWN_TOOL', tools: staticTools.map((t) => t.name) };
       }
