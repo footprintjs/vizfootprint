@@ -75,6 +75,22 @@ describe('memoryProvider — evaluate()', () => {
     expect(result.sql).toBe('null');
   });
 
+  it('a DATE interval (ISO-8601 string bounds) filters string-date rows end to end — both layouts', async () => {
+    const dated: Row[] = [
+      { id: 'a', date: '2026-04-01' },
+      { id: 'b', date: '2026-04-15' },
+      { id: 'c', date: '2026-05-20' },
+    ];
+    for (const layout of ['row', 'column'] as const) {
+      const p = memoryProvider(dated, { layout });
+      const result = await p.evaluate('data', { kind: 'interval', field: 'date', value: ['2026-04-01', '2026-04-30'] });
+      if (isRejection(result)) throw new Error('unreachable');
+      expect(result.sql).toBe(`("date" BETWEEN '2026-04-01' AND '2026-04-30')`);
+      expect(result.count).toBe(2);
+      expect(result.rows?.map((r) => r['id'])).toEqual(['a', 'b']);
+    }
+  });
+
   it('mode: "count" omits rows entirely', async () => {
     const p = memoryProvider(SAMPLE);
     const result = await p.evaluate('data', { kind: 'point', field: 'category', value: 'Data' }, { mode: 'count' });

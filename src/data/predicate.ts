@@ -88,6 +88,17 @@ function resolvePointSQL(clause: PointClause): string {
   return `(${quoteIdent(clause.field)} IN (${literalToSQL(clause.value)}))`;
 }
 
+/**
+ * ONE documented divergence from the byte-parity contract in the file header:
+ * STRING interval bounds (ISO-8601 dates) render as SQL string LITERALS here,
+ * while real Mosaic's `isBetween` (operators.js:219-221) maps extents through
+ * `asNode` (ast.js:16-17: `isString(value) ? column(value) : asLiteral(value)`)
+ * and so renders a string extent as a quoted COLUMN IDENTIFIER — a reference
+ * to a nonexistent column (Mosaic's interval extents are meant to be
+ * numbers/Dates; strings fall outside its input domain). Replicating that
+ * would fabricate non-executable SQL, so this seam stays honest instead
+ * (pinned in predicate.test.ts against the real factory's output).
+ */
 function resolveIntervalSQL(clause: IntervalClause): string {
   if (clause.value === null) return CLEARED_SQL; // clauseInterval: value==null -> no predicate
   const [lo, hi] = clause.value;
@@ -129,6 +140,19 @@ export function isClearedSQL(sql: string): boolean {
 }
 
 /**
+ * An interval's bounds are either both numbers or both strings (see
+ * `IntervalClause` in types.ts — the two never mix), so the first element
+ * decides the pair. String bounds are ISO-8601 dates: SQL `BETWEEN` over
+ * strings is lexicographic, and for uniform ISO-8601 lexicographic IS
+ * chronological — the resolved SQL and this in-process filter agree.
+ */
+function isStringBounds(
+  value: readonly [number, number] | readonly [string, string],
+): value is readonly [string, string] {
+  return typeof value[0] === 'string';
+}
+
+/**
  * Evaluate a clause against one row IN-PROCESS (the memory engine's actual
  * filter — `resolvePredicateSQL` above is the DESCRIPTOR, this is the real
  * work). Semantics mirror the resolved SQL exactly:
@@ -138,7 +162,9 @@ export function isClearedSQL(sql: string): boolean {
  *     SQL NULL has no undefined/missing distinction);
  *   - point `IN (v)` / interval `BETWEEN` / match `IN (...)` use strict
  *     JS equality / numeric comparison — documented simplification: no
- *     SQL-style implicit type coercion between e.g. `"5"` and `5`.
+ *     SQL-style implicit type coercion between e.g. `"5"` and `5`. A string
+ *     interval (ISO-8601 date bounds) therefore only ever matches STRING row
+ *     values, and a numeric interval only numeric ones — never across.
  */
 export function matchesClause(row: Row, clause: PredicateClause | null): boolean {
   if (clause === null) return true;
@@ -150,8 +176,12 @@ export function matchesClause(row: Row, clause: PredicateClause | null): boolean
     }
     case 'interval': {
       if (clause.value === null) return true; // cleared
-      const [lo, hi] = clause.value;
       const v = row[clause.field];
+      if (isStringBounds(clause.value)) {
+        const [lo, hi] = clause.value;
+        return typeof v === 'string' && v >= lo && v <= hi;
+      }
+      const [lo, hi] = clause.value;
       if (typeof v !== 'number' || Number.isNaN(v)) return false;
       return v >= lo && v <= hi;
     }

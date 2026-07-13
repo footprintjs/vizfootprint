@@ -75,11 +75,17 @@ export interface PointClause {
  * mirroring `clauseInterval`'s `value != null ? isBetween(...) : null`
  * (`SelectionClause.js:70-82`). `[lo, hi]` is inclusive on both ends
  * (`isBetween` → SQL `BETWEEN`), matching Mosaic exactly.
+ *
+ * A `[string, string]` pair is a DATE interval: the bounds are ISO-8601 date
+ * strings (the format a time-series chart's brush emits), compared
+ * lexicographically — for uniform ISO-8601 that IS chronological order,
+ * exactly what SQL `BETWEEN` does over string operands. The two bound types
+ * never mix: one interval is either numeric or string on both ends.
  */
 export interface IntervalClause {
   readonly kind: 'interval';
   readonly field: string;
-  readonly value: readonly [number, number] | null;
+  readonly value: readonly [number, number] | readonly [string, string] | null;
 }
 
 /**

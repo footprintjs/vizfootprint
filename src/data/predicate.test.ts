@@ -144,3 +144,52 @@ describe('matchesClause — the actual in-process filter, kept consistent with r
     expect(rows.filter((r) => matchesClause(r, null))).toHaveLength(3);
   });
 });
+
+describe('date intervals — ISO-8601 STRING bounds (the time-series brush emission)', () => {
+  const rows: Row[] = [
+    { id: 'a', date: '2026-04-01', amount: 10 },
+    { id: 'b', date: '2026-04-15', amount: 20 },
+    { id: 'c', date: '2026-05-20', amount: 30 },
+    { id: 'd', date: null, amount: 40 },
+  ];
+  const clause: IntervalClause = { kind: 'interval', field: 'date', value: ['2026-04-01', '2026-04-30'] };
+
+  it('matchesClause: string BETWEEN is lexicographic (== chronological for ISO-8601), inclusive both ends', () => {
+    const hits = rows.filter((r) => matchesClause(r, clause)).map((r) => r['id']);
+    expect(hits).toEqual(['a', 'b']); // a sits ON the lower bound; c is past the upper; d is null
+  });
+
+  it('matchesClause: a string interval never matches a NUMERIC row value (no cross-type coercion)', () => {
+    const c: IntervalClause = { kind: 'interval', field: 'amount', value: ['10', '30'] };
+    expect(rows.filter((r) => matchesClause(r, c))).toHaveLength(0);
+  });
+
+  it('matchesClause: a NUMERIC interval never matches a string row value (the pre-fix behavior, preserved)', () => {
+    const c: IntervalClause = { kind: 'interval', field: 'date', value: [0, 99999999999999] };
+    expect(rows.filter((r) => matchesClause(r, c))).toHaveLength(0);
+  });
+
+  it('resolvePredicateSQL: string bounds render as SQL string LITERALS — a documented, deliberate divergence from Mosaic', () => {
+    // Real Mosaic maps interval extents through `asNode` (ast.js:16-17 —
+    // `isString(value) ? column(value) : asLiteral(value)`) inside `isBetween`
+    // (operators.js:219-221), so a string extent renders as a quoted COLUMN
+    // IDENTIFIER: ("date" BETWEEN "2026-04-01" AND "2026-04-30") — a reference
+    // to a nonexistent column, not a comparable value (Mosaic's extents are
+    // meant to be numbers/Dates; strings fall outside its input domain).
+    // Replicating that byte-for-byte would fabricate non-executable SQL, so
+    // this seam renders honest single-quoted string literals instead.
+    expect(realClauseSQL('interval', 'date', ['2026-04-01', '2026-04-30'])).toBe(
+      '("date" BETWEEN "2026-04-01" AND "2026-04-30")', // the Mosaic column-ref rendering we deliberately do NOT copy
+    );
+    expect(resolvePredicateSQL(clause)).toBe(`("date" BETWEEN '2026-04-01' AND '2026-04-30')`);
+  });
+
+  it('a full-timestamp ISO interval evaluates the same way (uniform format, both sides)', () => {
+    const tsRows: Row[] = [
+      { id: 'x', at: '2026-04-01T08:30:00.000Z' },
+      { id: 'y', at: '2026-04-01T18:00:00.000Z' },
+    ];
+    const c: IntervalClause = { kind: 'interval', field: 'at', value: ['2026-04-01T00:00:00.000Z', '2026-04-01T12:00:00.000Z'] };
+    expect(tsRows.filter((r) => matchesClause(r, c)).map((r) => r['id'])).toEqual(['x']);
+  });
+});
