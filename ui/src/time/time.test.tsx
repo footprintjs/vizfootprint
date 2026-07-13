@@ -59,12 +59,13 @@ describe('TimeTravelBar — explore mode', () => {
     expect(onStepBack).toHaveBeenCalled();
   });
 
-  it('the checkpoint composer fires onCheckpoint with the typed label', () => {
+  it('⚑ opens the checkpoint modal; naming there fires onCheckpoint with the typed label', () => {
     const onCheckpoint = vi.fn();
-    const { container } = render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" onCheckpoint={onCheckpoint} />);
-    const input = container.querySelector('.vzf-ckpt-input') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: 'before cluster' } });
+    render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" onCheckpoint={onCheckpoint} />);
     fireEvent.click(screen.getByRole('button', { name: /Checkpoint/ }));
+    const input = screen.getByLabelText('checkpoint name');
+    fireEvent.change(input, { target: { value: 'before cluster' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
     expect(onCheckpoint).toHaveBeenCalledWith('before cluster');
   });
 });

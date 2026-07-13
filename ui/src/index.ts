@@ -5,7 +5,7 @@
  *   • tokens/   — the design-token + theme engine (scoped CSS variables).
  *   • adapter/  — `createSessionView`, the framework-light store every
  *                 component reads (over a live session OR a polled endpoint).
- *   • layout/   — `<VizDashboard>` shell + `<VizPanel>`/`<VizCard>`.
+ *   • layout/   — `<VizCockpit>` shell + `<VizModal>` + `<VizPanel>`/`<VizCard>`.
  *   • charts/   — `<VizScatter>`, `<VizBar>`, `<EncodingPicker>` (axis affordance).
  *   • time/     — `<TimeTravelBar>` (explore/present) + `<BranchMap>`.
  *   • panels/   — `<CommitLog>`, `<FdrLedger>`, `<GapsPanel>`, `<ReadinessPanel>`.

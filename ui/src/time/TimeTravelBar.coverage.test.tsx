@@ -71,19 +71,21 @@ describe('TimeTravelBar — explore mode edges', () => {
     expect(onStepForward).toHaveBeenCalled();
   });
 
-  it('an empty ckptLabel submits the auto-numbered default name', () => {
+  it('⚑ opens the checkpoint modal, and an empty name submits the auto-numbered default', () => {
     const onCheckpoint = vi.fn();
     render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} onCheckpoint={onCheckpoint} />);
     fireEvent.click(screen.getByRole('button', { name: /Checkpoint/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save checkpoint' }));
     expect(onCheckpoint).toHaveBeenCalledWith('cp-3'); // checkpoints.length (2) + 1
   });
 
-  it('Enter in the checkpoint input submits; any other key does nothing', () => {
+  it('Enter in the checkpoint modal field submits; any other key does nothing', () => {
     const onCheckpoint = vi.fn();
-    const { container } = render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" onCheckpoint={onCheckpoint} />);
-    const input = container.querySelector('.vzf-ckpt-input') as HTMLInputElement;
+    render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" onCheckpoint={onCheckpoint} />);
+    fireEvent.click(screen.getByRole('button', { name: /Checkpoint/ }));
+    const input = screen.getByLabelText('checkpoint name');
     fireEvent.change(input, { target: { value: 'checkpoint A' } });
-    fireEvent.keyDown(input, { key: 'Escape' });
+    fireEvent.keyDown(input, { key: 'a' });
     expect(onCheckpoint).not.toHaveBeenCalled();
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onCheckpoint).toHaveBeenCalledWith('checkpoint A');

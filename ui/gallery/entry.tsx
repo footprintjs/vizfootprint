@@ -95,7 +95,6 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
       top={
         <TimeTravelBar
           compact
-          checkpointNaming="modal"
           mode={mode}
           onModeChange={setMode}
           commits={state.commits}

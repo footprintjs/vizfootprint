@@ -94,12 +94,10 @@ const RAW: RawPollState = {
 };
 const S = mapPollState(RAW);
 
-describe('TimeTravelBar — checkpointNaming="modal" (the cockpit way)', () => {
-  it('drops the inline composer; ⚑ opens the glass prompt showing the cursor commit', () => {
-    const { container } = render(
-      <TimeTravelBar mode="explore" checkpointNaming="modal" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} />,
-    );
-    expect(container.querySelector('.vzf-ckpt-input')).toBeNull(); // the inline field is gone
+describe('TimeTravelBar — checkpoint naming always rides the modal', () => {
+  it('there is no inline composer; ⚑ opens the glass prompt showing the cursor commit', () => {
+    const { container } = render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} />);
+    expect(container.querySelector('.vzf-ckpt-input')).toBeNull(); // the inline field never existed here
     fireEvent.click(container.querySelector('[data-vzf="checkpoint-open"]')!);
     expect(document.querySelector('[data-vzf-modal="checkpoint"]')).not.toBeNull();
     expect(document.querySelector('.vzf-ckpt-target')?.textContent).toContain('#b');
@@ -108,7 +106,7 @@ describe('TimeTravelBar — checkpointNaming="modal" (the cockpit way)', () => {
   it('naming through the modal fires onCheckpoint and closes; the default name is cp-N', () => {
     const onCheckpoint = vi.fn();
     const { container } = render(
-      <TimeTravelBar mode="explore" checkpointNaming="modal" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} onCheckpoint={onCheckpoint} />,
+      <TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} onCheckpoint={onCheckpoint} />,
     );
     fireEvent.click(container.querySelector('[data-vzf="checkpoint-open"]')!);
     const input = screen.getByLabelText('checkpoint name');
@@ -120,32 +118,15 @@ describe('TimeTravelBar — checkpointNaming="modal" (the cockpit way)', () => {
   });
 
   it('saving without an onCheckpoint handler is a safe no-op (still closes)', () => {
-    const { container } = render(
-      <TimeTravelBar mode="explore" checkpointNaming="modal" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} />,
-    );
+    const { container } = render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} />);
     fireEvent.click(container.querySelector('[data-vzf="checkpoint-open"]')!);
     fireEvent.click(screen.getByRole('button', { name: 'Save checkpoint' }));
     expect(document.querySelector('[data-vzf-modal="checkpoint"]')).toBeNull();
   });
 
   it('compact folds the bar into the slim cockpit strip (class only — same controls)', () => {
-    const { container } = render(
-      <TimeTravelBar compact checkpointNaming="modal" mode="explore" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} />,
-    );
+    const { container } = render(<TimeTravelBar compact mode="explore" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} />);
     expect(container.querySelector('.vzf-timebar')?.classList.contains('vzf-compact')).toBe(true);
     expect(container.querySelector('[data-vzf="checkpoint-open"]')).not.toBeNull();
-  });
-
-  it('the default naming stays inline (the demo-agent back-compat path): field + ⚑ submit', () => {
-    const onCheckpoint = vi.fn();
-    const { container } = render(
-      <TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} onCheckpoint={onCheckpoint} />,
-    );
-    expect(container.querySelector('.vzf-timebar')?.classList.contains('vzf-compact')).toBe(false);
-    const input = container.querySelector('.vzf-ckpt-input') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: 'inline beat' } });
-    fireEvent.click(container.querySelector('[data-vzf="checkpoint-open"]')!);
-    expect(onCheckpoint).toHaveBeenCalledWith('inline beat');
-    expect(document.querySelector('[data-vzf-modal="checkpoint"]')).toBeNull(); // no modal in inline mode
   });
 });

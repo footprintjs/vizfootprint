@@ -42,7 +42,7 @@ itself with `dvh` units so mobile browser chrome is accounted for.
 
 ```tsx
 <VizCockpit
-  top={<TimeTravelBar compact checkpointNaming="modal" …adapter wiring… />}
+  top={<TimeTravelBar compact …adapter wiring… />}
   charts={[
     { id: 'scatter', weight: 3, caption: 'drag to brush',
       render: ({ width, height }) => <VizScatter width={width} height={height} … /> },
@@ -58,11 +58,6 @@ itself with `dvh` units so mobile browser chrome is accounted for.
   readOnly={mode === 'present'}
 />
 ```
-
-The old stacked `<VizDashboard>` (top/main/side/bottom slots, scrolls on its own
-height) remains ONLY as the thin back-compat shell for the demo-agent dashboard
-that has not adopted the cockpit yet — new consumers should start from
-`<VizCockpit>`.
 
 ## One modal system — VizModal
 
@@ -81,9 +76,7 @@ the page.
 
 Clicking ⚑ opens the checkpoint namer (`<CheckpointModal>`): one autofocused
 field, Enter/Save commits through the adapter's `checkpoint` action, and the
-prompt shows which commit the flag will mark. (`checkpointNaming` on the time
-bar currently defaults to the legacy `'inline'` composer only for the old
-demo-agent dashboard; pass `'modal'` — the cockpit way.)
+prompt shows which commit the flag will mark.
 
 ## The layers (each importable alone)
 
@@ -91,7 +84,7 @@ demo-agent dashboard; pass `'modal'` — the cockpit way.)
 |---|---|
 | `tokens/` | design tokens + theme engine — scoped CSS variables on the `.vzf` root (never `:root`), light+dark via `prefers-color-scheme` with a `data-theme` override that wins both ways |
 | `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView` |
-| `layout/` | `<VizCockpit>` (the flagship single-screen shell) + `<VizModal>` (the one modal system) + the legacy `<VizDashboard>` grid + `<VizPanel>`/`<VizCard>` |
+| `layout/` | `<VizCockpit>` (the flagship — and only — single-screen shell) + `<VizModal>` (the one modal system) + `<VizPanel>`/`<VizCard>` |
 | `charts/` | `<VizScatter>`, `<VizBar>` — controlled SVG; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); `<ChartFrame>` measures a cell so charts fill it; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) which fires `onReencode(viewId, channel, field)` — the `reencode` dispatch verb |
 | `time/` | `<TimeTravelBar>` with `explore` (full commit timeline + fork-safe ⟵/⟶ step rules, `compact` for the cockpit) and `present` (checkpoint-ONLY story beats, acting disabled, `onReadOnlyChange` up to the shell) + `<CheckpointModal>` + `<BranchMap>` |
 | `panels/` | `<CommitLog>` (cause badges, click-to-seek, off-branch dimming), `<FdrLedger>` (two truths + the verbatim honesty line), `<GapsPanel>`, `<ReadinessPanel>` — cockpit hosts these inside report modals, unchanged |
@@ -111,7 +104,7 @@ function App() {
   const state = useSessionView(view);
   return (
     <VizCockpit
-      top={<TimeTravelBar compact checkpointNaming="modal"
+      top={<TimeTravelBar compact
         commits={state.commits} cursor={state.cursor} head={state.head}
         checkpoints={state.checkpoints} onSeek={(id) => void view.seek(id)}
         onCheckpoint={(label) => void view.checkpoint(label)} />}

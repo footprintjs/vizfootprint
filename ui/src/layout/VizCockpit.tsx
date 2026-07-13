@@ -22,8 +22,8 @@
  * `readOnly` (present mode) dims and pointer-blocks the acting charts while
  * navigation (top strip) and the read-only report chips stay live.
  *
- * The old stacked `<VizDashboard>` remains as the thin back-compat shell for
- * consumers that have not adopted the cockpit yet.
+ * This is the ONLY layout shell — every consumer (the gallery, demo-agent)
+ * mounts the cockpit as the whole page.
  */
 import { useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, UIEvent } from 'react';
