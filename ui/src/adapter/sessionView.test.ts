@@ -151,10 +151,12 @@ describe('createSessionView — poll source with injected fetch', () => {
 });
 
 describe('createSessionView — in-process session source', () => {
-  function fakeSession(): SessionLike & { dispatched: unknown[] } {
+  function fakeSession(): SessionLike & { dispatched: unknown[]; pathCalls: unknown[] } {
     const dispatched: unknown[] = [];
+    const pathCalls: unknown[] = [];
     return {
       dispatched,
+      pathCalls,
       log: { records: [] },
       overview: () => ({
         defaultTable: 'data',
@@ -168,6 +170,7 @@ describe('createSessionView — in-process session source', () => {
         currentView: null,
         engines: {},
         time: { cursor: null, head: null, branches: 0, checkpoints: 0, cursorTests: 0, viewingPast: false },
+        paths: { current: 'main', detachedAt: null, list: [{ name: 'main', tip: '1', steps: 1, lastTs: 0, active: true }], events: [] },
       }) as unknown as ReturnType<SessionLike['overview']>,
       gaps: () => [],
       branches: () => [],
@@ -176,6 +179,38 @@ describe('createSessionView — in-process session source', () => {
       dispatch: (action) => {
         dispatched.push(action);
         return { ok: true, verb: action.verb, intent: 'requested' } as unknown as ReturnType<SessionLike['dispatch']>;
+      },
+      switchPath: (name) => {
+        pathCalls.push({ op: 'switch', name });
+        return { ok: true, name, cursor: '1' } as ReturnType<SessionLike['switchPath']>;
+      },
+      renamePath: (from, to) => {
+        pathCalls.push({ op: 'rename', from, to });
+        return { ok: true, name: to } as ReturnType<SessionLike['renamePath']>;
+      },
+      newPathAt: (commitId, name) => {
+        pathCalls.push({ op: 'new', commitId, name });
+        return { ok: true, name: name ?? 'auto', cursor: commitId } as ReturnType<SessionLike['newPathAt']>;
+      },
+      compare: (aRef, bRef) => {
+        pathCalls.push({ op: 'compare', aRef, bRef });
+        return {
+          ok: true,
+          a: { ref: aRef, tip: '1', rows: 3 },
+          b: { ref: bRef, tip: '2', rows: 5 },
+          ancestor: '1',
+          changed: [],
+          onlyA: [],
+          onlyB: [],
+        } as unknown as ReturnType<SessionLike['compare']>;
+      },
+      bringOver: (commitId, opts) => {
+        pathCalls.push({ op: 'bringOver', commitId, as: opts?.as });
+        return { ok: true } as unknown as ReturnType<SessionLike['bringOver']>;
+      },
+      undo: (commitId, opts) => {
+        pathCalls.push({ op: 'undo', commitId, as: opts?.as });
+        return { ok: true } as unknown as ReturnType<SessionLike['undo']>;
       },
     };
   }
@@ -212,6 +247,181 @@ describe('createSessionView — in-process session source', () => {
     await view.refresh();
     await view.checkpoint('opening brush');
     expect(session.dispatched[0]).toMatchObject({ verb: 'checkpoint', label: 'opening brush', cause: { requestedBy: 'user' } });
+    view.dispose();
+  });
+
+  it('paths state rides overview().paths into state.paths', async () => {
+    const session = fakeSession();
+    const view = createSessionView(sessionSource(session), { as: 'user' });
+    await view.refresh();
+    expect(view.getState().paths.current).toBe('main');
+    expect(view.getState().paths.list).toEqual([{ name: 'main', tip: '1', steps: 1, lastTs: 0, active: true }]);
+    view.dispose();
+  });
+
+  it('switchPath / renamePath / newPathAt route to the BR-1 session methods', async () => {
+    const session = fakeSession();
+    const view = createSessionView(sessionSource(session), { as: 'user' });
+    await view.refresh();
+    await view.switchPath('premium');
+    await view.renamePath('premium', 'premium-end');
+    await view.newPathAt('1', 'from-the-top');
+    await view.newPathAt('1'); // auto-named
+    expect(session.pathCalls).toEqual([
+      { op: 'switch', name: 'premium' },
+      { op: 'rename', from: 'premium', to: 'premium-end' },
+      { op: 'new', commitId: '1', name: 'from-the-top' },
+      { op: 'new', commitId: '1', name: undefined },
+    ]);
+    view.dispose();
+  });
+
+  it('bringOver / undo route to the session as the configured principal', async () => {
+    const session = fakeSession();
+    const view = createSessionView(sessionSource(session), { as: 'agent' });
+    await view.refresh();
+    await view.bringOver('2');
+    await view.undo('2');
+    expect(session.pathCalls).toEqual([
+      { op: 'bringOver', commitId: '2', as: 'agent' },
+      { op: 'undo', commitId: '2', as: 'agent' },
+    ]);
+    view.dispose();
+  });
+
+  it('compare returns the normalized plain-language diff and never refreshes (read-only)', async () => {
+    const session = fakeSession();
+    const view = createSessionView(sessionSource(session), { as: 'user' });
+    await view.refresh();
+    const before = session.pathCalls.length;
+    const diff = await view.compare('main', 'premium');
+    expect(diff).toMatchObject({ ok: true, ancestor: '1', a: { ref: 'main', rows: 3 }, b: { ref: 'premium', rows: 5 } });
+    expect(session.pathCalls.length).toBe(before + 1); // exactly the one compare call — no extra overview() churn is asserted below via dispatched
+    expect(session.dispatched).toHaveLength(0);
+    view.dispose();
+  });
+});
+
+describe('createSessionView — paths actions over a POLL source (the BR-3 endpoint contract)', () => {
+  function fakeFetch(compareResponse?: unknown, compareOk = true) {
+    const calls: { url: string; body?: unknown }[] = [];
+    const impl = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (!init || init.method !== 'POST') return { ok: true, json: async () => RAW } as unknown as Response;
+      if (url.endsWith('/compare')) return { ok: compareOk, status: compareOk ? 200 : 500, json: async () => compareResponse } as unknown as Response;
+      return { ok: true, json: async () => ({ ok: true }) } as unknown as Response;
+    });
+    return { impl: impl as unknown as typeof fetch, calls };
+  }
+
+  it('switch/rename/new all POST to the ONE paths endpoint with a discriminated action body', async () => {
+    const { impl, calls } = fakeFetch();
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    await view.switchPath('premium');
+    await view.renamePath('premium', 'premium-end');
+    await view.newPathAt('1', 'named');
+    await view.newPathAt('1'); // name omitted → key absent from the JSON body
+    const posts = calls.filter((c) => c.url === '/api/paths').map((c) => c.body);
+    expect(posts).toEqual([
+      { action: 'switch', name: 'premium' },
+      { action: 'rename', from: 'premium', to: 'premium-end' },
+      { action: 'new', commitId: '1', name: 'named' },
+      { action: 'new', commitId: '1' },
+    ]);
+    view.dispose();
+  });
+
+  it('bringOver and undo POST { commitId } to their OWN endpoints', async () => {
+    const { impl, calls } = fakeFetch();
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    await view.bringOver('2');
+    await view.undo('3');
+    expect(calls.find((c) => c.url === '/api/bring-over')?.body).toEqual({ commitId: '2' });
+    expect(calls.find((c) => c.url === '/api/undo')?.body).toEqual({ commitId: '3' });
+    view.dispose();
+  });
+
+  it('compare POSTs { a, b } and normalizes the CompareResult JSON the endpoint returns', async () => {
+    const { impl, calls } = fakeFetch({
+      ok: true,
+      a: { ref: 'main', tip: '3', rows: 10 },
+      b: { ref: 'premium', tip: '5', rows: 4 },
+      ancestor: '1',
+      changed: [],
+      onlyA: [],
+      onlyB: [{ key: 'selection|scatter', value: { kind: 'selection', viewId: 'scatter', clause: { kind: 'interval', field: 'price', value: [120, 220] }, commitId: '5' } }],
+    });
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    const diff = await view.compare('main', 'premium');
+    expect(calls.find((c) => c.url === '/api/compare')?.body).toEqual({ a: 'main', b: 'premium' });
+    expect(diff.ok).toBe(true);
+    if (diff.ok) {
+      expect(diff.onlyB[0]).toEqual({ key: 'selection|scatter', kind: 'selection', label: 'scatter', detail: 'price between 120 and 220' });
+    }
+    view.dispose();
+  });
+
+  it('compare surfaces an honest reason when the endpoint answers not-ok or is unreachable', async () => {
+    const { impl } = fakeFetch(undefined, false);
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    expect(await view.compare('a', 'b')).toEqual({ ok: false, reason: 'the compare endpoint answered 500' });
+    view.dispose();
+
+    const throwing = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') throw new Error('network down');
+      return { ok: true, json: async () => RAW } as unknown as Response;
+    });
+    const view2 = createSessionView(pollingSource({ fetchImpl: throwing as unknown as typeof fetch }));
+    await view2.refresh();
+    expect(await view2.compare('a', 'b')).toEqual({ ok: false, reason: 'could not reach the compare endpoint' });
+    view2.dispose();
+  });
+
+  it('paths state + BR-1 cause tags ride /api/state into the snapshot', async () => {
+    const tagged: RawPollState = {
+      ...RAW,
+      records: [
+        ...RAW.records,
+        { id: '4', parent: '3', viewId: 'bar', kind: 'point', field: 'category', value: 'Formal', cause: { requestedBy: 'user', replayedFrom: '2', conflicts: ['3'] } },
+        { id: '5', parent: '4', viewId: 'scatter', kind: 'interval', field: 'price', value: null, cause: { requestedBy: 'user', revertOf: '3' } },
+      ],
+      paths: {
+        current: null,
+        detachedAt: '1',
+        list: [{ name: 'main', tip: '3', steps: 2, lastTs: 2, active: false }],
+        events: [{ type: 'create', name: 'main', at: '1', auto: true, ts: 0 }],
+      },
+    };
+    const impl = vi.fn(async () => ({ ok: true, json: async () => tagged }) as unknown as Response);
+    const view = createSessionView(pollingSource({ fetchImpl: impl as unknown as typeof fetch }));
+    await view.refresh();
+    const s = view.getState();
+    expect(s.paths.current).toBeNull();
+    expect(s.paths.detachedAt).toBe('1');
+    expect(s.paths.list[0]).toMatchObject({ name: 'main', tip: '3' });
+    expect(s.paths.events[0]).toMatchObject({ type: 'create', auto: true });
+    expect(s.commits.find((c) => c.id === '4')).toMatchObject({ replayedFrom: '2', conflicts: ['3'] });
+    expect(s.commits.find((c) => c.id === '5')).toMatchObject({ revertOf: '3' });
+    view.dispose();
+  });
+
+  it('a pre-BR-1 payload (no paths at all) maps to the honest empty surface', async () => {
+    const { impl } = fakeFetch(); // RAW has no `paths`
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    expect(view.getState().paths).toEqual({ current: null, detachedAt: null, list: [], events: [] });
+    view.dispose();
+  });
+
+  it('a partial paths payload falls back field by field (defensive wire mapping)', async () => {
+    const impl = vi.fn(async () => ({ ok: true, json: async () => ({ ...RAW, paths: {} }) }) as unknown as Response);
+    const view = createSessionView(pollingSource({ fetchImpl: impl as unknown as typeof fetch }));
+    await view.refresh();
+    expect(view.getState().paths).toEqual({ current: null, detachedAt: null, list: [], events: [] });
     view.dispose();
   });
 });
@@ -285,6 +495,55 @@ describe('createSessionView — REAL InteractionSession (UI-0 reencode end-to-en
     const s = view.getState();
     expect(s.encodings['scatter']).toEqual({ x: 'price', y: 'rating' }); // unchanged
     expect(s.gaps.some((g) => g.op === 'reencode')).toBe(true); // filed, not dropped
+    view.dispose();
+  });
+
+  it('BR-2 full loop: fork-on-act names a path; rename/switch/compare/bringOver/undo all land end to end', async () => {
+    const view = await liveView();
+    await view.refresh();
+
+    // two commits on the first lineage
+    await view.emit('scatter', { rawValue: [10, 100], encoding: { kind: 'interval', field: 'price' } }, 'opening brush');
+    const first = view.getState().commits[0]!.id;
+    await view.emit('scatter', { rawValue: [10, 50], encoding: { kind: 'interval', field: 'price' } }, 'narrower');
+    expect(view.getState().paths.list.map((p) => p.name)).toEqual(['main']); // the root birth named the default path
+
+    // seek back (detaches) then act → the fork auto-creates a SECOND named path
+    await view.seek(first);
+    expect(view.getState().paths.current).toBeNull();
+    expect(view.getState().paths.detachedAt).toBe(first);
+    await view.emit('scatter', { rawValue: [80, 100], encoding: { kind: 'interval', field: 'price' } }, 'premium end');
+    const afterFork = view.getState();
+    expect(afterFork.paths.list).toHaveLength(2);
+    const forkName = afterFork.paths.current!;
+    expect(forkName).not.toBe('main');
+    expect(afterFork.paths.events.some((e) => e.type === 'create' && e.auto)).toBe(true);
+
+    // rename the fork, then switch back to main and verify the pill-facing state
+    await view.renamePath(forkName, 'premium');
+    expect(view.getState().paths.current).toBe('premium');
+    await view.switchPath('main');
+    expect(view.getState().paths.current).toBe('main');
+
+    // compare the two named paths — a real structured diff with row counts
+    const diff = await view.compare('main', 'premium');
+    expect(diff.ok).toBe(true);
+    if (diff.ok) {
+      expect(diff.ancestor).toBe(first);
+      expect(diff.changed).toHaveLength(1); // the same scatter selection key, two different brushes
+      expect(diff.changed[0]!.kind).toBe('selection');
+      expect(typeof diff.a.rows).toBe('number');
+    }
+
+    // bring the premium brush over to main → an ordinary commit tagged replayedFrom
+    const premiumTip = view.getState().paths.list.find((p) => p.name === 'premium')!.tip;
+    await view.bringOver(premiumTip);
+    const brought = view.getState().commits.at(-1)!;
+    expect(brought.replayedFrom).toBe(premiumTip);
+
+    // undo that step → an ordinary commit tagged revertOf
+    await view.undo(brought.id);
+    expect(view.getState().commits.at(-1)!.revertOf).toBe(brought.id);
     view.dispose();
   });
 });

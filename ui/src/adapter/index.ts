@@ -13,7 +13,11 @@ export type {
   SessionViewOptions,
   SessionLike,
   RawPollState,
+  RawPollPaths,
 } from './sessionView.js';
+
+export { mapCompareResult, entryLabel, entryDetail } from './compareView.js';
+export type { RawCompareResult } from './compareView.js';
 
 export { useSessionView } from './useSessionView.js';
 
@@ -26,7 +30,7 @@ export {
 } from './stepNav.js';
 export type { StepNode, BranchLayout, LaidOutNode, LaidOutEdge } from './stepNav.js';
 
-export { HONESTY_LINE, emptyState } from './types.js';
+export { HONESTY_LINE, emptyState, emptyPaths } from './types.js';
 export type {
   SessionViewState,
   CommitView,
@@ -34,6 +38,13 @@ export type {
   ColumnView,
   SelectionView,
   BranchView,
+  PathView,
+  PathEventView,
+  PathsView,
+  CompareView,
+  CompareSideView,
+  CompareEntryView,
+  CompareChangeView,
   CheckpointView,
   LedgerView,
   LedgerStep,

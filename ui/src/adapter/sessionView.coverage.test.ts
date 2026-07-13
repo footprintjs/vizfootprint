@@ -119,6 +119,12 @@ describe('createSessionView — in-process session edge branches', () => {
       checkpoints: () => [{ label: 'start', commitId: 'r1', ts: 1 }], // exercises the checkpoints.map body
       seek: (commitId: string) => ({ ok: true, cursor: commitId }) as unknown as ReturnType<SessionLike['seek']>,
       dispatch: () => ({ ok: true, verb: 'analyze', intent: 'x' }) as unknown as ReturnType<SessionLike['dispatch']>,
+      switchPath: (name: string) => ({ ok: true, name, cursor: 'r1' }) as unknown as ReturnType<SessionLike['switchPath']>,
+      renamePath: (_from: string, to: string) => ({ ok: true, name: to }) as unknown as ReturnType<SessionLike['renamePath']>,
+      newPathAt: (commitId: string) => ({ ok: true, name: 'auto', cursor: commitId }) as unknown as ReturnType<SessionLike['newPathAt']>,
+      compare: () => ({ ok: false, gap: { code: 'guard-failed', op: 'compare', detail: 'nope' } }) as unknown as ReturnType<SessionLike['compare']>,
+      bringOver: () => ({ ok: false, gap: { code: 'guard-failed', op: 'bringOver', detail: 'nope' } }) as unknown as ReturnType<SessionLike['bringOver']>,
+      undo: () => ({ ok: false, gap: { code: 'guard-failed', op: 'undo', detail: 'nope' } }) as unknown as ReturnType<SessionLike['undo']>,
     };
   }
 
@@ -130,6 +136,16 @@ describe('createSessionView — in-process session edge branches', () => {
     expect(s.commits[0]!.actor).toBe('system');
     expect(s.encodings['scatter']).toEqual({ x: 'price' });
     expect(s.checkpoints[0]!.label).toBe('start');
+    // no `paths` on this overview at all → the honest empty surface (defensive arm)
+    expect(s.paths).toEqual({ current: null, detachedAt: null, list: [], events: [] });
+    view.dispose();
+  });
+
+  it('a rejected session compare maps to { ok:false } with the gap detail as the reason', async () => {
+    const session = fakeSessionNoCauseNoEncodings();
+    const view = createSessionView(sessionSource(session));
+    await view.refresh();
+    expect(await view.compare('a', 'b')).toEqual({ ok: false, reason: 'nope' });
     view.dispose();
   });
 });

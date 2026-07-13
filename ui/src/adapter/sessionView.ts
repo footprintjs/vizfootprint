@@ -20,23 +20,41 @@
 
 import type { Actor } from '../../../src/cause/index.js';
 import type { CommitRecord } from '../../../src/log/index.js';
-import type { Overview, GapRow, BranchInfo, Checkpoint, SeekResult, DispatchAction, DispatchResult } from '../../../src/session/index.js';
+import type {
+  Overview,
+  GapRow,
+  BranchInfo,
+  Checkpoint,
+  SeekResult,
+  DispatchAction,
+  DispatchResult,
+  SwitchPathResult,
+  RenamePathResult,
+  NewPathResult,
+  CompareResult,
+  BringOverResult,
+} from '../../../src/session/index.js';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import {
   HONESTY_LINE,
   emptyState,
+  emptyPaths,
   type SessionViewState,
   type CommitView,
   type ViewView,
   type ColumnView,
   type SelectionView,
   type BranchView,
+  type PathsView,
+  type PathEventView,
+  type CompareView,
   type CheckpointView,
   type LedgerView,
   type GapView,
   type ReadinessView,
   type ViewEncoding,
 } from './types.js';
+import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
 
 // ── the structural session contract (duck-typed; no value import from src) ─────
@@ -49,6 +67,13 @@ export interface SessionLike {
   checkpoints(): readonly Checkpoint[];
   seek(commitId: string): SeekResult;
   dispatch(action: DispatchAction, opts?: { as?: Actor }): Promise<DispatchResult> | DispatchResult;
+  // ── named paths (BR-1) — a rejected call files a typed gap; the next refresh shows it ──
+  switchPath(name: string): SwitchPathResult;
+  renamePath(from: string, to: string): RenamePathResult;
+  newPathAt(commitId: string, name?: string): NewPathResult;
+  compare(aRef: string, bRef: string): Promise<CompareResult> | CompareResult;
+  bringOver(commitId: string, opts?: { as?: Actor }): Promise<BringOverResult> | BringOverResult;
+  undo(commitId: string, opts?: { as?: Actor }): Promise<BringOverResult> | BringOverResult;
   readonly log: { readonly records: readonly CommitRecord[] };
 }
 
@@ -63,6 +88,8 @@ export interface RawPollState {
   readonly encodings?: Readonly<Record<string, ViewEncoding>>;
   readonly gaps?: readonly unknown[];
   readonly branches?: readonly { tip: string; length: number; actor: Actor; active: boolean }[];
+  /** BR-2: the named-paths surface (`overview().paths` serialized as-is). */
+  readonly paths?: RawPollPaths;
   readonly checkpoints?: readonly { label: string; commitId: string | null; ts: number }[];
   readonly cursor?: string | null;
   readonly head?: string | null;
@@ -71,6 +98,13 @@ export interface RawPollState {
   readonly defaultTable?: string;
   readonly mode?: string;
 }
+/** The `paths` slice of `/api/state` — `PathsState` from `src/session`, verbatim JSON. */
+export interface RawPollPaths {
+  readonly current?: string | null;
+  readonly detachedAt?: string | null;
+  readonly list?: readonly { name: string; tip: string; steps: number; lastTs: number; active: boolean }[];
+  readonly events?: readonly PathEventView[];
+}
 interface RawPollCommit {
   readonly id: string;
   readonly parent: string | null;
@@ -78,7 +112,7 @@ interface RawPollCommit {
   readonly kind: 'point' | 'interval';
   readonly field: string;
   readonly value: unknown;
-  readonly cause?: { requestedBy?: Actor; intent?: string };
+  readonly cause?: { requestedBy?: Actor; intent?: string; replayedFrom?: string; revertOf?: string; conflicts?: readonly string[] };
   readonly correlationId?: string;
 }
 
@@ -88,11 +122,31 @@ export interface SessionSourceInput {
   readonly kind: 'session';
   readonly session: SessionLike;
 }
+/**
+ * The polled server's endpoint map — each action POSTs JSON to its OWN
+ * endpoint (the seek/checkpoint pattern). The BR-2/BR-3 contract:
+ *
+ *   GET  state      → the RawPollState JSON (now incl. `paths` + BR-1 cause tags)
+ *   POST dispatch   → a dispatch action body ({ verb, … })
+ *   POST seek       → { commitId }
+ *   POST checkpoint → { label }
+ *   POST paths      → { action: 'switch', name }
+ *                   | { action: 'rename', from, to }
+ *                   | { action: 'new', commitId, name? }
+ *   POST compare    → { a, b } (path names or commit ids); the RESPONSE body is
+ *                     the session's CompareResult JSON, verbatim
+ *   POST bringOver  → { commitId }
+ *   POST undo       → { commitId }
+ */
 export interface PollEndpoints {
   readonly state: string;
   readonly dispatch: string;
   readonly seek: string;
   readonly checkpoint: string;
+  readonly paths: string;
+  readonly compare: string;
+  readonly bringOver: string;
+  readonly undo: string;
 }
 export interface PollSourceInput {
   readonly kind: 'poll';
@@ -118,6 +172,10 @@ const DEFAULT_ENDPOINTS: PollEndpoints = {
   dispatch: '/api/dispatch',
   seek: '/api/seek',
   checkpoint: '/api/checkpoint',
+  paths: '/api/paths',
+  compare: '/api/compare',
+  bringOver: '/api/bring-over',
+  undo: '/api/undo',
 };
 
 // ── shared normalization ───────────────────────────────────────────────────────
@@ -132,6 +190,9 @@ interface RawCommit {
   actor: Actor;
   intent?: string;
   correlationId?: string;
+  replayedFrom?: string;
+  revertOf?: string;
+  conflicts?: readonly string[];
 }
 
 /** A short, safe label for a chip/dot — never a raw value dump. */
@@ -150,6 +211,7 @@ interface StatePieces {
   columns: Record<string, readonly ColumnView[]>;
   selections: SelectionView[];
   branches: BranchView[];
+  paths: PathsView;
   checkpoints: CheckpointView[];
   cursor: string | null;
   head: string | null;
@@ -174,6 +236,9 @@ function finalize(p: StatePieces): SessionViewState {
     actor: c.actor,
     intent: c.intent,
     correlationId: c.correlationId,
+    replayedFrom: c.replayedFrom,
+    revertOf: c.revertOf,
+    conflicts: c.conflicts,
     label: commitLabel(c.field),
     onBranch: active.has(c.id),
     isCursor: c.id === p.cursor,
@@ -189,6 +254,7 @@ function finalize(p: StatePieces): SessionViewState {
     selections: p.selections,
     commits,
     branches: p.branches,
+    paths: p.paths,
     checkpoints: p.checkpoints,
     cursor: p.cursor,
     head: p.head,
@@ -267,6 +333,21 @@ function mapColumns(columns: Readonly<Record<string, readonly { field: string; t
   for (const [table, cols] of Object.entries(columns ?? {})) out[table] = cols.map((c) => ({ field: c.field, type: String(c.type) }));
   return out;
 }
+/**
+ * Normalize the named-paths slice — `overview().paths` live, or the identical
+ * `/api/state` JSON. Defensive: a source that predates BR-1 simply has no
+ * paths, and the UI renders the honest empty surface instead of crashing.
+ */
+function mapPaths(raw: RawPollPaths | undefined): PathsView {
+  if (!raw) return emptyPaths();
+  return {
+    current: raw.current ?? null,
+    detachedAt: raw.detachedAt ?? null,
+    list: (raw.list ?? []).map((p) => ({ name: p.name, tip: p.tip, steps: p.steps, lastTs: p.lastTs, active: p.active })),
+    events: [...(raw.events ?? [])],
+  };
+}
+
 function mapGaps(gaps: readonly unknown[] | undefined): GapView[] {
   return (gaps ?? []).map((g) => {
     const o = g as GapView;
@@ -294,6 +375,9 @@ async function mapSession(session: SessionLike): Promise<SessionViewState> {
     actor: (r.cause?.requestedBy ?? 'system') as Actor,
     intent: r.cause?.intent,
     correlationId: r.correlationId,
+    replayedFrom: r.cause?.replayedFrom,
+    revertOf: r.cause?.revertOf,
+    conflicts: r.cause?.conflicts,
   }));
   const views = mapViews(overview.views);
   return finalize({
@@ -304,6 +388,7 @@ async function mapSession(session: SessionLike): Promise<SessionViewState> {
     columns: mapColumns(overview.columns),
     selections: mapSelections(overview.activeSelections),
     branches: session.branches().map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
+    paths: mapPaths(overview.paths),
     checkpoints: session.checkpoints().map((c) => ({ label: c.label, commitId: c.commitId, ts: c.ts })),
     cursor: overview.time.cursor,
     head: overview.time.head,
@@ -327,6 +412,9 @@ export function mapPollState(raw: RawPollState): SessionViewState {
     actor: (r.cause?.requestedBy ?? 'system') as Actor,
     intent: r.cause?.intent,
     correlationId: r.correlationId,
+    replayedFrom: r.cause?.replayedFrom,
+    revertOf: r.cause?.revertOf,
+    conflicts: r.cause?.conflicts,
   }));
   const views = mapViews(raw.views);
   return finalize({
@@ -337,6 +425,7 @@ export function mapPollState(raw: RawPollState): SessionViewState {
     columns: mapColumns(raw.columns),
     selections: mapSelections(raw.activeSelections),
     branches: (raw.branches ?? []).map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
+    paths: mapPaths(raw.paths),
     checkpoints: (raw.checkpoints ?? []).map((c) => ({ label: c.label, commitId: c.commitId, ts: c.ts })),
     cursor: raw.cursor ?? null,
     head: raw.head ?? null,
@@ -372,6 +461,19 @@ export interface SessionView {
   stepForward(): Promise<void>;
   checkpoint(label: string): Promise<void>;
   returnToNow(): Promise<void>;
+  // ── named paths (BR-2 over BR-1) — state rides `state.paths` ──
+  /** Switch to a named path: jump to its tip and make it the active line of work. */
+  switchPath(name: string): Promise<void>;
+  /** Rename a path (a rejected rename files a typed gap; the next refresh shows it). */
+  renamePath(from: string, to: string): Promise<void>;
+  /** Start a NEW named path at a commit (auto-named from that step when `name` is omitted). */
+  newPathAt(commitId: string, name?: string): Promise<void>;
+  /** Compare two positions (path names or commit ids) — a plain-language diff, read-only. */
+  compare(aRef: string, bRef: string): Promise<CompareView>;
+  /** Bring one step from another path over to where you are (lands a `replayedFrom` commit). */
+  bringOver(commitId: string): Promise<void>;
+  /** Undo one step: restore the value from just before it (lands a `revertOf` commit). */
+  undo(commitId: string): Promise<void>;
   dispose(): void;
 }
 
@@ -502,6 +604,58 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
 
     async returnToNow() {
       if (state.head) await view.seek(state.head);
+    },
+
+    // ── named paths (BR-2): sessionSource calls the BR-1 methods directly; the
+    // poll source POSTs to the OWN endpoints (see the PollEndpoints contract).
+    // A rejected call lands as a typed gap in the next snapshot — never a throw.
+    async switchPath(name) {
+      if (source.kind === 'session') source.session.switchPath(name);
+      else await postJson(endpoints.paths, { action: 'switch', name });
+      await afterAction();
+    },
+
+    async renamePath(from, to) {
+      if (source.kind === 'session') source.session.renamePath(from, to);
+      else await postJson(endpoints.paths, { action: 'rename', from, to });
+      await afterAction();
+    },
+
+    async newPathAt(commitId, name) {
+      if (source.kind === 'session') source.session.newPathAt(commitId, name);
+      else await postJson(endpoints.paths, { action: 'new', commitId, name });
+      await afterAction();
+    },
+
+    async compare(aRef, bRef) {
+      // read-only: no afterAction — comparing never moves the cursor or head
+      if (source.kind === 'session') {
+        const raw = await Promise.resolve(source.session.compare(aRef, bRef));
+        return mapCompareResult(raw as RawCompareResult);
+      }
+      try {
+        const res = await doFetch(endpoints.compare, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ a: aRef, b: bRef }),
+        });
+        if (!res.ok) return { ok: false, reason: `the compare endpoint answered ${res.status}` };
+        return mapCompareResult((await res.json()) as RawCompareResult);
+      } catch {
+        return { ok: false, reason: 'could not reach the compare endpoint' };
+      }
+    },
+
+    async bringOver(commitId) {
+      if (source.kind === 'session') await Promise.resolve(source.session.bringOver(commitId, { as }));
+      else await postJson(endpoints.bringOver, { commitId });
+      await afterAction();
+    },
+
+    async undo(commitId) {
+      if (source.kind === 'session') await Promise.resolve(source.session.undo(commitId, { as }));
+      else await postJson(endpoints.undo, { commitId });
+      await afterAction();
     },
 
     dispose() {

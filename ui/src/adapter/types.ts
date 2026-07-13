@@ -29,6 +29,12 @@ export interface CommitView {
   readonly intent?: string;
   /** Cross-tier join key (R10), if stamped. */
   readonly correlationId?: string;
+  /** BR-1 provenance: this commit BRINGS OVER (replays) another commit's step. */
+  readonly replayedFrom?: string;
+  /** BR-1 provenance: this commit UNDOES (reverts) another commit's step. */
+  readonly revertOf?: string;
+  /** Commit ids that touched the same state on this path since the fork (honest conflict note). */
+  readonly conflicts?: readonly string[];
   /** A short, safe label for a chip/dot — never a raw value dump. */
   readonly label: string;
   // ── derived per build (so components stay dumb) ──
@@ -76,6 +82,89 @@ export interface BranchView {
   readonly actor: Actor;
   readonly active: boolean;
 }
+
+/** One NAMED path (a saved line of work — a git-style branch, in plain words). */
+export interface PathView {
+  readonly name: string;
+  /** The last commit on this path (its tip). */
+  readonly tip: string;
+  /** Commits from the start of the story down to the tip. */
+  readonly steps: number;
+  /** The tip commit's logical timestamp — for "most recent first" ordering, not wall-clock. */
+  readonly lastTs: number;
+  /** True iff this is the path you are currently on. */
+  readonly active: boolean;
+}
+
+/**
+ * One entry in the path journal (create/advance/switch/rename). Bookkeeping
+ * records, never commits — mirrors `src/branches` RefEvent 1:1 so the poll
+ * wire and the live session serialize identically.
+ */
+export type PathEventView =
+  | { readonly type: 'create'; readonly name: string; readonly at: string; readonly auto: boolean; readonly ts: number }
+  | { readonly type: 'advance'; readonly name: string; readonly at: string; readonly ts: number }
+  | { readonly type: 'switch'; readonly to: string | null; readonly at: string | null; readonly ts: number }
+  | { readonly type: 'rename'; readonly from: string; readonly to: string; readonly ts: number };
+
+/** The named-paths surface (BR-1): which path you are on (or detached), the list, the journal. */
+export interface PathsView {
+  /** The named path you are on, or null while detached (travelled into the past by commit id). */
+  readonly current: string | null;
+  /** The commit you are detached at (null when on a named path — or before any commit exists). */
+  readonly detachedAt: string | null;
+  readonly list: readonly PathView[];
+  /** The path journal — the ForkToast watches this for auto-forks. */
+  readonly events: readonly PathEventView[];
+}
+
+/** An empty, render-safe paths surface. */
+export function emptyPaths(): PathsView {
+  return { current: null, detachedAt: null, list: [], events: [] };
+}
+
+// ── compare (two positions side by side) ────────────────────────────────────────
+
+/** One side of a compare: how it was named, the tip it resolved to, its row count. */
+export interface CompareSideView {
+  readonly ref: string;
+  readonly tip: string;
+  /** Rows under this side's selections — null when the backend cannot count (honest, never 0-faked). */
+  readonly rows: number | null;
+}
+
+/** One state entry present on exactly ONE side, in plain language. */
+export interface CompareEntryView {
+  readonly key: string;
+  readonly kind: 'selection' | 'encoding' | 'analysis';
+  /** What the entry is about (a view id or an analysis id). */
+  readonly label: string;
+  /** The entry's value, in plain words (e.g. "price between 30 and 210"). */
+  readonly detail: string;
+}
+
+/** One state entry present on BOTH sides with different values. */
+export interface CompareChangeView {
+  readonly key: string;
+  readonly kind: 'selection' | 'encoding' | 'analysis';
+  readonly label: string;
+  readonly a: string;
+  readonly b: string;
+}
+
+/** The normalized compare result the CompareModal renders. */
+export type CompareView =
+  | {
+      readonly ok: true;
+      readonly a: CompareSideView;
+      readonly b: CompareSideView;
+      /** The common-ancestor commit id, or null when the two sides share no start. */
+      readonly ancestor: string | null;
+      readonly changed: readonly CompareChangeView[];
+      readonly onlyA: readonly CompareEntryView[];
+      readonly onlyB: readonly CompareEntryView[];
+    }
+  | { readonly ok: false; readonly reason: string };
 
 /** A named log position (checkpoint) — a story beat in present mode. */
 export interface CheckpointView {
@@ -143,6 +232,8 @@ export interface SessionViewState {
   readonly selections: readonly SelectionView[];
   readonly commits: readonly CommitView[];
   readonly branches: readonly BranchView[];
+  /** The NAMED paths surface (BR-1): current/detached, list, journal. */
+  readonly paths: PathsView;
   readonly checkpoints: readonly CheckpointView[];
   readonly cursor: string | null;
   readonly head: string | null;
@@ -169,6 +260,7 @@ export function emptyState(defaultTable = 'data'): SessionViewState {
     selections: [],
     commits: [],
     branches: [],
+    paths: emptyPaths(),
     checkpoints: [],
     cursor: null,
     head: null,
