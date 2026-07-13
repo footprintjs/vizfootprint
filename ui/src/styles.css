@@ -649,6 +649,12 @@
   stroke-width: 2;
   stroke-dasharray: none;
 }
+:where(.vzf) .vzf-region:focus {
+  /* Chromium draws a default bbox outline on any focused tabindex SVG node —
+     a mouse click focuses too, so suppress the UA rect on plain :focus and
+     express KEYBOARD focus via the brand stroke below instead */
+  outline: none;
+}
 :where(.vzf) .vzf-region:focus-visible {
   outline: none;
   stroke: var(--vzf-brand);

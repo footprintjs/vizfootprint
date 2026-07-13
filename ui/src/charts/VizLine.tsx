@@ -240,12 +240,25 @@ export function VizLine(props: VizLineProps): JSX.Element {
 
   const openPicker = (channel: string): void => setPickerChannel(channel);
 
-  // ≤4 tick dates, evenly spread across the distinct dates (deterministic, collision-free)
-  const tickDates = useMemo(() => {
-    if (dates.length <= 4) return dates;
-    const idx = [0, 1, 2, 3].map((k) => Math.round((k * (dates.length - 1)) / 3));
-    return [...new Set(idx)].map((i) => dates[i]!);
-  }, [dates]);
+  // ≤3 tick dates: first (start-anchored), last (end-anchored), and the middle
+  // date ONLY when its label physically fits between the edge labels — data
+  // dates land where they land, so the middle can crowd an edge under uneven
+  // gaps. Date labels are ~10 mono chars ≈ 62 viewBox units.
+  const TICK_LABEL_W = 62;
+  const tickSpecs: { date: string; epoch: number; anchor: 'start' | 'middle' | 'end' }[] = [];
+  if (dates.length > 0) {
+    const first = dates[0]!;
+    const last = dates[dates.length - 1]!;
+    tickSpecs.push({ ...first, anchor: dates.length === 1 ? 'middle' : 'start' });
+    if (dates.length > 2) {
+      const mid = dates[Math.round((dates.length - 1) / 2)]!;
+      const fits =
+        x(mid.epoch) - TICK_LABEL_W / 2 > x(first.epoch) + TICK_LABEL_W + 8 &&
+        x(mid.epoch) + TICK_LABEL_W / 2 < x(last.epoch) - TICK_LABEL_W - 8;
+      if (fits) tickSpecs.push({ ...mid, anchor: 'middle' });
+    }
+    if (dates.length > 1) tickSpecs.push({ ...last, anchor: 'end' });
+  }
   const yTickVals = ticks(vlo + 0.5, vhi - 0.5, 3);
 
   const seriesColor = (name: string | undefined): string => (colorOf ? colorOf(name) : 'var(--vzf-brand)');
@@ -267,11 +280,12 @@ export function VizLine(props: VizLineProps): JSX.Element {
         {/* axes frame */}
         <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />
         <line className="vzf-axis" x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={height - PAD.b} />
-        {/* x ticks — actual data dates */}
-        {tickDates.map((d) => (
+        {/* x ticks — actual data dates; the edge labels anchor inward so they
+            never clip at the plot edges or collide with each other */}
+        {tickSpecs.map((d) => (
           <g key={`xt${d.date}`}>
             <line className="vzf-axis" x1={x(d.epoch)} y1={height - PAD.b} x2={x(d.epoch)} y2={height - PAD.b + 4} />
-            <text className="vzf-tick" x={x(d.epoch)} y={height - PAD.b + 16} textAnchor="middle">
+            <text className="vzf-tick" x={x(d.epoch)} y={height - PAD.b + 16} textAnchor={d.anchor}>
               {dayOf(d.date)}
             </text>
           </g>
@@ -302,11 +316,13 @@ export function VizLine(props: VizLineProps): JSX.Element {
             ))}
           </g>
         ))}
-        {/* inline legend — identity is never color-alone across ≥2 series */}
+        {/* inline legend — identity is never color-alone across ≥2 series.
+            Top-LEFT inside the plot: a rising series occupies the top-right,
+            so the left corner is the collision-free spot for trend data. */}
         {showLegend && (
           <g className="vzf-line-legend" aria-hidden="true">
             {series.map((s, i) => (
-              <g key={s.name ?? '__single__'} transform={`translate(${width - PAD.r - 92}, ${PAD.t + i * 14})`}>
+              <g key={s.name ?? '__single__'} transform={`translate(${PAD.l + 10}, ${PAD.t + i * 14})`}>
                 <rect width={8} height={8} rx={2} fill={seriesColor(s.name)} />
                 <text className="vzf-tick" x={12} y={7.5}>
                   {s.name ?? 'all'}

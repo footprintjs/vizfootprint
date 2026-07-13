@@ -220,7 +220,10 @@ export function VizMap(props: VizMapProps): JSX.Element {
           </path>
         );
       })}
-      {/* legend: the five ramp steps with the value domain's ends */}
+      {/* legend: the five ramp steps, bottom-left; the field label sits
+          bottom-RIGHT (end-anchored) so the two never collide at narrow
+          cockpit cell widths. When max is 0 the 0→max labels would read
+          "0 to 0", so the honest absence line replaces them. */}
       <g className="vzf-map-legend" aria-hidden="true">
         {Array.from({ length: RAMP_STEPS }, (_, i) => (
           <rect
@@ -234,14 +237,17 @@ export function VizMap(props: VizMapProps): JSX.Element {
             fill={`var(--vzf-seq-${i + 1})`}
           />
         ))}
-        <text className="vzf-map-minmax" x={legendX(0)} y={height - PAD.b + 32}>
-          0
-        </text>
-        <text className="vzf-map-minmax" x={legendX(RAMP_STEPS - 1) + legendW} y={height - PAD.b + 32} textAnchor="end">
-          {max} {valueLabel}
-        </text>
-        {max === 0 && (
-          <text className="vzf-map-note" x={legendX(RAMP_STEPS) + 14} y={height - PAD.b + 22}>
+        {max > 0 ? (
+          <>
+            <text className="vzf-map-minmax" x={legendX(0)} y={height - PAD.b + 32}>
+              0
+            </text>
+            <text className="vzf-map-minmax" x={legendX(RAMP_STEPS) + 4} y={height - PAD.b + 22}>
+              {max} {valueLabel}
+            </text>
+          </>
+        ) : (
+          <text className="vzf-map-note" x={legendX(0)} y={height - PAD.b + 32}>
             no {valueLabel} under the current selection
           </text>
         )}
@@ -249,7 +255,7 @@ export function VizMap(props: VizMapProps): JSX.Element {
       {/* a PLAIN field label — deliberately not .vzf-axis-label (that class is
           the interactive picker affordance; the map has no encoding picker,
           so it must not look like it does) */}
-      <text className="vzf-map-field" x={width / 2} y={height - 6} textAnchor="middle" data-map-field={regionField} aria-hidden="true">
+      <text className="vzf-map-field" x={width - PAD.r} y={height - 6} textAnchor="end" data-map-field={regionField} aria-hidden="true">
         {regionField}
       </text>
       {/* viewId anchors the a11y relationship between chart + emissions in tests */}

@@ -169,6 +169,8 @@ describe('VizMap — the sequential ramp and the honest empty state', () => {
       expect(p.getAttribute('fill')).toBe('var(--vzf-map-empty)');
     }
     expect(container.querySelector('.vzf-map-note')!.textContent).toBe('no rows under the current selection');
+    // a "0 to 0" domain would be noise — the absence line replaces the min/max labels
+    expect(container.querySelectorAll('.vzf-map-minmax')).toHaveLength(0);
   });
 
   it('the legend shows the five ramp swatches and the 0→max domain with the unit word', () => {

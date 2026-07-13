@@ -128,7 +128,7 @@ describe('VizLine — aggregation and rendering', () => {
     expect(legend.textContent).toContain('B');
   });
 
-  it('renders ≤4 x ticks from the data dates themselves, and appends className to the svg', () => {
+  it('renders 3 x ticks (first/middle/last data dates) with inward edge anchors, and appends className', () => {
     const many = Array.from({ length: 12 }, (_, i) => ({
       date: `2026-04-${String(i + 1).padStart(2, '0')}`,
       value: i,
@@ -136,12 +136,33 @@ describe('VizLine — aggregation and rendering', () => {
     const { container } = render(<VizLine data={many} className="extra" />);
     const svg = container.querySelector('svg.vzf-line')!;
     expect(svg.getAttribute('class')).toBe('vzf-chart vzf-line extra');
-    const tickTexts = [...container.querySelectorAll('text.vzf-tick')]
-      .map((t) => t.textContent ?? '')
-      .filter((t) => t.startsWith('2026-'));
-    expect(tickTexts.length).toBeLessThanOrEqual(4);
-    expect(tickTexts[0]).toBe('2026-04-01');
-    expect(tickTexts[tickTexts.length - 1]).toBe('2026-04-12');
+    const tickEls = [...container.querySelectorAll('text.vzf-tick')].filter((t) => (t.textContent ?? '').startsWith('2026-'));
+    expect(tickEls.map((t) => t.textContent)).toEqual(['2026-04-01', '2026-04-07', '2026-04-12']);
+    // the edge labels anchor INWARD so they never clip at the plot edges
+    expect(tickEls[0]!.getAttribute('text-anchor')).toBe('start');
+    expect(tickEls[1]!.getAttribute('text-anchor')).toBe('middle');
+    expect(tickEls[2]!.getAttribute('text-anchor')).toBe('end');
+  });
+
+  it('drops the middle tick when uneven date gaps would crowd it into an edge label', () => {
+    // three of four dates cluster at the far right — the middle candidate
+    // (2026-06-28) would sit on top of the end-anchored last label
+    const clustered = ['2026-04-01', '2026-06-27', '2026-06-28', '2026-06-29'].map((date, i) => ({ date, value: i }));
+    const { container } = render(<VizLine data={clustered} />);
+    const tickEls = [...container.querySelectorAll('text.vzf-tick')].filter((t) => (t.textContent ?? '').startsWith('2026-'));
+    expect(tickEls.map((t) => t.textContent)).toEqual(['2026-04-01', '2026-06-29']);
+  });
+
+  it('two dates tick as first+last; a single date gets one centered tick', () => {
+    const two = [{ date: '2026-04-01', value: 1 }, { date: '2026-04-08', value: 2 }];
+    const { container } = render(<VizLine data={two} />);
+    const twoTicks = [...container.querySelectorAll('text.vzf-tick')].filter((t) => (t.textContent ?? '').startsWith('2026-'));
+    expect(twoTicks.map((t) => t.getAttribute('text-anchor'))).toEqual(['start', 'end']);
+
+    const { container: one } = render(<VizLine data={[{ date: '2026-04-01', value: 1 }]} />);
+    const oneTick = [...one.querySelectorAll('text.vzf-tick')].filter((t) => (t.textContent ?? '').startsWith('2026-'));
+    expect(oneTick).toHaveLength(1);
+    expect(oneTick[0]!.getAttribute('text-anchor')).toBe('middle');
   });
 });
 
