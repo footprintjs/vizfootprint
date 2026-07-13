@@ -7,7 +7,15 @@
  *   GET  /bundle/vizfootprint-ui.css → the package's stylesheet (UI-2 — the dashboard is styled by the package, not this demo)
  *   GET  /data/dresses.csv    → the seeded dataset (also fetched by the browser)
  *   GET  /api/state           → commits + ledger + gaps + selection + activity
+ *                               (+ BR-3: the `paths` block — current/detached/list/journal)
  *   POST /api/dispatch        → the human's brush/click → a `user`-badged commit
+ *   POST /api/seek            → move the read-only cursor
+ *   POST /api/checkpoint      → name the cursor position
+ *   POST /api/paths           → BR-3 named paths: {action:'switch',name} | {action:'rename',from,to}
+ *                               | {action:'new',commitId,name?} — human-only (`user`-badged)
+ *   POST /api/compare         → {a,b} (path names or commit ids) → the session's CompareResult, verbatim
+ *   POST /api/bring-over      → {commitId} → cherry-pick a step onto the current position (`user`-badged)
+ *   POST /api/undo            → {commitId} → revert a step (`user`-badged)
  *   POST /api/chat            → one analyst turn → `agent`-badged commits + reply
  *   POST /api/reset           → a brand-new session (cheap; nothing reset in place)
  *
@@ -135,6 +143,23 @@ export async function startServer({ port = DEFAULT_PORT, mock, provider } = {}) 
         if (req.method === 'POST' && url === '/api/checkpoint') {
           const { label } = await readBody(req);
           return send(res, 200, await analyst.checkpoint(label));
+        }
+        if (req.method === 'POST' && url === '/api/paths') {
+          // BR-3: named paths — switch/rename/new, human-only (the agent has its own `paths` tool).
+          return send(res, 200, await analyst.paths(await readBody(req)));
+        }
+        if (req.method === 'POST' && url === '/api/compare') {
+          // Read-only: the session's own CompareResult JSON, verbatim.
+          const { a, b } = await readBody(req);
+          return send(res, 200, await analyst.compare(a, b));
+        }
+        if (req.method === 'POST' && url === '/api/bring-over') {
+          const { commitId } = await readBody(req);
+          return send(res, 200, await analyst.bringOver(commitId));
+        }
+        if (req.method === 'POST' && url === '/api/undo') {
+          const { commitId } = await readBody(req);
+          return send(res, 200, await analyst.undo(commitId));
         }
         if (req.method === 'POST' && url === '/api/chat') {
           const { message } = await readBody(req);

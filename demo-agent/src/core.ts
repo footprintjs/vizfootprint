@@ -17,6 +17,18 @@ import type { LLMProvider } from 'agentfootprint/llm-providers';
 import type { AttTrace } from 'agentfootprint/observe';
 import type { Cause } from '../../src/cause/index.js';
 import type { DispatchAction, DispatchResult } from '../../src/agent/index.js';
+// BR-3: the named-paths result/state types are owned by `src/session` — the
+// `src/agent` barrel re-exports the tool port but never re-exported these
+// BR-1 types (src/ is frozen; nothing to fix here), so read them from the
+// barrel that OWNS them, same rule CLAUDE.md states for new public symbols.
+import type {
+  PathsState,
+  CompareResult,
+  SwitchPathResult,
+  RenamePathResult,
+  NewPathResult,
+  BringOverResult,
+} from '../../src/session/index.js';
 
 export interface CreateAnalystOptions {
   /** The seeded dataset as CSV text (the server reads it once and passes it in). */
@@ -59,6 +71,19 @@ export interface CheckpointInfo {
   readonly ts: number;
 }
 
+/** The human's `/api/paths` request body — one of the three named-path actions. */
+export interface PathsRequestBody {
+  readonly action: 'switch' | 'rename' | 'new';
+  /** switch target / new path's optional custom name. */
+  readonly name?: string;
+  /** rename source. */
+  readonly from?: string;
+  /** rename target. */
+  readonly to?: string;
+  /** the commit a new path starts at. */
+  readonly commitId?: string;
+}
+
 /** Everything `/api/state` returns — the single render source for the browser. */
 export interface AnalystState {
   readonly records: unknown;
@@ -91,6 +116,8 @@ export interface AnalystState {
   readonly cursorTests: number;
   /** Whether the cursor is behind the active head (you are viewing the past). */
   readonly viewingPast: boolean;
+  /** BR-3: the named-paths surface (BR-1's refs + journal) — feeds the pill/modal/toast. */
+  readonly paths: PathsState;
 }
 
 export interface Analyst {
@@ -100,6 +127,19 @@ export interface Analyst {
   seek(commitId: string): Promise<{ ok: boolean; cursor?: string | null; error?: string }>;
   /** Name the current cursor position (the checkpoint verb, badged `user`). */
   checkpoint(label: string): Promise<DispatchResult | { ok: false; error: string }>;
+  /**
+   * Work with the NAMED paths (BR-1 refs): list is read straight off `state()`'s
+   * `paths` field, so this only ever needs switch/rename/new — the human-only
+   * surface (the agent drives the SAME session methods through its own `paths`
+   * tool, never this endpoint).
+   */
+  paths(body: PathsRequestBody): Promise<SwitchPathResult | RenamePathResult | NewPathResult | { ok: false; error: string }>;
+  /** Read-only structured diff between two positions (path names or commit ids). */
+  compare(a: string, b: string): Promise<CompareResult | { ok: false; error: string }>;
+  /** Cherry-pick a commit from another path onto the current position (badged `user`). */
+  bringOver(commitId: string): Promise<BringOverResult | { ok: false; error: string }>;
+  /** Revert a commit's step — restore its parent's value (badged `user`). */
+  undo(commitId: string): Promise<BringOverResult | { ok: false; error: string }>;
   state(): Promise<AnalystState>;
   /** The current turn's AgentThinkingUI Trace — served at GET /api/trace, polled
    *  by the /debug page. Grows live during a run; resets per user message. */
@@ -179,6 +219,42 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
       return session.dispatch({ verb: 'checkpoint', label, cause: userCause(`checkpoint ${label}`) }, { as: 'user' });
     },
 
+    async paths(body: PathsRequestBody) {
+      if (body.action === 'switch') {
+        if (typeof body.name !== 'string' || body.name.length === 0) return { ok: false, error: 'paths switch needs a name' };
+        return session.switchPath(body.name);
+      }
+      if (body.action === 'rename') {
+        if (typeof body.from !== 'string' || typeof body.to !== 'string') {
+          return { ok: false, error: 'paths rename needs string from and to' };
+        }
+        return session.renamePath(body.from, body.to);
+      }
+      if (body.action === 'new') {
+        if (typeof body.commitId !== 'string' || body.commitId.length === 0) return { ok: false, error: 'paths new needs a commitId' };
+        return session.newPathAt(body.commitId, body.name);
+      }
+      return { ok: false, error: `unsupported paths action "${String((body as { action?: unknown }).action)}"` };
+    },
+
+    async compare(a: string, b: string) {
+      if (typeof a !== 'string' || a.length === 0 || typeof b !== 'string' || b.length === 0) {
+        return { ok: false, error: 'compare needs string a and b (path names or commit ids)' };
+      }
+      return session.compare(a, b);
+    },
+
+    async bringOver(commitId: string) {
+      if (typeof commitId !== 'string' || commitId.length === 0) return { ok: false, error: 'bringOver needs a commitId' };
+      // Human-only surface (badged `user`) — the agent has no bringOver tool.
+      return session.bringOver(commitId, { as: 'user' });
+    },
+
+    async undo(commitId: string) {
+      if (typeof commitId !== 'string' || commitId.length === 0) return { ok: false, error: 'undo needs a commitId' };
+      return session.undo(commitId, { as: 'user' });
+    },
+
     async state(): Promise<AnalystState> {
       const overview = await session.overview();
       const selected = await session.selectedRows();
@@ -203,6 +279,7 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
         checkpoints: session.checkpoints().map((c) => ({ label: c.label, commitId: c.commitId, ts: c.ts })),
         cursorTests: overview.time.cursorTests,
         viewingPast: overview.time.viewingPast,
+        paths: overview.paths,
       };
     },
   };

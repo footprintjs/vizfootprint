@@ -148,6 +148,100 @@ describe('checkpoint — label guard (core.ts:176-180)', () => {
   });
 });
 
+describe('BR-3 — named paths / compare / bring-over / undo (core.ts paths|compare|bringOver|undo + state().paths)', () => {
+  /** Seed two named paths: two linear user commits, seek back, act → auto-named fork. */
+  async function seedTwoPaths() {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const c1: any = await analyst.dispatchUser({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', intent: 'pick formal' });
+    const c2: any = await analyst.dispatchUser({ verb: 'filter', viewId: 'scatter', field: 'price', range: [50, 150], intent: 'brush mid price' });
+    await analyst.seek(c1.commit.id); // detaches HEAD (travel by id)
+    const c3: any = await analyst.dispatchUser({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', intent: 'branch pick party' });
+    return { analyst, id1: c1.commit.id as string, id2: c2.commit.id as string, id3: c3.commit.id as string };
+  }
+
+  it('state().paths carries the BR-1 surface (current/detached/list/events) and grows a second named path after a fork', async () => {
+    const { analyst } = await seedTwoPaths();
+    const st = await analyst.state();
+    expect(st.paths.list.length).toBe(2);
+    expect(st.paths.current).toBe(st.paths.list.find((p) => p.active)!.name);
+    expect(st.paths.detachedAt).toBeNull();
+    expect(st.paths.events.filter((e) => e.type === 'create').length).toBe(2);
+  });
+
+  it('paths switch moves HEAD to the named path; an unknown name comes back as a typed gap; a missing name is a named error', async () => {
+    const { analyst } = await seedTwoPaths();
+    const st = await analyst.state();
+    const other = st.paths.list.find((p) => !p.active)!.name;
+    const res: any = await analyst.paths({ action: 'switch', name: other });
+    expect(res.ok).toBe(true);
+    expect(res.name).toBe(other);
+    expect((await analyst.state()).paths.current).toBe(other);
+
+    const miss: any = await analyst.paths({ action: 'switch', name: 'no-such-path' });
+    expect(miss.ok).toBe(false);
+    expect(miss.gap.op).toBe('switchPath');
+
+    expect(await analyst.paths({ action: 'switch' })).toEqual({ ok: false, error: 'paths switch needs a name' });
+  });
+
+  it('paths rename really renames (state reflects it); missing from/to is a named error', async () => {
+    const { analyst } = await seedTwoPaths();
+    const current = (await analyst.state()).paths.current!;
+    const res: any = await analyst.paths({ action: 'rename', from: current, to: 'my-side-quest' });
+    expect(res.ok).toBe(true);
+    expect((await analyst.state()).paths.current).toBe('my-side-quest');
+
+    expect(await analyst.paths({ action: 'rename', from: current })).toEqual({ ok: false, error: 'paths rename needs string from and to' });
+  });
+
+  it('paths new starts a named path at a commit (custom name honored); missing commitId is a named error; an unknown action is rejected by name', async () => {
+    const { analyst, id1 } = await seedTwoPaths();
+    const res: any = await analyst.paths({ action: 'new', commitId: id1, name: 'from-the-top' });
+    expect(res.ok).toBe(true);
+    expect(res.name).toBe('from-the-top');
+    expect((await analyst.state()).paths.list.map((p) => p.name)).toContain('from-the-top');
+
+    expect(await analyst.paths({ action: 'new' })).toEqual({ ok: false, error: 'paths new needs a commitId' });
+    expect(await analyst.paths({ action: 'bogus' } as any)).toEqual({ ok: false, error: 'unsupported paths action "bogus"' });
+  });
+
+  it('compare answers the session CompareResult verbatim (ancestor + changed sides + row counts); empty refs are a named error', async () => {
+    const { analyst, id1 } = await seedTwoPaths();
+    const st = await analyst.state();
+    const [a, b] = st.paths.list.map((p) => p.name);
+    const res: any = await analyst.compare(a!, b!);
+    expect(res.ok).toBe(true);
+    expect(res.ancestor).toBe(id1); // both paths fork off the first commit
+    expect(typeof res.a.rows).toBe('number');
+    expect(typeof res.b.rows).toBe('number');
+    // the two tips selected different categories → the bar selection differs
+    expect(res.changed.length + res.onlyA.length + res.onlyB.length).toBeGreaterThan(0);
+
+    expect(await analyst.compare('', 'x')).toEqual({ ok: false, error: 'compare needs string a and b (path names or commit ids)' });
+  });
+
+  it('bringOver lands a user-badged commit whose cause carries replayedFrom; an empty commitId is a named error', async () => {
+    const { analyst, id2 } = await seedTwoPaths();
+    // cursor sits on the fork tip (Party path); bring the other path's price brush over
+    const res: any = await analyst.bringOver(id2);
+    expect(res.ok).toBe(true);
+    expect(res.commit.cause.replayedFrom).toBe(id2);
+    expect(res.commit.cause.requestedBy).toBe('user');
+
+    expect(await analyst.bringOver('')).toEqual({ ok: false, error: 'bringOver needs a commitId' });
+  });
+
+  it('undo lands a user-badged commit whose cause carries revertOf; an empty commitId is a named error', async () => {
+    const { analyst, id3 } = await seedTwoPaths();
+    const res: any = await analyst.undo(id3); // revert the fork tip's own select
+    expect(res.ok).toBe(true);
+    expect(res.commit.cause.revertOf).toBe(id3);
+    expect(res.commit.cause.requestedBy).toBe('user');
+
+    expect(await analyst.undo('')).toEqual({ ok: false, error: 'undo needs a commitId' });
+  });
+});
+
 describe('the per-turn activity ring buffer caps at 60 entries (core.ts:120-123)', () => {
   it('caps the retained activity strip at 60 even when far more than 60 tool calls land across concurrent turns', async () => {
     // A provider that NEVER answers with final text — every request comes back
