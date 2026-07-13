@@ -16,6 +16,7 @@ import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/i
 import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
 import type { ColumnType } from '../data/index.js';
 import type { DispatchVerb, IntentClass } from '../def/types.js';
+import type { DiffChange, DiffOnly, PlanRecipe, RefEvent } from '../branches/index.js';
 
 // ── The gap ledger (D14 taxonomy) — every unmet request, typed, never dropped. ─
 
@@ -28,7 +29,17 @@ export type GapCode =
   | 'needs-backend-data';
 
 /** The operation a gap was filed against. */
-export type GapOp = DispatchVerb | 'declareAnalysis' | 'mountView' | 'seek';
+export type GapOp =
+  | DispatchVerb
+  | 'declareAnalysis'
+  | 'mountView'
+  | 'seek'
+  | 'switchPath'
+  | 'renamePath'
+  | 'newPathAt'
+  | 'compare'
+  | 'bringOver'
+  | 'undo';
 
 /** One unmet request, filed with a taxonomy code. `detail`/`target` are INERT data (R12). */
 export interface GapRow {
@@ -114,6 +125,86 @@ export interface TimeState {
 /** The result of a `seek(commitId)` navigation — read-only, never a mutation. */
 export type SeekResult =
   | { readonly ok: true; readonly cursor: string }
+  | { readonly ok: false; readonly gap: GapRow };
+
+// ── Named paths (BR-1: git-style refs + HEAD, beside the log). ─────────────────
+
+/** One NAMED path (branch): its ref name, tip commit, and quick stats. */
+export interface PathInfo {
+  readonly name: string;
+  /** The tip commit id this ref points at. */
+  readonly tip: string;
+  /** Commits from the root down to (and including) the tip. */
+  readonly steps: number;
+  /** The tip commit's logical timestamp (the log's own `ts`). */
+  readonly lastTs: number;
+  /** True iff HEAD rides this path. */
+  readonly active: boolean;
+}
+
+/** The refs surface `overview()` exposes (BR-1): names, HEAD, and the ref-event journal. */
+export interface PathsState {
+  /** The named path HEAD rides, or null while detached (cursor travelled by id). */
+  readonly current: string | null;
+  /** The commit id HEAD is detached at (null when attached — or detached pre-commit). */
+  readonly detachedAt: string | null;
+  readonly list: readonly PathInfo[];
+  /** The ref-event journal: create/advance/switch/rename — auditable, never commits. */
+  readonly events: readonly RefEvent[];
+}
+
+export type SwitchPathResult =
+  | { readonly ok: true; readonly name: string; readonly cursor: string }
+  | { readonly ok: false; readonly gap: GapRow };
+
+export type RenamePathResult =
+  | { readonly ok: true; readonly name: string }
+  | { readonly ok: false; readonly gap: GapRow };
+
+export type NewPathResult =
+  | { readonly ok: true; readonly name: string; readonly cursor: string }
+  | { readonly ok: false; readonly gap: GapRow };
+
+/** One side of a `compare()`: how it was named, the tip it resolved to, and its row count. */
+export interface CompareSide {
+  readonly ref: string;
+  readonly tip: string;
+  /** Rows under this side's folded selections (default table) — null when the backend cannot count (honest, never 0-faked). */
+  readonly rows: number | null;
+}
+
+/**
+ * The structured diff between two positions (path names or commit ids): the
+ * `branches/` foldDiff enriched with per-side row counts via the data provider.
+ */
+export type CompareResult =
+  | {
+      readonly ok: true;
+      readonly a: CompareSide;
+      readonly b: CompareSide;
+      /** The common-ancestor commit id, or null for disjoint roots. */
+      readonly ancestor: string | null;
+      readonly changed: readonly DiffChange[];
+      readonly onlyA: readonly DiffOnly[];
+      readonly onlyB: readonly DiffOnly[];
+    }
+  | { readonly ok: false; readonly gap: GapRow };
+
+/**
+ * The result of `bringOver()` / `undo()`: the plan that ran (recipe +
+ * conflicts) and the ordinary dispatch result it landed through. `commit` is
+ * the landed record when one landed (an analyze recipe surfaces its commit
+ * from the AnalysisCommit).
+ */
+export type BringOverResult =
+  | {
+      readonly ok: true;
+      readonly recipe: PlanRecipe;
+      /** Overriding commit ids on the target path since the LCA — also stamped into the commit's cause. */
+      readonly conflicts: readonly string[];
+      readonly commit?: CommitRecord;
+      readonly result: DispatchResult;
+    }
   | { readonly ok: false; readonly gap: GapRow };
 
 /** The typed record of a declared-analysis invocation (the L3-flags landing spot). */
@@ -276,6 +367,8 @@ export interface Overview {
   readonly engines: Readonly<Record<string, string>>;
   /** Time-travel position: cursor vs active head, branch/checkpoint counts, cursor-local test count (Phase A). */
   readonly time: TimeState;
+  /** Named paths (BR-1): the refs, where HEAD is, and the ref-event journal. */
+  readonly paths: PathsState;
 }
 
 /** Options for a direct `declareAnalysis` invocation. */

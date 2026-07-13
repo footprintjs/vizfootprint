@@ -41,19 +41,39 @@ import { GapLedger } from './gapLedger.js';
 import { why } from '../why/index.js';
 import type { RuntimeSnapshot } from 'footprintjs';
 import type { AgentEventFrame, WhyResult, WhyTarget } from '../why/index.js';
+import {
+  ANALYSIS_VIEW_PREFIX,
+  ANNOTATION_VIEW_PREFIX,
+  BranchRefs,
+  ENCODING_VIEW_PREFIX,
+  foldDiff,
+  foldStateAt,
+  planBringOver,
+  planUndo,
+  slugForCommit,
+  uniqueSlug,
+} from '../branches/index.js';
+import type { PlanRecipe } from '../branches/index.js';
 import type {
   AnalysisCommit,
   BranchInfo,
+  BringOverResult,
   Checkpoint,
   ColumnFacet,
+  CompareResult,
   DeclareAnalysisOptions,
   DispatchAction,
   DispatchResult,
   GapCode,
   GapRow,
+  NewPathResult,
   Overview,
+  PathInfo,
+  PathsState,
+  RenamePathResult,
   SeekResult,
   SessionOptions,
+  SwitchPathResult,
   TimeState,
   ViewAdapter,
 } from './types.js';
@@ -93,8 +113,11 @@ const ANNOTATION_FIELD = '__annotation__';
  * union (CommitRecord stays `kind:'point'|'interval'`; `field` carries the
  * CHANNEL, `value` carries the target field — both plain strings, same shape
  * every other commit already uses).
+ *
+ * The prefix constants themselves are SINGLE-SOURCED from `src/branches/fold`
+ * (BR-1): the branches layer folds the same wire from the log alone, so the
+ * two layers share the literal bytes and cannot drift.
  */
-const ENCODING_VIEW_PREFIX = 'encoding:';
 const encodingViewId = (viewId: string): string => `${ENCODING_VIEW_PREFIX}${viewId}`;
 
 /**
@@ -132,6 +155,53 @@ export interface InteractionSession {
    * topology; old branches always stay in this list (and in the FDR denominator).
    */
   branches(): readonly BranchInfo[];
+
+  // ── named paths (BR-1: refs + HEAD beside the log; journaled ref-events) ────
+
+  /** The NAMED paths: name, tip, step count, last logical timestamp, active flag. */
+  paths(): readonly PathInfo[];
+
+  /**
+   * Switch to a named path: seek to its tip, rebuild the fold there, and make
+   * that lineage ACTIVE (HEAD attaches to the ref; the next act advances it).
+   * Journaled as a ref-event. Unknown name → typed gap.
+   */
+  switchPath(name: string): SwitchPathResult;
+
+  /** Rename a path (HEAD follows if attached). Journaled. Unknown/collision/invalid → typed gap. */
+  renamePath(from: string, to: string): RenamePathResult;
+
+  /**
+   * Start a NEW named path at a prior commit: creates the ref there (name
+   * auto-slugged from that commit's cause when omitted), attaches HEAD, and
+   * seeks the cursor to it — the next act extends the new path. Journaled.
+   */
+  newPathAt(commitId: string, name?: string): NewPathResult;
+
+  /**
+   * Compare two positions — path names or commit ids. Returns the common
+   * ancestor plus the structured state diff (changed / onlyA / onlyB across
+   * selections, encodings, and analyses — the `branches/` foldDiff), enriched
+   * with per-side ROW COUNTS under each side's folded selections.
+   */
+  compare(aRef: string, bRef: string): Promise<CompareResult>;
+
+  /**
+   * Bring a commit from another path over to the current position
+   * (cherry-pick): plan via `branches/` (conflicts = same key touched on this
+   * path since the common ancestor, named by the overriding commit id — the
+   * plan still executes), then land it through NORMAL dispatch as an ordinary
+   * commit whose cause carries `replayedFrom` (+ `conflicts` when any).
+   */
+  bringOver(commitId: string, opts?: { as?: Actor }): Promise<BringOverResult>;
+
+  /**
+   * Undo a commit (revert): restore the state key's value at that commit's
+   * PARENT — including "absent at parent → clear". Same plan/execute split as
+   * `bringOver`; the landed cause carries `revertOf` (+ `conflicts` when any).
+   * An analysis or annotation commit is honestly not undoable (typed gap).
+   */
+  undo(commitId: string, opts?: { as?: Actor }): Promise<BringOverResult>;
 
   /** Register a view adapter under a declared view identity (R3). */
   mountView(viewId: string, adapter: ViewAdapter): { ok: true } | { ok: false; gap: GapRow };
@@ -218,6 +288,12 @@ class InteractionSessionImpl implements InteractionSession {
   private _head: string | null = null;
   /** The read-only navigation cursor — the parent the next act commits from. `seek`/`fork` move it. */
   private _cursor: string | null = null;
+  /**
+   * BR-1 named refs + HEAD, beside the log (never in it): act-at-tip advances
+   * the ref, act-while-detached auto-creates a cause-slugged one; every
+   * create/advance/switch/rename is journaled as a ref-event.
+   */
+  private readonly refs = new BranchRefs();
   private seq = 0;
   private testClock = 0;
   private _currentView: string | null = null;
@@ -250,11 +326,14 @@ class InteractionSessionImpl implements InteractionSession {
    * Advance BOTH pointers to a freshly-landed commit. After any act the active
    * branch tip and the cursor coincide: a branch-on-act (an act from a past
    * cursor) makes the new sibling lineage the active branch (R8 ruling — "the
-   * active branch becomes the new lineage").
+   * active branch becomes the new lineage"). BR-1: the commit is also routed
+   * through the refs — act-at-tip advances the current ref; act-while-detached
+   * auto-creates a NAMED ref (today's branch-on-act, now named) — journaled.
    */
-  private landed(recordId: string): void {
-    this._head = recordId;
-    this._cursor = recordId;
+  private landed(record: CommitRecord): void {
+    this._head = record.id;
+    this._cursor = record.id;
+    this.refs.noteCommit(record);
   }
 
   /** Move the cursor + rebuild the fold at `commitId` (no head change, no validation — callers pre-validate). */
@@ -268,6 +347,10 @@ class InteractionSessionImpl implements InteractionSession {
       return { ok: false, gap: this.gapLedger.file('guard-failed', 'seek', `no commit "${commitId}" to seek to`, commitId) };
     }
     this.seekTo(commitId);
+    // BR-1 (git parity): travelling BY COMMIT ID detaches HEAD — the next act
+    // either extends a ref's tip (advancing it) or auto-creates a named ref.
+    // Journaled as a ref-event; `switchPath` is the travel-by-NAME that attaches.
+    this.refs.detach(commitId);
     return { ok: true, cursor: commitId };
   }
 
@@ -353,6 +436,183 @@ class InteractionSessionImpl implements InteractionSession {
       }));
   }
 
+  // ── named paths (BR-1: refs + HEAD beside the log; journaled ref-events) ────
+
+  paths(): readonly PathInfo[] {
+    const byId = new Map(this.log.records.map((r) => [r.id, r]));
+    const current = this.refs.currentBranch();
+    return Object.entries(this.refs.branches()).map(([name, tip]) => ({
+      name,
+      tip,
+      steps: this.branchPath(tip).length,
+      // Session-authored refs only ever point at commits in THIS log (noteCommit
+      // routes landed records; newPathAt validates the id first), so the tip is
+      // always resolvable.
+      lastTs: (byId.get(tip) as CommitRecord).ts,
+      active: name === current,
+    }));
+  }
+
+  switchPath(name: string): SwitchPathResult {
+    const res = this.refs.switchTo(name); // journals the switch only when it succeeds
+    if (!res.ok) {
+      return { ok: false, gap: this.gapLedger.file('guard-failed', 'switchPath', res.detail, name) };
+    }
+    // A named switch ACTIVATES that lineage: cursor AND head move to its tip
+    // (the next linear act extends it — advancing the ref, not branching).
+    this.seekTo(res.tip);
+    this._head = res.tip;
+    return { ok: true, name, cursor: res.tip };
+  }
+
+  renamePath(from: string, to: string): RenamePathResult {
+    const res = this.refs.rename(from, to);
+    if (!res.ok) {
+      return { ok: false, gap: this.gapLedger.file('guard-failed', 'renamePath', res.detail, from) };
+    }
+    return { ok: true, name: to };
+  }
+
+  newPathAt(commitId: string, name?: string): NewPathResult {
+    const record = this.log.records.find((r) => r.id === commitId);
+    if (!record) {
+      return { ok: false, gap: this.gapLedger.file('guard-failed', 'newPathAt', `no commit "${commitId}" to start a path at`, commitId) };
+    }
+    const chosen = name ?? uniqueSlug(slugForCommit(record), (n) => this.refs.has(n));
+    const res = this.refs.createAt(chosen, commitId);
+    if (!res.ok) {
+      return { ok: false, gap: this.gapLedger.file('guard-failed', 'newPathAt', res.detail, chosen) };
+    }
+    // The new path is the active lineage: the next act extends its tip.
+    this.seekTo(commitId);
+    this._head = commitId;
+    return { ok: true, name: res.name, cursor: commitId };
+  }
+
+  /**
+   * Rows (default table) under one tip's folded selections. Honest `null`
+   * when the backend cannot serve rows — never a fake 0. Selections in a
+   * session-authored log always target declared views (doProbe guard), so the
+   * fold's selection entries are exactly the active filters at that tip.
+   */
+  private async rowsAtTip(tip: string): Promise<number | null> {
+    const base = await this.allRows(this.defaultTable);
+    if ('rejected' in base) return null;
+    const clauses: PredicateClause[] = [];
+    for (const entry of foldStateAt(this.log.records, tip).values()) {
+      if (entry.kind !== 'selection') continue;
+      clauses.push(
+        entry.clause.kind === 'point'
+          ? { kind: 'point', field: entry.clause.field, value: entry.clause.value }
+          : { kind: 'interval', field: entry.clause.field, value: entry.clause.value as [number, number] },
+      );
+    }
+    return base.filter((r) => clauses.every((c) => matchesClause(r, c))).length;
+  }
+
+  async compare(aRef: string, bRef: string): Promise<CompareResult> {
+    // A ref is a path NAME when one exists, else it is taken as a commit id.
+    const tipA = this.refs.tipOf(aRef) ?? aRef;
+    const tipB = this.refs.tipOf(bRef) ?? bRef;
+    const diff = foldDiff(this.log.records, tipA, tipB);
+    if (!diff.ok) {
+      const missing = diff.missing.join(', ');
+      return { ok: false, gap: this.gapLedger.file('guard-failed', 'compare', `unknown path or commit id(s): ${missing}`, missing) };
+    }
+    return {
+      ok: true,
+      a: { ref: aRef, tip: tipA, rows: await this.rowsAtTip(tipA) },
+      b: { ref: bRef, tip: tipB, rows: await this.rowsAtTip(tipB) },
+      ancestor: diff.ancestor,
+      changed: diff.changed,
+      onlyA: diff.onlyA,
+      onlyB: diff.onlyB,
+    };
+  }
+
+  // ── bring-over / undo (BR-1: plan via branches/, execute via NORMAL dispatch) ──
+
+  async bringOver(commitId: string, opts: { as?: Actor } = {}): Promise<BringOverResult> {
+    const plan = planBringOver(this.log.records, commitId, this._cursor);
+    if (!plan.ok) {
+      return { ok: false, gap: this.gapLedger.file('guard-failed', 'bringOver', plan.detail, commitId) };
+    }
+    return this.executePlan(plan, { replayedFrom: commitId }, 'bringOver', opts.as);
+  }
+
+  async undo(commitId: string, opts: { as?: Actor } = {}): Promise<BringOverResult> {
+    const plan = planUndo(this.log.records, commitId, this._cursor);
+    if (!plan.ok) {
+      return { ok: false, gap: this.gapLedger.file('guard-failed', 'undo', plan.detail, commitId) };
+    }
+    return this.executePlan(plan, { revertOf: commitId }, 'undo', opts.as);
+  }
+
+  /**
+   * Execute a plan through the ONE dispatch entry (commit-on-intent stays in
+   * one place — NO new verbs): the landed commit is ordinary, its cause
+   * carries `replayedFrom`/`revertOf` (+ `conflicts` when the plan reported
+   * any) — so the story survives serialization, replay, and /api/state.
+   */
+  private async executePlan(
+    plan: { readonly recipe: PlanRecipe; readonly conflicts: readonly string[] },
+    tag: { replayedFrom?: string; revertOf?: string },
+    op: 'bringOver' | 'undo',
+    as: Actor | undefined,
+  ): Promise<BringOverResult> {
+    const actor = as ?? this.defaultActor;
+    const cause: Cause = {
+      requestedBy: actor,
+      computedBy: actor,
+      ...tag,
+      ...(plan.conflicts.length > 0 ? { conflicts: plan.conflicts } : {}),
+    };
+    const action = this.actionForRecipe(plan.recipe, cause, op);
+    if ('gap' in action) return { ok: false, gap: action.gap };
+    const result = await this.dispatch(action, { as: actor });
+    if (!result.ok) return { ok: false, gap: result.rejection };
+    // An analyze recipe's record rides inside the AnalysisCommit (absent only
+    // for a degenerate run, which honestly lands nothing); every other recipe
+    // verb (select/filter/reencode/annotate) lands a top-level commit.
+    const commit = plan.recipe.apply === 'analysis' ? result.analysis!.commit : result.commit!;
+    return {
+      ok: true,
+      recipe: plan.recipe,
+      conflicts: plan.conflicts,
+      ...(commit ? { commit } : {}),
+      result,
+    };
+  }
+
+  /** Map a plan recipe onto the ordinary dispatch action that lands it. */
+  private actionForRecipe(recipe: PlanRecipe, cause: Cause, op: 'bringOver' | 'undo'): DispatchAction | { gap: GapRow } {
+    switch (recipe.apply) {
+      case 'selection':
+        return recipe.kind === 'point'
+          ? { verb: 'select', viewId: recipe.viewId, field: recipe.field, value: recipe.value, cause }
+          : { verb: 'filter', viewId: recipe.viewId, field: recipe.field, range: recipe.value as readonly [number, number] | null, cause };
+      case 'clear-selection':
+        return { verb: 'filter', viewId: recipe.viewId, field: recipe.field, range: null, cause };
+      case 'encoding':
+        return { verb: 'reencode', viewId: recipe.viewId, channel: recipe.channel, field: recipe.field, cause };
+      case 'clear-encoding': {
+        // "Absent at parent" for an encoding means: restore the view's DECLARED
+        // initial binding. The encoding commit being undone came from THIS
+        // session's log, so doReencode already validated the view + its
+        // declared encoding surface — both lookups are safe by construction.
+        const initial = this.runtime.views.get(recipe.viewId)!.encoding!.initial?.[recipe.channel];
+        if (initial === undefined) {
+          return { gap: this.gapLedger.file('guard-failed', op, `view "${recipe.viewId}" declares no initial "${recipe.channel}" binding to restore`, recipe.viewId) };
+        }
+        return { verb: 'reencode', viewId: recipe.viewId, channel: recipe.channel, field: initial, cause };
+      }
+      case 'analysis':
+        return { verb: 'analyze', analysisId: recipe.analysisId, cause };
+      case 'annotation':
+        return { verb: 'annotate', target: recipe.target, note: recipe.note, cause };
+    }
+  }
+
   /** The materialized columns visible on the current cursor's branch path, for one table. */
   private visibleMaterialized(table: string): Set<string> {
     const out = new Set<string>();
@@ -376,6 +636,11 @@ class InteractionSessionImpl implements InteractionSession {
     const computedBy: Actor = verb === 'analyze' ? 'system' : (as ?? validated.computedBy);
     const out: Cause = { requestedBy, computedBy };
     if (validated.intent !== undefined) out.intent = validated.intent;
+    // BR-1 provenance tags ride the stamp untouched (validated inert data):
+    // a bring-over/undo is an ORDINARY commit — its cause carries the story.
+    if (validated.replayedFrom !== undefined) out.replayedFrom = validated.replayedFrom;
+    if (validated.revertOf !== undefined) out.revertOf = validated.revertOf;
+    if (validated.conflicts !== undefined) out.conflicts = validated.conflicts;
     return out;
   }
 
@@ -576,7 +841,7 @@ class InteractionSessionImpl implements InteractionSession {
       value,
       cause: stamped,
     });
-    this.landed(record.id);
+    this.landed(record);
     if (kind === 'interval' && value === null) {
       this.activeFilters.delete(viewId);
       this.activeFilterCommits.delete(viewId); // a cleared filter is no longer an input dependency
@@ -645,13 +910,19 @@ class InteractionSessionImpl implements InteractionSession {
       parent: this._cursor,
       ...(correlationId !== undefined ? { correlationId } : {}),
       viewId: encodingViewId(viewId),
-      actorMeta: { actor: stamped.requestedBy },
+      // STABLE source identity (BR-1 root-cause fix): `encoding:${viewId}` is
+      // ONE registry source shared by every reencode of the view, so its meta
+      // must not vary by actor — an actor-dependent meta made the SECOND
+      // actor's reencode (or an undo/bring-over executed by another actor)
+      // throw SourceRegistryError. WHO acted lives in the cause (requestedBy),
+      // exactly as doProbe does with the view's declared meta above.
+      actorMeta: this.runtime.views.get(viewId)!.meta,
       kind: 'point',
       field: channel,
       value: field,
       cause: stamped,
     });
-    this.landed(record.id);
+    this.landed(record);
     const current = this.activeEncodings.get(viewId) ?? {};
     this.activeEncodings.set(viewId, { ...current, [channel]: field });
     return { ok: true, verb: 'reencode', intent, commit: record, reencoded: { viewId, channel, field } };
@@ -666,7 +937,7 @@ class InteractionSessionImpl implements InteractionSession {
   ): DispatchResult {
     // An annotation is an INERT note (R12): stored as commit data, never parsed.
     const stamped = this.stampCause(cause, 'annotate', as);
-    const viewId = `annotation:${stamped.requestedBy}`;
+    const viewId = `${ANNOTATION_VIEW_PREFIX}${stamped.requestedBy}`; // single-sourced wire prefix (BR-1)
     const { record } = this.log.commit({
       id: this.nextId(),
       parent: this._cursor, // R8 branch-on-act: an annotation from a past cursor branches too
@@ -677,7 +948,7 @@ class InteractionSessionImpl implements InteractionSession {
       value: note,
       cause: stamped,
     });
-    this.landed(record.id);
+    this.landed(record);
     return { ok: true, verb: 'annotate', intent, commit: record, annotated: { target, note } };
   }
 
@@ -727,6 +998,7 @@ class InteractionSessionImpl implements InteractionSession {
     // the pre-fork selection. `fork` and `seek` now share `seekTo` (act-from-past
     // is the IMPLICIT fork; `fork` is the explicit one).
     this.seekTo(fromCommitId);
+    this.refs.detach(fromCommitId); // BR-1: an explicit fork detaches HEAD too — the sibling act will auto-name its ref
     return { ok: true, verb: 'fork', intent };
   }
 
@@ -811,7 +1083,7 @@ class InteractionSessionImpl implements InteractionSession {
     }
 
     // Land ONE cause-tagged provenance commit for the invocation.
-    const analysisViewId = `analysis:${id}`;
+    const analysisViewId = `${ANALYSIS_VIEW_PREFIX}${id}`; // single-sourced wire prefix (BR-1)
     let landField = ANALYSIS_FIELD;
     let landValue: unknown = id;
     if (analysis.kind === 'test' && hypothesis) {
@@ -831,7 +1103,7 @@ class InteractionSessionImpl implements InteractionSession {
       value: landValue,
       cause: stamped,
     });
-    this.landed(record.id);
+    this.landed(record);
 
     // R11: a columns-channel output materializes back into the data space so it
     // re-enters as ordinary, filterable columns.
@@ -1044,6 +1316,15 @@ class InteractionSessionImpl implements InteractionSession {
       viewingPast: this._cursor !== this._head,
     };
 
+    // BR-1: the named-paths surface (refs, HEAD, journal) — whats_here reads this.
+    const refHead = this.refs.head;
+    const paths: PathsState = {
+      current: this.refs.currentBranch(),
+      detachedAt: 'detached' in refHead ? refHead.detached : null,
+      list: this.paths(),
+      events: [...this.refs.events()],
+    };
+
     return {
       defaultTable: this.defaultTable,
       views,
@@ -1063,6 +1344,7 @@ class InteractionSessionImpl implements InteractionSession {
       currentView: this._currentView,
       engines: this.runtime.engines,
       time,
+      paths,
     };
   }
 }

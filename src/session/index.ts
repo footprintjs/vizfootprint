@@ -28,6 +28,15 @@ export type {
   AnalysisReadiness,
   FdrSummary,
   ColumnFacet,
+  // BR-1 named paths + plans
+  PathInfo,
+  PathsState,
+  SwitchPathResult,
+  RenamePathResult,
+  NewPathResult,
+  CompareSide,
+  CompareResult,
+  BringOverResult,
 } from './types.js';
 
 // L6 `why(target)` result types (promoted P3-L6; owned by `../why`).
