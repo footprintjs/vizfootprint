@@ -773,6 +773,69 @@
   flex-wrap: wrap;
 }
 
+/* ── compact bar (the cockpit's top strip): everything on one line ── */
+:where(.vzf) .vzf-timebar.vzf-compact {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--vzf-space-2) var(--vzf-space-3);
+}
+:where(.vzf) .vzf-compact .vzf-section-head {
+  display: none;
+}
+:where(.vzf) .vzf-compact .vzf-timebar-top {
+  flex: none;
+}
+:where(.vzf) .vzf-compact .vzf-timeline-row {
+  flex: 1;
+  min-width: 0;
+}
+:where(.vzf) .vzf-compact .vzf-timeline {
+  padding: 2px var(--vzf-space-1);
+}
+:where(.vzf) .vzf-compact .vzf-time-controls {
+  flex: none;
+  flex-wrap: nowrap;
+}
+:where(.vzf) .vzf-compact .vzf-time-controls .vzf-muted {
+  display: none;
+}
+:where(.vzf) .vzf-compact .vzf-past-banner {
+  order: 10;
+  flex: 1 1 100%;
+  padding: 2px var(--vzf-space-2);
+  font-size: 0.78em;
+}
+:where(.vzf) .vzf-compact [data-vzf='present'] {
+  flex: 1;
+  min-width: 0;
+}
+:where(.vzf) .vzf-compact .vzf-present-beat {
+  padding: 2px var(--vzf-space-2);
+}
+:where(.vzf) .vzf-compact .vzf-present-beat .vzf-beat-title {
+  font-size: 1.05em;
+}
+:where(.vzf) .vzf-compact .vzf-present-beat .vzf-beat-meta {
+  font-size: 0.74em;
+  margin-top: 0;
+}
+
+/* ── checkpoint naming modal (small glass prompt) ───────────── */
+:where(.vzf) .vzf-ckpt-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vzf-space-3);
+  padding: var(--vzf-space-2);
+}
+:where(.vzf) .vzf-ckpt-form .vzf-ckpt-name {
+  width: 100%;
+}
+:where(.vzf) .vzf-ckpt-target {
+  font-size: 0.84em;
+  color: var(--vzf-ink-soft);
+}
+
 /* branch map */
 :where(.vzf) .vzf-branchmap-wrap {
   overflow-x: auto;

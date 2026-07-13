@@ -12,11 +12,18 @@
  * Controlled: `commits`, `cursor`, `head`, `checkpoints` come from the adapter;
  * `mode` is controllable (pass `mode`+`onModeChange`) or self-managed. Every
  * navigation is a callback — the bar never mutates state itself.
+ *
+ * COCKPIT dials: `compact` folds the bar into one slim strip (for the
+ * {@link VizCockpit} top row), and `checkpointNaming="modal"` swaps the inline
+ * name field for the ⚑-triggered {@link CheckpointModal}. The default stays
+ * `'inline'` ONLY as the thin back-compat path for the old demo-agent dashboard
+ * — the next packet flips it to `'modal'` and removes the inline composer.
  */
 import { useEffect, useState } from 'react';
 import type { CommitView, CheckpointView, BranchView } from '../adapter/types.js';
 import { stepBackTarget, stepForwardTarget, activePath, pathToRoot } from '../adapter/stepNav.js';
 import { orderedCheckpoints, currentBeatIndex } from './presentBeat.js';
+import { CheckpointModal } from './CheckpointModal.js';
 
 export type TimeMode = 'explore' | 'present';
 
@@ -26,6 +33,14 @@ export interface TimeTravelBarProps {
   readonly onModeChange?: (mode: TimeMode) => void;
   /** Fired on mount and whenever read-only-ness changes (present ⇒ true). */
   readonly onReadOnlyChange?: (readOnly: boolean) => void;
+  /** Fold the bar into one slim strip (the cockpit's top row). */
+  readonly compact?: boolean;
+  /**
+   * How the ⚑ button asks for a name: `'modal'` (the cockpit way — a small
+   * glass prompt) or `'inline'` (the legacy text field; default only until the
+   * old demo adopts the cockpit — then this flips and the inline path goes).
+   */
+  readonly checkpointNaming?: 'modal' | 'inline';
   readonly commits: readonly CommitView[];
   readonly cursor: string | null;
   readonly head: string | null;
@@ -59,6 +74,9 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
   const [internalMode, setInternalMode] = useState<TimeMode>(props.defaultMode ?? 'explore');
   const mode = props.mode ?? internalMode;
   const [ckptLabel, setCkptLabel] = useState('');
+  const [ckptModalOpen, setCkptModalOpen] = useState(false);
+  const compact = props.compact ?? false;
+  const checkpointNaming = props.checkpointNaming ?? 'inline';
 
   const setMode = (next: TimeMode): void => {
     if (props.mode === undefined) setInternalMode(next);
@@ -76,14 +94,16 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
   const backDisabled = stepBackTarget(commits, cursor) === null;
   const forwardDisabled = stepForwardTarget(commits, cursor, head) === null;
 
+  const defaultCkptName = `cp-${checkpoints.length + 1}`;
   const submitCheckpoint = (): void => {
-    const label = ckptLabel.trim() || `cp-${checkpoints.length + 1}`;
+    const label = ckptLabel.trim() || defaultCkptName;
     setCkptLabel('');
     onCheckpoint?.(label);
   };
+  const cursorCommit = commits.find((c) => c.id === cursor);
 
   return (
-    <div className="vzf-timebar" data-vzf="time-travel-bar" data-mode={mode}>
+    <div className={`vzf-timebar${compact ? ' vzf-compact' : ''}`} data-vzf="time-travel-bar" data-mode={mode}>
       <div className="vzf-timebar-top">
         <span className="vzf-section-head" style={{ margin: 0 }}>
           Time travel
@@ -117,13 +137,26 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
           onStepForward={onStepForward}
           viewingPast={viewingPast}
           onReturnToNow={onReturnToNow}
+          checkpointNaming={checkpointNaming}
           ckptLabel={ckptLabel}
           setCkptLabel={setCkptLabel}
           submitCheckpoint={submitCheckpoint}
+          openCheckpointModal={() => setCkptModalOpen(true)}
           branchCount={branches.length}
         />
       ) : (
         <PresentBody checkpoints={checkpoints} commits={commits} cursor={cursor} onSeek={onSeek} />
+      )}
+
+      {checkpointNaming === 'modal' && (
+        <CheckpointModal
+          open={ckptModalOpen}
+          commitId={cursor}
+          commitLabel={cursorCommit?.label}
+          defaultName={defaultCkptName}
+          onSave={(label) => onCheckpoint?.(label)}
+          onClose={() => setCkptModalOpen(false)}
+        />
       )}
     </div>
   );
@@ -142,9 +175,11 @@ interface ExploreBodyProps {
   onStepForward?: () => void;
   viewingPast: boolean;
   onReturnToNow?: () => void;
+  checkpointNaming: 'modal' | 'inline';
   ckptLabel: string;
   setCkptLabel: (v: string) => void;
   submitCheckpoint: () => void;
+  openCheckpointModal: () => void;
   branchCount: number;
 }
 function ExploreBody(p: ExploreBodyProps): JSX.Element {
@@ -179,17 +214,24 @@ function ExploreBody(p: ExploreBodyProps): JSX.Element {
         </button>
       </div>
       <div className="vzf-time-controls">
-        <input
-          className="vzf-input vzf-ckpt-input"
-          type="text"
-          placeholder="name this point"
-          value={p.ckptLabel}
-          onChange={(e) => p.setCkptLabel(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') p.submitCheckpoint();
-          }}
-        />
-        <button className="vzf-btn" onClick={() => p.submitCheckpoint()}>
+        {p.checkpointNaming === 'inline' && (
+          <input
+            className="vzf-input vzf-ckpt-input"
+            type="text"
+            placeholder="name this point"
+            value={p.ckptLabel}
+            onChange={(e) => p.setCkptLabel(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') p.submitCheckpoint();
+            }}
+          />
+        )}
+        <button
+          className="vzf-btn"
+          data-vzf="checkpoint-open"
+          title="Name a checkpoint at the cursor"
+          onClick={() => (p.checkpointNaming === 'inline' ? p.submitCheckpoint() : p.openCheckpointModal())}
+        >
           ⚑ Checkpoint
         </button>
         {p.viewingPast && (
