@@ -28,6 +28,11 @@ describe('VizCockpit — the single-viewport shell', () => {
     expect(container.querySelector('[data-vzf="cockpit-status"] .vzf-cockpit-readout')?.textContent).toBe('12 of 60 rows');
   });
 
+  it('hosts the toast slot inside the themed shell (BR-2 ForkToast host)', () => {
+    const { container } = render(<VizCockpit charts={CHARTS} toast={<div data-testid="a-toast">forked!</div>} />);
+    expect(container.querySelector('[data-vzf="cockpit"] [data-testid="a-toast"]')?.textContent).toBe('forked!');
+  });
+
   it('builds the desktop grid columns from the chart weights (default weight 1)', () => {
     const { container } = render(<VizCockpit charts={[CHARTS[0]!, { id: 'plain', render: () => <svg /> }]} />);
     const strip = container.querySelector('[data-vzf="cockpit-charts"]') as HTMLElement;

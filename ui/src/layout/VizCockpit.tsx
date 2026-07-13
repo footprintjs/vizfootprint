@@ -61,6 +61,12 @@ export interface VizCockpitProps {
   readonly reports?: readonly CockpitReport[];
   /** The left side of the status strip (rows selected, provider label …). */
   readonly status?: ReactNode;
+  /**
+   * A non-blocking overlay host (BR-2: the `<ForkToast>` lives here). Rendered
+   * inside the themed root but position-fixed — it never takes layout space,
+   * so the zero-scroll invariant holds with or without a toast showing.
+   */
+  readonly toast?: ReactNode;
   /** Present mode: dim + block the charts, show the note. */
   readonly readOnly?: boolean;
   readonly readOnlyNote?: ReactNode;
@@ -180,6 +186,7 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
         >
           {activeReport !== null ? activeReport.content : null}
         </VizModal>
+        {props.toast}
       </div>
     </div>
   );

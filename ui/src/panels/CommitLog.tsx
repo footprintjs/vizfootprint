@@ -2,6 +2,9 @@
  * `<CommitLog>` — the append-only, cause-tagged history as click-to-seek chips.
  * Each chip is badged by its authoring principal (a coloured left rail + badge),
  * dims when it is OFF the active branch, and rings when the cursor sits on it.
+ * BR-2: a commit whose cause carries `replayedFrom` / `revertOf` wears a small
+ * provenance tag (↷ brought over from #x · ⎌ undoes #x · ⚠ n overridden) so a
+ * bring-over or undo reads as its own story, not an anonymous step.
  * Controlled: it renders the adapter's `commits` (which already carry the
  * onBranch / isCursor flags) and calls `onSeek` on click.
  */
@@ -39,6 +42,21 @@ export function CommitLog(props: CommitLogProps): JSX.Element {
               {c.field} = {formatCommitValue(c)}
             </span>
             {c.intent && <span className="vzf-cause">{c.intent}</span>}
+            {c.replayedFrom !== undefined && (
+              <span className="vzf-cause vzf-replay" data-replayed-from={c.replayedFrom}>
+                ↷ brought over from #{c.replayedFrom}
+              </span>
+            )}
+            {c.revertOf !== undefined && (
+              <span className="vzf-cause vzf-revert" data-revert-of={c.revertOf}>
+                ⎌ undoes #{c.revertOf}
+              </span>
+            )}
+            {c.conflicts !== undefined && c.conflicts.length > 0 && (
+              <span className="vzf-cause vzf-conflict" title={`overrode: #${c.conflicts.join(', #')}`}>
+                ⚠ {c.conflicts.length} overridden
+              </span>
+            )}
             <span className="vzf-cid">#{c.id}</span>
           </button>
         ))

@@ -20,6 +20,7 @@
  * has adopted the cockpit.
  */
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { CommitView, CheckpointView, BranchView } from '../adapter/types.js';
 import { stepBackTarget, stepForwardTarget, activePath, pathToRoot } from '../adapter/stepNav.js';
 import { orderedCheckpoints, currentBeatIndex } from './presentBeat.js';
@@ -35,6 +36,12 @@ export interface TimeTravelBarProps {
   readonly onReadOnlyChange?: (readOnly: boolean) => void;
   /** Fold the bar into one slim strip (the cockpit's top row). */
   readonly compact?: boolean;
+  /**
+   * The BR-2 slot for the always-visible `<BranchPill>` — rendered beside the
+   * Explore/Present toggle so "which path am I on?" sits with "which mode am I
+   * in?" (both answer "where am I?"). Any node fits; the pill is the intent.
+   */
+  readonly pathPill?: ReactNode;
   readonly commits: readonly CommitView[];
   readonly cursor: string | null;
   readonly head: string | null;
@@ -95,13 +102,16 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
         <span className="vzf-section-head" style={{ margin: 0 }}>
           Time travel
         </span>
-        <div className="vzf-mode-toggle" role="tablist" aria-label="time-travel mode">
-          <button role="tab" aria-selected={mode === 'explore'} className={mode === 'explore' ? 'vzf-active' : ''} onClick={() => setMode('explore')}>
-            Explore
-          </button>
-          <button role="tab" aria-selected={mode === 'present'} className={mode === 'present' ? 'vzf-active' : ''} onClick={() => setMode('present')}>
-            Present
-          </button>
+        <div className="vzf-timebar-side">
+          {props.pathPill}
+          <div className="vzf-mode-toggle" role="tablist" aria-label="time-travel mode">
+            <button role="tab" aria-selected={mode === 'explore'} className={mode === 'explore' ? 'vzf-active' : ''} onClick={() => setMode('explore')}>
+              Explore
+            </button>
+            <button role="tab" aria-selected={mode === 'present'} className={mode === 'present' ? 'vzf-active' : ''} onClick={() => setMode('present')}>
+              Present
+            </button>
+          </div>
         </div>
       </div>
 

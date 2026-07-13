@@ -8,6 +8,8 @@
  *   • layout/   — `<VizCockpit>` shell + `<VizModal>` + `<VizPanel>`/`<VizCard>`.
  *   • charts/   — `<VizScatter>`, `<VizBar>`, `<EncodingPicker>` (axis affordance).
  *   • time/     — `<TimeTravelBar>` (explore/present) + `<BranchMap>`.
+ *   • branches/ — `<BranchPill>`, `<PathsModal>`, `<CompareModal>`, `<ForkToast>`
+ *                 (the NAMED-paths family over the adapter's BR-1 actions).
  *   • panels/   — `<CommitLog>`, `<FdrLedger>`, `<GapsPanel>`, `<ReadinessPanel>`.
  *
  * The stylesheet ships separately: `import 'vizfootprint-ui/styles.css'`.
@@ -18,4 +20,5 @@ export * from './adapter/index.js';
 export * from './layout/index.js';
 export * from './charts/index.js';
 export * from './time/index.js';
+export * from './branches/index.js';
 export * from './panels/index.js';

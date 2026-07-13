@@ -967,11 +967,360 @@
   color: var(--vzf-ink-soft);
 }
 
+/* ── the timebar's right cluster: the branch pill + the mode toggle ── */
+:where(.vzf) .vzf-timebar-side {
+  display: flex;
+  align-items: center;
+  gap: var(--vzf-space-2);
+  min-width: 0;
+}
+
+/* ============================================================
+   NAMED PATHS (BR-2) — pill · paths list · compare · toast · menu
+   ============================================================ */
+/* the always-visible "which path am I on?" chip */
+:where(.vzf) .vzf-branch-pill {
+  font: inherit;
+  font-size: 0.82em;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  color: var(--vzf-brand-deep);
+  background: var(--vzf-brand-tint);
+  border: 1px solid var(--vzf-brand);
+  border-radius: var(--vzf-r-pill);
+  padding: 3px 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+:where(.vzf) .vzf-branch-pill .vzf-branch-pill-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:where(.vzf) .vzf-branch-pill:focus-visible {
+  outline: none;
+  box-shadow: var(--vzf-focus);
+}
+/* detached = viewing the past: the same amber/clay honesty voice as the past banner */
+:where(.vzf) .vzf-branch-pill[data-state="viewing-past"] {
+  color: var(--vzf-clay);
+  background: var(--vzf-clay-tint);
+  border-color: var(--vzf-clay);
+}
+/* pre-first-commit: quiet, nothing to shout about yet */
+:where(.vzf) .vzf-branch-pill[data-state="empty"] {
+  color: var(--vzf-ink-faint);
+  background: var(--vzf-surface-2);
+  border-color: var(--vzf-line);
+}
+
+/* the paths list (inside the small glass modal) */
+:where(.vzf) .vzf-paths {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vzf-space-2);
+  padding: var(--vzf-space-1);
+}
+:where(.vzf) .vzf-paths-note {
+  font-size: 0.8em;
+  color: var(--vzf-ink-faint);
+}
+:where(.vzf) .vzf-path-row {
+  display: flex;
+  align-items: center;
+  gap: var(--vzf-space-1);
+}
+:where(.vzf) .vzf-path-switch {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--vzf-space-2);
+  text-align: left;
+  font: inherit;
+  color: var(--vzf-ink);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--vzf-r-sm);
+  padding: var(--vzf-space-2) var(--vzf-space-3);
+  cursor: pointer;
+}
+:where(.vzf) .vzf-path-switch:hover:not(:disabled),
+:where(.vzf) .vzf-path-switch:focus-visible {
+  background: var(--vzf-surface-2);
+  border-color: var(--vzf-line);
+  outline: none;
+}
+:where(.vzf) .vzf-path-switch:disabled {
+  cursor: default;
+}
+:where(.vzf) .vzf-path-row.vzf-active .vzf-path-switch {
+  border-color: var(--vzf-brand);
+  background: var(--vzf-brand-tint);
+  opacity: 1;
+}
+:where(.vzf) .vzf-path-name {
+  font-family: var(--vzf-font-display);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:where(.vzf) .vzf-path-current {
+  font-size: 0.72em;
+  font-weight: 600;
+  color: var(--vzf-brand-deep);
+  white-space: nowrap;
+}
+:where(.vzf) .vzf-path-meta {
+  margin-left: auto;
+  font-size: 0.76em;
+  color: var(--vzf-ink-faint);
+  white-space: nowrap;
+}
+:where(.vzf) .vzf-path-rename-input {
+  flex: 1;
+  min-width: 0;
+}
+:where(.vzf) .vzf-paths-foot {
+  border-top: 1px solid var(--vzf-line-soft);
+  padding-top: var(--vzf-space-2);
+  display: flex;
+  justify-content: flex-start;
+}
+
+/* compare — two columns of plain-language chips under the ancestor line */
+:where(.vzf) .vzf-compare {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vzf-space-3);
+}
+:where(.vzf) .vzf-compare-pickers {
+  display: flex;
+  align-items: center;
+  gap: var(--vzf-space-2);
+}
+:where(.vzf) .vzf-compare-pickers .vzf-input {
+  min-width: 0;
+  flex: 1;
+  max-width: 300px;
+}
+:where(.vzf) .vzf-compare-ancestor {
+  font-size: 0.84em;
+  color: var(--vzf-ink-soft);
+  border-left: 3px solid var(--vzf-brand);
+  padding-left: var(--vzf-space-3);
+}
+:where(.vzf) .vzf-compare-identical {
+  color: var(--vzf-ink-soft);
+  background: var(--vzf-surface-2);
+  border-radius: var(--vzf-r-md);
+  padding: var(--vzf-space-4);
+  text-align: center;
+}
+:where(.vzf) .vzf-compare-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--vzf-space-4);
+  align-items: start;
+}
+@media (max-width: 700px) {
+  :where(.vzf) .vzf-compare-cols {
+    grid-template-columns: 1fr;
+  }
+}
+:where(.vzf) .vzf-compare-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vzf-space-2);
+  background: var(--vzf-surface);
+  border: 1px solid var(--vzf-line);
+  border-radius: var(--vzf-r-md);
+  padding: var(--vzf-space-3);
+}
+:where(.vzf) .vzf-compare-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--vzf-space-2);
+  border-bottom: 1px solid var(--vzf-line-soft);
+  padding-bottom: var(--vzf-space-2);
+}
+:where(.vzf) .vzf-compare-ref {
+  font-family: var(--vzf-font-display);
+  font-weight: 600;
+}
+:where(.vzf) .vzf-compare-rows {
+  margin-left: auto;
+  font-size: 0.78em;
+  color: var(--vzf-ink-soft);
+  white-space: nowrap;
+}
+:where(.vzf) .vzf-diff-chip {
+  display: flex;
+  align-items: baseline;
+  gap: var(--vzf-space-2);
+  font-size: 0.84em;
+  background: var(--vzf-surface-2);
+  border: 1px solid var(--vzf-line-soft);
+  border-radius: var(--vzf-r-sm);
+  padding: var(--vzf-space-1) var(--vzf-space-2);
+}
+:where(.vzf) .vzf-diff-chip.vzf-diff-changed {
+  border-color: var(--vzf-brand);
+  background: var(--vzf-brand-tint);
+}
+:where(.vzf) .vzf-diff-kind {
+  font-family: var(--vzf-font-mono);
+  font-size: 0.76em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--vzf-ink-faint);
+  white-space: nowrap;
+}
+:where(.vzf) .vzf-diff-text {
+  min-width: 0;
+}
+
+/* the fork toast — non-blocking, fixed, never takes layout space */
+@keyframes vzf-toast-rise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+}
+:where(.vzf) .vzf-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 52px;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: var(--vzf-space-2);
+  max-width: min(92vw, 560px);
+  font-size: 0.88em;
+  color: var(--vzf-ink);
+  background: var(--vzf-glass);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--vzf-brand);
+  border-radius: var(--vzf-r-md);
+  box-shadow: var(--vzf-shadow-lg);
+  padding: var(--vzf-space-2) var(--vzf-space-3);
+  animation: vzf-toast-rise 0.18s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  :where(.vzf) .vzf-toast {
+    animation: none;
+  }
+}
+:where(.vzf) .vzf-toast-text {
+  min-width: 0;
+}
+:where(.vzf) .vzf-toast-action {
+  color: var(--vzf-brand-deep);
+  white-space: nowrap;
+}
+
+/* the per-commit glass context menu (branch map) */
+:where(.vzf) .vzf-ctx-shield {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: transparent;
+}
+:where(.vzf) .vzf-ctx-menu {
+  position: absolute;
+  z-index: 56;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  background: var(--vzf-glass);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--vzf-glass-line);
+  border-radius: var(--vzf-r-md);
+  box-shadow: var(--vzf-shadow-lg);
+  padding: var(--vzf-space-1);
+  animation: vzf-modal-rise 0.14s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  :where(.vzf) .vzf-ctx-menu {
+    animation: none;
+  }
+}
+:where(.vzf) .vzf-ctx-head {
+  font-size: 0.78em;
+  color: var(--vzf-ink-soft);
+  padding: var(--vzf-space-1) var(--vzf-space-2) var(--vzf-space-2);
+  border-bottom: 1px solid var(--vzf-line-soft);
+  margin-bottom: var(--vzf-space-1);
+  display: flex;
+  align-items: baseline;
+  gap: var(--vzf-space-2);
+}
+:where(.vzf) .vzf-ctx-item {
+  font: inherit;
+  font-size: 0.86em;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--vzf-ink);
+  background: transparent;
+  border: none;
+  border-radius: var(--vzf-r-sm);
+  padding: var(--vzf-space-2) var(--vzf-space-2);
+  cursor: pointer;
+}
+:where(.vzf) .vzf-ctx-item:hover:not(:disabled),
+:where(.vzf) .vzf-ctx-item:focus-visible {
+  background: var(--vzf-brand-tint);
+  outline: none;
+}
+:where(.vzf) .vzf-ctx-item:disabled {
+  color: var(--vzf-ink-faint);
+  cursor: not-allowed;
+}
+:where(.vzf) .vzf-ctx-reason {
+  font-size: 0.82em;
+  color: var(--vzf-clay);
+}
+
+/* named lane labels on the branch map */
+:where(.vzf) .vzf-bm-lane-label {
+  font-family: var(--vzf-font-display);
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--vzf-ink-faint);
+}
+:where(.vzf) .vzf-bm-lane-label.vzf-active {
+  fill: var(--vzf-brand-deep);
+}
+
+/* BR-1 provenance tags on commit chips */
+:where(.vzf) .vzf-cause.vzf-replay {
+  color: var(--vzf-brand-deep);
+  border-color: var(--vzf-brand);
+}
+:where(.vzf) .vzf-cause.vzf-revert {
+  color: var(--vzf-clay);
+  border-color: var(--vzf-clay);
+}
+:where(.vzf) .vzf-cause.vzf-conflict {
+  color: var(--vzf-danger-deep);
+  border-color: var(--vzf-danger);
+}
+
 /* branch map */
 :where(.vzf) .vzf-branchmap-wrap {
   overflow-x: auto;
   overflow-y: hidden;
   max-width: 100%;
+  position: relative; /* the context menu anchors to graph coordinates */
 }
 :where(.vzf) .vzf-branchmap {
   display: block;
