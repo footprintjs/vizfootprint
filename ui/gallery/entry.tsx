@@ -20,6 +20,10 @@ import {
   VizBar,
   TimeTravelBar,
   BranchMap,
+  BranchPill,
+  PathsModal,
+  CompareModal,
+  ForkToast,
   CommitLog,
   FdrLedger,
   GapsPanel,
@@ -55,6 +59,10 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
   const state: SessionViewState = useSessionView(view);
   const [mode, setMode] = useState<TimeMode>('explore');
   const readOnly = mode === 'present';
+
+  // ── BR-2: the named-paths loop (pill → paths modal; map menu → compare modal) ──
+  const [pathsOpen, setPathsOpen] = useState(false);
+  const [compareWith, setCompareWith] = useState<string | null>(null); // a commit id, or null = closed
 
   // the scatter's fields come from the ENCODING fold (the reencode verb's state)
   const enc = state.encodings['scatter'] ?? {};
@@ -103,12 +111,36 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
           checkpoints={state.checkpoints}
           branches={state.branches}
           viewingPast={state.viewingPast}
+          pathPill={<BranchPill paths={state.paths} onClick={() => setPathsOpen(true)} />}
           onSeek={(id) => void view.seek(id)}
           onStepBack={() => void view.stepBack()}
           onStepForward={() => void view.stepForward()}
           onCheckpoint={(label) => void view.checkpoint(label)}
           onReturnToNow={() => void view.returnToNow()}
         />
+      }
+      toast={
+        <>
+          <ForkToast events={state.paths.events} onOpenPaths={() => setPathsOpen(true)} />
+          <PathsModal
+            open={pathsOpen}
+            onClose={() => setPathsOpen(false)}
+            paths={state.paths}
+            cursor={state.cursor}
+            readOnly={readOnly}
+            onSwitch={(name) => void view.switchPath(name)}
+            onRename={(from, to) => void view.renamePath(from, to)}
+            onNewPath={(commitId) => void view.newPathAt(commitId)}
+          />
+          <CompareModal
+            open={compareWith !== null}
+            onClose={() => setCompareWith(null)}
+            paths={state.paths}
+            initialA={compareWith ?? undefined}
+            initialB={state.paths.current ?? state.cursor ?? undefined}
+            onCompare={(a, b) => view.compare(a, b)}
+          />
+        </>
       }
       charts={[
         {
@@ -166,7 +198,18 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
           icon: '🌿',
           badge: state.branches.length,
           content: (
-            <BranchMap commits={state.commits} cursor={state.cursor} head={state.head} checkpoints={state.checkpoints} onSeek={(id) => void view.seek(id)} />
+            <BranchMap
+              commits={state.commits}
+              cursor={state.cursor}
+              head={state.head}
+              checkpoints={state.checkpoints}
+              paths={state.paths.list}
+              onSeek={(id) => void view.seek(id)}
+              onNewPath={(id) => void view.newPathAt(id)}
+              onBringOver={(id) => void view.bringOver(id)}
+              onUndo={(id) => void view.undo(id)}
+              onCompare={(id) => setCompareWith(id)}
+            />
           ),
         },
         {

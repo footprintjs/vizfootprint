@@ -3,8 +3,8 @@
 The designed, reusable component library for [vizfootprint](../README.md) — a headless
 session-view adapter plus React components that render a coordinated, cause-tagged,
 branching-provenance dashboard: charts with interactive (re-encodable) axes, a
-two-mode time-travel bar, a git-graph branch map, and the honesty panels
-(commit log, online-FDR two-truths ledger, gaps, readiness).
+two-mode time-travel bar, a git-graph branch map with named paths, and the honesty
+panels (commit log, online-FDR two-truths ledger, gaps, readiness).
 
 Part of the footprintjs family (the explainable-ui / agentthinkingui pattern):
 ESM + UMD bundles, React `>=18` as a peer, one stylesheet, `.d.ts` types.
@@ -77,6 +77,52 @@ the page.
 Clicking ⚑ opens the checkpoint namer (`<CheckpointModal>`): one autofocused
 field, Enter/Save commits through the adapter's `checkpoint` action, and the
 prompt shows which commit the flag will mark.
+
+## Named paths — branching you can read
+
+Your work is a story that can branch: seek back in time, act, and the session
+starts a second line of work — now with a NAME (like branches in git, but in
+plain words). The `branches/` component family makes that loop visible:
+
+- **`<BranchPill>`** — the always-visible "which path am I on?" chip, made for
+  the time bar's `pathPill` slot (it sits beside Explore/Present). Violet with
+  the path's name while you are on one; amber "viewing past" while you have
+  travelled back (acting there starts a new path automatically); quiet before
+  the first step. Clicking it opens the Paths list.
+- **`<PathsModal>`** — every named path: step count, latest commit, a "current"
+  marker. Click one to switch to it. Rename inline with ✎. "New path from
+  here" forks at the cursor. In Present mode the list is view-only.
+- **`<CompareModal>`** — two positions side by side: the common-ancestor line
+  on top, each side's row count, and every difference as a plain-language chip
+  ("bar: category is Work" vs "bar: category is Formal"; "correlation: test
+  ran (p = 0.004)" only on the side that ran it). An empty diff says
+  "identical since #x" — and a rejected compare shows its reason.
+- **`<ForkToast>`** — a small notice when acting from the past forks a new
+  path: *"Forked a new path 'bar-click' — your previous story is safe in
+  Paths."* Non-blocking, dismissible, auto-hides, respects reduced motion.
+  Mount it in the cockpit's `toast` slot.
+- **`<BranchMap>` upgrades** — pass `paths` and each lane wears its path's
+  name; pass the action callbacks and clicking a commit opens a small glass
+  menu: *Jump here · New path here · Bring this step over · Undo this step ·
+  Compare with current*. Actions that cannot apply are disabled **with the
+  reason** (an analysis can't be un-run — the FDR ledger never refunds alpha).
+
+![the paths modal](gallery/screenshots/gallery-paths-modal.png)
+
+![compare two positions](gallery/screenshots/gallery-compare-modal.png)
+
+The adapter carries it all: `state.paths` (the list, the current path or the
+detached position, and the journal the toast watches) plus the actions
+`switchPath` / `renamePath` / `newPathAt` / `compare` / `bringOver` / `undo`.
+A brought-over step lands as an ordinary commit whose chip in the CommitLog
+says `↷ brought over from #x` (an undo says `⎌ undoes #x`, and a conflicting
+override wears `⚠ n overridden`) — the story survives in the log itself.
+
+Over a polled server, the actions POST to their own endpoints (all
+overridable via `pollingSource({ endpoints })`): `/api/paths` (body
+`{action: 'switch'|'rename'|'new', …}`), `/api/compare` (`{a, b}` — responds
+with the session's `compare()` JSON), `/api/bring-over` and `/api/undo`
+(`{commitId}`), while `/api/state` gains a `paths` slice.
 
 ## The layers (each importable alone)
 

@@ -16,6 +16,12 @@
  *     scrolling allowed only INSIDE the modal body;
  *   - ⚑ opens the checkpoint naming modal; Enter lands a REAL checkpoint;
  *   - PRESENT mode is checkpoint-only traversal and dims/blocks the charts;
+ *   - BR-2, the full named-paths loop LIVE: acting from a past cursor forks a
+ *     NAMED path (ForkToast + BranchPill update), the PathsModal renames and
+ *     switches, the branch map wears named lane labels and a per-commit glass
+ *     context menu (undo honestly disabled on an analysis), "Compare with
+ *     current" opens a real two-path diff, and "Bring this step over" lands a
+ *     replayedFrom commit visible in the CommitLog;
  *   - at a MOBILE viewport the charts become a scroll-snap carousel with dot
  *     indicators — still zero page scroll;
  *   - zero console errors throughout.
@@ -39,6 +45,10 @@ const SHOTS = path.join(__dirname, 'screenshots');
 //   UPDATE_SCREENSHOTS=1 npx vitest run ui/gallery/smoke.test.ts
 async function maybeScreenshot(page: Page, options: Parameters<Page['screenshot']>[0]): Promise<void> {
   if (process.env.UPDATE_SCREENSHOTS) await page.screenshot(options);
+}
+/** Element-scoped variant (the pill-state shots crop to the cockpit's top band). */
+async function maybeElementShot(page: Page, selector: string, path: string): Promise<void> {
+  if (process.env.UPDATE_SCREENSHOTS) await page.locator(selector).screenshot({ path });
 }
 
 /** Zero page/shell scroll — the cockpit invariant, asserted at any viewport. */
@@ -231,6 +241,125 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     // back to explore — acting returns
     await page.locator('[data-vzf="time-travel-bar"] [role="tab"]:has-text("Explore")').click();
     await page.waitForSelector('[data-vzf="cockpit"][data-readonly="false"]');
+  }, 30_000);
+
+  it('BR-2: forking from the past auto-names a path — toast up, pill flips to the new path', async () => {
+    // the present-mode walk left the cursor detached in the past → the pill is honest about it
+    const pill = page.locator('[data-vzf="cockpit-top"] [data-vzf="branch-pill"]');
+    expect(await pill.getAttribute('data-state')).toBe('viewing-past');
+    expect(((await pill.textContent()) ?? '')).toContain('viewing past');
+    await maybeElementShot(page, '[data-vzf="cockpit-top"]', path.join(SHOTS, 'gallery-pill-past.png'));
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.waitForTimeout(120);
+    await maybeElementShot(page, '[data-vzf="cockpit-top"]', path.join(SHOTS, 'gallery-pill-past-dark.png'));
+    await page.emulateMedia({ colorScheme: 'light' });
+
+    // travel to the very first commit, then ACT → branch-on-act, now NAMED
+    await page.locator('[data-vzf="timeline"] [data-commit]').first().click();
+    await page.locator('svg.vzf-bar rect.vzf-barrect').nth(3).click(); // 'Work' ≠ the agent's Formal
+    // the toast announces the fork with the auto-slugged name; the pill re-attaches
+    await page.waitForSelector('[data-vzf="fork-toast"]');
+    const toastText = (await page.locator('[data-vzf="fork-toast"]').textContent()) ?? '';
+    expect(toastText).toContain('Forked a new path');
+    expect(toastText).toContain('bar-click'); // slug of the emit intent 'bar click'
+    expect(toastText).toContain('safe in Paths');
+    await page.waitForTimeout(300); // let the toast's rise + the pill's colour transition land before shooting
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-fork-toast.png'), fullPage: false });
+    await page.waitForFunction(() => document.querySelector('[data-vzf="branch-pill"]')?.getAttribute('data-state') === 'on-path');
+    expect((await pill.textContent()) ?? '').toContain('bar-click');
+    await page.locator('[data-vzf="fork-toast-dismiss"]').click();
+    await page.waitForSelector('[data-vzf="fork-toast"]', { state: 'detached' });
+    await expectNoPageOrShellScroll(page); // the toast never takes layout space
+  }, 30_000);
+
+  it('BR-2: the PathsModal renames the fork inline and switches back to main; the pill follows', async () => {
+    await page.locator('[data-vzf="branch-pill"]').click();
+    await page.waitForSelector('[data-vzf-modal="paths"] [role="dialog"]');
+    expect(await page.locator('[data-vzf-modal="paths"] [data-path]').count()).toBeGreaterThanOrEqual(3); // main + the scripted fork + bar-click
+    // the current path sorts first and wears the marker
+    const firstRow = page.locator('[data-vzf-modal="paths"] [data-path]').first();
+    expect(await firstRow.getAttribute('data-path')).toBe('bar-click');
+    expect((await firstRow.locator('.vzf-path-current').textContent()) ?? '').toContain('current');
+    // inline rename: ✎ → type → Enter
+    await firstRow.locator('[data-vzf="path-rename"]').click();
+    await page.locator('[data-vzf-modal="paths"] .vzf-path-rename-input').fill('my-fork');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-vzf-modal="paths"] [data-path="my-fork"]');
+    await page.waitForTimeout(250); // let the entrance animation land before shooting
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-paths-modal.png'), fullPage: false });
+    // switching completes the intent: the modal closes, the pill flips to main
+    await page.locator('[data-vzf-modal="paths"] [data-path="main"] [data-vzf="path-switch"]').click();
+    await page.waitForSelector('[data-vzf-modal="paths"]', { state: 'detached' });
+    await page.waitForFunction(() => (document.querySelector('[data-vzf="branch-pill"]')?.textContent ?? '').includes('main'));
+    expect(await page.locator('[data-vzf="branch-pill"]').getAttribute('data-state')).toBe('on-path');
+    await maybeElementShot(page, '[data-vzf="cockpit-top"]', path.join(SHOTS, 'gallery-pill-onpath.png'));
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.waitForTimeout(120);
+    await maybeElementShot(page, '[data-vzf="cockpit-top"]', path.join(SHOTS, 'gallery-pill-onpath-dark.png'));
+    await page.emulateMedia({ colorScheme: 'light' });
+  }, 30_000);
+
+  it('BR-2: the branch map wears named lanes; the commit menu is honest; Compare shows a real two-path diff', async () => {
+    await page.locator('[data-report="branches"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-branches"] [data-vzf="branch-map"]');
+    // named lane labels, the current path's in violet (vzf-active)
+    expect(await page.locator('[data-vzf-modal="report-branches"] .vzf-bm-lane-label').count()).toBeGreaterThanOrEqual(3);
+    expect(await page.locator('[data-vzf-modal="report-branches"] .vzf-bm-lane-label.vzf-active').textContent()).toContain('main');
+
+    // honesty first: the declared-test commit's Undo is disabled WITH the reason
+    await page.locator('[data-vzf-modal="report-branches"] g.vzf-bm-node').filter({ hasText: 'test' }).first().click();
+    await page.waitForSelector('[data-vzf="ctx-menu"]');
+    const undoItem = page.locator('[data-vzf="ctx-menu"] [data-ctx="undo"]');
+    expect(await undoItem.isDisabled()).toBe(true);
+    expect((await undoItem.getAttribute('title')) ?? '').toContain('never refunds alpha');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-vzf="ctx-menu"]', { state: 'detached' });
+
+    // the my-fork tip (the newest commit) → Compare with current
+    await page.locator('[data-vzf-modal="report-branches"] g.vzf-bm-node').last().click();
+    await page.waitForSelector('[data-vzf="ctx-menu"]');
+    await page.locator('[data-vzf="ctx-menu"] [data-ctx="compare"]').click();
+    await page.waitForSelector('[data-vzf-modal="compare"] [data-vzf="compare-ancestor"]');
+    // a REAL diff: common ancestor, per-side row counts, plain-language chips
+    expect((await page.locator('[data-vzf="compare-ancestor"]').textContent()) ?? '').toContain('#');
+    expect((await page.locator('[data-vzf-modal="compare"] [data-side="a"] .vzf-compare-rows').textContent()) ?? '').toContain('rows selected');
+    // the two brushes/selections diverged → a ≠ chip on both sides
+    expect(await page.locator('[data-vzf-modal="compare"] .vzf-diff-changed').count()).toBeGreaterThanOrEqual(2);
+    // main ran the correlation test the fork never did → an only-B analysis chip
+    expect((await page.locator('[data-vzf-modal="compare"] [data-side="b"]').textContent()) ?? '').toContain('correlation');
+    await page.waitForTimeout(250);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-compare-modal.png'), fullPage: false });
+    // Esc peels only the top modal (compare); the report closes via its own ✕
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-vzf-modal="compare"]', { state: 'detached' });
+    expect(await page.locator('[data-vzf-modal="report-branches"]').count()).toBe(1);
+    await page.locator('[data-vzf-modal="report-branches"] [aria-label="Close"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-branches"]', { state: 'detached' });
+  }, 30_000);
+
+  it('BR-2: "Bring this step over" lands a replayedFrom commit (with its honest conflict tag) in the CommitLog', async () => {
+    const commitsBefore = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    await page.locator('[data-report="branches"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-branches"] [data-vzf="branch-map"]');
+    // bring the my-fork tip (bar=Work) over to main — the agent's Formal touched the same key → a conflict note
+    await page.locator('[data-vzf-modal="report-branches"] g.vzf-bm-node').last().click();
+    await page.waitForSelector('[data-vzf="ctx-menu"]');
+    await page.locator('[data-vzf="ctx-menu"] [data-ctx="bring-over"]').click();
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      commitsBefore,
+      { timeout: 8000 },
+    );
+    await page.locator('[data-vzf-modal="report-branches"] [aria-label="Close"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-branches"]', { state: 'detached' });
+    // the landed commit tells its own story in the log
+    await page.locator('[data-report="commits"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-commits"] [data-vzf="commit-log"]');
+    expect((await page.locator('[data-vzf-modal="report-commits"] .vzf-replay').last().textContent()) ?? '').toContain('brought over from #');
+    expect((await page.locator('[data-vzf-modal="report-commits"] .vzf-conflict').last().textContent()) ?? '').toContain('overridden');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-vzf-modal="report-commits"]', { state: 'detached' });
+    await expectNoPageOrShellScroll(page);
   }, 30_000);
 
   it('dark theme renders (prefers-color-scheme) — raised-scrim glass included', async () => {
