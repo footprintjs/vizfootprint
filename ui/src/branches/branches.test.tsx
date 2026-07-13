@@ -305,8 +305,8 @@ describe('CompareModal', () => {
     expect(container.querySelector('.vzf-gap-detail')?.textContent).toContain('unknown path');
   });
 
-  it('pre-picked refs win the seeding; a commit id gets a "step #id" option', async () => {
-    const onCompare = vi.fn(async () => DIFF_OK);
+  it('pre-picked refs win the seeding; a commit id gets a "step #id" option and no duplicate tip', async () => {
+    const onCompare = vi.fn(async (): Promise<CompareView> => ({ ...DIFF_OK, a: { ref: '4', tip: '4', rows: 2 } }));
     const { container } = render(
       <CompareModal open onClose={() => {}} paths={TWO_PATHS} initialA="4" initialB="main" onCompare={onCompare} />,
     );
@@ -315,6 +315,12 @@ describe('CompareModal', () => {
     expect([...a.options].map((o) => o.textContent)).toContain('step #4');
     await act(async () => {});
     expect(onCompare).toHaveBeenCalledWith('4', 'main');
+    // a commit-id side already reads "step #4" — the tip is not repeated beside it
+    const headA = container.querySelector('[data-side="a"] .vzf-compare-head')!;
+    expect(headA.querySelector('.vzf-compare-ref')?.textContent).toBe('step #4');
+    expect(headA.querySelector('.vzf-mono')).toBeNull();
+    // a named side still shows its tip id
+    expect(container.querySelector('[data-side="b"] .vzf-compare-head .vzf-mono')?.textContent).toBe('#3');
   });
 
   it('changing either select re-runs the compare with the new refs', async () => {

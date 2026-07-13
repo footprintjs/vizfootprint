@@ -133,7 +133,7 @@ export function CompareModal(props: CompareModalProps): JSX.Element | null {
                   <div key={side} className="vzf-compare-col" data-side={side}>
                     <div className="vzf-compare-head">
                       <span className="vzf-compare-ref">{optionLabel(info.ref)}</span>
-                      <span className="vzf-mono vzf-muted">#{info.tip}</span>
+                      {info.ref !== info.tip && <span className="vzf-mono vzf-muted">#{info.tip}</span>}
                       <span className="vzf-compare-rows">{info.rows !== null ? `${info.rows} rows selected` : 'row count unavailable'}</span>
                     </div>
                     {result.changed.map((c) => (

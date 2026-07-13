@@ -60,8 +60,9 @@ export function entryDetail(e: RawFoldEntry): string {
     return `${c.field} between ${word(range[0])} and ${word(range[1])}`;
   }
   if (e.kind === 'encoding') return `${e.channel ?? '?'} axis shows ${word(e.value)}`;
-  // analysis: a declared-test entry lands under the pValue analog — surface p when numeric
-  if (e.field === 'pValue' && typeof e.value === 'number') return `test ran (p = ${e.value})`;
+  // analysis: a declared-test entry lands under the pValue analog — surface p when
+  // numeric, rounded to 2 significant digits (plain words, not a float dump)
+  if (e.field === 'pValue' && typeof e.value === 'number') return `test ran (p = ${Number(e.value.toPrecision(2))})`;
   return 'ran';
 }
 

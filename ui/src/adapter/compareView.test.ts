@@ -30,6 +30,10 @@ describe('entryLabel / entryDetail — plain language for each fold-entry kind',
     expect(entryDetail(TRANSFORM)).toBe('ran');
   });
 
+  it('a tiny p rounds to 2 significant digits — plain words, never a float dump', () => {
+    expect(entryDetail({ kind: 'analysis', analysisId: 'corr', field: 'pValue', value: 0.00001855381883775209 })).toBe('test ran (p = 0.000019)');
+  });
+
   it('defensive wire arms: missing viewId/analysisId/clause/channel and non-scalar values stay safe words', () => {
     expect(entryLabel({ kind: 'selection' })).toBe('view');
     expect(entryLabel({ kind: 'analysis' })).toBe('analysis');
