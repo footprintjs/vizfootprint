@@ -124,6 +124,50 @@ overridable via `pollingSource({ endpoints })`): `/api/paths` (body
 with the session's `compare()` JSON), `/api/bring-over` and `/api/undo`
 (`{commitId}`), while `/api/state` gains a `paths` slice.
 
+## VizLine — brush a time range
+
+Drag horizontally across the line chart and you select a TIME RANGE: the chart
+emits the range as two ISO dates (`['2026-04-01', '2026-06-17']`) on its date
+field, the session lands one filter commit, and every other chart narrows to
+the rows inside that window. A short click clears the range. The emitted
+bounds are snapped to dates that actually exist in the data, so the filter
+never names a day the data does not have.
+
+The chart takes RAW rows and draws the **mean of the value column per date**
+(per series, when a series field is set — one coloured line per category, with
+a small legend). The mean, not the sum: under a crossfilter the number of rows
+per date changes, and a sum would confuse "fewer rows" with "smaller values".
+
+Both axis labels are pickers, and they are honest about what fits: the **x
+picker offers only date columns** and the **y picker only numeric ones** — an
+incompatible column is disabled with the reason written on it, exactly like
+the scatter's pickers.
+
+![the time series](gallery/screenshots/gallery-line.png)
+
+## VizMap — click a region
+
+A self-contained SVG region map (choropleth): pass a GeoJSON
+`FeatureCollection` (each feature carries its region name), name the data
+column those regions live in, and give it one value per region — typically
+the row count under the current crossfilter. No map tiles, no map library;
+the features are projected with a simple fitted equirectangular projection
+(fine for regional maps; it does not pretend to be world-scale cartography).
+
+Click a region to select it — the map emits the region name as a point
+selection on your region column and the other charts narrow to it. The
+selected region wears the selection outline; **click it again to clear**.
+Regions are keyboard-reachable (Tab to a region, Enter selects) and each one
+announces its name and value to screen readers.
+
+Colour is a five-step teal ramp — light means few rows, deep means many, with
+its own dark-theme steps (on dark, MORE rows = brighter). The legend shows the
+0→max range. A region with NO rows is honestly different: a neutral fill with
+a dashed edge and a "no rows under the current selection" note — absence is
+never dressed up as "low".
+
+![the region map](gallery/screenshots/gallery-map.png)
+
 ## The layers (each importable alone)
 
 | module | job |
@@ -131,7 +175,7 @@ with the session's `compare()` JSON), `/api/bring-over` and `/api/undo`
 | `tokens/` | design tokens + theme engine — scoped CSS variables on the `.vzf` root (never `:root`), light+dark via `prefers-color-scheme` with a `data-theme` override that wins both ways |
 | `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView` |
 | `layout/` | `<VizCockpit>` (the flagship — and only — single-screen shell) + `<VizModal>` (the one modal system) + `<VizPanel>`/`<VizCard>` |
-| `charts/` | `<VizScatter>`, `<VizBar>` — controlled SVG; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); `<ChartFrame>` measures a cell so charts fill it; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) which fires `onReencode(viewId, channel, field)` — the `reencode` dispatch verb |
+| `charts/` | `<VizScatter>`, `<VizBar>`, `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click) — controlled SVG; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); `<ChartFrame>` measures a cell so charts fill it; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) which fires `onReencode(viewId, channel, field)` — the `reencode` dispatch verb |
 | `time/` | `<TimeTravelBar>` with `explore` (full commit timeline + fork-safe ⟵/⟶ step rules, `compact` for the cockpit) and `present` (checkpoint-ONLY story beats, acting disabled, `onReadOnlyChange` up to the shell) + `<CheckpointModal>` + `<BranchMap>` |
 | `panels/` | `<CommitLog>` (cause badges, click-to-seek, off-branch dimming), `<FdrLedger>` (two truths + the verbatim honesty line), `<GapsPanel>`, `<ReadinessPanel>` — cockpit hosts these inside report modals, unchanged |
 
