@@ -3,9 +3,11 @@
  * Coverage packet COV-app — closes `demo-agent/src/app.tsx` (0% -> 100%).
  *
  * `app.tsx` self-mounts on import: `main()` fetches `/data/dresses.csv`,
- * builds a `createSessionView(pollingSource(...))` store against the real
- * `vizfootprint-ui` components, and `wireChatAndDebugger()` wires the
- * hand-rolled chat popup + 🐛 debugger modal chrome (page.mjs's real ids).
+ * builds a `createSessionView(pollingSource(...))` store against the FLAGSHIP
+ * `<VizCockpit>` (vizfootprint-ui), and `wireChatAndDebugger()` wires the
+ * hand-rolled chat popup chrome (page.mjs's real ids) — the 🐛 debugger no
+ * longer has its own modal chrome; it rides the cockpit's own "Analyst
+ * debugger" report chip (`<DebugPanel>`, a `VizModal`-hosted iframe).
  * `window.__vizAgent` (set at the very end of `main()`, now also carrying the
  * React `root`) is the boot-complete signal these tests wait on. `main` is
  * additionally `export`ed (a source edit — see the report) so two branches
@@ -105,10 +107,15 @@ async function advance(ms: number): Promise<void> {
   });
 }
 
-function dashboard(): Element {
-  const el = document.querySelector('[data-vzf="dashboard"]');
-  if (!el) throw new Error('dashboard root missing');
+function cockpit(): Element {
+  const el = document.querySelector('[data-vzf="cockpit"]');
+  if (!el) throw new Error('cockpit root missing');
   return el;
+}
+
+/** Open a report chip's modal (id matches the chip's `data-report`) and return it. */
+async function openReport(id: string): Promise<void> {
+  await click(document.querySelector(`[data-report="${id}"]`));
 }
 
 function activitySteps(): HTMLElement[] {
@@ -120,14 +127,14 @@ describe('boot — rich fixture (STATE_A): renders every "has value" branch', ()
     await boot(STATE_A);
   });
 
-  it('mounts the React dashboard from vizfootprint-ui', () => {
-    expect(document.querySelector('.vzf-root')).toBeTruthy();
-    expect(dashboard().getAttribute('data-readonly')).toBe('false');
+  it('mounts the React cockpit from vizfootprint-ui', () => {
+    expect(document.querySelector('.vzf-cockpit-root')).toBeTruthy();
+    expect(cockpit().getAttribute('data-readonly')).toBe('false');
   });
 
-  it('the card title reports selection count, mock provider, and no viewingPast suffix', () => {
+  it('the status readout reports selection count, mock provider, and no viewingPast suffix', () => {
     // price∈[40,250] AND category==='Casual' -> r1(50), r2(65) only
-    expect(screen.getByText('current selection: 2 of 7 rows · provider: scripted mock')).toBeTruthy();
+    expect(screen.getByText('2 of 7 rows selected · provider: scripted mock')).toBeTruthy();
   });
 
   it('scatter reads xField/yField off state.encodings (non-default values) and dims by the OTHER view\'s clause', () => {
@@ -148,27 +155,41 @@ describe('boot — rich fixture (STATE_A): renders every "has value" branch', ()
     expect(casualBtn.getAttribute('aria-pressed')).toBe('true'); // barSelected 'Casual' ternary TRUE arm
   });
 
-  it('the time-travel bar, branch map, and commit log all render the same commit/branch/checkpoint state', () => {
+  it('the time-travel bar reads the same commit/branch/checkpoint state; the branch-map and commit-log chips carry it into their report modals', async () => {
     expect(screen.getByText(/1 branch\b/)).toBeTruthy();
+    expect(document.querySelector('[data-report="branches"] .vzf-report-badge')?.textContent).toBe('1');
+    expect(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent).toBe('2');
+
+    await openReport('branches');
+    const branchDialog = screen.getByRole('dialog');
     expect(document.querySelectorAll('[data-vzf="branch-map"] [data-commit]')).toHaveLength(2);
+    expect(within(branchDialog).getByText('Branch map')).toBeTruthy(); // the modal title (the chip's own title)
+    await click(within(branchDialog).getByRole('button', { name: 'Close' }));
+
+    await openReport('commits');
+    const commitDialog = screen.getByRole('dialog');
     expect(document.querySelectorAll('[data-vzf="commit-log"] [data-commit]')).toHaveLength(2);
-    expect(screen.getByText(/Branch map — siblings fork downward/)).toBeTruthy();
-    expect(screen.getByText(/Commit log — one cause-tagged record/)).toBeTruthy();
+    expect(within(commitDialog).getByText('Commit log')).toBeTruthy();
   });
 
-  it('readiness panel shows a ready analysis as a "run" button and a blocked one with its taxonomy code', () => {
-    expect(screen.getByText(/Declared analyses — readiness/)).toBeTruthy();
+  it('the analyses report chip badges the ready count; its modal shows a "run" button and a blocked taxonomy code', async () => {
+    expect(document.querySelector('[data-report="analyses"] .vzf-report-badge')?.textContent).toBe('1'); // 1 of 2 ready
+    await openReport('analyses');
     expect(screen.getByRole('button', { name: 'run' })).toBeTruthy();
     expect(screen.getByText(/blocked: not-enough-rows \(price\)/)).toBeTruthy();
   });
 
-  it('gaps panel reports the filed gap count and row', () => {
-    expect(screen.getByText('Gaps — unmet requests (1)')).toBeTruthy();
+  it('the gaps report chip badges the filed gap count; its modal shows the gap row', async () => {
+    expect(document.querySelector('[data-report="gaps"] .vzf-report-badge')?.textContent).toBe('1');
+    await openReport('gaps');
     expect(document.querySelector('[data-gap="E_NO_COLUMN"]')).toBeTruthy();
   });
 
-  it('the FDR ledger panel renders', () => {
-    expect(screen.getByText(/Online-FDR ledger \(LORD\+\+\)/)).toBeTruthy();
+  it('the FDR ledger report chip opens a modal that renders the ledger', async () => {
+    await openReport('ledger');
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('FDR ledger')).toBeTruthy(); // the modal title
+    expect(document.querySelector('[data-vzf="fdr-ledger"]')).toBeTruthy();
   });
 
   it('the chat popup starts closed with the fab visible, the sys greeting, and 4 suggestion chips', () => {
@@ -288,7 +309,7 @@ describe('boot — default/fallback fixture (STATE_B): every "??" and ternary-fa
 
   it('provider reads "live Claude" (mode !== \'mock\') and the viewingPast suffix is appended', () => {
     // no selections at all -> every row passes -> 7 of 7
-    expect(screen.getByText(/current selection: 7 of 7 rows · provider: live Claude/)).toBeTruthy();
+    expect(screen.getByText(/7 of 7 rows selected · provider: live Claude/)).toBeTruthy();
     expect(screen.getByText(/viewing the past \(cursor behind head\)/)).toBeTruthy();
   });
 
@@ -355,9 +376,11 @@ describe('dashboard interactions — chart emit + reencode', () => {
 describe('dashboard interactions — time travel', () => {
   it('seeking from the branch map, the commit log, and the timeline all fire view.seek()', async () => {
     await boot(STATE_A);
+    await openReport('branches'); // both live inside their report-chip modals now
     await click(document.querySelector('[data-vzf="branch-map"] [data-commit="c1"]'));
     expect(api.callsTo('/api/seek').at(-1)?.body).toMatchObject({ commitId: 'c1' });
 
+    await openReport('commits'); // switches the SAME modal's content — no close needed first
     await click(document.querySelector('[data-vzf="commit-log"] [data-commit="c2"]'));
     expect(api.callsTo('/api/seek').at(-1)?.body).toMatchObject({ commitId: 'c2' });
 
@@ -380,30 +403,32 @@ describe('dashboard interactions — time travel', () => {
     expect(api.callsTo('/api/seek').at(-1)?.body).toMatchObject({ commitId: 'c2' });
   });
 
-  it('naming a checkpoint dispatches the checkpoint verb', async () => {
+  it('naming a checkpoint through the ⚑ modal dispatches the checkpoint verb', async () => {
     await boot(STATE_A);
-    const input = document.querySelector('.vzf-ckpt-input') as HTMLInputElement;
+    await click(screen.getByRole('button', { name: /Checkpoint/ }));
+    const input = screen.getByLabelText('checkpoint name');
     await act(async () => {
       fireEvent.change(input, { target: { value: 'my beat' } });
       await flush();
     });
-    await click(screen.getByRole('button', { name: /Checkpoint/ }));
+    await click(screen.getByRole('button', { name: 'Save checkpoint' }));
     expect(api.callsTo('/api/checkpoint').at(-1)?.body).toMatchObject({ label: 'my beat' });
   });
 
   it('toggling Present/Explore flips the dashboard\'s readOnly flag', async () => {
     await boot(STATE_A);
-    expect(dashboard().getAttribute('data-readonly')).toBe('false');
+    expect(cockpit().getAttribute('data-readonly')).toBe('false');
     await click(screen.getByRole('tab', { name: 'Present' }));
-    expect(dashboard().getAttribute('data-readonly')).toBe('true');
+    expect(cockpit().getAttribute('data-readonly')).toBe('true');
     await click(screen.getByRole('tab', { name: 'Explore' }));
-    expect(dashboard().getAttribute('data-readonly')).toBe('false');
+    expect(cockpit().getAttribute('data-readonly')).toBe('false');
   });
 });
 
 describe('dashboard interactions — readiness', () => {
   it('clicking "run" on a ready analysis dispatches analyze with the default intent', async () => {
     await boot(STATE_A);
+    await openReport('analyses'); // ReadinessPanel now lives inside its report-chip modal
     await click(screen.getByRole('button', { name: 'run' }));
     const post = api.callsTo('/api/dispatch').at(-1);
     expect(post?.body).toMatchObject({ verb: 'analyze', analysisId: 'correlation', intent: 'analyze correlation' });
@@ -441,9 +466,10 @@ describe('keyboard step-nav mirror', () => {
     expect(api.callsTo('/api/seek').length).toBe(before);
   });
 
-  it('ArrowLeft while the checkpoint <input> is focused is swallowed (never steps)', async () => {
-    const input = document.querySelector('.vzf-ckpt-input') as HTMLInputElement;
-    input.focus();
+  it('ArrowLeft while the checkpoint modal\'s name <input> is focused is swallowed (never steps)', async () => {
+    await click(screen.getByRole('button', { name: /Checkpoint/ }));
+    const input = screen.getByLabelText('checkpoint name') as HTMLInputElement;
+    expect(document.activeElement).toBe(input); // the modal autofocuses it
     const before = api.callsTo('/api/seek').length;
     await act(async () => {
       fireEvent.keyDown(document, { key: 'ArrowLeft' });
@@ -593,7 +619,7 @@ describe('chat popup — sending', () => {
   });
 });
 
-describe('chat popup — 🐛 debugger modal', () => {
+describe('chat popup — 🐛 debugger (the cockpit\'s "Analyst debugger" report chip/modal — no separate hand-rolled modal anymore)', () => {
   async function openDebuggerViaReply(): Promise<void> {
     api.chatQueue.push({ text: 'reply' });
     const sendBtn = document.querySelector('.composer .btn') as HTMLButtonElement;
@@ -606,55 +632,65 @@ describe('chat popup — 🐛 debugger modal', () => {
     await click(screen.getByText('🐛 See the thinking'));
   }
 
+  function debugBackdrop(): HTMLElement | null {
+    return document.querySelector('[data-vzf-modal="report-debug"]');
+  }
+
   beforeEach(async () => {
     await boot(STATE_A);
   });
 
-  it('opens with a cache-busted iframe src and closes via the ✕ button', async () => {
+  it('the "See the thinking" button opens the SAME debug chip as the status strip, with a cache-busted iframe src; the ✕ button closes it', async () => {
     await openDebuggerViaReply();
-    const modal = document.getElementById('dbgmodal') as HTMLElement;
-    const frame = document.getElementById('dbgframe') as HTMLIFrameElement;
-    expect(modal.hidden).toBe(false);
+    const backdrop = debugBackdrop();
+    expect(backdrop).toBeTruthy();
+    const frame = backdrop!.querySelector('iframe') as HTMLIFrameElement;
     expect(frame.src).toContain('/debug?embed=1&t=');
+    expect(frame.title).toBe('Analyst reasoning');
 
-    await click(document.getElementById('dbgx'));
-    expect(modal.hidden).toBe(true);
-    expect(frame.src).toContain('about:blank');
+    await click(within(backdrop!).getByRole('button', { name: 'Close' }));
+    expect(debugBackdrop()).toBeNull(); // VizModal unmounts its content on close
   });
 
-  it('closes on a backdrop click but NOT on a click inside the card', async () => {
-    await openDebuggerViaReply();
-    const modal = document.getElementById('dbgmodal') as HTMLElement;
-    const card = modal.querySelector('.dbgcard') as HTMLElement;
-
-    await click(card); // inside the card -> must stay open
-    expect(modal.hidden).toBe(false);
-
-    await click(modal); // the backdrop itself -> closes
-    expect(modal.hidden).toBe(true);
+  it('the same chip lives on the status strip — clicking it directly opens the identical modal', async () => {
+    await click(document.querySelector('[data-report="debug"]'));
+    expect(debugBackdrop()).toBeTruthy();
   });
 
-  it('Escape closes it while open, is a no-op while already closed, and other keys do not close it', async () => {
+  it('closes on a backdrop mousedown but NOT on one bubbling from inside the dialog', async () => {
     await openDebuggerViaReply();
-    const modal = document.getElementById('dbgmodal') as HTMLElement;
+    const backdrop = debugBackdrop()!;
+    const dialog = backdrop.querySelector('[role="dialog"]') as HTMLElement;
 
     await act(async () => {
-      fireEvent.keyDown(document, { key: 'x' });
+      fireEvent.mouseDown(dialog); // inside the dialog -> must stay open
       await flush();
     });
-    expect(modal.hidden).toBe(false); // non-Escape key -> stays open
+    expect(debugBackdrop()).toBeTruthy();
 
     await act(async () => {
-      fireEvent.keyDown(document, { key: 'Escape' });
+      fireEvent.mouseDown(backdrop); // the backdrop itself -> closes
       await flush();
     });
-    expect(modal.hidden).toBe(true);
+    expect(debugBackdrop()).toBeNull();
+  });
+
+  it('Escape (fired on the dialog) closes it; reopening gives a FRESH cache-busted src', async () => {
+    await openDebuggerViaReply();
+    const firstSrc = (debugBackdrop()!.querySelector('iframe') as HTMLIFrameElement).src;
+    const dialog = debugBackdrop()!.querySelector('[role="dialog"]') as HTMLElement;
 
     await act(async () => {
-      fireEvent.keyDown(document, { key: 'Escape' }); // already hidden -> no-op, no throw
+      fireEvent.keyDown(dialog, { key: 'Escape' });
       await flush();
     });
-    expect(modal.hidden).toBe(true);
+    expect(debugBackdrop()).toBeNull();
+
+    // reopening remounts <DebugPanel> — its lazy useState re-runs Date.now()
+    await advance(2); // guarantee a distinct millisecond from the first open
+    await click(document.querySelector('[data-report="debug"]'));
+    const secondSrc = (debugBackdrop()!.querySelector('iframe') as HTMLIFrameElement).src;
+    expect(secondSrc).not.toBe(firstSrc);
   });
 });
 
@@ -748,7 +784,7 @@ describe('sendMessage\'s finally block: the SECOND of its two /api/state calls (
 describe('main() — the #dashboard contract, and the keyboard-mirror cleanup on unmount', () => {
   it('throws a clear, honest error when #dashboard is missing from the page', async () => {
     await boot(STATE_A); // the normal auto-mount succeeds once, proving the happy path first
-    expect(document.querySelector('.vzf-root')).toBeTruthy();
+    expect(document.querySelector('.vzf-cockpit-root')).toBeTruthy();
     document.getElementById('dashboard')!.remove();
     // re-importing the ALREADY-CACHED module returns the same module object
     // (no vi.resetModules() in this test) — it does not re-trigger `void main()`.

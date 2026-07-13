@@ -1,8 +1,12 @@
 /**
- * The combined browser page — UI-2 dogfood: the DASHBOARD (left) is now React,
- * built entirely from `vizfootprint-ui` components driven by ONE
- * `createSessionView` store; the CHAT popup + 🐛 AgentThinkingUI debugger
- * (right/floating) stay hand-rolled DOM — they are not the migration target.
+ * The combined browser page — UX-2: the dashboard is now the FLAGSHIP
+ * `<VizCockpit>` (single viewport, zero page scroll), built entirely from
+ * `vizfootprint-ui` components driven by ONE `createSessionView` store; the
+ * CHAT popup (right/floating) stays hand-rolled DOM — it is a popup, not a
+ * page panel, so it is not the migration target. The 🐛 debugger now rides
+ * the cockpit's OWN report-chip/modal system (a `<DebugPanel>` iframing the
+ * isolated `/debug?embed` page) instead of a hand-rolled modal — there is
+ * only ONE modal system now, `VizModal`, same as every other report.
  *
  * There is NO browser-side session: the ONE `InteractionSession` lives on the
  * server. Both principals drive it over http —
@@ -17,9 +21,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  VizDashboard,
-  VizCard,
-  VizPanel,
+  VizCockpit,
   VizScatter,
   VizBar,
   TimeTravelBar,
@@ -130,7 +132,22 @@ function clauseOf(sel: { field: string; kind: 'point' | 'interval'; value: unkno
   return { kind: 'point', field: sel.field, value: sel.value };
 }
 
-// ── the React dashboard — every layer from vizfootprint-ui, ONE store ────────
+/**
+ * The 🐛 debugger's report content — an iframe onto the isolated `/debug?embed`
+ * page (atui replaying the analyst's live reasoning). The cache-busting `t=`
+ * query param is computed ONCE per mount via the lazy `useState` initializer:
+ * `<VizModal>` unmounts its children while closed, so every chip open/close
+ * cycle remounts this component fresh (a new timestamp), exactly mirroring the
+ * old hand-rolled modal's `dbgframe.src = '/debug?embed=1&t=' + Date.now()` on
+ * every open — but polling stops for free too (no src reset to 'about:blank'
+ * needed) since the iframe itself is torn down on close.
+ */
+function DebugPanel(): JSX.Element {
+  const [src] = useState(() => `/debug?embed=1&t=${Date.now()}`);
+  return <iframe title="Analyst reasoning" src={src} style={{ width: '100%', height: '100%', border: 0, display: 'block' }} />;
+}
+
+// ── the React cockpit — every layer from vizfootprint-ui, ONE store ──────────
 
 function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.Element {
   const { view, rows } = props;
@@ -139,7 +156,7 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
   const readOnly = mode === 'present';
 
   // step-nav keyboard mirror (ArrowLeft/ArrowRight), but never while an
-  // <input>/<textarea> has focus (the checkpoint field, the chat composer).
+  // <input>/<textarea> has focus (the checkpoint modal's field, the chat composer).
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
@@ -197,98 +214,130 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
   const allClauses = clauses.map((c) => c.clause);
   const selectedCount = rows.filter((r) => allClauses.every((cl) => matchesClause(r, cl))).length;
 
+  const provider = state.mode === 'mock' ? 'scripted mock' : 'live Claude';
+  const pastSuffix = state.viewingPast ? '  ·  ⏱ viewing the past (cursor behind head)' : '';
+
   return (
-    <VizDashboard
+    <VizCockpit
       readOnly={readOnly}
       top={
-        <VizCard>
-          <TimeTravelBar
-            mode={mode}
-            onModeChange={setMode}
-            commits={state.commits}
-            cursor={state.cursor}
-            head={state.head}
-            checkpoints={state.checkpoints}
-            branches={state.branches}
-            viewingPast={state.viewingPast}
-            onSeek={(id) => void view.seek(id)}
-            onStepBack={() => void view.stepBack()}
-            onStepForward={() => void view.stepForward()}
-            onCheckpoint={(label) => void view.checkpoint(label)}
-            onReturnToNow={() => void view.returnToNow()}
-          />
-        </VizCard>
+        <TimeTravelBar
+          compact
+          mode={mode}
+          onModeChange={setMode}
+          commits={state.commits}
+          cursor={state.cursor}
+          head={state.head}
+          checkpoints={state.checkpoints}
+          branches={state.branches}
+          viewingPast={state.viewingPast}
+          onSeek={(id) => void view.seek(id)}
+          onStepBack={() => void view.stepBack()}
+          onStepForward={() => void view.stepForward()}
+          onCheckpoint={(label) => void view.checkpoint(label)}
+          onReturnToNow={() => void view.returnToNow()}
+        />
       }
-      main={
-        <>
-          <VizCard
-            title={`current selection: ${selectedCount} of ${rows.length} rows · provider: ${state.mode === 'mock' ? 'scripted mock' : 'live Claude'}${state.viewingPast ? '  ·  ⏱ viewing the past (cursor behind head)' : ''}`}
-          >
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)', gap: 'var(--vzf-space-4)' }}>
-              <figure className="vzf-chartbox">
-                <VizScatter
-                  viewId="scatter"
-                  data={scatterData}
-                  xField={xField}
-                  yField={yField}
-                  /* v8 ignore next -- `c` (ScatterDatum.category) is always a defined string here:
-                     `scatterData` (below) sets `category: r.category` straight from `rows`, and every
-                     `DemoRow.category` is `String(...)`-coerced by `loadRows` (common.ts) — even an
-                     empty/missing CSV cell sniffs to `null` and stringifies to `"null"`, never JS
-                     `undefined`. The `?? ''` fallback guards VizScatter's wider (optional) prop type,
-                     not a state this component's own data pipeline can produce. */
-                  colorOf={(c) => categoryColor(c ?? '')}
-                  highlight={scatterKeep}
-                  columns={columns}
-                  encoding={enc}
-                  onEmit={(e) => void view.emit('scatter', e, `brush ${xField}`)}
-                  onReencode={(v, c, f) => void view.reencode(v, c, f)}
-                />
-                <figcaption className="vzf-chart-caption">Scatter — drag to brush {xField}; click an axis label to re-encode (you drive this)</figcaption>
-              </figure>
-              <figure className="vzf-chartbox">
-                <VizBar
-                  viewId="bar"
-                  data={barData}
-                  field="category"
-                  colorOf={categoryColor}
-                  selected={barSelected ? String(barSelected.value) : null}
-                  columns={columns}
-                  onEmit={(e) => void view.emit('bar', e, 'select category')}
-                  onReencode={(v, c, f) => void view.reencode(v, c, f)}
-                />
-                <figcaption className="vzf-chart-caption">Bar — click a category to select (you drive this)</figcaption>
-              </figure>
-            </div>
-          </VizCard>
-          <VizPanel title="Branch map — siblings fork downward; the active lineage rides the top lane">
+      charts={[
+        {
+          id: 'scatter',
+          weight: 3,
+          caption: `Scatter — drag to brush ${xField}; click an axis label to re-encode (you drive this)`,
+          render: ({ width, height }) => (
+            <VizScatter
+              viewId="scatter"
+              data={scatterData}
+              xField={xField}
+              yField={yField}
+              width={width}
+              height={height}
+              /* v8 ignore next -- `c` (ScatterDatum.category) is always a defined string here:
+                 `scatterData` (above) sets `category: r.category` straight from `rows`, and every
+                 `DemoRow.category` is `String(...)`-coerced by `loadRows` (common.ts) — even an
+                 empty/missing CSV cell sniffs to `null` and stringifies to `"null"`, never JS
+                 `undefined`. The `?? ''` fallback guards VizScatter's wider (optional) prop type,
+                 not a state this component's own data pipeline can produce. */
+              colorOf={(c) => categoryColor(c ?? '')}
+              highlight={scatterKeep}
+              columns={columns}
+              encoding={enc}
+              onEmit={(e) => void view.emit('scatter', e, `brush ${xField}`)}
+              onReencode={(v, c, f) => void view.reencode(v, c, f)}
+            />
+          ),
+        },
+        {
+          id: 'bar',
+          weight: 2,
+          caption: 'Bar — click a category to select (you drive this)',
+          render: ({ width, height }) => (
+            <VizBar
+              viewId="bar"
+              data={barData}
+              field="category"
+              width={width}
+              height={height}
+              colorOf={categoryColor}
+              selected={barSelected ? String(barSelected.value) : null}
+              columns={columns}
+              onEmit={(e) => void view.emit('bar', e, 'select category')}
+              onReencode={(v, c, f) => void view.reencode(v, c, f)}
+            />
+          ),
+        },
+      ]}
+      reports={[
+        {
+          id: 'commits',
+          title: 'Commit log',
+          icon: '🧾',
+          badge: state.commits.length,
+          content: <CommitLog commits={state.commits} onSeek={(id) => void view.seek(id)} />,
+        },
+        {
+          id: 'branches',
+          title: 'Branch map',
+          icon: '🌿',
+          badge: state.branches.length,
+          content: (
             <BranchMap commits={state.commits} cursor={state.cursor} head={state.head} checkpoints={state.checkpoints} onSeek={(id) => void view.seek(id)} />
-          </VizPanel>
-          <VizPanel title="Commit log — one cause-tagged record per gesture, two authors (click a chip to seek)">
-            <CommitLog commits={state.commits} onSeek={(id) => void view.seek(id)} />
-          </VizPanel>
-        </>
-      }
-      side={
-        <>
-          <VizPanel title="Declared analyses — readiness at the current cursor">
-            <ReadinessPanel heading={false} analyses={state.readiness} onAnalyze={(id) => void view.analyze(id)} />
-          </VizPanel>
-          <VizPanel title={`Gaps — unmet requests (${state.gaps.length})`}>
-            <GapsPanel heading={false} gaps={state.gaps} />
-          </VizPanel>
-        </>
-      }
-      bottom={
-        <VizPanel title="Online-FDR ledger (LORD++) — two truths: cursor-local vs global">
-          <FdrLedger ledger={state.ledger} />
-        </VizPanel>
-      }
+          ),
+        },
+        {
+          id: 'ledger',
+          title: 'FDR ledger',
+          icon: '⚖️',
+          badge: state.ledger.discoveries,
+          content: <FdrLedger ledger={state.ledger} />,
+        },
+        {
+          id: 'analyses',
+          title: 'Analyses',
+          icon: '🧪',
+          badge: state.readiness.filter((r) => r.ready).length,
+          content: <ReadinessPanel heading={false} analyses={state.readiness} onAnalyze={(id) => void view.analyze(id)} />,
+        },
+        {
+          id: 'gaps',
+          title: 'Gaps',
+          icon: '⚠️',
+          badge: state.gaps.length,
+          content: <GapsPanel heading={false} gaps={state.gaps} />,
+        },
+        {
+          id: 'debug',
+          title: 'Analyst debugger',
+          icon: '🐛',
+          content: <DebugPanel />,
+        },
+      ]}
+      status={`${selectedCount} of ${rows.length} rows selected · provider: ${provider}${pastSuffix}`}
     />
   );
 }
 
-// ── chat popup + 🐛 debugger (KEPT — plain DOM, not the migration target) ────
+// ── chat popup (KEPT — plain DOM, not the migration target; it's a floating
+// popup, not a page panel) ────────────────────────────────────────────────────
 
 function wireChatAndDebugger(view: SessionView): void {
   const chatRoot = document.getElementById('chatbody') as HTMLElement;
@@ -323,14 +372,11 @@ function wireChatAndDebugger(view: SessionView): void {
     suggestRow.appendChild(b);
   }
 
-  // ── floating popup + 🐛 debugger wiring (chrome lives in page.mjs) ────────────
+  // ── floating popup wiring (chrome lives in page.mjs) ──────────────────────
   const fab = document.getElementById('fab') as HTMLButtonElement;
   const chatpanel = document.getElementById('chatpanel') as HTMLElement;
   const chatclose = document.getElementById('chatclose') as HTMLButtonElement;
   const chatreset = document.getElementById('chatreset') as HTMLButtonElement;
-  const dbgmodal = document.getElementById('dbgmodal') as HTMLElement;
-  const dbgframe = document.getElementById('dbgframe') as HTMLIFrameElement;
-  const dbgx = document.getElementById('dbgx') as HTMLButtonElement;
 
   function openChat(): void {
     chatpanel.hidden = false;
@@ -356,22 +402,12 @@ function wireChatAndDebugger(view: SessionView): void {
     })();
   });
 
-  // The 🐛 debugger is a CENTRAL MODAL iframing the ISOLATED /debug?embed page.
+  // The 🐛 debugger is now the cockpit's OWN "Analyst debugger" report chip —
+  // clicking the button under a reply just opens that SAME chip/modal (there
+  // is only one debug modal now, not a duplicate hand-rolled one).
   function openDebugger(): void {
-    dbgframe.src = '/debug?embed=1&t=' + Date.now();
-    dbgmodal.hidden = false;
+    (document.querySelector('[data-report="debug"]') as HTMLButtonElement | null)?.click();
   }
-  function closeDebugger(): void {
-    dbgmodal.hidden = true;
-    dbgframe.src = 'about:blank';
-  }
-  dbgx.addEventListener('click', closeDebugger);
-  dbgmodal.addEventListener('click', (e) => {
-    if (e.target === dbgmodal) closeDebugger();
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !dbgmodal.hidden) closeDebugger();
-  });
 
   function renderActivity(state: ChatPollState): void {
     if (state.turnActive) working.textContent = state.activity.length ? 'analyst is working…' : 'analyst is thinking…';
@@ -407,8 +443,8 @@ function wireChatAndDebugger(view: SessionView): void {
       const reply = (await post('/api/chat', { message })) as { text?: string; error?: string } | null;
       const answer = reply?.text ?? reply?.error ?? 'The analyst did not reply.';
       transcript.appendChild(el('div', { class: 'bubble analyst', text: answer }));
-      // Offer the 🐛 debugger for THIS turn — opens the central modal iframing
-      // the isolated /debug?embed page, which replays the reasoning via atui.
+      // Offer the 🐛 debugger for THIS turn — opens the cockpit's debug chip
+      // modal, which replays the reasoning via atui.
       const dbg = el('button', { class: 'dbgbtn', text: '🐛 See the thinking' }) as HTMLButtonElement;
       dbg.addEventListener('click', openDebugger);
       transcript.appendChild(dbg);

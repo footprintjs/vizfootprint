@@ -1,47 +1,43 @@
 /**
- * The single-page HTML shell. Only static CHROME lives here (headings, layout,
- * empty mount points, styles) — every runtime/data string is written by the
- * bundled browser code via textContent (two-string discipline). Theme-aware
+ * The single-page HTML shell. Only static CHROME lives here (empty mount
+ * points, styles) — every runtime/data string is written by the bundled
+ * browser code via textContent (two-string discipline). Theme-aware
  * (light + dark).
  *
- * UI-2: the LEFT pane (`#dashboard`) is now a React mount point rendered by
- * `vizfootprint-ui` components (`app.tsx`) — its styling ships with the
- * package (`/bundle/vizfootprint-ui.css`, scoped under `.vzf`), so this file
- * no longer authors chart/timeline/ledger/branch-map CSS. The RIGHT pane (the
- * floating chat popup + 🐛 debugger modal) stays hand-rolled chrome, styled
- * here as before.
+ * UX-2: `#dashboard` is now the FLAGSHIP `<VizCockpit>` — a React mount point
+ * rendered by `vizfootprint-ui` (`app.tsx`) that locks itself to the full
+ * viewport and owns ALL page scrolling (there is none at desktop sizes; a
+ * scroll-snap chart carousel on mobile). Its styling ships with the package
+ * (`/bundle/vizfootprint-ui.css`, scoped under `.vzf`), so this file no
+ * longer authors chart/timeline/ledger/branch-map CSS — and, since the
+ * cockpit IS the page, there is no header/main chrome sitting above it (that
+ * would push the page taller than one viewport and break the zero-scroll
+ * contract). The floating chat popup stays hand-rolled chrome (a position:fixed
+ * overlay, so it never adds page height), styled here as before; the 🐛
+ * debugger no longer has its own chrome — it rides the cockpit's report-chip
+ * modal system now (see app.tsx's `<DebugPanel>`).
  */
 
 const STYLE = `
 :root {
   --bg: #f7f8fa; --fg: #1a1d24; --muted: #6b7280; --card: #ffffff; --line: #e4e7ec;
-  --accent: #4c8dff; --user: #2f6fed; --agent: #b8860b; --chip: #f0f3f8; --shadow: 0 1px 2px rgba(0,0,0,.06);
+  --accent: #4c8dff; --agent: #b8860b; --chip: #f0f3f8; --shadow: 0 1px 2px rgba(0,0,0,.06);
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg:#0e1116; --fg:#e6e9ef; --muted:#9aa4b2; --card:#161b22; --line:#2a313c;
-    --accent:#5b9bff; --user:#7aa7ff; --agent:#e6b84d; --chip:#1b222c; --shadow:none; }
+    --accent:#5b9bff; --agent:#e6b84d; --chip:#1b222c; --shadow:none; }
 }
-:root[data-theme="light"] { --bg:#f7f8fa; --fg:#1a1d24; --muted:#6b7280; --card:#fff; --line:#e4e7ec; --chip:#f0f3f8; --user:#2f6fed; --agent:#b8860b; }
-:root[data-theme="dark"] { --bg:#0e1116; --fg:#e6e9ef; --muted:#9aa4b2; --card:#161b22; --line:#2a313c; --chip:#1b222c; --user:#7aa7ff; --agent:#e6b84d; }
+:root[data-theme="light"] { --bg:#f7f8fa; --fg:#1a1d24; --muted:#6b7280; --card:#fff; --line:#e4e7ec; --chip:#f0f3f8; --agent:#b8860b; }
+:root[data-theme="dark"] { --bg:#0e1116; --fg:#e6e9ef; --muted:#9aa4b2; --card:#161b22; --line:#2a313c; --chip:#1b222c; --agent:#e6b84d; }
 * { box-sizing: border-box; }
-body { margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--fg); }
-header { padding: 16px 24px; border-bottom: 1px solid var(--line); background: var(--card); }
-header h1 { margin: 0; font-size: 18px; }
-header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
-header .legend { margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); }
-main { padding: 18px 24px 40px; }
-.pane { background: transparent; }
-.dashboard { width: 100%; }
+html, body { margin: 0; height: 100%; }
+body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--fg); }
+#dashboard { height: 100%; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; box-shadow: var(--shadow); margin-bottom: 14px; }
 .section-head { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 8px; }
 .btn { font: inherit; padding: 7px 12px; border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 7px; cursor: pointer; box-shadow: var(--shadow); }
 .btn:hover { border-color: var(--accent); }
 .btn:disabled { opacity: .5; cursor: default; }
-.badge { font-weight: 700; text-transform: uppercase; font-size: 10px; padding: 1px 6px; border-radius: 5px; color: #fff; }
-.badge.user { background: var(--user); }
-.badge.agent { background: var(--agent); }
-.badge.system { background: var(--muted); }
-.muted { color: var(--muted); font-size: 12px; }
 
 /* ── chat (rendered by app.tsx into the floating popup body) ── */
 .chatbody .card { display: flex; flex-direction: column; flex: 1 1 auto; border: 0; box-shadow: none; margin: 0; border-radius: 0; background: transparent; padding: 0; min-height: 0; }
@@ -63,13 +59,18 @@ main { padding: 18px 24px 40px; }
 .suggest { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .suggest button { font: inherit; font-size: 12px; padding: 4px 9px; border: 1px dashed var(--line); background: transparent; color: var(--accent); border-radius: 999px; cursor: pointer; }
 
-/* ── floating analyst popup ── */
+/* ── floating analyst popup ──
+   bottom: 64px (not 24px) is deliberate: the cockpit's status strip (report
+   chips) now sits flush at the very bottom-right of the full-viewport shell
+   (there is no page scroll room below it anymore), so the fab/panel must
+   clear it — 24px used to be safe over the old dashboard's own bottom
+   padding, but now overlaps the chip row and blocks its clicks. */
 [hidden] { display: none !important; }
-.fab { position: fixed; right: 24px; bottom: 24px; z-index: 40; display: inline-flex; align-items: center; gap: 10px; background: var(--accent); color: #fff; border: 0; border-radius: 999px; padding: 14px 20px; font: 600 15px inherit; cursor: pointer; box-shadow: 0 16px 34px -12px rgba(30,60,120,.5); transition: .2s; }
+.fab { position: fixed; right: 24px; bottom: 64px; z-index: 40; display: inline-flex; align-items: center; gap: 10px; background: var(--accent); color: #fff; border: 0; border-radius: 999px; padding: 14px 20px; font: 600 15px inherit; cursor: pointer; box-shadow: 0 16px 34px -12px rgba(30,60,120,.5); transition: .2s; }
 .fab:hover { transform: translateY(-2px); filter: brightness(1.05); }
 .fab .pulse { width: 9px; height: 9px; border-radius: 999px; background: #7CFFB2; animation: beat 1.8s infinite; }
 @keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(124,255,178,.6); } 70% { box-shadow: 0 0 0 9px rgba(124,255,178,0); } 100% { box-shadow: 0 0 0 0 rgba(124,255,178,0); } }
-.chatpanel { position: fixed; right: 24px; bottom: 24px; z-index: 41; width: 400px; max-width: calc(100vw - 32px); height: 620px; max-height: calc(100vh - 48px); background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 30px 70px -20px rgba(20,30,60,.45); display: flex; flex-direction: column; overflow: hidden; transform-origin: bottom right; animation: pop .2s cubic-bezier(.2,.9,.3,1.2); }
+.chatpanel { position: fixed; right: 24px; bottom: 64px; z-index: 41; width: 400px; max-width: calc(100vw - 32px); height: 620px; max-height: calc(100vh - 88px); background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 30px 70px -20px rgba(20,30,60,.45); display: flex; flex-direction: column; overflow: hidden; transform-origin: bottom right; animation: pop .2s cubic-bezier(.2,.9,.3,1.2); }
 @keyframes pop { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
 .cphead { display: flex; align-items: center; gap: 11px; padding: 13px 15px; background: linear-gradient(135deg, var(--accent), #2f6fed); color: #fff; }
 .cphead .av { width: 34px; height: 34px; border-radius: 999px; background: rgba(255,255,255,.18); display: grid; place-items: center; font-size: 17px; }
@@ -80,17 +81,10 @@ main { padding: 18px 24px 40px; }
 .cphead #chatreset { margin-left: auto; }
 .chatbody { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 12px 14px; }
 
-/* ── 🐛 debugger: a central modal iframing the ISOLATED /debug?embed page ── */
+/* ── 🐛 "see the thinking" button under a chat reply (opens the cockpit's
+   OWN "Analyst debugger" report chip — no separate modal chrome here) ── */
 .dbgbtn { align-self: flex-start; margin: 2px 0 2px; background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 999px; padding: 3px 10px; font: 600 11.5px inherit; cursor: pointer; }
 .dbgbtn:hover { color: var(--accent); border-color: var(--accent); }
-.dbgmodal { position: fixed; inset: 0; z-index: 60; background: rgba(15,20,35,.55); display: flex; align-items: center; justify-content: center; padding: 24px; animation: fade .18s ease; }
-@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-.dbgcard { background: var(--card); border-radius: 16px; width: min(1120px, 96vw); height: min(780px, 92vh); display: grid; grid-template-rows: auto 1fr; overflow: hidden; box-shadow: 0 40px 90px -20px rgba(10,20,40,.6); }
-.dbghead { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 14px; }
-.dbghead small { color: var(--muted); font-weight: 400; }
-.dbghead .dbgopen { margin-left: auto; color: var(--accent); text-decoration: none; font-weight: 600; font-size: 12px; }
-.dbghead .x { background: transparent; border: 0; font-size: 17px; cursor: pointer; color: var(--muted); }
-.dbgframe { width: 100%; height: 100%; border: 0; display: block; background: var(--card); }
 `;
 
 export const PAGE = `<!doctype html><html lang="en"><head>
@@ -99,18 +93,7 @@ export const PAGE = `<!doctype html><html lang="en"><head>
 <link rel="stylesheet" href="/bundle/vizfootprint-ui.css">
 <style>${STYLE}</style></head>
 <body>
-<header>
-  <h1>vizfootprint — mixed-principal analyst</h1>
-  <p>One live session, two principals. You brush and click the dashboard; a real Claude analyst works alongside you from the popup (bottom-right). Every gesture is one cause-tagged commit — the mixed author log below is the whole point.</p>
-  <div class="legend">
-    <span><span class="badge user">user</span> your gestures</span>
-    <span><span class="badge agent">agent</span> the analyst's tool calls</span>
-    <span><span class="badge system">system</span> a declared analysis</span>
-  </div>
-</header>
-<main>
-  <section class="pane dashboard" id="dashboard"></section>
-</main>
+<section id="dashboard"></section>
 
 <button id="fab" class="fab" type="button"><span class="pulse"></span> Ask the analyst</button>
 
@@ -123,17 +106,6 @@ export const PAGE = `<!doctype html><html lang="en"><head>
   </div>
   <div id="chatbody" class="chatbody"></div>
 </aside>
-
-<div id="dbgmodal" class="dbgmodal" hidden>
-  <div class="dbgcard">
-    <div class="dbghead">
-      <b>🐛 Analyst reasoning</b><small>this turn — via AgentThinkingUI</small>
-      <a href="/debug" target="_blank" rel="noopener" class="dbgopen">open full ↗</a>
-      <button id="dbgx" class="x" title="Close">✕</button>
-    </div>
-    <iframe id="dbgframe" class="dbgframe" title="Analyst reasoning"></iframe>
-  </div>
-</div>
 
 <script src="/bundle/app.js"></script>
 </body></html>`;
