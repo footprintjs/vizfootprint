@@ -122,6 +122,44 @@ SourceRegistryError; the source now carries the view's declared meta (stable ide
 acted stays in the cause; regression pinned. Existing tests: only the two fixed-tool-list assertions changed
 (6→8); zero coverage deleted. Gate: 1086 tests at 100/100/100/100; all four typechecks clean.
 
+## D27 [DOCS DOC-1] Weave study + renderer-protocol panel verdict canonicalized as repo docs
+`docs/research/weave-study.md` (six angles: session-state core, keys/selection-at-scale, scheduler,
+geometry/LOD, feature inventory, Adapter abstraction — every finding file:line-cited against the real Weave/
+WeaveJS/Adapter clones, not paraphrased). Headline: Weave's `KeySet` computes `keysAdded`/`keysRemoved` on every
+mutation and then DISCARDS them, re-diffing full materialized state forever after (`KeySet.as:89-119`,
+`SessionManager.as:1527-1535`) — the exact weakness vizfootprint's append-only commit log already fixes by
+construction (a `CommitRecord` IS the durable delta). The converse gap is real too: vizfootprint has none of
+Weave's 15 years of scale engineering (interning, priority-tiered time-sliced scheduling, importance-driven
+LOD, KD-tree hit-testing) — captured as a W1-W3 mini-lib roadmap, **PROPOSED only, nothing built**: W1 `keys/`
+(interning + delta-as-log-entry KeySet), W2 `schedule/` (adopt footprintjs sibling-repo `observer-queue`
+interfaces — `FlushDriver` armed-once batcher w/ injectable `schedule` pump seam + `flushBudgetMs` budget
+[`flushDriver.ts:68,72,125`], `ring.ts` bounded ring w/ counted overflow `'drop-oldest'|'sample'|'block'`
+[`ring.ts:43,47-54`] — rather than re-deriving them, then layer Weave's priority tiers + `iterativeTask(deadline)
+=> progress` contract + version-stamp self-abort on top), W3 `lod/`+`hittest/` (data-area-per-pixel LOD contract
++ shared render/hit-test spatial index). `docs/proposals/renderer-protocol.md` supersedes the original
+"bring-any-chart" pitch with the 5-lens adversarial panel's verdict (practitioner/academic/skeptic/economist/
+historian + contradiction-map synthesis): 7-point table — **MODIFY** Renderer Contract (protocol version + LSP-
+style capability handshake at mount; clause-addressable selection `{clauses, resolve, selfClauseId}` replacing
+the flat keep-predicate — Mosaic-style, arXiv:2507.19690; 4th outbound verb for view-state/pan-zoom-navigate,
+independently derived by 2 lenses from Yi et al. IEEE TVCG 2007; transform-ownership rule — host owns bin/
+aggregate/decimate, renderer-side transforms rejected/gap-ledgered — the panel's collective blind spot) ·
+**CUT to one** bridge package (`@vizfootprint/vega-lite` only; FINOS Perspective PR #1174 deleted its Highcharts+
+Hypergrid bridges and retreated to first-party d3fc — the closest real precedent, reversed) · **MODIFY**
+conformance kit to internal-CI-only, version-stamped, auto-expiring into a typed `certification-lapsed` gap (no
+public badge until a 2nd non-author implementer exists — CNCF certified an already-competitive market, didn't
+create one) · capability declarations **survive intact** (+ `canPanZoom`/`canRearrange`) · **MODIFY (gate)**
+agent-proposed VL specs through the LORD++ ledger (schema-valid → capability-check → hypothesis → render; DracoGPT
+arXiv:2408.06845 19.1% valid-VL rate is why) · host-owned scale machinery **survives** + the transform-ownership
+rule · first-party reference charts **survive intact**. Revised adoption thesis: meet agents at VL (provenance-
+gated, since Databricks already ships ungated governed-VL), meet analysts via a 10-minute provenance on-ramp
+(VisTrails died on this exact blocker despite a decade of polish) — bridges are an internal architecture win, NOT
+the growth engine. Go/no-go gate before ever green-lighting bridge #2: measure hours/quarter to keep the VL
+bridge conformant across one VL major, on THIS team, before spending on breadth. Both docs cross-reference each
+other (renderer-protocol.md's historian own-history evidence = weave-study.md §6, the repo owner's own 2016
+"Adapter" project — abandoned generalized bring-any-chart bridge, read for its hub-and-spoke/echo-guard mechanism
+and its honestly-documented unfinished parts). DOCS-ONLY packet — no src/ or ui/ touched; RP-1 (ui/) ran in
+parallel, separately re-verified.
+
 ## Next
 P3 packets per SPEC §12, order L1→L6; L1-L5 SHIPPED, L6 (why) remaining. Every packet = R#s + pre-written acceptance
 tests + boundary + diff/test-output artifacts; orchestrator re-runs all tests. Fresh-chat rehydration: read THIS file + SPEC.md.
