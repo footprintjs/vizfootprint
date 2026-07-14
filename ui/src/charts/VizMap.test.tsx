@@ -9,6 +9,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
 import { VizMap, type GeoFeatureCollection } from './VizMap.js';
+import { selectionForView } from '../contract/selection.js';
 
 afterEach(cleanup);
 
@@ -247,5 +248,19 @@ describe('VizMap — gesture, selection, keyboard', () => {
     cleanup();
     render(<VizMap geo={GEO} regionField="region" data={DATA} />);
     fireEvent.click(screen.getByRole('button', { name: 'North · 12 rows' }));
+  });
+
+  it("the outline derives from the selection fold's own point clause when `selected` is omitted (RP-1)", () => {
+    const selection = selectionForView([{ viewId: 'map', field: 'region', kind: 'point', value: 'North' }], 'map');
+    const { container } = render(<VizMap geo={GEO} regionField="region" data={DATA} selection={selection} />);
+    expect(container.querySelector('[data-region="North"]')!.getAttribute('class')).toContain('vzf-selected');
+    expect(container.querySelector('[data-region="South"]')!.getAttribute('class')).not.toContain('vzf-selected');
+  });
+
+  it('an explicit `selected` prop wins over the selection derivation', () => {
+    const selection = selectionForView([{ viewId: 'map', field: 'region', kind: 'point', value: 'North' }], 'map');
+    const { container } = render(<VizMap geo={GEO} regionField="region" data={DATA} selection={selection} selected="South" />);
+    expect(container.querySelector('[data-region="South"]')!.getAttribute('class')).toContain('vzf-selected');
+    expect(container.querySelector('[data-region="North"]')!.getAttribute('class')).not.toContain('vzf-selected');
   });
 });

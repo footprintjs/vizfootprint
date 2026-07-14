@@ -275,4 +275,12 @@ describe('VizLine — the encoding picker', () => {
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByRole('button', { name: /price/ }).getAttribute('aria-current')).toBe('true');
   });
+
+  it('contract mode: an axis click asks the HOST via onReencodeRequest — no built-in picker (RP-1)', () => {
+    const onReencodeRequest = vi.fn();
+    render(<VizLine data={DATA} columns={COLS} onReencodeRequest={onReencodeRequest} />);
+    fireEvent.click(screen.getByRole('button', { name: /Encode the x axis/ }));
+    expect(onReencodeRequest).toHaveBeenCalledWith('x');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
 });

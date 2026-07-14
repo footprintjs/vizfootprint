@@ -32,6 +32,8 @@
  */
 import type { KeyboardEvent } from 'react';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
+import type { RenderSelection } from '../contract/types.js';
+import { selfSelectedValue } from '../contract/selection.js';
 
 /** A lon/lat ring: `[ [lon, lat], … ]`. */
 export type GeoRing = readonly (readonly [number, number])[];
@@ -70,8 +72,10 @@ export interface VizMapProps {
   readonly data: readonly RegionDatum[];
   /** The unit word for tooltips/legend (default `'rows'`). */
   readonly valueLabel?: string;
-  /** The selected region (controlled, like VizBar's `selected`). */
+  /** The selected region (controlled). Omit it and the outline derives from `selection`'s own point clause (RP-1). */
   readonly selected?: string | null;
+  /** The clause-addressable crossfilter selection (RP-1) — feeds the `selected` derivation. */
+  readonly selection?: RenderSelection;
   readonly onEmit?: (emission: ChartEmission) => void;
   readonly width?: number;
   readonly height?: number;
@@ -155,11 +159,14 @@ export function VizMap(props: VizMapProps): JSX.Element {
     nameProperty = 'name',
     data,
     valueLabel = 'rows',
-    selected = null,
+    selection,
     onEmit,
     width = 420,
     height = 340,
   } = props;
+
+  // explicit `selected` wins; otherwise the outline derives from the fold's own point clause
+  const selected = props.selected !== undefined ? props.selected : selection ? selfSelectedValue(selection) : null;
 
   const values = new Map(data.map((d) => [d.region, d.value]));
   const max = Math.max(0, ...data.map((d) => d.value));

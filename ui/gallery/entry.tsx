@@ -33,6 +33,8 @@ import {
   createSessionView,
   sessionSource,
   useSessionView,
+  selectionForView,
+  keepPredicate,
   type SessionView,
   type SessionViewState,
   type TimeMode,
@@ -40,29 +42,10 @@ import {
 import { buildScriptedSession } from './scripted.js';
 import { CATEGORIES, CATEGORY_COLORS, GALLERY_GEO, REGIONS, type GalleryRow } from './data.js';
 
-// ── tiny local clause matcher (crossfilter self-exclusion in the page) ────────
-interface Clause {
-  viewId: string;
-  field: string;
-  kind: 'point' | 'interval';
-  value: unknown;
-}
-function matches(row: GalleryRow, c: Clause): boolean {
-  const v = row[c.field];
-  if (c.kind === 'interval') {
-    // numeric OR ISO-date-string bounds — mirrors src/data matchesClause
-    // (lexicographic == chronological for the uniform ISO format)
-    const iv = c.value as [number, number] | [string, string] | null;
-    if (iv === null) return true;
-    if (typeof iv[0] === 'string') return typeof v === 'string' && v >= iv[0] && v <= (iv[1] as string);
-    return typeof v === 'number' && v >= iv[0] && v <= (iv[1] as number);
-  }
-  // a CLEARED point selection surfaces as a null/undefined value through the
-  // adapter (the session keeps the entry; src/data treats it as "no filter").
-  // Gallery data has no null cells, so null here can only mean "cleared".
-  if (c.value == null) return true;
-  return v === c.value;
-}
+// The old page-local clause matcher is GONE (RP-1): the contract's
+// `selectionForView` derives the clause-addressable selection straight from
+// the adapter state's per-view fold, and `keepPredicate` folds it — one
+// evaluator, parity-pinned against src/data, never a page reimplementation.
 
 function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Element {
   const { view, rows } = props;
@@ -80,8 +63,8 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
   const yField = enc['y'] ?? 'rating';
   const columns = state.columns[state.defaultTable] ?? [];
 
-  const clauses: Clause[] = state.selections.map((s) => ({ viewId: s.viewId, field: s.field, kind: s.kind, value: s.value }));
-  const notOwn = (self: string) => clauses.filter((c) => c.viewId !== self);
+  // one clause-addressable selection per view (self named for exclusion) — RP-1
+  const selFor = (self: string | null) => selectionForView(state.selections, self);
 
   const scatterData = useMemo(
     () =>
@@ -90,49 +73,45 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
         x: typeof r[xField] === 'number' ? (r[xField] as number) : 0,
         y: typeof r[yField] === 'number' ? (r[yField] as number) : 0,
         category: r.category,
+        row: r, // the source row — VizScatter evaluates the selection clauses against it
       })),
     [rows, xField, yField],
   );
-  const scatterKeep = (d: { id: string }): boolean => {
-    const row = rows.find((r) => r.id === d.id);
-    return row ? notOwn('scatter').every((c) => matches(row, c)) : true;
-  };
 
-  const barClauses = notOwn('bar');
+  // aggregated charts recompute their HOST-owned data under the other views'
+  // clauses (the transform-ownership rule: the host aggregates, never the chart)
+  const keepBar = keepPredicate(selFor('bar'));
   const barData = CATEGORIES.map((category) => ({
     category,
-    count: rows.filter((r) => r.category === category && barClauses.every((c) => matches(r, c))).length,
+    count: rows.filter((r) => r.category === category && keepBar(r)).length,
   }));
-  const barSelected = state.selections.find((s) => s.viewId === 'bar' && s.kind === 'point');
 
   // the line's fields come from ITS encoding fold; its data recomputes under
   // the OTHER views' selections (crossfilter self-exclusion, like the bar)
   const encL = state.encodings['line'] ?? {};
   const lineX = encL['x'] ?? 'date';
   const lineY = encL['y'] ?? 'price';
-  const lineClauses = notOwn('line');
   const lineData = useMemo(
     () =>
       rows
-        .filter((r) => lineClauses.every((c) => matches(r, c)))
+        .filter((r) => keepPredicate(selectionForView(state.selections, 'line'))(r))
         .map((r) => ({
           date: String(r[lineX]),
           value: typeof r[lineY] === 'number' ? (r[lineY] as number) : 0,
           series: r.category,
         })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- lineClauses is derived fresh from state.selections each render
     [rows, lineX, lineY, state.selections],
   );
 
   // the map's value per region = the crossfiltered row COUNT (the canonical wiring)
-  const mapClauses = notOwn('map');
+  const keepMap = keepPredicate(selFor('map'));
   const mapData = REGIONS.map((region) => ({
     region: region as string,
-    value: rows.filter((r) => r.region === region && mapClauses.every((c) => matches(r, c))).length,
+    value: rows.filter((r) => r.region === region && keepMap(r)).length,
   }));
-  const mapSelected = state.selections.find((s) => s.viewId === 'map' && s.kind === 'point');
 
-  const selectedCount = rows.filter((r) => clauses.every((c) => matches(r, c))).length;
+  const keepAll = keepPredicate(selFor(null)); // the whole-dashboard truth — nothing excluded
+  const selectedCount = rows.filter((r) => keepAll(r)).length;
 
   return (
     <VizCockpit
@@ -193,7 +172,7 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
               width={width}
               height={height}
               colorOf={(c) => CATEGORY_COLORS[c ?? ''] ?? 'var(--vzf-brand)'}
-              highlight={scatterKeep}
+              selection={selFor('scatter')}
               columns={columns}
               encoding={enc}
               onEmit={(e) => void view.emit('scatter', e, 'scatter gesture')}
@@ -233,7 +212,7 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
               width={width}
               height={height}
               colorOf={(c) => CATEGORY_COLORS[c] ?? 'var(--vzf-brand)'}
-              selected={barSelected ? String(barSelected.value) : null}
+              selection={selFor('bar')}
               columns={columns}
               onEmit={(e) => void view.emit('bar', e, 'bar click')}
               onReencode={(v, c, f) => void view.reencode(v, c, f)}
@@ -253,7 +232,7 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
               valueLabel="rows"
               width={width}
               height={height}
-              selected={mapSelected && mapSelected.value != null ? String(mapSelected.value) : null}
+              selection={selFor('map')}
               onEmit={(e) => void view.emit('map', e, 'region click')}
             />
           ),

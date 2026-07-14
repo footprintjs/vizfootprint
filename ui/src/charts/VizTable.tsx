@@ -2,9 +2,10 @@
  * `<VizTable>` — a sortable HTML table over the crossfiltered rows, row click
  * → point selection by the table's id field. Controlled like its siblings.
  *
- * SELECTION SEMANTICS (design call): DIM, never hide. `highlight` is the SAME
- * consumer-computed keep predicate {@link VizScatter} takes (a row failing it
- * gets `.vzf-dim`, not removed) — the two row-level (non-aggregated) charts
+ * SELECTION SEMANTICS (design call): DIM, never hide. `selection` is the SAME
+ * clause-addressable crossfilter fold {@link VizScatter} takes (RP-1 — it
+ * replaced the old flat keep-predicate): a row failing the non-self clauses
+ * gets `.vzf-dim`, not removed — the two row-level (non-aggregated) charts
  * in this library share the rule. VizBar/VizMap instead RECOMPUTE their data
  * (a count per category/region) under a crossfilter; a table has no
  * aggregate to recompute, it has actual rows, so it follows VizScatter's
@@ -12,7 +13,9 @@
  * an unrelated view's selection changes — surprising for a component whose
  * whole point is a stable, scannable order. Dimming keeps every row
  * addressable (a dimmed row is still clickable, still sortable) while making
- * "what's currently included" visually honest.
+ * "what's currently included" visually honest. The table's OWN point
+ * selection (row outline) also derives from the same fold when `selected`
+ * is not explicitly given.
  *
  * Row click emits the R3 point shape `{ rawValue: id, encoding: { kind:
  * 'point', field: idField } }` on the id field; clicking the selected row
@@ -32,6 +35,8 @@
 import { useMemo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
+import type { RenderSelection } from '../contract/types.js';
+import { keepPredicate, selfSelectedValue } from '../contract/selection.js';
 
 /** One row of table data — arbitrary fields, keyed by column name. */
 export interface TableRow {
@@ -55,10 +60,14 @@ export interface VizTableProps {
   readonly idField?: string;
   /** Optional column header override (field -> display label). Defaults to the field name. */
   readonly labels?: Readonly<Record<string, string>>;
-  /** The selected row's id (controlled, like VizBar's `selected`). */
+  /** The selected row's id (controlled). Omit it and the outline derives from `selection`'s own point clause. */
   readonly selected?: string | null;
-  /** Keep predicate — rows failing it are DIMMED, never removed (the VizScatter pattern; see file header). */
-  readonly highlight?: (row: TableRow) => boolean;
+  /**
+   * The clause-addressable crossfilter selection (RP-1) — rows failing the
+   * non-self clauses are DIMMED, never removed (the VizScatter pattern; see
+   * file header). Build it with `selectionForView(state.selections, viewId)`.
+   */
+  readonly selection?: RenderSelection;
   readonly onEmit?: (emission: ChartEmission) => void;
   readonly width?: number;
   readonly height?: number;
@@ -94,16 +103,19 @@ export function VizTable(props: VizTableProps): JSX.Element {
     columns,
     idField = 'id',
     labels,
-    selected = null,
-    highlight,
+    selection,
     onEmit,
     width = 520,
     height = 340,
   } = props;
 
+  // explicit `selected` wins; otherwise the outline derives from the fold's own point clause
+  const selected = props.selected !== undefined ? props.selected : selection ? selfSelectedValue(selection) : null;
+  const keep = useMemo(() => (selection ? keepPredicate(selection) : null), [selection]);
+
   const [sort, setSort] = useState<TableSortState | null>(null);
   const sorted = useMemo(() => sortRows(data, sort), [data, sort]);
-  const visibleCount = highlight ? data.filter(highlight).length : data.length;
+  const visibleCount = keep ? data.filter(keep).length : data.length;
 
   const cycleSort = (field: string): void => {
     setSort((prev) => {
@@ -150,7 +162,7 @@ export function VizTable(props: VizTableProps): JSX.Element {
         </div>
       ) : (
         <>
-          {highlight && (
+          {keep && (
             <div className="vzf-table-status vzf-muted" role="status">
               {visibleCount} of {data.length} rows match the current selection
             </div>
@@ -186,7 +198,7 @@ export function VizTable(props: VizTableProps): JSX.Element {
                 {sorted.map((row) => {
                   const id = String(row[idField]);
                   const isSelected = selected === id;
-                  const isKept = highlight ? highlight(row) : true;
+                  const isKept = keep ? keep(row) : true;
                   return (
                     <tr
                       key={id}

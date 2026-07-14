@@ -1,13 +1,19 @@
 /**
  * `<VizBar>` — a responsive SVG bar chart (count by category), click-to-select.
- * Controlled: bar heights come from `data`, the outline from `selected`. A click
- * emits the R3 POINT shape `{ rawValue: category, encoding: { kind:'point' } }` —
- * the chart never builds a clause. The category axis label is an interactive
- * affordance that opens the {@link EncodingPicker} for the categorical channel.
+ * Controlled: bar heights come from `data` (host-aggregated counts — the
+ * transform-ownership rule: this chart never bins or counts), the outline
+ * from `selected`, OR — RP-1 — from the clause-addressable `selection`'s own
+ * point clause when `selected` is omitted. A click emits the R3 POINT shape
+ * `{ rawValue: category, encoding: { kind:'point' } }` — the chart never
+ * builds a clause. The category axis label is an interactive affordance:
+ * `onReencodeRequest` asks the HOST (contract mode); otherwise it opens the
+ * built-in {@link EncodingPicker} for the categorical channel.
  */
 import { useState } from 'react';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import type { ColumnView, ViewEncoding } from '../adapter/types.js';
+import type { RenderSelection } from '../contract/types.js';
+import { selfSelectedValue } from '../contract/selection.js';
 import { AxisLabel } from './AxisLabel.js';
 import { EncodingPicker } from './EncodingPicker.js';
 
@@ -22,11 +28,16 @@ export interface VizBarProps {
   readonly field?: string;
   readonly label?: string;
   readonly colorOf?: (category: string) => string;
+  /** The selected category (controlled). Omit it and the outline derives from `selection`'s own point clause. */
   readonly selected?: string | null;
+  /** The clause-addressable crossfilter selection (RP-1) — feeds the `selected` derivation. */
+  readonly selection?: RenderSelection;
   readonly columns?: readonly ColumnView[];
   readonly encoding?: ViewEncoding;
   readonly onEmit?: (emission: ChartEmission) => void;
   readonly onReencode?: (viewId: string, channel: string, field: string) => void;
+  /** Contract mode (`reencodeRequest`): an axis click asks the HOST instead of opening the built-in picker. */
+  readonly onReencodeRequest?: (channel: string) => void;
   readonly width?: number;
   readonly height?: number;
   readonly className?: string;
@@ -41,15 +52,23 @@ export function VizBar(props: VizBarProps): JSX.Element {
     field = 'category',
     label = field,
     colorOf,
-    selected,
+    selection,
     columns = [],
     encoding = {},
     onEmit,
     onReencode,
+    onReencodeRequest,
     width = 360,
     height = 340,
   } = props;
   const [pickerChannel, setPickerChannel] = useState<string | null>(null);
+
+  // explicit `selected` wins; otherwise the outline derives from the fold's own point clause
+  const selected = props.selected !== undefined ? props.selected : selection ? selfSelectedValue(selection) : null;
+  const openPicker = (channel: string): void => {
+    if (onReencodeRequest) onReencodeRequest(channel); // contract mode — the host owns the picker
+    else setPickerChannel(channel);
+  };
 
   const max = Math.max(1, ...data.map((d) => d.count));
   const plot = height - PAD.t - PAD.b;
@@ -108,7 +127,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
             </g>
           );
         })}
-        <AxisLabel x={width / 2} y={height - 8} text={label} channel="category" onOpen={setPickerChannel} />
+        <AxisLabel x={width / 2} y={height - 8} text={label} channel="category" onOpen={openPicker} />
       </svg>
       <EncodingPicker
         open={pickerChannel !== null}

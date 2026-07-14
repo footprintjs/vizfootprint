@@ -10,6 +10,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
 import { VizTable, type TableRow } from './VizTable.js';
+import { selectionForView } from '../contract/selection.js';
 
 afterEach(cleanup);
 
@@ -190,19 +191,42 @@ describe('VizTable — sorting (asc -> desc -> none, aria-sort)', () => {
   });
 });
 
-describe('VizTable — highlight (dim, never hide)', () => {
-  it('dims rows failing the highlight predicate and reports how many match, without removing any row', () => {
-    const highlight = (row: TableRow) => row['category'] === 'Casual';
-    const { container } = render(<VizTable data={ROWS} columns={COLUMNS} highlight={highlight} />);
+describe('VizTable — clause-addressable selection (dim, never hide; RP-1)', () => {
+  it('dims rows failing the NON-SELF clauses and reports how many match, without removing any row', () => {
+    const selection = selectionForView(
+      [
+        { viewId: 'bar', field: 'category', kind: 'point', value: 'Casual' },
+        // the table's OWN clause must never dim the table (self-exclusion)
+        { viewId: 'table', field: 'id', kind: 'point', value: 'd02' },
+      ],
+      'table',
+    );
+    const { container } = render(<VizTable data={ROWS} columns={COLUMNS} selection={selection} />);
     expect(screen.getByRole('status').textContent).toBe('1 of 3 rows match the current selection');
     const rows = container.querySelectorAll('tbody tr');
     expect(rows).toHaveLength(3); // every row still present
     expect(rows[0]!.className).not.toContain('vzf-dim'); // Casual — kept
-    expect(rows[1]!.className).toContain('vzf-dim'); // Formal — dimmed
+    expect(rows[1]!.className).toContain('vzf-dim'); // Formal — dimmed (bar's clause, NOT its own d02 selection)
     expect(rows[2]!.className).toContain('vzf-dim'); // Party — dimmed
   });
 
-  it('omitting highlight shows no status line and dims nothing', () => {
+  it("the row outline derives from the fold's own point clause when `selected` is omitted", () => {
+    const selection = selectionForView([{ viewId: 'table', field: 'id', kind: 'point', value: 'd02' }], 'table');
+    const { container } = render(<VizTable data={ROWS} columns={COLUMNS} selection={selection} />);
+    const rows = container.querySelectorAll('tbody tr');
+    expect(rows[1]!.className).toContain('vzf-selected');
+    expect(rows[0]!.className).not.toContain('vzf-selected');
+  });
+
+  it('an explicit `selected` prop wins over the selection derivation', () => {
+    const selection = selectionForView([{ viewId: 'table', field: 'id', kind: 'point', value: 'd02' }], 'table');
+    const { container } = render(<VizTable data={ROWS} columns={COLUMNS} selection={selection} selected="d01" />);
+    const rows = container.querySelectorAll('tbody tr');
+    expect(rows[0]!.className).toContain('vzf-selected');
+    expect(rows[1]!.className).not.toContain('vzf-selected');
+  });
+
+  it('omitting the selection shows no status line and dims nothing', () => {
     const { container } = render(<VizTable data={ROWS} columns={COLUMNS} />);
     expect(screen.queryByRole('status')).toBeNull();
     container.querySelectorAll('tbody tr').forEach((r) => expect(r.className).not.toContain('vzf-dim'));

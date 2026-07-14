@@ -1,15 +1,23 @@
 /**
  * `<VizScatter>` — a responsive SVG scatter (x × y, coloured by category) with a
- * horizontal BRUSH. It is a CONTROLLED component: dimming comes from `highlight`
- * (the parent computes crossfilter self-exclusion), the regression overlay from
- * `regression`. On brush it emits the R3 shape `{ rawValue, encoding }` in DATA
- * space (never pixels) — the chart NEVER builds a clause. Each axis label is an
- * interactive affordance that opens the {@link EncodingPicker}.
+ * horizontal BRUSH. It is a CONTROLLED component and a REFERENCE IMPLEMENTATION
+ * of the renderer contract (RP-1): dimming comes from the clause-addressable
+ * `selection` — the chart folds every OTHER view's clause over each datum's
+ * source `row` (dim under everyone's brush but my own; the self clause is
+ * excluded by `keepPredicate`), never from a host-computed flat keep-predicate.
+ * The regression overlay comes from `regression`. On brush it emits the R3
+ * shape `{ rawValue, encoding }` in DATA space (never pixels) — the chart
+ * NEVER builds a clause. Each axis label is an interactive affordance: with
+ * `onReencodeRequest` it ASKS THE HOST (the contract's `reencodeRequest`
+ * verb — the host owns the picker); otherwise it opens the built-in
+ * {@link EncodingPicker} (the React convenience layer).
  */
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import type { ColumnView, ViewEncoding } from '../adapter/types.js';
+import type { RenderRow, RenderSelection } from '../contract/types.js';
+import { keepPredicate } from '../contract/selection.js';
 import { linearScale, extent, ticks } from './scales.js';
 import { AxisLabel } from './AxisLabel.js';
 import { EncodingPicker } from './EncodingPicker.js';
@@ -19,6 +27,13 @@ export interface ScatterDatum {
   readonly x: number;
   readonly y: number;
   readonly category?: string;
+  /**
+   * The SOURCE row this datum was derived from — the clause predicates in
+   * `selection` evaluate against it (they name DATA fields; the datum's
+   * x/y are already renamed). A datum without a row is never dimmed
+   * (honest: no evidence, no dimming).
+   */
+  readonly row?: RenderRow;
 }
 
 export interface RegressionGeom {
@@ -36,8 +51,13 @@ export interface VizScatterProps {
   readonly xLabel?: string;
   readonly yLabel?: string;
   readonly colorOf?: (category: string | undefined) => string;
-  /** Keep predicate — points failing it are dimmed. */
-  readonly highlight?: (d: ScatterDatum) => boolean;
+  /**
+   * The clause-addressable crossfilter selection (RP-1) — REPLACES the old
+   * flat `highlight` keep-predicate. Points whose source `row` fails the
+   * non-self clauses are dimmed; the chart's OWN clause never dims it.
+   * Build it with `selectionForView(state.selections, viewId)`.
+   */
+  readonly selection?: RenderSelection;
   readonly regression?: RegressionGeom | null;
   /** Columns offered by the encoding picker (from adapter state). */
   readonly columns?: readonly ColumnView[];
@@ -45,6 +65,12 @@ export interface VizScatterProps {
   readonly encoding?: ViewEncoding;
   readonly onEmit?: (emission: ChartEmission) => void;
   readonly onReencode?: (viewId: string, channel: string, field: string) => void;
+  /**
+   * Contract mode (the `reencodeRequest` verb): when set, an axis-label click
+   * asks the HOST to re-encode this channel instead of opening the built-in
+   * picker — the host owns the picker and the verb.
+   */
+  readonly onReencodeRequest?: (channel: string) => void;
   readonly width?: number;
   readonly height?: number;
   readonly className?: string;
@@ -61,15 +87,19 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
     xLabel = xField,
     yLabel = yField,
     colorOf,
-    highlight,
+    selection,
     regression,
     columns = [],
     encoding = {},
     onEmit,
     onReencode,
+    onReencodeRequest,
     width = 520,
     height = 340,
   } = props;
+
+  // the self-excluded crossfilter fold — recomputed only when the selection changes
+  const keep = useMemo(() => (selection ? keepPredicate(selection) : null), [selection]);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<{ x0: number } | null>(null);
@@ -126,7 +156,10 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
     onEmit?.(emission);
   };
 
-  const openPicker = (channel: string): void => setPickerChannel(channel);
+  const openPicker = (channel: string): void => {
+    if (onReencodeRequest) onReencodeRequest(channel); // contract mode — the host owns the picker
+    else setPickerChannel(channel);
+  };
 
   const xTicks = ticks(xlo + 5, xhi - 5, 4);
   const yTickVals = ticks(Math.ceil(ylo + 0.5), Math.floor(yhi - 0.5), 4);
@@ -177,7 +210,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         )}
         {/* points */}
         {data.map((d) => {
-          const kept = highlight ? highlight(d) : true;
+          const kept = keep && d.row ? keep(d.row) : true;
           return (
             <circle
               key={d.id}

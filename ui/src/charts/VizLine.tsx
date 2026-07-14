@@ -70,6 +70,8 @@ export interface VizLineProps {
   readonly dateFields?: readonly string[];
   readonly onEmit?: (emission: ChartEmission) => void;
   readonly onReencode?: (viewId: string, channel: string, field: string) => void;
+  /** Contract mode (RP-1 `reencodeRequest`): an axis click asks the HOST instead of opening the built-in picker. */
+  readonly onReencodeRequest?: (channel: string) => void;
   readonly width?: number;
   readonly height?: number;
   readonly className?: string;
@@ -156,6 +158,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
     dateFields,
     onEmit,
     onReencode,
+    onReencodeRequest,
     width = 520,
     height = 340,
   } = props;
@@ -238,7 +241,10 @@ export function VizLine(props: VizLineProps): JSX.Element {
     });
   };
 
-  const openPicker = (channel: string): void => setPickerChannel(channel);
+  const openPicker = (channel: string): void => {
+    if (onReencodeRequest) onReencodeRequest(channel); // contract mode — the host owns the picker
+    else setPickerChannel(channel);
+  };
 
   // ≤3 tick dates: first (start-anchored), last (end-anchored), and the middle
   // date ONLY when its label physically fits between the edge labels — data

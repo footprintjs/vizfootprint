@@ -20,6 +20,7 @@ import { EncodingPicker } from './EncodingPicker.js';
 import { VizScatter } from './VizScatter.js';
 import { VizBar } from './VizBar.js';
 import { defaultCompat } from './compat.js';
+import { selectionForView } from '../contract/selection.js';
 import type { ColumnView } from '../adapter/types.js';
 
 afterEach(cleanup);
@@ -79,17 +80,33 @@ describe('EncodingPicker', () => {
 });
 
 describe('VizScatter', () => {
-  const data = [
-    { id: '1', x: 20, y: 3, category: 'Casual' },
-    { id: '2', x: 80, y: 5, category: 'Formal' },
-    { id: '3', x: 120, y: 2, category: 'Party' },
+  const rows = [
+    { id: '1', price: 20, rating: 3, category: 'Casual' },
+    { id: '2', price: 80, rating: 5, category: 'Formal' },
+    { id: '3', price: 120, rating: 2, category: 'Party' },
   ];
+  const data = rows.map((r) => ({ id: r.id, x: r.price, y: r.rating, category: r.category, row: r }));
 
-  it('renders a dot per datum and dims those failing the highlight predicate', () => {
-    const { container } = render(<VizScatter data={data} xField="price" yField="rating" highlight={(d) => d.x > 50} />);
+  it('renders a dot per datum and dims those failing the NON-SELF clauses of the selection (RP-1)', () => {
+    const selection = selectionForView(
+      [
+        { viewId: 'bar', field: 'price', kind: 'interval', value: [50, 200] },
+        // the scatter's OWN brush must never dim the scatter (self-exclusion)
+        { viewId: 'scatter', field: 'rating', kind: 'interval', value: [5, 5] },
+      ],
+      'scatter',
+    );
+    const { container } = render(<VizScatter data={data} xField="price" yField="rating" selection={selection} />);
     const dots = container.querySelectorAll('circle.vzf-dot');
     expect(dots).toHaveLength(3);
-    expect(container.querySelectorAll('circle.vzf-dim')).toHaveLength(1); // only id=1 (x=20)
+    expect(container.querySelectorAll('circle.vzf-dim')).toHaveLength(1); // only id=1 (price 20) — its own rating clause is excluded
+  });
+
+  it('a datum without a source row is never dimmed (no evidence, no dimming)', () => {
+    const selection = selectionForView([{ viewId: 'bar', field: 'price', kind: 'interval', value: [50, 200] }], 'scatter');
+    const bare = data.map(({ id, x, y, category }) => ({ id, x, y, category })); // rows stripped
+    const { container } = render(<VizScatter data={bare} xField="price" yField="rating" selection={selection} />);
+    expect(container.querySelectorAll('circle.vzf-dim')).toHaveLength(0);
   });
 
   it('clicking an axis label opens the encoding picker for that channel', () => {
@@ -133,6 +150,14 @@ describe('VizScatter', () => {
     fireEvent.pointerUp(axisText, { clientX: 260, pointerId: 1 });
     expect(onEmit).not.toHaveBeenCalled(); // no null-interval "clear" emission
   });
+
+  it('contract mode: an axis click ASKS THE HOST via onReencodeRequest — the built-in picker never opens', () => {
+    const onReencodeRequest = vi.fn();
+    render(<VizScatter data={data} xField="price" yField="rating" columns={COLS} onReencodeRequest={onReencodeRequest} />);
+    fireEvent.click(screen.getByRole('button', { name: /Encode the y axis/ }));
+    expect(onReencodeRequest).toHaveBeenCalledWith('y');
+    expect(screen.queryByRole('dialog')).toBeNull(); // the host owns the picker
+  });
 });
 
 describe('VizBar', () => {
@@ -158,5 +183,26 @@ describe('VizBar', () => {
     // in the categorical channel, the string column option is NOT disabled
     const catOpt = within(dialog).getByRole('button', { name: /category/ }) as HTMLButtonElement;
     expect(catOpt.disabled).toBe(false);
+  });
+
+  it("the outline derives from the selection fold's own point clause when `selected` is omitted (RP-1)", () => {
+    const selection = selectionForView([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' }], 'bar');
+    const { container } = render(<VizBar data={data} field="category" selection={selection} />);
+    const outlined = container.querySelector('rect.vzf-selected')!;
+    expect(outlined.getAttribute('aria-label')).toContain('Formal');
+  });
+
+  it('an explicit `selected` prop wins over the selection derivation', () => {
+    const selection = selectionForView([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' }], 'bar');
+    const { container } = render(<VizBar data={data} field="category" selection={selection} selected="Party" />);
+    expect(container.querySelector('rect.vzf-selected')!.getAttribute('aria-label')).toContain('Party');
+  });
+
+  it('contract mode: the category axis click asks the host via onReencodeRequest — no built-in picker', () => {
+    const onReencodeRequest = vi.fn();
+    render(<VizBar data={data} field="category" columns={COLS} onReencodeRequest={onReencodeRequest} />);
+    fireEvent.click(screen.getByRole('button', { name: /Encode the category axis/ }));
+    expect(onReencodeRequest).toHaveBeenCalledWith('category');
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
