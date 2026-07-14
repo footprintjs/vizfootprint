@@ -5,6 +5,10 @@
  *   • tokens/   — the design-token + theme engine (scoped CSS variables).
  *   • adapter/  — `createSessionView`, the framework-light store every
  *                 component reads (over a live session OR a polled endpoint).
+ *   • contract/ — the versioned, framework-agnostic RENDERER CONTRACT:
+ *                 mount handshake + capabilities, RenderState with the
+ *                 clause-addressable selection, the four outbound verbs,
+ *                 `bindRenderer` guards, reference renderers, conformance kit.
  *   • layout/   — `<VizCockpit>` shell + `<VizModal>` + `<VizPanel>`/`<VizCard>`.
  *   • charts/   — `<VizScatter>`, `<VizBar>`, `<VizLine>`, `<VizMap>`,
  *                 `<EncodingPicker>` (axis affordance).
@@ -18,6 +22,7 @@
 
 export * from './tokens/index.js';
 export * from './adapter/index.js';
+export * from './contract/index.js';
 export * from './layout/index.js';
 export * from './charts/index.js';
 export * from './time/index.js';
