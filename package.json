@@ -6,7 +6,8 @@
   "type": "module",
   "license": "MIT",
   "workspaces": [
-    "ui"
+    "ui",
+    "bridges/vega-lite"
   ],
   "scripts": {
     "test": "vitest run",
@@ -21,6 +22,8 @@
     "build:ui": "npm run build -w vizfootprint-ui",
     "test:ui": "npm run test -w vizfootprint-ui",
     "typecheck:ui": "npm run typecheck -w vizfootprint-ui",
+    "typecheck:vega-lite": "npm run typecheck -w vizfootprint-vega-lite",
+    "test:vega-lite": "npm run test -w vizfootprint-vega-lite",
     "gallery:ui": "npm run gallery -w vizfootprint-ui"
   },
   "devDependencies": {

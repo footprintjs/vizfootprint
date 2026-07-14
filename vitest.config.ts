@@ -12,7 +12,7 @@ export default defineConfig({
     // unreachable defensive arms carry documented `/* v8 ignore */` comments
     // at the site.
     coverage: {
-      include: ['src/**', 'ui/src/**', 'demo/src/**', 'demo-agent/src/**'],
+      include: ['src/**', 'ui/src/**', 'demo/src/**', 'demo-agent/src/**', 'bridges/vega-lite/src/**'],
       exclude: ['**/*.test.*', '**/*.coverage.helpers.*'],
       thresholds: {
         statements: 100,

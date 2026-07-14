@@ -53,6 +53,8 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.5.0",
-    "vitest": "^4.0.0"
+    "vega-lite": "6.4.3",
+    "vitest": "^4.0.0",
+    "vizfootprint-vega-lite": "0.0.0"
   }
 }
