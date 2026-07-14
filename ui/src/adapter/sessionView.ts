@@ -56,6 +56,7 @@ import {
 } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
+import type { NavigateViewState } from '../contract/types.js';
 
 // ── the structural session contract (duck-typed; no value import from src) ─────
 
@@ -455,6 +456,13 @@ export interface SessionView {
   emit(viewId: string, emission: ChartEmission, intent?: string): Promise<void>;
   /** UI-0: rebind a view's visual channel to a field. */
   reencode(viewId: string, channel: string, field: string): Promise<void>;
+  /**
+   * RP-1: record a pan/zoom view state through the `navigate` dispatch verb.
+   * Deliberately NON-filtering — a viewport is not a data claim; the view
+   * state rides the cause's intent as INERT data. A navigate against an
+   * undeclared view files a typed `needs-view` gap at the session tier.
+   */
+  navigate(viewId: string, viewState?: NavigateViewState): Promise<void>;
   analyze(analysisId: string, intent?: string): Promise<void>;
   seek(commitId: string): Promise<void>;
   stepBack(): Promise<void>;
@@ -568,6 +576,19 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
         { verb: 'reencode', viewId, channel, field, cause: cause(intent) },
         { verb: 'reencode', viewId, channel, field, intent },
       );
+    },
+
+    async navigate(viewId, viewState) {
+      // RP-1: the view state is serialized into the intent — INERT, human-readable,
+      // never parsed back. The verb itself is the record; navigate never filters.
+      const described = viewState
+        ? ' ' +
+          Object.entries(viewState)
+            .map(([channel, [lo, hi]]) => `${channel}:[${String(lo)}, ${String(hi)}]`)
+            .join(' ')
+        : '';
+      const intent = `navigate ${viewId}${described}`;
+      await dispatch({ verb: 'navigate', viewId, cause: cause(intent) }, { verb: 'navigate', viewId, intent });
     },
 
     async analyze(analysisId, intent) {

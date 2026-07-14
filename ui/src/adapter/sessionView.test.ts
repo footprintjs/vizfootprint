@@ -128,6 +128,17 @@ describe('createSessionView — poll source with injected fetch', () => {
     view.dispose();
   });
 
+  it('navigate rides the DISPATCH endpoint with the view state serialized into the intent (RP-1)', async () => {
+    const { impl, calls } = fakeFetch();
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    await view.navigate('scatter', { x: [0, 100], y: ['2026-05-01', '2026-06-30'] });
+    const nav = calls.find((c) => c.url === '/api/dispatch' && (c.body as { verb?: string })?.verb === 'navigate');
+    expect(nav?.body).toMatchObject({ verb: 'navigate', viewId: 'scatter' });
+    expect((nav?.body as { intent?: string }).intent).toBe('navigate scatter x:[0, 100] y:[2026-05-01, 2026-06-30]');
+    view.dispose();
+  });
+
   it('checkpoint posts to its OWN endpoint (endpoints.checkpoint), never endpoints.dispatch (UI-2 regression — found dogfooding)', async () => {
     const { impl, calls } = fakeFetch();
     const view = createSessionView(pollingSource({ fetchImpl: impl }));
@@ -238,6 +249,21 @@ describe('createSessionView — in-process session source', () => {
       field: 'rating',
       cause: { requestedBy: 'user' },
     });
+    view.dispose();
+  });
+
+  it('navigate dispatches the navigate verb with a two-slot cause — with and without a view state (RP-1)', async () => {
+    const session = fakeSession();
+    const view = createSessionView(sessionSource(session), { as: 'user' });
+    await view.refresh();
+    await view.navigate('scatter', { x: [0, 100] });
+    await view.navigate('map');
+    expect(session.dispatched[0]).toMatchObject({
+      verb: 'navigate',
+      viewId: 'scatter',
+      cause: { requestedBy: 'user', intent: 'navigate scatter x:[0, 100]' },
+    });
+    expect(session.dispatched[1]).toMatchObject({ verb: 'navigate', viewId: 'map', cause: { intent: 'navigate map' } });
     view.dispose();
   });
 
