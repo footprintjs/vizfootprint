@@ -154,7 +154,7 @@ describe('boot — rich fixture (STATE_A): renders every "has value" branch', ()
     expect(formal).toBeTruthy();
     expect(screen.getByRole('button', { name: 'select Summer (0)' })).toBeTruthy(); // 300 is outside [40,250]
     const casualBtn = screen.getByRole('button', { name: /select Casual/ });
-    expect(casualBtn.getAttribute('aria-pressed')).toBe('true'); // barSelected 'Casual' ternary TRUE arm
+    expect(casualBtn.getAttribute('aria-pressed')).toBe('true'); // the bar's own point clause ('Casual') derives the outline
   });
 
   it('the time-travel bar reads the same commit/branch/checkpoint state; the branch-map and commit-log chips carry it into their report modals', async () => {
@@ -340,17 +340,17 @@ describe('scatterData numeric fallback: a non-numeric xField/yField renders 0 wi
 });
 
 describe('edge selection: a bar-viewId selection that is NOT kind:point', () => {
-  it('barSelected stays undefined (the && short-circuits on kind, not viewId); the table\'s real selection and the map\'s cleared one both render', async () => {
+  it('the derived bar outline stays empty (selfSelectedValue ignores intervals); the table\'s real selection and the map\'s cleared one both render', async () => {
     await boot(STATE_EDGE_SELECTION);
     expect(document.querySelectorAll('.vzf-barrect.vzf-selected')).toHaveLength(0);
-    // tableSelected: present WITH a value ("r3") -> the String(...) arm
+    // the table's own point clause carries a value ("r3") → the derived row outline
     expect(document.querySelector('[aria-label="row r3 selected"]')).toBeTruthy();
-    // mapSelected: present but NULLISH -> the null arm (no region wears .vzf-selected)
+    // the map's own point clause is CLEARED → no derived outline (no region wears .vzf-selected)
     expect(document.querySelectorAll('svg.vzf-map .vzf-selected')).toHaveLength(0);
   });
 });
 
-describe('mapSelected: present WITH a value renders the selected region', () => {
+describe('the map selection fold: present WITH a value renders the selected region', () => {
   it('the Northlands region wears the selection outline', async () => {
     await boot(STATE_MAP_SELECTED);
     const region = document.querySelector('svg.vzf-map [data-region="Northlands"]')!;

@@ -27,7 +27,6 @@ import {
   VizLine,
   VizMap,
   VizTable,
-  type TableRow,
   TimeTravelBar,
   BranchMap,
   CommitLog,
@@ -41,6 +40,8 @@ import {
   createSessionView,
   pollingSource,
   useSessionView,
+  selectionForView,
+  keepPredicate,
   type SessionView,
   type SessionViewState,
   type TimeMode,
@@ -48,8 +49,6 @@ import {
 import { CATEGORIES, categoryColor, el, replaceChildren } from '../../demo/src/common.js';
 import { loadRows, type DemoRow } from './rows.js';
 import { DEMO_GEO, REGIONS } from './geo.js';
-import { matchesClause } from '../../src/data/predicate.js';
-import type { IntervalClause, PredicateClause, Row } from '../../src/data/types.js';
 
 // ── the chat/activity slice of /api/state — NOT part of vizfootprint-ui's
 // adapter contract (agent tool-call activity is this demo's own chrome, not a
@@ -135,18 +134,11 @@ const SUGGESTIONS = [
   'Select the Midlands region on the map and tell me what changed.',
 ];
 
-// ── crossfilter self-exclusion (real src/data predicate matcher — never a
-// duplicate reimplementation) ─────────────────────────────────────────────────
-function clauseOf(sel: { field: string; kind: 'point' | 'interval'; value: unknown }): PredicateClause | null {
-  if (sel.kind === 'interval') {
-    // FILTER-1: a half-open or ISO-date range rides this same poll-wire value
-    // — the cast widens to the real IntervalClause shape (never [number,
-    // number]-only), matchesClause below handles every arm honestly.
-    const v = sel.value as IntervalClause['value'];
-    return v === null ? null : { kind: 'interval', field: sel.field, value: v };
-  }
-  return { kind: 'point', field: sel.field, value: sel.value };
-}
+// Crossfilter self-exclusion now rides vizfootprint-ui's OWN contract layer
+// (RP-1): `selectionForView` derives the clause-addressable selection from the
+// adapter state's per-view fold and `keepPredicate` folds it — one evaluator,
+// parity-pinned against src/data's matchesClause, never a page matcher. The
+// old local `clauseOf` bridge is gone with the flat keep-predicate it fed.
 
 /**
  * The 🐛 debugger's report content — an iframe onto the isolated `/debug?embed`
@@ -204,11 +196,8 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
   const yField = enc['y'] ?? 'rating';
   const columns = state.columns[state.defaultTable] ?? [];
 
-  const clauses = state.selections.map((s) => ({ viewId: s.viewId, clause: clauseOf(s) })).filter((c) => c.clause !== null) as {
-    viewId: string;
-    clause: PredicateClause;
-  }[];
-  const notOwn = (self: string): PredicateClause[] => clauses.filter((c) => c.viewId !== self).map((c) => c.clause);
+  // one clause-addressable selection per view (self named for exclusion) — RP-1
+  const selFor = (self: string | null) => selectionForView(state.selections, self);
 
   const scatterData = useMemo(
     () =>
@@ -217,62 +206,45 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
         x: typeof r[xField] === 'number' ? (r[xField] as number) : 0,
         y: typeof r[yField] === 'number' ? (r[yField] as number) : 0,
         category: r.category,
+        row: r, // the source row — VizScatter evaluates the selection clauses against it
       })),
     [rows, xField, yField],
   );
-  const scatterClauses = notOwn('scatter');
-  const scatterKeep = (d: { id: string }): boolean => {
-    const row = rows.find((r) => r.id === d.id);
-    /* v8 ignore next -- `row` is always defined in practice: VizScatter only ever calls
-       `highlight` with a `d` drawn from ITS OWN `data` prop, which is `scatterData`, computed
-       in this SAME render from this SAME `rows` array (`scatterData = rows.map(r => ({id: r.id, ...}))`)
-       — so `d.id` is always some `r.id` from `rows`. The `: true` fallback guards a mismatch that
-       cannot arise from any real prop composition of this component. */
-    return row ? scatterClauses.every((cl) => matchesClause(row, cl)) : true;
-  };
 
-  const barClauses = notOwn('bar');
+  // aggregated charts recompute their HOST-owned data under the other views'
+  // clauses (the transform-ownership rule: the host aggregates, never the chart)
+  const keepBar = keepPredicate(selFor('bar'));
   const barData = CATEGORIES.map((category) => ({
     category,
-    count: rows.filter((r) => r.category === category && barClauses.every((cl) => matchesClause(r, cl))).length,
+    count: rows.filter((r) => r.category === category && keepBar(r)).length,
   }));
-  const barSelected = state.selections.find((s) => s.viewId === 'bar' && s.kind === 'point');
 
   // the line's fields ride ITS OWN encoding fold; its data recomputes under
   // the OTHER views' selections (crossfilter self-exclusion, the bar pattern)
   const encLine = state.encodings['line'] ?? {};
   const lineX = encLine['x'] ?? 'date';
   const lineY = encLine['y'] ?? 'price';
-  const lineClauses = notOwn('line');
   const lineData = useMemo(
     () =>
       rows
-        .filter((r) => lineClauses.every((cl) => matchesClause(r, cl)))
+        .filter((r) => keepPredicate(selectionForView(state.selections, 'line'))(r))
         .map((r) => ({
           date: String(r[lineX]),
           value: typeof r[lineY] === 'number' ? (r[lineY] as number) : 0,
           series: r.category,
         })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- lineClauses is derived fresh from state.selections each render
     [rows, lineX, lineY, state.selections],
   );
 
   // the map's value per region = the crossfiltered row COUNT (the canonical wiring)
-  const mapClauses = notOwn('map');
+  const keepMap = keepPredicate(selFor('map'));
   const mapData = REGIONS.map((region) => ({
     region: region as string,
-    value: rows.filter((r) => r.region === region && mapClauses.every((cl) => matchesClause(r, cl))).length,
+    value: rows.filter((r) => r.region === region && keepMap(r)).length,
   }));
-  const mapSelected = state.selections.find((s) => s.viewId === 'map' && s.kind === 'point');
 
-  // the table shows every row (DIM, never hide — VizTable's own design call);
-  // `keep` applies every OTHER view's selection, exactly the scatter's `highlight` pattern
-  const tableClauses = notOwn('table');
-  const tableKeep = (row: TableRow): boolean => tableClauses.every((cl) => matchesClause(row as Row, cl));
-  const tableSelected = state.selections.find((s) => s.viewId === 'table' && s.kind === 'point');
-
-  const allClauses = clauses.map((c) => c.clause);
-  const selectedCount = rows.filter((r) => allClauses.every((cl) => matchesClause(r, cl))).length;
+  const keepAll = keepPredicate(selFor(null)); // the whole-dashboard truth — nothing excluded
+  const selectedCount = rows.filter((r) => keepAll(r)).length;
 
   const provider = state.mode === 'mock' ? 'scripted mock' : 'live Claude';
   const pastSuffix = state.viewingPast ? '  ·  ⏱ viewing the past (cursor behind head)' : '';
@@ -355,7 +327,7 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
                  `undefined`. The `?? ''` fallback guards VizScatter's wider (optional) prop type,
                  not a state this component's own data pipeline can produce. */
               colorOf={(c) => categoryColor(c ?? '')}
-              highlight={scatterKeep}
+              selection={selFor('scatter')}
               columns={columns}
               encoding={enc}
               onEmit={(e) => void view.emit('scatter', e, `brush ${xField}`)}
@@ -399,7 +371,7 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
               width={width}
               height={height}
               colorOf={categoryColor}
-              selected={barSelected ? String(barSelected.value) : null}
+              selection={selFor('bar')}
               columns={columns}
               onEmit={(e) => void view.emit('bar', e, 'select category')}
               onReencode={(v, c, f) => void view.reencode(v, c, f)}
@@ -419,7 +391,7 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
               valueLabel="rows"
               width={width}
               height={height}
-              selected={mapSelected && mapSelected.value != null ? String(mapSelected.value) : null}
+              selection={selFor('map')}
               onEmit={(e) => void view.emit('map', e, 'select region')}
             />
           ),
@@ -433,8 +405,7 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
               viewId="table"
               data={rows}
               columns={['id', 'category', 'price', 'rating', 'date', 'region']}
-              selected={tableSelected && tableSelected.value != null ? String(tableSelected.value) : null}
-              highlight={tableKeep}
+              selection={selFor('table')}
               width={width}
               height={height}
               onEmit={(e) => void view.emit('table', e, 'select row')}

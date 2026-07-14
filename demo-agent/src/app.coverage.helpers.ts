@@ -56,10 +56,10 @@ export const STATE_A = {
     { viewId: 'scatter', field: 'price', kind: 'interval', value: [40, 250] },
     { viewId: 'ghost', field: 'x', kind: 'interval', value: null },
     { viewId: 'bar', field: 'category', kind: 'point', value: 'Casual' },
-    // a CLEARED table selection (the three-way point split's `undefined` arm —
-    // src/data/types.ts) — contributes no filtering (matchesClause('point',
-    // undefined) is always true), so it exercises `tableSelected`'s "present
-    // but nullish" branch WITHOUT perturbing any of the row-count assertions
+    // a CLEARED table selection — at the adapter tier a nullish point value
+    // means "cleared" (see ui/src/contract/selection.ts), so it contributes
+    // no filtering AND no derived row outline: it exercises the contract's
+    // cleared-point arm WITHOUT perturbing any of the row-count assertions
     // above, which were tuned against exactly the scatter+bar clauses.
     { viewId: 'table', field: 'id', kind: 'point', value: undefined },
   ],
@@ -151,11 +151,11 @@ export const STATE_NONNUMERIC_XY = {
 };
 
 /**
- * One selection whose viewId IS 'bar' but whose kind is NOT 'point' (barSelected
- * `&&` 2nd-operand-false) — plus a CLEARED map selection and a REAL table
- * selection, the opposite combo from STATE_A/STATE_MAP_SELECTED, so every
- * "present but nullish" vs "present with a value" arm of both the
- * `mapSelected`/`tableSelected` ternaries gets exercised somewhere.
+ * One selection whose viewId IS 'bar' but whose kind is NOT 'point' (the
+ * derived bar outline stays empty — `selfSelectedValue` ignores intervals) —
+ * plus a CLEARED map selection and a REAL table selection, the opposite combo
+ * from STATE_A/STATE_MAP_SELECTED, so the contract derivation's "present but
+ * cleared" vs "present with a value" arms both get exercised somewhere.
  */
 export const STATE_EDGE_SELECTION = {
   ...STATE_B,
@@ -170,7 +170,7 @@ export const STATE_EDGE_SELECTION = {
   viewingPast: false,
 };
 
-/** A real map region selection (Northlands) over an otherwise-empty baseline — mapSelected's "present with a value" arm. */
+/** A real map region selection (Northlands) over an otherwise-empty baseline — the derived map outline's "present with a value" arm. */
 export const STATE_MAP_SELECTED = {
   ...STATE_B,
   activeSelections: [{ viewId: 'map', field: 'region', kind: 'point', value: 'Northlands' }],
