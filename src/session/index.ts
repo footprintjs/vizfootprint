@@ -38,6 +38,12 @@ export type {
   CompareSide,
   CompareResult,
   BringOverResult,
+  // RP-3 agent-authored charts
+  ProposeChartInput,
+  ProposeChartResult,
+  ChartHypothesis,
+  ChartView,
+  ChartInfo,
 } from './types.js';
 
 // L6 `why(target)` result types (promoted P3-L6; owned by `../why`).

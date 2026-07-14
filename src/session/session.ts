@@ -26,7 +26,8 @@ import type { Actor, Cause } from '../cause/index.js';
 import { validateCause } from '../cause/index.js';
 import { CauseSelectionSession } from '../log/index.js';
 import type { CommitRecord } from '../log/index.js';
-import { TEST_ANALOG_FIELD, type FdrStep } from '../fdr/index.js';
+import { TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord } from '../fdr/index.js';
+import { gateChartSpec } from '../renderer/index.js';
 import { isRejection, matchesClause, type ColumnInfo, type PredicateClause, type Row } from '../data/index.js';
 import type { CauseClause } from '../mosaic/index.js';
 import { registerAnalysisSlot } from '../def/register.js';
@@ -45,6 +46,7 @@ import {
   ANALYSIS_VIEW_PREFIX,
   ANNOTATION_VIEW_PREFIX,
   BranchRefs,
+  CHART_VIEW_PREFIX,
   ENCODING_VIEW_PREFIX,
   foldDiff,
   foldStateAt,
@@ -58,6 +60,9 @@ import type {
   AnalysisCommit,
   BranchInfo,
   BringOverResult,
+  ChartHypothesis,
+  ChartInfo,
+  ChartView,
   Checkpoint,
   ColumnFacet,
   CompareResult,
@@ -71,6 +76,8 @@ import type {
   Overview,
   PathInfo,
   PathsState,
+  ProposeChartInput,
+  ProposeChartResult,
   RenamePathResult,
   SeekResult,
   SessionOptions,
@@ -103,6 +110,8 @@ interface WhyProvenance {
 /** Reserved log fields the session lands non-filter commits under (never real data columns). */
 const ANALYSIS_FIELD = '__analysis__';
 const ANNOTATION_FIELD = '__annotation__';
+/** RP-3: the field an agent-authored chart's spec-registration commit lands under. */
+const CHART_FIELD = '__chart__';
 
 /**
  * The `reencode` verb's commit-landing namespace (mirrors the `annotation:`/
@@ -122,13 +131,22 @@ const ANNOTATION_FIELD = '__annotation__';
 const encodingViewId = (viewId: string): string => `${ENCODING_VIEW_PREFIX}${viewId}`;
 
 /**
+ * The `chart:${id}` synthetic identity an agent-authored chart's commits land
+ * under (RP-3). Single-sourced from `src/branches/fold` like the other
+ * prefixes, so the branches fold and the session cannot drift on the wire.
+ * A chart commit is INERT in the fold (`keyOf` returns null for it) — a chart
+ * registration is not crossfilter state; it renders as its own view.
+ */
+const chartViewId = (id: string): string => `${CHART_VIEW_PREFIX}${id}`;
+
+/**
  * Fields a `select`/`filter` may NOT target — a clause on one of these would
  * collide with a session-authored commit. `pValue` (`TEST_ANALOG_FIELD`) is the
  * load-bearing one: an unguarded point select on a data column literally named
  * `pValue` carrying a value in [0,1] would be miscounted as a declared test by
  * `hypothesisRecordsFromLog` on log replay (R6). Reject it as a typed gap.
  */
-const RESERVED_PROBE_FIELDS = new Set<string>([TEST_ANALOG_FIELD, ANALYSIS_FIELD, ANNOTATION_FIELD]);
+const RESERVED_PROBE_FIELDS = new Set<string>([TEST_ANALOG_FIELD, ANALYSIS_FIELD, ANNOTATION_FIELD, CHART_FIELD]);
 
 /** The public session surface (family-symmetric with hcifootprint's Session). */
 export interface InteractionSession {
@@ -213,6 +231,24 @@ export interface InteractionSession {
   /** Run a declared analysis: stamp cause, land the AnalysisCommit, step L4, materialize columns (R11). */
   declareAnalysis(id: string, opts?: DeclareAnalysisOptions): Promise<AnalysisCommit>;
 
+  /**
+   * RP-3 — an agent PROPOSES a chart at runtime as a Vega-Lite spec, through a
+   * GOVERNED pipeline, never trust-and-render (renderer-protocol.md §5 / D28):
+   *   schema-valid → capability-check (no host-owned transforms, no unsupported
+   *   composition) → registered as a HYPOTHESIS in the LORD++ ledger BEFORE it
+   *   renders → registered as a session view under `chart:${id}` with
+   *   agent-authored provenance.
+   * Any stage failure lands a TYPED gap (chart-invalid-spec |
+   * chart-transforms-not-owned | chart-unsupported-composition |
+   * chart-hypothesis-rejected) and renders NOTHING — the agent reads the reason
+   * back and repairs. A rejected proposal never registers a hypothesis and so
+   * never advances the FDR wealth ("alpha spent only on real claims").
+   */
+  proposeChart(input: ProposeChartInput, opts?: { as?: Actor }): Promise<ProposeChartResult>;
+
+  /** The agent-authored charts registered this session (with their gated specs) — the host's render source. */
+  charts(): readonly ChartView[];
+
   /** Register (and validate) an analysis under `id` at runtime. */
   registerAnalysis(id: string, slot: AnalysisSlot): void;
   hasAnalysis(id: string): boolean;
@@ -272,6 +308,8 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly fdrStepper: FdrStepper;
   private readonly _ledger: FdrStep[] = [];
   private readonly _checkpoints: Checkpoint[] = [];
+  /** RP-3: agent-authored charts registered this session, in proposal order (chartId → view). */
+  private readonly _charts = new Map<string, ChartView>();
   private readonly initialWealth: number;
 
   /**
@@ -1198,6 +1236,120 @@ class InteractionSessionImpl implements InteractionSession {
     return hits.length === 1 ? hits[0] : undefined;
   }
 
+  // ── proposeChart (RP-3: ledger-gated agent-authored charts) ──────────────────
+  charts(): readonly ChartView[] {
+    return [...this._charts.values()];
+  }
+
+  async proposeChart(input: ProposeChartInput, opts: { as?: Actor } = {}): Promise<ProposeChartResult> {
+    const { id, spec, correlationId } = input;
+    const as = opts.as;
+    const file = (code: GapCode, detail: string, target?: string): ProposeChartResult => ({
+      ok: false,
+      gap: this.gapLedger.file(code, 'proposeChart', detail, target),
+    });
+
+    // 0. the id must be a usable, unique handle (a re-used id would collide the view/ledger row).
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      return file('chart-invalid-spec', 'chart id must be a non-empty string', typeof id === 'string' ? id : '');
+    }
+    if (this._charts.has(id)) {
+      return file('chart-hypothesis-rejected', `a chart with id "${id}" was already proposed — pick a fresh id`, id);
+    }
+
+    // 1 + 2. schema-valid → capability-check, via the pure runtime-free shape
+    //        gate (no Vega-Lite in the library; the bridge shares this gate).
+    const gate = gateChartSpec(spec);
+    if (!gate.ok) {
+      const code: GapCode =
+        gate.reason === 'invalid-spec'
+          ? 'chart-invalid-spec'
+          : gate.reason === 'unsupported-composition'
+            ? 'chart-unsupported-composition'
+            : 'chart-transforms-not-owned';
+      return file(code, gate.detail, id);
+    }
+
+    // 3. hypothesis grounding: the chart CLAIMS a relationship over the fields it
+    //    encodes — those must be REAL, branch-visible columns, else the claim is
+    //    over nothing. A rejected hypothesis the agent reads back and repairs.
+    const cols = await this.effectiveColumnsOf(this.defaultTable);
+    if ('rejected' in cols) return file('needs-backend-data', cols.rejected, id);
+    const fields = gate.facts.encodedFields;
+    if (fields.length === 0) {
+      return file('chart-hypothesis-rejected', 'the chart encodes no data field — it makes no claim to ledger', id);
+    }
+    const known = new Set(cols.map((c) => c.name));
+    const missing = fields.filter((f) => !known.has(f));
+    if (missing.length > 0) {
+      return file(
+        'chart-hypothesis-rejected',
+        `the chart claims a relationship over column(s) absent from "${this.defaultTable}": ${missing.join(', ')}`,
+        missing.join(', '),
+      );
+    }
+
+    // ── every gate passed: register the hypothesis in the LORD++ ledger BEFORE it renders ──
+    // A chart is AGENT-computed (not system): keep `computedBy` as authored,
+    // UNLIKE `analyze` (which R1-forces 'system'). validateCause is the R12 gate.
+    const validated = validateCause(input.cause ?? { requestedBy: as ?? this.defaultActor, computedBy: as ?? this.defaultActor });
+    const requestedBy: Actor = as ?? validated.requestedBy;
+    const computedBy: Actor = as ?? validated.computedBy;
+    const stamped: Cause = { requestedBy, computedBy, ...(validated.intent !== undefined ? { intent: validated.intent } : {}) };
+    const claim = typeof input.claim === 'string' && input.claim.length > 0 ? input.claim : `${fields.join(' vs ')} reveals a relationship`;
+
+    // (a) the ledgered hypothesis — an UNTESTED visual claim entered at p = 1.0:
+    //     it COSTS multiplicity budget (an agent cannot fish charts for free) but
+    //     can never be a discovery (reject is always false at p=1). Landed as a
+    //     `pValue` commit so `hypothesisRecordsFromLog` re-derives it on replay.
+    const hRecord: HypothesisRecord = { hypothesisId: correlationId ?? id, pValue: 1, timestamp: ++this.testClock };
+    const fdrStep = this.fdrStepper.step(hRecord);
+    this._ledger.push(fdrStep);
+    const { record: hypothesisCommit } = this.log.commit({
+      id: this.nextId(),
+      parent: this._cursor, // R8 branch-on-act: proposing from a past cursor branches first
+      ...(correlationId !== undefined ? { correlationId } : {}),
+      viewId: chartViewId(id),
+      actorMeta: { actor: computedBy },
+      kind: 'point',
+      field: TEST_ANALOG_FIELD,
+      value: 1,
+      cause: stamped,
+    });
+    this.landed(hypothesisCommit);
+
+    // (b) register the chart as a session view (the render source). The gated
+    //     spec is stored as a JSON STRING (inert like the annotation note — the
+    //     log's clause factory takes a primitive value), so it round-trips
+    //     structuredClone + JSON with the rest of the log.
+    const payload = JSON.stringify({ spec, claim, authoredBy: computedBy });
+    const { record: specCommit } = this.log.commit({
+      id: this.nextId(),
+      parent: this._cursor,
+      ...(correlationId !== undefined ? { correlationId } : {}),
+      viewId: chartViewId(id),
+      actorMeta: { actor: computedBy },
+      kind: 'point',
+      field: CHART_FIELD,
+      value: payload,
+      cause: stamped,
+    });
+    this.landed(specCommit);
+
+    const hypothesis: ChartHypothesis = { chartId: id, claim, authoredBy: computedBy, tested: false, pValueUsed: 1, fdrStep };
+    const view: ChartView = {
+      chartId: id,
+      viewId: chartViewId(id),
+      spec,
+      claim,
+      authoredBy: computedBy,
+      commitId: specCommit.id,
+      ledgerStep: fdrStep.step,
+    };
+    this._charts.set(id, view);
+    return { ok: true, chartId: id, view, hypothesis, commit: specCommit, fdrStep };
+  }
+
   // ── L6 why(target) ─────────────────────────────────────────────────────────────
   why(target: WhyTarget, opts: { agentEventLog?: readonly AgentEventFrame[] } = {}): WhyResult {
     const prov = target.kind === 'column'
@@ -1326,6 +1478,17 @@ class InteractionSessionImpl implements InteractionSession {
       events: [...this.refs.events()],
     };
 
+    // RP-3: the agent-authored charts + ledger status (token-lean — the SPEC
+    // itself never rides whats_here; the host reads it via `session.charts()`).
+    const charts: ChartInfo[] = this.charts().map((c) => ({
+      chartId: c.chartId,
+      viewId: c.viewId,
+      claim: c.claim,
+      authoredBy: c.authoredBy,
+      ledgered: true,
+      ledgerStep: c.ledgerStep,
+    }));
+
     return {
       defaultTable: this.defaultTable,
       views,
@@ -1346,6 +1509,7 @@ class InteractionSessionImpl implements InteractionSession {
       engines: this.runtime.engines,
       time,
       paths,
+      charts,
     };
   }
 }

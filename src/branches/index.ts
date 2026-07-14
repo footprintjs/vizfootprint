@@ -33,6 +33,7 @@ export {
   ENCODING_VIEW_PREFIX,
   ANALYSIS_VIEW_PREFIX,
   ANNOTATION_VIEW_PREFIX,
+  CHART_VIEW_PREFIX,
 } from './fold.js';
 export { planBringOver, planUndo } from './plans.js';
 export { slugForCommit, slugify, uniqueSlug } from './slug.js';

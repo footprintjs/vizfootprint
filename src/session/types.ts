@@ -20,18 +20,29 @@ import type { DiffChange, DiffOnly, PlanRecipe, RefEvent } from '../branches/ind
 
 // ── The gap ledger (D14 taxonomy) — every unmet request, typed, never dropped. ─
 
-/** The D14 gap taxonomy codes. */
+/**
+ * The D14 gap taxonomy codes. The `chart-*` codes (RP-3) are the four governed
+ * `proposeChart` pipeline refusals — each a stage of schema-valid →
+ * capability-check → hypothesis, landed instead of a silent drop so the agent
+ * reads the reason back and repairs.
+ */
 export type GapCode =
   | 'needs-column'
   | 'needs-analysis-kind'
   | 'needs-view'
   | 'guard-failed'
-  | 'needs-backend-data';
+  | 'needs-backend-data'
+  // ── RP-3: agent-authored chart pipeline refusals ──
+  | 'chart-invalid-spec'
+  | 'chart-transforms-not-owned'
+  | 'chart-unsupported-composition'
+  | 'chart-hypothesis-rejected';
 
 /** The operation a gap was filed against. */
 export type GapOp =
   | DispatchVerb
   | 'declareAnalysis'
+  | 'proposeChart'
   | 'mountView'
   | 'seek'
   | 'switchPath'
@@ -234,6 +245,91 @@ export interface AnalysisCommit {
   readonly gap?: GapRow;
 }
 
+// ── RP-3: agent-authored charts (the ledger-gated proposeChart pipeline). ──────
+
+/** What a caller hands `proposeChart` — the chart's id, its VL spec, and its claim. */
+export interface ProposeChartInput {
+  /** Stable chart id; the view lands under `chart:${id}`. Non-empty. */
+  readonly id: string;
+  /**
+   * The proposed Vega-Lite spec, as opaque JSON (the core library never imports
+   * Vega-Lite — see `src/renderer/specShapeGate.ts`). Must round-trip JSON.
+   */
+  readonly spec: unknown;
+  /** The chart's inferential CLAIM (e.g. "price vs rating reveals a relationship"). INERT data (R12). */
+  readonly claim?: string;
+  /** Agent-authored provenance. `computedBy` is respected (a chart is agent-computed, not system). */
+  readonly cause?: Cause;
+  /** Cross-tier join key stamped on the landed commits (R10). */
+  readonly correlationId?: string;
+}
+
+/**
+ * A proposed chart's LEDGERED HYPOTHESIS — the honest record shape (RP-3 / D28).
+ * A chart is an inferential claim, so it is registered in the SAME LORD++
+ * ledger that governs every other claim. But it carries NO computed statistic:
+ * it is an UNTESTED visual claim, entered at p = 1.0 (the null-est value) so it
+ * COSTS multiplicity budget — an agent cannot fish through charts for free — yet
+ * can NEVER be counted as a discovery (an unaudited chart must never register as
+ * a confirmed finding). `tested` is always false and `reject` on the step is
+ * always false in v1.
+ */
+export interface ChartHypothesis {
+  readonly chartId: string;
+  /** The chart's inferential claim (INERT data). */
+  readonly claim: string;
+  /** Who authored the proposal (agent-authored provenance — `cause.computedBy`). */
+  readonly authoredBy: Actor;
+  /** Always false in v1: a proposed chart carries no computed statistic. */
+  readonly tested: false;
+  /** The conventional p-value the untested claim enters the ledger at (always 1). */
+  readonly pValueUsed: 1;
+  /** The online-FDR stepper's row for this hypothesis (its `reject` is always false at p=1). */
+  readonly fdrStep: FdrStep;
+}
+
+/** A registered agent-authored chart — a real session view under `chart:${id}`. */
+export interface ChartView {
+  readonly chartId: string;
+  /** The synthetic view identity: `chart:${chartId}`. */
+  readonly viewId: string;
+  /** The gated spec (host owns the data channel; inline data is noted, never rendered). */
+  readonly spec: unknown;
+  readonly claim: string;
+  readonly authoredBy: Actor;
+  /** The spec-registration commit id (the one carrying the spec). */
+  readonly commitId: string;
+  /** This chart's row position in the FDR ledger (its `FdrStep.step`). */
+  readonly ledgerStep: number;
+}
+
+/** The `whats_here` projection of one agent-authored chart + its ledger status. */
+export interface ChartInfo {
+  readonly chartId: string;
+  readonly viewId: string;
+  readonly claim: string;
+  readonly authoredBy: Actor;
+  /** true — a registered chart passed every gate (a rejected one is never registered). */
+  readonly ledgered: true;
+  /** Its FDR-ledger row position. */
+  readonly ledgerStep: number;
+}
+
+export type ProposeChartResult =
+  | {
+      readonly ok: true;
+      readonly chartId: string;
+      /** The registered agent-authored chart view. */
+      readonly view: ChartView;
+      /** The ledgered hypothesis (its FDR step + honest untested marker). */
+      readonly hypothesis: ChartHypothesis;
+      /** The spec-registration commit (the render source). */
+      readonly commit: CommitRecord;
+      /** The FDR-ledger row this proposal landed. */
+      readonly fdrStep: FdrStep;
+    }
+  | { readonly ok: false; readonly gap: GapRow };
+
 export type DispatchResult =
   | {
       readonly ok: true;
@@ -378,6 +474,8 @@ export interface Overview {
   readonly time: TimeState;
   /** Named paths (BR-1): the refs, where HEAD is, and the ref-event journal. */
   readonly paths: PathsState;
+  /** RP-3: the agent-authored charts registered this session + their ledger status. */
+  readonly charts: readonly ChartInfo[];
 }
 
 /** Options for a direct `declareAnalysis` invocation. */

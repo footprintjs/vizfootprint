@@ -63,4 +63,10 @@ export type {
   WhyTargetMiss,
   TierCommit,
   AgentEventFrame,
+  // RP-3 agent-authored charts
+  ProposeChartInput,
+  ProposeChartResult,
+  ChartHypothesis,
+  ChartView,
+  ChartInfo,
 } from '../session/index.js';

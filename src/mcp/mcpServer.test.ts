@@ -31,7 +31,7 @@ const text = (res: unknown) =>
   JSON.parse(((res as { content: { type: string; text: string }[] }).content[0]!).text) as Record<string, unknown>;
 
 describe('mcpServer — a real MCP server backed by a live session', () => {
-  it('tools/list returns the FIXED eight semantic tools', async () => {
+  it('tools/list returns the FIXED nine semantic tools', async () => {
     const client = await connectClient(freshSession());
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name)).toEqual([
@@ -43,6 +43,7 @@ describe('mcpServer — a real MCP server backed by a live session', () => {
       'viz.checkpoint',
       'viz.paths',
       'viz.compare',
+      'viz.propose_chart',
     ]);
   });
 
@@ -135,5 +136,34 @@ describe('mcpServer — a real MCP server backed by a live session', () => {
     const client = await connectClient(freshSession());
     const res = await client.callTool({ name: 'viz.push_dom_event', arguments: {} });
     expect(res.isError).toBe(true);
+  });
+
+  it('routes propose_chart (RP-3) — a valid chart is ledgered; a transform spec comes back as a NORMAL gap, not isError', async () => {
+    const client = await connectClient(freshSession());
+    const spec = {
+      mark: { type: 'circle' },
+      params: [{ name: 'b', select: { type: 'interval', encodings: ['x'] } }],
+      encoding: { x: { field: 'price', type: 'quantitative' }, y: { field: 'rating', type: 'quantitative' } },
+    };
+    const ok = await client.callTool({ name: 'viz.propose_chart', arguments: { id: 'pr', spec, rationale: 'price vs rating' } });
+    expect(ok.isError).toBeFalsy();
+    const okPayload = text(ok);
+    expect(okPayload['ok']).toBe(true);
+    expect(okPayload['chartId']).toBe('pr');
+    expect(okPayload['ledgered']).toBe(true);
+
+    // whats_here surfaces the chart over MCP
+    const here = text(await client.callTool({ name: 'viz.whats_here', arguments: {} }));
+    expect((here['charts'] as unknown[]).length).toBe(1);
+
+    // a transform-carrying spec is a typed gap the model reads — a normal result, never isError.
+    const bad = await client.callTool({
+      name: 'viz.propose_chart',
+      arguments: { id: 'agg', spec: { ...spec, transform: [{ aggregate: [] }] } },
+    });
+    expect(bad.isError).toBeFalsy();
+    const badPayload = text(bad);
+    expect(badPayload['ok']).toBe(false);
+    expect((badPayload['gap'] as { code: string }).code).toBe('chart-transforms-not-owned');
   });
 });

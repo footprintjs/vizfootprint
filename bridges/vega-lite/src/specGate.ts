@@ -26,6 +26,11 @@
  */
 
 import type { TopLevelSpec } from 'vega-lite';
+// RP-3 / D28: the transform-ownership + multi-view-composition + mark SHAPE
+// rules are single-sourced in the CORE library (runtime-free — no vega-lite),
+// and this bridge CONSUMES that detection so the two layers cannot drift. The
+// bridge keeps its own v1 WORDING and its VL-typed param resolution below.
+import { analyzeSpecShape, type SpecShapeFacts } from '../../../src/renderer/specShapeGate.js';
 
 /** A typed spec-gate refusal — the reason a spec cannot ride bridge v1. */
 export interface SpecGateIssue {
@@ -116,30 +121,10 @@ interface SpecShape {
   readonly data?: unknown;
 }
 
-const MULTI_VIEW_KEYS = ['facet', 'repeat', 'layer', 'concat', 'hconcat', 'vconcat', 'spec'] as const;
-
-/** The transform-array op keys we can name in the hello (anything else reports as 'transform'). */
-const TRANSFORM_OPS = [
-  'aggregate',
-  'bin',
-  'calculate',
-  'density',
-  'extent',
-  'filter',
-  'flatten',
-  'fold',
-  'impute',
-  'joinaggregate',
-  'loess',
-  'lookup',
-  'pivot',
-  'quantile',
-  'regression',
-  'sample',
-  'stack',
-  'timeUnit',
-  'window',
-] as const;
+/** Format the core gate's detected transforms into bridge-v1 hello names (`bin`, `bin(x)`, …). */
+function transformNames(facts: SpecShapeFacts): string[] {
+  return facts.transforms.map((t) => (t.channel ? `${t.op}(${t.channel})` : t.op));
+}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -172,16 +157,19 @@ export function validateVegaLiteSpec(spec: TopLevelSpec): SpecGateResult {
   const issues: SpecGateIssue[] = [];
   const notes: string[] = [];
 
+  // The SHAPE facts (composition / transforms / mark / opacity / inline-data)
+  // come from the CORE gate — single detection, bridge-v1 wording (D28).
+  const facts = analyzeSpecShape(spec);
+
   // ── multi-view composition: honestly out of v1, never a silent subset ──
-  const multi = MULTI_VIEW_KEYS.filter((k) => shape[k] !== undefined);
-  if (multi.length > 0) {
+  if (facts.composition.length > 0) {
     issues.push({
       code: 'unsupported-in-bridge-v1',
-      detail: `multi-view composition (${multi.join(', ')}) is not supported in bridge v1 — one single-view mark only`,
+      detail: `multi-view composition (${facts.composition.join(', ')}) is not supported in bridge v1 — one single-view mark only`,
     });
     return { ok: false, issues };
   }
-  if (shape.mark === undefined) {
+  if (!facts.hasMark) {
     issues.push({
       code: 'unsupported-in-bridge-v1',
       detail: 'the spec declares no mark — bridge v1 hosts exactly one single-view mark',
@@ -190,17 +178,8 @@ export function validateVegaLiteSpec(spec: TopLevelSpec): SpecGateResult {
   }
 
   // ── internal transforms: recorded for the hello, refused by the HOST at bind ──
-  const internalTransforms: string[] = [];
-  for (const t of shape.transform ?? []) {
-    const op = TRANSFORM_OPS.find((k) => t[k] !== undefined);
-    internalTransforms.push(op ?? 'transform');
-  }
+  const internalTransforms = transformNames(facts);
   const encoding = shape.encoding;
-  for (const [channel, def] of Object.entries(encoding ?? {})) {
-    if (def.bin !== undefined && def.bin !== false) internalTransforms.push(`bin(${channel})`);
-    if (def.aggregate !== undefined) internalTransforms.push(`aggregate(${channel})`);
-    if (def.timeUnit !== undefined) internalTransforms.push(`timeUnit(${channel})`);
-  }
   if (internalTransforms.length > 0) {
     // path 1 (file header): mount a hello that declares them; the host refuses.
     return {
@@ -210,7 +189,7 @@ export function validateVegaLiteSpec(spec: TopLevelSpec): SpecGateResult {
   }
 
   // ── the opacity channel is bridge-owned in v1 (the crossfilter highlight rides it) ──
-  if (encoding?.['opacity'] !== undefined) {
+  if (facts.hasOpacityEncoding) {
     issues.push({
       code: 'unsupported-in-bridge-v1',
       detail: 'the opacity encoding channel is bridge-owned in v1 — the host-selection highlight rides it',
@@ -317,7 +296,7 @@ export function validateVegaLiteSpec(spec: TopLevelSpec): SpecGateResult {
     });
   }
 
-  if (shape.data !== undefined) {
+  if (facts.hasInlineData) {
     notes.push('the spec carries its own data — replaced by host rows (the host owns the data channel)');
   }
 

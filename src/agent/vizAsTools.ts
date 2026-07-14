@@ -2,7 +2,7 @@
  * vizAsTools(session) — the FIXED agent tool surface (Mode B, mirroring
  * hcifootprint's `skillsAsTools`). The tool array NEVER changes for the life of
  * a session: `whats_here`, `dispatch`, `declare_analysis`, `why`, `fork`,
- * `checkpoint`, `paths`, `compare` (BR-1). Disclosure rides the RESULT channel
+ * `checkpoint`, `paths`, `compare` (BR-1), `propose_chart` (RP-3). Disclosure rides the RESULT channel
  * (`whats_here` returns the current views/selections/analyses-with-readiness
  * plus the named paths), never the tool channel — so the byte-identical tool
  * list keeps prompt caches stable and the library is a PLAIN MCP server for
@@ -26,7 +26,7 @@
 import type { Actor, Cause } from '../cause/index.js';
 import { DISPATCH_VERBS } from '../def/index.js';
 import type { InteractionSession } from '../session/index.js';
-import type { DispatchAction, DispatchResult, AnalysisCommit, FilterRange, WhyTarget } from '../session/index.js';
+import type { DispatchAction, DispatchResult, AnalysisCommit, FilterRange, ProposeChartResult, WhyTarget } from '../session/index.js';
 
 /** One tool descriptor (shape-compatible with footprintjs `MCPToolDescription` / the MCP SDK `Tool`). */
 export interface VizTool {
@@ -106,6 +106,17 @@ const COMPARE_DESCRIPTION =
   'ancestor, what CHANGED between the two sides (selections, visual encodings, analyses — the last ' +
   'state per key), what exists on only one side, and per-side row counts under each side\'s ' +
   'selections. Read-only: nothing moves.';
+
+const PROPOSE_CHART_DESCRIPTION =
+  'Propose a NEW chart at runtime as a Vega-Lite spec (a single-view mark with an encoding). Give ' +
+  'an id, the spec (VL JSON), and a rationale. RULES the host enforces: (1) the spec must NOT carry ' +
+  'its own data transforms — no aggregate/bin/timeUnit/calculate/window and no top-level transform: ' +
+  'the HOST owns all binning and aggregation, so encode raw fields only; (2) one single-view mark — ' +
+  'no facet/repeat/layer/concat; (3) every field you encode must be a real column (call whats_here ' +
+  'first to see them). Your chart is a HYPOTHESIS: it is registered in the online-FDR ledger before ' +
+  'it renders (it costs a little multiplicity budget and is honestly marked UNTESTED — a chart is ' +
+  'never counted as a discovery on its own). If any rule fails, you get back a TYPED gap with the ' +
+  'reason and NOTHING renders — read the reason, fix the spec, and propose again.';
 
 // ── static input schemas (Mode B: cannot enforce per-verb shape; fire-time validates) ──
 
@@ -207,6 +218,17 @@ const COMPARE_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+const PROPOSE_CHART_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', description: 'A stable id for the chart (its view lands under chart:<id>).' },
+    spec: { type: 'object', description: 'The Vega-Lite spec as JSON — a single-view mark with an encoding, NO data transforms (the host owns aggregation), NO inline data (the host supplies rows).' },
+    rationale: { type: 'string', description: 'The chart\'s claim, e.g. "price vs rating reveals a relationship" — inert data, ledgered with the chart.' },
+  },
+  required: ['id', 'spec'],
+  additionalProperties: false,
+} as const;
+
 const NO_PARAMS = { type: 'object', properties: {}, additionalProperties: false } as const;
 
 function sanitize(name: string): string {
@@ -249,6 +271,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     checkpoint: sanitize(`${ns}.checkpoint`),
     paths: sanitize(`${ns}.paths`),
     compare: sanitize(`${ns}.compare`),
+    proposeChart: sanitize(`${ns}.propose_chart`),
   };
 
   const staticTools: VizTool[] = [
@@ -260,6 +283,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     { name: NAMES.checkpoint, description: CHECKPOINT_DESCRIPTION, inputSchema: structuredClone(CHECKPOINT_SCHEMA) },
     { name: NAMES.paths, description: PATHS_DESCRIPTION, inputSchema: structuredClone(PATHS_SCHEMA) },
     { name: NAMES.compare, description: COMPARE_DESCRIPTION, inputSchema: structuredClone(COMPARE_SCHEMA) },
+    { name: NAMES.proposeChart, description: PROPOSE_CHART_DESCRIPTION, inputSchema: structuredClone(PROPOSE_CHART_SCHEMA) },
   ];
 
   /** Build the two-slot cause from the port's principal + an inert intent (Q8: intent is data). */
@@ -370,6 +394,39 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     return projectDispatch(result);
   }
 
+  /**
+   * Route `propose_chart` (RP-3). Fire-time validates the payload (Mode B) then
+   * runs the governed pipeline. The result is LEAN — the ledger status + the
+   * honest untested-hypothesis marker, never the spec echoed back (the agent
+   * already sent it; whats_here later lists the chart, the host renders it).
+   * A gate refusal comes back as the typed gap the agent reads and repairs.
+   */
+  async function callProposeChart(args: Record<string, unknown>): Promise<VizToolResult> {
+    if (typeof args['id'] !== 'string') {
+      return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'propose_chart requires a string id' };
+    }
+    if (args['spec'] === null || typeof args['spec'] !== 'object' || Array.isArray(args['spec'])) {
+      return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'propose_chart requires spec to be a Vega-Lite spec object' };
+    }
+    const claim = typeof args['rationale'] === 'string' ? args['rationale'] : undefined;
+    const result: ProposeChartResult = await session.proposeChart(
+      { id: args['id'], spec: args['spec'], ...(claim !== undefined ? { claim } : {}) },
+      { as: source },
+    );
+    if (!result.ok) return { ok: false, gap: result.gap };
+    return {
+      ok: true,
+      chartId: result.chartId,
+      viewId: result.view.viewId,
+      claim: result.view.claim,
+      authoredBy: result.view.authoredBy,
+      ledgered: true,
+      tested: result.hypothesis.tested,
+      ledgerStep: result.fdrStep.step,
+      fdrStep: result.fdrStep,
+    };
+  }
+
   /** Route the `paths` tool — mutations go through the SESSION methods (never the refs directly). */
   function callPaths(args: Record<string, unknown>): VizToolResult {
     switch (args['action']) {
@@ -437,6 +494,8 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
           }
           return { ...(await session.compare(args['a'], args['b'])) };
         }
+        case NAMES.proposeChart:
+          return callProposeChart(args);
         default:
           return { ok: false, reason: 'UNKNOWN_TOOL', tools: staticTools.map((t) => t.name) };
       }

@@ -8,6 +8,9 @@
  *   - `encoding:${viewId}`     → key `encoding:${viewId}:${channel}` (field = channel, value = bound field)
  *   - `analysis:${analysisId}` → key `analysis:${analysisId}`        (last declared run)
  *   - `annotation:${actor}`    → INERT (a note is never state)
+ *   - `chart:${chartId}`       → INERT (an agent-authored chart registration
+ *                                and its ledgered hypothesis are not crossfilter
+ *                                state — RP-3; the chart renders as its own view)
  * A cleared interval (`kind:'interval', value:null`) DELETES the selection
  * key, exactly as the session's live fold does.
  *
@@ -23,10 +26,16 @@ import { chainToRoot, indexById, lcaOf } from './walk.js';
 export const ENCODING_VIEW_PREFIX = 'encoding:';
 export const ANALYSIS_VIEW_PREFIX = 'analysis:';
 export const ANNOTATION_VIEW_PREFIX = 'annotation:';
+/** RP-3: an agent-proposed chart's registration + ledgered-hypothesis commits. */
+export const CHART_VIEW_PREFIX = 'chart:';
 
-/** The state key a commit touches, or null for an inert (annotation) commit. */
+/** The state key a commit touches, or null for an inert (annotation / chart) commit. */
 export function keyOf(record: CommitRecord): string | null {
   if (record.viewId.startsWith(ANNOTATION_VIEW_PREFIX)) return null;
+  // RP-3: a chart proposal (its spec-registration + p=1 hypothesis commits) is
+  // NOT crossfilter state — it is inert in the fold, exactly like an annotation.
+  // The chart renders as its own view; its ledger row lives in the FDR ledger.
+  if (record.viewId.startsWith(CHART_VIEW_PREFIX)) return null;
   if (record.viewId.startsWith(ENCODING_VIEW_PREFIX)) {
     return `encoding:${record.viewId.slice(ENCODING_VIEW_PREFIX.length)}:${record.field}`;
   }

@@ -40,6 +40,10 @@ export class GapLedger {
       'needs-view': 0,
       'guard-failed': 0,
       'needs-backend-data': 0,
+      'chart-invalid-spec': 0,
+      'chart-transforms-not-owned': 0,
+      'chart-unsupported-composition': 0,
+      'chart-hypothesis-rejected': 0,
     } as Record<GapCode, number>;
     for (const r of this._rows) hist[r.code] += 1;
     return hist;

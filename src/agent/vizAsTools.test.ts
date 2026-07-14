@@ -18,6 +18,7 @@ const TOOL_NAMES = [
   'viz.checkpoint',
   'viz.paths',
   'viz.compare',
+  'viz.propose_chart',
 ];
 
 function get(result: VizToolResult, key: string): unknown {
@@ -65,7 +66,7 @@ describe('R4 — a scripted agent completes a multi-step task through tools alon
 });
 
 describe('R4 — zero synthetic input (only semantic verbs, no raw-event path)', () => {
-  it('exposes exactly the eight fixed semantic tools; none pushes a raw event', () => {
+  it('exposes exactly the nine fixed semantic tools; none pushes a raw event', () => {
     const session = buildDashboard(makeDashboardDef()).createSession();
     const names = vizAsTools(session).tools().map((t) => t.name);
     expect(names.sort()).toEqual([...TOOL_NAMES].sort());
@@ -250,5 +251,61 @@ describe('Q8 — two-string discipline against a prompt-injection corpus', () =>
 
     // ...and the tool descriptors are STILL injection-free after the select.
     expect(JSON.stringify(port.tools())).not.toContain('IGNORE PREVIOUS INSTRUCTIONS');
+  });
+});
+
+describe('RP-3 — propose_chart (the 9th tool): governed agent-authored charts', () => {
+  const chartSpec = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    mark: { type: 'circle' },
+    params: [{ name: 'b', select: { type: 'interval', encodings: ['x'] } }],
+    encoding: { x: { field: 'price', type: 'quantitative' }, y: { field: 'rating', type: 'quantitative' } },
+    ...overrides,
+  });
+
+  it('exposes propose_chart with an id/spec/rationale schema', () => {
+    const port = vizAsTools(buildDashboard(makeDashboardDef()).createSession());
+    const tool = port.tools().find((t) => t.name === 'viz.propose_chart')!;
+    expect(tool).toBeDefined();
+    const props = Object.keys((tool.inputSchema as { properties: Record<string, unknown> }).properties);
+    expect(props).toEqual(expect.arrayContaining(['id', 'spec', 'rationale']));
+    // The description teaches the model the host owns transforms + it's a ledgered hypothesis.
+    expect(tool.description).toMatch(/transform/i);
+    expect(tool.description).toMatch(/hypothesis|ledger/i);
+  });
+
+  it('a valid proposal is ledgered + surfaced by whats_here (no spec echoed back)', async () => {
+    const session = buildDashboard(makeDashboardDef()).createSession({ as: 'agent' });
+    const port = vizAsTools(session);
+    const res = await port.call('viz.propose_chart', { id: 'pr', spec: chartSpec(), rationale: 'price vs rating' });
+    expect(res.ok).toBe(true);
+    expect(get(res, 'chartId')).toBe('pr');
+    expect(get(res, 'ledgered')).toBe(true);
+    expect(get(res, 'tested')).toBe(false);
+    expect(get(res, 'ledgerStep')).toBe(1);
+    expect(JSON.stringify(res)).not.toContain('circle'); // the spec is not echoed back
+
+    const here = await port.call('viz.whats_here');
+    const charts = get(here, 'charts') as { chartId: string; ledgered: boolean }[];
+    expect(charts).toEqual([{ chartId: 'pr', viewId: 'chart:pr', claim: 'price vs rating', authoredBy: 'agent', ledgered: true, ledgerStep: 1 }]);
+  });
+
+  it('a transform-carrying spec is REFUSED with the typed gap the agent reads back + repairs', async () => {
+    const session = buildDashboard(makeDashboardDef()).createSession({ as: 'agent' });
+    const port = vizAsTools(session);
+    const rejected = await port.call('viz.propose_chart', {
+      id: 'agg',
+      spec: chartSpec({ encoding: { x: { field: 'price', type: 'quantitative', aggregate: 'mean' }, y: { field: 'rating', type: 'quantitative' } } }),
+    });
+    expect(rejected.ok).toBe(false);
+    expect((get(rejected, 'gap') as { code: string }).code).toBe('chart-transforms-not-owned');
+    // it never registered — no chart, no ledger row (alpha only on success).
+    expect(session.charts()).toHaveLength(0);
+    expect(session.ledger()).toHaveLength(0);
+  });
+
+  it('fire-time validates the payload (Mode B): missing id / non-object spec → PAYLOAD_INVALID', async () => {
+    const port = vizAsTools(buildDashboard(makeDashboardDef()).createSession());
+    expect(get(await port.call('viz.propose_chart', { spec: chartSpec() }), 'reason')).toBe('PAYLOAD_INVALID');
+    expect(get(await port.call('viz.propose_chart', { id: 'x', spec: 'nope' }), 'reason')).toBe('PAYLOAD_INVALID');
   });
 });
