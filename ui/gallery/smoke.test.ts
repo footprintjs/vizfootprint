@@ -500,7 +500,8 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     });
     expect(strip.snapType, 'the charts band is a snap carousel on mobile').toContain('x');
     expect(strip.dotsDisplay, 'dot indicators show on mobile').not.toBe('none');
-    expect(strip.dotCount).toBe(5); // scatter · line · bar · map · vl (the bridge cell) — all five ride the carousel
+    // scatter · line · bar · map · vl (the bridge cell) · the AGENT-AUTHORED chart (RP-3) — all six ride the carousel
+    expect(strip.dotCount).toBe(6);
     expect(Math.abs(strip.cellW - strip.stripW), 'each chart is one full-width page').toBeLessThanOrEqual(2);
     // both NEW charts are carousel cells with live content
     expect(await page.locator('[data-chart="line"] svg.vzf-line').count()).toBe(1);
@@ -594,6 +595,45 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     expect(vlDim.dimmed).toBeGreaterThan(0); // the OTHER view's clause dims rows outside it (self-exclusion intact)
 
     await expectNoPageOrShellScroll(page);
+  }, 30_000);
+
+  it('RP-3: the AGENT-AUTHORED chart renders via the RP-2 bridge, crossfilters, and a rejected proposal shows in Gaps', async () => {
+    await page.setViewportSize({ width: 1180, height: 640 });
+    await page.waitForTimeout(150);
+    // the ledgered agent-authored chart is a real cockpit cell rendered by the
+    // SAME vega-lite bridge as the 'vl' cell — a live vega svg with one mark per row.
+    const cell = page.locator('[data-chart="chart:agent-price-rating"]');
+    await cell.waitFor();
+    expect(await cell.locator('svg').count()).toBe(1);
+    await maybeElementShot(page, '[data-chart="chart:agent-price-rating"]', path.join(SHOTS, 'gallery-agent-chart.png'));
+
+    // it RECEIVES the crossfilter: brushing the scatter dims the agent chart's
+    // marks via the bridge-injected __vzfKeep opacity encode (self-exclusion intact).
+    const scatterBox = (await page.locator('svg.vzf-scatter').boundingBox())!;
+    await page.mouse.move(scatterBox.x + scatterBox.width * 0.15, scatterBox.y + scatterBox.height * 0.5);
+    await page.mouse.down();
+    await page.mouse.move(scatterBox.x + scatterBox.width * 0.5, scatterBox.y + scatterBox.height * 0.5, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForFunction(
+      () => {
+        const c = document.querySelector('[data-chart="chart:agent-price-rating"]') as HTMLElement | null;
+        if (!c) return false;
+        const marks = Array.from(c.querySelectorAll('g.mark-symbol.role-mark.marks path'));
+        return marks.length > 0 && marks.some((m) => m.getAttribute('opacity') === '0.25');
+      },
+      undefined,
+      { timeout: 8000 },
+    );
+
+    // the REJECTED proposal (a transform-carrying spec) rendered NOTHING and
+    // shows its typed reason in the Gaps report.
+    expect(await page.locator('[data-chart="chart:agent-bad-agg"]').count()).toBe(0);
+    await page.locator('[data-report="gaps"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-gaps"] [role="dialog"]');
+    const gapsText = (await page.locator('[data-vzf-modal="report-gaps"]').textContent()) ?? '';
+    expect(gapsText).toContain('chart-transforms-not-owned');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-vzf-modal="report-gaps"]', { state: 'detached' });
   }, 30_000);
 
   it('the gallery ran with zero console errors', () => {

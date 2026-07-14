@@ -41,6 +41,8 @@ import {
   STATE_EDGE_SELECTION,
   STATE_WITH_PATHS,
   STATE_MAP_SELECTED,
+  STATE_WITH_CHART,
+  STATE_WITH_BAD_CHART,
 } from './app.coverage.helpers.js';
 
 let api: FakeApi;
@@ -194,11 +196,11 @@ describe('boot — rich fixture (STATE_A): renders every "has value" branch', ()
     expect(document.querySelector('[data-vzf="fdr-ledger"]')).toBeTruthy();
   });
 
-  it('the chat popup starts closed with the fab visible, the sys greeting, and 7 suggestion chips', () => {
+  it('the chat popup starts closed with the fab visible, the sys greeting, and 8 suggestion chips', () => {
     expect((document.getElementById('chatpanel') as HTMLElement).hidden).toBe(true);
     expect((document.getElementById('fab') as HTMLElement).hidden).toBe(false);
     expect(screen.getByText(/Brush the scatter or click a bar/)).toBeTruthy();
-    expect(document.querySelectorAll('.suggest button')).toHaveLength(7);
+    expect(document.querySelectorAll('.suggest button')).toHaveLength(8); // +1: the RP-3 propose-chart chip
   });
 
   it('window.__vizAgent exposes the live view + a working refresh()', async () => {
@@ -939,6 +941,33 @@ describe('sendMessage\'s finally block: the SECOND of its two /api/state calls (
 
     expect(screen.getByText('done')).toBeTruthy(); // the try block completed fine
     expect(activitySteps()).toHaveLength(12); // untouched — the final getChatState() returned null
+  });
+});
+
+describe('RP-3 — an agent-authored chart renders as a cockpit cell via the vega-lite bridge', () => {
+  it('a ledgered chart mounts a real ProposedChartCell (RP-2 bind path); unmounting tears vega down cleanly', async () => {
+    await boot(STATE_WITH_CHART);
+    // the cockpit added a cell for the agent-authored chart, captioned as ledgered.
+    const cell = document.querySelector('[data-chart="chart:pr"]');
+    expect(cell).toBeTruthy();
+    // the bridge mounted into the cell's host div (its own vega frame lives inside).
+    await tick();
+    expect(cell!.querySelector('.vzf-proposed-chart')).toBeTruthy();
+    // unmounting the whole root runs the cell's effect cleanup (bound.unmount()).
+    await act(async () => {
+      vizAgent().root.unmount();
+      await flush();
+    });
+  });
+
+  it('a ledgered spec the v1 bridge cannot host shows an honest "cannot render" note, never a crash', async () => {
+    await boot(STATE_WITH_BAD_CHART);
+    const cell = document.querySelector('[data-chart="chart:mute"]');
+    expect(cell).toBeTruthy();
+    await tick();
+    const err = cell!.querySelector('.vzf-proposed-chart-error');
+    expect(err).toBeTruthy();
+    expect(err!.textContent ?? '').toContain('cannot render');
   });
 });
 

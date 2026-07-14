@@ -170,6 +170,48 @@ export const STATE_EDGE_SELECTION = {
   viewingPast: false,
 };
 
+/**
+ * RP-3: STATE_A plus a GOOD agent-authored chart — a single-view spec with an
+ * interval brush over real columns, which the v1 vega-lite bridge renders. The
+ * cockpit mounts a real `<ProposedChartCell>` (the RP-2 bind path) for it.
+ */
+export const STATE_WITH_CHART = {
+  ...STATE_A,
+  charts: [
+    {
+      chartId: 'pr',
+      viewId: 'chart:pr',
+      claim: 'price vs rating',
+      authoredBy: 'agent',
+      ledgerStep: 1,
+      spec: {
+        mark: { type: 'circle' },
+        params: [{ name: 'b', select: { type: 'interval', encodings: ['x'] } }],
+        encoding: { x: { field: 'price', type: 'quantitative' }, y: { field: 'rating', type: 'quantitative' } },
+      },
+    },
+  ],
+};
+
+/**
+ * RP-3: a ledgered chart whose spec the v1 bridge CANNOT host (no selection
+ * param — a mute chart). `vegaLiteRenderer` throws; `<ProposedChartCell>` shows
+ * the honest "cannot render" note instead of crashing.
+ */
+export const STATE_WITH_BAD_CHART = {
+  ...STATE_B,
+  charts: [
+    {
+      chartId: 'mute',
+      viewId: 'chart:mute',
+      claim: 'a mute chart',
+      authoredBy: 'agent',
+      ledgerStep: 1,
+      spec: { mark: 'circle', encoding: { x: { field: 'price', type: 'quantitative' }, y: { field: 'rating', type: 'quantitative' } } },
+    },
+  ],
+};
+
 /** A real map region selection (Northlands) over an otherwise-empty baseline — the derived map outline's "present with a value" arm. */
 export const STATE_MAP_SELECTED = {
   ...STATE_B,

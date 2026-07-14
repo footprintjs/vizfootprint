@@ -221,6 +221,27 @@ export interface ReadinessView {
 /** Per-view visual-channel → field map (UI-0's `reencode` surface). */
 export type ViewEncoding = Readonly<Record<string, string>>;
 
+/**
+ * An agent-authored chart (RP-3): a runtime-proposed spec that passed the
+ * governed pipeline (schema-valid → capability-check → LORD++ hypothesis) and
+ * is now a real, renderable cockpit cell. The `spec` is the gated Vega-Lite
+ * JSON a consumer binds via its own RP-2 bridge (the ui package never depends
+ * on a bridge — the consumer supplies the renderer).
+ */
+export interface ChartCellView {
+  readonly chartId: string;
+  /** The synthetic view identity `chart:${chartId}` — its crossfilter self-exclusion key. */
+  readonly viewId: string;
+  /** The gated spec (opaque JSON; the host owns the data channel). */
+  readonly spec: unknown;
+  /** The chart's ledgered claim (inert text). */
+  readonly claim: string;
+  /** Who authored the proposal (agent-authored provenance). */
+  readonly authoredBy: Actor;
+  /** Its row position in the online-FDR ledger. */
+  readonly ledgerStep: number;
+}
+
 /** The normalized dashboard state — the single render source. */
 export interface SessionViewState {
   readonly defaultTable: string;
@@ -243,6 +264,8 @@ export interface SessionViewState {
   readonly ledger: LedgerView;
   readonly gaps: readonly GapView[];
   readonly readiness: readonly ReadinessView[];
+  /** RP-3: agent-authored charts, each a real cockpit cell the consumer renders via its RP-2 bridge. */
+  readonly charts: readonly ChartCellView[];
   /** Optional provider/mode label for a status readout. */
   readonly mode?: string;
 }
@@ -269,5 +292,6 @@ export function emptyState(defaultTable = 'data'): SessionViewState {
     ledger: { procedure: 'LORD++', alpha: 0.05, tests: 0, discoveries: 0, wealth: 0, steps: [], cursorTests: 0, honesty: HONESTY_LINE },
     gaps: [],
     readiness: [],
+    charts: [],
   };
 }

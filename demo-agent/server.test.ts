@@ -18,7 +18,7 @@ import path from 'node:path';
 import { startServer } from './server.mjs';
 import { buildAppBundle, readUiStylesheet } from './build.mjs';
 import { createAnalyst } from './src/core.js';
-import { scriptedReencodeMock, scriptedDateFilterMock } from './src/analyst.js';
+import { scriptedReencodeMock, scriptedDateFilterMock, scriptedProposeChartMock, scriptedRejectedChartMock } from './src/analyst.js';
 import { stepBackTarget, stepForwardTarget } from './src/stepNav.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -165,6 +165,37 @@ describe('UI-2: reencode — the human dashboard path (axis click -> POST /api/d
 
     const tools = state.activity.map((a) => a.tool);
     expect(tools).toEqual(['whats_here', 'dispatch']);
+  }, 30_000);
+
+  it('RP-3: the agent PROPOSES a chart through the SAME tool boundary (scriptedProposeChartMock) — ledgered + surfaced in state.charts', async () => {
+    // whats_here → propose_chart (a governed single-view spec) → a grounded reply.
+    const analyst = createAnalyst({ csv: CSV, mock: true, provider: scriptedProposeChartMock() });
+    const reply = await analyst.chat('Propose a chart of price vs rating colored by category.');
+    expect(reply.text.length).toBeGreaterThan(0);
+
+    const state = await analyst.state();
+    // the chart is a real cockpit cell (with its gated spec) in state.charts,
+    // agent-authored, and it ledgered one online-FDR row.
+    const charts = state.charts as { chartId: string; viewId: string; authoredBy: string; spec: unknown }[];
+    expect(charts).toHaveLength(1);
+    expect(charts[0]).toMatchObject({ chartId: 'price-rating', viewId: 'chart:price-rating', authoredBy: 'agent' });
+    expect((state.fdr as { tests: number }).tests).toBe(1);
+    // two commits landed under the chart namespace (hypothesis emission + spec registration).
+    const records = state.records as { viewId: string; field: string }[];
+    expect(records.filter((r) => r.viewId === 'chart:price-rating')).toHaveLength(2);
+    expect(state.activity.map((a) => a.tool)).toEqual(['whats_here', 'propose_chart']);
+  }, 30_000);
+
+  it('RP-3: a REJECTED proposal (a host-owned transform) renders nothing and lands a typed gap the agent reads back (scriptedRejectedChartMock)', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true, provider: scriptedRejectedChartMock() });
+    const reply = await analyst.chat('Chart the average price per category.');
+    expect(reply.text.length).toBeGreaterThan(0);
+
+    const state = await analyst.state();
+    expect(state.charts).toHaveLength(0); // nothing rendered
+    expect((state.fdr as { tests: number }).tests).toBe(0); // no alpha spent
+    const gaps = state.gaps as { code: string }[];
+    expect(gaps.some((g) => g.code === 'chart-transforms-not-owned')).toBe(true);
   }, 30_000);
 
   it('POST /api/chat with a custom provider drives the same reencode through the live server + /api/state', async () => {

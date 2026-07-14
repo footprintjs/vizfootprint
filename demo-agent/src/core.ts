@@ -118,6 +118,8 @@ export interface AnalystState {
   readonly viewingPast: boolean;
   /** BR-3: the named-paths surface (BR-1's refs + journal) — feeds the pill/modal/toast. */
   readonly paths: PathsState;
+  /** RP-3: the agent-authored charts (with their gated specs) — feeds the VL-bridge cockpit cells. */
+  readonly charts: unknown;
 }
 
 export interface Analyst {
@@ -280,6 +282,7 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
         cursorTests: overview.time.cursorTests,
         viewingPast: overview.time.viewingPast,
         paths: overview.paths,
+        charts: session.charts(),
       };
     },
   };

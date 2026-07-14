@@ -53,6 +53,7 @@ import {
   type GapView,
   type ReadinessView,
   type ViewEncoding,
+  type ChartCellView,
 } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
@@ -75,7 +76,19 @@ export interface SessionLike {
   compare(aRef: string, bRef: string): Promise<CompareResult> | CompareResult;
   bringOver(commitId: string, opts?: { as?: Actor }): Promise<BringOverResult> | BringOverResult;
   undo(commitId: string, opts?: { as?: Actor }): Promise<BringOverResult> | BringOverResult;
+  /** RP-3: agent-authored charts (with their gated specs). Optional — a pre-RP-3 session simply has none. */
+  charts?(): readonly RawChart[];
   readonly log: { readonly records: readonly CommitRecord[] };
+}
+
+/** The wire shape of one agent-authored chart (src `ChartView`, or its `/api/state` JSON). */
+export interface RawChart {
+  readonly chartId: string;
+  readonly viewId: string;
+  readonly spec: unknown;
+  readonly claim: string;
+  readonly authoredBy: Actor;
+  readonly ledgerStep: number;
 }
 
 /** The raw `/api/state` payload a polled endpoint returns (the demo's shape). */
@@ -98,6 +111,8 @@ export interface RawPollState {
   readonly viewingPast?: boolean;
   readonly defaultTable?: string;
   readonly mode?: string;
+  /** RP-3: the agent-authored charts (`session.charts()` serialized). */
+  readonly charts?: readonly RawChart[];
 }
 /** The `paths` slice of `/api/state` — `PathsState` from `src/session`, verbatim JSON. */
 export interface RawPollPaths {
@@ -201,6 +216,7 @@ function commitLabel(field: string): string {
   if (field === '__analysis__') return 'analysis';
   if (field === 'pValue') return 'test';
   if (field === '__annotation__') return 'note';
+  if (field === '__chart__') return 'chart'; // RP-3: an agent-authored chart's spec-registration commit
   return field;
 }
 
@@ -221,6 +237,7 @@ interface StatePieces {
   ledgerBase: Omit<LedgerView, 'cursorTests' | 'honesty'>;
   gaps: GapView[];
   readiness: ReadinessView[];
+  charts: ChartCellView[];
   mode?: string;
 }
 
@@ -264,6 +281,7 @@ function finalize(p: StatePieces): SessionViewState {
     ledger,
     gaps: p.gaps,
     readiness: p.readiness,
+    charts: p.charts,
     mode: p.mode,
   };
 }
@@ -356,6 +374,18 @@ function mapGaps(gaps: readonly unknown[] | undefined): GapView[] {
   });
 }
 
+/** Normalize agent-authored charts (RP-3). A pre-RP-3 source has none — render the empty case. */
+function mapCharts(charts: readonly RawChart[] | undefined): ChartCellView[] {
+  return (charts ?? []).map((c) => ({
+    chartId: c.chartId,
+    viewId: c.viewId,
+    spec: c.spec,
+    claim: c.claim,
+    authoredBy: c.authoredBy,
+    ledgerStep: c.ledgerStep,
+  }));
+}
+
 /** viewId → channel→field, derived from the views when no top-level record rides. */
 function encodingsFromViews(views: readonly ViewView[]): Record<string, ViewEncoding> {
   const out: Record<string, ViewEncoding> = {};
@@ -398,6 +428,7 @@ async function mapSession(session: SessionLike): Promise<SessionViewState> {
     ledgerBase: mapLedgerBase(overview.fdr),
     gaps: mapGaps(session.gaps()),
     readiness: mapReadiness(overview.analyses),
+    charts: mapCharts(session.charts?.()),
   });
 }
 
@@ -435,6 +466,7 @@ export function mapPollState(raw: RawPollState): SessionViewState {
     ledgerBase: mapLedgerBase(raw.fdr),
     gaps: mapGaps(raw.gaps),
     readiness: mapReadiness(raw.analyses),
+    charts: mapCharts(raw.charts),
     mode: raw.mode,
   });
 }

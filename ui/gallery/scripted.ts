@@ -83,5 +83,44 @@ export async function buildScriptedSession(): Promise<ScriptedGallery> {
     await session.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [120, 220], cause: cause('user', 'what about the premium end?') });
   }
 
+  // RP-3: the agent PROPOSES a chart at runtime. It passes the governed
+  // pipeline (single-view, no host-owned transforms, real columns) → ledgered
+  // as an untested hypothesis, then rendered as a real cockpit cell (below,
+  // in entry.tsx, via the SAME RP-2 bridge as the 'vl' cell) that crossfilters.
+  await session.proposeChart(
+    {
+      id: 'agent-price-rating',
+      claim: 'price vs rating, colored by category, reveals a relationship',
+      spec: {
+        mark: { type: 'circle', size: 60 },
+        params: [{ name: 'vzfProposedBrush', select: { type: 'interval', encodings: ['x'] } }],
+        encoding: {
+          x: { field: 'price', type: 'quantitative', title: 'Price' },
+          y: { field: 'rating', type: 'quantitative', title: 'Rating' },
+          color: { field: 'category', type: 'nominal' },
+        },
+      },
+    },
+    { as: 'agent' },
+  );
+
+  // RP-3: a REJECTED proposal — the spec carries its own aggregate (a host-owned
+  // transform), so the pipeline refuses it with a typed gap and renders NOTHING.
+  // It shows in the Gaps panel with its reason (chart-transforms-not-owned).
+  await session.proposeChart(
+    {
+      id: 'agent-bad-agg',
+      claim: 'mean price per category',
+      spec: {
+        mark: 'bar',
+        encoding: {
+          x: { field: 'category', type: 'nominal' },
+          y: { field: 'price', type: 'quantitative', aggregate: 'mean' },
+        },
+      },
+    },
+    { as: 'agent' },
+  );
+
   return { session, rows };
 }

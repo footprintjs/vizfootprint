@@ -290,3 +290,55 @@ describe('createSessionView — poll-interval timer', () => {
     }
   });
 });
+
+describe('RP-3 — agent-authored charts (mapCharts) flow through both sources', () => {
+  it('mapPollState surfaces charts and labels a __chart__ commit "chart"', () => {
+    const raw: RawPollState = {
+      records: [
+        { id: 'h', parent: null, viewId: 'chart:pr', kind: 'point', field: 'pValue', value: 1, cause: { requestedBy: 'agent' } },
+        { id: 'spec', parent: 'h', viewId: 'chart:pr', kind: 'point', field: '__chart__', value: '{"mark":"circle"}', cause: { requestedBy: 'agent' } },
+      ],
+      charts: [{ chartId: 'pr', viewId: 'chart:pr', spec: { mark: 'circle' }, claim: 'price vs rating', authoredBy: 'agent', ledgerStep: 1 }],
+    };
+    const s = mapPollState(raw);
+    expect(s.commits.find((c) => c.id === 'spec')!.label).toBe('chart');
+    expect(s.charts).toEqual([{ chartId: 'pr', viewId: 'chart:pr', spec: { mark: 'circle' }, claim: 'price vs rating', authoredBy: 'agent', ledgerStep: 1 }]);
+  });
+
+  it('mapSession reads session.charts() when present (the optional-call present branch)', async () => {
+    const session = {
+      log: { records: [] as unknown as SessionLike['log']['records'] },
+      overview: () =>
+        ({
+          defaultTable: 'data',
+          views: [],
+          activeSelections: [],
+          analyses: [],
+          fdr: { procedure: 'LORD++', alpha: 0.05, tests: 1, discoveries: 0, wealth: 0.02, ledger: [] },
+          columns: {},
+          gaps: 0,
+          currentView: null,
+          engines: {},
+          time: { cursor: null, head: null, branches: 0, checkpoints: 0, cursorTests: 0, viewingPast: false },
+          paths: { current: null, detachedAt: null, list: [], events: [] },
+        }) as unknown as ReturnType<SessionLike['overview']>,
+      gaps: () => [],
+      branches: () => [],
+      checkpoints: () => [],
+      seek: (id: string) => ({ ok: true, cursor: id }) as unknown as ReturnType<SessionLike['seek']>,
+      dispatch: () => ({ ok: true, verb: 'analyze', intent: 'x' }) as unknown as ReturnType<SessionLike['dispatch']>,
+      switchPath: (name: string) => ({ ok: true, name, cursor: 'x' }) as unknown as ReturnType<SessionLike['switchPath']>,
+      renamePath: (_f: string, to: string) => ({ ok: true, name: to }) as unknown as ReturnType<SessionLike['renamePath']>,
+      newPathAt: (id: string) => ({ ok: true, name: 'a', cursor: id }) as unknown as ReturnType<SessionLike['newPathAt']>,
+      compare: () => ({ ok: false, gap: { code: 'guard-failed', op: 'compare', detail: 'n' } }) as unknown as ReturnType<SessionLike['compare']>,
+      bringOver: () => ({ ok: false, gap: { code: 'guard-failed', op: 'bringOver', detail: 'n' } }) as unknown as ReturnType<SessionLike['bringOver']>,
+      undo: () => ({ ok: false, gap: { code: 'guard-failed', op: 'undo', detail: 'n' } }) as unknown as ReturnType<SessionLike['undo']>,
+      charts: () => [{ chartId: 'pr', viewId: 'chart:pr', spec: { mark: 'circle' }, claim: 'c', authoredBy: 'agent' as const, ledgerStep: 1 }],
+    };
+    const view = createSessionView(sessionSource(session));
+    await view.refresh();
+    expect(view.getState().charts).toHaveLength(1);
+    expect(view.getState().charts[0]!.chartId).toBe('pr');
+    view.dispose();
+  });
+});

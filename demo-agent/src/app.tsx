@@ -49,6 +49,7 @@ import {
 import { CATEGORIES, categoryColor, el, replaceChildren } from '../../demo/src/common.js';
 import { loadRows, type DemoRow } from './rows.js';
 import { DEMO_GEO, REGIONS } from './geo.js';
+import { ProposedChartCell } from './ProposedChartCell.js';
 
 // ── the chat/activity slice of /api/state — NOT part of vizfootprint-ui's
 // adapter contract (agent tool-call activity is this demo's own chrome, not a
@@ -129,6 +130,7 @@ const SUGGESTIONS = [
   'Filter the scatter to dresses over $150, then give me the group-by of price per category.',
   'Cluster the dresses by price, then tell me why the cluster_id column has the values it does.',
   'Change the x axis of the scatter to rating.',
+  'Propose a chart of price vs rating colored by category.',
   'Compare my two paths — what\'s different?',
   'Filter to May and tell me what changed.',
   'Select the Midlands region on the map and tell me what changed.',
@@ -245,6 +247,26 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
 
   const keepAll = keepPredicate(selFor(null)); // the whole-dashboard truth — nothing excluded
   const selectedCount = rows.filter((r) => keepAll(r)).length;
+
+  // RP-3: the agent-authored charts — each a real cockpit cell rendered through
+  // the SAME RP-2 vega-lite bridge as the first-party charts, receiving the
+  // crossfilter (its marks dim under every other view's selection).
+  const agentChartCells = state.charts.map((chart) => ({
+    id: chart.viewId,
+    weight: 2.5,
+    caption: `Agent-authored (ledgered ✓): ${chart.claim}`,
+    render: ({ width, height }: { width: number; height: number }) => (
+      <ProposedChartCell
+        viewId={chart.viewId}
+        spec={chart.spec}
+        rows={rows}
+        selection={selFor(chart.viewId)}
+        theme={{}}
+        width={width}
+        height={height}
+      />
+    ),
+  }));
 
   const provider = state.mode === 'mock' ? 'scripted mock' : 'live Claude';
   const pastSuffix = state.viewingPast ? '  ·  ⏱ viewing the past (cursor behind head)' : '';
@@ -412,6 +434,7 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
             />
           ),
         },
+        ...agentChartCells,
       ]}
       reports={[
         {

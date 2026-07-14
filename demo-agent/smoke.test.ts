@@ -28,7 +28,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { startServer } from './server.mjs';
-import { scriptedReencodeMock } from './src/analyst.js';
+import { scriptedReencodeMock, scriptedProposeChartMock, scriptedRejectedChartMock } from './src/analyst.js';
 
 const CHROME =
   '/Users/sanjay/Library/Caches/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-mac-arm64/chrome-headless-shell';
@@ -405,6 +405,107 @@ describe.skipIf(!existsSync(CHROME))('UX-2: agent-driven reencode via chat (LLM 
     expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
     expect(pageErrors, pageErrors.join('\n')).toEqual([]);
   });
+});
+
+describe.skipIf(!existsSync(CHROME))('RP-3: agent PROPOSES a chart via chat (LLM stubbed) — ledgered VL cell + honest reject', () => {
+  let handle: Awaited<ReturnType<typeof startServer>>;
+  let browser: Browser;
+  let page: Page;
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+
+  beforeAll(async () => {
+    mkdirSync(SHOTS, { recursive: true });
+    handle = await startServer({ port: 0, mock: true, provider: scriptedProposeChartMock() });
+    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
+    page.on('console', (m) => {
+      if (m.type() === 'error') consoleErrors.push(m.text());
+    });
+    page.on('pageerror', (e) => pageErrors.push(String(e)));
+    await page.goto(handle.url);
+    await page.waitForSelector('svg.vzf-scatter');
+  }, 120_000);
+
+  afterAll(async () => {
+    await browser?.close();
+    await handle?.close();
+  });
+
+  it('"propose a chart of price vs rating colored by category" renders a ledgered VL cell that crossfilters', async () => {
+    await page.locator('#fab').click();
+    await page.waitForSelector('#chatpanel:not([hidden]) .composer input');
+    await page.locator('#chatpanel .composer input').fill('Propose a chart of price vs rating colored by category.');
+    await page.locator('#chatpanel .composer input').press('Enter');
+
+    // the agent-authored chart mounts as a REAL cockpit cell via the RP-2 vega-lite bridge.
+    await page.waitForSelector('[data-chart="chart:price-rating"] svg', { timeout: 20_000 });
+    expect(await page.locator('[data-chart="chart:price-rating"] svg').count()).toBe(1);
+    // its ledger row landed (the FDR chip badge / a test in the ledger)
+    await openReport(page, 'ledger');
+    expect(await page.locator('[data-vzf-modal="report-ledger"] table.vzf-ledger tbody tr').count()).toBeGreaterThanOrEqual(1);
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-vzf-modal="report-ledger"]', { state: 'detached' });
+
+    // it RECEIVES the crossfilter: brushing the scatter dims the agent chart's marks.
+    const scatterBox = (await page.locator('svg.vzf-scatter').boundingBox())!;
+    await page.mouse.move(scatterBox.x + scatterBox.width * 0.15, scatterBox.y + scatterBox.height * 0.5);
+    await page.mouse.down();
+    await page.mouse.move(scatterBox.x + scatterBox.width * 0.5, scatterBox.y + scatterBox.height * 0.5, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForFunction(
+      () => {
+        const c = document.querySelector('[data-chart="chart:price-rating"]');
+        const marks = Array.from(c?.querySelectorAll('g.mark-symbol.role-mark.marks path') ?? []);
+        return marks.length > 0 && marks.some((m) => m.getAttribute('opacity') === '0.25');
+      },
+      undefined,
+      { timeout: 8000 },
+    );
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'agent-proposed-chart.png'), fullPage: true });
+  }, 45_000);
+
+  it('ran with zero console errors', () => {
+    expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
+    expect(pageErrors, pageErrors.join('\n')).toEqual([]);
+  });
+});
+
+describe.skipIf(!existsSync(CHROME))('RP-3: a REJECTED proposal (a host-owned transform) renders nothing and shows in Gaps', () => {
+  let handle: Awaited<ReturnType<typeof startServer>>;
+  let browser: Browser;
+  let page: Page;
+
+  beforeAll(async () => {
+    handle = await startServer({ port: 0, mock: true, provider: scriptedRejectedChartMock() });
+    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
+    await page.goto(handle.url);
+    await page.waitForSelector('svg.vzf-scatter');
+  }, 120_000);
+
+  afterAll(async () => {
+    await browser?.close();
+    await handle?.close();
+  });
+
+  it('the transform-carrying proposal lands a typed gap the analyst reads back; no chart cell appears', async () => {
+    await page.locator('#fab').click();
+    await page.waitForSelector('#chatpanel:not([hidden]) .composer input');
+    await page.locator('#chatpanel .composer input').fill('Chart the average price per category.');
+    await page.locator('#chatpanel .composer input').press('Enter');
+    // the gap lands (the Gaps chip badge grows); no agent chart cell rendered.
+    await page.waitForFunction(
+      () => Number(document.querySelector('[data-report="gaps"] .vzf-report-badge')?.textContent) >= 1,
+      undefined,
+      { timeout: 20_000 },
+    );
+    await openReport(page, 'gaps');
+    expect((await page.locator('[data-vzf-modal="report-gaps"]').textContent()) ?? '').toContain('chart-transforms-not-owned');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-vzf-modal="report-gaps"]', { state: 'detached' });
+    expect(await page.locator('[data-chart="chart:avg-price"]').count()).toBe(0);
+  }, 45_000);
 });
 
 /**

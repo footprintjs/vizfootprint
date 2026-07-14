@@ -14,6 +14,7 @@ export type {
   SessionLike,
   RawPollState,
   RawPollPaths,
+  RawChart,
 } from './sessionView.js';
 
 export { mapCompareResult, entryLabel, entryDetail } from './compareView.js';
@@ -51,5 +52,6 @@ export type {
   GapView,
   ReadinessView,
   ViewEncoding,
+  ChartCellView,
   Actor,
 } from './types.js';

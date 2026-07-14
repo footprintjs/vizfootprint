@@ -39,6 +39,12 @@ export interface VegaLiteCellProps {
   readonly width: number;
   readonly height: number;
   onEmit(emission: ChartEmission): void;
+  /**
+   * The spec to render. Defaults to the fixed gallery spec (the first-party
+   * bridge cell). RP-3: an AGENT-PROPOSED chart passes its own gated spec here,
+   * so the exact same RP-2 bind path renders an agent-authored chart.
+   */
+  readonly spec?: TopLevelSpec;
 }
 
 export function VegaLiteCell(props: VegaLiteCellProps): JSX.Element {
@@ -48,12 +54,13 @@ export function VegaLiteCell(props: VegaLiteCellProps): JSX.Element {
   // so a re-render never forces a remount of the (expensive) vega view
   const onEmitRef = useRef(props.onEmit);
   onEmitRef.current = props.onEmit;
+  const spec = props.spec ?? GALLERY_VL_SPEC;
 
   useEffect(() => {
     const el = hostRef.current;
     /* v8 ignore next -- the ref rides the div this same render returns; React attaches it before effects run */
     if (!el) return;
-    const renderer = vegaLiteRenderer(GALLERY_VL_SPEC);
+    const renderer = vegaLiteRenderer(spec);
     const res = bindRenderer(renderer, el, {
       viewId: props.viewId,
       callbacks: {

@@ -114,6 +114,29 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
   const keepAll = keepPredicate(selFor(null)); // the whole-dashboard truth — nothing excluded
   const selectedCount = rows.filter((r) => keepAll(r)).length;
 
+  // RP-3: the agent-authored charts — each a real cockpit cell rendered through
+  // the SAME RP-2 vega-lite bridge as the 'vl' cell (VegaLiteCell), receiving
+  // the crossfilter (its marks dim under every other view's selection).
+  const agentChartCells = state.charts.map((chart) => ({
+    id: chart.viewId,
+    weight: 2.5,
+    caption: `Agent-authored (ledgered ✓): ${chart.claim}`,
+    render: ({ width, height }: { width: number; height: number }) => (
+      <VegaLiteCell
+        viewId={chart.viewId}
+        spec={chart.spec as Parameters<typeof VegaLiteCell>[0]['spec']}
+        rows={rows}
+        selection={selFor(chart.viewId)}
+        theme={{}}
+        width={width}
+        height={height}
+        onEmit={() => {
+          /* a proposed chart is a hypothesis to view — it RECEIVES crossfilter; its own brush is display-only in v1 */
+        }}
+      />
+    ),
+  }));
+
   return (
     <VizCockpit
       readOnly={readOnly}
@@ -254,6 +277,7 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
             />
           ),
         },
+        ...agentChartCells,
       ]}
       reports={[
         {
