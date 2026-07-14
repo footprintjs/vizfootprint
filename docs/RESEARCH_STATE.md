@@ -160,6 +160,46 @@ other (renderer-protocol.md's historian own-history evidence = weave-study.md §
 and its honestly-documented unfinished parts). DOCS-ONLY packet — no src/ or ui/ touched; RP-1 (ui/) ran in
 parallel, separately re-verified.
 
+## D28 [SHIPPED RP-3] Ledger-gated agent-authored charts (`session.proposeChart` + the 9th tool)
+The renderer-wave capstone: an LLM agent PROPOSES a chart at runtime as a Vega-Lite spec, but ONLY through a
+governed pipeline (renderer-protocol.md §5 / D27), never trust-and-render — each stage failing to a TYPED honest
+gap, never a silent drop:
+  schema-valid → capability-check (no host-owned transforms, no unsupported composition) → registered as a
+  HYPOTHESIS in the LORD++ ledger BEFORE it renders → registered as a session view under `chart:${id}` with
+  agent-authored provenance in the cause.
+**Dependency-direction decision (the packet's architectural call): bridge → core.** The pure spec-shape RULE
+lives in the CORE library at `src/renderer/specShapeGate.ts` (`analyzeSpecShape`/`gateChartSpec`) — runtime-free,
+NO `vega-lite` import (a spec is an opaque `Record<string,unknown>`), so the published library gates an agent's
+proposed chart with ZERO charting dependency installed. The Vega-Lite bridge CONSUMES that detection
+(`bridges/vega-lite/src/specGate.ts` calls `analyzeSpecShape` for its composition/transform/mark facts, wording
+its own bridge-v1 issue strings) so the rule is single-sourced and cannot drift; the RENDER stays a bridge/UI
+concern. Core → bridge or core → vega-lite would invert the package graph and drag Vega-Lite into the library's
+install closure — rejected. **`proposeChart` is a standalone session method, NOT a 9th dispatch verb** — the
+8-verb dispatch set stays closed (Q6), and `declareAnalysis` is the precedent (a governed pipeline that
+gate→run→lands a commit→steps the FDR ledger). **The honest hypothesis shape (`ChartHypothesis`):** a chart is an
+inferential claim wired into the SAME LORD++ ledger, but it carries NO computed statistic — it is an UNTESTED
+visual claim entered at `p = 1.0` (the null-est value), so it COSTS multiplicity budget (an agent cannot fish
+through charts for free) yet can NEVER be a discovery (`reject` always false at p=1; `tested:false`,
+`pValueUsed:1`). Alpha is spent ONLY on a fully-passing proposal — a rejected proposal never registers a
+hypothesis and never advances the FDR wealth (the "alpha spent only on real claims" rule, mirroring degenerate
+analyses). The p=1 hypothesis lands as a `pValue` commit under `chart:${id}` so `hypothesisRecordsFromLog`
+re-derives it on replay; the spec rides as a JSON string in a `__chart__` commit (round-trips structuredClone +
+JSON). `chart:${id}` is a new single-sourced synthetic prefix (`CHART_VIEW_PREFIX` in `src/branches/fold`),
+INERT in the crossfilter fold like an annotation. **Gap kinds added (D14 extension):** `chart-invalid-spec` |
+`chart-transforms-not-owned` | `chart-unsupported-composition` | `chart-hypothesis-rejected` (the last for a claim
+over columns absent from the table, an empty-encoding claim, or a duplicate id) — the agent reads the reason back
+and repairs. **Surface:** `overview()/whats_here` lists agent charts + ledger status (token-lean — never the
+spec); `session.charts()` is the host's render source (with specs). **The 9th tool** `propose_chart {id, spec,
+rationale}` (`src/agent/vizAsTools.ts`) routes to `proposeChart`; MCP parity is automatic (the fixed tool list
+grew 8→9, no `tools/list_changed`). **UI:** the ui adapter threads `SessionViewState.charts` from both sources;
+the gallery + demo-agent render each agent chart as a real cockpit cell via the SAME RP-2 vega-lite bridge +
+`bindRenderer` (receiving crossfilter — its marks dim under every other view's selection; own-brush display-only
+in v1 since chart:${id} is fold-inert), a rejected proposal shows its reason in the Gaps panel, and the CommitLog
+badges the chart commits agent-authored. Demo-agent system prompt teaches propose_chart; a "Propose a chart of
+price vs rating colored by category" chip drives it live. Gate: **1502 tests at 100/100/100/100**; all five
+typechecks clean; gallery + demo-agent browser smokes green (real Chromium: the agent chart renders + crossfilters
++ the reject gap). SHAs: core+bridge 0e5fdf3, ui+demo 9880b2b.
+
 ## Next
 P3 packets per SPEC §12, order L1→L6; L1-L5 SHIPPED, L6 (why) remaining. Every packet = R#s + pre-written acceptance
 tests + boundary + diff/test-output artifacts; orchestrator re-runs all tests. Fresh-chat rehydration: read THIS file + SPEC.md.
