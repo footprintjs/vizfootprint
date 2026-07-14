@@ -176,15 +176,17 @@ clears back to the input order (an arrow glyph and `aria-sort` track the
 live state). Click a row to select it by the table's id field; **click it
 again to clear** — the same gesture as `VizBar`/`VizMap`.
 
-**Selection semantics (design call): dim, never hide.** `highlight` is the
-exact keep-predicate prop `VizScatter` takes — a row failing it gets a dimmed
-style, it is never removed. `VizBar`/`VizMap` instead recompute their data (a
-count per category/region) under a crossfilter; a table has no aggregate to
-recompute, only real rows, so it follows the scatter's precedent instead.
-Hiding rows would also make sorted row POSITIONS jump around as some other
-view's selection changes — surprising for a component whose whole point is a
-stable, scannable order. Dimming keeps every row addressable (still
-clickable, still sortable) while making "what's currently included" honest.
+**Selection semantics (design call): dim, never hide.** `selection` is the
+exact clause-addressable fold `VizScatter` takes (see the renderer contract
+below) — a row failing the OTHER views' clauses gets a dimmed style, it is
+never removed, and the table's own clause never dims the table.
+`VizBar`/`VizMap` instead recompute their data (a count per category/region)
+under a crossfilter; a table has no aggregate to recompute, only real rows,
+so it follows the scatter's precedent instead. Hiding rows would also make
+sorted row POSITIONS jump around as some other view's selection changes —
+surprising for a component whose whole point is a stable, scannable order.
+Dimming keeps every row addressable (still clickable, still sortable) while
+making "what's currently included" honest.
 
 Numeric cells render right-aligned in the shared monospace/tabular-nums
 style so digits line up in a column. Rows are keyboard-reachable (Tab to a
@@ -198,20 +200,99 @@ show (`columns`) — the chart never guesses a "sane" count from the data.
   data={rows}
   columns={['category', 'price', 'rating']}
   idField="id"
-  selected={tableSelected}
-  highlight={(row) => matchesEveryOtherSelection(row)}
+  selection={selectionForView(state.selections, 'table')}
   onEmit={(e) => void view.emit('table', e)}
 />
 ```
+
+## The renderer contract — a versioned protocol
+
+Any charting stack — the five first-party charts, a canvas renderer, a
+wrapped external library — can join the coordinated, cause-tagged dashboard
+by implementing ONE small surface. The protocol is framework-agnostic and
+versioned (`RENDERER_PROTOCOL_VERSION`, currently `1.0`).
+
+**The handshake.** The host calls `renderer.mount(el, handshake)`; the
+handshake carries the protocol version the host speaks, the `viewId`, and the
+four callbacks. The renderer answers with a hello: the version IT speaks, its
+honest capabilities (`canBrush`, `canPointSelect`, `canHighlight`,
+`canReencode`, `canPanZoom`, optional `canRearrange`, and which
+`emissionKinds` it produces), and any internal data transforms it declares.
+`bindRenderer` guards the hello — a refused bind is a **typed gap**, never a
+silent no-op:
+
+- **version mismatch** → `protocol-version-mismatch`. The policy: two sides
+  bind iff they speak the same MAJOR; a minor difference is compatible (minor
+  revisions only add optional fields); a major mismatch refuses to bind.
+- **declared transforms** → `transforms-not-owned`. The HOST owns every
+  bin/aggregate/decimate; rows arrive prepared (the bar renderer receives one
+  row per category with its count — it never counts).
+
+**Inbound: `update(RenderState)`.** One object per frame: `rows` (already
+crossfiltered/decimated/aggregated by the host), `encodings` (the
+channel→field fold at the cursor), the **clause-addressable `selection`**,
+ephemeral `hover` keys, `theme` tokens, and the measured `size`.
+
+The selection is the load-bearing piece: `{ clauses, resolve, selfClauseId }`,
+where `clauses` maps each SOURCE viewId to its live clause (kind, field,
+value, and a ready row predicate). A renderer can therefore implement "dim
+under everyone's brush but my own" with no side channel — skip its own entry,
+fold the rest. The host derives it straight from the adapter state's per-view
+commit fold:
+
+```ts
+import { selectionForView, keepPredicate } from 'vizfootprint-ui';
+
+const selection = selectionForView(state.selections, 'scatter'); // self named for exclusion
+const keep = keepPredicate(selection);        // everyone's clauses but my own
+const keepAll = keepPredicate(selectionForView(state.selections, null)); // the whole-dashboard truth
+```
+
+The predicates mirror the engine's own evaluator (`src/data` `matchesClause`)
+and the mirror is pinned by a parity test. One tier note, also pinned: a
+cleared POINT selection arrives as `null` at the adapter tier (the session
+projects it that way and JSON cannot carry `undefined`), so a nullish point
+value here always means "cleared".
+
+**Outbound: exactly four verbs.** A renderer's entire voice:
+
+| verb | meaning |
+|---|---|
+| `emit(emission)` | a selection gesture — the unchanged R3 `{ rawValue, encoding }` shape in DATA space; the renderer never builds a clause |
+| `hover(keys \| null)` | ephemeral hover keys; never committed |
+| `reencodeRequest(channel)` | ask the host to re-encode a channel — the HOST owns the picker and the `reencode` verb |
+| `navigate(viewState)` | record a pan/zoom view state — lands as the `navigate` dispatch verb, deliberately NON-filtering (a viewport is not a data claim) |
+
+Navigation is capability-guarded on both sides: a renderer that declares
+`canPanZoom: false` and receives a zoom gesture files nothing; a HOST asking
+to navigate a non-capable view lands a typed `navigate-unsupported` gap
+(`bound.navigate(...)` refuses and nothing is recorded).
+
+**Reference implementations.** All five first-party charts ship as contract
+renderers — `scatterRenderer()`, `lineRenderer()`, `barRenderer()`,
+`mapRenderer({ geo })`, `tableRenderer({ columns })` — built on one generic
+`reactRenderer` bridge (mount a root, render synchronously, theme tokens on
+the `.vzf` wrapper). Their React props remain a thin convenience layer over
+the same contract types.
+
+**Conformance kit v0.** `runConformance(plan)` mounts ANY renderer against a
+real scripted session and walks the full loop in order — version-guard,
+transform-ownership, handshake, renders, gesture-emits, commit-lands (origin
+in the cause), crossfilter-returns (the view's own clause addressable + a
+visible re-render), navigate (recorded + non-filtering, or the typed gap),
+unmount — and reports every step in plain words. All five first-party charts
+pass it in CI; a bestiary of hostile renderers proves the kit catches each
+violation at the exact step.
 
 ## The layers (each importable alone)
 
 | module | job |
 |---|---|
 | `tokens/` | design tokens + theme engine — scoped CSS variables on the `.vzf` root (never `:root`), light+dark via `prefers-color-scheme` with a `data-theme` override that wins both ways |
-| `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView` |
+| `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods incl. `navigate`) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView` |
+| `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION`, `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`, the five reference renderers, `runConformance` |
 | `layout/` | `<VizCockpit>` (the flagship — and only — single-screen shell) + `<VizModal>` (the one modal system) + `<VizPanel>`/`<VizCard>` |
-| `charts/` | `<VizScatter>`, `<VizBar>`, `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click), `<VizTable>` (sortable rows, click-to-select) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); `<ChartFrame>` measures a cell so charts fill it; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) which fires `onReencode(viewId, channel, field)` — the `reencode` dispatch verb |
+| `charts/` | `<VizScatter>`, `<VizBar>`, `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click), `<VizTable>` (sortable rows, click-to-select) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; `<ChartFrame>` measures a cell so charts fill it; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |
 | `time/` | `<TimeTravelBar>` with `explore` (full commit timeline + fork-safe ⟵/⟶ step rules, `compact` for the cockpit) and `present` (checkpoint-ONLY story beats, acting disabled, `onReadOnlyChange` up to the shell) + `<CheckpointModal>` + `<BranchMap>` |
 | `panels/` | `<CommitLog>` (cause badges, click-to-seek, off-branch dimming), `<FdrLedger>` (two truths + the verbatim honesty line), `<GapsPanel>`, `<ReadinessPanel>` — cockpit hosts these inside report modals, unchanged |
 
