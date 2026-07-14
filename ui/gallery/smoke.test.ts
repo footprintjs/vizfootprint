@@ -500,11 +500,13 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     });
     expect(strip.snapType, 'the charts band is a snap carousel on mobile').toContain('x');
     expect(strip.dotsDisplay, 'dot indicators show on mobile').not.toBe('none');
-    expect(strip.dotCount).toBe(4); // scatter · line · bar · map — all four ride the carousel
+    expect(strip.dotCount).toBe(5); // scatter · line · bar · map · vl (the bridge cell) — all five ride the carousel
     expect(Math.abs(strip.cellW - strip.stripW), 'each chart is one full-width page').toBeLessThanOrEqual(2);
     // both NEW charts are carousel cells with live content
     expect(await page.locator('[data-chart="line"] svg.vzf-line').count()).toBe(1);
     expect(await page.locator('[data-chart="map"] svg.vzf-map path.vzf-region').count()).toBe(5);
+    // the vega-lite bridge cell rides the carousel too — a real vega svg, live
+    expect(await page.locator('[data-chart="vl"] svg').count()).toBe(1);
     // tapping the second dot swipes to the LINE page (one full width + gap) and activates the dot
     await page.locator('[data-vzf="cockpit-dots"] .vzf-cockpit-dot').nth(1).click();
     await page.waitForFunction(
@@ -520,6 +522,78 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     await page.waitForTimeout(150); // let the smooth scroll fully settle before shooting
     await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-mobile.png'), fullPage: false });
     await page.setViewportSize({ width: 1180, height: 640 });
+  }, 30_000);
+
+  it('the vega-lite BRIDGE cell brushes rating, lands a REAL commit, and crossfilters both ways', async () => {
+    // vega renders its own SVG group tree (no data- hooks like the first-party
+    // charts); the plot's DRAG-CAPTURE surface is vega-lite's "root frame"
+    // background group — NOT the interval-selection's own `_brush`/`_brush_bg`
+    // indicator marks, which stay a zero-size rect until a selection exists
+    // and would make a coordinate-based drag land on nothing.
+    const vlPlotBox = async (): Promise<{ x: number; y: number; width: number; height: number }> =>
+      page.evaluate(() => {
+        const cell = document.querySelector('[data-chart="vl"]') as HTMLElement;
+        const svg = cell.querySelector('svg') as SVGSVGElement;
+        const root = Array.from(svg.querySelectorAll('g')).find(
+          (g) => g.getAttribute('class') === 'mark-group role-frame root',
+        );
+        const el = (root?.querySelector('rect') ?? root?.querySelector('path') ?? root) as Element;
+        const r = el.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      });
+    const readout = async (): Promise<number> =>
+      Number((((await page.locator('.vzf-cockpit-readout').textContent()) ?? '').match(/^(\d+) of 60/) ?? [])[1]);
+
+    // the bridge cell renders a real vega svg with one mark per row
+    expect(await page.locator('[data-chart="vl"] svg').count()).toBe(1);
+    await maybeElementShot(page, '[data-chart="vl"]', path.join(SHOTS, 'gallery-vega-lite.png'));
+
+    // ── brush THIS chart → a REAL interval commit, with its origin in the
+    //    cause (the same rail every first-party chart's onEmit uses) ──
+    const commitsBefore = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    const rowsBefore = await readout();
+    const box = await vlPlotBox();
+    await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.5);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.85, box.y + box.height * 0.5, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      commitsBefore,
+      { timeout: 8000 },
+    );
+    // the interval CROSSFILTERS: fewer rows selected, the scatter dims points outside the rating brush
+    const rowsAfter = await readout();
+    expect(rowsAfter).toBeLessThan(rowsBefore);
+    expect(rowsAfter).toBeGreaterThan(0);
+    expect(await page.locator('svg.vzf-scatter circle.vzf-dim').count()).toBeGreaterThan(0);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-vega-lite-crossfiltered.png'), fullPage: false });
+
+    // ── the OTHER direction: brushing the SCATTER dims the vega-lite marks
+    //    via the bridge-injected __vzfKeep opacity encode ──
+    const commitsBefore2 = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    const scatterBox = (await page.locator('svg.vzf-scatter').boundingBox())!;
+    await page.mouse.move(scatterBox.x + scatterBox.width * 0.15, scatterBox.y + scatterBox.height * 0.5);
+    await page.mouse.down();
+    await page.mouse.move(scatterBox.x + scatterBox.width * 0.55, scatterBox.y + scatterBox.height * 0.5, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      commitsBefore2,
+      { timeout: 8000 },
+    );
+    const vlDim = await page.evaluate(() => {
+      const cell = document.querySelector('[data-chart="vl"]') as HTMLElement;
+      const marksGroup = Array.from(cell.querySelectorAll('g')).find(
+        (g) => g.getAttribute('class') === 'mark-symbol role-mark marks',
+      );
+      const marks = Array.from(marksGroup?.querySelectorAll('path') ?? []);
+      return { total: marks.length, dimmed: marks.filter((m) => m.getAttribute('opacity') === '0.25').length };
+    });
+    expect(vlDim.total).toBe(60); // one mark per row — the bridge never filters its own rows
+    expect(vlDim.dimmed).toBeGreaterThan(0); // the OTHER view's clause dims rows outside it (self-exclusion intact)
+
+    await expectNoPageOrShellScroll(page);
   }, 30_000);
 
   it('the gallery ran with zero console errors', () => {

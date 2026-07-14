@@ -40,6 +40,11 @@ export async function buildScriptedSession(): Promise<ScriptedGallery> {
       bar: { actor: 'user', label: 'Category' },
       line: { actor: 'user', label: 'Price over time' },
       map: { actor: 'user', label: 'Rows by region' },
+      // the vizfootprint-vega-lite bridge cell (RP-2): a THIRD-PARTY-shaped
+      // renderer riding the SAME declared-view/crossfilter loop as the four
+      // first-party charts above — must be declared here for its emissions
+      // to land real commits (an undeclared viewId never lands one).
+      vl: { actor: 'user', label: 'Rating × price (Vega-Lite bridge)' },
     },
     encodings: [
       { viewId: 'scatter', chartKind: 'point', channels: ['x', 'y', 'color'], initial: { x: 'price', y: 'rating' } },

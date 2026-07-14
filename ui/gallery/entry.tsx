@@ -41,6 +41,7 @@ import {
 } from '../src/index.js';
 import { buildScriptedSession } from './scripted.js';
 import { CATEGORIES, CATEGORY_COLORS, GALLERY_GEO, REGIONS, type GalleryRow } from './data.js';
+import { VegaLiteCell } from './VegaLiteCell.js';
 
 // The old page-local clause matcher is GONE (RP-1): the contract's
 // `selectionForView` derives the clause-addressable selection straight from
@@ -234,6 +235,22 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
               height={height}
               selection={selFor('map')}
               onEmit={(e) => void view.emit('map', e, 'region click')}
+            />
+          ),
+        },
+        {
+          id: 'vl',
+          weight: 2.5,
+          caption: 'Vega-Lite (bridge) — drag to brush rating',
+          render: ({ width, height }) => (
+            <VegaLiteCell
+              viewId="vl"
+              rows={rows}
+              selection={selFor('vl')}
+              theme={{}}
+              width={width}
+              height={height}
+              onEmit={(e) => void view.emit('vl', e, 'vega-lite bridge gesture')}
             />
           ),
         },
