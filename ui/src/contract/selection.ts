@@ -10,19 +10,25 @@
  * never re-implements a keep-predicate matcher again (this REPLACES the flat
  * keep-predicate the charts used to receive).
  *
- * PREDICATE SEMANTICS — a deliberate byte-level mirror of `src/data`'s
- * `matchesClause` point/interval arms (`src/data/predicate.ts`), pinned by a
- * parity test (`selection.test.ts`) that runs BOTH over a value matrix. The
- * mirror exists (instead of a value import) because vizfootprint-ui ships
- * standalone: the package rule is "import src TYPES, never src values"
- * (see `adapter/types.ts`), so the evaluator is restated here and parity is
+ * PREDICATE SEMANTICS — a deliberate mirror of `src/data`'s `matchesClause`
+ * point/interval arms (`src/data/predicate.ts`), pinned by a parity test
+ * (`selection.test.ts`) that runs BOTH over a value matrix. The mirror exists
+ * (instead of a value import) because vizfootprint-ui ships standalone: the
+ * package rule is "import src TYPES, never src values" (see
+ * `adapter/types.ts`), so the evaluator is restated here and parity is
  * enforced by test, not by convention:
- *   - point: `undefined` value = cleared (keep all); `null` = IS NULL
- *     (matches null/undefined cells); anything else = strict equality.
+ *   - point: a nullish value = CLEARED (keep all); anything else = strict
+ *     equality. ONE pinned divergence from `matchesClause`: at the src tier
+ *     `null` means IS NULL — but this module evaluates ADAPTER-tier values,
+ *     and at that tier a cleared point selection ARRIVES as `null`
+ *     (`session.overview()` projects the kept-but-cleared `undefined` clause
+ *     as `value ?? null`, and the JSON poll wire cannot carry `undefined` at
+ *     all), so `null` can only mean "cleared" here. A genuine IS-NULL point
+ *     selection is not representable at the adapter tier.
  *   - interval: `null` value = cleared (keep all); string bounds (ISO-8601
  *     dates, lexicographic == chronological) only ever match string cells;
  *     numeric bounds only numeric non-NaN cells; a `null` bound is half-open
- *     (only the present side is tested).
+ *     (only the present side is tested). Exact `matchesClause` parity.
  */
 
 import type { SelectionView } from '../adapter/types.js';
@@ -40,8 +46,9 @@ type IntervalValue =
  */
 export function clausePredicate(kind: EmissionKind, field: string, value: unknown): (row: RenderRow) => boolean {
   if (kind === 'point') {
-    if (value === undefined) return () => true; // cleared — no filter
-    if (value === null) return (row) => row[field] == null; // IS NULL
+    // nullish = CLEARED at the adapter tier (see the file header: overview()
+    // collapses the cleared `undefined` to null; JSON cannot carry undefined)
+    if (value == null) return () => true;
     return (row) => row[field] === value;
   }
   // interval — the wire only ever carries the session's FilterRange; this is

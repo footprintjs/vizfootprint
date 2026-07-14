@@ -21,3 +21,16 @@ export { clausePredicate, emptySelection, selectionForView, keepPredicate, selfS
 
 export { bindRenderer } from './bind.js';
 export type { BindOptions, BindResult, BoundRenderer, NavigateOutcome } from './bind.js';
+
+export { reactRenderer, scatterRenderer, lineRenderer, barRenderer, mapRenderer, tableRenderer } from './renderers.js';
+export type {
+  ReactRendererSpec,
+  ScatterRendererOptions,
+  LineRendererOptions,
+  BarRendererOptions,
+  MapRendererOptions,
+  TableRendererOptions,
+} from './renderers.js';
+
+export { runConformance } from './conformance.js';
+export type { ConformancePlan, ConformanceReport, ConformanceStep, ConformanceStepName } from './conformance.js';

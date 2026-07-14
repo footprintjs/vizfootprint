@@ -19,11 +19,11 @@ const ROWS = [
 ];
 
 describe('clausePredicate ↔ matchesClause parity (the pinned mirror)', () => {
-  // every wire shape: cleared point, IS NULL point, value point, cleared
-  // interval, numeric closed/half-open intervals, string (ISO date) intervals
+  // every wire shape: cleared point, value point, cleared interval, numeric
+  // closed/half-open intervals, string (ISO date) intervals. `null` point is
+  // NOT here — it is the one pinned DIVERGENCE, tested separately below.
   const CASES: { kind: 'point' | 'interval'; field: string; value: unknown }[] = [
     { kind: 'point', field: 'category', value: undefined },
-    { kind: 'point', field: 'note', value: null },
     { kind: 'point', field: 'category', value: 'Formal' },
     { kind: 'point', field: 'price', value: 160 },
     { kind: 'interval', field: 'price', value: null },
@@ -46,6 +46,21 @@ describe('clausePredicate ↔ matchesClause parity (the pinned mirror)', () => {
         expect(mirrored(row), `${c.kind} ${c.field} ${JSON.stringify(c.value)} on ${row.id}`).toBe(real(row));
       }
     }
+  });
+
+  it('THE pinned divergence: a null point value is CLEARED at the adapter tier (src tier reads IS NULL)', () => {
+    // overview() projects a kept-but-cleared point clause as `value ?? null`,
+    // and JSON cannot carry undefined — so at this tier null can only mean
+    // "cleared". The src evaluator (operating on session-internal values,
+    // where undefined survives) reads null as IS NULL instead.
+    const mirrored = clausePredicate('point', 'note', null);
+    expect(ROWS.map((r) => mirrored(r))).toEqual([true, true, true, true]); // cleared — keeps everything
+    expect(ROWS.map((r) => matchesClause(r, { kind: 'point', field: 'note', value: null }))).toEqual([
+      true, // note: null — IS NULL matches
+      false,
+      true, // note: undefined — == null matches
+      false,
+    ]);
   });
 });
 
