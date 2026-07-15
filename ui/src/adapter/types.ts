@@ -221,6 +221,52 @@ export interface ReadinessView {
 /** Per-view visual-channel → field map (UI-0's `reencode` surface). */
 export type ViewEncoding = Readonly<Record<string, string>>;
 
+// ── cockpit layout (LY-1: view-state that time-travels) ────────────────────────
+
+/** The three user-pickable cockpit arrangements — plain names, v1. */
+export type LayoutPreset = 'flow' | 'grid' | 'focus';
+
+/**
+ * The dashboard's arrangement at the cursor — parsed from the session's
+ * `layout:dashboard` fold (the `navigate` verb's layout namespace, LY-1), so
+ * seeking / switching paths / walking present-mode beats restores it. The
+ * cockpit is DRIVEN by this (never self-stateful).
+ */
+export interface LayoutView {
+  readonly preset: LayoutPreset;
+  /** Chart-cell ids in display order; empty = the consumer's own order. */
+  readonly order: readonly string[];
+  /** The maximized chart in the `focus` preset; null = the first cell. */
+  readonly focusId: string | null;
+}
+
+/** What `SessionView.setLayout` accepts — any subset; each prop lands its own commit. */
+export interface LayoutChange {
+  readonly preset?: LayoutPreset;
+  readonly order?: readonly string[];
+  readonly focusId?: string;
+}
+
+/** The render-safe default arrangement (no layout note landed yet). */
+export function defaultLayout(): LayoutView {
+  return { preset: 'flow', order: [], focusId: null };
+}
+
+/**
+ * Parse the wire's plain-string layout props (`layouts.dashboard`) into the
+ * typed view. Defensive: an unknown preset string folds to `flow`, a blank
+ * focus to null — a stale or foreign wire renders the honest default, never
+ * crashes.
+ */
+export function parseLayout(raw: Readonly<Record<string, string>> | undefined): LayoutView {
+  const preset: LayoutPreset = raw?.['preset'] === 'grid' || raw?.['preset'] === 'focus' ? raw['preset'] : 'flow';
+  const orderRaw = raw?.['order'];
+  const order = orderRaw !== undefined ? orderRaw.split(',').map((s) => s.trim()).filter((s) => s.length > 0) : [];
+  const focusRaw = raw?.['focus'];
+  const focusId = focusRaw !== undefined && focusRaw.length > 0 ? focusRaw : null;
+  return { preset, order, focusId };
+}
+
 /**
  * An agent-authored chart (RP-3): a runtime-proposed spec that passed the
  * governed pipeline (schema-valid → capability-check → LORD++ hypothesis) and
@@ -266,6 +312,8 @@ export interface SessionViewState {
   readonly readiness: readonly ReadinessView[];
   /** RP-3: agent-authored charts, each a real cockpit cell the consumer renders via its RP-2 bridge. */
   readonly charts: readonly ChartCellView[];
+  /** LY-1: the dashboard arrangement at the cursor (the `layout:dashboard` fold) — drives the cockpit. */
+  readonly layout: LayoutView;
   /** Optional provider/mode label for a status readout. */
   readonly mode?: string;
 }
@@ -293,5 +341,6 @@ export function emptyState(defaultTable = 'data'): SessionViewState {
     gaps: [],
     readiness: [],
     charts: [],
+    layout: defaultLayout(),
   };
 }

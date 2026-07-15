@@ -54,6 +54,9 @@ import {
   type ReadinessView,
   type ViewEncoding,
   type ChartCellView,
+  type LayoutChange,
+  type LayoutView,
+  parseLayout,
 } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
@@ -113,6 +116,8 @@ export interface RawPollState {
   readonly mode?: string;
   /** RP-3: the agent-authored charts (`session.charts()` serialized). */
   readonly charts?: readonly RawChart[];
+  /** LY-1: the layout fold (`overview().layouts` serialized) — scope → prop → value. */
+  readonly layouts?: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 /** The `paths` slice of `/api/state` — `PathsState` from `src/session`, verbatim JSON. */
 export interface RawPollPaths {
@@ -212,7 +217,8 @@ interface RawCommit {
 }
 
 /** A short, safe label for a chip/dot — never a raw value dump. */
-function commitLabel(field: string): string {
+function commitLabel(field: string, viewId: string): string {
+  if (viewId.startsWith('layout:')) return 'layout'; // LY-1: an arrangement note ('preset'/'order'/'focus' rides field)
   if (field === '__analysis__') return 'analysis';
   if (field === 'pValue') return 'test';
   if (field === '__annotation__') return 'note';
@@ -238,6 +244,7 @@ interface StatePieces {
   gaps: GapView[];
   readiness: ReadinessView[];
   charts: ChartCellView[];
+  layout: LayoutView;
   mode?: string;
 }
 
@@ -257,7 +264,7 @@ function finalize(p: StatePieces): SessionViewState {
     replayedFrom: c.replayedFrom,
     revertOf: c.revertOf,
     conflicts: c.conflicts,
-    label: commitLabel(c.field),
+    label: commitLabel(c.field, c.viewId),
     onBranch: active.has(c.id),
     isCursor: c.id === p.cursor,
     isHead: c.id === p.head,
@@ -282,6 +289,7 @@ function finalize(p: StatePieces): SessionViewState {
     gaps: p.gaps,
     readiness: p.readiness,
     charts: p.charts,
+    layout: p.layout,
     mode: p.mode,
   };
 }
@@ -374,6 +382,14 @@ function mapGaps(gaps: readonly unknown[] | undefined): GapView[] {
   });
 }
 
+/**
+ * LY-1: the ONE dashboard-level layout identity, v1. The literal is pinned to
+ * `src/branches/fold.LAYOUT_VIEW_PREFIX + 'dashboard'` (a parity test imports
+ * both) — the adapter states it locally so a POLL consumer never needs a src
+ * value import, matching the HONESTY_LINE precedent.
+ */
+export const LAYOUT_DASHBOARD_VIEW_ID = 'layout:dashboard';
+
 /** Normalize agent-authored charts (RP-3). A pre-RP-3 source has none — render the empty case. */
 function mapCharts(charts: readonly RawChart[] | undefined): ChartCellView[] {
   return (charts ?? []).map((c) => ({
@@ -429,6 +445,9 @@ async function mapSession(session: SessionLike): Promise<SessionViewState> {
     gaps: mapGaps(session.gaps()),
     readiness: mapReadiness(overview.analyses),
     charts: mapCharts(session.charts?.()),
+    // LY-1: a pre-layout session (no `layouts` on its overview yet — duck-typed
+    // sources) parses to the default flow arrangement, hence the `?.`.
+    layout: parseLayout(overview.layouts?.['dashboard']),
   });
 }
 
@@ -467,6 +486,7 @@ export function mapPollState(raw: RawPollState): SessionViewState {
     gaps: mapGaps(raw.gaps),
     readiness: mapReadiness(raw.analyses),
     charts: mapCharts(raw.charts),
+    layout: parseLayout(raw.layouts?.['dashboard']),
     mode: raw.mode,
   });
 }
@@ -495,6 +515,15 @@ export interface SessionView {
    * undeclared view files a typed `needs-view` gap at the session tier.
    */
   navigate(viewId: string, viewState?: NavigateViewState): Promise<void>;
+  /**
+   * LY-1: set the cockpit arrangement — preset (Flow / Grid / Focus), cell
+   * order, or the focused chart. Wraps the SAME `navigate` dispatch verb under
+   * the `layout:dashboard` identity (recorded, deliberately non-filtering; the
+   * session fold carries it, so time-travel and path switches restore it).
+   * Each provided prop lands ONE commit with a plain-words intent
+   * ("layout = focus on scatter"). Works over both sources.
+   */
+  setLayout(change: LayoutChange): Promise<void>;
   analyze(analysisId: string, intent?: string): Promise<void>;
   seek(commitId: string): Promise<void>;
   stepBack(): Promise<void>;
@@ -621,6 +650,21 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
         : '';
       const intent = `navigate ${viewId}${described}`;
       await dispatch({ verb: 'navigate', viewId, cause: cause(intent) }, { verb: 'navigate', viewId, intent });
+    },
+
+    async setLayout(change) {
+      // One commit per provided prop (usually exactly one gesture = one prop),
+      // each with the plain words the commit log will show.
+      const notes: { field: string; value: string; intent: string }[] = [];
+      if (change.preset !== undefined) notes.push({ field: 'preset', value: change.preset, intent: `layout = ${change.preset}` });
+      if (change.focusId !== undefined) notes.push({ field: 'focus', value: change.focusId, intent: `layout = focus on ${change.focusId}` });
+      if (change.order !== undefined) notes.push({ field: 'order', value: change.order.join(','), intent: `layout order: ${change.order.join(', ')}` });
+      for (const n of notes) {
+        await dispatch(
+          { verb: 'navigate', viewId: LAYOUT_DASHBOARD_VIEW_ID, field: n.field, value: n.value, cause: cause(n.intent) },
+          { verb: 'navigate', viewId: LAYOUT_DASHBOARD_VIEW_ID, field: n.field, value: n.value, intent: n.intent },
+        );
+      }
     },
 
     async analyze(analysisId, intent) {

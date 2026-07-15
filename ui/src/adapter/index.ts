@@ -3,6 +3,7 @@ export {
   sessionSource,
   pollingSource,
   mapPollState,
+  LAYOUT_DASHBOARD_VIEW_ID,
 } from './sessionView.js';
 export type {
   SessionView,
@@ -31,7 +32,7 @@ export {
 } from './stepNav.js';
 export type { StepNode, BranchLayout, LaidOutNode, LaidOutEdge } from './stepNav.js';
 
-export { HONESTY_LINE, emptyState, emptyPaths } from './types.js';
+export { HONESTY_LINE, emptyState, emptyPaths, defaultLayout, parseLayout } from './types.js';
 export type {
   SessionViewState,
   CommitView,
@@ -53,5 +54,8 @@ export type {
   ReadinessView,
   ViewEncoding,
   ChartCellView,
+  LayoutPreset,
+  LayoutView,
+  LayoutChange,
   Actor,
 } from './types.js';
