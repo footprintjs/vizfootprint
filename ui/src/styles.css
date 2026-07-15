@@ -390,11 +390,58 @@
 :where(.vzf) .vzf-cockpit-top {
   flex: none;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--vzf-space-3);
   background: var(--vzf-surface);
   border: 1px solid var(--vzf-line);
   border-radius: var(--vzf-r-lg);
   box-shadow: var(--vzf-shadow-sm);
   padding: var(--vzf-space-2) var(--vzf-space-3);
+}
+:where(.vzf) .vzf-cockpit-top-main {
+  flex: 1;
+  min-width: 0;
+}
+/* ── LY-1: the layout switcher (Flow / Grid / Focus) — a segmented radiogroup ── */
+:where(.vzf) .vzf-layout-switch {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--vzf-paper);
+  border: 1px solid var(--vzf-line);
+  border-radius: var(--vzf-r-pill);
+}
+:where(.vzf) .vzf-layout-option {
+  font: inherit;
+  font-size: 0.78em;
+  font-weight: 500;
+  color: var(--vzf-ink-soft);
+  background: transparent;
+  border: none;
+  border-radius: var(--vzf-r-pill);
+  padding: 2px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+:where(.vzf) .vzf-layout-option:hover:not(:disabled) {
+  color: var(--vzf-ink);
+}
+:where(.vzf) .vzf-layout-option.vzf-active {
+  color: var(--vzf-brand-deep);
+  background: var(--vzf-brand-tint);
+  font-weight: 600;
+}
+:where(.vzf) .vzf-layout-option:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+:where(.vzf) .vzf-layout-option:focus-visible {
+  outline: none;
+  box-shadow: var(--vzf-focus);
 }
 :where(.vzf) .vzf-cockpit-charts {
   flex: 1;
@@ -405,6 +452,7 @@
   overflow: hidden;
 }
 :where(.vzf) .vzf-cockpit-cell {
+  position: relative; /* anchors the drag handle + the focus-thumb overlay (LY-1) */
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -415,6 +463,73 @@
   border-radius: var(--vzf-r-lg);
   box-shadow: var(--vzf-shadow-sm);
   padding: var(--vzf-space-3);
+}
+/* ── LY-1: drag-to-reorder — the grip shows on hover, drags with the pointer ── */
+:where(.vzf) .vzf-drag-handle {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  z-index: 3;
+  color: var(--vzf-ink-soft);
+  font-size: 0.9em;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  touch-action: none; /* the drag owns the pointer — never a scroll gesture */
+  user-select: none;
+  -webkit-user-select: none;
+}
+:where(.vzf) .vzf-cockpit-cell:hover .vzf-drag-handle,
+:where(.vzf) .vzf-drag-handle:hover {
+  opacity: 0.85;
+}
+:where(.vzf) .vzf-cockpit-cell.vzf-dragging {
+  outline: 2px dashed var(--vzf-brand);
+  outline-offset: 2px;
+  opacity: 0.85;
+}
+:where(.vzf) .vzf-cockpit-cell.vzf-drop-target {
+  outline: 2px solid var(--vzf-brand);
+  outline-offset: 2px;
+}
+/* ── LY-1: focus preset — thumbnails are scaled-down LIVE cells behind a swap
+   overlay; all of it desktop-only (mobile keeps the carousel regardless) ── */
+:where(.vzf) .vzf-thumb-overlay {
+  display: none;
+}
+@media (min-width: 701px) {
+  :where(.vzf) .vzf-thumb-overlay {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    background: transparent;
+    border: none;
+    border-radius: var(--vzf-r-lg);
+    padding: 0;
+    cursor: pointer;
+  }
+  :where(.vzf) .vzf-thumb-overlay:focus-visible {
+    outline: none;
+    box-shadow: var(--vzf-focus);
+  }
+  :where(.vzf) .vzf-thumb-overlay:hover {
+    background: color-mix(in srgb, var(--vzf-brand) 7%, transparent);
+  }
+  :where(.vzf) .vzf-cockpit-cell.vzf-thumb {
+    padding: var(--vzf-space-1);
+  }
+  :where(.vzf) .vzf-cockpit-cell.vzf-thumb .vzf-chart-caption {
+    display: none; /* a thumbnail has no room for prose — the hero carries the caption */
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :where(.vzf) .vzf-drag-handle,
+  :where(.vzf) .vzf-layout-option {
+    transition: none;
+  }
 }
 :where(.vzf) .vzf-cockpit-cell .vzf-chart-caption {
   flex: none;
@@ -547,6 +662,11 @@
     flex: none;
     justify-content: center;
     gap: var(--vzf-space-2);
+  }
+  /* LY-1: the carousel IS the mobile layout — arrangement controls hide */
+  :where(.vzf) .vzf-layout-switch,
+  :where(.vzf) .vzf-drag-handle {
+    display: none;
   }
 }
 

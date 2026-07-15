@@ -50,6 +50,9 @@ describe('LY-1 — the layout navigate lands a recorded, non-filtering commit', 
     // the head/cursor advanced onto the landed commit (a real act, not a side note)
     expect(s.head).toBe(commit.id);
     expect(s.cursor()).toBe(commit.id);
+    // a caller-supplied cross-tier join key rides the commit (R10)
+    const tagged = await s.dispatch({ verb: 'navigate', viewId: LAYOUT, field: 'focus', value: 'scatter', cause: cause('user', 'layout = focus on scatter'), correlationId: 'corr-9' });
+    expect(tagged.ok && tagged.commit!.correlationId === 'corr-9').toBe(true);
   });
 
   it('is deliberately NON-FILTERING: selections, row counts, and foldDiff never see it', async () => {
