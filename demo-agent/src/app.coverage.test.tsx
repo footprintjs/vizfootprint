@@ -655,6 +655,72 @@ describe('keyboard step-nav mirror', () => {
   });
 });
 
+describe('popup structure — ONE internal scroll region (the transcript), pinned chrome below it', () => {
+  beforeEach(async () => {
+    await boot(STATE_A);
+    await tick(); // let the boot-time getChatState render the boot activity group
+  });
+
+  it('the card is header → transcript → working → composer → suggest, in that pinned order (no activity sibling)', () => {
+    const card = document.querySelector('.chatbody .card')!;
+    expect(Array.from(card.children).map((c) => c.className)).toEqual(['section-head', 'transcript', 'working', 'composer', 'suggest']);
+  });
+
+  it('every tool-activity row renders INSIDE the transcript scroll region, never as a pinned sibling', () => {
+    const transcript = document.querySelector('.transcript')!;
+    const groups = document.querySelectorAll('.activity');
+    expect(groups.length).toBeGreaterThan(0);
+    for (const group of groups) expect(transcript.contains(group)).toBe(true);
+    expect(transcript.querySelectorAll('.activity-step')).toHaveLength(12); // all of STATE_A's rows, in the scroll region
+    expect(document.querySelectorAll('.activity-step')).toHaveLength(12); // …and nowhere else
+  });
+
+  it('a turn flows in order inside the transcript: you-bubble → its OWN activity group → reply → 🐛; the boot group stays frozen before it', async () => {
+    const transcript = document.querySelector<HTMLElement>('.transcript')!;
+    const bootGroup = transcript.querySelector('.activity')!;
+    expect(bootGroup.querySelectorAll('.activity-step')).toHaveLength(12);
+
+    const chat = deferred<{ text?: string }>();
+    api.chatQueue.push(chat.promise);
+    const input = document.querySelector('.composer input') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'go' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      await flush();
+    });
+    // mid-turn: the 400ms live poll renders THIS turn's (2-row) buffer into the
+    // NEW group only — the boot group's 12 rows stay frozen above it.
+    api.state = { ...STATE_A, turnActive: true, activity: STATE_A.activity.slice(0, 2) };
+    await advance(400);
+    const groups = transcript.querySelectorAll('.activity');
+    expect(groups).toHaveLength(2);
+    expect(groups[1]!.querySelectorAll('.activity-step')).toHaveLength(2);
+    expect(bootGroup.querySelectorAll('.activity-step')).toHaveLength(12);
+
+    chat.resolve({ text: 'turn reply' });
+    await tick();
+    // DOM order within the transcript: … → you → this turn's group → reply → 🐛
+    const kids = Array.from(transcript.children);
+    const you = transcript.querySelector('.bubble.you')!;
+    const reply = within(transcript).getByText('turn reply');
+    const dbg = transcript.querySelector('.dbgbtn')!;
+    expect(kids.indexOf(you)).toBeGreaterThan(kids.indexOf(bootGroup));
+    expect(kids.indexOf(groups[1]!)).toBeGreaterThan(kids.indexOf(you));
+    expect(kids.indexOf(reply)).toBeGreaterThan(kids.indexOf(groups[1]!));
+    expect(kids.indexOf(dbg)).toBeGreaterThan(kids.indexOf(reply));
+  });
+
+  it('reset points the poll at a FRESH group inside the cleared transcript — never the detached old one', async () => {
+    const transcript = document.querySelector('.transcript')!;
+    expect(transcript.querySelectorAll('.activity-step')).toHaveLength(12);
+    await click(document.getElementById('chatreset'));
+    expect(transcript.querySelectorAll('.activity-step')).toHaveLength(0); // cleared with the transcript
+    await advance(2000); // the idle poll renders the server buffer into the NEW group
+    expect(transcript.querySelectorAll('.activity-step')).toHaveLength(12);
+    expect(document.querySelectorAll('.activity-step')).toHaveLength(12); // nothing rendered into the detached group
+  });
+});
+
 describe('chat popup — open/close', () => {
   beforeEach(async () => {
     await boot(STATE_A);

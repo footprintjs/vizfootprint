@@ -509,6 +509,137 @@ describe.skipIf(!existsSync(CHROME))('RP-3: a REJECTED proposal (a host-owned tr
 });
 
 /**
+ * FIX-POPUP — the popup layout under a GROWN transcript (real headless
+ * Chromium, mock provider). Regression: the tool-activity strip used to be a
+ * pinned SIBLING of the transcript with min-height: 8px — under flex pressure
+ * the box shrank below its rows and they painted over the composer and the
+ * suggestion chips (text on text after ~3 turns). Now every turn's tool rows
+ * flow INSIDE the transcript's single scroll region, in turn order, so after
+ * 3 real turns: the last activity row, the composer input, and the first chip
+ * are pairwise NON-overlapping; the transcript scrolls internally; all 8
+ * chips stay reachable inside their own ≤2-row band; the page still never
+ * scrolls. Also proven at 390×740 (the popup becomes a full-width sheet).
+ */
+describe.skipIf(!existsSync(CHROME))('FIX-POPUP: long transcript — one internal scroll region, nothing overlaps', () => {
+  let handle: Awaited<ReturnType<typeof startServer>>;
+  let browser: Browser;
+  let page: Page;
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+
+  interface Box {
+    top: number;
+    bottom: number;
+    left: number;
+    right: number;
+  }
+  const overlaps = (a: Box, b: Box): boolean => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+
+  /** The popup's load-bearing boxes + scroll metrics, measured in the live page. */
+  async function measurePopup(p: Page): Promise<{
+    lastStep: Box;
+    input: Box;
+    firstChip: Box;
+    panel: Box;
+    stepsInTranscript: number;
+    stepsOutsideTranscript: number;
+    chipCount: number;
+    transcript: { scrollHeight: number; clientHeight: number };
+    suggest: { overflowY: string; clientHeight: number };
+  }> {
+    return page.evaluate(() => {
+      const rect = (el: Element): { top: number; bottom: number; left: number; right: number } => {
+        const b = el.getBoundingClientRect();
+        return { top: b.top, bottom: b.bottom, left: b.left, right: b.right };
+      };
+      const inTranscript = document.querySelectorAll('#chatpanel .transcript .activity-step');
+      const everywhere = document.querySelectorAll('#chatpanel .activity-step');
+      const t = document.querySelector('#chatpanel .transcript') as HTMLElement;
+      const suggest = document.querySelector('#chatpanel .suggest') as HTMLElement;
+      return {
+        lastStep: rect(inTranscript[inTranscript.length - 1]!),
+        input: rect(document.querySelector('#chatpanel .composer input')!),
+        firstChip: rect(document.querySelector('#chatpanel .suggest button')!),
+        panel: rect(document.querySelector('#chatpanel')!),
+        stepsInTranscript: inTranscript.length,
+        stepsOutsideTranscript: everywhere.length - inTranscript.length,
+        chipCount: document.querySelectorAll('#chatpanel .suggest button').length,
+        transcript: { scrollHeight: t.scrollHeight, clientHeight: t.clientHeight },
+        suggest: { overflowY: getComputedStyle(suggest).overflowY, clientHeight: suggest.clientHeight },
+      };
+    });
+  }
+
+  beforeAll(async () => {
+    mkdirSync(SHOTS, { recursive: true });
+    handle = await startServer({ port: 0, mock: true });
+    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
+    page.on('console', (m) => {
+      if (m.type() === 'error') consoleErrors.push(m.text());
+    });
+    page.on('pageerror', (e) => pageErrors.push(String(e)));
+    await page.goto(handle.url);
+    await page.waitForSelector('svg.vzf-scatter');
+  }, 120_000);
+
+  afterAll(async () => {
+    await browser?.close();
+    await handle?.close();
+  });
+
+  it('after 3 scripted turns: (last activity row, input, first chip) pairwise non-overlapping; the transcript scrolls internally; zero page scroll', async () => {
+    await page.locator('#fab').click();
+    await page.waitForSelector('#chatpanel:not([hidden]) .composer input');
+
+    const TURNS = [
+      'Is price correlated with rating? Declare it and read the ledger honestly.',
+      'Filter the scatter to dresses over $150, then give me the group-by of price per category.',
+      'Cluster the dresses by price, then tell me why the cluster_id column has the values it does.',
+    ];
+    for (let i = 0; i < TURNS.length; i++) {
+      await page.locator('#chatpanel .composer input').fill(TURNS[i]!);
+      await page.locator('#chatpanel .composer input').press('Enter');
+      await page.waitForFunction((n) => document.querySelectorAll('#chatpanel .bubble.analyst').length >= n, i + 1, { timeout: 30_000 });
+    }
+
+    const m = await measurePopup(page);
+    expect(m.stepsInTranscript, 'the turns really produced tool-activity rows').toBeGreaterThan(0);
+    expect(m.stepsOutsideTranscript, 'every tool-activity row flows inside the transcript').toBe(0);
+    expect(overlaps(m.lastStep, m.input), 'activity rows never overlap the input').toBe(false);
+    expect(overlaps(m.lastStep, m.firstChip), 'activity rows never overlap the chips').toBe(false);
+    expect(overlaps(m.input, m.firstChip), 'the input never overlaps the chips').toBe(false);
+    expect(m.chipCount, 'all 8 suggestions stay reachable').toBe(8);
+    expect(m.transcript.scrollHeight, 'the transcript scrolls internally').toBeGreaterThan(m.transcript.clientHeight);
+    await expectNoPageOrShellScroll(page);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'popup-long-transcript.png'), fullPage: false });
+  }, 90_000);
+
+  it('at 390×740 the popup is a usable full-width sheet — same non-overlap trio, still inside the viewport, chips band scrolls internally', async () => {
+    await page.setViewportSize({ width: 390, height: 740 });
+    await page.waitForTimeout(200); // let the sheet re-lay out
+
+    const m = await measurePopup(page);
+    expect(overlaps(m.lastStep, m.input)).toBe(false);
+    expect(overlaps(m.lastStep, m.firstChip)).toBe(false);
+    expect(overlaps(m.input, m.firstChip)).toBe(false);
+    expect(m.panel.left, 'the sheet stays inside the viewport (left)').toBeGreaterThanOrEqual(0);
+    expect(m.panel.right, 'the sheet stays inside the viewport (right)').toBeLessThanOrEqual(390);
+    expect(m.panel.bottom, 'bottom: 64px still clears the status chips').toBeLessThanOrEqual(740 - 64);
+    expect(m.transcript.scrollHeight, 'the transcript still scrolls internally').toBeGreaterThan(m.transcript.clientHeight);
+    expect(m.suggest.overflowY, 'the chip band owns its own overflow').toBe('auto');
+    expect(m.suggest.clientHeight, 'the chip band stays capped (~2 rows), never a tall column').toBeLessThanOrEqual(100);
+    await expectNoPageOrShellScroll(page);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'popup-mobile.png'), fullPage: false });
+  }, 30_000);
+
+  it('ran with zero console errors', () => {
+    expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
+    expect(pageErrors, pageErrors.join('\n')).toEqual([]);
+  });
+});
+
+/**
  * Phase B — the cockpit's TIME-TRAVEL bar (real headless Chromium, mock provider):
  *   - a timeline of the active branch's commits (always visible in the top
  *     strip) + a branch-map git-graph render (behind its own report chip);

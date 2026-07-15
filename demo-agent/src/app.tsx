@@ -503,9 +503,14 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
 function wireChatAndDebugger(view: SessionView): void {
   const chatRoot = document.getElementById('chatbody') as HTMLElement;
 
+  // The popup body is an honest flex column with ONE internal scroll region:
+  // header (page.mjs chrome, pinned) → transcript (scrollable — replies AND
+  // tool-activity rows flow together in turn order) → working line → composer
+  // → suggestion chips (pinned, own ≤2-row scroll). The activity strip used to
+  // be a pinned SIBLING of the transcript; under flex pressure its box shrank
+  // below its rows and they painted over the composer/chips (see page.mjs).
   const transcript = el('div', { class: 'transcript' });
   const working = el('div', { class: 'working' });
-  const activityStrip = el('div', { class: 'activity' });
   const input = el('input', {}) as HTMLInputElement;
   input.type = 'text';
   input.placeholder = 'Ask the analyst to work alongside you…';
@@ -517,7 +522,6 @@ function wireChatAndDebugger(view: SessionView): void {
     el('div', { class: 'card' }, [
       el('div', { class: 'section-head', text: 'Analyst chat — a real Claude analyst driving the same session' }),
       transcript,
-      activityStrip,
       working,
       el('div', { class: 'composer' }, [input, sendBtn]),
       suggestRow,
@@ -525,6 +529,19 @@ function wireChatAndDebugger(view: SessionView): void {
   );
 
   transcript.appendChild(el('div', { class: 'bubble sys', text: 'Brush the scatter or click a bar on the dashboard, then ask me to analyze. Every move we both make lands in the shared commit log.' }));
+
+  // Tool-activity rows live INSIDE the transcript, one `.activity` group per
+  // turn: the server's activity buffer is per-turn (core.ts resets it on every
+  // /api/chat), so renderActivity always paints the CURRENT group and prior
+  // turns' groups stay frozen in place — they scroll with the conversation
+  // instead of competing with the pinned composer/chips for the popup's fixed
+  // height. Boot starts with one group for whatever the last turn left behind.
+  function newActivityGroup(): HTMLElement {
+    const group = el('div', { class: 'activity' });
+    transcript.appendChild(group);
+    return group;
+  }
+  let activityGroup = newActivityGroup();
   for (const s of SUGGESTIONS) {
     const b = el('button', { text: s }) as HTMLButtonElement;
     b.addEventListener('click', () => {
@@ -558,6 +575,7 @@ function wireChatAndDebugger(view: SessionView): void {
       chatreset.disabled = true;
       await post('/api/reset', {});
       replaceChildren(transcript, el('div', { class: 'bubble sys', text: '✨ Fresh session — chat and shared log cleared. Ask away!' }));
+      activityGroup = newActivityGroup(); // never render into the detached old group
       chatreset.disabled = false;
       await view.refresh();
     })();
@@ -574,7 +592,7 @@ function wireChatAndDebugger(view: SessionView): void {
     if (state.turnActive) working.textContent = state.activity.length ? 'analyst is working…' : 'analyst is thinking…';
     else working.textContent = '';
     replaceChildren(
-      activityStrip,
+      activityGroup,
       ...state.activity.map((s) =>
         el('div', { class: 'activity-step', dataset: { tool: s.tool } }, [
           el('span', { class: 'tool', text: s.tool }),
@@ -583,6 +601,9 @@ function wireChatAndDebugger(view: SessionView): void {
         ]),
       ),
     );
+    // mid-turn the newest tool row is the live signal — keep it in view (the
+    // rows now grow INSIDE the transcript's scroll region, not a pinned strip)
+    if (state.turnActive) transcript.scrollTop = transcript.scrollHeight;
   }
 
   async function sendMessage(text: string): Promise<void> {
@@ -592,6 +613,7 @@ function wireChatAndDebugger(view: SessionView): void {
     sendBtn.disabled = true;
     input.disabled = true;
     transcript.appendChild(el('div', { class: 'bubble you', text: message }));
+    activityGroup = newActivityGroup(); // THIS turn's tool rows flow right under the message, before the reply
     transcript.scrollTop = transcript.scrollHeight;
     working.textContent = 'analyst is thinking…';
     // Faster polling during the turn so the dashboard (commits/ledger) and the

@@ -39,7 +39,16 @@ body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, san
 .btn:hover { border-color: var(--accent); }
 .btn:disabled { opacity: .5; cursor: default; }
 
-/* ── chat (rendered by app.tsx into the floating popup body) ── */
+/* ── chat (rendered by app.tsx into the floating popup body) ──
+   The popup body is an honest flex column with ONE internal scroll region:
+   the transcript (flex:1, overflow-y:auto) owns ALL growth — each turn's
+   reply AND its tool-activity rows flow together inside it in turn order.
+   Everything else (working line, composer, suggestion chips) is a pinned
+   flex:0 sibling below it, so nothing ever overlaps at any transcript
+   length. Regression note: .activity used to be a pinned SIBLING of the
+   transcript with min-height: 8px — under flex pressure that explicit
+   min-height let the box shrink below its content, and the (overflow:
+   visible) rows painted straight over the composer and the chips. */
 .chatbody .card { display: flex; flex-direction: column; flex: 1 1 auto; border: 0; box-shadow: none; margin: 0; border-radius: 0; background: transparent; padding: 0; min-height: 0; }
 .chatbody .section-head { display: none; }
 .transcript { display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 2px; }
@@ -47,16 +56,20 @@ body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, san
 .bubble.you { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
 .bubble.analyst { align-self: flex-start; background: var(--chip); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
 .bubble.sys { align-self: center; color: var(--muted); font-size: 12px; font-style: italic; }
-.composer { display: flex; gap: 8px; margin-top: 10px; }
-.composer input { flex: 1; font: inherit; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
+.composer { display: flex; gap: 8px; margin-top: 10px; flex: 0 0 auto; }
+.composer input { flex: 1; min-width: 0; font: inherit; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
 .composer input:focus { outline: none; border-color: var(--accent); }
-.activity { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; min-height: 8px; }
-.activity-step { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; background: var(--chip); border: 1px solid var(--line); border-radius: 7px; padding: 5px 9px; font-size: 12px; }
+/* one .activity group per turn, INSIDE the transcript scroll region */
+.activity { display: flex; flex-direction: column; gap: 6px; }
+.activity:empty { display: none; } /* a turn with no tool calls leaves no phantom gap slot */
+.activity-step { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; max-width: 100%; min-width: 0; background: var(--chip); border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .activity-step .tool { font-weight: 700; color: var(--agent); white-space: nowrap; }
-.activity-step .args { color: var(--muted); font-variant-numeric: tabular-nums; word-break: break-all; }
-.activity-step .result { word-break: break-all; }
-.working { color: var(--agent); font-size: 12px; font-style: italic; min-height: 16px; margin-top: 6px; }
-.suggest { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.activity-step .args { color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; word-break: break-all; min-width: 0; }
+.activity-step .result { overflow-wrap: anywhere; word-break: break-all; min-width: 0; }
+.working { color: var(--agent); font-size: 12px; font-style: italic; min-height: 16px; margin-top: 6px; flex: 0 0 auto; }
+/* pinned below the composer; wraps, and past ~2 rows scrolls internally so
+   all 8 chips stay reachable without stealing the transcript's height */
+.suggest { display: flex; gap: 6px; flex-wrap: wrap; align-content: flex-start; margin-top: 8px; flex: 0 0 auto; max-height: 100px; overflow-y: auto; }
 .suggest button { font: inherit; font-size: 12px; padding: 4px 9px; border: 1px dashed var(--line); background: transparent; color: var(--accent); border-radius: 999px; cursor: pointer; }
 
 /* ── floating analyst popup ──
@@ -71,6 +84,12 @@ body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, san
 .fab .pulse { width: 9px; height: 9px; border-radius: 999px; background: #7CFFB2; animation: beat 1.8s infinite; }
 @keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(124,255,178,.6); } 70% { box-shadow: 0 0 0 9px rgba(124,255,178,0); } 100% { box-shadow: 0 0 0 0 rgba(124,255,178,0); } }
 .chatpanel { position: fixed; right: 24px; bottom: 64px; z-index: 41; width: 400px; max-width: calc(100vw - 32px); height: 620px; max-height: calc(100vh - 88px); background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 30px 70px -20px rgba(20,30,60,.45); display: flex; flex-direction: column; overflow: hidden; transform-origin: bottom right; animation: pop .2s cubic-bezier(.2,.9,.3,1.2); }
+/* phones: the 400px panel would clamp against the right edge anyway — use the
+   whole narrow width as a symmetric sheet (still floating, still bottom: 64px
+   clear of the status chips, still its own internal scroll) */
+@media (max-width: 480px) {
+  .chatpanel { left: 8px; right: 8px; width: auto; max-width: none; }
+}
 @keyframes pop { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
 .cphead { display: flex; align-items: center; gap: 11px; padding: 13px 15px; background: linear-gradient(135deg, var(--accent), #2f6fed); color: #fff; }
 .cphead .av { width: 34px; height: 34px; border-radius: 999px; background: rgba(255,255,255,.18); display: grid; place-items: center; font-size: 17px; }
