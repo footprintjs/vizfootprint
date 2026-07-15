@@ -9,12 +9,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** Point the frame's own getBoundingClientRect at a controllable box. */
+/**
+ * Point the frame's LAYOUT box (offsetWidth/offsetHeight — what ChartFrame
+ * measures) at a controllable size. jsdom lays nothing out, so both getters
+ * are stubbed at the prototype.
+ */
 function mockRect(width: number, height: number): { set: (w: number, h: number) => void } {
   const box = { width, height };
-  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
-    () => ({ width: box.width, height: box.height, top: 0, left: 0, right: box.width, bottom: box.height, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect,
-  );
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(() => box.width);
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(() => box.height);
   return {
     set: (w, h) => {
       box.width = w;
@@ -89,5 +92,33 @@ describe('ChartFrame — container measurement', () => {
   it('passes className through onto the frame', () => {
     const { container } = render(<ChartFrame className="cell-a">{() => <svg />}</ChartFrame>);
     expect(container.querySelector('.vzf-chart-frame')?.classList.contains('cell-a')).toBe(true);
+  });
+
+  it('measures the LAYOUT box, never the transform-inclusive visual rect (the FLIP-morph letterbox regression)', () => {
+    // the cell is mid-FLIP: layout says 450×977 (the settled flow cell) while the
+    // visual rect still reads the pre-morph 610×480 grid box (inverse transform).
+    // ChartFrame must hand the chart the LAYOUT truth — the visual rect froze the
+    // old size into the viewBox and letterboxed every chart to ~1/3 height.
+    mockRect(450, 977);
+    const gbcr = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
+      () => ({ width: 610, height: 480, top: 0, left: 0, right: 610, bottom: 480, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect,
+    );
+    let fire: (() => void) | undefined;
+    class RO {
+      constructor(cb: ResizeObserverCallback) {
+        fire = () => cb([], this as unknown as ResizeObserver);
+      }
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    vi.stubGlobal('ResizeObserver', RO);
+    const seen: { width: number; height: number }[] = [];
+    render(<ChartFrame>{(s) => (seen.push(s), (<svg />))}</ChartFrame>);
+    expect(seen.at(-1)).toEqual({ width: 450, height: 977 });
+    // the arrangement-change notification arrives while the morph transform is live
+    act(() => fire!());
+    expect(seen.at(-1)).toEqual({ width: 450, height: 977 }); // still the layout truth
+    expect(gbcr).not.toHaveBeenCalled(); // the measurement path never consults the visual rect
   });
 });

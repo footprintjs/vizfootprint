@@ -7,6 +7,16 @@
  * the on-screen box 1:1 (crisp text and hairlines, no letterboxing). Until a
  * real (non-zero) size is known it renders nothing, so a chart never flashes
  * at a wrong scale.
+ *
+ * It measures the LAYOUT box (`offsetWidth`/`offsetHeight`), never the visual
+ * box (`getBoundingClientRect`): the cockpit's FLIP morph (LY-1) plays a
+ * transform animation on the ancestor cell in the very frame the layout box
+ * changes, and a rect read then would return the OLD box — the inverse
+ * transform makes the new layout look exactly like the previous arrangement.
+ * Transforms never re-fire a ResizeObserver, so that stale size would FREEZE
+ * into the chart's viewBox and letterbox the drawing (the short-charts
+ * regression). Layout APIs are transform-proof, so the one observer
+ * notification per arrangement change lands the true settled size.
  */
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -31,9 +41,12 @@ export function ChartFrame(props: ChartFrameProps): JSX.Element {
     /* v8 ignore next -- the ref rides the div this same render returns; React attaches it before layout effects run, so it is never null here */
     if (!el) return;
     const measure = (): void => {
-      const rect = el.getBoundingClientRect();
-      const width = Math.floor(rect.width);
-      const height = Math.floor(rect.height);
+      // offsetWidth/offsetHeight = the UNTRANSFORMED layout border-box (the
+      // frame carries no border/padding, so it equals the content box). A
+      // getBoundingClientRect() here would include the FLIP morph's live
+      // transform and freeze the pre-morph size into the chart (see header).
+      const width = Math.floor(el.offsetWidth);
+      const height = Math.floor(el.offsetHeight);
       // zero-size (display:none, or an environment without layout) — keep waiting
       if (width < 1 || height < 1) return;
       setSize((prev) => (prev !== null && prev.width === width && prev.height === height ? prev : { width, height }));

@@ -350,15 +350,20 @@ export class FakeApi {
 }
 
 /**
- * jsdom never lays anything out — every element's real `getBoundingClientRect()`
- * is a flat all-zero box. The cockpit's `<ChartFrame>` (ui/src/charts/ChartFrame.tsx)
- * measures its own box this way and renders NOTHING until it sees a non-zero
- * size (by design — a chart must never flash at a wrong scale), so without this
- * stub the scatter/bar never mount in these tests at all. A fixed, generous
- * rect is enough: VizScatter/VizBar only need SOME non-zero width/height to
- * compute their scales, and none of these tests assert exact pixel geometry.
+ * jsdom never lays anything out — every element's layout reads are zero. The
+ * cockpit's `<ChartFrame>` (ui/src/charts/ChartFrame.tsx) measures its LAYOUT
+ * box (`offsetWidth`/`offsetHeight` — transform-proof, so a FLIP morph can
+ * never freeze a stale size into the viewBox) and renders NOTHING until it
+ * sees a non-zero size (by design — a chart must never flash at a wrong
+ * scale), so without these stubs the scatter/bar never mount in these tests
+ * at all. `getBoundingClientRect` stays stubbed too: the charts' POINTER math
+ * (VizScatter/VizLine brush-to-data conversion) reads the visual rect. A
+ * fixed, generous box is enough — none of these tests assert exact pixel
+ * geometry.
  */
 function stubChartLayout(): void {
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800);
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(480);
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
     () => ({ width: 800, height: 480, top: 0, left: 0, right: 800, bottom: 480, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect,
   );
