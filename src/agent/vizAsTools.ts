@@ -64,7 +64,10 @@ const WHATS_HERE_DESCRIPTION =
 const DISPATCH_DESCRIPTION =
   'Perform ONE semantic interaction. verb is one of: select (a point value on a field), filter (an ' +
   'interval [lo, hi] on a field, or null to clear — see the range parameter for the full shape, ' +
-  'including open-ended and date ranges), annotate (an inert note), navigate (focus a view), ' +
+  'including open-ended and date ranges), annotate (an inert note), navigate (move view state — a ' +
+  'declared viewId focuses/pans it, field and value are ignored; OR the "layout:<scope>" identity, ' +
+  'e.g. "layout:dashboard", rearranges the cockpit — field names the arrangement prop (preset|order|' +
+  'focus) and value is its new plain-string value, and this lands a real commit), ' +
   'analyze (run a declared analysis over the current selection), fork (travel the cursor back to a ' +
   'prior commit so your NEXT act branches off it — a sibling, no history rewritten), checkpoint (name ' +
   'the current position to return to), reencode (rebind a view\'s visual channel, e.g. x, to a ' +
@@ -128,9 +131,23 @@ const DISPATCH_SCHEMA = {
   type: 'object',
   properties: {
     verb: { type: 'string', enum: [...DISPATCH_VERBS], description: 'The semantic verb.' },
-    viewId: { type: 'string', description: 'The view identity a select/filter/navigate/reencode targets.' },
-    field: { type: 'string', description: 'The data-space column a select/filter acts on, or the target field a reencode rebinds a channel to.' },
-    value: { description: 'The selected DATA-space point value (select).' },
+    viewId: {
+      type: 'string',
+      description:
+        'The view identity a select/filter/navigate/reencode targets. For navigate, also accepts the ' +
+        '"layout:<scope>" identity (e.g. "layout:dashboard") to rearrange the cockpit layout.',
+    },
+    field: {
+      type: 'string',
+      description:
+        'The data-space column a select/filter acts on, the target field a reencode rebinds a channel ' +
+        'to, or — for a navigate on "layout:<scope>" — the arrangement prop being set (preset|order|focus).',
+    },
+    value: {
+      description:
+        'The selected DATA-space point value (select), or — for a navigate on "layout:<scope>" — the ' +
+        'plain-string new value of the arrangement prop named by field.',
+    },
     range: {
       type: ['array', 'null'],
       description:
@@ -329,9 +346,24 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
           return { error: 'annotate requires string target and note' };
         }
         return { verb: 'annotate', target: args['target'], note: args['note'], cause };
-      case 'navigate':
+      case 'navigate': {
         if (typeof args['viewId'] !== 'string') return { error: 'navigate requires a string viewId' };
-        return { verb: 'navigate', viewId: args['viewId'], cause };
+        // field/value are OPTIONAL on the wire (a declared-view pan/zoom sends
+        // neither) and DispatchAction types them `string | undefined` — a
+        // wrong-typed value (e.g. a number) narrows to undefined here rather
+        // than being forwarded, which the session's own doLayoutNote guard
+        // then reports identically to an omitted value (typeof check, same
+        // message) — no guard logic is duplicated here, just type narrowing.
+        const field = typeof args['field'] === 'string' ? args['field'] : undefined;
+        const value = typeof args['value'] === 'string' ? args['value'] : undefined;
+        return {
+          verb: 'navigate',
+          viewId: args['viewId'],
+          ...(field !== undefined ? { field } : {}),
+          ...(value !== undefined ? { value } : {}),
+          cause,
+        };
+      }
       case 'analyze':
         if (typeof args['analysisId'] !== 'string') return { error: 'analyze requires a string analysisId' };
         return { verb: 'analyze', analysisId: args['analysisId'], cause };

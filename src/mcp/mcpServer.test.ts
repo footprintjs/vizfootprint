@@ -132,6 +132,23 @@ describe('mcpServer — a real MCP server backed by a live session', () => {
     expect((here['paths'] as { current: string }).current).toBe('main');
   });
 
+  it('LY-2 root fix, MCP parity: a "layout:<scope>" navigate lands a real fold-carried commit over the wire, then reads back through whats_here', async () => {
+    const client = await connectClient(freshSession());
+    const res = await client.callTool({
+      name: 'viz.dispatch',
+      arguments: { verb: 'navigate', viewId: 'layout:dashboard', field: 'preset', value: 'focus', intent: 'layout = focus' },
+    });
+    expect(res.isError).toBeFalsy();
+    const payload = text(res);
+    expect(payload['ok']).toBe(true);
+    expect(payload['navigatedTo']).toBe('layout:dashboard');
+    expect((payload['commit'] as { field: string; value: unknown }).field).toBe('preset');
+    expect((payload['commit'] as { field: string; value: unknown }).value).toBe('focus');
+
+    const here = text(await client.callTool({ name: 'viz.whats_here', arguments: {} }));
+    expect(here['layouts']).toEqual({ dashboard: { preset: 'focus' } });
+  });
+
   it('an unknown tool comes back as isError, never a crash', async () => {
     const client = await connectClient(freshSession());
     const res = await client.callTool({ name: 'viz.push_dom_event', arguments: {} });

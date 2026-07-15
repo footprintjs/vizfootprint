@@ -177,6 +177,53 @@ describe('viz.dispatch — navigate', () => {
     const res = await port.call('viz.dispatch', { verb: 'navigate' });
     expect(res).toEqual({ ok: false, reason: 'PAYLOAD_INVALID', detail: 'navigate requires a string viewId' });
   });
+
+  it('a declared-view navigate with field/value present still succeeds — RP-1 contract unchanged, they are ignored (no commit)', async () => {
+    const port = freshPort();
+    const res = await port.call('viz.dispatch', { verb: 'navigate', viewId: 'bar', field: 'preset', value: 'focus' });
+    expect(res).toEqual({ ok: true, verb: 'navigate', intent: 'optional-interaction', navigatedTo: 'bar' });
+  });
+});
+
+describe('viz.dispatch — navigate on "layout:<scope>" (LY-2 root fix: field/value now reach the session, no demo-side shim needed)', () => {
+  it('a well-formed layout navigate (field+value) lands a REAL fold-carried commit through the tool alone', async () => {
+    const port = freshPort();
+    const res = await port.call('viz.dispatch', {
+      verb: 'navigate',
+      viewId: 'layout:dashboard',
+      field: 'preset',
+      value: 'focus',
+      intent: 'layout = focus',
+    });
+    expect(get(res, 'ok')).toBe(true);
+    expect(get(res, 'navigatedTo')).toBe('layout:dashboard');
+    const commit = get(res, 'commit') as { field: string; value: unknown; cause: { intent?: string } };
+    expect(commit.field).toBe('preset');
+    expect(commit.value).toBe('focus');
+    expect(commit.cause.intent).toBe('layout = focus');
+  });
+
+  it('a bad layout navigate (missing field) surfaces the SESSION\'s typed guard-failed gap through the tool result', async () => {
+    const port = freshPort();
+    const res = await port.call('viz.dispatch', { verb: 'navigate', viewId: 'layout:dashboard' });
+    expect(get(res, 'ok')).toBe(false);
+    expect((get(res, 'gap') as { code: string; op: string }).code).toBe('guard-failed');
+    expect((get(res, 'gap') as { code: string; op: string }).op).toBe('navigate');
+  });
+
+  it('a non-string value (e.g. a number) on a layout navigate is ALSO an honest guard-failed gap, not a silent coercion', async () => {
+    const port = freshPort();
+    const res = await port.call('viz.dispatch', { verb: 'navigate', viewId: 'layout:dashboard', field: 'preset', value: 42 });
+    expect(get(res, 'ok')).toBe(false);
+    expect((get(res, 'gap') as { code: string }).code).toBe('guard-failed');
+  });
+
+  it('a bare "layout:" scope (empty) is a typed guard-failed gap', async () => {
+    const port = freshPort();
+    const res = await port.call('viz.dispatch', { verb: 'navigate', viewId: 'layout:', field: 'preset', value: 'focus' });
+    expect(get(res, 'ok')).toBe(false);
+    expect((get(res, 'gap') as { code: string }).code).toBe('guard-failed');
+  });
 });
 
 describe('viz.dispatch — analyze without an analysisId', () => {
