@@ -140,6 +140,11 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
   return (
     <VizCockpit
       readOnly={readOnly}
+      // LY-1: the arrangement is SESSION state — the cockpit renders state.layout
+      // (the fold at the cursor) and every gesture lands through view.setLayout,
+      // so presets/order/focus time-travel, fork, and present like everything else.
+      layout={state.layout}
+      onLayoutChange={(change) => void view.setLayout(change)}
       top={
         <TimeTravelBar
           compact

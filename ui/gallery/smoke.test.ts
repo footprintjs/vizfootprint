@@ -29,6 +29,13 @@
  *     replayedFrom commit visible in the CommitLog;
  *   - at a MOBILE viewport the charts become a scroll-snap carousel with dot
  *     indicators — still zero page scroll;
+ *   - LY-1, the session-carried arrangements LIVE: the Flow/Grid/Focus
+ *     switcher lands recorded presets (equal grid cells; a maximized hero
+ *     over live thumbnails whose click swaps focus), drag-to-reorder lands an
+ *     order commit that renders back from the fold, the commit log tells each
+ *     change in plain words ("layout = focus on bar"), time-travel to the
+ *     first commit strips the arrangement and Return-to-now restores it —
+ *     zero page/shell scroll in EVERY preset;
  *   - zero console errors throughout.
  * Screenshots refresh ONLY under UPDATE_SCREENSHOTS=1 (see below).
  */
@@ -634,6 +641,139 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     expect(gapsText).toContain('chart-transforms-not-owned');
     await page.keyboard.press('Escape');
     await page.waitForSelector('[data-vzf-modal="report-gaps"]', { state: 'detached' });
+  }, 30_000);
+
+  it('LY-1: the switcher lands recorded presets — Grid arranges equal cells, zero scroll', async () => {
+    await page.setViewportSize({ width: 1180, height: 640 });
+    await page.waitForTimeout(150);
+    // the switcher rides the top strip: three plain-named options, Flow active
+    const options = page.locator('[data-vzf="layout-switch"] [role="radio"]');
+    expect(await options.allTextContents()).toEqual(['Flow', 'Grid', 'Focus']);
+    expect(await page.locator('[data-vzf="layout-switch"] [aria-checked="true"]').textContent()).toBe('Flow');
+    expect(await page.locator('[data-vzf="cockpit-charts"]').getAttribute('data-preset')).toBe('flow');
+
+    // Grid → a REAL commit lands and every cell gets the same width
+    const commitsBefore = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    await page.locator('[data-preset-option="grid"]').click();
+    await page.waitForSelector('[data-vzf="cockpit-charts"][data-preset="grid"]');
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      commitsBefore,
+      { timeout: 8000 },
+    );
+    await page.waitForTimeout(400); // let the FLIP morph land — getBoundingClientRect includes live transforms
+    const widths = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] .vzf-cockpit-cell')).map((el) => el.getBoundingClientRect().width),
+    );
+    expect(widths.length).toBeGreaterThanOrEqual(6); // 4 first-party + vl + the agent chart
+    for (const w of widths) expect(Math.abs(w - widths[0]!)).toBeLessThanOrEqual(2); // equal cells
+    await expectNoPageOrShellScroll(page);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-layout-grid.png'), fullPage: false });
+  }, 30_000);
+
+  it('LY-1: Focus maximizes one chart over a live thumbnail rail; a thumbnail click swaps the hero', async () => {
+    const commitsBefore = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    await page.locator('[data-preset-option="focus"]').click();
+    await page.waitForSelector('[data-vzf="cockpit-charts"][data-preset="focus"]');
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      commitsBefore,
+      { timeout: 8000 },
+    );
+    await page.waitForTimeout(400); // let the FLIP morph land — rects mid-transform would lie
+    // one hero (the first cell by default), everyone else a thumb on the rail
+    const shape = await page.evaluate(() => {
+      const hero = document.querySelector('[data-vzf="cockpit-charts"] [data-focused="true"]') as HTMLElement;
+      const thumbs = Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] .vzf-thumb')) as HTMLElement[];
+      return {
+        heroId: hero.getAttribute('data-chart'),
+        heroH: hero.getBoundingClientRect().height,
+        thumbHs: thumbs.map((t) => t.getBoundingClientRect().height),
+        overlays: thumbs.filter((t) => t.querySelector('[data-vzf="focus-thumb"]')).length,
+        liveSvgs: thumbs.filter((t) => t.querySelector('svg')).length,
+      };
+    });
+    expect(shape.heroId).toBe('scatter');
+    expect(shape.thumbHs.length).toBeGreaterThanOrEqual(5);
+    for (const h of shape.thumbHs) expect(shape.heroH).toBeGreaterThan(h * 3); // genuinely maximized
+    expect(shape.overlays).toBe(shape.thumbHs.length); // every thumb swaps on click
+    expect(shape.liveSvgs).toBe(shape.thumbHs.length); // thumbs are scaled-down LIVE cells, not stills
+    await expectNoPageOrShellScroll(page);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-layout-focus.png'), fullPage: false });
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.waitForTimeout(150);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-layout-focus-dark.png'), fullPage: false });
+    await page.emulateMedia({ colorScheme: 'light' });
+
+    // clicking the bar thumbnail swaps focus — a recorded commit, plain words in the log
+    const commitsMid = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    await page.locator('[data-chart="bar"] [data-vzf="focus-thumb"]').click();
+    await page.waitForSelector('[data-chart="bar"][data-focused="true"]');
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      commitsMid,
+      { timeout: 8000 },
+    );
+    await page.locator('[data-report="commits"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-commits"] [data-vzf="commit-log"]');
+    const logText = (await page.locator('[data-vzf-modal="report-commits"]').textContent()) ?? '';
+    expect(logText).toContain('layout = focus on bar'); // the commit log tells it in plain words
+    expect(logText).toContain('layout = grid');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-vzf-modal="report-commits"]', { state: 'detached' });
+    await expectNoPageOrShellScroll(page);
+  }, 30_000);
+
+  it('LY-1: drag-to-reorder persists the order as a recorded commit', async () => {
+    // back to Flow so the drag reads on the plain band
+    await page.locator('[data-preset-option="flow"]').click();
+    await page.waitForSelector('[data-vzf="cockpit-charts"][data-preset="flow"]');
+    await page.waitForTimeout(400); // settle the FLIP morph — cells (and their grips) are mid-transform until it lands
+    const orderBefore = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] [data-chart]')).map((el) => el.getAttribute('data-chart')),
+    );
+    expect(orderBefore[0]).toBe('scatter');
+
+    // drag the scatter's grip onto the line cell (pointer-based, real mouse)
+    const commitsBefore = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    const grip = (await page.locator('[data-chart="scatter"] [data-vzf="drag-handle"]').boundingBox())!;
+    const lineBox = (await page.locator('[data-chart="line"]').boundingBox())!;
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(lineBox.x + lineBox.width / 2, lineBox.y + lineBox.height / 2, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      commitsBefore,
+      { timeout: 8000 },
+    );
+    const orderAfter = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] [data-chart]')).map((el) => el.getAttribute('data-chart')),
+    );
+    expect(orderAfter.slice(0, 2)).toEqual(['line', 'scatter']); // the drop landed and rendered back from the fold
+    await expectNoPageOrShellScroll(page);
+  }, 30_000);
+
+  it('LY-1: time-travel restores the arrangement — the layout is fold-carried view-state', async () => {
+    // we are on flow with a custom order + focus/grid notes behind us
+    expect(await page.locator('[data-vzf="cockpit-charts"]').getAttribute('data-preset')).toBe('flow');
+    // seek to the very FIRST commit — before any layout note existed
+    await page.locator('[data-vzf="timeline"] [data-commit]').first().click();
+    await page.waitForSelector('[data-vzf="return-now"]'); // viewing past now
+    await page.waitForSelector('[data-vzf="cockpit-charts"][data-preset="flow"]');
+    const pastOrder = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] [data-chart]')).map((el) => el.getAttribute('data-chart')),
+    );
+    expect(pastOrder[0]).toBe('scatter'); // the saved order is gone in the past — consumer order rules
+    // return to now WITHOUT acting (no fork): the drag order + flow preset come back
+    await page.locator('[data-vzf="return-now"]').click();
+    await page.waitForFunction(
+      () => document.querySelectorAll('[data-vzf="cockpit-charts"] [data-chart]')[0]?.getAttribute('data-chart') === 'line',
+      undefined,
+      { timeout: 8000 },
+    );
+    expect(await page.locator('[data-vzf="cockpit-charts"]').getAttribute('data-preset')).toBe('flow');
+    await expectNoPageOrShellScroll(page);
   }, 30_000);
 
   it('the gallery ran with zero console errors', () => {

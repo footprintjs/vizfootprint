@@ -59,6 +59,50 @@ itself with `dvh` units so mobile browser chrome is accounted for.
 />
 ```
 
+## Layouts — Flow, Grid, Focus (they time-travel)
+
+The cockpit has three user-pickable arrangements, switched from a small
+segmented control in the top strip (keyboard accessible — arrow keys walk it):
+
+- **Flow** — the weighted band above, the default. Nothing changes if you
+  never touch the switcher.
+- **Grid** — equal cells in two rows. Good for comparing charts at the same
+  size.
+- **Focus** — one maximized chart over a rail of small live thumbnails.
+  Clicking a thumbnail swaps it into the hero spot.
+
+You can also **drag any chart by its grip** (the ⠿ that appears on hover) onto
+another chart to reorder the cells. On phones (≤700px) the swipe carousel IS
+the layout, so the switcher and grips hide.
+
+The important part: **a layout change is session state, not a UI whim.** Every
+preset pick, focus swap, and reorder lands through the same `navigate` verb as
+a recorded commit (`layout:dashboard` — deliberately non-filtering: arranging
+charts is never a data claim, exactly like pan/zoom). The session fold carries
+it, so:
+
+- seeking back in time restores the arrangement you had then;
+- every named path keeps its OWN arrangement (fork freely);
+- Present mode replays each story beat's layout — it never authors one;
+- the commit log tells it in plain words: `layout = focus on scatter`.
+
+Wire it in two lines — the cockpit is driven, never self-stateful:
+
+```tsx
+<VizCockpit
+  layout={state.layout}                                  // the fold at the cursor
+  onLayoutChange={(change) => void view.setLayout(change)} // lands a recorded commit
+  …
+/>
+```
+
+Morphs between arrangements animate `transform` only (FLIP via the Web
+Animations API): chart internals re-render exactly once per morph — the single
+`ChartFrame` remeasure — never per frame. `prefers-reduced-motion` (and any
+engine without WAAPI) skips the animation and just lands the new layout.
+
+![the focus preset](gallery/screenshots/gallery-layout-focus.png)
+
 ## One modal system — VizModal
 
 Every overlay in the library rides `<VizModal>`: the report chips, the
