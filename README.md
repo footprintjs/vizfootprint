@@ -1,5 +1,18 @@
 # vizfootprint (pre-alpha, X1'/X2 spikes in progress)
 
+## The foottrail core
+
+Underneath the branching paths below sits a small, standalone pattern:
+`src/cause/` (who requested a change vs. who computed it), `src/log/` (a
+frozen, append-only, parent-linked commit log — never edited, only grown),
+and `src/branches/` (named refs beside that log, proven import-pure by a
+structural test). footprintjs records a run of a pre-drawn plan, so its log
+is a straight line; this records an exploration with no pre-drawn plan, so
+its log is a tree — a branching record of everywhere you went, not just
+where you ended up. Its future package name is **foottrail**. Read
+[`docs/foottrail.md`](docs/foottrail.md) for the full pattern, what it
+deliberately leaves out, and the rule for when it becomes its own package.
+
 ## Named paths over your analysis history
 
 Every interaction lands as a commit in an append-only log, so your analysis

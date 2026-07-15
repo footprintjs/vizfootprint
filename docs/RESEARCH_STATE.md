@@ -200,6 +200,22 @@ price vs rating colored by category" chip drives it live. Gate: **1502 tests at 
 typechecks clean; gallery + demo-agent browser smokes green (real Chromium: the agent chart renders + crossfilters
 + the reject gap). SHAs: core+bridge 0e5fdf3, ui+demo 9880b2b.
 
+## D29 [DOCS DOC-2] `src/cause/` + `src/log/` + `src/branches/` named + documented as the "foottrail core"
+Naming decision: the tree-based intent log at vizfootprint's heart is a standalone core pattern distinct from
+footprintjs — footprintjs records executions of a pre-drawn plan (a run is linear, its log is an array);
+foottrail records explorations with no pre-drawn plan (going back and acting again forks the record, so its log
+is a tree). Future package name **foottrail** (npm-verified free, incl. `foottrail-js` and `@foottrail/core`, as
+of 2026-07-16). The two logs stay connected without merging, via the first-class `correlationId` field resolved
+at the `why()` tier (`src/why/why.ts:31`) — a join, never a merge. Documented in `docs/foottrail.md`: the pattern,
+file:line pointers into `src/cause/cause.ts`, `src/log/log.ts`, `src/branches/{refs,derive,walk,slug,fold,plans}.ts`,
+the import-purity structural test (`src/branches/branches.test.ts:57-69`), what it gives any app, and an honest
+callout that `refs/derive/walk/slug` are genuinely payload-agnostic today while `fold/plans` are a Mosaic-shaped
+worked example a second consumer would re-derive rather than import as-is. **Extraction rule** (same discipline as
+the D27 renderer-conformance-badge verdict — no 2nd non-author implementer, no badge): foottrail ships as a
+package only when a second real consumer exists, not when it merely could be reused. Candidate second consumers
+named (neither built): hcifootprint branchable sessions, gameFootprint replay trees. DOCS-ONLY packet — no src/
+or ui/ touched; README.md got a short "The foottrail core" section pointing at the doc.
+
 ## Next
 P3 packets per SPEC §12, order L1→L6; L1-L5 SHIPPED, L6 (why) remaining. Every packet = R#s + pre-written acceptance
 tests + boundary + diff/test-output artifacts; orchestrator re-runs all tests. Fresh-chat rehydration: read THIS file + SPEC.md.
