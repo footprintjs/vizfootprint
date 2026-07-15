@@ -606,6 +606,45 @@ describe.skipIf(!existsSync(CHROME))('LY-2: cockpit layout — switcher/focus la
     await expectNoPageOrShellScroll(page);
   }, 30_000);
 
+  it('FIX-FILL: morphing back to Flow at a TALL viewport, every chart svg re-fills its cell (viewBox == box, no letterbox)', async () => {
+    // The user-reported regression surface: :5181, Flow preset, tall cells —
+    // after any preset morph the stale ChartFrame measure froze the viewBox at
+    // the pre-morph size and letterboxed every chart to ~1/3 of its cell.
+    await page.setViewportSize({ width: 1600, height: 1100 });
+    await page.waitForTimeout(200);
+    await page.locator('[data-preset-option="flow"]').click(); // a real focus→flow morph
+    await page.waitForSelector('[data-vzf="cockpit-charts"][data-preset="flow"]');
+    await page.waitForTimeout(400); // the 260ms FLIP settles
+    const cells = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] [data-chart]')).map((cell) => {
+        const frame = cell.querySelector('[data-vzf="chart-frame"]');
+        const svg = frame?.querySelector('svg.vzf-chart') ?? null;
+        const vb = svg?.getAttribute('viewBox')?.split(' ').map(Number) ?? null;
+        return {
+          id: cell.getAttribute('data-chart'),
+          cellH: cell.getBoundingClientRect().height,
+          frameW: frame ? frame.getBoundingClientRect().width : 0,
+          frameH: frame ? frame.getBoundingClientRect().height : 0,
+          svgH: svg ? svg.getBoundingClientRect().height : 0,
+          vbW: vb ? vb[2]! : null,
+          vbH: vb ? vb[3]! : null,
+        };
+      }),
+    );
+    // scatter, line, bar, map carry first-party svgs; the table cell has none
+    expect(cells.filter((c) => c.svgH > 0).length).toBe(4);
+    for (const c of cells) {
+      if (c.svgH === 0) continue;
+      expect(c.cellH, `${c.id}: the flow cell really is tall`).toBeGreaterThan(900);
+      // ≥85%: cell chrome (2×12px padding + ~17px caption + 4px gap ≈ 45px) is
+      // ~5% of a 950px+ cell; the letterboxed regression sat at ~33–47%.
+      expect(c.svgH, `${c.id}: svg fills its cell`).toBeGreaterThanOrEqual(c.cellH * 0.85);
+      expect(Math.abs(c.vbW! - c.frameW), `${c.id}: viewBox width == frame`).toBeLessThanOrEqual(1.5);
+      expect(Math.abs(c.vbH! - c.frameH), `${c.id}: viewBox height == frame`).toBeLessThanOrEqual(1.5);
+    }
+    await expectNoPageOrShellScroll(page);
+  }, 30_000);
+
   it('ran with zero console errors', () => {
     expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
     expect(pageErrors, pageErrors.join('\n')).toEqual([]);

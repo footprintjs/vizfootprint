@@ -776,6 +776,84 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     await expectNoPageOrShellScroll(page);
   }, 30_000);
 
+  it('FIX-FILL: after a preset morph every chart still FILLS its cell at a TALL viewport (Flow, Grid, Focus)', async () => {
+    // The regression: ChartFrame measured getBoundingClientRect() — during the
+    // FLIP morph the inverse transform makes the new layout box read as the OLD
+    // one, transforms never re-fire a ResizeObserver, and the stale size froze
+    // into the viewBox → charts letterboxed to ~1/3 of the cell. So every
+    // assertion here runs AFTER a live preset morph, at a tall viewport.
+    await page.setViewportSize({ width: 1600, height: 1100 });
+    await page.waitForTimeout(200);
+
+    // Threshold, from the fixed geometry: a cell's non-chart chrome is
+    // 2×12px padding (--vzf-space-3) + ~17px caption + 4px row gap ≈ 45px.
+    // The SHORTEST asserted cell (grid row at 1100px tall) is ≈ 470px → chrome
+    // ≈ 10% of the cell, so a healthy chart's svg ≥ 90% of its cell; the broken
+    // letterbox drew at ~33–47%. 85% is the honest floor with real margin.
+    const FILL = 0.85;
+    const measureCells = () =>
+      page.evaluate(() => {
+        const cells = Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] [data-chart]'));
+        return cells.map((cell) => {
+          const frame = cell.querySelector('[data-vzf="chart-frame"]');
+          const svg = frame?.querySelector('svg') ?? null;
+          const vb = svg?.getAttribute('viewBox')?.split(' ').map(Number) ?? null;
+          return {
+            id: cell.getAttribute('data-chart'),
+            thumb: cell.classList.contains('vzf-thumb'),
+            cellH: cell.getBoundingClientRect().height,
+            frameW: frame ? frame.getBoundingClientRect().width : 0,
+            frameH: frame ? frame.getBoundingClientRect().height : 0,
+            svgH: svg ? svg.getBoundingClientRect().height : 0,
+            firstParty: svg?.classList.contains('vzf-chart') ?? false,
+            vbW: vb ? vb[2]! : null,
+            vbH: vb ? vb[3]! : null,
+          };
+        });
+      });
+    const expectFilled = (cells: Awaited<ReturnType<typeof measureCells>>, preset: string): void => {
+      for (const c of cells) {
+        if (c.svgH === 0) continue; // the table cell hosts no svg
+        expect(c.svgH, `${preset}/${c.id}: svg ≥ ${FILL * 100}% of its cell`).toBeGreaterThanOrEqual(c.cellH * FILL);
+        if (c.firstParty) {
+          // viewBox == CSS box 1:1 — the exact invariant the stale measure broke
+          expect(Math.abs(c.vbW! - c.frameW), `${preset}/${c.id}: viewBox width rides the frame`).toBeLessThanOrEqual(1.5);
+          expect(Math.abs(c.vbH! - c.frameH), `${preset}/${c.id}: viewBox height rides the frame`).toBeLessThanOrEqual(1.5);
+        }
+      }
+    };
+
+    // Grid — a morph from flow lands equal cells; every chart must re-fill
+    await page.locator('[data-preset-option="grid"]').click();
+    await page.waitForSelector('[data-vzf="cockpit-charts"][data-preset="grid"]');
+    await page.waitForTimeout(400); // the 260ms FLIP settles
+    const grid = await measureCells();
+    expect(grid.length).toBeGreaterThanOrEqual(6);
+    expectFilled(grid, 'grid');
+    await expectNoPageOrShellScroll(page);
+
+    // Focus — hero + live thumbnails, all still viewBox == box after the morph
+    await page.locator('[data-preset-option="focus"]').click();
+    await page.waitForSelector('[data-vzf="cockpit-charts"][data-preset="focus"]');
+    await page.waitForTimeout(400);
+    const focus = await measureCells();
+    expectFilled(focus, 'focus');
+    expect(focus.filter((c) => c.thumb).length).toBeGreaterThanOrEqual(5); // the rail is live
+    await expectNoPageOrShellScroll(page);
+
+    // Flow — the TALL columns where the user hit the letterbox; morph back and re-check
+    await page.locator('[data-preset-option="flow"]').click();
+    await page.waitForSelector('[data-vzf="cockpit-charts"][data-preset="flow"]');
+    await page.waitForTimeout(400);
+    const flow = await measureCells();
+    expectFilled(flow, 'flow');
+    for (const c of flow.filter((x) => x.firstParty)) {
+      expect(c.cellH, `flow/${c.id}: the tall cell really is tall`).toBeGreaterThan(900);
+    }
+    await expectNoPageOrShellScroll(page);
+    await page.setViewportSize({ width: 1180, height: 640 });
+  }, 45_000);
+
   it('the gallery ran with zero console errors', () => {
     expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
     expect(pageErrors, pageErrors.join('\n')).toEqual([]);
