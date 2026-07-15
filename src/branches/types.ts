@@ -123,7 +123,9 @@ export type PlanRecipe =
   | { readonly apply: 'encoding'; readonly viewId: string; readonly channel: string; readonly field: string }
   | { readonly apply: 'clear-encoding'; readonly viewId: string; readonly channel: string }
   | { readonly apply: 'analysis'; readonly analysisId: string }
-  | { readonly apply: 'annotation'; readonly target: string; readonly note: string };
+  | { readonly apply: 'annotation'; readonly target: string; readonly note: string }
+  /** LY-1: re-land a cockpit-layout prop (`navigate` verb, `layout:${scope}` identity). */
+  | { readonly apply: 'layout'; readonly scope: string; readonly prop: string; readonly value: string };
 
 /**
  * A bring-over (cherry-pick) or undo (revert) plan. A CONFLICT names the

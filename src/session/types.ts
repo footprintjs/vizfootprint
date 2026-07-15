@@ -79,7 +79,18 @@ export type DispatchAction =
   | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly value: unknown; readonly cause: Cause; readonly correlationId?: string }
   | { readonly verb: 'filter'; readonly viewId: string; readonly field: string; readonly range: FilterRange; readonly cause: Cause; readonly correlationId?: string }
   | { readonly verb: 'annotate'; readonly target: string; readonly note: string; readonly cause: Cause }
-  | { readonly verb: 'navigate'; readonly viewId: string; readonly cause: Cause }
+  /**
+   * `navigate` — record a VIEW-state move; deliberately NON-filtering (a
+   * viewport or an arrangement is not a data claim). Two shapes share the verb:
+   *   • a declared view (pan/zoom): the verb itself is the record — no commit
+   *     lands; the view state rides `cause.intent` as inert data (RP-1).
+   *   • the `layout:${scope}` synthetic identity (LY-1 — e.g.
+   *     `layout:dashboard`): `field` names the arrangement prop (`preset` /
+   *     `order` / `focus`), `value` its plain-string value, and ONE
+   *     cause-tagged commit LANDS so the session fold carries the arrangement
+   *     through seek / switchPath / fork (time-travel restores the layout).
+   */
+  | { readonly verb: 'navigate'; readonly viewId: string; readonly field?: string; readonly value?: string; readonly cause: Cause; readonly correlationId?: string }
   | { readonly verb: 'analyze'; readonly analysisId: string; readonly input?: readonly Record<string, unknown>[]; readonly cause: Cause; readonly correlationId?: string }
   | { readonly verb: 'fork'; readonly fromCommitId: string; readonly cause: Cause }
   | { readonly verb: 'checkpoint'; readonly label: string; readonly cause: Cause }
@@ -467,6 +478,14 @@ export interface Overview {
    * off the identical `activeEncodings` fold in the same `overview()` call).
    */
   readonly encodings: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /**
+   * LY-1: scope → prop → value — the cockpit-layout fold (`navigate` verb,
+   * `layout:${scope}` synthetic identity), branch-scoped at the cursor exactly
+   * like `encodings`. Empty until a layout note lands; seeking the cursor back
+   * in time restores the OLD arrangement. Values are plain inert strings
+   * (e.g. `{ dashboard: { preset: 'focus', focus: 'scatter' } }`).
+   */
+  readonly layouts: Readonly<Record<string, Readonly<Record<string, string>>>>;
   readonly gaps: number;
   readonly currentView: string | null;
   readonly engines: Readonly<Record<string, string>>;

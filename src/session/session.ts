@@ -48,6 +48,7 @@ import {
   BranchRefs,
   CHART_VIEW_PREFIX,
   ENCODING_VIEW_PREFIX,
+  LAYOUT_VIEW_PREFIX,
   foldDiff,
   foldStateAt,
   planBringOver,
@@ -138,6 +139,27 @@ const encodingViewId = (viewId: string): string => `${ENCODING_VIEW_PREFIX}${vie
  * registration is not crossfilter state; it renders as its own view.
  */
 const chartViewId = (id: string): string => `${CHART_VIEW_PREFIX}${id}`;
+
+/**
+ * LY-1: the cockpit-layout commit-landing namespace — a layout note lands under
+ * `layout:${scope}` (e.g. `layout:dashboard`), following the `encoding:` /
+ * `annotation:` / `chart:` synthetic-viewId precedent above. `field` carries
+ * the arrangement PROP (`preset` / `order` / `focus`), `value` its plain-string
+ * value. Recorded through the `navigate` verb (deliberately NON-filtering —
+ * the same honesty ruling as pan/zoom: an arrangement is never a data claim)
+ * and folded by `rebuildFold` like `activeEncodings`, so seek / switchPath /
+ * fork each restore their own arrangement. Prefix single-sourced from
+ * `src/branches/fold` (where it is INERT — layout never enters row counts,
+ * foldDiff, or conflicts).
+ *
+ * The registry meta for a layout source is CONSTANT (`{ actor: 'system',
+ * label: 'layout' }`): `layout:${scope}` is ONE shared source across actors,
+ * and the registry rejects a meta that varies (the doReencode BR-1 lesson
+ * above) — WHO acted lives in the cause (`requestedBy`).
+ */
+const LAYOUT_SOURCE_META = { actor: 'system', label: 'layout' } as const;
+/** A layout value is inert display state — cap it like a checkpoint label (order lists fit easily). */
+const LAYOUT_VALUE_MAX = 500;
 
 /**
  * Fields a `select`/`filter` may NOT target — a clause on one of these would
@@ -301,6 +323,8 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly activeFilterCommits = new Map<string, string>();
   /** viewId → its current channel→field visual-encoding map (the `reencode` fold; SPEC Q6 8th verb). */
   private readonly activeEncodings = new Map<string, Record<string, string>>();
+  /** layout scope → its current prop→value arrangement map (the LY-1 layout fold — see LAYOUT_SOURCE_META). */
+  private readonly activeLayouts = new Map<string, Record<string, string>>();
   /** materialised column name → its producing analysis provenance (L6 `why({kind:'column'})`). */
   private readonly whyByColumn = new Map<string, WhyProvenance>();
   /** analysisId → the last invocation's provenance (L6 `why({kind:'hypothesis'})`). */
@@ -432,6 +456,7 @@ class InteractionSessionImpl implements InteractionSession {
     this.activeFilters.clear();
     this.activeFilterCommits.clear();
     this.activeEncodings.clear();
+    this.activeLayouts.clear();
     for (const view of this.runtime.views.values()) {
       if (view.encoding?.initial) this.activeEncodings.set(view.viewId, { ...view.encoding.initial });
     }
@@ -440,6 +465,15 @@ class InteractionSessionImpl implements InteractionSession {
         const targetViewId = rec.viewId.slice(ENCODING_VIEW_PREFIX.length);
         const current = this.activeEncodings.get(targetViewId) ?? {};
         this.activeEncodings.set(targetViewId, { ...current, [rec.field]: String(rec.value) });
+        continue;
+      }
+      // LY-1: the layout fold — last-wins per (scope, prop), exactly like the
+      // encoding fold above, so seek/switchPath restore the OLD arrangement.
+      // No initial seeding: an empty scope means "the consumer's default".
+      if (rec.viewId.startsWith(LAYOUT_VIEW_PREFIX)) {
+        const scope = rec.viewId.slice(LAYOUT_VIEW_PREFIX.length);
+        const current = this.activeLayouts.get(scope) ?? {};
+        this.activeLayouts.set(scope, { ...current, [rec.field]: String(rec.value) });
         continue;
       }
       if (!this.runtime.views.has(rec.viewId)) continue; // skip annotation:/analysis: commits
@@ -649,6 +683,9 @@ class InteractionSessionImpl implements InteractionSession {
         return { verb: 'analyze', analysisId: recipe.analysisId, cause };
       case 'annotation':
         return { verb: 'annotate', target: recipe.target, note: recipe.note, cause };
+      case 'layout':
+        // LY-1: re-land the arrangement prop here through the navigate verb.
+        return { verb: 'navigate', viewId: `${LAYOUT_VIEW_PREFIX}${recipe.scope}`, field: recipe.prop, value: recipe.value, cause };
     }
   }
 
@@ -817,7 +854,7 @@ class InteractionSessionImpl implements InteractionSession {
       case 'annotate':
         return this.doAnnotate(action.target, action.note, action.cause, as, intent);
       case 'navigate':
-        return this.doNavigate(action.viewId, intent);
+        return this.doNavigate(action.viewId, action.field, action.value, action.cause, as, intent, action.correlationId);
       case 'analyze':
         return this.doAnalyze(action.analysisId, action.input, action.cause, as, intent, action.correlationId);
       case 'fork':
@@ -991,12 +1028,77 @@ class InteractionSessionImpl implements InteractionSession {
     return { ok: true, verb: 'annotate', intent, commit: record, annotated: { target, note } };
   }
 
-  private doNavigate(viewId: string, intent: DispatchResult['intent']): DispatchResult {
+  private doNavigate(
+    viewId: string,
+    field: string | undefined,
+    value: string | undefined,
+    cause: Cause,
+    as: Actor | undefined,
+    intent: DispatchResult['intent'],
+    correlationId: string | undefined,
+  ): DispatchResult {
+    // LY-1: the `layout:${scope}` synthetic identity LANDS a fold-carried
+    // commit (see LAYOUT_SOURCE_META); every other navigate stays commit-free.
+    if (viewId.startsWith(LAYOUT_VIEW_PREFIX)) {
+      return this.doLayoutNote(viewId, field, value, cause, as, intent, correlationId);
+    }
     if (!this.runtime.views.has(viewId)) {
       return this.reject('navigate', intent, this.gapLedger.file('needs-view', 'navigate', `no declared view "${viewId}"`, viewId));
     }
+    // A declared-view navigate (pan/zoom) is the RP-1 contract: recorded as the
+    // verb itself, deliberately NO commit — `field`/`value`, if sent, are ignored.
     this._currentView = viewId;
     return { ok: true, verb: 'navigate', intent, navigatedTo: viewId };
+  }
+
+  /**
+   * LY-1 — land ONE cause-tagged layout commit under `layout:${scope}`.
+   * `field` = the arrangement prop (`preset`/`order`/`focus`), `value` = its
+   * plain-string value; both are INERT display state (R12 — recorded, folded,
+   * never dispatched on). Parent is the CURSOR, so setting a layout from a
+   * past cursor branches (R8 branch-on-act) and each path keeps its OWN
+   * arrangement. Non-filtering by construction: the commit's key is inert in
+   * `src/branches/fold.keyOf`, and `rebuildFold` routes it into
+   * `activeLayouts`, never `activeFilters`.
+   */
+  private doLayoutNote(
+    viewId: string,
+    field: string | undefined,
+    value: string | undefined,
+    cause: Cause,
+    as: Actor | undefined,
+    intent: DispatchResult['intent'],
+    correlationId: string | undefined,
+  ): DispatchResult {
+    const scope = viewId.slice(LAYOUT_VIEW_PREFIX.length);
+    if (scope.length === 0) {
+      return this.reject('navigate', intent, this.gapLedger.file('guard-failed', 'navigate', 'a layout navigate needs a scope — use "layout:dashboard", not bare "layout:"', viewId));
+    }
+    if (typeof field !== 'string' || field.trim().length === 0) {
+      return this.reject('navigate', intent, this.gapLedger.file('guard-failed', 'navigate', `a layout navigate on "${viewId}" needs a field naming the arrangement prop (e.g. preset / order / focus)`, viewId));
+    }
+    if (typeof value !== 'string') {
+      return this.reject('navigate', intent, this.gapLedger.file('guard-failed', 'navigate', `a layout navigate on "${viewId}" needs a plain-string value for "${field}"`, field));
+    }
+    if (value.length > LAYOUT_VALUE_MAX) {
+      return this.reject('navigate', intent, this.gapLedger.file('guard-failed', 'navigate', `layout value too long (max ${LAYOUT_VALUE_MAX} chars)`, field));
+    }
+    const stamped = this.stampCause(cause, 'navigate', as);
+    const { record } = this.log.commit({
+      id: this.nextId(),
+      parent: this._cursor, // R8 branch-on-act: a layout set from a past cursor branches too
+      ...(correlationId !== undefined ? { correlationId } : {}),
+      viewId,
+      actorMeta: LAYOUT_SOURCE_META, // constant per source — WHO acted lives in the cause
+      kind: 'point',
+      field,
+      value,
+      cause: stamped,
+    });
+    this.landed(record);
+    const current = this.activeLayouts.get(scope) ?? {};
+    this.activeLayouts.set(scope, { ...current, [field]: value });
+    return { ok: true, verb: 'navigate', intent, navigatedTo: viewId, commit: record };
   }
 
   private async doAnalyze(
@@ -1504,6 +1606,9 @@ class InteractionSessionImpl implements InteractionSession {
       },
       columns,
       encodings: Object.fromEntries(views.map((v) => [v.viewId, v.encodings])),
+      // LY-1: the layout fold (scope → prop → value), branch-scoped at the
+      // cursor like `encodings` — cloned so a caller can never mutate the fold.
+      layouts: Object.fromEntries([...this.activeLayouts.entries()].map(([scope, props]) => [scope, { ...props }])),
       gaps: this.gapLedger.size,
       currentView: this._currentView,
       engines: this.runtime.engines,

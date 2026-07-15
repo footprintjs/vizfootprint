@@ -16,6 +16,7 @@ import {
   ANALYSIS_VIEW_PREFIX,
   ANNOTATION_VIEW_PREFIX,
   ENCODING_VIEW_PREFIX,
+  LAYOUT_VIEW_PREFIX,
   foldStateAt,
   keyOf,
 } from './fold.js';
@@ -83,6 +84,17 @@ function bringOverRecipe(rec: CommitRecord): PlanRecipe {
     // under that namespace.
     return { apply: 'annotation', target: rec.viewId, note: String(rec.value) };
   }
+  if (rec.viewId.startsWith(LAYOUT_VIEW_PREFIX)) {
+    // LY-1: bringing a layout note over RE-LANDS the same arrangement prop here
+    // (through the `navigate` verb) — like an annotation, it replays; unlike a
+    // selection, it never filters, so it carries no conflicts (keyOf is null).
+    return {
+      apply: 'layout',
+      scope: rec.viewId.slice(LAYOUT_VIEW_PREFIX.length),
+      prop: rec.field,
+      value: String(rec.value),
+    };
+  }
   return { apply: 'selection', viewId: rec.viewId, kind: rec.kind, field: rec.field, value: rec.value };
 }
 
@@ -117,7 +129,7 @@ export function planUndo(records: readonly CommitRecord[], commitId: string, tip
 
   const key = keyOf(rec);
   if (key === null) {
-    return { ok: false, reason: 'not-undoable', detail: 'this commit is inert (an annotation or a chart registration) — there is no prior state to restore' };
+    return { ok: false, reason: 'not-undoable', detail: 'this commit is inert (an annotation, a chart registration, or a layout note) — there is no prior state to restore; set the layout again to change it' };
   }
   if (rec.viewId.startsWith(ANALYSIS_VIEW_PREFIX)) {
     return {

@@ -11,6 +11,9 @@
  *   - `chart:${chartId}`       → INERT (an agent-authored chart registration
  *                                and its ledgered hypothesis are not crossfilter
  *                                state — RP-3; the chart renders as its own view)
+ *   - `layout:${scope}`        → INERT here (a cockpit arrangement is VIEW-state,
+ *                                never a data claim — LY-1; the session's OWN fold
+ *                                carries it so seek/switchPath restore it)
  * A cleared interval (`kind:'interval', value:null`) DELETES the selection
  * key, exactly as the session's live fold does.
  *
@@ -28,14 +31,24 @@ export const ANALYSIS_VIEW_PREFIX = 'analysis:';
 export const ANNOTATION_VIEW_PREFIX = 'annotation:';
 /** RP-3: an agent-proposed chart's registration + ledgered-hypothesis commits. */
 export const CHART_VIEW_PREFIX = 'chart:';
+/**
+ * LY-1: a cockpit-layout note (`navigate` verb, `layout:${scope}` synthetic
+ * identity — e.g. `layout:dashboard`). Recorded and fold-carried by the
+ * SESSION (seek/switchPath restore the arrangement), but INERT here: layout is
+ * VIEW-state, not a data claim (the same honesty ruling as pan/zoom), so it
+ * must never enter crossfilter row counts, foldDiff, or conflict detection.
+ */
+export const LAYOUT_VIEW_PREFIX = 'layout:';
 
-/** The state key a commit touches, or null for an inert (annotation / chart) commit. */
+/** The state key a commit touches, or null for an inert (annotation / chart / layout) commit. */
 export function keyOf(record: CommitRecord): string | null {
   if (record.viewId.startsWith(ANNOTATION_VIEW_PREFIX)) return null;
   // RP-3: a chart proposal (its spec-registration + p=1 hypothesis commits) is
   // NOT crossfilter state — it is inert in the fold, exactly like an annotation.
   // The chart renders as its own view; its ledger row lives in the FDR ledger.
   if (record.viewId.startsWith(CHART_VIEW_PREFIX)) return null;
+  // LY-1: a layout note is view-state, never data state (see LAYOUT_VIEW_PREFIX).
+  if (record.viewId.startsWith(LAYOUT_VIEW_PREFIX)) return null;
   if (record.viewId.startsWith(ENCODING_VIEW_PREFIX)) {
     return `encoding:${record.viewId.slice(ENCODING_VIEW_PREFIX.length)}:${record.field}`;
   }
