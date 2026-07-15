@@ -17,7 +17,7 @@
  * string — only in the `rows` DATA field (Q8 two-string discipline).
  */
 import { buildDashboard, vizAsTools } from '../../src/agent/index.js';
-import type { InteractionSession, VizToolsPort, VizTool, VizToolResult } from '../../src/agent/index.js';
+import type { InteractionSession, VizToolsPort } from '../../src/agent/index.js';
 import type { DashboardDef } from '../../src/agent/index.js';
 import type { ActorMeta } from '../../src/mosaic/index.js';
 import {
@@ -27,8 +27,6 @@ import {
   groupByAnalysis,
 } from '../../src/analysis/index.js';
 import { parseCSVTyped } from '../../src/data/csv.js';
-import { LAYOUT_VIEW_PREFIX } from '../../src/branches/index.js';
-import type { Cause } from '../../src/cause/index.js';
 
 const ALPHA = 0.05;
 const CLUSTER_K = 4;
@@ -75,57 +73,6 @@ export function parseAnalystRows(csv: string): AnalystRow[] {
 }
 
 /**
- * LY-2 WORKAROUND (demo-agent-only — `src/agent/vizAsTools.ts` is frozen for
- * this packet): `vizAsTools`'s `dispatch` tool's `navigate` case only reads
- * `viewId` off the call args (`buildAction`'s `case 'navigate'`) — a gap that
- * predates LY-1: it was written for RP-1's declared-view pan/zoom contract
- * (verb-itself-is-the-record, `field`/`value` deliberately ignored) and was
- * never revisited when LY-1 added the `layout:${scope}` synthetic identity,
- * which NEEDS `field`/`value` to land an arrangement commit
- * (`InteractionSession`'s own `doLayoutNote` guard rejects a layout navigate
- * with no `field`). Left as-is, the agent's `dispatch` tool can describe
- * layout control (the system prompt does) but can never actually PERFORM it.
- *
- * Intercept ONLY that one shape — `viz.dispatch` + `verb:'navigate'` +
- * a `layout:`-prefixed `viewId` — before it reaches the frozen port, and land
- * it through `session.dispatch` directly: the SAME verb, viewId, field, and
- * value the human path already uses (`ui/src/adapter/sessionView.ts`'s
- * `setLayout`), so the wire contract stays single-sourced. Every other tool
- * call — including every OTHER navigate (declared-view pan/zoom) — passes
- * through to the real port UNCHANGED; the tool's NAME and SCHEMA the agent
- * sees are byte-identical to `vizAsTools`' own (only `call()` is patched).
- */
-export function withLayoutNavigate(session: InteractionSession, port: VizToolsPort): VizToolsPort {
-  async function routeLayoutNavigate(args: Record<string, unknown>): Promise<VizToolResult> {
-    const viewId = args['viewId'] as string;
-    const field = typeof args['field'] === 'string' ? args['field'] : undefined;
-    const value = typeof args['value'] === 'string' ? args['value'] : undefined;
-    const intent = typeof args['intent'] === 'string' ? args['intent'] : `navigate ${viewId}`;
-    const cause: Cause = { requestedBy: 'agent', computedBy: 'agent', intent };
-    const result = await session.dispatch({ verb: 'navigate', viewId, field, value, cause }, { as: 'agent' });
-    if (!result.ok) return { ok: false, verb: result.verb, intent: result.intent, gap: result.rejection };
-    // `doLayoutNote`'s ok:true arm always carries BOTH `commit` and
-    // `navigatedTo` (unlike the general multi-verb DispatchResult shape) —
-    // no conditional spread needed.
-    return { ok: true, verb: result.verb, intent: result.intent, commit: result.commit, navigatedTo: result.navigatedTo };
-  }
-
-  return {
-    tools: (): VizTool[] => port.tools(),
-    async call(name: string, rawArgs?: unknown): Promise<VizToolResult> {
-      const args = (rawArgs ?? {}) as Record<string, unknown>;
-      const isLayoutNavigate =
-        name === 'viz.dispatch' &&
-        args['verb'] === 'navigate' &&
-        typeof args['viewId'] === 'string' &&
-        args['viewId'].startsWith(LAYOUT_VIEW_PREFIX);
-      if (isLayoutNavigate) return routeLayoutNavigate(args);
-      return port.call(name, rawArgs);
-    },
-  };
-}
-
-/**
  * Build one live session over the seeded rows + its fixed Mode-B tool port.
  * The session default actor is `agent` (the tool port's principal); the human
  * path overrides it per dispatch with `{ as: 'user' }`.
@@ -160,7 +107,10 @@ export function buildAnalystSurface(csv: string): AnalystSurface {
   };
   const dashboard = buildDashboard(def); // declare (offline, no API key)
   const session = dashboard.createSession({ as: 'agent' }); // connect (one live session)
-  const rawPort = vizAsTools(session, { as: 'agent' }); // serve (fixed Mode-B tools)
-  const port = withLayoutNavigate(session, rawPort); // LY-2: see the doc comment above
+  // LY-2: the agent drives layout (`navigate` on `layout:${scope}`) through
+  // this SAME fixed Mode-B port — no interception needed. `vizAsTools`'s
+  // `buildAction` carries `field`/`value` through to the session, which lands
+  // the fold-carried commit itself (`doLayoutNote`).
+  const port = vizAsTools(session, { as: 'agent' }); // serve (fixed Mode-B tools)
   return { session, port, rows };
 }

@@ -618,9 +618,10 @@ describe.skipIf(!existsSync(CHROME))('LY-2: cockpit layout — switcher/focus la
  * demo's own suggestion chip); the scripted provider drives whats_here ->
  * dispatch(navigate, layout:dashboard, preset:focus) -> dispatch(navigate,
  * layout:dashboard, focus:scatter) -> a grounded reply that also narrates the
- * story — the exact tool boundary a real chat turn uses, proving the
- * `withLayoutNavigate` demo-agent-side fix (def.ts) works end to end, not
- * just at the unit level.
+ * story — the exact tool boundary a real chat turn uses, proving `vizAsTools`'
+ * own navigate field/value pass-through (LY-2's root fix in
+ * `src/agent/vizAsTools.ts`, no demo-side shim) works end to end in the
+ * browser, not just at the unit level.
  */
 describe.skipIf(!existsSync(CHROME))('LY-2: agent-driven layout via chat (LLM stubbed) — "Focus the scatter, then present the story so far."', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;

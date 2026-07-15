@@ -271,8 +271,9 @@ export function scriptedReencodeMock(): LLMProvider {
  * grounded reply that also narrates ("presents") the story so far in plain
  * words. Drives the exact tool boundary the "Focus the scatter, then present
  * the story so far." chat chip uses, LLM stubbed — and, since it routes
- * through the REAL `def.ts`-built port, exercises the `withLayoutNavigate`
- * interception (the demo-agent-side fix for `vizAsTools`' navigate gap).
+ * through the REAL `def.ts`-built port (the plain `vizAsTools` port, no
+ * demo-side interception since LY-2's root fix), exercises `vizAsTools`'
+ * own `navigate` field/value pass-through end to end.
  */
 export function scriptedLayoutFocusMock(): LLMProvider {
   const toolStep = (id: string, name: string, args: Record<string, unknown>): Partial<LLMResponse> => ({

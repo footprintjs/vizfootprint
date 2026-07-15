@@ -207,9 +207,9 @@ describe('UI-2: reencode — the human dashboard path (axis click -> POST /api/d
   it('LY-2: the agent drives the cockpit LAYOUT through the SAME tool boundary (scriptedLayoutFocusMock) — the "Focus the scatter, then present the story so far." chip', async () => {
     // whats_here -> dispatch(navigate, layout:dashboard, preset:focus) ->
     // dispatch(navigate, layout:dashboard, focus:scatter) -> a grounded reply.
-    // Real end-to-end proof that the agent's FIXED dispatch tool can now
-    // actually move the arrangement (the withLayoutNavigate interception in
-    // def.ts, working around the frozen vizAsTools navigate gap).
+    // Real end-to-end proof that the agent's dispatch tool can now actually
+    // move the arrangement — `vizAsTools`' own navigate field/value
+    // pass-through (LY-2's root fix), no demo-side interception.
     const analyst = createAnalyst({ csv: CSV, mock: true, provider: scriptedLayoutFocusMock() });
     const reply = await analyst.chat('Focus the scatter, then present the story so far.');
     expect(reply.text.length).toBeGreaterThan(0);
