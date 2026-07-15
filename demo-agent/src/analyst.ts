@@ -32,9 +32,10 @@ export const SYSTEM = `You are a data analyst working a LIVE coordinated dashboa
 Your tools are FIXED: whats_here, dispatch, declare_analysis, why, fork, checkpoint, paths, compare, propose_chart. You drive the dashboard ONLY through these tools; there is no raw-event path and no way to compute a number outside them.
 
 Work method, every turn:
-1. Call whats_here FIRST. It reports the declared views and their ids, EACH view's current channel->field visual encodings and the columns available to put on them (branch-scoped, names+types only), the active DATA-space selections, the declared analyses and whether each is ready to run, the online-FDR ledger, how many requests have gone unmet (gaps), and the NAMED PATHS of the history (which path you're on, every path with its tip). Orient before you act — the columns list is how you know which fields actually exist before you name one.
+1. Call whats_here FIRST. It reports the declared views and their ids, EACH view's current channel->field visual encodings and the columns available to put on them (branch-scoped, names+types only), the active DATA-space selections, the declared analyses and whether each is ready to run, the online-FDR ledger, how many requests have gone unmet (gaps), the NAMED PATHS of the history (which path you're on, every path with its tip), and layouts — the cockpit's CURRENT on-screen arrangement (e.g. layouts.dashboard.preset, layouts.dashboard.focus). Orient before you act — the columns list is how you know which fields actually exist before you name one, and layouts is how you know what is actually on screen before you change it.
 2. Change the selection with dispatch: verb 'filter' takes an interval [lo, hi] on a field — both NUMBERS on a numeric field (e.g. price), or both ISO-8601 date strings "YYYY-MM-DD" on a date field (e.g. date), never mixed. Either bound can be null for an OPEN-ENDED range: asked to filter "over $150", dispatch range [150, null] — never invent a made-up ceiling number; asked for "up to May", dispatch [null, "2026-05-31"]. Pass range: null (on the whole call) to clear a filter. Verb 'select' takes a single point value on any field — a category, a region name, or a row id. Name a viewId from whats_here — 'scatter' starts encoding price (x) by rating (y), 'bar' encodes category, 'line' encodes date (x) by price (y) — filterable by you too, same as any other view, 'map' selects a region by name, 'table' selects a row by id. One dispatch is one semantic interaction.
 2b. Change what an axis SHOWS with dispatch verb 'reencode': give viewId, channel (e.g. 'x', 'y', 'color' on the scatter; 'category' on the bar), and field — field must be one of the columns whats_here listed for that view, and the channel must be one whats_here's view.encodings already has an entry for. An invalid channel or a column that doesn't exist comes back as a typed gap, not a guess.
+2c. Change the COCKPIT'S OWN arrangement — not a data claim, never touches a selection or a row count — with dispatch verb 'navigate' on the special viewId 'layout:dashboard', naming which arrangement prop you're setting in field and its new value as a plain string: field 'preset' with value 'flow' | 'grid' | 'focus' picks the layout; field 'focus' with a chart's viewId (e.g. 'scatter') names the maximized chart, but that ONLY takes visual effect once preset is 'focus' too — to actually focus a chart, dispatch BOTH (preset:'focus' first, then focus:'<viewId>'); field 'order' with a comma-separated list of chart viewIds (e.g. "bar,scatter,line") reorders the cells. Each lands its own recorded commit, so it time-travels and replays with the rest of the story exactly like any other act — read whats_here's layouts field back afterward if you need to confirm it landed. "Presenting" or "recapping the story so far" is a SPOKEN summary you give in your reply from what you already know (whats_here, the ledger, the conversation) — there is no tool that toggles a presentation mode.
 3. Never compute a statistic yourself. For ANY statistical claim — a correlation, a regression, a clustering, a group summary — call declare_analysis with the analysis id. It runs over the CURRENT selection; a test lands exactly one row in the FDR ledger.
 4. Read the result HONESTLY. Report the ledger's own verdict via whats_here (its fdr field) — never keep your own count. A test that is significant alone but NOT rejected by the online procedure at the current test count is not a discovery; say so plainly. A degenerate fit returns an honest flag and spends no wealth — report the non-discovery, do not invent a number.
 5. If you cannot serve an ask because a column, view, or analysis does not exist, or a guard blocks it, the dispatch returns a typed gap and the gap ledger records it. Cite that gap to the user — that is how the team learns what to build — instead of inventing a capability.
@@ -259,6 +260,52 @@ export function scriptedReencodeMock(): LLMProvider {
           intent: 'change the x axis of the scatter to rating',
         });
       return 'Done — the scatter now encodes rating on the x axis.';
+    },
+  });
+}
+
+/**
+ * LY-2 — the layout-control path end to end: the SAME six-tool surface, but
+ * the scripted sequence is whats_here → dispatch(navigate, layout:dashboard,
+ * preset:focus) → dispatch(navigate, layout:dashboard, focus:scatter) → a
+ * grounded reply that also narrates ("presents") the story so far in plain
+ * words. Drives the exact tool boundary the "Focus the scatter, then present
+ * the story so far." chat chip uses, LLM stubbed — and, since it routes
+ * through the REAL `def.ts`-built port, exercises the `withLayoutNavigate`
+ * interception (the demo-agent-side fix for `vizAsTools`' navigate gap).
+ */
+export function scriptedLayoutFocusMock(): LLMProvider {
+  const toolStep = (id: string, name: string, args: Record<string, unknown>): Partial<LLMResponse> => ({
+    content: '',
+    toolCalls: [{ id, name, args }],
+    stopReason: 'tool_use',
+  });
+  return mock({
+    name: 'scripted-layout-focus',
+    respond: (req: LLMRequest): Partial<LLMResponse> | string => {
+      const done = req.messages.filter((m) => m.role === 'tool').length;
+      if (done === 0) return toolStep('l0', 'whats_here', {});
+      if (done === 1)
+        return toolStep('l1', 'dispatch', {
+          verb: 'navigate',
+          viewId: 'layout:dashboard',
+          field: 'preset',
+          value: 'focus',
+          intent: 'layout = focus',
+        });
+      if (done === 2)
+        return toolStep('l2', 'dispatch', {
+          verb: 'navigate',
+          viewId: 'layout:dashboard',
+          field: 'focus',
+          value: 'scatter',
+          intent: 'layout = focus on scatter',
+        });
+      return (
+        'Focused the scatter as the hero chart, with the rest riding the thumbnail rail. ' +
+        'Story so far: we have been exploring price vs rating together — no statistical claim has ' +
+        'been declared yet this session, so the online-FDR ledger is still empty.'
+      );
     },
   });
 }

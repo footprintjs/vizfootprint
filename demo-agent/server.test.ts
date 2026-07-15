@@ -18,7 +18,13 @@ import path from 'node:path';
 import { startServer } from './server.mjs';
 import { buildAppBundle, readUiStylesheet } from './build.mjs';
 import { createAnalyst } from './src/core.js';
-import { scriptedReencodeMock, scriptedDateFilterMock, scriptedProposeChartMock, scriptedRejectedChartMock } from './src/analyst.js';
+import {
+  scriptedReencodeMock,
+  scriptedDateFilterMock,
+  scriptedProposeChartMock,
+  scriptedRejectedChartMock,
+  scriptedLayoutFocusMock,
+} from './src/analyst.js';
 import { stepBackTarget, stepForwardTarget } from './src/stepNav.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -196,6 +202,28 @@ describe('UI-2: reencode — the human dashboard path (axis click -> POST /api/d
     expect((state.fdr as { tests: number }).tests).toBe(0); // no alpha spent
     const gaps = state.gaps as { code: string }[];
     expect(gaps.some((g) => g.code === 'chart-transforms-not-owned')).toBe(true);
+  }, 30_000);
+
+  it('LY-2: the agent drives the cockpit LAYOUT through the SAME tool boundary (scriptedLayoutFocusMock) — the "Focus the scatter, then present the story so far." chip', async () => {
+    // whats_here -> dispatch(navigate, layout:dashboard, preset:focus) ->
+    // dispatch(navigate, layout:dashboard, focus:scatter) -> a grounded reply.
+    // Real end-to-end proof that the agent's FIXED dispatch tool can now
+    // actually move the arrangement (the withLayoutNavigate interception in
+    // def.ts, working around the frozen vizAsTools navigate gap).
+    const analyst = createAnalyst({ csv: CSV, mock: true, provider: scriptedLayoutFocusMock() });
+    const reply = await analyst.chat('Focus the scatter, then present the story so far.');
+    expect(reply.text.length).toBeGreaterThan(0);
+    expect(reply.text.toLowerCase()).toContain('story so far');
+
+    const state = await analyst.state();
+    expect(state.layouts).toEqual({ dashboard: { preset: 'focus', focus: 'scatter' } });
+    const records = state.records as { viewId: string; field: string; value: unknown; cause: { requestedBy: string } }[];
+    const layoutCommits = records.filter((r) => r.viewId === 'layout:dashboard');
+    expect(layoutCommits).toHaveLength(2);
+    expect(layoutCommits.every((r) => r.cause.requestedBy === 'agent')).toBe(true);
+    expect(layoutCommits.map((r) => `${r.field}=${String(r.value)}`)).toEqual(['preset=focus', 'focus=scatter']);
+
+    expect(state.activity.map((a) => a.tool)).toEqual(['whats_here', 'dispatch', 'dispatch']);
   }, 30_000);
 
   it('POST /api/chat with a custom provider drives the same reencode through the live server + /api/state', async () => {

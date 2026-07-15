@@ -28,7 +28,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { startServer } from './server.mjs';
-import { scriptedReencodeMock, scriptedProposeChartMock, scriptedRejectedChartMock } from './src/analyst.js';
+import { scriptedReencodeMock, scriptedProposeChartMock, scriptedRejectedChartMock, scriptedLayoutFocusMock } from './src/analyst.js';
 
 const CHROME =
   '/Users/sanjay/Library/Caches/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-mac-arm64/chrome-headless-shell';
@@ -509,6 +509,177 @@ describe.skipIf(!existsSync(CHROME))('RP-3: a REJECTED proposal (a host-owned tr
 });
 
 /**
+ * LY-2 — the cockpit layout switcher live in the mixed-principal demo (real
+ * headless Chromium, mock provider): the SAME `<VizCockpit>` `layout`/
+ * `onLayoutChange` wiring the gallery proved (ui/gallery/smoke.test.ts), now
+ * driven by `state.layout` off `/api/state`'s `layouts` field. Grid arranges
+ * equal cells; Focus maximizes one chart over a live thumbnail rail; every
+ * gesture lands a REAL recorded commit (visible in the commit-log chip); and
+ * time-travelling to before any layout note existed reverts to the flow
+ * default, restoring on return-to-now — the arrangement is session state,
+ * not page state.
+ */
+describe.skipIf(!existsSync(CHROME))('LY-2: cockpit layout — switcher/focus land recorded commits; time-travel restores the arrangement', () => {
+  let handle: Awaited<ReturnType<typeof startServer>>;
+  let browser: Browser;
+  let page: Page;
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+
+  beforeAll(async () => {
+    mkdirSync(SHOTS, { recursive: true });
+    handle = await startServer({ port: 0, mock: true });
+    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
+    page.on('console', (m) => {
+      if (m.type() === 'error') consoleErrors.push(m.text());
+    });
+    page.on('pageerror', (e) => pageErrors.push(String(e)));
+    await page.goto(handle.url);
+    await page.waitForSelector('svg.vzf-scatter');
+  }, 120_000);
+
+  afterAll(async () => {
+    await browser?.close();
+    await handle?.close();
+  });
+
+  it('a human brush lands the FIRST commit — before any layout note exists (the anchor the later time-travel assertion seeks back to)', async () => {
+    await brush(page, 0.2, 0.6);
+    await page.waitForFunction(() => document.querySelectorAll('[data-vzf="timeline"] [data-commit]').length >= 1);
+  }, 30_000);
+
+  it('the switcher rides the top strip (Flow active by default); Grid lands a REAL commit and arranges equal cells, zero scroll', async () => {
+    const options = page.locator('[data-vzf="layout-switch"] [role="radio"]');
+    expect(await options.allTextContents()).toEqual(['Flow', 'Grid', 'Focus']);
+    expect(await page.locator('[data-vzf="layout-switch"] [aria-checked="true"]').textContent()).toBe('Flow');
+    expect(await page.locator('[data-vzf="cockpit-charts"]').getAttribute('data-preset')).toBe('flow');
+
+    const commitsBefore = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    await page.locator('[data-preset-option="grid"]').click();
+    await page.waitForSelector('[data-vzf="cockpit-charts"][data-preset="grid"]');
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      commitsBefore,
+      { timeout: 8000 },
+    );
+    await page.waitForTimeout(400); // let the FLIP morph land — getBoundingClientRect includes live transforms
+    const widths = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] .vzf-cockpit-cell')).map((el) => el.getBoundingClientRect().width),
+    );
+    expect(widths.length).toBe(5); // scatter, line, bar, map, table
+    for (const w of widths) expect(Math.abs(w - widths[0]!)).toBeLessThanOrEqual(2); // equal cells
+    await expectNoPageOrShellScroll(page);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'demo-layout-grid.png'), fullPage: false });
+  }, 30_000);
+
+  it('Focus maximizes one chart over a live thumbnail rail; a thumbnail click swaps the hero (a real recorded commit)', async () => {
+    await page.locator('[data-preset-option="focus"]').click();
+    await page.waitForSelector('[data-vzf="cockpit-charts"][data-preset="focus"]');
+    await page.waitForTimeout(400); // let the FLIP morph land — rects mid-transform would lie
+    const shape = await page.evaluate(() => {
+      const hero = document.querySelector('[data-vzf="cockpit-charts"] [data-focused="true"]') as HTMLElement;
+      const thumbs = Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] .vzf-thumb')) as HTMLElement[];
+      return { heroId: hero.getAttribute('data-chart'), thumbCount: thumbs.length, overlays: thumbs.filter((t) => t.querySelector('[data-vzf="focus-thumb"]')).length };
+    });
+    expect(shape.heroId).toBe('scatter'); // the first cell by default (no focus note yet)
+    expect(shape.thumbCount).toBe(4);
+    expect(shape.overlays).toBe(4);
+
+    await page.locator('[data-chart="bar"] [data-vzf="focus-thumb"]').click();
+    await page.waitForSelector('[data-chart="bar"][data-focused="true"]');
+    await expectNoPageOrShellScroll(page);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'demo-layout-focus.png'), fullPage: false });
+  }, 30_000);
+
+  it('time-travel restores the arrangement: seeking to the FIRST commit (before any layout note) reverts to flow; return-to-now restores focus-on-bar', async () => {
+    expect(await page.locator('[data-vzf="cockpit-charts"]').getAttribute('data-preset')).toBe('focus');
+
+    await page.locator('[data-vzf="timeline"] [data-commit]').first().click();
+    await page.waitForSelector('[data-vzf="return-now"]', { timeout: 8000 }); // viewing past now
+    await page.waitForSelector('[data-vzf="cockpit-charts"][data-preset="flow"]');
+
+    await page.locator('[data-vzf="return-now"]').click();
+    await page.waitForSelector('[data-vzf="return-now"]', { state: 'detached', timeout: 8000 });
+    await page.waitForSelector('[data-vzf="cockpit-charts"][data-preset="focus"]');
+    await page.waitForSelector('[data-chart="bar"][data-focused="true"]');
+    await expectNoPageOrShellScroll(page);
+  }, 30_000);
+
+  it('ran with zero console errors', () => {
+    expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
+    expect(pageErrors, pageErrors.join('\n')).toEqual([]);
+  });
+});
+
+/**
+ * LY-2 — the AGENT-DRIVEN layout path, browser end to end, LLM stubbed: the
+ * chat popup sends "Focus the scatter, then present the story so far." (the
+ * demo's own suggestion chip); the scripted provider drives whats_here ->
+ * dispatch(navigate, layout:dashboard, preset:focus) -> dispatch(navigate,
+ * layout:dashboard, focus:scatter) -> a grounded reply that also narrates the
+ * story — the exact tool boundary a real chat turn uses, proving the
+ * `withLayoutNavigate` demo-agent-side fix (def.ts) works end to end, not
+ * just at the unit level.
+ */
+describe.skipIf(!existsSync(CHROME))('LY-2: agent-driven layout via chat (LLM stubbed) — "Focus the scatter, then present the story so far."', () => {
+  let handle: Awaited<ReturnType<typeof startServer>>;
+  let browser: Browser;
+  let page: Page;
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+
+  beforeAll(async () => {
+    mkdirSync(SHOTS, { recursive: true });
+    handle = await startServer({ port: 0, mock: true, provider: scriptedLayoutFocusMock() });
+    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
+    page.on('console', (m) => {
+      if (m.type() === 'error') consoleErrors.push(m.text());
+    });
+    page.on('pageerror', (e) => pageErrors.push(String(e)));
+    await page.goto(handle.url);
+    await page.waitForSelector('svg.vzf-scatter');
+  }, 120_000);
+
+  afterAll(async () => {
+    await browser?.close();
+    await handle?.close();
+  });
+
+  it('the chip\'s own text sent through chat morphs the cockpit to Focus with the scatter as hero; the reply narrates the recap', async () => {
+    expect(await page.locator('[data-vzf="cockpit-charts"]').getAttribute('data-preset')).toBe('flow');
+
+    await page.locator('#fab').click();
+    await page.waitForSelector('#chatpanel:not([hidden]) .composer input');
+    await page.locator('#chatpanel .composer input').fill('Focus the scatter, then present the story so far.');
+    await page.locator('#chatpanel .composer input').press('Enter');
+
+    // the agent's TWO navigate dispatches land and the cockpit morphs live
+    await page.waitForSelector('[data-vzf="cockpit-charts"][data-preset="focus"]', { timeout: 20_000 });
+    await page.waitForSelector('[data-chart="scatter"][data-focused="true"]', { timeout: 8000 });
+    await expectNoPageOrShellScroll(page);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'agent-layout-focus.png'), fullPage: true });
+
+    // the reply narrates ("presents") the story so far — plain words, no tool for it
+    await page.waitForSelector('#chatpanel .bubble.analyst');
+    const reply = (await page.locator('#chatpanel .bubble.analyst').first().textContent()) ?? '';
+    expect(reply.toLowerCase()).toContain('story so far');
+
+    // both landed as AGENT-badged commits (amber), same shared log the human writes to
+    await openReport(page, 'commits');
+    expect(await page.locator('[data-vzf-modal="report-commits"] .vzf-chip[data-actor="agent"]').count()).toBeGreaterThanOrEqual(2);
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-vzf-modal="report-commits"]', { state: 'detached' });
+  }, 45_000);
+
+  it('ran with zero console errors', () => {
+    expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
+    expect(pageErrors, pageErrors.join('\n')).toEqual([]);
+  });
+});
+
+/**
  * FIX-POPUP — the popup layout under a GROWN transcript (real headless
  * Chromium, mock provider). Regression: the tool-activity strip used to be a
  * pinned SIBLING of the transcript with min-height: 8px — under flex pressure
@@ -609,7 +780,7 @@ describe.skipIf(!existsSync(CHROME))('FIX-POPUP: long transcript — one interna
     expect(overlaps(m.lastStep, m.input), 'activity rows never overlap the input').toBe(false);
     expect(overlaps(m.lastStep, m.firstChip), 'activity rows never overlap the chips').toBe(false);
     expect(overlaps(m.input, m.firstChip), 'the input never overlaps the chips').toBe(false);
-    expect(m.chipCount, 'all 8 suggestions stay reachable').toBe(8);
+    expect(m.chipCount, 'all 9 suggestions stay reachable').toBe(9);
     expect(m.transcript.scrollHeight, 'the transcript scrolls internally').toBeGreaterThan(m.transcript.clientHeight);
     await expectNoPageOrShellScroll(page);
     await maybeScreenshot(page, { path: path.join(SHOTS, 'popup-long-transcript.png'), fullPage: false });

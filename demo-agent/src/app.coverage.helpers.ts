@@ -212,6 +212,28 @@ export const STATE_WITH_BAD_CHART = {
   ],
 };
 
+/**
+ * LY-2: STATE_A plus a landed layout note — `overview().layouts` verbatim,
+ * scope -> prop -> value (see core.ts's `state()`). The adapter's
+ * `parseLayout` turns `layouts.dashboard` into the cockpit's `layout` prop.
+ */
+export const STATE_WITH_LAYOUT = {
+  ...STATE_A,
+  layouts: { dashboard: { preset: 'grid' } },
+};
+
+/** LY-2: the RP-3 agent chart PLUS a `focus` arrangement on the scatter — proves an agent-authored cell also plays by the focus/thumbnail rules. */
+export const STATE_WITH_CHART_FOCUSED = {
+  ...STATE_WITH_CHART,
+  layouts: { dashboard: { preset: 'focus', focus: 'scatter' } },
+};
+
+/** LY-2: already on the `focus` preset (no explicit focusId -> the first cell, 'scatter', is the hero) — for exercising the thumbnail-overlay click without depending on a chained dispatch actually mutating the fake server's state. */
+export const STATE_FOCUS_PRESET = {
+  ...STATE_A,
+  layouts: { dashboard: { preset: 'focus' } },
+};
+
 /** A real map region selection (Northlands) over an otherwise-empty baseline — the derived map outline's "present with a value" arm. */
 export const STATE_MAP_SELECTED = {
   ...STATE_B,

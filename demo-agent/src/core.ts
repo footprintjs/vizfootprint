@@ -45,8 +45,10 @@ export interface CreateAnalystOptions {
 
 /** The human's dispatch request, straight off `/api/dispatch`. */
 export interface UserDispatchBody {
-  readonly verb: 'filter' | 'select' | 'analyze' | 'reencode';
+  /** LY-2: `navigate` is how the cockpit's layout switcher/reorder/focus land — see `ui/src/adapter/sessionView.ts`'s `setLayout`. */
+  readonly verb: 'filter' | 'select' | 'analyze' | 'reencode' | 'navigate';
   readonly viewId?: string;
+  /** For `navigate` on the `layout:${scope}` identity: the arrangement prop (`preset` | `order` | `focus`). */
   readonly field?: string;
   readonly value?: unknown;
   readonly range?: FilterRange;
@@ -120,6 +122,8 @@ export interface AnalystState {
   readonly paths: PathsState;
   /** RP-3: the agent-authored charts (with their gated specs) — feeds the VL-bridge cockpit cells. */
   readonly charts: unknown;
+  /** LY-2: `overview().layouts` verbatim (scope -> prop -> value) — vizfootprint-ui's adapter parses `layouts.dashboard` into the cockpit's `layout` prop. */
+  readonly layouts: unknown;
 }
 
 export interface Analyst {
@@ -202,6 +206,13 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
           return { ok: false, error: 'reencode needs viewId, channel, and field' };
         }
         action = { verb: 'reencode', viewId: body.viewId, channel: body.channel, field: body.field, cause };
+      } else if (body.verb === 'navigate') {
+        // LY-2: the cockpit's layout switcher/reorder/focus (and any plain
+        // pan/zoom navigate) rides this verb — see UserDispatchBody's doc.
+        if (typeof body.viewId !== 'string') return { ok: false, error: 'navigate needs a viewId' };
+        const field = typeof body.field === 'string' ? body.field : undefined;
+        const value = typeof body.value === 'string' ? body.value : undefined;
+        action = { verb: 'navigate', viewId: body.viewId, field, value, cause };
       } else {
         return { ok: false, error: `unsupported human verb "${String((body as { verb?: unknown }).verb)}"` };
       }
@@ -283,6 +294,7 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
         viewingPast: overview.time.viewingPast,
         paths: overview.paths,
         charts: session.charts(),
+        layouts: overview.layouts,
       };
     },
   };

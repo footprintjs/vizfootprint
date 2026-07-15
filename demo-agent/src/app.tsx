@@ -134,6 +134,7 @@ const SUGGESTIONS = [
   'Compare my two paths — what\'s different?',
   'Filter to May and tell me what changed.',
   'Select the Midlands region on the map and tell me what changed.',
+  'Focus the scatter, then present the story so far.',
 ];
 
 // Crossfilter self-exclusion now rides vizfootprint-ui's OWN contract layer
@@ -274,6 +275,12 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
   return (
     <VizCockpit
       readOnly={readOnly}
+      // LY-2: the arrangement is SESSION state (state.layout, the fold at the
+      // cursor) — every switcher/reorder/focus gesture lands through
+      // view.setLayout so it time-travels, forks, and replays in present mode
+      // like everything else (same pattern as the gallery — ui/gallery/entry.tsx).
+      layout={state.layout}
+      onLayoutChange={(change) => void view.setLayout(change)}
       top={
         <TimeTravelBar
           compact

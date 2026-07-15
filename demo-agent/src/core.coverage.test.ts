@@ -121,6 +121,60 @@ describe('dispatchUser — per-verb rejection arms (core.ts:145-167)', () => {
   });
 });
 
+describe('dispatchUser — navigate verb: the LY-2 cockpit-layout path + plain declared-view navigate (core.ts navigate branch)', () => {
+  it('navigate without a viewId is rejected with a named error, not a silent no-op', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res = await analyst.dispatchUser({ verb: 'navigate' } as any);
+    expect(res).toEqual({ ok: false, error: 'navigate needs a viewId' });
+  });
+
+  it('navigate to a DECLARED view lands no commit (RP-1: the verb itself is the record) and reports navigatedTo', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res: any = await analyst.dispatchUser({ verb: 'navigate', viewId: 'scatter', intent: 'pan the scatter' });
+    expect(res.ok).toBe(true);
+    expect(res.navigatedTo).toBe('scatter');
+    expect(res.commit).toBeUndefined();
+    expect((await analyst.state()).records).toHaveLength(0);
+  });
+
+  it('navigate to an UNDECLARED view is an honest needs-view gap', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res: any = await analyst.dispatchUser({ verb: 'navigate', viewId: 'ghost' });
+    expect(res.ok).toBe(false);
+    expect(res.rejection.op).toBe('navigate');
+    expect(res.rejection.code).toBe('needs-view');
+  });
+
+  it('a layout navigate (viewId="layout:dashboard", field+value present) lands a user-badged commit; state().layouts reflects it verbatim', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    expect((await analyst.state()).layouts).toEqual({}); // nothing landed yet — the honest empty fold
+
+    const res: any = await analyst.dispatchUser({
+      verb: 'navigate',
+      viewId: 'layout:dashboard',
+      field: 'preset',
+      value: 'grid',
+      intent: 'layout = grid',
+    });
+    expect(res.ok).toBe(true);
+    expect(res.navigatedTo).toBe('layout:dashboard');
+    expect(res.commit.cause.requestedBy).toBe('user');
+    expect(res.commit.cause.intent).toBe('layout = grid');
+
+    const state = await analyst.state();
+    expect(state.layouts).toEqual({ dashboard: { preset: 'grid' } });
+    expect((state.records as { viewId: string }[]).some((r) => r.viewId === 'layout:dashboard')).toBe(true);
+  });
+
+  it('a layout navigate missing field is the session\'s own typed guard-failed gap (never silently dropped)', async () => {
+    const analyst = createAnalyst({ csv: CSV, mock: true });
+    const res: any = await analyst.dispatchUser({ verb: 'navigate', viewId: 'layout:dashboard' });
+    expect(res.ok).toBe(false);
+    expect(res.rejection.op).toBe('navigate');
+    expect(res.rejection.code).toBe('guard-failed');
+  });
+});
+
 describe('seek — commitId guard + unknown-commit gap (core.ts:170-174)', () => {
   it('an empty commitId is rejected before touching the session', async () => {
     const analyst = createAnalyst({ csv: CSV, mock: true });

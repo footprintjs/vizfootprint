@@ -43,6 +43,9 @@ import {
   STATE_MAP_SELECTED,
   STATE_WITH_CHART,
   STATE_WITH_BAD_CHART,
+  STATE_WITH_LAYOUT,
+  STATE_WITH_CHART_FOCUSED,
+  STATE_FOCUS_PRESET,
 } from './app.coverage.helpers.js';
 
 let api: FakeApi;
@@ -196,11 +199,11 @@ describe('boot — rich fixture (STATE_A): renders every "has value" branch', ()
     expect(document.querySelector('[data-vzf="fdr-ledger"]')).toBeTruthy();
   });
 
-  it('the chat popup starts closed with the fab visible, the sys greeting, and 8 suggestion chips', () => {
+  it('the chat popup starts closed with the fab visible, the sys greeting, and 9 suggestion chips', () => {
     expect((document.getElementById('chatpanel') as HTMLElement).hidden).toBe(true);
     expect((document.getElementById('fab') as HTMLElement).hidden).toBe(false);
     expect(screen.getByText(/Brush the scatter or click a bar/)).toBeTruthy();
-    expect(document.querySelectorAll('.suggest button')).toHaveLength(8); // +1: the RP-3 propose-chart chip
+    expect(document.querySelectorAll('.suggest button')).toHaveLength(9); // +1: the LY-2 layout-focus chip
   });
 
   it('window.__vizAgent exposes the live view + a working refresh()', async () => {
@@ -504,6 +507,46 @@ describe('dashboard interactions — readiness', () => {
     await click(screen.getByRole('button', { name: 'run' }));
     const post = api.callsTo('/api/dispatch').at(-1);
     expect(post?.body).toMatchObject({ verb: 'analyze', analysisId: 'correlation', intent: 'analyze correlation' });
+  });
+});
+
+describe('LY-2 — cockpit layout: driven by state.layout, gestures land through view.setLayout', () => {
+  it('a landed layout note (overview().layouts, via /api/state) renders the cockpit in that arrangement', async () => {
+    await boot(STATE_WITH_LAYOUT);
+    expect(document.querySelector('[data-vzf="cockpit-charts"]')?.getAttribute('data-preset')).toBe('grid');
+  });
+
+  it('defaults to the flow preset when no layout note has landed yet', async () => {
+    await boot(STATE_A);
+    expect(document.querySelector('[data-vzf="cockpit-charts"]')?.getAttribute('data-preset')).toBe('flow');
+  });
+
+  it('clicking the Grid switcher option dispatches a layout navigate — the SAME wire shape the adapter\'s setLayout uses', async () => {
+    await boot(STATE_A);
+    await click(document.querySelector('[data-preset-option="grid"]'));
+    const post = api.callsTo('/api/dispatch').at(-1);
+    expect(post?.body).toMatchObject({ verb: 'navigate', viewId: 'layout:dashboard', field: 'preset', value: 'grid', intent: 'layout = grid' });
+  });
+
+  it('clicking the Focus switcher option dispatches field=preset value=focus', async () => {
+    await boot(STATE_WITH_LAYOUT); // starts on grid
+    await click(document.querySelector('[data-preset-option="focus"]'));
+    expect(api.callsTo('/api/dispatch').at(-1)?.body).toMatchObject({ verb: 'navigate', viewId: 'layout:dashboard', field: 'preset', value: 'focus' });
+  });
+
+  it('clicking a thumbnail\'s focus overlay dispatches field=focus value=<that chart\'s id>', async () => {
+    await boot(STATE_FOCUS_PRESET); // already on focus (hero defaults to 'scatter')
+    expect(document.querySelector('[data-chart="scatter"]')?.getAttribute('data-focused')).toBe('true');
+    await click(document.querySelector('[data-chart="bar"] [data-vzf="focus-thumb"]'));
+    expect(api.callsTo('/api/dispatch').at(-1)?.body).toMatchObject({ verb: 'navigate', viewId: 'layout:dashboard', field: 'focus', value: 'bar' });
+  });
+
+  it('an agent-authored chart cell participates in the focus arrangement — a real cockpit cell, not special-cased', async () => {
+    await boot(STATE_WITH_CHART_FOCUSED);
+    expect(document.querySelector('[data-vzf="cockpit-charts"]')?.getAttribute('data-preset')).toBe('focus');
+    expect(document.querySelector('[data-chart="scatter"]')?.getAttribute('data-focused')).toBe('true');
+    // the agent chart still renders as a live thumbnail on the rail (six cells total)
+    expect(document.querySelector('[data-chart="chart:pr"]')).toBeTruthy();
   });
 });
 
