@@ -133,3 +133,20 @@ export function selfSelectedValue(selection: RenderSelection): string | null {
   if (!own || own.kind !== 'point' || own.value == null) return null;
   return String(own.value);
 }
+
+/**
+ * The consuming view's own live INTERVAL value (`[lo, hi]`, numeric or ISO
+ * strings) — or null when it has none (no clause, a cleared clause, or a
+ * point). {@link selfSelectedValue}'s interval sibling: how a histogram
+ * derives its brushed range (and its click-again-clears comparison) from the
+ * same addressable fold. The single narrowing mirrors `clausePredicate`'s —
+ * the wire only ever carries the session's `FilterRange` shape (file header).
+ */
+export function selfSelectedInterval(
+  selection: RenderSelection,
+): readonly [number | string | null, number | string | null] | null {
+  if (selection.selfClauseId === null) return null;
+  const own = selection.clauses.get(selection.selfClauseId);
+  if (!own || own.kind !== 'interval' || own.value == null) return null;
+  return own.value as readonly [number | string | null, number | string | null];
+}

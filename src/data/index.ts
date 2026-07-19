@@ -20,6 +20,9 @@ export { isRejection, reject } from './types.js';
 
 export { literalToSQL, matchesClause, resolvePredicateSQL, isClearedSQL } from './predicate.js';
 
+export { equalWidthBins, recountBins } from './bins.js';
+export type { Bin, Bins, EqualWidthBinsOptions } from './bins.js';
+
 export { parseCSV, parseCSVTyped } from './csv.js';
 export type { ParsedCSV, SniffedCSV } from './csv.js';
 

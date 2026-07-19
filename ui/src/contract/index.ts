@@ -17,12 +17,27 @@ export type {
   ContractGap,
 } from './types.js';
 
-export { clausePredicate, emptySelection, selectionForView, keepPredicate, selfSelectedValue } from './selection.js';
+export {
+  clausePredicate,
+  emptySelection,
+  selectionForView,
+  keepPredicate,
+  selfSelectedValue,
+  selfSelectedInterval,
+} from './selection.js';
 
 export { bindRenderer } from './bind.js';
 export type { BindOptions, BindResult, BoundRenderer, NavigateOutcome } from './bind.js';
 
-export { reactRenderer, scatterRenderer, lineRenderer, barRenderer, mapRenderer, tableRenderer } from './renderers.js';
+export {
+  reactRenderer,
+  scatterRenderer,
+  lineRenderer,
+  barRenderer,
+  mapRenderer,
+  tableRenderer,
+  histogramRenderer,
+} from './renderers.js';
 export type {
   ReactRendererSpec,
   ScatterRendererOptions,
@@ -30,6 +45,7 @@ export type {
   BarRendererOptions,
   MapRendererOptions,
   TableRendererOptions,
+  HistogramRendererOptions,
 } from './renderers.js';
 
 export { runConformance } from './conformance.js';

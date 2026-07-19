@@ -8,7 +8,14 @@
 import { describe, it, expect } from 'vitest';
 import { matchesClause } from '../../../src/data/predicate.js';
 import type { PredicateClause } from '../../../src/data/types.js';
-import { clausePredicate, emptySelection, keepPredicate, selectionForView, selfSelectedValue } from './selection.js';
+import {
+  clausePredicate,
+  emptySelection,
+  keepPredicate,
+  selectionForView,
+  selfSelectedValue,
+  selfSelectedInterval,
+} from './selection.js';
 import type { SelectionView } from '../adapter/types.js';
 
 const ROWS = [
@@ -142,5 +149,23 @@ describe('selfSelectedValue', () => {
   it('a numeric point value stringifies (the selected-prop contract)', () => {
     const sel = selectionForView([{ viewId: 'table', field: 'price', kind: 'point', value: 160 }], 'table');
     expect(selfSelectedValue(sel)).toBe('160');
+  });
+});
+
+describe('selfSelectedInterval (the interval sibling — the histogram’s own-range derivation)', () => {
+  it('reads the consuming view’s own live interval value as the [lo, hi] tuple', () => {
+    expect(selfSelectedInterval(selectionForView(SELS, 'scatter'))).toEqual([50, 200]);
+    const dates = selectionForView(
+      [{ viewId: 'line', field: 'date', kind: 'interval', value: ['2026-04-01', '2026-04-09'] }],
+      'line',
+    );
+    expect(selfSelectedInterval(dates)).toEqual(['2026-04-01', '2026-04-09']);
+  });
+  it('null when the view has no clause, a cleared clause, a point, or no self at all', () => {
+    expect(selfSelectedInterval(selectionForView(SELS, 'map'))).toBeNull(); // no clause
+    expect(selfSelectedInterval(selectionForView(SELS, 'bar'))).toBeNull(); // point
+    expect(selfSelectedInterval(selectionForView(SELS, null))).toBeNull(); // whole-dashboard fold
+    const cleared = selectionForView([{ viewId: 'scatter', field: 'price', kind: 'interval', value: null }], 'scatter');
+    expect(selfSelectedInterval(cleared)).toBeNull(); // cleared interval
   });
 });

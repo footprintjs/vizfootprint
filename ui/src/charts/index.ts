@@ -8,6 +8,8 @@ export { VizMap } from './VizMap.js';
 export type { VizMapProps, RegionDatum, GeoFeature, GeoFeatureCollection, GeoGeometry, GeoRing } from './VizMap.js';
 export { VizTable } from './VizTable.js';
 export type { VizTableProps, TableRow, SortDirection, TableSortState } from './VizTable.js';
+export { VizHistogram } from './VizHistogram.js';
+export type { VizHistogramProps, HistogramBinDatum } from './VizHistogram.js';
 export { EncodingPicker } from './EncodingPicker.js';
 export type { EncodingPickerProps } from './EncodingPicker.js';
 // ChartFrame / AxisLabel / scales / defaultCompat moved to the public

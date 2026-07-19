@@ -739,6 +739,21 @@
   stroke-dasharray: 5 4;
 }
 
+/* ── VizHistogram (host-binned buckets) ────────────────────── */
+:where(.vzf) .vzf-histbar {
+  transition: opacity 0.15s ease;
+}
+:where(.vzf) .vzf-histbar.vzf-selected {
+  stroke: var(--vzf-ink);
+  stroke-width: 2;
+}
+:where(.vzf) .vzf-hist-hit {
+  /* transparent (not none): the bucket's whole column stays hoverable for the
+     tooltip while the paint under it shows through; gestures bubble to the svg */
+  fill: transparent;
+  cursor: pointer;
+}
+
 /* ── VizLine (time series) ─────────────────────────────────── */
 :where(.vzf) .vzf-line-path {
   fill: none;

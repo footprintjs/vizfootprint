@@ -23,7 +23,7 @@
  *
  * Steps run in order and STOP at the first failure (later steps depend on
  * earlier ones); the report carries every step's outcome in plain words.
- * All five first-party renderers pass this kit (`conformance.test.tsx`) —
+ * All six first-party renderers pass this kit (`conformance.test.tsx`) —
  * the reference claim is proven, not asserted.
  */
 

@@ -15,7 +15,7 @@
  *                 chart from these and it is born contract-conformant.
  *   • layout/   — `<VizCockpit>` shell + `<VizModal>` + `<VizPanel>`/`<VizCard>`.
  *   • charts/   — `<VizScatter>`, `<VizBar>`, `<VizLine>`, `<VizMap>`,
- *                 `<EncodingPicker>` (axis affordance).
+ *                 `<VizHistogram>`, `<EncodingPicker>` (axis affordance).
  *   • time/     — `<TimeTravelBar>` (explore/present) + `<BranchMap>`.
  *   • branches/ — `<BranchPill>`, `<PathsModal>`, `<CompareModal>`, `<ForkToast>`
  *                 (the NAMED-paths family over the adapter's BR-1 actions).

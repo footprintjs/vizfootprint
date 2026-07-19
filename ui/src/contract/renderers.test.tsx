@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 /**
- * The React bridge + the five reference factories — the option/default arms
- * the conformance suite doesn't reach: custom id/count/value fields, encoding
- * fallbacks, colour hooks, series splits, theme tokens on the mount wrapper.
+ * The React bridge + the six reference factories — the option/default arms
+ * the conformance suite doesn't reach: custom id/count/value/edge fields,
+ * encoding fallbacks, colour hooks, series splits, theme tokens on the mount
+ * wrapper.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
@@ -12,6 +13,7 @@ import {
   barRenderer,
   mapRenderer,
   tableRenderer,
+  histogramRenderer,
 } from './renderers.js';
 import { emptySelection } from './selection.js';
 import {
@@ -160,6 +162,36 @@ describe('mapRenderer', () => {
     const { el, m } = mounted(r);
     m.update(state([{ region: 'South', value: 3 }]));
     expect(el.querySelector('path.vzf-region')!.getAttribute('aria-label')).toBe('South · 3 rows');
+    m.unmount();
+  });
+});
+
+describe('histogramRenderer', () => {
+  it('reads bucket edges/counts from custom fields and the emit field from the x encoding; junk edges fall to 0, junk counts to 0', () => {
+    const r = histogramRenderer({ x0Field: 'lo', x1Field: 'hi', countField: 'n', countLabel: 'sales' });
+    const { el, m } = mounted(r);
+    m.update(
+      state(
+        [
+          { lo: 0, hi: 10, n: 4 },
+          { lo: 10, hi: 20, n: 'oops' }, // junk count → 0 (an honest empty bucket)
+          { lo: { bad: true }, hi: 30, n: 9 }, // junk edge → 0 (still a positionable number)
+        ],
+        { x: 'price' },
+      ),
+    );
+    const hits = el.querySelectorAll('rect.vzf-hist-hit');
+    expect(hits).toHaveLength(3);
+    expect(hits[0]!.getAttribute('aria-label')).toBe('price 0–10 (4 sales)');
+    expect(hits[1]!.getAttribute('aria-label')).toBe('price 10–20 (0 sales)');
+    m.unmount();
+  });
+
+  it('defaults to x0/x1/count field names and the "value" emit field', () => {
+    const r = histogramRenderer();
+    const { el, m } = mounted(r);
+    m.update(state([{ x0: 0, x1: 5, count: 2 }]));
+    expect(el.querySelector('rect.vzf-hist-hit')!.getAttribute('aria-label')).toBe('value 0–5 (2 rows)');
     m.unmount();
   });
 });

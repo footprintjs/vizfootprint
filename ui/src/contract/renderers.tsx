@@ -1,8 +1,8 @@
 /**
  * The FIRST-PARTY REFERENCE IMPLEMENTATIONS of the renderer contract (RP-1):
- * each of the five charts (scatter · line · bar · map · table), wrapped as a
- * framework-agnostic {@link Renderer} via one generic React bridge
- * (`reactRenderer`). They are proof, not assertion — all five pass the
+ * each of the six charts (scatter · line · bar · map · table · histogram),
+ * wrapped as a framework-agnostic {@link Renderer} via one generic React
+ * bridge (`reactRenderer`). They are proof, not assertion — all six pass the
  * conformance kit (`conformance.test.tsx`) end to end.
  *
  * What the bridge does — and deliberately does NOT do:
@@ -40,6 +40,7 @@ import { VizLine } from '../charts/VizLine.js';
 import { VizBar } from '../charts/VizBar.js';
 import { VizMap, type GeoFeatureCollection } from '../charts/VizMap.js';
 import { VizTable, type TableRow } from '../charts/VizTable.js';
+import { VizHistogram } from '../charts/VizHistogram.js';
 
 /** The bridge spec: declared capabilities + a pure state→element function. */
 export interface ReactRendererSpec {
@@ -270,6 +271,64 @@ export function mapRenderer(options: MapRendererOptions): Renderer {
           width={state.size.width}
           height={state.size.height}
           onEmit={handshake.callbacks.emit}
+        />
+      );
+    },
+  });
+}
+
+// ── histogram ──────────────────────────────────────────────────────────────────
+
+export interface HistogramRendererOptions {
+  /** The row field carrying the HOST-computed lower bucket edge. Default `'x0'`. */
+  readonly x0Field?: string;
+  /** The row field carrying the HOST-computed upper bucket edge. Default `'x1'`. */
+  readonly x1Field?: string;
+  /** The row field carrying the HOST-computed bucket count. Default `'count'`. */
+  readonly countField?: string;
+  /** The unit word for tooltips. Default `'rows'`. */
+  readonly countLabel?: string;
+}
+
+/** A bucket edge from a host row — numbers and ISO strings pass through, anything else is 0. */
+function edge(v: unknown): number | string {
+  return typeof v === 'number' || typeof v === 'string' ? v : 0;
+}
+
+/**
+ * Bucket-snapping interval brush on x (a bar click = that bucket's interval;
+ * click-again clears) · axis re-encode requests. Rows arrive host-BINNED:
+ * one row per bucket carrying its edges and count (`src/data`'s
+ * `equalWidthBins`/`recountBins` shape) — the chart never bins or counts
+ * (the transform-ownership rule).
+ */
+export function histogramRenderer(options: HistogramRendererOptions = {}): Renderer {
+  return reactRenderer({
+    capabilities: {
+      canBrush: true,
+      canPointSelect: false,
+      canHighlight: false,
+      canReencode: true,
+      canPanZoom: false,
+      emissionKinds: ['interval'],
+    },
+    render(state, handshake) {
+      const field = state.encodings['x'] ?? 'value';
+      const x0Field = options.x0Field ?? 'x0';
+      const x1Field = options.x1Field ?? 'x1';
+      const countField = options.countField ?? 'count';
+      const data = state.rows.map((r) => ({ x0: edge(r[x0Field]), x1: edge(r[x1Field]), count: num(r[countField]) }));
+      return (
+        <VizHistogram
+          viewId={handshake.viewId}
+          data={data}
+          field={field}
+          countLabel={options.countLabel}
+          selection={state.selection}
+          width={state.size.width}
+          height={state.size.height}
+          onEmit={handshake.callbacks.emit}
+          onReencodeRequest={handshake.callbacks.reencodeRequest}
         />
       );
     },

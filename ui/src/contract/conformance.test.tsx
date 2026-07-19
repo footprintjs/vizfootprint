@@ -3,8 +3,9 @@
  * The conformance kit against a REAL scripted session (the gallery-smoke
  * discipline — a live `InteractionSession`, never a mocked loop):
  *
- *   - ALL FIVE first-party renderers (scatter · line · bar · map · table)
- *     pass the full loop — the reference claim is proven, not asserted;
+ *   - ALL SIX first-party renderers (scatter · line · bar · map · table ·
+ *     histogram) pass the full loop — the reference claim is proven, not
+ *     asserted;
  *   - a synthetic canPanZoom renderer proves the navigate-records +
  *     non-filtering arm;
  *   - a bestiary of HOSTILE renderers proves the kit actually catches every
@@ -32,13 +33,14 @@ beforeAll(() => {
 });
 
 import { buildDashboard } from '../../../src/agent/index.js';
+import { equalWidthBins, recountBins } from '../../../src/data/index.js';
 import type { Cause } from '../../../src/cause/index.js';
 import { createSessionView, sessionSource, type SessionView } from '../adapter/sessionView.js';
 import type { SessionViewState } from '../adapter/types.js';
 import { runConformance, type ConformancePlan, type ConformanceReport } from './conformance.js';
 import { bindRenderer } from './bind.js';
 import { selectionForView, keepPredicate } from './selection.js';
-import { scatterRenderer, lineRenderer, barRenderer, mapRenderer, tableRenderer } from './renderers.js';
+import { scatterRenderer, lineRenderer, barRenderer, mapRenderer, tableRenderer, histogramRenderer } from './renderers.js';
 import {
   RENDERER_PROTOCOL_VERSION,
   type ChartEmission,
@@ -88,6 +90,7 @@ async function buildFixture(): Promise<{ view: SessionView }> {
       bar: { actor: 'user', label: 'Category' },
       map: { actor: 'user', label: 'Rows by region' },
       table: { actor: 'user', label: 'Rows' },
+      histogram: { actor: 'user', label: 'Price distribution' },
       other: { actor: 'agent', label: 'The scripted co-driver' },
       zoomy: { actor: 'user', label: 'A pan/zoom-capable view' },
       dirty: { actor: 'user', label: 'A view with a dirty unmount' },
@@ -99,6 +102,7 @@ async function buildFixture(): Promise<{ view: SessionView }> {
       { viewId: 'line', chartKind: 'line', channels: ['x', 'y', 'color'], initial: { x: 'date', y: 'price' } },
       { viewId: 'bar', chartKind: 'bar', channels: ['category'], initial: { category: 'category' } },
       { viewId: 'map', chartKind: 'map', channels: ['region'], initial: { region: 'region' } },
+      { viewId: 'histogram', chartKind: 'histogram', channels: ['x'], initial: { x: 'price' } },
     ],
     defaultTable: 'data',
   });
@@ -140,6 +144,12 @@ function stateFor(viewId: string, st: SessionViewState): RenderState {
   if (viewId === 'line') {
     return { rows: ROWS.filter(keep), encodings: st.encodings['line'] ?? {}, selection, hover: null, theme: THEME, size: SIZE };
   }
+  if (viewId === 'histogram') {
+    // HOST-owned binning (src/data): fixed edges over ALL rows, counts under the keep
+    const all = equalWidthBins(ROWS.map((r) => r.price as number));
+    const rows = recountBins(all, ROWS.filter(keep).map((r) => r.price as number)).bins.map((b) => ({ ...b }));
+    return { rows, encodings: st.encodings['histogram'] ?? {}, selection, hover: null, theme: THEME, size: SIZE };
+  }
   // scatter, table, and the synthetic fixtures read the raw rows
   return { rows: ROWS, encodings: st.encodings[viewId] ?? {}, selection, hover: null, theme: THEME, size: SIZE };
 }
@@ -174,7 +184,7 @@ function explain(report: ConformanceReport): string {
 
 // ── the five first-party reference renderers PASS the full loop ────────────────
 
-describe('conformance — all five first-party charts pass (the reference claim, proven)', () => {
+describe('conformance — all six first-party charts pass (the reference claim, proven)', () => {
   it('VizScatter (interval brush + an axis reencodeRequest riding the same handshake)', async () => {
     const report = await runFor(scatterRenderer(), 'scatter', {
       gesture: (el) => {
@@ -221,6 +231,22 @@ describe('conformance — all five first-party charts pass (the reference claim,
     });
     expect(report.ok, explain(report)).toBe(true);
     expect(report.emissions[0]).toEqual({ rawValue: 'North', encoding: { kind: 'point', field: 'region' } });
+  });
+
+  it('VizHistogram (bucket-snapping interval brush over HOST-computed bins)', async () => {
+    const report = await runFor(histogramRenderer(), 'histogram', {
+      gesture: brushGesture('svg.vzf-histogram'),
+      verifyUpdate: (el) => el.querySelector('rect.vzf-histbar.vzf-selected') !== null,
+    });
+    expect(report.ok, explain(report)).toBe(true);
+    const [emission] = report.emissions;
+    expect(emission!.encoding).toEqual({ kind: 'interval', field: 'price' });
+    // the interval is SNAPPED to bucket edges the HOST computed: equal width
+    // 22 over the fixture's price range [60, 280] (10 buckets)
+    const [lo, hi] = emission!.rawValue as [number, number];
+    expect(lo).toBeLessThan(hi);
+    expect((lo - 60) % 22).toBe(0);
+    expect((hi - 60) % 22).toBe(0);
   });
 
   it('VizTable (point select on a row)', async () => {
