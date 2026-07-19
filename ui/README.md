@@ -312,21 +312,83 @@ Navigation is capability-guarded on both sides: a renderer that declares
 to navigate a non-capable view lands a typed `navigate-unsupported` gap
 (`bound.navigate(...)` refuses and nothing is recorded).
 
-**Reference implementations.** All five first-party charts ship as contract
+**Reference implementations.** All six first-party charts ship as contract
 renderers — `scatterRenderer()`, `lineRenderer()`, `barRenderer()`,
-`mapRenderer({ geo })`, `tableRenderer({ columns })` — built on one generic
-`reactRenderer` bridge (mount a root, render synchronously, theme tokens on
-the `.vzf` wrapper). Their React props remain a thin convenience layer over
-the same contract types.
+`mapRenderer({ geo })`, `tableRenderer({ columns })`, `histogramRenderer()` —
+built on one generic `reactRenderer` bridge (mount a root, render
+synchronously, theme tokens on the `.vzf` wrapper). Their React props remain
+a thin convenience layer over the same contract types.
 
 **Conformance kit v0.** `runConformance(plan)` mounts ANY renderer against a
 real scripted session and walks the full loop in order — version-guard,
 transform-ownership, handshake, renders, gesture-emits, commit-lands (origin
 in the cause), crossfilter-returns (the view's own clause addressable + a
 visible re-render), navigate (recorded + non-filtering, or the typed gap),
-unmount — and reports every step in plain words. All five first-party charts
+unmount — and reports every step in plain words. All six first-party charts
 pass it in CI; a bestiary of hostile renderers proves the kit catches each
 violation at the exact step.
+
+## The chart-building primitives — build your own chart
+
+The five original charts were never five separate inventions: they share one
+measuring frame, one brush, one click language, one selection fold, one axis
+affordance. That shared tier is now **public** (the visx idea, with a twist):
+every primitive carries the renderer contract inside it, so a chart you
+compose from them is **born conformant** — it emits honest data-space
+selections, consumes the crossfilter correctly, never builds a clause, never
+owns a transform, and wears the theme in both palettes.
+
+What each primitive is, and what contract behavior it guarantees:
+
+| primitive | one sentence | the contract behavior it carries |
+|---|---|---|
+| `<ChartFrame>` | Measures its cell and hands `{width, height}` to your render prop. | The SVG viewBox matches the on-screen box 1:1 (crisp at any size; survives the cockpit's layout morphs). |
+| `linearScale` / `extent` / `ticks` | A pure linear scale with an inverse, plus extent/tick helpers. | Emissions resolve through YOUR scale to DATA space — never pixels. |
+| `epochOf` / `dayOf` | ISO-8601 date handling: position by epoch, label by day. | An unparseable date is skipped, never guessed; ISO strings keep lexicographic == chronological. |
+| `useHorizontalBrush` + `<BrushOverlay>` | The drag→interval gesture machinery (pointer capture, scale correction, clamping). | The completion discipline: a sub-4px release clears (or runs your tap); your `snap` returns real data bounds or `null` — an interval is **never fabricated**. |
+| `pointEmission` / `togglePointEmission` | The click→point language. | Click-again-clears emits the engine's real "cleared" state (`rawValue: undefined`), releasing the filter — not a fake empty filter. |
+| `keyActivates` | Enter/Space activation for clickable marks. | Every mouse gesture stays keyboard-reachable. |
+| `useKeepPredicate` / `dimClass` | Consume the clause-addressable selection as one memoized keep-predicate. | Self-exclusion ("dim under everyone's brush but my own") and dim-not-hide — a filtered-out mark dims, it never disappears. |
+| `selectedValue` | The controlled-prop rule for a chart's own outline. | An explicit `selected` prop wins; otherwise the outline derives from the session fold — never from private chart state. |
+| `<AxisLabel>` + `useReencodePicker` + `defaultCompat` | The interactive axis label and its two-mode dispatch. | In contract mode the HOST owns the picker (`reencodeRequest`); the built-in picker disables incompatible columns **with the reason**. |
+
+The selection derivation itself (`selectionForView`, `keepPredicate`,
+`selfSelectedValue`, `selfSelectedInterval`) lives in the contract layer and
+is imported from the same package root.
+
+### The afternoon chart — `VizHistogram`, the proof
+
+`<VizHistogram>` is the sixth first-party chart, and it was deliberately
+built ONLY from the public primitives — the same afternoon path a consumer
+takes. The composition, in plain language:
+
+1. **The host owns the bins.** `src/data`'s pure `equalWidthBins` computes
+   equal-width bucket edges (numeric or ISO-date domains) over ALL rows, and
+   `recountBins` refills those FIXED edges with the counts under the current
+   crossfilter. The chart receives ready `{x0, x1, count}` buckets and never
+   bins or counts — the exact transform-ownership rule the conformance kit
+   enforces at bind (`transforms-not-owned`).
+2. **Scales place the buckets.** `linearScale` over the edge range (dates go
+   through `epochOf`); bar heights are just `count / max`.
+3. **One brush, three gestures.** `useHorizontalBrush` supplies the whole
+   pointer surface: a drag's `snap` maps the pixel span to the covered
+   buckets and emits ONE interval spanning their edges; the sub-4px `onTap`
+   arm makes a bar click emit that single bucket's interval; and clicking
+   the selected bucket again emits the cleared interval. "Selected" is read
+   from the session fold via `selfSelectedInterval` — never local state — so
+   the outline and the clear gesture stay honest under time-travel and
+   branch switches.
+4. **The axis re-encodes.** `<AxisLabel>` + `useReencodePicker` +
+   `defaultCompat` give the x label the same picker affordance the scatter
+   has, honestly restricted to numeric/date columns.
+
+Wired into the gallery as the sixth cell, it crossfilters both directions
+with zero histogram-specific plumbing — and it passes the same
+`runConformance` suite as its five siblings. That is the primitives-tier
+claim: **the sixth chart cost an afternoon because the contract ships inside
+the pieces.**
+
+![the histogram cell](gallery/screenshots/gallery-histogram.png)
 
 ## The layers (each importable alone)
 
@@ -334,9 +396,10 @@ violation at the exact step.
 |---|---|
 | `tokens/` | design tokens + theme engine — scoped CSS variables on the `.vzf` root (never `:root`), light+dark via `prefers-color-scheme` with a `data-theme` override that wins both ways |
 | `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods incl. `navigate`) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView` |
-| `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION`, `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`, the five reference renderers, `runConformance` |
+| `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION`, `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`selfSelectedValue`/`selfSelectedInterval`, the six reference renderers, `runConformance` |
+| `primitives/` | the chart-building tier (see above): `<ChartFrame>`, scales + date handling, `<AxisLabel>`/`useReencodePicker`/`defaultCompat`, `useHorizontalBrush`/`<BrushOverlay>`, `pointEmission`/`togglePointEmission`/`keyActivates`, `useKeepPredicate`/`selectedValue`/`dimClass` — compose a chart from these and it is born contract-conformant |
 | `layout/` | `<VizCockpit>` (the flagship — and only — single-screen shell) + `<VizModal>` (the one modal system) + `<VizPanel>`/`<VizCard>` |
-| `charts/` | `<VizScatter>`, `<VizBar>`, `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click), `<VizTable>` (sortable rows, click-to-select) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; `<ChartFrame>` measures a cell so charts fill it; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |
+| `charts/` | `<VizScatter>`, `<VizBar>`, `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click), `<VizTable>` (sortable rows, click-to-select), `<VizHistogram>` (host-computed buckets, edge-snapped brush) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |
 | `time/` | `<TimeTravelBar>` with `explore` (full commit timeline + fork-safe ⟵/⟶ step rules, `compact` for the cockpit) and `present` (checkpoint-ONLY story beats, acting disabled, `onReadOnlyChange` up to the shell) + `<CheckpointModal>` + `<BranchMap>` |
 | `panels/` | `<CommitLog>` (cause badges, click-to-seek, off-branch dimming), `<FdrLedger>` (two truths + the verbatim honesty line), `<GapsPanel>`, `<ReadinessPanel>` — cockpit hosts these inside report modals, unchanged |
 
