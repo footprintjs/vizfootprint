@@ -30,10 +30,10 @@
  * point split in src/data/types.ts), releasing the filter. Regions are
  * keyboard-focusable; Enter/Space selects; aria labels carry name + value.
  */
-import type { KeyboardEvent } from 'react';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import type { RenderSelection } from '../contract/types.js';
-import { selfSelectedValue } from '../contract/selection.js';
+import { togglePointEmission, keyActivates } from '../primitives/pointSelect.js';
+import { selectedValue } from '../primitives/useSelection.js';
 
 /** A lon/lat ring: `[ [lon, lat], … ]`. */
 export type GeoRing = readonly (readonly [number, number])[];
@@ -166,27 +166,18 @@ export function VizMap(props: VizMapProps): JSX.Element {
   } = props;
 
   // explicit `selected` wins; otherwise the outline derives from the fold's own point clause
-  const selected = props.selected !== undefined ? props.selected : selection ? selfSelectedValue(selection) : null;
+  const selected = selectedValue(props.selected, selection);
 
   const values = new Map(data.map((d) => [d.region, d.value]));
   const max = Math.max(0, ...data.map((d) => d.value));
   const project = fitProjection(geo, { x: PAD.l, y: PAD.t, w: width - PAD.l - PAD.r, h: height - PAD.t - PAD.b });
 
   const emit = (region: string): void => {
-    const emission: ChartEmission =
-      selected === region
-        ? // clicking the selected region again CLEARS the point selection —
-          // rawValue undefined is the cleared state of src/data's three-way
-          // point split (null would mean "match SQL NULL", a different filter)
-          { rawValue: undefined, encoding: { kind: 'point', field: regionField } }
-        : { rawValue: region, encoding: { kind: 'point', field: regionField } };
+    // clicking the selected region again CLEARS the point selection — the
+    // togglePointEmission primitive (rawValue undefined = the cleared state of
+    // src/data's three-way point split; null would mean "match SQL NULL")
+    const emission: ChartEmission = togglePointEmission(regionField, region, selected);
     onEmit?.(emission);
-  };
-  const onKey = (e: KeyboardEvent<SVGPathElement>, region: string): void => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      emit(region);
-    }
   };
 
   const legendW = 18;
@@ -217,7 +208,7 @@ export function VizMap(props: VizMapProps): JSX.Element {
             aria-label={hasData ? `${name} · ${value} ${valueLabel}` : `${name} · no ${valueLabel}`}
             data-region={name}
             onClick={() => emit(name)}
-            onKeyDown={(e) => onKey(e, name)}
+            onKeyDown={keyActivates(() => emit(name))}
           >
             <title>
               {hasData

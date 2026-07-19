@@ -36,7 +36,8 @@ import { useMemo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import type { RenderSelection } from '../contract/types.js';
-import { keepPredicate, selfSelectedValue } from '../contract/selection.js';
+import { togglePointEmission } from '../primitives/pointSelect.js';
+import { useKeepPredicate, selectedValue, dimClass } from '../primitives/useSelection.js';
 
 /** One row of table data — arbitrary fields, keyed by column name. */
 export interface TableRow {
@@ -110,8 +111,8 @@ export function VizTable(props: VizTableProps): JSX.Element {
   } = props;
 
   // explicit `selected` wins; otherwise the outline derives from the fold's own point clause
-  const selected = props.selected !== undefined ? props.selected : selection ? selfSelectedValue(selection) : null;
-  const keep = useMemo(() => (selection ? keepPredicate(selection) : null), [selection]);
+  const selected = selectedValue(props.selected, selection);
+  const keep = useKeepPredicate(selection);
 
   const [sort, setSort] = useState<TableSortState | null>(null);
   const sorted = useMemo(() => sortRows(data, sort), [data, sort]);
@@ -132,10 +133,8 @@ export function VizTable(props: VizTableProps): JSX.Element {
   };
 
   const emit = (id: string): void => {
-    const emission: ChartEmission =
-      selected === id
-        ? { rawValue: undefined, encoding: { kind: 'point', field: idField } }
-        : { rawValue: id, encoding: { kind: 'point', field: idField } };
+    // click-again-clears — the togglePointEmission primitive (VizMap's gesture)
+    const emission: ChartEmission = togglePointEmission(idField, id, selected);
     onEmit?.(emission);
   };
   const onRowKey = (e: KeyboardEvent<HTMLTableRowElement>, id: string): void => {
@@ -202,7 +201,7 @@ export function VizTable(props: VizTableProps): JSX.Element {
                   return (
                     <tr
                       key={id}
-                      className={`vzf-table-row${isSelected ? ' vzf-selected' : ''}${isKept ? '' : ' vzf-dim'}`}
+                      className={`vzf-table-row${isSelected ? ' vzf-selected' : ''}${dimClass(isKept)}`}
                       tabIndex={0}
                       aria-selected={isSelected}
                       aria-label={`row ${id}${isSelected ? ' selected' : ''}`}

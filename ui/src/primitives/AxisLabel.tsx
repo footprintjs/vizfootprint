@@ -3,7 +3,7 @@
  * ring, and click / Enter / Space opens the encoding picker for its channel.
  * Honest affordance — the label LOOKS actionable because it is.
  */
-import type { KeyboardEvent } from 'react';
+import { keyActivates } from './pointSelect.js';
 
 export interface AxisLabelProps {
   readonly x: number;
@@ -22,12 +22,7 @@ export interface AxisLabelProps {
 export function AxisLabel(props: AxisLabelProps): JSX.Element {
   const { x, y, text, channel, anchor = 'middle', boxWidth = Math.max(60, text.length * 7 + 24), boxHeight = 18, rotate, onOpen } = props;
   const bx = anchor === 'middle' ? x - boxWidth / 2 : anchor === 'end' ? x - boxWidth : x;
-  const onKey = (e: KeyboardEvent<SVGGElement>) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      onOpen(channel);
-    }
-  };
+  const onKey = keyActivates<SVGGElement>(() => onOpen(channel));
   return (
     <g
       className="vzf-axis-group"

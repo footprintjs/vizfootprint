@@ -19,7 +19,7 @@ beforeAll(() => {
 import { EncodingPicker } from './EncodingPicker.js';
 import { VizScatter } from './VizScatter.js';
 import { VizBar } from './VizBar.js';
-import { defaultCompat } from './compat.js';
+import { defaultCompat } from '../primitives/compat.js';
 import { selectionForView } from '../contract/selection.js';
 import type { ColumnView } from '../adapter/types.js';
 

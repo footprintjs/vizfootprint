@@ -9,12 +9,13 @@
  * `onReencodeRequest` asks the HOST (contract mode); otherwise it opens the
  * built-in {@link EncodingPicker} for the categorical channel.
  */
-import { useState } from 'react';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import type { ColumnView, ViewEncoding } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { selfSelectedValue } from '../contract/selection.js';
-import { AxisLabel } from './AxisLabel.js';
+import { AxisLabel } from '../primitives/AxisLabel.js';
+import { pointEmission, keyActivates } from '../primitives/pointSelect.js';
+import { selectedValue } from '../primitives/useSelection.js';
+import { useReencodePicker } from '../primitives/reencode.js';
 import { EncodingPicker } from './EncodingPicker.js';
 
 export interface BarDatum {
@@ -61,22 +62,16 @@ export function VizBar(props: VizBarProps): JSX.Element {
     width = 360,
     height = 340,
   } = props;
-  const [pickerChannel, setPickerChannel] = useState<string | null>(null);
-
   // explicit `selected` wins; otherwise the outline derives from the fold's own point clause
-  const selected = props.selected !== undefined ? props.selected : selection ? selfSelectedValue(selection) : null;
-  const openPicker = (channel: string): void => {
-    if (onReencodeRequest) onReencodeRequest(channel); // contract mode — the host owns the picker
-    else setPickerChannel(channel);
-  };
+  const selected = selectedValue(props.selected, selection);
+  const { pickerChannel, openPicker, closePicker } = useReencodePicker(onReencodeRequest);
 
   const max = Math.max(1, ...data.map((d) => d.count));
   const plot = height - PAD.t - PAD.b;
   const band = (width - PAD.l - PAD.r) / Math.max(1, data.length);
 
   const emit = (category: string): void => {
-    const emission: ChartEmission = { rawValue: category, encoding: { kind: 'point', field } };
-    onEmit?.(emission);
+    onEmit?.(pointEmission(field, category));
   };
 
   return (
@@ -109,12 +104,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
                 aria-label={`select ${d.category} (${d.count})`}
                 style={{ cursor: 'pointer' }}
                 onClick={() => emit(d.category)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    emit(d.category);
-                  }
-                }}
+                onKeyDown={keyActivates(() => emit(d.category))}
               >
                 <title>{`click to select ${d.category}`}</title>
               </rect>
@@ -136,7 +126,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
         columns={columns}
         currentField={pickerChannel ? encoding[pickerChannel] ?? field : undefined}
         onReencode={(v, c, f) => onReencode?.(v, c, f)}
-        onClose={() => setPickerChannel(null)}
+        onClose={closePicker}
       />
     </>
   );

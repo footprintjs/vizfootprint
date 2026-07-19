@@ -40,3 +40,20 @@ export function ticks(lo: number, hi: number, n: number): number[] {
   for (let k = 0; k <= n; k++) out.push(lo + ((hi - lo) * k) / n);
   return out;
 }
+
+// ── the shared date handling (ISO-8601 strings, lexicographic == chronological) ──
+
+/**
+ * An ISO-8601 date string's epoch milliseconds, or null when unparseable —
+ * a chart positions dates on a linear scale through this and SKIPS what it
+ * cannot place (never guessed; the VizLine/VizHistogram discipline).
+ */
+export function epochOf(iso: string): number | null {
+  const epoch = Date.parse(iso);
+  return Number.isNaN(epoch) ? null : epoch;
+}
+
+/** The date-part of an ISO string — tick labels stay short even for full timestamps. */
+export function dayOf(iso: string): string {
+  return iso.slice(0, 10);
+}

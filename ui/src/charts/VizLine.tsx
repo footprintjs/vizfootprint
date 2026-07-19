@@ -28,14 +28,15 @@
  * Axis labels open the {@link EncodingPicker}: x offers only DATE-capable
  * columns, y only numeric ones — disabled-with-reason via {@link lineCompat}.
  */
-import { useMemo, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import { useMemo } from 'react';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import type { ColumnView, ViewEncoding } from '../adapter/types.js';
-import { linearScale, extent, ticks } from './scales.js';
-import { AxisLabel } from './AxisLabel.js';
+import { linearScale, extent, ticks, epochOf, dayOf } from '../primitives/scales.js';
+import { AxisLabel } from '../primitives/AxisLabel.js';
+import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
+import { useReencodePicker } from '../primitives/reencode.js';
 import { EncodingPicker } from './EncodingPicker.js';
-import { defaultCompat, type Compatibility } from './compat.js';
+import { defaultCompat, type Compatibility } from '../primitives/compat.js';
 
 export interface LinePoint {
   /** ISO-8601 date (or timestamp) string — lexicographic == chronological. */
@@ -108,8 +109,8 @@ function aggregate(data: readonly LinePoint[]): { series: SeriesGeom[]; dates: {
   const bySeries = new Map<string | undefined, Map<string, { sum: number; n: number }>>();
   const epochs = new Map<string, number>();
   for (const p of data) {
-    const epoch = Date.parse(p.date);
-    if (Number.isNaN(epoch)) continue; // an unparseable date cannot be positioned — skipped, never guessed
+    const epoch = epochOf(p.date);
+    if (epoch === null) continue; // an unparseable date cannot be positioned — skipped, never guessed
     epochs.set(p.date, epoch);
     let buckets = bySeries.get(p.series);
     if (!buckets) {
@@ -137,11 +138,6 @@ function aggregate(data: readonly LinePoint[]): { series: SeriesGeom[]; dates: {
   return { series, dates };
 }
 
-/** The date-part of an ISO string — tick labels stay short even for full timestamps. */
-function dayOf(iso: string): string {
-  return iso.slice(0, 10);
-}
-
 const PAD = { l: 52, r: 18, t: 18, b: 44 };
 
 export function VizLine(props: VizLineProps): JSX.Element {
@@ -163,11 +159,6 @@ export function VizLine(props: VizLineProps): JSX.Element {
     height = 340,
   } = props;
 
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const dragRef = useRef<{ x0: number } | null>(null);
-  const [brush, setBrush] = useState<{ x: number; w: number } | null>(null);
-  const [pickerChannel, setPickerChannel] = useState<string | null>(null);
-
   const { series, dates } = useMemo(() => aggregate(data), [data]);
   const compat = useMemo(() => lineCompat(dateFields ?? [dateField]), [dateFields, dateField]);
 
@@ -176,18 +167,6 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const allMeans = series.flatMap((s) => s.points);
   const [vlo, vhi] = extent(allMeans, (p) => p.mean, 0.5);
   const y = linearScale(vlo, vhi, height - PAD.b, PAD.t);
-
-  const clampX = (px: number): number => Math.max(PAD.l, Math.min(width - PAD.r, px));
-  const pxFromEvent = (ev: ReactPointerEvent): number => {
-    const svg = svgRef.current;
-    /* v8 ignore next -- mirrors VizScatter: pxFromEvent is only reachable from pointer handlers
-       bound to this same ref'd <svg>; React attaches the ref before any pointer event can fire,
-       so svgRef.current is never null here in practice */
-    if (!svg) return PAD.l;
-    const rect = svg.getBoundingClientRect();
-    const scale = width / (rect.width || width);
-    return clampX((ev.clientX - rect.left) * scale);
-  };
 
   /** The distinct data date NEAREST an epoch (dates is chronological, monotone in its argument). */
   const snapToDate = (epoch: number): { date: string; epoch: number } | null => {
@@ -199,52 +178,28 @@ export function VizLine(props: VizLineProps): JSX.Element {
     return best;
   };
 
-  const onPointerDown = (ev: ReactPointerEvent<SVGSVGElement>): void => {
-    // axis labels live inside this svg — a click there opens the encoding
-    // picker and must NOT start (or, on release, clear) a brush
-    const target = ev.target as Element;
-    if (typeof target.closest === 'function' && target.closest('.vzf-axis-group')) return;
-    const px = pxFromEvent(ev);
-    dragRef.current = { x0: px };
-    svgRef.current?.setPointerCapture?.(ev.pointerId);
-    setBrush({ x: px, w: 0 });
-  };
-  const onPointerMove = (ev: ReactPointerEvent<SVGSVGElement>): void => {
-    if (!dragRef.current) return;
-    const px = pxFromEvent(ev);
-    setBrush({ x: Math.min(dragRef.current.x0, px), w: Math.abs(px - dragRef.current.x0) });
-  };
-  const onPointerUp = (ev: ReactPointerEvent<SVGSVGElement>): void => {
-    const drag = dragRef.current;
-    if (!drag) return;
-    dragRef.current = null;
-    const px = pxFromEvent(ev);
-    if (Math.abs(px - drag.x0) < 4) {
-      // a click, not a drag — clear the interval (VizScatter semantics)
-      setBrush(null);
-      onEmit?.({ rawValue: null, encoding: { kind: 'interval', field: dateField } });
-      return;
-    }
-    const lo = snapToDate(x.invert(Math.min(drag.x0, px)));
-    const hi = snapToDate(x.invert(Math.max(drag.x0, px)));
-    if (lo === null || hi === null) {
+  // drag→interval on time — the brush primitive's completion discipline (a
+  // sub-4px release clears); snap-to-data = the nearest DISTINCT data date per
+  // endpoint, so the emitted bounds are actual column values (or nothing).
+  const { svgRef, brush, handlers } = useHorizontalBrush({
+    plotLeft: PAD.l,
+    plotRight: width - PAD.r,
+    width,
+    field: dateField,
+    snap: (loPx, hiPx) => {
+      const lo = snapToDate(x.invert(loPx));
+      const hi = snapToDate(x.invert(hiPx));
       // no dated rows at all — nothing to snap to; never fabricate an interval
-      setBrush(null);
-      return;
-    }
-    // ISO strings on the interval rail: src/mosaic's ChartEmission tuple is
-    // typed numerically (predates date intervals); src/data's IntervalClause
-    // types + evaluates [string, string] — the documented cast, nowhere else.
-    onEmit?.({
-      rawValue: [lo.date, hi.date] as unknown as [number, number],
-      encoding: { kind: 'interval', field: dateField },
-    });
-  };
+      if (lo === null || hi === null) return null;
+      // ISO strings on the interval rail: src/mosaic's ChartEmission tuple is
+      // typed numerically (predates date intervals); src/data's IntervalClause
+      // types + evaluates [string, string] — the documented cast, nowhere else.
+      return [lo.date, hi.date] as unknown as [number, number];
+    },
+    onEmit,
+  });
 
-  const openPicker = (channel: string): void => {
-    if (onReencodeRequest) onReencodeRequest(channel); // contract mode — the host owns the picker
-    else setPickerChannel(channel);
-  };
+  const { pickerChannel, openPicker, closePicker } = useReencodePicker(onReencodeRequest);
 
   // ≤3 tick dates: first (start-anchored), last (end-anchored), and the middle
   // date ONLY when its label physically fits between the edge labels — data
@@ -278,10 +233,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
         viewBox={`0 0 ${width} ${height}`}
         role="img"
         aria-label={`${yLabel} over ${xLabel}`}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        {...handlers}
       >
         {/* axes frame */}
         <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />
@@ -338,9 +290,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
           </g>
         )}
         {/* brush */}
-        {brush && brush.w > 0 && (
-          <rect className="vzf-brush" x={brush.x} y={PAD.t} width={brush.w} height={height - PAD.t - PAD.b} rx={2} />
-        )}
+        <BrushOverlay brush={brush} y={PAD.t} height={height - PAD.t - PAD.b} />
         {/* interactive axis labels */}
         <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />
         <AxisLabel x={14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={-90} onOpen={openPicker} />
@@ -353,7 +303,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
         compatible={compat}
         currentField={pickerChannel ? encoding[pickerChannel] ?? (pickerChannel === 'x' ? dateField : valueField) : undefined}
         onReencode={(v, c, f) => onReencode?.(v, c, f)}
-        onClose={() => setPickerChannel(null)}
+        onClose={closePicker}
       />
     </>
   );

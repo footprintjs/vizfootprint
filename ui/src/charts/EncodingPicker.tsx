@@ -13,7 +13,7 @@
 import { useMemo } from 'react';
 import type { ColumnView } from '../adapter/types.js';
 import { VizModal } from '../layout/VizModal.js';
-import { defaultCompat, type Compatibility } from './compat.js';
+import { defaultCompat, type Compatibility } from '../primitives/compat.js';
 
 export interface EncodingPickerProps {
   readonly open: boolean;

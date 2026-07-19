@@ -8,13 +8,7 @@ export { VizMap } from './VizMap.js';
 export type { VizMapProps, RegionDatum, GeoFeature, GeoFeatureCollection, GeoGeometry, GeoRing } from './VizMap.js';
 export { VizTable } from './VizTable.js';
 export type { VizTableProps, TableRow, SortDirection, TableSortState } from './VizTable.js';
-export { ChartFrame } from './ChartFrame.js';
-export type { ChartFrameProps, ChartSize } from './ChartFrame.js';
 export { EncodingPicker } from './EncodingPicker.js';
 export type { EncodingPickerProps } from './EncodingPicker.js';
-export { AxisLabel } from './AxisLabel.js';
-export type { AxisLabelProps } from './AxisLabel.js';
-export { defaultCompat } from './compat.js';
-export type { Compatibility } from './compat.js';
-export { linearScale, extent, ticks } from './scales.js';
-export type { LinearScale } from './scales.js';
+// ChartFrame / AxisLabel / scales / defaultCompat moved to the public
+// primitives tier (../primitives) — re-exported from the package root there.

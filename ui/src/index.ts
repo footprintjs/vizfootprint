@@ -9,6 +9,10 @@
  *                 mount handshake + capabilities, RenderState with the
  *                 clause-addressable selection, the four outbound verbs,
  *                 `bindRenderer` guards, reference renderers, conformance kit.
+ *   • primitives/ — the chart-building tier the first-party charts are BUILT
+ *                 FROM (`<ChartFrame>`, scales, `<AxisLabel>`, the brush +
+ *                 point-select gestures, selection consumption) — compose a
+ *                 chart from these and it is born contract-conformant.
  *   • layout/   — `<VizCockpit>` shell + `<VizModal>` + `<VizPanel>`/`<VizCard>`.
  *   • charts/   — `<VizScatter>`, `<VizBar>`, `<VizLine>`, `<VizMap>`,
  *                 `<EncodingPicker>` (axis affordance).
@@ -23,6 +27,7 @@
 export * from './tokens/index.js';
 export * from './adapter/index.js';
 export * from './contract/index.js';
+export * from './primitives/index.js';
 export * from './layout/index.js';
 export * from './charts/index.js';
 export * from './time/index.js';

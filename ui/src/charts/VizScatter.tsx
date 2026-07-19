@@ -11,15 +11,21 @@
  * `onReencodeRequest` it ASKS THE HOST (the contract's `reencodeRequest`
  * verb — the host owns the picker); otherwise it opens the built-in
  * {@link EncodingPicker} (the React convenience layer).
+ *
+ * Composed from the PUBLIC primitives (`../primitives`): scales +
+ * `useHorizontalBrush`/`BrushOverlay` (the gesture machinery + completion
+ * discipline) + `useKeepPredicate`/`dimClass` (self-excluded dim-not-hide) +
+ * `AxisLabel`/`useReencodePicker` (the re-encode seam) — the same pieces a
+ * consumer-built chart gets.
  */
-import { useMemo, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import type { ColumnView, ViewEncoding } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
-import { keepPredicate } from '../contract/selection.js';
-import { linearScale, extent, ticks } from './scales.js';
-import { AxisLabel } from './AxisLabel.js';
+import { linearScale, extent, ticks } from '../primitives/scales.js';
+import { AxisLabel } from '../primitives/AxisLabel.js';
+import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
+import { useKeepPredicate, dimClass } from '../primitives/useSelection.js';
+import { useReencodePicker } from '../primitives/reencode.js';
 import { EncodingPicker } from './EncodingPicker.js';
 
 export interface ScatterDatum {
@@ -99,67 +105,25 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   } = props;
 
   // the self-excluded crossfilter fold — recomputed only when the selection changes
-  const keep = useMemo(() => (selection ? keepPredicate(selection) : null), [selection]);
-
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const dragRef = useRef<{ x0: number } | null>(null);
-  const [brush, setBrush] = useState<{ x: number; w: number } | null>(null);
-  const [pickerChannel, setPickerChannel] = useState<string | null>(null);
+  const keep = useKeepPredicate(selection);
 
   const [xlo, xhi] = extent(data, (d) => d.x, 5);
   const x = linearScale(xlo, xhi, PAD.l, width - PAD.r);
   const [ylo, yhi] = extent(data, (d) => d.y, 0.5);
   const y = linearScale(ylo, yhi, height - PAD.b, PAD.t);
 
-  const clampX = (px: number): number => Math.max(PAD.l, Math.min(width - PAD.r, px));
-  const pxFromEvent = (ev: ReactPointerEvent): number => {
-    const svg = svgRef.current;
-    /* v8 ignore next -- pxFromEvent is only called from onPointerDown/Move/Up, all three
-       bound directly to this same ref'd <svg>; React attaches the ref before any pointer
-       event can reach these handlers, so svgRef.current is never null here in practice */
-    if (!svg) return PAD.l;
-    const rect = svg.getBoundingClientRect();
-    const scale = width / (rect.width || width);
-    return clampX((ev.clientX - rect.left) * scale);
-  };
-  const toInterval = (a: number, b: number): [number, number] => {
-    const lo = x.invert(Math.min(a, b));
-    const hi = x.invert(Math.max(a, b));
-    return [Math.round(lo * 100) / 100, Math.round(hi * 100) / 100];
-  };
+  // drag→interval on x — the brush primitive's completion discipline (a sub-4px
+  // release emits the CLEARED interval); snap = this chart's own scale invert
+  const { svgRef, brush, handlers } = useHorizontalBrush({
+    plotLeft: PAD.l,
+    plotRight: width - PAD.r,
+    width,
+    field: xField,
+    snap: (loPx, hiPx) => [Math.round(x.invert(loPx) * 100) / 100, Math.round(x.invert(hiPx) * 100) / 100],
+    onEmit,
+  });
 
-  const onPointerDown = (ev: ReactPointerEvent<SVGSVGElement>): void => {
-    // the axis labels live inside this svg — a click there opens the encoding
-    // picker and must NOT start (or, on release, clear) a brush
-    const target = ev.target as Element;
-    if (typeof target.closest === 'function' && target.closest('.vzf-axis-group')) return;
-    const px = pxFromEvent(ev);
-    dragRef.current = { x0: px };
-    svgRef.current?.setPointerCapture?.(ev.pointerId);
-    setBrush({ x: px, w: 0 });
-  };
-  const onPointerMove = (ev: ReactPointerEvent<SVGSVGElement>): void => {
-    if (!dragRef.current) return;
-    const px = pxFromEvent(ev);
-    setBrush({ x: Math.min(dragRef.current.x0, px), w: Math.abs(px - dragRef.current.x0) });
-  };
-  const onPointerUp = (ev: ReactPointerEvent<SVGSVGElement>): void => {
-    const drag = dragRef.current;
-    if (!drag) return;
-    dragRef.current = null;
-    const px = pxFromEvent(ev);
-    const emission: ChartEmission =
-      Math.abs(px - drag.x0) < 4
-        ? { rawValue: null, encoding: { kind: 'interval', field: xField } }
-        : { rawValue: toInterval(drag.x0, px), encoding: { kind: 'interval', field: xField } };
-    if (emission.rawValue === null) setBrush(null);
-    onEmit?.(emission);
-  };
-
-  const openPicker = (channel: string): void => {
-    if (onReencodeRequest) onReencodeRequest(channel); // contract mode — the host owns the picker
-    else setPickerChannel(channel);
-  };
+  const { pickerChannel, openPicker, closePicker } = useReencodePicker(onReencodeRequest);
 
   const xTicks = ticks(xlo + 5, xhi - 5, 4);
   const yTickVals = ticks(Math.ceil(ylo + 0.5), Math.floor(yhi - 0.5), 4);
@@ -172,10 +136,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         viewBox={`0 0 ${width} ${height}`}
         role="img"
         aria-label={`scatter of ${yLabel} against ${xLabel}`}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        {...handlers}
       >
         {/* axes frame */}
         <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />
@@ -214,7 +175,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
           return (
             <circle
               key={d.id}
-              className={`vzf-dot${kept ? '' : ' vzf-dim'}`}
+              className={`vzf-dot${dimClass(kept)}`}
               cx={x(d.x)}
               cy={y(d.y)}
               r={4}
@@ -225,9 +186,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
           );
         })}
         {/* brush */}
-        {brush && brush.w > 0 && (
-          <rect className="vzf-brush" x={brush.x} y={PAD.t} width={brush.w} height={height - PAD.t - PAD.b} rx={2} />
-        )}
+        <BrushOverlay brush={brush} y={PAD.t} height={height - PAD.t - PAD.b} />
         {/* interactive axis labels */}
         <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />
         <AxisLabel x={14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={-90} onOpen={openPicker} />
@@ -239,7 +198,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         columns={columns}
         currentField={pickerChannel ? encoding[pickerChannel] ?? (pickerChannel === 'x' ? xField : yField) : undefined}
         onReencode={(v, c, f) => onReencode?.(v, c, f)}
-        onClose={() => setPickerChannel(null)}
+        onClose={closePicker}
       />
     </>
   );

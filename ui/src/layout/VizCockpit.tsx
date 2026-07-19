@@ -46,7 +46,7 @@ import { useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, UIEvent } from 'react';
 import { themeStyle, themeAttr, type ThemeConfig } from '../tokens/theme.js';
 import type { LayoutChange, LayoutPreset, LayoutView } from '../adapter/types.js';
-import { ChartFrame, type ChartSize } from '../charts/ChartFrame.js';
+import { ChartFrame, type ChartSize } from '../primitives/ChartFrame.js';
 import { VizModal } from './VizModal.js';
 import { useLayoutMorph } from './layoutMorph.js';
 
