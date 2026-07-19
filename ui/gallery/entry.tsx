@@ -20,6 +20,7 @@ import {
   VizBar,
   VizLine,
   VizMap,
+  VizHistogram,
   TimeTravelBar,
   BranchMap,
   BranchPill,
@@ -42,6 +43,9 @@ import {
 import { buildScriptedSession } from './scripted.js';
 import { CATEGORIES, CATEGORY_COLORS, GALLERY_GEO, REGIONS, type GalleryRow } from './data.js';
 import { VegaLiteCell } from './VegaLiteCell.js';
+// the HOST side of the transform-ownership rule: this page (not the chart)
+// computes the histogram's buckets with src/data's pure binning helper
+import { equalWidthBins, recountBins } from '../../src/data/index.js';
 
 // The old page-local clause matcher is GONE (RP-1): the contract's
 // `selectionForView` derives the clause-addressable selection straight from
@@ -103,6 +107,27 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
         })),
     [rows, lineX, lineY, state.selections],
   );
+
+  // the histogram's field comes from ITS encoding fold; the HOST owns the bins
+  // (transform ownership): fixed equal-width edges over ALL rows — stable while
+  // its own brush lands — with counts recomputed under the OTHER views' clauses
+  // (the VizBar recompute pattern, via recountBins over the same edges).
+  const encH = state.encodings['histogram'] ?? {};
+  const histField = encH['x'] ?? 'price';
+  const histValueOf = (r: GalleryRow): number | string | null => {
+    const v = r[histField];
+    return typeof v === 'number' || typeof v === 'string' ? v : null;
+  };
+  const histEdges = useMemo(
+    () => equalWidthBins(rows.map(histValueOf).filter((v): v is number | string => v !== null), { buckets: 8 }),
+    // histValueOf closes only over histField — the deps carry its real inputs
+    [rows, histField],
+  );
+  const keepHist = keepPredicate(selFor('histogram'));
+  const histData = recountBins(
+    histEdges,
+    rows.filter(keepHist).map(histValueOf).filter((v): v is number | string => v !== null),
+  ).bins;
 
   // the map's value per region = the crossfiltered row COUNT (the canonical wiring)
   const keepMap = keepPredicate(selFor('map'));
@@ -263,6 +288,25 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
               height={height}
               selection={selFor('map')}
               onEmit={(e) => void view.emit('map', e, 'region click')}
+            />
+          ),
+        },
+        {
+          id: 'histogram',
+          weight: 2.5,
+          caption: `Histogram — drag across ${histField} buckets; click a bar for one bucket, again to clear`,
+          render: ({ width, height }) => (
+            <VizHistogram
+              viewId="histogram"
+              data={histData}
+              field={histField}
+              width={width}
+              height={height}
+              selection={selFor('histogram')}
+              columns={columns}
+              encoding={encH}
+              onEmit={(e) => void view.emit('histogram', e, 'histogram brush')}
+              onReencode={(v, c, f) => void view.reencode(v, c, f)}
             />
           ),
         },

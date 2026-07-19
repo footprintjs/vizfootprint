@@ -40,6 +40,10 @@ export async function buildScriptedSession(): Promise<ScriptedGallery> {
       bar: { actor: 'user', label: 'Category' },
       line: { actor: 'user', label: 'Price over time' },
       map: { actor: 'user', label: 'Rows by region' },
+      // the "build your own chart" proof cell: VizHistogram, composed from the
+      // PUBLIC primitives tier — declared like any first-party view so its
+      // bucket-brush emissions land real commits.
+      histogram: { actor: 'user', label: 'Price distribution' },
       // the vizfootprint-vega-lite bridge cell (RP-2): a THIRD-PARTY-shaped
       // renderer riding the SAME declared-view/crossfilter loop as the four
       // first-party charts above — must be declared here for its emissions
@@ -51,6 +55,7 @@ export async function buildScriptedSession(): Promise<ScriptedGallery> {
       { viewId: 'bar', chartKind: 'bar', channels: ['category'], initial: { category: 'category' } },
       { viewId: 'line', chartKind: 'line', channels: ['x', 'y', 'color'], initial: { x: 'date', y: 'price' } },
       { viewId: 'map', chartKind: 'map', channels: ['region'], initial: { region: 'region' } },
+      { viewId: 'histogram', chartKind: 'histogram', channels: ['x'], initial: { x: 'price' } },
     ],
     analyses: {
       correlation: correlationAnalysis({ x: 'price', y: 'rating' }),

@@ -75,13 +75,21 @@ describe('VizHistogram — rendering host-owned bins', () => {
     expect(screen.getByRole('button', { name: 'price 25–50 (0 rows)' })).toBeTruthy();
   });
 
-  it('thins edge ticks past 12 edges but always keeps the last edge', () => {
+  it('thins edge ticks when there are many edges but always keeps the last edge', () => {
     const many: HistogramBinDatum[] = Array.from({ length: 30 }, (_, i) => ({ x0: i, x1: i + 1, count: 1 }));
     const { container } = render(<VizHistogram data={many} field="v" />);
     const ticks = Array.from(container.querySelectorAll('text.vzf-tick')).map((t) => t.textContent);
     expect(ticks.length).toBeLessThanOrEqual(12);
     expect(ticks[0]).toBe('0');
     expect(ticks[ticks.length - 1]).toBe('30');
+  });
+
+  it('thinning is width-aware: a narrow cockpit cell keeps only what fits (first + last always)', () => {
+    const eight: HistogramBinDatum[] = Array.from({ length: 8 }, (_, i) => ({ x0: i * 25, x1: (i + 1) * 25, count: 1 }));
+    const { container } = render(<VizHistogram data={eight} field="v" width={150} />);
+    const ticks = Array.from(container.querySelectorAll('text.vzf-tick')).map((t) => t.textContent);
+    // the mid label steps in but would crowd the always-shown final edge → dropped
+    expect(ticks).toEqual(['0', '200']);
   });
 
   it('skips a bin whose date edge cannot be parsed — never guessed into place', () => {
@@ -261,6 +269,18 @@ describe('VizHistogram — the re-encode affordance (both modes)', () => {
     fireEvent.click(dateOpt);
     expect(onReencode).toHaveBeenCalledWith('histogram', 'x', 'date');
     expect(screen.queryByRole('dialog')).toBeNull(); // picking closed it
+  });
+
+  it('without an encoding fold the picker highlights the field prop as current', () => {
+    const { container } = render(<VizHistogram data={BINS} field="price" columns={COLS} />);
+    fireEvent.click(container.querySelector('[data-axis-channel="x"]')!);
+    const priceOpt = document.querySelector('[data-vzf-modal="encoding-picker"] [data-field="price"]')!;
+    expect(priceOpt.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('a custom className rides the svg root', () => {
+    const { container } = render(<VizHistogram data={BINS} field="price" className="my-hist" />);
+    expect(container.querySelector('svg.vzf-histogram.my-hist')).toBeTruthy();
   });
 
   it('a pointer-down on the axis label never starts (or clears) a brush', () => {

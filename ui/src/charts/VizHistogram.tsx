@@ -194,12 +194,21 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
 
   const { pickerChannel, openPicker, closePicker } = useReencodePicker(onReencodeRequest);
 
-  // edge ticks, thinned so labels never crowd (always keep the LAST edge)
+  // edge ticks, thinned by the pixels actually available (a narrow cockpit
+  // cell fits 2-3 labels, a wide one all of them). The LAST edge always shows;
+  // a stepped label that would crowd it is dropped instead (stepping already
+  // spaces the stepped labels ≥ labelW apart, so the final edge is the one
+  // remaining collision to guard).
   const edges: { pos: number; label: string }[] = [];
   if (geoms.length > 0) {
-    const step = Math.max(1, Math.ceil((geoms.length + 1) / 12));
-    for (let i = 0; i < geoms.length; i += step) edges.push({ pos: geoms[i]!.p0, label: edgeLabel(geoms[i]!.x0) });
+    const labelW = typeof geoms[0]!.x0 === 'string' ? 68 : 44; // date labels are wider than numbers
+    const fit = Math.max(2, Math.floor((width - PAD.l - PAD.r) / labelW));
+    const step = Math.max(1, Math.ceil((geoms.length + 1) / fit));
     const last = geoms[geoms.length - 1]!;
+    for (let i = 0; i < geoms.length; i += step) {
+      if (Math.abs(x(geoms[i]!.p0) - x(last.p1)) < labelW) continue; // would collide with the final edge label
+      edges.push({ pos: geoms[i]!.p0, label: edgeLabel(geoms[i]!.x0) });
+    }
     edges.push({ pos: last.p1, label: edgeLabel(last.x1) });
   }
 

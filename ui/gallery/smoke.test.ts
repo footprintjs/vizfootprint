@@ -17,6 +17,10 @@
  *     the other charts; the MAP's region click lands a REAL point commit,
  *     clicking the selected region again clears it; the line's y axis
  *     re-encodes through its restricted picker (x = date columns only);
+ *   - PRIM-1, the primitives-built HISTOGRAM as the 6th cell: HOST-computed
+ *     buckets (src/data equalWidthBins/recountBins — the chart never bins), a
+ *     bucket-edge-snapped interval brush, click-a-bar → one bucket,
+ *     click-again → cleared — three REAL commits, crossfiltering both ways;
  *   - a report chip opens a LARGE frosted-glass modal hosting the panel, with
  *     scrolling allowed only INSIDE the modal body;
  *   - ⚑ opens the checkpoint naming modal; Enter lands a REAL checkpoint;
@@ -111,12 +115,15 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
   });
 
   it('every layer renders against the scripted session (charts, compact bar, badged chips)', async () => {
-    // fill-height charts — all FOUR
+    // fill-height charts — all FIVE first-party cells
     expect(await page.locator('svg.vzf-scatter circle.vzf-dot').count()).toBe(60);
     expect(await page.locator('svg.vzf-bar rect.vzf-barrect').count()).toBe(5);
     expect(await page.locator('svg.vzf-line path.vzf-line-path').count()).toBe(5); // one per category series
     expect(await page.locator('svg.vzf-line circle.vzf-line-dot').count()).toBeGreaterThan(0);
     expect(await page.locator('svg.vzf-map path.vzf-region').count()).toBe(5);
+    // the histogram cell (built from the public primitives): 8 HOST-computed buckets
+    expect(await page.locator('svg.vzf-histogram rect.vzf-histbar').count()).toBe(8);
+    await maybeElementShot(page, '[data-chart="histogram"]', path.join(SHOTS, 'gallery-histogram.png'));
     // the uninhabited region is HONESTLY empty: neutral fill class + no-rows tooltip
     const isles = page.locator('svg.vzf-map [data-region="Outer Isles"]');
     expect((await isles.getAttribute('class')) ?? '').toContain('vzf-region-empty');
@@ -148,7 +155,13 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     expect(chart.frameH, 'the chart band must be tall (fills remaining height), not the old fixed 340px').toBeGreaterThan(340);
     expect(Math.abs(chart.svgH - chart.frameH)).toBeLessThanOrEqual(2);
     expect(Math.abs(chart.svgW - chart.frameW)).toBeLessThanOrEqual(2);
-    expect(chart.viewBox).toBe(`0 0 ${Math.floor(chart.frameW)} ${Math.floor(chart.frameH)}`);
+    // viewBox == CSS box 1:1 — within a pixel: ChartFrame measures offsetWidth
+    // (a ROUNDED integer) while the rect here is fractional, so an exact
+    // floor-string compare would flake on any non-integer cell width (the
+    // FIX-FILL suite pins the same invariant with the same tolerance)
+    const [, , vbW, vbH] = (chart.viewBox ?? '0 0 0 0').split(' ').map(Number);
+    expect(Math.abs(vbW! - chart.frameW)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(vbH! - chart.frameH)).toBeLessThanOrEqual(1.5);
   }, 30_000);
 
   it('an axis click opens the encoding picker; picking a column lands a REAL reencode', async () => {
@@ -174,6 +187,65 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     const yLabel = await page.locator('svg.vzf-scatter [data-axis-channel="y"] .vzf-axis-label').textContent();
     expect(yLabel ?? '').toContain('price');
     await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-reencoded.png'), fullPage: false });
+  }, 30_000);
+
+  it('the histogram (the primitives-built 6th cell) brushes buckets, clicks one, and click-again clears — all REAL commits', async () => {
+    const commits = async (): Promise<number> =>
+      Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    const scatterDimBefore = await page.locator('svg.vzf-scatter circle.vzf-dim').count();
+
+    // 1) drag across the upper-price buckets → ONE interval commit, snapped to
+    //    the host-computed bucket edges; the OTHER charts crossfilter
+    const c0 = await commits();
+    const box = (await page.locator('svg.vzf-histogram').boundingBox())!;
+    const midY = box.y + box.height / 2;
+    await page.mouse.move(box.x + box.width * 0.55, midY);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.92, midY, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      c0,
+      { timeout: 8000 },
+    );
+    // the scatter dims the rows outside the bucket range (crossfilter into it) …
+    expect(await page.locator('svg.vzf-scatter circle.vzf-dim').count()).toBeGreaterThan(scatterDimBefore);
+    // … and the covered buckets wear the selection outline (derived from the fold)
+    await page.waitForSelector('svg.vzf-histogram rect.vzf-histbar.vzf-selected');
+    expect(await page.locator('svg.vzf-histogram rect.vzf-histbar.vzf-selected').count()).toBeGreaterThanOrEqual(2);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-histogram-brushed.png'), fullPage: false });
+
+    // 2) click ONE bar → exactly that bucket's interval replaces the range
+    const c1 = await commits();
+    const bar = (await page.locator('svg.vzf-histogram rect.vzf-hist-hit').nth(2).boundingBox())!;
+    await page.mouse.click(bar.x + bar.width / 2, bar.y + bar.height / 2);
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      c1,
+      { timeout: 8000 },
+    );
+    await page.waitForFunction(
+      () => document.querySelectorAll('svg.vzf-histogram rect.vzf-histbar.vzf-selected').length === 1,
+      undefined,
+      { timeout: 8000 },
+    );
+
+    // 3) click the SAME bar again → the CLEARED interval; the filter releases
+    const c2 = await commits();
+    await page.mouse.click(bar.x + bar.width / 2, bar.y + bar.height / 2);
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      c2,
+      { timeout: 8000 },
+    );
+    await page.waitForFunction(
+      () => document.querySelectorAll('svg.vzf-histogram rect.vzf-histbar.vzf-selected').length === 0,
+      undefined,
+      { timeout: 8000 },
+    );
+    // the crossfilter released with it — the scatter's dims return to baseline
+    expect(await page.locator('svg.vzf-scatter circle.vzf-dim').count()).toBe(scatterDimBefore);
+    await expectNoPageOrShellScroll(page);
   }, 30_000);
 
   it('the line time brush lands a REAL date-interval commit and crossfilters the other charts', async () => {
@@ -507,8 +579,9 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     });
     expect(strip.snapType, 'the charts band is a snap carousel on mobile').toContain('x');
     expect(strip.dotsDisplay, 'dot indicators show on mobile').not.toBe('none');
-    // scatter · line · bar · map · vl (the bridge cell) · the AGENT-AUTHORED chart (RP-3) — all six ride the carousel
-    expect(strip.dotCount).toBe(6);
+    // scatter · line · bar · map · histogram · vl (the bridge cell) · the
+    // AGENT-AUTHORED chart (RP-3) — all seven ride the carousel
+    expect(strip.dotCount).toBe(7);
     expect(Math.abs(strip.cellW - strip.stripW), 'each chart is one full-width page').toBeLessThanOrEqual(2);
     // both NEW charts are carousel cells with live content
     expect(await page.locator('[data-chart="line"] svg.vzf-line').count()).toBe(1);
