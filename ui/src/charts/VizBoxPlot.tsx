@@ -35,6 +35,12 @@
  * VALUE); x accepts string or numeric columns (its own compat, the
  * VizHeatmap `y`-channel precedent — x is the row CATEGORY, not a
  * positional channel).
+ *
+ * CATEGORY LABELS ARE WIDTH-AWARE (`fitCategoryLabel`): a squeezed cockpit
+ * cell truncates each label to what its OWN band fits, honestly, rather than
+ * letting neighbours' text collide — the VizHeatmap row-label discipline,
+ * applied per-band; the full name always rides the hit column's
+ * `aria-label`/`title`.
  */
 import { useMemo } from 'react';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
@@ -112,6 +118,34 @@ function edgeLabel(v: number | string): string {
 function categoryCompat(channel: string, column: ColumnView): Compatibility {
   if (column.type === 'string' || column.type === 'number') return { ok: true };
   return { ok: false, reason: `${channel} needs a category (string) or numeric column — "${column.field}" is ${column.type}` };
+}
+
+/**
+ * A category tick label fitted to its OWN band width — truncated (with an
+ * ellipsis) when the full name would not fit, and left BLANK (never a
+ * colliding fragment) when the band is too tight for even one character plus
+ * the ellipsis. WIDTH-AWARE, the VizHeatmap row-label discipline (`fitLabel`
+ * + its adaptive gutter) applied per-band instead of to one shared gutter: a
+ * box-plot label can't be THINNED the way VizHistogram skips crowded edge
+ * ticks (every visible box IS its own category, so there is no redundant
+ * neighbour tick to drop instead) — but an HONESTLY EMPTY label plays the
+ * same role histogram's dropped tick does: nothing shown beats two labels
+ * bleeding into each other. The full name is never lost regardless of how
+ * tight the truncation gets: it rides the hit column's own `aria-label`/
+ * `title` (below), the same "truncate on screen, keep the whole name in the
+ * accessible name" split VizHeatmap uses.
+ */
+function fitCategoryLabel(label: string, band: number): string {
+  // .vzf-tick rides a 10px monospace font; ~6px/character is a safe (slightly
+  // generous) estimate, with a small margin so a label never crowds its
+  // neighbour's own band
+  const CHAR_W = 6;
+  const MARGIN = 4;
+  const maxWhole = Math.floor((band - MARGIN) / CHAR_W);
+  if (label.length <= maxWhole) return label; // fits as-is — no ellipsis needed
+  const maxTruncated = maxWhole - 1; // one glyph of the budget is the ellipsis itself
+  if (maxTruncated < 1) return ''; // too tight for even one character — honest silence, never a collision
+  return `${label.slice(0, maxTruncated)}…`;
 }
 
 /** One outlier, paired with its placed position (kept together so a skipped-unplaceable outlier never shifts another's index). */
@@ -282,9 +316,9 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
               >
                 <title>{`${g.category} · ${g.count} ${countLabel} · box ${range} · median ${edgeLabel(g.median)} · click to ${sel ? 'clear' : 'select'}`}</title>
               </rect>
-              {/* category tick label */}
-              <text className="vzf-tick" x={cx(i)} y={height - PAD.b + 16} textAnchor="middle">
-                {g.category}
+              {/* category tick label — width-aware truncation (fitCategoryLabel); the full name lives on the hit column's own aria-label/title above */}
+              <text className="vzf-tick vzf-box-catlabel" x={cx(i)} y={height - PAD.b + 16} textAnchor="middle">
+                {fitCategoryLabel(g.category, band)}
               </text>
             </g>
           );

@@ -82,6 +82,33 @@ describe('rendering — host-summarized boxes, whiskers, outliers', () => {
     expect(container.querySelector('svg.vzf-boxplot.my-box')).not.toBeNull();
   });
 
+  it('category labels are width-aware: a moderately squeezed cell truncates with an ellipsis (full name stays on the hit column)', () => {
+    // 3 categories at width 130: band = (130 - 48 - 16) / 3 = 22 → maxWhole=3
+    // (all three names exceed it), one glyph reserved for the ellipsis → 2
+    // real characters survive per label
+    const { container } = renderBoxPlot({ width: 130 });
+    const labels = [...container.querySelectorAll('text.vzf-box-catlabel')].map((t) => t.textContent);
+    expect(labels).toEqual(['Ca…', 'Fo…', 'Pa…']);
+    expect(labels).not.toContain('Casual');
+    // the full name is never lost — it rides the hit column's own aria-label
+    expect(container.querySelector('[data-box="Casual"]')!.getAttribute('aria-label')).toContain('category Casual');
+    // a roomy cell shows the full, untouched category names
+    const { container: wide } = renderBoxPlot({ width: 420 });
+    expect([...wide.querySelectorAll('text.vzf-box-catlabel')].map((t) => t.textContent)).toEqual(['Casual', 'Formal', 'Party']);
+  });
+
+  it('category labels go honestly BLANK (never a colliding fragment) when a band is too tight for even one character', () => {
+    // 3 categories at width 90: band ≈ 8.67 → maxWhole floors to 0, so even a
+    // single character plus the ellipsis would overflow the band — blank wins
+    const { container } = renderBoxPlot({ width: 90 });
+    const labels = [...container.querySelectorAll('text.vzf-box-catlabel')].map((t) => t.textContent);
+    expect(labels).toEqual(['', '', '']);
+    // the boxes themselves still render — only the label is honestly withheld
+    expect(container.querySelectorAll('rect.vzf-box')).toHaveLength(3);
+    // the full name is still never lost — it rides the hit column's own aria-label
+    expect(container.querySelector('[data-box="Casual"]')!.getAttribute('aria-label')).toContain('category Casual');
+  });
+
   it('empty data renders an empty (but framed) plot — nothing fabricated', () => {
     const { container } = renderBoxPlot({ data: [] });
     expect(container.querySelectorAll('rect.vzf-box')).toHaveLength(0);
