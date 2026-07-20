@@ -16,7 +16,7 @@
  *   7. crossfilter-returns  — the view's own clause is now ADDRESSABLE in the
  *                             derived selection and the renderer visibly
  *                             re-rendered under the new state
- *   8. cell                 — D29 (protocol 1.1): a renderer DECLARING the
+ *   8. cell                 — D30 (protocol 1.1): a renderer DECLARING the
  *                             cell emission kind drives the plan's cellGesture
  *                             and must land exactly ONE compound cell commit
  *                             (both fields, addressable clause); a renderer
@@ -93,7 +93,7 @@ export interface ConformancePlan {
   /** Drive the renderer-specific SELECTING gesture on the mounted DOM (a clearing gesture fails step 7 by design). */
   gesture(el: HTMLElement): void | Promise<void>;
   /**
-   * D29: drive a CELL-selecting gesture on a DIFFERENT cell than `gesture`
+   * D30: drive a CELL-selecting gesture on a DIFFERENT cell than `gesture`
    * touched (clicking the same cell again would CLEAR it). REQUIRED when the
    * renderer declares the 'cell' emission kind; ignored otherwise.
    */
@@ -296,7 +296,7 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
     {
       name: 'cell',
       async run() {
-        // D29 (protocol 1.1): the compound-cell arm — exercised only by
+        // D30 (protocol 1.1): the compound-cell arm — exercised only by
         // renderers that DECLARE the cell emission kind; everyone else skips
         // honestly (the declared-capability rule, not a silent pass).
         if (!bound!.capabilities.emissionKinds.includes('cell')) {
@@ -316,9 +316,9 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
         const st = view.getState();
         const landedCount = st.commits.length - commitsBeforeCell;
         if (landedCount !== 1) {
-          // the D29 ruling is exactly ONE commit per cell gesture — zero means
+          // the D30 ruling is exactly ONE commit per cell gesture — zero means
           // the session refused it (e.g. a ghost field), two means it split
-          throw new StepFailed(`the cell gesture landed ${landedCount} commit(s) — the D29 ruling is exactly ONE`);
+          throw new StepFailed(`the cell gesture landed ${landedCount} commit(s) — the D30 ruling is exactly ONE`);
         }
         const landed = st.commits[st.commits.length - 1]!; // landedCount === 1 ⇒ a last commit exists
         const selection = selectionForView(st.selections, viewId);

@@ -20,7 +20,7 @@
  * and category labels double as honest row headers — a second bucketed axis
  * would also need its own edge-stability story, so it waits for a real need.
  *
- * GESTURE (D29 — the compound cell): click a cell → ONE cell emission
+ * GESTURE (D30 — the compound cell): click a cell → ONE cell emission
  * `{ rawValue: [[x0, x1], y], encoding: { kind: 'cell', fields: [xField,
  * yField] } }` — one gesture, ONE commit ("price 100–150 AND category
  * Formal"); clicking the SELECTED cell again emits the CLEARED cell

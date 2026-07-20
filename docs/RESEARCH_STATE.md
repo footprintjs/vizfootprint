@@ -216,6 +216,48 @@ package only when a second real consumer exists, not when it merely could be reu
 named (neither built): hcifootprint branchable sessions, gameFootprint replay trees. DOCS-ONLY packet — no src/
 or ui/ touched; README.md got a short "The foottrail core" section pointing at the doc.
 
+## D30 [SHIPPED HM-1] the compound `cell` commit + VizHeatmap — one gesture, two fields, ONE commit (the C3 ruling)
+A heatmap cell click selects on TWO fields with one gesture ("price 100–150 AND category Formal"). **Ruling: one
+gesture = one commit — never two correlationId-linked commits.** The emission/commit vocabulary gains a third kind:
+`cell` — `{kind:'cell', fields:[fx,fy]}` with the two-sided value pair (each side an interval `[lo,hi]`, half-open
+allowed, or a point value; `null` clears the whole cell) riding the log's existing singular `value` slot; the
+commit's predicate is the AND of both sides, composed from the REAL Mosaic side factories + mosaic-sql's `and()`
+(now a declared direct dependency); `CommitRecord.field` carries the display-only joint label (`cellFieldLabel`,
+"price × category") while the authoritative pair rides the new `CommitRecord.fields`. **The fold key stays
+`selection:${viewId}`** (last-wins per view) — branching / compare / time-travel / bringOver / undo untouched by
+construction, VERIFIED with targeted tests (fold-key pin in `src/branches/branches.test.ts` "TARGETED"; session
+seek/branch-on-act/compare/undo suite in `src/session/cellSelect.test.ts`; undo-with-nothing-prior clears
+KIND-FAITHFULLY via a cleared-cell recipe — the joint label is not a column, so a flattened interval-clear would
+trip the column guard). Wire-format sweep (every replica in lockstep, the CLAUDE-map lesson): src/data
+(`CellClause`/`CellSide`/`clauseFields`; `matchesClause` AND arm DELEGATES to the point/interval arms — half-open +
+ISO-string discipline reused verbatim; `resolvePredicateSQL` cell arm byte-identical to the log's composed
+descriptor, pinned vs the installed package; memoryProvider probes/validates BOTH columns) · src/mosaic
+(`CellEncoding` emission arm; excess-key rejection still holds by construction) · src/log (commit refuses a
+pair-less cell; replay copies the pair; JSON round-trip pinned) · src/branches (cleared-cell deletes the key;
+fingerprints carry the pair; plans re-land the COMPOUND) · src/session (the `select` verb gains the cell form —
+the vocabulary STAYS at 8 verbs; guards: needs-view / declared-capability / same-field / reserved-both-sides /
+needs-column-both-sides / needs-backend-data) · vizAsTools+MCP (the agent cell-selects via `dispatch
+{fields, values}`; fire-time validation reuses the filter-range bound rules; MCP schema+result parity pinned) ·
+ui (protocol 1.0→**1.1**: `EmissionKind` gains 'cell'; `clausePredicate` cell arm parity-pinned vs `matchesClause`;
+`selfSelectedCell`; CommitLog says "price 100 – 150 and category = Formal", compare says "price between 100 and
+150 and category is Formal") · capabilities (a view/renderer DECLARES 'cell' — `CapabilityDecl.encodings` +
+`RendererCapabilities.emissionKinds`; the five classic charts, VizTable, and the VL bridge honestly do NOT, pinned;
+the conformance kit gains the **cell arm**: a declaring renderer drives `cellGesture` and must land exactly ONE
+compound commit with an addressable cell clause — hostile arms pinned). **VizHeatmap** (PRIM-1 primitives tier,
+zero forked internals): host-computed 2-D cells (ONE `equalWidthBins` fixes x edges; `recountBins` per category
+under crossfilter), the shared `rampStep` sequential ramp (`--vzf-seq-*`; VizMap refactored onto the now-public
+primitive), zero-count cells wear the honest `--vzf-map-empty` neutral, keyboard-first cells, both axes re-encode
+(x numeric/date, y category/numeric), adaptive row-label gutter (squeezed cockpit cells truncate honestly — full
+names stay on tooltips/aria). v1 scope numeric/date × category is chart GEOMETRY only — the wire already carries
+any side mix, so numeric×numeric needs zero wire change. Gallery: the heatmap is the 8th cockpit cell; the smoke
+proves LIVE in real Chromium: one click = badge +1 exactly, BOTH constraints crossfilter (readout drops, scatter
+dims), plain-words compound in the commit log, click-again releases both, zero scroll / zero console errors;
+screenshots refreshed once (gallery-heatmap{,-dark,-crossfiltered}.png). demo-agent untouched (typechecks clean).
+Gate: **1750 tests at 100/100/100/100**; all five typechecks clean. SHAs: core 275f9ba, agent cef1dd8, ui
+39fbc93, gallery c504985, plus the D-record commit (those four say "D29" in their subjects/comments; the number
+was already taken by foottrail above, so the decision tag is D30 — the D-record commit renames every in-code
+reference).
+
 ## Next
 P3 packets per SPEC §12, order L1→L6; L1-L5 SHIPPED, L6 (why) remaining. Every packet = R#s + pre-written acceptance
 tests + boundary + diff/test-output artifacts; orchestrator re-runs all tests. Fresh-chat rehydration: read THIS file + SPEC.md.

@@ -21,7 +21,7 @@
  *     buckets (src/data equalWidthBins/recountBins — the chart never bins), a
  *     bucket-edge-snapped interval brush, click-a-bar → one bucket,
  *     click-again → cleared — three REAL commits, crossfiltering both ways;
- *   - D29, the compound-cell HEATMAP as the 8th cell: one cell click selects
+ *   - D30, the compound-cell HEATMAP as the 8th cell: one cell click selects
  *     price AND category together and lands exactly ONE commit whose predicate
  *     is the AND of both sides; BOTH constraints crossfilter the other charts;
  *     the commit log tells it in plain words ("price 120 – 165 and category =
@@ -129,7 +129,7 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     // the histogram cell (built from the public primitives): 8 HOST-computed buckets
     expect(await page.locator('svg.vzf-histogram rect.vzf-histbar').count()).toBe(8);
     await maybeElementShot(page, '[data-chart="histogram"]', path.join(SHOTS, 'gallery-histogram.png'));
-    // the heatmap cell (D29): 6 HOST-computed price buckets × 5 category rows
+    // the heatmap cell (D30): 6 HOST-computed price buckets × 5 category rows
     expect(await page.locator('svg.vzf-heatmap rect.vzf-heatcell').count()).toBe(30);
     await maybeElementShot(page, '[data-chart="heatmap"]', path.join(SHOTS, 'gallery-heatmap.png'));
     // the uninhabited region is HONESTLY empty: neutral fill class + no-rows tooltip
@@ -256,7 +256,7 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     await expectNoPageOrShellScroll(page);
   }, 30_000);
 
-  it('the heatmap (D29): one cell click = ONE compound commit; BOTH constraints crossfilter; click-again clears', async () => {
+  it('the heatmap (D30): one cell click = ONE compound commit; BOTH constraints crossfilter; click-again clears', async () => {
     const commits = async (): Promise<number> =>
       Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
     const readout = async (): Promise<number> =>
@@ -264,7 +264,7 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     const rowsBefore = await readout();
     const scatterDimBefore = await page.locator('svg.vzf-scatter circle.vzf-dim').count();
 
-    // 1) click a NON-EMPTY cell → exactly ONE commit lands (the D29 ruling),
+    // 1) click a NON-EMPTY cell → exactly ONE commit lands (the D30 ruling),
     //    and its predicate is the AND of both sides — the readout drops to
     //    that cell's rows and the scatter dims the rows either side excluded
     const c0 = await commits();
@@ -321,7 +321,7 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
 
     // drag across the RIGHT third of the line plot (the late, high-price weeks,
     // overlapping the scripted price brush so the intersection stays non-empty;
-    // 0.65 not 0.45 — the D29 heatmap made the band one cell denser, so the
+    // 0.65 not 0.45 — the D30 heatmap made the band one cell denser, so the
     // narrower line plot needs a tighter drag to actually exclude early dates)
     const box = (await page.locator('svg.vzf-line').boundingBox())!;
     const midY = box.y + box.height / 2;
@@ -624,7 +624,7 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     // the new charts in the dark palette (the map's ramp flips its anchor: high = brightest)
     await maybeElementShot(page, '[data-chart="line"]', path.join(SHOTS, 'gallery-line-dark.png'));
     await maybeElementShot(page, '[data-chart="map"]', path.join(SHOTS, 'gallery-map-dark.png'));
-    // the heatmap rides the same flipped ramp tokens (D29)
+    // the heatmap rides the same flipped ramp tokens (D30)
     await maybeElementShot(page, '[data-chart="heatmap"]', path.join(SHOTS, 'gallery-heatmap-dark.png'));
     await page.emulateMedia({ colorScheme: 'light' });
   }, 30_000);
@@ -647,7 +647,7 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     });
     expect(strip.snapType, 'the charts band is a snap carousel on mobile').toContain('x');
     expect(strip.dotsDisplay, 'dot indicators show on mobile').not.toBe('none');
-    // scatter · line · bar · map · histogram · heatmap (D29) · vl (the bridge
+    // scatter · line · bar · map · histogram · heatmap (D30) · vl (the bridge
     // cell) · the AGENT-AUTHORED chart (RP-3) — all eight ride the carousel
     expect(strip.dotCount).toBe(8);
     expect(Math.abs(strip.cellW - strip.stripW), 'each chart is one full-width page').toBeLessThanOrEqual(2);

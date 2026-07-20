@@ -185,7 +185,7 @@ describe('mcpServer — a real MCP server backed by a live session', () => {
   });
 });
 
-describe('D29 — cell-select MCP parity (the compound cell rides the same wire)', () => {
+describe('D30 — cell-select MCP parity (the compound cell rides the same wire)', () => {
   it('a cell dispatch over MCP lands ONE compound commit and reads back through whats_here', async () => {
     const base = makeDashboardDef();
     const session = buildDashboard({

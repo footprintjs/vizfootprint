@@ -151,7 +151,7 @@ function matchingIndices(store: TableStore, clause: PredicateClause | null): num
   for (let i = 0; i < n; i++) {
     // matchesClause reads via a Row-shaped accessor either way — build a
     // minimal proxy row limited to the clause's own field(s) (both for a
-    // D29 cell) so both layouts share EXACTLY the same evaluation code path
+    // D30 cell) so both layouts share EXACTLY the same evaluation code path
     // (no row/column fork here).
     const probe: Row = {};
     if (clause !== null) for (const f of clauseFields(clause)) probe[f] = fieldAt(store, f, i);
@@ -219,7 +219,7 @@ export function memoryProvider(
       const store = tableMap.get(table);
       if (!store) return reject('memory', 'evaluate', 'unknown-table', `no such table "${table}"`);
       if (clause !== null) {
-        // EVERY column the clause reads must exist (both sides of a D29 cell).
+        // EVERY column the clause reads must exist (both sides of a D30 cell).
         const names = storeColumnNames(store);
         const missing = clauseFields(clause).find((f) => !names.includes(f));
         if (missing !== undefined) {

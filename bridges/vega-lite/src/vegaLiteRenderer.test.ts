@@ -203,7 +203,7 @@ describe('capability derivation', () => {
     mounted.unmount();
   });
 
-  it('D29: the bridge NEVER declares the cell kind — a VL spec has no compound two-field gesture to derive', () => {
+  it('D30: the bridge NEVER declares the cell kind — a VL spec has no compound two-field gesture to derive', () => {
     // even the everything-spec (brush + point + scales) derives only the two
     // classic kinds; the gate admits one-axis intervals and one-field points,
     // so an honest 'cell' can never appear in the hello

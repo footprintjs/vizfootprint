@@ -44,7 +44,7 @@ export async function buildScriptedSession(): Promise<ScriptedGallery> {
       // PUBLIC primitives tier — declared like any first-party view so its
       // bucket-brush emissions land real commits.
       histogram: { actor: 'user', label: 'Price distribution' },
-      // D29: the compound-cell chart — one cell click selects price AND
+      // D30: the compound-cell chart — one cell click selects price AND
       // category together, landing ONE commit (the heatmap is the only view
       // that declares the cell emission kind; see `capabilities` below).
       heatmap: { actor: 'user', label: 'Price × category' },
@@ -62,7 +62,7 @@ export async function buildScriptedSession(): Promise<ScriptedGallery> {
       { viewId: 'histogram', chartKind: 'histogram', channels: ['x'], initial: { x: 'price' } },
       { viewId: 'heatmap', chartKind: 'heatmap', channels: ['x', 'y'], initial: { x: 'price', y: 'category' } },
     ],
-    // R14 honest capability: the heatmap emits ONLY the D29 cell kind — a
+    // R14 honest capability: the heatmap emits ONLY the D30 cell kind — a
     // point/interval probe against it is a typed guard-failed gap, and a cell
     // against any classic chart likewise (they never declare 'cell').
     capabilities: [{ viewId: 'heatmap', canProbe: true, encodings: ['cell'] }],

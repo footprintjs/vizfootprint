@@ -133,7 +133,7 @@ export interface CapabilityDecl {
   /** Can this view emit selections at all? A `false` here makes every probe a typed `guard-failed` gap. */
   readonly canProbe: boolean;
   /**
-   * Which emission kinds it can produce (`'cell'` = the D29 compound —
+   * Which emission kinds it can produce (`'cell'` = the D30 compound —
    * a heatmap declares `['cell']`). Default: every kind is allowed.
    */
   readonly encodings?: readonly ('point' | 'interval' | 'cell')[];

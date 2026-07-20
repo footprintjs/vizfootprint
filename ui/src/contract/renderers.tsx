@@ -4,7 +4,7 @@
  * heatmap), wrapped as a framework-agnostic {@link Renderer} via one generic
  * React bridge (`reactRenderer`). They are proof, not assertion — all seven
  * pass the conformance kit (`conformance.test.tsx`) end to end, the heatmap
- * including the D29 cell arm.
+ * including the D30 cell arm.
  *
  * What the bridge does — and deliberately does NOT do:
  *   - mount() creates a React root inside the host's element and answers the
@@ -353,7 +353,7 @@ export interface HeatmapRendererOptions {
 }
 
 /**
- * The D29 CELL renderer (protocol 1.1): one cell click emits the compound
+ * The D30 CELL renderer (protocol 1.1): one cell click emits the compound
  * two-field emission — `emissionKinds: ['cell']`, honestly the ONLY kind it
  * produces. Rows arrive host-BINNED 2-D: one row per cell carrying its x
  * edges, category row, and count — the chart never bins or counts (the

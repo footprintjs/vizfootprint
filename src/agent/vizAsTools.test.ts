@@ -310,7 +310,7 @@ describe('RP-3 — propose_chart (the 9th tool): governed agent-authored charts'
   });
 });
 
-describe('D29 — the agent can CELL-select through the dispatch tool (one gesture = one commit)', () => {
+describe('D30 — the agent can CELL-select through the dispatch tool (one gesture = one commit)', () => {
   function cellSession() {
     const base = makeDashboardDef();
     return buildDashboard({

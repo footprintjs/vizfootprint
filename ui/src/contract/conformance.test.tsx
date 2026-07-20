@@ -153,7 +153,7 @@ function stateFor(viewId: string, st: SessionViewState): RenderState {
     return { rows, encodings: st.encodings['histogram'] ?? {}, selection, hover: null, theme: THEME, size: SIZE };
   }
   if (viewId === 'heatmap') {
-    // HOST-owned 2-D binning (D29): the same fixed x edges for EVERY category
+    // HOST-owned 2-D binning (D30): the same fixed x edges for EVERY category
     // row, counts recomputed under the keep — one row per (bucket, category)
     const all = equalWidthBins(ROWS.map((r) => r.price as number), { buckets: 4 });
     const rows = CATS.flatMap((category) =>
@@ -209,7 +209,7 @@ describe('conformance — all six first-party charts pass (the reference claim, 
     });
     expect(report.ok, explain(report)).toBe(true);
     expect(report.steps).toHaveLength(10);
-    // a renderer with no cell declaration skips the D29 arm honestly
+    // a renderer with no cell declaration skips the D30 arm honestly
     expect(report.steps.find((s) => s.step === 'cell')!.detail).toContain('honestly skipped');
     expect(report.emissions[0]!.encoding.kind).toBe('interval');
     expect(report.reencodeRequests).toEqual(['y']); // the host owns the picker — the request was surfaced, not swallowed
@@ -264,7 +264,7 @@ describe('conformance — all six first-party charts pass (the reference claim, 
     expect((hi - 60) % 22).toBe(0);
   });
 
-  it('VizHeatmap (the D29 cell arm: one cell click = ONE compound two-field commit)', async () => {
+  it('VizHeatmap (the D30 cell arm: one cell click = ONE compound two-field commit)', async () => {
     const report = await runFor(heatmapRenderer(), 'heatmap', {
       gesture: (el) => {
         fireEvent.click(el.querySelector('[data-cell="60|Casual"]')!);
@@ -310,7 +310,7 @@ interface StubOptions {
   readonly renderMode?: 'normal' | 'nothing' | 'throw' | 'static';
   /** What its button click emits (null = an emitting gesture that clears). */
   readonly emission?: ChartEmission;
-  /** What its SECOND button (the "cell" probe) emits, in order — the D29 hostile arm. */
+  /** What its SECOND button (the "cell" probe) emits, in order — the D30 hostile arm. */
   readonly cellEmissions?: readonly ChartEmission[];
   readonly dirtyUnmount?: boolean;
 }
@@ -530,7 +530,7 @@ describe('conformance — hostile renderers are caught at the exact step', () =>
       'static',
       { gesture: clickProbe, verifyUpdate: () => true, cellGesture: clickCellProbe },
     );
-    await expectFailAt(report, 'cell', 'landed 0 commit(s) — the D29 ruling is exactly ONE');
+    await expectFailAt(report, 'cell', 'landed 0 commit(s) — the D30 ruling is exactly ONE');
   });
 
   it('a "cell" gesture whose refused cell is shadowed by a stray point commit is caught by the descriptor', async () => {

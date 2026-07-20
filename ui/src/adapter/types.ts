@@ -21,7 +21,7 @@ export interface CommitView {
   readonly parent: string | null;
   readonly viewId: string;
   readonly kind: 'point' | 'interval' | 'cell';
-  /** For kind:'cell' this is the display-only joint label ("price × category"); the pair rides `fields` (D29). */
+  /** For kind:'cell' this is the display-only joint label ("price × category"); the pair rides `fields` (D30). */
   readonly field: string;
   /** For kind:'cell': the two-sided pair `[x side, y side]`, or null for a cleared cell. */
   readonly value: unknown;
@@ -74,7 +74,7 @@ export interface ViewView {
 /** A live DATA-space selection (never pixels). */
 export interface SelectionView {
   readonly viewId: string;
-  /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D29). */
+  /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D30). */
   readonly field: string;
   readonly kind: 'point' | 'interval' | 'cell';
   /** For kind:'cell': the two-sided pair `[x side, y side]`. */

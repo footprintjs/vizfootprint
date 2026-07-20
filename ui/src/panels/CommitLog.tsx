@@ -39,7 +39,7 @@ export function CommitLog(props: CommitLogProps): JSX.Element {
               {c.kind}
             </span>
             <span className="vzf-chip-body">
-              {/* D29: a cell's plain words already carry both field names
+              {/* D30: a cell's plain words already carry both field names
                   ("price 100 – 150 and category = Formal") — prefixing the
                   joint label would say everything twice */}
               {c.kind === 'cell' ? formatCommitValue(c) : `${c.field} = ${formatCommitValue(c)}`}

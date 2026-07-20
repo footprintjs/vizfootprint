@@ -501,9 +501,9 @@ describe('planUndo — revert as a PLAN: restore the key\'s value at the commit\
 });
 
 // ---------------------------------------------------------------------------
-// D29 — cell commits through the branches layer (fold, diff, plans).
+// D30 — cell commits through the branches layer (fold, diff, plans).
 // ---------------------------------------------------------------------------
-describe('D29 cell commits — fold key unchanged, clear rule, plans carry the pair', () => {
+describe('D30 cell commits — fold key unchanged, clear rule, plans carry the pair', () => {
   const cellRec = (id: string, parent: string | null, value: unknown, over: Partial<CommitRecord> = {}): CommitRecord =>
     rec(id, parent, {
       viewId: 'heatmap',
@@ -518,7 +518,7 @@ describe('D29 cell commits — fold key unchanged, clear rule, plans carry the p
     const interval = rec('c1', null, { viewId: 'heatmap', kind: 'interval', field: 'price', value: [0, 50] });
     const cell = cellRec('c2', 'c1', [[100, 150], 'Formal']);
     expect(keyOf(interval)).toBe('selection:heatmap');
-    expect(keyOf(cell)).toBe('selection:heatmap'); // the D29 ruling: fold key UNCHANGED
+    expect(keyOf(cell)).toBe('selection:heatmap'); // the D30 ruling: fold key UNCHANGED
     const state = foldStateAt([interval, cell], 'c2');
     expect(state.size).toBe(1); // last-wins per view: the cell REPLACED the interval under one key
     expect(state.get('selection:heatmap')).toMatchObject({

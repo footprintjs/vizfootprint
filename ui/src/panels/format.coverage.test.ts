@@ -12,7 +12,7 @@ describe('formatCommitValue edges', () => {
   });
 });
 
-describe('formatCommitValue — the D29 cell wording ("price 100 – 150 and category = Formal")', () => {
+describe('formatCommitValue — the D30 cell wording ("price 100 – 150 and category = Formal")', () => {
   it('renders interval × point in plain words with both field names', () => {
     expect(
       formatCommitValue({ kind: 'cell', fields: ['price', 'category'], value: [[100, 150], 'Formal'] }),

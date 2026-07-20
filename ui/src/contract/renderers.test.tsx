@@ -197,7 +197,7 @@ describe('histogramRenderer', () => {
   });
 });
 
-describe('heatmapRenderer (D29 — the cell renderer)', () => {
+describe('heatmapRenderer (D30 — the cell renderer)', () => {
   it('declares emissionKinds: ["cell"] honestly and reads cells from custom fields', () => {
     const r = heatmapRenderer({ x0Field: 'lo', x1Field: 'hi', yRowField: 'cat', countField: 'n', countLabel: 'sales' });
     const { el, m } = mounted(r);

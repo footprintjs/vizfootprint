@@ -14,7 +14,7 @@
 import { clauseInterval, clausePoint } from '@uwdata/mosaic-core';
 import type { SelectionClause, ClauseMetadata, MosaicClient } from '@uwdata/mosaic-core';
 // mosaic-sql is mosaic-core's own predicate-AST layer (a declared direct
-// dependency here, same 0.28.x line): `and` composes the D29 cell's compound
+// dependency here, same 0.28.x line): `and` composes the D30 cell's compound
 // predicate from the two REAL side factories below — no hand-built AST node.
 import { and } from '@uwdata/mosaic-sql';
 import type { ExprNode } from '@uwdata/mosaic-sql';
@@ -33,7 +33,7 @@ export interface CauseClause extends SelectionClause {
   meta: CauseMetadata;
 }
 
-/** The three clause kinds the engine carries: point, interval, and the D29 compound cell. */
+/** The three clause kinds the engine carries: point, interval, and the D30 compound cell. */
 export type CauseClauseSpec =
   | {
       kind: 'point';
@@ -70,7 +70,7 @@ export type CauseClauseSpec =
     }
   | {
       /**
-       * The D29 compound CELL: one gesture selects on TWO fields ("price
+       * The D30 compound CELL: one gesture selects on TWO fields ("price
        * 100–150 AND category Formal") — ONE commit, one clause whose
        * predicate is the AND of both sides. Each side is a `CellSide`
        * (interval `[lo, hi]` or a point value — `src/data`'s shape, the seam
@@ -142,7 +142,7 @@ export function causeClause(spec: CauseClauseSpec): CauseClause {
   if (spec.kind === 'point') {
     clause = clausePoint(spec.field, spec.value, { source, clients });
   } else if (spec.kind === 'cell') {
-    // D29: the compound cell — the two side predicates come from the REAL
+    // D30: the compound cell — the two side predicates come from the REAL
     // factories (cellSidePredicate above) and the REAL `and` composes them;
     // a cleared cell (`value: null`) carries a `null` predicate exactly like
     // a cleared interval (`String(null)` → the same "null" descriptor at the

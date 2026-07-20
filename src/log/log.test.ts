@@ -304,9 +304,9 @@ describe('R8 — append-only enforced by construction (promotion strengthening)'
 });
 
 // ---------------------------------------------------------------------------
-// D29 — the compound `cell` commit at the L1 wire (one gesture = one commit).
+// D30 — the compound `cell` commit at the L1 wire (one gesture = one commit).
 // ---------------------------------------------------------------------------
-describe('D29 — cell commits: wire shape, JSON round-trip, replay', () => {
+describe('D30 — cell commits: wire shape, JSON round-trip, replay', () => {
   const CELL: CommitInput = {
     id: 'h1',
     parent: null,

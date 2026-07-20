@@ -294,7 +294,7 @@ function isValidFilterRange(range: unknown): range is readonly [RawBound, RawBou
 }
 
 /**
- * Validate ONE cell side (D29, fire-time — Mode B cannot enforce per-verb
+ * Validate ONE cell side (D30, fire-time — Mode B cannot enforce per-verb
  * shape ahead of the call): an array side must be a legal interval (the
  * `isValidFilterRange` rules verbatim — the two disciplines never fork);
  * anything else must be a plain JSON scalar (number/string/boolean/null —
@@ -355,7 +355,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     switch (verb) {
       case 'select': {
         if (typeof args['viewId'] !== 'string') return { error: 'select requires a string viewId' };
-        // D29: the CELL form — fields+values selects on two fields in one
+        // D30: the CELL form — fields+values selects on two fields in one
         // gesture, landing ONE compound commit (never two linked ones).
         if (args['fields'] !== undefined || args['values'] !== undefined) {
           if (!isValidCellFields(args['fields'])) {

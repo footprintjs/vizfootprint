@@ -129,7 +129,7 @@ function resolveMatchSQL(clause: MatchClause): string {
 
 /**
  * Lift ONE cell side into the clause the existing arms already handle
- * (single-sourced semantics — the D29 cell reuses the exact numeric/string
+ * (single-sourced semantics — the D30 cell reuses the exact numeric/string
  * interval discipline, half-open included, and the point three-way split): an
  * array side is an interval, anything else is a point (see `CellSide`). A
  * side is never `undefined` (per the type), so the point arm's
@@ -157,7 +157,7 @@ function resolveCellSideSQL(field: string, side: CellSide): string {
 }
 
 /**
- * The compound cell descriptor (D29): the AND of both sides, wrapped once —
+ * The compound cell descriptor (D30): the AND of both sides, wrapped once —
  * byte-identical to what the log's own descriptor produces for the same
  * commit (real Mosaic `and(px, py)` renders `(("price" BETWEEN 100 AND 150)
  * AND ("category" IN ('Formal')))` — verified against the installed package,

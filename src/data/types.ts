@@ -117,7 +117,7 @@ export interface MatchClause {
 }
 
 /**
- * One SIDE of a `cell` selection (D29 — the compound-cell commit): either a
+ * One SIDE of a `cell` selection (D30 — the compound-cell commit): either a
  * POINT value (strict equality; `null` means SQL IS NULL, exactly the point
  * clause's own rule) or an INTERVAL `[lo, hi]` (bucket bounds, inclusive both
  * ends, half-open allowed — the exact {@link IntervalBounds} discipline
@@ -135,7 +135,7 @@ export type CellSide =
   | null;
 
 /**
- * The compound CELL clause (D29): one heatmap-cell gesture selects on TWO
+ * The compound CELL clause (D30): one heatmap-cell gesture selects on TWO
  * fields at once ("price 100–150 AND category Formal") and the predicate is
  * the AND of both sides — one gesture, ONE commit, never two
  * correlationId-linked ones. `fields` is `[x side, y side]`; `value` is the
@@ -162,7 +162,7 @@ export function cellFieldLabel(fields: readonly [string, string]): string {
 
 /**
  * Every column a clause reads — ONE field for point/interval/match, BOTH for
- * a cell (D29). The single place an engine asks "which columns must exist for
+ * a cell (D30). The single place an engine asks "which columns must exist for
  * this clause?" so no consumer ever forks on `kind` for it.
  */
 export function clauseFields(clause: PredicateClause): readonly string[] {

@@ -12,7 +12,7 @@
  * |                | the spec (a future bridge revision)                       |
  * | canPanZoom     | a `bind: 'scales'` interval param (the gated navigate)    |
  * | emissionKinds  | 'point' iff canPointSelect · 'interval' iff canBrush —    |
- * |                | NEVER 'cell' (D29): the gate admits only one-axis interval|
+ * |                | NEVER 'cell' (D30): the gate admits only one-axis interval|
  * |                | and one-field point params, so a VL spec has no compound  |
  * |                | two-field gesture to derive; the bridge honestly does not |
  * |                | declare what it cannot emit                               |

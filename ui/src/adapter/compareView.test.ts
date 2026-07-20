@@ -100,7 +100,7 @@ describe('mapCompareResult', () => {
   });
 });
 
-describe('D29 — a cell selection entry in plain words', () => {
+describe('D30 — a cell selection entry in plain words', () => {
   it('renders both sides joined with "and" (interval + point, half-open included)', () => {
     expect(
       entryDetail({

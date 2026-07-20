@@ -81,7 +81,7 @@ describe('causeClauseFromEmission — R3 symmetric emit (chart builds no clause)
     void bad;
   });
 
-  // ── D29: the compound CELL emission (one heatmap-cell gesture, TWO fields) ──
+  // ── D30: the compound CELL emission (one heatmap-cell gesture, TWO fields) ──
 
   it('turns a cell ChartEmission into ONE real cause-tagged compound clause (AND of both sides)', () => {
     const reg = new SourceRegistry();

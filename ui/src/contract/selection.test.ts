@@ -171,7 +171,7 @@ describe('selfSelectedInterval (the interval sibling — the histogram’s own-r
   });
 });
 
-describe('D29 — the cell arm of clausePredicate (parity with the real evaluator)', () => {
+describe('D30 — the cell arm of clausePredicate (parity with the real evaluator)', () => {
   const CELL_CASES: { fields: readonly [string, string]; value: unknown }[] = [
     { fields: ['price', 'category'], value: [[50, 200], 'Formal'] }, // interval × point
     { fields: ['price', 'category'], value: [[150, null], 'Party'] }, // half-open side

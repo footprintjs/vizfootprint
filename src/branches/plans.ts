@@ -101,7 +101,7 @@ function bringOverRecipe(rec: CommitRecord): PlanRecipe {
     kind: rec.kind,
     field: rec.field,
     value: rec.value,
-    // D29: a cell commit's authoritative field pair rides the recipe so the
+    // D30: a cell commit's authoritative field pair rides the recipe so the
     // executor re-lands the compound (never a flattened single-field probe).
     ...(rec.fields !== undefined ? { fields: rec.fields } : {}),
   };
@@ -171,14 +171,14 @@ export function planUndo(records: readonly CommitRecord[], commitId: string, tip
             kind: priorSelection.clause.kind,
             field: priorSelection.clause.field,
             value: priorSelection.clause.value,
-            // D29: restoring a prior CELL restores the compound, pair and all.
+            // D30: restoring a prior CELL restores the compound, pair and all.
             ...(priorSelection.clause.fields !== undefined ? { fields: priorSelection.clause.fields } : {}),
           }
         : {
             apply: 'clear-selection',
             viewId: rec.viewId,
             field: rec.field,
-            // D29: undoing a cell with nothing prior clears KIND-FAITHFULLY (a
+            // D30: undoing a cell with nothing prior clears KIND-FAITHFULLY (a
             // cleared cell commit) — rec.field is the joint label, not a column,
             // so a flattened interval-clear would trip the executor's column guard.
             ...(rec.fields !== undefined ? { fields: rec.fields } : {}),

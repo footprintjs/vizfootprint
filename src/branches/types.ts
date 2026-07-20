@@ -51,7 +51,7 @@ export type FoldEntry =
       readonly viewId: string;
       readonly clause: {
         readonly kind: 'point' | 'interval' | 'cell';
-        /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D29). */
+        /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D30). */
         readonly field: string;
         readonly value: unknown;
         /** kind:'cell' only — the two selected fields, x side then y side. */
@@ -131,7 +131,7 @@ export type PlanRecipe =
       readonly kind: 'point' | 'interval' | 'cell';
       readonly field: string;
       readonly value: unknown;
-      /** kind:'cell' only — the two selected fields (D29); the executor re-lands the compound. */
+      /** kind:'cell' only — the two selected fields (D30); the executor re-lands the compound. */
       readonly fields?: readonly [string, string];
     }
   | {

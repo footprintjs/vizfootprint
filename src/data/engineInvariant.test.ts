@@ -72,7 +72,7 @@ const SESSION_LOG: CommitInput[] = [
     cause: { requestedBy: 'user', computedBy: 'agent', intent: 'clear the amount brush' },
   },
   {
-    // D29: the compound CELL — one gesture, two fields, one commit whose
+    // D30: the compound CELL — one gesture, two fields, one commit whose
     // predicate is the AND of both sides. The invariant must hold for it too:
     // all three provider shapes resolve the same SQL and rows, and the SQL
     // matches L1's own descriptor from the REAL composed Mosaic clause.
@@ -105,7 +105,7 @@ function clauseFromCommit(record: {
   fields?: readonly [string, string];
 }): PredicateClause {
   if (record.kind === 'cell') {
-    // D29: a cell commit's authoritative pair rides `fields`; `field` is display-only.
+    // D30: a cell commit's authoritative pair rides `fields`; `field` is display-only.
     return { kind: 'cell', fields: record.fields!, value: record.value as CellClause['value'] };
   }
   return record.kind === 'point'

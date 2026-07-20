@@ -73,7 +73,7 @@ describe('mapPollState — normalization + derivations', () => {
     expect(s.viewingPast).toBe(true);
   });
 
-  it('D29: a cell commit + cell selection carry kind/fields/value through the poll wire verbatim', () => {
+  it('D30: a cell commit + cell selection carry kind/fields/value through the poll wire verbatim', () => {
     const withCell = mapPollState({
       ...RAW,
       records: [
@@ -138,7 +138,7 @@ describe('createSessionView — poll source with injected fetch', () => {
     view.dispose();
   });
 
-  it('emit(cell) posts the SELECT verb\'s cell form — fields + values, one dispatch (D29)', async () => {
+  it('emit(cell) posts the SELECT verb\'s cell form — fields + values, one dispatch (D30)', async () => {
     const { impl, calls } = fakeFetch();
     const view = createSessionView(pollingSource({ fetchImpl: impl }));
     await view.refresh();
@@ -286,7 +286,7 @@ describe('createSessionView — in-process session source', () => {
     view.dispose();
   });
 
-  it('emit(cell) routes the SELECT verb\'s cell form to session.dispatch — one action, both fields (D29)', async () => {
+  it('emit(cell) routes the SELECT verb\'s cell form to session.dispatch — one action, both fields (D30)', async () => {
     const session = fakeSession();
     const view = createSessionView(sessionSource(session), { as: 'user' });
     await view.refresh();

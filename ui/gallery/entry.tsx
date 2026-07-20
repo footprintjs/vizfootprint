@@ -130,7 +130,7 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
     rows.filter(keepHist).map(histValueOf).filter((v): v is number | string => v !== null),
   ).bins;
 
-  // the heatmap's 2-D cells (D29): the SAME fixed x edges for every category
+  // the heatmap's 2-D cells (D30): the SAME fixed x edges for every category
   // row (equalWidthBins over ALL rows — stable while its own cell is live),
   // counts recomputed per (bucket, category) under the OTHER views' clauses.
   const encHm = state.encodings['heatmap'] ?? {};

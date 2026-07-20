@@ -250,7 +250,7 @@ describe('half-open intervals — one bound null (FILTER-1: "no upper/lower boun
   });
 });
 
-describe('the D29 compound cell — SQL descriptor + in-process evaluation', () => {
+describe('the D30 compound cell — SQL descriptor + in-process evaluation', () => {
   const rows: Row[] = [
     { id: 'a', price: 120, category: 'Formal', date: '2026-05-10' },
     { id: 'b', price: 120, category: 'Casual', date: '2026-05-11' },

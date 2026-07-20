@@ -57,7 +57,7 @@ export interface CommitRecord {
   viewId: string;
   /** Serializable actor metadata so a fresh registry can rebuild the source. */
   actorMeta: ActorMeta;
-  /** Which clause factory to reconstruct with (`'cell'` = the D29 compound). */
+  /** Which clause factory to reconstruct with (`'cell'` = the D30 compound). */
   kind: 'point' | 'interval' | 'cell';
   /**
    * Column / expression the clause filters on. For `kind: 'cell'` this slot
@@ -71,7 +71,7 @@ export interface CommitRecord {
    * `[lo, hi]` or a point value), or `null` for a cleared cell.
    */
   value: unknown;
-  /** kind:'cell' only — the TWO selected fields, x side then y side (D29). */
+  /** kind:'cell' only — the TWO selected fields, x side then y side (D30). */
   fields?: readonly [string, string];
   /** Registry ids whose sources form the cross-filter self-exclusion set. */
   clientViewIds: string[];
@@ -133,7 +133,7 @@ export class CauseSelectionSession {
 
     let spec: CauseClauseSpec;
     if (input.kind === 'cell') {
-      // D29: a cell commit carries its authoritative field PAIR; refusing an
+      // D30: a cell commit carries its authoritative field PAIR; refusing an
       // absent pair here (not downstream) keeps every replica of the wire
       // (fold, replay, adapter) free to trust `fields` on a cell record.
       if (input.fields === undefined) {
@@ -217,7 +217,7 @@ export function replayLog(
       kind: rec.kind,
       field: rec.field,
       value: rec.value,
-      // D29: a cell record's authoritative field pair replays verbatim.
+      // D30: a cell record's authoritative field pair replays verbatim.
       ...(rec.fields !== undefined && { fields: rec.fields }),
       clientViewIds: rec.clientViewIds,
       cause: markReplayed(rec.cause), // R2: additive replay marker

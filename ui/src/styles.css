@@ -813,7 +813,7 @@
   font-weight: 600;
 }
 
-/* ── VizHeatmap (D29 compound-cell selection) ──────────────── */
+/* ── VizHeatmap (D30 compound-cell selection) ──────────────── */
 :where(.vzf) .vzf-heatcell {
   /* the 1px surface gap between fills — the map's mark-spec rule */
   stroke: var(--vzf-surface);

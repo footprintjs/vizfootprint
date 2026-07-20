@@ -87,7 +87,7 @@ export type CellValues = CellClause['value'];
 export type DispatchAction =
   | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly value: unknown; readonly cause: Cause; readonly correlationId?: string }
   /**
-   * The CELL form of `select` (D29): one heatmap-cell gesture selects on TWO
+   * The CELL form of `select` (D30): one heatmap-cell gesture selects on TWO
    * fields at once ("price 100–150 AND category Formal") and lands ONE
    * commit whose predicate is the AND of both sides — never two
    * correlationId-linked commits. Same verb, same intent class, same fold key
@@ -448,7 +448,7 @@ export interface ViewInfo {
 /** An active DATA-space selection (never pixels; R5). */
 export interface SelectionInfo {
   readonly viewId: string;
-  /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D29). */
+  /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D30). */
   readonly field: string;
   readonly kind: 'point' | 'interval' | 'cell';
   /** For kind:'cell': the two-sided pair `[x side, y side]`. */

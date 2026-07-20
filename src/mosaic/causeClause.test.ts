@@ -109,7 +109,7 @@ describe('causeClause — builds a real Mosaic clause carrying a cause', () => {
   });
 });
 
-describe('causeClause — the D29 compound cell kind', () => {
+describe('causeClause — the D30 compound cell kind', () => {
   it('composes the AND of two REAL side factories: interval × point, point × point, interval × interval', () => {
     const reg = new SourceRegistry();
     const h = reg.register('H', { actor: 'user' });

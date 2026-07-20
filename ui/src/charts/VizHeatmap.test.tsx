@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * `<VizHeatmap>` — the D29 compound-cell chart, composed from the public
+ * `<VizHeatmap>` — the D30 compound-cell chart, composed from the public
  * primitives tier: host-computed 2-D cells render on the shared sequential
  * ramp (zero = the honest neutral, never step 1); a cell click emits ONE
  * cell emission carrying BOTH fields; clicking the selected cell again emits
@@ -145,7 +145,7 @@ describe('rendering — host cells on the shared ramp, honest absence', () => {
   });
 });
 
-describe('the D29 cell gesture — one click, one compound emission', () => {
+describe('the D30 cell gesture — one click, one compound emission', () => {
   it('a cell click emits ONE cell emission carrying BOTH fields and the bucket interval', () => {
     const { container, onEmit } = renderHeatmap();
     fireEvent.click(container.querySelector('[data-cell="0|Casual"]')!);

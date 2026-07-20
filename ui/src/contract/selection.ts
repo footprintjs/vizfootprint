@@ -65,7 +65,7 @@ function intervalPredicate(field: string, iv: Exclude<IntervalValue, null>): (ro
 }
 
 /**
- * One CELL side's predicate (D29): an array side is an interval (the shared
+ * One CELL side's predicate (D30): an array side is an interval (the shared
  * evaluator above, half-open included); anything else is a point with STRICT
  * equality — and here `null` means IS NULL (`row[field] == null`), NOT
  * "cleared": inside a cell tuple the whole-value `null` is the only cleared
@@ -81,7 +81,7 @@ function cellSidePredicate(field: string, side: CellSideValue): (row: RenderRow)
 /**
  * Build the row predicate for one clause. Mirrors `matchesClause` exactly
  * (see the file header for the parity contract). `fields` rides only with
- * kind:'cell' (the D29 compound) — the AND of both sides.
+ * kind:'cell' (the D30 compound) — the AND of both sides.
  */
 export function clausePredicate(
   kind: EmissionKind,
@@ -197,7 +197,7 @@ export interface SelfSelectedCell {
 }
 
 /**
- * The consuming view's own live CELL selection (D29) — or null when it has
+ * The consuming view's own live CELL selection (D30) — or null when it has
  * none (no clause, a cleared cell, a non-cell clause, or a wire row that
  * lost its pair). The cell sibling of {@link selfSelectedValue} /
  * {@link selfSelectedInterval}: how a heatmap derives its selected-cell

@@ -15,7 +15,7 @@
  *                                never a data claim — LY-1; the session's OWN fold
  *                                carries it so seek/switchPath restore it)
  * A cleared interval (`kind:'interval', value:null`) — or a cleared CELL
- * (`kind:'cell', value:null`, D29) — DELETES the selection key, exactly as
+ * (`kind:'cell', value:null`, D30) — DELETES the selection key, exactly as
  * the session's live fold does.
  *
  * `foldDiff` deliberately reports NO row counts — that needs an engine; the
@@ -88,7 +88,7 @@ export function foldStateAt(records: readonly CommitRecord[], tipId: string | nu
         commitId: rec.id,
       });
     } else if ((rec.kind === 'interval' || rec.kind === 'cell') && rec.value === null) {
-      state.delete(key); // a cleared interval OR cleared cell drops the view's selection (D29: same rule)
+      state.delete(key); // a cleared interval OR cleared cell drops the view's selection (D30: same rule)
     } else {
       state.set(key, {
         kind: 'selection',
@@ -97,7 +97,7 @@ export function foldStateAt(records: readonly CommitRecord[], tipId: string | nu
           kind: rec.kind,
           field: rec.field,
           value: rec.value,
-          // D29: a cell record's authoritative field pair rides the fold too
+          // D30: a cell record's authoritative field pair rides the fold too
           // (the log's commit() guarantees it on every cell record).
           ...(rec.fields !== undefined ? { fields: rec.fields } : {}),
         },

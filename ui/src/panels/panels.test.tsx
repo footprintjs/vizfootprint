@@ -75,7 +75,7 @@ describe('CommitLog', () => {
     expect(onSeek).toHaveBeenCalledWith('3');
   });
 
-  it('D29: a cell chip tells the compound in plain words WITHOUT the redundant joint-label prefix', () => {
+  it('D30: a cell chip tells the compound in plain words WITHOUT the redundant joint-label prefix', () => {
     const cell = {
       id: '9',
       parent: '3',

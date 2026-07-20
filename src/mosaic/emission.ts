@@ -37,7 +37,7 @@ export interface IntervalEncoding {
 }
 
 /**
- * A CELL selection (D29): one gesture selects on TWO fields at once — a
+ * A CELL selection (D30): one gesture selects on TWO fields at once — a
  * heatmap cell is "price 100–150 AND category Formal". `fields` is
  * `[x side, y side]`; the emission's `rawValue` carries the matching side
  * pair (each side an interval `[lo, hi]` or a point value — the `CellSide`

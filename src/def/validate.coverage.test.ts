@@ -139,7 +139,7 @@ describe('validateDashboardDef — capabilities shape', () => {
     ).toContain('capabilities[0].encodings must be an array of "point" | "interval" | "cell"');
   });
 
-  it('accepts the D29 cell emission kind in capabilities.encodings', () => {
+  it('accepts the D30 cell emission kind in capabilities.encodings', () => {
     expect(
       validateDashboardDef(baseDef({ capabilities: [{ viewId: 'v', canProbe: true, encodings: ['cell'] }] })),
     ).toEqual([]);

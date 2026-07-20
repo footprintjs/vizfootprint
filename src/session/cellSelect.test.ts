@@ -1,5 +1,5 @@
 /**
- * D29 — the compound `cell` commit at the SESSION tier (the C3 design
+ * D30 — the compound `cell` commit at the SESSION tier (the C3 design
  * decision, end to end): a heatmap cell click selects on TWO fields with ONE
  * gesture, and the ruling is one gesture = ONE commit — never two
  * correlationId-linked commits. The cell rides the `select` verb (the
@@ -40,7 +40,7 @@ function freshSession() {
 const CELL_FIELDS = ['price', 'category'] as const;
 const CELL_VALUES = [[100, 150], 'Formal'] as const;
 
-describe('D29 — one cell gesture lands ONE compound commit', () => {
+describe('D30 — one cell gesture lands ONE compound commit', () => {
   it('dispatch select-with-fields lands exactly one cell commit whose predicate is the AND of both sides', async () => {
     const s = freshSession();
     const res = await s.dispatch({
@@ -127,7 +127,7 @@ describe('D29 — one cell gesture lands ONE compound commit', () => {
   });
 });
 
-describe('D29 — honest guards (R14 typed gaps, never a silent drop)', () => {
+describe('D30 — honest guards (R14 typed gaps, never a silent drop)', () => {
   it('needs-view: a cell select on an undeclared view', async () => {
     const s = freshSession();
     const res = await s.dispatch({ verb: 'select', viewId: 'ghost', fields: [...CELL_FIELDS], values: [...CELL_VALUES], cause: userCause() });
@@ -192,7 +192,7 @@ describe('D29 — honest guards (R14 typed gaps, never a silent drop)', () => {
   });
 });
 
-describe('D29 — TARGETED: branching / compare / time-travel machinery untouched by construction', () => {
+describe('D30 — TARGETED: branching / compare / time-travel machinery untouched by construction', () => {
   it('seek before the cell commit removes BOTH constraints; seek back to it restores the compound', async () => {
     const s = freshSession();
     const first = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Casual', cause: userCause() });

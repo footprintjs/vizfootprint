@@ -134,7 +134,7 @@ interface RawPollCommit {
   readonly kind: 'point' | 'interval' | 'cell';
   readonly field: string;
   readonly value: unknown;
-  /** kind:'cell' only (D29) — the two selected fields, x side then y side. */
+  /** kind:'cell' only (D30) — the two selected fields, x side then y side. */
   readonly fields?: readonly [string, string];
   readonly cause?: { requestedBy?: Actor; intent?: string; replayedFrom?: string; revertOf?: string; conflicts?: readonly string[] };
   readonly correlationId?: string;
@@ -211,7 +211,7 @@ interface RawCommit {
   kind: 'point' | 'interval' | 'cell';
   field: string;
   value: unknown;
-  /** kind:'cell' only (D29). */
+  /** kind:'cell' only (D30). */
   fields?: readonly [string, string];
   actor: Actor;
   intent?: string;
@@ -332,7 +332,7 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
 function mapSelections(sels: readonly unknown[] | undefined): SelectionView[] {
   return (sels ?? []).map((s) => {
     const o = s as SelectionView;
-    // D29: a cell selection carries its field pair through (both sources
+    // D30: a cell selection carries its field pair through (both sources
     // serialize the same SelectionInfo shape).
     return { viewId: o.viewId, field: o.field, kind: o.kind, value: o.value, ...(o.fields !== undefined ? { fields: o.fields } : {}) };
   });
@@ -622,7 +622,7 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
 
     async emit(viewId, emission, intent) {
       if (emission.encoding.kind === 'cell') {
-        // D29: the compound cell rides the SELECT verb's cell form — one
+        // D30: the compound cell rides the SELECT verb's cell form — one
         // gesture, ONE commit (fields + values; values null clears the cell).
         const fields = emission.encoding.fields;
         const values = emission.rawValue as CellValues;

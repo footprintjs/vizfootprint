@@ -29,7 +29,7 @@ function formatCellSide(field: string, side: unknown): string {
  * A compact, safe rendering of a commit's DATA value (never a raw dump).
  * FILTER-1: an interval bound may itself be `null` (half-open — "150 or
  * more" / "up to 2026-05-31") — rendered in plain words, never a fabricated
- * opposite bound. D29: a CELL commit reads as its two sides joined with
+ * opposite bound. D30: a CELL commit reads as its two sides joined with
  * "and" — "price 100 – 150 and category = Formal".
  */
 export function formatCommitValue(c: Pick<CommitView, 'kind' | 'value' | 'fields'>): string {

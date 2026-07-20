@@ -58,7 +58,7 @@ export function dayOf(iso: string): string {
   return iso.slice(0, 10);
 }
 
-// ── the shared sequential-ramp step (the map's magnitude scale, D29 reused) ──
+// ── the shared sequential-ramp step (the map's magnitude scale, D30 reused) ──
 
 /** How many steps the quantized `--vzf-seq-*` sequential ramp has. */
 export const SEQ_RAMP_STEPS = 5;

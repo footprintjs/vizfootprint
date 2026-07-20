@@ -480,7 +480,7 @@ class InteractionSessionImpl implements InteractionSession {
       if (!this.runtime.views.has(rec.viewId)) continue; // skip annotation:/analysis: commits
       if (RESERVED_PROBE_FIELDS.has(rec.field)) continue;
       if ((rec.kind === 'interval' || rec.kind === 'cell') && rec.value === null) {
-        // a cleared interval — or a cleared CELL (D29, same rule) — drops the filter
+        // a cleared interval — or a cleared CELL (D30, same rule) — drops the filter
         this.activeFilters.delete(rec.viewId);
         this.activeFilterCommits.delete(rec.viewId);
       } else {
@@ -669,7 +669,7 @@ class InteractionSessionImpl implements InteractionSession {
   private actionForRecipe(recipe: PlanRecipe, cause: Cause, op: 'bringOver' | 'undo'): DispatchAction | { gap: GapRow } {
     switch (recipe.apply) {
       case 'selection':
-        // D29: a cell recipe re-lands the COMPOUND (its pair rides the recipe).
+        // D30: a cell recipe re-lands the COMPOUND (its pair rides the recipe).
         if (recipe.kind === 'cell') {
           return { verb: 'select', viewId: recipe.viewId, fields: recipe.fields!, values: recipe.value as CellValues, cause };
         }
@@ -677,7 +677,7 @@ class InteractionSessionImpl implements InteractionSession {
           ? { verb: 'select', viewId: recipe.viewId, field: recipe.field, value: recipe.value, cause }
           : { verb: 'filter', viewId: recipe.viewId, field: recipe.field, range: recipe.value as FilterRange, cause };
       case 'clear-selection':
-        // D29: clearing what a CELL selected clears kind-faithfully (a cleared
+        // D30: clearing what a CELL selected clears kind-faithfully (a cleared
         // cell commit) — the recipe's `field` for a cell is the joint label,
         // not a column, so an interval-clear would trip the column guard.
         if (recipe.fields !== undefined) {
@@ -857,7 +857,7 @@ class InteractionSessionImpl implements InteractionSession {
     const as = opts.as;
     switch (action.verb) {
       case 'select':
-        // D29: the cell form of `select` (fields+values) is the compound-cell
+        // D30: the cell form of `select` (fields+values) is the compound-cell
         // gesture — one gesture, ONE commit; the plain form stays the point probe.
         if ('fields' in action) {
           return this.doCellProbe(action.viewId, action.fields, action.values, action.cause, as, intent, action.correlationId);
@@ -954,7 +954,7 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /**
-   * The CELL probe (D29): one heatmap-cell gesture selects on TWO fields at
+   * The CELL probe (D30): one heatmap-cell gesture selects on TWO fields at
    * once and lands ONE cause-tagged commit whose predicate is the AND of both
    * sides — the ruling is one gesture = one commit, never two
    * correlationId-linked ones. Rides the `select` verb (mandatory-analytical;
@@ -1628,7 +1628,7 @@ class InteractionSessionImpl implements InteractionSession {
       clause.kind === 'cell'
         ? {
             viewId,
-            field: cellFieldLabel(clause.fields), // display-only joint label (D29)
+            field: cellFieldLabel(clause.fields), // display-only joint label (D30)
             kind: 'cell' as const,
             value: clause.value,
             fields: clause.fields,
