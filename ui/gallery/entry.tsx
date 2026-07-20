@@ -22,6 +22,7 @@ import {
   VizMap,
   VizHistogram,
   VizHeatmap,
+  VizBoxPlot,
   TimeTravelBar,
   BranchMap,
   BranchPill,
@@ -45,8 +46,9 @@ import { buildScriptedSession } from './scripted.js';
 import { CATEGORIES, CATEGORY_COLORS, GALLERY_GEO, REGIONS, type GalleryRow } from './data.js';
 import { VegaLiteCell } from './VegaLiteCell.js';
 // the HOST side of the transform-ownership rule: this page (not the chart)
-// computes the histogram's buckets with src/data's pure binning helper
-import { equalWidthBins, recountBins } from '../../src/data/index.js';
+// computes the histogram's buckets and the box plot's statistics with
+// src/data's pure host-side helpers
+import { equalWidthBins, recountBins, boxSummary } from '../../src/data/index.js';
 
 // The old page-local clause matcher is GONE (RP-1): the contract's
 // `selectionForView` derives the clause-addressable selection straight from
@@ -154,6 +156,28 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
       rows.filter((r) => heatRowOf(r) === y && keepHeat(r)).map(heatValueOf).filter((v): v is number | string => v !== null),
     ).bins.map((b) => ({ x0: b.x0, x1: b.x1, y, count: b.count })),
   );
+
+  // the box plot's fields come from ITS encoding fold; the HOST owns the
+  // per-category statistics (transform ownership, one tier up from a count):
+  // boxSummary computes quartiles/whiskers/outliers over the rows that
+  // survive the OTHER views' clauses (the VizBar recompute pattern).
+  const encBox = state.encodings['boxplot'] ?? {};
+  const boxXField = encBox['x'] ?? 'category';
+  const boxYField = encBox['y'] ?? 'price';
+  const boxValueOf = (r: GalleryRow): number | string | null => {
+    const v = r[boxYField];
+    return typeof v === 'number' || typeof v === 'string' ? v : null;
+  };
+  const keepBox = keepPredicate(selFor('boxplot'));
+  const boxCategories = useMemo(() => [...new Set(rows.map((r) => String(r[boxXField])))], [rows, boxXField]);
+  const boxData = boxCategories.flatMap((category) => {
+    const values = rows
+      .filter((r) => String(r[boxXField]) === category && keepBox(r))
+      .map(boxValueOf)
+      .filter((v): v is number | string => v !== null);
+    const summary = boxSummary(values);
+    return summary ? [{ category, ...summary }] : []; // an empty-under-crossfilter category is honestly omitted, never a fabricated box
+  });
 
   // the map's value per region = the crossfiltered row COUNT (the canonical wiring)
   const keepMap = keepPredicate(selFor('map'));
@@ -352,6 +376,26 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
               columns={columns}
               encoding={encHm}
               onEmit={(e) => void view.emit('heatmap', e, 'heatmap cell click')}
+              onReencode={(v, c, f) => void view.reencode(v, c, f)}
+            />
+          ),
+        },
+        {
+          id: 'boxplot',
+          weight: 2.5,
+          caption: `Box plot — click a box to select ${boxXField}; ${boxYField} quartiles, whiskers, and outliers`,
+          render: ({ width, height }) => (
+            <VizBoxPlot
+              viewId="boxplot"
+              data={boxData}
+              xField={boxXField}
+              yField={boxYField}
+              width={width}
+              height={height}
+              selection={selFor('boxplot')}
+              columns={columns}
+              encoding={encBox}
+              onEmit={(e) => void view.emit('boxplot', e, 'box plot click')}
               onReencode={(v, c, f) => void view.reencode(v, c, f)}
             />
           ),

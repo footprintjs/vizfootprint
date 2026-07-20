@@ -26,6 +26,11 @@
  *     is the AND of both sides; BOTH constraints crossfilter the other charts;
  *     the commit log tells it in plain words ("price 120 – 165 and category =
  *     Formal"); click-again clears both at once;
+ *   - BOX-1, the primitives-built BOX PLOT as the 9th cell: one HOST-summarized
+ *     box per category (`src/data`'s boxSummary — quartiles, Tukey whiskers,
+ *     listed outliers), a box click lands a REAL point commit crossfiltering
+ *     the other charts, click-again clears it — zero box-plot-specific
+ *     plumbing beyond the primitives tier;
  *   - a report chip opens a LARGE frosted-glass modal hosting the panel, with
  *     scrolling allowed only INSIDE the modal body;
  *   - ⚑ opens the checkpoint naming modal; Enter lands a REAL checkpoint;
@@ -132,6 +137,9 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     // the heatmap cell (D30): 6 HOST-computed price buckets × 5 category rows
     expect(await page.locator('svg.vzf-heatmap rect.vzf-heatcell').count()).toBe(30);
     await maybeElementShot(page, '[data-chart="heatmap"]', path.join(SHOTS, 'gallery-heatmap.png'));
+    // the box plot cell (built from the public primitives): one HOST-summarized box per category (5)
+    expect(await page.locator('svg.vzf-boxplot rect.vzf-box').count()).toBe(5);
+    await maybeElementShot(page, '[data-chart="boxplot"]', path.join(SHOTS, 'gallery-boxplot.png'));
     // the uninhabited region is HONESTLY empty: neutral fill class + no-rows tooltip
     const isles = page.locator('svg.vzf-map [data-region="Outer Isles"]');
     expect((await isles.getAttribute('class')) ?? '').toContain('vzf-region-empty');
@@ -304,6 +312,50 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     expect(await commits()).toBe(c1 + 1);
     await page.waitForFunction(
       () => document.querySelectorAll('svg.vzf-heatmap rect.vzf-heatcell.vzf-selected').length === 0,
+      undefined,
+      { timeout: 8000 },
+    );
+    expect(await readout()).toBe(rowsBefore);
+    expect(await page.locator('svg.vzf-scatter circle.vzf-dim').count()).toBe(scatterDimBefore);
+    await expectNoPageOrShellScroll(page);
+  }, 30_000);
+
+  it('the box plot (host-summarized quartiles/whiskers/outliers) selects a category by clicking its box; click-again clears', async () => {
+    const commits = async (): Promise<number> =>
+      Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    const readout = async (): Promise<number> =>
+      Number((((await page.locator('.vzf-cockpit-readout').textContent()) ?? '').match(/^(\d+) of 60/) ?? [])[1]);
+    const rowsBefore = await readout();
+    const scatterDimBefore = await page.locator('svg.vzf-scatter circle.vzf-dim').count();
+
+    // 1) click a box → a REAL point commit; the category crossfilters the other charts
+    // (a real mouse click at the hit column's own coordinates — the histogram
+    // bucket-click precedent — rather than a locator .click(), since the hit
+    // column is a narrow slice in this 9-chart Flow layout)
+    const c0 = await commits();
+    const firstHit = (await page.locator('svg.vzf-boxplot rect.vzf-box-hit').first().boundingBox())!;
+    await page.mouse.click(firstHit.x + firstHit.width / 2, firstHit.y + firstHit.height / 2);
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      c0,
+      { timeout: 8000 },
+    );
+    await page.waitForSelector('svg.vzf-boxplot rect.vzf-box.vzf-selected');
+    expect(await readout()).toBeLessThan(rowsBefore);
+    expect(await page.locator('svg.vzf-scatter circle.vzf-dim').count()).toBeGreaterThan(scatterDimBefore);
+    await maybeElementShot(page, '[data-chart="boxplot"]', path.join(SHOTS, 'gallery-boxplot-selected.png'));
+
+    // 2) click the SAME box again → the CLEARED point; the filter releases
+    const c1 = await commits();
+    const selectedHit = (await page.locator('svg.vzf-boxplot rect.vzf-box-hit[aria-pressed="true"]').boundingBox())!;
+    await page.mouse.click(selectedHit.x + selectedHit.width / 2, selectedHit.y + selectedHit.height / 2);
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      c1,
+      { timeout: 8000 },
+    );
+    await page.waitForFunction(
+      () => document.querySelectorAll('svg.vzf-boxplot rect.vzf-box.vzf-selected').length === 0,
       undefined,
       { timeout: 8000 },
     );
@@ -626,6 +678,7 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     await maybeElementShot(page, '[data-chart="map"]', path.join(SHOTS, 'gallery-map-dark.png'));
     // the heatmap rides the same flipped ramp tokens (D30)
     await maybeElementShot(page, '[data-chart="heatmap"]', path.join(SHOTS, 'gallery-heatmap-dark.png'));
+    await maybeElementShot(page, '[data-chart="boxplot"]', path.join(SHOTS, 'gallery-boxplot-dark.png'));
     await page.emulateMedia({ colorScheme: 'light' });
   }, 30_000);
 
@@ -647,9 +700,9 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     });
     expect(strip.snapType, 'the charts band is a snap carousel on mobile').toContain('x');
     expect(strip.dotsDisplay, 'dot indicators show on mobile').not.toBe('none');
-    // scatter · line · bar · map · histogram · heatmap (D30) · vl (the bridge
-    // cell) · the AGENT-AUTHORED chart (RP-3) — all eight ride the carousel
-    expect(strip.dotCount).toBe(8);
+    // scatter · line · bar · map · histogram · heatmap (D30) · box plot · vl
+    // (the bridge cell) · the AGENT-AUTHORED chart (RP-3) — all nine ride the carousel
+    expect(strip.dotCount).toBe(9);
     expect(Math.abs(strip.cellW - strip.stripW), 'each chart is one full-width page').toBeLessThanOrEqual(2);
     // both NEW charts are carousel cells with live content
     expect(await page.locator('[data-chart="line"] svg.vzf-line').count()).toBe(1);
@@ -722,9 +775,15 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     //    via the bridge-injected __vzfKeep opacity encode ──
     const commitsBefore2 = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
     const scatterBox = (await page.locator('svg.vzf-scatter').boundingBox())!;
-    await page.mouse.move(scatterBox.x + scatterBox.width * 0.15, scatterBox.y + scatterBox.height * 0.5);
+    // start PAST 0.5 (not 0.15): with nine charts now sharing the Flow band, a
+    // cell can be narrow enough that a low fraction's pointerdown lands on the
+    // scatter's own rotated Y-AXIS LABEL affordance (a fixed-width hit area
+    // near the left edge, independent of the chart's own width) instead of
+    // the plot — the brush's axis-label guard then never starts the drag at
+    // all. 0.55-0.92 mirrors the histogram/heatmap tests' own narrow-cell-safe sweep.
+    await page.mouse.move(scatterBox.x + scatterBox.width * 0.55, scatterBox.y + scatterBox.height * 0.5);
     await page.mouse.down();
-    await page.mouse.move(scatterBox.x + scatterBox.width * 0.55, scatterBox.y + scatterBox.height * 0.5, { steps: 10 });
+    await page.mouse.move(scatterBox.x + scatterBox.width * 0.92, scatterBox.y + scatterBox.height * 0.5, { steps: 10 });
     await page.mouse.up();
     await page.waitForFunction(
       (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,

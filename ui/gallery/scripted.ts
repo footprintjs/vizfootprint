@@ -48,6 +48,10 @@ export async function buildScriptedSession(): Promise<ScriptedGallery> {
       // category together, landing ONE commit (the heatmap is the only view
       // that declares the cell emission kind; see `capabilities` below).
       heatmap: { actor: 'user', label: 'Price × category' },
+      // BOX-1: another primitives-tier proof cell — VizBoxPlot receives
+      // HOST-summarized quartiles/whiskers/outliers (src/data's boxSummary);
+      // declared here so a box click's point selection lands a real commit.
+      boxplot: { actor: 'user', label: 'Price by category (box plot)' },
       // the vizfootprint-vega-lite bridge cell (RP-2): a THIRD-PARTY-shaped
       // renderer riding the SAME declared-view/crossfilter loop as the four
       // first-party charts above — must be declared here for its emissions
@@ -61,6 +65,7 @@ export async function buildScriptedSession(): Promise<ScriptedGallery> {
       { viewId: 'map', chartKind: 'map', channels: ['region'], initial: { region: 'region' } },
       { viewId: 'histogram', chartKind: 'histogram', channels: ['x'], initial: { x: 'price' } },
       { viewId: 'heatmap', chartKind: 'heatmap', channels: ['x', 'y'], initial: { x: 'price', y: 'category' } },
+      { viewId: 'boxplot', chartKind: 'boxplot', channels: ['x', 'y'], initial: { x: 'category', y: 'price' } },
     ],
     // R14 honest capability: the heatmap emits ONLY the D30 cell kind — a
     // point/interval probe against it is a typed guard-failed gap, and a cell
