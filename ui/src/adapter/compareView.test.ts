@@ -99,3 +99,45 @@ describe('mapCompareResult', () => {
     expect(mapCompareResult({ ok: false })).toEqual({ ok: false, reason: 'compare failed' });
   });
 });
+
+describe('D29 — a cell selection entry in plain words', () => {
+  it('renders both sides joined with "and" (interval + point, half-open included)', () => {
+    expect(
+      entryDetail({
+        kind: 'selection',
+        viewId: 'heatmap',
+        clause: { kind: 'cell', field: 'price × category', fields: ['price', 'category'], value: [[100, 150], 'Formal'] },
+      }),
+    ).toBe('price between 100 and 150 and category is Formal');
+    expect(
+      entryDetail({
+        kind: 'selection',
+        viewId: 'heatmap',
+        clause: { kind: 'cell', field: 'price × category', fields: ['price', 'category'], value: [[150, null], 'Formal'] },
+      }),
+    ).toBe('price at least 150 and category is Formal');
+    expect(
+      entryDetail({
+        kind: 'selection',
+        viewId: 'heatmap',
+        clause: { kind: 'cell', field: 'date × category', fields: ['date', 'category'], value: [[null, '2026-05-31'], 'Party'] },
+      }),
+    ).toBe('date up to 2026-05-31 and category is Party');
+    expect(
+      entryDetail({
+        kind: 'selection',
+        viewId: 'heatmap',
+        clause: { kind: 'cell', field: 'category × rating', fields: ['category', 'rating'], value: ['Formal', 5] },
+      }),
+    ).toBe('category is Formal and rating is 5');
+  });
+
+  it('a cleared cell — or one that lost its pair — reads honestly, never a guessed split', () => {
+    expect(
+      entryDetail({ kind: 'selection', viewId: 'heatmap', clause: { kind: 'cell', field: 'price × category', fields: ['price', 'category'], value: null } }),
+    ).toBe('price × category cell cleared');
+    expect(
+      entryDetail({ kind: 'selection', viewId: 'heatmap', clause: { kind: 'cell', field: 'price × category', value: [[1, 2], 'x'] } }),
+    ).toBe('price × category cell cleared');
+  });
+});

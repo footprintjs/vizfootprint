@@ -30,7 +30,7 @@
 export { ChartFrame } from './ChartFrame.js';
 export type { ChartFrameProps, ChartSize } from './ChartFrame.js';
 
-export { linearScale, extent, ticks, epochOf, dayOf } from './scales.js';
+export { linearScale, extent, ticks, epochOf, dayOf, rampStep, SEQ_RAMP_STEPS } from './scales.js';
 export type { LinearScale } from './scales.js';
 
 export { AxisLabel } from './AxisLabel.js';

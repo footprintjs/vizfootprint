@@ -34,6 +34,7 @@ import type { ChartEmission } from '../../../src/mosaic/index.js';
 import type { RenderSelection } from '../contract/types.js';
 import { togglePointEmission, keyActivates } from '../primitives/pointSelect.js';
 import { selectedValue } from '../primitives/useSelection.js';
+import { rampStep, SEQ_RAMP_STEPS } from '../primitives/scales.js';
 
 /** A lon/lat ring: `[ [lon, lat], … ]`. */
 export type GeoRing = readonly (readonly [number, number])[];
@@ -83,7 +84,10 @@ export interface VizMapProps {
 }
 
 const PAD = { l: 12, r: 12, t: 12, b: 40 };
-const RAMP_STEPS = 5;
+// The quantized sequential ramp is the shared primitives-tier helper now
+// (`rampStep`/`SEQ_RAMP_STEPS` in ../primitives/scales.ts) — VizHeatmap rides
+// the exact same magnitude scale, so the two never drift.
+const RAMP_STEPS = SEQ_RAMP_STEPS;
 
 interface Projector {
   (lonLat: readonly [number, number]): readonly [number, number];
@@ -144,11 +148,6 @@ function featurePath(f: GeoFeature, project: Projector): string {
     }
   }
   return parts.join(' ');
-}
-
-/** Ramp step 1..RAMP_STEPS for a value in (0, max]; 0/absent is the EMPTY state, never step 1. */
-function rampStep(value: number, max: number): number {
-  return Math.min(RAMP_STEPS, Math.max(1, Math.ceil((value / max) * RAMP_STEPS)));
 }
 
 export function VizMap(props: VizMapProps): JSX.Element {

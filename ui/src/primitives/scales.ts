@@ -57,3 +57,18 @@ export function epochOf(iso: string): number | null {
 export function dayOf(iso: string): string {
   return iso.slice(0, 10);
 }
+
+// ── the shared sequential-ramp step (the map's magnitude scale, D29 reused) ──
+
+/** How many steps the quantized `--vzf-seq-*` sequential ramp has. */
+export const SEQ_RAMP_STEPS = 5;
+
+/**
+ * Ramp step 1..{@link SEQ_RAMP_STEPS} for a value in (0, max]. A 0/absent
+ * value is the EMPTY state (`--vzf-map-empty`, the honest neutral), never
+ * step 1 — step 1 means "low", not "none". Shared by VizMap and VizHeatmap
+ * so magnitude reads identically across both.
+ */
+export function rampStep(value: number, max: number): number {
+  return Math.min(SEQ_RAMP_STEPS, Math.max(1, Math.ceil((value / max) * SEQ_RAMP_STEPS)));
+}

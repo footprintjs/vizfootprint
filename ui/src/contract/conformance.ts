@@ -16,15 +16,21 @@
  *   7. crossfilter-returns  — the view's own clause is now ADDRESSABLE in the
  *                             derived selection and the renderer visibly
  *                             re-rendered under the new state
- *   8. navigate             — a canPanZoom renderer's navigate is recorded and
+ *   8. cell                 — D29 (protocol 1.1): a renderer DECLARING the
+ *                             cell emission kind drives the plan's cellGesture
+ *                             and must land exactly ONE compound cell commit
+ *                             (both fields, addressable clause); a renderer
+ *                             not declaring it skips the arm honestly
+ *   9. navigate             — a canPanZoom renderer's navigate is recorded and
  *                             NON-FILTERING; a non-capable one lands the typed
  *                             `navigate-unsupported` gap and records nothing
- *   9. unmount              — the mount is left clean
+ *  10. unmount              — the mount is left clean
  *
  * Steps run in order and STOP at the first failure (later steps depend on
  * earlier ones); the report carries every step's outcome in plain words.
- * All six first-party renderers pass this kit (`conformance.test.tsx`) —
- * the reference claim is proven, not asserted.
+ * All seven first-party renderers pass this kit (`conformance.test.tsx`) —
+ * the heatmap exercising the cell arm — the reference claim is proven, not
+ * asserted.
  */
 
 import { bindRenderer, type BoundRenderer } from './bind.js';
@@ -50,6 +56,7 @@ export type ConformanceStepName =
   | 'gesture-emits'
   | 'commit-lands'
   | 'crossfilter-returns'
+  | 'cell'
   | 'navigate'
   | 'unmount';
 
@@ -85,6 +92,12 @@ export interface ConformancePlan {
   buildState(state: SessionViewState): RenderState;
   /** Drive the renderer-specific SELECTING gesture on the mounted DOM (a clearing gesture fails step 7 by design). */
   gesture(el: HTMLElement): void | Promise<void>;
+  /**
+   * D29: drive a CELL-selecting gesture on a DIFFERENT cell than `gesture`
+   * touched (clicking the same cell again would CLEAR it). REQUIRED when the
+   * renderer declares the 'cell' emission kind; ignored otherwise.
+   */
+  cellGesture?(el: HTMLElement): void | Promise<void>;
   /** Prove the post-crossfilter re-render is visible. Default: the mount's DOM changed since before the gesture. */
   verifyUpdate?(el: HTMLElement): boolean;
   /** The view state for the navigate step. Default `{ x: [0, 1] }`. */
@@ -197,7 +210,7 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
         if (!res.ok) throw new StepFailed(`the bind was refused: ${res.gap.detail}`);
         bound = res.view;
         const caps = bound.capabilities;
-        const invalid = caps.emissionKinds.filter((k) => k !== 'point' && k !== 'interval');
+        const invalid = caps.emissionKinds.filter((k) => k !== 'point' && k !== 'interval' && k !== 'cell');
         const kinds = flag(
           caps.emissionKinds.length === 0,
           'none declared',
@@ -277,6 +290,50 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
           descriptor === 'self-addressable · renderer-updated',
           `the view's own clause is addressable in the derived selection (${selection.clauses.size} clause(s)) and the renderer re-rendered`,
           `the crossfilter loop did not visibly return: ${descriptor}`,
+        );
+      },
+    },
+    {
+      name: 'cell',
+      async run() {
+        // D29 (protocol 1.1): the compound-cell arm — exercised only by
+        // renderers that DECLARE the cell emission kind; everyone else skips
+        // honestly (the declared-capability rule, not a silent pass).
+        if (!bound!.capabilities.emissionKinds.includes('cell')) {
+          return 'the renderer declares no cell emissions — the cell arm is honestly skipped';
+        }
+        if (!plan.cellGesture) {
+          throw new StepFailed('the renderer declares the cell emission kind but the plan provides no cellGesture to drive');
+        }
+        const emissionsBefore = emissions.length;
+        const commitsBeforeCell = view.getState().commits.length;
+        await plan.cellGesture(el);
+        await settle();
+        const cellEmissions = emissions.slice(emissionsBefore).filter((e) => e.encoding.kind === 'cell');
+        if (cellEmissions.length === 0) {
+          throw new StepFailed('the cell gesture produced no cell emission');
+        }
+        const st = view.getState();
+        const landedCount = st.commits.length - commitsBeforeCell;
+        if (landedCount !== 1) {
+          // the D29 ruling is exactly ONE commit per cell gesture — zero means
+          // the session refused it (e.g. a ghost field), two means it split
+          throw new StepFailed(`the cell gesture landed ${landedCount} commit(s) — the D29 ruling is exactly ONE`);
+        }
+        const landed = st.commits[st.commits.length - 1]!; // landedCount === 1 ⇒ a last commit exists
+        const selection = selectionForView(st.selections, viewId);
+        const own = selection.clauses.get(viewId);
+        const descriptor = [
+          flag(landed.kind === 'cell', 'cell-kind', `kind:${landed.kind}`),
+          flag((landed.fields?.length ?? 0) === 2, 'both-fields', 'fields-missing'),
+          flag(own?.kind === 'cell', 'self-addressable', 'self-missing'),
+        ].join(' · ');
+        return check(
+          descriptor === 'cell-kind · both-fields · self-addressable',
+          // `?? []`: check() builds BOTH detail strings before deciding, and on
+          // the failure path a non-cell commit carries no pair to name
+          `the cell gesture landed ONE compound cell commit (${(landed.fields ?? []).join(' AND ')}) and its clause is addressable`,
+          `the cell arm misbehaved: ${descriptor}`,
         );
       },
     },

@@ -19,7 +19,13 @@ import type { CompareChangeView, CompareEntryView, CompareView } from './types.j
 interface RawFoldEntry {
   readonly kind: 'selection' | 'encoding' | 'analysis';
   readonly viewId?: string;
-  readonly clause?: { readonly kind: 'point' | 'interval'; readonly field: string; readonly value: unknown };
+  readonly clause?: {
+    readonly kind: 'point' | 'interval' | 'cell';
+    readonly field: string;
+    readonly value: unknown;
+    /** kind:'cell' only (D29) — the two selected fields. */
+    readonly fields?: readonly [string, string];
+  };
   readonly channel?: string;
   readonly field?: string;
   readonly value?: unknown;
@@ -51,11 +57,29 @@ export function entryLabel(e: RawFoldEntry): string {
   return e.viewId ?? 'view';
 }
 
+/** One cell side in plain words ("price between 100 and 150" / "category is Formal") — D29. */
+function cellSideWords(field: string, side: unknown): string {
+  if (Array.isArray(side)) {
+    const lo: unknown = side[0];
+    const hi: unknown = side[1];
+    if (lo === null || lo === undefined) return `${field} up to ${word(hi)}`;
+    if (hi === null || hi === undefined) return `${field} at least ${word(lo)}`;
+    return `${field} between ${word(lo)} and ${word(hi)}`;
+  }
+  return `${field} is ${word(side)}`;
+}
+
 /** The entry's value in plain words. */
 export function entryDetail(e: RawFoldEntry): string {
   if (e.kind === 'selection') {
     const c = e.clause;
     if (!c) return 'a selection';
+    if (c.kind === 'cell') {
+      // D29: the compound cell — both sides, joined the way a person says it
+      const pair = c.value as readonly [unknown, unknown] | null;
+      if (pair === null || c.fields === undefined) return `${c.field} cell cleared`;
+      return `${cellSideWords(c.fields[0], pair[0])} and ${cellSideWords(c.fields[1], pair[1])}`;
+    }
     if (c.kind === 'point') return `${c.field} is ${word(c.value)}`;
     if (c.value === null) return `${c.field} filter cleared`;
     const range = c.value as readonly [unknown, unknown];

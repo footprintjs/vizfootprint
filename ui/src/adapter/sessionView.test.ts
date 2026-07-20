@@ -72,6 +72,36 @@ describe('mapPollState — normalization + derivations', () => {
     expect(s.checkpoints[0]!.label).toBe('before-cluster');
     expect(s.viewingPast).toBe(true);
   });
+
+  it('D29: a cell commit + cell selection carry kind/fields/value through the poll wire verbatim', () => {
+    const withCell = mapPollState({
+      ...RAW,
+      records: [
+        ...RAW.records,
+        {
+          id: '4',
+          parent: '3',
+          viewId: 'heatmap',
+          kind: 'cell',
+          field: 'price × category',
+          fields: ['price', 'category'],
+          value: [[100, 150], 'Formal'],
+          cause: { requestedBy: 'user', intent: 'click the 100–150 × Formal cell' },
+        },
+      ],
+      activeSelections: [
+        { viewId: 'heatmap', field: 'price × category', kind: 'cell', value: [[100, 150], 'Formal'], fields: ['price', 'category'] },
+      ],
+    });
+    const c4 = withCell.commits.find((c) => c.id === '4')!;
+    expect(c4.kind).toBe('cell');
+    expect(c4.fields).toEqual(['price', 'category']);
+    expect(c4.value).toEqual([[100, 150], 'Formal']);
+    expect(c4.label).toBe('price × category'); // the joint label is the chip label
+    const sel = withCell.selections[0]!;
+    expect(sel.kind).toBe('cell');
+    expect(sel.fields).toEqual(['price', 'category']);
+  });
 });
 
 describe('createSessionView — poll source with injected fetch', () => {
@@ -105,6 +135,25 @@ describe('createSessionView — poll source with injected fetch', () => {
     const posts = calls.filter((c) => c.body);
     expect(posts[0]!.body).toMatchObject({ verb: 'filter', viewId: 'scatter', field: 'price', range: [20, 80] });
     expect(posts[1]!.body).toMatchObject({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party' });
+    view.dispose();
+  });
+
+  it('emit(cell) posts the SELECT verb\'s cell form — fields + values, one dispatch (D29)', async () => {
+    const { impl, calls } = fakeFetch();
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    await view.emit('heatmap', { rawValue: [[100, 150], 'Formal'], encoding: { kind: 'cell', fields: ['price', 'category'] } });
+    await view.emit('heatmap', { rawValue: null, encoding: { kind: 'cell', fields: ['price', 'category'] } }, 'clear the cell');
+    const posts = calls.filter((c) => c.body);
+    expect(posts).toHaveLength(2); // one gesture = ONE dispatch, and the clear is one more
+    expect(posts[0]!.body).toMatchObject({
+      verb: 'select',
+      viewId: 'heatmap',
+      fields: ['price', 'category'],
+      values: [[100, 150], 'Formal'],
+      intent: 'cell price × category',
+    });
+    expect(posts[1]!.body).toMatchObject({ verb: 'select', viewId: 'heatmap', fields: ['price', 'category'], values: null, intent: 'clear the cell' });
     view.dispose();
   });
 
@@ -234,6 +283,22 @@ describe('createSessionView — in-process session source', () => {
     expect(session.dispatched).toHaveLength(1);
     expect(session.dispatched[0]).toMatchObject({ verb: 'filter', viewId: 'scatter', field: 'price', cause: { requestedBy: 'user' } });
     expect(view.getState().columns['data']).toBeTruthy();
+    view.dispose();
+  });
+
+  it('emit(cell) routes the SELECT verb\'s cell form to session.dispatch — one action, both fields (D29)', async () => {
+    const session = fakeSession();
+    const view = createSessionView(sessionSource(session), { as: 'user' });
+    await view.refresh();
+    await view.emit('heatmap', { rawValue: [[100, 150], 'Formal'], encoding: { kind: 'cell', fields: ['price', 'category'] } });
+    expect(session.dispatched).toHaveLength(1); // one gesture = one dispatch
+    expect(session.dispatched[0]).toMatchObject({
+      verb: 'select',
+      viewId: 'heatmap',
+      fields: ['price', 'category'],
+      values: [[100, 150], 'Formal'],
+      cause: { requestedBy: 'user', intent: 'cell price × category' },
+    });
     view.dispose();
   });
 

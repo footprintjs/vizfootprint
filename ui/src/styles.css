@@ -813,6 +813,39 @@
   font-weight: 600;
 }
 
+/* ── VizHeatmap (D29 compound-cell selection) ──────────────── */
+:where(.vzf) .vzf-heatcell {
+  /* the 1px surface gap between fills — the map's mark-spec rule */
+  stroke: var(--vzf-surface);
+  stroke-width: 1;
+  cursor: pointer;
+  transition: opacity 0.15s ease, stroke 0.12s ease;
+}
+:where(.vzf) .vzf-heatcell.vzf-heatcell-empty {
+  /* HONEST absence: neutral fill + dashed edge (the map precedent) — visibly
+     "no data", never the ramp's lowest step (that means "low", not "none") */
+  stroke: var(--vzf-line);
+  stroke-dasharray: 3 3;
+}
+:where(.vzf) .vzf-heatcell.vzf-selected {
+  stroke: var(--vzf-ink);
+  stroke-width: 2;
+  stroke-dasharray: none;
+}
+:where(.vzf) .vzf-heatcell:focus {
+  /* same UA-outline suppression rule as .vzf-region — a mouse click focuses too */
+  outline: none;
+}
+:where(.vzf) .vzf-heatcell:focus-visible {
+  outline: none;
+  stroke: var(--vzf-brand);
+  stroke-width: 2;
+  stroke-dasharray: none;
+}
+:where(.vzf) .vzf-heat-row {
+  font-size: 10px;
+}
+
 /* ── VizTable (sortable rows) ──────────────────────────────── */
 :where(.vzf) .vzf-table-frame {
   display: flex;

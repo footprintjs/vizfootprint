@@ -20,9 +20,13 @@ export interface CommitView {
   readonly id: string;
   readonly parent: string | null;
   readonly viewId: string;
-  readonly kind: 'point' | 'interval';
+  readonly kind: 'point' | 'interval' | 'cell';
+  /** For kind:'cell' this is the display-only joint label ("price × category"); the pair rides `fields` (D29). */
   readonly field: string;
+  /** For kind:'cell': the two-sided pair `[x side, y side]`, or null for a cleared cell. */
   readonly value: unknown;
+  /** kind:'cell' only — the two selected fields, x side then y side. */
+  readonly fields?: readonly [string, string];
   /** The principal that authored the commit (`cause.requestedBy`). */
   readonly actor: Actor;
   /** The human-facing intent string, if the cause carried one. */
@@ -57,8 +61,8 @@ export interface ViewView {
   readonly viewId: string;
   readonly actor: Actor;
   readonly label?: string;
-  /** Which point/interval SELECTION kinds this view can emit (R3 capability). */
-  readonly selectionKinds: readonly ('point' | 'interval')[];
+  /** Which point/interval/cell SELECTION kinds this view can emit (R3 capability). */
+  readonly selectionKinds: readonly ('point' | 'interval' | 'cell')[];
   readonly canProbe: boolean;
   readonly mounted: boolean;
   /** The current channel→field visual-encoding map at the cursor (the `reencode` fold; UI-0). */
@@ -70,9 +74,13 @@ export interface ViewView {
 /** A live DATA-space selection (never pixels). */
 export interface SelectionView {
   readonly viewId: string;
+  /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D29). */
   readonly field: string;
-  readonly kind: 'point' | 'interval';
+  readonly kind: 'point' | 'interval' | 'cell';
+  /** For kind:'cell': the two-sided pair `[x side, y side]`. */
   readonly value: unknown;
+  /** kind:'cell' only — the two selected fields, x side then y side. */
+  readonly fields?: readonly [string, string];
 }
 
 /** A branch tip in the DAG (a leaf lineage). */

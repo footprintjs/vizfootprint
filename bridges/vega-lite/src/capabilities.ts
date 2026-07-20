@@ -11,7 +11,11 @@
  * | canReencode    | always false in v1 — re-encode means the HOST regenerates |
  * |                | the spec (a future bridge revision)                       |
  * | canPanZoom     | a `bind: 'scales'` interval param (the gated navigate)    |
- * | emissionKinds  | 'point' iff canPointSelect · 'interval' iff canBrush      |
+ * | emissionKinds  | 'point' iff canPointSelect · 'interval' iff canBrush —    |
+ * |                | NEVER 'cell' (D29): the gate admits only one-axis interval|
+ * |                | and one-field point params, so a VL spec has no compound  |
+ * |                | two-field gesture to derive; the bridge honestly does not |
+ * |                | declare what it cannot emit                               |
  */
 
 import type { EmissionKind, RendererCapabilities } from 'vizfootprint-ui';

@@ -40,7 +40,7 @@ import type { SessionViewState } from '../adapter/types.js';
 import { runConformance, type ConformancePlan, type ConformanceReport } from './conformance.js';
 import { bindRenderer } from './bind.js';
 import { selectionForView, keepPredicate } from './selection.js';
-import { scatterRenderer, lineRenderer, barRenderer, mapRenderer, tableRenderer, histogramRenderer } from './renderers.js';
+import { scatterRenderer, lineRenderer, barRenderer, mapRenderer, tableRenderer, histogramRenderer, heatmapRenderer } from './renderers.js';
 import {
   RENDERER_PROTOCOL_VERSION,
   type ChartEmission,
@@ -91,6 +91,7 @@ async function buildFixture(): Promise<{ view: SessionView }> {
       map: { actor: 'user', label: 'Rows by region' },
       table: { actor: 'user', label: 'Rows' },
       histogram: { actor: 'user', label: 'Price distribution' },
+      heatmap: { actor: 'user', label: 'Price × category heatmap' },
       other: { actor: 'agent', label: 'The scripted co-driver' },
       zoomy: { actor: 'user', label: 'A pan/zoom-capable view' },
       dirty: { actor: 'user', label: 'A view with a dirty unmount' },
@@ -103,6 +104,7 @@ async function buildFixture(): Promise<{ view: SessionView }> {
       { viewId: 'bar', chartKind: 'bar', channels: ['category'], initial: { category: 'category' } },
       { viewId: 'map', chartKind: 'map', channels: ['region'], initial: { region: 'region' } },
       { viewId: 'histogram', chartKind: 'histogram', channels: ['x'], initial: { x: 'price' } },
+      { viewId: 'heatmap', chartKind: 'heatmap', channels: ['x', 'y'], initial: { x: 'price', y: 'category' } },
     ],
     defaultTable: 'data',
   });
@@ -150,6 +152,17 @@ function stateFor(viewId: string, st: SessionViewState): RenderState {
     const rows = recountBins(all, ROWS.filter(keep).map((r) => r.price as number)).bins.map((b) => ({ ...b }));
     return { rows, encodings: st.encodings['histogram'] ?? {}, selection, hover: null, theme: THEME, size: SIZE };
   }
+  if (viewId === 'heatmap') {
+    // HOST-owned 2-D binning (D29): the same fixed x edges for EVERY category
+    // row, counts recomputed under the keep — one row per (bucket, category)
+    const all = equalWidthBins(ROWS.map((r) => r.price as number), { buckets: 4 });
+    const rows = CATS.flatMap((category) =>
+      recountBins(all, ROWS.filter((r) => r.category === category && keep(r)).map((r) => r.price as number)).bins.map(
+        (b) => ({ x0: b.x0, x1: b.x1, y: category, count: b.count }),
+      ),
+    );
+    return { rows, encodings: st.encodings['heatmap'] ?? {}, selection, hover: null, theme: THEME, size: SIZE };
+  }
   // scatter, table, and the synthetic fixtures read the raw rows
   return { rows: ROWS, encodings: st.encodings[viewId] ?? {}, selection, hover: null, theme: THEME, size: SIZE };
 }
@@ -195,7 +208,9 @@ describe('conformance — all six first-party charts pass (the reference claim, 
       },
     });
     expect(report.ok, explain(report)).toBe(true);
-    expect(report.steps).toHaveLength(9);
+    expect(report.steps).toHaveLength(10);
+    // a renderer with no cell declaration skips the D29 arm honestly
+    expect(report.steps.find((s) => s.step === 'cell')!.detail).toContain('honestly skipped');
     expect(report.emissions[0]!.encoding.kind).toBe('interval');
     expect(report.reencodeRequests).toEqual(['y']); // the host owns the picker — the request was surfaced, not swallowed
     // the five are canPanZoom:false — the ONLY contract gap is the navigate one, typed
@@ -249,6 +264,29 @@ describe('conformance — all six first-party charts pass (the reference claim, 
     expect((hi - 60) % 22).toBe(0);
   });
 
+  it('VizHeatmap (the D29 cell arm: one cell click = ONE compound two-field commit)', async () => {
+    const report = await runFor(heatmapRenderer(), 'heatmap', {
+      gesture: (el) => {
+        fireEvent.click(el.querySelector('[data-cell="60|Casual"]')!);
+      },
+      // the cell arm clicks a DIFFERENT cell (the same one again would clear)
+      cellGesture: (el) => {
+        fireEvent.click(el.querySelector('[data-cell="115|Formal"]')!);
+      },
+      verifyUpdate: (el) => el.querySelector('rect.vzf-heatcell.vzf-selected') !== null,
+    });
+    expect(report.ok, explain(report)).toBe(true);
+    // the base gesture emitted the compound: both fields, one emission
+    expect(report.emissions[0]).toEqual({
+      rawValue: [[60, 115], 'Casual'],
+      encoding: { kind: 'cell', fields: ['price', 'category'] },
+    });
+    const cellStep = report.steps.find((s) => s.step === 'cell')!;
+    expect(cellStep.ok).toBe(true);
+    expect(cellStep.detail).toContain('ONE compound cell commit');
+    expect(cellStep.detail).toContain('price AND category');
+  });
+
   it('VizTable (point select on a row)', async () => {
     const report = await runFor(tableRenderer({ columns: ['id', 'category', 'price'] }), 'table', {
       gesture: (el) => {
@@ -272,6 +310,8 @@ interface StubOptions {
   readonly renderMode?: 'normal' | 'nothing' | 'throw' | 'static';
   /** What its button click emits (null = an emitting gesture that clears). */
   readonly emission?: ChartEmission;
+  /** What its SECOND button (the "cell" probe) emits, in order — the D29 hostile arm. */
+  readonly cellEmissions?: readonly ChartEmission[];
   readonly dirtyUnmount?: boolean;
 }
 
@@ -310,6 +350,15 @@ function stubRenderer(options: StubOptions = {}): Renderer {
             });
             host.appendChild(button);
             host.appendChild(document.createElement('span'));
+            if (options.cellEmissions) {
+              const cellButton = document.createElement('button');
+              cellButton.className = 'cell';
+              cellButton.textContent = 'cell probe';
+              cellButton.addEventListener('click', () => {
+                for (const e of options.cellEmissions!) handshake.callbacks.emit(e);
+              });
+              host.appendChild(cellButton);
+            }
           }
           if (mode === 'normal') {
             host.querySelector('span')!.textContent = `rows ${state.rows.length} · clauses ${state.selection.clauses.size}`;
@@ -440,7 +489,64 @@ describe('conformance — hostile renderers are caught at the exact step', () =>
       gesture: clickProbe,
     });
     await expectFailAt(report, 'unmount', 'left');
-    expect(report.steps.filter((s) => s.ok)).toHaveLength(8); // everything else passed
+    expect(report.steps.filter((s) => s.ok)).toHaveLength(9); // everything else passed (incl. the honest cell skip)
+  });
+
+  it('a renderer DECLARING the cell kind but given no cellGesture fails the cell arm honestly', async () => {
+    const report = await runFor(
+      stubRenderer({
+        capabilities: { emissionKinds: ['point', 'cell'] },
+        emission: point('category', 'Casual'),
+      }),
+      'static',
+      { gesture: clickProbe, verifyUpdate: () => true },
+    );
+    await expectFailAt(report, 'cell', 'no cellGesture');
+  });
+
+  it('a cell gesture that emits a NON-cell emission fails the cell arm', async () => {
+    const report = await runFor(
+      stubRenderer({
+        capabilities: { emissionKinds: ['point', 'cell'] },
+        emission: point('category', 'Casual'),
+      }),
+      'static',
+      { gesture: clickProbe, verifyUpdate: () => true, cellGesture: clickProbe }, // the "cell" gesture emits a point
+    );
+    await expectFailAt(report, 'cell', 'no cell emission');
+  });
+
+  const clickCellProbe = (el: HTMLElement): void => {
+    fireEvent.click(el.querySelector('button.cell')!);
+  };
+
+  it('a cell emission the session REFUSES (a ghost field) lands zero commits — the one-commit ruling fails honestly', async () => {
+    const report = await runFor(
+      stubRenderer({
+        capabilities: { emissionKinds: ['point', 'cell'] },
+        emission: point('category', 'Casual'),
+        cellEmissions: [{ rawValue: [[1, 2], 'x'], encoding: { kind: 'cell', fields: ['price', 'ghost'] } }],
+      }),
+      'static',
+      { gesture: clickProbe, verifyUpdate: () => true, cellGesture: clickCellProbe },
+    );
+    await expectFailAt(report, 'cell', 'landed 0 commit(s) — the D29 ruling is exactly ONE');
+  });
+
+  it('a "cell" gesture whose refused cell is shadowed by a stray point commit is caught by the descriptor', async () => {
+    const report = await runFor(
+      stubRenderer({
+        capabilities: { emissionKinds: ['point', 'cell'] },
+        emission: point('category', 'Casual'),
+        cellEmissions: [
+          { rawValue: [[1, 2], 'x'], encoding: { kind: 'cell', fields: ['price', 'ghost'] } }, // refused (ghost column)
+          point('category', 'Party'), // lands — ONE commit, but not a cell
+        ],
+      }),
+      'static',
+      { gesture: clickProbe, verifyUpdate: () => true, cellGesture: clickCellProbe },
+    );
+    await expectFailAt(report, 'cell', 'kind:point · fields-missing · self-missing');
   });
 });
 

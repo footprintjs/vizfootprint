@@ -24,6 +24,7 @@ import type {
   Overview,
   GapRow,
   BranchInfo,
+  CellValues,
   Checkpoint,
   SeekResult,
   DispatchAction,
@@ -130,9 +131,11 @@ interface RawPollCommit {
   readonly id: string;
   readonly parent: string | null;
   readonly viewId: string;
-  readonly kind: 'point' | 'interval';
+  readonly kind: 'point' | 'interval' | 'cell';
   readonly field: string;
   readonly value: unknown;
+  /** kind:'cell' only (D29) — the two selected fields, x side then y side. */
+  readonly fields?: readonly [string, string];
   readonly cause?: { requestedBy?: Actor; intent?: string; replayedFrom?: string; revertOf?: string; conflicts?: readonly string[] };
   readonly correlationId?: string;
 }
@@ -205,9 +208,11 @@ interface RawCommit {
   id: string;
   parent: string | null;
   viewId: string;
-  kind: 'point' | 'interval';
+  kind: 'point' | 'interval' | 'cell';
   field: string;
   value: unknown;
+  /** kind:'cell' only (D29). */
+  fields?: readonly [string, string];
   actor: Actor;
   intent?: string;
   correlationId?: string;
@@ -258,6 +263,7 @@ function finalize(p: StatePieces): SessionViewState {
     kind: c.kind,
     field: c.field,
     value: c.value,
+    fields: c.fields,
     actor: c.actor,
     intent: c.intent,
     correlationId: c.correlationId,
@@ -326,7 +332,9 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
 function mapSelections(sels: readonly unknown[] | undefined): SelectionView[] {
   return (sels ?? []).map((s) => {
     const o = s as SelectionView;
-    return { viewId: o.viewId, field: o.field, kind: o.kind, value: o.value };
+    // D29: a cell selection carries its field pair through (both sources
+    // serialize the same SelectionInfo shape).
+    return { viewId: o.viewId, field: o.field, kind: o.kind, value: o.value, ...(o.fields !== undefined ? { fields: o.fields } : {}) };
   });
 }
 function mapReadiness(analyses: readonly unknown[] | undefined): ReadinessView[] {
@@ -419,6 +427,7 @@ async function mapSession(session: SessionLike): Promise<SessionViewState> {
     kind: r.kind,
     field: r.field,
     value: r.value,
+    fields: r.fields,
     actor: (r.cause?.requestedBy ?? 'system') as Actor,
     intent: r.cause?.intent,
     correlationId: r.correlationId,
@@ -460,6 +469,7 @@ export function mapPollState(raw: RawPollState): SessionViewState {
     kind: r.kind,
     field: r.field,
     value: r.value,
+    fields: r.fields,
     actor: (r.cause?.requestedBy ?? 'system') as Actor,
     intent: r.cause?.intent,
     correlationId: r.correlationId,
@@ -611,6 +621,18 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
     refresh,
 
     async emit(viewId, emission, intent) {
+      if (emission.encoding.kind === 'cell') {
+        // D29: the compound cell rides the SELECT verb's cell form — one
+        // gesture, ONE commit (fields + values; values null clears the cell).
+        const fields = emission.encoding.fields;
+        const values = emission.rawValue as CellValues;
+        const label = intent ?? `cell ${fields[0]} × ${fields[1]}`;
+        await dispatch(
+          { verb: 'select', viewId, fields, values, cause: cause(label) },
+          { verb: 'select', viewId, fields, values, intent: label },
+        );
+        return;
+      }
       const label = intent ?? `${emission.encoding.kind} ${emission.encoding.field}`;
       if (emission.encoding.kind === 'interval') {
         // the discriminant sits on `encoding.kind` (nested), so `rawValue` does

@@ -74,6 +74,27 @@ describe('CommitLog', () => {
     fireEvent.click(container.querySelector('[data-commit="3"]')!);
     expect(onSeek).toHaveBeenCalledWith('3');
   });
+
+  it('D29: a cell chip tells the compound in plain words WITHOUT the redundant joint-label prefix', () => {
+    const cell = {
+      id: '9',
+      parent: '3',
+      viewId: 'heatmap',
+      kind: 'cell' as const,
+      field: 'price × category',
+      fields: ['price', 'category'] as const,
+      value: [[100, 150], 'Formal'],
+      actor: 'user' as const,
+      label: 'price × category',
+      onBranch: true,
+      isCursor: false,
+      isHead: true,
+    };
+    const { container } = render(<CommitLog commits={[cell]} />);
+    const body = container.querySelector('.vzf-chip-body')!;
+    expect(body.textContent).toBe('price 100 – 150 and category = Formal');
+    expect(body.textContent).not.toContain('=  '); // no "price × category = …" double-telling
+  });
 });
 
 describe('FdrLedger', () => {

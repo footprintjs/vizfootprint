@@ -40,21 +40,11 @@ type IntervalValue =
   | readonly [string | null, string | null]
   | null;
 
-/**
- * Build the row predicate for one clause. Mirrors `matchesClause` exactly
- * (see the file header for the parity contract).
- */
-export function clausePredicate(kind: EmissionKind, field: string, value: unknown): (row: RenderRow) => boolean {
-  if (kind === 'point') {
-    // nullish = CLEARED at the adapter tier (see the file header: overview()
-    // collapses the cleared `undefined` to null; JSON cannot carry undefined)
-    if (value == null) return () => true;
-    return (row) => row[field] === value;
-  }
-  // interval — the wire only ever carries the session's FilterRange; this is
-  // the same single narrowing both consumers used to make locally, now in ONE place
-  const iv = value as IntervalValue;
-  if (iv == null) return () => true; // cleared — no filter
+/** One cell side on the wire: a plain value (equality; null = IS NULL) or a [lo, hi] interval. */
+type CellSideValue = number | string | boolean | null | IntervalValue;
+
+/** The interval evaluator, shared by the plain interval arm and a cell's interval side. */
+function intervalPredicate(field: string, iv: Exclude<IntervalValue, null>): (row: RenderRow) => boolean {
   const [lo, hi] = iv;
   if (typeof lo === 'string' || typeof hi === 'string') {
     return (row) => {
@@ -72,6 +62,53 @@ export function clausePredicate(kind: EmissionKind, field: string, value: unknow
     if (hi !== null && v > hi) return false;
     return true;
   };
+}
+
+/**
+ * One CELL side's predicate (D29): an array side is an interval (the shared
+ * evaluator above, half-open included); anything else is a point with STRICT
+ * equality — and here `null` means IS NULL (`row[field] == null`), NOT
+ * "cleared": inside a cell tuple the whole-value `null` is the only cleared
+ * spelling, so a null side is unambiguous at the adapter tier (unlike the
+ * top-level point arm's documented nullish-cleared collapse).
+ */
+function cellSidePredicate(field: string, side: CellSideValue): (row: RenderRow) => boolean {
+  if (Array.isArray(side)) return intervalPredicate(field, side as Exclude<IntervalValue, null>);
+  if (side === null) return (row) => row[field] == null;
+  return (row) => row[field] === side;
+}
+
+/**
+ * Build the row predicate for one clause. Mirrors `matchesClause` exactly
+ * (see the file header for the parity contract). `fields` rides only with
+ * kind:'cell' (the D29 compound) — the AND of both sides.
+ */
+export function clausePredicate(
+  kind: EmissionKind,
+  field: string,
+  value: unknown,
+  fields?: readonly [string, string],
+): (row: RenderRow) => boolean {
+  if (kind === 'cell') {
+    const pair = value as readonly [CellSideValue, CellSideValue] | null;
+    // cleared (null) — or a malformed wire row that lost its pair: keep-all is
+    // the only honest fallback (never guess a field split from the label)
+    if (pair == null || fields === undefined) return () => true;
+    const px = cellSidePredicate(fields[0], pair[0]);
+    const py = cellSidePredicate(fields[1], pair[1]);
+    return (row) => px(row) && py(row);
+  }
+  if (kind === 'point') {
+    // nullish = CLEARED at the adapter tier (see the file header: overview()
+    // collapses the cleared `undefined` to null; JSON cannot carry undefined)
+    if (value == null) return () => true;
+    return (row) => row[field] === value;
+  }
+  // interval — the wire only ever carries the session's FilterRange; this is
+  // the same single narrowing both consumers used to make locally, now in ONE place
+  const iv = value as IntervalValue;
+  if (iv == null) return () => true; // cleared — no filter
+  return intervalPredicate(field, iv);
 }
 
 /** An empty, render-safe selection (before any clause lands). */
@@ -96,7 +133,8 @@ export function selectionForView(
       kind: s.kind,
       field: s.field,
       value: s.value,
-      predicate: clausePredicate(s.kind, s.field, s.value),
+      ...(s.fields !== undefined ? { fields: s.fields } : {}),
+      predicate: clausePredicate(s.kind, s.field, s.value, s.fields),
     });
   }
   return { clauses, resolve, selfClauseId: selfViewId };
@@ -149,4 +187,26 @@ export function selfSelectedInterval(
   const own = selection.clauses.get(selection.selfClauseId);
   if (!own || own.kind !== 'interval' || own.value == null) return null;
   return own.value as readonly [number | string | null, number | string | null];
+}
+
+/** The consuming view's own live CELL: its field pair + the two sides. */
+export interface SelfSelectedCell {
+  readonly fields: readonly [string, string];
+  /** `[x side, y side]` — each side a plain value or a `[lo, hi]` interval. */
+  readonly values: readonly [unknown, unknown];
+}
+
+/**
+ * The consuming view's own live CELL selection (D29) — or null when it has
+ * none (no clause, a cleared cell, a non-cell clause, or a wire row that
+ * lost its pair). The cell sibling of {@link selfSelectedValue} /
+ * {@link selfSelectedInterval}: how a heatmap derives its selected-cell
+ * outline AND its click-again-clears comparison from the addressable fold,
+ * never from local state.
+ */
+export function selfSelectedCell(selection: RenderSelection): SelfSelectedCell | null {
+  if (selection.selfClauseId === null) return null;
+  const own = selection.clauses.get(selection.selfClauseId);
+  if (!own || own.kind !== 'cell' || own.value == null || own.fields === undefined) return null;
+  return { fields: own.fields, values: own.value as readonly [unknown, unknown] };
 }

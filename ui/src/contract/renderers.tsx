@@ -1,9 +1,10 @@
 /**
  * The FIRST-PARTY REFERENCE IMPLEMENTATIONS of the renderer contract (RP-1):
- * each of the six charts (scatter · line · bar · map · table · histogram),
- * wrapped as a framework-agnostic {@link Renderer} via one generic React
- * bridge (`reactRenderer`). They are proof, not assertion — all six pass the
- * conformance kit (`conformance.test.tsx`) end to end.
+ * each of the seven charts (scatter · line · bar · map · table · histogram ·
+ * heatmap), wrapped as a framework-agnostic {@link Renderer} via one generic
+ * React bridge (`reactRenderer`). They are proof, not assertion — all seven
+ * pass the conformance kit (`conformance.test.tsx`) end to end, the heatmap
+ * including the D29 cell arm.
  *
  * What the bridge does — and deliberately does NOT do:
  *   - mount() creates a React root inside the host's element and answers the
@@ -41,6 +42,7 @@ import { VizBar } from '../charts/VizBar.js';
 import { VizMap, type GeoFeatureCollection } from '../charts/VizMap.js';
 import { VizTable, type TableRow } from '../charts/VizTable.js';
 import { VizHistogram } from '../charts/VizHistogram.js';
+import { VizHeatmap } from '../charts/VizHeatmap.js';
 
 /** The bridge spec: declared capabilities + a pure state→element function. */
 export interface ReactRendererSpec {
@@ -323,6 +325,70 @@ export function histogramRenderer(options: HistogramRendererOptions = {}): Rende
           viewId={handshake.viewId}
           data={data}
           field={field}
+          countLabel={options.countLabel}
+          selection={state.selection}
+          width={state.size.width}
+          height={state.size.height}
+          onEmit={handshake.callbacks.emit}
+          onReencodeRequest={handshake.callbacks.reencodeRequest}
+        />
+      );
+    },
+  });
+}
+
+// ── heatmap ────────────────────────────────────────────────────────────────────
+
+export interface HeatmapRendererOptions {
+  /** The row field carrying the HOST-computed lower x edge. Default `'x0'`. */
+  readonly x0Field?: string;
+  /** The row field carrying the HOST-computed upper x edge. Default `'x1'`. */
+  readonly x1Field?: string;
+  /** The row field carrying the category row label. Default `'y'`. */
+  readonly yRowField?: string;
+  /** The row field carrying the HOST-computed cell count. Default `'count'`. */
+  readonly countField?: string;
+  /** The unit word for tooltips/legend. Default `'rows'`. */
+  readonly countLabel?: string;
+}
+
+/**
+ * The D29 CELL renderer (protocol 1.1): one cell click emits the compound
+ * two-field emission — `emissionKinds: ['cell']`, honestly the ONLY kind it
+ * produces. Rows arrive host-BINNED 2-D: one row per cell carrying its x
+ * edges, category row, and count — the chart never bins or counts (the
+ * transform-ownership rule, one dimension up from the histogram). Both axis
+ * labels ask the host to re-encode.
+ */
+export function heatmapRenderer(options: HeatmapRendererOptions = {}): Renderer {
+  return reactRenderer({
+    capabilities: {
+      canBrush: false,
+      canPointSelect: false,
+      canHighlight: false,
+      canReencode: true,
+      canPanZoom: false,
+      emissionKinds: ['cell'],
+    },
+    render(state, handshake) {
+      const xField = state.encodings['x'] ?? 'value';
+      const yField = state.encodings['y'] ?? 'category';
+      const x0Field = options.x0Field ?? 'x0';
+      const x1Field = options.x1Field ?? 'x1';
+      const yRowField = options.yRowField ?? 'y';
+      const countField = options.countField ?? 'count';
+      const data = state.rows.map((r) => ({
+        x0: edge(r[x0Field]),
+        x1: edge(r[x1Field]),
+        y: String(r[yRowField]),
+        count: num(r[countField]),
+      }));
+      return (
+        <VizHeatmap
+          viewId={handshake.viewId}
+          data={data}
+          xField={xField}
+          yField={yField}
           countLabel={options.countLabel}
           selection={state.selection}
           width={state.size.width}

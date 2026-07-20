@@ -14,6 +14,7 @@ import {
   mapRenderer,
   tableRenderer,
   histogramRenderer,
+  heatmapRenderer,
 } from './renderers.js';
 import { emptySelection } from './selection.js';
 import {
@@ -192,6 +193,36 @@ describe('histogramRenderer', () => {
     const { el, m } = mounted(r);
     m.update(state([{ x0: 0, x1: 5, count: 2 }]));
     expect(el.querySelector('rect.vzf-hist-hit')!.getAttribute('aria-label')).toBe('value 0–5 (2 rows)');
+    m.unmount();
+  });
+});
+
+describe('heatmapRenderer (D29 — the cell renderer)', () => {
+  it('declares emissionKinds: ["cell"] honestly and reads cells from custom fields', () => {
+    const r = heatmapRenderer({ x0Field: 'lo', x1Field: 'hi', yRowField: 'cat', countField: 'n', countLabel: 'sales' });
+    const { el, m } = mounted(r);
+    expect(m.hello.capabilities.emissionKinds).toEqual(['cell']);
+    m.update(
+      state(
+        [
+          { lo: 0, hi: 10, cat: 'A', n: 4 },
+          { lo: 0, hi: 10, cat: 'B', n: 'oops' }, // junk count → 0 (an honest empty cell)
+        ],
+        { x: 'price', y: 'category' },
+      ),
+    );
+    const cells = el.querySelectorAll('rect.vzf-heatcell');
+    expect(cells).toHaveLength(2);
+    expect(cells[0]!.getAttribute('aria-label')).toBe('price 0–10 and category A · 4 sales');
+    expect(cells[1]!.getAttribute('aria-label')).toBe('price 0–10 and category B · no sales');
+    m.unmount();
+  });
+
+  it('defaults to x0/x1/y/count field names and the value/category emit fields', () => {
+    const r = heatmapRenderer();
+    const { el, m } = mounted(r);
+    m.update(state([{ x0: 0, x1: 5, y: 'A', count: 2 }]));
+    expect(el.querySelector('rect.vzf-heatcell')!.getAttribute('aria-label')).toBe('value 0–5 and category A · 2 rows');
     m.unmount();
   });
 });

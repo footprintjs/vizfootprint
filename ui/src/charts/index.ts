@@ -10,6 +10,8 @@ export { VizTable } from './VizTable.js';
 export type { VizTableProps, TableRow, SortDirection, TableSortState } from './VizTable.js';
 export { VizHistogram } from './VizHistogram.js';
 export type { VizHistogramProps, HistogramBinDatum } from './VizHistogram.js';
+export { VizHeatmap } from './VizHeatmap.js';
+export type { VizHeatmapProps, HeatmapCellDatum } from './VizHeatmap.js';
 export { EncodingPicker } from './EncodingPicker.js';
 export type { EncodingPickerProps } from './EncodingPicker.js';
 // ChartFrame / AxisLabel / scales / defaultCompat moved to the public

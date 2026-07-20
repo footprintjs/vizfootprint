@@ -24,7 +24,9 @@ export {
   keepPredicate,
   selfSelectedValue,
   selfSelectedInterval,
+  selfSelectedCell,
 } from './selection.js';
+export type { SelfSelectedCell } from './selection.js';
 
 export { bindRenderer } from './bind.js';
 export type { BindOptions, BindResult, BoundRenderer, NavigateOutcome } from './bind.js';
@@ -37,6 +39,7 @@ export {
   mapRenderer,
   tableRenderer,
   histogramRenderer,
+  heatmapRenderer,
 } from './renderers.js';
 export type {
   ReactRendererSpec,
@@ -46,6 +49,7 @@ export type {
   MapRendererOptions,
   TableRendererOptions,
   HistogramRendererOptions,
+  HeatmapRendererOptions,
 } from './renderers.js';
 
 export { runConformance } from './conformance.js';

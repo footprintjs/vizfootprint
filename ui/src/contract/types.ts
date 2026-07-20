@@ -33,13 +33,23 @@
 
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 
-/** The protocol version this build of vizfootprint-ui speaks. */
-export const RENDERER_PROTOCOL_VERSION = '1.0';
+/**
+ * The protocol version this build of vizfootprint-ui speaks. 1.1 ADDED the
+ * optional `'cell'` emission kind (D29 — a compound two-field selection, one
+ * gesture = one commit) and the conformance kit's optional cell arm; a 1.0
+ * renderer never declares or emits cells, so the minor stays compatible
+ * (same-major binds; minors only add).
+ */
+export const RENDERER_PROTOCOL_VERSION = '1.1';
 
 export type { ChartEmission };
 
-/** The two emission kinds the R3 rail carries. */
-export type EmissionKind = 'point' | 'interval';
+/**
+ * The three emission kinds the R3 rail carries. `'cell'` (D29, protocol 1.1)
+ * is the compound two-field selection — a heatmap cell ("price 100–150 AND
+ * category Formal") emitted as ONE emission and landed as ONE commit.
+ */
+export type EmissionKind = 'point' | 'interval' | 'cell';
 
 /**
  * What a renderer can honestly do — declared once at mount, never guessed.
@@ -118,8 +128,12 @@ export type RenderRow = Readonly<Record<string, unknown>>;
  */
 export interface SelectionClauseView {
   readonly kind: EmissionKind;
+  /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D29). */
   readonly field: string;
+  /** For kind:'cell': the two-sided pair `[x side, y side]` (each side a value or [lo, hi]). */
   readonly value: unknown;
+  /** kind:'cell' only — the two selected fields, x side then y side. */
+  readonly fields?: readonly [string, string];
   readonly predicate: (row: RenderRow) => boolean;
 }
 

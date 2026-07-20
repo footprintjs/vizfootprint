@@ -15,6 +15,7 @@ import {
   selectionForView,
   selfSelectedValue,
   selfSelectedInterval,
+  selfSelectedCell,
 } from './selection.js';
 import type { SelectionView } from '../adapter/types.js';
 
@@ -167,5 +168,71 @@ describe('selfSelectedInterval (the interval sibling — the histogram’s own-r
     expect(selfSelectedInterval(selectionForView(SELS, null))).toBeNull(); // whole-dashboard fold
     const cleared = selectionForView([{ viewId: 'scatter', field: 'price', kind: 'interval', value: null }], 'scatter');
     expect(selfSelectedInterval(cleared)).toBeNull(); // cleared interval
+  });
+});
+
+describe('D29 — the cell arm of clausePredicate (parity with the real evaluator)', () => {
+  const CELL_CASES: { fields: readonly [string, string]; value: unknown }[] = [
+    { fields: ['price', 'category'], value: [[50, 200], 'Formal'] }, // interval × point
+    { fields: ['price', 'category'], value: [[150, null], 'Party'] }, // half-open side
+    { fields: ['date', 'category'], value: [['2026-05-01', '2026-06-30'], 'Casual'] }, // ISO interval side
+    { fields: ['category', 'rating'], value: ['Formal', 5] }, // point × point
+    { fields: ['price', 'note'], value: [[0, 300], null] }, // null point side = IS NULL
+    { fields: ['price', 'rating'], value: [[0, 300], [2, 4]] }, // interval × interval
+    { fields: ['price', 'category'], value: null }, // cleared cell
+  ];
+
+  it('agrees with src/data matchesClause on every cell case × every row', () => {
+    for (const c of CELL_CASES) {
+      const real: PredicateClause = {
+        kind: 'cell',
+        fields: c.fields,
+        value: c.value as Extract<PredicateClause, { kind: 'cell' }>['value'],
+      };
+      const mirror = clausePredicate('cell', `${c.fields[0]} × ${c.fields[1]}`, c.value, c.fields);
+      for (const row of ROWS) {
+        expect(mirror(row), `cell ${JSON.stringify(c)} on ${row.id}`).toBe(matchesClause(row, real));
+      }
+    }
+  });
+
+  it('a cell wire row that lost its pair keeps ALL rows (honest fallback, never a guessed split)', () => {
+    const p = clausePredicate('cell', 'price × category', [[50, 200], 'Formal']); // no fields
+    expect(ROWS.every((r) => p(r))).toBe(true);
+  });
+
+  it('selectionForView carries the pair through to the addressable clause', () => {
+    const sels: SelectionView[] = [
+      { viewId: 'heatmap', field: 'price × category', kind: 'cell', value: [[50, 200], 'Formal'], fields: ['price', 'category'] },
+    ];
+    const sel = selectionForView(sels, 'heatmap');
+    const own = sel.clauses.get('heatmap')!;
+    expect(own.kind).toBe('cell');
+    expect(own.fields).toEqual(['price', 'category']);
+    expect(own.predicate(ROWS[1]!)).toBe(true); // Formal @ 160
+    expect(own.predicate(ROWS[0]!)).toBe(false); // Casual @ 40 — both sides must hold
+  });
+});
+
+describe('selfSelectedCell (the cell sibling — the heatmap’s own-cell derivation)', () => {
+  const cellSel = (value: unknown, fields?: readonly [string, string]): SelectionView[] => [
+    { viewId: 'heatmap', field: 'price × category', kind: 'cell', value, ...(fields ? { fields } : {}) },
+  ];
+
+  it('reads the consuming view’s own live cell: field pair + the two sides', () => {
+    const sel = selectionForView(cellSel([[100, 150], 'Formal'], ['price', 'category']), 'heatmap');
+    expect(selfSelectedCell(sel)).toEqual({ fields: ['price', 'category'], values: [[100, 150], 'Formal'] });
+  });
+
+  it('null when the view has no clause, a cleared cell, a non-cell clause, a lost pair, or no self at all', () => {
+    expect(selfSelectedCell(selectionForView([], 'heatmap'))).toBeNull();
+    expect(selfSelectedCell(selectionForView(cellSel(null, ['price', 'category']), 'heatmap'))).toBeNull();
+    expect(
+      selfSelectedCell(
+        selectionForView([{ viewId: 'heatmap', field: 'price', kind: 'interval', value: [1, 2] }], 'heatmap'),
+      ),
+    ).toBeNull();
+    expect(selfSelectedCell(selectionForView(cellSel([[100, 150], 'Formal']), 'heatmap'))).toBeNull(); // pair lost
+    expect(selfSelectedCell(selectionForView(cellSel([[100, 150], 'Formal'], ['price', 'category']), null))).toBeNull();
   });
 });

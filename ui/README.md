@@ -390,16 +390,64 @@ the pieces.**
 
 ![the histogram cell](gallery/screenshots/gallery-histogram.png)
 
+### The compound cell — `VizHeatmap` (one gesture, two fields, ONE commit)
+
+`<VizHeatmap>` is the seventh first-party chart, and it exists because a
+heatmap cell is a genuinely NEW kind of selection: clicking the cell where
+the 100–150 price bucket meets the Formal row means **"price 100–150 AND
+category Formal"** — two constraints in one gesture. The ruling (D29): one
+gesture = **one commit**, never two linked ones. So the emission/commit
+vocabulary carries a third kind beside `point` and `interval`:
+
+```ts
+// what the heatmap emits on a cell click — one emission, both fields
+{ rawValue: [[100, 150], 'Formal'], encoding: { kind: 'cell', fields: ['price', 'category'] } }
+```
+
+The session lands ONE commit whose predicate is the AND of both sides, the
+commit log tells it in plain words (**"price 100 – 150 and category =
+Formal"**), and the fold key stays `selection:${viewId}` — so time-travel,
+named paths, compare, bring-over, and undo all work on cells with zero new
+machinery. Clicking the selected cell again emits the CLEARED cell
+(`rawValue: null`), releasing both constraints at once — derived from the
+session fold via `selfSelectedCell` (the cell sibling of
+`selfSelectedInterval`), never local chart state.
+
+How it composes, in plain language:
+
+1. **The host owns the 2-D binning.** The same `equalWidthBins` fixes the x
+   edges over ALL rows; one `recountBins` per category refills them under
+   the crossfilter. The chart receives ready `{x0, x1, y, count}` cells.
+2. **Color is the shared magnitude ramp.** Cell fill rides the same
+   quantized `--vzf-seq-1..5` sequential ramp as the map (`rampStep`, now a
+   public primitive); a zero-count cell wears the honest neutral
+   (`--vzf-map-empty` + dashed edge) — "none", never "low".
+3. **Both axis labels re-encode.** x is honestly restricted to numeric/date
+   columns, y to category/numeric ones — disabled-with-reason in the picker.
+4. **Keyboard first-class.** Every cell is focusable; Enter/Space selects.
+
+v1 draws numeric/date × **category** — the wire beneath already carries any
+side mix (each cell side is an interval or a point value), so a future
+numeric × numeric heatmap needs no wire change; the restriction is pure
+chart geometry, kept until a real dashboard asks for the second bucketed
+axis. Renderers declare the new kind honestly: `heatmapRenderer` says
+`emissionKinds: ['cell']`, the six classic charts and the Vega-Lite bridge
+do NOT declare it, and the conformance kit's new **cell arm** drives a real
+cell gesture on any renderer that does (protocol 1.1 — a minor bump: the
+kind and the arm are additions).
+
+![the heatmap cell](gallery/screenshots/gallery-heatmap.png)
+
 ## The layers (each importable alone)
 
 | module | job |
 |---|---|
 | `tokens/` | design tokens + theme engine — scoped CSS variables on the `.vzf` root (never `:root`), light+dark via `prefers-color-scheme` with a `data-theme` override that wins both ways |
 | `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods incl. `navigate`) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView` |
-| `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION`, `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`selfSelectedValue`/`selfSelectedInterval`, the six reference renderers, `runConformance` |
+| `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION` (1.1 — adds the `cell` kind), `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`selfSelectedValue`/`selfSelectedInterval`/`selfSelectedCell`, the seven reference renderers, `runConformance` (now with the cell arm) |
 | `primitives/` | the chart-building tier (see above): `<ChartFrame>`, scales + date handling, `<AxisLabel>`/`useReencodePicker`/`defaultCompat`, `useHorizontalBrush`/`<BrushOverlay>`, `pointEmission`/`togglePointEmission`/`keyActivates`, `useKeepPredicate`/`selectedValue`/`dimClass` — compose a chart from these and it is born contract-conformant |
 | `layout/` | `<VizCockpit>` (the flagship — and only — single-screen shell) + `<VizModal>` (the one modal system) + `<VizPanel>`/`<VizCard>` |
-| `charts/` | `<VizScatter>`, `<VizBar>`, `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click), `<VizTable>` (sortable rows, click-to-select), `<VizHistogram>` (host-computed buckets, edge-snapped brush) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |
+| `charts/` | `<VizScatter>`, `<VizBar>`, `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click), `<VizTable>` (sortable rows, click-to-select), `<VizHistogram>` (host-computed buckets, edge-snapped brush), `<VizHeatmap>` (host-computed 2-D cells, one-click compound cell selection — D29) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |
 | `time/` | `<TimeTravelBar>` with `explore` (full commit timeline + fork-safe ⟵/⟶ step rules, `compact` for the cockpit) and `present` (checkpoint-ONLY story beats, acting disabled, `onReadOnlyChange` up to the shell) + `<CheckpointModal>` + `<BranchMap>` |
 | `panels/` | `<CommitLog>` (cause badges, click-to-seek, off-branch dimming), `<FdrLedger>` (two truths + the verbatim honesty line), `<GapsPanel>`, `<ReadinessPanel>` — cockpit hosts these inside report modals, unchanged |
 
