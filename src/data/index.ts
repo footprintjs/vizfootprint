@@ -25,6 +25,9 @@ export { literalToSQL, matchesClause, resolvePredicateSQL, isClearedSQL } from '
 export { equalWidthBins, recountBins } from './bins.js';
 export type { Bin, Bins, EqualWidthBinsOptions } from './bins.js';
 
+export { boxSummary } from './boxSummary.js';
+export type { BoxSummary, BoxSummaryOptions } from './boxSummary.js';
+
 export { parseCSV, parseCSVTyped } from './csv.js';
 export type { ParsedCSV, SniffedCSV } from './csv.js';
 
