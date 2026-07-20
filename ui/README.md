@@ -312,21 +312,22 @@ Navigation is capability-guarded on both sides: a renderer that declares
 to navigate a non-capable view lands a typed `navigate-unsupported` gap
 (`bound.navigate(...)` refuses and nothing is recorded).
 
-**Reference implementations.** All six first-party charts ship as contract
+**Reference implementations.** All eight first-party charts ship as contract
 renderers — `scatterRenderer()`, `lineRenderer()`, `barRenderer()`,
-`mapRenderer({ geo })`, `tableRenderer({ columns })`, `histogramRenderer()` —
-built on one generic `reactRenderer` bridge (mount a root, render
-synchronously, theme tokens on the `.vzf` wrapper). Their React props remain
-a thin convenience layer over the same contract types.
+`mapRenderer({ geo })`, `tableRenderer({ columns })`, `histogramRenderer()`,
+`heatmapRenderer()`, `boxPlotRenderer()` — built on one generic
+`reactRenderer` bridge (mount a root, render synchronously, theme tokens on
+the `.vzf` wrapper). Their React props remain a thin convenience layer over
+the same contract types.
 
 **Conformance kit v0.** `runConformance(plan)` mounts ANY renderer against a
 real scripted session and walks the full loop in order — version-guard,
 transform-ownership, handshake, renders, gesture-emits, commit-lands (origin
 in the cause), crossfilter-returns (the view's own clause addressable + a
 visible re-render), navigate (recorded + non-filtering, or the typed gap),
-unmount — and reports every step in plain words. All six first-party charts
-pass it in CI; a bestiary of hostile renderers proves the kit catches each
-violation at the exact step.
+unmount — and reports every step in plain words. All eight first-party
+charts pass it in CI; a bestiary of hostile renderers proves the kit catches
+each violation at the exact step.
 
 ## The chart-building primitives — build your own chart
 
@@ -431,12 +432,49 @@ side mix (each cell side is an interval or a point value), so a future
 numeric × numeric heatmap needs no wire change; the restriction is pure
 chart geometry, kept until a real dashboard asks for the second bucketed
 axis. Renderers declare the new kind honestly: `heatmapRenderer` says
-`emissionKinds: ['cell']`, the six classic charts and the Vega-Lite bridge
+`emissionKinds: ['cell']`, the seven classic charts and the Vega-Lite bridge
 do NOT declare it, and the conformance kit's new **cell arm** drives a real
 cell gesture on any renderer that does (protocol 1.1 — a minor bump: the
 kind and the arm are additions).
 
 ![the heatmap cell](gallery/screenshots/gallery-heatmap.png)
+
+### Statistics as render data — `VizBoxPlot`
+
+`<VizBoxPlot>` is the eighth first-party chart, and it pushes the
+transform-ownership rule one notch further than counting or binning: the
+HOST computes real SUMMARY STATISTICS. `src/data`'s `boxSummary` takes one
+category's numeric or ISO-date values and returns quartiles, whiskers, and
+outliers — deterministic linear interpolation for q1/median/q3 ("type 7" in
+Hyndman & Fan's taxonomy, R's and NumPy's own default, hand-verified against
+fixtures), and the standard Tukey rule for whiskers: the fence sits at
+`q1 − 1.5×IQR` / `q3 + 1.5×IQR`, but a whisker itself is a REAL data point —
+the most extreme one still inside the fence — never a fabricated number past
+where data exists. Everything outside the fence is listed as an outlier. The
+chart receives ready `BoxPlotDatum[]` (one summary per category) and never
+touches a quantile itself.
+
+Gestures, in plain language:
+
+1. **Click a box → select its category.** The same `togglePointEmission`
+   language `VizBar`/`VizMap` use: click again to clear, derived from the
+   session fold (`selectedValue`/`selfSelectedValue`), never local state.
+2. **Outliers are evidence, not addressable rows (honest v1 scope).** Each
+   outlier dot is individually hoverable (a `<title>` + `aria-label` name its
+   exact value) but carries no click handler — v1 does not invent a
+   per-outlier selection kind the R3 rail has no vocabulary for. Clicking
+   anywhere in a category's column, including over an outlier dot, selects
+   the whole category.
+3. **Both axes re-encode.** y is restricted to numeric/date columns
+   (`defaultCompat` — it is the summarized VALUE); x accepts category-like
+   (string or number) columns, the same compat the heatmap's y channel uses.
+4. **Keyboard first-class.** Every box is focusable; Enter selects.
+
+Wired into the gallery as the ninth cell — one HOST-summarized box per
+category, crossfiltering both directions with zero box-plot-specific
+plumbing beyond the primitives tier.
+
+![the box plot cell](gallery/screenshots/gallery-boxplot.png)
 
 ## The layers (each importable alone)
 
@@ -444,10 +482,10 @@ kind and the arm are additions).
 |---|---|
 | `tokens/` | design tokens + theme engine — scoped CSS variables on the `.vzf` root (never `:root`), light+dark via `prefers-color-scheme` with a `data-theme` override that wins both ways |
 | `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods incl. `navigate`) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView` |
-| `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION` (1.1 — adds the `cell` kind), `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`selfSelectedValue`/`selfSelectedInterval`/`selfSelectedCell`, the seven reference renderers, `runConformance` (now with the cell arm) |
+| `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION` (1.1 — adds the `cell` kind), `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`selfSelectedValue`/`selfSelectedInterval`/`selfSelectedCell`, the eight reference renderers, `runConformance` (now with the cell arm) |
 | `primitives/` | the chart-building tier (see above): `<ChartFrame>`, scales + date handling, `<AxisLabel>`/`useReencodePicker`/`defaultCompat`, `useHorizontalBrush`/`<BrushOverlay>`, `pointEmission`/`togglePointEmission`/`keyActivates`, `useKeepPredicate`/`selectedValue`/`dimClass` — compose a chart from these and it is born contract-conformant |
 | `layout/` | `<VizCockpit>` (the flagship — and only — single-screen shell) + `<VizModal>` (the one modal system) + `<VizPanel>`/`<VizCard>` |
-| `charts/` | `<VizScatter>`, `<VizBar>`, `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click), `<VizTable>` (sortable rows, click-to-select), `<VizHistogram>` (host-computed buckets, edge-snapped brush), `<VizHeatmap>` (host-computed 2-D cells, one-click compound cell selection — D30) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |
+| `charts/` | `<VizScatter>`, `<VizBar>`, `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click), `<VizTable>` (sortable rows, click-to-select), `<VizHistogram>` (host-computed buckets, edge-snapped brush), `<VizHeatmap>` (host-computed 2-D cells, one-click compound cell selection — D30), `<VizBoxPlot>` (host-summarized quartiles/whiskers/outliers, click-to-select a category) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |
 | `time/` | `<TimeTravelBar>` with `explore` (full commit timeline + fork-safe ⟵/⟶ step rules, `compact` for the cockpit) and `present` (checkpoint-ONLY story beats, acting disabled, `onReadOnlyChange` up to the shell) + `<CheckpointModal>` + `<BranchMap>` |
 | `panels/` | `<CommitLog>` (cause badges, click-to-seek, off-branch dimming), `<FdrLedger>` (two truths + the verbatim honesty line), `<GapsPanel>`, `<ReadinessPanel>` — cockpit hosts these inside report modals, unchanged |
 
