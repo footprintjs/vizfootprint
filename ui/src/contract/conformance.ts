@@ -28,7 +28,7 @@
  *
  * Steps run in order and STOP at the first failure (later steps depend on
  * earlier ones); the report carries every step's outcome in plain words.
- * All seven first-party renderers pass this kit (`conformance.test.tsx`) —
+ * All eight first-party renderers pass this kit (`conformance.test.tsx`) —
  * the heatmap exercising the cell arm — the reference claim is proven, not
  * asserted.
  */

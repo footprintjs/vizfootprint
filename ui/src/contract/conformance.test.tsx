@@ -3,9 +3,10 @@
  * The conformance kit against a REAL scripted session (the gallery-smoke
  * discipline — a live `InteractionSession`, never a mocked loop):
  *
- *   - ALL SEVEN first-party renderers (scatter · line · bar · map · table ·
- *     histogram · heatmap) pass the full loop — the heatmap exercising the
- *     D30 cell arm — the reference claim is proven, not asserted;
+ *   - ALL EIGHT first-party renderers (scatter · line · bar · map · table ·
+ *     histogram · heatmap · box plot) pass the full loop — the heatmap
+ *     exercising the D30 cell arm — the reference claim is proven, not
+ *     asserted;
  *   - a synthetic canPanZoom renderer proves the navigate-records +
  *     non-filtering arm;
  *   - a bestiary of HOSTILE renderers proves the kit actually catches every
@@ -33,14 +34,23 @@ beforeAll(() => {
 });
 
 import { buildDashboard } from '../../../src/agent/index.js';
-import { equalWidthBins, recountBins } from '../../../src/data/index.js';
+import { equalWidthBins, recountBins, boxSummary } from '../../../src/data/index.js';
 import type { Cause } from '../../../src/cause/index.js';
 import { createSessionView, sessionSource, type SessionView } from '../adapter/sessionView.js';
 import type { SessionViewState } from '../adapter/types.js';
 import { runConformance, type ConformancePlan, type ConformanceReport } from './conformance.js';
 import { bindRenderer } from './bind.js';
 import { selectionForView, keepPredicate } from './selection.js';
-import { scatterRenderer, lineRenderer, barRenderer, mapRenderer, tableRenderer, histogramRenderer, heatmapRenderer } from './renderers.js';
+import {
+  scatterRenderer,
+  lineRenderer,
+  barRenderer,
+  mapRenderer,
+  tableRenderer,
+  histogramRenderer,
+  heatmapRenderer,
+  boxPlotRenderer,
+} from './renderers.js';
 import {
   RENDERER_PROTOCOL_VERSION,
   type ChartEmission,
@@ -92,6 +102,7 @@ async function buildFixture(): Promise<{ view: SessionView }> {
       table: { actor: 'user', label: 'Rows' },
       histogram: { actor: 'user', label: 'Price distribution' },
       heatmap: { actor: 'user', label: 'Price × category heatmap' },
+      boxplot: { actor: 'user', label: 'Price by category (box plot)' },
       other: { actor: 'agent', label: 'The scripted co-driver' },
       zoomy: { actor: 'user', label: 'A pan/zoom-capable view' },
       dirty: { actor: 'user', label: 'A view with a dirty unmount' },
@@ -105,6 +116,7 @@ async function buildFixture(): Promise<{ view: SessionView }> {
       { viewId: 'map', chartKind: 'map', channels: ['region'], initial: { region: 'region' } },
       { viewId: 'histogram', chartKind: 'histogram', channels: ['x'], initial: { x: 'price' } },
       { viewId: 'heatmap', chartKind: 'heatmap', channels: ['x', 'y'], initial: { x: 'price', y: 'category' } },
+      { viewId: 'boxplot', chartKind: 'boxplot', channels: ['x', 'y'], initial: { x: 'category', y: 'price' } },
     ],
     defaultTable: 'data',
   });
@@ -163,6 +175,16 @@ function stateFor(viewId: string, st: SessionViewState): RenderState {
     );
     return { rows, encodings: st.encodings['heatmap'] ?? {}, selection, hover: null, theme: THEME, size: SIZE };
   }
+  if (viewId === 'boxplot') {
+    // HOST-owned summary statistics (src/data's boxSummary): one summary per
+    // category, computed over the rows that survive the OTHER views' clauses
+    // (the VizBar recompute pattern, one tier up: a summary, not a count)
+    const rows = CATS.flatMap((category) => {
+      const summary = boxSummary(ROWS.filter((r) => r.category === category && keep(r)).map((r) => r.price as number));
+      return summary ? [{ category, ...summary }] : [];
+    });
+    return { rows, encodings: st.encodings['boxplot'] ?? {}, selection, hover: null, theme: THEME, size: SIZE };
+  }
   // scatter, table, and the synthetic fixtures read the raw rows
   return { rows: ROWS, encodings: st.encodings[viewId] ?? {}, selection, hover: null, theme: THEME, size: SIZE };
 }
@@ -197,7 +219,7 @@ function explain(report: ConformanceReport): string {
 
 // ── the seven first-party reference renderers PASS the full loop ───────────────
 
-describe('conformance — all seven first-party charts pass (the reference claim, proven)', () => {
+describe('conformance — all eight first-party charts pass (the reference claim, proven)', () => {
   it('VizScatter (interval brush + an axis reencodeRequest riding the same handshake)', async () => {
     const report = await runFor(scatterRenderer(), 'scatter', {
       gesture: (el) => {
@@ -285,6 +307,17 @@ describe('conformance — all seven first-party charts pass (the reference claim
     expect(cellStep.ok).toBe(true);
     expect(cellStep.detail).toContain('ONE compound cell commit');
     expect(cellStep.detail).toContain('price AND category');
+  });
+
+  it('VizBoxPlot (point select on the category, over HOST-summarized quartiles/whiskers)', async () => {
+    const report = await runFor(boxPlotRenderer(), 'boxplot', {
+      gesture: (el) => {
+        fireEvent.click(el.querySelector('[data-box="Casual"]')!);
+      },
+      verifyUpdate: (el) => el.querySelector('rect.vzf-box.vzf-selected') !== null,
+    });
+    expect(report.ok, explain(report)).toBe(true);
+    expect(report.emissions[0]).toEqual({ rawValue: 'Casual', encoding: { kind: 'point', field: 'category' } });
   });
 
   it('VizTable (point select on a row)', async () => {

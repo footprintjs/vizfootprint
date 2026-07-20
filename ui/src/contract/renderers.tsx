@@ -1,10 +1,10 @@
 /**
  * The FIRST-PARTY REFERENCE IMPLEMENTATIONS of the renderer contract (RP-1):
- * each of the seven charts (scatter · line · bar · map · table · histogram ·
- * heatmap), wrapped as a framework-agnostic {@link Renderer} via one generic
- * React bridge (`reactRenderer`). They are proof, not assertion — all seven
- * pass the conformance kit (`conformance.test.tsx`) end to end, the heatmap
- * including the D30 cell arm.
+ * each of the eight charts (scatter · line · bar · map · table · histogram ·
+ * heatmap · box plot), wrapped as a framework-agnostic {@link Renderer} via
+ * one generic React bridge (`reactRenderer`). They are proof, not assertion —
+ * all eight pass the conformance kit (`conformance.test.tsx`) end to end, the
+ * heatmap including the D30 cell arm.
  *
  * What the bridge does — and deliberately does NOT do:
  *   - mount() creates a React root inside the host's element and answers the
@@ -43,6 +43,7 @@ import { VizMap, type GeoFeatureCollection } from '../charts/VizMap.js';
 import { VizTable, type TableRow } from '../charts/VizTable.js';
 import { VizHistogram } from '../charts/VizHistogram.js';
 import { VizHeatmap } from '../charts/VizHeatmap.js';
+import { VizBoxPlot } from '../charts/VizBoxPlot.js';
 
 /** The bridge spec: declared capabilities + a pure state→element function. */
 export interface ReactRendererSpec {
@@ -390,6 +391,75 @@ export function heatmapRenderer(options: HeatmapRendererOptions = {}): Renderer 
           xField={xField}
           yField={yField}
           countLabel={options.countLabel}
+          selection={state.selection}
+          width={state.size.width}
+          height={state.size.height}
+          onEmit={handshake.callbacks.emit}
+          onReencodeRequest={handshake.callbacks.reencodeRequest}
+        />
+      );
+    },
+  });
+}
+
+// ── box plot ───────────────────────────────────────────────────────────────────
+
+export interface BoxPlotRendererOptions {
+  /** The row field carrying the category label. Default `'category'`. */
+  readonly categoryField?: string;
+  /** The unit word for tooltips. Default `'rows'`. */
+  readonly countLabel?: string;
+}
+
+/** A summary field from a host row — numbers and ISO strings pass through, anything else is 0. */
+function stat(v: unknown): number | string {
+  return typeof v === 'number' || typeof v === 'string' ? v : 0;
+}
+
+/** A row's outliers array, defensively typed (a malformed host row degrades to none, never a crash). */
+function outliersOf(v: unknown): readonly (number | string)[] {
+  return Array.isArray(v) ? v.filter((o): o is number | string => typeof o === 'number' || typeof o === 'string') : [];
+}
+
+/**
+ * Point select on the category (click-again clears) · axis re-encode
+ * requests on BOTH channels. Rows arrive host-SUMMARIZED: one row per
+ * category carrying its box-plot statistics (`src/data`'s `boxSummary` is
+ * the canonical host helper) — the chart never computes a quantile (the
+ * transform-ownership rule, one tier up from counting/binning).
+ */
+export function boxPlotRenderer(options: BoxPlotRendererOptions = {}): Renderer {
+  return reactRenderer({
+    capabilities: {
+      canBrush: false,
+      canPointSelect: true,
+      canHighlight: false,
+      canReencode: true,
+      canPanZoom: false,
+      emissionKinds: ['point'],
+    },
+    render(state, handshake) {
+      const xField = state.encodings['x'] ?? 'category';
+      const yField = state.encodings['y'] ?? 'value';
+      const categoryField = options.categoryField ?? 'category';
+      const countLabel = options.countLabel;
+      const data = state.rows.map((r) => ({
+        category: String(r[categoryField]),
+        q1: stat(r['q1']),
+        median: stat(r['median']),
+        q3: stat(r['q3']),
+        whiskerLo: stat(r['whiskerLo']),
+        whiskerHi: stat(r['whiskerHi']),
+        outliers: outliersOf(r['outliers']),
+        count: typeof r['count'] === 'number' ? r['count'] : 0,
+      }));
+      return (
+        <VizBoxPlot
+          viewId={handshake.viewId}
+          data={data}
+          xField={xField}
+          yField={yField}
+          countLabel={countLabel}
           selection={state.selection}
           width={state.size.width}
           height={state.size.height}

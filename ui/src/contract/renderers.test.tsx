@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The React bridge + the six reference factories — the option/default arms
+ * The React bridge + the eight reference factories — the option/default arms
  * the conformance suite doesn't reach: custom id/count/value/edge fields,
  * encoding fallbacks, colour hooks, series splits, theme tokens on the mount
  * wrapper.
@@ -15,6 +15,7 @@ import {
   tableRenderer,
   histogramRenderer,
   heatmapRenderer,
+  boxPlotRenderer,
 } from './renderers.js';
 import { emptySelection } from './selection.js';
 import {
@@ -223,6 +224,55 @@ describe('heatmapRenderer (D30 — the cell renderer)', () => {
     const { el, m } = mounted(r);
     m.update(state([{ x0: 0, x1: 5, y: 'A', count: 2 }]));
     expect(el.querySelector('rect.vzf-heatcell')!.getAttribute('aria-label')).toBe('value 0–5 and category A · 2 rows');
+    m.unmount();
+  });
+});
+
+describe('boxPlotRenderer', () => {
+  it('reads the category from a custom categoryField, box stats by their canonical names, and drops junk outliers', () => {
+    const r = boxPlotRenderer({ categoryField: 'kind', countLabel: 'sales' });
+    const { el, m } = mounted(r);
+    m.update(
+      state(
+        [{ kind: 'A', q1: 10, median: 20, q3: 30, whiskerLo: 5, whiskerHi: 35, outliers: [50, 'oops', 60], count: 9 }],
+        { x: 'category', y: 'price' },
+      ),
+    );
+    const hit = el.querySelector('rect.vzf-box-hit')!;
+    expect(hit.getAttribute('aria-label')).toBe('category A · 9 sales · median 20');
+    expect(el.querySelectorAll('circle.vzf-box-outlier')).toHaveLength(2); // the junk outlier value is dropped, not guessed
+    m.unmount();
+  });
+
+  it('a date-domain stat (an ISO string) passes through; a non-number/string stat degrades to 0', () => {
+    const r = boxPlotRenderer();
+    const { el, m } = mounted(r);
+    m.update(
+      state([
+        {
+          category: 'A',
+          q1: '2026-04-03',
+          median: '2026-04-05',
+          q3: '2026-04-07',
+          whiskerLo: '2026-04-01',
+          whiskerHi: { bad: true }, // junk stat → 0, honestly, never guessed
+          outliers: [],
+          count: 5,
+        },
+      ]),
+    );
+    const hit = el.querySelector('rect.vzf-box-hit')!;
+    expect(hit.getAttribute('aria-label')).toBe('category A · 5 rows · median 2026-04-05');
+    m.unmount();
+  });
+
+  it('defaults to the "category" row field, the category/value emit fields, and "rows" as the count label; a malformed row degrades honestly', () => {
+    const r = boxPlotRenderer();
+    const { el, m } = mounted(r);
+    m.update(state([{ category: 'A', q1: 1, median: 2, q3: 3, whiskerLo: 0, whiskerHi: 4, outliers: 'not-an-array', count: 'oops' }]));
+    const hit = el.querySelector('rect.vzf-box-hit')!;
+    expect(hit.getAttribute('aria-label')).toBe('category A · 0 rows · median 2');
+    expect(el.querySelectorAll('circle.vzf-box-outlier')).toHaveLength(0); // a non-array outliers field degrades to none, never a crash
     m.unmount();
   });
 });

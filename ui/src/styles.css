@@ -846,6 +846,39 @@
   font-size: 10px;
 }
 
+/* ── VizBoxPlot (host-summarized quartiles/whiskers/outliers) ─ */
+:where(.vzf) .vzf-box {
+  fill: var(--vzf-brand-tint);
+  stroke: var(--vzf-brand-deep);
+  stroke-width: 1.5;
+  transition: opacity 0.15s ease;
+}
+:where(.vzf) .vzf-box.vzf-selected {
+  stroke: var(--vzf-ink);
+  stroke-width: 2.5;
+}
+:where(.vzf) .vzf-box-whisker,
+:where(.vzf) .vzf-box-cap {
+  stroke: var(--vzf-brand-deep);
+  stroke-width: 1.5;
+}
+:where(.vzf) .vzf-box-median {
+  stroke: var(--vzf-ink);
+  stroke-width: 2;
+}
+:where(.vzf) .vzf-box-outlier {
+  fill: var(--vzf-surface);
+  stroke: var(--vzf-danger);
+  stroke-width: 1.5;
+}
+:where(.vzf) .vzf-box-hit {
+  /* transparent (not none): the category's whole column stays hoverable for
+     the tooltip while the paint under it shows through; the histogram's
+     full-height hit-area precedent */
+  fill: transparent;
+  cursor: pointer;
+}
+
 /* ── VizTable (sortable rows) ──────────────────────────────── */
 :where(.vzf) .vzf-table-frame {
   display: flex;

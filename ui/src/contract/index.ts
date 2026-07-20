@@ -40,6 +40,7 @@ export {
   tableRenderer,
   histogramRenderer,
   heatmapRenderer,
+  boxPlotRenderer,
 } from './renderers.js';
 export type {
   ReactRendererSpec,
@@ -50,6 +51,7 @@ export type {
   TableRendererOptions,
   HistogramRendererOptions,
   HeatmapRendererOptions,
+  BoxPlotRendererOptions,
 } from './renderers.js';
 
 export { runConformance } from './conformance.js';
