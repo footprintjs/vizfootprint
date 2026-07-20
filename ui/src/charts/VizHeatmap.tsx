@@ -84,7 +84,22 @@ export interface VizHeatmapProps {
   readonly className?: string;
 }
 
-const PAD = { l: 74, r: 16, t: 16, b: 64 };
+const PAD = { r: 16, t: 16, b: 64 };
+
+/**
+ * The row-label gutter ADAPTS to the measured cell: a roomy cockpit cell
+ * shows full category names; a squeezed one (the 8-cell flow band) keeps the
+ * plot usable by tightening the gutter and TRUNCATING the labels — honestly,
+ * since every cell's tooltip and aria-label still carry the full name.
+ */
+function labelGutter(width: number): { padL: number; maxChars: number } {
+  return width >= 300 ? { padL: 74, maxChars: 12 } : { padL: 40, maxChars: 4 };
+}
+
+/** A row label fitted to the gutter — full when it fits, `…`-truncated when not. */
+function fitLabel(label: string, maxChars: number): string {
+  return label.length > maxChars ? `${label.slice(0, maxChars)}…` : label;
+}
 
 /** An x edge's position on the linear axis — numbers as-is, ISO dates by epoch. */
 function edgePos(edge: number | string): number | null {
@@ -166,7 +181,8 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
 
   const d0 = cols.length > 0 ? cols[0]!.p0 : 0;
   const d1 = cols.length > 0 ? cols[cols.length - 1]!.p1 : 1;
-  const x = linearScale(d0, d1, PAD.l, width - PAD.r);
+  const { padL, maxChars } = labelGutter(width);
+  const x = linearScale(d0, d1, padL, width - PAD.r);
   const plotBottom = height - PAD.b;
   const plotH = plotBottom - PAD.t;
   const rowH = rows.length > 0 ? plotH / rows.length : plotH;
@@ -196,7 +212,7 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
   const edges: { pos: number; label: string }[] = [];
   if (cols.length > 0) {
     const labelW = typeof cols[0]!.x0 === 'string' ? 68 : 44;
-    const fit = Math.max(2, Math.floor((width - PAD.l - PAD.r) / labelW));
+    const fit = Math.max(2, Math.floor((width - padL - PAD.r) / labelW));
     const step = Math.max(1, Math.ceil((cols.length + 1) / fit));
     const last = cols[cols.length - 1]!;
     for (let i = 0; i < cols.length; i += step) {
@@ -207,7 +223,7 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
   }
 
   const legendW = 18;
-  const legendX = (i: number): number => PAD.l + i * (legendW + 2);
+  const legendX = (i: number): number => padL + i * (legendW + 2);
 
   return (
     <>
@@ -259,12 +275,12 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
         )}
         {/* y category labels (row headers) */}
         {rows.map((yLabel) => (
-          <text key={yLabel} className="vzf-tick vzf-heat-row" x={PAD.l - 6} y={rowY(yLabel) + rowH / 2 + 3} textAnchor="end">
-            {yLabel}
+          <text key={yLabel} className="vzf-tick vzf-heat-row" x={padL - 6} y={rowY(yLabel) + rowH / 2 + 3} textAnchor="end">
+            {fitLabel(yLabel, maxChars)}
           </text>
         ))}
         {/* x baseline + edge ticks — the emitted intervals name exactly these edges */}
-        <line className="vzf-axis" x1={PAD.l} y1={plotBottom} x2={width - PAD.r} y2={plotBottom} />
+        <line className="vzf-axis" x1={padL} y1={plotBottom} x2={width - PAD.r} y2={plotBottom} />
         {edges.map((e, i) => (
           <g key={`e${i}`}>
             <line className="vzf-axis" x1={x(e.pos)} y1={plotBottom} x2={x(e.pos)} y2={plotBottom + 4} />
@@ -289,7 +305,7 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
           )}
         </g>
         {/* the two interactive axis labels — both re-encode affordances */}
-        <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xField} channel="x" onOpen={openPicker} />
+        <AxisLabel x={(padL + width - PAD.r) / 2} y={height - 8} text={xField} channel="x" onOpen={openPicker} />
         <AxisLabel x={14} y={(PAD.t + plotBottom) / 2} text={yField} channel="y" rotate={-90} onOpen={openPicker} />
         <desc>{`view ${viewId}: click a cell to select ${xField} and ${yField} together; click it again to clear`}</desc>
       </svg>

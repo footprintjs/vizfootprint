@@ -21,6 +21,11 @@
  *     buckets (src/data equalWidthBins/recountBins — the chart never bins), a
  *     bucket-edge-snapped interval brush, click-a-bar → one bucket,
  *     click-again → cleared — three REAL commits, crossfiltering both ways;
+ *   - D29, the compound-cell HEATMAP as the 8th cell: one cell click selects
+ *     price AND category together and lands exactly ONE commit whose predicate
+ *     is the AND of both sides; BOTH constraints crossfilter the other charts;
+ *     the commit log tells it in plain words ("price 120 – 165 and category =
+ *     Formal"); click-again clears both at once;
  *   - a report chip opens a LARGE frosted-glass modal hosting the panel, with
  *     scrolling allowed only INSIDE the modal body;
  *   - ⚑ opens the checkpoint naming modal; Enter lands a REAL checkpoint;
@@ -124,6 +129,9 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     // the histogram cell (built from the public primitives): 8 HOST-computed buckets
     expect(await page.locator('svg.vzf-histogram rect.vzf-histbar').count()).toBe(8);
     await maybeElementShot(page, '[data-chart="histogram"]', path.join(SHOTS, 'gallery-histogram.png'));
+    // the heatmap cell (D29): 6 HOST-computed price buckets × 5 category rows
+    expect(await page.locator('svg.vzf-heatmap rect.vzf-heatcell').count()).toBe(30);
+    await maybeElementShot(page, '[data-chart="heatmap"]', path.join(SHOTS, 'gallery-heatmap.png'));
     // the uninhabited region is HONESTLY empty: neutral fill class + no-rows tooltip
     const isles = page.locator('svg.vzf-map [data-region="Outer Isles"]');
     expect((await isles.getAttribute('class')) ?? '').toContain('vzf-region-empty');
@@ -248,6 +256,62 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     await expectNoPageOrShellScroll(page);
   }, 30_000);
 
+  it('the heatmap (D29): one cell click = ONE compound commit; BOTH constraints crossfilter; click-again clears', async () => {
+    const commits = async (): Promise<number> =>
+      Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+    const readout = async (): Promise<number> =>
+      Number((((await page.locator('.vzf-cockpit-readout').textContent()) ?? '').match(/^(\d+) of 60/) ?? [])[1]);
+    const rowsBefore = await readout();
+    const scatterDimBefore = await page.locator('svg.vzf-scatter circle.vzf-dim').count();
+
+    // 1) click a NON-EMPTY cell → exactly ONE commit lands (the D29 ruling),
+    //    and its predicate is the AND of both sides — the readout drops to
+    //    that cell's rows and the scatter dims the rows either side excluded
+    const c0 = await commits();
+    const cell = page.locator('svg.vzf-heatmap rect.vzf-heatcell:not(.vzf-heatcell-empty)').first();
+    await cell.click();
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      c0,
+      { timeout: 8000 },
+    );
+    expect(await commits()).toBe(c0 + 1); // ONE commit — never two correlationId-linked ones
+    const rowsUnderCell = await readout();
+    expect(rowsUnderCell).toBeGreaterThan(0); // the cell was non-empty, so the AND keeps its rows
+    expect(rowsUnderCell).toBeLessThan(rowsBefore); // …and BOTH constraints genuinely filter
+    expect(await page.locator('svg.vzf-scatter circle.vzf-dim').count()).toBeGreaterThan(scatterDimBefore);
+    // the selected cell wears the outline, derived from the fold
+    await page.waitForSelector('svg.vzf-heatmap rect.vzf-heatcell.vzf-selected');
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-heatmap-crossfiltered.png'), fullPage: false });
+
+    // the commit log tells the compound in plain words ("price 120 – 165 and category = Formal")
+    await page.locator('[data-report="commits"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-commits"] [data-vzf="commit-log"]');
+    const logText = (await page.locator('[data-vzf-modal="report-commits"]').textContent()) ?? '';
+    expect(logText).toMatch(/price \d+(\.\d+)? – \d+(\.\d+)? and category = /);
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-vzf-modal="report-commits"]', { state: 'detached' });
+
+    // 2) click the SAME cell again → the CLEARED cell (one more real commit);
+    //    BOTH constraints release and the crossfilter returns to baseline
+    const c1 = await commits();
+    await page.locator('svg.vzf-heatmap rect.vzf-heatcell.vzf-selected').click();
+    await page.waitForFunction(
+      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
+      c1,
+      { timeout: 8000 },
+    );
+    expect(await commits()).toBe(c1 + 1);
+    await page.waitForFunction(
+      () => document.querySelectorAll('svg.vzf-heatmap rect.vzf-heatcell.vzf-selected').length === 0,
+      undefined,
+      { timeout: 8000 },
+    );
+    expect(await readout()).toBe(rowsBefore);
+    expect(await page.locator('svg.vzf-scatter circle.vzf-dim').count()).toBe(scatterDimBefore);
+    await expectNoPageOrShellScroll(page);
+  }, 30_000);
+
   it('the line time brush lands a REAL date-interval commit and crossfilters the other charts', async () => {
     const readout = async (): Promise<number> =>
       Number((((await page.locator('.vzf-cockpit-readout').textContent()) ?? '').match(/^(\d+) of 60/) ?? [])[1]);
@@ -255,11 +319,13 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     const rowsBefore = await readout();
     const scatterDimBefore = await page.locator('svg.vzf-scatter circle.vzf-dim').count();
 
-    // drag across the RIGHT half of the line plot (the late, high-price weeks,
-    // overlapping the scripted price brush so the intersection stays non-empty)
+    // drag across the RIGHT third of the line plot (the late, high-price weeks,
+    // overlapping the scripted price brush so the intersection stays non-empty;
+    // 0.65 not 0.45 — the D29 heatmap made the band one cell denser, so the
+    // narrower line plot needs a tighter drag to actually exclude early dates)
     const box = (await page.locator('svg.vzf-line').boundingBox())!;
     const midY = box.y + box.height / 2;
-    await page.mouse.move(box.x + box.width * 0.45, midY);
+    await page.mouse.move(box.x + box.width * 0.65, midY);
     await page.mouse.down();
     await page.mouse.move(box.x + box.width * 0.95, midY, { steps: 8 });
     await page.mouse.up();
@@ -558,6 +624,8 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     // the new charts in the dark palette (the map's ramp flips its anchor: high = brightest)
     await maybeElementShot(page, '[data-chart="line"]', path.join(SHOTS, 'gallery-line-dark.png'));
     await maybeElementShot(page, '[data-chart="map"]', path.join(SHOTS, 'gallery-map-dark.png'));
+    // the heatmap rides the same flipped ramp tokens (D29)
+    await maybeElementShot(page, '[data-chart="heatmap"]', path.join(SHOTS, 'gallery-heatmap-dark.png'));
     await page.emulateMedia({ colorScheme: 'light' });
   }, 30_000);
 
@@ -579,9 +647,9 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     });
     expect(strip.snapType, 'the charts band is a snap carousel on mobile').toContain('x');
     expect(strip.dotsDisplay, 'dot indicators show on mobile').not.toBe('none');
-    // scatter · line · bar · map · histogram · vl (the bridge cell) · the
-    // AGENT-AUTHORED chart (RP-3) — all seven ride the carousel
-    expect(strip.dotCount).toBe(7);
+    // scatter · line · bar · map · histogram · heatmap (D29) · vl (the bridge
+    // cell) · the AGENT-AUTHORED chart (RP-3) — all eight ride the carousel
+    expect(strip.dotCount).toBe(8);
     expect(Math.abs(strip.cellW - strip.stripW), 'each chart is one full-width page').toBeLessThanOrEqual(2);
     // both NEW charts are carousel cells with live content
     expect(await page.locator('[data-chart="line"] svg.vzf-line').count()).toBe(1);

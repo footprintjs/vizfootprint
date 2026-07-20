@@ -21,6 +21,7 @@ import {
   VizLine,
   VizMap,
   VizHistogram,
+  VizHeatmap,
   TimeTravelBar,
   BranchMap,
   BranchPill,
@@ -128,6 +129,31 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
     histEdges,
     rows.filter(keepHist).map(histValueOf).filter((v): v is number | string => v !== null),
   ).bins;
+
+  // the heatmap's 2-D cells (D29): the SAME fixed x edges for every category
+  // row (equalWidthBins over ALL rows — stable while its own cell is live),
+  // counts recomputed per (bucket, category) under the OTHER views' clauses.
+  const encHm = state.encodings['heatmap'] ?? {};
+  const heatXField = encHm['x'] ?? 'price';
+  const heatYField = encHm['y'] ?? 'category';
+  const heatValueOf = (r: GalleryRow): number | string | null => {
+    const v = r[heatXField];
+    return typeof v === 'number' || typeof v === 'string' ? v : null;
+  };
+  const heatRowOf = (r: GalleryRow): string => String(r[heatYField]);
+  const heatEdges = useMemo(
+    () => equalWidthBins(rows.map(heatValueOf).filter((v): v is number | string => v !== null), { buckets: 6 }),
+    // heatValueOf closes only over heatXField — the deps carry its real inputs
+    [rows, heatXField],
+  );
+  const keepHeat = keepPredicate(selFor('heatmap'));
+  const heatRows = [...new Set(rows.map(heatRowOf))];
+  const heatData = heatRows.flatMap((y) =>
+    recountBins(
+      heatEdges,
+      rows.filter((r) => heatRowOf(r) === y && keepHeat(r)).map(heatValueOf).filter((v): v is number | string => v !== null),
+    ).bins.map((b) => ({ x0: b.x0, x1: b.x1, y, count: b.count })),
+  );
 
   // the map's value per region = the crossfiltered row COUNT (the canonical wiring)
   const keepMap = keepPredicate(selFor('map'));
@@ -306,6 +332,26 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
               columns={columns}
               encoding={encH}
               onEmit={(e) => void view.emit('histogram', e, 'histogram brush')}
+              onReencode={(v, c, f) => void view.reencode(v, c, f)}
+            />
+          ),
+        },
+        {
+          id: 'heatmap',
+          weight: 2.5,
+          caption: `Heatmap — click a cell to select ${heatXField} AND ${heatYField} together; click again to clear`,
+          render: ({ width, height }) => (
+            <VizHeatmap
+              viewId="heatmap"
+              data={heatData}
+              xField={heatXField}
+              yField={heatYField}
+              width={width}
+              height={height}
+              selection={selFor('heatmap')}
+              columns={columns}
+              encoding={encHm}
+              onEmit={(e) => void view.emit('heatmap', e, 'heatmap cell click')}
               onReencode={(v, c, f) => void view.reencode(v, c, f)}
             />
           ),

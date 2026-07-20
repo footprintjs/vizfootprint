@@ -104,8 +104,9 @@ describe('rendering — host cells on the shared ramp, honest absence', () => {
   });
 
   it('x edge ticks thin at a narrow width and a stepped label colliding with the final edge drops', () => {
-    // 8 buckets at width 200: fit=2 → step=5 → the i=5 label sits within 44px
-    // of the final-edge label and is dropped (the VizHistogram discipline)
+    // 8 buckets at width 200 (the tight gutter): fit=3 → step=3 → the i=6
+    // label sits within 44px of the final-edge label and is dropped (the
+    // VizHistogram discipline)
     const many: HeatmapCellDatum[] = Array.from({ length: 8 }, (_, i) => ({
       x0: i * 10,
       x1: (i + 1) * 10,
@@ -113,12 +114,22 @@ describe('rendering — host cells on the shared ramp, honest absence', () => {
       count: i + 1,
     }));
     const { container } = renderHeatmap({ data: many, width: 200 });
-    const ticks = [...container.querySelectorAll('text.vzf-tick')]
-      .map((t) => t.textContent)
-      .filter((t) => t !== 'Casual');
+    const ticks = [...container.querySelectorAll('text.vzf-tick')].map((t) => t.textContent);
     expect(ticks).toContain('0'); // the first stepped edge
     expect(ticks).toContain('80'); // the final edge always shows
-    expect(ticks).not.toContain('50'); // the collider was dropped, not the final edge
+    expect(ticks).not.toContain('60'); // the collider (i=6) was dropped, not the final edge
+  });
+
+  it('a squeezed cockpit cell tightens the row-label gutter and truncates honestly (full name stays on the cell aria)', () => {
+    const { container } = renderHeatmap({ width: 200 });
+    const rowLabels = [...container.querySelectorAll('text.vzf-heat-row')].map((t) => t.textContent);
+    expect(rowLabels).toContain('Casu…'); // truncated in the tight gutter
+    expect(rowLabels).not.toContain('Casual');
+    // the full name is never lost — it rides every cell's aria-label
+    expect(container.querySelector('[data-cell="0|Casual"]')!.getAttribute('aria-label')).toContain('category Casual');
+    // a roomy cell shows the full label
+    const { container: wide } = renderHeatmap({ width: 420 });
+    expect([...wide.querySelectorAll('text.vzf-heat-row')].map((t) => t.textContent)).toContain('Casual');
   });
 
   it('an unparseable date edge SKIPS its bucket (never guessed); empty data renders an empty plot', () => {
