@@ -43,6 +43,7 @@
   },
   "dependencies": {
     "@uwdata/mosaic-core": "^0.28.1",
+    "@uwdata/mosaic-sql": "^0.28.1",
     "footprintjs": "^9.11.0"
   },
   "peerDependencies": {

@@ -26,6 +26,7 @@ import {
   deriveBranches,
   foldDiff,
   foldStateAt,
+  keyOf,
   planBringOver,
   planUndo,
   slugForCommit,
@@ -496,5 +497,76 @@ describe('planUndo — revert as a PLAN: restore the key\'s value at the commit\
     expect(planUndo(LOG, 'ghost', 'e2')).toMatchObject({ ok: false, reason: 'unknown-commit' });
     expect(planUndo(LOG, 'c2', 'phantom')).toMatchObject({ ok: false, reason: 'unknown-commit' });
     expect(planUndo(LOG, 'c2', null)).toMatchObject({ ok: true, conflicts: [] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D29 — cell commits through the branches layer (fold, diff, plans).
+// ---------------------------------------------------------------------------
+describe('D29 cell commits — fold key unchanged, clear rule, plans carry the pair', () => {
+  const cellRec = (id: string, parent: string | null, value: unknown, over: Partial<CommitRecord> = {}): CommitRecord =>
+    rec(id, parent, {
+      viewId: 'heatmap',
+      kind: 'cell',
+      field: 'price × category',
+      fields: ['price', 'category'],
+      value,
+      ...over,
+    });
+
+  it('TARGETED: a cell commit folds under the SAME key as any probe — selection:${viewId}, last-wins per view', () => {
+    const interval = rec('c1', null, { viewId: 'heatmap', kind: 'interval', field: 'price', value: [0, 50] });
+    const cell = cellRec('c2', 'c1', [[100, 150], 'Formal']);
+    expect(keyOf(interval)).toBe('selection:heatmap');
+    expect(keyOf(cell)).toBe('selection:heatmap'); // the D29 ruling: fold key UNCHANGED
+    const state = foldStateAt([interval, cell], 'c2');
+    expect(state.size).toBe(1); // last-wins per view: the cell REPLACED the interval under one key
+    expect(state.get('selection:heatmap')).toMatchObject({
+      kind: 'selection',
+      clause: { kind: 'cell', fields: ['price', 'category'], value: [[100, 150], 'Formal'] },
+      commitId: 'c2',
+    });
+  });
+
+  it('a cleared cell (value null) DELETES the selection key, exactly like a cleared interval', () => {
+    const log = [cellRec('c1', null, [[100, 150], 'Formal']), cellRec('c2', 'c1', null)];
+    expect(foldStateAt(log, 'c1').has('selection:heatmap')).toBe(true);
+    expect(foldStateAt(log, 'c2').has('selection:heatmap')).toBe(false);
+  });
+
+  it('foldDiff fingerprints a cell by its PAIR + values (identical cells on two branches are NOT a change)', () => {
+    const base = cellRec('c1', null, [[100, 150], 'Formal']);
+    const sameA = cellRec('a1', 'c1', [[100, 150], 'Formal']);
+    const diffB = cellRec('b1', 'c1', [[200, 250], 'Casual']);
+    const d1 = foldDiff([base, sameA, diffB], 'a1', 'b1');
+    expect(d1.ok && d1.changed.length).toBe(1); // different values → a change
+    const d2 = foldDiff([base, sameA, cellRec('b2', 'c1', [[100, 150], 'Formal'])], 'a1', 'b2');
+    expect(d2.ok && d2.changed.length).toBe(0); // identical cells via different commits → NOT a change
+  });
+
+  it('planBringOver of a cell commit carries the field pair so the executor re-lands the COMPOUND', () => {
+    const log = [rec('c1', null), cellRec('h1', 'c1', [[100, 150], 'Formal'])];
+    const plan = planBringOver(log, 'h1', 'c1');
+    expect(plan).toMatchObject({
+      ok: true,
+      recipe: { apply: 'selection', kind: 'cell', viewId: 'heatmap', fields: ['price', 'category'], value: [[100, 150], 'Formal'] },
+    });
+  });
+
+  it('planUndo restores a PRIOR cell compound (pair and all); with nothing prior it clears KIND-FAITHFULLY', () => {
+    const first = cellRec('h1', null, [[0, 50], 'Casual']);
+    const second = cellRec('h2', 'h1', [[100, 150], 'Formal']);
+    const undoSecond = planUndo([first, second], 'h2', 'h2');
+    expect(undoSecond).toMatchObject({
+      ok: true,
+      recipe: { apply: 'selection', kind: 'cell', fields: ['price', 'category'], value: [[0, 50], 'Casual'] },
+    });
+    const undoFirst = planUndo([first, second], 'h1', 'h2');
+    // absent at parent → a CELL-shaped clear (the recipe's `field` is the joint
+    // label, not a column — an interval-clear would trip the executor's guard)
+    expect(undoFirst).toMatchObject({
+      ok: true,
+      recipe: { apply: 'clear-selection', viewId: 'heatmap', fields: ['price', 'category'] },
+    });
   });
 });

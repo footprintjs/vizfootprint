@@ -7,8 +7,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import { clauseInterval, clausePoint } from '@uwdata/mosaic-core';
+import { and } from '@uwdata/mosaic-sql';
 import { isClearedSQL, literalToSQL, matchesClause, resolvePredicateSQL } from './predicate.js';
-import type { IntervalClause, MatchClause, PointClause, Row } from './types.js';
+import type { CellClause, IntervalClause, MatchClause, PointClause, Row } from './types.js';
 
 /** The exact SQL string a real Mosaic clause resolves to — the ground truth. */
 function realClauseSQL(kind: 'point' | 'interval', field: string, value: unknown): string {
@@ -246,5 +247,78 @@ describe('half-open intervals — one bound null (FILTER-1: "no upper/lower boun
   it('matchesClause: a half-open DATE upper bound ("through May") never matches a non-string row value', () => {
     const clause: IntervalClause = { kind: 'interval', field: 'date', value: [null, '2026-05-31'] };
     expect(dateRows.filter((r) => matchesClause(r, clause)).map((r) => r['id'])).toEqual(['x', 'y']);
+  });
+});
+
+describe('the D29 compound cell — SQL descriptor + in-process evaluation', () => {
+  const rows: Row[] = [
+    { id: 'a', price: 120, category: 'Formal', date: '2026-05-10' },
+    { id: 'b', price: 120, category: 'Casual', date: '2026-05-11' },
+    { id: 'c', price: 200, category: 'Formal', date: '2026-06-01' },
+    { id: 'd', price: 90, category: null, date: '2026-04-01' },
+  ];
+
+  it('resolvePredicateSQL: interval × point renders the AND of both sides, byte-identical to the REAL composed clause', () => {
+    const clause: CellClause = { kind: 'cell', fields: ['price', 'category'], value: [[100, 150], 'Formal'] };
+    // ground truth: the two real Mosaic factories composed with the real `and`
+    // — exactly what src/mosaic/causeClause.ts builds and L1 records
+    const real = String(
+      and(
+        clauseInterval('price', [100, 150], { source: {} }).predicate!,
+        clausePoint('category', 'Formal', { source: {} }).predicate!,
+      ),
+    );
+    expect(resolvePredicateSQL(clause)).toBe(real);
+    expect(resolvePredicateSQL(clause)).toBe(`(("price" BETWEEN 100 AND 150) AND ("category" IN ('Formal')))`);
+  });
+
+  it('resolvePredicateSQL: point × point and a null point side (IS NULL) match the real composed clause too', () => {
+    const pp: CellClause = { kind: 'cell', fields: ['category', 'price'], value: ['Formal', 120] };
+    expect(resolvePredicateSQL(pp)).toBe(
+      String(and(clausePoint('category', 'Formal', { source: {} }).predicate!, clausePoint('price', 120, { source: {} }).predicate!)),
+    );
+    const withNull: CellClause = { kind: 'cell', fields: ['price', 'category'], value: [[100, 150], null] };
+    expect(resolvePredicateSQL(withNull)).toBe(`(("price" BETWEEN 100 AND 150) AND ("category" IS NULL))`);
+  });
+
+  it('resolvePredicateSQL: a HALF-OPEN side reuses the honest one-sided rendering (the documented divergence)', () => {
+    const clause: CellClause = { kind: 'cell', fields: ['price', 'category'], value: [[150, null], 'Formal'] };
+    expect(resolvePredicateSQL(clause)).toBe(`(("price" >= 150) AND ("category" IN ('Formal')))`);
+  });
+
+  it('resolvePredicateSQL: a cleared cell (value null) is the same "null" descriptor as every cleared clause', () => {
+    const clause: CellClause = { kind: 'cell', fields: ['price', 'category'], value: null };
+    expect(resolvePredicateSQL(clause)).toBe('null');
+    expect(isClearedSQL(resolvePredicateSQL(clause))).toBe(true);
+  });
+
+  it('matchesClause: interval × point keeps only rows satisfying BOTH sides (the AND)', () => {
+    const clause: CellClause = { kind: 'cell', fields: ['price', 'category'], value: [[100, 150], 'Formal'] };
+    expect(rows.filter((r) => matchesClause(r, clause)).map((r) => r['id'])).toEqual(['a']);
+  });
+
+  it('matchesClause: a cleared cell matches every row', () => {
+    const clause: CellClause = { kind: 'cell', fields: ['price', 'category'], value: null };
+    expect(rows.filter((r) => matchesClause(r, clause)).length).toBe(rows.length);
+  });
+
+  it('matchesClause: a null point side means IS NULL (row value null/undefined), never "no constraint"', () => {
+    const clause: CellClause = { kind: 'cell', fields: ['price', 'category'], value: [[0, 500], null] };
+    expect(rows.filter((r) => matchesClause(r, clause)).map((r) => r['id'])).toEqual(['d']);
+  });
+
+  it('matchesClause: a date-string interval side rides the ISO rail (lexicographic == chronological), no coercion', () => {
+    const clause: CellClause = { kind: 'cell', fields: ['date', 'category'], value: [['2026-05-01', '2026-05-31'], 'Casual'] };
+    expect(rows.filter((r) => matchesClause(r, clause)).map((r) => r['id'])).toEqual(['b']);
+  });
+
+  it('matchesClause: a half-open interval side only tests the present bound', () => {
+    const clause: CellClause = { kind: 'cell', fields: ['price', 'category'], value: [[150, null], 'Formal'] };
+    expect(rows.filter((r) => matchesClause(r, clause)).map((r) => r['id'])).toEqual(['c']);
+  });
+
+  it('matchesClause: no cross-type coercion on either side (a numeric side never matches a string cell)', () => {
+    const clause: CellClause = { kind: 'cell', fields: ['price', 'category'], value: [[100, 150], 'Formal'] };
+    expect(matchesClause({ price: '120', category: 'Formal' }, clause)).toBe(false);
   });
 });

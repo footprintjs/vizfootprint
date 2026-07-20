@@ -57,12 +57,22 @@ export interface CommitRecord {
   viewId: string;
   /** Serializable actor metadata so a fresh registry can rebuild the source. */
   actorMeta: ActorMeta;
-  /** Which clause factory to reconstruct with. */
-  kind: 'point' | 'interval';
-  /** Column / expression the clause filters on. */
+  /** Which clause factory to reconstruct with (`'cell'` = the D29 compound). */
+  kind: 'point' | 'interval' | 'cell';
+  /**
+   * Column / expression the clause filters on. For `kind: 'cell'` this slot
+   * carries the DISPLAY-ONLY joint label ("price × category" —
+   * `src/data`'s `cellFieldLabel`); the authoritative pair rides `fields`.
+   */
   field: string;
-  /** The selected value (must be JSON-serializable). */
+  /**
+   * The selected value (must be JSON-serializable). For `kind: 'cell'` this
+   * is the two-sided pair `[x side, y side]` (each side an interval
+   * `[lo, hi]` or a point value), or `null` for a cleared cell.
+   */
   value: unknown;
+  /** kind:'cell' only — the TWO selected fields, x side then y side (D29). */
+  fields?: readonly [string, string];
   /** Registry ids whose sources form the cross-filter self-exclusion set. */
   clientViewIds: string[];
   /** Predicate SQL string — a descriptor for verification / replay determinism. */
@@ -81,9 +91,11 @@ export interface CommitInput {
   correlationId?: string;
   viewId: string;
   actorMeta: ActorMeta;
-  kind: 'point' | 'interval';
+  kind: 'point' | 'interval' | 'cell';
   field: string;
   value: unknown;
+  /** REQUIRED for kind:'cell' (commit() refuses a cell without its pair); ignored otherwise. */
+  fields?: readonly [string, string];
   cause: Cause;
   /** Defaults to [viewId] — a view excludes only its own clause. */
   clientViewIds?: string[];
@@ -119,14 +131,18 @@ export class CauseSelectionSession {
       id === input.viewId ? source : this.registry.require(id),
     );
 
-    const spec: CauseClauseSpec = {
-      kind: input.kind,
-      source,
-      field: input.field,
-      value: input.value as never,
-      cause,
-      clients,
-    };
+    let spec: CauseClauseSpec;
+    if (input.kind === 'cell') {
+      // D29: a cell commit carries its authoritative field PAIR; refusing an
+      // absent pair here (not downstream) keeps every replica of the wire
+      // (fold, replay, adapter) free to trust `fields` on a cell record.
+      if (input.fields === undefined) {
+        throw new Error('vizfootprint log: a cell commit needs `fields` — the two columns selected together');
+      }
+      spec = { kind: 'cell', source, fields: input.fields, value: input.value as never, cause, clients };
+    } else {
+      spec = { kind: input.kind, source, field: input.field, value: input.value as never, cause, clients };
+    }
     const clause = causeClause(spec);
     this.selection.update(clause);
 
@@ -139,6 +155,7 @@ export class CauseSelectionSession {
       kind: input.kind,
       field: input.field,
       value: input.value,
+      ...(input.fields !== undefined && { fields: input.fields }),
       clientViewIds,
       predicateSQL: String(clause.predicate),
       cause,
@@ -200,6 +217,8 @@ export function replayLog(
       kind: rec.kind,
       field: rec.field,
       value: rec.value,
+      // D29: a cell record's authoritative field pair replays verbatim.
+      ...(rec.fields !== undefined && { fields: rec.fields }),
       clientViewIds: rec.clientViewIds,
       cause: markReplayed(rec.cause), // R2: additive replay marker
       ts: rec.ts,

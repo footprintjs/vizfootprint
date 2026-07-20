@@ -38,7 +38,7 @@
  * the resolved SQL text (the D24 invariant), even before those engines ship.
  */
 
-import type { IntervalBounds, IntervalClause, MatchClause, PointClause, PredicateClause, Row } from './types.js';
+import type { CellClause, CellSide, IntervalBounds, IntervalClause, MatchClause, PointClause, PredicateClause, Row } from './types.js';
 
 /** The JS string Mosaic itself produces for a cleared/inactive clause: `String(null)`. */
 const CLEARED_SQL = 'null';
@@ -128,6 +128,50 @@ function resolveMatchSQL(clause: MatchClause): string {
 }
 
 /**
+ * Lift ONE cell side into the clause the existing arms already handle
+ * (single-sourced semantics — the D29 cell reuses the exact numeric/string
+ * interval discipline, half-open included, and the point three-way split): an
+ * array side is an interval, anything else is a point (see `CellSide`). A
+ * side is never `undefined` (per the type), so the point arm's
+ * cleared-by-undefined branch is out of reach for a cell by construction.
+ */
+function cellSideClause(field: string, side: CellSide): PointClause | IntervalClause {
+  return isIntervalSide(side)
+    ? { kind: 'interval', field, value: side }
+    : { kind: 'point', field, value: side };
+}
+
+/**
+ * The shape split `CellSide` documents: an array side IS the interval side.
+ * (A typed wrapper over Array.isArray — the built-in's `any[]` predicate
+ * cannot narrow a union that contains `string` cleanly.)
+ */
+function isIntervalSide(side: CellSide): side is IntervalBounds<number> | IntervalBounds<string> {
+  return Array.isArray(side);
+}
+
+/** Render ONE cell side by delegating to the existing point/interval arms. */
+function resolveCellSideSQL(field: string, side: CellSide): string {
+  const clause = cellSideClause(field, side);
+  return clause.kind === 'interval' ? resolveIntervalSQL(clause) : resolvePointSQL(clause);
+}
+
+/**
+ * The compound cell descriptor (D29): the AND of both sides, wrapped once —
+ * byte-identical to what the log's own descriptor produces for the same
+ * commit (real Mosaic `and(px, py)` renders `(("price" BETWEEN 100 AND 150)
+ * AND ("category" IN ('Formal')))` — verified against the installed package,
+ * pinned in predicate.test.ts). Half-open/string-extent sides diverge from
+ * the log's descriptor exactly as plain intervals already do (the TWO
+ * documented divergences above) — this stays the one honest SQL.
+ */
+function resolveCellSQL(clause: CellClause): string {
+  if (clause.value === null) return CLEARED_SQL; // whole cell cleared -> no predicate
+  const [vx, vy] = clause.value;
+  return `(${resolveCellSideSQL(clause.fields[0], vx)} AND ${resolveCellSideSQL(clause.fields[1], vy)})`;
+}
+
+/**
  * Resolve a clause to its predicate SQL text. `clause === null` means "no
  * filter" at the `evaluate()` level (distinct from a point/interval clause
  * whose OWN value clears it) and resolves to the same `"null"` descriptor
@@ -143,6 +187,8 @@ export function resolvePredicateSQL(clause: PredicateClause | null): string {
       return resolveIntervalSQL(clause);
     case 'match':
       return resolveMatchSQL(clause);
+    case 'cell':
+      return resolveCellSQL(clause);
   }
 }
 
@@ -212,6 +258,19 @@ export function matchesClause(row: Row, clause: PredicateClause | null): boolean
       if (clause.values.length === 0) return false; // real FALSE, not "cleared"
       const v = row[clause.field];
       return clause.values.some((candidate) => candidate === v);
+    }
+    case 'cell': {
+      if (clause.value === null) return true; // whole cell cleared -> matches everything
+      const [vx, vy] = clause.value;
+      // Both sides must hold (the AND) — each side DELEGATES via
+      // `cellSideClause` to the existing arms, so the semantics stay
+      // single-sourced (an array side is an interval with the full
+      // half-open/no-coercion discipline; anything else is a point with
+      // strict equality / IS NULL).
+      return (
+        matchesClause(row, cellSideClause(clause.fields[0], vx)) &&
+        matchesClause(row, cellSideClause(clause.fields[1], vy))
+      );
     }
   }
 }

@@ -49,7 +49,14 @@ export type FoldEntry =
   | {
       readonly kind: 'selection';
       readonly viewId: string;
-      readonly clause: { readonly kind: 'point' | 'interval'; readonly field: string; readonly value: unknown };
+      readonly clause: {
+        readonly kind: 'point' | 'interval' | 'cell';
+        /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D29). */
+        readonly field: string;
+        readonly value: unknown;
+        /** kind:'cell' only — the two selected fields, x side then y side. */
+        readonly fields?: readonly [string, string];
+      };
       readonly commitId: string;
     }
   | {
@@ -118,8 +125,22 @@ export type AncestorResult =
  * states the intent and the executor resolves it.
  */
 export type PlanRecipe =
-  | { readonly apply: 'selection'; readonly viewId: string; readonly kind: 'point' | 'interval'; readonly field: string; readonly value: unknown }
-  | { readonly apply: 'clear-selection'; readonly viewId: string; readonly field: string }
+  | {
+      readonly apply: 'selection';
+      readonly viewId: string;
+      readonly kind: 'point' | 'interval' | 'cell';
+      readonly field: string;
+      readonly value: unknown;
+      /** kind:'cell' only — the two selected fields (D29); the executor re-lands the compound. */
+      readonly fields?: readonly [string, string];
+    }
+  | {
+      readonly apply: 'clear-selection';
+      readonly viewId: string;
+      readonly field: string;
+      /** Present when the commit being cleared was a cell — the executor clears kind-faithfully (a cleared CELL commit). */
+      readonly fields?: readonly [string, string];
+    }
   | { readonly apply: 'encoding'; readonly viewId: string; readonly channel: string; readonly field: string }
   | { readonly apply: 'clear-encoding'; readonly viewId: string; readonly channel: string }
   | { readonly apply: 'analysis'; readonly analysisId: string }

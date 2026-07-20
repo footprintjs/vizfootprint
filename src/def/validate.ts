@@ -43,7 +43,7 @@ const DEF_KEYS = new Set([
 const ACTORS = new Set(['user', 'agent', 'system']);
 const ENGINES = new Set(['memory', 'wasm', 'server', 'auto']);
 const PROCEDURES = new Set(['LORD++', 'alpha-investing']);
-const ENCODINGS = new Set(['point', 'interval']);
+const ENCODINGS = new Set(['point', 'interval', 'cell']);
 const INTENT_CLASSES = new Set(['mandatory-analytical', 'optional-interaction']);
 const VERBS = new Set<string>(DISPATCH_VERBS);
 
@@ -153,7 +153,7 @@ export function validateDashboardDef(def: unknown): string[] {
         }
         if (cap.encodings !== undefined) {
           if (!Array.isArray(cap.encodings) || cap.encodings.some((e) => !ENCODINGS.has(e as string))) {
-            problems.push(`capabilities[${i}].encodings must be an array of "point" | "interval"`);
+            problems.push(`capabilities[${i}].encodings must be an array of "point" | "interval" | "cell"`);
           }
         }
         if (cap.fields !== undefined && (!Array.isArray(cap.fields) || cap.fields.some((f) => typeof f !== 'string'))) {

@@ -22,6 +22,7 @@
 import { parseCSVTyped } from './csv.js';
 import { matchesClause, resolvePredicateSQL } from './predicate.js';
 import {
+  clauseFields,
   reject,
   type ColumnInfo,
   type ColumnType,
@@ -149,9 +150,11 @@ function matchingIndices(store: TableStore, clause: PredicateClause | null): num
   const out: number[] = [];
   for (let i = 0; i < n; i++) {
     // matchesClause reads via a Row-shaped accessor either way — build a
-    // minimal proxy row limited to the clause's own field so both layouts
-    // share EXACTLY the same evaluation code path (no row/column fork here).
-    const probe: Row = clause === null ? {} : { [clause.field]: fieldAt(store, clause.field, i) };
+    // minimal proxy row limited to the clause's own field(s) (both for a
+    // D29 cell) so both layouts share EXACTLY the same evaluation code path
+    // (no row/column fork here).
+    const probe: Row = {};
+    if (clause !== null) for (const f of clauseFields(clause)) probe[f] = fieldAt(store, f, i);
     if (matchesClause(probe, clause)) out.push(i);
   }
   return out;
@@ -215,13 +218,13 @@ export function memoryProvider(
     ): Promise<EvaluateResult | DataProviderRejection> {
       const store = tableMap.get(table);
       if (!store) return reject('memory', 'evaluate', 'unknown-table', `no such table "${table}"`);
-      if (clause !== null && !storeColumnNames(store).includes(clause.field)) {
-        return reject(
-          'memory',
-          'evaluate',
-          'unknown-column',
-          `table "${table}" has no column "${clause.field}"`,
-        );
+      if (clause !== null) {
+        // EVERY column the clause reads must exist (both sides of a D29 cell).
+        const names = storeColumnNames(store);
+        const missing = clauseFields(clause).find((f) => !names.includes(f));
+        if (missing !== undefined) {
+          return reject('memory', 'evaluate', 'unknown-column', `table "${table}" has no column "${missing}"`);
+        }
       }
 
       const sql = resolvePredicateSQL(clause);

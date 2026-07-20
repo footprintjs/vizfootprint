@@ -130,13 +130,19 @@ describe('validateDashboardDef — capabilities shape', () => {
   it('rejects capabilities.encodings that is not an array', () => {
     expect(
       validateDashboardDef(baseDef({ capabilities: [{ viewId: 'v', canProbe: true, encodings: 'point' }] })),
-    ).toContain('capabilities[0].encodings must be an array of "point" | "interval"');
+    ).toContain('capabilities[0].encodings must be an array of "point" | "interval" | "cell"');
   });
 
-  it('rejects capabilities.encodings entries outside point|interval', () => {
+  it('rejects capabilities.encodings entries outside point|interval|cell', () => {
     expect(
       validateDashboardDef(baseDef({ capabilities: [{ viewId: 'v', canProbe: true, encodings: ['area'] }] })),
-    ).toContain('capabilities[0].encodings must be an array of "point" | "interval"');
+    ).toContain('capabilities[0].encodings must be an array of "point" | "interval" | "cell"');
+  });
+
+  it('accepts the D29 cell emission kind in capabilities.encodings', () => {
+    expect(
+      validateDashboardDef(baseDef({ capabilities: [{ viewId: 'v', canProbe: true, encodings: ['cell'] }] })),
+    ).toEqual([]);
   });
 
   it('accepts valid capabilities.encodings', () => {

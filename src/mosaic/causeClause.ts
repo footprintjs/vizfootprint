@@ -13,8 +13,14 @@
 
 import { clauseInterval, clausePoint } from '@uwdata/mosaic-core';
 import type { SelectionClause, ClauseMetadata, MosaicClient } from '@uwdata/mosaic-core';
+// mosaic-sql is mosaic-core's own predicate-AST layer (a declared direct
+// dependency here, same 0.28.x line): `and` composes the D29 cell's compound
+// predicate from the two REAL side factories below — no hand-built AST node.
+import { and } from '@uwdata/mosaic-sql';
+import type { ExprNode } from '@uwdata/mosaic-sql';
 import { validateCause, type Cause } from '../cause/index.js';
 import type { RegisteredSource } from './SourceRegistry.js';
+import type { CellSide } from '../data/index.js';
 
 /** ClauseMetadata + the two-slot cause. A strict superset of Mosaic's type. */
 export interface CauseMetadata extends ClauseMetadata {
@@ -27,7 +33,7 @@ export interface CauseClause extends SelectionClause {
   meta: CauseMetadata;
 }
 
-/** The two clause kinds this spike exercises. Extend as the engine grows. */
+/** The three clause kinds the engine carries: point, interval, and the D29 compound cell. */
 export type CauseClauseSpec =
   | {
       kind: 'point';
@@ -61,6 +67,25 @@ export type CauseClauseSpec =
       value: [number, number] | [number, null] | [null, number] | [string, string] | [string, null] | [null, string] | null;
       cause: Cause;
       clients?: RegisteredSource[];
+    }
+  | {
+      /**
+       * The D29 compound CELL: one gesture selects on TWO fields ("price
+       * 100–150 AND category Formal") — ONE commit, one clause whose
+       * predicate is the AND of both sides. Each side is a `CellSide`
+       * (interval `[lo, hi]` or a point value — `src/data`'s shape, the seam
+       * that evaluates it); `value: null` clears the whole cell (the
+       * cleared-interval rule). Both side predicates come from the REAL
+       * Mosaic factories (`clauseInterval`/`clausePoint`) and are composed
+       * with the real `and` — half-open/string-extent sides carry the same
+       * descriptor-only caveat documented on the interval spec above.
+       */
+      kind: 'cell';
+      source: RegisteredSource;
+      fields: readonly [string, string];
+      value: readonly [CellSide, CellSide] | null;
+      cause: Cause;
+      clients?: RegisteredSource[];
     };
 
 /**
@@ -75,6 +100,36 @@ function asClients(sources: RegisteredSource[]): Set<MosaicClient> {
 }
 
 /**
+ * ONE cell side's predicate, built by the REAL Mosaic factory for its shape
+ * (array side → `clauseInterval`, anything else → `clausePoint`) — the exact
+ * pieces the plain kinds already ride, so a cell side can never drift from a
+ * standalone clause on the same value. The `as never` on the interval side is
+ * the same documented third-party-type escape as the plain interval below.
+ *
+ * A non-cleared cell's sides always yield a real predicate node: the interval
+ * side is a concrete `[lo, hi]` tuple (never the factory's `value == null`
+ * clear), and a point side of `null` is a real IS-NULL predicate. Only
+ * `undefined` (unrepresentable in `CellSide`, but reachable from untyped JS)
+ * makes `clausePoint` answer "no predicate" — refused honestly rather than
+ * landing a half-empty AND.
+ */
+function cellSidePredicate(
+  field: string,
+  side: CellSide,
+  opts: { source: RegisteredSource; clients: Set<MosaicClient> },
+): ExprNode {
+  const built = Array.isArray(side)
+    ? clauseInterval(field, side as never, opts)
+    : clausePoint(field, side, opts);
+  if (built.predicate === null) {
+    throw new TypeError(
+      `causeClause: a cell side must be a concrete value or [lo, hi] — "${field}" got undefined; clear the WHOLE cell with value: null instead`,
+    );
+  }
+  return built.predicate;
+}
+
+/**
  * Build a cause-tagged Mosaic clause. Validates the cause first (R12: malformed
  * causes never enter the clause stream), then attaches it to the clause meta.
  */
@@ -86,6 +141,23 @@ export function causeClause(spec: CauseClauseSpec): CauseClause {
   let clause: SelectionClause;
   if (spec.kind === 'point') {
     clause = clausePoint(spec.field, spec.value, { source, clients });
+  } else if (spec.kind === 'cell') {
+    // D29: the compound cell — the two side predicates come from the REAL
+    // factories (cellSidePredicate above) and the REAL `and` composes them;
+    // a cleared cell (`value: null`) carries a `null` predicate exactly like
+    // a cleared interval (`String(null)` → the same "null" descriptor at the
+    // log boundary). Mosaic has no compound point×interval factory of its
+    // own, so the clause literal is assembled here — every part of it is
+    // genuine Mosaic output, and `meta.type: 'cell'` is legal because
+    // `ClauseMetadata.type` is an open string.
+    const predicate =
+      spec.value === null
+        ? null
+        : and(
+            cellSidePredicate(spec.fields[0], spec.value[0], { source, clients }),
+            cellSidePredicate(spec.fields[1], spec.value[1], { source, clients }),
+          );
+    clause = { meta: { type: 'cell' }, source, clients, value: spec.value, predicate };
   } else {
     // Real Mosaic's own .d.ts types `clauseInterval`'s value as a plain
     // `[number, number]` domain — it has no half-open/string-extent concept

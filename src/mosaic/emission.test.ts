@@ -80,6 +80,63 @@ describe('causeClauseFromEmission — R3 symmetric emit (chart builds no clause)
     const bad: ChartEmission = { rawValue: 'not-an-interval', encoding: { kind: 'interval', field: 'x' } };
     void bad;
   });
+
+  // ── D29: the compound CELL emission (one heatmap-cell gesture, TWO fields) ──
+
+  it('turns a cell ChartEmission into ONE real cause-tagged compound clause (AND of both sides)', () => {
+    const reg = new SourceRegistry();
+    const h = reg.register('heatmap', { actor: 'user' });
+    const emission: ChartEmission = {
+      rawValue: [[100, 150], 'Formal'],
+      encoding: { kind: 'cell', fields: ['price', 'category'] },
+    };
+
+    const clause = causeClauseFromEmission(emission, { source: h, cause: cause({ intent: 'click the 100–150 × Formal cell' }) });
+
+    expect(clause.source).toBe(h);
+    expect(clause.meta.type).toBe('cell');
+    expect(clause.value).toEqual([[100, 150], 'Formal']);
+    // the predicate is the AND of both sides — real Mosaic factory output composed with the real `and`
+    expect(String(clause.predicate)).toBe(`(("price" BETWEEN 100 AND 150) AND ("category" IN ('Formal')))`);
+    expect(causeOf(clause)).toEqual({ requestedBy: 'user', computedBy: 'user', intent: 'click the 100–150 × Formal cell' });
+  });
+
+  it('a cleared cell emission (rawValue null) builds a no-predicate clause, like a cleared interval', () => {
+    const reg = new SourceRegistry();
+    const h = reg.register('heatmap', { actor: 'user' });
+    const emission: ChartEmission = { rawValue: null, encoding: { kind: 'cell', fields: ['price', 'category'] } };
+    const clause = causeClauseFromEmission(emission, { source: h, cause: cause() });
+    expect(clause.predicate).toBeNull();
+    expect(String(clause.predicate)).toBe('null'); // the exact descriptor L1 records for a cleared clause
+  });
+
+  it('applies a cell clause onto a real Selection (the crossfilter carries the compound as one clause)', () => {
+    const reg = new SourceRegistry();
+    const h = reg.register('heatmap', { actor: 'user' });
+    const sel = Selection.crossfilter();
+    const clause = causeClauseFromEmission(
+      { rawValue: [[5, 9], null], encoding: { kind: 'cell', fields: ['x', 'label'] } },
+      { source: h, cause: cause() },
+    );
+    sel.update(clause);
+    expect(sel.clauses.length).toBe(1); // ONE gesture = ONE clause, never two
+    expect(sel.clauses[0]!.value).toEqual([[5, 9], null]);
+    // a null POINT side is a real IS NULL constraint, not a cleared side
+    expect(String(sel.clauses[0]!.predicate)).toBe(`(("x" BETWEEN 5 AND 9) AND ("label" IS NULL))`);
+  });
+
+  it('type-enforces the cell shape: exactly two fields, and no clause-building keys ride along', () => {
+    // @ts-expect-error a cell encoding needs exactly TWO fields
+    const oneField: ChartEmission = { rawValue: [[0, 1], 'a'], encoding: { kind: 'cell', fields: ['x'] } };
+    void oneField;
+    const okButSmuggling: ChartEmission = {
+      rawValue: [[0, 1], 'a'],
+      encoding: { kind: 'cell', fields: ['x', 'y'] },
+      // @ts-expect-error emissions may not carry a `source` — only rawValue+encoding (R3, the cell arm too)
+      source: {},
+    };
+    void okButSmuggling;
+  });
 });
 
 describe('R5 (strengthened) — emissions are DATA-space, so clause-building is viewport-independent', () => {

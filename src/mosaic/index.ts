@@ -8,5 +8,6 @@ export type {
   ChartEncoding,
   PointEncoding,
   IntervalEncoding,
+  CellEncoding,
   EmissionContext,
 } from './emission.js';

@@ -302,3 +302,67 @@ describe('R8 — append-only enforced by construction (promotion strengthening)'
     expect(methodNames).toEqual(['commit']);
   });
 });
+
+// ---------------------------------------------------------------------------
+// D29 — the compound `cell` commit at the L1 wire (one gesture = one commit).
+// ---------------------------------------------------------------------------
+describe('D29 — cell commits: wire shape, JSON round-trip, replay', () => {
+  const CELL: CommitInput = {
+    id: 'h1',
+    parent: null,
+    viewId: 'H',
+    actorMeta: { actor: 'user', label: 'Price × category heatmap' },
+    kind: 'cell',
+    field: 'price × category',
+    fields: ['price', 'category'],
+    value: [[100, 150], 'Formal'],
+    cause: { requestedBy: 'user', computedBy: 'user', intent: 'click the 100–150 × Formal cell' },
+  };
+
+  it('lands ONE commit whose predicate is the AND of both sides — never two records', () => {
+    const s = new CauseSelectionSession();
+    const { record, clause } = s.commit(CELL);
+    expect(s.records.length).toBe(1); // the ruling: one gesture = one commit
+    expect(record.kind).toBe('cell');
+    expect(record.fields).toEqual(['price', 'category']);
+    expect(record.value).toEqual([[100, 150], 'Formal']);
+    expect(record.predicateSQL).toBe(`(("price" BETWEEN 100 AND 150) AND ("category" IN ('Formal')))`);
+    expect(s.selection.clauses.length).toBe(1); // one clause in the live crossfilter too
+    expect(String(clause.predicate)).toBe(record.predicateSQL);
+  });
+
+  it('refuses a cell commit without its field pair (the wire replicas may trust `fields`)', () => {
+    const s = new CauseSelectionSession();
+    expect(() => s.commit({ ...CELL, fields: undefined })).toThrow(/needs `fields`/);
+  });
+
+  it('JSON round-trip proof: serialize → parse → byte-identical record, fields and value intact', () => {
+    const s = new CauseSelectionSession();
+    const { record } = s.commit(CELL);
+    const json = serializeLog(s.records);
+    const parsed = JSON.parse(json) as unknown[];
+    expect(parsed).toEqual([record]); // structural equality through real JSON
+    expect(JSON.stringify(parsed)).toBe(json); // and back to the same bytes
+    const roundTripped = (parsed[0] as { fields: unknown; value: unknown; kind: string });
+    expect(roundTripped.kind).toBe('cell');
+    expect(roundTripped.fields).toEqual(['price', 'category']);
+    expect(roundTripped.value).toEqual([[100, 150], 'Formal']);
+  });
+
+  it('replays a cell commit into a FRESH session with identical predicate SQL (+ the R2 replayed marker)', () => {
+    const s = new CauseSelectionSession();
+    s.commit(CELL);
+    const replayed = replayLog(serializeLog(s.records));
+    expect(replayed.records.length).toBe(1);
+    expect(replayed.records[0]!.kind).toBe('cell');
+    expect(replayed.records[0]!.fields).toEqual(['price', 'category']);
+    expect(replayed.records[0]!.predicateSQL).toBe(s.records[0]!.predicateSQL);
+    expect(replayed.records[0]!.cause.replayed).toBe(true);
+  });
+
+  it('a CLEARED cell commit (value null) records the same "null" descriptor as a cleared interval', () => {
+    const s = new CauseSelectionSession();
+    const { record } = s.commit({ ...CELL, value: null });
+    expect(record.predicateSQL).toBe('null');
+  });
+});

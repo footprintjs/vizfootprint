@@ -28,7 +28,7 @@ import { CauseSelectionSession } from '../log/index.js';
 import type { CommitRecord } from '../log/index.js';
 import { TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
-import { isRejection, matchesClause, type ColumnInfo, type PredicateClause, type Row } from '../data/index.js';
+import { cellFieldLabel, isRejection, matchesClause, type CellClause, type ColumnInfo, type PredicateClause, type Row } from '../data/index.js';
 import type { CauseClause } from '../mosaic/index.js';
 import { registerAnalysisSlot } from '../def/register.js';
 import type {
@@ -61,6 +61,7 @@ import type {
   AnalysisCommit,
   BranchInfo,
   BringOverResult,
+  CellValues,
   ChartHypothesis,
   ChartInfo,
   ChartView,
@@ -478,14 +479,18 @@ class InteractionSessionImpl implements InteractionSession {
       }
       if (!this.runtime.views.has(rec.viewId)) continue; // skip annotation:/analysis: commits
       if (RESERVED_PROBE_FIELDS.has(rec.field)) continue;
-      if (rec.kind === 'interval' && rec.value === null) {
+      if ((rec.kind === 'interval' || rec.kind === 'cell') && rec.value === null) {
+        // a cleared interval — or a cleared CELL (D29, same rule) — drops the filter
         this.activeFilters.delete(rec.viewId);
         this.activeFilterCommits.delete(rec.viewId);
       } else {
         const clause: PredicateClause =
           rec.kind === 'point'
             ? { kind: 'point', field: rec.field, value: rec.value }
-            : { kind: 'interval', field: rec.field, value: rec.value as FilterRange };
+            : rec.kind === 'cell'
+              ? // the log's commit() guarantees `fields` on every cell record
+                { kind: 'cell', fields: rec.fields!, value: rec.value as CellClause['value'] }
+              : { kind: 'interval', field: rec.field, value: rec.value as FilterRange };
         this.activeFilters.set(rec.viewId, clause);
         this.activeFilterCommits.set(rec.viewId, rec.id);
       }
@@ -577,7 +582,10 @@ class InteractionSessionImpl implements InteractionSession {
       clauses.push(
         entry.clause.kind === 'point'
           ? { kind: 'point', field: entry.clause.field, value: entry.clause.value }
-          : { kind: 'interval', field: entry.clause.field, value: entry.clause.value as FilterRange },
+          : entry.clause.kind === 'cell'
+            ? // a cell fold entry always carries its pair (fold.ts sets it from the record)
+              { kind: 'cell', fields: entry.clause.fields!, value: entry.clause.value as CellClause['value'] }
+            : { kind: 'interval', field: entry.clause.field, value: entry.clause.value as FilterRange },
       );
     }
     return base.filter((r) => clauses.every((c) => matchesClause(r, c))).length;
@@ -661,10 +669,20 @@ class InteractionSessionImpl implements InteractionSession {
   private actionForRecipe(recipe: PlanRecipe, cause: Cause, op: 'bringOver' | 'undo'): DispatchAction | { gap: GapRow } {
     switch (recipe.apply) {
       case 'selection':
+        // D29: a cell recipe re-lands the COMPOUND (its pair rides the recipe).
+        if (recipe.kind === 'cell') {
+          return { verb: 'select', viewId: recipe.viewId, fields: recipe.fields!, values: recipe.value as CellValues, cause };
+        }
         return recipe.kind === 'point'
           ? { verb: 'select', viewId: recipe.viewId, field: recipe.field, value: recipe.value, cause }
           : { verb: 'filter', viewId: recipe.viewId, field: recipe.field, range: recipe.value as FilterRange, cause };
       case 'clear-selection':
+        // D29: clearing what a CELL selected clears kind-faithfully (a cleared
+        // cell commit) — the recipe's `field` for a cell is the joint label,
+        // not a column, so an interval-clear would trip the column guard.
+        if (recipe.fields !== undefined) {
+          return { verb: 'select', viewId: recipe.viewId, fields: recipe.fields, values: null, cause };
+        }
         return { verb: 'filter', viewId: recipe.viewId, field: recipe.field, range: null, cause };
       case 'encoding':
         return { verb: 'reencode', viewId: recipe.viewId, channel: recipe.channel, field: recipe.field, cause };
@@ -799,7 +817,7 @@ class InteractionSessionImpl implements InteractionSession {
   // ── capability resolution (R14 / R3) ─────────────────────────────────────────
   private probeCapability(
     viewId: string,
-  ): { canProbe: boolean; encodings?: readonly ('point' | 'interval')[] } | undefined {
+  ): { canProbe: boolean; encodings?: readonly ('point' | 'interval' | 'cell')[] } | undefined {
     const adapter = this.adapters.get(viewId);
     if (adapter) return adapter.capabilities;
     const view = this.runtime.views.get(viewId);
@@ -813,7 +831,7 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** Returns a `guard-failed` detail string if the view cannot accept this probe, else null. */
-  private probeGuard(viewId: string, kind: 'point' | 'interval'): string | null {
+  private probeGuard(viewId: string, kind: 'point' | 'interval' | 'cell'): string | null {
     const cap = this.probeCapability(viewId);
     if (!cap) return null; // no capability declared → default allow
     if (!cap.canProbe) return `view "${viewId}" declares no-probe capability`;
@@ -839,6 +857,11 @@ class InteractionSessionImpl implements InteractionSession {
     const as = opts.as;
     switch (action.verb) {
       case 'select':
+        // D29: the cell form of `select` (fields+values) is the compound-cell
+        // gesture — one gesture, ONE commit; the plain form stays the point probe.
+        if ('fields' in action) {
+          return this.doCellProbe(action.viewId, action.fields, action.values, action.cause, as, intent, action.correlationId);
+        }
         return this.doProbe(action.viewId, action.field, action.value, 'point', action.cause, as, intent, action.correlationId);
       case 'filter':
         return this.doProbe(
@@ -924,6 +947,86 @@ class InteractionSessionImpl implements InteractionSession {
     } else {
       this.activeFilters.set(viewId, kind === 'point' ? { kind, field, value } : { kind, field, value: value as FilterRange });
       this.activeFilterCommits.set(viewId, record.id); // a superseded select on the same view drops out here
+    }
+    // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
+    this.adapters.get(viewId)?.applyClause?.(clause as CauseClause);
+    return { ok: true, verb, intent, commit: record };
+  }
+
+  /**
+   * The CELL probe (D29): one heatmap-cell gesture selects on TWO fields at
+   * once and lands ONE cause-tagged commit whose predicate is the AND of both
+   * sides — the ruling is one gesture = one commit, never two
+   * correlationId-linked ones. Rides the `select` verb (mandatory-analytical;
+   * the vocabulary stays at 8 verbs) and the SAME fold key
+   * (`selection:${viewId}`, last-wins per view), so branching / compare /
+   * time-travel machinery is untouched by construction. `values: null`
+   * clears the cell exactly like a cleared interval.
+   */
+  private async doCellProbe(
+    viewId: string,
+    fields: readonly [string, string],
+    values: CellValues,
+    cause: Cause,
+    as: Actor | undefined,
+    intent: DispatchResult['intent'],
+    correlationId: string | undefined,
+  ): Promise<DispatchResult> {
+    const verb: DispatchVerb = 'select';
+    // 1. the view must be declared (R14: needs-view).
+    if (!this.runtime.views.has(viewId)) {
+      return this.reject(verb, intent, this.gapLedger.file('needs-view', verb, `no declared view "${viewId}"`, viewId));
+    }
+    // 2. the view's capability guard (R14: guard-failed) — a cell must be a
+    //    DECLARED emission kind (the classic charts honestly do not emit cells).
+    const guard = this.probeGuard(viewId, 'cell');
+    if (guard) return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, guard, viewId));
+    // 2b. a cell is a TWO-field gesture — the same field twice is almost
+    //     certainly a caller bug, refused honestly rather than landing a
+    //     double constraint that looks like a heatmap cell but is not one.
+    if (fields[0] === fields[1]) {
+      return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `a cell selects on two DIFFERENT fields — got "${fields[0]}" twice`, fields[0]));
+    }
+    // 2c. neither side may target a reserved session field (R6, both sides).
+    for (const field of fields) {
+      if (RESERVED_PROBE_FIELDS.has(field)) {
+        return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `field "${field}" is reserved by the session and cannot be selected on`, field));
+      }
+    }
+    // 3. BOTH fields must be columns VISIBLE on this branch (R14: needs-column
+    //    / needs-backend-data) — the doProbe guard, applied to each side.
+    const cols = await this.effectiveColumnsOf(this.defaultTable);
+    if ('rejected' in cols) {
+      return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, cols.rejected, fields[0]));
+    }
+    for (const field of fields) {
+      if (!cols.some((c) => c.name === field)) {
+        return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${field}" in table "${this.defaultTable}"`, field));
+      }
+    }
+    // 4. land ONE cause-tagged compound commit (commit-on-intent). Parent is
+    //    the CURSOR: a cell select from a past cursor branches (R8), like doProbe.
+    const stamped = this.stampCause(cause, verb, as);
+    const { record, clause } = this.log.commit({
+      id: this.nextId(),
+      parent: this._cursor,
+      ...(correlationId !== undefined ? { correlationId } : {}),
+      viewId,
+      actorMeta: this.runtime.views.get(viewId)!.meta,
+      kind: 'cell',
+      field: cellFieldLabel(fields), // display-only joint label; the pair is authoritative
+      fields: [fields[0], fields[1]],
+      value: values,
+      cause: stamped,
+    });
+    this.landed(record);
+    if (values === null) {
+      this.activeFilters.delete(viewId); // a cleared cell releases the view's filter
+      this.activeFilterCommits.delete(viewId);
+    } else {
+      const cell: CellClause = { kind: 'cell', fields: [fields[0], fields[1]], value: values };
+      this.activeFilters.set(viewId, cell);
+      this.activeFilterCommits.set(viewId, record.id);
     }
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
     this.adapters.get(viewId)?.applyClause?.(clause as CauseClause);
@@ -1521,12 +1624,22 @@ class InteractionSessionImpl implements InteractionSession {
       };
     });
 
-    const activeSelections = [...this.activeFilters.entries()].map(([viewId, clause]) => ({
-      viewId,
-      field: clause.field,
-      kind: clause.kind as 'point' | 'interval',
-      value: (clause as { value?: unknown }).value ?? null,
-    }));
+    const activeSelections = [...this.activeFilters.entries()].map(([viewId, clause]) =>
+      clause.kind === 'cell'
+        ? {
+            viewId,
+            field: cellFieldLabel(clause.fields), // display-only joint label (D29)
+            kind: 'cell' as const,
+            value: clause.value,
+            fields: clause.fields,
+          }
+        : {
+            viewId,
+            field: clause.field,
+            kind: clause.kind as 'point' | 'interval',
+            value: (clause as { value?: unknown }).value ?? null,
+          },
+    );
 
     const analyses = this.analysisIds().map((id) => {
       const a = this.analysis(id)!;

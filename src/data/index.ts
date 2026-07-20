@@ -1,4 +1,6 @@
 export type {
+  CellClause,
+  CellSide,
   ColumnInfo,
   ColumnType,
   DataProvider,
@@ -16,7 +18,7 @@ export type {
   ResolvedEngine,
   Row,
 } from './types.js';
-export { isRejection, reject } from './types.js';
+export { cellFieldLabel, clauseFields, isRejection, reject } from './types.js';
 
 export { literalToSQL, matchesClause, resolvePredicateSQL, isClearedSQL } from './predicate.js';
 

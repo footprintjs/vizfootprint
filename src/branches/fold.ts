@@ -14,8 +14,9 @@
  *   - `layout:${scope}`        → INERT here (a cockpit arrangement is VIEW-state,
  *                                never a data claim — LY-1; the session's OWN fold
  *                                carries it so seek/switchPath restore it)
- * A cleared interval (`kind:'interval', value:null`) DELETES the selection
- * key, exactly as the session's live fold does.
+ * A cleared interval (`kind:'interval', value:null`) — or a cleared CELL
+ * (`kind:'cell', value:null`, D29) — DELETES the selection key, exactly as
+ * the session's live fold does.
  *
  * `foldDiff` deliberately reports NO row counts — that needs an engine; the
  * session layer enriches per-side row counts on top (`compare()`).
@@ -86,13 +87,20 @@ export function foldStateAt(records: readonly CommitRecord[], tipId: string | nu
         value: rec.value,
         commitId: rec.id,
       });
-    } else if (rec.kind === 'interval' && rec.value === null) {
-      state.delete(key); // a cleared interval drops the view's selection
+    } else if ((rec.kind === 'interval' || rec.kind === 'cell') && rec.value === null) {
+      state.delete(key); // a cleared interval OR cleared cell drops the view's selection (D29: same rule)
     } else {
       state.set(key, {
         kind: 'selection',
         viewId: rec.viewId,
-        clause: { kind: rec.kind, field: rec.field, value: rec.value },
+        clause: {
+          kind: rec.kind,
+          field: rec.field,
+          value: rec.value,
+          // D29: a cell record's authoritative field pair rides the fold too
+          // (the log's commit() guarantees it on every cell record).
+          ...(rec.fields !== undefined ? { fields: rec.fields } : {}),
+        },
         commitId: rec.id,
       });
     }
@@ -109,7 +117,9 @@ function enc(v: unknown): string {
 function fingerprint(e: FoldEntry): string {
   switch (e.kind) {
     case 'selection':
-      return `selection|${e.viewId}|${e.clause.kind}|${e.clause.field}|${enc(e.clause.value)}`;
+      // The `fields` segment keeps a cell honest even against a real column
+      // whose NAME happens to equal the joint label; `null` for plain kinds.
+      return `selection|${e.viewId}|${e.clause.kind}|${e.clause.field}|${enc(e.clause.fields ?? null)}|${enc(e.clause.value)}`;
     case 'encoding':
       return `encoding|${e.viewId}|${e.channel}|${e.field}`;
     case 'analysis':

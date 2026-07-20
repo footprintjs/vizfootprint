@@ -14,7 +14,7 @@ import type { CommitRecord } from '../log/index.js';
 import type { CauseClause } from '../mosaic/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
 import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
-import type { ColumnType, IntervalClause } from '../data/index.js';
+import type { CellClause, ColumnType, IntervalClause } from '../data/index.js';
 import type { DispatchVerb, IntentClass } from '../def/types.js';
 import type { DiffChange, DiffOnly, PlanRecipe, RefEvent } from '../branches/index.js';
 
@@ -75,8 +75,26 @@ export interface GapRow {
  */
 export type FilterRange = IntervalClause['value'];
 
+/**
+ * The cell-select value pair — single-sourced from `src/data`'s `CellClause`
+ * (the seam that actually EVALUATES it), the `FilterRange` precedent exactly:
+ * `[x side, y side]` where each side is an interval `[lo, hi]` (half-open
+ * allowed, numeric or ISO-date-string bounds) or a point value; or `null` to
+ * clear the whole cell.
+ */
+export type CellValues = CellClause['value'];
+
 export type DispatchAction =
   | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly value: unknown; readonly cause: Cause; readonly correlationId?: string }
+  /**
+   * The CELL form of `select` (D29): one heatmap-cell gesture selects on TWO
+   * fields at once ("price 100–150 AND category Formal") and lands ONE
+   * commit whose predicate is the AND of both sides — never two
+   * correlationId-linked commits. Same verb, same intent class, same fold key
+   * (`selection:${viewId}`, last-wins per view) — the vocabulary stays at 8
+   * verbs. `values: null` clears the cell (the cleared-interval rule).
+   */
+  | { readonly verb: 'select'; readonly viewId: string; readonly fields: readonly [string, string]; readonly values: CellValues; readonly cause: Cause; readonly correlationId?: string }
   | { readonly verb: 'filter'; readonly viewId: string; readonly field: string; readonly range: FilterRange; readonly cause: Cause; readonly correlationId?: string }
   | { readonly verb: 'annotate'; readonly target: string; readonly note: string; readonly cause: Cause }
   /**
@@ -366,8 +384,11 @@ export type DispatchResult =
 export interface AdapterCapabilities {
   /** Can this view emit selections at all? `false` → every probe is a `guard-failed` gap. */
   readonly canProbe: boolean;
-  /** Which emission kinds it produces. Absent = both point and interval. */
-  readonly encodings?: readonly ('point' | 'interval')[];
+  /**
+   * Which emission kinds it produces. Absent = every kind is allowed
+   * (declare the list to narrow honestly — e.g. a heatmap is `['cell']`).
+   */
+  readonly encodings?: readonly ('point' | 'interval' | 'cell')[];
   /** Which data fields it encodes (informational). */
   readonly fields?: readonly string[];
 }
@@ -400,11 +421,12 @@ export interface ViewInfo {
   readonly actor: Actor;
   readonly label?: string;
   /**
-   * Which point/interval SELECTION kinds this view can emit (R3 capability —
-   * renamed from the old `encodings` to free that name for the visual-channel
-   * sense below; nothing shipped ever read the old name off `Overview`).
+   * Which point/interval/cell SELECTION kinds this view can emit (R3
+   * capability — renamed from the old `encodings` to free that name for the
+   * visual-channel sense below; nothing shipped ever read the old name off
+   * `Overview`).
    */
-  readonly selectionKinds: readonly ('point' | 'interval')[];
+  readonly selectionKinds: readonly ('point' | 'interval' | 'cell')[];
   readonly canProbe: boolean;
   readonly mounted: boolean;
   /**
@@ -426,9 +448,13 @@ export interface ViewInfo {
 /** An active DATA-space selection (never pixels; R5). */
 export interface SelectionInfo {
   readonly viewId: string;
+  /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D29). */
   readonly field: string;
-  readonly kind: 'point' | 'interval';
+  readonly kind: 'point' | 'interval' | 'cell';
+  /** For kind:'cell': the two-sided pair `[x side, y side]`. */
   readonly value: unknown;
+  /** kind:'cell' only — the two selected fields, x side then y side. */
+  readonly fields?: readonly [string, string];
 }
 
 /** An analysis's readiness (D12 guards+skills framing): can it run at the current cursor? */

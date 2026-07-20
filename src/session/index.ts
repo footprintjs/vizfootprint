@@ -11,6 +11,7 @@ export type {
   DispatchAction,
   DispatchResult,
   FilterRange,
+  CellValues,
   AnalysisCommit,
   Checkpoint,
   BranchInfo,

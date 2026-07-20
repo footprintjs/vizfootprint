@@ -25,7 +25,7 @@ import { describe, it, expect } from 'vitest';
 import { CauseSelectionSession, causeHistogram, replayLog, serializeLog, type CommitInput } from '../log/index.js';
 import { memoryProvider } from './memoryProvider.js';
 import { isRejection } from './types.js';
-import type { DataProvider, PredicateClause, Row } from './types.js';
+import type { CellClause, DataProvider, PredicateClause, Row } from './types.js';
 
 // ── A realistic small cause-tagged session (mirrors src/log/log.test.ts's MAIN_LINE). ──
 const SESSION_LOG: CommitInput[] = [
@@ -71,6 +71,21 @@ const SESSION_LOG: CommitInput[] = [
     value: null,
     cause: { requestedBy: 'user', computedBy: 'agent', intent: 'clear the amount brush' },
   },
+  {
+    // D29: the compound CELL — one gesture, two fields, one commit whose
+    // predicate is the AND of both sides. The invariant must hold for it too:
+    // all three provider shapes resolve the same SQL and rows, and the SQL
+    // matches L1's own descriptor from the REAL composed Mosaic clause.
+    id: 'c5',
+    parent: 'c4',
+    viewId: 'H',
+    actorMeta: { actor: 'user', label: 'Amount × category heatmap' },
+    kind: 'cell',
+    field: 'amount × category',
+    fields: ['amount', 'category'],
+    value: [[10, 30], 'Data'],
+    cause: { requestedBy: 'user', computedBy: 'user', intent: 'click the 10–30 × Data cell' },
+  },
 ];
 
 // The dataset the commits above filter, expressed THREE structurally
@@ -83,7 +98,16 @@ const OBJECT_ROWS: Row[] = [
 ];
 const CSV_TEXT = 'category,amount\nData,15\nAnalytics,25\nData,5\nOther,30\n';
 
-function clauseFromCommit(record: { kind: 'point' | 'interval'; field: string; value: unknown }): PredicateClause {
+function clauseFromCommit(record: {
+  kind: 'point' | 'interval' | 'cell';
+  field: string;
+  value: unknown;
+  fields?: readonly [string, string];
+}): PredicateClause {
+  if (record.kind === 'cell') {
+    // D29: a cell commit's authoritative pair rides `fields`; `field` is display-only.
+    return { kind: 'cell', fields: record.fields!, value: record.value as CellClause['value'] };
+  }
   return record.kind === 'point'
     ? { kind: 'point', field: record.field, value: record.value }
     : { kind: 'interval', field: record.field, value: record.value as readonly [number, number] | null };
