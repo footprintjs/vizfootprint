@@ -3,9 +3,9 @@
  * The conformance kit against a REAL scripted session (the gallery-smoke
  * discipline — a live `InteractionSession`, never a mocked loop):
  *
- *   - ALL SIX first-party renderers (scatter · line · bar · map · table ·
- *     histogram) pass the full loop — the reference claim is proven, not
- *     asserted;
+ *   - ALL SEVEN first-party renderers (scatter · line · bar · map · table ·
+ *     histogram · heatmap) pass the full loop — the heatmap exercising the
+ *     D30 cell arm — the reference claim is proven, not asserted;
  *   - a synthetic canPanZoom renderer proves the navigate-records +
  *     non-filtering arm;
  *   - a bestiary of HOSTILE renderers proves the kit actually catches every
@@ -195,9 +195,9 @@ function explain(report: ConformanceReport): string {
   return report.steps.map((s) => `${s.ok ? '✓' : '✗'} ${s.step}: ${s.detail}`).join('\n');
 }
 
-// ── the five first-party reference renderers PASS the full loop ────────────────
+// ── the seven first-party reference renderers PASS the full loop ───────────────
 
-describe('conformance — all six first-party charts pass (the reference claim, proven)', () => {
+describe('conformance — all seven first-party charts pass (the reference claim, proven)', () => {
   it('VizScatter (interval brush + an axis reencodeRequest riding the same handshake)', async () => {
     const report = await runFor(scatterRenderer(), 'scatter', {
       gesture: (el) => {
