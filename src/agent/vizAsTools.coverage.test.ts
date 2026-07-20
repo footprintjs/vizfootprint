@@ -63,6 +63,12 @@ describe('viz.dispatch — select/filter PAYLOAD_INVALID guards', () => {
   it('select without a viewId is rejected before it ever reaches the session', async () => {
     const port = freshPort();
     const res = await port.call('viz.dispatch', { verb: 'select', field: 'category', value: 'Formal' });
+    expect(res).toEqual({ ok: false, reason: 'PAYLOAD_INVALID', detail: 'select requires a string viewId' });
+  });
+
+  it('select without a field (and without the cell form) is rejected before it ever reaches the session', async () => {
+    const port = freshPort();
+    const res = await port.call('viz.dispatch', { verb: 'select', viewId: 'bar' });
     expect(res).toEqual({ ok: false, reason: 'PAYLOAD_INVALID', detail: 'select requires string viewId and field' });
   });
 

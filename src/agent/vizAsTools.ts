@@ -26,7 +26,7 @@
 import type { Actor, Cause } from '../cause/index.js';
 import { DISPATCH_VERBS } from '../def/index.js';
 import type { InteractionSession } from '../session/index.js';
-import type { DispatchAction, DispatchResult, AnalysisCommit, FilterRange, ProposeChartResult, WhyTarget } from '../session/index.js';
+import type { CellValues, DispatchAction, DispatchResult, AnalysisCommit, FilterRange, ProposeChartResult, WhyTarget } from '../session/index.js';
 
 /** One tool descriptor (shape-compatible with footprintjs `MCPToolDescription` / the MCP SDK `Tool`). */
 export interface VizTool {
@@ -62,7 +62,10 @@ const WHATS_HERE_DESCRIPTION =
   'Call this first, then act with dispatch.';
 
 const DISPATCH_DESCRIPTION =
-  'Perform ONE semantic interaction. verb is one of: select (a point value on a field), filter (an ' +
+  'Perform ONE semantic interaction. verb is one of: select (a point value on a field — OR a CELL: ' +
+  'pass fields + values instead of field/value to select on TWO fields with one gesture, e.g. a ' +
+  'heatmap cell "price 100-150 AND category Formal"; the two constraints land as ONE commit whose ' +
+  'predicate is the AND of both sides, and values: null clears the cell), filter (an ' +
   'interval [lo, hi] on a field, or null to clear — see the range parameter for the full shape, ' +
   'including open-ended and date ranges), annotate (an inert note), navigate (move view state — a ' +
   'declared viewId focuses/pans it, field and value are ignored; OR the "layout:<scope>" identity, ' +
@@ -163,6 +166,21 @@ const DISPATCH_SCHEMA = {
     fromCommitId: { type: 'string', description: 'The commit id to branch off (fork).' },
     label: { type: 'string', description: 'A checkpoint label (checkpoint).' },
     channel: { type: 'string', description: 'The visual channel to rebind, e.g. "x" | "y" | "color" (reencode) — must be valid for the view.' },
+    fields: {
+      type: 'array',
+      description:
+        'CELL-select only: the TWO fields selected in one gesture, x side then y side, e.g. ' +
+        '["price", "category"]. Use together with values (and omit field/value/range). The view must ' +
+        'declare the cell emission kind (a heatmap does; classic charts do not).',
+    },
+    values: {
+      type: ['array', 'null'],
+      description:
+        'CELL-select only: the two sides matching fields — each side is a plain value (equality; null ' +
+        'means "is empty") or a [lo, hi] interval (bucket bounds, inclusive; either bound may be null ' +
+        'for open-ended), e.g. [[100, 150], "Formal"]. Pass values: null to clear the cell. Lands ONE ' +
+        'commit whose predicate is the AND of both sides.',
+    },
     ...OPTIONAL_INTENT,
   },
   required: ['verb'],
@@ -275,6 +293,25 @@ function isValidFilterRange(range: unknown): range is readonly [RawBound, RawBou
   return true;
 }
 
+/**
+ * Validate ONE cell side (D29, fire-time — Mode B cannot enforce per-verb
+ * shape ahead of the call): an array side must be a legal interval (the
+ * `isValidFilterRange` rules verbatim — the two disciplines never fork);
+ * anything else must be a plain JSON scalar (number/string/boolean/null —
+ * `null` is a real IS-NULL constraint, never a per-side clear).
+ */
+function isValidCellSide(side: unknown): side is CellValuesSide {
+  if (Array.isArray(side)) return isValidFilterRange(side);
+  return side === null || typeof side === 'number' || typeof side === 'string' || typeof side === 'boolean';
+}
+
+type CellValuesSide = NonNullable<CellValues>[number];
+
+/** The whole cell payload: exactly two string fields + two valid sides (or values: null to clear). */
+function isValidCellFields(fields: unknown): fields is readonly [string, string] {
+  return Array.isArray(fields) && fields.length === 2 && fields.every((f) => typeof f === 'string');
+}
+
 export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions): VizToolsPort {
   const ns = opts?.namespace ?? 'viz';
   const source: Actor = opts?.as ?? session.defaultActor;
@@ -316,11 +353,35 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     }
     const cause = causeFor(args);
     switch (verb) {
-      case 'select':
-        if (typeof args['viewId'] !== 'string' || typeof args['field'] !== 'string') {
+      case 'select': {
+        if (typeof args['viewId'] !== 'string') return { error: 'select requires a string viewId' };
+        // D29: the CELL form — fields+values selects on two fields in one
+        // gesture, landing ONE compound commit (never two linked ones).
+        if (args['fields'] !== undefined || args['values'] !== undefined) {
+          if (!isValidCellFields(args['fields'])) {
+            return { error: 'cell select requires fields: exactly two column names, x side then y side, e.g. ["price", "category"]' };
+          }
+          const values = args['values'];
+          if (values !== null && (!Array.isArray(values) || values.length !== 2 || !values.every(isValidCellSide))) {
+            return {
+              error:
+                'cell select requires values: the two sides matching fields — each a plain value or a [lo, hi] ' +
+                'interval (one bound may be null; never both) — or values: null to clear the cell',
+            };
+          }
+          return {
+            verb: 'select',
+            viewId: args['viewId'],
+            fields: args['fields'],
+            values: values === null ? null : ([values[0], values[1]] as CellValues),
+            cause,
+          };
+        }
+        if (typeof args['field'] !== 'string') {
           return { error: 'select requires string viewId and field' };
         }
         return { verb: 'select', viewId: args['viewId'], field: args['field'], value: args['value'], cause };
+      }
       case 'filter': {
         if (typeof args['viewId'] !== 'string' || typeof args['field'] !== 'string') {
           return { error: 'filter requires string viewId and field' };

@@ -309,3 +309,93 @@ describe('RP-3 — propose_chart (the 9th tool): governed agent-authored charts'
     expect(get(await port.call('viz.propose_chart', { id: 'x', spec: 'nope' }), 'reason')).toBe('PAYLOAD_INVALID');
   });
 });
+
+describe('D29 — the agent can CELL-select through the dispatch tool (one gesture = one commit)', () => {
+  function cellSession() {
+    const base = makeDashboardDef();
+    return buildDashboard({
+      ...base,
+      actors: { ...base.actors, heatmap: { actor: 'user', label: 'Price × category heatmap' } },
+      capabilities: [...(base.capabilities ?? []), { viewId: 'heatmap', canProbe: true, encodings: ['cell'] }],
+    }).createSession();
+  }
+
+  it('the dispatch schema teaches the cell form: fields + values properties with authored-constant descriptions', () => {
+    const port = vizAsTools(cellSession());
+    const dispatchTool = port.tools().find((t) => t.name === 'viz.dispatch')!;
+    const props = (dispatchTool.inputSchema as { properties: Record<string, { description?: string }> }).properties;
+    expect(props['fields']?.description).toContain('TWO fields');
+    expect(props['values']?.description).toContain('AND of both sides');
+    expect(dispatchTool.description).toContain('CELL');
+  });
+
+  it('a cell dispatch lands ONE compound commit; whats_here shows the cell selection', async () => {
+    const session = cellSession();
+    const port = vizAsTools(session);
+    const res = await port.call('viz.dispatch', {
+      verb: 'select',
+      viewId: 'heatmap',
+      fields: ['price', 'category'],
+      values: [[100, 150], 'Formal'],
+      intent: 'click the 100-150 x Formal cell',
+    });
+    expect(get(res, 'ok')).toBe(true);
+    const commit = get(res, 'commit') as { kind: string; fields: unknown; predicateSQL: string };
+    expect(commit.kind).toBe('cell');
+    expect(commit.fields).toEqual(['price', 'category']);
+    expect(commit.predicateSQL).toBe(`(("price" BETWEEN 100 AND 150) AND ("category" IN ('Formal')))`);
+    expect(session.log.records).toHaveLength(1); // ONE commit — never two linked ones
+
+    const here = await port.call('viz.whats_here');
+    const selections = get(here, 'activeSelections') as { kind: string; fields?: unknown }[];
+    expect(selections).toHaveLength(1);
+    expect(selections[0]!.kind).toBe('cell');
+    expect(selections[0]!.fields).toEqual(['price', 'category']);
+  });
+
+  it('values: null clears the cell through the same tool', async () => {
+    const session = cellSession();
+    const port = vizAsTools(session);
+    await port.call('viz.dispatch', { verb: 'select', viewId: 'heatmap', fields: ['price', 'category'], values: [[100, 150], 'Formal'] });
+    const res = await port.call('viz.dispatch', { verb: 'select', viewId: 'heatmap', fields: ['price', 'category'], values: null });
+    expect(get(res, 'ok')).toBe(true);
+    const here = await port.call('viz.whats_here');
+    expect(get(here, 'activeSelections')).toEqual([]);
+  });
+
+  it('fire-time validation: malformed fields / values are typed PAYLOAD_INVALID, never a session call', async () => {
+    const port = vizAsTools(cellSession());
+    const oneField = await port.call('viz.dispatch', { verb: 'select', viewId: 'heatmap', fields: ['price'], values: [[0, 1], 'x'] });
+    expect(get(oneField, 'reason')).toBe('PAYLOAD_INVALID');
+    expect(String(get(oneField, 'detail'))).toContain('exactly two column names');
+
+    const badSide = await port.call('viz.dispatch', { verb: 'select', viewId: 'heatmap', fields: ['price', 'category'], values: [[0, 1], { deep: true }] });
+    expect(get(badSide, 'reason')).toBe('PAYLOAD_INVALID');
+    expect(String(get(badSide, 'detail'))).toContain('values');
+
+    const badArity = await port.call('viz.dispatch', { verb: 'select', viewId: 'heatmap', fields: ['price', 'category'], values: [[0, 1]] });
+    expect(get(badArity, 'reason')).toBe('PAYLOAD_INVALID');
+
+    const bothBoundsNull = await port.call('viz.dispatch', { verb: 'select', viewId: 'heatmap', fields: ['price', 'category'], values: [[null, null], 'Formal'] });
+    expect(get(bothBoundsNull, 'reason')).toBe('PAYLOAD_INVALID');
+
+    const valuesOnly = await port.call('viz.dispatch', { verb: 'select', viewId: 'heatmap', values: [[0, 1], 'x'] });
+    expect(get(valuesOnly, 'reason')).toBe('PAYLOAD_INVALID'); // values without fields is the cell form, incompletely stated
+  });
+
+  it('a cell against a classic (point/interval) view comes back as the session\'s typed guard-failed gap', async () => {
+    const port = vizAsTools(cellSession());
+    const res = await port.call('viz.dispatch', { verb: 'select', viewId: 'display', fields: ['price', 'category'], values: [[0, 1], 'Formal'] });
+    expect(get(res, 'ok')).toBe(false);
+    const gap = get(res, 'gap') as { code: string };
+    expect(gap.code).toBe('guard-failed');
+  });
+
+  it('a half-open interval side rides the cell rail (the shared bound rules, verbatim)', async () => {
+    const session = cellSession();
+    const port = vizAsTools(session);
+    const res = await port.call('viz.dispatch', { verb: 'select', viewId: 'heatmap', fields: ['price', 'category'], values: [[150, null], 'Formal'] });
+    expect(get(res, 'ok')).toBe(true);
+    expect(session.log.records[0]!.value).toEqual([[150, null], 'Formal']);
+  });
+});

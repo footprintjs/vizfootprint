@@ -184,3 +184,39 @@ describe('mcpServer — a real MCP server backed by a live session', () => {
     expect((badPayload['gap'] as { code: string }).code).toBe('chart-transforms-not-owned');
   });
 });
+
+describe('D29 — cell-select MCP parity (the compound cell rides the same wire)', () => {
+  it('a cell dispatch over MCP lands ONE compound commit and reads back through whats_here', async () => {
+    const base = makeDashboardDef();
+    const session = buildDashboard({
+      ...base,
+      actors: { ...base.actors, heatmap: { actor: 'user', label: 'Price × category heatmap' } },
+      capabilities: [...(base.capabilities ?? []), { viewId: 'heatmap', canProbe: true, encodings: ['cell'] }],
+    }).createSession();
+    const client = await connectClient(session);
+
+    // the schema the MCP host sees carries the cell form (schema parity with vizAsTools)
+    const { tools } = await client.listTools();
+    const dispatchTool = tools.find((t) => t.name === 'viz.dispatch')!;
+    const props = (dispatchTool.inputSchema as { properties?: Record<string, unknown> }).properties ?? {};
+    expect(Object.keys(props)).toContain('fields');
+    expect(Object.keys(props)).toContain('values');
+
+    const res = text(
+      await client.callTool({
+        name: 'viz.dispatch',
+        arguments: { verb: 'select', viewId: 'heatmap', fields: ['price', 'category'], values: [[100, 150], 'Formal'] },
+      }),
+    );
+    expect(res['ok']).toBe(true);
+    const commit = res['commit'] as { kind: string; predicateSQL: string };
+    expect(commit.kind).toBe('cell');
+    expect(commit.predicateSQL).toBe(`(("price" BETWEEN 100 AND 150) AND ("category" IN ('Formal')))`);
+    expect(session.log.records).toHaveLength(1); // one gesture = one commit, over MCP too
+
+    const here = text(await client.callTool({ name: 'viz.whats_here', arguments: {} }));
+    const selections = here['activeSelections'] as { kind: string; fields?: unknown }[];
+    expect(selections[0]!.kind).toBe('cell');
+    expect(selections[0]!.fields).toEqual(['price', 'category']);
+  });
+});
