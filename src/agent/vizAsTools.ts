@@ -58,7 +58,8 @@ const WHATS_HERE_DESCRIPTION =
   'Describe the current analytical position: the declared views, their current channel->field visual ' +
   'encodings and the columns available to put on them, the active selections in DATA space, the ' +
   'declared analyses with their readiness, the online-FDR ledger, the count of unmet requests ' +
-  '(gaps), and the NAMED PATHS of the history (which path you are on, every path with its tip). ' +
+  '(gaps), and the NAMED PATHS of the history (which path you are on, every path with its tip, and ' +
+  'how many paths are ARCHIVED — hidden from the list but never erased; the paths tool lists them). ' +
   'Call this first, then act with dispatch.';
 
 const DISPATCH_DESCRIPTION =
@@ -102,10 +103,16 @@ const CHECKPOINT_DESCRIPTION =
 
 const PATHS_DESCRIPTION =
   'Work with the NAMED paths (branches) of the analysis history. action=list shows every path with its ' +
-  'tip commit, step count, and which one is current; switch moves to a path by name (the cursor jumps ' +
+  'tip commit, step count, and which one is current (pass includeArchived: true to see the hidden ones ' +
+  'too, each flagged archived); switch moves to a path by name (the cursor jumps ' +
   'to its tip and your next act extends it); rename gives a path a better name; new starts a named path ' +
-  'at a prior commit (auto-named from that commit when name is omitted). Every action is journaled — ' +
-  'branch bookkeeping is auditable, and nothing rewrites history.';
+  'at a prior commit (auto-named from that commit when name is omitted). ' +
+  'To tidy up: archive hides a dead-end path, restore un-hides it, discard drops everything after a ' +
+  'commit on your own path (the abandoned part is kept as an archived path you can restore), and adopt ' +
+  'replays another path\'s steps onto where you stand, one ordinary commit each. NOTHING here deletes ' +
+  'anything: hidden is not erased — every step stays in the log, and the statistics remember ' +
+  '(archiving or discarding never refunds alpha, never lowers the test count, and never removes a ' +
+  'ledger row). Every action is journaled — branch bookkeeping is auditable, and nothing rewrites history.';
 
 const COMPARE_DESCRIPTION =
   'Compare two positions of the analysis history — path names or commit ids. Returns the common ' +
@@ -234,10 +241,28 @@ const CHECKPOINT_SCHEMA = {
 const PATHS_SCHEMA = {
   type: 'object',
   properties: {
-    action: { type: 'string', enum: ['list', 'switch', 'rename', 'new'], description: 'What to do with the named paths.' },
-    name: { type: 'string', description: 'The path name (switch target / rename source / optional custom name for new).' },
+    action: {
+      type: 'string',
+      enum: ['list', 'switch', 'rename', 'new', 'archive', 'restore', 'discard', 'adopt'],
+      description: 'What to do with the named paths.',
+    },
+    name: {
+      type: 'string',
+      description:
+        'The path name: the switch target, the rename source, an optional custom name for new, or the ' +
+        'path to archive / restore / adopt.',
+    },
     newName: { type: 'string', description: 'The new name (rename only).' },
-    commitId: { type: 'string', description: 'The commit id to start the new path at (new only).' },
+    commitId: {
+      type: 'string',
+      description:
+        'The commit id: where a new path starts (new), or the point to keep when discarding — everything ' +
+        'AFTER it on your path is hidden (discard; omit to use where the cursor is).',
+    },
+    includeArchived: {
+      type: 'boolean',
+      description: 'list only: also list the archived (hidden) paths, each flagged archived. Default false.',
+    },
   },
   required: ['action'],
   additionalProperties: false,
@@ -265,6 +290,14 @@ const PROPOSE_CHART_SCHEMA = {
 } as const;
 
 const NO_PARAMS = { type: 'object', properties: {}, additionalProperties: false } as const;
+
+/**
+ * TL-1 — the one honesty line every hiding action carries back, verbatim (an
+ * authored constant, Q8: it is the LIBRARY's words, never runtime data). The UI
+ * shows the same sentence on its confirm dialogs, so the human and the model are
+ * told exactly the same truth.
+ */
+export const HIDDEN_NOT_ERASED = 'Hidden, not erased — the statistics remember.';
 
 function sanitize(name: string): string {
   return name.replace(/[^A-Za-z0-9_.-]/g, '_');
@@ -520,12 +553,22 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     };
   }
 
-  /** Route the `paths` tool — mutations go through the SESSION methods (never the refs directly). */
-  function callPaths(args: Record<string, unknown>): VizToolResult {
+  /**
+   * Route the `paths` tool — mutations go through the SESSION methods (never
+   * the refs directly). TL-1: the lifecycle actions (archive / restore /
+   * discard / adopt) hide and move refs; not one of them deletes a step, and
+   * the results say so in plain words the model reads back.
+   */
+  async function callPaths(args: Record<string, unknown>): Promise<VizToolResult> {
     switch (args['action']) {
       case 'list': {
-        const list = session.paths();
-        return { ok: true, current: list.find((p) => p.active)?.name ?? null, paths: list };
+        const list = session.paths({ includeArchived: args['includeArchived'] === true });
+        return {
+          ok: true,
+          current: list.find((p) => p.active)?.name ?? null,
+          paths: list,
+          archived: session.paths({ includeArchived: true }).filter((p) => p.archived === true).length,
+        };
       }
       case 'switch': {
         if (typeof args['name'] !== 'string') {
@@ -550,8 +593,39 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
         }
         return { ...session.newPathAt(commitId, name) };
       }
+      case 'archive': {
+        if (typeof args['name'] !== 'string') {
+          return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'paths archive requires a string name' };
+        }
+        const res = session.archivePath(args['name'], { as: source });
+        return res.ok ? { ...res, note: HIDDEN_NOT_ERASED } : { ...res };
+      }
+      case 'restore': {
+        if (typeof args['name'] !== 'string') {
+          return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'paths restore requires a string name' };
+        }
+        return { ...session.restorePath(args['name'], { as: source }) };
+      }
+      case 'discard': {
+        const commitId = args['commitId'];
+        if (commitId !== undefined && typeof commitId !== 'string') {
+          return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'paths discard commitId, if present, must be a string' };
+        }
+        const res = session.discardFromHere({ ...(commitId !== undefined ? { at: commitId } : {}), as: source });
+        return res.ok ? { ...res, note: HIDDEN_NOT_ERASED } : { ...res };
+      }
+      case 'adopt': {
+        if (typeof args['name'] !== 'string') {
+          return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'paths adopt requires a string name' };
+        }
+        return { ...(await session.adoptPath(args['name'], { as: source })) };
+      }
       default:
-        return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'paths action must be one of list|switch|rename|new' };
+        return {
+          ok: false,
+          reason: 'PAYLOAD_INVALID',
+          detail: 'paths action must be one of list|switch|rename|new|archive|restore|discard|adopt',
+        };
     }
   }
 
@@ -580,7 +654,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
         case NAMES.checkpoint:
           return callDispatch({ verb: 'checkpoint', ...args });
         case NAMES.paths:
-          return callPaths(args);
+          return await callPaths(args);
         case NAMES.compare: {
           if (typeof args['a'] !== 'string' || typeof args['b'] !== 'string') {
             return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'compare requires string a and b (path names or commit ids)' };

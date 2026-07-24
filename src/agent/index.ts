@@ -12,7 +12,7 @@
  * imported — so this entry stays SDK-free.
  */
 
-export { vizAsTools } from './vizAsTools.js';
+export { vizAsTools, HIDDEN_NOT_ERASED } from './vizAsTools.js';
 export type { VizTool, VizToolResult, VizToolsPort, VizToolsOptions } from './vizAsTools.js';
 
 // Re-export the declare + connect halves so `vizfootprint/agent` is the one L5 entry.
