@@ -117,6 +117,64 @@ describe('TL-1 archivePath / restorePath — hidden from the listing, never eras
     if (!last.ok) expect(last.gap.detail).toContain('only visible path');
   });
 
+  it('renaming an ARCHIVED path is a typed gap — never a silent resurrection (regression)', async () => {
+    const s = freshSession();
+    const { bId } = await twoPaths(s);
+    s.archivePath('main');
+
+    const res = s.renamePath('main', 'trunk');
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.gap).toMatchObject({ code: 'guard-failed', op: 'renamePath', target: 'main' });
+      expect(res.gap.detail).toBe('path "main" is archived — restore it first');
+    }
+    // still hidden, still unswitchable, still at its own tip — nothing resurrected
+    expect(s.paths().map((p) => p.name)).toEqual(['premium-focus']);
+    expect(s.paths({ includeArchived: true }).find((p) => p.name === 'main')).toMatchObject({ tip: bId, archived: true });
+    expect(s.switchPath('main').ok).toBe(false);
+    // and the journal recorded no rename (bookkeeping stays truthful)
+    expect((await s.overview()).paths.events.filter((e) => e.type === 'rename')).toEqual([]);
+
+    // restore first, then rename — the honest route works
+    expect(s.restorePath('main').ok).toBe(true);
+    expect(s.renamePath('main', 'trunk')).toEqual({ ok: true, name: 'trunk' });
+    expect(s.switchPath('trunk').ok).toBe(true);
+  });
+
+  it('INVARIANT through the session API: archived names stay live refs, and HEAD never rides one', async () => {
+    const s = freshSession();
+    const { aId } = await twoPaths(s);
+    const check = async (): Promise<void> => {
+      const all = s.paths({ includeArchived: true });
+      const current = (await s.overview()).paths.current;
+      for (const p of all.filter((x) => x.archived === true)) {
+        // "a live ref" — it still resolves, and compare() can still reach it
+        expect((await s.compare(p.name, p.tip)).ok, `archived "${p.name}" must still resolve`).toBe(true);
+      }
+      if (current !== null) {
+        expect(all.find((p) => p.name === current)?.archived, `HEAD must never ride archived "${current}"`).toBeUndefined();
+      }
+    };
+
+    await check();
+    s.archivePath('main');
+    await check();
+    s.renamePath('main', 'trunk'); // refused
+    await check();
+    s.restorePath('main');
+    s.renamePath('main', 'trunk');
+    await check();
+    // the freed name, re-used: born VISIBLE, and HEAD may ride it
+    s.newPathAt(aId, 'main');
+    await check();
+    expect(s.paths().map((p) => p.name).sort()).toEqual(['main', 'premium-focus', 'trunk']);
+    expect((await s.overview()).paths.current).toBe('main');
+    // archiving the one HEAD rides detaches — so the invariant holds there too
+    s.archivePath('main');
+    await check();
+    expect((await s.overview()).paths.current).toBeNull();
+  });
+
   it('restore is the exact inverse — the full listing round-trips byte-identically', async () => {
     const s = freshSession();
     await twoPaths(s);

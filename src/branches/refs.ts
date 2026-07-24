@@ -16,9 +16,15 @@
  *     name and tip (`tipOf` still answers, so compare/why still work on it).
  *     HEAD may not ride an archived ref — archiving the path HEAD is on
  *     detaches HEAD at that path's tip, so the next act auto-creates a NEW
- *     named ref instead of silently re-advancing an archived one. For the same
- *     reason `switchTo` refuses an archived name and tip-extension skips
- *     archived refs: an archived ref is frozen where it was left.
+ *     named ref instead of silently re-advancing an archived one.
+ *
+ *     **The frozen-ref rule** (ONE rule, three refusals): an archived ref is
+ *     frozen where it was left, so every way of TOUCHING a ref refuses it —
+ *     `switchTo`, `rename` (both: "restore it first"), and `discardTo` — and
+ *     tip-extension skips archived refs for the same reason. Restore it, then
+ *     touch it. Two structural invariants fall out, both pinned by tests:
+ *     `_archived ⊆ _branches` (never a stale hidden name) and HEAD is NEVER on
+ *     an archived ref.
  *   - `restore(name)` is the exact inverse (name, tip, and journal unchanged).
  *   - `discardTo(name, commitId, keepAs)` moves a ref BACK to an earlier commit
  *     and parks the abandoned future under a fresh, immediately-archived ref —
@@ -202,10 +208,23 @@ export class BranchRefs {
     return { ok: true, name };
   }
 
-  /** Rename a ref; HEAD follows if attached to it (journaled). */
+  /**
+   * Rename a ref; HEAD follows if attached to it (journaled).
+   *
+   * An ARCHIVED `from` is REFUSED (TL-1 — the frozen-ref rule, see the file
+   * header): renaming is the third way to touch a ref, so it answers exactly
+   * like `switchTo` and `discardTo`. Two real bugs live behind a permissive
+   * rename, and the refusal closes both: the name would arrive UN-archived
+   * (a silent resurrection, with no `restore` event in the journal and HEAD
+   * free to ride it), and the OLD name would be left in `_archived` while
+   * absent from `_branches` — a stale entry that would make the next ref born
+   * under that name secretly archived and invisible in `paths()`. The refusal
+   * is what keeps `_archived ⊆ _branches` true for every code path.
+   */
   rename(from: string, to: string): { ok: true } | { ok: false; detail: string } {
     const tip = this._branches.get(from);
     if (tip === undefined) return { ok: false, detail: `no path named "${from}"` };
+    if (this._archived.has(from)) return { ok: false, detail: `path "${from}" is archived — restore it first` };
     const invalid = invalidName(to);
     if (invalid !== null) return { ok: false, detail: invalid };
     if (this._branches.has(to)) return { ok: false, detail: `a path named "${to}" already exists` };

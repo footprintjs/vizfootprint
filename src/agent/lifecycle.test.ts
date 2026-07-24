@@ -134,6 +134,25 @@ describe('TL-1 agent surface — the paths tool tidies dead ends without erasing
     expect(get(bogus, 'detail')).toContain('archive|restore|discard|adopt');
   });
 
+  it('renaming an archived path is refused on EVERY surface — the frozen-ref rule reaches the wire (regression)', async () => {
+    const port = vizAsTools(freshSession());
+    await twoPaths(port);
+    await port.call('viz.paths', { action: 'archive', name: 'main' });
+
+    const renamed = await port.call('viz.paths', { action: 'rename', name: 'main', newName: 'trunk' });
+    expect(renamed.ok).toBe(false);
+    expect(get(renamed, 'gap')).toMatchObject({ op: 'renamePath', detail: 'path "main" is archived — restore it first' });
+    // no resurrection: it is still hidden and still unswitchable
+    expect((get(await port.call('viz.paths', { action: 'list' }), 'paths') as { name: string }[]).map((p) => p.name)).toEqual([
+      'premium-focus',
+    ]);
+    expect((await port.call('viz.paths', { action: 'switch', name: 'main' })).ok).toBe(false);
+
+    // restore first, then rename — the model reads the reason and recovers
+    expect((await port.call('viz.paths', { action: 'restore', name: 'main' })).ok).toBe(true);
+    expect(await port.call('viz.paths', { action: 'rename', name: 'main', newName: 'trunk' })).toMatchObject({ ok: true, name: 'trunk' });
+  });
+
   it('the tool ARRAY is byte-identical across the lifecycle (Mode B: no list_changed churn)', async () => {
     const port = vizAsTools(freshSession());
     const before = JSON.stringify(port.tools());
@@ -174,6 +193,14 @@ describe('TL-1 MCP parity — the same lifecycle over a real MCP client', () => 
 
     expect(await call({ action: 'archive', name: 'premium-focus' })).toMatchObject({ ok: true, detached: true, note: HIDDEN_NOT_ERASED });
     expect((await call({ action: 'list' }))['archived']).toBe(1);
+    expect(await call({ action: 'restore', name: 'premium-focus' })).toMatchObject({ ok: true });
+
+    // the frozen-ref rule over MCP too: archived → refused, restore-then-rename works
+    await call({ action: 'archive', name: 'premium-focus' });
+    expect(await call({ action: 'rename', name: 'premium-focus', newName: 'nope' })).toMatchObject({
+      ok: false,
+      gap: { detail: 'path "premium-focus" is archived — restore it first' },
+    });
     expect(await call({ action: 'restore', name: 'premium-focus' })).toMatchObject({ ok: true });
 
     await call({ action: 'switch', name: 'main' });

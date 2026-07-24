@@ -283,6 +283,21 @@ describe('BR-3 — named paths / compare / bring-over / undo (core.ts paths|comp
     expect(await analyst.paths({ action: 'restore' })).toEqual({ ok: false, error: 'paths restore needs a name' });
   });
 
+  it('TL-1: renaming an archived path is refused on the WIRE too — the honest detail reaches /api/paths (regression)', async () => {
+    const { analyst } = await seedTwoPaths();
+    const dead = (await analyst.state()).paths.list.find((p) => !p.active)!.name;
+    expect(((await analyst.paths({ action: 'archive', name: dead })) as any).ok).toBe(true);
+
+    const renamed: any = await analyst.paths({ action: 'rename', from: dead, to: 'resurrected' });
+    expect(renamed.ok).toBe(false);
+    expect(renamed.gap.detail).toBe(`path "${dead}" is archived — restore it first`);
+    // no resurrection: still hidden, still unswitchable
+    const st = await analyst.state();
+    expect(st.paths.list.map((p) => p.name)).not.toContain(dead);
+    expect(st.paths.list.map((p) => p.name)).not.toContain('resurrected');
+    expect(((await analyst.paths({ action: 'switch', name: dead })) as any).ok).toBe(false);
+  });
+
   it('TL-1: discard rewinds the current path and keeps the dropped future as an archived path', async () => {
     const { analyst, id1, id2 } = await seedTwoPaths();
     await analyst.paths({ action: 'switch', name: 'main' }); // main = id1 → id2

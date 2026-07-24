@@ -689,7 +689,7 @@ class InteractionSessionImpl implements InteractionSession {
     const tipRecord = this.log.records.find((r) => r.id === target.tip) as CommitRecord;
     const keepAs = uniqueSlug(`discarded-${slugForCommit(tipRecord)}`, (n) => this.refs.has(n));
     const res = this.refs.discardTo(target.name, at, keepAs, opts.as ?? this.defaultActor);
-    /* v8 ignore next 2 -- refs.discardTo re-checks what pathToRewind + uniqueSlug already guarantee (a live, non-archived ref whose tip differs from `at`, and a free, valid keepAs); the arm is a belt on the ref layer's own contract, unreachable through this method */
+    /* v8 ignore next 2 -- refs.discardTo re-checks what pathToRewind + uniqueSlug already guarantee: a live, non-archived ref whose tip differs from `at` (the attached arm can only name a ref HEAD rides, and the frozen-ref rule keeps HEAD off archived refs — refs.ts's `_archived ⊆ _branches` + rename-refuses-archived invariants, both pinned in src/branches/lifecycle.test.ts; the detached arm draws heirs from `branches()`, visible only), and a free, valid keepAs. The arm is a belt on the ref layer's own contract, unreachable through this method. */
     if (!res.ok) return this.lifecycleGap('discardFromHere', res.detail, target.name);
 
     // The path now ends here: head AND cursor sit at `at`, fold rebuilt there.

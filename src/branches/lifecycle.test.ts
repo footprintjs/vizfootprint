@@ -109,6 +109,79 @@ describe('TL-1 archive — hidden, not erased', () => {
   });
 });
 
+describe('TL-1 the frozen-ref rule — an archived ref refuses every way of touching it', () => {
+  /**
+   * REGRESSION (found in adversarial review): `rename` moved the name in
+   * `_branches` without touching `_archived`, so renaming an archived path
+   * RESURRECTED it (visible, switchable, no `restore` event) AND left the old
+   * name stale in `_archived` — which then made the NEXT ref born under that
+   * name secretly archived, invisible in `paths()`, with HEAD riding it.
+   */
+  it('renaming an ARCHIVED path is refused, in the same words as switchTo', () => {
+    const refs = twoPaths();
+    refs.archive('main', 'user');
+    const events = refs.events().length;
+
+    const res = refs.rename('main', 'trunk');
+    expect(res).toEqual({ ok: false, detail: 'path "main" is archived — restore it first' });
+    // nothing moved, nothing was written, and the path is still hidden
+    expect(refs.branches({ includeArchived: true })).toEqual({ main: 'c2', 'premium-focus': 'c3' });
+    expect(refs.isArchived('main')).toBe(true);
+    expect(refs.events().length).toBe(events);
+    // no silent resurrection: it is still unswitchable until restored
+    expect(refs.switchTo('main').ok).toBe(false);
+
+    // …and restoring first is all it takes
+    expect(refs.restore('main', 'user').ok).toBe(true);
+    expect(refs.rename('main', 'trunk')).toEqual({ ok: true });
+    expect(refs.branches()).toEqual({ trunk: 'c2', 'premium-focus': 'c3' });
+  });
+
+  it('a name RE-CREATED after its archived owner was renamed is born VISIBLE (no stale hidden name)', () => {
+    const refs = twoPaths();
+    refs.archive('main', 'user');
+    refs.rename('main', 'trunk'); // refused — the whole point
+    // restore-then-rename is the honest route, and it frees the old name cleanly
+    refs.restore('main', 'user');
+    refs.rename('main', 'trunk');
+
+    const created = refs.createAt('main', 'c1'); // the freed name, born fresh
+    expect(created).toEqual({ ok: true, name: 'main' });
+    expect(refs.isArchived('main')).toBe(false); // NOT secretly archived
+    expect(refs.branches()).toEqual({ trunk: 'c2', 'premium-focus': 'c3', main: 'c1' }); // visible in the listing
+    expect(refs.head).toEqual({ branch: 'main' }); // HEAD may ride it — it is not archived
+  });
+
+  it('INVARIANT: every archived name is a live ref, and HEAD is never on one', () => {
+    const refs = twoPaths();
+    const check = (): void => {
+      for (const name of refs.archivedNames()) {
+        expect(refs.tipOf(name), `archived "${name}" must still be a live ref`).toBeDefined();
+      }
+      const head = refs.currentBranch();
+      if (head !== null) expect(refs.isArchived(head), `HEAD must never ride archived "${head}"`).toBe(false);
+    };
+
+    check();
+    refs.archive('main', 'user');
+    check();
+    refs.rename('main', 'trunk'); // refused
+    check();
+    refs.restore('main', 'user');
+    refs.rename('main', 'trunk');
+    check();
+    refs.createAt('main', 'c1');
+    check();
+    refs.archive('trunk', 'user');
+    check();
+    refs.noteCommit(rec('c9', 'c1', { cause: intent('later still') }));
+    check();
+    refs.discardTo('main', 'c1', 'parked', 'user');
+    check();
+    expect([...refs.archivedNames()].sort()).toEqual(['parked', 'trunk']);
+  });
+});
+
 describe('TL-1 restore — the exact inverse', () => {
   it('restore round-trips the listing byte-identically and journals with its actor', () => {
     const refs = twoPaths();
