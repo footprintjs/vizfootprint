@@ -37,11 +37,14 @@ import {
   PathsModal,
   CompareModal,
   ForkToast,
+  DiscardModal,
+  AdoptToast,
   createSessionView,
   pollingSource,
   useSessionView,
   selectionForView,
   keepPredicate,
+  type AdoptSummaryView,
   type SessionView,
   type SessionViewState,
   type TimeMode,
@@ -135,6 +138,7 @@ const SUGGESTIONS = [
   'Filter to May and tell me what changed.',
   'Select the Midlands region on the map and tell me what changed.',
   'Focus the scatter, then present the story so far.',
+  'Clean up my dead ends — archive everything but this path.',
 ];
 
 // Crossfilter self-exclusion now rides vizfootprint-ui's OWN contract layer
@@ -176,6 +180,13 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
     setCompareRefs({ a: commitId, b: undefined });
     setCompareOpen(true);
   };
+
+  // TL-1: the lifecycle. The branch map's menu only ASKS to discard (the
+  // DiscardModal confirms, stating the honesty line); adopting answers with a
+  // summary the AdoptToast reports. Archived lanes stay hidden until asked for.
+  const [discardFrom, setDiscardFrom] = useState<string | null>(null);
+  const [adopted, setAdopted] = useState<AdoptSummaryView | null>(null);
+  const [showArchivedLanes, setShowArchivedLanes] = useState(false);
 
   // step-nav keyboard mirror (ArrowLeft/ArrowRight), but never while an
   // <input>/<textarea> has focus (the checkpoint modal's field, the chat composer).
@@ -325,7 +336,18 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
             onSwitch={(name) => void view.switchPath(name)}
             onRename={(from, to) => void view.renamePath(from, to)}
             onNewPath={(id) => void view.newPathAt(id)}
+            onArchive={(name) => void view.archivePath(name)}
+            onRestore={(name) => void view.restorePath(name)}
           />
+          <DiscardModal
+            commitId={discardFrom}
+            onClose={() => setDiscardFrom(null)}
+            stepsAfter={
+              discardFrom === null ? undefined : state.activePathIds.length - 1 - state.activePathIds.indexOf(discardFrom)
+            }
+            onConfirm={(id) => void view.discardFromHere(id)}
+          />
+          <AdoptToast summary={adopted} onDismiss={() => setAdopted(null)} />
           <CompareModal
             open={compareOpen}
             onClose={() => setCompareOpen(false)}
@@ -457,18 +479,34 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
           icon: '🌿',
           badge: state.branches.length,
           content: (
-            <BranchMap
-              commits={state.commits}
-              cursor={state.cursor}
-              head={state.head}
-              checkpoints={state.checkpoints}
-              paths={state.paths.list}
-              onSeek={(id) => void view.seek(id)}
-              onNewPath={(id) => void view.newPathAt(id)}
-              onBringOver={(id) => void view.bringOver(id)}
-              onUndo={(id) => void view.undo(id)}
-              onCompare={openCompareWith}
-            />
+            <>
+              {state.paths.archivedList.length > 0 && (
+                <label className="vzf-paths-note" data-vzf="bm-archived-toggle">
+                  <input type="checkbox" checked={showArchivedLanes} onChange={(e) => setShowArchivedLanes(e.target.checked)} />{' '}
+                  show archived lanes ({state.paths.archivedList.length}) — hidden by default, never erased
+                </label>
+              )}
+              <BranchMap
+                commits={state.commits}
+                cursor={state.cursor}
+                head={state.head}
+                checkpoints={state.checkpoints}
+                paths={state.paths.list}
+                archivedPaths={state.paths.archivedList}
+                showArchived={showArchivedLanes}
+                onSeek={(id) => void view.seek(id)}
+                onNewPath={(id) => void view.newPathAt(id)}
+                onBringOver={(id) => void view.bringOver(id)}
+                onUndo={(id) => void view.undo(id)}
+                onCompare={openCompareWith}
+                {...(readOnly
+                  ? {} // present mode: the lifecycle actions are paused
+                  : {
+                      onDiscardFrom: (id: string) => setDiscardFrom(id),
+                      onAdoptPath: (name: string) => void view.adoptPath(name).then(setAdopted),
+                    })}
+              />
+            </>
           ),
         },
         {

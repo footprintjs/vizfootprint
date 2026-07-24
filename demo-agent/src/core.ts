@@ -22,12 +22,17 @@ import type { DispatchAction, DispatchResult, FilterRange } from '../../src/agen
 // BR-1 types (src/ is frozen; nothing to fix here), so read them from the
 // barrel that OWNS them, same rule CLAUDE.md states for new public symbols.
 import type {
+  PathInfo,
   PathsState,
   CompareResult,
   SwitchPathResult,
   RenamePathResult,
   NewPathResult,
   BringOverResult,
+  ArchivePathResult,
+  RestorePathResult,
+  DiscardResult,
+  AdoptPathResult,
 } from '../../src/session/index.js';
 
 export interface CreateAnalystOptions {
@@ -73,16 +78,20 @@ export interface CheckpointInfo {
   readonly ts: number;
 }
 
-/** The human's `/api/paths` request body — one of the three named-path actions. */
+/**
+ * The human's `/api/paths` request body — one of the named-path actions. The
+ * TL-1 lifecycle rides the SAME endpoint (the documented adapter contract in
+ * `ui/src/adapter/sessionView.ts`): archive / restore / discard / adopt.
+ */
 export interface PathsRequestBody {
-  readonly action: 'switch' | 'rename' | 'new';
-  /** switch target / new path's optional custom name. */
+  readonly action: 'switch' | 'rename' | 'new' | 'archive' | 'restore' | 'discard' | 'adopt';
+  /** switch target / new path's optional custom name / the path to archive, restore, or adopt. */
   readonly name?: string;
   /** rename source. */
   readonly from?: string;
   /** rename target. */
   readonly to?: string;
-  /** the commit a new path starts at. */
+  /** the commit a new path starts at — or, for discard, the step to keep (omitted = the cursor). */
   readonly commitId?: string;
 }
 
@@ -118,8 +127,14 @@ export interface AnalystState {
   readonly cursorTests: number;
   /** Whether the cursor is behind the active head (you are viewing the past). */
   readonly viewingPast: boolean;
-  /** BR-3: the named-paths surface (BR-1's refs + journal) — feeds the pill/modal/toast. */
-  readonly paths: PathsState;
+  /**
+   * BR-3: the named-paths surface (BR-1's refs + journal) — feeds the
+   * pill/modal/toast. TL-1 extends it with `archivedList` (the adapter's
+   * documented `/api/state` contract): the hidden rows the Paths modal reveals
+   * behind "show archived", flagged `archived: true`. `overview().paths` itself
+   * stays token-lean (a COUNT), so the extra rows are composed here.
+   */
+  readonly paths: PathsState & { readonly archivedList: readonly PathInfo[] };
   /** RP-3: the agent-authored charts (with their gated specs) — feeds the VL-bridge cockpit cells. */
   readonly charts: unknown;
   /** LY-2: `overview().layouts` verbatim (scope -> prop -> value) — vizfootprint-ui's adapter parses `layouts.dashboard` into the cockpit's `layout` prop. */
@@ -139,7 +154,18 @@ export interface Analyst {
    * surface (the agent drives the SAME session methods through its own `paths`
    * tool, never this endpoint).
    */
-  paths(body: PathsRequestBody): Promise<SwitchPathResult | RenamePathResult | NewPathResult | { ok: false; error: string }>;
+  paths(
+    body: PathsRequestBody,
+  ): Promise<
+    | SwitchPathResult
+    | RenamePathResult
+    | NewPathResult
+    | ArchivePathResult
+    | RestorePathResult
+    | DiscardResult
+    | AdoptPathResult
+    | { ok: false; error: string }
+  >;
   /** Read-only structured diff between two positions (path names or commit ids). */
   compare(a: string, b: string): Promise<CompareResult | { ok: false; error: string }>;
   /** Cherry-pick a commit from another path onto the current position (badged `user`). */
@@ -247,6 +273,27 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
         if (typeof body.commitId !== 'string' || body.commitId.length === 0) return { ok: false, error: 'paths new needs a commitId' };
         return session.newPathAt(body.commitId, body.name);
       }
+      // ── TL-1: the lifecycle, human-badged (the agent drives the same session
+      // methods through its own `paths` tool, never this endpoint) ──
+      if (body.action === 'archive') {
+        if (typeof body.name !== 'string' || body.name.length === 0) return { ok: false, error: 'paths archive needs a name' };
+        return session.archivePath(body.name, { as: 'user' });
+      }
+      if (body.action === 'restore') {
+        if (typeof body.name !== 'string' || body.name.length === 0) return { ok: false, error: 'paths restore needs a name' };
+        return session.restorePath(body.name, { as: 'user' });
+      }
+      if (body.action === 'discard') {
+        // commitId is OPTIONAL: omitted means "from where the cursor is".
+        if (body.commitId !== undefined && typeof body.commitId !== 'string') {
+          return { ok: false, error: 'paths discard commitId, if present, must be a string' };
+        }
+        return session.discardFromHere({ ...(body.commitId !== undefined ? { at: body.commitId } : {}), as: 'user' });
+      }
+      if (body.action === 'adopt') {
+        if (typeof body.name !== 'string' || body.name.length === 0) return { ok: false, error: 'paths adopt needs a name' };
+        return session.adoptPath(body.name, { as: 'user' });
+      }
       return { ok: false, error: `unsupported paths action "${String((body as { action?: unknown }).action)}"` };
     },
 
@@ -292,7 +339,9 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
         checkpoints: session.checkpoints().map((c) => ({ label: c.label, commitId: c.commitId, ts: c.ts })),
         cursorTests: overview.time.cursorTests,
         viewingPast: overview.time.viewingPast,
-        paths: overview.paths,
+        // TL-1: the adapter's documented /api/state extension — the hidden rows
+        // ride alongside the lean overview surface so the modal can reveal them.
+        paths: { ...overview.paths, archivedList: session.paths({ includeArchived: true }) },
         charts: session.charts(),
         layouts: overview.layouts,
       };

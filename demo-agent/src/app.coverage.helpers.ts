@@ -262,6 +262,24 @@ export const STATE_WITH_PATHS = {
   },
 };
 
+/**
+ * TL-1 — the same two paths plus an ARCHIVED one, as `/api/state` serializes it:
+ * `paths.list` holds only the VISIBLE rows while `paths.archivedList` carries the
+ * hidden ones flagged (the documented adapter extension, composed by core.ts's
+ * `state()`), and `paths.archived` is the count `whats_here` reports.
+ */
+export const STATE_WITH_ARCHIVED = {
+  ...STATE_A,
+  paths: {
+    ...STATE_WITH_PATHS.paths,
+    archived: 1,
+    archivedList: [
+      ...STATE_WITH_PATHS.paths.list,
+      { name: 'dead-end', tip: 'c1', steps: 1, lastTs: 900, active: false, archived: true },
+    ],
+  },
+};
+
 export interface Call {
   readonly url: string;
   readonly method: string;
@@ -316,6 +334,26 @@ export class FakeApi {
       // rewriting a snapshot a prior fetch already handed out.
       const snapshot = JSON.parse(JSON.stringify(this.state)) as unknown;
       return { ok: true, json: async () => snapshot } as unknown as Response;
+    }
+    if (url === '/api/paths' && method === 'POST' && (body as { action?: string })?.action === 'adopt') {
+      // TL-1: `adopt` is the ONE lifecycle action whose ANSWER the UI reads back
+      // (the AdoptToast reports it), so the fake server answers a real
+      // AdoptPathResult shape — the other actions just need an ok.
+      return {
+        ok: true,
+        json: async () => ({
+          ok: true,
+          path: (body as { name: string }).name,
+          ancestor: 'c1',
+          applied: 1,
+          skipped: 1,
+          conflicts: ['c2'],
+          steps: [
+            { commitId: 'c3', applied: true, landedAs: 'c9', conflicts: ['c2'] },
+            { commitId: 'c4', applied: false, conflicts: [], skippedReason: 'an agent-authored chart is proposed, not replayed' },
+          ],
+        }),
+      } as unknown as Response;
     }
     if (url === '/api/compare' && method === 'POST') {
       // A well-formed CompareResult (src/session shape) — the app's own

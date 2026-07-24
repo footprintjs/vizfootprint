@@ -9,6 +9,10 @@
  *     commit) is not a fork and never toasts;
  *   - journal entries that existed when the component MOUNTED never toast
  *     (a page reload does not replay old forks);
+ *   - TL-1: a DISCARD parks the abandoned future under a fresh auto-named ref,
+ *     which is a `create` in the journal but is NOT a fork the user made — the
+ *     `discard` event names it as its `kept` path, so those creates never toast
+ *     (the DiscardModal already told the user what happens to it);
  *   - `role="status"` (polite live region), dismissible, auto-hides, and the
  *     entrance animation obeys `prefers-reduced-motion` (CSS).
  */
@@ -26,11 +30,14 @@ export interface ForkToastProps {
 
 /** AUTO-created refs that are real forks (some path already existed before them). */
 function autoForks(events: readonly PathEventView[]): { name: string; ts: number }[] {
+  // TL-1: names a discard parked its abandoned future under — created, but never
+  // forked into by the user.
+  const parked = new Set(events.filter((e) => e.type === 'discard').map((e) => e.kept));
   const out: { name: string; ts: number }[] = [];
   let seenCreate = false;
   for (const e of events) {
     if (e.type !== 'create') continue;
-    if (seenCreate && e.auto) out.push({ name: e.name, ts: e.ts });
+    if (seenCreate && e.auto && !parked.has(e.name)) out.push({ name: e.name, ts: e.ts });
     seenCreate = true;
   }
   return out;

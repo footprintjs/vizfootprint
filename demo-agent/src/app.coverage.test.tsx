@@ -40,6 +40,7 @@ import {
   STATE_NONNUMERIC_XY,
   STATE_EDGE_SELECTION,
   STATE_WITH_PATHS,
+  STATE_WITH_ARCHIVED,
   STATE_MAP_SELECTED,
   STATE_WITH_CHART,
   STATE_WITH_BAD_CHART,
@@ -199,11 +200,11 @@ describe('boot — rich fixture (STATE_A): renders every "has value" branch', ()
     expect(document.querySelector('[data-vzf="fdr-ledger"]')).toBeTruthy();
   });
 
-  it('the chat popup starts closed with the fab visible, the sys greeting, and 9 suggestion chips', () => {
+  it('the chat popup starts closed with the fab visible, the sys greeting, and 10 suggestion chips', () => {
     expect((document.getElementById('chatpanel') as HTMLElement).hidden).toBe(true);
     expect((document.getElementById('fab') as HTMLElement).hidden).toBe(false);
     expect(screen.getByText(/Brush the scatter or click a bar/)).toBeTruthy();
-    expect(document.querySelectorAll('.suggest button')).toHaveLength(9); // +1: the LY-2 layout-focus chip
+    expect(document.querySelectorAll('.suggest button')).toHaveLength(10); // +1 LY-2 layout-focus, +1 TL-1 clean-up-dead-ends
   });
 
   it('window.__vizAgent exposes the live view + a working refresh()', async () => {
@@ -638,6 +639,86 @@ describe('BR-3 — named paths: BranchPill/PathsModal/ForkToast/CompareModal, an
 
     await click(document.querySelector('[data-vzf="fork-toast-paths"]'));
     expect(document.querySelector('[data-vzf-modal="paths"] [role="dialog"]')).toBeTruthy();
+  });
+});
+
+describe('TL-1 — the trail lifecycle in the demo cockpit', () => {
+  it('PathsModal: archive asks first, then posts the archive action; restore posts from the reveal', async () => {
+    await boot(STATE_WITH_ARCHIVED);
+    await click(document.querySelector('[data-vzf="branch-pill"]'));
+
+    await click(document.querySelector('[data-path="side-quest"] [data-vzf="path-archive"]'));
+    expect(api.callsTo('/api/paths')).toHaveLength(0); // the confirm has not been answered yet
+    expect(document.querySelector('[data-vzf="path-archive-confirm"]')!.textContent).toContain(
+      'Hidden, not erased — the statistics remember.',
+    );
+    await click(document.querySelector('[data-vzf="path-archive-yes"]'));
+    expect(api.callsTo('/api/paths').at(-1)?.body).toEqual({ action: 'archive', name: 'side-quest' });
+
+    // the archived row lives behind the reveal, and Restore posts for it
+    expect(document.querySelector('[data-path="dead-end"]')).toBeNull();
+    await click(document.querySelector('[data-vzf="paths-archived-toggle"]'));
+    await click(document.querySelector('[data-path="dead-end"] [data-vzf="path-restore"]'));
+    expect(api.callsTo('/api/paths').at(-1)?.body).toEqual({ action: 'restore', name: 'dead-end' });
+  });
+
+  it('branch map: "Discard from here…" opens the confirm, and only the confirm posts', async () => {
+    await boot(STATE_WITH_ARCHIVED);
+    await openReport('branches');
+    await click(document.querySelector('[data-vzf="branch-map"] [data-commit="c1"]'));
+    await click(document.querySelector('[data-ctx="discard-from"]'));
+
+    const body = document.querySelector('[data-vzf="discard-body"]')!;
+    expect(body.textContent).toContain('Hidden, not erased — the statistics remember.');
+    expect(body.textContent).toContain('1 step after this one'); // c1 → c2 on the active path
+    expect(api.callsTo('/api/paths')).toHaveLength(0);
+
+    await click(document.querySelector('[data-vzf="discard-cancel"]'));
+    expect(api.callsTo('/api/paths')).toHaveLength(0);
+
+    await click(document.querySelector('[data-vzf="branch-map"] [data-commit="c1"]'));
+    await click(document.querySelector('[data-ctx="discard-from"]'));
+    await click(document.querySelector('[data-vzf="discard-confirm"]'));
+    expect(api.callsTo('/api/paths').at(-1)?.body).toEqual({ action: 'discard', commitId: 'c1' });
+  });
+
+  it('branch map: "Adopt this path" posts the adopt and the toast reports what landed', async () => {
+    await boot(STATE_WITH_ARCHIVED);
+    await openReport('branches');
+    // c1 is side-quest's tip — a path-level act, offered there
+    await click(document.querySelector('[data-vzf="branch-map"] [data-commit="c1"]'));
+    await click(document.querySelector('[data-ctx="adopt-path"]'));
+    expect(api.callsTo('/api/paths').at(-1)?.body).toEqual({ action: 'adopt', name: 'side-quest' });
+
+    const toast = document.querySelector('[data-vzf="adopt-toast"]')!;
+    expect(toast.textContent).toContain('Adopted');
+    expect(toast.textContent).toContain('1 step landed here');
+    expect(toast.textContent).toContain('1 skipped');
+    await click(document.querySelector('[data-vzf="adopt-toast-why"]'));
+    expect(document.querySelector('[data-vzf="adopt-toast-reasons"]')!.textContent).toContain('proposed, not replayed');
+    await click(document.querySelector('[data-vzf="adopt-toast-dismiss"]'));
+    expect(document.querySelector('[data-vzf="adopt-toast"]')).toBeNull();
+  });
+
+  it('branch map: the archived lanes toggle reveals its greyed label (the steps were always drawn)', async () => {
+    await boot(STATE_WITH_ARCHIVED);
+    await openReport('branches');
+    expect(document.querySelector('[data-lane-label="dead-end"]')).toBeNull();
+    expect(document.querySelector('[data-vzf="branch-map"] [data-commit="c1"]')).toBeTruthy(); // never erased
+
+    await click(document.querySelector('[data-vzf="bm-archived-toggle"] input'));
+    const label = document.querySelector('[data-lane-label="dead-end"]')!;
+    expect(label.getAttribute('data-archived')).toBe('true');
+  });
+
+  it('Present mode pauses the lifecycle: no discard / adopt items in the map menu', async () => {
+    await boot(STATE_WITH_ARCHIVED);
+    await click(screen.getByRole('tab', { name: 'Present' }));
+    await openReport('branches');
+    await click(document.querySelector('[data-vzf="branch-map"] [data-commit="c1"]'));
+    expect(document.querySelector('[data-ctx="discard-from"]')).toBeNull();
+    expect(document.querySelector('[data-ctx="adopt-path"]')).toBeNull();
+    expect(document.querySelector('[data-ctx="jump"]')).toBeTruthy(); // navigation stays live
   });
 });
 

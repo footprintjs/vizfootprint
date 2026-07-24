@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { pauseHere } from 'agentfootprint';
 import { mock, type LLMRequest } from 'agentfootprint/llm-providers';
-import { createAssistant } from './analyst.js';
+import { createAssistant, scriptedCleanupMock } from './analyst.js';
 import { buildAnalystSurface } from './def.js';
 import type { VizToolResult, VizToolsPort } from '../../src/agent/index.js';
 
@@ -78,6 +78,51 @@ describe('send() — the "Recent conversation" transcript prefix only appears fr
     const r2 = await assistant.send('second message');
     expect(r2.text).toBe('has-prefix');
     expect(r2.correlationId).toBe('turn-2');
+  });
+});
+
+describe('TL-1 — the "clean up my dead ends" scripted turn, over the REAL tool port', () => {
+  it('reads the paths LIST back, archives every path but the current one, and states the honesty line — while the ledger stays put', async () => {
+    const { port, session } = buildAnalystSurface(CSV);
+    // two dead ends beside the path we are on: act, travel back, act again ×2
+    const a = await port.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Formal' });
+    const aId = ((a as Record<string, unknown>)['commit'] as { id: string }).id;
+    await port.call('viz.dispatch', { verb: 'filter', viewId: 'scatter', field: 'price', range: [60, 130] });
+    await port.call('viz.fork', { fromCommitId: aId });
+    await port.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Party', intent: 'party lane' });
+    await port.call('viz.fork', { fromCommitId: aId });
+    await port.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Work', intent: 'work lane' });
+    await port.call('viz.declare_analysis', { analysisId: 'correlation' }); // a real test on a lane about to be hidden
+
+    const before = await session.overview();
+    const recordsBefore = session.log.records.length;
+    expect(before.fdr.tests).toBe(1);
+    expect(session.paths()).toHaveLength(3);
+    const current = before.paths.current!;
+
+    const assistant = createAssistant(port, { provider: scriptedCleanupMock() });
+    const { text } = await assistant.send('Clean up my dead ends — archive everything but this path.');
+
+    // exactly the two dead ends are hidden; the path we are on is untouched
+    expect(session.paths().map((p) => p.name)).toEqual([current]);
+    expect(session.paths({ includeArchived: true })).toHaveLength(3);
+    // the reply states the rule in plain words
+    expect(text).toContain('Hidden, not erased — the statistics remember');
+    expect(text).toContain('never refunded');
+    // …and the statistics really did remember
+    const after = await session.overview();
+    expect(after.fdr).toEqual(before.fdr);
+    expect(after.paths.archived).toBe(2);
+    expect(session.log.records.length).toBe(recordsBefore); // hiding is never a commit, and never a deletion
+  });
+
+  it('with nothing to tidy it archives nothing and still tells the truth', async () => {
+    const { port, session } = buildAnalystSurface(CSV);
+    await port.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Formal' });
+    const assistant = createAssistant(port, { provider: scriptedCleanupMock() });
+    const { text } = await assistant.send('Clean up my dead ends.');
+    expect(session.paths({ includeArchived: true }).filter((p) => p.archived === true)).toHaveLength(0);
+    expect(text).toContain('Hidden, not erased');
   });
 });
 

@@ -28,7 +28,13 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { startServer } from './server.mjs';
-import { scriptedReencodeMock, scriptedProposeChartMock, scriptedRejectedChartMock, scriptedLayoutFocusMock } from './src/analyst.js';
+import {
+  scriptedReencodeMock,
+  scriptedProposeChartMock,
+  scriptedRejectedChartMock,
+  scriptedLayoutFocusMock,
+  scriptedCleanupMock,
+} from './src/analyst.js';
 
 const CHROME =
   '/Users/sanjay/Library/Caches/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-mac-arm64/chrome-headless-shell';
@@ -90,6 +96,16 @@ async function openReport(page: Page, id: string): Promise<void> {
 async function closeModal(page: Page, modalName: string): Promise<void> {
   await page.locator(`[data-vzf-modal="${modalName}"] button[aria-label="Close"]`).click();
   await page.waitForSelector(`[data-vzf-modal="${modalName}"]`, { state: 'detached' });
+}
+
+/**
+ * TL-1 — expand the Paths modal's "show archived" reveal if it is collapsed. The
+ * reveal deliberately REMEMBERS its state across opens (a user who asked to see
+ * the hidden paths keeps seeing them), so a blind click can collapse it.
+ */
+async function revealArchived(page: Page): Promise<void> {
+  const toggle = page.locator('[data-vzf="paths-archived-toggle"]');
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
 }
 
 describe.skipIf(!existsSync(CHROME))('demo-agent smoke (real headless Chromium, mock provider) — the cockpit', () => {
@@ -727,7 +743,7 @@ describe.skipIf(!existsSync(CHROME))('LY-2: agent-driven layout via chat (LLM st
  * suggestion chips (text on text after ~3 turns). Now every turn's tool rows
  * flow INSIDE the transcript's single scroll region, in turn order, so after
  * 3 real turns: the last activity row, the composer input, and the first chip
- * are pairwise NON-overlapping; the transcript scrolls internally; all 8
+ * are pairwise NON-overlapping; the transcript scrolls internally; all 10
  * chips stay reachable inside their own ≤2-row band; the page still never
  * scrolls. Also proven at 390×740 (the popup becomes a full-width sheet).
  */
@@ -820,7 +836,7 @@ describe.skipIf(!existsSync(CHROME))('FIX-POPUP: long transcript — one interna
     expect(overlaps(m.lastStep, m.input), 'activity rows never overlap the input').toBe(false);
     expect(overlaps(m.lastStep, m.firstChip), 'activity rows never overlap the chips').toBe(false);
     expect(overlaps(m.input, m.firstChip), 'the input never overlaps the chips').toBe(false);
-    expect(m.chipCount, 'all 9 suggestions stay reachable').toBe(9);
+    expect(m.chipCount, 'all 10 suggestions stay reachable').toBe(10);
     expect(m.transcript.scrollHeight, 'the transcript scrolls internally').toBeGreaterThan(m.transcript.clientHeight);
     await expectNoPageOrShellScroll(page);
     await maybeScreenshot(page, { path: path.join(SHOTS, 'popup-long-transcript.png'), fullPage: false });
@@ -1428,6 +1444,154 @@ describe.skipIf(!existsSync(CHROME))('BR-3: named branching — fork toast + pil
     // the branch-map's own report modal is still open underneath — close it too
     await closeModal(page, 'report-branches');
   }, 30_000);
+
+  it('ran with zero console errors', () => {
+    expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
+    expect(pageErrors, pageErrors.join('\n')).toEqual([]);
+  });
+});
+
+/**
+ * TL-1 — the trail LIFECYCLE end to end in the browser, both principals:
+ *
+ *   (a) the AGENT tidies: the chat chip's own text ("Clean up my dead ends —
+ *       archive everything but this path.") drives the scripted cleanup turn,
+ *       which reads the paths LIST back and archives every path but the current
+ *       one. The Paths modal shows the survivors, the archived rows sit behind
+ *       "show archived", the branch map still DRAWS every step (nothing was
+ *       erased), and the FDR ledger reads exactly the same before and after —
+ *       the two-truths line the reply also states in plain words.
+ *   (b) the HUMAN rewinds: the branch map's "Discard from here…" opens the
+ *       confirm (which states "Hidden, not erased — the statistics remember."
+ *       verbatim), confirming rewinds the path, and the dropped future turns up
+ *       in the archived list, restorable — a full round trip.
+ */
+describe.skipIf(!existsSync(CHROME))('TL-1: the trail lifecycle — the agent archives dead ends, the human discards a future', () => {
+  let handle: Awaited<ReturnType<typeof startServer>>;
+  let browser: Browser;
+  let page: Page;
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+
+  /** The FDR summary as /api/state reports it — the statistics that must never move. */
+  async function ledger(): Promise<{ tests: number; wealth: number; discoveries: number }> {
+    const res = await fetch(`${handle.url}/api/state`);
+    const { fdr } = (await res.json()) as { fdr: { tests: number; wealth: number; discoveries: number } };
+    return { tests: fdr.tests, wealth: fdr.wealth, discoveries: fdr.discoveries };
+  }
+
+  beforeAll(async () => {
+    mkdirSync(SHOTS, { recursive: true });
+    handle = await startServer({ port: 0, mock: true, provider: scriptedCleanupMock() });
+    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
+    page.on('console', (m) => {
+      if (m.type() === 'error') consoleErrors.push(m.text());
+    });
+    page.on('pageerror', (e) => pageErrors.push(String(e)));
+    await page.goto(handle.url);
+    await page.waitForSelector('svg.vzf-scatter');
+  }, 120_000);
+
+  afterAll(async () => {
+    await browser?.close();
+    await handle?.close();
+  });
+
+  it('the human forks two dead ends beside the main line', async () => {
+    // main: brush the scatter, then click a bar — two steps, one lane
+    await brush(page, 0.2, 0.6);
+    await page.waitForSelector('[data-vzf="branch-pill"]');
+    await page.locator('svg.vzf-bar rect.vzf-barrect').nth(0).click();
+    const rootCommit = page.locator('[data-vzf="branch-map"] [data-commit]').first();
+
+    // travel back to the FIRST step and act again, twice — acting from the past
+    // forks, and BR-1 names each new lane from the gesture that started it
+    for (const nth of [1, 2]) {
+      await openReport(page, 'branches');
+      await rootCommit.click();
+      await page.waitForSelector('[data-vzf="ctx-menu"]');
+      await page.locator('[data-ctx="jump"]').click();
+      await closeModal(page, 'report-branches');
+      await page.locator('svg.vzf-bar rect.vzf-barrect').nth(nth).click();
+      await page.waitForSelector('[data-vzf="fork-toast"]');
+      await page.locator('[data-vzf="fork-toast-dismiss"]').click();
+    }
+
+    await page.locator('[data-vzf="branch-pill"]').click();
+    await page.waitForSelector('[data-vzf-modal="paths"] [role="dialog"]');
+    expect(await page.locator('[data-vzf="paths-list"] > [data-path]').count()).toBe(3);
+    await closeModal(page, 'paths');
+  }, 60_000);
+
+  it('the AGENT archives every dead end through the chat chip — and the ledger does not move', async () => {
+    const before = await ledger();
+
+    await page.locator('#fab').click();
+    await page.waitForSelector('#chatpanel:not([hidden]) .composer input');
+    await page.locator('#chatpanel .composer input').fill('Clean up my dead ends — archive everything but this path.');
+    await page.locator('#chatpanel .composer input').press('Enter');
+    await page.waitForSelector('#chatpanel .bubble.analyst', { timeout: 30_000 });
+
+    // the reply states the honesty line in plain words
+    const reply = (await page.locator('#chatpanel .bubble.analyst').first().textContent()) ?? '';
+    expect(reply).toContain('Hidden, not erased — the statistics remember');
+
+    // ONE visible path is left; the rest are hidden behind the reveal, restorable
+    await page.locator('#chatclose').click(); // close the popup so the pill is clickable
+    await page.locator('[data-vzf="branch-pill"]').click();
+    await page.waitForSelector('[data-vzf-modal="paths"] [role="dialog"]');
+    expect(await page.locator('[data-vzf="paths-list"] > [data-path]').count()).toBe(1);
+    const toggle = page.locator('[data-vzf="paths-archived-toggle"]');
+    expect((await toggle.textContent()) ?? '').toContain('show archived (');
+    await revealArchived(page);
+    await page.waitForSelector('[data-archived="true"]');
+    expect(await page.locator('[data-vzf="paths-archived"]').textContent()).toContain('Hidden, not erased');
+    expect(await page.locator('[data-vzf="path-restore"]').count()).toBeGreaterThanOrEqual(1);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'agent-archived-paths.png'), fullPage: false });
+    await closeModal(page, 'paths');
+
+    // the STEPS are all still drawn — hiding a path never erases its record
+    await openReport(page, 'branches');
+    expect(await page.locator('[data-vzf="branch-map"] [data-commit]').count()).toBeGreaterThanOrEqual(4);
+    await page.locator('[data-vzf="bm-archived-toggle"] input').click();
+    await page.waitForSelector('[data-lane-label][data-archived="true"]');
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'agent-archived-lanes.png'), fullPage: false });
+    await closeModal(page, 'report-branches');
+
+    // …and the statistics remembered
+    expect(await ledger()).toEqual(before);
+    await expectNoPageOrShellScroll(page);
+  }, 60_000);
+
+  it('the HUMAN discards a future: the confirm states the rule, and the dropped part is restorable', async () => {
+    const before = await ledger();
+    await openReport(page, 'branches');
+    // the first commit on the active line: something always follows it
+    await page.locator('[data-vzf="branch-map"] [data-commit]').first().click();
+    await page.waitForSelector('[data-vzf="ctx-menu"]');
+    await page.locator('[data-ctx="discard-from"]').click();
+
+    await page.waitForSelector('[data-vzf-modal="discard"] [role="dialog"]');
+    expect(await page.locator('[data-vzf="discard-honesty"]').textContent()).toBe('Hidden, not erased — the statistics remember.');
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'discard-confirm.png'), fullPage: false });
+    await page.locator('[data-vzf="discard-confirm"]').click();
+    await page.waitForSelector('[data-vzf-modal="discard"]', { state: 'detached' });
+    await closeModal(page, 'report-branches');
+
+    // the dropped future is now an archived path — findable and restorable
+    await page.locator('[data-vzf="branch-pill"]').click();
+    await page.waitForSelector('[data-vzf-modal="paths"] [role="dialog"]');
+    await revealArchived(page); // the reveal REMEMBERS its state across opens — only expand if collapsed
+    const discarded = page.locator('[data-path^="discarded-"]');
+    await discarded.first().waitFor();
+    await discarded.first().locator('[data-vzf="path-restore"]').click();
+    await page.waitForSelector('[data-path^="discarded-"]:not([data-archived])', { timeout: 8000 });
+    await closeModal(page, 'paths');
+
+    expect(await ledger()).toEqual(before); // a rewind refunds nothing either
+    await expectNoPageOrShellScroll(page);
+  }, 60_000);
 
   it('ran with zero console errors', () => {
     expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);

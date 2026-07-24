@@ -21,9 +21,10 @@ import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { PathsModal } from './PathsModal.js';
 import { DiscardModal } from './DiscardModal.js';
 import { AdoptToast } from './AdoptToast.js';
+import { ForkToast } from './ForkToast.js';
 import { BranchMap } from '../time/BranchMap.js';
 import { createSessionView, pollingSource, mapPollState, summarizeAdopt, type RawPollState } from '../adapter/sessionView.js';
-import { HIDDEN_NOT_ERASED, type AdoptSummaryView, type PathsView, type PathView } from '../adapter/types.js';
+import { HIDDEN_NOT_ERASED, type AdoptSummaryView, type PathEventView, type PathsView, type PathView } from '../adapter/types.js';
 import { HIDDEN_NOT_ERASED as SRC_HIDDEN_NOT_ERASED } from '../../../src/agent/index.js';
 
 afterEach(cleanup);
@@ -405,6 +406,32 @@ describe('TL-1 adapter — the four actions over both sources', () => {
       skippedReasons: [],
     });
     expect(summarizeAdopt('x', { ok: true, steps: [{ applied: false }] }).skippedReasons).toEqual(['skipped']);
+  });
+});
+
+describe('TL-1 ForkToast — a discard\'s parked path is not a fork', () => {
+  it('the auto-created "kept" ref of a discard never toasts, while a real fork still does', async () => {
+    vi.useFakeTimers();
+    const mounted: PathEventView[] = [{ type: 'create', name: 'main', at: 'r', auto: true, ts: 0 }];
+    const { container, rerender } = render(<ForkToast events={mounted} />);
+    expect(container.querySelector('[data-vzf="fork-toast"]')).toBeNull();
+
+    // a DISCARD arrives: create(kept) + archive(kept) + discard — no fork happened
+    const afterDiscard: PathEventView[] = [
+      ...mounted,
+      { type: 'create', name: 'discarded-bar-click', at: 'b', auto: true, ts: 1 },
+      { type: 'archive', name: 'discarded-bar-click', at: 'b', by: 'user', ts: 2 },
+      { type: 'discard', name: 'main', from: 'b', to: 'a', kept: 'discarded-bar-click', by: 'user', ts: 3 },
+    ];
+    await act(async () => void rerender(<ForkToast events={afterDiscard} />));
+    expect(container.querySelector('[data-vzf="fork-toast"]')).toBeNull();
+
+    // a REAL branch-on-act still announces itself
+    await act(async () =>
+      void rerender(<ForkToast events={[...afterDiscard, { type: 'create', name: 'premium', at: 'c', auto: true, ts: 4 }]} />),
+    );
+    expect(container.querySelector('[data-vzf="fork-toast"]')!.textContent).toContain('premium');
+    vi.useRealTimers();
   });
 });
 

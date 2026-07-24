@@ -260,6 +260,69 @@ describe('BR-3 — named paths / compare / bring-over / undo (core.ts paths|comp
     expect(await analyst.paths({ action: 'bogus' } as any)).toEqual({ ok: false, error: 'unsupported paths action "bogus"' });
   });
 
+  it('TL-1: archive hides a path from state().paths.list while archivedList keeps it — and restore is the inverse', async () => {
+    const { analyst } = await seedTwoPaths();
+    const before = await analyst.state();
+    const dead = before.paths.list.find((p) => !p.active)!.name;
+
+    const archived: any = await analyst.paths({ action: 'archive', name: dead });
+    expect(archived.ok).toBe(true);
+    const hidden = await analyst.state();
+    expect(hidden.paths.list.map((p) => p.name)).not.toContain(dead);
+    // the /api/state extension the UI adapter reads: the hidden rows, flagged
+    expect(hidden.paths.archivedList.find((p) => p.name === dead)).toMatchObject({ archived: true });
+    expect(hidden.paths.archived).toBe(1);
+    // hiding never touches the record OR the statistics
+    expect(hidden.records).toEqual(before.records);
+    expect(hidden.fdr).toEqual(before.fdr);
+
+    expect(((await analyst.paths({ action: 'restore', name: dead })) as any).ok).toBe(true);
+    expect((await analyst.state()).paths.list.map((p) => p.name)).toContain(dead);
+
+    expect(await analyst.paths({ action: 'archive' })).toEqual({ ok: false, error: 'paths archive needs a name' });
+    expect(await analyst.paths({ action: 'restore' })).toEqual({ ok: false, error: 'paths restore needs a name' });
+  });
+
+  it('TL-1: discard rewinds the current path and keeps the dropped future as an archived path', async () => {
+    const { analyst, id1, id2 } = await seedTwoPaths();
+    await analyst.paths({ action: 'switch', name: 'main' }); // main = id1 → id2
+
+    const res: any = await analyst.paths({ action: 'discard', commitId: id1 });
+    expect(res.ok).toBe(true);
+    expect(res).toMatchObject({ path: 'main', at: id1, keptTip: id2, steps: 1 });
+    const st = await analyst.state();
+    expect(st.paths.list.find((p) => p.name === 'main')!.tip).toBe(id1);
+    expect(st.paths.archivedList.find((p) => p.tip === id2)).toBeDefined();
+    expect((st.records as { id: string }[]).some((r) => r.id === id2)).toBe(true); // nothing erased
+
+    // commitId is optional (from the cursor) — here that is the rewound tip, so honestly nothing to do
+    const atTip: any = await analyst.paths({ action: 'discard' });
+    expect(atTip.ok).toBe(false);
+    expect(atTip.gap.op).toBe('discardFromHere');
+    expect(await analyst.paths({ action: 'discard', commitId: 7 } as any)).toEqual({
+      ok: false,
+      error: 'paths discard commitId, if present, must be a string',
+    });
+  });
+
+  it('TL-1: adopt replays the other path\'s steps here and answers with the per-step report', async () => {
+    const { analyst } = await seedTwoPaths();
+    const st = await analyst.state();
+    const other = st.paths.list.find((p) => !p.active)!.name;
+    await analyst.paths({ action: 'switch', name: other });
+    const source = st.paths.list.find((p) => p.active)!.name;
+
+    const res: any = await analyst.paths({ action: 'adopt', name: source });
+    expect(res.ok).toBe(true);
+    expect(res.applied).toBeGreaterThan(0);
+    expect(res.steps.every((s: any) => typeof s.commitId === 'string')).toBe(true);
+    // the source path is untouched by the adopt
+    expect((await analyst.state()).paths.list.find((p) => p.name === source)!.tip).toBe(
+      st.paths.list.find((p) => p.name === source)!.tip,
+    );
+    expect(await analyst.paths({ action: 'adopt' })).toEqual({ ok: false, error: 'paths adopt needs a name' });
+  });
+
   it('compare answers the session CompareResult verbatim (ancestor + changed sides + row counts); empty refs are a named error', async () => {
     const { analyst, id1 } = await seedTwoPaths();
     const st = await analyst.state();
