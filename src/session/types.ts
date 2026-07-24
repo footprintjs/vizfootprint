@@ -50,7 +50,12 @@ export type GapOp =
   | 'newPathAt'
   | 'compare'
   | 'bringOver'
-  | 'undo';
+  | 'undo'
+  // ── TL-1: the trail lifecycle ──
+  | 'archivePath'
+  | 'restorePath'
+  | 'discardFromHere'
+  | 'adoptPath';
 
 /** One unmet request, filed with a taxonomy code. `detail`/`target` are INERT data (R12). */
 export interface GapRow {
@@ -189,6 +194,18 @@ export interface PathInfo {
   readonly lastTs: number;
   /** True iff HEAD rides this path. */
   readonly active: boolean;
+  /**
+   * TL-1: present (and always `true`) only on an ARCHIVED path — hidden from
+   * the default listing, never deleted. Absent on a visible path, so a
+   * plain listing keeps the shape it always had.
+   */
+  readonly archived?: true;
+}
+
+/** What `paths()` lists — visible paths by default; archived ones are hidden, not gone. */
+export interface PathsListOptions {
+  /** TL-1: also list the archived paths, each flagged `archived: true`. Default false. */
+  readonly includeArchived?: boolean;
 }
 
 /** The refs surface `overview()` exposes (BR-1): names, HEAD, and the ref-event journal. */
@@ -197,10 +214,81 @@ export interface PathsState {
   readonly current: string | null;
   /** The commit id HEAD is detached at (null when attached — or detached pre-commit). */
   readonly detachedAt: string | null;
+  /** The VISIBLE paths (archived ones are hidden here — ask `paths({includeArchived:true})`). */
   readonly list: readonly PathInfo[];
-  /** The ref-event journal: create/advance/switch/rename — auditable, never commits. */
+  /** TL-1: how many paths are archived — hidden, not erased; the statistics still count them. */
+  readonly archived: number;
+  /** The ref-event journal: create/advance/switch/rename/archive/restore/discard — auditable, never commits. */
   readonly events: readonly RefEvent[];
 }
+
+// ── TL-1: the trail lifecycle (archive / restore / discard-from-here / adopt) ──
+
+export type ArchivePathResult =
+  | {
+      readonly ok: true;
+      readonly name: string;
+      /** The tip the archived path keeps (it is still resolvable — hidden, not erased). */
+      readonly tip: string;
+      /** True when HEAD rode this path and therefore detached at its tip. */
+      readonly detached: boolean;
+    }
+  | { readonly ok: false; readonly gap: GapRow };
+
+export type RestorePathResult =
+  | { readonly ok: true; readonly name: string; readonly tip: string }
+  | { readonly ok: false; readonly gap: GapRow };
+
+/**
+ * What `discardFromHere()` did: the path's ref moved back to `at`, and the
+ * abandoned future was KEPT as an archived path named `kept` (tip `keptTip`).
+ * Nothing was deleted — `keptTip` still folds to exactly the same state.
+ */
+export type DiscardResult =
+  | {
+      readonly ok: true;
+      /** The path whose ref moved. */
+      readonly path: string;
+      /** The commit the path now ends at (the new tip). */
+      readonly at: string;
+      /** The system-named archived path holding the abandoned future. */
+      readonly kept: string;
+      /** That path's tip — the commit the discarded line used to end at. */
+      readonly keptTip: string;
+      /** How many steps were hidden (commits after `at`, through `keptTip`). */
+      readonly steps: number;
+    }
+  | { readonly ok: false; readonly gap: GapRow };
+
+/** One replayed step of an {@link InteractionSession.adoptPath} run — applied or honestly skipped. */
+export interface AdoptStep {
+  /** The SOURCE commit this step replays. */
+  readonly commitId: string;
+  readonly applied: boolean;
+  /** What it replayed as (present when applied). */
+  readonly recipe?: PlanRecipe;
+  /** The new commit it landed as here (absent when the replay landed nothing, e.g. a degenerate analysis). */
+  readonly landedAs?: string;
+  /** Commit ids on THIS path that already touched the same state since the common ancestor. */
+  readonly conflicts: readonly string[];
+  /** Why it was not applied — honest, never a silent drop. */
+  readonly skippedReason?: string;
+}
+
+export type AdoptPathResult =
+  | {
+      readonly ok: true;
+      /** The source path adopted from — left completely untouched. */
+      readonly path: string;
+      /** The common ancestor the replay started after (null for disjoint roots). */
+      readonly ancestor: string | null;
+      readonly steps: readonly AdoptStep[];
+      readonly applied: number;
+      readonly skipped: number;
+      /** Every conflict noted across the run (each also stamped into its own landed commit). */
+      readonly conflicts: readonly string[];
+    }
+  | { readonly ok: false; readonly gap: GapRow };
 
 export type SwitchPathResult =
   | { readonly ok: true; readonly name: string; readonly cursor: string }

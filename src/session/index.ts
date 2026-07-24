@@ -32,6 +32,7 @@ export type {
   ColumnFacet,
   // BR-1 named paths + plans
   PathInfo,
+  PathsListOptions,
   PathsState,
   SwitchPathResult,
   RenamePathResult,
@@ -39,6 +40,12 @@ export type {
   CompareSide,
   CompareResult,
   BringOverResult,
+  // TL-1 the trail lifecycle
+  ArchivePathResult,
+  RestorePathResult,
+  DiscardResult,
+  AdoptStep,
+  AdoptPathResult,
   // RP-3 agent-authored charts
   ProposeChartInput,
   ProposeChartResult,

@@ -58,7 +58,10 @@ import {
 } from '../branches/index.js';
 import type { PlanRecipe } from '../branches/index.js';
 import type {
+  AdoptPathResult,
+  AdoptStep,
   AnalysisCommit,
+  ArchivePathResult,
   BranchInfo,
   BringOverResult,
   CellValues,
@@ -69,18 +72,22 @@ import type {
   ColumnFacet,
   CompareResult,
   DeclareAnalysisOptions,
+  DiscardResult,
   DispatchAction,
   DispatchResult,
   FilterRange,
   GapCode,
+  GapOp,
   GapRow,
   NewPathResult,
   Overview,
   PathInfo,
+  PathsListOptions,
   PathsState,
   ProposeChartInput,
   ProposeChartResult,
   RenamePathResult,
+  RestorePathResult,
   SeekResult,
   SessionOptions,
   SwitchPathResult,
@@ -200,8 +207,12 @@ export interface InteractionSession {
 
   // ── named paths (BR-1: refs + HEAD beside the log; journaled ref-events) ────
 
-  /** The NAMED paths: name, tip, step count, last logical timestamp, active flag. */
-  paths(): readonly PathInfo[];
+  /**
+   * The NAMED paths: name, tip, step count, last logical timestamp, active flag.
+   * ARCHIVED paths are hidden here (TL-1) — pass `{ includeArchived: true }` to
+   * list them too, each flagged `archived: true`. Hidden, never erased.
+   */
+  paths(opts?: PathsListOptions): readonly PathInfo[];
 
   /**
    * Switch to a named path: seek to its tip, rebuild the fold there, and make
@@ -244,6 +255,53 @@ export interface InteractionSession {
    * An analysis or annotation commit is honestly not undoable (typed gap).
    */
   undo(commitId: string, opts?: { as?: Actor }): Promise<BringOverResult>;
+
+  // ── the trail lifecycle (TL-1: never erase the record — erase the VIEW) ─────
+
+  /**
+   * HIDE a path: it keeps its name, its tip, and every one of its commits, but
+   * drops out of `paths()`, the pill, and step-nav routing. `compare()` and
+   * `why()` still accept it, and the FDR ledger still counts the tests that
+   * were run on it — hiding a dead end never refunds alpha.
+   *
+   * Archiving the path HEAD rides DETACHES HEAD at that path's tip: you keep
+   * standing where you were, but on no named path, so the next act starts a
+   * fresh named one rather than quietly re-advancing what you just hid. The
+   * last visible path cannot be archived (typed gap).
+   */
+  archivePath(name: string, opts?: { as?: Actor }): ArchivePathResult;
+
+  /** The exact inverse of {@link archivePath} — the path is listed again, unchanged. */
+  restorePath(name: string, opts?: { as?: Actor }): RestorePathResult;
+
+  /**
+   * DISCARD everything after a point on your own path: the path's ref moves
+   * back to `at` (default: the cursor) and the abandoned future is kept as a
+   * system-named ARCHIVED path — one ref-journal transaction, zero deletions.
+   * The old tip still folds to exactly the same state and one restore brings
+   * its name back.
+   *
+   * Which path moves: the one HEAD rides, if `at` is on it; else — while
+   * detached — the single visible path that continues past `at`. Pointing at a
+   * commit that is not on your own line of work is a typed gap (only your own
+   * future is discardable), and so is a fork point with two futures.
+   */
+  discardFromHere(opts?: { at?: string; as?: Actor }): DiscardResult;
+
+  /**
+   * ADOPT another path's work into yours (merge by replay): every step the
+   * source took since the common ancestor is re-planned against where you
+   * stand and re-landed IN ORDER through ordinary dispatch, each as a normal
+   * commit tagged `replayedFrom` (+ `conflicts` when your path already touched
+   * the same state). Steps that cannot be replayed are honestly SKIPPED with a
+   * per-step reason — never silently dropped.
+   *
+   * The source path is left completely untouched (it is not archived — that is
+   * your call afterwards). A replayed analysis genuinely RE-RUNS here and
+   * spends its own alpha, exactly as `bringOver` does: results are never copied
+   * across paths.
+   */
+  adoptPath(name: string, opts?: { as?: Actor }): Promise<AdoptPathResult>;
 
   /** Register a view adapter under a declared view identity (R3). */
   mountView(viewId: string, adapter: ViewAdapter): { ok: true } | { ok: false; gap: GapRow };
@@ -516,10 +574,10 @@ class InteractionSessionImpl implements InteractionSession {
 
   // ── named paths (BR-1: refs + HEAD beside the log; journaled ref-events) ────
 
-  paths(): readonly PathInfo[] {
+  paths(opts: PathsListOptions = {}): readonly PathInfo[] {
     const byId = new Map(this.log.records.map((r) => [r.id, r]));
     const current = this.refs.currentBranch();
-    return Object.entries(this.refs.branches()).map(([name, tip]) => ({
+    return Object.entries(this.refs.branches({ includeArchived: opts.includeArchived === true })).map(([name, tip]) => ({
       name,
       tip,
       steps: this.branchPath(tip).length,
@@ -528,6 +586,8 @@ class InteractionSessionImpl implements InteractionSession {
       // always resolvable.
       lastTs: (byId.get(tip) as CommitRecord).ts,
       active: name === current,
+      // TL-1: flagged only when hidden, so a plain listing keeps its old shape.
+      ...(this.refs.isArchived(name) ? { archived: true as const } : {}),
     }));
   }
 
@@ -565,6 +625,156 @@ class InteractionSessionImpl implements InteractionSession {
     this.seekTo(commitId);
     this._head = commitId;
     return { ok: true, name: res.name, cursor: commitId };
+  }
+
+  // ── the trail lifecycle (TL-1: refs move, commits are forever) ─────────────
+
+  /** File a lifecycle rejection as a typed gap (R14) — never a silent no-op. */
+  private lifecycleGap(op: GapOp, detail: string, target: string): { ok: false; gap: GapRow } {
+    return { ok: false, gap: this.gapLedger.file('guard-failed', op, detail, target) };
+  }
+
+  archivePath(name: string, opts: { as?: Actor } = {}): ArchivePathResult {
+    const res = this.refs.archive(name, opts.as ?? this.defaultActor);
+    if (!res.ok) return this.lifecycleGap('archivePath', res.detail, name);
+    // The cursor does NOT move: hiding a path is a change of VIEW, not of
+    // position — you are still standing exactly where you were standing.
+    return { ok: true, name, tip: res.tip, detached: res.detached };
+  }
+
+  restorePath(name: string, opts: { as?: Actor } = {}): RestorePathResult {
+    const res = this.refs.restore(name, opts.as ?? this.defaultActor);
+    if (!res.ok) return this.lifecycleGap('restorePath', res.detail, name);
+    return { ok: true, name, tip: res.tip };
+  }
+
+  /**
+   * Which path's ref `discardFromHere` would move, or the honest reason none
+   * can. On a named path it is THAT path (and `at` must be on it — only your
+   * own future is discardable); while detached it is the single visible path
+   * that continues past `at`.
+   */
+  private pathToRewind(at: string): { name: string; tip: string } | { detail: string } {
+    const current = this.refs.currentBranch();
+    if (current !== null) {
+      const tip = this.refs.tipOf(current) as string; // an attached HEAD always names a born ref
+      if (!this.branchPath(tip).some((r) => r.id === at)) {
+        return { detail: `commit "${at}" is not on your path "${current}" — only your own future is discardable; switch to the path it lives on first` };
+      }
+      if (tip === at) return { detail: `you are already at the end of "${current}" — there is nothing after here to discard` };
+      return { name: current, tip };
+    }
+    const heirs = Object.entries(this.refs.branches()).filter(
+      ([, tip]) => tip !== at && this.branchPath(tip).some((r) => r.id === at),
+    );
+    if (heirs.length === 0) return { detail: `no path continues past commit "${at}" — there is nothing to discard` };
+    if (heirs.length > 1) {
+      return { detail: `commit "${at}" branches into ${heirs.length} paths (${heirs.map(([n]) => n).join(', ')}) — switch to the one you mean first` };
+    }
+    const [name, tip] = heirs[0] as [string, string];
+    return { name, tip };
+  }
+
+  discardFromHere(opts: { at?: string; as?: Actor } = {}): DiscardResult {
+    const at = opts.at ?? this._cursor;
+    if (at === null) return this.lifecycleGap('discardFromHere', 'there are no steps yet — nothing to discard', '');
+    if (!this.log.records.some((r) => r.id === at)) {
+      return this.lifecycleGap('discardFromHere', `no commit "${at}" to discard from`, at);
+    }
+    const target = this.pathToRewind(at);
+    if ('detail' in target) return this.lifecycleGap('discardFromHere', target.detail, at);
+
+    // The abandoned future is NAMED from the tip it ends at, so it reads back as
+    // itself in the archived list ("discarded-premium-focus"), and is unique.
+    const tipRecord = this.log.records.find((r) => r.id === target.tip) as CommitRecord;
+    const keepAs = uniqueSlug(`discarded-${slugForCommit(tipRecord)}`, (n) => this.refs.has(n));
+    const res = this.refs.discardTo(target.name, at, keepAs, opts.as ?? this.defaultActor);
+    /* v8 ignore next 2 -- refs.discardTo re-checks what pathToRewind + uniqueSlug already guarantee (a live, non-archived ref whose tip differs from `at`, and a free, valid keepAs); the arm is a belt on the ref layer's own contract, unreachable through this method */
+    if (!res.ok) return this.lifecycleGap('discardFromHere', res.detail, target.name);
+
+    // The path now ends here: head AND cursor sit at `at`, fold rebuilt there.
+    this._head = at;
+    this.seekTo(at);
+    const steps = this.branchPath(target.tip).length - this.branchPath(at).length;
+    return { ok: true, path: target.name, at, kept: res.kept, keptTip: res.from, steps };
+  }
+
+  /**
+   * The source path's steps SINCE the common ancestor, oldest→newest, plus that
+   * ancestor. Both chains are root-anchored linear ancestries, so their shared
+   * commits are a PREFIX of the source chain — the last shared one IS the LCA
+   * (null when the two share no root, or when nothing has landed here yet).
+   */
+  private stepsSinceAncestor(sourceTip: string): { ancestor: string | null; steps: CommitRecord[] } {
+    const sourceChain = this.branchPath(sourceTip); // root→tip
+    const onTarget = new Set(this.branchPath(this._cursor).map((r) => r.id));
+    const firstNew = sourceChain.findIndex((r) => !onTarget.has(r.id));
+    const ancestorIdx = firstNew === -1 ? sourceChain.length - 1 : firstNew - 1;
+    return {
+      /* v8 ignore next -- a session-authored log has exactly ONE root (only the first commit has parent null; every later one parents from a non-null cursor), so both chains always share it and `ancestorIdx` is never -1. The `null` mirrors compare()'s honest disjoint-roots case, which only a hand-carried multi-root log could produce. */
+      ancestor: ancestorIdx >= 0 ? (sourceChain[ancestorIdx] as CommitRecord).id : null,
+      steps: firstNew === -1 ? [] : sourceChain.slice(firstNew),
+    };
+  }
+
+  async adoptPath(name: string, opts: { as?: Actor } = {}): Promise<AdoptPathResult> {
+    const sourceTip = this.refs.tipOf(name); // archived paths answer too — adopting from one is fair
+    if (sourceTip === undefined) return this.lifecycleGap('adoptPath', `no path named "${name}"`, name);
+    if (name === this.refs.currentBranch()) {
+      return this.lifecycleGap('adoptPath', `"${name}" is the path you are on — there is nothing to adopt`, name);
+    }
+    const { ancestor, steps } = this.stepsSinceAncestor(sourceTip);
+    // Every plan is measured against where the adopt STARTED, so a conflict
+    // means "your own path already touched this since the fork" — never "an
+    // earlier step of this same replay touched it".
+    const originTip = this._cursor;
+
+    const report: AdoptStep[] = [];
+    for (const step of steps) {
+      if (step.viewId.startsWith(CHART_VIEW_PREFIX)) {
+        // RP-3: a chart registration is a proposal, not a state change — it has
+        // to pass its own governed pipeline here, so replaying its commit would
+        // be a forgery. Honest skip; propose it again on this path.
+        report.push({
+          commitId: step.id,
+          applied: false,
+          conflicts: [],
+          skippedReason: 'an agent-authored chart is proposed, not replayed — propose it again on this path',
+        });
+        continue;
+      }
+      const plan = planBringOver(this.log.records, step.id, originTip);
+      /* v8 ignore next 4 -- planBringOver rejects ONLY unknown commit ids; `step.id` came from this log's own ancestor chain and `originTip` is the live cursor, so both are always present — this arm is a type guard, never a reachable path */
+      if (!plan.ok) {
+        report.push({ commitId: step.id, applied: false, conflicts: [], skippedReason: plan.detail });
+        continue;
+      }
+      const landed = await this.executePlan(plan, { replayedFrom: step.id }, 'adoptPath', opts.as);
+      if (!landed.ok) {
+        report.push({ commitId: step.id, applied: false, conflicts: plan.conflicts, skippedReason: landed.gap.detail });
+        continue;
+      }
+      report.push({
+        commitId: step.id,
+        applied: true,
+        recipe: plan.recipe,
+        // Absent when the replay honestly landed nothing (a degenerate analysis
+        // re-run spends no wealth and commits nothing — R14).
+        ...(landed.commit ? { landedAs: landed.commit.id } : {}),
+        conflicts: plan.conflicts,
+      });
+    }
+
+    const applied = report.filter((s) => s.applied).length;
+    return {
+      ok: true,
+      path: name,
+      ancestor,
+      steps: report,
+      applied,
+      skipped: report.length - applied,
+      conflicts: [...new Set(report.flatMap((s) => s.conflicts))],
+    };
   }
 
   /**
@@ -638,7 +848,7 @@ class InteractionSessionImpl implements InteractionSession {
   private async executePlan(
     plan: { readonly recipe: PlanRecipe; readonly conflicts: readonly string[] },
     tag: { replayedFrom?: string; revertOf?: string },
-    op: 'bringOver' | 'undo',
+    op: 'bringOver' | 'undo' | 'adoptPath',
     as: Actor | undefined,
   ): Promise<BringOverResult> {
     const actor = as ?? this.defaultActor;
@@ -666,7 +876,7 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** Map a plan recipe onto the ordinary dispatch action that lands it. */
-  private actionForRecipe(recipe: PlanRecipe, cause: Cause, op: 'bringOver' | 'undo'): DispatchAction | { gap: GapRow } {
+  private actionForRecipe(recipe: PlanRecipe, cause: Cause, op: 'bringOver' | 'undo' | 'adoptPath'): DispatchAction | { gap: GapRow } {
     switch (recipe.apply) {
       case 'selection':
         // D30: a cell recipe re-lands the COMPOUND (its pair rides the recipe).
@@ -1690,6 +1900,10 @@ class InteractionSessionImpl implements InteractionSession {
       current: this.refs.currentBranch(),
       detachedAt: 'detached' in refHead ? refHead.detached : null,
       list: this.paths(),
+      // TL-1: archived paths are HIDDEN from `list`, so say how many there are —
+      // an agent must be able to see that dead ends exist without listing them,
+      // and the FDR ledger below still counts every test they ran.
+      archived: this.refs.archivedNames().length,
       events: [...this.refs.events()],
     };
 
