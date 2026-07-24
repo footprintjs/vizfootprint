@@ -77,6 +77,16 @@ async function maybeElementShot(page: Page, selector: string, path: string): Pro
   if (process.env.UPDATE_SCREENSHOTS) await page.locator(selector).screenshot({ path });
 }
 
+/**
+ * Close a VizModal by its OWN ✕ rather than Escape — robust when the action that
+ * just ran removed the focused element (focus falls to `<body>`, outside the
+ * modal, so a keyboard Escape never reaches its handler).
+ */
+async function closeModal(page: Page, modalName: string): Promise<void> {
+  await page.locator(`[data-vzf-modal="${modalName}"] [aria-label="Close"]`).click();
+  await page.waitForSelector(`[data-vzf-modal="${modalName}"]`, { state: 'detached' });
+}
+
 /** Zero page/shell scroll — the cockpit invariant, asserted at any viewport. */
 async function expectNoPageOrShellScroll(page: Page): Promise<void> {
   const m = await page.evaluate(() => {
@@ -666,6 +676,135 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     expect((await page.locator('[data-vzf-modal="report-commits"] .vzf-conflict').last().textContent()) ?? '').toContain('overridden');
     await page.keyboard.press('Escape');
     await page.waitForSelector('[data-vzf-modal="report-commits"]', { state: 'detached' });
+    await expectNoPageOrShellScroll(page);
+  }, 30_000);
+
+  it('TL-1: archiving a dead end hides it from Paths and leaves the FDR ledger line UNCHANGED', async () => {
+    // the ledger LINE is the alpha-unchanged assertion, surfaced in the UI itself
+    await page.locator('[data-report="ledger"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-ledger"] [data-vzf="fdr-ledger"]');
+    const ledgerBefore = (await page.locator('[data-vzf-modal="report-ledger"] .vzf-ledger-head').textContent()) ?? '';
+    expect(ledgerBefore).toContain('tests=');
+    await closeModal(page, 'report-ledger');
+
+    await page.locator('[data-vzf="branch-pill"]').click();
+    await page.waitForSelector('[data-vzf-modal="paths"] [role="dialog"]');
+    const visibleBefore = await page.locator('[data-vzf="paths-list"] > [data-path]').count();
+    // one click ASKS; the confirm states the rule verbatim
+    await page.locator('[data-vzf-modal="paths"] [data-path="my-fork"] [data-vzf="path-archive"]').click();
+    expect((await page.locator('[data-vzf="path-archive-confirm"]').textContent()) ?? '').toContain(
+      'Hidden, not erased — the statistics remember.',
+    );
+    await page.locator('[data-vzf="path-archive-yes"]').click();
+
+    // the path leaves the list and turns up behind the reveal, greyed, restorable
+    await page.waitForSelector('[data-vzf-modal="paths"] [data-path="my-fork"]', { state: 'detached' });
+    expect(await page.locator('[data-vzf="paths-list"] > [data-path]').count()).toBe(visibleBefore - 1);
+    const toggle = page.locator('[data-vzf="paths-archived-toggle"]');
+    expect((await toggle.textContent()) ?? '').toContain('show archived (1)');
+    await toggle.click();
+    await page.waitForSelector('[data-path="my-fork"][data-archived="true"]');
+    expect(await page.locator('[data-path="my-fork"] [data-vzf="path-restore"]').count()).toBe(1);
+    await page.waitForTimeout(200);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-archived-paths.png'), fullPage: false });
+    await closeModal(page, 'paths');
+
+    // …and the statistics remembered: the ledger line is byte-identical
+    await page.locator('[data-report="ledger"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-ledger"] [data-vzf="fdr-ledger"]');
+    expect((await page.locator('[data-vzf-modal="report-ledger"] .vzf-ledger-head').textContent()) ?? '').toBe(ledgerBefore);
+    await closeModal(page, 'report-ledger');
+    await expectNoPageOrShellScroll(page);
+  }, 30_000);
+
+  it('TL-1: the archived lane is unlabelled until revealed — its STEPS were drawn all along', async () => {
+    await page.locator('[data-report="branches"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-branches"] [data-vzf="branch-map"]');
+    const nodesAll = await page.locator('[data-vzf-modal="report-branches"] g.vzf-bm-node').count();
+    expect(await page.locator('[data-lane-label="my-fork"]').count()).toBe(0); // the NAME is hidden…
+    await page.locator('[data-vzf="bm-archived-toggle"] input').click();
+    const label = page.locator('[data-lane-label="my-fork"]');
+    await label.waitFor();
+    expect(await label.getAttribute('data-archived')).toBe('true');
+    // …while every step stayed on screen: hiding a path never removes a commit
+    expect(await page.locator('[data-vzf-modal="report-branches"] g.vzf-bm-node').count()).toBe(nodesAll);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-archived-lanes.png'), fullPage: false });
+    await closeModal(page, 'report-branches');
+  }, 30_000);
+
+  it('TL-1: "Discard from here…" confirms with the honesty line, rewinds the path, and the dropped future stays restorable', async () => {
+    await page.locator('[data-report="ledger"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-ledger"] [data-vzf="fdr-ledger"]');
+    const ledgerBefore = (await page.locator('[data-vzf-modal="report-ledger"] .vzf-ledger-head').textContent()) ?? '';
+    await closeModal(page, 'report-ledger');
+
+    await page.locator('[data-report="branches"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-branches"] [data-vzf="branch-map"]');
+    // the FIRST commit of the story: main's own future follows it
+    await page.locator('[data-vzf-modal="report-branches"] g.vzf-bm-node').first().click();
+    await page.waitForSelector('[data-vzf="ctx-menu"]');
+    await page.locator('[data-vzf="ctx-menu"] [data-ctx="discard-from"]').click();
+
+    await page.waitForSelector('[data-vzf-modal="discard"] [role="dialog"]');
+    expect((await page.locator('[data-vzf="discard-honesty"]').textContent()) ?? '').toBe(
+      'Hidden, not erased — the statistics remember.',
+    );
+    expect((await page.locator('[data-vzf="discard-body"]').textContent()) ?? '').toContain('never refunded');
+    await page.waitForTimeout(250); // let the glass entrance animation land before shooting
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-discard-confirm.png'), fullPage: false });
+    const nodesBefore = await page.locator('[data-vzf-modal="report-branches"] g.vzf-bm-node').count();
+    await page.locator('[data-vzf="discard-confirm"]').click();
+    await page.waitForSelector('[data-vzf-modal="discard"]', { state: 'detached' });
+
+    // FOLD-PROOF, on screen: not one step left the map
+    await page.waitForFunction(
+      (n) => document.querySelectorAll('[data-vzf-modal="report-branches"] g.vzf-bm-node').length === n,
+      nodesBefore,
+      { timeout: 8000 },
+    );
+    await closeModal(page, 'report-branches');
+
+    // the dropped future is an archived path you can bring back
+    await page.locator('[data-vzf="branch-pill"]').click();
+    await page.waitForSelector('[data-vzf-modal="paths"] [role="dialog"]');
+    if ((await page.locator('[data-vzf="paths-archived-toggle"]').getAttribute('aria-expanded')) !== 'true') {
+      await page.locator('[data-vzf="paths-archived-toggle"]').click();
+    }
+    const discarded = page.locator('[data-path^="discarded-"]');
+    await discarded.first().waitFor();
+    const name = await discarded.first().getAttribute('data-path');
+    await discarded.first().locator('[data-vzf="path-restore"]').click();
+    await page.waitForSelector(`[data-path="${name}"]:not([data-archived])`, { timeout: 8000 });
+    await closeModal(page, 'paths');
+
+    // the ledger line never moved
+    await page.locator('[data-report="ledger"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-ledger"] [data-vzf="fdr-ledger"]');
+    expect((await page.locator('[data-vzf-modal="report-ledger"] .vzf-ledger-head').textContent()) ?? '').toBe(ledgerBefore);
+    await closeModal(page, 'report-ledger');
+    await expectNoPageOrShellScroll(page);
+  }, 30_000);
+
+  it('TL-1: "Adopt this path" replays another path\'s work here and reports the counts', async () => {
+    await page.locator('[data-report="branches"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-branches"] [data-vzf="branch-map"]');
+    // the restored path's tip is another path's tip — adopting is offered there
+    await page.locator('[data-vzf-modal="report-branches"] g.vzf-bm-node').last().click();
+    await page.waitForSelector('[data-vzf="ctx-menu"]');
+    const adopt = page.locator('[data-vzf="ctx-menu"] [data-ctx="adopt-path"]');
+    expect(await adopt.count()).toBe(1);
+    await adopt.click();
+
+    const toast = page.locator('[data-vzf="adopt-toast"]');
+    await toast.waitFor();
+    expect(await toast.getAttribute('data-ok')).toBe('true');
+    expect((await toast.textContent()) ?? '').toContain('landed here');
+    expect((await toast.textContent()) ?? '').toContain('That path is untouched.');
+    await page.waitForTimeout(200);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-adopt-toast.png'), fullPage: false });
+    await page.locator('[data-vzf="adopt-toast-dismiss"]').click();
+    await page.waitForSelector('[data-vzf="adopt-toast"]', { state: 'detached' });
+    await closeModal(page, 'report-branches');
     await expectNoPageOrShellScroll(page);
   }, 30_000);
 
