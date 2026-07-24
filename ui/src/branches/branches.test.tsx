@@ -24,6 +24,7 @@ const TWO_PATHS: PathsView = {
     { name: 'main', tip: '3', steps: 3, lastTs: 2, active: true },
     { name: 'premium', tip: '5', steps: 2, lastTs: 4, active: false },
   ],
+  archivedList: [],
   events: [
     { type: 'create', name: 'main', at: '1', auto: true, ts: 0 },
     { type: 'create', name: 'premium', at: '5', auto: true, ts: 1 },

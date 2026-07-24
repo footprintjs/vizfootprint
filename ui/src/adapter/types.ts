@@ -102,6 +102,11 @@ export interface PathView {
   readonly lastTs: number;
   /** True iff this is the path you are currently on. */
   readonly active: boolean;
+  /**
+   * TL-1: present (always `true`) only on an ARCHIVED path — hidden from the
+   * default list, its steps never deleted. Absent on a visible path.
+   */
+  readonly archived?: true;
 }
 
 /**
@@ -113,7 +118,19 @@ export type PathEventView =
   | { readonly type: 'create'; readonly name: string; readonly at: string; readonly auto: boolean; readonly ts: number }
   | { readonly type: 'advance'; readonly name: string; readonly at: string; readonly ts: number }
   | { readonly type: 'switch'; readonly to: string | null; readonly at: string | null; readonly ts: number }
-  | { readonly type: 'rename'; readonly from: string; readonly to: string; readonly ts: number };
+  | { readonly type: 'rename'; readonly from: string; readonly to: string; readonly ts: number }
+  // ── TL-1 lifecycle events — each carries the principal that asked for it ──
+  | { readonly type: 'archive'; readonly name: string; readonly at: string; readonly by: string; readonly ts: number }
+  | { readonly type: 'restore'; readonly name: string; readonly at: string; readonly by: string; readonly ts: number }
+  | {
+      readonly type: 'discard';
+      readonly name: string;
+      readonly from: string;
+      readonly to: string;
+      readonly kept: string;
+      readonly by: string;
+      readonly ts: number;
+    };
 
 /** The named-paths surface (BR-1): which path you are on (or detached), the list, the journal. */
 export interface PathsView {
@@ -121,14 +138,21 @@ export interface PathsView {
   readonly current: string | null;
   /** The commit you are detached at (null when on a named path — or before any commit exists). */
   readonly detachedAt: string | null;
+  /** The VISIBLE paths. Archived ones live in {@link PathsView.archivedList}. */
   readonly list: readonly PathView[];
+  /**
+   * TL-1: the ARCHIVED paths (hidden from `list`, never erased) — each flagged
+   * `archived: true`. The PathsModal reveals them behind a "show archived"
+   * toggle; the BranchMap greys their lanes.
+   */
+  readonly archivedList: readonly PathView[];
   /** The path journal — the ForkToast watches this for auto-forks. */
   readonly events: readonly PathEventView[];
 }
 
 /** An empty, render-safe paths surface. */
 export function emptyPaths(): PathsView {
-  return { current: null, detachedAt: null, list: [], events: [] };
+  return { current: null, detachedAt: null, list: [], archivedList: [], events: [] };
 }
 
 // ── compare (two positions side by side) ────────────────────────────────────────
@@ -328,6 +352,34 @@ export interface SessionViewState {
 
 /** The verbatim honesty line (single-sourced here). */
 export const HONESTY_LINE = 'alpha spent on abandoned branches is never refunded';
+
+/**
+ * TL-1 — the verbatim line every HIDING action states, on the confirm dialog
+ * and in the toast. Stated locally (the HONESTY_LINE precedent) so a POLL
+ * consumer needs no src value import; a parity test pins it byte-for-byte
+ * against `src/agent`'s `HIDDEN_NOT_ERASED`, the same words the agent reads.
+ */
+export const HIDDEN_NOT_ERASED = 'Hidden, not erased — the statistics remember.';
+
+/**
+ * What an `adoptPath` run did, in the numbers a person needs: how many of the
+ * other path's steps landed here, how many were honestly skipped (with their
+ * reasons), and how many collided with work this path already did. A refused
+ * adopt carries its `reason` instead — never a silent nothing.
+ */
+export interface AdoptSummaryView {
+  readonly ok: boolean;
+  /** The path adopted from (left untouched by the run). */
+  readonly path: string;
+  readonly applied: number;
+  readonly skipped: number;
+  /** How many of this path's own steps the replay collided with. */
+  readonly conflicts: number;
+  /** One honest line per skipped step. */
+  readonly skippedReasons: readonly string[];
+  /** Present only when the adopt was refused outright. */
+  readonly reason?: string;
+}
 
 /** An empty, render-safe state (before the first snapshot resolves). */
 export function emptyState(defaultTable = 'data'): SessionViewState {

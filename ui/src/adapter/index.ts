@@ -3,6 +3,7 @@ export {
   sessionSource,
   pollingSource,
   mapPollState,
+  summarizeAdopt,
   LAYOUT_DASHBOARD_VIEW_ID,
 } from './sessionView.js';
 export type {
@@ -15,6 +16,8 @@ export type {
   SessionLike,
   RawPollState,
   RawPollPaths,
+  RawPath,
+  RawAdoptResult,
   RawChart,
 } from './sessionView.js';
 
@@ -32,8 +35,9 @@ export {
 } from './stepNav.js';
 export type { StepNode, BranchLayout, LaidOutNode, LaidOutEdge } from './stepNav.js';
 
-export { HONESTY_LINE, emptyState, emptyPaths, defaultLayout, parseLayout } from './types.js';
+export { HONESTY_LINE, HIDDEN_NOT_ERASED, emptyState, emptyPaths, defaultLayout, parseLayout } from './types.js';
 export type {
+  AdoptSummaryView,
   SessionViewState,
   CommitView,
   ViewView,

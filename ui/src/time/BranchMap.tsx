@@ -17,6 +17,15 @@
  *     FDR ledger never refunds alpha). Esc or a click-away closes; the first
  *     item takes focus on open.
  *   - Without those handlers, a click still seeks — the pre-BR-2 behavior.
+ *
+ * TL-1 additions:
+ *   - ARCHIVED lanes are hidden by default: pass the archived paths and they get
+ *     no lane label until `showArchived`, which greys them. The STEPS themselves
+ *     are always drawn — nothing is erased, only the name is hidden.
+ *   - the menu gains *Discard from here…* (own-path only; it opens the caller's
+ *     confirm, never acting straight away) and *Adopt this path* (offered on the
+ *     TIP of another path, since adopting is a path-level act, not a step-level
+ *     one). Both disable WITH the reason when they cannot apply.
  */
 import { useEffect, useRef, useState } from 'react';
 import type { CommitView, CheckpointView, PathView } from '../adapter/types.js';
@@ -29,6 +38,14 @@ export interface BranchMapProps {
   readonly checkpoints?: readonly CheckpointView[];
   /** Named lane labels (BR-2): each path's name is drawn at its tip's lane. */
   readonly paths?: readonly PathView[];
+  /**
+   * TL-1: the ARCHIVED paths (`state.paths.archivedList`). Their lanes carry no
+   * label unless `showArchived`; their steps are drawn either way — hidden means
+   * hidden from the NAMES, never erased from the record.
+   */
+  readonly archivedPaths?: readonly PathView[];
+  /** TL-1: reveal the archived lane labels, greyed. Default false. */
+  readonly showArchived?: boolean;
   readonly onSeek?: (commitId: string) => void;
   /** Start a NEW named path at this commit (context-menu action). */
   readonly onNewPath?: (commitId: string) => void;
@@ -38,6 +55,14 @@ export interface BranchMapProps {
   readonly onUndo?: (commitId: string) => void;
   /** Compare this commit with the current position (context-menu action). */
   readonly onCompare?: (commitId: string) => void;
+  /**
+   * TL-1: ASK to discard everything after this step (the caller opens its own
+   * confirm — this menu never discards directly). Offered only on a step of the
+   * path you are on, and never on its tip.
+   */
+  readonly onDiscardFrom?: (commitId: string) => void;
+  /** TL-1: adopt another path's work into yours — offered on that path's TIP. */
+  readonly onAdoptPath?: (name: string) => void;
   readonly className?: string;
 }
 
@@ -64,10 +89,16 @@ interface MenuItem {
 }
 
 export function BranchMap(props: BranchMapProps): JSX.Element {
-  const { commits, cursor, head, checkpoints = [], paths = [], onSeek } = props;
+  const { commits, cursor, head, checkpoints = [], paths = [], archivedPaths = [], showArchived = false, onSeek } = props;
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const hasMenu = props.onNewPath !== undefined || props.onBringOver !== undefined || props.onUndo !== undefined || props.onCompare !== undefined;
+  const hasMenu =
+    props.onNewPath !== undefined ||
+    props.onBringOver !== undefined ||
+    props.onUndo !== undefined ||
+    props.onCompare !== undefined ||
+    props.onDiscardFrom !== undefined ||
+    props.onAdoptPath !== undefined;
 
   // focus the first enabled item when the menu opens (keyboard path)
   useEffect(() => {
@@ -81,9 +112,16 @@ export function BranchMap(props: BranchMapProps): JSX.Element {
   const pos = new Map(nodes.map((n) => [n.node.id, n]));
   const byId = new Map(commits.map((c) => [c.id, c]));
   const ckptAt = new Map(checkpoints.filter((c) => c.commitId).map((c) => [c.commitId!, c.label]));
-  // lane labels: only refs whose tip is actually drawn (a stale name can't crash the map)
-  const laneLabels = paths.filter((p) => pos.has(p.tip));
+  // lane labels: only refs whose tip is actually drawn (a stale name can't crash
+  // the map). TL-1: the archived ones join the list ONLY when revealed — their
+  // steps are always drawn, just unnamed by default.
+  const named = showArchived ? [...paths, ...archivedPaths] : paths;
+  const laneLabels = named.filter((p) => pos.has(p.tip));
   const labelSpace = laneLabels.length > 0 ? Math.max(...laneLabels.map((p) => p.name.length)) * 7.5 + 24 : 0;
+  /** The path HEAD rides — adopting it into itself is the one thing that cannot work. */
+  const activePathName = paths.find((p) => p.active)?.name ?? null;
+  /** Every path (archived included) whose tip is this commit — the adopt targets. */
+  const pathAtTip = (id: string): PathView | undefined => [...paths, ...archivedPaths].find((p) => p.tip === id);
 
   const W = PADX * 2 + maxDepth * DX + 70 + labelSpace;
   const H = PADY * 2 + maxLane * DY + 16;
@@ -122,6 +160,34 @@ export function BranchMap(props: BranchMapProps): JSX.Element {
             ? [{ id: 'undo', text: 'Undo this step', onPick: () => props.onUndo!(open.id), disabledReason: undoBlockReason(open) }]
             : []),
           ...(props.onCompare !== undefined ? [{ id: 'compare', text: 'Compare with current', onPick: () => props.onCompare!(open.id) }] : []),
+          // TL-1: discarding only ever applies to YOUR OWN future, and never at
+          // the end of it. This only ASKS — the caller opens the confirm.
+          ...(props.onDiscardFrom !== undefined
+            ? [
+                {
+                  id: 'discard-from',
+                  text: 'Discard from here…',
+                  onPick: () => props.onDiscardFrom!(open.id),
+                  disabledReason: !open.onBranch
+                    ? 'this step is not on the line of work you are on — only your own future is discardable'
+                    : open.id === head
+                      ? 'your path already ends here — there is nothing after it to discard'
+                      : null,
+                },
+              ]
+            : []),
+          // TL-1: adopting is a PATH-level act, so it is offered on a path's tip.
+          ...(props.onAdoptPath !== undefined && pathAtTip(open.id) !== undefined
+            ? [
+                {
+                  id: 'adopt-path',
+                  text: `Adopt this path${showArchived && pathAtTip(open.id)!.archived === true ? ' (archived)' : ''}`,
+                  onPick: () => props.onAdoptPath!(pathAtTip(open.id)!.name),
+                  disabledReason:
+                    pathAtTip(open.id)!.name === activePathName ? 'this is the path you are already on' : null,
+                },
+              ]
+            : []),
         ];
 
   const activate = (id: string): void => {
@@ -142,12 +208,13 @@ export function BranchMap(props: BranchMapProps): JSX.Element {
         {laneLabels.map((p) => (
           <text
             key={p.name}
-            className={`vzf-bm-lane-label${p.active ? ' vzf-active' : ''}`}
+            className={`vzf-bm-lane-label${p.active ? ' vzf-active' : ''}${p.archived === true ? ' vzf-archived' : ''}`}
             data-lane-label={p.name}
+            data-archived={p.archived === true ? 'true' : undefined}
             x={xOf(p.tip) + R + 8}
             y={yOf(p.tip) + 4}
           >
-            ⎇ {p.name}
+            {p.archived === true ? '🗄' : '⎇'} {p.name}
           </text>
         ))}
         {commits.map((c) => {

@@ -272,6 +272,32 @@ describe('createSessionView — in-process session source', () => {
         pathCalls.push({ op: 'undo', commitId, as: opts?.as });
         return { ok: true } as unknown as ReturnType<SessionLike['undo']>;
       },
+      // ── TL-1 lifecycle: the four ACTIONS are recorded (so routing is
+      // assertable); `paths` is a READ the snapshot mapper makes, not an act. ──
+      paths: () => [{ name: 'dead-end', tip: '9', steps: 2, lastTs: 3, active: false, archived: true as const }],
+      archivePath: (name, opts) => {
+        pathCalls.push({ op: 'archive', name, as: opts?.as });
+        return { ok: true, name, tip: '9', detached: false };
+      },
+      restorePath: (name, opts) => {
+        pathCalls.push({ op: 'restore', name, as: opts?.as });
+        return { ok: true, name, tip: '9' };
+      },
+      discardFromHere: (opts) => {
+        pathCalls.push({ op: 'discard', at: opts?.at, as: opts?.as });
+        return { ok: true, path: 'main', at: opts?.at ?? null, kept: 'discarded-x', keptTip: '3', steps: 1 };
+      },
+      adoptPath: (name, opts) => {
+        pathCalls.push({ op: 'adopt', name, as: opts?.as });
+        return {
+          ok: true,
+          path: name,
+          applied: 2,
+          skipped: 1,
+          conflicts: ['c1'],
+          steps: [{ applied: true }, { applied: true }, { applied: false, skippedReason: 'a chart is proposed, not replayed' }],
+        };
+      },
     };
   }
 
@@ -377,6 +403,37 @@ describe('createSessionView — in-process session source', () => {
       { op: 'bringOver', commitId: '2', as: 'agent' },
       { op: 'undo', commitId: '2', as: 'agent' },
     ]);
+    view.dispose();
+  });
+
+  it('TL-1: archive / restore / discard / adopt route to the session as the configured principal', async () => {
+    const session = fakeSession();
+    const view = createSessionView(sessionSource(session), { as: 'user' });
+    await view.refresh();
+    await view.archivePath('dead-end');
+    await view.restorePath('dead-end');
+    await view.discardFromHere('1');
+    await view.discardFromHere(); // omitted = from the cursor
+    const summary = await view.adoptPath('premium');
+
+    expect(session.pathCalls).toEqual([
+      { op: 'archive', name: 'dead-end', as: 'user' },
+      { op: 'restore', name: 'dead-end', as: 'user' },
+      { op: 'discard', at: '1', as: 'user' },
+      { op: 'discard', at: undefined, as: 'user' },
+      { op: 'adopt', name: 'premium', as: 'user' },
+    ]);
+    // the adopt ANSWER is summarized for the UI, reasons and all
+    expect(summary).toEqual({
+      ok: true,
+      path: 'premium',
+      applied: 2,
+      skipped: 1,
+      conflicts: 1,
+      skippedReasons: ['a chart is proposed, not replayed'],
+    });
+    // the session's archived rows ride the snapshot for the modal's reveal
+    expect(view.getState().paths.archivedList.map((p) => p.name)).toEqual(['dead-end']);
     view.dispose();
   });
 
@@ -504,7 +561,7 @@ describe('createSessionView — paths actions over a POLL source (the BR-3 endpo
     const { impl } = fakeFetch(); // RAW has no `paths`
     const view = createSessionView(pollingSource({ fetchImpl: impl }));
     await view.refresh();
-    expect(view.getState().paths).toEqual({ current: null, detachedAt: null, list: [], events: [] });
+    expect(view.getState().paths).toEqual({ current: null, detachedAt: null, list: [], archivedList: [], events: [] });
     view.dispose();
   });
 
@@ -512,7 +569,7 @@ describe('createSessionView — paths actions over a POLL source (the BR-3 endpo
     const impl = vi.fn(async () => ({ ok: true, json: async () => ({ ...RAW, paths: {} }) }) as unknown as Response);
     const view = createSessionView(pollingSource({ fetchImpl: impl as unknown as typeof fetch }));
     await view.refresh();
-    expect(view.getState().paths).toEqual({ current: null, detachedAt: null, list: [], events: [] });
+    expect(view.getState().paths).toEqual({ current: null, detachedAt: null, list: [], archivedList: [], events: [] });
     view.dispose();
   });
 });

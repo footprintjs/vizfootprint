@@ -6,3 +6,8 @@ export { CompareModal } from './CompareModal.js';
 export type { CompareModalProps } from './CompareModal.js';
 export { ForkToast } from './ForkToast.js';
 export type { ForkToastProps } from './ForkToast.js';
+// ── TL-1: the trail lifecycle ──
+export { DiscardModal } from './DiscardModal.js';
+export type { DiscardModalProps } from './DiscardModal.js';
+export { AdoptToast } from './AdoptToast.js';
+export type { AdoptToastProps } from './AdoptToast.js';

@@ -40,12 +40,14 @@ import {
   HONESTY_LINE,
   emptyState,
   emptyPaths,
+  type AdoptSummaryView,
   type SessionViewState,
   type CommitView,
   type ViewView,
   type ColumnView,
   type SelectionView,
   type BranchView,
+  type PathView,
   type PathsView,
   type PathEventView,
   type CompareView,
@@ -80,9 +82,43 @@ export interface SessionLike {
   compare(aRef: string, bRef: string): Promise<CompareResult> | CompareResult;
   bringOver(commitId: string, opts?: { as?: Actor }): Promise<BringOverResult> | BringOverResult;
   undo(commitId: string, opts?: { as?: Actor }): Promise<BringOverResult> | BringOverResult;
+  // ── the trail lifecycle (TL-1) — hiding and rewinding, never deleting ──
+  /** The archived paths are needed for the "show archived" reveal, so read the FULL list too. */
+  paths(opts?: { includeArchived?: boolean }): readonly RawPath[];
+  archivePath(name: string, opts?: { as?: Actor }): unknown;
+  restorePath(name: string, opts?: { as?: Actor }): unknown;
+  discardFromHere(opts?: { at?: string; as?: Actor }): unknown;
+  adoptPath(name: string, opts?: { as?: Actor }): Promise<RawAdoptResult> | RawAdoptResult;
   /** RP-3: agent-authored charts (with their gated specs). Optional — a pre-RP-3 session simply has none. */
   charts?(): readonly RawChart[];
   readonly log: { readonly records: readonly CommitRecord[] };
+}
+
+/** One path row as either source serializes it (src `PathInfo` / its `/api/state` JSON). */
+export interface RawPath {
+  readonly name: string;
+  readonly tip: string;
+  readonly steps: number;
+  readonly lastTs: number;
+  readonly active: boolean;
+  /** TL-1: present (true) only on an archived path. */
+  readonly archived?: true;
+}
+
+/**
+ * What an `adoptPath` run answers with (src `AdoptPathResult`, or the same JSON
+ * off the endpoint). Read structurally so a poll consumer needs no src import.
+ */
+export interface RawAdoptResult {
+  readonly ok: boolean;
+  readonly path?: string;
+  readonly applied?: number;
+  readonly skipped?: number;
+  readonly conflicts?: readonly string[];
+  readonly steps?: readonly { readonly applied: boolean; readonly skippedReason?: string }[];
+  readonly gap?: { readonly detail?: string };
+  /** A demo server's own transport-level refusal (never a session gap). */
+  readonly error?: string;
 }
 
 /** The wire shape of one agent-authored chart (src `ChartView`, or its `/api/state` JSON). */
@@ -124,7 +160,13 @@ export interface RawPollState {
 export interface RawPollPaths {
   readonly current?: string | null;
   readonly detachedAt?: string | null;
-  readonly list?: readonly { name: string; tip: string; steps: number; lastTs: number; active: boolean }[];
+  readonly list?: readonly RawPath[];
+  /**
+   * TL-1: the ARCHIVED paths, flagged. A server serializes
+   * `session.paths({includeArchived:true})` here (the hidden rows the modal
+   * reveals); absent on a pre-TL-1 server, which simply has none.
+   */
+  readonly archivedList?: readonly RawPath[];
   readonly events?: readonly PathEventView[];
 }
 interface RawPollCommit {
@@ -157,10 +199,20 @@ export interface SessionSourceInput {
  *   POST paths      → { action: 'switch', name }
  *                   | { action: 'rename', from, to }
  *                   | { action: 'new', commitId, name? }
+ *                   ── TL-1, the trail lifecycle (all on the SAME endpoint) ──
+ *                   | { action: 'archive', name }
+ *                   | { action: 'restore', name }
+ *                   | { action: 'discard', commitId? }   // omitted = the cursor
+ *                   | { action: 'adopt', name }          // the RESPONSE body is
+ *                     the session's AdoptPathResult JSON, verbatim (the only
+ *                     lifecycle action whose answer the UI reads back)
  *   POST compare    → { a, b } (path names or commit ids); the RESPONSE body is
  *                     the session's CompareResult JSON, verbatim
  *   POST bringOver  → { commitId }
  *   POST undo       → { commitId }
+ *
+ * `/api/state`'s `paths` slice gains `archivedList` (the source's
+ * `paths({includeArchived:true})` rows) so the modal can reveal the hidden ones.
  */
 export interface PollEndpoints {
   readonly state: string;
@@ -373,14 +425,40 @@ function mapColumns(columns: Readonly<Record<string, readonly { field: string; t
  * `/api/state` JSON. Defensive: a source that predates BR-1 simply has no
  * paths, and the UI renders the honest empty surface instead of crashing.
  */
+function mapPath(p: RawPath): PathView {
+  return {
+    name: p.name,
+    tip: p.tip,
+    steps: p.steps,
+    lastTs: p.lastTs,
+    active: p.active,
+    ...(p.archived === true ? { archived: true as const } : {}),
+  };
+}
+
 function mapPaths(raw: RawPollPaths | undefined): PathsView {
   if (!raw) return emptyPaths();
   return {
     current: raw.current ?? null,
     detachedAt: raw.detachedAt ?? null,
-    list: (raw.list ?? []).map((p) => ({ name: p.name, tip: p.tip, steps: p.steps, lastTs: p.lastTs, active: p.active })),
+    list: (raw.list ?? []).map(mapPath),
+    archivedList: archivedRows(raw.archivedList),
     events: [...(raw.events ?? [])],
   };
+}
+
+/**
+ * TL-1 — keep ONLY the rows a source flagged `archived`. Both sources hand over
+ * a FULL listing (visible rows included), so this filter is what makes hidden
+ * actually hidden by default.
+ */
+function archivedRows(rows: readonly RawPath[] | undefined): PathView[] {
+  return (rows ?? []).filter((p) => p.archived === true).map(mapPath);
+}
+
+/** Attach the archived rows to an already-mapped paths surface (the session source). */
+function withArchived(paths: PathsView, rows: readonly RawPath[]): PathsView {
+  return { ...paths, archivedList: archivedRows(rows) };
 }
 
 function mapGaps(gaps: readonly unknown[] | undefined): GapView[] {
@@ -408,6 +486,35 @@ function mapCharts(charts: readonly RawChart[] | undefined): ChartCellView[] {
     authoredBy: c.authoredBy,
     ledgerStep: c.ledgerStep,
   }));
+}
+
+/**
+ * TL-1 — turn an `adoptPath` answer into the numbers a person reads: how many
+ * steps landed, how many were honestly skipped (and why), how many collided.
+ * A refusal keeps its reason (the session's gap detail, or a transport error) —
+ * the UI must never show "adopted" when nothing happened.
+ */
+export function summarizeAdopt(name: string, raw: RawAdoptResult): AdoptSummaryView {
+  if (raw.ok !== true) {
+    return {
+      ok: false,
+      path: name,
+      applied: 0,
+      skipped: 0,
+      conflicts: 0,
+      skippedReasons: [],
+      reason: raw.gap?.detail ?? raw.error ?? 'the adopt was refused',
+    };
+  }
+  const steps = raw.steps ?? [];
+  return {
+    ok: true,
+    path: raw.path ?? name,
+    applied: raw.applied ?? 0,
+    skipped: raw.skipped ?? 0,
+    conflicts: (raw.conflicts ?? []).length,
+    skippedReasons: steps.filter((s) => !s.applied).map((s) => s.skippedReason ?? 'skipped'),
+  };
 }
 
 /** viewId → channel→field, derived from the views when no top-level record rides. */
@@ -444,7 +551,10 @@ async function mapSession(session: SessionLike): Promise<SessionViewState> {
     columns: mapColumns(overview.columns),
     selections: mapSelections(overview.activeSelections),
     branches: session.branches().map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
-    paths: mapPaths(overview.paths),
+    // TL-1: the overview's `paths` carries the VISIBLE rows; the archived ones
+    // come from the session's own full listing (whats_here only reports their
+    // COUNT, deliberately — a hidden path is hidden until asked for).
+    paths: withArchived(mapPaths(overview.paths), session.paths({ includeArchived: true })),
     checkpoints: session.checkpoints().map((c) => ({ label: c.label, commitId: c.commitId, ts: c.ts })),
     cursor: overview.time.cursor,
     head: overview.time.head,
@@ -553,6 +663,19 @@ export interface SessionView {
   bringOver(commitId: string): Promise<void>;
   /** Undo one step: restore the value from just before it (lands a `revertOf` commit). */
   undo(commitId: string): Promise<void>;
+  // ── the trail lifecycle (TL-1) — hidden, not erased ──
+  /** Hide a dead-end path. Its steps stay in the log and the statistics still count them. */
+  archivePath(name: string): Promise<void>;
+  /** Un-hide an archived path, exactly as it was. */
+  restorePath(name: string): Promise<void>;
+  /**
+   * Drop everything after a step on your own path. The abandoned part is KEPT as
+   * an archived path (findable, restorable); `commitId` omitted means "from the
+   * cursor". A refusal lands as a typed gap in the next snapshot.
+   */
+  discardFromHere(commitId?: string): Promise<void>;
+  /** Replay another path's steps onto yours, one ordinary commit each. Answers with a summary to show. */
+  adoptPath(name: string): Promise<AdoptSummaryView>;
   dispose(): void;
 }
 
@@ -581,6 +704,25 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       await doFetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     } catch {
       /* swallow — a stale/failed action just no-ops; the next refresh reconciles */
+    }
+  }
+
+  /**
+   * POST and READ THE ANSWER BACK — for the one lifecycle action whose result the
+   * UI shows (`adoptPath`). An unreachable or refusing endpoint answers with an
+   * honest `error`, never a fabricated success.
+   */
+  async function postForJson(url: string, body: unknown): Promise<RawAdoptResult> {
+    try {
+      const res = await doFetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) return { ok: false, error: `the paths endpoint answered ${res.status}` };
+      return (await res.json()) as RawAdoptResult;
+    } catch {
+      return { ok: false, error: 'could not reach the paths endpoint' };
     }
   }
 
@@ -775,6 +917,38 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       if (source.kind === 'session') await Promise.resolve(source.session.undo(commitId, { as }));
       else await postJson(endpoints.undo, { commitId });
       await afterAction();
+    },
+
+    // ── the trail lifecycle (TL-1): the three hiding/rewinding actions are
+    // fire-and-reconcile like switchPath (a refusal shows up as a typed gap in
+    // the next snapshot); `adoptPath` is the one whose ANSWER the UI reads back.
+    async archivePath(name) {
+      if (source.kind === 'session') source.session.archivePath(name, { as });
+      else await postJson(endpoints.paths, { action: 'archive', name });
+      await afterAction();
+    },
+
+    async restorePath(name) {
+      if (source.kind === 'session') source.session.restorePath(name, { as });
+      else await postJson(endpoints.paths, { action: 'restore', name });
+      await afterAction();
+    },
+
+    async discardFromHere(commitId) {
+      if (source.kind === 'session') source.session.discardFromHere({ ...(commitId !== undefined ? { at: commitId } : {}), as });
+      else await postJson(endpoints.paths, { action: 'discard', ...(commitId !== undefined ? { commitId } : {}) });
+      await afterAction();
+    },
+
+    async adoptPath(name) {
+      let raw: RawAdoptResult;
+      if (source.kind === 'session') {
+        raw = await Promise.resolve(source.session.adoptPath(name, { as }));
+      } else {
+        raw = await postForJson(endpoints.paths, { action: 'adopt', name });
+      }
+      await afterAction();
+      return summarizeAdopt(name, raw);
     },
 
     dispose() {

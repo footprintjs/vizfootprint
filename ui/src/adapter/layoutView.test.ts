@@ -174,6 +174,11 @@ describe('setLayout — REAL InteractionSession end to end (fold-carried view-st
       compare: async () => ({ ok: false, gap: { code: 'guard-failed', op: 'compare', detail: 'n/a', ts: 0 } }) as never,
       bringOver: async () => ({ ok: false, gap: { code: 'guard-failed', op: 'bringOver', detail: 'n/a', ts: 0 } }) as never,
       undo: async () => ({ ok: false, gap: { code: 'guard-failed', op: 'undo', detail: 'n/a', ts: 0 } }) as never,
+      paths: () => [],
+      archivePath: () => ({ ok: false }),
+      restorePath: () => ({ ok: false }),
+      discardFromHere: () => ({ ok: false }),
+      adoptPath: async () => ({ ok: false }),
       log: { records: [] },
     };
     const relicView = createSessionView(sessionSource(relic));

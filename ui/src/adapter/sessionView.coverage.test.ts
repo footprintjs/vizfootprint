@@ -125,6 +125,11 @@ describe('createSessionView — in-process session edge branches', () => {
       compare: () => ({ ok: false, gap: { code: 'guard-failed', op: 'compare', detail: 'nope' } }) as unknown as ReturnType<SessionLike['compare']>,
       bringOver: () => ({ ok: false, gap: { code: 'guard-failed', op: 'bringOver', detail: 'nope' } }) as unknown as ReturnType<SessionLike['bringOver']>,
       undo: () => ({ ok: false, gap: { code: 'guard-failed', op: 'undo', detail: 'nope' } }) as unknown as ReturnType<SessionLike['undo']>,
+      paths: () => [],
+      archivePath: () => ({ ok: false }),
+      restorePath: () => ({ ok: false }),
+      discardFromHere: () => ({ ok: false }),
+      adoptPath: () => ({ ok: false }),
     };
   }
 
@@ -137,7 +142,7 @@ describe('createSessionView — in-process session edge branches', () => {
     expect(s.encodings['scatter']).toEqual({ x: 'price' });
     expect(s.checkpoints[0]!.label).toBe('start');
     // no `paths` on this overview at all → the honest empty surface (defensive arm)
-    expect(s.paths).toEqual({ current: null, detachedAt: null, list: [], events: [] });
+    expect(s.paths).toEqual({ current: null, detachedAt: null, list: [], archivedList: [], events: [] });
     view.dispose();
   });
 
@@ -333,6 +338,11 @@ describe('RP-3 — agent-authored charts (mapCharts) flow through both sources',
       compare: () => ({ ok: false, gap: { code: 'guard-failed', op: 'compare', detail: 'n' } }) as unknown as ReturnType<SessionLike['compare']>,
       bringOver: () => ({ ok: false, gap: { code: 'guard-failed', op: 'bringOver', detail: 'n' } }) as unknown as ReturnType<SessionLike['bringOver']>,
       undo: () => ({ ok: false, gap: { code: 'guard-failed', op: 'undo', detail: 'n' } }) as unknown as ReturnType<SessionLike['undo']>,
+      paths: () => [],
+      archivePath: () => ({ ok: false }),
+      restorePath: () => ({ ok: false }),
+      discardFromHere: () => ({ ok: false }),
+      adoptPath: () => ({ ok: false }),
       charts: () => [{ chartId: 'pr', viewId: 'chart:pr', spec: { mark: 'circle' }, claim: 'c', authoredBy: 'agent' as const, ledgerStep: 1 }],
     };
     const view = createSessionView(sessionSource(session));

@@ -29,6 +29,8 @@ import {
   PathsModal,
   CompareModal,
   ForkToast,
+  DiscardModal,
+  AdoptToast,
   CommitLog,
   FdrLedger,
   GapsPanel,
@@ -38,6 +40,7 @@ import {
   useSessionView,
   selectionForView,
   keepPredicate,
+  type AdoptSummaryView,
   type SessionView,
   type SessionViewState,
   type TimeMode,
@@ -64,6 +67,10 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
   // ── BR-2: the named-paths loop (pill → paths modal; map menu → compare modal) ──
   const [pathsOpen, setPathsOpen] = useState(false);
   const [compareWith, setCompareWith] = useState<string | null>(null); // a commit id, or null = closed
+  // ── TL-1: the lifecycle — the map's menu ASKS to discard; adopt reports back ──
+  const [discardFrom, setDiscardFrom] = useState<string | null>(null); // a commit id, or null = closed
+  const [adopted, setAdopted] = useState<AdoptSummaryView | null>(null);
+  const [showArchivedLanes, setShowArchivedLanes] = useState(false);
 
   // the scatter's fields come from the ENCODING fold (the reencode verb's state)
   const enc = state.encodings['scatter'] ?? {};
@@ -251,7 +258,18 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
             onSwitch={(name) => void view.switchPath(name)}
             onRename={(from, to) => void view.renamePath(from, to)}
             onNewPath={(commitId) => void view.newPathAt(commitId)}
+            onArchive={(name) => void view.archivePath(name)}
+            onRestore={(name) => void view.restorePath(name)}
           />
+          <DiscardModal
+            commitId={discardFrom}
+            onClose={() => setDiscardFrom(null)}
+            stepsAfter={
+              discardFrom === null ? undefined : state.activePathIds.length - 1 - state.activePathIds.indexOf(discardFrom)
+            }
+            onConfirm={(commitId) => void view.discardFromHere(commitId)}
+          />
+          <AdoptToast summary={adopted} onDismiss={() => setAdopted(null)} />
           <CompareModal
             open={compareWith !== null}
             onClose={() => setCompareWith(null)}
@@ -432,18 +450,38 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
           icon: '🌿',
           badge: state.branches.length,
           content: (
-            <BranchMap
-              commits={state.commits}
-              cursor={state.cursor}
-              head={state.head}
-              checkpoints={state.checkpoints}
-              paths={state.paths.list}
-              onSeek={(id) => void view.seek(id)}
-              onNewPath={(id) => void view.newPathAt(id)}
-              onBringOver={(id) => void view.bringOver(id)}
-              onUndo={(id) => void view.undo(id)}
-              onCompare={(id) => setCompareWith(id)}
-            />
+            <>
+              {state.paths.archivedList.length > 0 && (
+                <label className="vzf-paths-note" data-vzf="bm-archived-toggle">
+                  <input
+                    type="checkbox"
+                    checked={showArchivedLanes}
+                    onChange={(e) => setShowArchivedLanes(e.target.checked)}
+                  />{' '}
+                  show archived lanes ({state.paths.archivedList.length}) — hidden by default, never erased
+                </label>
+              )}
+              <BranchMap
+                commits={state.commits}
+                cursor={state.cursor}
+                head={state.head}
+                checkpoints={state.checkpoints}
+                paths={state.paths.list}
+                archivedPaths={state.paths.archivedList}
+                showArchived={showArchivedLanes}
+                onSeek={(id) => void view.seek(id)}
+                onNewPath={(id) => void view.newPathAt(id)}
+                onBringOver={(id) => void view.bringOver(id)}
+                onUndo={(id) => void view.undo(id)}
+                onCompare={(id) => setCompareWith(id)}
+                {...(readOnly
+                  ? {} // present mode: the lifecycle actions are paused
+                  : {
+                      onDiscardFrom: (id: string) => setDiscardFrom(id),
+                      onAdoptPath: (name: string) => void view.adoptPath(name).then(setAdopted),
+                    })}
+              />
+            </>
           ),
         },
         {
