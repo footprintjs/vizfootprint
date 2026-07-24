@@ -437,6 +437,51 @@ describe('TL-1 adoptPath — merge by replay, in order, honestly', () => {
     expect(s.gaps().at(-1)).toMatchObject({ code: 'guard-failed', op: 'select', target: 'bar' });
   });
 
+  it('a step whose replay THROWS is reported as a skip and the run carries on (no lost report)', async () => {
+    const s = freshSession();
+    const { aId } = await mainLine(s);
+    s.seek(aId);
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', cause: userCause('party lane') });
+    await s.dispatch({ verb: 'annotate', target: 'scatter', note: 'and a note after it', cause: userCause() });
+    s.switchPath('main');
+    // a mounted view whose inbound render THROWS — real third-party code the
+    // replay calls (R3 applyClause). The bar select cannot land; the annotation
+    // after it must still be attempted.
+    s.mountView('bar', {
+      capabilities: { canProbe: true },
+      applyClause: () => {
+        throw new Error('renderer blew up');
+      },
+    });
+
+    const res = await s.adoptPath('party-lane');
+    expect(res.ok).toBe(true); // the caller ALWAYS gets its report
+    if (!res.ok) return;
+    expect(res.steps[0]).toMatchObject({ applied: false, skippedReason: 'replaying this step threw: renderer blew up' });
+    expect(res.steps.at(-1)!.applied).toBe(true); // the run went on to the annotation
+    expect(res).toMatchObject({ applied: 1, skipped: 1 });
+    // R14: the throw is filed, never dropped
+    expect(s.gaps().at(-1)).toMatchObject({ code: 'guard-failed', op: 'adoptPath', target: res.steps[0]!.commitId });
+  });
+
+  it('a non-Error throw is reported honestly too (never "[object Object]" with no message)', async () => {
+    const s = freshSession();
+    const { aId } = await mainLine(s);
+    s.seek(aId);
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', cause: userCause('party lane') });
+    s.switchPath('main');
+    s.mountView('bar', {
+      capabilities: { canProbe: true },
+      applyClause: () => {
+        throw 'plain string blow-up'; // eslint-disable-line no-throw-literal
+      },
+    });
+
+    const res = await s.adoptPath('party-lane');
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.steps[0]!.skippedReason).toBe('replaying this step threw: plain string blow-up');
+  });
+
   it('a replayed analysis RE-RUNS here — degenerate on this path, it lands nothing and spends nothing', async () => {
     const s = freshSession();
     const { aId } = await mainLine(s);

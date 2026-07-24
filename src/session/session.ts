@@ -299,7 +299,9 @@ export interface InteractionSession {
    * The source path is left completely untouched (it is not archived — that is
    * your call afterwards). A replayed analysis genuinely RE-RUNS here and
    * spends its own alpha, exactly as `bringOver` does: results are never copied
-   * across paths.
+   * across paths. A step whose replay THROWS (an analysis stage, a mounted
+   * adapter) is reported as a skip with the thrown message and files a gap —
+   * the run continues, and the caller always gets its report.
    */
   adoptPath(name: string, opts?: { as?: Actor }): Promise<AdoptPathResult>;
 
@@ -749,7 +751,20 @@ class InteractionSessionImpl implements InteractionSession {
         report.push({ commitId: step.id, applied: false, conflicts: [], skippedReason: plan.detail });
         continue;
       }
-      const landed = await this.executePlan(plan, { replayedFrom: step.id }, 'adoptPath', opts.as);
+      // A replay runs REAL third-party code — an analysis def's stage, a mounted
+      // adapter's applyClause — and either can THROW. One throwing step must not
+      // abort the run and lose the report the caller is owed: catch it, file the
+      // typed gap (R14 — never a silent drop), and carry on with the next step.
+      // The report stays honest about exactly which step failed and why.
+      let landed: BringOverResult;
+      try {
+        landed = await this.executePlan(plan, { replayedFrom: step.id }, 'adoptPath', opts.as);
+      } catch (error) {
+        const detail = `replaying this step threw: ${error instanceof Error ? error.message : String(error)}`;
+        this.gapLedger.file('guard-failed', 'adoptPath', detail, step.id);
+        report.push({ commitId: step.id, applied: false, conflicts: plan.conflicts, skippedReason: detail });
+        continue;
+      }
       if (!landed.ok) {
         report.push({ commitId: step.id, applied: false, conflicts: plan.conflicts, skippedReason: landed.gap.detail });
         continue;
