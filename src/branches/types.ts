@@ -25,17 +25,47 @@ export type Head =
  * Ref-events are lightweight records, NOT commits — they never enter the log.
  * `ts` is a logical clock (monotone journal position), mirroring the log's
  * own `ts: input.ts ?? records.length` precedent (src/log/log.ts).
+ *
+ * TL-1 adds the three LIFECYCLE events — `archive`, `restore`, `discard`. Each
+ * carries the principal that asked for it (`by`), because hiding or rewinding
+ * a line of work is an act with an author, unlike the bookkeeping above which
+ * is a mechanical consequence of a commit landing. NOTHING here deletes: an
+ * archived ref keeps its name and tip, a discarded future is re-named and
+ * archived, and every commit stays in the log forever.
  */
 export type RefEvent =
   | { readonly type: 'create'; readonly name: string; readonly at: string; readonly auto: boolean; readonly ts: number }
   | { readonly type: 'advance'; readonly name: string; readonly at: string; readonly ts: number }
   | { readonly type: 'switch'; readonly to: string | null; readonly at: string | null; readonly ts: number }
-  | { readonly type: 'rename'; readonly from: string; readonly to: string; readonly ts: number };
+  | { readonly type: 'rename'; readonly from: string; readonly to: string; readonly ts: number }
+  /** The path is hidden from the default listing — its name and tip are kept. */
+  | { readonly type: 'archive'; readonly name: string; readonly at: string; readonly by: string; readonly ts: number }
+  /** The exact inverse of `archive` — the path is visible again, unchanged. */
+  | { readonly type: 'restore'; readonly name: string; readonly at: string; readonly by: string; readonly ts: number }
+  /**
+   * A path's ref moved BACK to an earlier commit (`from` → `to`); the abandoned
+   * future was kept under the new archived path `kept`, whose tip is `from`.
+   */
+  | {
+      readonly type: 'discard';
+      readonly name: string;
+      readonly from: string;
+      readonly to: string;
+      readonly kept: string;
+      readonly by: string;
+      readonly ts: number;
+    };
 
-/** A plain snapshot of the refs: `{name → tipCommitId}` plus where HEAD is. */
+/**
+ * A plain snapshot of the refs: `{name → tipCommitId}` plus where HEAD is.
+ * `branches` lists the VISIBLE refs only; `archived` names the hidden ones
+ * (their tips are still resolvable through `tipOf` — hidden, not erased).
+ */
 export interface RefState {
   readonly branches: Readonly<Record<string, string>>;
   readonly head: Head;
+  /** TL-1: the archived ref names (hidden from `branches`, never deleted). */
+  readonly archived: readonly string[];
 }
 
 // ── the folded state key-space (last-wins per key, from the log ALONE) ───────

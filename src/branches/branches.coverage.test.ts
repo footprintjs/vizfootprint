@@ -31,14 +31,14 @@ function rec(id: string, parent: string | null, over: Partial<CommitRecord> = {}
 describe('BranchRefs — read-only accessors (the session surface reads these)', () => {
   it('has / tipOf / state reflect the live refs', () => {
     const refs = new BranchRefs({ defaultName: 'trunk' });
-    expect(refs.state()).toEqual({ branches: {}, head: { branch: 'trunk' } });
+    expect(refs.state()).toEqual({ branches: {}, head: { branch: 'trunk' }, archived: [] });
     expect(refs.has('trunk')).toBe(false); // unborn — no tip yet
     expect(refs.tipOf('trunk')).toBeUndefined();
 
     refs.noteCommit(rec('c1', null));
     expect(refs.has('trunk')).toBe(true);
     expect(refs.tipOf('trunk')).toBe('c1');
-    expect(refs.state()).toEqual({ branches: { trunk: 'c1' }, head: { branch: 'trunk' } });
+    expect(refs.state()).toEqual({ branches: { trunk: 'c1' }, head: { branch: 'trunk' }, archived: [] });
   });
 });
 

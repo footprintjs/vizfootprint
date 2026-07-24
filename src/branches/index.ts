@@ -9,7 +9,9 @@
  *   - {@link BranchRefs} — refs `{name → tip}` + HEAD, BESIDE the log, never
  *     in it; act-at-tip advances, act-while-detached auto-creates a
  *     cause-slugged ref; every create/advance/switch/rename journaled as a
- *     lightweight ref-event (never a commit).
+ *     lightweight ref-event (never a commit). TL-1 adds the LIFECYCLE —
+ *     `archive` / `restore` / `discardTo` — which move and hide refs but never
+ *     erase a commit: the record is forever, only the VIEW of it changes.
  *   - {@link deriveBranches} — deterministic names for every lane of a
  *     legacy anonymous log.
  *   - {@link commonAncestor} — loop-safe LCA, missing-id honest.
@@ -22,7 +24,7 @@
  */
 
 export { BranchRefs } from './refs.js';
-export type { BranchRefsOptions } from './refs.js';
+export type { BranchListOptions, BranchRefsOptions } from './refs.js';
 export { deriveBranches } from './derive.js';
 export type { DeriveBranchesOptions } from './derive.js';
 export { commonAncestor } from './walk.js';
