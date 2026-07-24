@@ -116,6 +116,37 @@ describe('TL-1 — the "clean up my dead ends" scripted turn, over the REAL tool
     expect(session.log.records.length).toBe(recordsBefore); // hiding is never a commit, and never a deletion
   });
 
+  it('handed a transcript with NO paths listing in it, it invents no target — it just replies', async () => {
+    // Driven at the provider boundary: two tool bodies that carry no `paths`
+    // array at all. The scan finds nothing and must return an empty target list
+    // rather than guessing a path name out of whatever else came back.
+    const provider = scriptedCleanupMock();
+    const res = await provider.complete({
+      model: 'mock',
+      messages: [
+        { role: 'user', content: 'clean up' },
+        { role: 'tool', content: '{"ok":true}' },
+        { role: 'tool', content: '{"ok":true,"gap":{"detail":"nope"}}' },
+      ],
+    });
+    expect(res.toolCalls ?? []).toEqual([]); // no archive call was fabricated
+    expect(res.content).toContain('Hidden, not erased');
+  });
+
+  it('one dead end reads in the singular', async () => {
+    const listing = JSON.stringify({ ok: true, current: 'main', paths: [{ name: 'main' }, { name: 'side' }] });
+    const res = await scriptedCleanupMock().complete({
+      model: 'mock',
+      messages: [
+        { role: 'user', content: 'clean up' },
+        { role: 'tool', content: '{"ok":true}' },
+        { role: 'tool', content: listing },
+        { role: 'tool', content: '{"ok":true,"name":"side"}' }, // the one archive already done
+      ],
+    });
+    expect(res.content).toContain('Archived the one dead end');
+  });
+
   it('with nothing to tidy it archives nothing and still tells the truth', async () => {
     const { port, session } = buildAnalystSurface(CSV);
     await port.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Formal' });

@@ -38,6 +38,30 @@ The `branches` layer gives those lanes names, git-style:
 - Logs from before naming existed? `deriveBranches(records)` names every lane
   deterministically — the same log always gets the same names.
 
+## Tidying up without erasing anything
+
+Exploring makes dead ends. You can put them away — the record never shrinks:
+
+- `archivePath('premium-focus')` hides a path from the listing while keeping its
+  name, its last step, and every commit on it. `restorePath` is the exact
+  inverse. Your only path can't be archived, and the path you are standing on
+  detaches HEAD when you hide it, so the next thing you do starts a fresh named
+  path instead of quietly re-opening what you just put away.
+- `discardFromHere()` drops everything after where you are on your own path —
+  and keeps the abandoned part as an archived path you can restore. One
+  transaction in the branch journal, zero deletions: the old last step still
+  folds to exactly the same state.
+- `adoptPath('premium-focus')` replays another path's steps onto yours since the
+  common ancestor, in order, each as an ordinary commit that records what it
+  replayed. Conflicts are noted per step, steps that genuinely cannot be replayed
+  are skipped with a reason, and the other path is left untouched.
+
+The rule these all obey, stated in the tools and on screen in the same words:
+**hidden, not erased — the statistics remember.** Archiving or rewinding never
+refunds alpha, never lowers the test count, and never removes a ledger row —
+`compare()` and `why()` still answer about a hidden path, and the online-FDR
+ledger reads exactly the same before and after.
+
 Agents get the same power through two fixed tools, `paths` and `compare`, on
 the `vizAsTools` port and the MCP server — plus `whats_here` now says which
-path you are on.
+path you are on and how many paths are archived.

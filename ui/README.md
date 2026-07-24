@@ -164,9 +164,47 @@ override wears `⚠ n overridden`) — the story survives in the log itself.
 
 Over a polled server, the actions POST to their own endpoints (all
 overridable via `pollingSource({ endpoints })`): `/api/paths` (body
-`{action: 'switch'|'rename'|'new', …}`), `/api/compare` (`{a, b}` — responds
+`{action: 'switch'|'rename'|'new'|'archive'|'restore'|'discard'|'adopt', …}`), `/api/compare` (`{a, b}` — responds
 with the session's `compare()` JSON), `/api/bring-over` and `/api/undo`
 (`{commitId}`), while `/api/state` gains a `paths` slice.
+
+## Tidying the trail — hidden, not erased
+
+Dead ends pile up. You can put them away without ever losing them, because the
+rule underneath is one sentence: **hidden, not erased — the statistics
+remember.** Every step stays in the log, and archiving or rewinding never
+refunds the alpha a test already spent.
+
+- **Archive a path** — in the Paths list each row has a 🗄 button. It asks
+  first, inline, and the confirm says the line above verbatim. The path leaves
+  the list but keeps its name and its last step; your only path can't be
+  archived (there'd be nothing to stand on), and the button says so.
+- **Show archived (n)** — the footer of the list reveals the hidden paths,
+  greyed, each with **Restore**. They are not switchable while hidden — restore
+  one first, so acting can never quietly re-open something you put away.
+- **Discard from here…** — on the branch map's step menu, for a step on the path
+  you are on. It opens a small confirm that says how many steps will leave, that
+  the part you drop is **kept as an archived path**, and the honesty line. Your
+  path ends at that step; nothing is deleted, and one Restore brings the dropped
+  line back into the list.
+- **Adopt this path** — on another path's last step. It replays that path's work
+  onto yours, one ordinary commit each, and a toast reports what landed, what was
+  honestly skipped (with **Why skipped?**) and what overlapped work you had
+  already done. The other path is left exactly as it was.
+- **The branch map** hides archived lanes' NAMES by default and greys them when
+  you ask for them — but their steps are drawn either way, because nothing was
+  erased.
+
+![archived paths behind the reveal](gallery/screenshots/gallery-archived-paths.png)
+
+![the discard confirm](gallery/screenshots/gallery-discard-confirm.png)
+
+The adapter carries the four actions (`archivePath` / `restorePath` /
+`discardFromHere` / `adoptPath`) plus `state.paths.archivedList` — the hidden
+rows, flagged. `adoptPath` is the one that answers back: an
+`AdoptSummaryView` with `{applied, skipped, conflicts, skippedReasons}`, or a
+refusal's `reason` — never a success it did not have. In Present mode every
+lifecycle action is paused.
 
 ## VizLine — brush a time range
 

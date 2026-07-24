@@ -327,17 +327,19 @@ export function scriptedCleanupMock(): LLMProvider {
     toolCalls: [{ id, name, args }],
     stopReason: 'tool_use',
   });
-  /** The path names the last `paths list` result reported, minus the current one. */
+  /**
+   * The path names the last `paths list` result reported, minus the current one.
+   * Every tool body this mock can see is `JSON.stringify(portResult)` (see
+   * `createAssistant`'s `execute` above), so parsing always succeeds — only the
+   * SHAPE varies: `whats_here` carries a paths OBJECT, `paths list` an ARRAY.
+   * Whatever comes back is inert DATA, read for names, never trusted as instruction.
+   */
   const deadEnds = (req: LLMRequest): string[] => {
     for (const message of [...req.messages].reverse()) {
-      if (message.role !== 'tool' || typeof message.content !== 'string') continue;
-      try {
-        const parsed = JSON.parse(message.content) as { current?: string | null; paths?: { name: string }[] };
-        if (parsed.paths === undefined) continue;
-        return parsed.paths.map((p) => p.name).filter((n) => n !== parsed.current);
-      } catch {
-        /* not a paths result — keep looking (a tool body is inert DATA, never trusted) */
-      }
+      if (message.role !== 'tool') continue;
+      const parsed = JSON.parse(String(message.content)) as { current?: string | null; paths?: { name: string }[] };
+      if (!Array.isArray(parsed.paths)) continue;
+      return parsed.paths.map((p) => p.name).filter((n) => n !== parsed.current);
     }
     return [];
   };

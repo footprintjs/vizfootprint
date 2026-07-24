@@ -258,6 +258,84 @@ Gate: **1750 tests at 100/100/100/100**; all five typechecks clean. SHAs: core 2
 was already taken by foottrail above, so the decision tag is D30 — the D-record commit renames every in-code
 reference).
 
+## D31 [SHIPPED TL-1] the trail lifecycle — archive / restore / discard-from-here / adopt-path (never erase the record, erase the VIEW)
+A branching analysis history accumulates dead ends, and every existing verb only ever ADDS. TL-1 gives the trail a
+lifecycle without ever taking a step back out of the log. **The principle: never erase the record — erase the VIEW.
+Refs move and hide; commits are forever, and the statistics remember.**
+
+`src/branches` (the foottrail core, D29) gains three ref-events — `archive` / `restore` / `discard` — each carrying
+the ACTOR that asked for it (`by`), because hiding or rewinding a line of work has an author, unlike the mechanical
+create/advance bookkeeping. `BranchRefs.archive(name, by)` hides a ref from the default listing while KEEPING its
+name and tip (`tipOf` still answers, so compare/why keep working on it); `restore` is the exact inverse;
+`discardTo(name, commitId, keepAs, by)` moves a ref BACK and parks the abandoned future under a fresh,
+immediately-archived ref in ONE journal transaction (create → archive → discard → attach), fully validated before
+the first event is written so a rejection leaves the journal untouched. `branches({includeArchived})` and
+`RefState.archived` expose the hidden set.
+
+**The HEAD rule (the load-bearing design decision):** HEAD may never ride an archived ref. Archiving the path HEAD
+is on DETACHES HEAD at that path's tip — you keep standing exactly where you were, but on no named path, so the next
+act auto-creates a fresh named ref (the existing branch-on-act rule) instead of quietly re-advancing something you
+just hid. Two consequences fall out and are pinned: `switchTo` REFUSES an archived name ("restore it first"), and
+tip-extension SKIPS archived refs, so acting at an archived tip starts a new path rather than resurrecting the
+hidden one. Archiving the LAST visible path is a typed gap (nothing left to stand on).
+
+`src/session` grows four plain-named methods. `archivePath` / `restorePath` are thin, cursor-preserving wrappers
+(hiding is a change of view, not of position). `discardFromHere({at, as})` picks the path to rewind: the one HEAD
+rides when `at` is on it, else — while detached (the natural "step back, then discard" flow) — the single visible
+path continuing past `at`; a commit on someone else's line ("only your own future is discardable"), a fork point
+with two futures, and the tip you already stand on are all typed gaps. `adoptPath(name)` is MERGE BY REPLAY: every
+step since the common ancestor is re-planned and re-landed IN ORDER through ordinary `dispatch` as a normal
+`replayedFrom` commit — no new verbs, the existing planBringOver pipeline. Two rulings inside it: (1) every plan is
+measured against where the adopt STARTED, so a conflict means "your path already touched this since the fork", never
+"an earlier step of this same replay did"; (2) an agent-authored chart is honestly SKIPPED — a chart is *proposed*
+through its governed pipeline, so replaying its commit would be a forgery. The per-step report is
+`{commitId, applied, recipe?, landedAs?, conflicts, skippedReason?}` plus `{applied, skipped, conflicts}` counts. A
+replayed analysis genuinely RE-RUNS and spends its own alpha (results are never copied across paths); degenerate on
+the new path, it lands nothing and spends nothing. The source path is left untouched — archiving it is the user's
+call. `paths({includeArchived})` lists the hidden rows flagged (`archived?: true`, present only when hidden, so a
+plain listing keeps its old shape) and `overview().paths.archived` is the COUNT, keeping whats_here token-lean.
+
+**Honesty invariants, each tested explicitly:** archive and discard never change global FDR wealth, the test count,
+the discoveries, or a single ledger row (`expect(after.wealth).toBe(before.wealth)`); the two-truths ledger still
+counts an ARCHIVED branch's tests globally while the cursor-local count stays honest; `branches()` (the DAG leaf
+list) still sees both lineages — only the NAME was hidden; `compare()` and `why()` still accept an archived path and
+its commit ids; a restore round-trips the full listing byte-identically; the FOLD-PROOF — after a discard the old
+tip still folds byte-identically via `foldStateAt` and one restore brings its name back; and every lifecycle event
+lands in the ref journal with its actor while the commit count is unchanged (bookkeeping is NEVER a commit).
+
+Agent surface: the FIXED tool array is byte-identical across the whole lifecycle (Mode B, asserted); only the
+`paths` schema's action enum grows (archive | restore | discard | adopt) plus `includeArchived` on list. The
+descriptions teach the rule in authored constants, never runtime data (Q8), and every hiding action's RESULT carries
+the new exported `HIDDEN_NOT_ERASED` = **"Hidden, not erased — the statistics remember."** — the same sentence the
+UI shows a human, pinned byte-for-byte by a parity test. MCP parity asserted over a real in-memory client.
+
+UI: `state.paths.archivedList` (the documented `/api/state` extension — a server serializes
+`paths({includeArchived:true})` there); four adapter actions on the ONE `/api/paths` endpoint, three
+fire-and-reconcile (a refusal shows up as a typed gap) and `adoptPath` reading its answer back through
+`summarizeAdopt`, which never reports success for a refusal. `<PathsModal>` gets a per-row Archive with an inline
+confirm and a "show archived (n)" reveal of greyed rows with Restore; new `<DiscardModal>` (the confirm, stating the
+line verbatim) and `<AdoptToast>` (counts + "Why skipped?"); `<BranchMap>` hides archived lane LABELS by default
+(the steps are always drawn) and gains "Discard from here…" (own-path only, never at the end — it only ASKS) and
+"Adopt this path" on another path's tip, both disabled WITH the reason. Present mode omits the lifecycle handlers.
+
+Found in the LIVE run and fixed: a discard parks the abandoned future under an auto-named ref, and the ForkToast was
+announcing that as "Forked a new path" — the `discard` event names its `kept` path, so those creates no longer toast.
+
+demo-agent: `/api/paths` takes the four actions (human-badged `user`), `/api/state` carries `archivedList`, the
+analyst prompt learns step 7b (the actions + "read whats_here's fdr back afterward and you will see the same
+numbers"), and one new chip — *"Clean up my dead ends — archive everything but this path."* **LIVE-VERIFIED with the
+real key** on :5181: one real turn archived both dead ends and the model stated the rule in its own words ("Hidden,
+not erased: both branches remain in the log… The statistics are untouched — FDR still shows 1 test, 0 discoveries,
+same wealth as before"), with `{tests:1, wealth:0.0237488693390893, discoveries:0}` identical before and after, plus
+a human discard-from-here round trip (restored), 5 records still in the log, zero console errors.
+
+Gallery: four scenes prove it visually, including the ledger LINE asserted byte-identical across an archive and
+across the whole discard round trip (the alpha-unchanged invariant where a person can read it) and the node count
+unchanged when a lane is hidden (the fold-proof on screen). Screenshots refreshed once (gallery-archived-paths,
+-archived-lanes, -discard-confirm, -adopt-toast). Gate: **1883 tests at 100/100/100/100**; all five typechecks clean.
+SHAs: branches 6fe5809, session 5f13969, agent 9a7fc3b, ui b4f2be1, demo-agent b91cf08, gallery 07efdef, plus the
+D-record commit.
+
 ## Next
 P3 packets per SPEC §12, order L1→L6; L1-L5 SHIPPED, L6 (why) remaining. Every packet = R#s + pre-written acceptance
 tests + boundary + diff/test-output artifacts; orchestrator re-runs all tests. Fresh-chat rehydration: read THIS file + SPEC.md.
