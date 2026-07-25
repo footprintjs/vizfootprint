@@ -606,6 +606,50 @@ describe('TL-1 honesty invariants — the statistics remember', () => {
     expect(ov.time.branches).toBe(2); // the DAG still has both lineages; only the NAME was hidden
   });
 
+  it('the two-truths ledger after a DISCARD: global keeps the parked test, cursor-local drops it', async () => {
+    const s = freshSession();
+    const { aId } = await mainLine(s);
+    await s.declareAnalysis('correlation'); // a real test on the future about to be parked
+    expect((await s.overview()).time.cursorTests).toBe(1);
+
+    s.seek(aId);
+    const res = s.discardFromHere();
+    expect(res.ok).toBe(true);
+
+    const ov = await s.overview();
+    expect(ov.fdr.tests).toBe(1); // GLOBAL: the parked branch's test is still counted
+    expect(ov.time.cursorTests).toBe(0); // CURSOR-LOCAL: it is no longer on this path
+    expect(ov.time.branches).toBe(1); // one lineage in the DAG — the rewind added no leaf
+    // and standing back on the parked tip counts it locally again — nothing was erased
+    if (res.ok) s.seek(res.keptTip);
+    expect((await s.overview()).time.cursorTests).toBe(1);
+  });
+
+  it('compare() reaches a commit strictly INSIDE a parked segment (not just its tip)', async () => {
+    const s = freshSession();
+    const a = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
+    const aId = a.ok ? a.commit!.id : '';
+    const mid = await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [60, 130], cause: userCause() });
+    const midId = mid.ok ? mid.commit!.id : '';
+    const tip = await s.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'color', field: 'rating', cause: userCause() });
+    const tipId = tip.ok ? tip.commit!.id : '';
+
+    s.seek(aId);
+    expect(s.discardFromHere().ok).toBe(true); // parks midId AND tipId
+
+    // the MIDDLE commit of the parked segment — no ref points at it at all
+    const cmp = await s.compare(midId, aId);
+    expect(cmp.ok).toBe(true);
+    if (!cmp.ok) return;
+    expect(cmp.ancestor).toBe(aId);
+    expect(cmp.a).toMatchObject({ tip: midId, rows: 7 }); // its own fold still evaluates (Formal ∩ price 60–130)
+    expect(cmp.onlyA.map((e) => e.key)).toEqual(['selection:scatter']);
+    // and the parked TIP's later encoding is still readable too
+    const deep = await s.compare(tipId, midId);
+    expect(deep.ok).toBe(true);
+    if (deep.ok) expect(deep.onlyA.map((e) => e.key)).toEqual(['encoding:scatter:color']);
+  });
+
   it('compare() and why() still accept an archived path and its commit ids', async () => {
     const s = freshSession();
     const { aId, bId } = await mainLine(s);
