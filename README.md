@@ -44,9 +44,10 @@ Exploring makes dead ends. You can put them away — the record never shrinks:
 
 - `archivePath('premium-focus')` hides a path from the listing while keeping its
   name, its last step, and every commit on it. `restorePath` is the exact
-  inverse. Your only path can't be archived, and the path you are standing on
-  detaches HEAD when you hide it, so the next thing you do starts a fresh named
-  path instead of quietly re-opening what you just put away.
+  inverse. An archived path is *frozen*: it can't be switched to, renamed, or
+  extended (each says "restore it first"), your only path can't be archived, and
+  the path you are standing on detaches HEAD when you hide it — so the next thing
+  you do starts a fresh named path instead of quietly re-opening what you put away.
 - `discardFromHere()` drops everything after where you are on your own path —
   and keeps the abandoned part as an archived path you can restore. One
   transaction in the branch journal, zero deletions: the old last step still

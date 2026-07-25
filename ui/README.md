@@ -180,8 +180,9 @@ refunds the alpha a test already spent.
   the list but keeps its name and its last step; your only path can't be
   archived (there'd be nothing to stand on), and the button says so.
 - **Show archived (n)** — the footer of the list reveals the hidden paths,
-  greyed, each with **Restore**. They are not switchable while hidden — restore
-  one first, so acting can never quietly re-open something you put away.
+  greyed, each with **Restore**. An archived path is *frozen*: it can't be
+  switched to and it can't be renamed (both say "restore it first"), so nothing
+  you put away is ever quietly re-opened. Restore it, then work with it.
 - **Discard from here…** — on the branch map's step menu, for a step on the path
   you are on. It opens a small confirm that says how many steps will leave, that
   the part you drop is **kept as an archived path**, and the honesty line. Your

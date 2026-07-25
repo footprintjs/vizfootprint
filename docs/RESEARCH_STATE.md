@@ -275,9 +275,28 @@ the first event is written so a rejection leaves the journal untouched. `branche
 **The HEAD rule (the load-bearing design decision):** HEAD may never ride an archived ref. Archiving the path HEAD
 is on DETACHES HEAD at that path's tip — you keep standing exactly where you were, but on no named path, so the next
 act auto-creates a fresh named ref (the existing branch-on-act rule) instead of quietly re-advancing something you
-just hid. Two consequences fall out and are pinned: `switchTo` REFUSES an archived name ("restore it first"), and
-tip-extension SKIPS archived refs, so acting at an archived tip starts a new path rather than resurrecting the
-hidden one. Archiving the LAST visible path is a typed gap (nothing left to stand on).
+just hid. Generalized after adversarial review into **the frozen-ref rule** (ONE rule, three refusals): an archived
+ref is frozen where it was left, so every way of TOUCHING a ref refuses it — `switchTo`, `rename` (both: "restore it
+first"), `discardTo` — and tip-extension SKIPS archived refs for the same reason. Archiving the LAST visible path is
+a typed gap (nothing left to stand on). Two structural invariants fall out and are pinned by tests that walk a full
+archive→rename→restore→rename→re-create→archive→act→discard sequence: **`_archived ⊆ _branches`** (never a stale
+hidden name) and **HEAD is never on an archived ref**.
+
+**Review fixes (post-ship, same packet).** (1) CONFIRMED BUG: `rename` moved the name in `_branches` and never
+touched `_archived`, so renaming an archived path RESURRECTED it (visible, switchable, no `restore` event) and left
+the old name stale in `_archived` — which made the next ref born under that name secretly archived, invisible in
+`paths()`, with HEAD riding it; that also made the session's `discardTo` v8-ignore justification FALSE. Reachable
+from session/tool/MCP/`/api/paths`. Fixed by the rename refusal above (nothing else deletes from `_branches`, so the
+refusal is what makes the invariants total); the v8-ignore is true again and now cites them by name. Pinned at all
+four surfaces. (2) `adoptPath`'s loop called `executePlan` unguarded — a replay runs REAL third-party code (an
+analysis stage, a mounted adapter's `applyClause`) and a throw aborted the run, losing the per-step report and
+turning the UI's `void view.adoptPath(...).then(...)` into an unhandled rejection with no toast. Now a throw is an
+honest skip (`replaying this step threw: <message>`) + a typed gap, and the loop carries on. (3) The BranchMap
+disables "Discard from here…" WITH the reason when the lane you stand on is itself archived (it was enabled and only
+refused downstream). (4) `validateDashboardDef` now rejects a host view id in a reserved namespace
+(`chart:`/`encoding:`/`analysis:`/`annotation:`/`layout:`, single-sourced from `src/branches/fold`) — such a view
+would be inert in the fold, invisible to `compare`, and silently skipped by adopt. (5) Two-truths now pinned after a
+DISCARD (not just archive), and `compare()` pinned against a commit strictly INSIDE a parked segment.
 
 `src/session` grows four plain-named methods. `archivePath` / `restorePath` are thin, cursor-preserving wrappers
 (hiding is a change of view, not of position). `discardFromHere({at, as})` picks the path to rewind: the one HEAD
@@ -332,9 +351,10 @@ a human discard-from-here round trip (restored), 5 records still in the log, zer
 Gallery: four scenes prove it visually, including the ledger LINE asserted byte-identical across an archive and
 across the whole discard round trip (the alpha-unchanged invariant where a person can read it) and the node count
 unchanged when a lane is hidden (the fold-proof on screen). Screenshots refreshed once (gallery-archived-paths,
--archived-lanes, -discard-confirm, -adopt-toast). Gate: **1883 tests at 100/100/100/100**; all five typechecks clean.
-SHAs: branches 6fe5809, session 5f13969, agent 9a7fc3b, ui b4f2be1, demo-agent b91cf08, gallery 07efdef, plus the
-D-record commit.
+-archived-lanes, -discard-confirm, -adopt-toast). Gate: **1901 tests at 100/100/100/100**; all five typechecks clean.
+SHAs: branches 6fe5809, session 5f13969, agent 9a7fc3b, ui b4f2be1, demo-agent b91cf08, gallery 07efdef, D-record
+4e5bc15; review fixes b1422e3 (rename), 14301d3 (adopt throw-guard), 0d7579a (two-truths + parked compare), 00ade51
+(BranchMap reason), bae5651 (reserved view ids).
 
 ## Next
 P3 packets per SPEC §12, order L1→L6; L1-L5 SHIPPED, L6 (why) remaining. Every packet = R#s + pre-written acceptance
