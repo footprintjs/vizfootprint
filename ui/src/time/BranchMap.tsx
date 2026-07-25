@@ -22,10 +22,12 @@
  *   - ARCHIVED lanes are hidden by default: pass the archived paths and they get
  *     no lane label until `showArchived`, which greys them. The STEPS themselves
  *     are always drawn — nothing is erased, only the name is hidden.
- *   - the menu gains *Discard from here…* (own-path only; it opens the caller's
- *     confirm, never acting straight away) and *Adopt this path* (offered on the
- *     TIP of another path, since adopting is a path-level act, not a step-level
- *     one). Both disable WITH the reason when they cannot apply.
+ *   - the menu gains *Discard from here…* (own-path only, never at the end, and
+ *     never when the lane you are standing on is itself archived — restore it
+ *     first; it opens the caller's confirm, never acting straight away) and
+ *     *Adopt this path* (offered on the TIP of another path, since adopting is a
+ *     path-level act, not a step-level one). Both disable WITH the reason when
+ *     they cannot apply, rather than leaving the refusal to the session.
  */
 import { useEffect, useRef, useState } from 'react';
 import type { CommitView, CheckpointView, PathView } from '../adapter/types.js';
@@ -120,6 +122,13 @@ export function BranchMap(props: BranchMapProps): JSX.Element {
   const labelSpace = laneLabels.length > 0 ? Math.max(...laneLabels.map((p) => p.name.length)) * 7.5 + 24 : 0;
   /** The path HEAD rides — adopting it into itself is the one thing that cannot work. */
   const activePathName = paths.find((p) => p.active)?.name ?? null;
+  /**
+   * The lane you are standing on is ARCHIVED (its tip is an archived path's tip
+   * — e.g. you just hid the path you were on, so HEAD detached onto it). Nothing
+   * on that lane is discardable: an archived ref is frozen, so restore it first.
+   * Said HERE with the reason rather than left to be refused downstream.
+   */
+  const headLaneArchived = head !== null && archivedPaths.some((p) => p.tip === head);
   /** Every path (archived included) whose tip is this commit — the adopt targets. */
   const pathAtTip = (id: string): PathView | undefined => [...paths, ...archivedPaths].find((p) => p.tip === id);
 
@@ -172,7 +181,9 @@ export function BranchMap(props: BranchMapProps): JSX.Element {
                     ? 'this step is not on the line of work you are on — only your own future is discardable'
                     : open.id === head
                       ? 'your path already ends here — there is nothing after it to discard'
-                      : null,
+                      : headLaneArchived
+                        ? 'this line of work is archived — restore it first'
+                        : null,
                 },
               ]
             : []),

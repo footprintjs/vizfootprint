@@ -286,6 +286,35 @@ describe('TL-1 BranchMap — archived lanes hidden by default, the two new menu 
     expect(offPath.title).toContain('only your own future is discardable');
   });
 
+  it('"Discard from here…" is disabled WITH the reason when the lane you stand on is archived', () => {
+    // you just archived the path you were on: HEAD detached onto its tip, so the
+    // lane is hidden and frozen — nothing on it is discardable until restored.
+    const detached: readonly PathView[] = [{ name: 'premium', tip: 'c', steps: 3, lastTs: 3, active: false }];
+    const archivedHead: readonly PathView[] = [{ name: 'main', tip: 'b', steps: 3, lastTs: 2, active: false, archived: true }];
+    const { container } = render(
+      <BranchMap
+        commits={S.commits}
+        cursor="b"
+        head="b"
+        paths={detached}
+        archivedPaths={archivedHead}
+        onSeek={() => {}}
+        onDiscardFrom={() => {}}
+      />,
+    );
+    fireEvent.click(container.querySelector('[data-commit="a"]')!);
+    const item = container.querySelector('[data-ctx="discard-from"]') as HTMLButtonElement;
+    expect(item.disabled).toBe(true);
+    expect(item.title).toBe('this line of work is archived — restore it first');
+    // …and the same step IS discardable once that lane is visible again
+    cleanup();
+    const { container: live } = render(
+      <BranchMap commits={S.commits} cursor="b" head="b" paths={VISIBLE} onSeek={() => {}} onDiscardFrom={() => {}} />,
+    );
+    fireEvent.click(live.querySelector('[data-commit="a"]')!);
+    expect((live.querySelector('[data-ctx="discard-from"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it('"Adopt this path" appears on another path\'s TIP, and never on your own', () => {
     const onAdoptPath = vi.fn();
     const { container } = render(
