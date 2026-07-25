@@ -11,6 +11,13 @@
  */
 
 import { validateAnalysisDef } from '../analysis/index.js';
+import {
+  ANALYSIS_VIEW_PREFIX,
+  ANNOTATION_VIEW_PREFIX,
+  CHART_VIEW_PREFIX,
+  ENCODING_VIEW_PREFIX,
+  LAYOUT_VIEW_PREFIX,
+} from '../branches/index.js';
 import { DISPATCH_VERBS, type DispatchVerb } from './types.js';
 
 /** Thrown when a def is structurally malformed. Carries every problem at once. */
@@ -44,6 +51,29 @@ const ACTORS = new Set(['user', 'agent', 'system']);
 const ENGINES = new Set(['memory', 'wasm', 'server', 'auto']);
 const PROCEDURES = new Set(['LORD++', 'alpha-investing']);
 const ENCODINGS = new Set(['point', 'interval', 'cell']);
+
+/**
+ * The synthetic-viewId namespaces the SESSION owns, single-sourced from
+ * `src/branches/fold` (the one place the log wire is defined, so this list and
+ * the fold can never drift). A host-declared view may NOT squat one: the session
+ * lands its own `encoding:` / `analysis:` / `annotation:` / `chart:` / `layout:`
+ * commits there, which are INERT in the fold by design (`keyOf` returns null),
+ * so such a view's probes would be unfoldable, invisible to `compare`, and
+ * silently skipped when a path is adopted. Rejected at the def boundary (R12)
+ * rather than left to fail confusingly at runtime.
+ */
+const RESERVED_VIEW_PREFIXES = [
+  ENCODING_VIEW_PREFIX,
+  ANALYSIS_VIEW_PREFIX,
+  ANNOTATION_VIEW_PREFIX,
+  CHART_VIEW_PREFIX,
+  LAYOUT_VIEW_PREFIX,
+] as const;
+
+/** The reserved namespace a view id squats, or undefined when it is free to use. */
+function reservedPrefix(viewId: string): string | undefined {
+  return RESERVED_VIEW_PREFIXES.find((prefix) => viewId.startsWith(prefix));
+}
 const INTENT_CLASSES = new Set(['mandatory-analytical', 'optional-interaction']);
 const VERBS = new Set<string>(DISPATCH_VERBS);
 
@@ -112,11 +142,17 @@ export function validateDashboardDef(def: unknown): string[] {
     }
   }
 
-  // ── actors (required) ──
+  // ── actors (required) — the ONE place a view identity is declared ──
   if (!isObject(def.actors)) {
     problems.push('actors must be an object mapping viewId -> { actor, label? }');
   } else {
     for (const [viewId, meta] of Object.entries(def.actors)) {
+      const reserved = reservedPrefix(viewId);
+      if (reserved !== undefined) {
+        problems.push(
+          `actors["${viewId}"]: a view id may not start with "${reserved}" — the session lands its own commits under that namespace, so a view there would be inert in the fold and silently skipped when a path is adopted`,
+        );
+      }
       validateActorMeta(meta, `actors["${viewId}"]`, problems);
     }
   }

@@ -86,6 +86,27 @@ describe('validateDashboardDef — actors shape', () => {
   it('accepts a valid string label', () => {
     expect(validateDashboardDef(baseDef({ actors: { v: { actor: 'user', label: 'ok' } } }))).toEqual([]);
   });
+
+  // TL-1: the session lands its own commits under these namespaces, where they
+  // are INERT in the fold by design — a host view squatting one would be
+  // unfoldable, invisible to compare, and silently skipped by adoptPath. Rejected
+  // at the def boundary, with the prefix named, instead of failing confusingly later.
+  it.each([
+    ['chart:x', 'chart:'],
+    ['encoding:scatter', 'encoding:'],
+    ['analysis:correlation', 'analysis:'],
+    ['annotation:user', 'annotation:'],
+    ['layout:dashboard', 'layout:'],
+  ])('rejects a view id in the reserved namespace %p', (viewId, prefix) => {
+    const problems = validateDashboardDef(baseDef({ actors: { [viewId]: { actor: 'user' } } }));
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(`actors["${viewId}"]: a view id may not start with "${prefix}"`);
+    expect(problems[0]).toContain('silently skipped when a path is adopted');
+  });
+
+  it('a view id that merely CONTAINS a reserved word is fine — only the prefix is reserved', () => {
+    expect(validateDashboardDef(baseDef({ actors: { 'my-chart': { actor: 'user' }, 'x:chart:y': { actor: 'user' } } }))).toEqual([]);
+  });
 });
 
 describe('validateDashboardDef — analyses shape', () => {
