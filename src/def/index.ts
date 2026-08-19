@@ -11,9 +11,23 @@ export {
   DISPATCH_VERBS,
   DEFAULT_INTENTS,
 } from './types.js';
+// The long-form series contract (F3): `{t, entity, metric, value}` in, rows +
+// declared encodings out — no bespoke chart API. See `./series.ts`.
+export {
+  seriesToRows,
+  seriesDataSource,
+  seriesEncodingDecl,
+  seriesCaption,
+  SERIES_FIELDS,
+  SERIES_CHART_KIND,
+  SERIES_CHANNELS,
+  SERIES_ENCODINGS,
+} from './series.js';
+export type { SeriesPoint, SeriesSource, SeriesToRowsOptions } from './series.js';
 export type {
   DashboardDef,
   DataSourceDef,
+  SeriesGrain,
   CapabilityDecl,
   ViewEncodingDecl,
   FdrDecl,

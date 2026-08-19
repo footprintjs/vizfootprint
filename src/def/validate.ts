@@ -47,6 +47,12 @@ const DEF_KEYS = new Set([
   'defaultTable',
 ]);
 
+/** The exhaustive set of keys a `SeriesGrain` may carry (R12: stated facts only, nothing executable). */
+const GRAIN_KEYS = new Set(['bucket', 'reducer', 'collapsedFrom', 'note']);
+
+/** The grain's string-valued keys — each echoed verbatim, never parsed. */
+const GRAIN_STRING_KEYS = ['bucket', 'reducer', 'note'] as const;
+
 const ACTORS = new Set(['user', 'agent', 'system']);
 const ENGINES = new Set(['memory', 'wasm', 'server', 'auto']);
 const PROCEDURES = new Set(['LORD++', 'alpha-investing']);
@@ -88,6 +94,30 @@ function isFn(v: unknown): v is (...args: never[]) => unknown {
 /** True iff a value looks like an already-built `AnalysisModule` (has a `run` function). */
 function isAnalysisModule(v: unknown): boolean {
   return isObject(v) && isFn(v.run) && typeof v.id === 'string' && typeof v.kind === 'string';
+}
+
+/**
+ * Validate a `SeriesGrain` — the STATED source metadata (never inferred). Pure
+ * inert data: strings echoed verbatim, one non-negative count, nothing
+ * executable and no unknown keys.
+ */
+function validateGrain(grain: unknown, where: string, problems: string[]): void {
+  if (!isObject(grain)) {
+    problems.push(`${where}, if present, must be an object { bucket?, reducer?, collapsedFrom?, note? }`);
+    return;
+  }
+  for (const key of Object.keys(grain)) {
+    if (!GRAIN_KEYS.has(key)) problems.push(`${where}: unknown key "${key}"`);
+  }
+  for (const key of GRAIN_STRING_KEYS) {
+    if (grain[key] !== undefined && typeof grain[key] !== 'string') {
+      problems.push(`${where}.${key}, if present, must be a string`);
+    }
+  }
+  const collapsed = grain.collapsedFrom;
+  if (collapsed !== undefined && (typeof collapsed !== 'number' || !Number.isFinite(collapsed) || collapsed < 0)) {
+    problems.push(`${where}.collapsedFrom, if present, must be a non-negative finite number`);
+  }
 }
 
 function validateActorMeta(meta: unknown, where: string, problems: string[]): void {
@@ -139,6 +169,7 @@ export function validateDashboardDef(def: unknown): string[] {
       if (src.layout !== undefined && src.layout !== 'row' && src.layout !== 'column') {
         problems.push(`data["${table}"].layout, if present, must be "row" | "column"`);
       }
+      if (src.grain !== undefined) validateGrain(src.grain, `data["${table}"].grain`, problems);
     }
   }
 

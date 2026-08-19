@@ -94,6 +94,30 @@ export const DEFAULT_INTENTS: Readonly<Record<DispatchVerb, IntentClass>> = {
 
 // ── The def schema (mosaic-spec superset). ─────────────────────────────────────
 
+/**
+ * What the CALLER states about how a table's rows were produced — the bucket
+ * they cover, how they were collapsed, how many source points went in.
+ *
+ * STATED, never inferred: a row array cannot reveal that it was downsampled
+ * (100 daily means and 100 raw readings are byte-identical in shape), so
+ * vizfootprint refuses to guess and instead carries what the source said.
+ * Absent means the source said nothing — which is NOT the same as "raw", and
+ * is rendered as no caption at all (`seriesCaption` returns `null`).
+ *
+ * Every field is a caller-supplied string echoed verbatim, never parsed (R12):
+ * vizfootprint does not know what `'5m'` or `'p95'` mean and does not pretend to.
+ */
+export interface SeriesGrain {
+  /** The span each row covers, in the caller's own words — `'day'`, `'5m'`, `'raw'`. */
+  readonly bucket?: string;
+  /** How points were collapsed into a bucket, in the caller's own words — `'mean'`, `'p95'`, `'last'`. */
+  readonly reducer?: string;
+  /** How many source points went in before collapsing. Non-negative. */
+  readonly collapsedFrom?: number;
+  /** Anything else the source wants shown under the chart. Echoed verbatim. */
+  readonly note?: string;
+}
+
 /** One table's data source — a Mosaic-spec `data` entry, superset (D24 engine key). */
 export interface DataSourceDef {
   /** Inline row objects. Mutually exclusive with `csv`. */
@@ -104,6 +128,13 @@ export interface DataSourceDef {
   readonly engine?: Engine;
   /** Memory engine internal storage layout (pass-through; default `row`). */
   readonly layout?: 'row' | 'column';
+  /**
+   * Source metadata: what the caller STATES about this table's granularity
+   * (see {@link SeriesGrain}). Inert declarative data — it never changes a
+   * clause, a commit, or a query; it exists so a downsampling fact can be
+   * rendered as a caption instead of silently misread as raw detail.
+   */
+  readonly grain?: SeriesGrain;
 }
 
 /**

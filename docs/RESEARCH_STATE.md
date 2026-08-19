@@ -356,6 +356,51 @@ SHAs: branches 6fe5809, session 5f13969, agent 9a7fc3b, ui b4f2be1, demo-agent b
 4e5bc15; review fixes b1422e3 (rename), 14301d3 (adopt throw-guard), 0d7579a (two-truths + parked compare), 00ade51
 (BranchMap reason), bae5651 (reserved view ids).
 
+## D32 [SHIPPED F3] the long-form series contract — `{t, entity, metric, value}` in, rows + declared encodings out
+
+The F3 commitment ("a chart surface that consumes series with **no bespoke chart API**") is discharged by making a
+long-form series a first-class *input* to the surface that already exists, not by adding a ninth chart. The renderer
+contract already speaks rows + declared encodings (`ui/src/contract/types.ts` `RenderState.rows` / `.encodings`), so
+`src/def/series.ts` is a converter and three declarations — zero engine, zero new verb, zero new commit kind.
+
+**The surface** (all from `vizfootprint/def`): `SeriesPoint {t, entity, metric, value}` — `t` an ISO-8601 string
+(lexicographic == chronological, the rule `<VizLine>` and `src/data`'s string interval predicate already ride);
+`seriesToRows(points, {grain?}) -> SeriesSource {rows, encodings, entities, metrics, grain?, caption, skipped}`;
+`seriesDataSource(source) -> DataSourceDef` (the `def.data[table]` slot); `seriesEncodingDecl(viewId, {facet?}) ->
+ViewEncodingDecl` (the `'series'` view kind); `seriesCaption(grain) -> string | null`. Alignment with `LinePoint
+{date, value, series}` is exact — `t`→date, `entity`→series — so `metric` is the one genuinely new field.
+
+**The facet-vs-filter ruling: NEITHER is baked in, and that is the point.** `ViewEncodingDecl`'s grammar is
+channel→**field name** (a `reencode` commit carries `field` = the channel, `value` = the target *field*). "Show only
+the metric named `p95_latency`" pins a channel to a **value**, which that grammar cannot express — encoding it there
+would give `initial` a second, value-carrying meaning, a breaking change to a grammar the session fold, `compare`
+and `adoptPath` all read. So the `'series'` kind DECLARES `facet` in its channel vocabulary (`['x','y','color',
+'facet']`, R14: declared, never guessed) but leaves it UNBOUND at the fold's root, and the two readings are reached
+through verbs the session already has: **facet** = `reencode('facet' -> 'metric')`; **filter to one metric** =
+`select` on the `metric` column (a plain point clause in `activeFilters`). Both are therefore already cause-tagged,
+branch-scoped, replayable and seek-restorable, for free. `seriesEncodingDecl(viewId, {facet: true})` seeds the
+faceted state at the root for a view that should start that way — the same state, without the commit.
+
+Corollary: `SeriesSource.encodings` is **data-independent**. A two-metric series binds no facet channel either —
+switching a view decision on "we happen to see two metrics" would be the converter inferring, which is exactly the
+sin the grain rule below forbids. Cardinality is reported as a fact (`metrics`, `entities`, first-seen order) and
+the view decides.
+
+**Grain is stated, never inferred** — a row array cannot reveal that it was downsampled (100 daily means and 100 raw
+readings are byte-identical in shape). `DataSourceDef.grain?: SeriesGrain {bucket?, reducer?, collapsedFrom?, note?}`
+carries what the CALLER states (the triage contract's `grain`) as inert source metadata — it never touches a clause,
+a commit or a query — R12-validated at the def boundary (exhaustive key set, strings echoed verbatim, one
+non-negative finite count, nothing executable) and rendered by `seriesCaption` as one line under the chart. No stated
+grain ⇒ `caption === null`: silence, never an invented "hourly mean". Malformed points (not an object, blank
+`t`/`entity`/`metric`, non-finite `value`) are skipped and COUNTED (`SeriesSource.skipped`), the discipline
+`<VizLine>` already applies to an unparseable date — a tool result is untrusted input and its bad entries surface
+rather than vanish.
+
+Gate: **1931 tests at 100/100/100/100** (30 new in `src/def/series.test.ts`, up from 1901); `npm run typecheck`
+clean. Red-proved by in-place mutation and byte-identical restore, two rounds: (A) converter drops the canonical
+encodings + caption inverted; (B) the `'series'` kind stops declaring `facet` and the R12 firewall stops validating
+`grain` — round B failed exactly the 6 tests that name those behaviours and nothing else.
+
 ## Next
 P3 packets per SPEC §12, order L1→L6; L1-L5 SHIPPED, L6 (why) remaining. Every packet = R#s + pre-written acceptance
 tests + boundary + diff/test-output artifacts; orchestrator re-runs all tests. Fresh-chat rehydration: read THIS file + SPEC.md.
