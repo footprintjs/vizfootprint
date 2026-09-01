@@ -175,6 +175,8 @@ export type PlanRecipe =
   | { readonly apply: 'clear-encoding'; readonly viewId: string; readonly channel: string }
   | { readonly apply: 'analysis'; readonly analysisId: string }
   | { readonly apply: 'annotation'; readonly target: string; readonly note: string }
+  /** A story beat re-named on the target path (`checkpoint` verb) — a position is named again, never copied. */
+  | { readonly apply: 'beat'; readonly label: string }
   /** LY-1: re-land a cockpit-layout prop (`navigate` verb, `layout:${scope}` identity). */
   | { readonly apply: 'layout'; readonly scope: string; readonly prop: string; readonly value: string };
 

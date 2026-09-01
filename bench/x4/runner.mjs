@@ -23,8 +23,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
 /** Pinned browser build (playwright chromium_headless_shell rev 1208). */
-export const CHROME_EXECUTABLE =
-  '/Users/sanjay/Library/Caches/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-mac-arm64/chrome-headless-shell';
+// The headless shell playwright-core installed for ITS OWN version (`npx playwright install
+// chromium-headless-shell`) — never a hand-typed build number, which rots the moment the
+// dependency moves. Override with VZF_CHROME when a machine keeps Chrome elsewhere.
+export const CHROME_EXECUTABLE = process.env.VZF_CHROME;
 
 /**
  * Bundle the page bench into a single browser IIFE (global `X4Bench`).
@@ -132,7 +134,8 @@ export async function runX4({ reps = 3, rows = 100_000, frames = 180, seed = 42 
   const bundle = await buildPageBundle();
 
   const browser = await chromium.launch({
-    executablePath: CHROME_EXECUTABLE,
+    // unset ⇒ playwright-core launches the headless shell it installed for its own version
+    ...(CHROME_EXECUTABLE !== undefined ? { executablePath: CHROME_EXECUTABLE } : {}),
     headless: true,
   });
 

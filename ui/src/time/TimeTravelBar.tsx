@@ -138,7 +138,7 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
           branchCount={branches.length}
         />
       ) : (
-        <PresentBody checkpoints={checkpoints} commits={commits} cursor={cursor} onSeek={onSeek} />
+        <PresentBody head={head} checkpoints={checkpoints} commits={commits} cursor={cursor} onSeek={onSeek} />
       )}
 
       <CheckpointModal
@@ -222,19 +222,27 @@ interface PresentBodyProps {
   checkpoints: readonly CheckpointView[];
   commits: readonly CommitView[];
   cursor: string | null;
+  /** The tip of the presented lineage (the head); beats ahead of the cursor on it are what "next" walks to. */
+  head: string | null;
   onSeek?: (id: string) => void;
 }
 function PresentBody(p: PresentBodyProps): JSX.Element {
-  const ordered = orderedCheckpoints(p.checkpoints);
-  const idx = currentBeatIndex(p.checkpoints, p.commits, p.cursor);
+  // The presented lineage is the one that ends at the HEAD (beats ahead of the
+  // cursor are what "next beat" walks to); the cursor's position is found on it.
+  const tip = p.head ?? p.cursor;
+  const ordered = orderedCheckpoints(p.checkpoints, p.commits, tip);
+  const idx = currentBeatIndex(p.checkpoints, p.commits, p.cursor, tip);
   if (ordered.length === 0) {
     return <div className="vzf-present-empty">No story beats yet — name a checkpoint in Explore mode to build the guided tour.</div>;
   }
   const clamped = idx < 0 ? 0 : idx;
   const beat = ordered[clamped]!;
+  // `ordered` holds only beats whose commit is on the presented lineage, and
+  // the callers (prev/next buttons disabled at the ends, dots mapped over
+  // `ordered`) never ask for an index outside it — so a beat here always
+  // names a commit.
   const go = (to: number): void => {
-    const t = ordered[to];
-    if (t?.commitId) p.onSeek?.(t.commitId);
+    p.onSeek?.(ordered[to]!.commitId as string);
   };
   return (
     <div data-vzf="present">

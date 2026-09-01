@@ -97,6 +97,7 @@ describe('validateDashboardDef — actors shape', () => {
     ['analysis:correlation', 'analysis:'],
     ['annotation:user', 'annotation:'],
     ['layout:dashboard', 'layout:'],
+    ['beat:0', 'beat:'],
   ])('rejects a view id in the reserved namespace %p', (viewId, prefix) => {
     const problems = validateDashboardDef(baseDef({ actors: { [viewId]: { actor: 'user' } } }));
     expect(problems).toHaveLength(1);
@@ -360,5 +361,53 @@ describe('dispatchVerbs', () => {
       'checkpoint',
       'reencode',
     ]);
+  });
+});
+
+describe('validateDashboardDef — absence (the declared silence vocabulary)', () => {
+  const withAbsence = (absence: unknown, extra: Record<string, unknown> = {}): unknown =>
+    baseDef({ data: { data: { rows: [{ id: 1, state: 'unknown', n: 2 }], absence } }, ...extra });
+
+  it('accepts a well-formed declaration that includes "unknown"', () => {
+    expect(validateDashboardDef(withAbsence({ field: 'state', states: ['present', 'unavailable', 'unknown'] }))).toEqual([]);
+  });
+
+  it('refuses a non-object, unknown keys, a bad field, and a bad states list', () => {
+    expect(validateDashboardDef(withAbsence('nope'))).toContain('data["data"].absence, if present, must be an object { field, states }');
+    expect(validateDashboardDef(withAbsence({ field: 'state', states: ['unknown'], extra: 1 }))).toContain('data["data"].absence: unknown key "extra"');
+    expect(validateDashboardDef(withAbsence({ field: '', states: ['unknown'] }))).toContain(
+      'data["data"].absence.field must be a non-empty string (the column that carries the state)',
+    );
+    expect(validateDashboardDef(withAbsence({ field: 'state', states: [] }))).toContain(
+      'data["data"].absence.states must be a non-empty array of non-empty strings',
+    );
+    expect(validateDashboardDef(withAbsence({ field: 'state', states: ['unknown', 7] }))).toContain(
+      'data["data"].absence.states must be a non-empty array of non-empty strings',
+    );
+  });
+
+  it('refuses a repeated state and a vocabulary with no word for "unknown"', () => {
+    expect(validateDashboardDef(withAbsence({ field: 'state', states: ['unknown', 'unknown'] }))).toContain(
+      'data["data"].absence.states must not repeat a state',
+    );
+    expect(validateDashboardDef(withAbsence({ field: 'state', states: ['present', 'not-configured'] }))).toContain(
+      'data["data"].absence.states must include "unknown" — a source that cannot tell which silence it saw needs a word for that',
+    );
+  });
+
+  it('refuses binding the absence column to a numeric channel, and allows it on a categorical one', () => {
+    const decl = { field: 'state', states: ['present', 'unknown'] };
+    expect(
+      validateDashboardDef(
+        withAbsence(decl, { encodings: [{ viewId: 'v', chartKind: 'point', channels: ['x', 'y'], initial: { x: 'state', y: 'n' } }] }),
+      ),
+    ).toContain(
+      'encodings[0].initial.x binds "state", a declared absence column, to a numeric channel — absence is a category, never a magnitude',
+    );
+    expect(
+      validateDashboardDef(
+        withAbsence(decl, { encodings: [{ viewId: 'v', chartKind: 'bar', channels: ['category'], initial: { category: 'state' } }] }),
+      ),
+    ).toEqual([]);
   });
 });

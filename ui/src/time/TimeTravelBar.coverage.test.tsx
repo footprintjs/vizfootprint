@@ -136,15 +136,20 @@ describe('TimeTravelBar — present mode edges', () => {
     expect(onSeek).toHaveBeenCalledWith('b');
   });
 
-  it('a beat dot whose checkpoint carries an empty-string commitId is skipped silently (falsy, not null)', () => {
+  it('a beat whose commitId is on no lineage (an empty string) is not a dot at all — beats are ordered by lineage, never by arrival', () => {
     const onSeek = vi.fn();
     const withGhost = [...S.checkpoints, { label: 'ghost', commitId: '', ts: 30 }];
     const { container } = render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head="b" checkpoints={withGhost} onSeek={onSeek} />);
     const dots = container.querySelectorAll('[data-beat-dot]');
-    expect(dots).toHaveLength(3);
+    expect(dots).toHaveLength(2); // start, mid — the ghost names nothing on this lineage
     fireEvent.click(dots[1]!); // 'mid' → commitId 'b'
     expect(onSeek).toHaveBeenCalledWith('b');
-    fireEvent.click(dots[2]!); // 'ghost' → commitId '' (falsy) → no-op
     expect(onSeek).toHaveBeenCalledTimes(1);
+  });
+
+  it('with no head, the presented lineage is the one that ends at the cursor', () => {
+    const { container } = render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head={null} checkpoints={S.checkpoints} />);
+    expect(container.querySelectorAll('[data-beat-dot]')).toHaveLength(2);
+    expect(container.querySelector('.vzf-beat-title')?.textContent).toBe('mid');
   });
 });

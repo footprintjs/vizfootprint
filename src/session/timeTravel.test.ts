@@ -164,23 +164,30 @@ describe('R8/R12 — checkpoint is a named, inert, listable pointer that round-t
     const s = freshSession();
     const a = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Work', cause: userCause() });
     const aId = a.ok ? a.commit!.id : '';
+    // A checkpoint LANDS a `beat:` commit whose parent is the named position;
+    // `commitId` is the beat itself and `ts` its index in the log (a is 0).
     const cp1 = await s.dispatch({ verb: 'checkpoint', label: 'picked-work', cause: userCause() });
-    expect(cp1.ok && cp1.checkpoint).toMatchObject({ label: 'picked-work', commitId: aId, ts: 0 });
+    const beat1 = cp1.ok ? cp1.commit!.id : '';
+    expect(cp1.ok && cp1.checkpoint).toMatchObject({ label: 'picked-work', commitId: beat1, ts: 1 });
+    expect(s.log.records.find((r) => r.id === beat1)!.parent).toBe(aId);
 
     const b = await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [80, 120], cause: userCause() });
     const bId = b.ok ? b.commit!.id : '';
     const cp2 = await s.dispatch({ verb: 'checkpoint', label: 'narrowed-price', cause: userCause() });
-    expect(cp2.ok && cp2.checkpoint).toMatchObject({ label: 'narrowed-price', commitId: bId, ts: 1 });
+    const beat2 = cp2.ok ? cp2.commit!.id : '';
+    expect(cp2.ok && cp2.checkpoint).toMatchObject({ label: 'narrowed-price', commitId: beat2, ts: 3 });
+    expect(s.log.records.find((r) => r.id === beat2)!.parent).toBe(bId);
 
     // listable, in order, both retained
     expect(s.checkpoints().map((c) => [c.label, c.commitId])).toEqual([
-      ['picked-work', aId],
-      ['narrowed-price', bId],
+      ['picked-work', beat1],
+      ['narrowed-price', beat2],
     ]);
 
-    // round-trip: seek to the named commit restores that position's fold
+    // round-trip: seek to the beat restores the NAMED position's fold — the
+    // beat is inert, so the state at beat1 is exactly the state at `a`.
     s.seek(s.checkpoints()[0]!.commitId!);
-    expect(s.cursor()).toBe(aId);
+    expect(s.cursor()).toBe(beat1);
     expect((await s.overview()).activeSelections).toEqual([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Work' }]);
 
     // R12: an all-whitespace label is a typed guard-failed gap — nothing is named

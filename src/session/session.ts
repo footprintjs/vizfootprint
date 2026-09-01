@@ -45,6 +45,7 @@ import type { AgentEventFrame, WhyResult, WhyTarget } from '../why/index.js';
 import {
   ANALYSIS_VIEW_PREFIX,
   ANNOTATION_VIEW_PREFIX,
+  BEAT_VIEW_PREFIX,
   BranchRefs,
   CHART_VIEW_PREFIX,
   ENCODING_VIEW_PREFIX,
@@ -119,6 +120,8 @@ interface WhyProvenance {
 /** Reserved log fields the session lands non-filter commits under (never real data columns). */
 const ANALYSIS_FIELD = '__analysis__';
 const ANNOTATION_FIELD = '__annotation__';
+/** The field a beat commit carries its label under (inert in the fold; reserved from probes like the others). */
+const BEAT_FIELD = '__beat__';
 /** RP-3: the field an agent-authored chart's spec-registration commit lands under. */
 const CHART_FIELD = '__chart__';
 
@@ -176,7 +179,7 @@ const LAYOUT_VALUE_MAX = 500;
  * `pValue` carrying a value in [0,1] would be miscounted as a declared test by
  * `hypothesisRecordsFromLog` on log replay (R6). Reject it as a typed gap.
  */
-const RESERVED_PROBE_FIELDS = new Set<string>([TEST_ANALOG_FIELD, ANALYSIS_FIELD, ANNOTATION_FIELD, CHART_FIELD]);
+const RESERVED_PROBE_FIELDS = new Set<string>([TEST_ANALOG_FIELD, ANALYSIS_FIELD, ANNOTATION_FIELD, CHART_FIELD, BEAT_FIELD]);
 
 /** The public session surface (family-symmetric with hcifootprint's Session). */
 export interface InteractionSession {
@@ -926,6 +929,8 @@ class InteractionSessionImpl implements InteractionSession {
         return { verb: 'analyze', analysisId: recipe.analysisId, cause };
       case 'annotation':
         return { verb: 'annotate', target: recipe.target, note: recipe.note, cause };
+      case 'beat':
+        return { verb: 'checkpoint', label: recipe.label, cause };
       case 'layout':
         // LY-1: re-land the arrangement prop here through the navigate verb.
         return { verb: 'navigate', viewId: `${LAYOUT_VIEW_PREFIX}${recipe.scope}`, field: recipe.prop, value: recipe.value, cause };
@@ -1108,7 +1113,7 @@ class InteractionSessionImpl implements InteractionSession {
       case 'fork':
         return this.doFork(action.fromCommitId, intent);
       case 'checkpoint':
-        return this.doCheckpoint(action.label, intent);
+        return this.doCheckpoint(action.label, action.cause, as, intent);
       case 'reencode':
         return this.doReencode(action.viewId, action.channel, action.field, action.cause, as, intent, action.correlationId);
     }
@@ -1471,7 +1476,12 @@ class InteractionSessionImpl implements InteractionSession {
     return { ok: true, verb: 'fork', intent };
   }
 
-  private doCheckpoint(label: string, intent: DispatchResult['intent']): DispatchResult {
+  private doCheckpoint(
+    label: string,
+    cause: Cause,
+    as: Actor | undefined,
+    intent: DispatchResult['intent'],
+  ): DispatchResult {
     // R12: the label is validated as inert data — a non-empty, length-capped
     // string, stored VERBATIM and never parsed or dispatched on.
     if (typeof label !== 'string' || label.trim().length === 0) {
@@ -1480,12 +1490,30 @@ class InteractionSessionImpl implements InteractionSession {
     if (label.length > 200) {
       return this.reject('checkpoint', intent, this.gapLedger.file('guard-failed', 'checkpoint', 'checkpoint label too long (max 200 chars)', label.slice(0, 40)));
     }
-    // A NAMED pointer to the CURRENT position (the cursor) — stored as data,
-    // listable via `checkpoints()`. Naming from a past cursor names that commit.
-    const checkpoint: Checkpoint = { label, commitId: this._cursor, ts: this._checkpoints.length };
+    // A beat is a DECISION, so it is a COMMIT — cause-tagged (who named it),
+    // branch-scoped (it sits on the lineage it names), replayable and seek-able
+    // — under the `beat:` synthetic identity, INERT in the fold like an
+    // annotation (a name is never crossfilter state). Before this, a checkpoint
+    // was a bare {label, commitId, arrivalIndex} outside the log: no cause, no
+    // actor, and present mode ordered beats by arrival, splicing in beats from
+    // abandoned branches. Now `commitId` IS the beat commit: seeking to it
+    // restores exactly the state that was named.
+    const stamped = this.stampCause(cause, 'checkpoint', as);
+    const { record } = this.log.commit({
+      id: this.nextId(),
+      parent: this._cursor,
+      viewId: `${BEAT_VIEW_PREFIX}${this._checkpoints.length}`,
+      actorMeta: { actor: stamped.requestedBy },
+      kind: 'point',
+      field: BEAT_FIELD,
+      value: label,
+      cause: stamped,
+    });
+    this.landed(record);
+    const checkpoint: Checkpoint = { label, commitId: record.id, ts: this.log.records.length - 1 };
     Object.freeze(checkpoint);
     this._checkpoints.push(checkpoint);
-    return { ok: true, verb: 'checkpoint', intent, checkpoint };
+    return { ok: true, verb: 'checkpoint', intent, commit: record, checkpoint };
   }
 
   // ── declareAnalysis (the L3 flags' landing spot) ─────────────────────────────
@@ -1824,7 +1852,15 @@ class InteractionSessionImpl implements InteractionSession {
         columns[table] = [];
         colNamesByTable.set(table, new Set());
       } else {
-        columns[table] = cols.map((c) => ({ field: c.name, type: c.type }));
+        // A declared absence column carries its vocabulary onto the facet, so
+        // an agent reading `whats_here` knows "unavailable" is a kind of
+        // silence, not a category like any other — names + words, never values.
+        const absence = this.runtime.def.data[table]?.absence;
+        columns[table] = cols.map((c) =>
+          absence !== undefined && absence.field === c.name
+            ? { field: c.name, type: c.type, absence: absence.states }
+            : { field: c.name, type: c.type },
+        );
         colNamesByTable.set(table, new Set(cols.map((c) => c.name)));
       }
     }

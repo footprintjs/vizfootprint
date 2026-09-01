@@ -10,6 +10,8 @@ export { validateDashboardDef, DashboardDefError, dispatchVerbs } from './valida
 export {
   DISPATCH_VERBS,
   DEFAULT_INTENTS,
+  ABSENCE_STATES,
+  ABSENCE_UNKNOWN,
 } from './types.js';
 // The long-form series contract (F3): `{t, entity, metric, value}` in, rows +
 // declared encodings out — no bespoke chart API. See `./series.ts`.
@@ -28,6 +30,7 @@ export type {
   DashboardDef,
   DataSourceDef,
   SeriesGrain,
+  AbsenceDecl,
   CapabilityDecl,
   ViewEncodingDecl,
   FdrDecl,

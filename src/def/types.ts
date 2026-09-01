@@ -135,7 +135,45 @@ export interface DataSourceDef {
    * rendered as a caption instead of silently misread as raw detail.
    */
   readonly grain?: SeriesGrain;
+  /**
+   * Which column carries this table's ABSENCE state, and the vocabulary it
+   * speaks (see {@link AbsenceDecl}). Declared, never inferred: a value in
+   * that column is a fact the SOURCE established, and the validator refuses
+   * to let the column bind to a numeric channel — "unavailable" is not a low
+   * number.
+   */
+  readonly absence?: AbsenceDecl;
 }
+
+/**
+ * A declared absence vocabulary — the one place a table says how it spells
+ * "there is no value here, and here is which kind of no value".
+ *
+ * The four canonical states, in the order every chart and caption should
+ * present them:
+ *   - `present`        — the thing reported; here it is
+ *   - `not-configured` — genuinely absent: the feature is off, there is no policy
+ *   - `unavailable`    — we could not check: timeout, auth, collector down
+ *   - `unknown`        — the source CANNOT tell the two silences apart
+ *
+ * `unknown` is the honest state and is REQUIRED in every vocabulary: a
+ * collector that writes "analytics unreadable" and "analytics off" as the
+ * same bytes must be able to say so, instead of the tool asserting a
+ * confident `not-configured` that tells the reader to stop looking.
+ *
+ * Inert declarative data (R12): strings echoed verbatim, never parsed.
+ */
+export interface AbsenceDecl {
+  /** The column that carries the state. */
+  readonly field: string;
+  /** The vocabulary that column may hold. MUST include `unknown`. */
+  readonly states: readonly string[];
+}
+
+/** The canonical absence vocabulary; a table may declare a subset plus `unknown`, or its own words plus `unknown`. */
+export const ABSENCE_STATES: readonly string[] = Object.freeze(['present', 'not-configured', 'unavailable', 'unknown']);
+/** The one state every absence vocabulary must be able to say. */
+export const ABSENCE_UNKNOWN = 'unknown';
 
 /**
  * One view's declared VISUAL-ENCODING surface (the `reencode` verb's

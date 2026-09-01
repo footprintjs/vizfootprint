@@ -40,10 +40,21 @@ export const CHART_VIEW_PREFIX = 'chart:';
  * must never enter crossfilter row counts, foldDiff, or conflict detection.
  */
 export const LAYOUT_VIEW_PREFIX = 'layout:';
+/**
+ * A story beat (`checkpoint` verb, `beat:${n}` synthetic identity). A beat is a
+ * DECISION and therefore a commit — cause-tagged, on the lineage, replayable,
+ * seek-able — but a NAME is never crossfilter state, so it is INERT here
+ * exactly like an annotation. Ordering beats by lineage instead of arrival is
+ * what this buys: present mode can no longer splice a beat from an abandoned
+ * branch into a story the cursor never walked.
+ */
+export const BEAT_VIEW_PREFIX = 'beat:';
 
 /** The state key a commit touches, or null for an inert (annotation / chart / layout) commit. */
 export function keyOf(record: CommitRecord): string | null {
   if (record.viewId.startsWith(ANNOTATION_VIEW_PREFIX)) return null;
+  // A beat names a position; it never filters (see BEAT_VIEW_PREFIX).
+  if (record.viewId.startsWith(BEAT_VIEW_PREFIX)) return null;
   // RP-3: a chart proposal (its spec-registration + p=1 hypothesis commits) is
   // NOT crossfilter state — it is inert in the fold, exactly like an annotation.
   // The chart renders as its own view; its ledger row lives in the FDR ledger.

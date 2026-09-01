@@ -15,6 +15,7 @@ import type { FoldEntry, PlanRecipe, PlanResult } from './types.js';
 import {
   ANALYSIS_VIEW_PREFIX,
   ANNOTATION_VIEW_PREFIX,
+  BEAT_VIEW_PREFIX,
   ENCODING_VIEW_PREFIX,
   LAYOUT_VIEW_PREFIX,
   foldStateAt,
@@ -83,6 +84,12 @@ function bringOverRecipe(rec: CommitRecord): PlanRecipe {
     // free-form target never entered the wire — the honest recipe re-notes
     // under that namespace.
     return { apply: 'annotation', target: rec.viewId, note: String(rec.value) };
+  }
+  if (rec.viewId.startsWith(BEAT_VIEW_PREFIX)) {
+    // A beat names a position. Bringing it over names the TARGET position with
+    // the same label — the recipe re-lands a checkpoint there; nothing about the
+    // source lineage is copied (a name is never state, so it carries no conflicts).
+    return { apply: 'beat', label: String(rec.value) };
   }
   if (rec.viewId.startsWith(LAYOUT_VIEW_PREFIX)) {
     // LY-1: bringing a layout note over RE-LANDS the same arrangement prop here

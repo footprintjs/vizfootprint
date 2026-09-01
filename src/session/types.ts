@@ -574,6 +574,13 @@ export interface FdrSummary {
 export interface ColumnFacet {
   readonly field: string;
   readonly type: ColumnType;
+  /**
+   * Present when the def declared this column as the table's ABSENCE column
+   * (`DataSourceDef.absence`): the vocabulary it speaks, verbatim. An agent
+   * reading `whats_here` learns that "unavailable" here is a kind of silence,
+   * not a category like any other — and never a number.
+   */
+  readonly absence?: readonly string[];
 }
 
 /** The structured payload `whats_here` projects. All app content lives in DATA fields. */

@@ -17,8 +17,9 @@ import {
   CHART_VIEW_PREFIX,
   ENCODING_VIEW_PREFIX,
   LAYOUT_VIEW_PREFIX,
+  BEAT_VIEW_PREFIX,
 } from '../branches/index.js';
-import { DISPATCH_VERBS, type DispatchVerb } from './types.js';
+import { ABSENCE_UNKNOWN, DISPATCH_VERBS, type DispatchVerb } from './types.js';
 
 /** Thrown when a def is structurally malformed. Carries every problem at once. */
 export class DashboardDefError extends Error {
@@ -62,7 +63,7 @@ const ENCODINGS = new Set(['point', 'interval', 'cell']);
  * The synthetic-viewId namespaces the SESSION owns, single-sourced from
  * `src/branches/fold` (the one place the log wire is defined, so this list and
  * the fold can never drift). A host-declared view may NOT squat one: the session
- * lands its own `encoding:` / `analysis:` / `annotation:` / `chart:` / `layout:`
+ * lands its own `encoding:` / `analysis:` / `annotation:` / `chart:` / `layout:` / `beat:`
  * commits there, which are INERT in the fold by design (`keyOf` returns null),
  * so such a view's probes would be unfoldable, invisible to `compare`, and
  * silently skipped when a path is adopted. Rejected at the def boundary (R12)
@@ -74,6 +75,7 @@ const RESERVED_VIEW_PREFIXES = [
   ANNOTATION_VIEW_PREFIX,
   CHART_VIEW_PREFIX,
   LAYOUT_VIEW_PREFIX,
+  BEAT_VIEW_PREFIX,
 ] as const;
 
 /** The reserved namespace a view id squats, or undefined when it is free to use. */
@@ -120,6 +122,41 @@ function validateGrain(grain: unknown, where: string, problems: string[]): void 
   }
 }
 
+/**
+ * Validate an `AbsenceDecl` — the STATED absence vocabulary of one table
+ * (never inferred). Inert data: a column name and a list of words, echoed
+ * verbatim. The one semantic rule: the vocabulary MUST include `unknown`,
+ * because a source that cannot tell "feature off" from "collector failed"
+ * needs a word for that, or it is forced to lie with one of the others.
+ * Collects the declared field into `fields` so the encodings pass can refuse
+ * binding it to a numeric channel.
+ */
+function validateAbsence(absence: unknown, where: string, problems: string[], fields: Set<string>): void {
+  if (!isObject(absence)) {
+    problems.push(`${where}, if present, must be an object { field, states }`);
+    return;
+  }
+  for (const key of Object.keys(absence)) {
+    if (key !== 'field' && key !== 'states') problems.push(`${where}: unknown key "${key}"`);
+  }
+  if (typeof absence.field !== 'string' || absence.field.length === 0) {
+    problems.push(`${where}.field must be a non-empty string (the column that carries the state)`);
+  } else {
+    fields.add(absence.field);
+  }
+  const states = absence.states;
+  if (!Array.isArray(states) || states.length === 0 || states.some((st) => typeof st !== 'string' || st.length === 0)) {
+    problems.push(`${where}.states must be a non-empty array of non-empty strings`);
+    return;
+  }
+  if (new Set(states).size !== states.length) problems.push(`${where}.states must not repeat a state`);
+  if (!states.includes(ABSENCE_UNKNOWN)) {
+    problems.push(
+      `${where}.states must include "${ABSENCE_UNKNOWN}" — a source that cannot tell which silence it saw needs a word for that`,
+    );
+  }
+}
+
 function validateActorMeta(meta: unknown, where: string, problems: string[]): void {
   if (!isObject(meta)) {
     problems.push(`${where} must be an object { actor, label? }`);
@@ -139,6 +176,8 @@ function validateActorMeta(meta: unknown, where: string, problems: string[]): vo
  * it is non-empty.
  */
 export function validateDashboardDef(def: unknown): string[] {
+  // Absence columns declared by any table — the encodings pass refuses them on numeric channels.
+  const absenceFields = new Set<string>();
   const problems: string[] = [];
   if (!isObject(def)) return ['def must be a plain object'];
 
@@ -170,6 +209,7 @@ export function validateDashboardDef(def: unknown): string[] {
         problems.push(`data["${table}"].layout, if present, must be "row" | "column"`);
       }
       if (src.grain !== undefined) validateGrain(src.grain, `data["${table}"].grain`, problems);
+      if (src.absence !== undefined) validateAbsence(src.absence, `data["${table}"].absence`, problems, absenceFields);
     }
   }
 
@@ -256,6 +296,17 @@ export function validateDashboardDef(def: unknown): string[] {
         if (enc.initial !== undefined) {
           if (!isObject(enc.initial) || Object.values(enc.initial).some((v) => typeof v !== 'string')) {
             problems.push(`encodings[${i}].initial, if present, must be an object mapping channel -> field (strings)`);
+          } else {
+            // An absence state is a KIND of silence, never a magnitude: "unavailable"
+            // on a numeric axis would render as a low number and tell the reader
+            // the wrong thing with a straight face.
+            for (const [channel, field] of Object.entries(enc.initial)) {
+              if ((channel === 'x' || channel === 'y') && absenceFields.has(field as string)) {
+                problems.push(
+                  `encodings[${i}].initial.${channel} binds "${String(field)}", a declared absence column, to a numeric channel — absence is a category, never a magnitude`,
+                );
+              }
+            }
           }
         }
       });

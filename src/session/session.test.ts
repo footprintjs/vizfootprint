@@ -206,15 +206,20 @@ describe('fork / checkpoint (R8 branching + named positions)', () => {
     expect(s.head).toBe(secondId);
     expect(s.cursor()).toBe(secondId); // linear flow: cursor == head
 
+    // A checkpoint is a DECISION, so it lands a `beat:` commit (inert in the
+    // fold) as the new tip — `commitId` IS that beat, and head/cursor move to it.
     const cp = await s.dispatch({ verb: 'checkpoint', label: 'after-two', cause: userCause() });
-    expect(cp.ok && cp.checkpoint?.commitId).toBe(secondId);
+    const beatId = cp.ok ? cp.commit!.id : '';
+    expect(cp.ok && cp.checkpoint?.commitId).toBe(beatId);
+    expect(s.log.records.find((r) => r.id === beatId)!.parent).toBe(secondId); // the beat names c2's state
+    expect(s.head).toBe(beatId);
 
     // Fork back to c1 (DEMO-2 fix): the CURSOR moves to the fork point; the head
     // (old tip) is left INTACT so the old lineage stays a live branch. The next
     // commit branches off c1 (same parent as c2) — a real sibling, no rewrite.
     await s.dispatch({ verb: 'fork', fromCommitId: firstId, cause: userCause() });
     expect(s.cursor()).toBe(firstId); // fork moved the cursor…
-    expect(s.head).toBe(secondId); // …NOT the head — the old branch tip is preserved
+    expect(s.head).toBe(beatId); // …NOT the head — the old branch tip (now the beat) is preserved
     const sibling = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', cause: userCause() });
     const siblingId = sibling.ok ? sibling.commit!.id : '';
     const siblingRec = s.log.records.find((r) => r.id === siblingId)!;
@@ -223,11 +228,11 @@ describe('fork / checkpoint (R8 branching + named positions)', () => {
     // acting made the new lineage active: head + cursor now coincide on the sibling
     expect(s.head).toBe(siblingId);
     expect(s.cursor()).toBe(siblingId);
-    // the old tip (c2) is still a leaf — branches() lists BOTH lineages
+    // the old tip (the beat over c2) is still a leaf — branches() lists BOTH lineages
     const tips = s.branches().map((b) => b.tip).sort();
-    expect(tips).toEqual([secondId, siblingId].sort());
+    expect(tips).toEqual([beatId, siblingId].sort());
     expect(s.branches().find((b) => b.tip === siblingId)!.active).toBe(true);
-    expect(s.branches().find((b) => b.tip === secondId)!.active).toBe(false);
+    expect(s.branches().find((b) => b.tip === beatId)!.active).toBe(false);
   });
 
   it('fork from an unknown commit is a typed guard-failed gap', async () => {
@@ -341,5 +346,27 @@ describe('D12 readiness disclosure (H6 seam)', () => {
     expect(r.missingColumns).toEqual(['cluster_id']);
     // The real correlation IS ready (price + rating exist).
     expect(ov.analyses.find((a) => a.id === 'correlation')!.ready).toBe(true);
+  });
+});
+
+describe('absence — a declared silence vocabulary rides the column facet', () => {
+  it('overview() marks the declared absence column with its vocabulary, and no other column', async () => {
+    const rows = [
+      { id: 1, category: 'Casual', price: 10, rating: 4, state: 'present' },
+      { id: 2, category: 'Formal', price: 20, rating: 3, state: 'unknown' },
+    ];
+    const def = makeDashboardDef({ rows });
+    const withAbsence = {
+      ...def,
+      data: { data: { ...def.data['data'], absence: { field: 'state', states: ['present', 'not-configured', 'unavailable', 'unknown'] } } },
+    };
+    const s = buildDashboard(withAbsence).createSession();
+    const facets = (await s.overview()).columns['data'] ?? [];
+    expect(facets.find((c) => c.field === 'state')).toEqual({
+      field: 'state',
+      type: 'string',
+      absence: ['present', 'not-configured', 'unavailable', 'unknown'],
+    });
+    expect(facets.find((c) => c.field === 'category')).toEqual({ field: 'category', type: 'string' });
   });
 });
