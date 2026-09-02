@@ -53,8 +53,8 @@ import type {
 } from '../def/types.js';
 import { describeRules, fitsFor, refuses, validateBindings } from '../encoding/index.js';
 import { ENCODING_KIND, edgesInto } from '../links/index.js';
-import { PROSE_SLOTS, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
-import type { ProseRecord, ProseSlot, ProseStatus } from '../prose/index.js';
+import { PROPOSAL_LANE, PROSE_SLOTS, fillProse, PROSE_SENTENCES, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
+import type { ProseProposal, ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
 import type { LinkGraph } from '../links/index.js';
 import type { Bindings, EncodingProblem, Fit } from '../encoding/index.js';
 import { GapLedger } from './gapLedger.js';
@@ -414,6 +414,8 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly activeLayouts = new Map<string, Record<string, string>>();
   /** The prose plane's fold: viewId → slot → record, seeded from the def, overridden by `describe` commits (null = the def's words again). */
   private readonly activeProse = new Map<string, Map<ProseSlot, ProseRecord>>();
+  /** The proposal lane's fold: viewId → slot → the latest proposal (with the proposing commit's id). */
+  private readonly activeProposals = new Map<string, Map<ProseSlot, ProseProposal & { readonly proposal: string }>>();
   /** materialised column name → its producing analysis provenance (L6 `why({kind:'column'})`). */
   private readonly whyByColumn = new Map<string, WhyProvenance>();
   /** analysisId → the last invocation's provenance (L6 `why({kind:'hypothesis'})`). */
@@ -550,6 +552,7 @@ class InteractionSessionImpl implements InteractionSession {
       if (view.encoding?.initial) this.activeEncodings.set(view.viewId, { ...view.encoding.initial });
     }
     this.activeProse.clear();
+    this.activeProposals.clear();
     for (const [viewId, slots] of this.runtime.prose) this.activeProse.set(viewId, new Map(Object.entries(slots) as [ProseSlot, ProseRecord][]));
     for (const rec of this.branchPath(cursorId)) {
       if (rec.viewId.startsWith(LINK_VIEW_PREFIX)) {
@@ -570,7 +573,9 @@ class InteractionSessionImpl implements InteractionSession {
       // encoding fold above, so seek/switchPath restore the OLD arrangement.
       // No initial seeding: an empty scope means "the consumer's default".
       if (rec.viewId.startsWith(PROSE_VIEW_PREFIX)) {
-        this.foldProse(rec.viewId.slice(PROSE_VIEW_PREFIX.length), rec.field as ProseSlot, rec.value === null ? null : (rec.value as ProseRecord));
+        const viewId = rec.viewId.slice(PROSE_VIEW_PREFIX.length);
+        if (rec.field.endsWith(PROPOSAL_LANE)) this.foldProposal(viewId, rec.field.slice(0, -PROPOSAL_LANE.length) as ProseSlot, rec.value as ProseProposal, rec.id);
+        else this.foldProse(viewId, rec.field as ProseSlot, rec.value === null ? null : (rec.value as ProseRecord));
         continue;
       }
       if (rec.viewId.startsWith(LAYOUT_VIEW_PREFIX)) {
@@ -1216,6 +1221,9 @@ class InteractionSessionImpl implements InteractionSession {
       case 'link':
         return this.doLink(action, as, intent);
       case 'describe':
+        if (action.accept !== undefined) return this.doAccept(action.viewId, action.slot, action.accept, action.cause, as, intent, action.correlationId);
+        if (action.decline !== undefined) return this.doDecline(action.viewId, action.slot, action.decline, action.cause, as, intent, action.correlationId);
+        if (action.proposal === true) return this.doPropose(action.viewId, action.slot, action.record, action.cause, as, intent, action.correlationId);
         return this.doDescribe(action.viewId, action.slot, action.record, action.cause, as, intent, action.correlationId);
       case 'navigate':
         return this.doNavigate(action.viewId, action.field, action.value, action.cause, as, intent, action.correlationId);
@@ -1529,6 +1537,117 @@ class InteractionSessionImpl implements InteractionSession {
     this.activeProse.set(viewId, slots);
   }
 
+  /** Fold one proposal-lane commit: the latest proposal per slot is the one on the table (a decline carries the id it answers). */
+  private foldProposal(viewId: string, slot: ProseSlot, value: ProseProposal, commitId: string): void {
+    const slots = this.activeProposals.get(viewId) ?? new Map<ProseSlot, ProseProposal & { readonly proposal: string }>();
+    slots.set(slot, { ...value, proposal: value.proposal ?? commitId });
+    this.activeProposals.set(viewId, slots);
+  }
+
+  /** Every proposal on the table for a view, its status DERIVED: accepted when the slot's live words came from it. */
+  private proposalsOf(viewId: string): ProposalStatus[] {
+    const slots = this.activeProposals.get(viewId);
+    if (slots === undefined) return [];
+    return PROSE_SLOTS.filter((slot) => slots.has(slot)).map((slot) => {
+      const p = slots.get(slot)!;
+      const live = this.activeProse.get(viewId)?.get(slot);
+      const status: ProposalStatus['status'] = live?.author.acceptedFrom === p.proposal ? 'accepted' : p.status;
+      return { slot, proposal: p.proposal, record: p.record, status, by: p.by, ...(p.reason !== undefined ? { reason: p.reason } : {}) };
+    });
+  }
+
+  /** The guards a propose / accept / decline share: a declared view and a real slot. */
+  private proseGuards(viewId: string, slot: ProseSlot, op: 'describe'): GapRow | null {
+    if (!this.runtime.views.has(viewId)) return this.gapLedger.file('needs-view', op, `no declared view "${viewId}"`, viewId);
+    if (!(PROSE_SLOTS as readonly string[]).includes(slot)) return this.gapLedger.file('guard-failed', op, `"${String(slot)}" is not a prose slot — the slots are ${PROSE_SLOTS.join(', ')}`, String(slot));
+    return null;
+  }
+
+  /** The world a prose record is judged against at dispatch, from the columns already in hand. */
+  private proseWorld(cols: readonly ColumnInfo[], mode: 'set' | 'proposal'): { readonly columns: Set<string>; readonly analyses: Set<string>; readonly surfaced: Set<string>; readonly commits: Set<string>; readonly beats: Set<string>; readonly mode: 'set' | 'proposal' } {
+    return {
+      columns: new Set(cols.map((c) => c.name)),
+      analyses: new Set(this.runtime.analyses.keys()),
+      surfaced: new Set([...this.runtime.views.values()].filter((v) => v.encoding !== undefined).map((v) => v.viewId)),
+      commits: new Set(this.log.records.map((r) => r.id)),
+      beats: new Set(this.checkpoints().map((b) => b.label)),
+      mode,
+    };
+  }
+
+  /** Land one prose-lane commit (a slot's words, or its proposal lane) and fold it live. */
+  private landProse(viewId: string, field: string, value: unknown, cause: Cause, as: Actor | undefined, correlationId: string | undefined): CommitRecord {
+    const stamped = this.stampCause(cause, 'describe', as);
+    const { record: commit } = this.log.commit({
+      id: this.nextId(),
+      parent: this._cursor,
+      ...(correlationId !== undefined ? { correlationId } : {}),
+      viewId: `${PROSE_VIEW_PREFIX}${viewId}`,
+      actorMeta: this.runtime.views.get(viewId)!.meta,
+      kind: 'point',
+      field,
+      value,
+      cause: stamped,
+    });
+    this.landed(commit);
+    return commit;
+  }
+
+  /** PROPOSE: the record lands in the slot's proposal lane (status open), judged by the same laws — never as the live words. */
+  private async doPropose(viewId: string, slot: ProseSlot, record: ProseRecord | null, cause: Cause, as: Actor | undefined, intent: DispatchResult['intent'], correlationId: string | undefined): Promise<DispatchResult> {
+    const gap = this.proseGuards(viewId, slot, 'describe');
+    if (gap !== null) return this.reject('describe', intent, gap);
+    if (record === null) return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', `a proposal for "${viewId}".${slot} needs a record — null is not a proposal`, slot));
+    const cols = await this.effectiveColumnsOf(this.defaultTable);
+    if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
+    const problems = validateProseRecord(viewId, slot, record, this.proseWorld(cols, 'proposal'));
+    if (proseRefuses(problems)) return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', problems.map((p) => p.sentence).join('; '), slot));
+    const by = this.stampCause(cause, 'describe', as).requestedBy;
+    const value: ProseProposal = { record, status: 'open', by };
+    const commit = this.landProse(viewId, `${slot}${PROPOSAL_LANE}`, value, cause, as, correlationId);
+    this.foldProposal(viewId, slot, value, commit.id);
+    return { ok: true, verb: 'describe', intent, commit, proposed: this.proposalsOf(viewId).find((p) => p.slot === slot)! };
+  }
+
+  /** ACCEPT: the open proposal's record lands on the slot with `author.acceptedFrom` = the proposing commit — one commit, and the proposal reads accepted. */
+  private async doAccept(viewId: string, slot: ProseSlot, proposalId: string, cause: Cause, as: Actor | undefined, intent: DispatchResult['intent'], correlationId: string | undefined): Promise<DispatchResult> {
+    const gap = this.proseGuards(viewId, slot, 'describe');
+    if (gap !== null) return this.reject('describe', intent, gap);
+    const open = this.activeProposals.get(viewId)?.get(slot);
+    const derived = this.proposalsOf(viewId).find((p) => p.slot === slot)?.status; // accepted is derived from the live words
+    if (open === undefined || open.proposal !== proposalId || derived !== 'open') {
+      return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', fillProse(PROSE_SENTENCES.noProposal, { view: viewId, slot, proposal: proposalId }), slot));
+    }
+    const acceptedBy = this.stampCause(cause, 'describe', as).requestedBy;
+    const record: ProseRecord = { ...open.record, author: { ...open.record.author, acceptedFrom: proposalId, acceptedBy } };
+    const cols = await this.effectiveColumnsOf(this.defaultTable);
+    /* v8 ignore next 2 -- an open proposal exists only where the columns could be listed when it was proposed; a provider that answered then and refuses now is a mid-session engine failure this door cannot exercise */
+    if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
+    const commit = this.landProse(viewId, slot, record, cause, as, correlationId);
+    this.foldProse(viewId, slot, record);
+    const described = this.proseOf(viewId, this.runtime.encoding.facetsOf(this.defaultTable, cols)).find((p) => p.slot === slot)!; // the slot was just set
+    return { ok: true, verb: 'describe', intent, commit, described, proposed: this.proposalsOf(viewId).find((p) => p.slot === slot)! };
+  }
+
+  /** DECLINE: a `declined` value with its reason lands in the lane, answering the open proposal — the words never land. */
+  private async doDecline(viewId: string, slot: ProseSlot, decline: { readonly proposal: string; readonly reason: string }, cause: Cause, as: Actor | undefined, intent: DispatchResult['intent'], correlationId: string | undefined): Promise<DispatchResult> {
+    const gap = this.proseGuards(viewId, slot, 'describe');
+    if (gap !== null) return this.reject('describe', intent, gap);
+    const open = this.activeProposals.get(viewId)?.get(slot);
+    const derived = this.proposalsOf(viewId).find((p) => p.slot === slot)?.status;
+    if (open === undefined || open.proposal !== decline.proposal || derived !== 'open') {
+      return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', fillProse(PROSE_SENTENCES.noProposal, { view: viewId, slot, proposal: decline.proposal }), slot));
+    }
+    if (typeof decline.reason !== 'string' || decline.reason.trim().length === 0) {
+      return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', fillProse(PROSE_SENTENCES.declineReason, { view: viewId, slot }), slot));
+    }
+    const by = this.stampCause(cause, 'describe', as).requestedBy;
+    const value: ProseProposal = { record: open.record, status: 'declined', proposal: decline.proposal, by, reason: decline.reason };
+    const commit = this.landProse(viewId, `${slot}${PROPOSAL_LANE}`, value, cause, as, correlationId);
+    this.foldProposal(viewId, slot, value, commit.id);
+    return { ok: true, verb: 'describe', intent, commit, proposed: this.proposalsOf(viewId).find((p) => p.slot === slot)! };
+  }
+
   /** The live selections as JSON-safe data — what a caption's basis is compared against. */
   private filtersNow(): Readonly<Record<string, unknown>> {
     return Object.fromEntries([...this.activeFilters.entries()].map(([viewId, clause]) => [viewId, { ...clause }]));
@@ -1567,40 +1686,17 @@ class InteractionSessionImpl implements InteractionSession {
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
   ): Promise<DispatchResult> {
-    if (!this.runtime.views.has(viewId)) {
-      return this.reject('describe', intent, this.gapLedger.file('needs-view', 'describe', `no declared view "${viewId}"`, viewId));
-    }
-    if (!(PROSE_SLOTS as readonly string[]).includes(slot)) {
-      return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', `"${String(slot)}" is not a prose slot — the slots are ${PROSE_SLOTS.join(', ')}`, String(slot)));
-    }
+    const gap = this.proseGuards(viewId, slot, 'describe');
+    if (gap !== null) return this.reject('describe', intent, gap);
     const cols = await this.effectiveColumnsOf(this.defaultTable);
     if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
     if (record !== null) {
-      const problems = validateProseRecord(viewId, slot, record, {
-        columns: new Set(cols.map((c) => c.name)),
-        analyses: new Set(this.runtime.analyses.keys()),
-        surfaced: new Set([...this.runtime.views.values()].filter((v) => v.encoding !== undefined).map((v) => v.viewId)),
-        commits: new Set(this.log.records.map((r) => r.id)),
-        beats: new Set(this.checkpoints().map((b) => b.label)),
-      });
+      const problems = validateProseRecord(viewId, slot, record, this.proseWorld(cols, 'set'));
       if (proseRefuses(problems)) {
         return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', problems.map((p) => p.sentence).join('; '), slot));
       }
     }
-    const stamped = this.stampCause(cause, 'describe', as);
-    const { record: commit } = this.log.commit({
-      id: this.nextId(),
-      parent: this._cursor, // R8 branch-on-act
-      ...(correlationId !== undefined ? { correlationId } : {}),
-      viewId: `${PROSE_VIEW_PREFIX}${viewId}`,
-      // ONE stable source identity per view's prose (the BR-1 rule the encoding namespace follows)
-      actorMeta: this.runtime.views.get(viewId)!.meta,
-      kind: 'point',
-      field: slot,
-      value: record,
-      cause: stamped,
-    });
-    this.landed(commit);
+    const commit = this.landProse(viewId, slot, record, cause, as, correlationId);
     this.foldProse(viewId, slot, record);
     const described = this.proseOf(viewId, this.runtime.encoding.facetsOf(this.defaultTable, cols)).find((p) => p.slot === slot) ?? null;
     return { ok: true, verb: 'describe', intent, commit, described };
@@ -2281,6 +2377,7 @@ class InteractionSessionImpl implements InteractionSession {
           : {}),
         // the prose plane: every slot at the cursor, its staleness judged against what is on screen
         prose: this.proseOf(view.viewId, columns[this.defaultTable] ?? []),
+        proposals: this.proposalsOf(view.viewId),
       };
     });
     const encodingPolicy = { onInvalid: this.runtime.encoding.rules.onInvalid ?? 'refuse', ruleScope: this.runtime.encoding.rules.ruleScope ?? ('dashboard' as const) };

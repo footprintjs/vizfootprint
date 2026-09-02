@@ -405,7 +405,7 @@ await view.describe('map', 'title', { text: 'Reported cases by state', author: {
 await view.describe('map', 'title', null); // back to the declaration
 ```
 
-A `describe` lands one commit per slot, so undo and time travel carry the words like any act; an agent's record must state a basis and may never claim a cause — the session refuses it with the sentence.
+A `describe` lands one commit per slot, so undo and time travel carry the words like any act; an agent's record must state a basis and may never claim a cause — the session refuses it with the sentence. The **author port** rides the same verb: `view.propose(...)` puts an agent's draft on the table (`state.views[].proposals`), `view.acceptProposal(id, slot, proposal)` lands it as the words, `view.declineProposal(id, slot, proposal, reason)` answers it; the editor's Proposals section offers both. A slot's `refs` (spans pointing at a commit or a beat) render as small anchors with `<ProseText>`.
 
 ## The encoding plane — which column may sit on which channel
 

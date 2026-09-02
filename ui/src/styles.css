@@ -2177,3 +2177,8 @@
 :where(.vzf) .vzf-prosetext-ref { text-decoration: underline dotted; text-underline-offset: 2px; }
 :where(.vzf) .vzf-prosetext-anchor { font: inherit; font-size: 0.7em; vertical-align: super; line-height: 1; margin-left: 1px; padding: 0 3px; border: 1px solid var(--vzf-line, #d8dee4); border-radius: 3px; background: transparent; color: #0e6f69; cursor: pointer; }
 :where(.vzf) .vzf-prosetext-anchor:hover, :where(.vzf) .vzf-prosetext-anchor:focus-visible { background: #dcefec; outline: none; }
+
+:where(.vzf) .vzf-editor-draft { font-size: 13px; padding: 6px 8px; border-left: 3px solid #0e6f69; background: rgba(14, 111, 105, 0.06); margin: 2px 0; }
+:where(.vzf) .vzf-editor-proposal-declined .vzf-editor-draft { border-left-color: #a8661a; opacity: 0.7; }
+:where(.vzf) .vzf-editor-proposal-accepted .vzf-editor-draft { opacity: 0.7; }
+:where(.vzf) .vzf-editor-reason { font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid var(--vzf-line, #d8dee4); border-radius: 4px; flex: 1; min-width: 80px; }

@@ -17,7 +17,7 @@ import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/i
 import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
 import type { CellClause, ColumnFacet, ColumnType, IntervalClause } from '../data/index.js';
 import type { EncodingProblem, Fit, RuleLine, RuleScope } from '../encoding/index.js';
-import type { ProseRecord, ProseSlot, ProseStatus } from '../prose/index.js';
+import type { ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
 import type { DispatchVerb, IntentClass } from '../def/types.js';
 import type { DiffChange, DiffOnly, PlanRecipe, RefEvent } from '../branches/index.js';
 
@@ -138,6 +138,12 @@ export type DispatchAction =
       readonly viewId: string;
       readonly slot: ProseSlot;
       readonly record: ProseRecord | null;
+      /** Propose the record for a person to accept instead of setting it — it lands in the slot's proposal lane, never as the live words. */
+      readonly proposal?: boolean;
+      /** Accept the open proposal with this commit id: its record lands on the slot with `author.acceptedFrom`. `record` is ignored. */
+      readonly accept?: string;
+      /** Decline the open proposal with this commit id, with a reason that stays on the record. `record` is ignored. */
+      readonly decline?: { readonly proposal: string; readonly reason: string };
       readonly cause: Cause;
       readonly correlationId?: string;
     }
@@ -513,6 +519,8 @@ export type DispatchResult =
       readonly linked?: LinkEdge;
       /** The prose plane: the slot as it now stands at the cursor (null after a back-to-the-def that leaves no declared words). */
       readonly described?: ProseStatus | null;
+      /** The prose plane: the proposal as it now stands (after a propose, an accept, or a decline). */
+      readonly proposed?: ProposalStatus;
     }
   | {
       readonly ok: false;
@@ -601,6 +609,8 @@ export interface ViewInfo {
   readonly effective?: EffectiveEncoding;
   /** The prose plane: every slot the view carries at the cursor, each with its staleness judged against what is on screen. */
   readonly prose: readonly ProseStatus[];
+  /** The prose plane: the proposals on the table for this view at the cursor, one per slot (the latest), with their derived status. */
+  readonly proposals: readonly ProposalStatus[];
 }
 
 /** A view's effective bindings under the link graph (see src/links/README.md, the encoding kind). */

@@ -61,7 +61,7 @@ describe('describe — the dispatch door', () => {
     expect(!no.ok && no.rejection.detail).toBe(
       '"scatter".caption was written by an agent and states no basis — without one, a model\'s words are indistinguishable from stated fact; "scatter".caption claims a cause, which the data cannot carry — an agent may state construction, statistics, and trends, never why',
     );
-    const col = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { ...caption, basis: { columns: ['ghost'] } }, cause: userCause() });
+    const col = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { ...caption, levels: ['statistic'], basis: { columns: ['ghost'] } }, cause: userCause() });
     expect(!col.ok && col.rejection.detail).toBe('"scatter".caption names a column that is not on this branch: "ghost"');
     const ghost = await s.dispatch({ verb: 'describe', viewId: 'ghost', slot: 'title', record: title, cause: userCause() });
     expect(!ghost.ok && ghost.rejection.code).toBe('needs-view');
@@ -173,5 +173,81 @@ describe('refs at the dispatch door', () => {
     expect(!bad.ok && bad.rejection.detail).toBe('"scatter".caption.refs[0] points at a commit the log does not hold: "nope"');
     const noBeat = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { text: 'x', author: { kind: 'human' }, refs: [{ span: [0, 1], beat: 'never' }] }, cause: userCause() });
     expect(!noBeat.ok && noBeat.rejection.detail).toBe('"scatter".caption.refs[0] points at a beat that was never named: "never"');
+  });
+});
+
+describe('the author port — propose, accept, decline', () => {
+  const draft: ProseRecord = { text: 'Cases fell after week 30.', author: { kind: 'agent', model: 'm' }, levels: ['trend'], basis: { columns: ['price'] } };
+  it('an agent states a trend only as a proposal; the proposal lands in its lane, never as the words', async () => {
+    const s = buildDashboard(withProse()).createSession();
+    const stated = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: draft, cause: userCause() });
+    expect(!stated.ok && stated.rejection.detail).toContain('a trend is proposed for a person to accept');
+    const res = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: draft, proposal: true, cause: userCause('draft a caption') });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.commit).toMatchObject({ viewId: 'prose:scatter', field: 'caption:proposal' });
+      expect(res.proposed).toMatchObject({ slot: 'caption', proposal: res.commit!.id, status: 'open', by: 'user' });
+    }
+    const o = await s.overview();
+    const scatter = o.views.find((v) => v.viewId === 'scatter')!;
+    expect(scatter.prose.find((p) => p.slot === 'caption')!.text).toBe('Higher prices rate higher.'); // the live words did not move
+    expect(scatter.proposals.map((p) => [p.slot, p.status])).toEqual([['caption', 'open']]);
+    expect(o.views.find((v) => v.viewId === 'bar')!.proposals).toEqual([]);
+    const lawless = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { text: 'x', author: { kind: 'agent' } }, proposal: true, cause: userCause() });
+    expect(!lawless.ok && lawless.rejection.detail).toContain('states no basis');
+    const stub = buildDashboard({ ...withProse(), data: { data: { rows: [], engine: 'wasm' } } }, { availableEngines: ['memory', 'wasm'] }).createSession();
+    expect((await stub.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: draft, proposal: true, cause: userCause() })).ok).toBe(false);
+    const nothing = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: null, proposal: true, cause: userCause() });
+    expect(!nothing.ok && nothing.rejection.detail).toContain('null is not a proposal');
+  });
+  it('accept lands the words with acceptedFrom and the proposal reads accepted; undo reopens it; decline needs a reason and closes it', async () => {
+    const s = buildDashboard(withProse()).createSession();
+    const p = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: draft, proposal: true, cause: userCause() });
+    const pid = p.ok ? p.commit!.id : '';
+    const wrong = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: null, accept: 'ghost', cause: userCause() });
+    expect(!wrong.ok && wrong.rejection.detail).toBe('"scatter".caption has no open proposal "ghost" on this path');
+    const acc = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: null, accept: pid, cause: userCause('take it') });
+    expect(acc.ok).toBe(true);
+    if (acc.ok) {
+      expect(acc.commit).toMatchObject({ field: 'caption' });
+      expect(acc.described!.text).toBe('Cases fell after week 30.');
+      expect(acc.described!.record.author).toEqual({ kind: 'agent', model: 'm', acceptedFrom: pid, acceptedBy: 'user' });
+      expect(acc.proposed!.status).toBe('accepted');
+    }
+    // accepting twice: the proposal is no longer open
+    const again = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: null, accept: pid, cause: userCause() });
+    expect(again.ok).toBe(false);
+    // undo the accept: the words go back, the proposal reads open again
+    const accId = acc.ok ? acc.commit!.id : '';
+    expect((await s.undo(accId)).ok).toBe(true);
+    const after = (await s.overview()).views.find((v) => v.viewId === 'scatter')!;
+    expect(after.prose.find((x) => x.slot === 'caption')!.text).toBe('Higher prices rate higher.');
+    expect(after.proposals[0]!.status).toBe('open');
+    // decline
+    const noReason = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: null, decline: { proposal: pid, reason: '  ' }, cause: userCause() });
+    expect(!noReason.ok && noReason.rejection.detail).toContain('needs a reason');
+    const dec = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: null, decline: { proposal: pid, reason: 'the fall is a reporting delay' }, cause: userCause() });
+    expect(dec.ok).toBe(true);
+    if (dec.ok) expect(dec.proposed).toMatchObject({ status: 'declined', reason: 'the fall is a reporting delay', proposal: pid });
+    expect((await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: null, accept: pid, cause: userCause() })).ok).toBe(false);
+    // seek back before the decline: open again (the lane is folded like any key)
+    s.seek(pid);
+    expect((await s.overview()).views.find((v) => v.viewId === 'scatter')!.proposals[0]!.status).toBe('open');
+  });
+  it('the agent tool proposes with proposal: true; guards hold for a ghost view and a bad slot', async () => {
+    const s = buildDashboard(withProse()).createSession();
+    const port = vizAsTools(s);
+    const res = await port.call('viz.dispatch', { verb: 'describe', viewId: 'scatter', slot: 'caption', record: draft, proposal: true });
+    expect(res.ok).toBe(true);
+    const here = (await port.call('viz.whats_here')) as { views: { viewId: string; proposals: { status: string }[] }[] };
+    expect(here.views.find((v) => v.viewId === 'scatter')!.proposals[0]!.status).toBe('open');
+    expect((await s.dispatch({ verb: 'describe', viewId: 'ghost', slot: 'caption', record: draft, proposal: true, cause: userCause() })).ok).toBe(false);
+    expect((await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'poem' as 'title', record: null, accept: 'x', cause: userCause() })).ok).toBe(false);
+    expect((await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'poem' as 'title', record: null, decline: { proposal: 'x', reason: 'r' }, cause: userCause() })).ok).toBe(false);
+    // a proposal on ANOTHER slot of the same view does not answer for this one
+    expect((await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'title', record: null, accept: 'x', cause: userCause() })).ok).toBe(false);
+    expect((await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'title', record: null, decline: { proposal: 'x', reason: 'r' }, cause: userCause() })).ok).toBe(false);
+    // and a view with no proposals at all
+    expect((await s.dispatch({ verb: 'describe', viewId: 'bar', slot: 'title', record: null, decline: { proposal: 'x', reason: 'r' }, cause: userCause() })).ok).toBe(false);
   });
 });

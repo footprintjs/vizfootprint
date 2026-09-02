@@ -174,3 +174,41 @@ describe('unbound channels', () => {
     expect([...y.options].map((o) => o.value)).toEqual(['']);
   });
 });
+
+describe('proposals in the editor', () => {
+  it('an open proposal offers Accept and Decline (with a reason); accepted and declined ones read only', () => {
+    const onAccept = vi.fn();
+    const onDecline = vi.fn();
+    const v: ViewView = {
+      ...view,
+      proposals: [
+        { slot: 'caption', proposal: 'p1', text: 'Cases fell after week 30.', status: 'open', author: { kind: 'agent', model: 'm' }, levels: ['trend'], by: 'agent' },
+        { slot: 'title', proposal: 'p0', text: 'Old', status: 'declined', author: { kind: 'agent' }, levels: [], reason: 'too vague' },
+        { slot: 'altShort', proposal: 'p2', text: 'Taken', status: 'accepted', author: { kind: 'human' }, levels: [] },
+        { slot: 'altLong', proposal: 'p3', text: 'Quiet', status: 'declined', author: { kind: 'humanEdited' }, levels: [] },
+      ],
+    };
+    render(<ChartEditor view={v} onAccept={onAccept} onDecline={onDecline} />);
+    expect(screen.getByText('Cases fell after week 30.')).toBeTruthy();
+    expect(screen.getByText(/declined — too vague/)).toBeTruthy();
+    expect(screen.getByText(/proposed by humanEdited/)).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Accept' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
+    expect(onAccept).toHaveBeenCalledWith('weeks', 'caption', 'p1');
+    const decline = screen.getByRole('button', { name: 'Decline' }) as HTMLButtonElement;
+    expect(decline.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('reason to decline caption'), { target: { value: 'reporting delay' } });
+    fireEvent.click(decline);
+    expect(onDecline).toHaveBeenCalledWith('weeks', 'caption', 'p1', 'reporting delay');
+    cleanup();
+    render(<ChartEditor view={v} readOnly onAccept={onAccept} />);
+    expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
+    cleanup();
+    render(<ChartEditor view={v} onAccept={onAccept} />);
+    expect(screen.queryByRole('button', { name: 'Decline' })).toBeNull();
+    cleanup();
+    render(<ChartEditor view={v} onDecline={onDecline} />);
+    expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Decline' })).toBeTruthy();
+  });
+});

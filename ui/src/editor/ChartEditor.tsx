@@ -14,7 +14,7 @@
  *     the responses its kind allows; null = back to the rule.
  */
 import { useState } from 'react';
-import type { LinkGraphView, ProseStatusView, ViewView } from '../adapter/types.js';
+import type { LinkGraphView, ProposalView, ProseStatusView, ViewView } from '../adapter/types.js';
 import type { LinkEdit } from '../adapter/sessionView.js';
 import { responsesFor } from '../links/LinkMatrix.js';
 
@@ -42,10 +42,14 @@ export interface ChartEditorProps {
   readonly onDescribe?: (viewId: string, slot: ProseStatusView['slot'], record: Readonly<Record<string, unknown>> | null) => void;
   readonly onReencode?: (viewId: string, channel: string, field: string) => void;
   readonly onLink?: (edge: LinkEdit) => void;
+  /** The author port: accept an open proposal (by its commit id) — its words land on the slot. */
+  readonly onAccept?: (viewId: string, slot: ProseStatusView['slot'], proposal: string) => void;
+  /** The author port: decline an open proposal with a reason that stays on the record. */
+  readonly onDecline?: (viewId: string, slot: ProseStatusView['slot'], proposal: string, reason: string) => void;
   readonly className?: string;
 }
 
-export function ChartEditor({ view, links, labels = {}, by, readOnly = false, onDescribe, onReencode, onLink, className }: ChartEditorProps): JSX.Element {
+export function ChartEditor({ view, links, labels = {}, by, readOnly = false, onDescribe, onReencode, onLink, onAccept, onDecline, className }: ChartEditorProps): JSX.Element {
   const name = (id: string): string => labels[id] ?? id;
   const prose = new Map((view.prose ?? []).map((p) => [p.slot, p] as const));
   const channels = Object.keys(view.fits ?? view.encoding);
@@ -59,6 +63,14 @@ export function ChartEditor({ view, links, labels = {}, by, readOnly = false, on
           <SlotField key={slot} viewId={view.viewId} slot={slot} current={prose.get(slot)} by={by} readOnly={readOnly} onDescribe={onDescribe} />
         ))}
       </section>
+      {(view.proposals ?? []).length > 0 ? (
+        <section className="vzf-editor-section" aria-label="proposals">
+          <h4 className="vzf-editor-h">Proposals</h4>
+          {view.proposals!.map((p) => (
+            <ProposalRow key={`${p.slot}:${p.proposal}`} viewId={view.viewId} proposal={p} readOnly={readOnly} onAccept={onAccept} onDecline={onDecline} />
+          ))}
+        </section>
+      ) : null}
       {channels.length > 0 ? (
         <section className="vzf-editor-section" aria-label="channels">
           <h4 className="vzf-editor-h">Channels</h4>
@@ -129,6 +141,37 @@ export function ChartEditor({ view, links, labels = {}, by, readOnly = false, on
             </div>
           ))}
         </section>
+      ) : null}
+    </div>
+  );
+}
+
+function ProposalRow({ viewId, proposal: p, readOnly, onAccept, onDecline }: { viewId: string; proposal: ProposalView; readOnly: boolean; onAccept?: ChartEditorProps['onAccept']; onDecline?: ChartEditorProps['onDecline'] }): JSX.Element {
+  const [reason, setReason] = useState('');
+  const who = `${p.author.kind === 'agent' ? 'the analyst' : p.author.kind}${p.author.model ? ' · ' + p.author.model : ''}`;
+  return (
+    <div className={`vzf-editor-row vzf-editor-proposal vzf-editor-proposal-${p.status}`} data-proposal={p.proposal}>
+      <div className="vzf-editor-label">
+        <code>{p.slot}</code> <span className="vzf-soft">proposed by {who}</span>{' '}
+        <span className={`vzf-editor-status vzf-editor-${p.status}`}>{p.status}{p.status === 'declined' && p.reason ? ` — ${p.reason}` : ''}</span>
+      </div>
+      <div className="vzf-editor-draft">{p.text}</div>
+      {p.status === 'open' && !readOnly && (onAccept !== undefined || onDecline !== undefined) ? (
+        <div className="vzf-editor-actions">
+          {onAccept !== undefined ? (
+            <button type="button" className="vzf-editor-save" onClick={() => onAccept(viewId, p.slot, p.proposal)}>
+              Accept
+            </button>
+          ) : null}
+          {onDecline !== undefined ? (
+            <>
+              <input className="vzf-editor-reason" aria-label={`reason to decline ${p.slot}`} placeholder="why not" value={reason} onChange={(e) => setReason(e.target.value)} />
+              <button type="button" className="vzf-editor-reset" disabled={reason.trim().length === 0} onClick={() => { onDecline(viewId, p.slot, p.proposal, reason.trim()); setReason(''); }}>
+                Decline
+              </button>
+            </>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

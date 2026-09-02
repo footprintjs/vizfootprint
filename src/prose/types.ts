@@ -26,6 +26,10 @@ export type AuthorKind = (typeof AUTHOR_KINDS)[number];
 
 export interface ProseAuthor {
   readonly kind: AuthorKind;
+  /** Set when the words were ACCEPTED from a proposal: the proposing commit's id (that is how a proposal reads as accepted). */
+  readonly acceptedFrom?: string;
+  /** Who accepted them. */
+  readonly acceptedBy?: string;
   /** A name or actor id, echoed verbatim. */
   readonly by?: string;
   /** The model that wrote (or drafted) it, when an agent did. */
@@ -82,6 +86,39 @@ export interface ProseRecord {
   /** Spans of the text that point at a saved interaction. */
   readonly refs?: readonly ProseRef[];
 }
+
+/**
+ * A PROPOSAL on the table for one slot: an agent's (or anyone's) draft that a
+ * person accepts or declines. It lives in its own lane of the log — the
+ * proposing commit under `prose:<view>` with field `<slot>:proposal` — so it
+ * can never become the live words by last-wins. Accepting lands the words on
+ * the slot with `author.acceptedFrom` = the proposing commit; declining lands
+ * a `declined` value with its reason. Both stay on the record.
+ */
+export interface ProseProposal {
+  readonly record: ProseRecord;
+  readonly status: 'open' | 'declined';
+  /** For a decline: the proposing commit it answers. */
+  readonly proposal?: string;
+  /** Who proposed (or declined) — the session stamps it from the cause. */
+  readonly by: string;
+  readonly reason?: string;
+}
+
+/** A proposal as the wire serves it at the cursor, its status derived: accepted when the slot's live words came from it. */
+export interface ProposalStatus {
+  readonly slot: ProseSlot;
+  /** The proposing commit's id. */
+  readonly proposal: string;
+  readonly record: ProseRecord;
+  readonly status: 'open' | 'accepted' | 'declined';
+  /** Who proposed it (or, after a decline, who declined). */
+  readonly by: string;
+  readonly reason?: string;
+}
+
+/** The suffix a proposal lane carries in the commit's field: `<slot>:proposal`. */
+export const PROPOSAL_LANE = ':proposal';
 
 /** A view's declared prose: the def's `prose[]` entry. */
 export interface ProseDecl {

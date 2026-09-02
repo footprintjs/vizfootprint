@@ -132,3 +132,13 @@ describe('refs — spans that point at a saved interaction', () => {
     expect(proseStatus('caption', rec([{ span: [0, 5], commit: 'c1' }]) as never, { encodings: {}, filters: {}, columns: new Set(), analyses: new Set<string>() }).refs).toEqual([{ span: [0, 5], commit: 'c1' }]);
   });
 });
+
+describe('the model\'s permission follows the kind of claim', () => {
+  it('an agent may state a statistic, must propose a trend, and the def door (no mode) does not refuse declared words', () => {
+    const trend = { text: 'Cases are rising.', author: { kind: 'agent' as const }, levels: ['trend' as const], basis: { columns: [] } };
+    expect(validateProseRecord('m', 'caption', trend, { mode: 'set' }).map((p) => p.rule)).toEqual(['agent-trend']);
+    expect(validateProseRecord('m', 'caption', trend, { mode: 'proposal' })).toEqual([]);
+    expect(validateProseRecord('m', 'caption', trend)).toEqual([]);
+    expect(validateProseRecord('m', 'caption', { ...trend, levels: ['statistic'] }, { mode: 'set' })).toEqual([]);
+  });
+});

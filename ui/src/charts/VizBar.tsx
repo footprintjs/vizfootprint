@@ -169,7 +169,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
               {highlight !== undefined && (() => {
                 const hl = highlight.find((h) => h.category === d.category)?.count ?? 0;
                 const hh = (Math.min(hl, d.count) / max) * plot;
-                return <rect className="vzf-barhl" x={cx + band * 0.3} y={axisY - hh} width={band * 0.4} height={hh} rx={2} aria-hidden="true" />;
+                return <rect className="vzf-barhl" x={cx + band * 0.3} y={axisY - hh} width={Math.max(0, band * 0.4)} height={hh} rx={2} aria-hidden="true" />;
               })()}
               <rect
                 className={`vzf-barrect${markClass(d.category, set)}`}

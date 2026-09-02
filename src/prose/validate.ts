@@ -21,6 +21,8 @@ export interface ProseWorld {
   readonly commits?: ReadonlySet<string>;
   /** The beats named so far — a ref may only point at one of them. */
   readonly beats?: ReadonlySet<string>;
+  /** `proposal` when the record is being proposed for a person to accept; `set` (the default) when it is being stated as the words. */
+  readonly mode?: 'set' | 'proposal';
 }
 
 /** One record judged: every problem, shape before law. */
@@ -58,6 +60,8 @@ export function validateProseRecord(viewId: string, slot: string, raw: unknown, 
   // the laws
   if (kind === 'agent' && basis === undefined) at('agent-basis', PROSE_SENTENCES.agentBasis);
   if (kind === 'agent' && Array.isArray(levels) && levels.includes('causal')) at('agent-causal', PROSE_SENTENCES.agentCausal);
+  // the model's permission follows the kind of claim: a perceived trend is proposed, never stated
+  if (kind === 'agent' && world.mode === 'set' && Array.isArray(levels) && levels.includes('trend')) at('agent-trend', PROSE_SENTENCES.agentTrend);
   if (kind === 'derived' && world.surfaced !== undefined && !world.surfaced.has(viewId)) at('derived-surface', PROSE_SENTENCES.derivedSurface);
   if (basis !== undefined && Array.isArray(basis.columns) && world.columns !== undefined) {
     for (const column of basis.columns as unknown[]) {

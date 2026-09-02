@@ -84,8 +84,9 @@ const DISPATCH_DESCRIPTION =
   'different data field — must be a channel valid for that view and a column that FITS it: read ' +
   'whats_here.views[].accepts first; a misfit is refused with the sentence that says why; pass ' +
   '`bindings` to rebind several channels in ONE act — a swap of the axes is one commit, never two), describe (the prose plane: ' +
-  'set one of a view\'s words — title, caption, altShort, altLong, howToRead — as a record with you as author and a basis; read ' +
-  'views[].prose to see every slot and whether it went stale). This is ' +
+  'set one of a view\'s words — title, caption, altShort, altLong, howToRead — as a record with you as author and a basis, or ' +
+  'PROPOSE it with proposal: true for a person to accept; read views[].prose for every slot and its staleness, views[].proposals ' +
+  'for what is on the table). This is ' +
   'link (layer 4: edit ONE edge of the link graph — what target does with source\'s kind emission: response ' +
   'filter | highlight | navigate | mirror | none, or null to fall back to the def\'s rule; with kind "encoding" the target ' +
   'FOLLOWS the source\'s channel bindings (response follow | none) — read views[].effective to see what a view shows and which edge it follows; read the graph in ' +
@@ -224,6 +225,7 @@ const DISPATCH_SCHEMA = {
         'describe only: the words as a RECORD — { text, author: { kind: "agent", model? }, levels?: ["construction"|"statistic"|"trend"], basis?: { encodings?, filters?, columns?, analysisId? } }. ' +
         'An agent MUST state a basis (what the words were written against) and may never claim a cause. Omit `record` (or pass null) to go back to the def\'s own words.',
     },
+    proposal: { type: 'boolean', description: 'describe only: PROPOSE the record for a person to accept instead of stating it (lands in the slot\'s proposal lane, never as the live words). A trend you perceive must be proposed; a statistic may be stated with a basis.' },
     bindings: {
       type: 'object',
       additionalProperties: { type: 'string' },
@@ -548,7 +550,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
         if (typeof args['viewId'] !== 'string' || typeof args['slot'] !== 'string') return { error: 'describe requires a string viewId and slot' };
         const record = args['record'];
         if (record !== undefined && record !== null && (typeof record !== 'object' || Array.isArray(record))) return { error: 'describe.record must be an object, or null to go back to the def\'s words' };
-        return { verb: 'describe', viewId: args['viewId'], slot: args['slot'] as 'title', record: (record ?? null) as null, cause };
+        return { verb: 'describe', viewId: args['viewId'], slot: args['slot'] as 'title', record: (record ?? null) as null, ...(args['proposal'] === true ? { proposal: true } : {}), cause };
       }
       case 'link': {
         const { source, kind, target, response, mapping, channels } = args;

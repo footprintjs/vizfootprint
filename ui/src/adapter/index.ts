@@ -61,4 +61,4 @@ export type {
   LayoutView,
   LayoutChange,
   Actor,
-  LinkGraphView, LinkEdgeView, FitView, RuleLineView, EffectiveEncodingView, ProseStatusView, ProseRefView } from './types.js';
+  LinkGraphView, LinkEdgeView, FitView, RuleLineView, EffectiveEncodingView, ProseStatusView, ProseRefView, ProposalView } from './types.js';

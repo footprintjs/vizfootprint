@@ -37,12 +37,20 @@ prose: [
 | dispatch | `describe` | the record is refused as a gap with the sentence; nothing lands |
 | lint | `dashboard.lint()` | every declared slot judged with the data's real columns |
 
+## The author port — propose, accept, decline, all as commits
+
+A `describe` with `proposal: true` lands the record in the slot's **proposal lane** (`prose:<view>`, field `<slot>:proposal`), never as the live words, so a draft can never become the caption by last-wins. A person **accepts** it (`describe` with `accept: <the proposing commit's id>`): the record lands on the slot with `author.acceptedFrom` and `acceptedBy`, one commit, and the proposal reads *accepted* — derived from the live words, never stored. A person **declines** it (`describe` with `decline: { proposal, reason }`): the reason lands in the lane. Undo the accept and the proposal reads open again.
+
+The model's permission follows the kind of claim: a **statistic** may be stated with a basis; a **trend** an agent perceived must be proposed (`agentTrend`); a **cause** is never an agent's to claim. The overview serves `views[].proposals`, one per slot, with the derived status.
+
+## Refs
+
+A record's `refs` are spans of its text that point at a commit the log holds or a beat by its label: a span inside the text, exactly one target, a target that exists. The UI renders them as small corner anchors (`ProseText`).
+
 ## What is not here yet
 
-- **The author port**: a model proposes, a person accepts, both as commits in a proposal lane.
-- **Refs**: spans of a text that point at a saved interaction — a commit or a beat — so a hover shows the act and a click seeks to it; an agent's summary in the chat becomes prose whose sentences each carry the position they were computed at.
 - `why()` over a slot.
-- The in-place affordances (a title edited on the chart, a caption under the plot) as their own `vizfootprint-ui` entry.
+- A person's edit of an agent's words keeps the basis but is not re-judged for staleness against a new basis.
 
 See the build order on the Interaction Grammar page.
 

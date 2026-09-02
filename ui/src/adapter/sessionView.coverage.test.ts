@@ -564,3 +564,50 @@ describe('the prose plane on the wire', () => {
     view.dispose();
   });
 });
+
+describe('the author port on the wire', () => {
+  it('maps proposals, drops malformed ones, and posts propose / accept / decline', async () => {
+    const raw = {
+      records: [],
+      views: [
+        {
+          viewId: 'map',
+          actor: 'user',
+          proposals: [
+            { slot: 'caption', proposal: 'p1', status: 'open', by: 'agent', record: { text: 'Draft.', author: { kind: 'agent', model: 'm', at: 'now', by: 'bot' }, levels: ['trend'], basis: { columns: ['a'] } } },
+            { slot: 'title', proposal: 'p0', status: 'declined', reason: 'no', record: { author: { kind: 'human' }, levels: 'x' } },
+            { slot: 'poem', proposal: 'p9', status: 'open', record: { author: { kind: 'human' } } },
+            { slot: 'caption', status: 'open', record: { author: { kind: 'human' } } },
+            { slot: 'caption', proposal: 'p3', status: 'maybe', record: { author: { kind: 'human' } } },
+            { slot: 'caption', proposal: 'p4', status: 'open', record: { author: { kind: 'ghost' } } },
+            null,
+          ],
+        },
+        { viewId: 'bar', actor: 'user', proposals: 'x' },
+      ],
+      cursor: null,
+      head: null,
+    } as unknown as RawPollState;
+    const state = mapPollState(raw);
+    expect(state.views.find((v) => v.viewId === 'map')!.proposals).toEqual([
+      { slot: 'caption', proposal: 'p1', text: 'Draft.', status: 'open', author: { kind: 'agent', by: 'bot', model: 'm', at: 'now' }, levels: ['trend'], basis: { columns: ['a'] }, by: 'agent' },
+      { slot: 'title', proposal: 'p0', text: '', status: 'declined', author: { kind: 'human' }, levels: [], reason: 'no' },
+    ]);
+    expect(state.views.find((v) => v.viewId === 'bar')!.proposals).toEqual([]);
+    const { impl, calls } = fakeFetch();
+    const view = createSessionView(pollingSource({ fetchImpl: impl }), { refreshOnAction: false });
+    await view.refresh();
+    await view.propose('map', 'caption', { text: 'D', author: { kind: 'human' } });
+    await view.propose('map', 'caption', { text: 'D2', author: { kind: 'human' } }, 'a named draft');
+    await view.acceptProposal('map', 'caption', 'p1', 'take it');
+    await view.declineProposal('map', 'caption', 'p1', 'no');
+    await view.acceptProposal('map', 'title', 'p0');
+    const posts = calls.filter((c) => c.url === '/api/dispatch').map((c) => c.body as Record<string, unknown>);
+    expect(posts[0]).toMatchObject({ verb: 'describe', proposal: true, intent: 'propose map.caption' });
+    expect(posts[1]).toMatchObject({ verb: 'describe', proposal: true, intent: 'a named draft' });
+    expect(posts[2]).toMatchObject({ verb: 'describe', accept: 'p1', record: null, intent: 'take it' });
+    expect(posts[3]).toMatchObject({ verb: 'describe', decline: { proposal: 'p1', reason: 'no' }, intent: 'decline the proposal for map.caption' });
+    expect(posts[4]).toMatchObject({ verb: 'describe', accept: 'p0', intent: 'accept the proposal for map.title' });
+    view.dispose();
+  });
+});

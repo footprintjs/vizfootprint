@@ -79,6 +79,8 @@ export interface ViewView {
   readonly effective?: EffectiveEncodingView;
   /** The prose plane: the view's words at the cursor — each slot with its author kind and whether it went stale. Absent on a server that predates prose. */
   readonly prose?: readonly ProseStatusView[];
+  /** The prose plane: proposals on the table for this view, one per slot, with their derived status. */
+  readonly proposals?: readonly ProposalView[];
 }
 
 /** One prose slot as the wire serves it (src/prose `ProseStatus`, the parts a cockpit renders). */
@@ -94,6 +96,20 @@ export interface ProseStatusView {
   readonly basis?: Readonly<Record<string, unknown>>;
   /** Spans of the text that point at a saved interaction (a commit, or a beat by its label) — rendered as small anchors. Absent when there are none. */
   readonly refs?: readonly ProseRefView[];
+}
+
+/** A proposal as the wire serves it (src/prose `ProposalStatus`). */
+export interface ProposalView {
+  readonly slot: ProseStatusView['slot'];
+  /** The proposing commit's id — what accept and decline name. */
+  readonly proposal: string;
+  readonly text: string;
+  readonly status: 'open' | 'accepted' | 'declined';
+  readonly author: ProseStatusView['author'];
+  readonly levels: readonly string[];
+  readonly basis?: Readonly<Record<string, unknown>>;
+  readonly by?: string;
+  readonly reason?: string;
 }
 
 export interface ProseRefView {

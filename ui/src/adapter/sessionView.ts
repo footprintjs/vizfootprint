@@ -60,7 +60,7 @@ import { LinkGraphView,
   type ChartCellView,
   type LayoutChange,
   type LayoutView,
-  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView } from './types.js';
+  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView, type ProposalView } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
 import type { NavigateViewState } from '../contract/types.js';
@@ -394,6 +394,8 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       effective?: unknown;
       /** The prose plane: `views[].prose` serialized. */
       prose?: unknown;
+      /** The prose plane: `views[].proposals` serialized. */
+      proposals?: unknown;
       canProbe?: boolean;
       mounted?: boolean;
     };
@@ -409,6 +411,7 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       ...(o.fits !== undefined ? { fits: mapFits(o.fits) } : {}),
       ...(o.effective !== undefined ? { effective: mapEffective(o.effective) } : {}),
       ...(o.prose !== undefined ? { prose: mapProse(o.prose) } : {}),
+      ...(o.proposals !== undefined ? { proposals: mapProposals(o.proposals) } : {}),
     };
   });
 }
@@ -467,6 +470,32 @@ function mapProse(raw: unknown): readonly ProseStatusView[] {
         levels: Array.isArray(x.record!.levels) ? x.record!.levels.filter((l): l is string => typeof l === 'string') : [],
         ...(typeof x.record!.basis === 'object' && x.record!.basis !== null && !Array.isArray(x.record!.basis) ? { basis: x.record!.basis as Record<string, unknown> } : {}),
         ...(mapRefs(x.refs).length > 0 ? { refs: mapRefs(x.refs) } : {}),
+      },
+    ];
+  });
+}
+/** The proposals on the table, as the wire serves them; anything malformed is dropped. */
+function mapProposals(raw: unknown): ProposalView[] {
+  if (!Array.isArray(raw)) return [];
+  const SLOTS = ['title', 'caption', 'altShort', 'altLong', 'howToRead'];
+  const STATUS = ['open', 'accepted', 'declined'];
+  const KINDS = ['human', 'agent', 'derived', 'humanEdited'];
+  return raw.flatMap((p) => {
+    const x = p as { slot?: unknown; proposal?: unknown; status?: unknown; by?: unknown; reason?: unknown; record?: { text?: unknown; author?: { kind?: unknown; by?: unknown; model?: unknown; at?: unknown }; levels?: unknown; basis?: unknown } } | null;
+    const kind = x?.record?.author?.kind;
+    if (typeof x !== 'object' || x === null || typeof x.slot !== 'string' || !SLOTS.includes(x.slot) || typeof x.proposal !== 'string' || typeof x.status !== 'string' || !STATUS.includes(x.status) || typeof kind !== 'string' || !KINDS.includes(kind)) return [];
+    const a = x.record!.author!;
+    return [
+      {
+        slot: x.slot as ProposalView['slot'],
+        proposal: x.proposal,
+        text: typeof x.record!.text === 'string' ? x.record!.text : '',
+        status: x.status as ProposalView['status'],
+        author: { kind: kind as ProposalView['author']['kind'], ...(typeof a.by === 'string' ? { by: a.by } : {}), ...(typeof a.model === 'string' ? { model: a.model } : {}), ...(typeof a.at === 'string' ? { at: a.at } : {}) },
+        levels: Array.isArray(x.record!.levels) ? x.record!.levels.filter((l): l is string => typeof l === 'string') : [],
+        ...(typeof x.record!.basis === 'object' && x.record!.basis !== null && !Array.isArray(x.record!.basis) ? { basis: x.record!.basis as Record<string, unknown> } : {}),
+        ...(typeof x.by === 'string' ? { by: x.by } : {}),
+        ...(typeof x.reason === 'string' ? { reason: x.reason } : {}),
       },
     ];
   });
@@ -810,6 +839,12 @@ export interface SessionView {
   reencodeSet(viewId: string, bindings: Readonly<Record<string, string>>, intent?: string): Promise<void>;
   /** The prose plane: set one of a view's words as a record (the person as author unless the record says otherwise); null = back to the def's own words. */
   describe(viewId: string, slot: ProseStatusView['slot'], record: Readonly<Record<string, unknown>> | null, intent?: string): Promise<void>;
+  /** The prose plane: PROPOSE words for a slot — they land in its proposal lane for a person to accept, never as the live words. */
+  propose(viewId: string, slot: ProseStatusView['slot'], record: Readonly<Record<string, unknown>>, intent?: string): Promise<void>;
+  /** Accept the open proposal (by its commit id): its words land on the slot, marked as accepted from it. */
+  acceptProposal(viewId: string, slot: ProseStatusView['slot'], proposal: string, intent?: string): Promise<void>;
+  /** Decline the open proposal with a reason that stays on the record. */
+  declineProposal(viewId: string, slot: ProseStatusView['slot'], proposal: string, reason: string, intent?: string): Promise<void>;
   /**
    * RP-1: record a pan/zoom view state through the `navigate` dispatch verb.
    * Deliberately NON-filtering — a viewport is not a data claim; the view
@@ -1060,6 +1095,24 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       const intent = intentWord ?? (record === null ? `${viewId}.${slot}: back to the declaration` : `describe ${viewId}.${slot}`);
       const body = { verb: 'describe' as const, viewId, slot, record };
       await dispatch({ ...body, record: record as never, cause: cause(intent) }, { ...body, intent });
+    },
+
+    async propose(viewId, slot, record, intentWord) {
+      const intent = intentWord ?? `propose ${viewId}.${slot}`;
+      const body = { verb: 'describe' as const, viewId, slot, record, proposal: true };
+      await dispatch({ ...body, record: record as never, cause: cause(intent) }, { ...body, intent });
+    },
+
+    async acceptProposal(viewId, slot, proposal, intentWord) {
+      const intent = intentWord ?? `accept the proposal for ${viewId}.${slot}`;
+      const body = { verb: 'describe' as const, viewId, slot, record: null, accept: proposal };
+      await dispatch({ ...body, cause: cause(intent) }, { ...body, intent });
+    },
+
+    async declineProposal(viewId, slot, proposal, reason, intentWord) {
+      const intent = intentWord ?? `decline the proposal for ${viewId}.${slot}`;
+      const body = { verb: 'describe' as const, viewId, slot, record: null, decline: { proposal, reason } };
+      await dispatch({ ...body, cause: cause(intent) }, { ...body, intent });
     },
 
     async reencodeSet(viewId, bindings, intentWord) {
