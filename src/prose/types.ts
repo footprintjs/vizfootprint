@@ -55,6 +55,21 @@ export interface ProseBasis {
   readonly atCommit?: string | null;
 }
 
+/**
+ * A REF: a span of the text that points at a saved interaction — a commit, or
+ * a beat by its label — so a reader can hover to see the act and click to go
+ * there, and an agent's summary carries the position each sentence was
+ * computed at. Rendered as a small corner anchor in the text.
+ */
+export interface ProseRef {
+  /** Character span `[start, end)` within `text`. */
+  readonly span: readonly [number, number];
+  readonly commit?: string;
+  readonly beat?: string;
+  /** Words for the anchor, echoed verbatim. */
+  readonly label?: string;
+}
+
 export interface ProseRecord {
   /** The words. May be absent only for a `derived` author (the library renders the construction line itself). */
   readonly text?: string;
@@ -64,6 +79,8 @@ export interface ProseRecord {
   readonly basis?: ProseBasis;
   /** `decorative` lets a chart with nothing to say leave its alt empty on purpose. Default `informative`. */
   readonly role?: 'informative' | 'decorative';
+  /** Spans of the text that point at a saved interaction. */
+  readonly refs?: readonly ProseRef[];
 }
 
 /** A view's declared prose: the def's `prose[]` entry. */
@@ -82,6 +99,8 @@ export interface ProseStatus {
   readonly changed: readonly string[];
   /** The rendered words: the record's text, or the derived construction line. */
   readonly text: string;
+  /** The record's refs, as declared (a derived slot has none). */
+  readonly refs: readonly ProseRef[];
 }
 
 /** A refusal of a prose record — the same sentence at the def door, at dispatch, and in a lint list. */

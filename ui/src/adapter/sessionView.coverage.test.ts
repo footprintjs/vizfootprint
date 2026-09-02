@@ -529,6 +529,7 @@ describe('the prose plane on the wire', () => {
             { slot: 'title', text: 'Cases by state', status: 'current', changed: [], record: { author: { kind: 'human', by: 'sanjay' }, levels: ['construction'] } },
             { slot: 'caption', text: 'Oklahoma leads.', status: 'stale', changed: ['filters', 7], record: { author: { kind: 'agent', model: 'm', at: 'now' }, basis: { columns: ['cases'] } } },
             { slot: 'howToRead', status: 'derived', record: { author: { kind: 'derived' }, levels: 'x' } },
+            { slot: 'altLong', text: 'Texas leads.', status: 'current', changed: [], refs: [{ span: [0, 5], commit: 'c1', label: 'L' }, { span: [6, 11], beat: 'b' }, { span: [0, 1] }, { span: [0, 1], commit: 'x', beat: 'y' }, 'nope', null, { span: 'x', commit: 'c' }, { span: [0, 'x'], commit: 'c' }, { span: [0, 1, 2], commit: 'c' }], record: { author: { kind: 'human' } } },
             { slot: 'poem', text: 'x', status: 'current', changed: [], record: { author: { kind: 'human' } } },
             { slot: 'altShort', text: 'x', status: 'weird', changed: [], record: { author: { kind: 'human' } } },
             { slot: 'altLong', text: 'x', status: 'current', changed: [], record: { author: { kind: 'ghost' } } },
@@ -545,6 +546,7 @@ describe('the prose plane on the wire', () => {
       { slot: 'title', text: 'Cases by state', status: 'current', changed: [], author: { kind: 'human', by: 'sanjay' }, levels: ['construction'] },
       { slot: 'caption', text: 'Oklahoma leads.', status: 'stale', changed: ['filters'], author: { kind: 'agent', model: 'm', at: 'now' }, levels: [], basis: { columns: ['cases'] } },
       { slot: 'howToRead', text: '', status: 'derived', changed: [], author: { kind: 'derived' }, levels: [] },
+      { slot: 'altLong', text: 'Texas leads.', status: 'current', changed: [], author: { kind: 'human' }, levels: [], refs: [{ span: [0, 5], commit: 'c1', label: 'L' }, { span: [6, 11], beat: 'b' }] },
     ]);
     expect(state.views.find((v) => v.viewId === 'bar')!.prose).toEqual([]);
     expect(state.commits[0]!.label).toBe('describe map.title');

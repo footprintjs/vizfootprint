@@ -60,7 +60,7 @@ import { LinkGraphView,
   type ChartCellView,
   type LayoutChange,
   type LayoutView,
-  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView } from './types.js';
+  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
 import type { NavigateViewState } from '../contract/types.js';
@@ -453,7 +453,7 @@ function mapProse(raw: unknown): readonly ProseStatusView[] {
   const KINDS = ['human', 'agent', 'derived', 'humanEdited'];
   return raw.flatMap((p) => {
     if (typeof p !== 'object' || p === null) return [];
-    const x = p as { slot?: unknown; text?: unknown; status?: unknown; changed?: unknown; record?: { author?: { kind?: unknown; by?: unknown; model?: unknown; at?: unknown }; levels?: unknown; basis?: unknown } };
+    const x = p as { slot?: unknown; text?: unknown; status?: unknown; changed?: unknown; refs?: unknown; record?: { author?: { kind?: unknown; by?: unknown; model?: unknown; at?: unknown }; levels?: unknown; basis?: unknown } };
     const kind = x.record?.author?.kind;
     if (typeof x.slot !== 'string' || !SLOTS.includes(x.slot) || typeof x.status !== 'string' || !STATUS.includes(x.status) || typeof kind !== 'string' || !KINDS.includes(kind)) return [];
     const a = x.record!.author!;
@@ -466,8 +466,21 @@ function mapProse(raw: unknown): readonly ProseStatusView[] {
         author: { kind: kind as ProseStatusView['author']['kind'], ...(typeof a.by === 'string' ? { by: a.by } : {}), ...(typeof a.model === 'string' ? { model: a.model } : {}), ...(typeof a.at === 'string' ? { at: a.at } : {}) },
         levels: Array.isArray(x.record!.levels) ? x.record!.levels.filter((l): l is string => typeof l === 'string') : [],
         ...(typeof x.record!.basis === 'object' && x.record!.basis !== null && !Array.isArray(x.record!.basis) ? { basis: x.record!.basis as Record<string, unknown> } : {}),
+        ...(mapRefs(x.refs).length > 0 ? { refs: mapRefs(x.refs) } : {}),
       },
     ];
+  });
+}
+/** A slot's refs — a span plus exactly one target; anything else is dropped, never invented. */
+function mapRefs(raw: unknown): ProseRefView[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((r) => {
+    const x = r as { span?: unknown; commit?: unknown; beat?: unknown; label?: unknown } | null;
+    if (typeof x !== 'object' || x === null || !Array.isArray(x.span) || x.span.length !== 2 || !x.span.every((n) => typeof n === 'number')) return [];
+    const commit = typeof x.commit === 'string' ? x.commit : undefined;
+    const beat = typeof x.beat === 'string' ? x.beat : undefined;
+    if ((commit === undefined) === (beat === undefined)) return [];
+    return [{ span: [x.span[0] as number, x.span[1] as number] as const, ...(commit !== undefined ? { commit } : {}), ...(beat !== undefined ? { beat } : {}), ...(typeof x.label === 'string' ? { label: x.label } : {}) }];
   });
 }
 /** The rules as sentences, when the wire carries them. */

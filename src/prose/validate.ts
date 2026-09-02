@@ -17,6 +17,10 @@ export interface ProseWorld {
   readonly analyses?: ReadonlySet<string>;
   /** The views that declare an encoding surface — a derived slot has nothing to derive from on any other. */
   readonly surfaced?: ReadonlySet<string>;
+  /** The commit ids the log holds — a ref may only point at one of them. */
+  readonly commits?: ReadonlySet<string>;
+  /** The beats named so far — a ref may only point at one of them. */
+  readonly beats?: ReadonlySet<string>;
 }
 
 /** One record judged: every problem, shape before law. */
@@ -62,6 +66,25 @@ export function validateProseRecord(viewId: string, slot: string, raw: unknown, 
   }
   if (basis !== undefined && typeof basis.analysisId === 'string' && world.analyses !== undefined && !world.analyses.has(basis.analysisId)) {
     at('basis-analysis', PROSE_SENTENCES.basisAnalysis, { analysisId: basis.analysisId });
+  }
+  // refs: a span inside the text, exactly one target, and a target that exists (judged only when the world names it)
+  if (r.refs !== undefined) {
+    const shape = (ref: unknown): ref is { span: [number, number]; commit?: unknown; beat?: unknown; label?: unknown } =>
+      isObject(ref) && Array.isArray(ref.span) && ref.span.length === 2 && ref.span.every((n) => Number.isInteger(n) && (n as number) >= 0) && (ref.label === undefined || typeof ref.label === 'string');
+    if (!Array.isArray(r.refs) || !r.refs.every(shape)) at('refs', PROSE_SENTENCES.refs);
+    else {
+      const length = typeof r.text === 'string' ? r.text.length : 0;
+      r.refs.forEach((ref, index) => {
+        const [start, end] = ref.span;
+        const slots = { index: String(index), start: String(start), end: String(end), length: String(length) };
+        if (!(start < end && end <= length)) at('ref-span', PROSE_SENTENCES.refSpan, slots);
+        const hasCommit = typeof ref.commit === 'string';
+        const hasBeat = typeof ref.beat === 'string';
+        if (hasCommit === hasBeat) at('ref-target', PROSE_SENTENCES.refTarget, slots);
+        if (hasCommit && world.commits !== undefined && !world.commits.has(ref.commit as string)) at('ref-commit', PROSE_SENTENCES.refCommit, { ...slots, commit: ref.commit as string });
+        if (hasBeat && world.beats !== undefined && !world.beats.has(ref.beat as string)) at('ref-beat', PROSE_SENTENCES.refBeat, { ...slots, beat: ref.beat as string });
+      });
+    }
   }
   return problems;
 }

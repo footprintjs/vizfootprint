@@ -1580,6 +1580,8 @@ class InteractionSessionImpl implements InteractionSession {
         columns: new Set(cols.map((c) => c.name)),
         analyses: new Set(this.runtime.analyses.keys()),
         surfaced: new Set([...this.runtime.views.values()].filter((v) => v.encoding !== undefined).map((v) => v.viewId)),
+        commits: new Set(this.log.records.map((r) => r.id)),
+        beats: new Set(this.checkpoints().map((b) => b.label)),
       });
       if (proseRefuses(problems)) {
         return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', problems.map((p) => p.sentence).join('; '), slot));

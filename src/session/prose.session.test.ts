@@ -153,3 +153,25 @@ describe('the remaining doors', () => {
     expect(!res.ok && res.rejection.code).toBe('needs-backend-data');
   });
 });
+
+describe('refs at the dispatch door', () => {
+  it('a caption may point at a commit the log holds or a beat that was named; anything else is refused with the sentence', async () => {
+    const s = buildDashboard(withProse()).createSession();
+    const sel = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
+    const selId = sel.ok ? sel.commit!.id : '';
+    await s.dispatch({ verb: 'checkpoint', label: 'formal only', cause: userCause() });
+    const ok = await s.dispatch({
+      verb: 'describe',
+      viewId: 'scatter',
+      slot: 'caption',
+      record: { text: 'Formal items rate higher.', author: { kind: 'human' }, refs: [{ span: [0, 12], commit: selId }, { span: [13, 25], beat: 'formal only' }] },
+      cause: userCause(),
+    });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.described!.refs).toHaveLength(2);
+    const bad = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { text: 'x', author: { kind: 'human' }, refs: [{ span: [0, 1], commit: 'nope' }] }, cause: userCause() });
+    expect(!bad.ok && bad.rejection.detail).toBe('"scatter".caption.refs[0] points at a commit the log does not hold: "nope"');
+    const noBeat = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { text: 'x', author: { kind: 'human' }, refs: [{ span: [0, 1], beat: 'never' }] }, cause: userCause() });
+    expect(!noBeat.ok && noBeat.rejection.detail).toBe('"scatter".caption.refs[0] points at a beat that was never named: "never"');
+  });
+});

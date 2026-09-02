@@ -29,7 +29,7 @@ const same = (a: unknown, b: unknown): boolean => JSON.stringify(canon(a)) === J
 
 export function proseStatus(slot: ProseSlot, record: ProseRecord, now: ProseWorldNow): ProseStatus {
   if (record.author.kind === 'derived') {
-    return { slot, record, status: 'derived', changed: [], text: constructionLine(now.surface, now.encodings) };
+    return { slot, record, status: 'derived', changed: [], text: constructionLine(now.surface, now.encodings), refs: [] };
   }
   const changed: string[] = [];
   const b = record.basis;
@@ -42,7 +42,7 @@ export function proseStatus(slot: ProseSlot, record: ProseRecord, now: ProseWorl
     if (b.columns !== undefined && b.columns.some((c) => !now.columns.has(c))) changed.push('columns');
     if (b.analysisId !== undefined && !now.analyses.has(b.analysisId)) changed.push('analysis');
   }
-  return { slot, record, status: changed.length > 0 ? 'stale' : 'current', changed, text: record.text ?? '' };
+  return { slot, record, status: changed.length > 0 ? 'stale' : 'current', changed, text: record.text ?? '', refs: record.refs ?? [] };
 }
 
 /** The construction line the library writes itself: what the chart IS, from its surface and bindings — level 1, always fresh. */

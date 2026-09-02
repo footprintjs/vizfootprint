@@ -16,6 +16,11 @@ export const PROSE_SENTENCES = Object.freeze({
   basisColumn: '"{view}".{slot} names a column that is not on this branch: "{column}"',
   basisAnalysis: '"{view}".{slot} quotes an analysis that is not declared: "{analysisId}"',
   role: '"{view}".{slot}.role must be informative or decorative',
+  refs: '"{view}".{slot}.refs must be a list of { span: [start, end], commit? | beat?, label? }',
+  refSpan: '"{view}".{slot}.refs[{index}] spans [{start}, {end}) but the text has {length} characters',
+  refTarget: '"{view}".{slot}.refs[{index}] must name exactly one of commit, beat',
+  refCommit: '"{view}".{slot}.refs[{index}] points at a commit the log does not hold: "{commit}"',
+  refBeat: '"{view}".{slot}.refs[{index}] points at a beat that was never named: "{beat}"',
   view: 'prose[{index}].viewId "{view}" is not a declared view',
   repeat: 'prose[{index}] repeats view "{view}" — one prose entry per view',
 });

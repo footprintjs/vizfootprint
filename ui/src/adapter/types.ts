@@ -92,6 +92,15 @@ export interface ProseStatusView {
   readonly levels: readonly string[];
   /** What the words were written against (encodings, filters, columns, analysisId) — shown so a person can see why a slot went stale. */
   readonly basis?: Readonly<Record<string, unknown>>;
+  /** Spans of the text that point at a saved interaction (a commit, or a beat by its label) — rendered as small anchors. Absent when there are none. */
+  readonly refs?: readonly ProseRefView[];
+}
+
+export interface ProseRefView {
+  readonly span: readonly [number, number];
+  readonly commit?: string;
+  readonly beat?: string;
+  readonly label?: string;
 }
 
 export interface EffectiveEncodingView {

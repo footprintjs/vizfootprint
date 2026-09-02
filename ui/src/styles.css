@@ -2172,3 +2172,8 @@
 :where(.vzf) .vzf-family-design { color: #0e6f69; }
 :where(.vzf) .vzf-family-analysis { color: #5e5aa8; }
 :where(.vzf) .vzf-family-story { color: #a8661a; }
+
+/* ── prose refs: a small corner anchor after the span it points from ── */
+:where(.vzf) .vzf-prosetext-ref { text-decoration: underline dotted; text-underline-offset: 2px; }
+:where(.vzf) .vzf-prosetext-anchor { font: inherit; font-size: 0.7em; vertical-align: super; line-height: 1; margin-left: 1px; padding: 0 3px; border: 1px solid var(--vzf-line, #d8dee4); border-radius: 3px; background: transparent; color: #0e6f69; cursor: pointer; }
+:where(.vzf) .vzf-prosetext-anchor:hover, :where(.vzf) .vzf-prosetext-anchor:focus-visible { background: #dcefec; outline: none; }

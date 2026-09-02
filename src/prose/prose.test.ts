@@ -109,3 +109,26 @@ describe('the review\'s laws', () => {
     expect(validateProseRecord('map', 'howToRead', { author: { kind: 'derived' } })).toEqual([]);
   });
 });
+
+describe('refs — spans that point at a saved interaction', () => {
+  const rec = (refs: unknown, text = 'Oklahoma leads; Texas follows.') => ({ text, author: { kind: 'human' as const }, refs });
+  it('a lawful ref passes; shape, span, target and existence are each named', () => {
+    expect(validateProseRecord('map', 'caption', rec([{ span: [0, 14], commit: 'c1' }, { span: [16, 29], beat: 'week 1', label: 'the beat' }]), { commits: new Set(['c1']), beats: new Set(['week 1']) })).toEqual([]);
+    const say = (refs: unknown, world?: Parameters<typeof validateProseRecord>[3]) => validateProseRecord('map', 'caption', rec(refs), world).map((p) => p.sentence);
+    expect(say('x')).toEqual(['"map".caption.refs must be a list of { span: [start, end], commit? | beat?, label? }']);
+    expect(say([{ span: [1], commit: 'c1' }])).toEqual(['"map".caption.refs must be a list of { span: [start, end], commit? | beat?, label? }']);
+    expect(say([{ span: [0, 5], commit: 'c1', label: 3 }])).toEqual(['"map".caption.refs must be a list of { span: [start, end], commit? | beat?, label? }']);
+    expect(say([{ span: [10, 99], commit: 'c1' }])).toEqual(['"map".caption.refs[0] spans [10, 99) but the text has 30 characters']);
+    expect(say([{ span: [5, 5], commit: 'c1' }])).toEqual(['"map".caption.refs[0] spans [5, 5) but the text has 30 characters']);
+    expect(say([{ span: [0, 5] }])).toEqual(['"map".caption.refs[0] must name exactly one of commit, beat']);
+    expect(say([{ span: [0, 5], commit: 'c1', beat: 'b' }])).toEqual(['"map".caption.refs[0] must name exactly one of commit, beat']);
+    expect(say([{ span: [0, 5], commit: 'ghost' }], { commits: new Set(['c1']) })).toEqual(['"map".caption.refs[0] points at a commit the log does not hold: "ghost"']);
+    expect(say([{ span: [0, 5], beat: 'ghost' }], { beats: new Set() })).toEqual(['"map".caption.refs[0] points at a beat that was never named: "ghost"']);
+    // no world = nothing to judge existence against
+    expect(say([{ span: [0, 5], commit: 'ghost' }])).toEqual([]);
+    // a ref on words that do not exist yet has nothing to span
+    expect(validateProseRecord('map', 'caption', { author: { kind: 'human' }, role: 'decorative', refs: [{ span: [0, 1], commit: 'c1' }] }).map((p) => p.sentence)).toEqual(['"map".caption.refs[0] spans [0, 1) but the text has 0 characters']);
+    // the status carries the refs; a derived slot has none
+    expect(proseStatus('caption', rec([{ span: [0, 5], commit: 'c1' }]) as never, { encodings: {}, filters: {}, columns: new Set(), analyses: new Set<string>() }).refs).toEqual([{ span: [0, 5], commit: 'c1' }]);
+  });
+});
