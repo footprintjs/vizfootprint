@@ -15,7 +15,8 @@ import type { CommitRecord } from '../log/index.js';
 import type { CauseClause } from '../mosaic/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
 import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
-import type { CellClause, ColumnType, IntervalClause } from '../data/index.js';
+import type { CellClause, ColumnFacet, ColumnType, IntervalClause } from '../data/index.js';
+import type { EncodingProblem, Fit, RuleLine, RuleScope } from '../encoding/index.js';
 import type { DispatchVerb, IntentClass } from '../def/types.js';
 import type { DiffChange, DiffOnly, PlanRecipe, RefEvent } from '../branches/index.js';
 
@@ -149,7 +150,9 @@ export type DispatchAction =
    * state-changing transition (R1: lands a cause-tagged commit; R2: replays;
    * time-travel: the fold carries the encoding, so `seek` restores the old one).
    */
-  | { readonly verb: 'reencode'; readonly viewId: string; readonly channel: string; readonly field: string; readonly cause: Cause; readonly correlationId?: string };
+  | { readonly verb: 'reencode'; readonly viewId: string; readonly channel: string; readonly field: string; readonly cause: Cause; readonly correlationId?: string }
+  /** Encoding plane: several channels in ONE act — a swap is `{ x: <the y field>, y: <the x field> }` — judged as a whole, landed as one commit. */
+  | { readonly verb: 'reencode'; readonly viewId: string; readonly bindings: Readonly<Record<string, string>>; readonly cause: Cause; readonly correlationId?: string };
 
 /** A named log position (the `checkpoint` verb). A NAMED pointer to a commit — stored as inert data, listable. */
 export interface Checkpoint {
@@ -491,7 +494,9 @@ export type DispatchResult =
       readonly checkpoint?: Checkpoint;
       readonly annotated?: { readonly target: string; readonly note: string };
       readonly navigatedTo?: string;
-      readonly reencoded?: { readonly viewId: string; readonly channel: string; readonly field: string };
+      readonly reencoded?: { readonly viewId: string; readonly channel: string; readonly field: string } | { readonly viewId: string; readonly bindings: Readonly<Record<string, string>> };
+      /** Encoding plane: the binding did not fit as asked and a named coercer took it — the sentence says what changed. Absent when nothing was coerced. */
+      readonly coerced?: readonly EncodingProblem[];
       /** Layer 4: the edge as it now stands (an edited edge, or the base edge after an un-declare). */
       readonly linked?: LinkEdge;
     }
@@ -567,6 +572,12 @@ export interface ViewInfo {
    * answer "what can I put on x?" from one `whats_here` entry.
    */
   readonly columns: readonly ColumnFacet[];
+  /**
+   * The encoding plane (src/encoding): per channel, every column judged as if
+   * bound there now — fitting ones first, refused ones with their sentence.
+   * Present only for a view with a declared encoding surface.
+   */
+  readonly fits?: Readonly<Record<string, readonly Fit[]>>;
 }
 
 /** An active DATA-space selection (never pixels; R5). */
@@ -607,17 +618,7 @@ export interface FdrSummary {
 }
 
 /** One column facet — names/types are schema; VALUES never ride here (Q8). */
-export interface ColumnFacet {
-  readonly field: string;
-  readonly type: ColumnType;
-  /**
-   * Present when the def declared this column as the table's ABSENCE column
-   * (`DataSourceDef.absence`): the vocabulary it speaks, verbatim. An agent
-   * reading `whats_here` learns that "unavailable" here is a kind of silence,
-   * not a category like any other — and never a number.
-   */
-  readonly absence?: readonly string[];
-}
+export type { ColumnFacet } from '../data/types.js';
 
 /** The structured payload `whats_here` projects. All app content lives in DATA fields. */
 export interface Overview {
@@ -643,6 +644,10 @@ export interface Overview {
    * (e.g. `{ dashboard: { preset: 'focus', focus: 'scatter' } }`).
    */
   readonly layouts: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /** The encoding plane's rules as sentences — the built-in law first, then the def's in declared order. */
+  readonly rules: readonly RuleLine[];
+  /** What happens to an act that breaks an encoding rule, and how far a two-column rule reaches. */
+  readonly encodingPolicy: { readonly onInvalid: string; readonly ruleScope: RuleScope };
   readonly gaps: number;
   readonly currentView: string | null;
   readonly engines: Readonly<Record<string, string>>;

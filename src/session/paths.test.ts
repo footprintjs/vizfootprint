@@ -336,9 +336,10 @@ describe('BR-1 — undo(): restore the key\'s value at the commit\'s parent; cau
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
     const u1 = await s.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'x', field: 'rating', cause: userCause() });
     const u1Id = u1.ok ? u1.commit!.id : '';
-    const u2 = await s.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'x', field: 'id', cause: userCause() });
+    // (x ← price re-lands the initial's own field: the fold does not dedupe, and `id` is a string the point's x refuses — the encoding plane's law)
+    const u2 = await s.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'x', field: 'price', cause: userCause() });
     const u2Id = u2.ok ? u2.commit!.id : '';
-    expect(s.viewEncodings('scatter')).toEqual({ x: 'id', y: 'rating' });
+    expect(s.viewEncodings('scatter')).toEqual({ x: 'price', y: 'rating' });
 
     // prior binding exists → restore it
     const res2 = await s.undo(u2Id);

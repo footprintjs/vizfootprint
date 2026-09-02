@@ -49,8 +49,10 @@ import type {
   DispatchVerb,
   FdrStepper,
   RegisteredAnalysis,
+  ViewEncodingDecl,
 } from '../def/types.js';
-import { MAGNITUDE_CHANNELS } from '../def/types.js';
+import { describeRules, fitsFor, refuses, validateBindings } from '../encoding/index.js';
+import type { Bindings, EncodingProblem, Fit } from '../encoding/index.js';
 import { GapLedger } from './gapLedger.js';
 import { why } from '../why/index.js';
 import type { RuntimeSnapshot } from 'footprintjs';
@@ -69,8 +71,7 @@ import {
   planBringOver,
   planUndo,
   slugForCommit,
-  uniqueSlug,
-} from '../branches/index.js';
+  uniqueSlug, ENCODING_SET_FIELD, isEncodingSet, encodingSetOf } from '../branches/index.js';
 import type { PlanRecipe } from '../branches/index.js';
 import type {
   AdoptPathResult,
@@ -552,7 +553,8 @@ class InteractionSessionImpl implements InteractionSession {
       if (rec.viewId.startsWith(ENCODING_VIEW_PREFIX)) {
         const targetViewId = rec.viewId.slice(ENCODING_VIEW_PREFIX.length);
         const current = this.activeEncodings.get(targetViewId) ?? {};
-        this.activeEncodings.set(targetViewId, { ...current, [rec.field]: String(rec.value) });
+        // a binding set (the `*` marker) carries several channels in one commit
+        this.activeEncodings.set(targetViewId, isEncodingSet(rec) ? { ...current, ...encodingSetOf(rec) } : { ...current, [rec.field]: String(rec.value) });
         continue;
       }
       // LY-1: the layout fold — last-wins per (scope, prop), exactly like the
@@ -953,6 +955,18 @@ class InteractionSessionImpl implements InteractionSession {
         }
         return { verb: 'reencode', viewId: recipe.viewId, channel: recipe.channel, field: initial, cause };
       }
+      case 'encoding-set': {
+        // a null channel means "the declared initial" — resolved here, the same way clear-encoding does above
+        const bindings: Record<string, string> = {};
+        for (const [channel, field] of Object.entries(recipe.bindings)) {
+          const resolved = field ?? this.runtime.views.get(recipe.viewId)!.encoding!.initial?.[channel];
+          if (resolved === undefined) {
+            return { gap: this.gapLedger.file('guard-failed', op, `view "${recipe.viewId}" declares no initial "${channel}" binding to restore`, recipe.viewId) };
+          }
+          bindings[channel] = resolved;
+        }
+        return { verb: 'reencode', viewId: recipe.viewId, bindings, cause };
+      }
       case 'analysis':
         return { verb: 'analyze', analysisId: recipe.analysisId, cause };
       case 'annotation':
@@ -1194,7 +1208,9 @@ class InteractionSessionImpl implements InteractionSession {
       case 'checkpoint':
         return this.doCheckpoint(action.label, action.cause, as, intent);
       case 'reencode':
-        return this.doReencode(action.viewId, action.channel, action.field, action.cause, as, intent, action.correlationId);
+        return 'bindings' in action
+          ? this.doReencodeSet(action.viewId, action.bindings, action.cause, as, intent, action.correlationId)
+          : this.doReencode(action.viewId, action.channel, action.field, action.cause, as, intent, action.correlationId);
     }
   }
 
@@ -1353,65 +1369,54 @@ class InteractionSessionImpl implements InteractionSession {
    * pattern above) rather than a new `CommitRecord.kind` — `field` carries the
    * CHANNEL, `value` carries the target field name, both plain strings.
    */
-  private async doReencode(
-    viewId: string,
-    channel: string,
-    field: string,
-    cause: Cause,
-    as: Actor | undefined,
-    intent: DispatchResult['intent'],
-    correlationId: string | undefined,
-  ): Promise<DispatchResult> {
+  /**
+   * The guards every reencode shares: a declared view with an encoding
+   * surface, channels it declares, columns visible on this branch. Returns the
+   * branch-scoped columns (the validator's facets come from them) or the gap.
+   */
+  private async reencodeGuards(viewId: string, pairs: readonly (readonly [string, string])[]): Promise<{ readonly cols: readonly ColumnInfo[] } | { readonly gap: GapRow }> {
     // 1. the view must be declared (R14: needs-view).
     if (!this.runtime.views.has(viewId)) {
-      return this.reject('reencode', intent, this.gapLedger.file('needs-view', 'reencode', `no declared view "${viewId}"`, viewId));
+      return { gap: this.gapLedger.file('needs-view', 'reencode', `no declared view "${viewId}"`, viewId) };
     }
     // 2. the view must declare an encoding surface at all (R14: guard-failed —
     //    never guess a channel vocabulary for an undeclared chart kind).
     const decl = this.runtime.views.get(viewId)!.encoding;
     if (!decl) {
-      return this.reject('reencode', intent, this.gapLedger.file('guard-failed', 'reencode', `view "${viewId}" declares no encoding surface`, viewId));
+      return { gap: this.gapLedger.file('guard-failed', 'reencode', `view "${viewId}" declares no encoding surface`, viewId) };
     }
-    // 3. the channel must be valid for this view's declared chart kind (R14: guard-failed).
-    if (!decl.channels.includes(channel)) {
-      return this.reject(
-        'reencode',
-        intent,
-        this.gapLedger.file('guard-failed', 'reencode', `view "${viewId}" (${decl.chartKind}) has no "${channel}" channel — valid: ${decl.channels.join(', ')}`, channel),
-      );
+    if (pairs.length === 0) {
+      return { gap: this.gapLedger.file('guard-failed', 'reencode', `a binding set for "${viewId}" names no channel`, viewId) };
     }
-    // 4. the field must be a column VISIBLE on this branch (R14: needs-column /
+    // 3. every channel must be valid for this view's declared chart kind (R14: guard-failed).
+    for (const [channel] of pairs) {
+      if (!decl.channels.includes(channel)) {
+        return {
+          gap: this.gapLedger.file('guard-failed', 'reencode', `view "${viewId}" (${decl.chartKind}) has no "${channel}" channel — valid: ${decl.channels.join(', ')}`, channel),
+        };
+      }
+    }
+    // 4. every field must be a column VISIBLE on this branch (R14: needs-column /
     //    needs-backend-data) — branch-scoped, same guard as doProbe step 3: a
     //    materialized column absent from the cursor's fold honestly gap-rejects.
     const cols = await this.effectiveColumnsOf(this.defaultTable);
     if ('rejected' in cols) {
-      return this.reject('reencode', intent, this.gapLedger.file('needs-backend-data', 'reencode', cols.rejected, field));
+      return { gap: this.gapLedger.file('needs-backend-data', 'reencode', cols.rejected, pairs[0]![1]) };
     }
-    if (!cols.some((c) => c.name === field)) {
-      return this.reject('reencode', intent, this.gapLedger.file('needs-column', 'reencode', `no column "${field}" in table "${this.defaultTable}"`, field));
+    for (const [, field] of pairs) {
+      if (!cols.some((c) => c.name === field)) {
+        return { gap: this.gapLedger.file('needs-column', 'reencode', `no column "${field}" in table "${this.defaultTable}"`, field) };
+      }
     }
-    // 5. land ONE cause-tagged commit (commit-on-intent). Parent is the CURSOR:
-    //    a reencode from a past cursor branches (R8 branch-on-act), exactly like doProbe.
-    // 5. an ABSENCE column never binds to a magnitude channel (the def
-    //    validator refuses it at `initial`; this is the same rule at the
-    //    runtime door, so a rebind cannot do what a declaration could not).
-    const absence = this.runtime.def.data[this.defaultTable]?.absence;
-    if (absence !== undefined && absence.field === field && MAGNITUDE_CHANNELS.has(channel)) {
-      return this.reject(
-        'reencode',
-        intent,
-        this.gapLedger.file(
-          'guard-failed',
-          'reencode',
-          `"${field}" is the declared absence column of "${this.defaultTable}" — it cannot bind to the magnitude channel "${channel}"; absence is a category, never a magnitude`,
-          field,
-        ),
-      );
-    }
+    return { cols };
+  }
+
+  /** Land one `encoding:` commit (single channel, or the `*`-marked binding set) and fold it live. */
+  private landEncoding(viewId: string, field: string, value: unknown, next: Bindings, cause: Cause, as: Actor | undefined, correlationId: string | undefined): CommitRecord {
     const stamped = this.stampCause(cause, 'reencode', as);
     const { record } = this.log.commit({
       id: this.nextId(),
-      parent: this._cursor,
+      parent: this._cursor, // R8 branch-on-act: a reencode from a past cursor branches, exactly like doProbe
       ...(correlationId !== undefined ? { correlationId } : {}),
       viewId: encodingViewId(viewId),
       // STABLE source identity (BR-1 root-cause fix): `encoding:${viewId}` is
@@ -1422,14 +1427,106 @@ class InteractionSessionImpl implements InteractionSession {
       // exactly as doProbe does with the view's declared meta above.
       actorMeta: this.runtime.views.get(viewId)!.meta,
       kind: 'point',
-      field: channel,
-      value: field,
+      field,
+      value,
       cause: stamped,
     });
     this.landed(record);
-    const current = this.activeEncodings.get(viewId) ?? {};
-    this.activeEncodings.set(viewId, { ...current, [channel]: field });
-    return { ok: true, verb: 'reencode', intent, commit: record, reencoded: { viewId, channel, field } };
+    this.activeEncodings.set(viewId, { ...(this.activeEncodings.get(viewId) ?? {}), ...next });
+    return record;
+  }
+
+  private async doReencode(
+    viewId: string,
+    channel: string,
+    field: string,
+    cause: Cause,
+    as: Actor | undefined,
+    intent: DispatchResult['intent'],
+    correlationId: string | undefined,
+  ): Promise<DispatchResult> {
+    const guarded = await this.reencodeGuards(viewId, [[channel, field]]);
+    if ('gap' in guarded) return this.reject('reencode', intent, guarded.gap);
+    // 5. the encoding plane's ONE validator (src/encoding): the channel's
+    //    requirement, the built-in absence law and the def's business rules,
+    //    judged on the RESULTING bindings (so a two-column rule sees the whole
+    //    chart) and against the other views' bindings (dashboard scope). A
+    //    refusal is a gap with the sentence — the same sentence the build door
+    //    throws and the picker greys with. Under the coerce policy a named
+    //    coercer may take the binding instead; the coercion rides the result.
+    const judged = this.judgeBindings(viewId, { ...this.viewEncodings(viewId), [channel]: field }, [channel], guarded.cols);
+    if (refuses(judged)) return this.reject('reencode', intent, this.refusalGap(judged, field));
+    // 6. land ONE cause-tagged commit (commit-on-intent).
+    const record = this.landEncoding(viewId, channel, field, { [channel]: field }, cause, as, correlationId);
+    return { ok: true, verb: 'reencode', intent, commit: record, reencoded: { viewId, channel, field }, ...(judged.length > 0 ? { coerced: judged } : {}) };
+  }
+
+  /**
+   * Several channels in ONE act (encoding plane): judged as a whole — a swap
+   * never passes through an illegal middle state — and landed as ONE commit
+   * (`field` = the `*` marker, `value` = the map), which folds into one key per
+   * channel so undo restores every channel and compare sees each.
+   */
+  private async doReencodeSet(
+    viewId: string,
+    bindings: Readonly<Record<string, string>>,
+    cause: Cause,
+    as: Actor | undefined,
+    intent: DispatchResult['intent'],
+    correlationId: string | undefined,
+  ): Promise<DispatchResult> {
+    const pairs = Object.entries(bindings).map(([channel, field]) => [channel, field] as const);
+    if (pairs.some(([, field]) => typeof field !== 'string')) {
+      return this.reject('reencode', intent, this.gapLedger.file('guard-failed', 'reencode', `a binding set maps every channel to a column name`, viewId));
+    }
+    const guarded = await this.reencodeGuards(viewId, pairs);
+    if ('gap' in guarded) return this.reject('reencode', intent, guarded.gap);
+    const judged = this.judgeBindings(viewId, { ...this.viewEncodings(viewId), ...bindings }, Object.keys(bindings), guarded.cols);
+    if (refuses(judged)) return this.reject('reencode', intent, this.refusalGap(judged, viewId));
+    const record = this.landEncoding(viewId, ENCODING_SET_FIELD, { ...bindings }, bindings, cause, as, correlationId);
+    return { ok: true, verb: 'reencode', intent, commit: record, reencoded: { viewId, bindings }, ...(judged.length > 0 ? { coerced: judged } : {}) };
+  }
+
+  /** The refusal as a gap: every refusing sentence (an explainer's prose when it added one), the law first. */
+  private refusalGap(judged: readonly EncodingProblem[], target: string): GapRow {
+    const sentence = judged.filter((p) => p.severity === 'refused').map((p) => p.explained ?? p.sentence).join('; ');
+    return this.gapLedger.file('guard-failed', 'reencode', sentence, target);
+  }
+
+  /** The last verdicts per view, keyed by what they depend on — a poll between acts costs nothing. */
+  private readonly fitsMemo = new Map<string, { readonly key: string; readonly fits: Readonly<Record<string, readonly Fit[]>> }>();
+
+  /** One view's verdicts, recomputed only when its bindings, the other views' bindings, or the columns changed. */
+  private fitsOfView(viewId: string, surface: ViewEncodingDecl, facets: readonly ColumnFacet[]): Readonly<Record<string, readonly Fit[]>> {
+    const bindings = this.viewEncodings(viewId);
+    const others = this.bindingsOfOthers(viewId);
+    const key = JSON.stringify([bindings, others, facets.map((f) => [f.field, f.type, f.role, f.scale])]);
+    const hit = this.fitsMemo.get(viewId);
+    if (hit !== undefined && hit.key === key) return hit.fits;
+    const fits = fitsFor({ view: surface, bindings, facets, others, rules: this.runtime.encoding.rules, ports: this.runtime.encoding.ports });
+    this.fitsMemo.set(viewId, { key, fits });
+    return fits;
+  }
+
+  /** The other views' current bindings — what a dashboard-scoped rule reads. */
+  private bindingsOfOthers(viewId: string): Record<string, Bindings> {
+    const others: Record<string, Bindings> = {};
+    for (const [id, view] of this.runtime.views) if (id !== viewId && view.encoding !== undefined) others[id] = this.viewEncodings(id);
+    return others;
+  }
+
+  /** One view's would-be bindings judged by the plane's validator, with the default table's facets. */
+  private judgeBindings(viewId: string, bindings: Bindings, changed: readonly string[], cols: readonly ColumnInfo[]) {
+    const { rules, ports } = this.runtime.encoding;
+    return validateBindings({
+      view: this.runtime.views.get(viewId)!.encoding!,
+      bindings,
+      facets: this.runtime.encoding.facetsOf(this.defaultTable, cols),
+      others: this.bindingsOfOthers(viewId),
+      rules,
+      ports,
+      changed,
+    });
   }
 
   private doAnnotate(
@@ -1952,15 +2049,11 @@ class InteractionSessionImpl implements InteractionSession {
         columns[table] = [];
         colNamesByTable.set(table, new Set());
       } else {
-        // A declared absence column carries its vocabulary onto the facet, so
-        // an agent reading `whats_here` knows "unavailable" is a kind of
-        // silence, not a category like any other — names + words, never values.
-        const absence = this.runtime.def.data[table]?.absence;
-        columns[table] = cols.map((c) =>
-          absence !== undefined && absence.field === c.name
-            ? { field: c.name, type: c.type, absence: absence.states }
-            : { field: c.name, type: c.type },
-        );
+        // The encoding plane's facets: type + declared role/scale/label, and
+        // the absence column's vocabulary — so an agent reading `whats_here`
+        // knows "unavailable" is a kind of silence, not a category like any
+        // other. Names + words, never values.
+        columns[table] = this.runtime.encoding.facetsOf(table, cols);
         colNamesByTable.set(table, new Set(cols.map((c) => c.name)));
       }
     }
@@ -1982,8 +2075,13 @@ class InteractionSessionImpl implements InteractionSession {
         // token-lean discipline: names+types only, so a chat agent can answer
         // "what can I put on x?" from this one entry).
         columns: columns[this.defaultTable] ?? [],
+        // The encoding plane: per channel, every column judged as if bound
+        // there now, with the sentence for each refusal (the picker greys with
+        // it; the agent's whats_here projects it to the names that fit).
+        ...(view.encoding !== undefined ? { fits: this.fitsOfView(view.viewId, view.encoding, columns[this.defaultTable] ?? []) } : {}),
       };
     });
+    const encodingPolicy = { onInvalid: this.runtime.encoding.rules.onInvalid ?? 'refuse', ruleScope: this.runtime.encoding.rules.ruleScope ?? ('dashboard' as const) };
 
     const activeSelections = [...this.activeFilters.entries()].map(([viewId, clause]) =>
       clause.kind === 'cell'
@@ -2080,6 +2178,8 @@ class InteractionSessionImpl implements InteractionSession {
     return {
       defaultTable: this.defaultTable,
       links: applyLinkOverrides(this.runtime.links, this.activeLinks),
+      rules: describeRules(this.runtime.encoding.rules),
+      encodingPolicy,
       views,
       activeSelections,
       analyses,

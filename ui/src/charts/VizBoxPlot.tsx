@@ -44,7 +44,7 @@
  */
 import { useMemo } from 'react';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
-import type { ColumnView, ViewEncoding } from '../adapter/types.js';
+import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { linearScale, extent, ticks, epochOf, dayOf } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
@@ -87,6 +87,8 @@ export interface VizBoxPlotProps {
   readonly selection?: RenderSelection;
   /** Columns offered by the encoding pickers (from adapter state). */
   readonly columns?: readonly ColumnView[];
+  /** The encoding plane's verdicts per channel (`views[].fits` on the wire) — the built-in picker greys with the session's own sentences. */
+  readonly fits?: Readonly<Record<string, readonly FitView[]>>;
   /** Current channel→field map for the pickers' highlight. */
   readonly encoding?: ViewEncoding;
   readonly onEmit?: (emission: ChartEmission) => void;
@@ -194,6 +196,7 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
     countLabel = 'rows',
     selection,
     columns = [],
+    fits,
     encoding = {},
     onEmit,
     onReencode,
@@ -333,6 +336,7 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
         viewId={viewId}
         channel={pickerChannel ?? 'x'}
         columns={columns}
+        fits={fits}
         currentField={pickerChannel === 'y' ? encoding['y'] ?? yField : encoding['x'] ?? xField}
         compatible={(channel, column) => (channel === 'x' ? categoryCompat(channel, column) : defaultCompat(channel, column))}
         onReencode={(v, c, f) => onReencode?.(v, c, f)}

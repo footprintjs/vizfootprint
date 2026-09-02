@@ -422,3 +422,57 @@ describe('P0 — a beat names its parent: the `at` position rides the wire when 
     expect(cps[1]).toEqual({ label: 'old-wire', commitId: 'b0', ts: 0 });
   });
 });
+
+describe('createSessionView — reencodeSet (the encoding plane\'s binding set)', () => {
+  it('posts ONE dispatch with bindings, with the given intent word or a spelled-out one', async () => {
+    const { impl, calls } = fakeFetch();
+    const view = createSessionView(pollingSource({ fetchImpl: impl }), { refreshOnAction: false });
+    await view.refresh();
+    await view.reencodeSet('scatter', { x: 'rating', y: 'price' }, 'swap axes');
+    await view.reencodeSet('scatter', { x: 'price' });
+    const posts = calls.filter((c) => c.url === '/api/dispatch');
+    expect(posts).toHaveLength(2);
+    const bodies = posts.map((p) => p.body as { verb: string; viewId: string; bindings: Record<string, string>; intent: string });
+    expect(bodies[0]).toMatchObject({ verb: 'reencode', viewId: 'scatter', bindings: { x: 'rating', y: 'price' }, intent: 'swap axes' });
+    expect(bodies[1]!.intent).toBe('reencode scatter x → price');
+    view.dispose();
+  });
+});
+
+describe('mapPollState — the encoding plane on the wire', () => {
+  it('labels a binding-set commit, keeps well-formed fits/rules/policy, and drops anything malformed without inventing', () => {
+    const raw: RawPollState = {
+      records: [{ id: 'set', parent: null, viewId: 'encoding:scatter', kind: 'point', field: '*', value: { x: 'rating', y: 'price' }, cause: { requestedBy: 'user' } }],
+      views: [
+        {
+          viewId: 'scatter',
+          actor: 'user',
+          encodings: { x: 'rating' },
+          fits: {
+            x: [{ field: 'price', ok: true }, { field: 'category', ok: false, because: 'no' }, { field: 'bad', ok: 'yes' }, 7, { field: 'nb', ok: false, because: 3 }],
+            y: 'not a list',
+          },
+        },
+        { viewId: 'bar', actor: 'user', fits: 'nope' },
+      ] as unknown as RawPollState['views'],
+      rules: [{ id: 'r1', builtIn: true, sentence: 'one' }, { id: 'r2', sentence: 'two' }, { sentence: 'no id' }, null],
+      encodingPolicy: { onInvalid: 'refuse', ruleScope: 'view' },
+      cursor: 'set',
+      head: 'set',
+    } as unknown as RawPollState;
+    const state = mapPollState(raw);
+    expect(state.commits[0]!.label).toBe('reencode scatter (several channels)');
+    const scatter = state.views.find((v) => v.viewId === 'scatter')!;
+    expect(scatter.fits).toEqual({ x: [{ field: 'price', ok: true }, { field: 'category', ok: false, because: 'no' }, { field: 'nb', ok: false }] });
+    expect(state.views.find((v) => v.viewId === 'bar')!.fits).toEqual({});
+    expect(state.rules).toEqual([
+      { id: 'r1', builtIn: true, sentence: 'one' },
+      { id: 'r2', builtIn: false, sentence: 'two' },
+    ]);
+    expect(state.encodingPolicy).toEqual({ onInvalid: 'refuse', ruleScope: 'view' });
+    // malformed policy / absent rules → absent, never guessed
+    const bare = mapPollState({ ...raw, rules: 'x', encodingPolicy: { onInvalid: 'refuse', ruleScope: 'page' } } as unknown as RawPollState);
+    expect(bare.rules).toBeUndefined();
+    expect(bare.encodingPolicy).toBeUndefined();
+  });
+});

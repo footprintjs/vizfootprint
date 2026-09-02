@@ -43,7 +43,7 @@
  */
 import { useMemo } from 'react';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
-import type { ColumnView, ViewEncoding } from '../adapter/types.js';
+import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedInterval } from '../contract/selection.js';
 import { linearScale, epochOf, dayOf } from '../primitives/scales.js';
@@ -75,6 +75,8 @@ export interface VizHistogramProps {
   readonly selection?: RenderSelection;
   /** Columns offered by the encoding picker (from adapter state). */
   readonly columns?: readonly ColumnView[];
+  /** The encoding plane's verdicts per channel (`views[].fits` on the wire) — the built-in picker greys with the session's own sentences. */
+  readonly fits?: Readonly<Record<string, readonly FitView[]>>;
   /** Current channel→field map for the picker's highlight. */
   readonly encoding?: ViewEncoding;
   readonly onEmit?: (emission: ChartEmission) => void;
@@ -124,6 +126,7 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
     countLabel = 'rows',
     selection,
     columns = [],
+    fits,
     encoding = {},
     onEmit,
     onReencode,
@@ -288,6 +291,7 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
         viewId={viewId}
         channel={pickerChannel ?? 'x'}
         columns={columns}
+        fits={fits}
         currentField={pickerChannel ? encoding[pickerChannel] ?? field : undefined}
         onReencode={(v, c, f) => onReencode?.(v, c, f)}
         onClose={closePicker}

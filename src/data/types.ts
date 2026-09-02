@@ -47,6 +47,41 @@ export interface ColumnInfo {
   readonly type: ColumnType;
 }
 
+// ── Column facets (the encoding plane's input; see src/encoding/README.md) ──
+
+/**
+ * What a column IS to a chart, declared by the def (`DataSourceDef.columns`)
+ * or derived: the table's declared absence column is `absence`; every other
+ * role is stated, never guessed — a rule that needs a role simply does not
+ * match a column that never declared one.
+ */
+export type ColumnRole = 'identifier' | 'dimension' | 'measure' | 'absence';
+
+/** Discrete (categories, ids, states) or continuous (magnitudes, time). Derived from the type when not declared. */
+export type ColumnScale = 'discrete' | 'continuous';
+
+/**
+ * One column as the encoding plane sees it: the provider's type plus what the
+ * def declared about it. The wire shape `whats_here` serves per column.
+ */
+export interface ColumnFacet {
+  readonly field: string;
+  readonly type: ColumnType;
+  /** Present when the def declared (or derived) a role for this column. */
+  readonly role?: ColumnRole;
+  /** Present when declared, or derived from the type (number/date → continuous; string/boolean → discrete). */
+  readonly scale?: ColumnScale;
+  /**
+   * Present when the def declared this column as the table's ABSENCE column
+   * (`DataSourceDef.absence`): the vocabulary it speaks, verbatim. An agent
+   * reading `whats_here` learns that "unavailable" here is a kind of silence,
+   * not a category like any other — and never a number.
+   */
+  readonly absence?: readonly string[];
+  /** A display label, echoed verbatim (never parsed). */
+  readonly label?: string;
+}
+
 // ── The clause kinds this seam evaluates. ──────────────────────────────────
 
 /**

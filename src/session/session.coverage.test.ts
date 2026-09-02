@@ -270,14 +270,14 @@ describe('doReencode — correlationId spread + a view with no declared `initial
     if (c1.ok) expect(c1.commit!.correlationId).toBe('renc-1');
     expect(s.viewEncodings('scatter')).toEqual({ x: 'price' });
 
-    const c2 = await s.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'y', field: 'category', cause: userCause() });
+    const c2 = await s.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'y', field: 'rating', cause: userCause() });
     expect(c2.ok).toBe(true);
     const c2Id = c2.ok ? c2.commit!.id : '';
 
     // Force a FULL fold rebuild (rebuildFold's own `?? {}` seed path, not the
     // live doReencode path exercised above) by seeking to the tip.
     s.seek(c2Id);
-    expect(s.viewEncodings('scatter')).toEqual({ x: 'price', y: 'category' });
+    expect(s.viewEncodings('scatter')).toEqual({ x: 'price', y: 'rating' });
   });
 });
 

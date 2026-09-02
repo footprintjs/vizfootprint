@@ -403,7 +403,7 @@ describe('validateDashboardDef — absence (the declared silence vocabulary)', (
         withAbsence(decl, { encodings: [{ viewId: 'v', chartKind: 'point', channels: ['x', 'size'], initial: { x: 'n', size: 'state' } }] }),
       ),
     ).toContain(
-      'encodings[0].initial.size binds "state", a declared absence column, to a magnitude channel — absence is a category, never a magnitude',
+      'encodings[0].initial.size: "state" is the declared absence column — it cannot bind to the magnitude channel "size"; absence is a category, never a magnitude',
     );
     expect([...MAGNITUDE_CHANNELS].sort()).toEqual(['r', 'radius', 'size', 'theta', 'x', 'y']);
   });
@@ -415,7 +415,7 @@ describe('validateDashboardDef — absence (the declared silence vocabulary)', (
         withAbsence(decl, { encodings: [{ viewId: 'v', chartKind: 'point', channels: ['x', 'y'], initial: { x: 'state', y: 'n' } }] }),
       ),
     ).toContain(
-      'encodings[0].initial.x binds "state", a declared absence column, to a magnitude channel — absence is a category, never a magnitude',
+      'encodings[0].initial.x: "state" is the declared absence column — it cannot bind to the magnitude channel "x"; absence is a category, never a magnitude',
     );
     expect(
       validateDashboardDef(

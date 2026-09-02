@@ -196,6 +196,8 @@ export type PlanRecipe =
     }
   | { readonly apply: 'encoding'; readonly viewId: string; readonly channel: string; readonly field: string }
   | { readonly apply: 'clear-encoding'; readonly viewId: string; readonly channel: string }
+  /** Encoding plane: re-land a binding SET in one act; a null field means "the view's declared initial" for that channel. */
+  | { readonly apply: 'encoding-set'; readonly viewId: string; readonly bindings: Readonly<Record<string, string | null>> }
   | { readonly apply: 'analysis'; readonly analysisId: string }
   | { readonly apply: 'annotation'; readonly target: string; readonly note: string }
   /** A story beat re-named on the target path (`checkpoint` verb) — a position is named again, never copied. */

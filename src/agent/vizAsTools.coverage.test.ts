@@ -244,7 +244,7 @@ describe('viz.dispatch — reencode PAYLOAD_INVALID guard', () => {
   it('reencode missing field is a typed PAYLOAD_INVALID', async () => {
     const port = freshPort();
     const res = await port.call('viz.dispatch', { verb: 'reencode', viewId: 'scatter', channel: 'x' });
-    expect(res).toEqual({ ok: false, reason: 'PAYLOAD_INVALID', detail: 'reencode requires string viewId, channel, and field' });
+    expect(res).toEqual({ ok: false, reason: 'PAYLOAD_INVALID', detail: 'reencode requires string viewId, channel, and field — or bindings for several channels at once' });
   });
 });
 

@@ -19,8 +19,11 @@ import {
   BEAT_VIEW_PREFIX,
   ENCODING_VIEW_PREFIX,
   LAYOUT_VIEW_PREFIX,
+  encodingSetOf,
   foldStateAt,
+  isEncodingSet,
   keyOf,
+  keysOf,
 } from './fold.js';
 import { indexById, lcaOf } from './walk.js';
 
@@ -45,11 +48,11 @@ function missingIds(byId: ReadonlyMap<string, CommitRecord>, commitId: string, t
  */
 function conflictsFor(
   byId: ReadonlyMap<string, CommitRecord>,
-  key: string | null,
+  keys: readonly string[],
   sourceCommitId: string,
   targetTip: string | null,
 ): string[] {
-  if (key === null || targetTip === null) return [];
+  if (keys.length === 0 || targetTip === null) return [];
   const lca = lcaOf(byId, sourceCommitId, targetTip);
   const out: string[] = [];
   const seen = new Set<string>();
@@ -58,7 +61,7 @@ function conflictsFor(
     seen.add(cur);
     const rec = byId.get(cur);
     if (!rec) break;
-    if (keyOf(rec) === key) out.push(rec.id);
+    if (keysOf(rec).some((k) => keys.includes(k))) out.push(rec.id); // a binding set touches one key per channel
     cur = rec.parent;
   }
   return out.reverse();
@@ -70,6 +73,10 @@ function bringOverRecipe(rec: CommitRecord): PlanRecipe {
     // Layer 4: an edited edge re-lands as the same edit (or the same un-declare) on the target path
     const link = rec.value as LinkValue | null;
     return link === null ? { apply: 'clear-link', link: linkOfId(rec.viewId.slice(LINK_VIEW_PREFIX.length)) } : { apply: 'link', link };
+  }
+  if (isEncodingSet(rec)) {
+    // encoding plane: a binding set re-lands as the same set (one act, one commit)
+    return { apply: 'encoding-set', viewId: rec.viewId.slice(ENCODING_VIEW_PREFIX.length), bindings: encodingSetOf(rec) };
   }
   if (rec.viewId.startsWith(ENCODING_VIEW_PREFIX)) {
     return {
@@ -134,7 +141,7 @@ export function planBringOver(
   const missing = missingIds(byId, commitId, targetTip);
   if (missing.length > 0) return unknown(missing);
   const rec = byId.get(commitId) as CommitRecord; // present — validated above
-  return { ok: true, recipe: bringOverRecipe(rec), conflicts: conflictsFor(byId, keyOf(rec), commitId, targetTip) };
+  return { ok: true, recipe: bringOverRecipe(rec), conflicts: conflictsFor(byId, keysOf(rec), commitId, targetTip) };
 }
 
 /**
@@ -161,14 +168,24 @@ export function planUndo(records: readonly CommitRecord[], commitId: string, tip
     };
   }
 
-  // The key's value at the commit's PARENT, on the commit's own path.
-  const prior = foldStateAt(records, rec.parent).get(key);
+  // The state at the commit's PARENT, on the commit's own path (folded once; a set reads several keys of it).
+  const parentState = foldStateAt(records, rec.parent);
+  const prior = parentState.get(key);
   let recipe: PlanRecipe;
   if (rec.viewId.startsWith(LINK_VIEW_PREFIX)) {
     // Layer 4: restore the PRIOR edit on this path, or un-declare (the def's rule shows through)
     const priorLink = prior as Extract<FoldEntry, { kind: 'link' }> | undefined;
     const link = (rec.value as LinkValue | null) ?? linkOfId(rec.viewId.slice(LINK_VIEW_PREFIX.length));
     recipe = priorLink !== undefined ? { apply: 'link', link: priorLink.link } : { apply: 'clear-link', link };
+  } else if (isEncodingSet(rec)) {
+    // encoding plane: restore EVERY channel the set touched to its value at the parent — a prior binding, or null (= the declared initial)
+    const viewId = rec.viewId.slice(ENCODING_VIEW_PREFIX.length);
+    const bindings: Record<string, string | null> = {};
+    for (const channel of Object.keys(encodingSetOf(rec))) {
+      const priorEntry = parentState.get(`encoding:${viewId}:${channel}`) as Extract<FoldEntry, { kind: 'encoding' }> | undefined;
+      bindings[channel] = priorEntry?.field ?? null;
+    }
+    recipe = { apply: 'encoding-set', viewId, bindings };
   } else if (rec.viewId.startsWith(ENCODING_VIEW_PREFIX)) {
     const viewId = rec.viewId.slice(ENCODING_VIEW_PREFIX.length);
     const channel = rec.field;
@@ -203,7 +220,7 @@ export function planUndo(records: readonly CommitRecord[], commitId: string, tip
             ...(rec.fields !== undefined ? { fields: rec.fields } : {}),
           }; // absent at parent → clear
   }
-  return { ok: true, recipe, conflicts: conflictsFor(byId, key, commitId, tip) };
+  return { ok: true, recipe, conflicts: conflictsFor(byId, keysOf(rec), commitId, tip) };
 }
 
 /**

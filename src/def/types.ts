@@ -25,6 +25,7 @@
 
 import type { Actor, Cause } from '../cause/index.js';
 import type { LinkDecl, LinkDefault, LinkGraph } from '../links/types.js';
+import type { ColumnDecl, EncodingPorts, EncodingRules } from '../encoding/types.js';
 import type { ActorMeta } from '../mosaic/index.js';
 import type {
   AnalysisDef,
@@ -35,7 +36,7 @@ import type {
   RunAnalysisOptions,
 } from '../analysis/index.js';
 import type { FdrStep, GammaSequence, HypothesisRecord } from '../fdr/index.js';
-import type { ColumnInfo, DataProvider, Engine, Row } from '../data/index.js';
+import type { ColumnFacet, ColumnInfo, DataProvider, Engine, Row } from '../data/index.js';
 
 // ── The dispatch verb vocabulary (SPEC §9; Q6 — the 7-verb set was INCOMPLETE:
 // changing a view's visual encoding is a state-changing transition too, not an
@@ -148,6 +149,13 @@ export interface DataSourceDef {
    * number.
    */
   readonly absence?: AbsenceDecl;
+  /**
+   * What the caller STATES about its columns for the encoding plane — a role
+   * (`identifier | dimension | measure`), a scale, a label. The absence
+   * column's role is derived from `absence`; everything else is declared or
+   * absent, never guessed (see src/encoding/README.md).
+   */
+  readonly columns?: Readonly<Record<string, ColumnDecl>>;
 }
 
 /**
@@ -181,14 +189,10 @@ export const ABSENCE_STATES: readonly string[] = Object.freeze(['present', 'not-
 export const ABSENCE_UNKNOWN = 'unknown';
 
 /**
- * The visual channels that carry a MAGNITUDE — position along an axis, size,
- * radius, angle. A declared absence column may never bind to one of these:
- * "unavailable" on an axis renders as a low number and tells the reader the
- * wrong thing with a straight face. One list, read by the def validator
- * (`initial` bindings), the `reencode` verb (runtime rebinds), and the ui's
- * compatibility check — so the rule cannot drift between the three doors.
+ * The magnitude channels — owned by the encoding plane (src/encoding), re-exported
+ * here because the def is where the absence law is first felt.
  */
-export const MAGNITUDE_CHANNELS: ReadonlySet<string> = new Set(['x', 'y', 'size', 'r', 'radius', 'theta']);
+export { MAGNITUDE_CHANNELS } from '../encoding/types.js';
 
 /**
  * One view's declared VISUAL-ENCODING surface (the `reencode` verb's
@@ -285,6 +289,8 @@ export interface DashboardDef {
   readonly links?: readonly LinkDecl[];
   /** The rule the link graph starts from: `crossfilter` (every view filters every other, self excluded — the default) or `none`. */
   readonly linkDefault?: LinkDefault;
+  /** The encoding plane's rule set as data: channel requirements per chart kind, business rules, and the policy (see src/encoding/README.md). */
+  readonly encodingRules?: EncodingRules;
 }
 
 // ── The resolved runtime bundle `buildDashboard` produces for a session. ───────
@@ -327,10 +333,20 @@ export interface DashboardRuntime {
   readonly views: ReadonlyMap<string, ViewDecl>;
   /** Layer 4: the MATERIALIZED link graph — the default rule written out as edges, declared edges overriding in place. */
   readonly links: LinkGraph;
+  /** The encoding plane: the def's rule set, the ports passed at build, and column → facet resolution per table. */
+  readonly encoding: EncodingRuntime;
   makeFdrStepper(): FdrStepper;
   readonly fdrProcedure: 'LORD++' | 'alpha-investing';
   readonly fdrAlpha: number;
   intentOf(verb: DispatchVerb): IntentClass;
+}
+
+/** The encoding plane as a session reads it (see src/encoding/README.md). */
+export interface EncodingRuntime {
+  readonly rules: EncodingRules;
+  readonly ports: EncodingPorts;
+  /** The provider's columns of `table` as facets: type + declared role/scale/label + the absence vocabulary. */
+  facetsOf(table: string, cols: readonly ColumnInfo[]): ColumnFacet[];
 }
 
 // Re-exports the def layer commonly hands onward.

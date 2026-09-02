@@ -25,6 +25,7 @@
 
 import type { Actor, Cause } from '../cause/index.js';
 import { DISPATCH_VERBS } from '../def/index.js';
+import { acceptsOf } from '../encoding/index.js';
 import type { InteractionSession } from '../session/index.js';
 import type { CellValues, DispatchAction, DispatchResult, AnalysisCommit, FilterRange, ProposeChartResult, WhyTarget } from '../session/index.js';
 
@@ -58,7 +59,9 @@ const WHATS_HERE_DESCRIPTION =
   'Describe the current analytical position: the declared views, their current channel->field visual ' +
   'encodings and the columns available to put on them, the active selections in DATA space, the ' +
   'declared analyses with their readiness, the online-FDR ledger, the count of unmet requests ' +
-  '(gaps), and the NAMED PATHS of the history (which path you are on, every path with its tip, and ' +
+  '(gaps), the encoding plane (per view, `accepts`: the column names that FIT each channel right now; ' +
+  '`rules`: the house laws as sentences; `encodingPolicy`: whether a misfit is refused or coerced), ' +
+  'and the NAMED PATHS of the history (which path you are on, every path with its tip, and ' +
   'how many paths are ARCHIVED — hidden from the list but never erased; the paths tool lists them). ' +
   'Call this first, then act with dispatch.';
 
@@ -77,7 +80,9 @@ const DISPATCH_DESCRIPTION =
   'analyze (run a declared analysis over the current selection), fork (travel the cursor back to a ' +
   'prior commit so your NEXT act branches off it — a sibling, no history rewritten), checkpoint (name ' +
   'the current position to return to), reencode (rebind a view\'s visual channel, e.g. x, to a ' +
-  'different data field — must be a channel valid for that view and a column that exists). This is ' +
+  'different data field — must be a channel valid for that view and a column that FITS it: read ' +
+  'whats_here.views[].accepts first; a misfit is refused with the sentence that says why; pass ' +
+  '`bindings` to rebind several channels in ONE act — a swap of the axes is one commit, never two). This is ' +
   'link (layer 4: edit ONE edge of the link graph — what target does with source\'s kind emission: response ' +
   'filter | highlight | navigate | mirror | none, or null to fall back to the def\'s rule; read the graph in ' +
   'whats_here.links first). This is the ONLY way to change state — there is no raw-event path.';
@@ -199,6 +204,11 @@ const DISPATCH_SCHEMA = {
     fromCommitId: { type: 'string', description: 'The commit id to branch off (fork).' },
     label: { type: 'string', description: 'A checkpoint label (checkpoint).' },
     channel: { type: 'string', description: 'The visual channel to rebind, e.g. "x" | "y" | "color" (reencode) — must be valid for the view.' },
+    bindings: {
+      type: 'object',
+      additionalProperties: { type: 'string' },
+      description: 'reencode only: several channels in ONE act, channel -> column name (a swap is {x: <the field now on y>, y: <the field now on x>}). Judged as a whole, landed as one commit. Use instead of channel+field.',
+    },
     fields: {
       type: 'array',
       description:
@@ -500,11 +510,20 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
       case 'checkpoint':
         if (typeof args['label'] !== 'string') return { error: 'checkpoint requires a string label' };
         return { verb: 'checkpoint', label: args['label'], cause };
-      case 'reencode':
-        if (typeof args['viewId'] !== 'string' || typeof args['channel'] !== 'string' || typeof args['field'] !== 'string') {
-          return { error: 'reencode requires string viewId, channel, and field' };
+      case 'reencode': {
+        if (typeof args['viewId'] !== 'string') return { error: 'reencode requires a string viewId' };
+        const set = args['bindings'];
+        if (set !== undefined) {
+          if (typeof set !== 'object' || set === null || Array.isArray(set) || Object.values(set).some((f) => typeof f !== 'string')) {
+            return { error: 'reencode bindings must be an object mapping channel -> column name' };
+          }
+          return { verb: 'reencode', viewId: args['viewId'], bindings: set as Record<string, string>, cause };
+        }
+        if (typeof args['channel'] !== 'string' || typeof args['field'] !== 'string') {
+          return { error: 'reencode requires string viewId, channel, and field — or bindings for several channels at once' };
         }
         return { verb: 'reencode', viewId: args['viewId'], channel: args['channel'], field: args['field'], cause };
+      }
       case 'link': {
         const { source, kind, target, response, mapping } = args;
         if (typeof source !== 'string' || typeof target !== 'string' || !['point', 'interval', 'cell', 'match'].includes(kind as string)) {
@@ -688,8 +707,13 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     async call(name: string, rawArgs?: unknown): Promise<VizToolResult> {
       const args = (rawArgs ?? {}) as Record<string, unknown>;
       switch (name) {
-        case NAMES.whatsHere:
-          return { ok: true, ...(await session.overview()) };
+        case NAMES.whatsHere: {
+          // Token-lean projection of the encoding plane: the NAMES that fit each
+          // channel (`accepts`) instead of every column's verdict — a refusal's
+          // sentence arrives with the refusal, when the agent asks.
+          const o = await session.overview();
+          return { ok: true, ...o, views: o.views.map(({ fits, ...view }) => (fits === undefined ? view : { ...view, accepts: acceptsOf(fits) })) };
+        }
         case NAMES.dispatch:
           return callDispatch(args);
         case NAMES.declare: {

@@ -10,7 +10,7 @@
  * built-in {@link EncodingPicker} for the categorical channel.
  */
 import type { ChartEmission } from '../../../src/mosaic/index.js';
-import type { ColumnView, ViewEncoding } from '../adapter/types.js';
+import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { useRef } from 'react';
 import { TICK_ANGLE, VALUE_CHAR_PX, fitTick, fitsBand } from './tickFit.js';
@@ -43,6 +43,8 @@ export interface VizBarProps {
   /** The clause-addressable crossfilter selection (RP-1) — feeds the `selected` derivation. */
   readonly selection?: RenderSelection;
   readonly columns?: readonly ColumnView[];
+  /** The encoding plane's verdicts per channel (`views[].fits` on the wire) — the built-in picker greys with the session's own sentences. */
+  readonly fits?: Readonly<Record<string, readonly FitView[]>>;
   readonly encoding?: ViewEncoding;
   readonly onEmit?: (emission: ChartEmission) => void;
   readonly onReencode?: (viewId: string, channel: string, field: string) => void;
@@ -71,6 +73,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
     colorOf,
     selection,
     columns = [],
+    fits,
     encoding = {},
     onEmit,
     onReencode,
@@ -216,6 +219,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
         viewId={viewId}
         channel={pickerChannel ?? 'category'}
         columns={columns}
+        fits={fits}
         currentField={pickerChannel ? encoding[pickerChannel] ?? field : undefined}
         onReencode={(v, c, f) => onReencode?.(v, c, f)}
         onClose={closePicker}

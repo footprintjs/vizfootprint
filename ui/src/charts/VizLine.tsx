@@ -30,7 +30,7 @@
  */
 import { useMemo } from 'react';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
-import type { ColumnView, ViewEncoding } from '../adapter/types.js';
+import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import { linearScale, extent, ticks, epochOf, dayOf } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
@@ -59,6 +59,8 @@ export interface VizLineProps {
   readonly colorOf?: (series: string | undefined) => string;
   /** Columns offered by the encoding picker (from adapter state). */
   readonly columns?: readonly ColumnView[];
+  /** The encoding plane's verdicts per channel (`views[].fits` on the wire) — the built-in picker greys with the session's own sentences. */
+  readonly fits?: Readonly<Record<string, readonly FitView[]>>;
   /** Current channel→field map for the picker's highlight. */
   readonly encoding?: ViewEncoding;
   /**
@@ -156,6 +158,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
     yLabel = valueField,
     colorOf,
     columns = [],
+    fits,
     encoding = {},
     dateFields,
     onEmit,
@@ -318,6 +321,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
         viewId={viewId}
         channel={pickerChannel ?? 'x'}
         columns={columns}
+        fits={fits}
         compatible={compat}
         currentField={pickerChannel ? encoding[pickerChannel] ?? (pickerChannel === 'x' ? dateField : valueField) : undefined}
         onReencode={(v, c, f) => onReencode?.(v, c, f)}

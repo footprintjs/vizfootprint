@@ -11,7 +11,7 @@
  * value (column name/type) is a React text node (textContent) — never innerHTML.
  */
 import { useMemo } from 'react';
-import type { ColumnView } from '../adapter/types.js';
+import type { ColumnView, FitView } from '../adapter/types.js';
 import { VizModal } from '../layout/VizModal.js';
 import { defaultCompat, type Compatibility } from '../primitives/compat.js';
 
@@ -25,6 +25,15 @@ export interface EncodingPickerProps {
   readonly currentField?: string;
   /** Override the built-in channel/column compatibility rule. */
   readonly compatible?: (channel: string, column: ColumnView) => Compatibility;
+  /**
+   * The encoding plane's verdicts for this view (`views[].fits` on the wire),
+   * channel → every column judged. When present they DECIDE, with the
+   * session's own sentence as the reason: a channel the verdicts do not
+   * cover, or a column they do not name, is disabled with a reason rather
+   * than guessed at — the session would refuse it anyway. `compatible` only
+   * runs when no verdicts arrived at all (an older server).
+   */
+  readonly fits?: Readonly<Record<string, readonly FitView[]>>;
   readonly onReencode: (viewId: string, channel: string, field: string) => void;
   readonly onClose: () => void;
   readonly title?: string;
@@ -32,7 +41,15 @@ export interface EncodingPickerProps {
 
 export function EncodingPicker(props: EncodingPickerProps): JSX.Element | null {
   const { open, viewId, channel, columns, currentField, onReencode, onClose } = props;
-  const compat = props.compatible ?? defaultCompat;
+  const fallback = props.compatible ?? defaultCompat;
+  const verdicts = useMemo(() => (props.fits?.[channel] !== undefined ? new Map(props.fits[channel]!.map((f) => [f.field, f] as const)) : undefined), [props.fits, channel]);
+  const compat = (ch: string, col: ColumnView): Compatibility => {
+    if (props.fits === undefined) return fallback(ch, col); // no verdicts at all: the chart's own rule
+    if (verdicts === undefined) return { ok: false, reason: `the session did not judge a "${ch}" channel for this view` };
+    const v = verdicts.get(col.field);
+    if (v === undefined) return { ok: false, reason: `the session does not know a column "${col.field}"` };
+    return v.ok ? { ok: true } : { ok: false, reason: v.because ?? 'does not fit' };
+  };
   const titleId = useMemo(() => `vzf-enc-${viewId}-${channel}`, [viewId, channel]);
 
   return (

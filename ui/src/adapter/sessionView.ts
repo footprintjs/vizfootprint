@@ -59,8 +59,7 @@ import { LinkGraphView,
   type ChartCellView,
   type LayoutChange,
   type LayoutView,
-  parseLayout,
-} from './types.js';
+  parseLayout, type FitView, type RuleLineView } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
 import type { NavigateViewState } from '../contract/types.js';
@@ -156,6 +155,9 @@ export interface RawPollState {
   /** LY-1: the layout fold (`overview().layouts` serialized) — scope → prop → value. */
   readonly layouts?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /** Layer 4: the link graph (`overview().links` serialized) — absent on a server that predates links. */
+  /** The encoding plane (`overview().rules` / `encodingPolicy` serialized). */
+  readonly rules?: unknown;
+  readonly encodingPolicy?: unknown;
   readonly links?: unknown;
 }
 /** The `paths` slice of `/api/state` — `PathsState` from `src/session`, verbatim JSON. */
@@ -277,6 +279,8 @@ interface RawCommit {
 
 /** A short, safe label for a chip/dot — never a raw value dump. */
 function commitLabel(field: string, viewId: string): string {
+  // encoding plane: a binding SET (a swap) lands as one commit whose field is the `*` marker
+  if (viewId.startsWith('encoding:') && field === '*') return `reencode ${viewId.slice('encoding:'.length)} (several channels)`;
   if (viewId.startsWith('layout:')) return 'layout'; // LY-1: an arrangement note ('preset'/'order'/'focus' rides field)
   if (viewId.startsWith('link:')) return 'link'; // layer 4: an edited edge (the LinkDecl rides value)
   if (field === '__analysis__') return 'analysis';
@@ -308,6 +312,9 @@ interface StatePieces {
   layout: LayoutView;
   mode?: string;
   readonly links?: LinkGraphView;
+  /** The encoding plane's rules as sentences + policy, when the wire carries them. */
+  rules?: readonly RuleLineView[];
+  encodingPolicy?: SessionViewState['encodingPolicy'];
 }
 
 /** Turn extracted pieces into the finalized, derivation-stamped state. */
@@ -337,6 +344,8 @@ function finalize(p: StatePieces): SessionViewState {
   return {
     defaultTable: p.defaultTable,
     ...(p.links !== undefined ? { links: p.links } : {}),
+    ...(p.rules !== undefined ? { rules: p.rules } : {}),
+    ...(p.encodingPolicy !== undefined ? { encodingPolicy: p.encodingPolicy } : {}),
     views: p.views,
     encodings: p.encodings,
     columns: p.columns,
@@ -372,6 +381,8 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       encodings?: Readonly<Record<string, string>>;
       /** UI-0: branch-scoped columns available to encode onto. */
       columns?: readonly { field: string; type: string }[];
+      /** The encoding plane's verdicts per channel (`views[].fits` serialized). */
+      fits?: unknown;
       canProbe?: boolean;
       mounted?: boolean;
     };
@@ -384,8 +395,37 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       mounted: o.mounted ?? true,
       encoding: o.encodings ?? {},
       columns: (o.columns ?? []).map((c) => ({ field: c.field, type: String(c.type) })),
+      ...(o.fits !== undefined ? { fits: mapFits(o.fits) } : {}),
     };
   });
+}
+/** Per channel, the column verdicts src/encoding serves — anything malformed is dropped, never invented. */
+function mapFits(raw: unknown): Readonly<Record<string, readonly FitView[]>> {
+  const out: Record<string, readonly FitView[]> = {};
+  if (typeof raw !== 'object' || raw === null) return out;
+  for (const [channel, list] of Object.entries(raw as Record<string, unknown>)) {
+    if (!Array.isArray(list)) continue;
+    out[channel] = list.flatMap((f) => {
+      if (typeof f !== 'object' || f === null) return [];
+      const x = f as { field?: unknown; ok?: unknown; because?: unknown };
+      if (typeof x.field !== 'string' || typeof x.ok !== 'boolean') return [];
+      return [{ field: x.field, ok: x.ok, ...(typeof x.because === 'string' ? { because: x.because } : {}) }];
+    });
+  }
+  return out;
+}
+/** The rules as sentences, when the wire carries them. */
+function mapRules(raw: unknown): readonly RuleLineView[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw.flatMap((r) => {
+    const x = r as { id?: unknown; builtIn?: unknown; sentence?: unknown } | null;
+    return typeof x?.id === 'string' && typeof x.sentence === 'string' ? [{ id: x.id, builtIn: x.builtIn === true, sentence: x.sentence }] : [];
+  });
+}
+function mapPolicy(raw: unknown): SessionViewState['encodingPolicy'] {
+  const x = raw as { onInvalid?: unknown; ruleScope?: unknown } | null;
+  if (typeof x?.onInvalid !== 'string' || (x.ruleScope !== 'view' && x.ruleScope !== 'dashboard')) return undefined;
+  return { onInvalid: x.onInvalid, ruleScope: x.ruleScope };
 }
 /** The link graph, when the wire carries one with the shape src/links serves; anything else = absent (the old rule). */
 function mapLinks(raw: unknown): LinkGraphView | undefined {
@@ -570,6 +610,8 @@ async function mapSession(session: SessionLike): Promise<SessionViewState> {
     columns: mapColumns(overview.columns),
     selections: mapSelections(overview.activeSelections),
     links: mapLinks((overview as { links?: unknown }).links),
+    rules: mapRules((overview as { rules?: unknown }).rules),
+    encodingPolicy: mapPolicy((overview as { encodingPolicy?: unknown }).encodingPolicy),
     branches: session.branches().map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
     // TL-1: the overview's `paths` carries the VISIBLE rows; the archived ones
     // come from the session's own full listing (whats_here only reports their
@@ -616,6 +658,8 @@ export function mapPollState(raw: RawPollState): SessionViewState {
     columns: mapColumns(raw.columns),
     selections: mapSelections(raw.activeSelections),
     links: mapLinks(raw.links),
+    rules: mapRules(raw.rules),
+    encodingPolicy: mapPolicy(raw.encodingPolicy),
     branches: (raw.branches ?? []).map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
     paths: mapPaths(raw.paths),
     checkpoints: (raw.checkpoints ?? []).map((c) => ({ label: c.label, commitId: c.commitId, ...(c.at !== undefined ? { at: c.at } : {}), ts: c.ts })),
@@ -677,6 +721,8 @@ export interface SessionView {
   setPolarity(viewId: string, exclude: boolean, intent?: string): Promise<void>;
   /** UI-0: rebind a view's visual channel to a field. */
   reencode(viewId: string, channel: string, field: string): Promise<void>;
+  /** Encoding plane: rebind SEVERAL channels in one act — a swap is `{ x: <the y field>, y: <the x field> }` and lands as ONE commit. */
+  reencodeSet(viewId: string, bindings: Readonly<Record<string, string>>, intent?: string): Promise<void>;
   /**
    * RP-1: record a pan/zoom view state through the `navigate` dispatch verb.
    * Deliberately NON-filtering — a viewport is not a data claim; the view
@@ -912,6 +958,15 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       await dispatch(
         { verb: 'reencode', viewId, channel, field, cause: cause(intent) },
         { verb: 'reencode', viewId, channel, field, intent },
+      );
+    },
+
+    async reencodeSet(viewId, bindings, intentWord) {
+      // encoding plane: several channels in ONE act — judged as a whole, one commit (a swap never lands twice)
+      const intent = intentWord ?? `reencode ${viewId} ${Object.entries(bindings).map(([c, f]) => `${c} → ${f}`).join(', ')}`;
+      await dispatch(
+        { verb: 'reencode', viewId, bindings, cause: cause(intent) },
+        { verb: 'reencode', viewId, bindings, intent },
       );
     },
 

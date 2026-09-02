@@ -12,7 +12,7 @@
 
 import { validateAnalysisDef } from '../analysis/index.js';
 import { validateLinks, voiceOf, type EmissionKind } from '../links/index.js';
-import {
+import { ENCODING_SET_FIELD,
   ANALYSIS_VIEW_PREFIX,
   ANNOTATION_VIEW_PREFIX,
   CHART_VIEW_PREFIX,
@@ -20,7 +20,10 @@ import {
   LAYOUT_VIEW_PREFIX,
   BEAT_VIEW_PREFIX,
 } from '../branches/index.js';
-import { ABSENCE_UNKNOWN, DISPATCH_VERBS, MAGNITUDE_CHANNELS, type DispatchVerb } from './types.js';
+import { ABSENCE_UNKNOWN, DISPATCH_VERBS, type DispatchVerb } from './types.js';
+import { lintEncodings, resolveFacets, validateColumnDecls, validateEncodingRulesShape } from '../encoding/index.js';
+import type { EncodingRules, EncodingSurface, FacetSource } from '../encoding/index.js';
+import type { ColumnInfo } from '../data/index.js';
 
 /** Thrown when a def is structurally malformed. Carries every problem at once. */
 export class DashboardDefError extends Error {
@@ -49,6 +52,7 @@ const DEF_KEYS = new Set([
   'defaultTable',
   'links',
   'linkDefault',
+  'encodingRules',
 ]);
 
 /** The exhaustive set of keys a `SeriesGrain` may carry (R12: stated facts only, nothing executable). */
@@ -85,6 +89,45 @@ const RESERVED_VIEW_PREFIXES = [
 function reservedPrefix(viewId: string): string | undefined {
   return RESERVED_VIEW_PREFIXES.find((prefix) => viewId.startsWith(prefix));
 }
+/** The absence field a well-formed `absence` names, for the column-declaration check; undefined when malformed (already refused). */
+function absenceFieldOf(src: Record<string, unknown>): string | undefined {
+  const a = src.absence;
+  return isObject(a) && typeof a.field === 'string' ? a.field : undefined;
+}
+
+/** The `{ columns, absence }` a facet resolver may read — only the well-formed parts (a malformed part is already a problem). */
+function facetSourceOf(src: Record<string, unknown> | undefined): FacetSource {
+  if (src === undefined) return {};
+  const a = src.absence;
+  const absence = isObject(a) && typeof a.field === 'string' && Array.isArray(a.states) && a.states.every((x) => typeof x === 'string') ? { field: a.field, states: a.states as string[] } : undefined;
+  const columns = isObject(src.columns) && Object.values(src.columns).every(isObject) ? (src.columns as FacetSource['columns']) : undefined;
+  return { ...(absence !== undefined ? { absence } : {}), ...(columns !== undefined ? { columns } : {}) };
+}
+
+/** The columns the def alone knows about — declared ones, the absence column, and every initially bound field — all of type `unknown` (types are the provider's). */
+function defColumns(src: Record<string, unknown> | undefined, surfaces: readonly { surface: EncodingSurface }[]): ColumnInfo[] {
+  const names = new Set<string>();
+  const source = facetSourceOf(src);
+  for (const name of Object.keys(source.columns ?? {})) names.add(name);
+  if (source.absence !== undefined) names.add(source.absence.field);
+  for (const { surface } of surfaces) for (const field of Object.values(surface.initial ?? {})) names.add(field);
+  return [...names].map((name) => ({ name, type: 'unknown' }));
+}
+
+/** The encoding entries that passed the structural checks above, with their index in `def.encodings` (a malformed entry is already a problem and is not judged). */
+function wellFormedSurfaces(raw: readonly unknown[]): { readonly surface: EncodingSurface; readonly index: number }[] {
+  const out: { surface: EncodingSurface; index: number }[] = [];
+  raw.forEach((enc, index) => {
+    if (!isObject(enc)) return;
+    if (typeof enc.viewId !== 'string' || enc.viewId.length === 0 || typeof enc.chartKind !== 'string') return;
+    if (!Array.isArray(enc.channels) || !enc.channels.every((c) => typeof c === 'string' && c.length > 0)) return;
+    if (enc.initial !== undefined && (!isObject(enc.initial) || Object.values(enc.initial).some((v) => typeof v !== 'string'))) return;
+    const surface: EncodingSurface = { viewId: enc.viewId, chartKind: enc.chartKind, channels: enc.channels as string[], ...(enc.initial !== undefined ? { initial: enc.initial as Record<string, string> } : {}) };
+    out.push({ surface, index });
+  });
+  return out;
+}
+
 const INTENT_CLASSES = new Set(['mandatory-analytical', 'optional-interaction']);
 const VERBS = new Set<string>(DISPATCH_VERBS);
 
@@ -213,6 +256,7 @@ export function validateDashboardDef(def: unknown): string[] {
       }
       if (src.grain !== undefined) validateGrain(src.grain, `data["${table}"].grain`, problems);
       if (src.absence !== undefined) validateAbsence(src.absence, `data["${table}"].absence`, problems, absenceFields);
+      if (src.columns !== undefined) validateColumnDecls(src.columns, `data["${table}"].columns`, problems, absenceFieldOf(src));
     }
   }
 
@@ -310,24 +354,36 @@ export function validateDashboardDef(def: unknown): string[] {
           enc.channels.some((c) => typeof c !== 'string' || c.length === 0)
         ) {
           problems.push(`encodings[${i}].channels must be a non-empty array of non-empty strings`);
+        } else if (enc.channels.includes(ENCODING_SET_FIELD)) {
+          // the marker a binding-set commit carries in `field` — a real channel may never wear it
+          problems.push(`encodings[${i}].channels may not name "${ENCODING_SET_FIELD}" — it is reserved for a binding set`);
         }
-        if (enc.initial !== undefined) {
-          if (!isObject(enc.initial) || Object.values(enc.initial).some((v) => typeof v !== 'string')) {
-            problems.push(`encodings[${i}].initial, if present, must be an object mapping channel -> field (strings)`);
-          } else {
-            // An absence state is a KIND of silence, never a magnitude: "unavailable"
-            // on a numeric axis would render as a low number and tell the reader
-            // the wrong thing with a straight face.
-            for (const [channel, field] of Object.entries(enc.initial)) {
-              if (MAGNITUDE_CHANNELS.has(channel) && absenceFields.has(field as string)) {
-                problems.push(
-                  `encodings[${i}].initial.${channel} binds "${String(field)}", a declared absence column, to a magnitude channel — absence is a category, never a magnitude`,
-                );
-              }
-            }
-          }
+        if (enc.initial !== undefined && (!isObject(enc.initial) || Object.values(enc.initial).some((v) => typeof v !== 'string'))) {
+          problems.push(`encodings[${i}].initial, if present, must be an object mapping channel -> field (strings)`);
         }
       });
+    }
+  }
+
+  // ── encodingRules (optional): the encoding plane's rule set — shape here, meaning just below ──
+  const ruleShapeProblems: string[] = [];
+  if (def.encodingRules !== undefined) validateEncodingRulesShape(def.encodingRules, 'encodingRules', ruleShapeProblems);
+  problems.push(...ruleShapeProblems);
+
+  // ── the BUILD door: every declared initial binding judged by the one
+  //    validator (src/encoding), with what the def alone can prove — declared
+  //    roles and scales, the absence column, the business rules. Column TYPES
+  //    are the provider's: `dashboard.lint()` judges them with the data, and
+  //    the dispatch door judges every act. Ports are not here, so an initial
+  //    binding that would need a coercer is refused: a def never STARTS coerced.
+  if (ruleShapeProblems.length === 0 && Array.isArray(def.encodings) && isObject(def.data)) {
+    const table = typeof def.defaultTable === 'string' ? def.defaultTable : Object.keys(def.data)[0];
+    const src = table !== undefined && isObject(def.data[table]) ? (def.data[table] as Record<string, unknown>) : undefined;
+    const surfaces = wellFormedSurfaces(def.encodings);
+    const facets = resolveFacets(defColumns(src, surfaces), facetSourceOf(src));
+    const indexOf = new Map(surfaces.map((s) => [s.surface.viewId, s.index] as const));
+    for (const p of lintEncodings({ views: surfaces.map((s) => s.surface), facets, ...(def.encodingRules !== undefined ? { rules: def.encodingRules as EncodingRules } : {}) })) {
+      problems.push(`encodings[${indexOf.get(p.viewId)}].initial.${p.channel}: ${p.sentence}`);
     }
   }
 

@@ -41,6 +41,7 @@ export type {
   AnalysisSlot,
   DispatchVerb,
   DashboardRuntime,
+  EncodingRuntime,
   RegisteredAnalysis,
   ViewDecl,
   FdrStepper,
@@ -50,3 +51,50 @@ export type {
 export { EMISSION_KINDS, LINK_RESPONSES, LINK_ON_CLEAR, LINK_DEFAULTS, edgeId, impliedKinds, voiceOf, materializeLinks, edgesInto, edgesFrom, validateLinks, linksToMermaid } from '../links/index.js';
 export type { EmissionKind, LinkResponse, LinkOnClear, LinkDefault, FieldMapping, LinkDecl, LinkEdge, LinkView, LinkGraph } from '../links/index.js';
 
+
+// The encoding plane (owned by src/encoding; re-exported here beside the def that declares its rule set).
+export {
+  CATEGORY_CHANNELS,
+  CHANNEL_CLASSES,
+  RULE_KINDS,
+  RULE_SCOPES,
+  COLUMN_ROLES,
+  COLUMN_SCALES,
+  DEFAULT_CHANNEL_REQUIREMENTS,
+  CHART_REQUIREMENTS,
+  requirementFor,
+  SENTENCES,
+  resolveFacets,
+  BUILTIN_RULES,
+  validateBindings,
+  refuses,
+  fitsFor,
+  acceptsOf,
+  lintEncodings,
+  formatProblem,
+  describeRules,
+  discreteCoercer,
+  BUILTIN_COERCERS,
+} from '../encoding/index.js';
+export type {
+  ChannelClass,
+  ChannelRequirement,
+  ChannelRequirements,
+  RuleScope,
+  NeverOnRule,
+  NeverTogetherRule,
+  OnlyWithRule,
+  BusinessRule,
+  EncodingPolicy,
+  EncodingRules,
+  EncodingProblem,
+  Coercer,
+  Explainer,
+  Fit,
+  Recommender,
+  EncodingPorts,
+  EncodingSurface,
+  Bindings,
+  ColumnDecl,
+  RuleLine,
+} from '../encoding/index.js';

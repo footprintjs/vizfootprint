@@ -1,7 +1,10 @@
 export type {
   CellClause,
   CellSide,
+  ColumnFacet,
   ColumnInfo,
+  ColumnRole,
+  ColumnScale,
   ColumnType,
   DataProvider,
   DataProviderCapabilities,

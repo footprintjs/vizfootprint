@@ -365,9 +365,11 @@ describe('absence — a declared silence vocabulary rides the column facet', () 
     expect(facets.find((c) => c.field === 'state')).toEqual({
       field: 'state',
       type: 'string',
+      role: 'absence',
+      scale: 'discrete',
       absence: ['present', 'not-configured', 'unavailable', 'unknown'],
     });
-    expect(facets.find((c) => c.field === 'category')).toEqual({ field: 'category', type: 'string' });
+    expect(facets.find((c) => c.field === 'category')).toEqual({ field: 'category', type: 'string', scale: 'discrete' });
   });
 
   it('reencode refuses to put the absence column on a magnitude channel, and allows it on color', async () => {

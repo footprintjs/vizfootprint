@@ -37,7 +37,7 @@ export {
   ANNOTATION_VIEW_PREFIX,
   CHART_VIEW_PREFIX,
   LAYOUT_VIEW_PREFIX,
-  LINK_VIEW_PREFIX,
+  LINK_VIEW_PREFIX, ENCODING_SET_FIELD, isEncodingSet, encodingSetOf, keysOf,
   BEAT_VIEW_PREFIX,
 } from './fold.js';
 export { planBringOver, planUndo } from './plans.js';

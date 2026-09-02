@@ -71,6 +71,22 @@ export interface ViewView {
   readonly encoding: Readonly<Record<string, string>>;
   /** Columns available to encode onto, branch-scoped at the cursor (names+types only). */
   readonly columns: readonly ColumnView[];
+  /** The encoding plane: per channel, every column judged as if bound there now — the picker greys with `because`. Absent when the wire predates the plane or the view has no encoding surface. */
+  readonly fits?: Readonly<Record<string, readonly FitView[]>>;
+}
+
+/** One column's fitness for one channel (src/encoding `Fit`). */
+export interface FitView {
+  readonly field: string;
+  readonly ok: boolean;
+  readonly because?: string;
+}
+
+/** One encoding rule as a sentence (src/encoding `RuleLine`). */
+export interface RuleLineView {
+  readonly id: string;
+  readonly builtIn: boolean;
+  readonly sentence: string;
 }
 
 /** A live DATA-space selection (never pixels). */
@@ -378,6 +394,10 @@ export interface SessionViewState {
    * links — then the old rule holds (every clause filters every other view).
    */
   readonly links?: LinkGraphView;
+  /** The encoding plane's rules as sentences (built-in first); absent when the wire predates the plane. */
+  readonly rules?: readonly RuleLineView[];
+  /** What happens to a misfit (refuse, or a coercer's name) and how far a two-column rule reaches. */
+  readonly encodingPolicy?: { readonly onInvalid: string; readonly ruleScope: 'view' | 'dashboard' };
 }
 
 /** The verbatim honesty line (single-sourced here). */

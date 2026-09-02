@@ -42,6 +42,10 @@ import {
 import { createInteractionSession, type InteractionSession } from '../session/session.js';
 import type { SessionOptions } from '../session/types.js';
 import { materializeLinks, voiceOf } from '../links/index.js';
+import { lintEncodings, resolveFacet, resolveFacets } from '../encoding/index.js';
+import type { EncodingPorts, EncodingProblem } from '../encoding/index.js';
+import { isRejection } from '../data/index.js';
+import type { ColumnFacet } from '../data/index.js';
 
 /** The offline dashboard handle. `createSession()` opens one live, stateful session. */
 export interface Dashboard {
@@ -51,6 +55,13 @@ export interface Dashboard {
   readonly engines: Readonly<Record<string, Engine>>;
   /** Open a fresh session: one live Mosaic Selection + commit log + FDR ledger. */
   createSession(opts?: SessionOptions): InteractionSession;
+  /**
+   * The LINT door of the encoding plane: every declared initial binding judged
+   * with the provider's real column types (the build door judged what the def
+   * alone could prove). Throws when the default table's provider cannot list
+   * its columns (a stub engine) — nothing to judge is not "nothing wrong".
+   */
+  lint(): Promise<EncodingProblem[]>;
 }
 
 /** Options controlling engine resolution for `engine: 'auto'` tables. */
@@ -61,6 +72,8 @@ export interface BuildDashboardOptions {
    * (`['memory']`) — `auto` then always resolves to the runnable memory engine.
    */
   readonly availableEngines?: readonly ResolvedEngine[];
+  /** The encoding plane's PORTS — explainer, coercers, recommender (code, so never on the def; see src/encoding/README.md). */
+  readonly encoding?: EncodingPorts;
 }
 
 const DEFAULT_AVAILABLE: readonly ResolvedEngine[] = ['memory'];
@@ -194,6 +207,11 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
     analyses,
     views,
     links,
+    encoding: {
+      rules: def.encodingRules ?? {},
+      ports: options.encoding ?? {},
+      facetsOf: (table, cols) => resolveFacets(cols, def.data[table]!), // every runtime table is a def table
+    },
     makeFdrStepper,
     fdrProcedure: def.fdr?.procedure ?? 'LORD++',
     fdrAlpha: def.fdr?.alpha ?? 0.05,
@@ -206,5 +224,39 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
     def,
     engines,
     createSession: (opts) => createInteractionSession(runtime, opts),
+    lint: async () => {
+      const cols = await providers.get(defaultTable)!.columns(defaultTable);
+      if (isRejection(cols)) throw new Error(`lint: the "${defaultTable}" provider cannot list its columns — ${cols.reason}`);
+      const surfaces = [...views.values()].flatMap((v) => (v.encoding !== undefined ? [v.encoding] : []));
+      // the same union the build door judges: the default table's real columns, plus every
+      // field a view binds or another table declares — typed by that table when it declares
+      // it, `unknown` otherwise (a view may read another table; the session's single default
+      // table is a known limit, and lint must not call that a missing column)
+      const known = new Set(cols.map((c) => c.name));
+      const extra: ColumnFacet[] = [];
+      for (const [table, source] of Object.entries(def.data)) {
+        if (table === defaultTable) continue;
+        for (const name of Object.keys(source.columns ?? {})) {
+          if (!known.has(name)) {
+            known.add(name);
+            extra.push(resolveFacet({ name, type: 'unknown' }, source));
+          }
+        }
+      }
+      for (const surface of surfaces) {
+        for (const name of Object.values(surface.initial ?? {})) {
+          if (!known.has(name)) {
+            known.add(name);
+            extra.push({ field: name, type: 'unknown' });
+          }
+        }
+      }
+      return lintEncodings({
+        views: surfaces,
+        facets: [...runtime.encoding.facetsOf(defaultTable, cols), ...extra],
+        rules: runtime.encoding.rules,
+        ports: runtime.encoding.ports,
+      });
+    },
   };
 }

@@ -5,7 +5,9 @@
  * (the same bytes `src/session/session.ts` lands — the session imports THESE
  * constants so the two layers cannot drift):
  *   - a real view probe        → key `selection:${viewId}`          (last-wins per view)
- *   - `encoding:${viewId}`     → key `encoding:${viewId}:${channel}` (field = channel, value = bound field)
+ *   - `encoding:${viewId}`     → key `encoding:${viewId}:${channel}` (field = channel, value = bound field);
+ *                                a binding SET has field `*` and value = the channel→field map, and
+ *                                folds into one such key PER CHANNEL (see ENCODING_SET_FIELD)
  *   - `analysis:${analysisId}` → key `analysis:${analysisId}`        (last declared run)
  *   - `annotation:${actor}`    → INERT (a note is never state)
  *   - `chart:${chartId}`       → INERT (an agent-authored chart registration
@@ -29,6 +31,22 @@ import { chainToRoot, indexById, lcaOf } from './walk.js';
 
 /** The synthetic-viewId prefixes of the log wire (single source; the session imports these). */
 export const ENCODING_VIEW_PREFIX = 'encoding:';
+/**
+ * A binding SET (encoding plane): several channels rebound in ONE act — a
+ * swap — lands as one commit under `encoding:${viewId}` whose `field` is this
+ * marker and whose `value` is the channel→field map. It folds into one
+ * per-channel key each, so undo, conflicts and compare see every channel.
+ */
+export const ENCODING_SET_FIELD = '*';
+export function isEncodingSet(record: Pick<CommitRecord, 'viewId' | 'field' | 'value'>): boolean {
+  return record.viewId.startsWith(ENCODING_VIEW_PREFIX) && record.field === ENCODING_SET_FIELD && typeof record.value === 'object' && record.value !== null && !Array.isArray(record.value);
+}
+/** The channel→field map a binding-set commit carries (anything else reads as empty — never invented). */
+export function encodingSetOf(record: Pick<CommitRecord, 'value'>): Readonly<Record<string, string>> {
+  const v = record.value;
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return {};
+  return Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([, f]) => typeof f === 'string')) as Record<string, string>;
+}
 export const ANALYSIS_VIEW_PREFIX = 'analysis:';
 export const ANNOTATION_VIEW_PREFIX = 'annotation:';
 /** RP-3: an agent-proposed chart's registration + ledgered-hypothesis commits. */
@@ -79,6 +97,16 @@ export function keyOf(record: CommitRecord): string | null {
   return `selection:${record.viewId}`;
 }
 
+/** EVERY state key a commit touches: one per channel for a binding set, else `keyOf` (none when inert). */
+export function keysOf(record: CommitRecord): string[] {
+  if (isEncodingSet(record)) {
+    const viewId = record.viewId.slice(ENCODING_VIEW_PREFIX.length);
+    return Object.keys(encodingSetOf(record)).map((channel) => `encoding:${viewId}:${channel}`);
+  }
+  const key = keyOf(record);
+  return key === null ? [] : [key];
+}
+
 /**
  * The folded state at `tipId`: the pure last-wins fold of the root→tip path.
  * `null` (or an id the records don't contain) folds the empty path — validate
@@ -101,13 +129,15 @@ export function foldStateAt(records: readonly CommitRecord[], tipId: string | nu
     const key = keyOf(rec);
     if (key === null) continue; // annotations are inert — never state
     if (rec.viewId.startsWith(ENCODING_VIEW_PREFIX)) {
-      state.set(key, {
-        kind: 'encoding',
-        viewId: rec.viewId.slice(ENCODING_VIEW_PREFIX.length),
-        channel: rec.field,
-        field: String(rec.value),
-        commitId: rec.id,
-      });
+      const viewId = rec.viewId.slice(ENCODING_VIEW_PREFIX.length);
+      if (isEncodingSet(rec)) {
+        // one act, several channels: every channel gets its own entry, all pointing at the one commit
+        for (const [channel, field] of Object.entries(encodingSetOf(rec))) {
+          state.set(`encoding:${viewId}:${channel}`, { kind: 'encoding', viewId, channel, field, commitId: rec.id });
+        }
+      } else {
+        state.set(key, { kind: 'encoding', viewId, channel: rec.field, field: String(rec.value), commitId: rec.id });
+      }
     } else if (rec.viewId.startsWith(LINK_VIEW_PREFIX)) {
       // a null value un-declares the edit: the key drops and the def's rule shows through
       if (rec.value === null) state.delete(key);

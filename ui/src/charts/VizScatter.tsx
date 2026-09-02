@@ -19,7 +19,7 @@
  * consumer-built chart gets.
  */
 import type { ChartEmission } from '../../../src/mosaic/index.js';
-import type { ColumnView, ViewEncoding } from '../adapter/types.js';
+import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
 import { linearScale, extent, ticks } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
@@ -67,6 +67,8 @@ export interface VizScatterProps {
   readonly regression?: RegressionGeom | null;
   /** Columns offered by the encoding picker (from adapter state). */
   readonly columns?: readonly ColumnView[];
+  /** The encoding plane's verdicts per channel (`views[].fits` on the wire) — the built-in picker greys with the session's own sentences. */
+  readonly fits?: Readonly<Record<string, readonly FitView[]>>;
   /** Current channel→field map for the picker's highlight. */
   readonly encoding?: ViewEncoding;
   readonly onEmit?: (emission: ChartEmission) => void;
@@ -96,6 +98,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
     selection,
     regression,
     columns = [],
+    fits,
     encoding = {},
     onEmit,
     onReencode,
@@ -196,6 +199,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         viewId={viewId}
         channel={pickerChannel ?? 'x'}
         columns={columns}
+        fits={fits}
         currentField={pickerChannel ? encoding[pickerChannel] ?? (pickerChannel === 'x' ? xField : yField) : undefined}
         onReencode={(v, c, f) => onReencode?.(v, c, f)}
         onClose={closePicker}

@@ -371,6 +371,27 @@ response; default, declared and none wear three looks, silence is blank.
 Give it `onChange` and every cell becomes a select that hands the host one
 edge to land as a `link` commit. See `src/links/README.md`.
 
+## The encoding plane — which column may sit on which channel
+
+The second plane of the interaction grammar (the links are the first). The **library** owns the rules as data and the one validator (`src/encoding/README.md`); the UI only shows what the session already decided, so the picker, the agent and a build error say the same sentence.
+
+**Why.** A picker that greys a column by its own guess disagrees with the session sooner or later. With `fits` on the wire, the picker greys with the session's verdict and its reason, and a chart-side rule only judges a column the verdicts do not name.
+
+```tsx
+// the wire carries a verdict per column, per channel (views[].fits)
+const fitsOf = (viewId: string) => state.views.find((v) => v.viewId === viewId)?.fits;
+
+<VizLine viewId="weeks" data={rows} dateField="t" valueField="cases" columns={columns} fits={fitsOf('weeks')} onReencode={(v, c, f) => void view.reencode(v, c, f)} />
+// the picker on "y" now greys `report_state` with: "report_state" is the declared absence column — …; absence is a category, never a magnitude
+```
+
+```ts
+// a swap is ONE act: several channels judged as a whole, one commit, undone as one
+await view.reencodeSet('scatter', { x: 'rating', y: 'price' }, 'swap axes');
+```
+
+`state.rules` lists the house rules as sentences (built-in first) and `state.encodingPolicy` says whether a misfit is refused or coerced and how far a two-column rule reaches — render them beside the matrix, as the CDC demo's Grammar panel does. An older server sends none of this and every chart falls back to its own rule, unchanged.
+
 ## The renderer contract — a versioned protocol
 
 Any charting stack — the five first-party charts, a canvas renderer, a

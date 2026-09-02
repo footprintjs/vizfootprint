@@ -38,7 +38,7 @@
  * boolean/unknown column has no honest row vocabulary).
  */
 import type { ChartEmission } from '../../../src/mosaic/index.js';
-import type { ColumnView, ViewEncoding } from '../adapter/types.js';
+import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedCell } from '../contract/selection.js';
 import { linearScale, epochOf, dayOf, rampStep, SEQ_RAMP_STEPS } from '../primitives/scales.js';
@@ -73,6 +73,8 @@ export interface VizHeatmapProps {
   readonly selection?: RenderSelection;
   /** Columns offered by the encoding pickers (from adapter state). */
   readonly columns?: readonly ColumnView[];
+  /** The encoding plane's verdicts per channel (`views[].fits` on the wire) — the built-in picker greys with the session's own sentences. */
+  readonly fits?: Readonly<Record<string, readonly FitView[]>>;
   /** Current channel→field map for the pickers' highlight. */
   readonly encoding?: ViewEncoding;
   readonly onEmit?: (emission: ChartEmission) => void;
@@ -149,6 +151,7 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
     countLabel = 'rows',
     selection,
     columns = [],
+    fits,
     encoding = {},
     onEmit,
     onReencode,
@@ -314,6 +317,7 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
         viewId={viewId}
         channel={pickerChannel ?? 'x'}
         columns={columns}
+        fits={fits}
         currentField={pickerChannel === 'y' ? encoding['y'] ?? yField : encoding['x'] ?? xField}
         compatible={(channel, column) => (channel === 'y' ? yCompat(channel, column) : defaultCompat(channel, column))}
         onReencode={(v, c, f) => onReencode?.(v, c, f)}
