@@ -47,7 +47,7 @@ import type { EncodingPorts, EncodingProblem } from '../encoding/index.js';
 import { validateProseRecord } from '../prose/index.js';
 import type { ProseProblem } from '../prose/index.js';
 import { isRejection } from '../data/index.js';
-import { decodeRows, inlineVersion, openSource } from '../source/index.js';
+import { decodeRows, inlineVersion, isSourceRefusal, openSource } from '../source/index.js';
 import type { SourceAdapter, SourceDecl, SourceInfo, SourceSnapshot } from '../source/index.js';
 import type { ColumnFacet } from '../data/index.js';
 
@@ -250,7 +250,8 @@ async function readSource(decl: SourceDecl, table: string, adapters: readonly So
       await handle.close();
     }
   } catch (e) {
-    throw new DashboardDefError([`data["${table}"].source: ${e instanceof Error ? e.message : String(e)}`]);
+    // the carrier's typed reason rides the def error, so a host can tell a timeout from a malformed payload
+    throw new DashboardDefError([`data["${table}"].source: ${e instanceof Error ? e.message : String(e)}`], isSourceRefusal(e) ? e.reason : undefined);
   }
 }
 

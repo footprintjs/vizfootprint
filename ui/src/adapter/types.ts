@@ -153,6 +153,16 @@ export interface SelectionView {
   readonly commitId?: string;
 }
 
+/** Provenance of one table's source: what the carrier vouched for when it was read. */
+export interface SourceInfoView {
+  readonly format: string;
+  readonly via: string;
+  readonly at?: string;
+  readonly version: string;
+  readonly retrievedAt: string;
+  readonly rows: number;
+}
+
 /** A SAVED selection: a selection commit somebody named with a note. Applying it is `bringOver(commitId)`. */
 export interface SavedSelectionView {
   /** The note's words — the name. */
@@ -375,8 +385,8 @@ export interface LayoutChange {
 }
 
 /** The render-safe default arrangement (no layout note landed yet). */
-export function defaultLayout(): LayoutView {
-  return { preset: 'flow', order: [], focusId: null };
+export function defaultLayout(preset: LayoutPreset = 'flow'): LayoutView {
+  return { preset, order: [], focusId: null };
 }
 
 /**
@@ -385,8 +395,8 @@ export function defaultLayout(): LayoutView {
  * focus to null — a stale or foreign wire renders the honest default, never
  * crashes.
  */
-export function parseLayout(raw: Readonly<Record<string, string>> | undefined): LayoutView {
-  const preset: LayoutPreset = raw?.['preset'] === 'grid' || raw?.['preset'] === 'focus' ? raw['preset'] : 'flow';
+export function parseLayout(raw: Readonly<Record<string, string>> | undefined, fallback: LayoutPreset = 'flow'): LayoutView {
+  const preset: LayoutPreset = raw?.['preset'] === 'grid' || raw?.['preset'] === 'focus' || raw?.['preset'] === 'flow' ? raw['preset'] : fallback;
   const orderRaw = raw?.['order'];
   const order = orderRaw !== undefined ? orderRaw.split(',').map((s) => s.trim()).filter((s) => s.length > 0) : [];
   const focusRaw = raw?.['focus'];
@@ -454,6 +464,8 @@ export interface SessionViewState {
   readonly cleared?: readonly ClearedSelectionView[];
   /** Saved selections: every selection commit a note named, newest note first; apply one with `bringOver`. Absent = an older adapter. */
   readonly saved?: readonly SavedSelectionView[];
+  /** Provenance per table: what each declared source vouched for (version, retrieval time, rows). Absent = an older server, or no declared source. */
+  readonly sources?: Readonly<Record<string, SourceInfoView>>;
   readonly commits: readonly CommitView[];
   readonly branches: readonly BranchView[];
   /** The NAMED paths surface (BR-1): current/detached, list, journal. */

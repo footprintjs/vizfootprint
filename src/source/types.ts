@@ -76,6 +76,47 @@ export interface SourceInfo {
 }
 
 /** A source's refusal: a sentence a program can branch on. */
+/**
+ * The closed vocabulary of source refusals — the reason a caller can branch on.
+ * `no-adapter`: no carrier for the via · `malformed`: the locator or the payload
+ * is not what the format needs · `unavailable`: the place exists but did not
+ * answer with data (a missing file, a 404, a 500) · `unauthorized`: 401 / 403 ·
+ * `disconnected`: no connection at all · `timeout`: no answer in time ·
+ * `cancelled`: the caller's signal aborted · `too-large`: the body exceeds the
+ * carrier's byte cap · `no-live` / `no-pushdown`: a capability the adapter
+ * declared false was relied on anyway.
+ */
+export const SOURCE_REFUSALS = ['no-adapter', 'malformed', 'unavailable', 'unauthorized', 'disconnected', 'timeout', 'cancelled', 'too-large', 'no-live', 'no-pushdown'] as const;
+export type SourceRefusalReason = (typeof SOURCE_REFUSALS)[number];
+
+/** What a caller gets if it ignores a capability the adapter declared false. */
+export const CAPABILITY_REFUSALS = { live: 'no-live', pushdown: 'no-pushdown' } as const satisfies Record<keyof SourceCapabilities, SourceRefusalReason>;
+
+/**
+ * A refusal a carrier throws: a typed reason, the table and via it names, and
+ * one sentence. `name` lives on the prototype (not an own field), so
+ * `JSON.stringify` keeps the sentence; `toJSON` carries the typed fields too.
+ */
+export class SourceRefusal extends Error {
+  constructor(
+    readonly reason: SourceRefusalReason,
+    message: string,
+    readonly table: string,
+    readonly via: SourceVia,
+  ) {
+    super(message);
+  }
+  toJSON(): { readonly name: 'SourceRefusal'; readonly reason: SourceRefusalReason; readonly message: string; readonly table: string; readonly via: SourceVia } {
+    return { name: 'SourceRefusal', reason: this.reason, message: this.message, table: this.table, via: this.via };
+  }
+}
+SourceRefusal.prototype.name = 'SourceRefusal';
+
+/** A brand check, not only `instanceof`: a refusal from a second copy of this module, another realm, or a structured clone still reads as one. */
+export const isSourceRefusal = (e: unknown): e is SourceRefusal =>
+  e instanceof SourceRefusal ||
+  (typeof e === 'object' && e !== null && (e as { name?: unknown }).name === 'SourceRefusal' && (SOURCE_REFUSALS as readonly unknown[]).includes((e as { reason?: unknown }).reason));
+
 export interface SourceRejection {
   readonly rejected: string;
 }

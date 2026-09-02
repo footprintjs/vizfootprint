@@ -100,5 +100,5 @@ export type {
 } from '../encoding/index.js';
 
 // The data-source layer (owned by src/source; the file carrier is its own module, src/source/file.ts).
-export { SOURCE_FORMATS, SOURCE_VIAS, decodeRows, inlineSource, inlineVersion, openSource } from '../source/index.js';
-export type { SourceFormat, SourceVia, SourceDecl, SourceCapabilities, SnapshotOptions, SourceSnapshot, SourceHandle, SourceAdapter, SourceInfo, SourceRejection } from '../source/index.js';
+export { SOURCE_FORMATS, SOURCE_VIAS, SOURCE_REFUSALS, CAPABILITY_REFUSALS, SourceRefusal, isSourceRefusal, decodeRows, inlineSource, inlineVersion, openSource } from '../source/index.js';
+export type { SourceFormat, SourceVia, SourceRefusalReason, SourceDecl, SourceCapabilities, SnapshotOptions, SourceSnapshot, SourceHandle, SourceAdapter, SourceInfo, SourceRejection } from '../source/index.js';

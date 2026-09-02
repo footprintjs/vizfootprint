@@ -215,3 +215,26 @@ describe('D24 invariant — replayed log resolves to byte-identical predicate SQ
     expect(byBandRow.sql).toBe('("band" IN (\'low\'))');
   });
 });
+
+describe('D24 invariant — a clause LIST (the whole live selection) resolves to the same descriptor and count across the three layouts', () => {
+  it('AND of two clauses: byte-identical sql, identical count', async () => {
+    const rows = [
+      { price: 40, category: 'Casual' },
+      { price: 160, category: 'Formal' },
+      { price: 220, category: 'Formal' },
+    ];
+    const list = [
+      { kind: 'interval' as const, field: 'price', value: [50, 200] as [number, number] },
+      { kind: 'point' as const, field: 'category', value: 'Formal' },
+    ];
+    const answers = await Promise.all([
+      memoryProvider(rows, { tableName: 't', layout: 'row' }).evaluate('t', list, { mode: 'count' }),
+      memoryProvider(rows, { tableName: 't', layout: 'column' }).evaluate('t', list, { mode: 'count' }),
+      memoryProvider({ t: rows }, { layout: 'row' }).evaluate('t', list, { mode: 'count' }),
+    ]);
+    const sqls = new Set(answers.map((a) => ('sql' in a ? a.sql : 'rejected')));
+    const counts = new Set(answers.map((a) => ('count' in a ? a.count : -1)));
+    expect(sqls.size).toBe(1);
+    expect(counts).toEqual(new Set([1]));
+  });
+});

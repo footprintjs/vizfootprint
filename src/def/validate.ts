@@ -28,14 +28,18 @@ import type { EncodingRules, EncodingSurface, FacetSource } from '../encoding/in
 import type { ColumnInfo } from '../data/index.js';
 import { validateProseDecls } from '../prose/index.js';
 import { SOURCE_FORMATS, SOURCE_VIAS } from '../source/index.js';
+import type { SourceRefusalReason } from '../source/index.js';
 
 /** Thrown when a def is structurally malformed. Carries every problem at once. */
 export class DashboardDefError extends Error {
   readonly problems: readonly string[];
-  constructor(problems: readonly string[]) {
+  /** When a declared source refused, its typed reason — a host may retry a `timeout`, never a `malformed`. */
+  readonly reason?: SourceRefusalReason;
+  constructor(problems: readonly string[], reason?: SourceRefusalReason) {
     super(`invalid DashboardDef: ${problems.join('; ')}`);
     this.name = 'DashboardDefError';
     this.problems = problems;
+    if (reason !== undefined) this.reason = reason;
   }
 }
 

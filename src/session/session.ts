@@ -31,7 +31,7 @@ import { CauseSelectionSession } from '../log/index.js';
 import type { CommitRecord } from '../log/index.js';
 import { TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
-import { cellFieldLabel, isRejection, matchesClause, type CellClause, type ColumnInfo, type MatchValue, type PredicateClause, type Row } from '../data/index.js';
+import { cellFieldLabel, isRejection, type CellClause, type ColumnInfo, type MatchValue, type PredicateClause, type Row } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
 import { applyLinkOverrides, edgeId, impliedKinds, validateLinks, type LinkDecl } from '../links/index.js';
 
@@ -942,21 +942,18 @@ class InteractionSessionImpl implements InteractionSession {
    * fold's selection entries are exactly the active filters at that tip.
    */
   private async rowsAtTip(tip: string): Promise<number | null> {
-    const base = await this.allRows(this.defaultTable);
-    if ('rejected' in base) return null;
     const clauses: PredicateClause[] = [];
     for (const entry of foldStateAt(this.log.records, tip).values()) {
       if (entry.kind !== 'selection') continue;
       clauses.push(
-        entry.clause.kind === 'point'
-          ? { kind: 'point', field: entry.clause.field, value: entry.clause.value }
-          : entry.clause.kind === 'cell'
-            ? // a cell fold entry always carries its pair (fold.ts sets it from the record)
-              { kind: 'cell', fields: entry.clause.fields!, value: entry.clause.value as CellClause['value'] }
-            : { kind: 'interval', field: entry.clause.field, value: entry.clause.value as FilterRange },
+        entry.clause.kind === 'cell'
+          ? // a cell fold entry always carries its pair (fold.ts sets it from the record)
+            { kind: 'cell', fields: entry.clause.fields!, value: entry.clause.value as CellClause['value'] }
+          : // point, interval, match — the same builder the live path uses, so a match keeps its kind
+            probeClause(entry.clause.kind, entry.clause.field, entry.clause.value),
       );
     }
-    return base.filter((r) => clauses.every((c) => matchesClause(r, c))).length;
+    return this.selectedCount(this.defaultTable, clauses);
   }
 
   async compare(aRef: string, bRef: string): Promise<CompareResult> {
@@ -1153,10 +1150,11 @@ class InteractionSessionImpl implements InteractionSession {
   // Both readers surface a provider REJECTION as a typed `{ rejected }` (never a
   // misleading empty array) so a REQUEST-boundary caller (doProbe / declareAnalysis)
   // can file a `needs-backend-data` gap rather than silently dropping (R14).
-  private async allRows(table: string): Promise<readonly Row[] | { rejected: string }> {
+  private async allRows(table: string, clauses: readonly PredicateClause[] = []): Promise<readonly Row[] | { rejected: string }> {
     const provider = this.runtime.providerFor(table);
     if (!provider) return { rejected: `no provider for table "${table}"` };
-    const res = await provider.evaluate(table, null, { mode: 'rows' });
+    // the whole live selection is ONE query to the engine — the session never folds rows in JS after the answer
+    const res = await provider.evaluate(table, clauses.length === 0 ? null : clauses, { mode: 'rows' });
     /* v8 ignore next -- every provider's reject() (memory/wasm/server, src/data/*Provider.ts) always supplies a `detail`; `res.reason` fallback is unreachable via the public API */
     if (isRejection(res)) return { rejected: res.detail ?? res.reason };
     /* v8 ignore next -- allRows always requests { mode: 'rows' }, and the only non-rejecting provider (memory) always sets `.rows` in that mode; the `?? []` fallback is unreachable via the public API */
@@ -1204,11 +1202,16 @@ class InteractionSessionImpl implements InteractionSession {
    * projection called by `overview()` must not spam the ledger).
    */
   async selectedRows(table = this.defaultTable): Promise<readonly Row[]> {
-    const base = await this.allRows(table);
-    if ('rejected' in base) return [];
-    const clauses = [...this.activeFilters.values()];
-    if (clauses.length === 0) return base;
-    return base.filter((r) => clauses.every((c) => matchesClause(r, c)));
+    const rows = await this.allRows(table, [...this.activeFilters.values()]);
+    return 'rejected' in rows ? [] : rows;
+  }
+
+  /** How many rows the live selection keeps — the engine counts; no row is materialised. */
+  private async selectedCount(table: string, clauses: readonly PredicateClause[]): Promise<number | null> {
+    const provider = this.runtime.providerFor(table);
+    if (!provider) return null;
+    const res = await provider.evaluate(table, clauses.length === 0 ? null : clauses, { mode: 'count' });
+    return isRejection(res) ? null : res.count;
   }
 
   /** Resolve a declared analysis's input rows, surfacing a backend rejection (R14). */
@@ -1216,13 +1219,9 @@ class InteractionSessionImpl implements InteractionSession {
     producesColumns: boolean,
     table: string,
   ): Promise<readonly Row[] | { rejected: string }> {
-    const base = await this.allRows(table);
-    if ('rejected' in base) return base; // backend rejection — propagate honestly
     // Columns-channel analyses run over the FULL table (materialized values must
-    // align to the row order); every other channel runs over the selection.
-    if (producesColumns) return base;
-    const clauses = [...this.activeFilters.values()];
-    return clauses.length === 0 ? base : base.filter((r) => clauses.every((c) => matchesClause(r, c)));
+    // align to the row order); every other channel runs over the selection — one query either way.
+    return this.allRows(table, producesColumns ? [] : [...this.activeFilters.values()]);
   }
 
   // ── capability resolution (R14 / R3) ─────────────────────────────────────────
@@ -2504,7 +2503,7 @@ class InteractionSessionImpl implements InteractionSession {
 
   // ── the whats_here projection ────────────────────────────────────────────────
   async overview(): Promise<Overview> {
-    const selCount = (await this.selectedRows(this.defaultTable)).length;
+    const selCount = await this.selectedCount(this.defaultTable, [...this.activeFilters.values()]);
 
     // columns per table (schema only — VALUES never ride here; Q8).
     const columns: Record<string, ColumnFacet[]> = {};
@@ -2575,7 +2574,7 @@ class InteractionSessionImpl implements InteractionSession {
       if (missing.length > 0) {
         ready = false;
         blockedBy = 'needs-column';
-      } else if (a.def.produces !== 'columns' && minPoints !== undefined && selCount < minPoints) {
+      } else if (a.def.produces !== 'columns' && minPoints !== undefined && selCount !== null && selCount < minPoints) {
         ready = false;
         blockedBy = 'guard-failed';
       }
@@ -2587,7 +2586,7 @@ class InteractionSessionImpl implements InteractionSession {
         ...(blockedBy ? { blockedBy } : {}),
         ...(missing.length > 0 ? { missingColumns: missing } : {}),
         ...(minPoints !== undefined ? { minPoints } : {}),
-        selectedRows: selCount,
+        ...(selCount !== null ? { selectedRows: selCount } : {}), // absent = not judged, never a fabricated 0
       };
     });
 
@@ -2641,6 +2640,8 @@ class InteractionSessionImpl implements InteractionSession {
       activeSelections,
       clearedSelections,
       offers,
+      sources: this.runtime.sources,
+      selectedRowCount: selCount,
       analyses,
       fdr: {
         procedure: this.runtime.fdrProcedure,

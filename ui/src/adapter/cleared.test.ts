@@ -23,3 +23,22 @@ describe('mapPollState — cleared selections', () => {
     expect(mapPollState({ records: [] }).cleared).toEqual([]);
   });
 });
+
+describe('mapPollState — provenance', () => {
+  it('keeps well-formed source rows (with or without a locator), drops malformed ones, and reads nothing from a missing or non-object field', () => {
+    const state = mapPollState({
+      records: [],
+      sources: {
+        cells: { format: 'csv', via: 'file', at: '/data/snapshot.csv', version: 'mtime:x;size:1', retrievedAt: '2026-09-02T00:00:00.000Z', rows: 90300 },
+        small: { format: 'rows', via: 'inline', version: 'inline:3-abcd', retrievedAt: '2026-09-02T00:00:00.000Z', rows: 3 },
+        broken: { format: 'csv', rows: 'many' },
+      },
+    });
+    expect(state.sources).toEqual({
+      cells: { format: 'csv', via: 'file', at: '/data/snapshot.csv', version: 'mtime:x;size:1', retrievedAt: '2026-09-02T00:00:00.000Z', rows: 90300 },
+      small: { format: 'rows', via: 'inline', version: 'inline:3-abcd', retrievedAt: '2026-09-02T00:00:00.000Z', rows: 3 },
+    });
+    expect(mapPollState({ records: [] }).sources).toBeUndefined();
+    expect(mapPollState({ records: [], sources: 'nope' }).sources).toBeUndefined();
+  });
+});

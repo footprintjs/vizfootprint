@@ -82,7 +82,7 @@ export function serverProvider(options: ServerProviderOptions = {}): DataProvide
 
     async evaluate(
       _table: string,
-      _clause: PredicateClause | null,
+      _clause: PredicateClause | readonly PredicateClause[] | null,
       _options?: EvaluateOptions,
     ): Promise<EvaluateResult | DataProviderRejection> {
       return noBackend('evaluate');

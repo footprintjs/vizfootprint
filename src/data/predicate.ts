@@ -179,17 +179,24 @@ function resolveCellSQL(clause: CellClause): string {
  * Mosaic's own cleared clauses produce, for one consistent "no predicate"
  * spelling across both routes.
  */
-export function resolvePredicateSQL(clause: PredicateClause | null): string {
+export function resolvePredicateSQL(clause: PredicateClause | readonly PredicateClause[] | null): string {
   if (clause === null) return CLEARED_SQL;
-  switch (clause.kind) {
+  if (Array.isArray(clause)) {
+    // a list is its AND, each side parenthesised; an empty list is no filter — the same descriptor every engine renders
+    // a cleared clause in a list is no conjunct (it keeps every row), never `AND (null)`
+    const parts = (clause as readonly PredicateClause[]).map((c) => resolvePredicateSQL(c)).filter((p) => p !== CLEARED_SQL);
+    return parts.length === 0 ? CLEARED_SQL : parts.length === 1 ? parts[0]! : parts.map((p) => `(${p})`).join(' AND ');
+  }
+  const one = clause as PredicateClause;
+  switch (one.kind) {
     case 'point':
-      return resolvePointSQL(clause);
+      return resolvePointSQL(one);
     case 'interval':
-      return resolveIntervalSQL(clause);
+      return resolveIntervalSQL(one);
     case 'match':
-      return resolveMatchSQL(clause);
+      return resolveMatchSQL(one);
     case 'cell':
-      return resolveCellSQL(clause);
+      return resolveCellSQL(one);
   }
 }
 

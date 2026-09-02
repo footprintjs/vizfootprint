@@ -61,7 +61,7 @@ import {
   type ChartCellView,
   type LayoutChange,
   type LayoutView,
-  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView, type ProposalView, type SavedSelectionView } from './types.js';
+  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView, type ProposalView, type SavedSelectionView, type SourceInfoView, type LayoutPreset } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
 import type { NavigateViewState } from '../contract/types.js';
@@ -139,6 +139,8 @@ export interface RawPollState {
   readonly activeSelections?: readonly unknown[];
   /** Layer 4 `onClear`: views whose selection was cleared and what it was (each row carries `clearedBy`). */
   readonly clearedSelections?: readonly unknown[];
+  /** Provenance per table (what each declared source vouched for). */
+  readonly sources?: unknown;
   readonly analyses?: readonly unknown[];
   readonly fdr?: unknown;
   readonly columns?: Readonly<Record<string, readonly { field: string; type: string }[]>>;
@@ -307,6 +309,7 @@ interface StatePieces {
   columns: Record<string, readonly ColumnView[]>;
   selections: SelectionView[];
   cleared: readonly ClearedSelectionView[];
+  sources?: Readonly<Record<string, SourceInfoView>>;
   branches: BranchView[];
   paths: PathsView;
   checkpoints: CheckpointView[];
@@ -363,6 +366,7 @@ function finalize(p: StatePieces): SessionViewState {
     columns: p.columns,
     selections: p.selections,
     cleared: p.cleared,
+    ...(p.sources !== undefined ? { sources: p.sources } : {}),
     commits,
     saved: savedSelectionsOf(commits),
     branches: p.branches,
@@ -550,6 +554,17 @@ function mapLinks(raw: unknown): LinkGraphView | undefined {
   return { default: g.default, views: g.views as LinkGraphView['views'], edges: g.edges as LinkGraphView['edges'] };
 }
 
+/** Provenance rows as the wire carries them; a malformed row is dropped rather than shown as a fact. */
+function mapSources(raw: unknown): Readonly<Record<string, SourceInfoView>> | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const out: Record<string, SourceInfoView> = {};
+  for (const [table, v] of Object.entries(raw as Record<string, unknown>)) {
+    const o = v as Partial<SourceInfoView>;
+    if (typeof o.format !== 'string' || typeof o.via !== 'string' || typeof o.version !== 'string' || typeof o.retrievedAt !== 'string' || typeof o.rows !== 'number') continue;
+    out[table] = { format: o.format, via: o.via, ...(typeof o.at === 'string' ? { at: o.at } : {}), version: o.version, retrievedAt: o.retrievedAt, rows: o.rows };
+  }
+  return out;
+}
 function mapCleared(sels: readonly unknown[] | undefined): ClearedSelectionView[] {
   return (sels ?? []).flatMap((s) => {
     const o = s as ClearedSelectionView;
@@ -726,7 +741,7 @@ function encodingsFromViews(views: readonly ViewView[]): Record<string, ViewEnco
 }
 
 /** Map a live session's async projection into `SessionViewState`. */
-async function mapSession(session: SessionLike): Promise<SessionViewState> {
+async function mapSession(session: SessionLike, defaultLayout?: LayoutPreset): Promise<SessionViewState> {
   const overview: Overview = await Promise.resolve(session.overview());
   const rawCommits: RawCommit[] = session.log.records.map((r) => ({
     id: r.id,
@@ -752,6 +767,7 @@ async function mapSession(session: SessionLike): Promise<SessionViewState> {
     columns: mapColumns(overview.columns),
     selections: mapSelections(overview.activeSelections),
     cleared: mapCleared(overview.clearedSelections),
+    sources: mapSources(overview.sources),
     links: mapLinks((overview as { links?: unknown }).links),
     rules: mapRules((overview as { rules?: unknown }).rules),
     effectiveEncodings: mapEncodingMap((overview as { effectiveEncodings?: unknown }).effectiveEncodings),
@@ -772,12 +788,12 @@ async function mapSession(session: SessionLike): Promise<SessionViewState> {
     charts: mapCharts(session.charts?.()),
     // LY-1: a pre-layout session (no `layouts` on its overview yet — duck-typed
     // sources) parses to the default flow arrangement, hence the `?.`.
-    layout: parseLayout(overview.layouts?.['dashboard']),
+    layout: parseLayout(overview.layouts?.['dashboard'], defaultLayout),
   });
 }
 
 /** Map a raw `/api/state` payload into `SessionViewState`. */
-export function mapPollState(raw: RawPollState): SessionViewState {
+export function mapPollState(raw: RawPollState, defaultLayout?: LayoutPreset): SessionViewState {
   const rawCommits: RawCommit[] = raw.records.map((r) => ({
     id: r.id,
     parent: r.parent,
@@ -802,6 +818,7 @@ export function mapPollState(raw: RawPollState): SessionViewState {
     columns: mapColumns(raw.columns),
     selections: mapSelections(raw.activeSelections),
     cleared: mapCleared(raw.clearedSelections),
+    sources: mapSources(raw.sources),
     links: mapLinks(raw.links),
     rules: mapRules(raw.rules),
     effectiveEncodings: mapEncodingMap(raw.effectiveEncodings),
@@ -817,7 +834,7 @@ export function mapPollState(raw: RawPollState): SessionViewState {
     gaps: mapGaps(raw.gaps),
     readiness: mapReadiness(raw.analyses),
     charts: mapCharts(raw.charts),
-    layout: parseLayout(raw.layouts?.['dashboard']),
+    layout: parseLayout(raw.layouts?.['dashboard'], defaultLayout),
     mode: raw.mode,
   });
 }
@@ -829,6 +846,8 @@ export interface SessionViewOptions {
   readonly as?: Actor;
   /** Refresh the snapshot after each action (default true). */
   readonly refreshOnAction?: boolean;
+  /** The arrangement before any layout commit lands (a host's choice; default `'flow'`). A landed layout always wins. */
+  readonly defaultLayout?: LayoutPreset;
 }
 
 /** One edge as the matrix hands it to the host (layer 4). */
@@ -992,7 +1011,7 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
   let lastPollText = '';
   async function refresh(): Promise<void> {
     if (source.kind === 'session') {
-      setState(await mapSession(source.session));
+      setState(await mapSession(source.session, options.defaultLayout));
       return;
     }
     const mine = ++pollSeq;
@@ -1004,7 +1023,7 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       const text = JSON.stringify(raw);
       if (text === lastPollText) return; // nothing changed — no re-render
       lastPollText = text;
-      setState(mapPollState(raw));
+      setState(mapPollState(raw, options.defaultLayout));
     } catch {
       /* swallow — keep the last good snapshot */
     }

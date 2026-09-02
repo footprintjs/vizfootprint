@@ -26,6 +26,18 @@ dashboard.sources.cells   // { format, via, at, version: 'mtime:…;size:…', r
 - **A source table runs in memory**; an `engine` beside a `source` is refused at the def door rather than silently overridden.
 - **`engine: 'auto'` resolves to memory with a note** until a measured bench exists; the placeholder thresholds are not a capacity claim.
 
+## Refusals, typed
+
+Every way a source can fail has one name from a closed vocabulary, `SOURCE_REFUSALS`, thrown as a `SourceRefusal` with the table and via it names and one sentence: `no-adapter` · `malformed` (the locator or the payload) · `unavailable` (the place answered without data: a missing file, a 404, a 500) · `unauthorized` (401, 403) · `disconnected` · `timeout` · `cancelled` (the caller's signal) · `too-large` (over the carrier's byte cap). `isSourceRefusal` is a brand check (name + a reason from the vocabulary), so a refusal from a second copy of the module or another realm still reads as one (a structured clone degrades to a plain `Error`, so cross a wire with `toJSON()`); `DashboardDefError.reason` carries it out of the async builder. A capability declared false names the refusal a caller gets for ignoring it: `CAPABILITY_REFUSALS = { live: 'no-live', pushdown: 'no-pushdown' }`. The async builder turns a refusal into the def's own error sentence.
+
+## The http carrier
+
+`httpSource({ fetch?, timeoutMs?, headers?, maxBytes? })` (its own module, `src/source/http.ts`) fetches `at` with the caller's abort signal and its own timeout over headers AND body; a 2xx with an empty body is `unavailable` (the place answered without data); the version is the server's ETag as sent (a weak `W/` stays weak), else Last-Modified, else a hash of the bytes; it declares `{ live: false, pushdown: false }`.
+
+## Provenance on the wire
+
+`overview().sources` carries each declared table's `SourceInfo` (format, via, locator, version, retrieval time, row count), so `whats_here` and a cockpit can say what the data is and when it was read.
+
 ## Not yet
 
-HTTP and streaming carriers (`snapshot(options)` already takes an abort signal; a conditional read `sinceVersion` and a delta channel gated by `live` arrive with them), time-aware refusals, the row key and the version stamp on commits, snapshot plus delta, and a package `exports` map (`./source`, `./source/file`) — today the library is consumed by path, so a host imports the file carrier from `src/source/file`.
+the streaming carrier (`snapshot(options)` already takes an abort signal; a conditional read `sinceVersion` and a delta channel gated by `live` arrive with it), the row key and the version stamp on commits, snapshot plus delta, and a package `exports` map (`./source`, `./source/file`) — today the library is consumed by path, so a host imports the file carrier from `src/source/file`.

@@ -327,10 +327,12 @@ export interface DataProvider {
   /**
    * Evaluate a predicate clause against a table. `clause: null` means "no
    * filter" — matches every row, mirroring an inactive/cleared Mosaic clause.
+   * A LIST of clauses is their AND — the whole live selection in one query,
+   * so the session never folds rows in JavaScript after the engine answered.
    */
   evaluate(
     table: string,
-    clause: PredicateClause | null,
+    clause: PredicateClause | readonly PredicateClause[] | null,
     options?: EvaluateOptions,
   ): Promise<EvaluateResult | DataProviderRejection>;
 

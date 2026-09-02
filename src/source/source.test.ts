@@ -94,7 +94,7 @@ describe('fileSource — a path or file URL read by this process', () => {
   });
   it('honours an abort signal on the read', async () => {
     const h = await fileSource.open({ format: 'csv', via: 'file', at: join(dir, 'cells.csv') }, { table: 'cells' });
-    await expect(h.snapshot({ signal: AbortSignal.abort() })).rejects.toThrow(/abort/i);
+    await expect(h.snapshot({ signal: AbortSignal.abort() })).rejects.toThrow(/cancelled — the read was aborted/);
   });
   it('format rows over a file parses the JSON text as the list; a non-list is refused with the path', async () => {
     const ok = await fileSource.open({ format: 'rows', via: 'file', at: join(dir, 'rows.json') }, { table: 'r' });

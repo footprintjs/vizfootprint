@@ -9,6 +9,7 @@
  * input event; there is no such path.
  */
 
+import type { SourceInfo } from '../source/types.js';
 import type { Actor, Cause } from '../cause/index.js';
 import type { EmissionKind, FieldMapping, LinkEdge, LinkGraph, LinkOnClear, LinkResponse, LinkKind, ChannelPair } from '../links/types.js';
 import type { CommitRecord } from '../log/index.js';
@@ -696,6 +697,10 @@ export interface Overview {
   readonly clearedSelections: readonly ClearedSelectionInfo[];
   /** Layer 4 offers: every (view, kind) of the dashboard, each stamped with the current position — the id a select/filter may name (a stale one is refused by naming the current one). */
   readonly offers: readonly Offer[];
+  /** Provenance: what each declared source vouched for when it was read (version, retrieval time, row count) — absent for a table declared inline as rows/csv. */
+  readonly sources: Readonly<Record<string, SourceInfo>>;
+  /** How many rows of the default table the live selection keeps — counted by the engine in one query, no row materialised; `null` when the engine could not answer (never a fake 0). */
+  readonly selectedRowCount: number | null;
   readonly analyses: readonly AnalysisReadiness[];
   readonly fdr: FdrSummary;
   readonly columns: Readonly<Record<string, readonly ColumnFacet[]>>;

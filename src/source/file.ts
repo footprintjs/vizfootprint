@@ -8,10 +8,11 @@
 import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { decodeRows } from './decode.js';
+import { SourceRefusal } from './types.js';
 import type { SourceAdapter, SourceDecl } from './types.js';
 
 function pathOf(at: unknown, table: string): string {
-  if (typeof at !== 'string' || at.length === 0) throw new Error(`table "${table}" file source: \`at\` must be a path or a file URL`);
+  if (typeof at !== 'string' || at.length === 0) throw new SourceRefusal('malformed', `table "${table}" file source: \`at\` must be a path or a file URL`, table, 'file');
   return at.startsWith('file:') ? fileURLToPath(at) : at;
 }
 
@@ -23,19 +24,29 @@ export const fileSource: SourceAdapter = {
     return {
       capabilities: { live: false, pushdown: false },
       snapshot: async (options) => {
-        const text = await readFile(path, { encoding: 'utf8', ...(options?.signal ? { signal: options.signal } : {}) });
-        const info = await stat(path);
+        let text: string;
+        let info: Awaited<ReturnType<typeof stat>>;
+        try {
+          text = await readFile(path, { encoding: 'utf8', ...(options?.signal ? { signal: options.signal } : {}) });
+          info = await stat(path);
+        } catch (e) {
+          // the caller's signal → cancelled; anything the file system refuses → unavailable, with its own code
+          if (options?.signal?.aborted) throw new SourceRefusal('cancelled', `${where}: cancelled — the read was aborted`, table, 'file');
+          /* v8 ignore next -- node's fs errors always carry a code; the message arm is for a foreign thrower */
+          const code = (e as { code?: string }).code ?? (e as Error).message;
+          throw new SourceRefusal('unavailable', `${where}: unavailable — ${code}`, table, 'file');
+        }
         let payload: unknown = text;
         if (decl.format === 'rows') {
           // `rows` over a file is a JSON list; the JSON door is the same one `json` uses, with the same sentence
           try {
             payload = JSON.parse(text);
           } catch {
-            throw new Error(`${where}: format rows needs a JSON list of row objects, and the file is not JSON`);
+            throw new SourceRefusal('malformed', `${where}: format rows needs a JSON list of row objects, and the file is not JSON`, table, 'file');
           }
         }
         const rows = decodeRows(decl.format, payload, decl.options);
-        if ('rejected' in rows) throw new Error(`${where}: ${rows.rejected}`);
+        if ('rejected' in rows) throw new SourceRefusal('malformed', `${where}: ${rows.rejected}`, table, 'file');
         return { rows, version: `mtime:${info.mtime.toISOString()};size:${String(info.size)}`, retrievedAt: new Date().toISOString() };
       },
       close: async () => {},

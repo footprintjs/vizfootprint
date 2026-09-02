@@ -145,19 +145,25 @@ function fieldAt(store: TableStore, field: string, i: number): unknown {
   return store.layout === 'row' ? store.rows[i]?.[field] : store.columns[field]?.[i];
 }
 
-function matchingIndices(store: TableStore, clause: PredicateClause | null): number[] {
+function matchingIndices(store: TableStore, clauses: readonly PredicateClause[]): number[] {
   const n = storeRowCount(store);
   const out: number[] = [];
+  const fields = [...new Set(clauses.flatMap((c) => clauseFields(c)))];
   for (let i = 0; i < n; i++) {
     // matchesClause reads via a Row-shaped accessor either way — build a
-    // minimal proxy row limited to the clause's own field(s) (both for a
+    // minimal proxy row limited to the clauses' own fields (both for a
     // D30 cell) so both layouts share EXACTLY the same evaluation code path
-    // (no row/column fork here).
+    // (no row/column fork here). A list is its AND; an empty list keeps every row.
     const probe: Row = {};
-    if (clause !== null) for (const f of clauseFields(clause)) probe[f] = fieldAt(store, f, i);
-    if (matchesClause(probe, clause)) out.push(i);
+    for (const f of fields) probe[f] = fieldAt(store, f, i);
+    if (clauses.every((c) => matchesClause(probe, c))) out.push(i);
   }
   return out;
+}
+
+/** One clause, a list, or null — as the list the matcher walks. */
+function clauseList(clause: PredicateClause | readonly PredicateClause[] | null): readonly PredicateClause[] {
+  return clause === null ? [] : Array.isArray(clause) ? (clause as readonly PredicateClause[]) : [clause as PredicateClause];
 }
 
 /**
@@ -213,22 +219,21 @@ export function memoryProvider(
 
     async evaluate(
       table: string,
-      clause: PredicateClause | null,
+      clause: PredicateClause | readonly PredicateClause[] | null,
       evalOptions: EvaluateOptions = {},
     ): Promise<EvaluateResult | DataProviderRejection> {
       const store = tableMap.get(table);
       if (!store) return reject('memory', 'evaluate', 'unknown-table', `no such table "${table}"`);
-      if (clause !== null) {
-        // EVERY column the clause reads must exist (both sides of a D30 cell).
-        const names = storeColumnNames(store);
-        const missing = clauseFields(clause).find((f) => !names.includes(f));
-        if (missing !== undefined) {
-          return reject('memory', 'evaluate', 'unknown-column', `table "${table}" has no column "${missing}"`);
-        }
+      const clauses = clauseList(clause);
+      // EVERY column any clause reads must exist (both sides of a D30 cell).
+      const names = storeColumnNames(store);
+      const missing = clauses.flatMap((c) => clauseFields(c)).find((f) => !names.includes(f));
+      if (missing !== undefined) {
+        return reject('memory', 'evaluate', 'unknown-column', `table "${table}" has no column "${missing}"`);
       }
 
-      const sql = resolvePredicateSQL(clause);
-      const indices = matchingIndices(store, clause);
+      const sql = resolvePredicateSQL(clauses);
+      const indices = matchingIndices(store, clauses);
       const count = indices.length;
 
       if (evalOptions.mode === 'count') {

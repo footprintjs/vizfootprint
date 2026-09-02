@@ -4,17 +4,10 @@
  * file system or server vouches for it.
  */
 import { decodeRows } from './decode.js';
+import { fnv1a } from './hash.js';
+import { SourceRefusal } from './types.js';
 import type { SourceAdapter, SourceDecl } from './types.js';
 
-/** FNV-1a over the payload's text — browser-safe, one pass, enough to tell two payloads apart. */
-function fnv1a(text: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(16).padStart(8, '0');
-}
 
 /** The version an inline payload gets: `inline:<size>-<hash>` — the same words from both builders. */
 export function inlineVersion(at: unknown): string {
@@ -26,7 +19,7 @@ export const inlineSource: SourceAdapter = {
   via: 'inline',
   async open(decl: SourceDecl, { table }) {
     const rows = decodeRows(decl.format, decl.at, decl.options);
-    if ('rejected' in rows) throw new Error(`table "${table}" inline source: ${rows.rejected}`);
+    if ('rejected' in rows) throw new SourceRefusal('malformed', `table "${table}" inline source: ${rows.rejected}`, table, 'inline');
     const version = inlineVersion(decl.at);
     return {
       capabilities: { live: false, pushdown: false },
