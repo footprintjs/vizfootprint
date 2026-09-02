@@ -144,7 +144,7 @@ export interface RawPollState {
   readonly branches?: readonly { tip: string; length: number; actor: Actor; active: boolean }[];
   /** BR-2: the named-paths surface (`overview().paths` serialized as-is). */
   readonly paths?: RawPollPaths;
-  readonly checkpoints?: readonly { label: string; commitId: string | null; ts: number }[];
+  readonly checkpoints?: readonly { label: string; commitId: string | null; at?: string | null; ts: number }[];
   readonly cursor?: string | null;
   readonly head?: string | null;
   readonly cursorTests?: number;
@@ -279,6 +279,7 @@ function commitLabel(field: string, viewId: string): string {
   if (field === '__analysis__') return 'analysis';
   if (field === 'pValue') return 'test';
   if (field === '__annotation__') return 'note';
+  if (field === '__beat__') return 'beat'; // a story beat — the checkpoint verb's commit
   if (field === '__chart__') return 'chart'; // RP-3: an agent-authored chart's spec-registration commit
   return field;
 }
@@ -415,9 +416,14 @@ function mapLedgerBase(fdr: unknown): Omit<LedgerView, 'cursorTests' | 'honesty'
     steps: (f.ledger ?? []).map((s) => ({ step: s.step, hypothesisId: s.hypothesisId, pValue: s.pValue, alphaThreshold: s.alphaThreshold, reject: s.reject, wealthAfter: s.wealthAfter })),
   };
 }
-function mapColumns(columns: Readonly<Record<string, readonly { field: string; type: string }[]>> | undefined): Record<string, readonly ColumnView[]> {
+function mapColumns(
+  columns: Readonly<Record<string, readonly { field: string; type: string; absence?: readonly string[] }[]>> | undefined,
+): Record<string, readonly ColumnView[]> {
   const out: Record<string, readonly ColumnView[]> = {};
-  for (const [table, cols] of Object.entries(columns ?? {})) out[table] = cols.map((c) => ({ field: c.field, type: String(c.type) }));
+  for (const [table, cols] of Object.entries(columns ?? {})) {
+    // The absence declaration rides through untouched: the app must never re-spell it.
+    out[table] = cols.map((c) => (c.absence !== undefined ? { field: c.field, type: String(c.type), absence: c.absence } : { field: c.field, type: String(c.type) }));
+  }
   return out;
 }
 /**
@@ -555,7 +561,7 @@ async function mapSession(session: SessionLike): Promise<SessionViewState> {
     // come from the session's own full listing (whats_here only reports their
     // COUNT, deliberately — a hidden path is hidden until asked for).
     paths: withArchived(mapPaths(overview.paths), session.paths({ includeArchived: true })),
-    checkpoints: session.checkpoints().map((c) => ({ label: c.label, commitId: c.commitId, ts: c.ts })),
+    checkpoints: session.checkpoints().map((c) => ({ label: c.label, commitId: c.commitId, at: c.at, ts: c.ts })),
     cursor: overview.time.cursor,
     head: overview.time.head,
     viewingPast: overview.time.viewingPast,
@@ -597,7 +603,7 @@ export function mapPollState(raw: RawPollState): SessionViewState {
     selections: mapSelections(raw.activeSelections),
     branches: (raw.branches ?? []).map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
     paths: mapPaths(raw.paths),
-    checkpoints: (raw.checkpoints ?? []).map((c) => ({ label: c.label, commitId: c.commitId, ts: c.ts })),
+    checkpoints: (raw.checkpoints ?? []).map((c) => ({ label: c.label, commitId: c.commitId, ...(c.at !== undefined ? { at: c.at } : {}), ts: c.ts })),
     cursor: raw.cursor ?? null,
     head: raw.head ?? null,
     viewingPast: raw.viewingPast ?? false,
@@ -726,15 +732,25 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
     }
   }
 
+  // Two guards on the poll: a SEQUENCE number so a slow response can never
+  // overwrite a newer one, and an unchanged-skip so an idle 1 Hz poll does not
+  // re-render every subscriber every second (the whole log rides each poll).
+  let pollSeq = 0;
+  let lastPollText = '';
   async function refresh(): Promise<void> {
     if (source.kind === 'session') {
       setState(await mapSession(source.session));
       return;
     }
+    const mine = ++pollSeq;
     try {
       const res = await doFetch(endpoints.state);
       if (!res.ok) return;
       const raw = (await res.json()) as RawPollState;
+      if (mine !== pollSeq) return; // a newer poll already landed — this one is stale
+      const text = JSON.stringify(raw);
+      if (text === lastPollText) return; // nothing changed — no re-render
+      lastPollText = text;
       setState(mapPollState(raw));
     } catch {
       /* swallow — keep the last good snapshot */

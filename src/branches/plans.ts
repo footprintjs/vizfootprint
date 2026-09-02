@@ -145,7 +145,7 @@ export function planUndo(records: readonly CommitRecord[], commitId: string, tip
 
   const key = keyOf(rec);
   if (key === null) {
-    return { ok: false, reason: 'not-undoable', detail: 'this commit is inert (an annotation, a chart registration, or a layout note) — there is no prior state to restore; set the layout again to change it' };
+    return { ok: false, reason: 'not-undoable', detail: 'this commit is inert (an annotation, a chart registration, a layout note, or a story beat) — there is no prior state to restore; set the layout again to change it, or name a new beat' };
   }
   if (rec.viewId.startsWith(ANALYSIS_VIEW_PREFIX)) {
     return {

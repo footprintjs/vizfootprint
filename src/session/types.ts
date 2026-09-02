@@ -128,7 +128,15 @@ export type DispatchAction =
 /** A named log position (the `checkpoint` verb). A NAMED pointer to a commit — stored as inert data, listable. */
 export interface Checkpoint {
   readonly label: string;
+  /** The beat commit itself — the recorded act of naming. */
   readonly commitId: string | null;
+  /**
+   * The position the beat NAMES — the beat commit's parent. Present mode
+   * orders and seeks by this: a beat named at a commit stays on every
+   * lineage that runs through that commit, even after a fork below it.
+   */
+  readonly at: string | null;
+  /** The beat commit's index in the log. */
   readonly ts: number;
 }
 

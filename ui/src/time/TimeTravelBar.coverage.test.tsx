@@ -118,7 +118,7 @@ describe('TimeTravelBar — explore mode edges', () => {
 describe('TimeTravelBar — present mode edges', () => {
   it('with no checkpoints it shows the guided-tour placeholder', () => {
     const { container } = render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head="b" checkpoints={[]} />);
-    expect(container.querySelector('.vzf-present-empty')?.textContent).toMatch(/No story beats yet/);
+    expect(container.querySelector('.vzf-present-empty')?.textContent).toMatch(/No story beats on this lineage yet/);
   });
 
   it('a cursor unreached by any checkpoint clamps to beat 0 and flags "(nearest to cursor)"', () => {

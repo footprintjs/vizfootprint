@@ -176,6 +176,16 @@ export const ABSENCE_STATES: readonly string[] = Object.freeze(['present', 'not-
 export const ABSENCE_UNKNOWN = 'unknown';
 
 /**
+ * The visual channels that carry a MAGNITUDE — position along an axis, size,
+ * radius, angle. A declared absence column may never bind to one of these:
+ * "unavailable" on an axis renders as a low number and tells the reader the
+ * wrong thing with a straight face. One list, read by the def validator
+ * (`initial` bindings), the `reencode` verb (runtime rebinds), and the ui's
+ * compatibility check — so the rule cannot drift between the three doors.
+ */
+export const MAGNITUDE_CHANNELS: ReadonlySet<string> = new Set(['x', 'y', 'size', 'r', 'radius', 'theta']);
+
+/**
  * One view's declared VISUAL-ENCODING surface (the `reencode` verb's
  * validation + fold seed; D10 VL vocab). NOT to be confused with
  * `CapabilityDecl.encodings` / `ChartEncoding` (`mosaic/emission.ts`) — those

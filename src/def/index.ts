@@ -12,6 +12,7 @@ export {
   DEFAULT_INTENTS,
   ABSENCE_STATES,
   ABSENCE_UNKNOWN,
+  MAGNITUDE_CHANNELS,
 } from './types.js';
 // The long-form series contract (F3): `{t, entity, metric, value}` in, rows +
 // declared encodings out — no bespoke chart API. See `./series.ts`.

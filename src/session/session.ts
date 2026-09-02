@@ -38,6 +38,7 @@ import type {
   FdrStepper,
   RegisteredAnalysis,
 } from '../def/types.js';
+import { MAGNITUDE_CHANNELS } from '../def/types.js';
 import { GapLedger } from './gapLedger.js';
 import { why } from '../why/index.js';
 import type { RuntimeSnapshot } from 'footprintjs';
@@ -395,7 +396,6 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly whyByAnalysisId = new Map<string, WhyProvenance>();
   private readonly fdrStepper: FdrStepper;
   private readonly _ledger: FdrStep[] = [];
-  private readonly _checkpoints: Checkpoint[] = [];
   /** RP-3: agent-authored charts registered this session, in proposal order (chartId → view). */
   private readonly _charts = new Map<string, ChartView>();
   private readonly initialWealth: number;
@@ -1313,6 +1313,22 @@ class InteractionSessionImpl implements InteractionSession {
     }
     // 5. land ONE cause-tagged commit (commit-on-intent). Parent is the CURSOR:
     //    a reencode from a past cursor branches (R8 branch-on-act), exactly like doProbe.
+    // 5. an ABSENCE column never binds to a magnitude channel (the def
+    //    validator refuses it at `initial`; this is the same rule at the
+    //    runtime door, so a rebind cannot do what a declaration could not).
+    const absence = this.runtime.def.data[this.defaultTable]?.absence;
+    if (absence !== undefined && absence.field === field && MAGNITUDE_CHANNELS.has(channel)) {
+      return this.reject(
+        'reencode',
+        intent,
+        this.gapLedger.file(
+          'guard-failed',
+          'reencode',
+          `"${field}" is the declared absence column of "${this.defaultTable}" — it cannot bind to the magnitude channel "${channel}"; absence is a category, never a magnitude`,
+          field,
+        ),
+      );
+    }
     const stamped = this.stampCause(cause, 'reencode', as);
     const { record } = this.log.commit({
       id: this.nextId(),
@@ -1502,7 +1518,7 @@ class InteractionSessionImpl implements InteractionSession {
     const { record } = this.log.commit({
       id: this.nextId(),
       parent: this._cursor,
-      viewId: `${BEAT_VIEW_PREFIX}${this._checkpoints.length}`,
+      viewId: `${BEAT_VIEW_PREFIX}${this.checkpoints().length}`,
       actorMeta: { actor: stamped.requestedBy },
       kind: 'point',
       field: BEAT_FIELD,
@@ -1510,9 +1526,9 @@ class InteractionSessionImpl implements InteractionSession {
       cause: stamped,
     });
     this.landed(record);
-    const checkpoint: Checkpoint = { label, commitId: record.id, ts: this.log.records.length - 1 };
-    Object.freeze(checkpoint);
-    this._checkpoints.push(checkpoint);
+    // The beat's record IS the checkpoint — `checkpoints()` derives from the log,
+    // so there is one truth, never a side array that can disagree with it.
+    const checkpoint = this.checkpoints().find((c) => c.commitId === record.id) as Checkpoint;
     return { ok: true, verb: 'checkpoint', intent, commit: record, checkpoint };
   }
 
@@ -1835,8 +1851,13 @@ class InteractionSessionImpl implements InteractionSession {
     return this._ledger;
   }
 
+  /** Every story beat, derived from the log (a `beat:` commit's label + id + position) — one truth. */
   checkpoints(): readonly Checkpoint[] {
-    return this._checkpoints;
+    const out: Checkpoint[] = [];
+    this.log.records.forEach((r, i) => {
+      if (r.viewId.startsWith(BEAT_VIEW_PREFIX)) out.push(Object.freeze({ label: String(r.value), commitId: r.id, at: r.parent, ts: i }));
+    });
+    return out;
   }
 
   // ── the whats_here projection ────────────────────────────────────────────────
@@ -1940,7 +1961,7 @@ class InteractionSessionImpl implements InteractionSession {
       cursor: this._cursor,
       head: this._head,
       branches: this.branches().length,
-      checkpoints: this._checkpoints.length,
+      checkpoints: this.checkpoints().length,
       cursorTests,
       viewingPast: this._cursor !== this._head,
     };

@@ -19,7 +19,7 @@ import {
   LAYOUT_VIEW_PREFIX,
   BEAT_VIEW_PREFIX,
 } from '../branches/index.js';
-import { ABSENCE_UNKNOWN, DISPATCH_VERBS, type DispatchVerb } from './types.js';
+import { ABSENCE_UNKNOWN, DISPATCH_VERBS, MAGNITUDE_CHANNELS, type DispatchVerb } from './types.js';
 
 /** Thrown when a def is structurally malformed. Carries every problem at once. */
 export class DashboardDefError extends Error {
@@ -301,9 +301,9 @@ export function validateDashboardDef(def: unknown): string[] {
             // on a numeric axis would render as a low number and tell the reader
             // the wrong thing with a straight face.
             for (const [channel, field] of Object.entries(enc.initial)) {
-              if ((channel === 'x' || channel === 'y') && absenceFields.has(field as string)) {
+              if (MAGNITUDE_CHANNELS.has(channel) && absenceFields.has(field as string)) {
                 problems.push(
-                  `encodings[${i}].initial.${channel} binds "${String(field)}", a declared absence column, to a numeric channel — absence is a category, never a magnitude`,
+                  `encodings[${i}].initial.${channel} binds "${String(field)}", a declared absence column, to a magnitude channel — absence is a category, never a magnitude`,
                 );
               }
             }

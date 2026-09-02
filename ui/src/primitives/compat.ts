@@ -5,6 +5,7 @@
  * anything. A consumer can override with the picker's `compatible` prop.
  */
 import type { ColumnView } from '../adapter/types.js';
+import { MAGNITUDE_CHANNELS } from '../../../src/def/types.js';
 
 export interface Compatibility {
   readonly ok: boolean;
@@ -12,7 +13,8 @@ export interface Compatibility {
   readonly reason?: string;
 }
 
-const NUMERIC_CHANNELS = new Set(['x', 'y', 'size', 'r', 'radius', 'theta']);
+// Single-sourced from the def layer so the three doors (validator, reencode, picker) agree.
+const NUMERIC_CHANNELS = MAGNITUDE_CHANNELS;
 const NUMERIC_TYPES = new Set(['number', 'date']);
 
 export function defaultCompat(channel: string, column: ColumnView): Compatibility {

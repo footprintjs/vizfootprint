@@ -17,7 +17,7 @@ import path from 'node:path';
 import { startServer } from './server.mjs';
 
 const CHROME =
-  '/Users/sanjay/Library/Caches/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-mac-arm64/chrome-headless-shell';
+  process.env['VZF_CHROME']; // unset ⇒ playwright-core launches the headless shell it installed for its own version
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SHOTS = path.join(__dirname, 'screenshots');
 
@@ -32,7 +32,7 @@ async function brush(page: Page, fromFrac: number, toFrac: number): Promise<void
   await page.mouse.up();
 }
 
-describe.skipIf(!existsSync(CHROME))('demo smoke (real headless Chromium)', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('demo smoke (real headless Chromium)', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
@@ -42,7 +42,7 @@ describe.skipIf(!existsSync(CHROME))('demo smoke (real headless Chromium)', () =
   beforeAll(async () => {
     mkdirSync(SHOTS, { recursive: true });
     handle = await startServer({ port: 0 });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     page = await browser.newPage({ viewport: { width: 1240, height: 940 } });
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text());

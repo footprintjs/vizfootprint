@@ -369,4 +369,26 @@ describe('absence — a declared silence vocabulary rides the column facet', () 
     });
     expect(facets.find((c) => c.field === 'category')).toEqual({ field: 'category', type: 'string' });
   });
+
+  it('reencode refuses to put the absence column on a magnitude channel, and allows it on color', async () => {
+    const rows = [
+      { id: 1, category: 'Casual', price: 10, rating: 4, state: 'present' },
+      { id: 2, category: 'Formal', price: 20, rating: 3, state: 'unknown' },
+    ];
+    const def = makeDashboardDef({ rows });
+    const s = buildDashboard({
+      ...def,
+      data: { data: { ...def.data['data'], absence: { field: 'state', states: ['present', 'unknown'] } } },
+    }).createSession();
+    const onAxis = await s.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'x', field: 'state', cause: userCause() });
+    expect(onAxis.ok).toBe(false);
+    if (!onAxis.ok) {
+      expect(onAxis.rejection.code).toBe('guard-failed');
+      expect(onAxis.rejection.detail).toMatch(/declared absence column .* magnitude channel "x"/);
+    }
+    expect(s.viewEncodings('scatter')).toEqual({ x: 'price', y: 'rating' }); // nothing landed
+    const onColor = await s.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'color', field: 'state', cause: userCause() });
+    expect(onColor.ok).toBe(true);
+    expect(s.viewEncodings('scatter')).toEqual({ x: 'price', y: 'rating', color: 'state' });
+  });
 });

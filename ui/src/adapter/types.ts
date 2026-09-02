@@ -54,6 +54,8 @@ export interface CommitView {
 export interface ColumnView {
   readonly field: string;
   readonly type: string;
+  /** The declared absence vocabulary, when the def named this column as the table's absence column — words, never values. */
+  readonly absence?: readonly string[];
 }
 
 /** A view (chart) the session exposes, with its clause-kind capabilities. */
@@ -201,7 +203,10 @@ export type CompareView =
 /** A named log position (checkpoint) — a story beat in present mode. */
 export interface CheckpointView {
   readonly label: string;
+  /** The beat commit (the act of naming). */
   readonly commitId: string | null;
+  /** The position it names (the beat's parent); absent on older wires ⇒ the beat itself. */
+  readonly at?: string | null;
   readonly ts: number;
 }
 

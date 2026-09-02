@@ -116,7 +116,7 @@ describe('createSessionView — in-process session edge branches', () => {
         }) as unknown as ReturnType<SessionLike['overview']>,
       gaps: () => [],
       branches: () => [],
-      checkpoints: () => [{ label: 'start', commitId: 'r1', ts: 1 }], // exercises the checkpoints.map body
+      checkpoints: () => [{ label: 'start', commitId: 'r1', at: null, ts: 1 }], // exercises the checkpoints.map body
       seek: (commitId: string) => ({ ok: true, cursor: commitId }) as unknown as ReturnType<SessionLike['seek']>,
       dispatch: () => ({ ok: true, verb: 'analyze', intent: 'x' }) as unknown as ReturnType<SessionLike['dispatch']>,
       switchPath: (name: string) => ({ ok: true, name, cursor: 'r1' }) as unknown as ReturnType<SessionLike['switchPath']>,
@@ -350,5 +350,75 @@ describe('RP-3 — agent-authored charts (mapCharts) flow through both sources',
     expect(view.getState().charts).toHaveLength(1);
     expect(view.getState().charts[0]!.chartId).toBe('pr');
     view.dispose();
+  });
+});
+
+describe('P0 seams — absence on the column facet, beat labels, poll guards', () => {
+  it('mapPollState carries a declared absence vocabulary onto the ColumnView, and only there', () => {
+    const raw = {
+      records: [],
+      defaultTable: 'data',
+      columns: { data: [{ field: 'state', type: 'string', absence: ['present', 'unknown'] }, { field: 'n', type: 'number' }] },
+    } as unknown as Parameters<typeof mapPollState>[0];
+    const cols = mapPollState(raw).columns['data']!;
+    expect(cols.find((c) => c.field === 'state')).toEqual({ field: 'state', type: 'string', absence: ['present', 'unknown'] });
+    expect(cols.find((c) => c.field === 'n')).toEqual({ field: 'n', type: 'number' });
+  });
+
+  it('a beat commit is labelled "beat", not its wire field', () => {
+    const raw = {
+      records: [{ id: 'b0', parent: null, viewId: 'beat:0', kind: 'point', field: '__beat__', value: 'after cleanup', cause: { requestedBy: 'user', computedBy: 'user' } }],
+      defaultTable: 'data',
+    } as unknown as Parameters<typeof mapPollState>[0];
+    expect(mapPollState(raw).commits[0]!.label).toBe('beat');
+  });
+
+  it('a stale (out-of-order) poll never overwrites a newer one, and an unchanged poll does not re-notify', async () => {
+    const same = { records: [], defaultTable: 'data', cursor: null, head: null };
+    let calls = 0;
+    const impl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') return { ok: true, json: async () => ({ ok: true }) } as unknown as Response;
+      calls += 1;
+      const n = calls;
+      // createSessionView fires poll 1 itself; poll 2 is the warm-up below. Poll 3 is
+      // slow — it answers AFTER poll 4 has already landed.
+      if (n === 3) await new Promise((r) => setTimeout(r, 25));
+      const cursor = n === 3 ? 'stale' : n === 4 ? 'newest' : null;
+      return { ok: true, json: async () => ({ ...same, cursor }) } as unknown as Response;
+    });
+    const view = createSessionView(pollingSource({ fetchImpl: impl as unknown as typeof fetch }), { refreshOnAction: false });
+    await view.refresh(); // poll 2 (warm-up; poll 1 was the constructor's own)
+    const slow = view.refresh(); // poll 3 (slow)
+    await view.refresh(); // poll 4 lands first
+    expect(view.getState().cursor).toBe('newest');
+    await slow; // poll 2 arrives late — ignored
+    expect(view.getState().cursor).toBe('newest');
+
+    // unchanged bytes ⇒ no notification
+    let notified = 0;
+    const off = view.subscribe(() => {
+      notified += 1;
+    });
+    await view.refresh(); // poll 5: cursor null — a change from 'newest' ⇒ notifies once
+    await view.refresh(); // poll 6: identical to poll 5 ⇒ skipped
+    expect(notified).toBe(1);
+    off();
+    view.dispose();
+  });
+});
+
+describe('P0 — a beat names its parent: the `at` position rides the wire when present', () => {
+  it('mapPollState carries `at` when the wire has it and omits it when it does not (older wires name themselves)', () => {
+    const raw = {
+      records: [],
+      defaultTable: 'data',
+      checkpoints: [
+        { label: 'named', commitId: 'b1', at: 'c1', ts: 1 },
+        { label: 'old-wire', commitId: 'b0', ts: 0 },
+      ],
+    } as unknown as Parameters<typeof mapPollState>[0];
+    const cps = mapPollState(raw).checkpoints;
+    expect(cps[0]).toEqual({ label: 'named', commitId: 'b1', at: 'c1', ts: 1 });
+    expect(cps[1]).toEqual({ label: 'old-wire', commitId: 'b0', ts: 0 });
   });
 });

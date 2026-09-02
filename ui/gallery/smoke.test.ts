@@ -61,7 +61,7 @@ import path from 'node:path';
 import { startGallery } from './serve.mjs';
 
 const CHROME =
-  '/Users/sanjay/Library/Caches/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-mac-arm64/chrome-headless-shell';
+  process.env['VZF_CHROME']; // unset ⇒ playwright-core launches the headless shell it installed for its own version
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SHOTS = path.join(__dirname, 'screenshots');
 
@@ -108,7 +108,7 @@ async function expectNoPageOrShellScroll(page: Page): Promise<void> {
   expect(m.shellScrollW, 'the cockpit shell must not scroll horizontally').toBeLessThanOrEqual(m.shellClientW);
 }
 
-describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headless Chromium)', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('vizfootprint-ui gallery smoke (real headless Chromium)', () => {
   let handle: Awaited<ReturnType<typeof startGallery>>;
   let browser: Browser;
   let page: Page;
@@ -118,7 +118,7 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
   beforeAll(async () => {
     mkdirSync(SHOTS, { recursive: true });
     handle = await startGallery({ port: 0 });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     // a CONSTRAINED desktop viewport on purpose — the no-scroll assertions depend on it
     page = await browser.newPage({ viewport: { width: 1180, height: 640 } });
     page.on('console', (m) => {
@@ -532,7 +532,11 @@ describe.skipIf(!existsSync(CHROME))('vizfootprint-ui gallery smoke (real headle
     await page.waitForSelector('[data-vzf="present"]');
     // the full commit timeline is GONE; only the named beats remain
     expect(await page.locator('[data-vzf="timeline"]').count()).toBe(0);
-    expect(await page.locator('[data-beat-dot]').count()).toBe(3); // 2 scripted checkpoints + the one named above
+    // Beats are ordered by the presented LINEAGE (the head's), keyed on the position
+    // each beat NAMES: 'opening brush' names #1, an ancestor of the fork the story
+    // is standing on, so it stays; 'first test' names a commit on the OTHER path,
+    // so it belongs to that path's tour; plus the one named above at the head.
+    expect(await page.locator('[data-beat-dot]').count()).toBe(2);
     // the current story-beat title shows
     expect(((await page.locator('.vzf-beat-title').textContent()) ?? '').length).toBeGreaterThan(0);
     // the shell dims + blocks the acting charts

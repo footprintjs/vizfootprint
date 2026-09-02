@@ -23,7 +23,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { CommitView, CheckpointView, BranchView } from '../adapter/types.js';
 import { stepBackTarget, stepForwardTarget, activePath, pathToRoot } from '../adapter/stepNav.js';
-import { orderedCheckpoints, currentBeatIndex } from './presentBeat.js';
+import { orderedCheckpoints, currentBeatIndex, beatTarget } from './presentBeat.js';
 import { CheckpointModal } from './CheckpointModal.js';
 
 export type TimeMode = 'explore' | 'present';
@@ -233,7 +233,7 @@ function PresentBody(p: PresentBodyProps): JSX.Element {
   const ordered = orderedCheckpoints(p.checkpoints, p.commits, tip);
   const idx = currentBeatIndex(p.checkpoints, p.commits, p.cursor, tip);
   if (ordered.length === 0) {
-    return <div className="vzf-present-empty">No story beats yet — name a checkpoint in Explore mode to build the guided tour.</div>;
+    return <div className="vzf-present-empty">No story beats on this lineage yet — name a checkpoint in Explore mode to build the guided tour.</div>;
   }
   const clamped = idx < 0 ? 0 : idx;
   const beat = ordered[clamped]!;
@@ -242,7 +242,7 @@ function PresentBody(p: PresentBodyProps): JSX.Element {
   // `ordered`) never ask for an index outside it — so a beat here always
   // names a commit.
   const go = (to: number): void => {
-    p.onSeek?.(ordered[to]!.commitId as string);
+    p.onSeek?.(beatTarget(ordered[to]!) as string);
   };
   return (
     <div data-vzf="present">

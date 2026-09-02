@@ -4,4 +4,4 @@ export { CheckpointModal } from './CheckpointModal.js';
 export type { CheckpointModalProps } from './CheckpointModal.js';
 export { BranchMap, undoBlockReason } from './BranchMap.js';
 export type { BranchMapProps } from './BranchMap.js';
-export { orderedCheckpoints, currentBeatIndex } from './presentBeat.js';
+export { orderedCheckpoints, currentBeatIndex, beatTarget } from './presentBeat.js';

@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { validateDashboardDef, dispatchVerbs } from './validate.js';
-import { DISPATCH_VERBS } from './types.js';
+import { DISPATCH_VERBS, MAGNITUDE_CHANNELS } from './types.js';
 
 /** A minimal valid def (one table `data`, one actor `v`) with overrides spliced on top. */
 function baseDef(overrides: Record<string, unknown> = {}): unknown {
@@ -395,6 +395,18 @@ describe('validateDashboardDef — absence (the declared silence vocabulary)', (
     );
   });
 
+  it('refuses every MAGNITUDE channel — size as much as x — and the list is one shared constant', () => {
+    const decl = { field: 'state', states: ['present', 'unknown'] };
+    expect(
+      validateDashboardDef(
+        withAbsence(decl, { encodings: [{ viewId: 'v', chartKind: 'point', channels: ['x', 'size'], initial: { x: 'n', size: 'state' } }] }),
+      ),
+    ).toContain(
+      'encodings[0].initial.size binds "state", a declared absence column, to a magnitude channel — absence is a category, never a magnitude',
+    );
+    expect([...MAGNITUDE_CHANNELS].sort()).toEqual(['r', 'radius', 'size', 'theta', 'x', 'y']);
+  });
+
   it('refuses binding the absence column to a numeric channel, and allows it on a categorical one', () => {
     const decl = { field: 'state', states: ['present', 'unknown'] };
     expect(
@@ -402,7 +414,7 @@ describe('validateDashboardDef — absence (the declared silence vocabulary)', (
         withAbsence(decl, { encodings: [{ viewId: 'v', chartKind: 'point', channels: ['x', 'y'], initial: { x: 'state', y: 'n' } }] }),
       ),
     ).toContain(
-      'encodings[0].initial.x binds "state", a declared absence column, to a numeric channel — absence is a category, never a magnitude',
+      'encodings[0].initial.x binds "state", a declared absence column, to a magnitude channel — absence is a category, never a magnitude',
     );
     expect(
       validateDashboardDef(

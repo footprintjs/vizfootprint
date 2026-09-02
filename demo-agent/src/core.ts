@@ -336,7 +336,7 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
         cursor: overview.time.cursor,
         head: overview.time.head,
         branches: session.branches().map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
-        checkpoints: session.checkpoints().map((c) => ({ label: c.label, commitId: c.commitId, ts: c.ts })),
+        checkpoints: session.checkpoints().map((c) => ({ label: c.label, commitId: c.commitId, at: c.at, ts: c.ts })),
         cursorTests: overview.time.cursorTests,
         viewingPast: overview.time.viewingPast,
         // TL-1: the adapter's documented /api/state extension — the hidden rows
