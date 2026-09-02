@@ -12,6 +12,7 @@
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import type { ColumnView, ViewEncoding } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
+import { fitTick, fitsBand } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { pointEmission, keyActivates } from '../primitives/pointSelect.js';
 import { selectedValue } from '../primitives/useSelection.js';
@@ -45,6 +46,12 @@ export interface VizBarProps {
 }
 
 const PAD = { l: 38, r: 14, t: 20, b: 48 };
+/** Extra bottom room when any tick has to slant (the plot gives it up). */
+const SLANT_PAD = 40;
+/** Bottom pixels kept for the axis label, beneath the ticks. */
+const AXIS_LABEL_ROOM = 24;
+/** The plot height a slant may never take the chart below. */
+const MIN_PLOT = 40;
 
 export function VizBar(props: VizBarProps): JSX.Element {
   const {
@@ -67,8 +74,14 @@ export function VizBar(props: VizBarProps): JSX.Element {
   const { pickerChannel, openPicker, closePicker } = useReencodePicker(onReencodeRequest);
 
   const max = Math.max(1, ...data.map((d) => d.count));
-  const plot = height - PAD.t - PAD.b;
   const band = (width - PAD.l - PAD.r) / Math.max(1, data.length);
+  // ticks: flat when they fit their band; slanted (and the plot shorter) when any does not
+  // (a short chart cannot give the slant its full room — the plot keeps MIN_PLOT and the ticks clip harder)
+  const slanted = data.some((d) => fitTick(d.category, band, 0).rotate);
+  const padB = slanted ? Math.min(PAD.b + SLANT_PAD, Math.max(PAD.b, height - PAD.t - MIN_PLOT)) : PAD.b;
+  const tickRoom = Math.max(0, padB - 12 - AXIS_LABEL_ROOM);
+  const plot = Math.max(0, height - PAD.t - padB);
+  const axisY = height - padB;
 
   const emit = (category: string): void => {
     onEmit?.(pointEmission(field, category));
@@ -82,12 +95,14 @@ export function VizBar(props: VizBarProps): JSX.Element {
         role="img"
         aria-label={`count by ${label}`}
       >
-        <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />
+        <line className="vzf-axis" x1={PAD.l} y1={axisY} x2={width - PAD.r} y2={axisY} />
         {data.map((d, i) => {
           const cx = PAD.l + band * i;
           const h = (d.count / max) * plot;
-          const barY = height - PAD.b - h;
+          const barY = axisY - h;
           const isSel = selected === d.category;
+          const tick = fitTick(d.category, band, tickRoom);
+          const tx = cx + band / 2;
           return (
             <g key={d.category}>
               <rect
@@ -108,12 +123,21 @@ export function VizBar(props: VizBarProps): JSX.Element {
               >
                 <title>{`click to select ${d.category}`}</title>
               </rect>
-              <text className="vzf-barval" x={cx + band / 2} y={barY - 5} textAnchor="middle">
-                {d.count}
-              </text>
-              <text className="vzf-tick" x={cx + band / 2} y={height - PAD.b + 16} textAnchor="middle">
-                {d.category}
-              </text>
+              {fitsBand(String(d.count), band) ? (
+                <text className="vzf-barval" x={tx} y={barY - 5} textAnchor="middle">
+                  {d.count}
+                </text>
+              ) : null}
+              {tick.rotate ? (
+                <text className="vzf-tick" x={tx} y={axisY + 12} textAnchor="end" transform={`rotate(-40 ${String(tx)} ${String(axisY + 12)})`}>
+                  {tick.clipped ? <title>{d.category}</title> : null}
+                  {tick.text}
+                </text>
+              ) : (
+                <text className="vzf-tick" x={tx} y={axisY + 16} textAnchor="middle">
+                  {d.category}
+                </text>
+              )}
             </g>
           );
         })}
