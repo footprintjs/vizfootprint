@@ -56,7 +56,7 @@ import type {
 } from '../def/types.js';
 import { describeRules, fitsFor, refuses, validateBindings } from '../encoding/index.js';
 import { ENCODING_KIND, edgesInto } from '../links/index.js';
-import { PROPOSAL_LANE, PROSE_SLOTS, fillProse, PROSE_SENTENCES, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
+import { DASHBOARD_PROSE_ID, PROPOSAL_LANE, PROSE_SLOTS, fillProse, PROSE_SENTENCES, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
 import type { ProseProposal, ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
 import type { LinkGraph } from '../links/index.js';
 import type { Bindings, EncodingProblem, Fit } from '../encoding/index.js';
@@ -147,6 +147,8 @@ const ANALYSIS_FIELD = '__analysis__';
 const ANNOTATION_FIELD = '__annotation__';
 /** The field a beat commit carries its label under (inert in the fold; reserved from probes like the others). */
 const BEAT_FIELD = '__beat__';
+/** The dashboard subject's registry meta: its words are the system's, its label the cockpit's. */
+const DASHBOARD_ACTOR_META = { actor: 'system', label: 'the dashboard' } as const;
 /** RP-3: the field an agent-authored chart's spec-registration commit lands under. */
 const CHART_FIELD = '__chart__';
 
@@ -1681,7 +1683,7 @@ class InteractionSessionImpl implements InteractionSession {
 
   /** The guards a propose / accept / decline share: a declared view and a real slot. */
   private proseGuards(viewId: string, slot: ProseSlot, op: 'describe'): GapRow | null {
-    if (!this.runtime.views.has(viewId)) return this.gapLedger.file('needs-view', op, `no declared view "${viewId}"`, viewId);
+    if (viewId !== DASHBOARD_PROSE_ID && !this.runtime.views.has(viewId)) return this.gapLedger.file('needs-view', op, `no declared view "${viewId}"`, viewId);
     if (!(PROSE_SLOTS as readonly string[]).includes(slot)) return this.gapLedger.file('guard-failed', op, `"${String(slot)}" is not a prose slot — the slots are ${PROSE_SLOTS.join(', ')}`, String(slot));
     return null;
   }
@@ -1706,7 +1708,7 @@ class InteractionSessionImpl implements InteractionSession {
       parent: this._cursor,
       ...(correlationId !== undefined ? { correlationId } : {}),
       viewId: `${PROSE_VIEW_PREFIX}${viewId}`,
-      actorMeta: this.runtime.views.get(viewId)!.meta,
+      actorMeta: this.runtime.views.get(viewId)?.meta ?? DASHBOARD_ACTOR_META,
       kind: 'point',
       field,
       value,
@@ -1780,16 +1782,22 @@ class InteractionSessionImpl implements InteractionSession {
   private proseOf(viewId: string, facets: readonly ColumnFacet[]): ProseStatus[] {
     const slots = this.activeProse.get(viewId);
     if (slots === undefined || slots.size === 0) return [];
-    const view = this.runtime.views.get(viewId)!;
-    const effective = view.encoding !== undefined ? this.effectiveEncodings(facets).get(viewId)!.bindings : this.viewEncodings(viewId);
+    const view = this.runtime.views.get(viewId); // undefined for the dashboard subject — it binds nothing and has no surface
     const now = {
-      encodings: effective,
+      encodings: this.proseEncodingsNow(viewId, facets),
       filters: this.filtersNow(),
       columns: new Set(facets.map((f) => f.field)),
       analyses: new Set(this.runtime.analyses.keys()),
-      ...(view.encoding !== undefined ? { surface: view.encoding } : {}),
+      ...(view?.encoding !== undefined ? { surface: view.encoding } : {}),
     };
     return PROSE_SLOTS.filter((slot) => slots.has(slot)).map((slot) => proseStatus(slot, slots.get(slot)!, now));
+  }
+
+  /** What a prose subject SHOWS at the cursor: a surfaced view's effective bindings, an unsurfaced view's own, the dashboard's nothing. */
+  private proseEncodingsNow(viewId: string, facets: readonly ColumnFacet[]): Readonly<Record<string, string>> {
+    const view = this.runtime.views.get(viewId);
+    if (view === undefined) return {}; // the dashboard subject (proseGuards admits no other unknown id)
+    return view.encoding !== undefined ? this.effectiveEncodings(facets).get(viewId)!.bindings : this.viewEncodings(viewId);
   }
 
   /**
@@ -1816,9 +1824,7 @@ class InteractionSessionImpl implements InteractionSession {
     if (record !== null && record.author.kind === 'humanEdited' && record.basis !== undefined) {
       // a person edited an agent's words looking at THIS screen: the basis keeps the keys the agent stated,
       // re-stamped to what is on screen now — so the edit is judged fresh, and goes stale on its own terms
-      const view = this.runtime.views.get(viewId)!; // proseGuards refused an unknown view above
-      const facets = this.runtime.encoding.facetsOf(this.defaultTable, cols);
-      const effective = view.encoding !== undefined ? this.effectiveEncodings(facets).get(viewId)!.bindings : this.viewEncodings(viewId);
+      const effective = this.proseEncodingsNow(viewId, this.runtime.encoding.facetsOf(this.defaultTable, cols));
       const { editedFrom: prior, ...stated } = record.basis; // the agent's ORIGINAL evidence survives every edit, kept once — never nested
       record = {
         ...record,
@@ -2644,7 +2650,11 @@ class InteractionSessionImpl implements InteractionSession {
       rules: describeRules(this.runtime.encoding.rules),
       encodingPolicy,
       views,
+      // the prose plane's one non-view subject: the cockpit's own words (its caption = the summary of what it shows now)
+      dashboard: { prose: this.proseOf(DASHBOARD_PROSE_ID, columns[this.defaultTable] ?? []), proposals: this.proposalsOf(DASHBOARD_PROSE_ID) },
       activeSelections,
+      // the live selections in the shape a prose basis states them (`basis.filters`) — an agent copies this verbatim
+      filters: this.filtersNow(),
       clearedSelections,
       offers,
       sources: this.runtime.sources,

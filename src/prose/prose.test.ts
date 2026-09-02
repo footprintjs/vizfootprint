@@ -54,7 +54,7 @@ describe('validateProseDecls (the def door)', () => {
     expect(problems).toEqual([
       'prose, if present, must be an array of { viewId, slots }',
       'prose[0] must be { viewId, slots: { title?, caption?, altShort?, altLong?, howToRead? } }',
-      'prose[1].viewId "ghost" is not a declared view',
+      'prose[1].viewId "ghost" is not a declared view (or "dashboard", the cockpit itself)',
       'prose[2].poem: "poem" is not a prose slot — the slots are title, caption, altShort, altLong, howToRead',
       'prose[3] repeats view "map" — one prose entry per view',
     ]);
@@ -140,5 +140,41 @@ describe('the model\'s permission follows the kind of claim', () => {
     expect(validateProseRecord('m', 'caption', trend, { mode: 'proposal' })).toEqual([]);
     expect(validateProseRecord('m', 'caption', trend)).toEqual([]);
     expect(validateProseRecord('m', 'caption', { ...trend, levels: ['statistic'] }, { mode: 'set' })).toEqual([]);
+  });
+});
+
+describe('the dashboard subject (viewId "dashboard" — the cockpit itself)', () => {
+  it('the def door admits it without a declared view; nothing of it can be derived; its basis never states encodings', () => {
+    const problems: string[] = [];
+    validateProseDecls([{ viewId: 'dashboard', slots: { caption: { text: 'Cases by state, this week.', author: { kind: 'human' } } } }], new Set(['map']), problems, { surfaced: new Set(['map']) });
+    expect(problems).toEqual([]);
+    const derived = validateProseRecord('dashboard', 'howToRead', { author: { kind: 'derived' } }, { surfaced: new Set(['map']) });
+    expect(derived.map((p) => [p.rule, p.sentence])).toEqual([['dashboard-derived', "the dashboard's howToRead cannot be derived — the dashboard binds nothing; write the words"]]);
+    const bound = validateProseRecord('dashboard', 'caption', { text: 'x', author: { kind: 'agent' }, basis: { encodings: { x: 'price' }, filters: {} } });
+    expect(bound.map((p) => p.rule)).toEqual(['dashboard-encodings']);
+    expect(bound[0]!.sentence).toBe("the dashboard's caption states encodings in its basis, but the dashboard binds nothing — state filters, columns or an analysis instead");
+    expect(validateProseRecord('dashboard', 'caption', { text: 'x', author: { kind: 'agent' }, basis: { filters: {}, columns: ['cases'] } }, { columns: new Set(['cases']) })).toEqual([]);
+    // a view keeps its own sentence for a derived slot without a surface
+    expect(validateProseRecord('table', 'howToRead', { author: { kind: 'derived' } }, { surfaced: new Set(['map']) }).map((p) => p.rule)).toEqual(['derived-surface']);
+  });
+});
+
+describe('basis.filters shape', () => {
+  it('refuses a list — a basis is judged by byte-equality against the live filters, an object keyed by view', () => {
+    const list = validateProseRecord('map', 'caption', { text: 'x', author: { kind: 'agent' }, basis: { filters: [] } });
+    expect(list.map((p) => p.sentence)).toEqual(['"map".caption.basis.filters must be a record keyed by view (the live selections as a basis states them — copy whats_here.filters; {} for none), never a list']);
+    expect(validateProseRecord('map', 'caption', { text: 'x', author: { kind: 'agent' }, basis: { filters: {} } })).toEqual([]);
+    expect(validateProseRecord('map', 'caption', { text: 'x', author: { kind: 'agent' }, basis: { filters: 'none' } })).toHaveLength(1);
+  });
+});
+
+describe('an empty clause is no clause', () => {
+  it('a basis that lists a view with an empty clause matches a world with no selection there; a real clause still goes stale', () => {
+    const now = { encodings: {}, filters: {}, columns: new Set<string>(), analyses: new Set<string>() };
+    const rec = (filters: Record<string, unknown>): ProseRecord => ({ text: 'x', author: { kind: 'agent' }, basis: { filters } });
+    expect(proseStatus('caption', rec({ map: {}, table: {} }), now).status).toBe('current');
+    expect(proseStatus('caption', rec({ map: { field: 'state', kind: 'point', value: 'TX' } }), now).changed).toEqual(['filters']);
+    const selected = { ...now, filters: { map: { field: 'state', kind: 'point', value: 'TX' }, table: {} } };
+    expect(proseStatus('caption', rec({ map: { field: 'state', kind: 'point', value: 'TX' } }), selected).status).toBe('current');
   });
 });

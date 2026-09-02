@@ -798,3 +798,30 @@ describe('layer 4 — a link commit on the wire wears the label link', () => {
   });
 });
 
+
+describe('the dashboard words (overview.dashboard)', () => {
+  it('rides the state as `dashboard` with the same two mappers a view uses; absent or malformed wires yield nothing invented', () => {
+    const prose = [{ slot: 'caption', text: 'Formal items only.', status: 'stale', changed: ['filters'], record: { author: { kind: 'agent', model: 'm' }, levels: ['statistic'], basis: { filters: {} } }, refs: [] }];
+    const proposals = [{ slot: 'caption', proposal: 'p1', status: 'open', by: 'agent', record: { text: 'draft', author: { kind: 'agent' } } }];
+    const state = mapPollState({ ...RAW, dashboard: { prose, proposals } });
+    expect(state.dashboard?.prose.map((p) => [p.slot, p.status, p.text, p.changed])).toEqual([['caption', 'stale', 'Formal items only.', ['filters']]]);
+    expect(state.dashboard?.proposals.map((p) => [p.slot, p.proposal, p.status])).toEqual([['caption', 'p1', 'open']]);
+    expect(mapPollState(RAW).dashboard).toBeUndefined();
+    expect(mapPollState({ ...RAW, dashboard: 'nope' }).dashboard).toEqual({ prose: [], proposals: [] });
+    expect(mapPollState({ ...RAW, dashboard: { prose: 'x' } }).dashboard).toEqual({ prose: [], proposals: [] });
+  });
+});
+
+describe('prose commit labels', () => {
+  it('a describe commit is "describe view.slot"; a proposal-lane commit is "propose view.slot"', () => {
+    const state = mapPollState({
+      ...RAW,
+      records: [
+        ...RAW.records,
+        { id: '4', parent: '3', viewId: 'prose:dashboard', kind: 'point', field: 'caption', value: { text: 'x', author: { kind: 'human' } } },
+        { id: '5', parent: '4', viewId: 'prose:map', kind: 'point', field: 'caption:proposal', value: { text: 'y', author: { kind: 'agent' } } },
+      ],
+    });
+    expect(state.commits.slice(-2).map((c) => c.label)).toEqual(['describe dashboard.caption', 'propose map.caption']);
+  });
+});

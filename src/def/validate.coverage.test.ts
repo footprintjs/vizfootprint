@@ -106,6 +106,12 @@ describe('validateDashboardDef — actors shape', () => {
     expect(problems[0]).toContain('silently skipped when a path is adopted');
   });
 
+  it('the exact id "dashboard" is the prose plane\'s subject for the cockpit itself — a view may not take it', () => {
+    const problems = validateDashboardDef(baseDef({ actors: { dashboard: { actor: 'user' } } }));
+    expect(problems).toEqual(['actors["dashboard"]: "dashboard" is the prose plane\'s name for the cockpit itself (describe with viewId "dashboard" sets the dashboard\'s own words) — a view may not take it']);
+    expect(validateDashboardDef(baseDef({ actors: { dashboards: { actor: 'user' } } }))).toEqual([]); // only the exact id is taken
+  });
+
   it('DRIFT PIN: every *_VIEW_PREFIX the branches layer exports is reserved at the def boundary (a new namespace cannot be forgotten)', async () => {
     const branches = (await import('../branches/index.js')) as Record<string, unknown>;
     const prefixes = Object.entries(branches).filter(([name, v]) => name.endsWith('_VIEW_PREFIX') && typeof v === 'string') as [string, string][];

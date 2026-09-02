@@ -28,6 +28,11 @@
       "types": "./types/editor.d.ts",
       "import": "./dist/editor.js",
       "default": "./dist/editor.js"
+    },
+    "./story": {
+      "types": "./types/story.d.ts",
+      "import": "./dist/story.js",
+      "default": "./dist/story.js"
     }
   },
   "files": [

@@ -692,7 +692,20 @@ export type { ColumnFacet } from '../data/types.js';
 export interface Overview {
   readonly defaultTable: string;
   readonly views: readonly ViewInfo[];
+  /**
+   * The prose plane's one non-view subject: the DASHBOARD's own words at the
+   * cursor (`describe` with viewId `'dashboard'`) — its `caption` is the
+   * summary of what the whole cockpit shows now, judged stale on its basis
+   * like any view's slot; `proposals` = the drafts on the table for it.
+   */
+  readonly dashboard: { readonly prose: readonly ProseStatus[]; readonly proposals: readonly ProposalStatus[] };
   readonly activeSelections: readonly SelectionInfo[];
+  /**
+   * The live selections in the SHAPE a prose basis states them: viewId → clause, `{}` for none — byte-equal to what
+   * `basis.filters` is judged against, so an agent copies it verbatim into a record (`activeSelections` is the same
+   * fact as a list, for reading).
+   */
+  readonly filters: Readonly<Record<string, unknown>>;
   /** Layer 4 `onClear`: views whose selection was cleared and what it was, so an edge that says `leave` or `excludeAll` can act. */
   readonly clearedSelections: readonly ClearedSelectionInfo[];
   /** Layer 4 offers: every (view, kind) of the dashboard, each stamped with the current position — the id a select/filter may name (a stale one is refused by naming the current one). */

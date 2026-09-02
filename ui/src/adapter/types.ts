@@ -105,6 +105,12 @@ export interface ProseStatusView {
 }
 
 /** A proposal as the wire serves it (src/prose `ProposalStatus`). */
+/** The dashboard's own words (`describe` with viewId `'dashboard'`): the same slots a view carries, judged the same way. */
+export interface DashboardWordsView {
+  readonly prose: readonly ProseStatusView[];
+  readonly proposals: readonly ProposalView[];
+}
+
 export interface ProposalView {
   readonly slot: ProseStatusView['slot'];
   /** The proposing commit's id — what accept and decline name. */
@@ -472,6 +478,8 @@ export interface SessionViewState {
   readonly saved?: readonly SavedSelectionView[];
   /** Provenance per table: what each declared source vouched for (version, retrieval time, rows). Absent = an older server, or no declared source. */
   readonly sources?: Readonly<Record<string, SourceInfoView>>;
+  /** The prose plane's one non-view subject: the dashboard's own words at the cursor (its caption = the summary), with the proposals on the table for them. Absent on an older wire. */
+  readonly dashboard?: DashboardWordsView;
   readonly commits: readonly CommitView[];
   readonly branches: readonly BranchView[];
   /** The NAMED paths surface (BR-1): current/detached, list, journal. */

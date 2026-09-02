@@ -5,7 +5,7 @@
  * words state a basis; an agent never states a cause; a basis names only
  * columns on the branch and analyses that are declared.
  */
-import { AUTHOR_KINDS, CLAIM_LEVELS, PROSE_SLOTS } from './types.js';
+import { AUTHOR_KINDS, CLAIM_LEVELS, DASHBOARD_PROSE_ID, PROSE_SLOTS } from './types.js';
 import type { ProseProblem, ProseRecord, ProseSlot } from './types.js';
 import { PROSE_SENTENCES, fillProse } from './sentences.js';
 
@@ -57,12 +57,17 @@ export function validateProseRecord(viewId: string, slot: string, raw: unknown, 
   if (r.basis !== undefined && !isObject(r.basis)) at('basis', PROSE_SENTENCES.basis);
   const basis = isObject(r.basis) ? r.basis : undefined;
   if (basis?.columns !== undefined && !(Array.isArray(basis.columns) && basis.columns.every((c) => typeof c === 'string'))) at('basis', PROSE_SENTENCES.basisColumns);
+  // a basis is judged by byte-equality against the live filters (an object keyed by view): a list can never match, so it is refused here, not left to go stale
+  if (basis?.filters !== undefined && !isObject(basis.filters)) at('basis', PROSE_SENTENCES.basisFilters);
   // the laws
   if (kind === 'agent' && basis === undefined) at('agent-basis', PROSE_SENTENCES.agentBasis);
   if (kind === 'agent' && Array.isArray(levels) && levels.includes('causal')) at('agent-causal', PROSE_SENTENCES.agentCausal);
   // the model's permission follows the kind of claim: a perceived trend is proposed, never stated
   if (kind === 'agent' && world.mode === 'set' && Array.isArray(levels) && levels.includes('trend')) at('agent-trend', PROSE_SENTENCES.agentTrend);
-  if (kind === 'derived' && world.surfaced !== undefined && !world.surfaced.has(viewId)) at('derived-surface', PROSE_SENTENCES.derivedSurface);
+  // the dashboard subject: nothing to derive from, nothing bound — judged before the surface rule so the sentence names the reason
+  if (viewId === DASHBOARD_PROSE_ID && kind === 'derived') at('dashboard-derived', PROSE_SENTENCES.dashboardDerived);
+  else if (kind === 'derived' && world.surfaced !== undefined && !world.surfaced.has(viewId)) at('derived-surface', PROSE_SENTENCES.derivedSurface);
+  if (viewId === DASHBOARD_PROSE_ID && basis?.encodings !== undefined) at('dashboard-encodings', PROSE_SENTENCES.dashboardEncodings);
   if (basis !== undefined && Array.isArray(basis.columns) && world.columns !== undefined) {
     for (const column of basis.columns as unknown[]) {
       if (typeof column === 'string' && !world.columns.has(column)) at('basis-column', PROSE_SENTENCES.basisColumn, { column });
@@ -106,7 +111,7 @@ export function validateProseDecls(raw: unknown, views: ReadonlySet<string>, pro
       problems.push(`prose[${index}] must be { viewId, slots: { title?, caption?, altShort?, altLong?, howToRead? } }`);
       return;
     }
-    if (!views.has(entry.viewId)) problems.push(fillProse(PROSE_SENTENCES.view, { index: String(index), view: entry.viewId }));
+    if (!views.has(entry.viewId) && entry.viewId !== DASHBOARD_PROSE_ID) problems.push(fillProse(PROSE_SENTENCES.view, { index: String(index), view: entry.viewId }));
     if (seen.has(entry.viewId)) problems.push(fillProse(PROSE_SENTENCES.repeat, { index: String(index), view: entry.viewId }));
     seen.add(entry.viewId);
     for (const [slot, record] of Object.entries(entry.slots)) {

@@ -21,6 +21,7 @@
 import type { Actor } from '../../../src/cause/index.js';
 import type { CommitRecord } from '../../../src/log/index.js';
 import { familyOf } from '../../../src/branches/fold.js';
+import { PROPOSAL_LANE } from '../../../src/prose/index.js';
 import type {
   Overview,
   GapRow,
@@ -61,7 +62,7 @@ import {
   type ChartCellView,
   type LayoutChange,
   type LayoutView,
-  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView, type ProposalView, type SavedSelectionView, type SourceInfoView, type LayoutPreset } from './types.js';
+  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView, type ProposalView, type SavedSelectionView, type SourceInfoView, type DashboardWordsView, type LayoutPreset } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
 import type { NavigateViewState } from '../contract/types.js';
@@ -141,6 +142,8 @@ export interface RawPollState {
   readonly clearedSelections?: readonly unknown[];
   /** Provenance per table (what each declared source vouched for). */
   readonly sources?: unknown;
+  /** The dashboard's own words (`overview.dashboard`), if the wire carries them. */
+  readonly dashboard?: unknown;
   readonly analyses?: readonly unknown[];
   readonly fdr?: unknown;
   readonly columns?: Readonly<Record<string, readonly { field: string; type: string }[]>>;
@@ -291,7 +294,11 @@ interface RawCommit {
 
 /** A short, safe label for a chip/dot — never a raw value dump. */
 function commitLabel(field: string, viewId: string): string {
-  if (viewId.startsWith('prose:')) return `describe ${viewId.slice('prose:'.length)}.${field}`; // the prose plane: a view's words
+  if (viewId.startsWith('prose:')) {
+    // the prose plane: a view's words — a proposal-lane commit (field `<slot>:proposal`) is a PROPOSAL, not the words
+    const subject = viewId.slice('prose:'.length);
+    return field.endsWith(PROPOSAL_LANE) ? `propose ${subject}.${field.slice(0, -PROPOSAL_LANE.length)}` : `describe ${subject}.${field}`;
+  }
   // encoding plane: a binding SET (a swap) lands as one commit whose field is the `*` marker
   if (viewId.startsWith('encoding:') && field === '*') return `reencode ${viewId.slice('encoding:'.length)} (several channels)`;
   if (viewId.startsWith('layout:')) return 'layout'; // LY-1: an arrangement note ('preset'/'order'/'focus' rides field)
@@ -314,6 +321,7 @@ interface StatePieces {
   selections: SelectionView[];
   cleared: readonly ClearedSelectionView[];
   sources?: Readonly<Record<string, SourceInfoView>>;
+  dashboard?: DashboardWordsView;
   branches: BranchView[];
   paths: PathsView;
   checkpoints: CheckpointView[];
@@ -373,6 +381,7 @@ function finalize(p: StatePieces): SessionViewState {
     selections: p.selections,
     cleared: p.cleared,
     ...(p.sources !== undefined ? { sources: p.sources } : {}),
+    ...(p.dashboard !== undefined ? { dashboard: p.dashboard } : {}),
     commits,
     saved: savedSelectionsOf(commits),
     branches: p.branches,
@@ -492,6 +501,12 @@ function mapProse(raw: unknown): readonly ProseStatusView[] {
   });
 }
 /** The proposals on the table, as the wire serves them; anything malformed is dropped. */
+/** The dashboard's own words: the same two lists a view carries, mapped by the same two mappers; a malformed wire yields empty lists, never invented words. */
+function mapDashboard(raw: unknown): DashboardWordsView {
+  const o = typeof raw === 'object' && raw !== null ? (raw as { prose?: unknown; proposals?: unknown }) : {};
+  return { prose: mapProse(o.prose), proposals: mapProposals(o.proposals) };
+}
+
 function mapProposals(raw: unknown): ProposalView[] {
   if (!Array.isArray(raw)) return [];
   const SLOTS = ['title', 'caption', 'altShort', 'altLong', 'howToRead'];
@@ -790,6 +805,7 @@ async function mapSession(session: SessionLike, defaultLayout?: LayoutPreset): P
     defaultTable: overview.defaultTable,
     rawCommits,
     views,
+    ...(overview.dashboard !== undefined ? { dashboard: mapDashboard(overview.dashboard) } : {}),
     encodings: overview.encodings ?? encodingsFromViews(views),
     columns: mapColumns(overview.columns),
     selections: mapSelections(overview.activeSelections),
@@ -842,6 +858,7 @@ export function mapPollState(raw: RawPollState, defaultLayout?: LayoutPreset): S
     defaultTable: raw.defaultTable ?? 'data',
     rawCommits,
     views,
+    ...(raw.dashboard !== undefined ? { dashboard: mapDashboard(raw.dashboard) } : {}),
     encodings: raw.encodings ?? encodingsFromViews(views),
     columns: mapColumns(raw.columns),
     selections: mapSelections(raw.activeSelections),

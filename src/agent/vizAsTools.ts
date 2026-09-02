@@ -88,7 +88,7 @@ const DISPATCH_DESCRIPTION =
   '`bindings` to rebind several channels in ONE act — a swap of the axes is one commit, never two), describe (the prose plane: ' +
   'set one of a view\'s words — title, caption, altShort, altLong, howToRead — as a record with you as author and a basis, or ' +
   'PROPOSE it with proposal: true for a person to accept; read views[].prose for every slot and its staleness, views[].proposals ' +
-  'for what is on the table). This is ' +
+  'for what is on the table — and dashboard.prose / dashboard.proposals for the cockpit\'s own words, set with viewId "dashboard"). This is ' +
   'link (layer 4: edit ONE edge of the link graph — what target does with source\'s kind emission: response ' +
   'filter | highlight | navigate | mirror | none, or null to fall back to the def\'s rule; with kind "encoding" the target ' +
   'FOLLOWS the source\'s channel bindings (response follow | none) — read views[].effective to see what a view shows and which edge it follows; read the graph in ' +
@@ -161,7 +161,8 @@ const DISPATCH_SCHEMA = {
       type: 'string',
       description:
         'The view identity a select/filter/navigate/reencode targets. For navigate, also accepts the ' +
-        '"layout:<scope>" identity (e.g. "layout:dashboard") to rearrange the cockpit layout.',
+        '"layout:<scope>" identity (e.g. "layout:dashboard") to rearrange the cockpit layout. For describe, also accepts ' +
+        '"dashboard" — the cockpit itself: its caption is the summary of what the whole dashboard shows now (basis: filters/columns/analysisId, never encodings).',
     },
     field: {
       type: 'string',
@@ -228,7 +229,7 @@ const DISPATCH_SCHEMA = {
       type: 'object',
       description:
         'describe only: the words as a RECORD — { text, author: { kind: "agent", model? }, levels?: ["construction"|"statistic"|"trend"], basis?: { encodings?, filters?, columns?, analysisId? } }. ' +
-        'An agent MUST state a basis (what the words were written against) and may never claim a cause. Omit `record` (or pass null) to go back to the def\'s own words.',
+        'An agent MUST state a basis (what the words were written against) and may never claim a cause. basis.filters is an OBJECT keyed by view — copy whats_here.filters verbatim ({} when nothing is selected; an empty clause for a view means no selection there; a list is refused); basis.encodings copies whats_here.effectiveEncodings[viewId] (never for "dashboard"). Omit `record` (or pass null) to go back to the def\'s own words.',
     },
     proposal: { type: 'boolean', description: 'describe only: PROPOSE the record for a person to accept instead of stating it (lands in the slot\'s proposal lane, never as the live words). A trend you perceive must be proposed; a statistic may be stated with a basis.' },
     bindings: {

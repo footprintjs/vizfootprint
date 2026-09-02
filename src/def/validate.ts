@@ -26,7 +26,7 @@ import { ABSENCE_UNKNOWN, DISPATCH_VERBS, type DispatchVerb } from './types.js';
 import { lintEncodings, resolveFacets, validateColumnDecls, validateEncodingRulesShape } from '../encoding/index.js';
 import type { EncodingRules, EncodingSurface, FacetSource } from '../encoding/index.js';
 import type { ColumnInfo } from '../data/index.js';
-import { validateProseDecls } from '../prose/index.js';
+import { DASHBOARD_PROSE_ID, validateProseDecls } from '../prose/index.js';
 import { SOURCE_FORMATS, SOURCE_VIAS } from '../source/index.js';
 import type { SourceRefusalReason } from '../source/index.js';
 
@@ -334,6 +334,11 @@ export function validateDashboardDef(def: unknown): string[] {
     problems.push('actors must be an object mapping viewId -> { actor, label? }');
   } else {
     for (const [viewId, meta] of Object.entries(def.actors)) {
+      // the prose plane's one non-view subject: a view named exactly `dashboard` would collide with the cockpit's own words
+      if (viewId === DASHBOARD_PROSE_ID) {
+        problems.push(`actors["${viewId}"]: "${DASHBOARD_PROSE_ID}" is the prose plane's name for the cockpit itself (describe with viewId "dashboard" sets the dashboard's own words) — a view may not take it`);
+        continue;
+      }
       const reserved = reservedPrefix(viewId);
       if (reserved !== undefined) {
         problems.push(

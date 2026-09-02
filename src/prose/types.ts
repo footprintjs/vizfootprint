@@ -9,6 +9,16 @@
 
 /** The slots a view may carry, each with its own job. */
 export const PROSE_SLOTS = ['title', 'caption', 'altShort', 'altLong', 'howToRead'] as const;
+
+/**
+ * The one prose subject that is not a view: the DASHBOARD itself. `describe`
+ * with this id sets the words for the whole cockpit — its `title`, its
+ * `caption` (the summary of what the dashboard shows now), its `howToRead`.
+ * It binds nothing, so a basis states filters, columns or an analysis, never
+ * encodings; and no slot of it can be derived — there is no surface to derive
+ * from. Declared in the def like any view's prose: `{ viewId: 'dashboard', slots }`.
+ */
+export const DASHBOARD_PROSE_ID = 'dashboard';
 export type ProseSlot = (typeof PROSE_SLOTS)[number];
 
 /**

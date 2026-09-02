@@ -79,6 +79,15 @@ await esbuild.build({
   external: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
 });
 
+// the story bridge (a session's beats as a storydeck post) as its own entry point — pure data, no React; an app that never tells a story never bundles it
+await esbuild.build({
+  ...base,
+  entryPoints: ['src/story/index.ts'],
+  format: 'esm',
+  outfile: 'dist/story.js',
+  external: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+});
+
 await esbuild.build({
   ...base,
   entryPoints: ['src/index.ts'],
@@ -95,5 +104,6 @@ execFileSync('tsc', ['-p', 'tsconfig.build.json'], { stdio: 'inherit', shell: pr
 writeFileSync('types/index.d.ts', "export * from './ui/src/index.js';\n");
 writeFileSync('types/links.d.ts', "export * from './ui/src/links/index.js';\n");
 writeFileSync('types/editor.d.ts', "export * from './ui/src/editor/index.js';\n");
+writeFileSync('types/story.d.ts', "export * from './ui/src/story/index.js';\n");
 
 console.log('✓ built dist/ + types/');

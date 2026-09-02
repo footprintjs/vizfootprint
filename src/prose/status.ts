@@ -27,6 +27,12 @@ function canon(v: unknown): unknown {
 }
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 
+const isEmptyClause = (v: unknown): boolean => typeof v === 'object' && v !== null && !Array.isArray(v) && Object.keys(v as object).length === 0;
+/** A filters map with its empty clauses dropped: `{ map: {} }` says the same thing as `{}` — no selection on the map — so the two must compare equal. */
+function liveClauses(filters: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  return Object.fromEntries(Object.entries(filters).filter(([, v]) => !isEmptyClause(v)));
+}
+
 export function proseStatus(slot: ProseSlot, record: ProseRecord, now: ProseWorldNow): ProseStatus {
   if (record.author.kind === 'derived') {
     return { slot, record, status: 'derived', changed: [], text: constructionLine(now.surface, now.encodings), refs: [] };
@@ -38,7 +44,7 @@ export function proseStatus(slot: ProseSlot, record: ProseRecord, now: ProseWorl
     // a basis that states `filters` was written under exactly those selections: in a crossfiltered dashboard every
     // selection moves the data under every chart, so the whole live set must match. Omit `filters` for words that
     // do not depend on selections at all.
-    if (b.filters !== undefined && !same(b.filters, now.filters)) changed.push('filters');
+    if (b.filters !== undefined && !same(liveClauses(b.filters), liveClauses(now.filters))) changed.push('filters');
     if (b.columns !== undefined && b.columns.some((c) => !now.columns.has(c))) changed.push('columns');
     if (b.analysisId !== undefined && !now.analyses.has(b.analysisId)) changed.push('analysis');
   }

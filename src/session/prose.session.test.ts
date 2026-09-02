@@ -29,7 +29,7 @@ describe('the def door and the lint door', () => {
     const bad: DashboardDef = { ...makeDashboardDef(), prose: [{ viewId: 'scatter', slots: { caption: { text: 'because', author: { kind: 'agent' } } } }, { viewId: 'ghost', slots: {} }, { viewId: 'cluster', slots: { howToRead: { author: { kind: 'derived' } } } }] };
     expect(validateDashboardDef(bad)).toEqual([
       'prose[0].caption: "scatter".caption was written by an agent and states no basis — without one, a model\'s words are indistinguishable from stated fact',
-      'prose[1].viewId "ghost" is not a declared view',
+      'prose[1].viewId "ghost" is not a declared view (or "dashboard", the cockpit itself)',
       'prose[2].howToRead: "cluster".howToRead is derived, but "cluster" declares no encoding surface — there is nothing to derive from',
     ]);
     expect(() => buildDashboard(bad)).toThrow(/states no basis/);
