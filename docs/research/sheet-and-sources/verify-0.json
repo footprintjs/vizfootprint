@@ -1,0 +1,103 @@
+{
+ "verdicts": [
+  {
+   "claim": "1. A closed op tree with two owners per op can express the derived columns analysts reach for, so v1 needs no expression-string or code escape hatch.",
+   "verdict": "partly",
+   "reason": "No escape hatch is the right call (Tableau Catalog, dbt, Arquero all confirm provenance dies there), but the v1 vocabulary misses the five things an Excel/Tableau user types first: (a) share-of-total / deviation-from-group-mean = a ROW expression containing an AGGREGATE node (`[cases] / SUM([cases])`) \u2014 the design's kind rule ('an aggregate used where a row value is expected is refused') refuses the single most common derived column; Tableau LOD `{FIXED state: SUM(x)}` and Vega window exist precisely for this; (b) conditional aggregates SUMIF/COUNTIF \u2014 only expressible if reducers accept row-kind arg trees, which the op table does not state; (c) text cleaning: split/substring/replace/contains/startsWith \u2014 Tableau lists Split as a top-3 Data Source action and the design has only concat/lower/upper/trim/length; (d) date arithmetic: dateDiff/dateAdd/dateTrunc, and `today()` (non-deterministic, must be refused or stamped); (e) isAbsent/in/between and row-level min/max of two values. Enron corpus: ~75% of use is the top 15 functions \u2014 the list above IS that top 15.",
+   "fix": "Add to the op table before P1 ships: split(sep, index), substring, replace, contains/startsWith/endsWith, dateDiff/dateAdd/dateTrunc, isAbsent, in, between, rowMin/rowMax; let reducers take a row-kind arg tree (SUMIF = sum(if(cond, x, 0))); and add the broadcast rule: an aggregate node inside a row-kind tree is legal, evaluated over `over.groupBy` (empty = whole table) and broadcast by key \u2014 kind 'row' with an `over` becomes 'row with a group context', the SQL owner emits `x / SUM(x) OVER (PARTITION BY g)`. Refuse `today()`/`now()` or stamp the evaluation instant into the commit."
+  },
+  {
+   "claim": "2. materializeColumn plus branch-scoped visibility through the fold is a sufficient landing spot for derived columns, so no new storage path is needed in the memory engine.",
+   "verdict": "refuted",
+   "reason": "The code says otherwise. `memoryProvider.materializeColumn` (src/data/memoryProvider.ts:235-257) writes INTO the shared store in place and `store.columnTypes[name] = inferType(values)` re-TALLIES the type \u2014 so a derived column is not 'typed by construction' once landed. session.ts:1182-1193 documents that the fold only HIDES; it 'cannot un-materialize per branch'. Consequences the design does not handle: two branches declaring the same field with different formulas physically collide (last-wins values shown under the other branch's commit); editing a formula (a new `column` commit) overwrites the bytes the earlier commit on a sibling branch vouched for, so time travel to that commit shows the NEW values; `formula: null` (drop) cannot remove the column; and `row-count-mismatch` refuses any column derived on a different version than the store now holds. cluster_id worked because analyses rarely re-run with the same name on two branches; declared formulas will.",
+   "fix": "Land derived values in a session-owned overlay keyed by commit id \u2014 physical column name `${field}@${commitId}` (or a Map<commitId, Float64Array|unknown[]>) with the session resolving the visible field \u2192 the last `column` commit on the cursor's path \u2014 and pass the declared type through instead of re-tallying (add a `type` argument to materializeColumn, or a `materializeDeclared(table, name, values, type)` door). Drop = the overlay entry stays for time travel, the fold hides it. This is one small storage path, not zero."
+  },
+  {
+   "claim": "3. Re-deriving declared columns automatically after a refresh is always safe and cheap enough for the normal tier, because a declaration can be re-run where an analysis output cannot.",
+   "verdict": "partly",
+   "reason": "Cheap: yes on the bench numbers \u2014 a full-column fold is 23 ms at 90k and 110 ms at 1M (`bench/step0/REPORT.md`), so a handful of chains per branch stays under the 2,000 ms silent line. 'Always safe' is not shown: (a) refresh replaces the whole provider (`providers.set(table, fresh)`, buildDashboard.ts:301) so EVERY derived column on EVERY branch is gone, and the design never says which branches get re-derived \u2014 all of them (cost \u00d7 branches, and formulas on abandoned branches) or only the cursor's (then seek to another branch shows a blank column with no gap); (b) the input's TypeTally verdict can change with the new bytes, so a tree typed at declaration may now be ill-typed \u2014 that is a refusal, not a stale badge; (c) a positional table (no key) replaces rows entirely, so a derived column that used a lookup or aggregate keyed by row identity has no honest 'same column' to be; (d) at 1M, re-derivation runs in the browser tab without the bench's gc() courtesy.",
+   "fix": "Rule: re-derive lazily per branch on first read after the refresh (the fold already knows which `column` commits are on the path), file `derive-stale` as a gap until then, and re-validate the tree against the NEW column types before running \u2014 a type change is `derive-invalid` with the sentence naming the version that changed it. Put the per-branch re-derivation count in the journal entry so cost is visible."
+  },
+  {
+   "claim": "4. One column verb with slots (formula/label/type/role/scale/unit) covers derivation, rename, type fix and drop without a second declaration surface.",
+   "verdict": "partly",
+   "reason": "The verb shape is right and the Power BI two-surface warning is well taken. But the slots miss what an analyst changes about a column in the first ten minutes: display FORMAT (%, currency, decimals, date display \u2014 Excel's most frequent act; `unit` is not it); value ALIASES / recode ('CA' \u2192 'California', Tableau aliases, Power Query Replace Values, Excel Find & Replace \u2014 a per-value map that must be declared because a caption will quote the alias); PARSE options for a type fix (date pattern, thousands separator, '12%' strings) \u2014 without them 'values that do not fit become absent' turns a fixable column into a mostly-absent one; a column DESCRIPTION (Tableau field comment, dbt description \u2014 words a reader asks WHY about); and per-column ABSENCE tokens ('-1', 'N/A', 'Suppressed' meaning withheld) beyond the table-level vocabulary.",
+   "fix": "Add slots `format`, `aliases` (value \u2192 label map, refused if it collides), `parse` (options object read by `cast`), `description`, `absence` (tokens \u2192 the table's declared states) to the same `column` verb; each is `null`-able back to the declaration and each rides the same fold key family."
+  },
+  {
+   "claim": "5. Sheet arrangement as navigate commits on the layout identity, with widths and scroll excluded, keeps the log free of noise while making a beat's sheet screenshot reproducible.",
+   "verdict": "partly",
+   "reason": "Reproducible enough (widths only truncate text). Noise is not solved: a header click toggles sort, and a user flipping asc/desc/off three times lands three `design` commits \u2014 Vizier collapses exactly this; the log chips can hide the family but the branch tree still grows. Two design gaps: `frozen count` as a number changes meaning when column order changes (freeze by column NAMES); column order stored as a full list will silently omit a derived column added later on another branch (append rule unstated). Also sort belongs in the ViewQuery AND in the layout commit \u2014 the design should say the commit is the record and the query is derived from it, never two sources.",
+   "fix": "Coalesce consecutive navigates on the same `layout:<viewId>` slot within a short window (last-wins fold already; add read-time collapse for the history strip, Vizier-style), freeze by names, define order as 'declared order + unmentioned columns appended in def order', and state that the sheet's ViewQuery.sort is derived from the layout commit at read."
+  },
+  {
+   "claim": "6. Header stats from one foldOnce over all rows per data version are affordable at 90k and 1M without sampling, so the Sampled badge will rarely appear.",
+   "verdict": "partly",
+   "reason": "Bench (REPORT.md): columnar+columnTypes over all columns = 22.8 ms at 90k, 110 ms at 1M; the 4-recorder fold 28 ms at 1M; keyedIndex over a unique column 56\u201365 ms at 1M \u2014 so a full 30-column profile with `distinct` on a few high-cardinality string columns lands around 200\u2013400 ms at 1M in Node, in the normal tier, under the 2 s silent line: affordable, and Sampled rare on the memory engine. Two things the claim skips: (a) the cache key 'per data version' is wrong for derived columns \u2014 their stats are per (version, branch materialization); (b) the design profiles the WHOLE table while the sheet's default link response is `filter` \u2014 an analyst filtered to one state expects the totals row and quality bar to describe the 312 rows shown (Hex's 'entire result set' means the filtered result). The bench says the filtered re-fold is 0.3\u20130.9 ms, so both are cheap; only the whole-table one is designed.",
+   "fix": "Key the profile by (table, version, visible-materialization set); show two bases in the header \u2014 'of 90,300' (whole table, cached) and 'of 312 shown' (one fold over the current filter's indices, gesture tier) \u2014 and reserve Sampled for the DuckDB/server engines where the fold is not ours."
+  },
+  {
+   "claim": "7. The sheet's per-window ViewQuery (limit/offset/sort in rows mode plus count) is exactly the rectangle contract every grid needs, so vendor adapters stay thin.",
+   "verdict": "partly",
+   "reason": "The rectangle is the right shape (AG Grid, regular-table, Glide all reduce to it) and `evaluate` already has `limit`; `offset` and `sort` are genuinely missing (REPORT.md: 'evaluate has limit but no offset'). What the contract lacks for thin adapters: a per-row IDENTITY in the answer \u2014 AG Grid's getRowId and Glide's selection both need a stable id, and positional tables (no declared key) have none, so a row click in the sheet cannot emit a point at all; an absent-ordering rule for sort (nulls first/last, mixed types); multi-column sort; and `sortModel/filterModel` from AG Grid arrive per column, which maps to clauses only if the port's filter accepts per-column match/interval \u2014 it does, but the adapter must translate, so 'thin' means ~80 lines, not 10.",
+   "fix": "Add `rowId` to every returned row (the declared key, or `${version}#${index}` for positional tables, marked positional so a select on it is a within-version act), a declared absent-placement rule in sort, and allow `sort: [{field, dir}]` as a list; write the AG Grid IDatasource adapter in the same packet as the port so the translation cost is measured, not assumed."
+  },
+  {
+   "claim": "8. A cached sorted index per (sort, filter, version) epoch makes sort at 1M rows a one-time cost rather than a per-window cost.",
+   "verdict": "partly",
+   "reason": "Per-window it is one-time, but the epoch key includes `filter`, and every brush in a linked chart changes the filter \u2014 so a 1M-row comparator sort (strings via localeCompare, several hundred ms in JS; not in the bench, which sorts nothing) reruns on every gesture, well over the 50 ms line. Also the key omits the branch: sorting by a derived column depends on which formula is visible.",
+   "fix": "Key the sorted index by (table, version, sort spec, visible-materialization) ONLY \u2014 sort the full table once \u2014 and apply the filter as a predicate walk over the sorted index for count/offset/limit (what every DB does). Bench measurement 5 must include a string-column sort at 1M and the predicate-walk paging cost."
+  },
+  {
+   "claim": "9. DOM virtualization is enough at 90k rows and acceptable at 1M for 30 columns, so canvas is not needed in v1.",
+   "verdict": "partly",
+   "reason": "Rendered-cell count does not grow with row count (~40 rows \u00d7 30 columns), so the grids lens's '90k is fine' holds and 1M costs the same per frame. The limit the design misses is scroll height: 1M rows \u00d7 28\u201332 px = 28\u201332 M px, above Firefox's ~17.9 M px max element height and at Chrome's ~33.5 M px edge \u2014 a naive 150-line virtualizer breaks the scrollbar at 1M. AG Grid and TanStack Virtual compensate by scaling; the design's own virtualizer must too.",
+   "fix": "Have the virtualizer map scrollTop \u2192 row index through a capped scroll canvas (e.g. 10 M px, scaled), and add a Firefox run to bench measurement 7. Canvas stays a dial."
+  },
+  {
+   "claim": "10. selectedRows' filter as the first view-query customer and the sheet as the second is the lower-risk order and the two counts will match byte for byte.",
+   "verdict": "partly",
+   "reason": "The order is lower risk \u2014 `selectedRows` (session.ts:1213) and `selectedCount` already call `provider.evaluate` with the active filters, so hoisting them above the session is a refactor with an existing oracle. Byte-for-byte parity holds ONLY when every edge into the sheet in the link matrix is `filter`; the moment a person switches one edge to `highlight`, the sheet's row count (its incoming filter edges) and `Overview.selectedRowCount` (all views' active filters) legitimately differ, and the design offers that switch. Also the sheet's own point selection: is a row the sheet itself selected counted as filtering the sheet? Unstated.",
+   "fix": "State the oracle precisely: parity is asserted for the default matrix (all edges filter, self-selection highlight) and the test pins that configuration; add a second fixture where one edge is highlight and assert the sheet count equals the fold of its incoming filter edges."
+  },
+  {
+   "claim": "11. Aggregate-kind derived columns over a groupBy cover most of what analysts would otherwise need a join for, so leaving joins out of v1 costs little.",
+   "verdict": "refuted",
+   "reason": "The join an Excel/Tableau user reaches for first is not a fan-out join \u2014 it is VLOOKUP/XLOOKUP (Airtable's lookup field, Weave's key namespace): fetch one value from another table by key. A groupBy aggregate cannot do it. The design's own first live derivation, `cases_per_100k`, needs population per jurisdiction, which in the CDC demo is not a column on the cases table \u2014 so the headline example cannot be built with v1's grammar. Leaving fan-out joins out is right (the grain ruling), but a unique-key lookup never changes row identity or grain and needs no ruling.",
+   "fix": "Add a `lookup` node to the tree \u2014 `{lookup: {table, key, field}}` matched on the declared row key or a named key column \u2014 refused at declaration unless the target key is unique in the current version (the Weave not-unique warning, now a typed refusal `lookup-key-not-unique`), lineage subtype JOIN, SQL owner emits a LEFT JOIN on the unique key. Keep fan-out joins on the decision page."
+  },
+  {
+   "claim": "12. A refresh as a journal event beside the log (not a commit) is the honest model because refreshed rows are visible to every session regardless of branch.",
+   "verdict": "confirmed",
+   "reason": "The code agrees: `refresh` swaps the shared provider (`providers.set(table, fresh)`) so every branch of every session reads the new bytes; commits already stamp `CommitRecord.data` and the ui derives `dataMoved`, so time travel stays honest. The ref-event journal is the precedent. One consequence to write down (not a flaw in the claim): provenance export and story beats must carry the journal with the log, or Ragavan's readers go back to the author for 'when did the numbers change'."
+  },
+  {
+   "claim": "13. Column lineage written from the tree at declaration in the OpenLineage shape is complete and needs no post-hoc parsing of SQL.",
+   "verdict": "confirmed",
+   "reason": "For a closed tree every input is a named node: `col` \u2192 DIRECT TRANSFORMATION, `if` condition \u2192 INDIRECT CONDITIONAL, `over.groupBy` \u2192 INDIRECT GROUP_BY, chain hops \u2192 per-hop facets; nothing is hidden in a string. It stays complete only while claims 1 and 11's additions are also tree nodes (a `lookup` node is JOIN subtype) and no escape hatch exists \u2014 which the design commits to."
+  },
+  {
+   "claim": "14. A generated why-sentence from the tree plus the version stamp answers the questions a non-programmer asks of a column better than a formula or Excel-style arrows.",
+   "verdict": "partly",
+   "reason": "Better than arrows, yes \u2014 arrows cannot name a step or a version. But the research the design cites says non-programmers did not read Wrangler's sentences either: 'I just look at the picture' \u2014 they read the PREVIEW; Data Formulator 2's users caught wrong transforms from the chart/data, not the explanation. The design puts example rows only on the agent's proposal card; a person's own why() gets a sentence and a list, with no rows.",
+   "fix": "Make the why panel for a column show 3\u20135 real rows as input columns \u2192 output (one of them an absent case), plus the count line, above the sentence; and when the formula bar is being edited, preview the column in place beside the source columns (Wrangler's in-place preview) before the commit lands."
+  }
+ ],
+ "missing": [
+  "A keyed lookup across tables (XLOOKUP / Airtable lookup / Weave key namespace) \u2014 the first thing an Excel user reaches for and the thing the design's own cases_per_100k example needs.",
+  "Number and date display formatting per column (%, currency, decimals, date pattern) \u2014 Excel's most frequent column act has no slot.",
+  "Value aliases / recode / find-and-replace as a declared per-value map, and parse options for type fixes (date patterns, thousands separators, percent strings) \u2014 without them a type fix mostly produces absences.",
+  "Share-of-total and deviation-from-group-mean: a row expression containing an aggregate node, which the stated kind rule refuses.",
+  "Header stats and the summary row over the FILTERED rows ('of 312 shown') beside the whole-table basis \u2014 an analyst filtered to one state expects the totals row to be that state's.",
+  "Row identity for positional tables (no declared key): a row click cannot emit a point, and re-derivation after a full row replacement has no 'same row' \u2014 define `${version}#${index}` as a within-version identity or refuse the voice.",
+  "Find (Ctrl+F) in a 1M-row sheet \u2014 scroll-to-row or a match filter; Excel users try it within the first minute.",
+  "Export of the filtered sheet as CSV with its provenance sidecar (version, filters, derived-column declarations, journal) \u2014 Weave had Export CSV; Bors/Ragavan say provenance must leave with the data; only Copy is designed.",
+  "A function palette in the formula bar (Tableau's list with description + example per op) and column-name autocomplete on `[` \u2014 a non-developer cannot discover a closed vocabulary from an empty bar.",
+  "'View source' on a cell (Gneiss): the raw record, its source line and version \u2014 why() is header-only in the design.",
+  "A why answer for a SOURCE column (not derived): the SourceDecl, remote name, version and retrievedAt \u2014 the resolver is described only for derived columns.",
+  "Cross-branch collisions: the same derived field declared with different formulas on two branches, and the profile/sort caches keyed by version alone rather than by the visible materialization.",
+  "Named parameters (a threshold an analyst tweaks, Tableau/Weave parameters): changing a literal is a whole redeclaration; a named `lit` the story and agent can vary is the Excel 'assumptions cell' with a declaration.",
+  "Build order: the add-a-source drop zone is packet 7 (last), yet 'open my CSV' is the first act of every Excel user \u2014 move the inline drop-zone door forward to P5 so the two-tab shape can be learned from an empty state.",
+  "Declared category order for a discrete column (the chart layer needs it for axes and legends) and a 'connection only' declared-not-loaded source state (the Excel lens lesson)."
+ ]
+}
