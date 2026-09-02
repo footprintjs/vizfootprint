@@ -34,7 +34,7 @@
  *     Exact `matchesClause` parity.
  */
 
-import type { LinkGraphView, SelectionView } from '../adapter/types.js';
+import type { ClearedSelectionView, LinkGraphView, SelectionView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection, SelectionClauseView, EmissionKind } from './types.js';
 
 /** An interval clause's wire value — the session's own `FilterRange` shape (see header). */
@@ -142,8 +142,34 @@ export function selectionForView(
   selfViewId: string | null,
   resolve: 'union' | 'intersect' = 'intersect',
   links?: LinkGraphView,
+  cleared: readonly ClearedSelectionView[] = [],
 ): RenderSelection {
   const clauses = new Map<string, SelectionClauseView>();
+  // one lookup per (source, kind) into THIS consumer — built once per call, not once per clause
+  const into = new Map<string, LinkGraphView['edges'][number]>();
+  if (links !== undefined && selfViewId !== null) for (const e of links.edges) if (e.target === selfViewId) into.set(`${e.source}|${e.kind}`, e);
+  // Layer 4, `onClear`: a source that CLEARED its selection still reaches a consumer whose edge says so.
+  // `leave` keeps the last emission in force; `excludeAll` keeps nothing; `showAll` (the default) = the
+  // clause is gone, exactly as before. Only a consumer with a graph and an edge from that source hears it.
+  if (links !== undefined && selfViewId !== null) {
+    const selecting = new Set(selections.map((s) => s.viewId));
+    for (const c of cleared) {
+      if (c.viewId === selfViewId || selecting.has(c.viewId)) continue;
+      const edge = into.get(`${c.viewId}|${c.kind}`);
+      if (edge === undefined || edge.response === 'none' || edge.response === 'follow') continue;
+      const policy = edge.onClear ?? 'showAll';
+      if (policy === 'showAll') continue;
+      const to = (f: string): string => edge.mapping?.find((m) => m.from === f)?.to ?? f;
+      const field = to(c.field);
+      const fields = c.fields !== undefined ? ([to(c.fields[0]), to(c.fields[1])] as const) : undefined;
+      clauses.set(
+        c.viewId,
+        policy === 'leave'
+          ? { kind: c.kind, field, value: c.value, ...(fields !== undefined ? { fields } : {}), response: edge.response, predicate: clausePredicate(c.kind, field, c.value, fields) }
+          : { kind: 'match', field, value: { values: [] }, response: edge.response, predicate: () => false },
+      );
+    }
+  }
   for (const s of selections) {
     // Layer 4: which edge carries this clause INTO the consumer decides what it does here.
     // No graph = the legacy rule (every clause filters). Self, or a whole-dashboard fold
@@ -152,7 +178,7 @@ export function selectionForView(
     let field = s.field;
     let fields = s.fields;
     if (links !== undefined && selfViewId !== null && s.viewId !== selfViewId) {
-      const edge = links.edges.find((e) => e.source === s.viewId && e.target === selfViewId && e.kind === s.kind);
+      const edge = into.get(`${s.viewId}|${s.kind}`);
       // an `encoding` edge never matches a clause's kind, so `follow` cannot reach here; the guard keeps the type honest
       if (edge === undefined || edge.response === 'none' || edge.response === 'follow') continue;
       response = edge.response;

@@ -35,14 +35,20 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
 
   const commits: TierCommit[] = [{ tier: 'viz', id: viz.commitId, kind: 'declaring' }];
   const misses: CrossTierMiss[] = [];
+  // a MINIMAL set: one row per viz commit, the first role it was named in wins
+  const seen = new Set<string>([viz.commitId]);
+  const addViz = (id: string, kind: TierCommit['kind']): void => {
+    if (seen.has(id) || !sources.vizRecords.some((r) => r.id === id)) return; // validated against the log so a stale id never enters
+    seen.add(id);
+    commits.push({ tier: 'viz', id, kind });
+  };
 
-  // Input-selection viz commits — the selects/filters that formed the analysis
-  // input. Validated against the log so a stale id never enters the set.
-  for (const selId of sources.inputSelectionCommitIds) {
-    if (sources.vizRecords.some((r) => r.id === selId)) {
-      commits.push({ tier: 'viz', id: selId, kind: 'input-selection' });
-    }
-  }
+  // Input-selection viz commits — the selects/filters that formed the analysis input.
+  for (const selId of sources.inputSelectionCommitIds) addViz(selId, 'input-selection');
+
+  // Prose: the commits the words themselves name — a proposal accepted, a basis
+  // stated, a span's citation.
+  for (const rel of sources.relatedCommits ?? []) addViz(rel.id, rel.kind);
 
   // ── agent ─────────────────────────────────────────────────────────────────────
   const agentRes = resolveAgentTier(sources.correlationId, sources.agentEventLog);
@@ -71,7 +77,7 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
     });
   }
 
-  const key = sources.kernelKey ?? (target.kind === 'column' ? target.column : target.analysisId);
+  const key = sources.kernelKey ?? (target.kind === 'column' ? target.column : target.kind === 'hypothesis' ? target.analysisId : `${target.viewId}.${target.slot}`);
   const threaded = sources.correlationId !== undefined && agent !== null;
 
   return {

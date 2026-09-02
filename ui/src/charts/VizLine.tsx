@@ -47,6 +47,8 @@ export interface LinePoint {
 }
 
 export interface VizLineProps {
+  /** The chart's accessible name — the prose plane's `altShort` lands here; absent = the chart names itself from its bindings. */
+  readonly ariaLabel?: string;
   readonly viewId?: string;
   /** RAW points, already crossfiltered by the consumer — the chart aggregates (mean per date per series). */
   readonly data: readonly LinePoint[];
@@ -253,7 +255,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
         className={`vzf-chart vzf-line${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={`${yLabel} over ${xLabel}`}
+        aria-label={props.ariaLabel ?? `${yLabel} over ${xLabel}`}
         {...handlers}
       >
         {/* axes frame */}

@@ -249,3 +249,10 @@ describe('SET-1 — shift-click sets and exclude rows (VizTable)', () => {
     expect(screen.getByRole('row', { name: `row ${first} excluded` }).className).toContain('vzf-excluded');
   });
 });
+
+describe('the accessible name (the prose plane\'s altShort)', () => {
+  it('takes ariaLabel over its own construction line', () => {
+    const { container } = render(<VizTable data={ROWS} columns={COLUMNS} ariaLabel="Cases by report state" />);
+    expect(container.querySelector('table')!.getAttribute('aria-label')).toBe('Cases by report state');
+  });
+});

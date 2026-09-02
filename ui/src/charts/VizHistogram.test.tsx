@@ -292,3 +292,10 @@ describe('VizHistogram — the re-encode affordance (both modes)', () => {
     expect(onEmit).not.toHaveBeenCalled();
   });
 });
+
+describe('the accessible name (the prose plane\'s altShort)', () => {
+  it('takes ariaLabel over its own construction line', () => {
+    const { container } = render(<VizHistogram data={BINS} field="price" ariaLabel="Cases by report state" />);
+    expect(container.querySelector('[role="group"]')!.getAttribute('aria-label')).toBe('Cases by report state'); // a group: its marks are buttons, and must stay reachable
+  });
+});

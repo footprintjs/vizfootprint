@@ -4,3 +4,4 @@ export { impliedKinds, voiceOf } from './voice.js';
 export { materializeLinks, defaultChannelPairs, applyLinkOverrides, edgesInto, edgesFrom } from './materialize.js';
 export { validateLinks } from './validate.js';
 export { linksToMermaid } from './mermaid.js';
+export { DEFAULT_FOLD, crossesGrain, grainWords, sameGrain } from './grain.js';

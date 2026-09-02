@@ -22,6 +22,7 @@
  *  - R14 every unhonorable request is a TYPED gap (D14 taxonomy), never dropped.
  */
 
+import type { FoldEntry } from '../branches/index.js';
 import type { Actor, Cause } from '../cause/index.js';
 import { validateCause } from '../cause/index.js';
 import { CauseSelectionSession } from '../log/index.js';
@@ -78,6 +79,7 @@ import {
   uniqueSlug, ENCODING_SET_FIELD, isEncodingSet, encodingSetOf , PROSE_VIEW_PREFIX } from '../branches/index.js';
 import type { PlanRecipe } from '../branches/index.js';
 import type {
+  SelectionInfo,
   AdoptPathResult,
   AdoptStep,
   AnalysisCommit,
@@ -394,6 +396,34 @@ export interface InteractionSession {
   overview(): Promise<Overview>;
 }
 
+/** One live (or last) clause as the wire's `SelectionInfo` — the same projection for active and cleared selections. */
+function selectionInfoOf(viewId: string, clause: PredicateClause): SelectionInfo {
+  return (
+      clause.kind === 'cell'
+        ? {
+            viewId,
+            field: cellFieldLabel(clause.fields), // display-only joint label (D30)
+            kind: 'cell' as const,
+            value: clause.value,
+            fields: clause.fields,
+          }
+        : clause.kind === 'match'
+          ? {
+              viewId,
+              field: clause.field,
+              kind: 'match' as const,
+              // the wire carries the IN-list and its polarity as ONE value (a `MatchValue`)
+              value: { values: clause.values, ...(clause.exclude === true ? { exclude: true } : {}) },
+            }
+          : {
+              viewId,
+              field: clause.field,
+              kind: clause.kind as 'point' | 'interval',
+              value: (clause as { value: unknown }).value, // never a cleared point: one clearing rule drops it from the fold (SET-1)
+            }
+  );
+}
+
 class InteractionSessionImpl implements InteractionSession {
   readonly log = new CauseSelectionSession();
   readonly defaultTable: string;
@@ -410,6 +440,8 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly activeEncodings = new Map<string, Record<string, string>>();
   /** Layer 4: the `link` edits at the cursor, one per edge id (folded by rebuildFold like the encodings). */
   private readonly activeLinks = new Map<string, LinkDecl>();
+  /** Layer 4 `onClear`: each view whose last selection was CLEARED, with what it was and the clearing commit — a target edge's policy reads it. */
+  private readonly clearedFilters = new Map<string, { readonly clause: PredicateClause; readonly clearedBy: string }>();
   /** layout scope → its current prop→value arrangement map (the LY-1 layout fold — see LAYOUT_SOURCE_META). */
   private readonly activeLayouts = new Map<string, Record<string, string>>();
   /** The prose plane's fold: viewId → slot → record, seeded from the def, overridden by `describe` commits (null = the def's words again). */
@@ -513,6 +545,12 @@ class InteractionSessionImpl implements InteractionSession {
    * cursor) yields the empty path. Cycle-guarded defensively (the append-only log
    * cannot form one, but a fold must never loop).
    */
+  /** A clear remembers what it cleared (only a live clause can be cleared; clearing nothing notes nothing). */
+  private noteCleared(viewId: string, clearedBy: string): void {
+    const prev = this.activeFilters.get(viewId);
+    if (prev !== undefined) this.clearedFilters.set(viewId, { clause: prev, clearedBy });
+  }
+
   private branchPath(cursorId: string | null): CommitRecord[] {
     if (cursorId === null) return [];
     const byId = new Map(this.log.records.map((r) => [r.id, r]));
@@ -545,6 +583,7 @@ class InteractionSessionImpl implements InteractionSession {
   private rebuildFold(cursorId: string | null): void {
     this.activeFilters.clear();
     this.activeFilterCommits.clear();
+    this.clearedFilters.clear();
     this.activeEncodings.clear();
     this.activeLinks.clear();
     this.activeLayouts.clear();
@@ -587,10 +626,13 @@ class InteractionSessionImpl implements InteractionSession {
       if (!this.runtime.views.has(rec.viewId)) continue; // skip annotation:/analysis: commits
       if (RESERVED_PROBE_FIELDS.has(rec.field)) continue;
       if (isClearedSelection(rec)) {
-        // a cleared interval, cell, match — or point — drops the filter (ONE rule, shared with the branch fold)
+        // a cleared interval, cell, match — or point — drops the filter (ONE rule, shared with the branch fold);
+        // what it WAS is kept for the edges whose `onClear` says leave or excludeAll
+        if (rec.cause.revertOf === undefined) this.noteCleared(rec.viewId, rec.id); // an undo takes the selection back, it does not "clear" it
         this.activeFilters.delete(rec.viewId);
         this.activeFilterCommits.delete(rec.viewId);
       } else {
+        this.clearedFilters.delete(rec.viewId);
         const clause: PredicateClause =
           rec.kind === 'cell'
             ? // the log's commit() guarantees `fields` on every cell record
@@ -1145,11 +1187,11 @@ class InteractionSessionImpl implements InteractionSession {
 
   // ── link (layer 4) — edit ONE edge of the graph, as a commit ───────────────────
   private doLink(action: Extract<DispatchAction, { verb: 'link' }>, as: Actor | undefined, intent: DispatchResult['intent']): DispatchResult {
-    const { source, kind, target, response, mapping, channels, onClear, cause, correlationId } = action;
+    const { source, kind, target, response, mapping, channels, onClear, fold, cause, correlationId } = action;
     const id = edgeId(source, kind, target);
     // the same refusals a declared edge gets, in the same sentences (the response may be null = un-declare)
     const problems: string[] = [];
-    const probe: LinkDecl = { source, kind, target, response: response ?? 'none', ...(mapping !== undefined ? { mapping } : {}), ...(channels !== undefined ? { channels } : {}), ...(onClear !== undefined ? { onClear } : {}) };
+    const probe: LinkDecl = { source, kind, target, response: response ?? 'none', ...(mapping !== undefined ? { mapping } : {}), ...(channels !== undefined ? { channels } : {}), ...(onClear !== undefined ? { onClear } : {}), ...(fold !== undefined ? { fold } : {}) };
     validateLinks([probe], undefined, this.runtime.links.views, problems);
     if (problems.length > 0) {
       return this.reject('link', intent, this.gapLedger.file('guard-failed', 'link', problems.map((p) => p.replace(/^links\[0\]/, `link ${id}`)).join('; '), id));
@@ -1293,9 +1335,11 @@ class InteractionSessionImpl implements InteractionSession {
     });
     this.landed(record);
     if (isClearedSelection({ kind, value })) {
+      if (record.cause.revertOf === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it
       this.activeFilters.delete(viewId);
       this.activeFilterCommits.delete(viewId); // a cleared selection is no longer an input dependency
     } else {
+      this.clearedFilters.delete(viewId);
       this.activeFilters.set(viewId, probeClause(kind, field, value));
       this.activeFilterCommits.set(viewId, record.id); // a superseded select on the same view drops out here
     }
@@ -1690,6 +1734,24 @@ class InteractionSessionImpl implements InteractionSession {
     if (gap !== null) return this.reject('describe', intent, gap);
     const cols = await this.effectiveColumnsOf(this.defaultTable);
     if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
+    if (record !== null && record.author.kind === 'humanEdited' && record.basis !== undefined) {
+      // a person edited an agent's words looking at THIS screen: the basis keeps the keys the agent stated,
+      // re-stamped to what is on screen now — so the edit is judged fresh, and goes stale on its own terms
+      const view = this.runtime.views.get(viewId)!; // proseGuards refused an unknown view above
+      const facets = this.runtime.encoding.facetsOf(this.defaultTable, cols);
+      const effective = view.encoding !== undefined ? this.effectiveEncodings(facets).get(viewId)!.bindings : this.viewEncodings(viewId);
+      const { editedFrom: prior, ...stated } = record.basis; // the agent's ORIGINAL evidence survives every edit, kept once — never nested
+      record = {
+        ...record,
+        basis: {
+          ...stated,
+          ...(stated.encodings !== undefined ? { encodings: effective } : {}),
+          ...(stated.filters !== undefined ? { filters: this.filtersNow() } : {}),
+          atCommit: this._cursor,
+          editedFrom: prior ?? stated,
+        },
+      };
+    }
     if (record !== null) {
       const problems = validateProseRecord(viewId, slot, record, this.proseWorld(cols, 'set'));
       if (proseRefuses(problems)) {
@@ -2292,6 +2354,7 @@ class InteractionSessionImpl implements InteractionSession {
 
   // ── L6 why(target) ─────────────────────────────────────────────────────────────
   why(target: WhyTarget, opts: { agentEventLog?: readonly AgentEventFrame[] } = {}): WhyResult {
+    if (target.kind === 'prose') return this.whyProse(target, opts);
     const prov = target.kind === 'column'
       ? this.whyByColumn.get(target.column)
       : this.whyByAnalysisId.get(target.analysisId);
@@ -2305,6 +2368,44 @@ class InteractionSessionImpl implements InteractionSession {
       ...(prov.correlationId !== undefined ? { correlationId: prov.correlationId } : {}),
       ...(opts.agentEventLog ? { agentEventLog: opts.agentEventLog } : {}),
       ...(prov.fdrStep ? { fdrStep: prov.fdrStep } : {}),
+    });
+  }
+
+  /**
+   * `why()` over a view's words: the `describe` commit that landed them is the
+   * anchor; the selections live when they landed are the input; the proposal
+   * they were accepted from, the commit their basis names and the commits their
+   * spans cite ride as related commits; a basis that quotes an analysis
+   * inherits that analysis's kernel slice. Words the declaration itself carries
+   * have no commit — an honest `declared-in-def`.
+   */
+  private whyProse(target: Extract<WhyTarget, { kind: 'prose' }>, opts: { agentEventLog?: readonly AgentEventFrame[] }): WhyResult {
+    const entry = [...foldStateAt(this.log.records, this._cursor).values()].find(
+      (e): e is Extract<FoldEntry, { kind: 'prose' }> => e.kind === 'prose' && e.viewId === target.viewId && e.slot === target.slot,
+    );
+    if (entry === undefined) {
+      // no describe commit on this branch (or the last one said null = back to the declaration)
+      const declared = this.runtime.prose.get(target.viewId)?.[target.slot] !== undefined;
+      return { ok: false, missing: declared ? 'declared-in-def' : 'no-such-target', target };
+    }
+    const landing = this.log.records.find((r) => r.id === entry.commitId)!; // the fold entry names a commit of this log
+    const record = entry.record as unknown as ProseRecord;
+    const inputSelectionCommitIds = [...foldStateAt(this.log.records, landing.id).values()].flatMap((e) => (e.kind === 'selection' ? [e.commitId] : []));
+    const related: { id: string; kind: 'proposal' | 'basis' | 'ref' }[] = [];
+    if (record.author.acceptedFrom !== undefined) related.push({ id: record.author.acceptedFrom, kind: 'proposal' });
+    if (typeof record.basis?.atCommit === 'string') related.push({ id: record.basis.atCommit, kind: 'basis' });
+    for (const ref of record.refs ?? []) if (ref.commit !== undefined) related.push({ id: ref.commit, kind: 'ref' });
+    const quoted = record.basis?.analysisId !== undefined ? this.whyByAnalysisId.get(record.basis.analysisId) : undefined;
+    return why(target, {
+      vizRecords: this.log.records,
+      declaringCommitId: landing.id,
+      inputSelectionCommitIds,
+      relatedCommits: related,
+      ...(landing.correlationId !== undefined ? { correlationId: landing.correlationId } : {}),
+      ...(quoted?.snapshot ? { kernelSnapshot: quoted.snapshot } : {}),
+      ...(quoted?.kernelKey !== undefined ? { kernelKey: quoted.kernelKey } : {}),
+      ...(quoted?.fdrStep ? { fdrStep: quoted.fdrStep } : {}),
+      ...(opts.agentEventLog ? { agentEventLog: opts.agentEventLog } : {}),
     });
   }
 
@@ -2382,30 +2483,9 @@ class InteractionSessionImpl implements InteractionSession {
     });
     const encodingPolicy = { onInvalid: this.runtime.encoding.rules.onInvalid ?? 'refuse', ruleScope: this.runtime.encoding.rules.ruleScope ?? ('dashboard' as const) };
 
-    const activeSelections = [...this.activeFilters.entries()].map(([viewId, clause]) =>
-      clause.kind === 'cell'
-        ? {
-            viewId,
-            field: cellFieldLabel(clause.fields), // display-only joint label (D30)
-            kind: 'cell' as const,
-            value: clause.value,
-            fields: clause.fields,
-          }
-        : clause.kind === 'match'
-          ? {
-              viewId,
-              field: clause.field,
-              kind: 'match' as const,
-              // the wire carries the IN-list and its polarity as ONE value (a `MatchValue`)
-              value: { values: clause.values, ...(clause.exclude === true ? { exclude: true } : {}) },
-            }
-          : {
-              viewId,
-              field: clause.field,
-              kind: clause.kind as 'point' | 'interval',
-              value: (clause as { value: unknown }).value, // never a cleared point: one clearing rule drops it from the fold (SET-1)
-            },
-    );
+    const activeSelections = [...this.activeFilters.entries()].map(([viewId, clause]) => selectionInfoOf(viewId, clause));
+    // layer 4 `onClear`: what each cleared view LAST selected, for the edges whose policy keeps it in force
+    const clearedSelections = [...this.clearedFilters.entries()].map(([viewId, { clause, clearedBy }]) => ({ ...selectionInfoOf(viewId, clause), clearedBy }));
 
     const analyses = this.analysisIds().map((id) => {
       const a = this.analysis(id)!;
@@ -2481,6 +2561,7 @@ class InteractionSessionImpl implements InteractionSession {
       encodingPolicy,
       views,
       activeSelections,
+      clearedSelections,
       analyses,
       fdr: {
         procedure: this.runtime.fdrProcedure,

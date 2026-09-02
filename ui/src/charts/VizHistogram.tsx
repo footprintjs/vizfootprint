@@ -63,6 +63,8 @@ export interface HistogramBinDatum {
 }
 
 export interface VizHistogramProps {
+  /** The chart's accessible name — the prose plane's `altShort` lands here; absent = the chart names itself from its bindings. */
+  readonly ariaLabel?: string;
   readonly viewId?: string;
   /** READY bins, in edge order — host-computed (the chart never bins or counts). */
   readonly data: readonly HistogramBinDatum[];
@@ -221,8 +223,8 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
         ref={svgRef}
         className={`vzf-chart vzf-histogram${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
-        role="img"
-        aria-label={`histogram of ${label}`}
+        role="group"
+        aria-label={props.ariaLabel ?? `histogram of ${label}`}
         {...handlers}
       >
         {/* baseline */}

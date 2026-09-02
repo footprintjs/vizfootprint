@@ -305,3 +305,10 @@ describe('layer 4 navigate — xDomain shows a window without filtering the data
   });
 });
 
+
+describe('the accessible name (the prose plane\'s altShort)', () => {
+  it('takes ariaLabel over its own construction line', () => {
+    const { container } = render(<VizLine data={DATA} ariaLabel="Cases by report state" />);
+    expect(container.querySelector('[role="img"]')!.getAttribute('aria-label')).toBe('Cases by report state');
+  });
+});

@@ -151,6 +151,12 @@ export interface SelectionView {
   readonly fields?: readonly [string, string];
 }
 
+/** A view whose last selection was CLEARED, and what it was — an edge's `onClear` policy reads it (layer 4). */
+export interface ClearedSelectionView extends SelectionView {
+  /** The commit that cleared it. */
+  readonly clearedBy: string;
+}
+
 /** A branch tip in the DAG (a leaf lineage). */
 export interface BranchView {
   readonly tip: string;
@@ -426,6 +432,8 @@ export interface SessionViewState {
   /** table → column facets (schema). */
   readonly columns: Readonly<Record<string, readonly ColumnView[]>>;
   readonly selections: readonly SelectionView[];
+  /** Layer 4: views whose selection was cleared and what it was, so an edge's `onClear` policy can act on it. */
+  readonly cleared?: readonly ClearedSelectionView[];
   readonly commits: readonly CommitView[];
   readonly branches: readonly BranchView[];
   /** The NAMED paths surface (BR-1): current/detached, list, journal. */

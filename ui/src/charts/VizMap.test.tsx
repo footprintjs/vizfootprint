@@ -290,3 +290,10 @@ describe('SET-1 — shift-click sets and exclude outlines (VizMap)', () => {
     expect(container.querySelectorAll('path.vzf-selected')).toHaveLength(0);
   });
 });
+
+describe('the accessible name (the prose plane\'s altShort)', () => {
+  it('takes ariaLabel over its own construction line', () => {
+    const { container } = render(<VizMap geo={GEO} regionField="region" data={DATA} ariaLabel="Cases by report state" />);
+    expect(container.querySelector('[role="group"]')!.getAttribute('aria-label')).toBe('Cases by report state'); // a group: its marks are buttons, and must stay reachable
+  });
+});

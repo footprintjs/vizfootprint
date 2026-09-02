@@ -102,3 +102,10 @@ describe('VizScatter pointer edge cases', () => {
     expect(onEmit).not.toHaveBeenCalled();
   });
 });
+
+describe('the accessible name (the prose plane\'s altShort)', () => {
+  it('takes ariaLabel over its own construction line', () => {
+    const { container } = render(<VizScatter data={[]} xField="price" yField="rating" ariaLabel="Cases by report state" />);
+    expect(container.querySelector('[role="img"]')!.getAttribute('aria-label')).toBe('Cases by report state');
+  });
+});

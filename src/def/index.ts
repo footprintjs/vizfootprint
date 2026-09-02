@@ -43,7 +43,7 @@ export type {
   DashboardRuntime,
   EncodingRuntime,
   RegisteredAnalysis,
-  ViewDecl,
+  ViewDecl, GrainDecl,
   FdrStepper,
 } from './types.js';
 

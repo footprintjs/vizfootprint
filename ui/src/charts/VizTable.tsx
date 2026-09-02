@@ -52,6 +52,8 @@ export interface TableSortState {
 }
 
 export interface VizTableProps {
+  /** The chart's accessible name — the prose plane's `altShort` lands here; absent = the chart names itself from its bindings. */
+  readonly ariaLabel?: string;
   readonly viewId?: string;
   /** ALL rows (already crossfiltered by the consumer is NOT required — dim, never hide; see file header). */
   readonly data: readonly TableRow[];
@@ -169,7 +171,7 @@ export function VizTable(props: VizTableProps): JSX.Element {
           <div className="vzf-table-scroll" style={{ maxHeight: height }}>
             <table
               className="vzf-table"
-              aria-label={`view ${viewId}: sortable rows — click a header to sort, click a row to select`}
+              aria-label={props.ariaLabel ?? `view ${viewId}: sortable rows — click a header to sort, click a row to select`}
             >
               <thead>
                 <tr>

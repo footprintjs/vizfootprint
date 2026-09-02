@@ -2182,3 +2182,6 @@
 :where(.vzf) .vzf-editor-proposal-declined .vzf-editor-draft { border-left-color: #a8661a; opacity: 0.7; }
 :where(.vzf) .vzf-editor-proposal-accepted .vzf-editor-draft { opacity: 0.7; }
 :where(.vzf) .vzf-editor-reason { font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid var(--vzf-line, #d8dee4); border-radius: 4px; flex: 1; min-width: 80px; }
+
+/* layer 4 onClear: a cleared clause an edge still keeps in force — visible, not removable from here */
+.vzf-selchip-kept { border-style: dashed; opacity: 0.85; }

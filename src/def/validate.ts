@@ -54,6 +54,7 @@ const DEF_KEYS = new Set([
   'fdr',
   'agent',
   'defaultTable',
+  'grains',
   'links',
   'linkDefault',
   'encodingRules',
@@ -96,6 +97,36 @@ const RESERVED_VIEW_PREFIXES = [
 function reservedPrefix(viewId: string): string | undefined {
   return RESERVED_VIEW_PREFIXES.find((prefix) => viewId.startsWith(prefix));
 }
+/** The well-formed grain declarations (a malformed entry is already a problem and is not judged). */
+function wellFormedGrains(raw: unknown): { viewId: string; keys: readonly string[] }[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((g) => (isObject(g) && typeof g.viewId === 'string' && Array.isArray(g.keys) && g.keys.every((k) => typeof k === 'string' && k.length > 0) ? [{ viewId: g.viewId, keys: g.keys as string[] }] : []));
+}
+
+/** `grains[i]` — a view and the group keys its marks stand for. */
+function validateGrains(raw: unknown, actors: unknown, problems: string[]): void {
+  if (raw === undefined) return;
+  if (!Array.isArray(raw)) {
+    problems.push('grains, if present, must be an array of { viewId, keys }');
+    return;
+  }
+  const seen = new Set<string>();
+  raw.forEach((g, i) => {
+    const where = `grains[${i}]`;
+    if (!isObject(g)) {
+      problems.push(`${where} must be an object { viewId, keys }`);
+      return;
+    }
+    for (const key of Object.keys(g)) if (key !== 'viewId' && key !== 'keys') problems.push(`${where}.${key} is not a grain key`);
+    if (typeof g.viewId !== 'string' || g.viewId.length === 0) problems.push(`${where}.viewId must be a non-empty string`);
+    else if (!isObject(actors) || !(g.viewId in actors)) problems.push(`${where}.viewId "${g.viewId}" is not a declared view`);
+    else if (seen.has(g.viewId)) problems.push(`${where} repeats the grain of "${g.viewId}" — one grain per view`);
+    else seen.add(g.viewId);
+    if (!Array.isArray(g.keys) || g.keys.some((k) => typeof k !== 'string' || k.length === 0)) problems.push(`${where}.keys must be an array of column names ([] = one mark per row)`);
+    else if (new Set(g.keys).size !== g.keys.length) problems.push(`${where}.keys repeats a column`);
+  });
+}
+
 /** `data[t].source` — three tags and a locator; the laws each carrier adds are the adapter's, at open. */
 function validateSourceDecl(raw: unknown, where: string, problems: string[]): void {
   if (!isObject(raw)) {
@@ -355,11 +386,14 @@ export function validateDashboardDef(def: unknown): string[] {
         }
       }
     }
+    validateGrains(def.grains, def.actors, problems);
     // a view's encoding surface gives it the `encoding` voice and tells an encoding edge which channels exist
     const surfaceByView = new Map(Array.isArray(def.encodings) ? wellFormedSurfaces(def.encodings).map((s) => [s.surface.viewId, s.surface] as const) : []);
+    const grainByView = new Map(wellFormedGrains(def.grains).map((g) => [g.viewId, g.keys] as const));
     const linkViews = Object.keys(def.actors).map((viewId) => {
       const surface = surfaceByView.get(viewId);
-      return { viewId, voice: voiceOf(capabilityByView.get(viewId), { hasEncodingSurface: surface !== undefined }), ...(surface !== undefined ? { channels: surface.channels } : {}) };
+      const grain = grainByView.get(viewId);
+      return { viewId, voice: voiceOf(capabilityByView.get(viewId), { hasEncodingSurface: surface !== undefined }), ...(surface !== undefined ? { channels: surface.channels } : {}), ...(grain !== undefined ? { grain } : {}) };
     });
     validateLinks(def.links, def.linkDefault, linkViews, problems);
   }

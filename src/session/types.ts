@@ -129,6 +129,8 @@ export type DispatchAction =
       /** Encoding edges only: which channels follow (absent = every channel both ends share, written out at materialization). */
       readonly channels?: readonly ChannelPair[];
       readonly onClear?: LinkOnClear;
+      /** How the emission folds down to the target's rows — required when the edge crosses grains. */
+      readonly fold?: string;
       readonly cause: Cause;
       readonly correlationId?: string;
     }
@@ -635,6 +637,12 @@ export interface SelectionInfo {
   readonly fields?: readonly [string, string];
 }
 
+/** A view whose last selection was CLEARED, and what it was — read by a target edge's `onClear` policy (layer 4). */
+export interface ClearedSelectionInfo extends SelectionInfo {
+  /** The commit that cleared it. */
+  readonly clearedBy: string;
+}
+
 /** An analysis's readiness (D12 guards+skills framing): can it run at the current cursor? */
 export interface AnalysisReadiness {
   readonly id: string;
@@ -668,6 +676,8 @@ export interface Overview {
   readonly defaultTable: string;
   readonly views: readonly ViewInfo[];
   readonly activeSelections: readonly SelectionInfo[];
+  /** Layer 4 `onClear`: views whose selection was cleared and what it was, so an edge that says `leave` or `excludeAll` can act. */
+  readonly clearedSelections: readonly ClearedSelectionInfo[];
   readonly analyses: readonly AnalysisReadiness[];
   readonly fdr: FdrSummary;
   readonly columns: Readonly<Record<string, readonly ColumnFacet[]>>;

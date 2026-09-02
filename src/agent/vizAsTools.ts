@@ -23,6 +23,8 @@
  * data and never reaches the instruction channel.
  */
 
+import { PROSE_SLOTS } from '../prose/index.js';
+import type { ProseSlot } from '../prose/index.js';
 import type { Actor, Cause } from '../cause/index.js';
 import { DISPATCH_VERBS } from '../def/index.js';
 import { acceptsOf } from '../encoding/index.js';
@@ -213,6 +215,8 @@ const DISPATCH_SCHEMA = {
       description: 'link only: what the target does with it — filter drops rows, highlight dims them, navigate moves the viewport, mirror outlines the value, none turns the link off; null un-declares the edit (back to the def\'s rule).',
     },
     mapping: { type: 'array', description: 'link only, optional: [{ from, to }] field renames when the source field is not the target\'s column.' },
+    onClear: { type: 'string', enum: ['leave', 'showAll', 'excludeAll'], description: 'link only, optional: what the target does when the source CLEARS — showAll drops the clause (default), leave keeps the last emission in force, excludeAll keeps nothing.' },
+    fold: { type: 'string', description: 'link only: how the emission folds down to the target\'s rows, in words — required when the edge crosses grains (the source emits over an aggregate the target does not show); whats_here.links.views[].grain says each view\'s.' },
     note: { type: 'string', description: 'The inert annotation text (annotate).' },
     analysisId: { type: 'string', description: 'A declared analysis id (analyze).' },
     fromCommitId: { type: 'string', description: 'The commit id to branch off (fork).' },
@@ -270,8 +274,11 @@ function coerceWhyTarget(raw: unknown): WhyTarget | { error: string } {
     const o = raw as Record<string, unknown>;
     if (typeof o['column'] === 'string') return { kind: 'column', column: o['column'] };
     if (typeof o['analysisId'] === 'string') return { kind: 'hypothesis', analysisId: o['analysisId'] };
+    if (typeof o['viewId'] === 'string' && typeof o['slot'] === 'string' && (PROSE_SLOTS as readonly string[]).includes(o['slot'])) {
+      return { kind: 'prose', viewId: o['viewId'], slot: o['slot'] as ProseSlot };
+    }
   }
-  return { error: 'why requires target: a column name (string), or { column } / { analysisId }' };
+  return { error: 'why requires target: a column name (string), { column }, { analysisId }, or { viewId, slot } for a view\'s words' };
 }
 
 const FORK_SCHEMA = {
@@ -553,7 +560,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
         return { verb: 'describe', viewId: args['viewId'], slot: args['slot'] as 'title', record: (record ?? null) as null, ...(args['proposal'] === true ? { proposal: true } : {}), cause };
       }
       case 'link': {
-        const { source, kind, target, response, mapping, channels } = args;
+        const { source, kind, target, response, mapping, channels, onClear, fold } = args;
         if (typeof source !== 'string' || typeof target !== 'string' || !['point', 'interval', 'cell', 'match', 'encoding'].includes(kind as string)) {
           return { error: 'link requires string source and target view ids and kind: point | interval | cell | match | encoding' };
         }
@@ -567,6 +574,12 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
         if (mapping !== undefined && (!Array.isArray(mapping) || !mapping.every((m) => typeof m === 'object' && m !== null && typeof (m as { from?: unknown }).from === 'string' && typeof (m as { to?: unknown }).to === 'string'))) {
           return { error: 'link.mapping, if given, must be an array of { from, to } field names' };
         }
+        if (onClear !== undefined && !['leave', 'showAll', 'excludeAll'].includes(onClear as string)) {
+          return { error: 'link.onClear, if given, must be leave | showAll | excludeAll' };
+        }
+        if (fold !== undefined && (typeof fold !== 'string' || fold.length === 0)) {
+          return { error: 'link.fold, if given, must be a non-empty sentence: how the emission folds down to the target\'s rows' };
+        }
         return {
           verb: 'link',
           source,
@@ -575,6 +588,8 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
           response: response as 'filter' | 'highlight' | 'navigate' | 'mirror' | 'none' | 'follow' | null,
           ...(channels !== undefined ? { channels: channels as { from: string; to: string }[] } : {}),
           ...(mapping !== undefined ? { mapping: mapping as readonly { from: string; to: string }[] } : {}),
+          ...(onClear !== undefined ? { onClear: onClear as 'leave' | 'showAll' | 'excludeAll' } : {}),
+          ...(fold !== undefined ? { fold: fold as string } : {}),
           cause,
         };
       }

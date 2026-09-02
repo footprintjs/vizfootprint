@@ -77,7 +77,7 @@ export interface LinkDecl {
   readonly channels?: readonly ChannelPair[];
   /** Absent = `showAll` (a cleared source stops filtering the target). */
   readonly onClear?: LinkOnClear;
-  /** How an aggregate emission folds down to the target's rows. NOT yet enforced (see README). */
+  /** How the emission folds down to the target's rows — REQUIRED when the edge crosses grains (the source emits over an aggregate the target does not show); a default edge that crosses carries `crossfilter`. */
   readonly fold?: string;
   readonly label?: string;
 }
@@ -95,6 +95,8 @@ export interface LinkView {
   readonly voice: readonly LinkKind[];
   /** The channels the view's encoding surface declares — present exactly when it has one (so an encoding edge can be judged). */
   readonly channels?: readonly string[];
+  /** The GRAIN: the group keys the view's marks stand for ([] = one mark per row); absent = unknown, never judged. */
+  readonly grain?: readonly string[];
 }
 
 /** The materialized graph the session serves and the cockpit draws. */

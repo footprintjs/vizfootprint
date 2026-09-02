@@ -70,6 +70,8 @@ export interface BoxPlotDatum {
 }
 
 export interface VizBoxPlotProps {
+  /** The chart's accessible name — the prose plane's `altShort` lands here; absent = the chart names itself from its bindings. */
+  readonly ariaLabel?: string;
   readonly viewId?: string;
   /** READY per-category summaries, host-computed (the chart never computes a quantile). */
   readonly data: readonly BoxPlotDatum[];
@@ -244,8 +246,8 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
       <svg
         className={`vzf-chart vzf-boxplot${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
-        role="img"
-        aria-label={`box plot of ${yLabel} by ${xLabel}`}
+        role="group"
+        aria-label={props.ariaLabel ?? `box plot of ${yLabel} by ${xLabel}`}
       >
         {/* axes frame */}
         <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />

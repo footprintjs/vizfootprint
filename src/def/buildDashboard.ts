@@ -270,12 +270,14 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
   for (const cap of def.capabilities ?? []) capabilityByView.set(cap.viewId, cap);
   const encodingByView = new Map<string, ViewEncodingDecl>();
   for (const enc of def.encodings ?? []) encodingByView.set(enc.viewId, enc);
+  const grainByView = new Map((def.grains ?? []).map((g) => [g.viewId, g.keys] as const));
   const views = new Map<string, ViewDecl>();
   for (const [viewId, meta] of Object.entries(def.actors)) {
     views.set(viewId, {
       viewId,
       meta,
       ...(capabilityByView.has(viewId) ? { capability: capabilityByView.get(viewId)! } : {}),
+      ...(grainByView.has(viewId) ? { grain: grainByView.get(viewId)! } : {}),
       ...(encodingByView.has(viewId) ? { encoding: encodingByView.get(viewId)! } : {}),
     });
   }
@@ -292,6 +294,7 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
       viewId: v.viewId,
       voice: voiceOf(v.capability, { hasEncodingSurface: v.encoding !== undefined }),
       ...(v.encoding !== undefined ? { channels: v.encoding.channels } : {}),
+      ...(v.grain !== undefined ? { grain: v.grain } : {}),
     })),
     def.links ?? [],
     def.linkDefault ?? 'crossfilter',

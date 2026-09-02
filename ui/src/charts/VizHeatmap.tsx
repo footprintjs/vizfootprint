@@ -60,6 +60,8 @@ export interface HeatmapCellDatum {
 }
 
 export interface VizHeatmapProps {
+  /** The chart's accessible name — the prose plane's `altShort` lands here; absent = the chart names itself from its bindings. */
+  readonly ariaLabel?: string;
   readonly viewId?: string;
   /** READY cells, host-computed (the chart never bins or counts). */
   readonly data: readonly HeatmapCellDatum[];
@@ -233,8 +235,8 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
       <svg
         className={`vzf-chart vzf-heatmap${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
-        role="img"
-        aria-label={`${countLabel} by ${xField} and ${yField}`}
+        role="group"
+        aria-label={props.ariaLabel ?? `${countLabel} by ${xField} and ${yField}`}
       >
         {/* cells: color = count on the shared ramp; 0 = the honest neutral */}
         {rows.map((yLabel) =>

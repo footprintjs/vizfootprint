@@ -21,10 +21,12 @@ describe('link — the matrix editor\'s one door', () => {
     await view.link({ source: 'map', kind: 'point', target: 'bar', response: 'highlight' });
     await view.link({ source: 'map', kind: 'point', target: 'table', response: 'mirror', mapping: [{ from: 'region', to: 'area' }] }, 'same state');
     await view.link({ source: 'map', kind: 'point', target: 'bar', response: null });
+    await view.link({ source: 'weeks', kind: 'interval', target: 'trend', response: 'navigate', onClear: 'leave', fold: 'the same weeks, per entity' });
     expect(posts).toEqual([
       { verb: 'link', source: 'map', kind: 'point', target: 'bar', response: 'highlight', intent: 'map point → bar: highlight' },
       { verb: 'link', source: 'map', kind: 'point', target: 'table', response: 'mirror', mapping: [{ from: 'region', to: 'area' }], intent: 'same state' },
       { verb: 'link', source: 'map', kind: 'point', target: 'bar', response: null, intent: 'map point → bar: back to the rule' },
+      { verb: 'link', source: 'weeks', kind: 'interval', target: 'trend', response: 'navigate', onClear: 'leave', fold: 'the same weeks, per entity', intent: 'weeks interval → trend: navigate' },
     ]);
     view.dispose();
   });

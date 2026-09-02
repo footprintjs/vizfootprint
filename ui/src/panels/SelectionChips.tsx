@@ -6,11 +6,15 @@
  * of it away — as a commit, like any act. Words come from `formatCommitValue`
  * (the same spelling the commit log uses), never a second vocabulary.
  */
-import type { SelectionView } from '../adapter/types.js';
+import type { ClearedSelectionView, LinkGraphView, SelectionView } from '../adapter/types.js';
 import { formatCommitValue } from './format.js';
 
 export interface SelectionChipsProps {
   readonly selections: readonly SelectionView[];
+  /** Layer 4 `onClear`: views whose selection was cleared and what it was — shown as a KEPT chip wherever an edge's policy keeps it in force. */
+  readonly cleared?: readonly ClearedSelectionView[];
+  /** The link graph, to know which cleared clauses an edge still keeps (`leave` / `excludeAll`); without it no kept chip shows. */
+  readonly links?: LinkGraphView;
   /** viewId → display label (the def's `label`), optional. */
   readonly labels?: Readonly<Record<string, string>>;
   /** Clear ONE view's selection (kind-faithful) — wire to `view.clear(viewId)`. */
@@ -41,14 +45,43 @@ function isExcluded(s: SelectionView): boolean {
   return s.kind === 'match' && (s.value as { readonly exclude?: boolean } | null)?.exclude === true;
 }
 
-export function SelectionChips({ selections, labels = {}, onClear, onClearAll, onSetPolarity, readOnly = false, className }: SelectionChipsProps): JSX.Element {
+/** The cleared clauses some edge still keeps in force — each with the targets and the policy, so the chip can say so. */
+export function keptClauses(cleared: readonly ClearedSelectionView[], links: LinkGraphView | undefined, live: readonly SelectionView[]): { readonly clause: ClearedSelectionView; readonly kept: readonly { readonly target: string; readonly policy: 'leave' | 'excludeAll' }[] }[] {
+  if (links === undefined) return [];
+  const selecting = new Set(live.map((s) => s.viewId));
+  return cleared.flatMap((c) => {
+    if (selecting.has(c.viewId)) return [];
+    const kept = links.edges.flatMap((e) => (e.source === c.viewId && e.kind === c.kind && e.response !== 'none' && e.response !== 'follow' && (e.onClear === 'leave' || e.onClear === 'excludeAll') ? [{ target: e.target, policy: e.onClear }] : []));
+    return kept.length > 0 ? [{ clause: c, kept }] : [];
+  });
+}
+
+export function SelectionChips({ selections, cleared = [], links, labels = {}, onClear, onClearAll, onSetPolarity, readOnly = false, className }: SelectionChipsProps): JSX.Element {
   // a cleared clause is not a chip: a cleared point never reaches the wire (dropped from the fold), a cleared interval/cell/match arrives as null
   const live = selections.filter((s) => s.value !== undefined && (s.kind === 'point' || s.value !== null));
+  // … unless an edge KEEPS it in force after the clear — then a person must see why a target is still filtered
+  const kept = keptClauses(cleared, links, live);
   return (
-    <div className={`vzf vzf-selchips${className ? ' ' + className : ''}`} role="group" aria-label="live selections" data-vzf="selection-chips">
-      {live.length === 0 ? (
+    <div className={`vzf vzf-selchips${className ? ' ' + className : ''}`} role="group" aria-label={kept.length > 0 ? 'selections, live and kept' : 'live selections'} data-vzf="selection-chips">
+      {kept.map(({ clause: c, kept: edges }) => (
+        <span
+          key={`kept:${c.viewId}`}
+          className="vzf-selchip vzf-selchip-kept"
+          data-view={c.viewId}
+          data-kind={c.kind}
+          data-kept="true"
+          title={`cleared by commit ${c.clearedBy}; ${edges.map((k) => `${labels[k.target] ?? k.target} ${k.policy === 'leave' ? 'keeps it' : 'shows nothing'}`).join(', ')} — select on ${labels[c.viewId] ?? c.viewId} again, or change the edge in the matrix`}
+        >
+          <span className="vzf-selchip-view">{labels[c.viewId] ?? c.viewId}</span>
+          <span className="vzf-selchip-words">{chipWords(c)} — kept after clearing for {edges.map((k) => labels[k.target] ?? k.target).join(', ')}</span>
+          <span className="vzf-sr-only">
+            {' '}cleared by commit {c.clearedBy}; {edges.map((k) => `${labels[k.target] ?? k.target} ${k.policy === 'leave' ? 'keeps it' : 'shows nothing'}`).join(', ')}. To release it, select on {labels[c.viewId] ?? c.viewId} again or change the edge in the matrix.
+          </span>
+        </span>
+      ))}
+      {live.length === 0 && kept.length === 0 ? (
         <span className="vzf-soft vzf-selchips-empty">no selection — click a mark, shift-click to add, drag across bars for a run</span>
-      ) : (
+      ) : live.length === 0 ? null : (
         live.map((s) => {
           const excluded = isExcluded(s);
           return (

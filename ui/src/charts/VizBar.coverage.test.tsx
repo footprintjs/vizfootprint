@@ -262,3 +262,10 @@ describe('SET-1 — deselect, shift-click sets, drag runs (VizBar)', () => {
     expect(container.querySelectorAll('rect.vzf-barhl')).toHaveLength(0);
   });
 });
+
+describe('the accessible name (the prose plane\'s altShort)', () => {
+  it('takes ariaLabel over its own construction line', () => {
+    const { container } = render(<VizBar data={data} field="category" ariaLabel="Cases by report state" />);
+    expect(container.querySelector('[role="group"]')!.getAttribute('aria-label')).toBe('Cases by report state'); // a group: its marks are buttons, and must stay reachable
+  });
+});

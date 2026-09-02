@@ -26,6 +26,8 @@ export interface BarDatum {
 }
 
 export interface VizBarProps {
+  /** The chart's accessible name — the prose plane's `altShort` lands here; absent = the chart names itself from its bindings. */
+  readonly ariaLabel?: string;
   readonly viewId?: string;
   readonly data: readonly BarDatum[];
   /**
@@ -149,8 +151,8 @@ export function VizBar(props: VizBarProps): JSX.Element {
         className={`vzf-chart vzf-bar${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         ref={svgRef}
-        role="img"
-        aria-label={`count by ${label}`}
+        role="group"
+        aria-label={props.ariaLabel ?? `count by ${label}`}
         onPointerMove={moveRun}
         onPointerUp={endRun}
         onPointerCancel={cancelRun}

@@ -2,11 +2,12 @@
  * VALIDATE — refusals at declaration, in plain sentences. An edge whose kind
  * is not in the source's voice, whose ends are not declared views, or that
  * repeats another edge's (source, kind, target) is refused before any session
- * exists. The aggregation-crossing rule (`fold` required when an emission
- * crosses a grain) is NOT enforced yet: the def does not carry enough about
- * each view's grain to judge it honestly, so the README says so.
+ * exists. The aggregation-crossing rule: an edge whose source emits over an
+ * aggregate the target does not show must state its `fold` — judged only when
+ * both views declare a grain (see grain.ts).
  */
 import { ENCODING_KIND, ENCODING_RESPONSES, LINK_DEFAULTS, LINK_KINDS, LINK_ON_CLEAR, LINK_RESPONSES, edgeId, type LinkKind, type LinkView } from './types.js';
+import { crossesGrain, grainWords } from './grain.js';
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
@@ -23,6 +24,7 @@ export function validateLinks(links: unknown, linkDefault: unknown, views: reado
   }
   const voices = new Map(views.map((v) => [v.viewId, v.voice]));
   const channelsOf = new Map(views.map((v) => [v.viewId, v.channels]));
+  const viewById = new Map(views.map((v) => [v.viewId, v]));
   const seen = new Set<string>();
   links.forEach((link, i) => {
     const where = `links[${i}]`;
@@ -72,6 +74,15 @@ export function validateLinks(links: unknown, linkDefault: unknown, views: reado
     } else {
       if (!(LINK_RESPONSES as readonly unknown[]).includes(link.response)) problems.push(`${where}.response must be one of ${LINK_RESPONSES.join('|')}`);
       if (link.channels !== undefined) problems.push(`${where}.channels applies to an encoding edge only`);
+      // the aggregation-crossing rule: judged only when both grains are declared, and only where rows FOLD —
+      // filter and highlight; navigate moves a viewport, mirror outlines a value, none carries nothing across
+      if (link.fold === undefined && (link.response === 'filter' || link.response === 'highlight') && nonEmpty(link.source) && nonEmpty(link.target)) {
+        const sv = viewById.get(link.source);
+        const tv = viewById.get(link.target);
+        if (sv?.grain !== undefined && tv?.grain !== undefined && crossesGrain(sv, tv)) {
+          problems.push(`${where}: view "${link.source}" emits over ${grainWords(sv.grain)} and view "${link.target}" shows ${grainWords(tv.grain)} — an edge that crosses grains must state its fold`);
+        }
+      }
     }
     if (link.mapping !== undefined) {
       if (!Array.isArray(link.mapping) || link.mapping.some((m) => !isObject(m) || !nonEmpty(m.from) || !nonEmpty(m.to))) {

@@ -62,6 +62,8 @@ export interface RegionDatum {
 }
 
 export interface VizMapProps {
+  /** The chart's accessible name — the prose plane's `altShort` lands here; absent = the chart names itself from its bindings. */
+  readonly ariaLabel?: string;
   readonly viewId?: string;
   /** GeoJSON FeatureCollection; each feature's `properties[nameProperty]` is its region name. */
   readonly geo: GeoFeatureCollection;
@@ -195,8 +197,8 @@ export function VizMap(props: VizMapProps): JSX.Element {
     <svg
       className={`vzf-chart vzf-map${props.className ? ' ' + props.className : ''}`}
       viewBox={`0 0 ${width} ${height}`}
-      role="img"
-      aria-label={`${valueLabel} by ${regionField}`}
+      role="group"
+      aria-label={props.ariaLabel ?? `${valueLabel} by ${regionField}`}
     >
       {geo.features.map((f, i) => {
         const name = String(f.properties?.[nameProperty] ?? `region ${i + 1}`);

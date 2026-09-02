@@ -57,6 +57,8 @@ export interface ProseBasis {
   readonly analysisId?: string;
   /** The commit id the words were written at (informational; staleness is judged structurally). */
   readonly atCommit?: string | null;
+  /** A person's edit of an agent's words keeps the agent's own basis here, as it was — the evidence the edit started from. */
+  readonly editedFrom?: ProseBasis;
 }
 
 /**

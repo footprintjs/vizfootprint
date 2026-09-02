@@ -23,10 +23,20 @@ Three laws, stated once here:
   navigate. (The pass itself lives in the consumer: the ui adapter's
   `selectionForView` reads `edgesInto(target)`.)
 
-Not enforced yet, said plainly: the aggregation-crossing rule (an emission over
-an aggregate reaching raw rows must state its `fold`). The def does not carry
-each view's grain, so the field is accepted and ignored. `onClear` is carried
-and not yet applied; every clear behaves as `showAll`.
+**Grain and fold (enforced).** A view may declare its GRAIN on the def
+(`grains: [{ viewId, keys }]`): the group keys its marks stand for, `[]` for one
+mark per row. An edge whose source emits over an aggregate (a non-empty grain)
+and whose target shows another grain CROSSES grains, and must state its `fold`
+in words — the def door and the `link` verb refuse it otherwise, with the same
+sentence. The default rule's crossing edges carry `fold: 'crossfilter'` when
+written out, so no crossing is ever implicit. A view with no grain is never
+judged, and only `filter` and `highlight` edges are: a `navigate` moves a
+viewport, a `mirror` outlines a value, a `none` carries nothing — no rows fold. **`onClear` (enforced where responses run):** `showAll` (the default)
+drops the clause when the source clears; `leave` keeps the last emission in
+force on that edge until the source selects again; `excludeAll` keeps nothing.
+The session remembers what a cleared view last selected
+(`overview.clearedSelections`), and the consumer's `selectionForView` applies
+the edge's policy — one rule for a chart; an analysis input stays the live set.
 
 | file | one job |
 |---|---|

@@ -42,7 +42,7 @@ describe('viz.why — object-form target coercion (coerceWhyTarget)', () => {
     expect(res).toEqual({
       ok: false,
       reason: 'PAYLOAD_INVALID',
-      detail: 'why requires target: a column name (string), or { column } / { analysisId }',
+      detail: "why requires target: a column name (string), { column }, { analysisId }, or { viewId, slot } for a view's words",
     });
   });
 

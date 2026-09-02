@@ -37,7 +37,8 @@ import type {
   BringOverResult,
 } from '../../../src/session/index.js';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
-import { LinkGraphView,
+import {
+  ClearedSelectionView, LinkGraphView,
   HONESTY_LINE,
   emptyState,
   emptyPaths,
@@ -136,6 +137,8 @@ export interface RawPollState {
   readonly records: readonly RawPollCommit[];
   readonly views?: readonly unknown[];
   readonly activeSelections?: readonly unknown[];
+  /** Layer 4 `onClear`: views whose selection was cleared and what it was (each row carries `clearedBy`). */
+  readonly clearedSelections?: readonly unknown[];
   readonly analyses?: readonly unknown[];
   readonly fdr?: unknown;
   readonly columns?: Readonly<Record<string, readonly { field: string; type: string }[]>>;
@@ -302,6 +305,7 @@ interface StatePieces {
   encodings: Record<string, ViewEncoding>;
   columns: Record<string, readonly ColumnView[]>;
   selections: SelectionView[];
+  cleared: readonly ClearedSelectionView[];
   branches: BranchView[];
   paths: PathsView;
   checkpoints: CheckpointView[];
@@ -357,6 +361,7 @@ function finalize(p: StatePieces): SessionViewState {
     encodings: p.encodings,
     columns: p.columns,
     selections: p.selections,
+    cleared: p.cleared,
     commits,
     branches: p.branches,
     paths: p.paths,
@@ -543,6 +548,12 @@ function mapLinks(raw: unknown): LinkGraphView | undefined {
   return { default: g.default, views: g.views as LinkGraphView['views'], edges: g.edges as LinkGraphView['edges'] };
 }
 
+function mapCleared(sels: readonly unknown[] | undefined): ClearedSelectionView[] {
+  return (sels ?? []).flatMap((s) => {
+    const o = s as ClearedSelectionView;
+    return typeof o.clearedBy === 'string' ? [{ ...mapSelections([o])[0]!, clearedBy: o.clearedBy }] : [];
+  });
+}
 function mapSelections(sels: readonly unknown[] | undefined): SelectionView[] {
   return (sels ?? []).map((s) => {
     const o = s as SelectionView;
@@ -717,6 +728,7 @@ async function mapSession(session: SessionLike): Promise<SessionViewState> {
     encodings: overview.encodings ?? encodingsFromViews(views),
     columns: mapColumns(overview.columns),
     selections: mapSelections(overview.activeSelections),
+    cleared: mapCleared(overview.clearedSelections),
     links: mapLinks((overview as { links?: unknown }).links),
     rules: mapRules((overview as { rules?: unknown }).rules),
     effectiveEncodings: mapEncodingMap((overview as { effectiveEncodings?: unknown }).effectiveEncodings),
@@ -766,6 +778,7 @@ export function mapPollState(raw: RawPollState): SessionViewState {
     encodings: raw.encodings ?? encodingsFromViews(views),
     columns: mapColumns(raw.columns),
     selections: mapSelections(raw.activeSelections),
+    cleared: mapCleared(raw.clearedSelections),
     links: mapLinks(raw.links),
     rules: mapRules(raw.rules),
     effectiveEncodings: mapEncodingMap(raw.effectiveEncodings),
@@ -806,6 +819,10 @@ export interface LinkEdit {
   readonly mapping?: readonly { readonly from: string; readonly to: string }[];
   /** Encoding edges: which channels follow (absent = every channel both views share, written out on the edge). */
   readonly channels?: readonly { readonly from: string; readonly to: string }[];
+  /** What the target does when the source clears (selection edges): leave | showAll | excludeAll. */
+  readonly onClear?: 'leave' | 'showAll' | 'excludeAll';
+  /** How the emission folds down to the target's rows — required when the edge crosses grains. */
+  readonly fold?: string;
 }
 
 export interface SessionView {
@@ -1063,6 +1080,8 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
         response: edge.response,
         ...(edge.mapping !== undefined ? { mapping: edge.mapping } : {}),
         ...(edge.channels !== undefined ? { channels: edge.channels } : {}),
+        ...(edge.onClear !== undefined ? { onClear: edge.onClear } : {}),
+        ...(edge.fold !== undefined ? { fold: edge.fold } : {}),
       };
       await dispatch({ ...body, cause: cause(label) }, { ...body, intent: label });
     },

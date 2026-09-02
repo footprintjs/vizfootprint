@@ -21,6 +21,7 @@
  * (ledger) row, so `why(target)` is proven over TWO target kinds, not one key.
  */
 
+import type { ProseSlot } from '../prose/types.js';
 import type { CommitRecord } from '../log/index.js';
 import type { FdrStep } from '../fdr/index.js';
 
@@ -35,7 +36,10 @@ export type TierCommitKind =
   | 'declaring' // the viz commit that declared/produced the target
   | 'input-selection' // a viz select/filter that formed the analysis input
   | 'kernel-stage' // a footprintjs stage the target's value flows through
-  | 'agent-frame'; // the agent tool-call that dispatched the run
+  | 'agent-frame' // the agent tool-call that dispatched the run
+  | 'proposal' // prose: the proposing commit the words were accepted from
+  | 'basis' // prose: the commit the words state they were written at
+  | 'ref'; // prose: a commit the words cite by a span
 
 /** One commit in the composed cross-tier set. Pure ids + tier/role tags. */
 export interface TierCommit {
@@ -88,7 +92,9 @@ export interface CorrelationEnvelope {
 /** The two proven target kinds (C2). `column` = a materialised column; `hypothesis` = a scalar/ledger row. */
 export type WhyTarget =
   | { readonly kind: 'column'; readonly column: string }
-  | { readonly kind: 'hypothesis'; readonly analysisId: string };
+  | { readonly kind: 'hypothesis'; readonly analysisId: string }
+  /** A view's words: the `describe` commit that landed them, the selections they were written under, the proposal they were accepted from, the commits they cite, and the analysis they quote. */
+  | { readonly kind: 'prose'; readonly viewId: string; readonly slot: ProseSlot };
 
 /** Documented registry gaps the answer surfaces honestly (never faked). */
 export interface WhyFlags {
@@ -150,10 +156,16 @@ export interface CrossTierSlice {
   readonly fdr?: { readonly step: number; readonly reject: boolean };
 }
 
-/** The target itself could not be located in the session (unknown column / analysis). */
+/**
+ * No provenance to walk. `no-such-target`: the target could not be located in
+ * the session (an unknown column / analysis / slot). `declared-in-def`: the
+ * target EXISTS — a view's words are the declaration's own — but no commit
+ * landed them. A consumer must not read `ok: false` as "unknown target"
+ * without looking at `missing`.
+ */
 export interface WhyTargetMiss {
   readonly ok: false;
-  readonly missing: 'no-such-target';
+  readonly missing: 'no-such-target' | 'declared-in-def';
   readonly target: WhyTarget;
 }
 
@@ -180,6 +192,8 @@ export interface WhySources {
   readonly agentEventLog?: readonly AgentEventFrame[];
   /** kind:'hypothesis' — the target's online-FDR ledger row (machine context, not a commit). */
   readonly fdrStep?: FdrStep;
+  /** kind:'prose' — the commits the words point at (accepted from, written at, cited), each validated against the log before it enters the set. */
+  readonly relatedCommits?: readonly { readonly id: string; readonly kind: 'proposal' | 'basis' | 'ref' }[];
 }
 
 export type { RuntimeSnapshot };

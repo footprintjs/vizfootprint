@@ -49,6 +49,8 @@ export interface RegressionGeom {
 }
 
 export interface VizScatterProps {
+  /** The chart's accessible name — the prose plane's `altShort` lands here; absent = the chart names itself from its bindings. */
+  readonly ariaLabel?: string;
   readonly viewId?: string;
   readonly data: readonly ScatterDatum[];
   /** DATA fields the axes encode (also the brush emit field). */
@@ -138,7 +140,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         className={`vzf-chart vzf-scatter${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={`scatter of ${yLabel} against ${xLabel}`}
+        aria-label={props.ariaLabel ?? `scatter of ${yLabel} against ${xLabel}`}
         {...handlers}
       >
         {/* axes frame */}

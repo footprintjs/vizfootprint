@@ -298,6 +298,8 @@ export interface DashboardDef {
   readonly agent?: AgentDecl;
   /** The default table `select`/`filter`/`analyze` operate over. Default: the first `data` key. */
   readonly defaultTable?: string;
+  /** Layer 4: each view's GRAIN — the group keys its marks stand for (`[]` = one mark per row); an edge that crosses grains must state its `fold`. */
+  readonly grains?: readonly GrainDecl[];
   /** Layer 4: the declared LINKS between views — what one view's emission does to another (see src/links/README.md). */
   readonly links?: readonly LinkDecl[];
   /** The rule the link graph starts from: `crossfilter` (every view filters every other, self excluded — the default) or `none`. */
@@ -319,10 +321,18 @@ export interface RegisteredAnalysis {
 }
 
 /** One declared view: its actor identity + resolved capability envelope. */
+/** A view's grain, declared: the group keys its marks aggregate over (`[]` = rows). */
+export interface GrainDecl {
+  readonly viewId: string;
+  readonly keys: readonly string[];
+}
+
 export interface ViewDecl {
   readonly viewId: string;
   readonly meta: ActorMeta;
   readonly capability?: CapabilityDecl;
+  /** The view's declared grain (layer 4), if any. */
+  readonly grain?: readonly string[];
   /** This view's declared encoding surface (chart kind + valid channels + initial mapping), if any. */
   readonly encoding?: ViewEncodingDecl;
 }

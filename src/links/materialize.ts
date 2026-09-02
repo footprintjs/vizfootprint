@@ -10,6 +10,7 @@
  * declared edges with no default counterpart append in declaration order.
  */
 import { ENCODING_KIND, edgeId, type ChannelPair, type LinkDecl, type LinkDefault, type LinkEdge, type LinkGraph, type LinkView } from './types.js';
+import { DEFAULT_FOLD, crossesGrain } from './grain.js';
 
 /** The channel pairs an encoding edge follows when the author states none: every channel both ends declare, by the same name. */
 export function defaultChannelPairs(source: LinkView | undefined, target: LinkView | undefined): readonly ChannelPair[] {
@@ -32,7 +33,16 @@ export function materializeLinks(views: readonly LinkView[], declared: readonly 
         if (kind === ENCODING_KIND) continue; // no default encoding edge: absent is a silence (law 1, amended)
         for (const target of views) {
           if (target.viewId === source.viewId) continue; // self excluded — the one cycle-breaker
-          edges.push({ id: edgeId(source.viewId, kind, target.viewId), source: source.viewId, kind, target: target.viewId, response: 'filter', origin: 'default' });
+          edges.push({
+            id: edgeId(source.viewId, kind, target.viewId),
+            source: source.viewId,
+            kind,
+            target: target.viewId,
+            response: 'filter',
+            origin: 'default',
+            // the rule written out states its fold where it crosses grains — never an implicit crossing
+            ...(crossesGrain(source, target) ? { fold: DEFAULT_FOLD } : {}),
+          });
         }
       }
     }

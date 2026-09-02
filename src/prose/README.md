@@ -49,7 +49,6 @@ A record's `refs` are spans of its text that point at a commit the log holds or 
 
 ## What is not here yet
 
-- `why()` over a slot.
 - A person's edit of an agent's words keeps the basis but is not re-judged for staleness against a new basis.
 
 See the build order on the Interaction Grammar page.
@@ -57,3 +56,9 @@ See the build order on the Interaction Grammar page.
 ## Files
 
 `types.ts` the vocabulary · `sentences.ts` templates · `validate.ts` the validator, both doors · `status.ts` staleness and the construction line
+
+## Shipped after the first cut
+
+- **`why()` over a slot** — `why({ kind: 'prose', viewId, slot })`: the `describe` commit that landed the words anchors the answer; the selections live at that commit are its input; the proposal it was accepted from (`proposal`), the commit its basis names (`basis`) and the commits its spans cite (`ref`) ride as related commits, each checked against the log; a basis that quotes an analysis lends that analysis's run and ledger row. Words the declaration itself carries answer `declared-in-def` — no commit landed them.
+- **The accessible name** — every chart takes `ariaLabel`; a host passes the slot `altShort` so the graphic is named by the prose plane, and a chart with no words names itself from its bindings.
+- **A person's edit of an agent's words** (`author.kind: 'humanEdited'`) is judged on the screen it was made on: the basis keeps the keys the agent stated, re-stamped to now (`encodings` = the effective bindings, `filters` = the live selections, `atCommit` = the cursor). The edit reads fresh, and goes stale on its own terms when the screen moves again.
