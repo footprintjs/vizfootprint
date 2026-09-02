@@ -105,6 +105,26 @@ export function keyOf(record: CommitRecord): string | null {
   return `selection:${record.viewId}`;
 }
 
+/**
+ * The FAMILY a commit belongs to, derived from its namespace (no new field on
+ * the record — the viewId prefix is the one owner):
+ *   - `interaction` — a selection, a filter, a navigation: what the person or the agent asked of the DATA
+ *   - `design`      — an encoding, a link, a view's words, a layout: what the dashboard IS
+ *   - `analysis`    — a declared analysis or an agent-authored chart
+ *   - `story`       — a beat or an annotation
+ * The log can be filtered by family, so design edits can be hidden while
+ * reading an analysis, or tidied before a story is told.
+ */
+export type CommitFamily = 'interaction' | 'design' | 'analysis' | 'story';
+export const COMMIT_FAMILIES: readonly CommitFamily[] = ['interaction', 'design', 'analysis', 'story'];
+export function familyOf(record: Pick<CommitRecord, 'viewId'>): CommitFamily {
+  const id = record.viewId;
+  if (id.startsWith(ENCODING_VIEW_PREFIX) || id.startsWith(LINK_VIEW_PREFIX) || id.startsWith(PROSE_VIEW_PREFIX) || id.startsWith(LAYOUT_VIEW_PREFIX)) return 'design';
+  if (id.startsWith(ANALYSIS_VIEW_PREFIX) || id.startsWith(CHART_VIEW_PREFIX)) return 'analysis';
+  if (id.startsWith(BEAT_VIEW_PREFIX) || id.startsWith(ANNOTATION_VIEW_PREFIX)) return 'story';
+  return 'interaction';
+}
+
 /** EVERY state key a commit touches: one per channel for a binding set, else `keyOf` (none when inert). */
 export function keysOf(record: CommitRecord): string[] {
   if (isEncodingSet(record)) {

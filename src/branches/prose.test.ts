@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CommitRecord } from '../log/index.js';
-import { PROSE_VIEW_PREFIX, foldDiff, foldStateAt, keyOf, keysOf, planBringOver, planUndo } from './index.js';
+import { COMMIT_FAMILIES, PROSE_VIEW_PREFIX, familyOf, foldDiff, foldStateAt, keyOf, keysOf, planBringOver, planUndo } from './index.js';
 
 function rec(id: string, parent: string | null, over: Partial<CommitRecord> = {}): CommitRecord {
   return { id, parent, viewId: 'bar', actorMeta: { actor: 'user' }, kind: 'point', field: 'category', value: 'Formal', clientViewIds: ['bar'], predicateSQL: '', cause: { requestedBy: 'user', computedBy: 'user' }, ts: 0, ...over };
@@ -37,5 +37,15 @@ describe('compare sees the words', () => {
     const b = words('b', 'root', 'title', { text: 'B', author: { kind: 'human' } });
     const diff = foldDiff([root, a, b], 'a', 'b');
     expect(JSON.stringify(diff)).toContain('prose');
+  });
+});
+
+describe('commit families', () => {
+  it('derives the family from the namespace, so the log can be filtered without a new field', () => {
+    expect(COMMIT_FAMILIES).toEqual(['interaction', 'design', 'analysis', 'story']);
+    expect(familyOf({ viewId: 'bar' })).toBe('interaction');
+    for (const id of ['encoding:scatter', 'link:a:point→b', 'prose:map', 'layout:dashboard']) expect(familyOf({ viewId: id })).toBe('design');
+    for (const id of ['analysis:corr', 'chart:c1']) expect(familyOf({ viewId: id })).toBe('analysis');
+    for (const id of ['beat:0', 'annotation:user']) expect(familyOf({ viewId: id })).toBe('story');
   });
 });

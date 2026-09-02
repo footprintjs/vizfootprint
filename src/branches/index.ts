@@ -38,6 +38,8 @@ export {
   CHART_VIEW_PREFIX,
   LAYOUT_VIEW_PREFIX,
   PROSE_VIEW_PREFIX,
+  COMMIT_FAMILIES,
+  familyOf,
   LINK_VIEW_PREFIX, ENCODING_SET_FIELD, isEncodingSet, encodingSetOf, keysOf,
   BEAT_VIEW_PREFIX,
 } from './fold.js';
@@ -56,3 +58,4 @@ export type {
   RefEvent,
   RefState,
 } from './types.js';
+export type { CommitFamily } from './fold.js';

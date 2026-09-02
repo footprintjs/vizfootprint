@@ -8,24 +8,56 @@
  * Controlled: it renders the adapter's `commits` (which already carry the
  * onBranch / isCursor flags) and calls `onSeek` on click.
  */
+import { useState } from 'react';
 import type { CommitView } from '../adapter/types.js';
 import { formatCommitValue } from './format.js';
 
 export interface CommitLogProps {
   readonly commits: readonly CommitView[];
   readonly onSeek?: (commitId: string) => void;
+  /** Family chips (interaction · design · analysis · story) to hide a family from the list. Shown when more than one family is present; false hides the chips. */
+  readonly families?: boolean;
   readonly emptyText?: string;
   readonly className?: string;
 }
 
+export const COMMIT_FAMILIES = ['interaction', 'design', 'analysis', 'story'] as const;
+export type CommitFamily = (typeof COMMIT_FAMILIES)[number];
+
 export function CommitLog(props: CommitLogProps): JSX.Element {
   const { commits, onSeek } = props;
+  // family chips: every family present is on by default; a chip toggles it off (the commits stay in the log, hidden here)
+  const [hidden, setHidden] = useState<ReadonlySet<CommitFamily>>(new Set());
+  const familyOfCommit = (c: CommitView): CommitFamily => c.family ?? 'interaction';
+  const present = COMMIT_FAMILIES.filter((f) => commits.some((c) => familyOfCommit(c) === f));
+  const shown = commits.filter((c) => !hidden.has(familyOfCommit(c)));
   return (
     <div className={`vzf-commitlog${props.className ? ' ' + props.className : ''}`} data-vzf="commit-log">
+      {props.families !== false && present.length > 1 ? (
+        <div className="vzf-commitlog-families" role="group" aria-label="commit families">
+          {present.map((f) => {
+            const n = commits.filter((c) => familyOfCommit(c) === f).length;
+            const on = !hidden.has(f);
+            return (
+              <button
+                key={f}
+                type="button"
+                className={`vzf-chip vzf-family-chip${on ? '' : ' vzf-off'}`}
+                aria-pressed={on}
+                data-family={f}
+                onClick={() => setHidden((h) => { const next = new Set(h); if (next.has(f)) next.delete(f); else next.add(f); return next; })}
+              >
+                {f} <span className="vzf-soft">{n}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+      {shown.length === 0 && commits.length > 0 ? <div className="vzf-empty">every commit here is hidden by the family chips</div> : null}
       {commits.length === 0 ? (
         <div className="vzf-empty">{props.emptyText ?? 'no commits yet — brush the scatter, click a bar, or ask the analyst'}</div>
       ) : (
-        commits.map((c) => (
+        shown.map((c) => (
           <button
             key={c.id}
             className={`vzf-chip${c.onBranch ? '' : ' vzf-offbranch'}${c.isCursor ? ' vzf-cursor' : ''}`}
@@ -35,6 +67,7 @@ export function CommitLog(props: CommitLogProps): JSX.Element {
             onClick={() => onSeek?.(c.id)}
           >
             <span className={`vzf-badge vzf-${c.actor}`}>{c.actor}</span>
+            <span className={`vzf-family vzf-family-${familyOfCommit(c)}`} title="commit family">{familyOfCommit(c)}</span>
             <span className="vzf-mono vzf-soft" style={{ fontSize: '0.72em' }}>
               {c.kind}
             </span>

@@ -29,6 +29,8 @@ export interface CommitView {
   readonly fields?: readonly [string, string];
   /** The principal that authored the commit (`cause.requestedBy`). */
   readonly actor: Actor;
+  /** Which family the commit belongs to — interaction, design, analysis, story — derived from its namespace; the log filters by it. Absent = interaction (an older adapter). */
+  readonly family?: 'interaction' | 'design' | 'analysis' | 'story';
   /** The human-facing intent string, if the cause carried one. */
   readonly intent?: string;
   /** Cross-tier join key (R10), if stamped. */

@@ -2164,3 +2164,11 @@
 @media (prefers-reduced-motion: reduce) {
   :where(.vzf) .vzf-cockpit-aside { transition: none; }
 }
+
+/* ── commit families: chips to hide a family from the log, and a badge per commit ── */
+:where(.vzf) .vzf-commitlog-families { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+:where(.vzf) .vzf-family-chip.vzf-off { opacity: 0.45; text-decoration: line-through; }
+:where(.vzf) .vzf-family { font-size: 0.7em; opacity: 0.6; margin-right: 4px; }
+:where(.vzf) .vzf-family-design { color: #0e6f69; }
+:where(.vzf) .vzf-family-analysis { color: #5e5aa8; }
+:where(.vzf) .vzf-family-story { color: #a8661a; }

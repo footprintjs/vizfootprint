@@ -20,6 +20,7 @@
 
 import type { Actor } from '../../../src/cause/index.js';
 import type { CommitRecord } from '../../../src/log/index.js';
+import { familyOf } from '../../../src/branches/fold.js';
 import type {
   Overview,
   GapRow,
@@ -339,6 +340,7 @@ function finalize(p: StatePieces): SessionViewState {
     revertOf: c.revertOf,
     conflicts: c.conflicts,
     label: commitLabel(c.field, c.viewId),
+    family: familyOf({ viewId: c.viewId }),
     onBranch: active.has(c.id),
     isCursor: c.id === p.cursor,
     isHead: c.id === p.head,
