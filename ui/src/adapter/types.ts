@@ -175,6 +175,37 @@ export interface SourceInfoView {
   readonly rows: number;
 }
 
+/** One declared table as the def states it — nothing inferred from the rows. */
+export interface TableView {
+  readonly name: string;
+  /** A declared source (`format · via · at`, the locator only when it was a string), inline rows / CSV text carried by the def, or `unstated` when the wire's entry could not be read (the table still counts). */
+  readonly source: { readonly format: string; readonly via: string; readonly at?: string } | { readonly inline: 'rows' | 'csv'; readonly rows?: number } | { readonly unstated: true };
+  readonly engine: string;
+  readonly key?: string;
+  readonly grain?: { readonly bucket?: string; readonly reducer?: string; readonly collapsedFrom?: number; readonly note?: string };
+  readonly absence?: { readonly field: string; readonly states: readonly string[] };
+  readonly declaredColumns: number;
+}
+
+/** What a refresh's delta says: exact by the declared row key, or a plain replace when there was no usable key. */
+export type RefreshDeltaView =
+  | { readonly keyed: true; readonly key: string; readonly added: number; readonly updated: number; readonly removed: number; readonly unkeyed: number }
+  | { readonly keyed: false; readonly replaced: number; readonly keyAbsent?: string };
+
+/** One table's answer to a refresh, as the journal keeps it — three arms validated off the wire, and `unreadable` when the wire carried something else (the answer is kept as a fact that could not be read, never dropped or invented). */
+export type RefreshOutcomeView =
+  | { readonly unchanged: true; readonly version: string }
+  | { readonly changed: true; readonly from: string; readonly to: string; readonly retrievedAt: string; readonly rows: number; readonly delta: RefreshDeltaView; readonly materialisedLost?: readonly string[] }
+  | { readonly refused: true; readonly reason: string; readonly message: string }
+  | { readonly unreadable: true };
+
+/** One refresh in the data journal: when it ran, which tables were asked, what each answered. */
+export interface RefreshRecordView {
+  readonly at: string;
+  readonly asked: readonly string[];
+  readonly tables: Readonly<Record<string, RefreshOutcomeView>>;
+}
+
 /** A SAVED selection: a selection commit somebody named with a note. Applying it is `bringOver(commitId)`. */
 export interface SavedSelectionView {
   /** The note's words — the name. */
@@ -480,6 +511,12 @@ export interface SessionViewState {
   readonly sources?: Readonly<Record<string, SourceInfoView>>;
   /** The prose plane's one non-view subject: the dashboard's own words at the cursor (its caption = the summary), with the proposals on the table for them. Absent on an older wire. */
   readonly dashboard?: DashboardWordsView;
+  /** Every declared table as the def states it (the Sources tab's rows). Absent on an older wire. */
+  readonly tables?: readonly TableView[];
+  /** The data journal's latest records, oldest first. Absent on an older wire. */
+  readonly journal?: readonly RefreshRecordView[];
+  /** How many records the journal holds in all — more than `journal.length` means older answers lie beyond what the wire carried. */
+  readonly journalTotal?: number;
   readonly commits: readonly CommitView[];
   readonly branches: readonly BranchView[];
   /** The NAMED paths surface (BR-1): current/detached, list, journal. */

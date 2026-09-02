@@ -62,7 +62,7 @@ import {
   type ChartCellView,
   type LayoutChange,
   type LayoutView,
-  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView, type ProposalView, type SavedSelectionView, type SourceInfoView, type DashboardWordsView, type LayoutPreset } from './types.js';
+  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView, type ProposalView, type SavedSelectionView, type SourceInfoView, type DashboardWordsView, type TableView, type RefreshRecordView, type RefreshOutcomeView, type RefreshDeltaView, type LayoutPreset } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
 import type { NavigateViewState } from '../contract/types.js';
@@ -144,6 +144,12 @@ export interface RawPollState {
   readonly sources?: unknown;
   /** The dashboard's own words (`overview.dashboard`), if the wire carries them. */
   readonly dashboard?: unknown;
+  /** Every declared table (`overview.tables`), if the wire carries them. */
+  readonly tables?: unknown;
+  /** The data journal (`overview.journal`), if the wire carries it. */
+  readonly journal?: unknown;
+  /** How many journal records exist in all (`overview.journalTotal`). */
+  readonly journalTotal?: unknown;
   readonly analyses?: readonly unknown[];
   readonly fdr?: unknown;
   readonly columns?: Readonly<Record<string, readonly { field: string; type: string }[]>>;
@@ -322,6 +328,9 @@ interface StatePieces {
   cleared: readonly ClearedSelectionView[];
   sources?: Readonly<Record<string, SourceInfoView>>;
   dashboard?: DashboardWordsView;
+  tables?: readonly TableView[];
+  journal?: readonly RefreshRecordView[];
+  journalTotal?: number;
   branches: BranchView[];
   paths: PathsView;
   checkpoints: CheckpointView[];
@@ -382,6 +391,9 @@ function finalize(p: StatePieces): SessionViewState {
     cleared: p.cleared,
     ...(p.sources !== undefined ? { sources: p.sources } : {}),
     ...(p.dashboard !== undefined ? { dashboard: p.dashboard } : {}),
+    ...(p.tables !== undefined ? { tables: p.tables } : {}),
+    ...(p.journal !== undefined ? { journal: p.journal } : {}),
+    ...(p.journalTotal !== undefined ? { journalTotal: p.journalTotal } : {}),
     commits,
     saved: savedSelectionsOf(commits),
     branches: p.branches,
@@ -501,6 +513,68 @@ function mapProse(raw: unknown): readonly ProseStatusView[] {
   });
 }
 /** The proposals on the table, as the wire serves them; anything malformed is dropped. */
+/** Every declared table off the wire — a named table always counts; a source that cannot be read is `unstated`, never invented. */
+function mapTables(raw: unknown): readonly TableView[] {
+  if (!Array.isArray(raw)) return [];
+  const out: TableView[] = [];
+  for (const t of raw) {
+    const o = t as Partial<TableView>;
+    if (typeof o.name !== 'string' || typeof o.engine !== 'string' || typeof o.declaredColumns !== 'number') continue;
+    const src = (typeof o.source === 'object' && o.source !== null ? o.source : {}) as { format?: unknown; via?: unknown; at?: unknown; inline?: unknown; rows?: unknown };
+    const source: TableView['source'] =
+      typeof src.format === 'string' && typeof src.via === 'string'
+        ? { format: src.format, via: src.via, ...(typeof src.at === 'string' ? { at: src.at } : {}) }
+        : src.inline === 'rows' || src.inline === 'csv'
+          ? { inline: src.inline, ...(typeof src.rows === 'number' ? { rows: src.rows } : {}) }
+          : { unstated: true };
+    const g = (typeof o.grain === 'object' && o.grain !== null ? o.grain : null) as { bucket?: unknown; reducer?: unknown; collapsedFrom?: unknown; note?: unknown } | null;
+    const grain = g === null ? undefined : { ...(typeof g.bucket === 'string' ? { bucket: g.bucket } : {}), ...(typeof g.reducer === 'string' ? { reducer: g.reducer } : {}), ...(typeof g.collapsedFrom === 'number' ? { collapsedFrom: g.collapsedFrom } : {}), ...(typeof g.note === 'string' ? { note: g.note } : {}) };
+    out.push({
+      name: o.name,
+      source,
+      engine: o.engine,
+      ...(typeof o.key === 'string' ? { key: o.key } : {}),
+      ...(grain !== undefined ? { grain } : {}),
+      ...(typeof o.absence === 'object' && o.absence !== null && typeof o.absence.field === 'string' && Array.isArray(o.absence.states) ? { absence: { field: o.absence.field, states: o.absence.states.map(String) } } : {}),
+      declaredColumns: o.declaredColumns,
+    });
+  }
+  return out;
+}
+
+/** One refresh outcome off the wire, validated against its three arms — anything else is kept as `unreadable`, never rendered into a crash and never dropped. */
+function mapOutcome(raw: unknown): RefreshOutcomeView {
+  if (typeof raw !== 'object' || raw === null) return { unreadable: true };
+  const o = raw as Record<string, unknown>;
+  if (o.unchanged === true && typeof o.version === 'string') return { unchanged: true, version: o.version };
+  if (o.refused === true && typeof o.reason === 'string' && typeof o.message === 'string') return { refused: true, reason: o.reason, message: o.message };
+  if (o.changed === true && typeof o.from === 'string' && typeof o.to === 'string' && typeof o.retrievedAt === 'string' && typeof o.rows === 'number' && typeof o.delta === 'object' && o.delta !== null) {
+    const d = o.delta as Record<string, unknown>;
+    const delta: RefreshDeltaView | null =
+      d.keyed === true && typeof d.key === 'string' && typeof d.added === 'number' && typeof d.updated === 'number' && typeof d.removed === 'number' && typeof d.unkeyed === 'number'
+        ? { keyed: true, key: d.key, added: d.added, updated: d.updated, removed: d.removed, unkeyed: d.unkeyed }
+        : d.keyed === false && typeof d.replaced === 'number'
+          ? { keyed: false, replaced: d.replaced, ...(typeof d.keyAbsent === 'string' ? { keyAbsent: d.keyAbsent } : {}) }
+          : null;
+    if (delta === null) return { unreadable: true };
+    const lost = Array.isArray(o.materialisedLost) ? o.materialisedLost.map(String) : undefined;
+    return { changed: true, from: o.from, to: o.to, retrievedAt: o.retrievedAt, rows: o.rows, delta, ...(lost !== undefined ? { materialisedLost: lost } : {}) };
+  }
+  return { unreadable: true };
+}
+
+/** The data journal off the wire — a record without a time or a tables map is dropped, and so is any outcome that is not one of the three arms. */
+function mapJournal(raw: unknown): readonly RefreshRecordView[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((r) => {
+    const o = r as Partial<RefreshRecordView>;
+    if (typeof o.at !== 'string' || typeof o.tables !== 'object' || o.tables === null) return [];
+    const tables: Record<string, RefreshOutcomeView> = {};
+    for (const [table, outcome] of Object.entries(o.tables)) tables[table] = mapOutcome(outcome);
+    return [{ at: o.at, asked: Array.isArray(o.asked) ? o.asked.map(String) : Object.keys(tables), tables }];
+  });
+}
+
 /** The dashboard's own words: the same two lists a view carries, mapped by the same two mappers; a malformed wire yields empty lists, never invented words. */
 function mapDashboard(raw: unknown): DashboardWordsView {
   const o = typeof raw === 'object' && raw !== null ? (raw as { prose?: unknown; proposals?: unknown }) : {};
@@ -806,6 +880,9 @@ async function mapSession(session: SessionLike, defaultLayout?: LayoutPreset): P
     rawCommits,
     views,
     ...(overview.dashboard !== undefined ? { dashboard: mapDashboard(overview.dashboard) } : {}),
+    ...(overview.tables !== undefined ? { tables: mapTables(overview.tables) } : {}),
+    ...(overview.journal !== undefined ? { journal: mapJournal(overview.journal) } : {}),
+    ...(typeof overview.journalTotal === 'number' ? { journalTotal: overview.journalTotal } : {}),
     encodings: overview.encodings ?? encodingsFromViews(views),
     columns: mapColumns(overview.columns),
     selections: mapSelections(overview.activeSelections),
@@ -859,6 +936,9 @@ export function mapPollState(raw: RawPollState, defaultLayout?: LayoutPreset): S
     rawCommits,
     views,
     ...(raw.dashboard !== undefined ? { dashboard: mapDashboard(raw.dashboard) } : {}),
+    ...(raw.tables !== undefined ? { tables: mapTables(raw.tables) } : {}),
+    ...(raw.journal !== undefined ? { journal: mapJournal(raw.journal) } : {}),
+    ...(typeof raw.journalTotal === 'number' ? { journalTotal: raw.journalTotal } : {}),
     encodings: raw.encodings ?? encodingsFromViews(views),
     columns: mapColumns(raw.columns),
     selections: mapSelections(raw.activeSelections),

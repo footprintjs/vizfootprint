@@ -825,3 +825,65 @@ describe('prose commit labels', () => {
     expect(state.commits.slice(-2).map((c) => c.label)).toEqual(['describe dashboard.caption', 'propose map.caption']);
   });
 });
+
+describe('the declared tables and the data journal (overview.tables, overview.journal)', () => {
+  it('ride the state; a table always counts (an unreadable source is unstated), an outcome off its three arms is dropped; absent on an older wire', () => {
+    const tables = [
+      { name: 'cells', source: { format: 'rows', via: 'inline' }, engine: 'memory', key: 'id', absence: { field: 'state', states: ['present', 'unknown'] }, grain: { bucket: 'week', reducer: 7, collapsedFrom: 3, note: 'n' }, declaredColumns: 3 },
+      { name: 'plain', source: { inline: 'rows', rows: 40 }, engine: 'memory', declaredColumns: 0 },
+      { name: 'remote', source: { format: 'csv', via: 'http', at: 'https://x/y.csv' }, engine: 'memory', declaredColumns: 2 },
+      { name: 'text', source: { inline: 'csv' }, engine: 'memory', declaredColumns: 0 },
+      { name: 'broken', source: { nothing: true }, engine: 'memory', declaredColumns: 1, grain: 'weekly' },
+      { name: 'nosrc', engine: 'memory', declaredColumns: 0, grain: { bucket: 'week', reducer: 'sum' } },
+      { name: 'noted', source: { inline: 'csv' }, engine: 'memory', declaredColumns: 0, grain: { note: 'only a note' } },
+      { name: 'ghost' },
+    ];
+    const journal = [
+      { at: '2026-09-02T10:00:00Z', asked: ['cells'], tables: { cells: { unchanged: true, version: 'v1' } } },
+      {
+        at: '2026-09-02T11:00:00Z',
+        tables: {
+          remote: { refused: true, reason: 'unavailable', message: '503' },
+          keyed: { changed: true, from: 'a', to: 'b', retrievedAt: 't', rows: 3, delta: { keyed: true, key: 'id', added: 1, updated: 1, removed: 1, unkeyed: 0 }, materialisedLost: ['x'] },
+          replaced: { changed: true, from: 'a', to: 'b', retrievedAt: 't', rows: 3, delta: { keyed: false, replaced: 3, keyAbsent: 'id' } },
+          plain: { changed: true, from: 'a', to: 'b', retrievedAt: 't', rows: 3, delta: { keyed: false, replaced: 3 } },
+          bare: 5,
+          half: { changed: true },
+          nodelta: { changed: true, from: 'a', to: 'b', retrievedAt: 't', rows: 3, delta: { keyed: 'maybe' } },
+        },
+      },
+      { tables: {} },
+      'nope',
+    ];
+    const state = mapPollState({ ...RAW, tables, journal });
+    expect(state.tables?.map((t) => t.name)).toEqual(['cells', 'plain', 'remote', 'text', 'broken', 'nosrc', 'noted']);
+    expect(state.tables?.[6]?.grain).toEqual({ note: 'only a note' }); // a grain may state only its note
+    expect(state.tables?.[5]).toEqual({ name: 'nosrc', source: { unstated: true }, engine: 'memory', grain: { bucket: 'week', reducer: 'sum' }, declaredColumns: 0 }); // no source at all is unstated too
+    expect(state.tables?.[0]).toEqual({ name: 'cells', source: { format: 'rows', via: 'inline' }, engine: 'memory', key: 'id', absence: { field: 'state', states: ['present', 'unknown'] }, grain: { bucket: 'week', collapsedFrom: 3, note: 'n' }, declaredColumns: 3 }); // a reducer that is not a string is dropped
+    expect(state.tables?.[1]?.source).toEqual({ inline: 'rows', rows: 40 });
+    expect(state.tables?.[2]?.source).toEqual({ format: 'csv', via: 'http', at: 'https://x/y.csv' });
+    expect(state.tables?.[3]?.source).toEqual({ inline: 'csv' });
+    expect(state.tables?.[4]).toEqual({ name: 'broken', source: { unstated: true }, engine: 'memory', declaredColumns: 1 }); // a grain that is not a record is dropped
+    expect(state.journal).toEqual([
+      { at: '2026-09-02T10:00:00Z', asked: ['cells'], tables: { cells: { unchanged: true, version: 'v1' } } },
+      {
+        at: '2026-09-02T11:00:00Z',
+        asked: ['remote', 'keyed', 'replaced', 'plain', 'bare', 'half', 'nodelta'], // asked falls back to every table that answered
+        tables: {
+          remote: { refused: true, reason: 'unavailable', message: '503' },
+          keyed: { changed: true, from: 'a', to: 'b', retrievedAt: 't', rows: 3, delta: { keyed: true, key: 'id', added: 1, updated: 1, removed: 1, unkeyed: 0 }, materialisedLost: ['x'] },
+          replaced: { changed: true, from: 'a', to: 'b', retrievedAt: 't', rows: 3, delta: { keyed: false, replaced: 3, keyAbsent: 'id' } },
+          plain: { changed: true, from: 'a', to: 'b', retrievedAt: 't', rows: 3, delta: { keyed: false, replaced: 3 } },
+          bare: { unreadable: true }, // an answer off its three arms is kept as a fact that could not be read, never dropped
+          half: { unreadable: true },
+          nodelta: { unreadable: true },
+        },
+      },
+    ]);
+    expect(mapPollState(RAW).tables).toBeUndefined();
+    expect(mapPollState(RAW).journal).toBeUndefined();
+    expect(mapPollState({ ...RAW, tables: 'x', journal: 'y' })).toMatchObject({ tables: [], journal: [] });
+    expect(mapPollState({ ...RAW, journal, journalTotal: 80 }).journalTotal).toBe(80);
+    expect(mapPollState({ ...RAW, journal, journalTotal: 'many' }).journalTotal).toBeUndefined();
+  });
+});

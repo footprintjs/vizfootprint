@@ -102,7 +102,7 @@ describe('refresh', () => {
     await rm(join(dir, 'data.csv'));
     const gone = (await dash.refresh()).tables['data']!;
     expect('refused' in gone && gone.reason).toBe('unavailable');
-    expect((await dash.refresh(['ghost'])).tables['ghost']).toEqual({ refused: true, reason: 'no-source', message: 'data["ghost"] declares no source — inline rows never move' });
+    expect((await dash.refresh(['ghost'])).tables['ghost']).toEqual({ refused: true, reason: 'no-source', message: 'no table "ghost" is declared — the tables are data' });
     await writeFile(join(dir, 'data.csv'), CSV1);
   });
   it('a column layout is kept across a refresh; a carrier that throws a plain error is reported as no-source with its words', async () => {

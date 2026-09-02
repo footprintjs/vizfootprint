@@ -24,6 +24,7 @@
  */
 
 import type { Actor, Cause } from '../cause/index.js';
+import type { RefreshRecord } from './buildDashboard.js';
 import type { LinkDecl, LinkDefault, LinkGraph } from '../links/types.js';
 import type { ColumnDecl, EncodingPorts, EncodingRules } from '../encoding/types.js';
 import type { ProseDecl } from '../prose/types.js';
@@ -370,6 +371,8 @@ export interface DashboardRuntime {
   readonly prose: ReadonlyMap<string, ProseDecl['slots']>;
   /** The data-source layer: what each declared source vouched for when it was read (absent for `rows` / `csv` tables). */
   readonly sources: Readonly<Record<string, SourceInfo>>;
+  /** The data journal: every refresh the dashboard ran, oldest first — a dashboard-level record beside the log, shared by every session. */
+  readonly journal: readonly RefreshRecord[];
   /** Build notes a def should hear: e.g. `engine: 'auto'` resolved to memory because the thresholds are unmeasured. */
   readonly notes: readonly string[];
   /** The declared row key per table (absent = positional rows, no delta). */

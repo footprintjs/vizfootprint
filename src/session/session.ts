@@ -118,8 +118,7 @@ import type {
   SwitchPathResult,
   TimeState,
   ViewAdapter,
-  EffectiveEncoding,
-} from './types.js';
+  EffectiveEncoding, TableInfo } from './types.js';
 
 /**
  * Per-invocation provenance the session captures DURING a `declareAnalysis` (the
@@ -147,6 +146,8 @@ const ANALYSIS_FIELD = '__analysis__';
 const ANNOTATION_FIELD = '__annotation__';
 /** The field a beat commit carries its label under (inert in the fold; reserved from probes like the others). */
 const BEAT_FIELD = '__beat__';
+/** How many journal records the overview carries (the latest) — a poll must not grow without bound; `dashboard.journal()` holds them all. Placeholder until measured. */
+const JOURNAL_TAIL = 50;
 /** The dashboard subject's registry meta: its words are the system's, its label the cockpit's. */
 const DASHBOARD_ACTOR_META = { actor: 'system', label: 'the dashboard' } as const;
 /** RP-3: the field an agent-authored chart's spec-registration commit lands under. */
@@ -1793,6 +1794,29 @@ class InteractionSessionImpl implements InteractionSession {
     return PROSE_SLOTS.filter((slot) => slots.has(slot)).map((slot) => proseStatus(slot, slots.get(slot)!, now));
   }
 
+  /** Every declared table as the def states it — read off the def and the runtime, never inferred from the rows. */
+  private tablesInfo(): TableInfo[] {
+    return this.runtime.tables.map((name) => {
+      const decl = this.runtime.def.data[name]!; // every runtime table is a def table
+      const read = this.runtime.sources[name];
+      const source: TableInfo['source'] =
+        decl.source !== undefined && read !== undefined
+          ? { format: read.format, via: read.via, ...(read.at !== undefined ? { at: read.at } : {}) }
+          : decl.csv !== undefined
+            ? { inline: 'csv' }
+            : { inline: 'rows', rows: decl.rows!.length }; // the def door admits a table only with rows, csv or a source
+      return {
+        name,
+        source,
+        engine: this.runtime.engines[name]!, // every runtime table resolved an engine at build
+        ...(this.runtime.keys[name] !== undefined ? { key: this.runtime.keys[name]! } : {}),
+        ...(decl.grain !== undefined ? { grain: decl.grain } : {}),
+        ...(decl.absence !== undefined ? { absence: { field: decl.absence.field, states: [...decl.absence.states] } } : {}),
+        declaredColumns: Object.keys(decl.columns ?? {}).length,
+      };
+    });
+  }
+
   /** What a prose subject SHOWS at the cursor: a surfaced view's effective bindings, an unsurfaced view's own, the dashboard's nothing. */
   private proseEncodingsNow(viewId: string, facets: readonly ColumnFacet[]): Readonly<Record<string, string>> {
     const view = this.runtime.views.get(viewId);
@@ -2659,6 +2683,10 @@ class InteractionSessionImpl implements InteractionSession {
       offers,
       sources: this.runtime.sources,
       keys: this.runtime.keys,
+      // the Sources tab's rows: every declared table as the def states it, and the data journal beside the log
+      tables: this.tablesInfo(),
+      journal: this.runtime.journal.slice(-JOURNAL_TAIL),
+      journalTotal: this.runtime.journal.length,
       selectedRowCount: selCount,
       analyses,
       fdr: {

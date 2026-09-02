@@ -5,7 +5,7 @@
  */
 
 export { buildDashboard, buildDashboardAsync } from './buildDashboard.js';
-export type { Dashboard, BuildDashboardOptions, BuildDashboardAsyncOptions, RefreshOutcome, RefreshResult } from './buildDashboard.js';
+export type { Dashboard, BuildDashboardOptions, BuildDashboardAsyncOptions, RefreshOutcome, RefreshResult, RefreshRecord } from './buildDashboard.js';
 export { validateDashboardDef, DashboardDefError, dispatchVerbs } from './validate.js';
 export {
   DISPATCH_VERBS,

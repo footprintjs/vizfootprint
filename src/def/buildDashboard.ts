@@ -69,6 +69,8 @@ export interface Dashboard {
    * materialised on a replaced table are gone with the old rows: re-run it.
    */
   refresh(tables?: readonly string[]): Promise<RefreshResult>;
+  /** The data journal: every refresh this dashboard ran, oldest first (see {@link RefreshRecord}). */
+  journal(): readonly RefreshRecord[];
   /** Judge the data declarations against the real data: today, that a declared row key names a column the engine lists. Sentences, never thrown. */
   lintData(): Promise<readonly string[]>;
   /** Open a fresh session: one live Mosaic Selection + commit log + FDR ledger. */
@@ -101,6 +103,20 @@ export type RefreshOutcome =
   | { readonly refused: true; readonly reason: SourceRefusalReason | 'no-source'; readonly message: string };
 
 export interface RefreshResult {
+  readonly tables: Readonly<Record<string, RefreshOutcome>>;
+}
+
+/**
+ * One refresh as the DATA JOURNAL keeps it: a dashboard-level act (a refresh
+ * swaps a table's rows for every session at once, so it is never a branch-scoped
+ * commit), with when it ran and what every table answered. The journal lives
+ * beside the commit log; `Overview.journal` serves it to every session.
+ */
+export interface RefreshRecord {
+  /** When the refresh ran (ISO). */
+  readonly at: string;
+  /** The tables asked, in the order asked — every table when none was named. */
+  readonly asked: readonly string[];
   readonly tables: Readonly<Record<string, RefreshOutcome>>;
 }
 
@@ -210,6 +226,7 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
   const available = options.availableEngines ?? DEFAULT_AVAILABLE;
   const notes: string[] = [];
   const sources: Record<string, SourceInfo> = {};
+  const journal: RefreshRecord[] = []; // the data journal — refreshes, oldest first
 
   // ── resolve data → one provider per table (D24) ──
   const providers = new Map<string, DataProvider>();
@@ -228,7 +245,7 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
     engines[table] = engine;
     providers.set(table, buildProvider(engine, table, source));
   }
-  return assemble(def, options, providers, engines, sources, notes);
+  return assemble(def, options, providers, engines, sources, notes, journal);
 }
 
 /**
@@ -243,6 +260,7 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
   const available = options.availableEngines ?? DEFAULT_AVAILABLE;
   const notes: string[] = [];
   const sources: Record<string, SourceInfo> = {};
+  const journal: RefreshRecord[] = []; // the data journal — refreshes, oldest first
   const providers = new Map<string, DataProvider>();
   const engines: Record<string, Engine> = {};
   for (const [table, source] of Object.entries(def.data)) {
@@ -266,14 +284,19 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
     engines[table] = engine;
     providers.set(table, buildProvider(engine, table, source));
   }
-  const dashboard = assemble(def, options, providers, engines, sources, notes);
+  const dashboard = assemble(def, options, providers, engines, sources, notes, journal);
   const adapters = options.sources ?? [];
   const run = async (which?: readonly string[]): Promise<RefreshResult> => {
     const out: Record<string, RefreshOutcome> = {};
     for (const table of which ?? Object.keys(def.data)) {
       const decl = def.data[table];
       const held = sources[table];
-      if (decl?.source === undefined || held === undefined) {
+      if (decl === undefined) {
+        // an unknown name is refused as such — never described as a table with inline rows
+        out[table] = { refused: true, reason: 'no-source', message: `no table "${table}" is declared — the tables are ${Object.keys(def.data).join(', ')}` };
+        continue;
+      }
+      if (decl.source === undefined || held === undefined) {
         out[table] = { refused: true, reason: 'no-source', message: `data["${table}"] declares no source — inline rows never move` };
         continue;
       }
@@ -311,6 +334,7 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
         out[table] = { refused: true, reason: isSourceRefusal(e) ? e.reason : 'no-source', message: e instanceof Error ? e.message : String(e) };
       }
     }
+    journal.push(journalRecord([...(which ?? Object.keys(def.data))], out));
     return { tables: out };
   };
   // refreshes run one after another: two overlapping ones would read each other's swap as a change of their own
@@ -323,6 +347,16 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
     return next;
   };
   return { ...dashboard, refresh };
+}
+
+/** One journal record: its own copies of what it was handed, frozen — history is never editable through a result someone still holds. */
+function journalRecord(asked: readonly string[], tables: Readonly<Record<string, RefreshOutcome>>): RefreshRecord {
+  const frozen: Record<string, RefreshOutcome> = {};
+  for (const [table, o] of Object.entries(tables)) {
+    // every level the caller can reach through the result it still holds: the outcome, its delta, the lost list
+    frozen[table] = Object.freeze('changed' in o ? { ...o, delta: Object.freeze({ ...o.delta }), ...(o.materialisedLost !== undefined ? { materialisedLost: Object.freeze([...o.materialisedLost]) } : {}) } : { ...o });
+  }
+  return Object.freeze({ at: new Date().toISOString(), asked: Object.freeze([...asked]), tables: Object.freeze(frozen) });
 }
 
 /** Open, snapshot, close — and turn what the carrier refused into a def problem. */
@@ -344,7 +378,7 @@ async function readSource(decl: SourceDecl, table: string, adapters: readonly So
 }
 
 /** Everything after the providers exist — one assembly for both builders. */
-function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[]): Dashboard {
+function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[]): Dashboard {
   const tables = [...providers.keys()];
   const keys: Record<string, string> = Object.fromEntries(Object.entries(def.data).flatMap(([t, d]) => (d.key !== undefined ? [[t, d.key]] : [])));
   const defaultTable = def.defaultTable ?? tables[0]!;
@@ -408,6 +442,7 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     sources,
     notes,
     keys,
+    journal,
     makeFdrStepper,
     fdrProcedure: def.fdr?.procedure ?? 'LORD++',
     fdrAlpha: def.fdr?.alpha ?? 0.05,
@@ -421,12 +456,26 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     engines,
     sources,
     notes,
-    // a synchronous dashboard holds inline sources only, which never move; a table with no source has nothing to refresh
-    refresh: async (which) => ({
-      tables: Object.fromEntries(
-        (which ?? Object.keys(def.data)).map((t) => [t, sources[t] !== undefined ? { unchanged: true, version: sources[t]!.version } : { refused: true, reason: 'no-source', message: `data["${t}"] declares no source — inline rows never move` }]),
-      ),
-    }),
+    // a synchronous dashboard holds inline sources only, which never move; a table with no source has nothing to refresh —
+    // the answer is still journaled, so the tab can say "asked at 14:02: unchanged" instead of nothing
+    refresh: async (which) => {
+      const asked = [...(which ?? Object.keys(def.data))];
+      const result: RefreshResult = {
+        tables: Object.fromEntries(
+          asked.map((t) => [
+            t,
+            def.data[t] === undefined
+              ? { refused: true, reason: 'no-source', message: `no table "${t}" is declared — the tables are ${Object.keys(def.data).join(', ')}` }
+              : sources[t] !== undefined
+                ? { unchanged: true, version: sources[t]!.version }
+                : { refused: true, reason: 'no-source', message: `data["${t}"] declares no source — inline rows never move` },
+          ]),
+        ),
+      };
+      journal.push(journalRecord(asked, result.tables));
+      return result;
+    },
+    journal: () => [...journal],
     createSession: (opts) => createInteractionSession(runtime, opts),
     lintProse: async () => {
       const cols = await providers.get(defaultTable)!.columns(defaultTable);

@@ -33,3 +33,4 @@ export * from './charts/index.js';
 export * from './time/index.js';
 export * from './branches/index.js';
 export * from './panels/index.js';
+export * from './sources/index.js';

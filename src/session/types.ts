@@ -16,10 +16,11 @@ import type { CommitRecord } from '../log/index.js';
 import type { CauseClause } from '../mosaic/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
 import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
-import type { CellClause, ColumnFacet, ColumnType, IntervalClause } from '../data/index.js';
+import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause } from '../data/index.js';
 import type { EncodingProblem, Fit, RuleLine, RuleScope } from '../encoding/index.js';
 import type { ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
-import type { DispatchVerb, IntentClass } from '../def/types.js';
+import type { DispatchVerb, IntentClass, SeriesGrain } from '../def/types.js';
+import type { RefreshRecord } from '../def/buildDashboard.js';
 import type { DiffChange, DiffOnly, PlanRecipe, RefEvent } from '../branches/index.js';
 
 // ── The gap ledger (D14 taxonomy) — every unmet request, typed, never dropped. ─
@@ -689,6 +690,22 @@ export interface FdrSummary {
 export type { ColumnFacet } from '../data/types.js';
 
 /** The structured payload `whats_here` projects. All app content lives in DATA fields. */
+/** One declared table as the def states it (see `Overview.tables`). Nothing here is inferred from the rows. */
+export interface TableInfo {
+  readonly name: string;
+  /** Where the rows come from: a declared source (`format · via · at`, the locator only when it is a string), or inline rows / CSV text carried by the def. */
+  readonly source: { readonly format: string; readonly via: string; readonly at?: string } | { readonly inline: 'rows' | 'csv'; readonly rows?: number };
+  /** The engine the table routed to. */
+  readonly engine: Engine;
+  /** The declared row key, when the def states one — without it a refresh replaces the table and no row is addressable. */
+  readonly key?: string;
+  readonly grain?: SeriesGrain;
+  /** The absence column and the vocabulary it speaks, when declared. */
+  readonly absence?: { readonly field: string; readonly states: readonly string[] };
+  /** How many columns the def declares facets for (the engine may list more). */
+  readonly declaredColumns: number;
+}
+
 export interface Overview {
   readonly defaultTable: string;
   readonly views: readonly ViewInfo[];
@@ -716,6 +733,16 @@ export interface Overview {
   readonly selectedRowCount: number | null;
   /** The declared row key per table — with one a refresh's delta is exact; without, a refreshed table is replaced. */
   readonly keys: Readonly<Record<string, string>>;
+  /**
+   * Every declared table as the def states it — the Sources tab's rows: where the rows come from, the engine
+   * they route to, the row key, the grain, the absence vocabulary, and how many columns the def declares.
+   * Provenance (version, retrieved at, rows read) rides `sources` for the tables that declared a source.
+   */
+  readonly tables: readonly TableInfo[];
+  /** The data journal's latest records (the newest 50, oldest first — a dashboard-level record, never a commit); `dashboard.journal()` holds every one. */
+  readonly journal: readonly RefreshRecord[];
+  /** How many records the journal holds in all — when it exceeds `journal.length`, an answer may lie beyond the tail. */
+  readonly journalTotal: number;
   readonly analyses: readonly AnalysisReadiness[];
   readonly fdr: FdrSummary;
   readonly columns: Readonly<Record<string, readonly ColumnFacet[]>>;
