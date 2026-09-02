@@ -34,3 +34,4 @@ export * from './time/index.js';
 export * from './branches/index.js';
 export * from './panels/index.js';
 export * from './sources/index.js';
+export * from './notes/index.js';

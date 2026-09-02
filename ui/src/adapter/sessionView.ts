@@ -62,7 +62,7 @@ import {
   type ChartCellView,
   type LayoutChange,
   type LayoutView,
-  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView, type ProposalView, type SavedSelectionView, type SourceInfoView, type DashboardWordsView, type TableView, type RefreshRecordView, type RefreshOutcomeView, type RefreshDeltaView, type LayoutPreset } from './types.js';
+  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView, type ProposalView, type SavedSelectionView, type SourceInfoView, type DashboardWordsView, type NoteView, type TableView, type RefreshRecordView, type RefreshOutcomeView, type RefreshDeltaView, type LayoutPreset } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
 import type { NavigateViewState } from '../contract/types.js';
@@ -144,6 +144,10 @@ export interface RawPollState {
   readonly sources?: unknown;
   /** The dashboard's own words (`overview.dashboard`), if the wire carries them. */
   readonly dashboard?: unknown;
+  /** The notes on the dashboard (`overview.notes`), if the wire carries them. */
+  readonly notes?: unknown;
+  /** The live selections in basis shape (`overview.filters`), if the wire carries them. */
+  readonly filters?: unknown;
   /** Every declared table (`overview.tables`), if the wire carries them. */
   readonly tables?: unknown;
   /** The data journal (`overview.journal`), if the wire carries it. */
@@ -328,6 +332,8 @@ interface StatePieces {
   cleared: readonly ClearedSelectionView[];
   sources?: Readonly<Record<string, SourceInfoView>>;
   dashboard?: DashboardWordsView;
+  notes?: readonly NoteView[];
+  filters?: Readonly<Record<string, unknown>>;
   tables?: readonly TableView[];
   journal?: readonly RefreshRecordView[];
   journalTotal?: number;
@@ -391,6 +397,8 @@ function finalize(p: StatePieces): SessionViewState {
     cleared: p.cleared,
     ...(p.sources !== undefined ? { sources: p.sources } : {}),
     ...(p.dashboard !== undefined ? { dashboard: p.dashboard } : {}),
+    ...(p.notes !== undefined ? { notes: p.notes } : {}),
+    ...(p.filters !== undefined ? { filters: p.filters } : {}),
     ...(p.tables !== undefined ? { tables: p.tables } : {}),
     ...(p.journal !== undefined ? { journal: p.journal } : {}),
     ...(p.journalTotal !== undefined ? { journalTotal: p.journalTotal } : {}),
@@ -572,6 +580,18 @@ function mapJournal(raw: unknown): readonly RefreshRecordView[] {
     const tables: Record<string, RefreshOutcomeView> = {};
     for (const [table, outcome] of Object.entries(o.tables)) tables[table] = mapOutcome(outcome);
     return [{ at: o.at, asked: Array.isArray(o.asked) ? o.asked.map(String) : Object.keys(tables), tables }];
+  });
+}
+
+const isRecord = (v: unknown): v is Readonly<Record<string, unknown>> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** The notes off the wire — an entry without a string id is dropped; each note's words go through the same mappers a view's do. */
+function mapNotes(raw: unknown): readonly NoteView[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((n) => {
+    const o = n as { id?: unknown; prose?: unknown; proposals?: unknown };
+    if (typeof o.id !== 'string' || o.id.length === 0) return [];
+    return [{ id: o.id, prose: mapProse(o.prose), proposals: mapProposals(o.proposals) }];
   });
 }
 
@@ -880,6 +900,8 @@ async function mapSession(session: SessionLike, defaultLayout?: LayoutPreset): P
     rawCommits,
     views,
     ...(overview.dashboard !== undefined ? { dashboard: mapDashboard(overview.dashboard) } : {}),
+    ...(overview.notes !== undefined ? { notes: mapNotes(overview.notes) } : {}),
+    ...(isRecord(overview.filters) ? { filters: overview.filters } : {}),
     ...(overview.tables !== undefined ? { tables: mapTables(overview.tables) } : {}),
     ...(overview.journal !== undefined ? { journal: mapJournal(overview.journal) } : {}),
     ...(typeof overview.journalTotal === 'number' ? { journalTotal: overview.journalTotal } : {}),
@@ -936,6 +958,8 @@ export function mapPollState(raw: RawPollState, defaultLayout?: LayoutPreset): S
     rawCommits,
     views,
     ...(raw.dashboard !== undefined ? { dashboard: mapDashboard(raw.dashboard) } : {}),
+    ...(raw.notes !== undefined ? { notes: mapNotes(raw.notes) } : {}),
+    ...(isRecord(raw.filters) ? { filters: raw.filters } : {}),
     ...(raw.tables !== undefined ? { tables: mapTables(raw.tables) } : {}),
     ...(raw.journal !== undefined ? { journal: mapJournal(raw.journal) } : {}),
     ...(typeof raw.journalTotal === 'number' ? { journalTotal: raw.journalTotal } : {}),
@@ -992,6 +1016,9 @@ export interface LinkEdit {
   readonly fold?: string;
 }
 
+/** What a gesture came back with: landed, or refused with the session's sentence. */
+export type DescribeOutcome = { readonly ok: true } | { readonly ok: false; readonly sentence: string };
+
 export interface SessionView {
   getState(): SessionViewState;
   subscribe(listener: () => void): () => void;
@@ -1022,7 +1049,8 @@ export interface SessionView {
   /** Encoding plane: rebind SEVERAL channels in one act — a swap is `{ x: <the y field>, y: <the x field> }` and lands as ONE commit. */
   reencodeSet(viewId: string, bindings: Readonly<Record<string, string>>, intent?: string): Promise<void>;
   /** The prose plane: set one of a view's words as a record (the person as author unless the record says otherwise); null = back to the def's own words. */
-  describe(viewId: string, slot: ProseStatusView['slot'], record: Readonly<Record<string, unknown>> | null, intent?: string): Promise<void>;
+  /** Land a prose record (null = back to the declaration). The answer says whether it landed — a refusal carries the session's sentence, so the words are never lost to a silent no. */
+  describe(viewId: string, slot: ProseStatusView['slot'], record: Readonly<Record<string, unknown>> | null, intent?: string): Promise<DescribeOutcome>;
   /** The prose plane: PROPOSE words for a slot — they land in its proposal lane for a person to accept, never as the live words. */
   propose(viewId: string, slot: ProseStatusView['slot'], record: Readonly<Record<string, unknown>>, intent?: string): Promise<void>;
   /** Accept the open proposal (by its commit id): its words land on the slot, marked as accepted from it. */
@@ -1158,13 +1186,28 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
     if (refreshOnAction) await refresh();
   }
 
-  async function dispatch(action: DispatchAction, body: Record<string, unknown>): Promise<void> {
+  /** POST a gesture and read whether it landed — a refusal's sentence comes back, an unreachable door answers honestly. */
+  async function postForOutcome(url: string, body: unknown): Promise<DescribeOutcome> {
+    try {
+      const res = await doFetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const raw = (await res.json()) as { ok?: boolean; error?: string; rejection?: { detail?: string } };
+      if (raw.ok === true) return { ok: true };
+      return { ok: false, sentence: raw.rejection?.detail ?? raw.error ?? `the session answered ${res.status}` };
+    } catch {
+      return { ok: false, sentence: 'could not reach the session' };
+    }
+  }
+
+  async function dispatch(action: DispatchAction, body: Record<string, unknown>): Promise<DescribeOutcome> {
+    let outcome: DescribeOutcome;
     if (source.kind === 'session') {
-      await Promise.resolve(source.session.dispatch(action, { as }));
+      const r = await Promise.resolve(source.session.dispatch(action, { as }));
+      outcome = r.ok ? { ok: true } : { ok: false, sentence: r.rejection.detail };
     } else {
-      await postJson(endpoints.dispatch, body);
+      outcome = await postForOutcome(endpoints.dispatch, body);
     }
     await afterAction();
+    return outcome;
   }
 
   const view: SessionView = {
@@ -1282,7 +1325,7 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
     async describe(viewId, slot, record, intentWord) {
       const intent = intentWord ?? (record === null ? `${viewId}.${slot}: back to the declaration` : `describe ${viewId}.${slot}`);
       const body = { verb: 'describe' as const, viewId, slot, record };
-      await dispatch({ ...body, record: record as never, cause: cause(intent) }, { ...body, intent });
+      return dispatch({ ...body, record: record as never, cause: cause(intent) }, { ...body, intent });
     },
 
     async propose(viewId, slot, record, intentWord) {

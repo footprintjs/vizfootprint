@@ -115,6 +115,30 @@ describe('createSessionView — poll source with injected fetch', () => {
     return { impl: impl as unknown as typeof fetch, calls };
   }
 
+  it('describe answers with what the door said: landed, the session\'s rejection sentence, a plain error, a bare status, or an unreachable door', async () => {
+    const answers: unknown[] = [];
+    const impl = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (!init || init.method !== 'POST') return { ok: true, json: async () => RAW } as unknown as Response;
+      const next = answers.shift();
+      if (next instanceof Error) throw next;
+      return next as Response;
+    });
+    const view = createSessionView(pollingSource({ fetchImpl: impl as unknown as typeof fetch }));
+    await view.refresh();
+    const record = { text: 'x', author: { kind: 'human' } };
+    answers.push({ ok: true, status: 200, json: async () => ({ ok: true, verb: 'describe' }) });
+    expect(await view.describe('note:n1', 'caption', record)).toEqual({ ok: true });
+    answers.push({ ok: true, status: 200, json: async () => ({ ok: false, verb: 'describe', rejection: { code: 'guard-failed', detail: 'a note carries a title and a caption — "howToRead" is not a note slot' } }) });
+    expect(await view.describe('note:n1', 'howToRead', record)).toEqual({ ok: false, sentence: 'a note carries a title and a caption — "howToRead" is not a note slot' });
+    answers.push({ ok: false, status: 400, json: async () => ({ ok: false, error: 'describe needs viewId' }) });
+    expect(await view.describe('', 'caption', record)).toEqual({ ok: false, sentence: 'describe needs viewId' });
+    answers.push({ ok: false, status: 500, json: async () => ({ ok: false }) });
+    expect(await view.describe('note:n1', 'caption', record)).toEqual({ ok: false, sentence: 'the session answered 500' });
+    answers.push(new Error('offline'));
+    expect(await view.describe('note:n1', 'caption', null)).toEqual({ ok: false, sentence: 'could not reach the session' });
+    view.dispose();
+  });
+
   it('refreshes on construction and notifies subscribers', async () => {
     const { impl } = fakeFetch();
     const view = createSessionView(pollingSource({ fetchImpl: impl }));
@@ -300,6 +324,19 @@ describe('createSessionView — in-process session source', () => {
       },
     };
   }
+
+  it('describe over an in-process session answers with the session\'s own verdict — its rejection sentence when refused', async () => {
+    const session = fakeSession();
+    const refusing = { ...session, dispatch: (() => ({ ok: false, verb: 'describe', intent: 'requested', rejection: { code: 'guard-failed', detail: 'no words' } })) as unknown as SessionLike['dispatch'] };
+    const view = createSessionView(sessionSource(refusing as unknown as SessionLike));
+    await view.refresh();
+    expect(await view.describe('note:n1', 'caption', { text: '', author: { kind: 'human' } })).toEqual({ ok: false, sentence: 'no words' });
+    const ok = createSessionView(sessionSource(session as unknown as SessionLike));
+    await ok.refresh();
+    expect(await ok.describe('note:n1', 'caption', { text: 'x', author: { kind: 'human' } })).toEqual({ ok: true });
+    view.dispose();
+    ok.dispose();
+  });
 
   it('emit routes to session.dispatch as the configured principal', async () => {
     const session = fakeSession();
@@ -885,5 +922,24 @@ describe('the declared tables and the data journal (overview.tables, overview.jo
     expect(mapPollState({ ...RAW, tables: 'x', journal: 'y' })).toMatchObject({ tables: [], journal: [] });
     expect(mapPollState({ ...RAW, journal, journalTotal: 80 }).journalTotal).toBe(80);
     expect(mapPollState({ ...RAW, journal, journalTotal: 'many' }).journalTotal).toBeUndefined();
+  });
+});
+
+describe('the notes and the basis-shaped filters (overview.notes, overview.filters)', () => {
+  it('ride the state through the same word mappers a view uses; a note without an id is dropped; filters must be a record', () => {
+    const notes = [
+      { id: 'n1', prose: [{ slot: 'caption', text: 'See #s1', status: 'current', changed: [], record: { author: { kind: 'human', by: 'me' } }, refs: [{ span: [4, 7], commit: 's1', label: 'first' }] }], proposals: [] },
+      { id: '', prose: [] },
+      { prose: [] },
+      { id: 'n2' },
+    ];
+    const state = mapPollState({ ...RAW, notes, filters: { bar: { field: 'category', kind: 'point', value: 'Formal' } } });
+    expect(state.notes?.map((n) => n.id)).toEqual(['n1', 'n2']);
+    expect(state.notes?.[0]?.prose[0]?.refs).toEqual([{ span: [4, 7], commit: 's1', label: 'first' }]);
+    expect(state.notes?.[1]).toEqual({ id: 'n2', prose: [], proposals: [] });
+    expect(state.filters).toEqual({ bar: { field: 'category', kind: 'point', value: 'Formal' } });
+    expect(mapPollState({ ...RAW, filters: ['no'] }).filters).toBeUndefined();
+    expect(mapPollState(RAW).notes).toBeUndefined();
+    expect(mapPollState({ ...RAW, notes: 'x' }).notes).toEqual([]);
   });
 });

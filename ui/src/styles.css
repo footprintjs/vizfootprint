@@ -1153,14 +1153,32 @@
   gap: var(--vzf-space-2);
 }
 :where(.vzf) .vzf-timeline {
+  /* THE RAIL IS FIXED. `flex: 1` (basis 0) means the header's row hands it a
+     width; the bars inside NEVER change it — the count only decides how they
+     share it (see time/rail.ts). Its height is fixed too, so neither the
+     count nor the density moves the dashboard beneath it. */
+  --vzf-tl-h: 36px; /* the bar stack: flag slot + bar + id slot */
+  --vzf-tl-slot: 10px; /* the flag row and the id row — fixed boxes, so hiding an id only makes the BAR taller */
+  --vzf-tl-pad: var(--vzf-space-2);
+  /* THE RAIL'S GREYS — deliberately NEUTRAL. No chart on the dashboard draws
+     in them, so the timeline never competes with the data it sits above. The
+     one distinction a bar carries is WHO did it. Tune them here; each points
+     at a neutral token, so both themes follow without a second palette. */
+  --vzf-tl-bar: var(--vzf-ink-faint); /* a commit the person made — the light grey */
+  --vzf-tl-bar-agent: var(--vzf-ink-soft); /* a commit that was NOT the person's (the analyst, the system) — the darker grey */
+  --vzf-tl-bar-ahead: var(--vzf-line); /* after the cursor: the future one is looking back from — dimmer still */
+  --vzf-tl-bar-head: var(--vzf-ink); /* now — a thin rim on the tip of this lineage */
+  --vzf-tl-bar-cursor: var(--vzf-ink); /* where one stands — the rail's ONE strong mark, filled */
+  --vzf-tl-bar-line: var(--vzf-line); /* the 1px edge every bar carries, so colouring one never resizes it */
   flex: 1;
   min-width: 0;
+  height: calc(var(--vzf-tl-h) + var(--vzf-tl-pad) * 2);
   display: flex;
   align-items: center;
-  gap: var(--vzf-space-1);
+  gap: var(--vzf-space-1); /* 4px — the same gap time/rail.ts subtracts before it shares the width */
   overflow-x: auto;
   overflow-y: hidden;
-  padding: var(--vzf-space-2) var(--vzf-space-1);
+  padding: var(--vzf-tl-pad) var(--vzf-space-1);
   background: var(--vzf-surface-2);
   border-radius: var(--vzf-r-md);
 }
@@ -1169,28 +1187,44 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  /* FIXED height, whatever the count: the flag slot and the id slot are fixed
+     boxes and the bar takes the rest, so a dense rail (ids hidden) is exactly
+     as tall as a labelled one — the strip never jumps. */
+  height: var(--vzf-tl-h);
+  gap: 1px;
   border: none;
   background: transparent;
   cursor: pointer;
-  padding: 2px var(--vzf-space-1);
+  padding: 1px var(--vzf-space-1);
 }
 :where(.vzf) .vzf-tl-node {
-  width: 12px;
-  height: 12px;
-  border-radius: var(--vzf-r-pill);
-  background: var(--vzf-ink-faint);
-  border: 2px solid transparent;
+  /* THE BAR: the full width of its share of the rail, the full height left
+     over inside the tick — a rectangle, never a dot. */
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 4px;
+  border-radius: 2px;
+  background: var(--vzf-tl-bar);
+  border: 1px solid var(--vzf-tl-bar-line); /* every bar carries one, so marking a bar never resizes it */
 }
-:where(.vzf) .vzf-tl-dot[data-actor="user"] .vzf-tl-node {
-  background: var(--vzf-user);
+/* WHO did this — the one distinction the rail carries. Anything that was not
+   the person (the analyst, the system) is the darker grey. */
+:where(.vzf) .vzf-tl-dot:not([data-actor="user"]) .vzf-tl-node {
+  background: var(--vzf-tl-bar-agent);
 }
-:where(.vzf) .vzf-tl-dot[data-actor="agent"] .vzf-tl-node {
-  background: var(--vzf-agent);
+/* the future one is looking back FROM: everything after the cursor on this lineage, dimmer */
+:where(.vzf) .vzf-tl-dot.vzf-ahead .vzf-tl-node {
+  background: var(--vzf-tl-bar-ahead);
+  border-color: var(--vzf-tl-bar-ahead);
 }
+/* now: the tip of this lineage — a thin neutral rim, never a colour */
+:where(.vzf) .vzf-tl-dot.vzf-head .vzf-tl-node {
+  border-color: var(--vzf-tl-bar-head);
+}
+/* where one is standing — filled, and it wins over head and ahead */
 :where(.vzf) .vzf-tl-dot.vzf-cursor .vzf-tl-node {
-  border-color: var(--vzf-brand);
-  box-shadow: var(--vzf-focus);
+  background: var(--vzf-tl-bar-cursor);
+  border-color: var(--vzf-tl-bar-cursor);
 }
 :where(.vzf) .vzf-tl-dot:focus-visible {
   outline: none;
@@ -1200,18 +1234,29 @@
 }
 :where(.vzf) .vzf-tl-cid {
   font-family: var(--vzf-font-mono);
-  font-size: 0.66em;
+  font-variant-numeric: tabular-nums; /* ids line up under the bars — every digit the same width */
+  font-size: 9px;
+  line-height: var(--vzf-tl-slot);
+  height: var(--vzf-tl-slot);
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
   color: var(--vzf-ink-faint);
 }
 :where(.vzf) .vzf-tl-flag {
-  font-size: 0.7em;
+  font-size: 9px;
+  line-height: var(--vzf-tl-slot);
   color: var(--vzf-brand);
-  height: 0.9em;
+  height: var(--vzf-tl-slot);
 }
 :where(.vzf) .vzf-tl-empty {
   color: var(--vzf-ink-faint);
   font-size: 0.85em;
-  padding: var(--vzf-space-2);
+  /* the same box a bar stack occupies, so the rail is exactly as tall with no
+     commits as with one — the strip never jumps when the first commit lands */
+  height: var(--vzf-tl-h);
+  line-height: var(--vzf-tl-h);
+  padding: 0 var(--vzf-space-2);
   /* ONE LINE, always. As a flex item the hint's min-width is its content by
      default, and its text may wrap — at narrow (mobile) widths the compact
      bar squeezes the empty track to a sliver, and without these rules the
@@ -1297,7 +1342,16 @@
   min-width: 0;
 }
 :where(.vzf) .vzf-compact .vzf-timeline {
-  padding: 2px var(--vzf-space-1);
+  /* the cockpit strip breathes less; the rail's fixed height follows the pad it is given */
+  --vzf-tl-pad: 2px;
+  padding: var(--vzf-tl-pad) var(--vzf-space-1);
+}
+@media (max-width: 700px) {
+  /* phones: the strip is already allowed to wrap here, so the rail gives up a
+     few pixels of bar to keep the whole band slim — still ONE fixed height */
+  :where(.vzf) .vzf-compact .vzf-timeline {
+    --vzf-tl-h: 30px;
+  }
 }
 :where(.vzf) .vzf-compact .vzf-time-controls {
   flex: none;
@@ -2156,7 +2210,7 @@
 
 /* ── vizfootprint-ui/editor — the side drawer and the chart editor ── */
 :where(.vzf).vzf-drawer,
-:where(.vzf) .vzf-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 30; display: flex; flex-direction: column; background: var(--vzf-bg, #fff); color: var(--vzf-fg, #1b1f23); border-left: 1px solid var(--vzf-line, #d8dee4); box-shadow: -8px 0 24px rgba(0, 0, 0, 0.08); max-width: 92vw; }
+:where(.vzf) .vzf-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 30; display: flex; flex-direction: column; background: var(--vzf-surface); color: var(--vzf-ink); border-left: 1px solid var(--vzf-line, #d8dee4); box-shadow: -8px 0 24px rgba(0, 0, 0, 0.08); max-width: 92vw; }
 :where(.vzf) .vzf-drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--vzf-line, #d8dee4); font-weight: 600; }
 :where(.vzf) .vzf-drawer-close { border: 0; background: transparent; cursor: pointer; font-size: 14px; }
 :where(.vzf) .vzf-drawer-body { overflow: auto; padding: 12px; flex: 1; }
@@ -2177,7 +2231,7 @@
 /* ── the cockpit's push-aside: reserves its width beside the charts and animates it ── */
 :where(.vzf).vzf-cockpit-root,
 :where(.vzf) .vzf-cockpit-root { display: flex; flex-direction: row; align-items: stretch; min-height: 0; }
-:where(.vzf) .vzf-cockpit-aside { flex: none; width: 0; overflow: hidden; border-left: 0 solid var(--vzf-line, #d8dee4); background: var(--vzf-bg, #fff); transition: width 0.28s ease, border-left-width 0.28s ease; display: flex; }
+:where(.vzf) .vzf-cockpit-aside { flex: none; width: 0; overflow: hidden; border-left: 0 solid var(--vzf-line, #d8dee4); background: var(--vzf-surface); transition: width 0.28s ease, border-left-width 0.28s ease; display: flex; }
 :where(.vzf) .vzf-cockpit-aside.vzf-open { width: var(--vzf-aside-w, 380px); border-left-width: 1px; }
 :where(.vzf) .vzf-cockpit-aside-inner { display: flex; flex-direction: column; min-height: 0; max-height: 100%; }
 :where(.vzf) .vzf-cockpit-aside .vzf-drawer-body { overflow: auto; }
@@ -2240,13 +2294,15 @@
 /* a waiting or read-only refresh door: told to assistive tech by aria-disabled, shown to everyone else here */
 :where(.vzf) .vzf-sources-refresh[aria-disabled="true"] { cursor: default; opacity: 0.55; }
 
-/* ── the timeline rail: ticks share the rail's width and shrink as commits pile up; ids hide when dense ── */
+/* ── the timeline rail: the rail's width is FIXED, the bars share it (N commits ⇒ each (width − gaps)/N; see time/rail.ts) ── */
 :where(.vzf) .vzf-step-group { display: inline-flex; gap: 2px; flex: none; }
-:where(.vzf) .vzf-timeline .vzf-tl-dot { flex: 0 0 var(--vzf-tick, 28px); width: var(--vzf-tick, 28px); min-width: 0; padding: 2px 0; }
-:where(.vzf) .vzf-tl-flagslot { font-size: 0.7em; height: 0.9em; } /* byte-for-byte the flag's box, so flagged and plain ticks share one baseline */
-:where(.vzf) .vzf-timeline[data-dense="true"] .vzf-tl-flagslot { font-size: 0.6em; }
-:where(.vzf) .vzf-timeline[data-dense="true"] .vzf-tl-node { width: 8px; height: 8px; }
-:where(.vzf) .vzf-timeline[data-dense="true"] .vzf-tl-flag { font-size: 0.6em; }
+:where(.vzf) .vzf-timeline .vzf-tl-dot { flex: 0 0 var(--vzf-tick, 28px); width: var(--vzf-tick, 28px); min-width: 0; padding: 1px 0; }
+:where(.vzf) .vzf-tl-flagslot { font-size: 9px; line-height: var(--vzf-tl-slot); height: var(--vzf-tl-slot); } /* byte-for-byte the flag's box, so flagged and plain bars share one baseline */
+/* the beat rail's bars are all checkpoints and carry no actor — the same neutral
+   grey, and the beat being shown takes the rail's one strong mark. The ⚑ keeps
+   its brand colour: the flag is the beat, the bar is only its place. */
+:where(.vzf) .vzf-beat-rail .vzf-tl-dot .vzf-tl-node { background: var(--vzf-tl-bar); border-color: var(--vzf-tl-bar-line); }
+:where(.vzf) .vzf-beat-rail .vzf-tl-dot.vzf-cursor .vzf-tl-node { background: var(--vzf-tl-bar-cursor); border-color: var(--vzf-tl-bar-cursor); }
 :where(.vzf) .vzf-beat-rail { flex: 1; min-width: 0; }
 :where(.vzf) .vzf-present-beat { min-width: 0; }
 :where(.vzf) .vzf-compact .vzf-present-beat { flex: none; max-width: 32ch; overflow: hidden; }
@@ -2281,3 +2337,20 @@
 :where(.vzf) .vzf-slide-count { flex: none; font-family: var(--vzf-font-mono); font-size: 0.8em; color: var(--vzf-ink-soft); }
 :where(.vzf) .vzf-slide-title { flex: none; font-weight: 600; }
 :where(.vzf) .vzf-slide-caption { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vzf-ink-soft); }
+
+/* ── the Text tool: a note as a cockpit cell ── */
+:where(.vzf) .vzf-note { display: flex; flex-direction: column; gap: var(--vzf-space-2); height: 100%; min-height: 0; padding: var(--vzf-space-2) var(--vzf-space-3); overflow: auto; font-size: 14px; line-height: 1.5; }
+:where(.vzf) .vzf-note-title { margin: 0; font-size: 15px; font-weight: 600; }
+:where(.vzf) .vzf-note-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+:where(.vzf) .vzf-note-stale { color: var(--vzf-clay); }
+:where(.vzf) .vzf-note-meta { display: flex; align-items: center; gap: var(--vzf-space-2); font-size: 11.5px; color: var(--vzf-ink-soft); margin-top: auto; }
+:where(.vzf) .vzf-note-tag-stale { color: var(--vzf-clay); }
+:where(.vzf) .vzf-note-actions { display: inline-flex; gap: 4px; margin-left: auto; }
+:where(.vzf) .vzf-note-btn { font: inherit; font-size: 12px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--vzf-line); background: var(--vzf-paper); cursor: pointer; }
+:where(.vzf) .vzf-note-save { background: var(--vzf-brand); color: #fff; border-color: var(--vzf-brand); }
+:where(.vzf) .vzf-note-editor { display: flex; flex-direction: column; gap: var(--vzf-space-2); }
+:where(.vzf) .vzf-note-editor .vzf-note-actions { position: sticky; bottom: 0; margin-left: 0; justify-content: flex-start; gap: 4px; background: var(--vzf-surface); padding-top: 4px; } /* Save/Cancel stay reachable when the editor outgrows a non-scrolling cell — and stay at the LEFT edge of the column, not pushed right by the read-mode rule's `margin-left: auto` */
+:where(.vzf) .vzf-note-title-input, :where(.vzf) .vzf-note-textarea { font: inherit; font-size: 13.5px; padding: 4px 8px; border: 1px solid var(--vzf-line); border-radius: 6px; background: var(--vzf-surface); color: var(--vzf-ink); }
+:where(.vzf) .vzf-note-textarea { resize: vertical; min-height: 4.5em; }
+:where(.vzf) .vzf-note-linker select { font: inherit; font-size: 12px; max-width: 100%; }
+:where(.vzf) .vzf-note-problems { margin: 0; padding-left: 18px; color: var(--vzf-clay); font-size: 12.5px; }

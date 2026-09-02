@@ -8,6 +8,7 @@ export {
 } from './sessionView.js';
 export type {
   SessionView,
+  DescribeOutcome,
   SessionViewSource,
   SessionSourceInput,
   PollSourceInput,

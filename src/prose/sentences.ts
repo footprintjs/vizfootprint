@@ -8,6 +8,8 @@ export const PROSE_SENTENCES = Object.freeze({
   derivedSurface: '"{view}".{slot} is derived, but "{view}" declares no encoding surface — there is nothing to derive from',
   dashboardDerived: 'the dashboard\'s {slot} cannot be derived — the dashboard binds nothing; write the words',
   dashboardEncodings: 'the dashboard\'s {slot} states encodings in its basis, but the dashboard binds nothing — state filters, columns or an analysis instead',
+  noteDerived: 'a note\'s {slot} cannot be derived — a note binds nothing; write the words',
+  noteEncodings: 'a note\'s {slot} states encodings in its basis, but a note binds nothing — state filters, columns or an analysis instead',
   levels: '"{view}".{slot}.levels must be a list of {levels}',
   author: '"{view}".{slot}.author must be a record whose kind is one of {kinds}',
   authorField: '"{view}".{slot}.author.{field} must be a string',

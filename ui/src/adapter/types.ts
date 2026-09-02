@@ -105,6 +105,13 @@ export interface ProseStatusView {
 }
 
 /** A proposal as the wire serves it (src/prose `ProposalStatus`). */
+/** One note on the dashboard (`describe` with viewId `'note:<id>'`): words with an author and refs, judged like the dashboard's. */
+export interface NoteView {
+  readonly id: string;
+  readonly prose: readonly ProseStatusView[];
+  readonly proposals: readonly ProposalView[];
+}
+
 /** The dashboard's own words (`describe` with viewId `'dashboard'`): the same slots a view carries, judged the same way. */
 export interface DashboardWordsView {
   readonly prose: readonly ProseStatusView[];
@@ -511,6 +518,10 @@ export interface SessionViewState {
   readonly sources?: Readonly<Record<string, SourceInfoView>>;
   /** The prose plane's one non-view subject: the dashboard's own words at the cursor (its caption = the summary), with the proposals on the table for them. Absent on an older wire. */
   readonly dashboard?: DashboardWordsView;
+  /** The notes on the dashboard (the Text tool): every `note:<id>` with words at the cursor, oldest first. Absent on an older wire. */
+  readonly notes?: readonly NoteView[];
+  /** The live selections in the shape a prose basis states them (`overview.filters`) — what an agent-authored note copies as its basis. Absent on an older wire. */
+  readonly filters?: Readonly<Record<string, unknown>>;
   /** Every declared table as the def states it (the Sources tab's rows). Absent on an older wire. */
   readonly tables?: readonly TableView[];
   /** The data journal's latest records, oldest first. Absent on an older wire. */

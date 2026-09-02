@@ -56,7 +56,7 @@ import type {
 } from '../def/types.js';
 import { describeRules, fitsFor, refuses, validateBindings } from '../encoding/index.js';
 import { ENCODING_KIND, edgesInto } from '../links/index.js';
-import { DASHBOARD_PROSE_ID, PROPOSAL_LANE, PROSE_SLOTS, fillProse, PROSE_SENTENCES, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
+import { DASHBOARD_PROSE_ID, NOTE_PROSE_PREFIX, isNoteSubject, PROPOSAL_LANE, PROSE_SLOTS, fillProse, PROSE_SENTENCES, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
 import type { ProseProposal, ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
 import type { LinkGraph } from '../links/index.js';
 import type { Bindings, EncodingProblem, Fit } from '../encoding/index.js';
@@ -118,7 +118,7 @@ import type {
   SwitchPathResult,
   TimeState,
   ViewAdapter,
-  EffectiveEncoding, TableInfo } from './types.js';
+  EffectiveEncoding, TableInfo, NoteInfo } from './types.js';
 
 /**
  * Per-invocation provenance the session captures DURING a `declareAnalysis` (the
@@ -150,6 +150,8 @@ const BEAT_FIELD = '__beat__';
 const JOURNAL_TAIL = 50;
 /** The dashboard subject's registry meta: its words are the system's, its label the cockpit's. */
 const DASHBOARD_ACTOR_META = { actor: 'system', label: 'the dashboard' } as const;
+/** A note's registry meta: words a person (or an accepted reply) put on the dashboard. */
+const NOTE_ACTOR_META = { actor: 'user', label: 'a note' } as const;
 /** RP-3: the field an agent-authored chart's spec-registration commit lands under. */
 const CHART_FIELD = '__chart__';
 
@@ -445,6 +447,13 @@ function selectionInfoOf(viewId: string, clause: PredicateClause, commitId?: str
               value: (clause as { value: unknown }).value, // never a cleared point: one clearing rule drops it from the fold (SET-1)
             }  );
   return commitId === undefined ? info : { ...info, commitId };
+}
+
+/** The subject-independent half of a prose record's staleness world at the cursor. */
+interface ProseWorldNow {
+  readonly filters: Readonly<Record<string, unknown>>;
+  readonly columns: Set<string>;
+  readonly analyses: Set<string>;
 }
 
 class InteractionSessionImpl implements InteractionSession {
@@ -1684,8 +1693,9 @@ class InteractionSessionImpl implements InteractionSession {
 
   /** The guards a propose / accept / decline share: a declared view and a real slot. */
   private proseGuards(viewId: string, slot: ProseSlot, op: 'describe'): GapRow | null {
-    if (viewId !== DASHBOARD_PROSE_ID && !this.runtime.views.has(viewId)) return this.gapLedger.file('needs-view', op, `no declared view "${viewId}"`, viewId);
+    if (viewId !== DASHBOARD_PROSE_ID && !isNoteSubject(viewId) && !this.runtime.views.has(viewId)) return this.gapLedger.file('needs-view', op, `no declared view "${viewId}" — the prose subjects are a declared view, "dashboard", or a note ("note:<id>")`, viewId);
     if (!(PROSE_SLOTS as readonly string[]).includes(slot)) return this.gapLedger.file('guard-failed', op, `"${String(slot)}" is not a prose slot — the slots are ${PROSE_SLOTS.join(', ')}`, String(slot));
+    if (isNoteSubject(viewId) && slot !== 'title' && slot !== 'caption') return this.gapLedger.file('guard-failed', op, `a note carries a title and a caption — "${slot}" is not a note slot`, slot);
     return null;
   }
 
@@ -1709,7 +1719,7 @@ class InteractionSessionImpl implements InteractionSession {
       parent: this._cursor,
       ...(correlationId !== undefined ? { correlationId } : {}),
       viewId: `${PROSE_VIEW_PREFIX}${viewId}`,
-      actorMeta: this.runtime.views.get(viewId)?.meta ?? DASHBOARD_ACTOR_META,
+      actorMeta: this.runtime.views.get(viewId)?.meta ?? (isNoteSubject(viewId) ? NOTE_ACTOR_META : DASHBOARD_ACTOR_META),
       kind: 'point',
       field,
       value,
@@ -1780,18 +1790,34 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** Every slot a view carries at the cursor, in slot order, each with its staleness judged against what is on screen. */
-  private proseOf(viewId: string, facets: readonly ColumnFacet[]): ProseStatus[] {
+  private proseOf(viewId: string, facets: readonly ColumnFacet[], shared?: ProseWorldNow): ProseStatus[] {
     const slots = this.activeProse.get(viewId);
     if (slots === undefined || slots.size === 0) return [];
     const view = this.runtime.views.get(viewId); // undefined for the dashboard subject — it binds nothing and has no surface
     const now = {
+      ...(shared ?? this.proseWorldNow(facets)),
       encodings: this.proseEncodingsNow(viewId, facets),
-      filters: this.filtersNow(),
-      columns: new Set(facets.map((f) => f.field)),
-      analyses: new Set(this.runtime.analyses.keys()),
       ...(view?.encoding !== undefined ? { surface: view.encoding } : {}),
     };
     return PROSE_SLOTS.filter((slot) => slots.has(slot)).map((slot) => proseStatus(slot, slots.get(slot)!, now));
+  }
+
+  /** The part of the staleness world every subject shares at one cursor — built once per overview, not once per note. */
+  private proseWorldNow(facets: readonly ColumnFacet[]): ProseWorldNow {
+    return { filters: this.filtersNow(), columns: new Set(facets.map((f) => f.field)), analyses: new Set(this.runtime.analyses.keys()) };
+  }
+
+  /** The notes with words at the cursor: a note whose every slot went back to nothing is gone (its commits stay). */
+  private notesInfo(facets: readonly ColumnFacet[]): NoteInfo[] {
+    const out: NoteInfo[] = [];
+    const shared = this.proseWorldNow(facets);
+    for (const subject of this.activeProse.keys()) {
+      if (!isNoteSubject(subject)) continue;
+      const prose = this.proseOf(subject, facets, shared);
+      if (prose.length === 0) continue;
+      out.push({ id: subject.slice(NOTE_PROSE_PREFIX.length), prose, proposals: this.proposalsOf(subject) });
+    }
+    return out;
   }
 
   /** Every declared table as the def states it — read off the def and the runtime, never inferred from the rows. */
@@ -1820,7 +1846,7 @@ class InteractionSessionImpl implements InteractionSession {
   /** What a prose subject SHOWS at the cursor: a surfaced view's effective bindings, an unsurfaced view's own, the dashboard's nothing. */
   private proseEncodingsNow(viewId: string, facets: readonly ColumnFacet[]): Readonly<Record<string, string>> {
     const view = this.runtime.views.get(viewId);
-    if (view === undefined) return {}; // the dashboard subject (proseGuards admits no other unknown id)
+    if (view === undefined) return {}; // the dashboard or a note — both bind nothing, so neither has a surface to read (proseGuards admits no other unknown id)
     return view.encoding !== undefined ? this.effectiveEncodings(facets).get(viewId)!.bindings : this.viewEncodings(viewId);
   }
 
@@ -2676,6 +2702,8 @@ class InteractionSessionImpl implements InteractionSession {
       views,
       // the prose plane's one non-view subject: the cockpit's own words (its caption = the summary of what it shows now)
       dashboard: { prose: this.proseOf(DASHBOARD_PROSE_ID, columns[this.defaultTable] ?? []), proposals: this.proposalsOf(DASHBOARD_PROSE_ID) },
+      // the notes on the dashboard (the Text tool): every note subject with words at the cursor, in the order they were first written
+      notes: this.notesInfo(columns[this.defaultTable] ?? []),
       activeSelections,
       // the live selections in the shape a prose basis states them (`basis.filters`) — an agent copies this verbatim
       filters: this.filtersNow(),

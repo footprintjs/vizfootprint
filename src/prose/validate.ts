@@ -5,7 +5,7 @@
  * words state a basis; an agent never states a cause; a basis names only
  * columns on the branch and analyses that are declared.
  */
-import { AUTHOR_KINDS, CLAIM_LEVELS, DASHBOARD_PROSE_ID, PROSE_SLOTS } from './types.js';
+import { AUTHOR_KINDS, CLAIM_LEVELS, DASHBOARD_PROSE_ID, PROSE_SLOTS, isNoteSubject } from './types.js';
 import type { ProseProblem, ProseRecord, ProseSlot } from './types.js';
 import { PROSE_SENTENCES, fillProse } from './sentences.js';
 
@@ -66,8 +66,10 @@ export function validateProseRecord(viewId: string, slot: string, raw: unknown, 
   if (kind === 'agent' && world.mode === 'set' && Array.isArray(levels) && levels.includes('trend')) at('agent-trend', PROSE_SENTENCES.agentTrend);
   // the dashboard subject: nothing to derive from, nothing bound — judged before the surface rule so the sentence names the reason
   if (viewId === DASHBOARD_PROSE_ID && kind === 'derived') at('dashboard-derived', PROSE_SENTENCES.dashboardDerived);
+  else if (isNoteSubject(viewId) && kind === 'derived') at('note-derived', PROSE_SENTENCES.noteDerived);
   else if (kind === 'derived' && world.surfaced !== undefined && !world.surfaced.has(viewId)) at('derived-surface', PROSE_SENTENCES.derivedSurface);
   if (viewId === DASHBOARD_PROSE_ID && basis?.encodings !== undefined) at('dashboard-encodings', PROSE_SENTENCES.dashboardEncodings);
+  if (isNoteSubject(viewId) && basis?.encodings !== undefined) at('note-encodings', PROSE_SENTENCES.noteEncodings);
   if (basis !== undefined && Array.isArray(basis.columns) && world.columns !== undefined) {
     for (const column of basis.columns as unknown[]) {
       if (typeof column === 'string' && !world.columns.has(column)) at('basis-column', PROSE_SENTENCES.basisColumn, { column });

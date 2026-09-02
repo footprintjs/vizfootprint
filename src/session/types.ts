@@ -689,7 +689,13 @@ export interface FdrSummary {
 /** One column facet — names/types are schema; VALUES never ride here (Q8). */
 export type { ColumnFacet } from '../data/types.js';
 
-/** The structured payload `whats_here` projects. All app content lives in DATA fields. */
+/** One note on the dashboard: words with an author and refs, addressed `note:<id>` in the prose plane. */
+export interface NoteInfo {
+  readonly id: string;
+  readonly prose: readonly ProseStatus[];
+  readonly proposals: readonly ProposalStatus[];
+}
+
 /** One declared table as the def states it (see `Overview.tables`). Nothing here is inferred from the rows. */
 export interface TableInfo {
   readonly name: string;
@@ -706,6 +712,7 @@ export interface TableInfo {
   readonly declaredColumns: number;
 }
 
+/** The structured payload `whats_here` projects. All app content lives in DATA fields. */
 export interface Overview {
   readonly defaultTable: string;
   readonly views: readonly ViewInfo[];
@@ -716,6 +723,8 @@ export interface Overview {
    * like any view's slot; `proposals` = the drafts on the table for it.
    */
   readonly dashboard: { readonly prose: readonly ProseStatus[]; readonly proposals: readonly ProposalStatus[] };
+  /** The notes on the dashboard (the Text tool): every `note:<id>` subject with words at the cursor, oldest first. */
+  readonly notes: readonly NoteInfo[];
   readonly activeSelections: readonly SelectionInfo[];
   /**
    * The live selections in the SHAPE a prose basis states them: viewId → clause, `{}` for none — byte-equal to what

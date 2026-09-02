@@ -26,7 +26,7 @@ import { ABSENCE_UNKNOWN, DISPATCH_VERBS, type DispatchVerb } from './types.js';
 import { lintEncodings, resolveFacets, validateColumnDecls, validateEncodingRulesShape } from '../encoding/index.js';
 import type { EncodingRules, EncodingSurface, FacetSource } from '../encoding/index.js';
 import type { ColumnInfo } from '../data/index.js';
-import { DASHBOARD_PROSE_ID, validateProseDecls } from '../prose/index.js';
+import { DASHBOARD_PROSE_ID, NOTE_PROSE_PREFIX, validateProseDecls } from '../prose/index.js';
 import { SOURCE_FORMATS, SOURCE_VIAS } from '../source/index.js';
 import type { SourceRefusalReason } from '../source/index.js';
 
@@ -95,6 +95,7 @@ const RESERVED_VIEW_PREFIXES = [
   BEAT_VIEW_PREFIX,
   LINK_VIEW_PREFIX, // layer 4: `link:<edgeId>` is a keyed namespace — a view there would be read as a link-graph edit
   PROSE_VIEW_PREFIX, // the prose plane: `prose:<viewId>` carries a view's words
+  NOTE_PROSE_PREFIX, // the prose plane's notes: `note:<id>` is a prose subject, never a view
 ] as const;
 
 /** The reserved namespace a view id squats, or undefined when it is free to use. */

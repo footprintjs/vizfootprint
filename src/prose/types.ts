@@ -19,6 +19,24 @@ export const PROSE_SLOTS = ['title', 'caption', 'altShort', 'altLong', 'howToRea
  * from. Declared in the def like any view's prose: `{ viewId: 'dashboard', slots }`.
  */
 export const DASHBOARD_PROSE_ID = 'dashboard';
+
+/**
+ * NOTES — the prose plane's other non-view subjects: a note is words on the
+ * dashboard (the Text tool), addressed `note:<id>`, created by the first
+ * `describe` on a fresh id and gone when its last slot goes back to nothing.
+ * A note carries a `title` and a `caption` (the body) whose refs link words
+ * to commits and beats; like the dashboard it binds nothing, so nothing of it
+ * is derived and its basis never states encodings.
+ */
+export const NOTE_PROSE_PREFIX = 'note:';
+
+/** The shape of a note's id: letters, digits, `_`, `.`, `-` — never blank, never spaces. */
+const NOTE_ID = /^[A-Za-z0-9_.-]+$/;
+
+/** Is this prose subject a note (`note:<id>` with an id-shaped id)? */
+export function isNoteSubject(viewId: string): boolean {
+  return viewId.startsWith(NOTE_PROSE_PREFIX) && NOTE_ID.test(viewId.slice(NOTE_PROSE_PREFIX.length));
+}
 export type ProseSlot = (typeof PROSE_SLOTS)[number];
 
 /**
