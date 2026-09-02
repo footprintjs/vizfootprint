@@ -30,7 +30,7 @@ import { TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord } from '../fdr/i
 import { gateChartSpec } from '../renderer/index.js';
 import { cellFieldLabel, isRejection, matchesClause, type CellClause, type ColumnInfo, type MatchValue, type PredicateClause, type Row } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
-import { impliedKinds } from '../links/index.js';
+import { applyLinkOverrides, edgeId, impliedKinds, validateLinks, type LinkDecl } from '../links/index.js';
 
 /** The predicate clause a landed point/interval/match probe folds to — ONE spelling for the live path and the replay fold. */
 function probeClause(kind: 'point' | 'interval' | 'match', field: string, value: unknown): PredicateClause {
@@ -63,6 +63,7 @@ import {
   CHART_VIEW_PREFIX,
   ENCODING_VIEW_PREFIX,
   LAYOUT_VIEW_PREFIX,
+  LINK_VIEW_PREFIX,
   foldDiff,
   foldStateAt,
   planBringOver,
@@ -154,6 +155,7 @@ const CHART_FIELD = '__chart__';
  * two layers share the literal bytes and cannot drift.
  */
 const encodingViewId = (viewId: string): string => `${ENCODING_VIEW_PREFIX}${viewId}`;
+const linkViewId = (id: string): string => `${LINK_VIEW_PREFIX}${id}`;
 
 /**
  * The `chart:${id}` synthetic identity an agent-authored chart's commits land
@@ -400,6 +402,8 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly activeFilterCommits = new Map<string, string>();
   /** viewId → its current channel→field visual-encoding map (the `reencode` fold; SPEC Q6 8th verb). */
   private readonly activeEncodings = new Map<string, Record<string, string>>();
+  /** Layer 4: the `link` edits at the cursor, one per edge id (folded by rebuildFold like the encodings). */
+  private readonly activeLinks = new Map<string, LinkDecl>();
   /** layout scope → its current prop→value arrangement map (the LY-1 layout fold — see LAYOUT_SOURCE_META). */
   private readonly activeLayouts = new Map<string, Record<string, string>>();
   /** materialised column name → its producing analysis provenance (L6 `why({kind:'column'})`). */
@@ -532,11 +536,19 @@ class InteractionSessionImpl implements InteractionSession {
     this.activeFilters.clear();
     this.activeFilterCommits.clear();
     this.activeEncodings.clear();
+    this.activeLinks.clear();
     this.activeLayouts.clear();
     for (const view of this.runtime.views.values()) {
       if (view.encoding?.initial) this.activeEncodings.set(view.viewId, { ...view.encoding.initial });
     }
     for (const rec of this.branchPath(cursorId)) {
+      if (rec.viewId.startsWith(LINK_VIEW_PREFIX)) {
+        // Layer 4: an edited edge, last-wins per edge id; null un-declares it
+        const id = rec.viewId.slice(LINK_VIEW_PREFIX.length);
+        if (rec.value === null) this.activeLinks.delete(id);
+        else this.activeLinks.set(id, rec.value as LinkDecl);
+        continue;
+      }
       if (rec.viewId.startsWith(ENCODING_VIEW_PREFIX)) {
         const targetViewId = rec.viewId.slice(ENCODING_VIEW_PREFIX.length);
         const current = this.activeEncodings.get(targetViewId) ?? {};
@@ -945,6 +957,15 @@ class InteractionSessionImpl implements InteractionSession {
         return { verb: 'analyze', analysisId: recipe.analysisId, cause };
       case 'annotation':
         return { verb: 'annotate', target: recipe.target, note: recipe.note, cause };
+      case 'link': {
+        // the plan layer types the edge structurally (it imports only the log); the real LinkDecl narrows it back here
+        const link = recipe.link as LinkDecl;
+        return { verb: 'link', ...link, cause };
+      }
+      case 'clear-link': {
+        const link = recipe.link as LinkDecl;
+        return { verb: 'link', source: link.source, kind: link.kind, target: link.target, response: null, cause };
+      }
       case 'beat':
         return { verb: 'checkpoint', label: recipe.label, cause };
       case 'layout':
@@ -1087,6 +1108,37 @@ class InteractionSessionImpl implements InteractionSession {
     return null;
   }
 
+  // ── link (layer 4) — edit ONE edge of the graph, as a commit ───────────────────
+  private doLink(action: Extract<DispatchAction, { verb: 'link' }>, as: Actor | undefined, intent: DispatchResult['intent']): DispatchResult {
+    const { source, kind, target, response, mapping, onClear, cause, correlationId } = action;
+    const id = edgeId(source, kind, target);
+    // the same refusals a declared edge gets, in the same sentences (the response may be null = un-declare)
+    const problems: string[] = [];
+    const probe: LinkDecl = { source, kind, target, response: response ?? 'none', ...(mapping !== undefined ? { mapping } : {}), ...(onClear !== undefined ? { onClear } : {}) };
+    validateLinks([probe], undefined, this.runtime.links.views, problems);
+    if (problems.length > 0) {
+      return this.reject('link', intent, this.gapLedger.file('guard-failed', 'link', problems.map((p) => p.replace(/^links\[0\]/, `link ${id}`)).join('; '), id));
+    }
+    const value: LinkDecl | null = response === null ? null : probe;
+    const stamped = this.stampCause(cause, 'link', as);
+    const { record } = this.log.commit({
+      id: this.nextId(),
+      parent: this._cursor,
+      ...(correlationId !== undefined ? { correlationId } : {}),
+      viewId: linkViewId(id),
+      actorMeta: this.runtime.views.get(source)!.meta,
+      kind: 'point',
+      field: 'response',
+      value,
+      cause: stamped,
+    });
+    this.landed(record);
+    if (value === null) this.activeLinks.delete(id);
+    else this.activeLinks.set(id, value);
+    const linked = applyLinkOverrides(this.runtime.links, this.activeLinks).edges.find((e) => e.id === id);
+    return { ok: true, verb: 'link', intent, commit: record, ...(linked !== undefined ? { linked } : {}) };
+  }
+
   // ── mountView (R3) ───────────────────────────────────────────────────────────
   mountView(viewId: string, adapter: ViewAdapter): { ok: true } | { ok: false; gap: GapRow } {
     if (!this.runtime.views.has(viewId)) {
@@ -1131,6 +1183,8 @@ class InteractionSessionImpl implements InteractionSession {
         );
       case 'annotate':
         return this.doAnnotate(action.target, action.note, action.cause, as, intent);
+      case 'link':
+        return this.doLink(action, as, intent);
       case 'navigate':
         return this.doNavigate(action.viewId, action.field, action.value, action.cause, as, intent, action.correlationId);
       case 'analyze':
@@ -2025,7 +2079,7 @@ class InteractionSessionImpl implements InteractionSession {
 
     return {
       defaultTable: this.defaultTable,
-      links: this.runtime.links,
+      links: applyLinkOverrides(this.runtime.links, this.activeLinks),
       views,
       activeSelections,
       analyses,

@@ -10,7 +10,7 @@
  */
 
 import type { Actor, Cause } from '../cause/index.js';
-import type { LinkGraph } from '../links/types.js';
+import type { EmissionKind, FieldMapping, LinkEdge, LinkGraph, LinkOnClear, LinkResponse } from '../links/types.js';
 import type { CommitRecord } from '../log/index.js';
 import type { CauseClause } from '../mosaic/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
@@ -111,6 +111,23 @@ export type DispatchAction =
   | { readonly verb: 'select'; readonly viewId: string; readonly fields: readonly [string, string]; readonly values: CellValues; readonly cause: Cause; readonly correlationId?: string }
   | { readonly verb: 'filter'; readonly viewId: string; readonly field: string; readonly range: FilterRange; readonly cause: Cause; readonly correlationId?: string }
   | { readonly verb: 'annotate'; readonly target: string; readonly note: string; readonly cause: Cause }
+  /**
+   * Layer 4 `link`: edit ONE edge of the link graph — what `target` does with
+   * `source`'s `kind` emission. Validated like a declared edge (a refusal in a
+   * sentence); folds last-wins per edge id; `response: null` un-declares the
+   * edit so the def's rule shows through again.
+   */
+  | {
+      readonly verb: 'link';
+      readonly source: string;
+      readonly kind: EmissionKind;
+      readonly target: string;
+      readonly response: LinkResponse | null;
+      readonly mapping?: readonly FieldMapping[];
+      readonly onClear?: LinkOnClear;
+      readonly cause: Cause;
+      readonly correlationId?: string;
+    }
   /**
    * `navigate` — record a VIEW-state move; deliberately NON-filtering (a
    * viewport or an arrangement is not a data claim). Two shapes share the verb:
@@ -475,6 +492,8 @@ export type DispatchResult =
       readonly annotated?: { readonly target: string; readonly note: string };
       readonly navigatedTo?: string;
       readonly reencoded?: { readonly viewId: string; readonly channel: string; readonly field: string };
+      /** Layer 4: the edge as it now stands (an edited edge, or the base edge after an un-declare). */
+      readonly linked?: LinkEdge;
     }
   | {
       readonly ok: false;

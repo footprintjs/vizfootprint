@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { edgeId, edgesFrom, edgesInto, impliedKinds, linksToMermaid, materializeLinks, validateLinks, voiceOf, type LinkView } from './index.js';
+import { applyLinkOverrides, edgeId, edgesFrom, edgesInto, impliedKinds, linksToMermaid, materializeLinks, validateLinks, voiceOf, type LinkView } from './index.js';
 
 const VIEWS: LinkView[] = [
   { viewId: 'map', voice: ['point', 'match'] },
@@ -102,5 +102,20 @@ describe('mermaid — declared === drawn', () => {
     const silent = linksToMermaid(materializeLinks([{ viewId: 'a b', voice: [] }], [], 'none'), { defaults: false });
     expect(silent).toContain('a_b["a b · silent"]');
     expect(silent).not.toContain('%% default rule');
+  });
+});
+
+describe('applyLinkOverrides — the session\'s edits over the base graph', () => {
+  it('replaces a base edge in place with origin edited, appends an edge the base never had, and leaves the graph untouched with no overrides', () => {
+    const base = materializeLinks(VIEWS.slice(0, 2), [], 'none');
+    expect(applyLinkOverrides(base, new Map())).toBe(base);
+    const declared = materializeLinks(VIEWS.slice(0, 2));
+    const id = edgeId('map', 'point', 'weeks');
+    const at = declared.edges.findIndex((e) => e.id === id);
+    const edited = applyLinkOverrides(declared, new Map([[id, { source: 'map', kind: 'point', target: 'weeks', response: 'highlight' }]]));
+    expect(edited.edges[at]).toEqual({ id, source: 'map', kind: 'point', target: 'weeks', response: 'highlight', origin: 'edited' });
+    expect(edited.edges).toHaveLength(declared.edges.length);
+    const appended = applyLinkOverrides(base, new Map([[id, { source: 'map', kind: 'point', target: 'weeks', response: 'mirror' }]]));
+    expect(appended.edges).toEqual([{ id, source: 'map', kind: 'point', target: 'weeks', response: 'mirror', origin: 'edited' }]);
   });
 });

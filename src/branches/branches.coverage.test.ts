@@ -114,3 +114,23 @@ describe('isClearedSelection — ONE clearing rule for every selection kind (SET
     expect(foldStateAt(log, 'm2').has('selection:bar')).toBe(false);
   });
 });
+
+describe('layer 4 — link commits in the branch fold', () => {
+  const link = (v: unknown) => ({ viewId: 'link:map:point→bar', field: 'response', value: v });
+  it('folds an edit last-wins per edge id, drops the key on an un-declare (null), fingerprints the edge, and reads a malformed id honestly', () => {
+    const log = [
+      rec('l1', null, link({ source: 'map', kind: 'point', target: 'bar', response: 'highlight' })),
+      rec('l2', 'l1', link({ source: 'map', kind: 'point', target: 'bar', response: 'mirror' })),
+      rec('l3', 'l2', link(null)),
+    ];
+    expect(foldStateAt(log, 'l1').get('link:map:point→bar')).toEqual({ kind: 'link', edgeId: 'map:point→bar', link: { source: 'map', kind: 'point', target: 'bar', response: 'highlight' }, commitId: 'l1' });
+    expect(foldStateAt(log, 'l2').get('link:map:point→bar')?.commitId).toBe('l2');
+    expect(foldStateAt(log, 'l3').has('link:map:point→bar')).toBe(false);
+    const d = foldDiff(log, 'l1', 'l2');
+    expect(d.ok && d.changed.map((c) => c.key)).toEqual(['link:map:point→bar']); // two edits of one edge are a CHANGE, not an identity
+    // a bring-over of an un-declare whose id is malformed (no arrow, no colon) still yields a clear-link recipe, never a throw
+    const odd = [rec('o1', null, { viewId: 'link:garbage', field: 'response', value: null })];
+    const plan = planBringOver(odd, 'o1', null);
+    expect(plan.ok && plan.recipe).toEqual({ apply: 'clear-link', link: { source: '', kind: 'garbage', target: '', response: 'none' } });
+  });
+});

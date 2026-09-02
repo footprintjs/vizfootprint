@@ -78,7 +78,9 @@ const DISPATCH_DESCRIPTION =
   'prior commit so your NEXT act branches off it — a sibling, no history rewritten), checkpoint (name ' +
   'the current position to return to), reencode (rebind a view\'s visual channel, e.g. x, to a ' +
   'different data field — must be a channel valid for that view and a column that exists). This is ' +
-  'the ONLY way to change state — there is no raw-event path.';
+  'link (layer 4: edit ONE edge of the link graph — what target does with source\'s kind emission: response ' +
+  'filter | highlight | navigate | mirror | none, or null to fall back to the def\'s rule; read the graph in ' +
+  'whats_here.links first). This is the ONLY way to change state — there is no raw-event path.';
 
 const DECLARE_ANALYSIS_DESCRIPTION =
   'Run a DECLARED analysis by id over the current selection (a columns analysis runs over the full ' +
@@ -183,7 +185,15 @@ const DISPATCH_SCHEMA = {
         '"up to that date" — never invent a made-up ceiling/floor number when the user names only one side. ' +
         'Both bounds cannot be null (use range: null on the whole call to clear instead).',
     },
-    target: { type: 'string', description: 'The annotation target (annotate).' },
+    target: { type: 'string', description: 'The annotation target (annotate) — or, for link, the target view id.' },
+    source: { type: 'string', description: 'link only: the source view id whose emission the edge carries.' },
+    kind: { type: 'string', enum: ['point', 'interval', 'cell', 'match'], description: 'link only: the emission kind the edge carries (must be in the source view\'s voice — see whats_here.links.views).' },
+    response: {
+      type: ['string', 'null'],
+      enum: ['filter', 'highlight', 'navigate', 'mirror', 'none', null],
+      description: 'link only: what the target does with it — filter drops rows, highlight dims them, navigate moves the viewport, mirror outlines the value, none turns the link off; null un-declares the edit (back to the def\'s rule).',
+    },
+    mapping: { type: 'array', description: 'link only, optional: [{ from, to }] field renames when the source field is not the target\'s column.' },
     note: { type: 'string', description: 'The inert annotation text (annotate).' },
     analysisId: { type: 'string', description: 'A declared analysis id (analyze).' },
     fromCommitId: { type: 'string', description: 'The commit id to branch off (fork).' },
@@ -495,6 +505,27 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
           return { error: 'reencode requires string viewId, channel, and field' };
         }
         return { verb: 'reencode', viewId: args['viewId'], channel: args['channel'], field: args['field'], cause };
+      case 'link': {
+        const { source, kind, target, response, mapping } = args;
+        if (typeof source !== 'string' || typeof target !== 'string' || !['point', 'interval', 'cell', 'match'].includes(kind as string)) {
+          return { error: 'link requires string source and target view ids and kind: point | interval | cell | match' };
+        }
+        if (response !== null && !['filter', 'highlight', 'navigate', 'mirror', 'none'].includes(response as string)) {
+          return { error: 'link.response must be filter | highlight | navigate | mirror | none, or null to fall back to the def\'s rule' };
+        }
+        if (mapping !== undefined && (!Array.isArray(mapping) || !mapping.every((m) => typeof m === 'object' && m !== null && typeof (m as { from?: unknown }).from === 'string' && typeof (m as { to?: unknown }).to === 'string'))) {
+          return { error: 'link.mapping, if given, must be an array of { from, to } field names' };
+        }
+        return {
+          verb: 'link',
+          source,
+          kind: kind as 'point' | 'interval' | 'cell' | 'match',
+          target,
+          response: response as 'filter' | 'highlight' | 'navigate' | 'mirror' | 'none' | null,
+          ...(mapping !== undefined ? { mapping: mapping as readonly { from: string; to: string }[] } : {}),
+          cause,
+        };
+      }
       /* v8 ignore next 2 -- defensive exhaustiveness fallback: `verb` was already checked against
          (DISPATCH_VERBS as readonly string[]).includes(verb) above, and the switch enumerates all
          8 DISPATCH_VERBS members as cases, so `verb` can never reach `default` through any public

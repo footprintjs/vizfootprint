@@ -75,6 +75,20 @@ export interface RefState {
  * wire convention (selection = `(viewId)`, encoding = `(viewId, channel)`,
  * analysis = `(analysis id)`); `commitId` names the LAST WRITER of the key.
  */
+/**
+ * Layer 4: the value a `link` commit carries — the edge as data. Typed
+ * STRUCTURALLY here (this layer imports only the log; `src/links` owns the
+ * real `LinkDecl`, which is assignable to this shape and narrows it back).
+ */
+export interface LinkValue {
+  readonly source: string;
+  readonly kind: string;
+  readonly target: string;
+  readonly response: string;
+  readonly mapping?: readonly { readonly from: string; readonly to: string }[];
+  readonly onClear?: string;
+}
+
 export type FoldEntry =
   | {
       readonly kind: 'selection';
@@ -101,6 +115,13 @@ export type FoldEntry =
       readonly analysisId: string;
       readonly field: string;
       readonly value: unknown;
+      readonly commitId: string;
+    }
+  /** Layer 4: an edited edge (`link` verb), last-wins per edge id. */
+  | {
+      readonly kind: 'link';
+      readonly edgeId: string;
+      readonly link: LinkValue;
       readonly commitId: string;
     };
 
@@ -180,7 +201,11 @@ export type PlanRecipe =
   /** A story beat re-named on the target path (`checkpoint` verb) — a position is named again, never copied. */
   | { readonly apply: 'beat'; readonly label: string }
   /** LY-1: re-land a cockpit-layout prop (`navigate` verb, `layout:${scope}` identity). */
-  | { readonly apply: 'layout'; readonly scope: string; readonly prop: string; readonly value: string };
+  | { readonly apply: 'layout'; readonly scope: string; readonly prop: string; readonly value: string }
+  /** Layer 4: re-land an edited edge (`link` verb). */
+  | { readonly apply: 'link'; readonly link: LinkValue }
+  /** Layer 4: un-declare an edit — the edge falls back to the def's rule (`link` verb with response null). */
+  | { readonly apply: 'clear-link'; readonly link: LinkValue };
 
 /**
  * A bring-over (cherry-pick) or undo (revert) plan. A CONFLICT names the

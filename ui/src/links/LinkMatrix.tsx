@@ -25,7 +25,7 @@ export interface LinkMatrixProps {
   /** viewId → display label. */
   readonly labels?: Readonly<Record<string, string>>;
   /** Present when the host lets the person edit: called with the edge as it should be after the change. */
-  readonly onChange?: (edge: { readonly source: string; readonly kind: LinkEdgeView['kind']; readonly target: string; readonly response: LinkResponse }) => void;
+  readonly onChange?: (edge: { readonly source: string; readonly kind: LinkEdgeView['kind']; readonly target: string; readonly response: LinkResponse | null }) => void;
   readonly readOnly?: boolean;
   /** Hide views with a silent voice from the rows (they still appear as targets). Default true. */
   readonly hideSilentSources?: boolean;
@@ -38,9 +38,9 @@ export function edgeAt(graph: LinkGraphView, source: string, kind: LinkEdgeView[
 }
 
 /** The words a cell shows and the fact it states. */
-export function cellOf(edge: LinkEdgeView | undefined): { readonly text: string; readonly fact: 'default' | 'declared' | 'none' | 'silence' } {
+export function cellOf(edge: LinkEdgeView | undefined): { readonly text: string; readonly fact: 'default' | 'declared' | 'edited' | 'none' | 'silence' } {
   if (edge === undefined) return { text: '', fact: 'silence' };
-  if (edge.response === 'none') return { text: 'none', fact: 'none' };
+  if (edge.response === 'none') return { text: 'none', fact: edge.origin === 'edited' ? 'edited' : 'none' };
   return { text: edge.response, fact: edge.origin };
 }
 
@@ -86,9 +86,10 @@ export function LinkMatrix({ graph, labels = {}, onChange, readOnly = false, hid
                           className="vzf-linkmatrix-select"
                           aria-label={label}
                           value={edge?.response ?? ''}
-                          onChange={(e) => onChange({ source: s.viewId, kind, target: t.viewId, response: e.target.value as LinkResponse })}
+                          onChange={(e) => onChange({ source: s.viewId, kind, target: t.viewId, response: e.target.value === 'rule' ? null : (e.target.value as LinkResponse) })}
                         >
                           {cell.fact === 'silence' && <option value="">silence</option>}
+                          {cell.fact === 'edited' && <option value="rule">back to the rule</option>}
                           {LINK_RESPONSES.map((r) => (
                             <option key={r} value={r}>
                               {r}
@@ -109,6 +110,7 @@ export function LinkMatrix({ graph, labels = {}, onChange, readOnly = false, hid
       <div className="vzf-linkmatrix-legend" aria-hidden="true">
         <span className="vzf-linkmatrix-default">default rule</span>
         <span className="vzf-linkmatrix-declared">declared</span>
+        <span className="vzf-linkmatrix-edited">edited here</span>
         <span className="vzf-linkmatrix-none">none (off on purpose)</span>
         <span className="vzf-linkmatrix-silence">blank = silence</span>
       </div>

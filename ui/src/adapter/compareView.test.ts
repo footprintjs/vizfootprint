@@ -151,3 +151,10 @@ describe('entryDetail — match (SET-1)', () => {
     expect(entryDetail(entry({}))).toBe('category in {}');
   });
 });
+
+describe('entryDetail — a link entry (layer 4)', () => {
+  it('names the edge; a bare link entry says so', () => {
+    expect(entryDetail({ kind: 'link', edgeId: 'map:point→bar', link: { source: 'map', kind: 'point', target: 'bar', response: 'highlight' }, commitId: 'l1' })).toBe('map point → bar: highlight');
+    expect(entryDetail({ kind: 'link', edgeId: 'map:point→bar', commitId: 'l1' })).toBe('a link edit');
+  });
+});

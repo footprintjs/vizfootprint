@@ -306,17 +306,18 @@ describe('layer 4 — responses from the link graph decide what a clause does at
   });
 
   it('a mirror edge outlines the source values in a view with no clause of its own; the view\'s own clause wins when it has one', () => {
-    const mirrored = selectionForView(sels, 'table', 'intersect', graph([edge('bar', 'point', 'table', 'mirror'), edge('map', 'point', 'table', 'mirror')]));
-    expect(selfSelectedSet(mirrored)).toEqual({ values: ['A', 'North'], exclude: false });
+    const mirrored = selectionForView(sels, 'table', 'intersect', graph([edge('bar', 'point', 'table', 'mirror'), edge('map', 'point', 'table', 'mirror'), edge('line', 'interval', 'table', 'mirror')]));
+    expect(selfSelectedSet(mirrored)).toEqual({ values: ['A', 'North'], exclude: false }); // an interval has no values to mirror
     expect(rows.filter(keepPredicate(mirrored))).toHaveLength(3); // a mirror never filters
     const own = selectionForView([...sels, { viewId: 'table', field: 'id', kind: 'point', value: 'r1' }], 'table', 'intersect', graph([edge('bar', 'point', 'table', 'mirror')]));
     expect(selfSelectedSet(own)).toEqual({ values: ['r1'], exclude: false });
-    const excludedMirror = selectionForView([{ viewId: 'bar', field: 'category', kind: 'match', value: { values: ['A'], exclude: true } }], 'table', 'intersect', graph([edge('bar', 'point', 'table', 'mirror')]));
+    const excludedMirror = selectionForView([{ viewId: 'bar', field: 'category', kind: 'match', value: { values: ['A'], exclude: true } }], 'table', 'intersect', graph([edge('bar', 'match' as 'point', 'table', 'mirror')]));
     expect(selfSelectedSet(excludedMirror)).toEqual({ values: [], exclude: false }); // an exclude-set has nothing to outline
   });
 
   it('a navigate edge hands the target the source interval as a viewport, and never filters', () => {
-    const nav = selectionForView([...sels, { viewId: 'table', field: 't', kind: 'interval', value: ['2026-01-01', '2026-01-02'] }], 'table', 'intersect', graph([edge('line', 'interval', 'table', 'navigate'), edge('bar', 'point', 'table', 'navigate')]));
+    // the view's OWN clause comes first so the fold must step over it (it is never a viewport for itself)
+    const nav = selectionForView([{ viewId: 'table', field: 't', kind: 'interval', value: ['2026-01-01', '2026-01-02'] }, ...sels], 'table', 'intersect', graph([edge('line', 'interval', 'table', 'navigate'), edge('bar', 'point', 'table', 'navigate')]));
     expect(navigateDomain(nav)).toEqual({ field: 't', range: ['2026-01-15', '2026-03-15'] });
     expect(rows.filter(keepPredicate(nav))).toHaveLength(3);
     expect(rows.filter(brightPredicate(nav))).toHaveLength(3);

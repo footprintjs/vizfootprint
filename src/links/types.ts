@@ -51,11 +51,11 @@ export interface LinkDecl {
   readonly label?: string;
 }
 
-/** An edge in the MATERIALIZED graph — declared, or written out from the default rule. */
+/** An edge in the MATERIALIZED graph — declared, written out from the default rule, or EDITED at run time (a `link` commit). */
 export interface LinkEdge extends LinkDecl {
   /** `${source}:${kind}→${target}` — one edge per (source, kind, target). */
   readonly id: string;
-  readonly origin: 'declared' | 'default';
+  readonly origin: 'declared' | 'default' | 'edited';
 }
 
 /** A view as the graph sees it: its id and its voice. */

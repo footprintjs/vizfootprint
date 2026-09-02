@@ -47,3 +47,11 @@ describe('formatCommitValue — match (SET-1)', () => {
     expect(formatCommitValue({ kind: 'match', value: {} })).toBe('in {}');
   });
 });
+
+describe('formatCommitValue — a link commit (layer 4)', () => {
+  it('reads the edge in the matrix\'s words; an un-declare (null) is ∅', () => {
+    expect(formatCommitValue({ kind: 'point', value: { source: 'map', kind: 'point', target: 'bar', response: 'highlight' } })).toBe('map point → bar: highlight');
+    expect(formatCommitValue({ kind: 'point', value: null })).toBe('∅');
+    expect(formatCommitValue({ kind: 'point', value: { source: 'map', target: 'bar' } })).toBe('[object Object]'); // not an edge: no response — the honest fallback
+  });
+});

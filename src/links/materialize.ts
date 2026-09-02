@@ -32,6 +32,24 @@ export function materializeLinks(views: readonly LinkView[], declared: readonly 
   return { default: defaultRule, views, edges };
 }
 
+/**
+ * The graph at the cursor: the materialized base with the session's `link`
+ * commits folded over it (one override per edge id, last-wins). An override
+ * replaces its base edge IN PLACE (same evaluation position) or appends when
+ * the base had none (a declared `none` default); its origin is `edited`.
+ */
+export function applyLinkOverrides(base: LinkGraph, overrides: ReadonlyMap<string, LinkDecl>): LinkGraph {
+  if (overrides.size === 0) return base;
+  const edges = [...base.edges];
+  for (const [id, decl] of overrides) {
+    const edge: LinkEdge = { ...decl, id, origin: 'edited' };
+    const at = edges.findIndex((e) => e.id === id);
+    if (at >= 0) edges[at] = edge;
+    else edges.push(edge);
+  }
+  return { ...base, edges };
+}
+
 /** The edges INTO a target view — what that view listens to. */
 export function edgesInto(graph: LinkGraph, target: string): readonly LinkEdge[] {
   return graph.edges.filter((e) => e.target === target);

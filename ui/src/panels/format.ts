@@ -52,5 +52,12 @@ export function formatCommitValue(c: Pick<CommitView, 'kind' | 'value' | 'fields
   }
   if (c.value === null || c.value === undefined) return '∅';
   if (typeof c.value === 'number') return Number.isInteger(c.value) ? String(c.value) : String(round2(c.value));
+  if (isLinkValue(c.value)) return `${c.value.source} ${c.value.kind} → ${c.value.target}: ${c.value.response}`; // layer 4: an edited edge
   return String(c.value);
 }
+
+/** A `link` commit's value: the edge as a LinkDecl (null = un-declared, rendered as ∅ upstream). */
+function isLinkValue(v: unknown): v is { source: string; kind: string; target: string; response: string } {
+  return typeof v === 'object' && v !== null && typeof (v as { source?: unknown }).source === 'string' && typeof (v as { target?: unknown }).target === 'string' && typeof (v as { response?: unknown }).response === 'string';
+}
+

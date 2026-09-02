@@ -18,8 +18,7 @@ export type {
   RawPollPaths,
   RawPath,
   RawAdoptResult,
-  RawChart,
-} from './sessionView.js';
+  RawChart, LinkEdit } from './sessionView.js';
 
 export { mapCompareResult, entryLabel, entryDetail } from './compareView.js';
 export type { RawCompareResult } from './compareView.js';

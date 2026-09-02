@@ -22,6 +22,7 @@
  * session layer enriches per-side row counts on top (`compare()`).
  */
 
+import type { LinkValue } from './types.js';
 import type { CommitRecord } from '../log/index.js';
 import type { DiffChange, DiffOnly, FoldDiffResult, FoldEntry, FoldState } from './types.js';
 import { chainToRoot, indexById, lcaOf } from './walk.js';
@@ -49,6 +50,13 @@ export const LAYOUT_VIEW_PREFIX = 'layout:';
  * branch into a story the cursor never walked.
  */
 export const BEAT_VIEW_PREFIX = 'beat:';
+/**
+ * Layer 4: a `link` commit (`link:${edgeId}` synthetic identity). Its value is
+ * the edge as a LinkDecl (self-describing — never parsed out of the id), or
+ * null to un-declare the edit. It IS state (it changes what filters what), so
+ * it folds last-wins per edge id and takes part in foldDiff and conflicts.
+ */
+export const LINK_VIEW_PREFIX = 'link:';
 
 /** The state key a commit touches, or null for an inert (annotation / chart / layout) commit. */
 export function keyOf(record: CommitRecord): string | null {
@@ -67,6 +75,7 @@ export function keyOf(record: CommitRecord): string | null {
   if (record.viewId.startsWith(ANALYSIS_VIEW_PREFIX)) {
     return `analysis:${record.viewId.slice(ANALYSIS_VIEW_PREFIX.length)}`;
   }
+  if (record.viewId.startsWith(LINK_VIEW_PREFIX)) return record.viewId; // `link:<edgeId>` is its own key
   return `selection:${record.viewId}`;
 }
 
@@ -99,6 +108,10 @@ export function foldStateAt(records: readonly CommitRecord[], tipId: string | nu
         field: String(rec.value),
         commitId: rec.id,
       });
+    } else if (rec.viewId.startsWith(LINK_VIEW_PREFIX)) {
+      // a null value un-declares the edit: the key drops and the def's rule shows through
+      if (rec.value === null) state.delete(key);
+      else state.set(key, { kind: 'link', edgeId: rec.viewId.slice(LINK_VIEW_PREFIX.length), link: rec.value as LinkValue, commitId: rec.id });
     } else if (rec.viewId.startsWith(ANALYSIS_VIEW_PREFIX)) {
       state.set(key, {
         kind: 'analysis',
@@ -136,6 +149,8 @@ function enc(v: unknown): string {
 /** A VALUE fingerprint (excludes `commitId`: identical state via different commits is NOT a change). */
 function fingerprint(e: FoldEntry): string {
   switch (e.kind) {
+    case 'link':
+      return `link:${enc(e.link)}`;
     case 'selection':
       // The `fields` segment keeps a cell honest even against a real column
       // whose NAME happens to equal the joint label; `null` for plain kinds.

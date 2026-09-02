@@ -50,9 +50,10 @@ export type DispatchVerb =
   | 'analyze'
   | 'fork'
   | 'checkpoint'
-  | 'reencode';
+  | 'reencode'
+  | 'link';
 
-/** The eight verbs, frozen (used for validation + tool-schema enumeration). */
+/** The nine verbs, frozen (used for validation + tool-schema enumeration). `link` (layer 4) edits the graph, not a data view. */
 export const DISPATCH_VERBS: readonly DispatchVerb[] = [
   'select',
   'filter',
@@ -62,6 +63,7 @@ export const DISPATCH_VERBS: readonly DispatchVerb[] = [
   'fork',
   'checkpoint',
   'reencode',
+  'link',
 ] as const;
 
 /**
@@ -89,6 +91,8 @@ export const DEFAULT_INTENTS: Readonly<Record<DispatchVerb, IntentClass>> = {
   // state-changing transition (the orchestrator ruling), same class as
   // select/filter/fork/checkpoint: must be honored or filed as a typed gap.
   reencode: 'mandatory-analytical',
+  // link changes what FILTERS what — the graph itself — so it is state-changing like reencode.
+  link: 'mandatory-analytical',
   annotate: 'optional-interaction',
   navigate: 'optional-interaction',
 };

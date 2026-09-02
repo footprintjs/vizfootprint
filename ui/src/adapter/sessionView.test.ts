@@ -788,3 +788,13 @@ describe('layer 4 — the link graph rides the wire into state', () => {
     expect(mapPollState({ ...RAW, links: 'nope' }).links).toBeUndefined();
   });
 });
+
+describe('layer 4 — a link commit on the wire wears the label link', () => {
+  it('labels link:<edgeId> records as "link" and keeps the edge as the value', () => {
+    const state = mapPollState({ ...RAW, records: [...RAW.records, { id: '9', parent: '3', viewId: 'link:map:point→bar', kind: 'point', field: 'response', value: { source: 'map', kind: 'point', target: 'bar', response: 'highlight' }, cause: { requestedBy: 'user', intent: 'the map lights the bar' } }] });
+    const c = state.commits.find((x) => x.id === '9')!;
+    expect(c.label).toBe('link');
+    expect(c.value).toEqual({ source: 'map', kind: 'point', target: 'bar', response: 'highlight' });
+  });
+});
+

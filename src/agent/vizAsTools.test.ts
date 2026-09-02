@@ -426,3 +426,22 @@ describe('SET-1 — dispatch select with values (many) and exclude', () => {
     expect(String(get(await bad({ values: ['Formal'], exclude: 'yes' }), 'detail'))).toMatch(/exclude must be true or false/);
   });
 });
+
+describe('layer 4 — dispatch link: the agent edits an edge through the same door', () => {
+  const port = () => vizAsTools(buildDashboard(makeDashboardDef()).createSession());
+  it('lands an edited edge, reads it back in whats_here.links, un-declares with null; bad shapes are typed refusals', async () => {
+    const p = port();
+    const edited = await p.call('viz.dispatch', { verb: 'link', source: 'bar', kind: 'point', target: 'scatter', response: 'highlight', intent: 'the bar lights the scatter' });
+    expect(get(edited, 'ok')).toBe(true);
+    const here = await p.call('viz.whats_here', {});
+    const links = get(here, 'links') as { edges: { id: string; response: string; origin: string }[] };
+    expect(links.edges.find((e) => e.id === 'bar:point→scatter')).toMatchObject({ response: 'highlight', origin: 'edited' });
+    const back = await p.call('viz.dispatch', { verb: 'link', source: 'bar', kind: 'point', target: 'scatter', response: null, mapping: [{ from: 'category', to: 'kind' }] });
+    expect(get(back, 'ok')).toBe(true);
+    expect(String(get(await p.call('viz.dispatch', { verb: 'link', source: 'bar', kind: 'blob', target: 'scatter', response: 'filter' }), 'detail'))).toMatch(/kind: point \| interval \| cell \| match/);
+    expect(String(get(await p.call('viz.dispatch', { verb: 'link', source: 'bar', kind: 'point', target: 'scatter', response: 'shout' }), 'detail'))).toMatch(/response must be/);
+    expect(String(get(await p.call('viz.dispatch', { verb: 'link', source: 'bar', kind: 'point', target: 'scatter', response: 'filter', mapping: ['x'] }), 'detail'))).toMatch(/mapping, if given/);
+    const selfLink = await p.call('viz.dispatch', { verb: 'link', source: 'bar', kind: 'point', target: 'bar', response: 'filter' });
+    expect(JSON.stringify(selfLink)).toMatch(/cannot link to itself/);
+  });
+});

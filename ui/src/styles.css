@@ -2132,4 +2132,4 @@
   opacity: 0.55;
   pointer-events: none;
 }
-
+:where(.vzf) .vzf-linkmatrix-edited { background: var(--vzf-brand-tint); color: var(--vzf-ink); font-weight: 600; box-shadow: inset 0 0 0 2px var(--vzf-brand); }

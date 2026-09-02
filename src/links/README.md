@@ -48,3 +48,12 @@ linkDefault: 'crossfilter', // the default; 'none' starts from silence
 ```
 
 Read back through `session.overview().links` (and the agent's `whats_here`).
+
+**Edited at run time — the `link` verb.** A person (the matrix) or the agent
+(`dispatch` with `verb: 'link'`) lands one edge as a commit: `{ source, kind,
+target, response, mapping? }`. It is validated exactly like a declared edge,
+folds last-wins per edge id (`link:<edgeId>` in the log), overrides the base
+edge in place with origin `edited`, and rides undo, bring-over and time travel
+like every act. `response: null` un-declares the edit: the edge falls back to
+the def's rule (a cleared interval's shape). `applyLinkOverrides(base,
+overrides)` is the fold.

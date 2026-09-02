@@ -278,6 +278,7 @@ interface RawCommit {
 /** A short, safe label for a chip/dot — never a raw value dump. */
 function commitLabel(field: string, viewId: string): string {
   if (viewId.startsWith('layout:')) return 'layout'; // LY-1: an arrangement note ('preset'/'order'/'focus' rides field)
+  if (viewId.startsWith('link:')) return 'link'; // layer 4: an edited edge (the LinkDecl rides value)
   if (field === '__analysis__') return 'analysis';
   if (field === 'pValue') return 'test';
   if (field === '__annotation__') return 'note';
@@ -640,6 +641,15 @@ export interface SessionViewOptions {
   readonly refreshOnAction?: boolean;
 }
 
+/** One edge as the matrix hands it to the host (layer 4). */
+export interface LinkEdit {
+  readonly source: string;
+  readonly kind: 'point' | 'interval' | 'cell' | 'match';
+  readonly target: string;
+  readonly response: 'filter' | 'highlight' | 'navigate' | 'mirror' | 'none' | null;
+  readonly mapping?: readonly { readonly from: string; readonly to: string }[];
+}
+
 export interface SessionView {
   getState(): SessionViewState;
   subscribe(listener: () => void): () => void;
@@ -654,6 +664,12 @@ export interface SessionView {
   clear(viewId: string, intent?: string): Promise<void>;
   /** Clear every live selection, one commit each — the log stays honest about what was cleared. */
   clearAll(intent?: string): Promise<void>;
+  /**
+   * Layer 4: edit ONE edge of the link graph as a commit — what `target` does
+   * with `source`'s `kind` emission; `response: null` un-declares the edit so
+   * the def's rule shows through. The matrix editor's one door.
+   */
+  link(edge: LinkEdit, intent?: string): Promise<void>;
   /**
    * SET-1: flip a view's live point/match between KEEP and EXCLUDE (a point
    * becomes a one-value set). An interval or a cell has no polarity — no-op.
@@ -867,6 +883,12 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
 
     async clearAll(intent) {
       for (const s of [...state.selections]) await view.clear(s.viewId, intent ?? 'clear all');
+    },
+
+    async link(edge, intent) {
+      const label = intent ?? `${edge.source} ${edge.kind} → ${edge.target}: ${edge.response ?? 'back to the rule'}`;
+      const body = { verb: 'link' as const, source: edge.source, kind: edge.kind, target: edge.target, response: edge.response, ...(edge.mapping !== undefined ? { mapping: edge.mapping } : {}) };
+      await dispatch({ ...body, cause: cause(label) }, { ...body, intent: label });
     },
 
     async setPolarity(viewId, exclude, intent) {

@@ -17,6 +17,7 @@ const GRAPH: LinkGraphView = {
     { id: 'map:point→bar', source: 'map', kind: 'point', target: 'bar', response: 'highlight', origin: 'declared', label: 'the map lights the bar' },
     { id: 'map:match→bar', source: 'map', kind: 'match', target: 'bar', response: 'filter', origin: 'default' },
     { id: 'bar:point→map', source: 'bar', kind: 'point', target: 'map', response: 'none', origin: 'declared' },
+    { id: 'bar:point→mute', source: 'bar', kind: 'point', target: 'mute', response: 'none', origin: 'edited' },
   ],
 };
 
@@ -47,5 +48,16 @@ describe('LinkMatrix — the three facts, the silence, the self cell', () => {
     const { container: ro } = render(<LinkMatrix graph={GRAPH} onChange={onChange} readOnly className="extra" />);
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(ro.querySelector('.vzf-linkmatrix')?.className).toContain('extra');
+  });
+
+  it('an edited edge wears its own fact (even when its response is none) and offers "back to the rule", which hands the host a null response', () => {
+    const onChange = vi.fn();
+    const { container } = render(<LinkMatrix graph={GRAPH} onChange={onChange} />);
+    expect(container.querySelector('[data-edge="bar:point→mute"]')?.getAttribute('data-fact')).toBe('edited');
+    expect(cellOf(GRAPH.edges[3])).toEqual({ text: 'none', fact: 'edited' });
+    const select = screen.getByRole('combobox', { name: 'bar point → mute' }) as HTMLSelectElement;
+    expect([...select.options].map((o) => o.value)).toContain('rule');
+    fireEvent.change(select, { target: { value: 'rule' } });
+    expect(onChange).toHaveBeenCalledWith({ source: 'bar', kind: 'point', target: 'mute', response: null });
   });
 });

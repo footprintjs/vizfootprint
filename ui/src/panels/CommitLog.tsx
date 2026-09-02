@@ -42,7 +42,7 @@ export function CommitLog(props: CommitLogProps): JSX.Element {
               {/* D30: a cell's plain words already carry both field names
                   ("price 100 – 150 and category = Formal") — prefixing the
                   joint label would say everything twice */}
-              {c.kind === 'cell' ? formatCommitValue(c) : c.kind === 'match' ? `${c.field} ${formatCommitValue(c)}` : `${c.field} = ${formatCommitValue(c)}`}
+              {c.kind === 'cell' ? formatCommitValue(c) : c.kind === 'match' ? `${c.field} ${formatCommitValue(c)}` : c.viewId.startsWith('link:') ? formatCommitValue(c) : `${c.field} = ${formatCommitValue(c)}`}
             </span>
             {c.intent && <span className="vzf-cause">{c.intent}</span>}
             {c.replayedFrom !== undefined && (

@@ -170,7 +170,7 @@ export interface CompareSideView {
 /** One state entry present on exactly ONE side, in plain language. */
 export interface CompareEntryView {
   readonly key: string;
-  readonly kind: 'selection' | 'encoding' | 'analysis';
+  readonly kind: 'selection' | 'encoding' | 'analysis' | 'link';
   /** What the entry is about (a view id or an analysis id). */
   readonly label: string;
   /** The entry's value, in plain words (e.g. "price between 30 and 210"). */
@@ -180,7 +180,7 @@ export interface CompareEntryView {
 /** One state entry present on BOTH sides with different values. */
 export interface CompareChangeView {
   readonly key: string;
-  readonly kind: 'selection' | 'encoding' | 'analysis';
+  readonly kind: 'selection' | 'encoding' | 'analysis' | 'link';
   readonly label: string;
   readonly a: string;
   readonly b: string;
@@ -333,7 +333,7 @@ export interface LinkEdgeView {
   readonly kind: 'point' | 'interval' | 'cell' | 'match';
   readonly target: string;
   readonly response: 'filter' | 'highlight' | 'navigate' | 'mirror' | 'none';
-  readonly origin: 'declared' | 'default';
+  readonly origin: 'declared' | 'default' | 'edited';
   readonly mapping?: readonly { readonly from: string; readonly to: string }[];
   readonly onClear?: 'leave' | 'showAll' | 'excludeAll';
   readonly fold?: string;

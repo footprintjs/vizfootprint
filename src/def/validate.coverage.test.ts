@@ -360,6 +360,7 @@ describe('dispatchVerbs', () => {
       'fork',
       'checkpoint',
       'reencode',
+      'link',
     ]);
   });
 });

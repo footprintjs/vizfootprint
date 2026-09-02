@@ -77,3 +77,14 @@ describe('CommitLog — a match commit (SET-1) reads as its field and list', () 
     expect(bodies).toEqual(['category in {A, B}', 'category not in {A}', 'category (cleared)']);
   });
 });
+
+describe('CommitLog — a link commit reads as its edge', () => {
+  it('shows "map point → bar: highlight" without a field prefix', () => {
+    const { container } = render(
+      <CommitLog
+        commits={[{ id: 'l1', parent: null, viewId: 'link:map:point→bar', kind: 'point', field: 'response', value: { source: 'map', kind: 'point', target: 'bar', response: 'highlight' }, actor: 'user', label: 'link', onBranch: true, isCursor: false, isHead: false }]}
+      />,
+    );
+    expect(container.querySelector('.vzf-chip-body')?.textContent).toBe('map point → bar: highlight');
+  });
+});

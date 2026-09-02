@@ -11,8 +11,9 @@
  */
 
 import type { CommitRecord } from '../log/index.js';
-import type { FoldEntry, PlanRecipe, PlanResult } from './types.js';
+import type { FoldEntry, LinkValue, PlanRecipe, PlanResult } from './types.js';
 import {
+  LINK_VIEW_PREFIX,
   ANALYSIS_VIEW_PREFIX,
   ANNOTATION_VIEW_PREFIX,
   BEAT_VIEW_PREFIX,
@@ -65,6 +66,11 @@ function conflictsFor(
 
 /** Map a source commit onto the dispatch-shaped recipe that re-lands it. */
 function bringOverRecipe(rec: CommitRecord): PlanRecipe {
+  if (rec.viewId.startsWith(LINK_VIEW_PREFIX)) {
+    // Layer 4: an edited edge re-lands as the same edit (or the same un-declare) on the target path
+    const link = rec.value as LinkValue | null;
+    return link === null ? { apply: 'clear-link', link: linkOfId(rec.viewId.slice(LINK_VIEW_PREFIX.length)) } : { apply: 'link', link };
+  }
   if (rec.viewId.startsWith(ENCODING_VIEW_PREFIX)) {
     return {
       apply: 'encoding',
@@ -158,7 +164,12 @@ export function planUndo(records: readonly CommitRecord[], commitId: string, tip
   // The key's value at the commit's PARENT, on the commit's own path.
   const prior = foldStateAt(records, rec.parent).get(key);
   let recipe: PlanRecipe;
-  if (rec.viewId.startsWith(ENCODING_VIEW_PREFIX)) {
+  if (rec.viewId.startsWith(LINK_VIEW_PREFIX)) {
+    // Layer 4: restore the PRIOR edit on this path, or un-declare (the def's rule shows through)
+    const priorLink = prior as Extract<FoldEntry, { kind: 'link' }> | undefined;
+    const link = (rec.value as LinkValue | null) ?? linkOfId(rec.viewId.slice(LINK_VIEW_PREFIX.length));
+    recipe = priorLink !== undefined ? { apply: 'link', link: priorLink.link } : { apply: 'clear-link', link };
+  } else if (rec.viewId.startsWith(ENCODING_VIEW_PREFIX)) {
     const viewId = rec.viewId.slice(ENCODING_VIEW_PREFIX.length);
     const channel = rec.field;
     // The key namespace guarantees an entry under `encoding:…` is an encoding entry.
@@ -194,3 +205,19 @@ export function planUndo(records: readonly CommitRecord[], commitId: string, tip
   }
   return { ok: true, recipe, conflicts: conflictsFor(byId, key, commitId, tip) };
 }
+
+/**
+ * The (source, kind, target) an edge id names — the shape a `clear-link` needs
+ * when the un-declaring commit itself carried null. Ids are minted by
+ * `edgeId` as `${source}:${kind}→${target}`; view ids never contain `→`, and
+ * the kind is the segment after the LAST `:` before it.
+ */
+function linkOfId(id: string): LinkValue {
+  const arrow = id.indexOf('→');
+  const left = arrow >= 0 ? id.slice(0, arrow) : id;
+  const target = arrow >= 0 ? id.slice(arrow + 1) : '';
+  const colon = left.lastIndexOf(':');
+  // a malformed id (no colon) has no source to name — an empty source, never a letter sliced off the kind
+  return { source: colon >= 0 ? left.slice(0, colon) : '', kind: colon >= 0 ? left.slice(colon + 1) : left, target, response: 'none' };
+}
+

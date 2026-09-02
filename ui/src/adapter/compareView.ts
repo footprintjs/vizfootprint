@@ -17,7 +17,7 @@ import type { CompareChangeView, CompareEntryView, CompareView } from './types.j
 
 /** The `src/branches` FoldEntry wire shape (duck-typed — this also arrives as poll JSON). */
 interface RawFoldEntry {
-  readonly kind: 'selection' | 'encoding' | 'analysis';
+  readonly kind: 'selection' | 'encoding' | 'analysis' | 'link';
   readonly viewId?: string;
   readonly clause?: {
     readonly kind: 'point' | 'interval' | 'cell' | 'match';
@@ -30,6 +30,11 @@ interface RawFoldEntry {
   readonly field?: string;
   readonly value?: unknown;
   readonly analysisId?: string;
+  /** layer 4: the edited edge (kind:'link'). */
+  readonly link?: { readonly source: string; readonly kind: string; readonly target: string; readonly response: string };
+  readonly edgeId?: string;
+  /** the last writer of the key (rides the wire; informational here). */
+  readonly commitId?: string;
 }
 
 /** The `src/session` CompareResult wire shape (duck-typed for the poll source). */
@@ -101,6 +106,11 @@ export function entryDetail(e: RawFoldEntry): string {
     return `${c.field} between ${word(lo)} and ${word(hi)}`;
   }
   if (e.kind === 'encoding') return `${e.channel ?? '?'} axis shows ${word(e.value)}`;
+  if (e.kind === 'link') {
+    // layer 4: an edited edge — the edge as declared, in the matrix's own words
+    const l = e.link;
+    return l ? `${l.source} ${l.kind} → ${l.target}: ${l.response}` : 'a link edit';
+  }
   // analysis: a declared-test entry lands under the pValue analog — surface p when
   // numeric, rounded to 2 significant digits (plain words, not a float dump)
   if (e.field === 'pValue' && typeof e.value === 'number') return `test ran (p = ${Number(e.value.toPrecision(2))})`;

@@ -29,6 +29,7 @@ const KIND_WORD: Record<CompareEntryView['kind'], string> = {
   selection: 'selection',
   encoding: 'axes',
   analysis: 'analysis',
+  link: 'links', // layer 4: an edited edge of the link graph
 };
 
 function Chip(props: { entry: { kind: CompareEntryView['kind']; label: string; detail: string }; changed?: boolean }): JSX.Element {
