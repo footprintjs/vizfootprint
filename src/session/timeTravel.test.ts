@@ -48,7 +48,7 @@ describe('R8 — seek is a read-only cursor; the fold is the pure root→cursor 
 
     // fold at HEAD (b): both selections active
     const atHead = (await s.overview()).activeSelections;
-    expect(atHead).toEqual(
+    expect(atHead.map(({ commitId: _c, ...sel }) => sel)).toEqual(
       expect.arrayContaining([
         { viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' },
         { viewId: 'scatter', field: 'price', kind: 'interval', value: [60, 120] },
@@ -62,12 +62,12 @@ describe('R8 — seek is a read-only cursor; the fold is the pure root→cursor 
     expect(s.cursor()).toBe(aId);
     expect(s.head).toBe(bId); // seek did NOT move the head
     const atA1 = (await s.overview()).activeSelections;
-    expect(atA1).toEqual([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' }]);
+    expect(atA1).toMatchObject([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' }]);
 
     // seek forward to `b`, then back to `a`: byte-identical fold (rebuild, not accumulate)
     s.seek(bId);
     s.seek(aId);
-    expect((await s.overview()).activeSelections).toEqual(atA1);
+    expect((await s.overview()).activeSelections).toMatchObject(atA1);
 
     const ov = await s.overview();
     expect(ov.time).toMatchObject({ cursor: aId, head: bId, viewingPast: true });
@@ -188,7 +188,7 @@ describe('R8/R12 — checkpoint is a named, inert, listable pointer that round-t
     // beat is inert, so the state at beat1 is exactly the state at `a`.
     s.seek(s.checkpoints()[0]!.commitId!);
     expect(s.cursor()).toBe(beat1);
-    expect((await s.overview()).activeSelections).toEqual([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Work' }]);
+    expect((await s.overview()).activeSelections).toMatchObject([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Work' }]);
 
     // R12: an all-whitespace label is a typed guard-failed gap — nothing is named
     const bad = await s.dispatch({ verb: 'checkpoint', label: '   ', cause: userCause() });

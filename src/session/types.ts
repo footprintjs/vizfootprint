@@ -35,6 +35,8 @@ export type GapCode =
   | 'needs-view'
   | 'guard-failed'
   | 'needs-backend-data'
+  // ── layer 4 offers: an act named an offer that is not the current one for its node (or none, where one is required) ──
+  | 'stale-offer'
   // ── RP-3: agent-authored chart pipeline refusals ──
   | 'chart-invalid-spec'
   | 'chart-transforms-not-owned'
@@ -93,7 +95,7 @@ export type FilterRange = IntervalClause['value'];
 export type CellValues = CellClause['value'];
 
 export type DispatchAction =
-  | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly value: unknown; readonly cause: Cause; readonly correlationId?: string }
+  | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly value: unknown; readonly cause: Cause; readonly correlationId?: string; readonly offerId?: string }
   /**
    * The MATCH form of `select` (SET-1): one field, MANY values — the plural of
    * a point (shift-click adds one, a drag crosses a run). `exclude: true`
@@ -101,7 +103,7 @@ export type DispatchAction =
    * (`selection:${viewId}`, last-wins per view); `values: null` clears (the
    * cleared-interval rule).
    */
-  | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly values: readonly unknown[] | null; readonly exclude?: boolean; readonly cause: Cause; readonly correlationId?: string }
+  | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly values: readonly unknown[] | null; readonly exclude?: boolean; readonly cause: Cause; readonly correlationId?: string; readonly offerId?: string }
   /**
    * The CELL form of `select` (D30): one heatmap-cell gesture selects on TWO
    * fields at once ("price 100–150 AND category Formal") and lands ONE
@@ -110,8 +112,9 @@ export type DispatchAction =
    * (`selection:${viewId}`, last-wins per view) — the vocabulary stays at 8
    * verbs. `values: null` clears the cell (the cleared-interval rule).
    */
-  | { readonly verb: 'select'; readonly viewId: string; readonly fields: readonly [string, string]; readonly values: CellValues; readonly cause: Cause; readonly correlationId?: string }
-  | { readonly verb: 'filter'; readonly viewId: string; readonly field: string; readonly range: FilterRange; readonly cause: Cause; readonly correlationId?: string }
+  | { readonly verb: 'select'; readonly viewId: string; readonly fields: readonly [string, string]; readonly values: CellValues; readonly cause: Cause; readonly correlationId?: string; readonly offerId?: string }
+  /** Layer 4: `offerId` names the offer (from whats_here.offers) an act answers; a stale one is refused by naming the current one. */
+  | { readonly verb: 'filter'; readonly viewId: string; readonly field: string; readonly range: FilterRange; readonly cause: Cause; readonly correlationId?: string; readonly offerId?: string }
   | { readonly verb: 'annotate'; readonly target: string; readonly note: string; readonly cause: Cause }
   /**
    * Layer 4 `link`: edit ONE edge of the link graph — what `target` does with
@@ -565,6 +568,8 @@ export interface ViewAdapter {
 export interface SessionOptions {
   /** Default acting principal for dispatches / the tool port. Default `'agent'`. */
   readonly as?: Actor;
+  /** Layer 4 offers: require every select/filter to name a current offerId from whats_here (default false: an offer is accepted, not yet enforced). */
+  readonly requireOffer?: boolean;
   /** Override the runtime default table. Must be a declared table. */
   readonly defaultTable?: string;
 }
@@ -573,6 +578,8 @@ export interface ViewInfo {
   readonly viewId: string;
   readonly actor: Actor;
   readonly label?: string;
+  /** Layer 4: what acting on this view DOES, in one sentence — the routing text a phrase is matched against (`actors[viewId].does`). */
+  readonly does?: string;
   /**
    * Which point/interval/cell SELECTION kinds this view can emit (R3
    * capability — renamed from the old `encodings` to free that name for the
@@ -635,6 +642,15 @@ export interface SelectionInfo {
   readonly value: unknown;
   /** kind:'cell' only — the two selected fields, x side then y side. */
   readonly fields?: readonly [string, string];
+  /** The commit that landed this selection (a live selection only) — what a note, a bring-over or a saved selection names. */
+  readonly commitId?: string;
+}
+
+/** Layer 4, the OFFER: one (view, emission kind) an act can reach from the current position, with the id the act door checks. */
+export interface Offer {
+  readonly offerId: string;
+  readonly viewId: string;
+  readonly kind: 'point' | 'interval' | 'cell' | 'match';
 }
 
 /** A view whose last selection was CLEARED, and what it was — read by a target edge's `onClear` policy (layer 4). */
@@ -678,6 +694,8 @@ export interface Overview {
   readonly activeSelections: readonly SelectionInfo[];
   /** Layer 4 `onClear`: views whose selection was cleared and what it was, so an edge that says `leave` or `excludeAll` can act. */
   readonly clearedSelections: readonly ClearedSelectionInfo[];
+  /** Layer 4 offers: every (view, kind) of the dashboard, each stamped with the current position — the id a select/filter may name (a stale one is refused by naming the current one). */
+  readonly offers: readonly Offer[];
   readonly analyses: readonly AnalysisReadiness[];
   readonly fdr: FdrSummary;
   readonly columns: Readonly<Record<string, readonly ColumnFacet[]>>;

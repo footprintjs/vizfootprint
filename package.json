@@ -2,7 +2,7 @@
   "name": "vizfootprint",
   "version": "0.0.0",
   "private": true,
-  "description": "Causal/agent provenance layer for coordinated interactive visualization — cause-tagged clauses over Mosaic, append-only branching provenance, declared analyses with online FDR. Part of the footprintjs family.",
+  "description": "Causal/agent provenance layer for coordinated interactive visualization \u2014 cause-tagged clauses over Mosaic, append-only branching provenance, declared analyses with online FDR. Part of the footprintjs family.",
   "type": "module",
   "license": "MIT",
   "workspaces": [
@@ -32,7 +32,7 @@
     "@types/node": "^22.0.0",
     "@uwdata/mosaic-spec": "^0.28.1",
     "@vitest/coverage-v8": "^4.1.10",
-    "agentfootprint": "^7.4.0",
+    "agentfootprint": "^9.82.0",
     "agentthinkingui": "^0.23.0",
     "esbuild": "^0.28.1",
     "playwright-core": "^1.58.2",
@@ -47,10 +47,14 @@
     "footprintjs": "^9.11.0"
   },
   "peerDependencies": {
-    "@modelcontextprotocol/sdk": ">=1.0.0"
+    "@modelcontextprotocol/sdk": ">=1.0.0",
+    "agentfootprint": ">=9.0.0"
   },
   "peerDependenciesMeta": {
     "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
+    "agentfootprint": {
       "optional": true
     }
   }

@@ -73,7 +73,7 @@ describe('validateDashboardDef — actors shape', () => {
 
   it('rejects an actor meta entry that is not an object', () => {
     expect(validateDashboardDef(baseDef({ actors: { v: 'nope' } }))).toContain(
-      'actors["v"] must be an object { actor, label? }',
+      'actors["v"] must be an object { actor, label?, does? }',
     );
   });
 

@@ -98,10 +98,9 @@ function bringOverRecipe(rec: CommitRecord): PlanRecipe {
     return { apply: 'analysis', analysisId: rec.viewId.slice(ANALYSIS_VIEW_PREFIX.length) };
   }
   if (rec.viewId.startsWith(ANNOTATION_VIEW_PREFIX)) {
-    // The log stores the note under the actor-namespace viewId; the original
-    // free-form target never entered the wire — the honest recipe re-notes
-    // under that namespace.
-    return { apply: 'annotation', target: rec.viewId, note: String(rec.value) };
+    // The note's `field` names WHAT it annotates (a commit id, a view, a
+    // column); `__annotation__` is a loose note under the actor namespace.
+    return { apply: 'annotation', target: rec.field === '__annotation__' ? '' : rec.field, note: String(rec.value) };
   }
   if (rec.viewId.startsWith(BEAT_VIEW_PREFIX)) {
     // A beat names a position. Bringing it over names the TARGET position with

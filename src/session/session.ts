@@ -23,6 +23,8 @@
  */
 
 import type { FoldEntry } from '../branches/index.js';
+import type { EmissionKind } from '../links/index.js';
+import { voiceOf } from '../links/index.js';
 import type { Actor, Cause } from '../cause/index.js';
 import { validateCause } from '../cause/index.js';
 import { CauseSelectionSession } from '../log/index.js';
@@ -79,6 +81,7 @@ import {
   uniqueSlug, ENCODING_SET_FIELD, isEncodingSet, encodingSetOf , PROSE_VIEW_PREFIX } from '../branches/index.js';
 import type { PlanRecipe } from '../branches/index.js';
 import type {
+  Offer,
   SelectionInfo,
   AdoptPathResult,
   AdoptStep,
@@ -396,9 +399,25 @@ export interface InteractionSession {
   overview(): Promise<Overview>;
 }
 
+/** The emission kind a select/filter act names: the cell form, the match form, the point, or the interval. */
+function kindOfAct(action: Extract<DispatchAction, { verb: 'select' | 'filter' }>): EmissionKind {
+  if (action.verb === 'filter') return 'interval';
+  return 'fields' in action ? 'cell' : 'values' in action ? 'match' : 'point';
+}
+
+/** FNV-1a over a string — a short, stable id for an offer minted at a position. */
+function fnv1a(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
 /** One live (or last) clause as the wire's `SelectionInfo` — the same projection for active and cleared selections. */
-function selectionInfoOf(viewId: string, clause: PredicateClause): SelectionInfo {
-  return (
+function selectionInfoOf(viewId: string, clause: PredicateClause, commitId?: string): SelectionInfo {
+  const info: SelectionInfo = (
       clause.kind === 'cell'
         ? {
             viewId,
@@ -412,7 +431,8 @@ function selectionInfoOf(viewId: string, clause: PredicateClause): SelectionInfo
               viewId,
               field: clause.field,
               kind: 'match' as const,
-              // the wire carries the IN-list and its polarity as ONE value (a `MatchValue`)
+              // the wire carries the IN-list and its polarity as ONE value (a `MatchValue`) — key order {values, exclude?}
+              // matches the commit's own value, which a consumer may compare as JSON (the saved-selection panel does)
               value: { values: clause.values, ...(clause.exclude === true ? { exclude: true } : {}) },
             }
           : {
@@ -420,8 +440,8 @@ function selectionInfoOf(viewId: string, clause: PredicateClause): SelectionInfo
               field: clause.field,
               kind: clause.kind as 'point' | 'interval',
               value: (clause as { value: unknown }).value, // never a cleared point: one clearing rule drops it from the fold (SET-1)
-            }
-  );
+            }  );
+  return commitId === undefined ? info : { ...info, commitId };
 }
 
 class InteractionSessionImpl implements InteractionSession {
@@ -440,6 +460,8 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly activeEncodings = new Map<string, Record<string, string>>();
   /** Layer 4: the `link` edits at the cursor, one per edge id (folded by rebuildFold like the encodings). */
   private readonly activeLinks = new Map<string, LinkDecl>();
+  /** Layer 4 offers: when true, a select/filter must name a current offerId (the act door enforces what whats_here served). */
+  private readonly requireOffer: boolean;
   /** Layer 4 `onClear`: each view whose last selection was CLEARED, with what it was and the clearing commit — a target edge's policy reads it. */
   private readonly clearedFilters = new Map<string, { readonly clause: PredicateClause; readonly clearedBy: string }>();
   /** layout scope → its current prop→value arrangement map (the LY-1 layout fold — see LAYOUT_SOURCE_META). */
@@ -484,6 +506,7 @@ class InteractionSessionImpl implements InteractionSession {
   private _currentView: string | null = null;
 
   constructor(runtime: DashboardRuntime, opts: SessionOptions = {}) {
+    this.requireOffer = opts.requireOffer === true;
     this.runtime = runtime;
     this.defaultActor = opts.as ?? 'agent';
     this.defaultTable = opts.defaultTable ?? runtime.defaultTable;
@@ -545,6 +568,39 @@ class InteractionSessionImpl implements InteractionSession {
    * cursor) yields the empty path. Cycle-guarded defensively (the append-only log
    * cannot form one, but a fold must never loop).
    */
+  /**
+   * Layer 4, the OFFER (ruling 8): every (view, emission kind) of this
+   * dashboard — a view's voice is declared, it does not move — each stamped
+   * with the CURRENT POSITION (the cursor), so an id minted by an earlier
+   * `whats_here` goes stale when the position moves and the act door can say
+   * so, naming the current one. The tool list stays byte-stable: the offer is
+   * data in the answer, never a new tool. The view's `does` sentence rides once,
+   * on `views[]`, not per offer.
+   */
+  private offersNow(): Offer[] {
+    const position = this._cursor ?? 'root';
+    const out: Offer[] = [];
+    for (const view of this.runtime.links.views) {
+      for (const kind of view.voice) {
+        if (kind === ENCODING_KIND) continue; // a binding is followed through an edge, never acted on as an emission
+        out.push({ offerId: `o-${fnv1a(`${position}|${view.viewId}|${kind}`)}`, viewId: view.viewId, kind });
+      }
+    }
+    return out;
+  }
+
+  /** The act door's half of the offer: a named offer must be the current one for that node; a session may require one. */
+  private offerGuard(verb: DispatchVerb, viewId: string, kind: EmissionKind, offerId: string | undefined, intent: DispatchResult['intent']): DispatchResult | null {
+    if (offerId === undefined && !this.requireOffer) return null;
+    const current = this.offersNow().find((o) => o.viewId === viewId && o.kind === kind);
+    if (offerId === undefined) {
+      return this.reject(verb, intent, this.gapLedger.file('stale-offer', verb, `this session requires an offerId from whats_here${current !== undefined ? ` — the current offer for view "${viewId}" ${kind} is ${current.offerId}` : ` — and view "${viewId}" has no ${kind} voice`}`, viewId));
+    }
+    if (current === undefined) return this.reject(verb, intent, this.gapLedger.file('stale-offer', verb, `offer ${offerId} names view "${viewId}" ${kind} — view "${viewId}" has no ${kind} voice`, viewId));
+    if (current.offerId !== offerId) return this.reject(verb, intent, this.gapLedger.file('stale-offer', verb, `offer ${offerId} is not current for view "${viewId}" ${kind} — the position moved; the current offer is ${current.offerId}`, viewId));
+    return null;
+  }
+
   /** A clear remembers what it cleared (only a live clause can be cleared; clearing nothing notes nothing). */
   private noteCleared(viewId: string, clearedBy: string): void {
     const prev = this.activeFilters.get(viewId);
@@ -962,7 +1018,18 @@ class InteractionSessionImpl implements InteractionSession {
     };
     const action = this.actionForRecipe(plan.recipe, cause, op);
     if ('gap' in action) return { ok: false, gap: action.gap };
-    const result = await this.dispatch(action, { as: actor });
+    // a replay (undo, bring-over, adopt) answers the current offer for its node when the session requires one —
+    // the person chose the step; the offer is the position's stamp, not a second choice. A step whose view has
+    // no such voice under THIS definition is refused in its own words (undo never called whats_here).
+    let stamped: DispatchAction = action;
+    if (this.requireOffer && (action.verb === 'select' || action.verb === 'filter')) {
+      const stamp = this.offersNow().find((o) => o.viewId === action.viewId && o.kind === kindOfAct(action));
+      if (stamp === undefined) {
+        return { ok: false, gap: this.gapLedger.file('stale-offer', op, `this step selects on view "${action.viewId}" ${kindOfAct(action)}, which that view has no voice for — the definition changed since the step was landed`, action.viewId) };
+      }
+      stamped = { ...action, offerId: stamp.offerId };
+    }
+    const result = await this.dispatch(stamped, { as: actor });
     if (!result.ok) return { ok: false, gap: result.rejection };
     // An analyze recipe's record rides inside the AnalysisCommit (absent only
     // for a degenerate run, which honestly lands nothing); every other recipe
@@ -1231,7 +1298,9 @@ class InteractionSessionImpl implements InteractionSession {
     const intent = this.runtime.intentOf(verb);
     const as = opts.as;
     switch (action.verb) {
-      case 'select':
+      case 'select': {
+        const stale = this.offerGuard('select', action.viewId, kindOfAct(action), action.offerId, intent);
+        if (stale !== null) return stale;
         // D30: the cell form of `select` (fields+values) is the compound-cell
         // gesture — one gesture, ONE commit; the plain form stays the point probe.
         if ('fields' in action) {
@@ -1247,7 +1316,10 @@ class InteractionSessionImpl implements InteractionSession {
           return this.doProbe(action.viewId, action.field, value, 'match', action.cause, as, intent, action.correlationId);
         }
         return this.doProbe(action.viewId, action.field, action.value, 'point', action.cause, as, intent, action.correlationId);
-      case 'filter':
+      }
+      case 'filter': {
+        const stale = this.offerGuard('filter', action.viewId, 'interval', action.offerId, intent);
+        if (stale !== null) return stale;
         return this.doProbe(
           action.viewId,
           action.field,
@@ -1258,6 +1330,7 @@ class InteractionSessionImpl implements InteractionSession {
           intent,
           action.correlationId,
         );
+      }
       case 'annotate':
         return this.doAnnotate(action.target, action.note, action.cause, as, intent);
       case 'link':
@@ -1889,6 +1962,8 @@ class InteractionSessionImpl implements InteractionSession {
     intent: DispatchResult['intent'],
   ): DispatchResult {
     // An annotation is an INERT note (R12): stored as commit data, never parsed.
+    // Its `field` names WHAT it annotates (a commit id, a view, a column) — so a
+    // note on a selection commit is a SAVED SELECTION the log can find again.
     const stamped = this.stampCause(cause, 'annotate', as);
     const viewId = `${ANNOTATION_VIEW_PREFIX}${stamped.requestedBy}`; // single-sourced wire prefix (BR-1)
     const { record } = this.log.commit({
@@ -1897,7 +1972,7 @@ class InteractionSessionImpl implements InteractionSession {
       viewId,
       actorMeta: { actor: stamped.requestedBy },
       kind: 'point',
-      field: ANNOTATION_FIELD,
+      field: target.length > 0 ? target : ANNOTATION_FIELD,
       value: note,
       cause: stamped,
     });
@@ -2456,7 +2531,9 @@ class InteractionSessionImpl implements InteractionSession {
         viewId: view.viewId,
         actor: view.meta.actor,
         ...(view.meta.label !== undefined ? { label: view.meta.label } : {}),
-        selectionKinds: cap?.encodings !== undefined ? impliedKinds(cap.encodings) : (['point', 'interval', 'match'] as const),
+        ...(view.meta.does !== undefined ? { does: view.meta.does } : {}),
+        // the same voice the act door and the offers use — never a second answer to "what can this view emit"
+        selectionKinds: voiceOf(cap).filter((k): k is EmissionKind => k !== ENCODING_KIND),
         canProbe: cap?.canProbe ?? true,
         mounted: this.adapters.has(view.viewId),
         // The `reencode` fold (SPEC Q6 8th verb), branch-scoped at the cursor —
@@ -2483,7 +2560,8 @@ class InteractionSessionImpl implements InteractionSession {
     });
     const encodingPolicy = { onInvalid: this.runtime.encoding.rules.onInvalid ?? 'refuse', ruleScope: this.runtime.encoding.rules.ruleScope ?? ('dashboard' as const) };
 
-    const activeSelections = [...this.activeFilters.entries()].map(([viewId, clause]) => selectionInfoOf(viewId, clause));
+    const activeSelections = [...this.activeFilters.entries()].map(([viewId, clause]) => selectionInfoOf(viewId, clause, this.activeFilterCommits.get(viewId)));
+    const offers = this.offersNow();
     // layer 4 `onClear`: what each cleared view LAST selected, for the edges whose policy keeps it in force
     const clearedSelections = [...this.clearedFilters.entries()].map(([viewId, { clause, clearedBy }]) => ({ ...selectionInfoOf(viewId, clause), clearedBy }));
 
@@ -2562,6 +2640,7 @@ class InteractionSessionImpl implements InteractionSession {
       views,
       activeSelections,
       clearedSelections,
+      offers,
       analyses,
       fdr: {
         procedure: this.runtime.fdrProcedure,

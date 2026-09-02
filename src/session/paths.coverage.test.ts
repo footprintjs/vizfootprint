@@ -66,7 +66,7 @@ describe('bringOver — the remaining recipe arms', () => {
     const res = await s.bringOver(nId);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.recipe).toEqual({ apply: 'annotation', target: 'annotation:user', note: 'looks linear' });
+    expect(res.recipe).toEqual({ apply: 'annotation', target: 'scatter', note: 'looks linear' }); // the note's own target survives the trip
     expect(res.commit?.cause.replayedFrom).toBe(nId);
     expect(res.result.ok && res.result.annotated?.note).toBe('looks linear');
   });

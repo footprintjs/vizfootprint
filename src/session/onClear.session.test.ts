@@ -22,7 +22,7 @@ describe('the cleared ledger', () => {
     const cleared = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: undefined, cause: userCause('clear') });
     expect(cleared.ok).toBe(true);
     const o = await s.overview();
-    expect(o.activeSelections).toEqual([]);
+    expect(o.activeSelections).toMatchObject([]);
     expect(o.clearedSelections).toEqual([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Formal', clearedBy: id(cleared) }]);
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', cause: userCause('pick again') });
     expect((await s.overview()).clearedSelections).toEqual([]);
@@ -50,7 +50,7 @@ describe('an undo is not a clear', () => {
     const pick = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick') });
     const undone = await s.undo(id(pick));
     expect(undone.ok).toBe(true);
-    expect((await s.overview()).activeSelections).toEqual([]);
+    expect((await s.overview()).activeSelections).toMatchObject([]);
     expect((await s.overview()).clearedSelections).toEqual([]);
     // and the ledger rebuilt from the log agrees with the live one
     s.seek(id(pick));

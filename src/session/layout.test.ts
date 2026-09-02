@@ -62,7 +62,7 @@ describe('LY-1 — the layout navigate lands a recorded, non-filtering commit', 
     const b = await s.dispatch({ verb: 'navigate', viewId: LAYOUT, field: 'focus', value: 'scatter', cause: cause('user') });
     expect(a.ok && b.ok).toBe(true);
     const overview = await s.overview();
-    expect(overview.activeSelections).toEqual([]); // no clause anywhere
+    expect(overview.activeSelections).toMatchObject([]); // no clause anywhere
     expect((await s.selectedRows()).length).toBe(rowsBefore); // row truth untouched
     // inert in the branches fold: no state key, no diff entry between the two positions
     const aId = a.ok ? a.commit!.id : '';

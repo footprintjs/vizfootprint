@@ -49,3 +49,11 @@ describe('grains — the def door', () => {
     expect(links.edges.find((e) => e.source === 'scatter' && e.target === 'bar')?.fold).toBeUndefined();
   });
 });
+
+describe('a view\'s does sentence', () => {
+  it('must be a sentence when present', () => {
+    const def = makeDashboardDef();
+    expect(validateDashboardDef({ ...def, actors: { ...def.actors, bar: { actor: 'user', does: '   ' } } })).toEqual(['actors["bar"].does, if present, must be a sentence: what acting on the view does']);
+    expect(validateDashboardDef({ ...def, actors: { ...def.actors, bar: { actor: 'user', does: 'pick a category' } } })).toEqual([]);
+  });
+});

@@ -15,7 +15,7 @@
  * the viz/kernel tiers without threading ids through tool args.
  */
 import { Agent, defineTool, isPaused } from 'agentfootprint';
-import { browserAnthropic, mock, type LLMProvider, type LLMRequest, type LLMResponse } from 'agentfootprint/llm-providers';
+import { browserAnthropic, mock, type LLMProvider, type LLMRequest, type LLMResponse } from 'agentfootprint/providers';
 import { agentThinkingTrace, type AttTrace } from 'agentfootprint/observe';
 import type { VizToolResult, VizToolsPort } from '../../src/agent/index.js';
 
@@ -107,7 +107,7 @@ export function createAssistant(port: VizToolsPort, options: AssistantOptions = 
   });
 
   // Captures each turn's reasoning as an AgentThinkingUI Trace — attached to the
-  // agent below via .recorder(). It maps agentfootprint's emit stream (llm/tool/
+  // agent below via .watch(). It maps agentfootprint's emit stream (llm/tool/
   // thinking beats) straight into atui's Trace shape; no adapter needed. The
   // /debug page polls `trace()` and renders it beat-by-beat.
   const think = agentThinkingTrace({ agent: 'Viz Analyst', model: MODEL, asker: 'you' });
@@ -126,7 +126,7 @@ export function createAssistant(port: VizToolsPort, options: AssistantOptions = 
   })
     .system(SYSTEM)
     .maxIterations(options.maxIterations ?? 14)
-    .recorder(think);
+    .watch(think);
   for (const tool of tools) builder = builder.tool(tool);
   const agent = builder.build();
 

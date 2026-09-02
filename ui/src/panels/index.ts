@@ -11,3 +11,5 @@ export { SelectionChips, chipWords, keptClauses } from './SelectionChips.js';
 export type { SelectionChipsProps } from './SelectionChips.js';
 export { ProseText, pieces } from './ProseText.js';
 export type { ProseTextProps } from './ProseText.js';
+export { SavedSelections } from './SavedSelections.js';
+export type { SavedSelectionsProps } from './SavedSelections.js';

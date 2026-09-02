@@ -28,6 +28,7 @@ export type {
   ViewInfo,
   EffectiveEncoding,
   SelectionInfo,
+  Offer,
   AnalysisReadiness,
   FdrSummary,
   ColumnFacet,

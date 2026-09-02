@@ -34,7 +34,7 @@ describe('SET-1 — select with values (a match)', () => {
     expect(res.commit?.value).toEqual({ values: [A, B] });
     expect(s.log.records).toHaveLength(1);
     const ov = await s.overview();
-    expect(ov.activeSelections).toEqual([{ viewId: 'bar', field: 'category', kind: 'match', value: { values: [A, B] } }]);
+    expect(ov.activeSelections).toMatchObject([{ viewId: 'bar', field: 'category', kind: 'match', value: { values: [A, B] } }]);
     expect((await s.selectedRows()).length).toBe(countOf((c) => c === A || c === B));
   });
 
@@ -43,7 +43,7 @@ describe('SET-1 — select with values (a match)', () => {
     const res = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', values: [A], exclude: true, cause: userCause() });
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.commit?.value).toEqual({ values: [A], exclude: true });
-    expect((await s.overview()).activeSelections).toEqual([{ viewId: 'bar', field: 'category', kind: 'match', value: { values: [A], exclude: true } }]);
+    expect((await s.overview()).activeSelections).toMatchObject([{ viewId: 'bar', field: 'category', kind: 'match', value: { values: [A], exclude: true } }]);
     expect((await s.selectedRows()).length).toBe(countOf((c) => c !== A));
   });
 
@@ -53,7 +53,7 @@ describe('SET-1 — select with values (a match)', () => {
     const cleared = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', values: null, cause: userCause('clear') });
     expect(cleared.ok).toBe(true);
     if (cleared.ok) expect(cleared.commit).toMatchObject({ kind: 'match', value: null });
-    expect((await s.overview()).activeSelections).toEqual([]);
+    expect((await s.overview()).activeSelections).toMatchObject([]);
     expect((await s.selectedRows()).length).toBe(SAMPLE_ROWS.length);
   });
 
@@ -80,9 +80,9 @@ describe('SET-1 — select with values (a match)', () => {
     const m = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', values: [A], exclude: true, cause: userCause() });
     const mId = m.ok ? m.commit!.id : '';
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', values: null, cause: userCause() });
-    expect((await s.overview()).activeSelections).toEqual([]);
+    expect((await s.overview()).activeSelections).toMatchObject([]);
     s.seek(mId);
-    expect((await s.overview()).activeSelections).toEqual([{ viewId: 'bar', field: 'category', kind: 'match', value: { values: [A], exclude: true } }]);
+    expect((await s.overview()).activeSelections).toMatchObject([{ viewId: 'bar', field: 'category', kind: 'match', value: { values: [A], exclude: true } }]);
     expect((await s.selectedRows()).length).toBe(countOf((c) => c !== A));
   });
 
@@ -104,7 +104,7 @@ describe('SET-1 — select with values (a match)', () => {
     if (!undoFirst.ok) return;
     expect(undoFirst.recipe).toEqual({ apply: 'clear-selection', viewId: 'bar', field: 'category', kind: 'match' });
     expect(undoFirst.commit).toMatchObject({ kind: 'match', value: null });
-    expect((await s.overview()).activeSelections).toEqual([]);
+    expect((await s.overview()).activeSelections).toMatchObject([]);
   });
 
   it('undo of an interval with nothing prior lands a cleared INTERVAL (filter null) — the kind-faithful clear for a brush', async () => {
@@ -116,7 +116,7 @@ describe('SET-1 — select with values (a match)', () => {
     if (!res.ok) return;
     expect(res.recipe).toEqual({ apply: 'clear-selection', viewId: 'scatter', field: 'price', kind: 'interval' });
     expect(res.commit).toMatchObject({ kind: 'interval', value: null });
-    expect((await s.overview()).activeSelections).toEqual([]);
+    expect((await s.overview()).activeSelections).toMatchObject([]);
   });
 
   it('undo over a prior KEEP-match re-lands it without a polarity flag (the wire stays byte-identical to what landed)', async () => {

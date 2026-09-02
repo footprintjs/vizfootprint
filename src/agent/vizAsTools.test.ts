@@ -243,7 +243,7 @@ describe('Q8 — two-string discipline against a prompt-injection corpus', () =>
     // whats_here echoes it ONLY in a structured data field (activeSelections.value)...
     const here = await port.call('viz.whats_here');
     const active = get(here, 'activeSelections') as { field: string; value: unknown }[];
-    expect(active).toContainEqual({ viewId: 'bar', field: 'category', kind: 'point', value: INJECTION_CATEGORY });
+    expect(active).toContainEqual(expect.objectContaining({ viewId: 'bar', field: 'category', kind: 'point', value: INJECTION_CATEGORY }));
 
     // ...never in the column facets (schema only — VALUES are never disclosed here)...
     const columns = get(here, 'columns') as Record<string, unknown>;

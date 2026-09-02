@@ -5,7 +5,7 @@
  * `EventMeta.correlationId` FIELD — NOT by a tool-args echo (the x3 workaround
  * is retired: the tool schema no longer carries `correlationId`).
  *
- * C4 CLOSED (pinned): the installed agentfootprint (7.4.0) DOES populate
+ * C4 CLOSED (pinned): the installed agentfootprint (9.82.0) DOES populate
  * `EventMeta.correlationId` from `run({ correlationId })` — `createExecutor`
  * folds it into the run context (`node_modules/agentfootprint/dist/esm/core/
  * Agent.js:639,645`) and `buildEventMeta` forwards it onto every emitted event
@@ -20,7 +20,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { Agent, defineTool } from 'agentfootprint';
-import { mock } from 'agentfootprint/llm-providers';
+import { mock } from 'agentfootprint/providers';
 import { resolveAgentTier, why } from './index.js';
 import type { AgentEventFrame, WhySources } from './index.js';
 import { CauseSelectionSession } from '../log/index.js';

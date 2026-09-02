@@ -33,3 +33,18 @@ describe('why: a view\'s words', () => {
     expect(JSON.stringify(bad)).toContain('{ viewId, slot }');
   });
 });
+
+describe('select/filter: the offer an act answers', () => {
+  it('a current offerId rides through to the session and lands; a stale one is refused with the session\'s own sentence', async () => {
+    const p = port();
+    const here = (await p.call('viz.whats_here')) as { offers: readonly { offerId: string; viewId: string; kind: string }[] };
+    const offer = here.offers.find((o) => o.viewId === 'bar' && o.kind === 'point')!;
+    const ok = await p.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', offerId: offer.offerId });
+    expect(JSON.stringify(ok)).toContain('"ok":true');
+    const stale = await p.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Party', offerId: offer.offerId });
+    expect(JSON.stringify(stale)).toContain('"code":"stale-offer"');
+    expect(JSON.stringify(stale)).toContain('is not current for view');
+    const noOffer = await p.call('viz.dispatch', { verb: 'filter', viewId: 'scatter', field: 'price', range: [1, 2] });
+    expect(JSON.stringify(noOffer)).toContain('"ok":true');
+  });
+});

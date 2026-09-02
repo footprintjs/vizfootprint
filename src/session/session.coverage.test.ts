@@ -108,7 +108,7 @@ describe('branchPath — defensive dangling-parent guard', () => {
     expect(res.ok).toBe(true);
     expect(s.cursor()).toBe(record.id);
     const ov = await s.overview();
-    expect(ov.activeSelections).toEqual([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Work' }]);
+    expect(ov.activeSelections).toMatchObject([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Work' }]); // (+ the commit id that landed it)
   });
 });
 
@@ -137,7 +137,7 @@ describe('rebuildFold — reserved-field commits are inert even if landed direct
     expect(seekRes.ok).toBe(true);
     // the reserved-field commit must not overwrite (or appear as) bar's selection
     const ov = await s.overview();
-    expect(ov.activeSelections).toEqual([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' }]);
+    expect(ov.activeSelections).toMatchObject([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' }]); // (+ the commit id that landed it)
   });
 });
 
@@ -232,7 +232,7 @@ describe('dispatch — the annotate verb (never exercised via dispatch elsewhere
       expect(res.verb).toBe('annotate');
       expect(res.intent).toBe('optional-interaction');
       expect(res.annotated).toEqual({ target: 'cluster_id', note: 'looks bimodal' });
-      expect(res.commit).toMatchObject({ viewId: 'annotation:user', field: '__annotation__', value: 'looks bimodal', kind: 'point' });
+      expect(res.commit).toMatchObject({ viewId: 'annotation:user', field: 'cluster_id', value: 'looks bimodal', kind: 'point' }); // the field names what the note annotates
     }
     expect(s.log.records).toHaveLength(1);
     expect(s.head).toBe(s.log.records[0]!.id); // annotate still lands/branch-on-acts like any other verb

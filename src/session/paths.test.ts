@@ -104,8 +104,7 @@ describe('BR-1 — switchPath / renamePath / newPathAt (plain names, typed gaps)
     expect(s.head).toBe(bId); // activated — not "viewing the past"
     expect((await s.overview()).time.viewingPast).toBe(false);
     // the fold is main's: Formal + the price band
-    expect((await s.overview()).activeSelections).toEqual(
-      expect.arrayContaining([
+    expect((await s.overview()).activeSelections.map(({ commitId: _c, ...s }) => s)).toMatchObject(expect.arrayContaining([
         { viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' },
         { viewId: 'scatter', field: 'price', kind: 'interval', value: [60, 130] },
       ]),
@@ -226,8 +225,7 @@ describe('BR-1 — bringOver(): plan via branches/, execute via NORMAL dispatch,
     expect(res.commit?.cause.conflicts).toBeUndefined();
 
     // the branch now filters Casual ∧ [60,130] — the fold applied it for real
-    expect((await s.overview()).activeSelections).toEqual(
-      expect.arrayContaining([
+    expect((await s.overview()).activeSelections.map(({ commitId: _c, ...s }) => s)).toMatchObject(expect.arrayContaining([
         { viewId: 'bar', field: 'category', kind: 'point', value: 'Casual' },
         { viewId: 'scatter', field: 'price', kind: 'interval', value: [60, 130] },
       ]),
@@ -257,8 +255,7 @@ describe('BR-1 — bringOver(): plan via branches/, execute via NORMAL dispatch,
     expect(res.commit?.cause.conflicts).toEqual([cId]); // …and the landed cause carries it (audited forever)
     expect(res.commit?.cause.replayedFrom).toBe(aId);
     // …and the plan still executed: bar is Formal again on this path
-    expect((await s.overview()).activeSelections).toEqual(
-      expect.arrayContaining([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' }]),
+    expect((await s.overview()).activeSelections.map(({ commitId: _c, ...s }) => s)).toMatchObject(expect.arrayContaining([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' }]),
     );
 
     // the conflict note survives the wire byte-for-byte
@@ -307,7 +304,7 @@ describe('BR-1 — undo(): restore the key\'s value at the commit\'s parent; cau
     if (!res.ok) return;
     expect(res.recipe).toEqual({ apply: 'selection', viewId: 'bar', kind: 'point', field: 'category', value: 'Formal' });
     expect(res.commit?.cause.revertOf).toBe(eId);
-    expect((await s.overview()).activeSelections).toEqual([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' }]);
+    expect((await s.overview()).activeSelections).toMatchObject([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' }]);
 
     // round-trip: the revert tag survives the wire
     const wire = deserializeLog(serializeLog(s.log.records));
@@ -328,7 +325,7 @@ describe('BR-1 — undo(): restore the key\'s value at the commit\'s parent; cau
     expect(res.conflicts).toEqual([eId]); // e touched the same key after a — explicit, still executed
     expect(res.commit?.cause.revertOf).toBe(aId);
     expect(res.commit?.cause.conflicts).toEqual([eId]);
-    expect((await s.overview()).activeSelections).toEqual([]); // cleared for real
+    expect((await s.overview()).activeSelections).toMatchObject([]); // cleared for real
   });
 
   it('undo of a reencode restores the PRIOR binding; undo of the FIRST reencode restores the declared initial', async () => {

@@ -149,6 +149,24 @@ export interface SelectionView {
   readonly value: unknown;
   /** kind:'cell' only — the two selected fields, x side then y side. */
   readonly fields?: readonly [string, string];
+  /** The commit that landed this live selection — what a note (a saved selection) or a bring-over names. Absent on an older server. */
+  readonly commitId?: string;
+}
+
+/** A SAVED selection: a selection commit somebody named with a note. Applying it is `bringOver(commitId)`. */
+export interface SavedSelectionView {
+  /** The note's words — the name. */
+  readonly name: string;
+  /** The selection commit the note names. */
+  readonly commitId: string;
+  /** The annotation commit that named it. */
+  readonly noteId: string;
+  readonly viewId: string;
+  readonly kind: 'point' | 'interval' | 'cell' | 'match';
+  readonly field: string;
+  readonly value: unknown;
+  readonly fields?: readonly [string, string];
+  readonly actor: Actor;
 }
 
 /** A view whose last selection was CLEARED, and what it was — an edge's `onClear` policy reads it (layer 4). */
@@ -434,6 +452,8 @@ export interface SessionViewState {
   readonly selections: readonly SelectionView[];
   /** Layer 4: views whose selection was cleared and what it was, so an edge's `onClear` policy can act on it. */
   readonly cleared?: readonly ClearedSelectionView[];
+  /** Saved selections: every selection commit a note named, newest note first; apply one with `bringOver`. Absent = an older adapter. */
+  readonly saved?: readonly SavedSelectionView[];
   readonly commits: readonly CommitView[];
   readonly branches: readonly BranchView[];
   /** The NAMED paths surface (BR-1): current/detached, list, journal. */
@@ -503,6 +523,7 @@ export function emptyState(defaultTable = 'data'): SessionViewState {
     encodings: {},
     columns: {},
     selections: [],
+    saved: [],
     commits: [],
     branches: [],
     paths: emptyPaths(),

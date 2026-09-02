@@ -62,3 +62,4 @@ export type {
   LayoutChange,
   Actor,
   LinkGraphView, LinkEdgeView, FitView, RuleLineView, EffectiveEncodingView, ProseStatusView, ProseRefView, ProposalView } from './types.js';
+export { savedSelectionsOf } from './sessionView.js';

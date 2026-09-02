@@ -16,7 +16,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { mock, type LLMResponse } from 'agentfootprint/llm-providers';
+import { mock, type LLMResponse } from 'agentfootprint/providers';
 import { createAnalyst } from './core.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -390,14 +390,15 @@ describe('the per-turn activity ring buffer caps at 60 entries (core.ts:120-123)
       },
     });
 
-    const analyst = createAnalyst({ csv: CSV, provider: foreverToolCalls });
-    // core.ts resets `activity` at the START of every chat() call, so the cap
-    // can only be proven by OVERLAPPING (concurrent, un-awaited) turns sharing
-    // the one buffer — 5 turns x 14 tool calls each = 70 real pushes, none of
-    // which reset each other's progress mid-flight.
-    await Promise.all([1, 2, 3, 4, 5].map((i) => analyst.chat(`turn ${i}`)));
+    // One agent answers one turn at a time (agentfootprint 9: an overlapping run is
+    // refused, never silently interleaved), so the cap is proven by ONE long turn:
+    // 70 iterations = 70 real tool round-trips into the one buffer.
+    const analyst = createAnalyst({ csv: CSV, provider: foreverToolCalls, maxIterations: 70 });
+    const first = analyst.chat('turn 1');
+    await expect(analyst.chat('turn 2, overlapping')).rejects.toThrow(/already running/);
+    await first;
 
-    expect(calls).toBe(70); // proves 70 real tool round-trips actually happened
+    expect(calls).toBeGreaterThanOrEqual(70); // proves at least 70 real tool round-trips happened (the refused overlap may cost one)
     const state = await analyst.state();
     expect(state.activity.length).toBe(60); // yet the retained buffer never exceeds the cap
     expect(state.activity.every((step) => step.tool === 'whats_here')).toBe(true);

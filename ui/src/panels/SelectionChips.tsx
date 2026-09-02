@@ -23,6 +23,8 @@ export interface SelectionChipsProps {
   readonly onClearAll?: () => void;
   /** Flip a point/match between keep and exclude — wire to `view.setPolarity(viewId, exclude)`. */
   readonly onSetPolarity?: (viewId: string, exclude: boolean) => void;
+  /** Save a view's live selection under a name — the host asks for the name and calls `view.saveSelection(viewId, name)`. */
+  readonly onSave?: (viewId: string) => void;
   /** Present mode: read the chips, act on none. */
   readonly readOnly?: boolean;
   readonly className?: string;
@@ -56,7 +58,7 @@ export function keptClauses(cleared: readonly ClearedSelectionView[], links: Lin
   });
 }
 
-export function SelectionChips({ selections, cleared = [], links, labels = {}, onClear, onClearAll, onSetPolarity, readOnly = false, className }: SelectionChipsProps): JSX.Element {
+export function SelectionChips({ selections, cleared = [], links, labels = {}, onClear, onClearAll, onSetPolarity, onSave, readOnly = false, className }: SelectionChipsProps): JSX.Element {
   // a cleared clause is not a chip: a cleared point never reaches the wire (dropped from the fold), a cleared interval/cell/match arrives as null
   const live = selections.filter((s) => s.value !== undefined && (s.kind === 'point' || s.value !== null));
   // … unless an edge KEEPS it in force after the clear — then a person must see why a target is still filtered
@@ -98,6 +100,11 @@ export function SelectionChips({ selections, cleared = [], links, labels = {}, o
                   onClick={() => onSetPolarity(s.viewId, !excluded)}
                 >
                   {excluded ? 'keep' : 'exclude'}
+                </button>
+              )}
+              {onSave !== undefined && s.commitId !== undefined && (
+                <button type="button" className="vzf-selchip-save" disabled={readOnly} aria-label={`save the ${labels[s.viewId] ?? s.viewId} selection under a name`} title="save under a name (a note on this commit)" onClick={() => onSave(s.viewId)}>
+                  save
                 </button>
               )}
               {onClear !== undefined && (

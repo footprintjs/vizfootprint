@@ -91,7 +91,7 @@ describe('D30 — one cell gesture lands ONE compound commit', () => {
     await s.dispatch({ verb: 'select', viewId: 'heatmap', fields: [...CELL_FIELDS], values: [[50, 90], 'Casual'], cause: userCause() });
     const ov = await s.overview();
     expect(ov.activeSelections).toHaveLength(1);
-    expect(ov.activeSelections[0]).toEqual({
+    expect(ov.activeSelections[0]).toMatchObject({
       viewId: 'heatmap',
       field: 'price × category',
       kind: 'cell',

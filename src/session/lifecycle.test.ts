@@ -243,7 +243,7 @@ describe('TL-1 discardFromHere — the ref rewinds, the future is kept', () => {
     expect((await s.overview()).paths.current).toBe('main'); // still on your path, now rewound
     expect(s.cursor()).toBe(aId);
     // the fold rebuilt at the rewound tip: the discarded price filter is gone from view…
-    expect((await s.overview()).activeSelections).toEqual([
+    expect((await s.overview()).activeSelections).toMatchObject([
       { viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' },
     ]);
     // …but its commit is still there, and still folds
@@ -369,7 +369,7 @@ describe('TL-1 adoptPath — merge by replay, in order, honestly', () => {
     });
     // and its work is now live here
     const ov = await s.overview();
-    expect(ov.activeSelections).toEqual(
+    expect(ov.activeSelections.map(({ commitId: _c, ...sel }) => sel)).toEqual(
       expect.arrayContaining([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Party' }]),
     );
     expect(ov.encodings['scatter']).toMatchObject({ color: 'rating' });

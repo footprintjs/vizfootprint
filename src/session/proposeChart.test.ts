@@ -88,7 +88,7 @@ describe('proposeChart — the happy path (ledgered agent-authored chart)', () =
   it('a chart proposal does not pollute the crossfilter fold (no active selection)', async () => {
     const s = freshSession();
     await s.proposeChart({ id: 'pr', spec: validSpec() });
-    expect((await s.overview()).activeSelections).toEqual([]);
+    expect((await s.overview()).activeSelections).toMatchObject([]);
   });
 });
 

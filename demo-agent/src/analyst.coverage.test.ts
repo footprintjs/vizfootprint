@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { pauseHere } from 'agentfootprint';
-import { mock, type LLMRequest } from 'agentfootprint/llm-providers';
+import { mock, type LLMRequest } from 'agentfootprint/providers';
 import { createAssistant, scriptedCleanupMock } from './analyst.js';
 import { buildAnalystSurface } from './def.js';
 import type { VizToolResult, VizToolsPort } from '../../src/agent/index.js';

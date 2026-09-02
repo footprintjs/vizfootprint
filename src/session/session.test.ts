@@ -26,7 +26,7 @@ describe('R4 — dispatch is the single semantic entry', () => {
     expect(res.ok).toBe(true);
     expect(s.log.records).toHaveLength(1);
     const ov = await s.overview();
-    expect(ov.activeSelections).toEqual([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' }]);
+    expect(ov.activeSelections).toMatchObject([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' }]);
   });
 
   it('a filter interval commits DATA-space values (R5), null clears it', async () => {
@@ -56,7 +56,7 @@ describe('R4 — dispatch is the single semantic entry', () => {
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
     const seeked = s.seek(commitId);
     expect(seeked.ok).toBe(true);
-    expect((await s.overview()).activeSelections).toEqual([{ viewId: 'scatter', field: 'price', kind: 'interval', value: [null, 100] }]);
+    expect((await s.overview()).activeSelections).toMatchObject([{ viewId: 'scatter', field: 'price', kind: 'interval', value: [null, 100] }]);
   });
 });
 
@@ -267,7 +267,7 @@ describe('Q6 — reencode: the 8th dispatch verb (a state-changing view-encoding
     expect(scatter.encodings).toEqual({ x: 'rating', y: 'rating' });
     expect(scatter.columns.map((c) => c.field).sort()).toEqual(['category', 'id', 'price', 'rating']);
     // The old point/interval capability field is unaffected by the rename.
-    expect(scatter.selectionKinds).toEqual(['point', 'interval', 'match']); // SET-1: a set is a point's plural
+    expect(scatter.selectionKinds).toEqual(['point', 'interval', 'cell', 'match']); // the declared voice, cell included — ONE answer, the same the act door and the offers use (SET-1: a set is a point's plural)
     // The top-level convenience projection (viewId -> its encodings) agrees with `views[]`.
     expect(ov.encodings['scatter']).toEqual(scatter.encodings);
     expect(ov.encodings['bar']).toEqual({ x: 'category' }); // untouched — reencode only targeted scatter

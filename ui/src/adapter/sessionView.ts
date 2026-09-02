@@ -61,7 +61,7 @@ import {
   type ChartCellView,
   type LayoutChange,
   type LayoutView,
-  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView, type ProposalView } from './types.js';
+  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView, type ProposalView, type SavedSelectionView } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
 import type { NavigateViewState } from '../contract/types.js';
@@ -293,6 +293,7 @@ function commitLabel(field: string, viewId: string): string {
   if (field === '__analysis__') return 'analysis';
   if (field === 'pValue') return 'test';
   if (field === '__annotation__') return 'note';
+  if (viewId.startsWith('annotation:')) return `note on ${field}`;
   if (field === '__beat__') return 'beat'; // a story beat — the checkpoint verb's commit
   if (field === '__chart__') return 'chart'; // RP-3: an agent-authored chart's spec-registration commit
   return field;
@@ -363,6 +364,7 @@ function finalize(p: StatePieces): SessionViewState {
     selections: p.selections,
     cleared: p.cleared,
     commits,
+    saved: savedSelectionsOf(commits),
     branches: p.branches,
     paths: p.paths,
     checkpoints: p.checkpoints,
@@ -559,8 +561,29 @@ function mapSelections(sels: readonly unknown[] | undefined): SelectionView[] {
     const o = s as SelectionView;
     // D30: a cell selection carries its field pair through (both sources
     // serialize the same SelectionInfo shape).
-    return { viewId: o.viewId, field: o.field, kind: o.kind, value: o.value, ...(o.fields !== undefined ? { fields: o.fields } : {}) };
+    return { viewId: o.viewId, field: o.field, kind: o.kind, value: o.value, ...(o.fields !== undefined ? { fields: o.fields } : {}), ...(typeof o.commitId === 'string' ? { commitId: o.commitId } : {}) };
   });
+}
+
+/**
+ * The saved selections in a log: every annotation whose `field` names a
+ * selection commit with a live-shaped value. Newest note first; one entry per
+ * selection commit (the latest note wins its name).
+ */
+export function savedSelectionsOf(commits: readonly CommitView[]): SavedSelectionView[] {
+  const byId = new Map(commits.map((c) => [c.id, c] as const));
+  const out: SavedSelectionView[] = [];
+  const named = new Set<string>();
+  for (let i = commits.length - 1; i >= 0; i--) {
+    const note = commits[i]!;
+    if (!note.viewId.startsWith('annotation:') || typeof note.value !== 'string' || note.value.length === 0) continue;
+    const target = byId.get(note.field);
+    if (target === undefined || named.has(target.id)) continue;
+    if ((target.family !== undefined && target.family !== 'interaction') || target.value === undefined || target.value === null) continue; // not a live selection
+    named.add(target.id);
+    out.push({ name: note.value, commitId: target.id, noteId: note.id, viewId: target.viewId, kind: target.kind, field: target.field, value: target.value, ...(target.fields !== undefined ? { fields: target.fields } : {}), actor: target.actor });
+  }
+  return out;
 }
 function mapReadiness(analyses: readonly unknown[] | undefined): ReadinessView[] {
   return (analyses ?? []).map((a) => {
@@ -883,6 +906,8 @@ export interface SessionView {
   stepBack(): Promise<void>;
   stepForward(): Promise<void>;
   checkpoint(label: string): Promise<void>;
+  /** Save a view's LIVE selection under a name — a note on its commit; it then rides `state.saved` and applies with `bringOver`. */
+  saveSelection(viewId: string, name: string): Promise<void>;
   returnToNow(): Promise<void>;
   // ── named paths (BR-2 over BR-1) — state rides `state.paths` ──
   /** Switch to a named path: jump to its tip and make it the active line of work. */
@@ -1188,6 +1213,13 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
     async stepForward() {
       const target = stepForwardTarget(state.commits, state.cursor, state.head);
       if (target) await view.seek(target);
+    },
+
+    async saveSelection(viewId, name) {
+      const own = state.selections.find((s) => s.viewId === viewId);
+      if (own?.commitId === undefined || name.trim().length === 0) return; // nothing live to name (or an older server sends no commit id)
+      const body = { verb: 'annotate' as const, target: own.commitId, note: name.trim() };
+      await dispatch({ ...body, cause: cause(`save the ${viewId} selection as "${name.trim()}"`) }, { ...body, intent: `save ${name.trim()}` });
     },
 
     async checkpoint(label) {

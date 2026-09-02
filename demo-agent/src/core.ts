@@ -13,7 +13,7 @@
  */
 import { buildAnalystSurface } from './def.js';
 import { createAssistant, scriptedAnalystMock, type ActivityStep } from './analyst.js';
-import type { LLMProvider } from 'agentfootprint/llm-providers';
+import type { LLMProvider } from 'agentfootprint/providers';
 import type { AttTrace } from 'agentfootprint/observe';
 import type { Cause } from '../../src/cause/index.js';
 import type { DispatchAction, DispatchResult, FilterRange } from '../../src/agent/index.js';
@@ -46,6 +46,8 @@ export interface CreateAnalystOptions {
    * Takes precedence over `mock`.
    */
   readonly provider?: LLMProvider;
+  /** ReAct iteration cap for one turn (the assistant's default is 14). */
+  readonly maxIterations?: number;
 }
 
 /** The human's dispatch request, straight off `/api/dispatch`. */
@@ -189,6 +191,7 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
 
   const assistant = createAssistant(port, {
     provider: options.provider ?? (options.mock ? scriptedAnalystMock() : undefined),
+    ...(options.maxIterations !== undefined ? { maxIterations: options.maxIterations } : {}),
     onActivity: (step) => {
       activity.push(step);
       if (activity.length > 60) activity.shift();

@@ -414,7 +414,7 @@ describe('planBringOver — cherry-pick as a PLAN: {recipe, conflicts}, never an
     ];
     expect(planBringOver(log, 'e1', 'c1')).toMatchObject({ ok: true, recipe: { apply: 'encoding', viewId: 'scatter', channel: 'x', field: 'rating' } });
     expect(planBringOver(log, 't1', 'c1')).toMatchObject({ ok: true, recipe: { apply: 'analysis', analysisId: 'correlation' } });
-    expect(planBringOver(log, 'n1', 'c1')).toMatchObject({ ok: true, recipe: { apply: 'annotation', target: 'annotation:user', note: 'note!' }, conflicts: [] });
+    expect(planBringOver(log, 'n1', 'c1')).toMatchObject({ ok: true, recipe: { apply: 'annotation', target: '', note: 'note!' }, conflicts: [] }); // a loose note (the plain field) re-notes loosely; a note on a commit carries that commit id
   });
 
   it('a beat commit maps to a `beat` recipe (re-named on the target), carries no conflicts, and is inert in the fold', () => {

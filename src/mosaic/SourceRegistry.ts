@@ -51,6 +51,8 @@ export interface ActorMeta {
   actor: Actor;
   /** Optional human label for the view. */
   label?: string;
+  /** Layer 4: what acting on this view DOES, in one sentence — the routing text a phrase is matched against, and the words an offer carries. */
+  does?: string;
 }
 
 /**

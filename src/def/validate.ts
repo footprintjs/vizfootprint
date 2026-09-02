@@ -257,7 +257,7 @@ function validateAbsence(absence: unknown, where: string, problems: string[], fi
 
 function validateActorMeta(meta: unknown, where: string, problems: string[]): void {
   if (!isObject(meta)) {
-    problems.push(`${where} must be an object { actor, label? }`);
+    problems.push(`${where} must be an object { actor, label?, does? }`);
     return;
   }
   if (typeof meta.actor !== 'string' || !ACTORS.has(meta.actor)) {
@@ -265,6 +265,9 @@ function validateActorMeta(meta: unknown, where: string, problems: string[]): vo
   }
   if (meta.label !== undefined && typeof meta.label !== 'string') {
     problems.push(`${where}.label, if present, must be a string`);
+  }
+  if (meta.does !== undefined && (typeof meta.does !== 'string' || meta.does.trim().length === 0)) {
+    problems.push(`${where}.does, if present, must be a sentence: what acting on the view does`);
   }
 }
 

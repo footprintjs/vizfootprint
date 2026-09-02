@@ -215,6 +215,7 @@ const DISPATCH_SCHEMA = {
       description: 'link only: what the target does with it — filter drops rows, highlight dims them, navigate moves the viewport, mirror outlines the value, none turns the link off; null un-declares the edit (back to the def\'s rule).',
     },
     mapping: { type: 'array', description: 'link only, optional: [{ from, to }] field renames when the source field is not the target\'s column.' },
+    offerId: { type: 'string', description: 'select/filter, optional: the offer from whats_here.offers this act answers (offers[].viewId + kind name the node). A stale offer is refused by naming the current one; a session may require one.' },
     onClear: { type: 'string', enum: ['leave', 'showAll', 'excludeAll'], description: 'link only, optional: what the target does when the source CLEARS — showAll drops the clause (default), leave keeps the last emission in force, excludeAll keeps nothing.' },
     fold: { type: 'string', description: 'link only: how the emission folds down to the target\'s rows, in words — required when the edge crosses grains (the source emits over an aggregate the target does not show); whats_here.links.views[].grain says each view\'s.' },
     note: { type: 'string', description: 'The inert annotation text (annotate).' },
@@ -636,8 +637,11 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
 
   async function callDispatch(args: Record<string, unknown>): Promise<VizToolResult> {
     const action = buildAction(args);
+
     if ('error' in action) return { ok: false, reason: 'PAYLOAD_INVALID', detail: action.error };
-    const result = await session.dispatch(action, { as: source });
+    // layer 4: the offer an act answers rides through untouched — the session judges it
+    const offered: DispatchAction = (action.verb === 'select' || action.verb === 'filter') && typeof args['offerId'] === 'string' ? { ...action, offerId: args['offerId'] } : action;
+    const result = await session.dispatch(offered, { as: source });
     return projectDispatch(result);
   }
 
