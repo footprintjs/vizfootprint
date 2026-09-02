@@ -58,3 +58,14 @@ describe('memoryProvider.evaluate over a list', () => {
     expect(isRejection(res) && res.detail).toBe('table "data" has no column "ghost"');
   });
 });
+
+describe('the engine over ragged rows', () => {
+  it('the columns are the first row\'s, in both layouts; a key a later row adds is not a column', async () => {
+    const ragged = [{ a: 1, b: 2 }, { a: 3 }, { a: 4, b: 5, ghost: 6 }];
+    for (const layout of ['row', 'column'] as const) {
+      const p = memoryProvider(ragged, { tableName: 't', layout });
+      const cols = await p.columns('t');
+      expect(!isRejection(cols) && cols.map((c) => [c.name, c.type])).toEqual([['a', 'number'], ['b', 'number']]);
+    }
+  });
+});

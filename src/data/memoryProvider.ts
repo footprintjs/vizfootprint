@@ -21,6 +21,7 @@
 
 import { parseCSVTyped } from './csv.js';
 import { matchesClause, resolvePredicateSQL } from './predicate.js';
+import { TypeTally, columnTypes, columnar, foldOnce } from './fold.js';
 import {
   clauseFields,
   reject,
@@ -66,24 +67,11 @@ interface ColumnStore {
 
 type TableStore = RowStore | ColumnStore;
 
+/** One column's type from its values — the same TypeTally rule the fold's recorder runs. */
 function inferType(values: readonly unknown[]): ColumnType {
-  let sawAny = false;
-  let allNumber = true;
-  let allBoolean = true;
-  let allDate = true;
-  for (const v of values) {
-    if (v == null) continue;
-    sawAny = true;
-    if (typeof v !== 'number') allNumber = false;
-    if (typeof v !== 'boolean') allBoolean = false;
-    if (!(v instanceof Date)) allDate = false;
-    if (!allNumber && !allBoolean && !allDate) break;
-  }
-  if (!sawAny) return 'unknown';
-  if (allNumber) return 'number';
-  if (allBoolean) return 'boolean';
-  if (allDate) return 'date';
-  return 'string';
+  const t = new TypeTally();
+  for (const v of values) t.see(v);
+  return t.type();
 }
 
 function columnNamesOf(rows: readonly Row[]): string[] {
@@ -102,19 +90,18 @@ function toRowStore(input: RowsInput, csvDelimiter?: string): RowStore {
       ? [...parseCSVTyped(input, { delimiter: csvDelimiter }).rows]
       : input.map((r) => ({ ...r }));
   const names = columnNamesOf(rows);
-  const columnTypes: Record<string, ColumnType> = {};
-  for (const name of names) columnTypes[name] = inferType(rows.map((r) => r[name]));
-  return { layout: 'row', rows, columnTypes };
+  // one walk answers every column's type (one pass, not one per column)
+  const { types } = foldOnce(rows, { types: columnTypes(names) });
+  return { layout: 'row', rows, columnTypes: { ...types } };
 }
 
 function toColumnStore(input: RowsInput, csvDelimiter?: string): ColumnStore {
   const rows: Row[] = typeof input === 'string' ? [...parseCSVTyped(input, { delimiter: csvDelimiter }).rows] : [...input];
   const order = columnNamesOf(rows);
-  const columns: Record<string, unknown[]> = {};
-  for (const name of order) columns[name] = rows.map((r) => r[name]);
-  const columnTypes: Record<string, ColumnType> = {};
-  for (const name of order) columnTypes[name] = inferType(columns[name]!);
-  return { layout: 'column', columns, order, rowCount: rows.length, columnTypes };
+  // one walk builds every column AND answers every column's type
+  const folded = foldOnce(rows, { columns: columnar(order), types: columnTypes(order) });
+  // the recorder promises its callers read-only columns; the store owns these arrays and grows them on materializeColumn
+  return { layout: 'column', columns: { ...(folded.columns as Record<string, unknown[]>) }, order, rowCount: rows.length, columnTypes: { ...folded.types } };
 }
 
 function storeColumnNames(store: TableStore): string[] {

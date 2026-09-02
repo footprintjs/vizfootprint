@@ -51,3 +51,7 @@ export {
   PLACEHOLDER_ENGINE_THRESHOLDS,
 } from './chooseEngine.js';
 export type { ChooseEngineOptions, DatasetStats, EnginePolicy, EngineThresholds } from './chooseEngine.js';
+
+// One pass, many recorders — bring the questions you need; the rows are walked once.
+export { foldOnce, rowCount, total, extent, distinct, groupCount, numbers, columnar, columnTypes, keyedIndex, TypeTally } from './fold.js';
+export type { RowRecorder, Recorders, FoldResult } from './fold.js';

@@ -14,6 +14,7 @@
  * (`node_modules/footprintjs/dist/esm/lib/scope/protection/readonlyInput.js:23`).
  */
 
+import { foldOnce, numbers } from '../data/fold.js';
 import { flowChart } from 'footprintjs';
 import type { FlowChart } from 'footprintjs';
 import { defineAnalysis } from './defineAnalysis.js';
@@ -70,7 +71,7 @@ export function clusteringAnalysis(opts: {
     produces: 'columns',
     inputs: [{ column: opts.column, role: 'value' }],
     build: buildClusteringChart,
-    toRunInput: (rows) => ({ values: rows.map((r) => Number(r[opts.column])), k: opts.k }),
+    toRunInput: (rows) => ({ values: foldOnce(rows, { v: numbers(opts.column) }).v.values, k: opts.k }),
     readOutput: () => ({
       ok: true,
       output: { as: 'columns', table, columns: { [outColumn]: { type: 'int' } } },
@@ -124,10 +125,10 @@ export function correlationAnalysis(opts: {
       { column: opts.y, role: 'y' },
     ],
     build: buildCorrelationChart,
-    toRunInput: (rows) => ({
-      xs: rows.map((r) => Number(r[opts.x])),
-      ys: rows.map((r) => Number(r[opts.y])),
-    }),
+    toRunInput: (rows) => {
+      const f = foldOnce(rows, { x: numbers(opts.x), y: numbers(opts.y) }); // one walk, both columns
+      return { xs: f.x.values, ys: f.y.values };
+    },
     readOutput: ({ snapshot }) => {
       const r = snapshot.sharedState.r as number;
       if (!Number.isFinite(r)) {
@@ -200,10 +201,10 @@ export function regressionAnalysis(opts: {
         ? { ok: false, reason: 'degenerate-fit', n: rows.length, fitDegenerate: true }
         : undefined,
     build: buildRegressionChart,
-    toRunInput: (rows) => ({
-      xs: rows.map((r) => Number(r[opts.x])),
-      ys: rows.map((r) => Number(r[opts.y])),
-    }),
+    toRunInput: (rows) => {
+      const f = foldOnce(rows, { x: numbers(opts.x), y: numbers(opts.y) }); // one walk, both columns
+      return { xs: f.x.values, ys: f.y.values };
+    },
     readOutput: ({ snapshot }) => ({
       ok: true,
       output: {

@@ -7,6 +7,7 @@
  * key's String() form, so 1 and "1" collide: the loser counts as unkeyed.
  */
 import type { Row } from '../data/types.js';
+import { foldOnce, keyedIndex } from '../data/fold.js';
 
 /** At most this many keys ride in each sample list; the counts are exact. */
 export const DELTA_SAMPLE = 20;
@@ -34,18 +35,9 @@ const same = (a: Row, b: Row): boolean => JSON.stringify(a) === JSON.stringify(b
 
 export function deltaByKey(before: readonly Row[], after: readonly Row[], key: string | undefined): RefreshDelta {
   if (key === undefined) return { keyed: false, replaced: after.length };
-  const index = (rows: readonly Row[]): { map: Map<string, Row>; unkeyed: number } => {
-    const map = new Map<string, Row>();
-    let unkeyed = 0;
-    for (const r of rows) {
-      const k = r[key];
-      if (k === undefined || k === null || map.has(String(k))) unkeyed++;
-      else map.set(String(k), r);
-    }
-    return { map, unkeyed };
-  };
-  const was = index(before);
-  const now = index(after);
+  // one walk per side, the index being the fold's own recorder
+  const was = foldOnce(before, { k: keyedIndex(key) }).k;
+  const now = foldOnce(after, { k: keyedIndex(key) }).k;
   if (now.map.size === 0 && after.length > 0) return { keyed: false, replaced: after.length, keyAbsent: key };
   const added: string[] = [];
   const updated: string[] = [];
