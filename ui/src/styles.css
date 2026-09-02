@@ -1265,8 +1265,26 @@
 :where(.vzf) .vzf-timebar.vzf-compact {
   flex-direction: row;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: wrap; /* phones: the carousel layout, the strip may wrap */
   gap: var(--vzf-space-2) var(--vzf-space-3);
+  min-width: 0;
+}
+@media (min-width: 701px) {
+  /* ONE row, always: the rail's ticks shrink instead of the strip growing (the header never jumps) */
+  :where(.vzf) .vzf-timebar.vzf-compact { flex-wrap: nowrap; }
+}
+:where(.vzf) .vzf-past-mark {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--vzf-r-pill);
+  background: var(--vzf-clay-tint);
+  color: var(--vzf-clay);
+  border: 1px solid var(--vzf-clay);
+  font-size: 0.85em;
+  cursor: help;
 }
 :where(.vzf) .vzf-compact .vzf-section-head {
   display: none;
@@ -2221,3 +2239,45 @@
 :where(.vzf) .vzf-sources-check-list { margin: 0; padding-left: 18px; }
 /* a waiting or read-only refresh door: told to assistive tech by aria-disabled, shown to everyone else here */
 :where(.vzf) .vzf-sources-refresh[aria-disabled="true"] { cursor: default; opacity: 0.55; }
+
+/* ── the timeline rail: ticks share the rail's width and shrink as commits pile up; ids hide when dense ── */
+:where(.vzf) .vzf-step-group { display: inline-flex; gap: 2px; flex: none; }
+:where(.vzf) .vzf-timeline .vzf-tl-dot { flex: 0 0 var(--vzf-tick, 28px); width: var(--vzf-tick, 28px); min-width: 0; padding: 2px 0; }
+:where(.vzf) .vzf-tl-flagslot { font-size: 0.7em; height: 0.9em; } /* byte-for-byte the flag's box, so flagged and plain ticks share one baseline */
+:where(.vzf) .vzf-timeline[data-dense="true"] .vzf-tl-flagslot { font-size: 0.6em; }
+:where(.vzf) .vzf-timeline[data-dense="true"] .vzf-tl-node { width: 8px; height: 8px; }
+:where(.vzf) .vzf-timeline[data-dense="true"] .vzf-tl-flag { font-size: 0.6em; }
+:where(.vzf) .vzf-beat-rail { flex: 1; min-width: 0; }
+:where(.vzf) .vzf-present-beat { min-width: 0; }
+:where(.vzf) .vzf-compact .vzf-present-beat { flex: none; max-width: 32ch; overflow: hidden; }
+:where(.vzf) .vzf-compact .vzf-beat-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:where(.vzf) .vzf-play { flex: none; }
+
+/* ── the cockpit menu (☰): the host's acts, one popover ── */
+:where(.vzf) .vzf-cockpit-menu { position: relative; flex: none; }
+:where(.vzf) .vzf-menu-button { font: inherit; font-size: 15px; line-height: 1; padding: 4px 9px; border-radius: var(--vzf-r-md); border: 1px solid var(--vzf-line); background: var(--vzf-surface); cursor: pointer; }
+:where(.vzf) .vzf-menu-button[aria-expanded="true"] { background: var(--vzf-surface-2); }
+:where(.vzf) .vzf-menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 220px; display: flex; flex-direction: column; padding: 4px; background: var(--vzf-surface); border: 1px solid var(--vzf-line); border-radius: var(--vzf-r-md); box-shadow: var(--vzf-shadow-md, 0 6px 24px rgba(0,0,0,.12)); }
+:where(.vzf) .vzf-menu-item { display: grid; grid-template-columns: 1.4em 1fr; align-items: center; column-gap: 6px; text-align: left; font: inherit; font-size: 13px; padding: 6px 8px; border: none; border-radius: 6px; background: transparent; color: var(--vzf-ink); cursor: pointer; }
+:where(.vzf) .vzf-menu-item:hover, :where(.vzf) .vzf-menu-item:focus-visible { background: var(--vzf-surface-2); outline: none; }
+:where(.vzf) .vzf-menu-item[aria-disabled="true"] { opacity: 0.5; cursor: default; } /* stays focusable and readable: the hint says why */
+:where(.vzf) .vzf-menu-hint { grid-column: 2; font-size: 11px; color: var(--vzf-ink-soft); }
+
+/* ── the per-chart edit affordance: on the cell, shown on hover and focus, never floating over the cockpit ── */
+:where(.vzf) .vzf-cell-edit { position: absolute; top: 4px; right: 30px; z-index: 2; font: inherit; font-size: 13px; line-height: 1; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--vzf-line); background: var(--vzf-surface); color: var(--vzf-ink-soft); cursor: pointer; opacity: 0; transition: opacity 120ms; }
+:where(.vzf) .vzf-cockpit-cell:hover .vzf-cell-edit, :where(.vzf) .vzf-cockpit-cell:focus-within .vzf-cell-edit, :where(.vzf) .vzf-cell-edit:focus-visible { opacity: 0.95; }
+@media (hover: none) { :where(.vzf) .vzf-cell-edit { opacity: 0.85; } }
+@media (prefers-reduced-motion: reduce) { :where(.vzf) .vzf-cell-edit { transition: none; } }
+
+/* ── the slideshow: the dashboard is the slide; every strip but the slide bar goes away ── */
+/* the root IS the .vzf element, so the slideshow rules key off the root itself, not a .vzf ancestor */
+:where(.vzf.vzf-cockpit-root.vzf-slideshow) .vzf-cockpit-top,
+:where(.vzf.vzf-cockpit-root.vzf-slideshow) .vzf-cockpit-status,
+:where(.vzf.vzf-cockpit-root.vzf-slideshow) .vzf-cockpit-dots,
+:where(.vzf.vzf-cockpit-root.vzf-slideshow) .vzf-readonly-note,
+:where(.vzf.vzf-cockpit-root.vzf-slideshow) .vzf-cockpit-aside { display: none; }
+:where(.vzf) .vzf-slide-bar { flex: none; display: flex; align-items: center; gap: var(--vzf-space-3); padding: var(--vzf-space-2) var(--vzf-space-3); border-radius: var(--vzf-r-md); background: var(--vzf-surface); border: 1px solid var(--vzf-line); }
+:where(.vzf) .vzf-slide-words { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: var(--vzf-space-3); overflow: hidden; }
+:where(.vzf) .vzf-slide-count { flex: none; font-family: var(--vzf-font-mono); font-size: 0.8em; color: var(--vzf-ink-soft); }
+:where(.vzf) .vzf-slide-title { flex: none; font-weight: 600; }
+:where(.vzf) .vzf-slide-caption { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vzf-ink-soft); }

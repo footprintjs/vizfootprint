@@ -20,10 +20,11 @@
  * has adopted the cockpit.
  */
 import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import type { CommitView, CheckpointView, BranchView } from '../adapter/types.js';
 import { stepBackTarget, stepForwardTarget, activePath, pathToRoot } from '../adapter/stepNav.js';
 import { orderedCheckpoints, currentBeatIndex, beatTarget } from './presentBeat.js';
+import { useRailTicks } from './rail.js';
 import { CheckpointModal } from './CheckpointModal.js';
 
 export type TimeMode = 'explore' | 'present';
@@ -53,6 +54,8 @@ export interface TimeTravelBarProps {
   readonly onStepForward?: () => void;
   readonly onCheckpoint?: (label: string) => void;
   readonly onReturnToNow?: () => void;
+  /** Present mode: play the beats as a fullscreen slideshow — the host owns the show (see `VizCockpit`'s `slideshow`). */
+  readonly onPlay?: () => void;
 }
 
 export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
@@ -115,11 +118,19 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
         </div>
       </div>
 
-      {viewingPast && !readOnly && (
-        <div className="vzf-past-banner" role="status">
-          ⏱ Viewing the past — act now (or step forward) to branch here.
-        </div>
-      )}
+      {viewingPast &&
+        !readOnly &&
+        (compact ? (
+          // one row, always: in the compact strip the fact is a mark with the sentence on hover and for assistive tech, never a banner that takes the rail's room
+          <span className="vzf-past-mark" role="status" data-vzf="past-mark" title="Viewing the past — act now (or step forward) to branch here.">
+            <span aria-hidden="true">⏱</span>
+            <span className="vzf-sr-only">Viewing the past — act now (or step forward) to branch here.</span>
+          </span>
+        ) : (
+          <div className="vzf-past-banner" role="status">
+            ⏱ Viewing the past — act now (or step forward) to branch here.
+          </div>
+        ))}
 
       {mode === 'explore' ? (
         <ExploreBody
@@ -138,7 +149,7 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
           branchCount={branches.length}
         />
       ) : (
-        <PresentBody head={head} checkpoints={checkpoints} commits={commits} cursor={cursor} onSeek={onSeek} />
+        <PresentBody head={head} checkpoints={checkpoints} commits={commits} cursor={cursor} onSeek={onSeek} onPlay={props.onPlay} />
       )}
 
       <CheckpointModal
@@ -170,13 +181,20 @@ interface ExploreBodyProps {
   branchCount: number;
 }
 function ExploreBody(p: ExploreBodyProps): JSX.Element {
+  const { rail, tick, dense } = useRailTicks(p.lineage.length);
   return (
     <>
       <div className="vzf-timeline-row">
-        <button className="vzf-btn" data-step="back" disabled={p.backDisabled} onClick={() => p.onStepBack?.()} title="Seek to the cursor's parent (ArrowLeft)">
-          ⟵
-        </button>
-        <div className="vzf-timeline" data-vzf="timeline">
+        {/* back and forward side by side, so a hand never crosses the rail */}
+        <div className="vzf-step-group" role="group" aria-label="step">
+          <button className="vzf-btn" data-step="back" disabled={p.backDisabled} onClick={() => p.onStepBack?.()} title="Seek to the cursor's parent (ArrowLeft)">
+            ⟵
+          </button>
+          <button className="vzf-btn" data-step="forward" disabled={p.forwardDisabled} onClick={() => p.onStepForward?.()} title="Seek to the next commit on this lane (ArrowRight)">
+            ⟶
+          </button>
+        </div>
+        <div className="vzf-timeline" data-vzf="timeline" ref={rail} data-dense={dense ? 'true' : undefined} style={{ '--vzf-tick': `${tick}px` } as CSSProperties}>
           {p.lineage.length === 0 ? (
             <span className="vzf-tl-empty">no commits yet — brush, click a bar, or ask the analyst to start the timeline</span>
           ) : (
@@ -187,18 +205,16 @@ function ExploreBody(p: ExploreBodyProps): JSX.Element {
                 data-actor={c.actor}
                 data-commit={c.id}
                 title={`#${c.id} ${c.label} (${c.actor})${c.intent ? ': ' + c.intent : ''}`}
+                aria-label={`#${c.id} ${c.label}`}
                 onClick={() => p.onSeek?.(c.id)}
               >
-                <span className="vzf-tl-flag">{p.ckptByCommit.has(c.id) ? '⚑' : ' '}</span>
+                {p.ckptByCommit.has(c.id) ? <span className="vzf-tl-flag">⚑</span> : <span className="vzf-tl-flagslot" aria-hidden="true" />}
                 <span className="vzf-tl-node" />
-                <span className="vzf-tl-cid">#{c.id}</span>
+                {!dense && <span className="vzf-tl-cid">#{c.id}</span>}
               </button>
             ))
           )}
         </div>
-        <button className="vzf-btn" data-step="forward" disabled={p.forwardDisabled} onClick={() => p.onStepForward?.()} title="Seek to the next commit on this lane (ArrowRight)">
-          ⟶
-        </button>
       </div>
       <div className="vzf-time-controls">
         <button className="vzf-btn" data-vzf="checkpoint-open" title="Name a checkpoint at the cursor" onClick={p.openCheckpointModal}>
@@ -225,6 +241,7 @@ interface PresentBodyProps {
   /** The tip of the presented lineage (the head); beats ahead of the cursor on it are what "next" walks to. */
   head: string | null;
   onSeek?: (id: string) => void;
+  onPlay?: () => void;
 }
 function PresentBody(p: PresentBodyProps): JSX.Element {
   // The presented lineage is the one that ends at the HEAD (beats ahead of the
@@ -232,6 +249,7 @@ function PresentBody(p: PresentBodyProps): JSX.Element {
   const tip = p.head ?? p.cursor;
   const ordered = orderedCheckpoints(p.checkpoints, p.commits, tip);
   const idx = currentBeatIndex(p.checkpoints, p.commits, p.cursor, tip);
+  const { rail, tick, dense } = useRailTicks(ordered.length);
   if (ordered.length === 0) {
     return <div className="vzf-present-empty">No story beats on this lineage yet — name a checkpoint in Explore mode to build the guided tour.</div>;
   }
@@ -247,9 +265,14 @@ function PresentBody(p: PresentBodyProps): JSX.Element {
   return (
     <div data-vzf="present">
       <div className="vzf-timeline-row">
-        <button className="vzf-btn" data-beat="prev" disabled={clamped <= 0} onClick={() => go(clamped - 1)} aria-label="previous beat">
-          ⟵
-        </button>
+        <div className="vzf-step-group" role="group" aria-label="beats">
+          <button className="vzf-btn" data-beat="prev" disabled={clamped <= 0} onClick={() => go(clamped - 1)} aria-label="previous beat">
+            ⟵
+          </button>
+          <button className="vzf-btn" data-beat="next" disabled={clamped >= ordered.length - 1} onClick={() => go(clamped + 1)} aria-label="next beat">
+            ⟶
+          </button>
+        </div>
         <div className="vzf-present-beat">
           <div className="vzf-beat-title">{beat.label}</div>
           <div className="vzf-beat-meta">
@@ -257,24 +280,20 @@ function PresentBody(p: PresentBodyProps): JSX.Element {
             {idx < 0 ? ' · (nearest to cursor)' : ''} · #{beat.commitId}
           </div>
         </div>
-        <button className="vzf-btn" data-beat="next" disabled={clamped >= ordered.length - 1} onClick={() => go(clamped + 1)} aria-label="next beat">
-          ⟶
-        </button>
-      </div>
-      <div className="vzf-time-controls" style={{ justifyContent: 'center' }}>
-        {ordered.map((c, i) => (
-          <button
-            key={c.commitId}
-            className={`vzf-tl-dot${i === clamped ? ' vzf-cursor' : ''}`}
-            data-beat-dot={c.commitId}
-            title={c.label}
-            onClick={() => go(i)}
-          >
-            <span className="vzf-tl-flag">⚑</span>
-            <span className="vzf-tl-node" />
-            <span className="vzf-tl-cid">{c.label}</span>
+        <div className="vzf-timeline vzf-beat-rail" data-vzf="beat-rail" ref={rail} data-dense={dense ? 'true' : undefined} style={{ '--vzf-tick': `${tick}px` } as CSSProperties}>
+          {ordered.map((c, i) => (
+            <button key={c.commitId} className={`vzf-tl-dot${i === clamped ? ' vzf-cursor' : ''}`} data-beat-dot={c.commitId} title={c.label} aria-label={c.label} onClick={() => go(i)}>
+              <span className="vzf-tl-flag">⚑</span>
+              <span className="vzf-tl-node" />
+              {!dense && <span className="vzf-tl-cid">{c.label}</span>}
+            </button>
+          ))}
+        </div>
+        {p.onPlay !== undefined && (
+          <button className="vzf-btn vzf-play" data-vzf="play" onClick={() => p.onPlay?.()} title="Play the beats as a fullscreen slideshow — interactions stay off">
+            ▶ Play
           </button>
-        ))}
+        )}
       </div>
     </div>
   );

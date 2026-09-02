@@ -921,8 +921,8 @@ describe.skipIf(!existsSync(CHROME))('time-travel bar (real headless Chromium, m
     const firstDot = page.locator('[data-vzf="timeline"] [data-commit]').first();
     const firstId = await firstDot.getAttribute('data-commit');
     await firstDot.click();
-    await page.waitForSelector('.vzf-past-banner', { timeout: 8000 });
-    expect(await page.locator('.vzf-past-banner').isVisible()).toBe(true);
+    await page.waitForSelector('[data-vzf="past-mark"]', { timeout: 8000 });
+    expect(await page.locator('[data-vzf="past-mark"]').isVisible()).toBe(true);
     // the cursor marker is on the first commit in both timeline + branch map
     await page.waitForFunction(
       (id) => document.querySelector(`[data-vzf="timeline"] [data-commit="${id}"]`)?.classList.contains('vzf-cursor') === true,
@@ -940,7 +940,7 @@ describe.skipIf(!existsSync(CHROME))('time-travel bar (real headless Chromium, m
     await page.keyboard.press('Escape');
     await page.waitForSelector('[data-vzf-modal="report-branches"]', { state: 'detached' });
     // acting made the new lineage active → the past banner clears
-    await page.waitForSelector('.vzf-past-banner', { state: 'detached', timeout: 8000 });
+    await page.waitForSelector('[data-vzf="past-mark"]', { state: 'detached', timeout: 8000 });
 
     // old branch intact: the abandoned tip is still a record whose parent is the fork point
     const oldTipIntact = await page.evaluate(async (id) => {
@@ -971,7 +971,7 @@ describe.skipIf(!existsSync(CHROME))('time-travel bar (real headless Chromium, m
 
     // travel back to the first commit — the GLOBAL test count must NOT rewind
     await page.locator('[data-vzf="timeline"] [data-commit]').first().click();
-    await page.waitForSelector('.vzf-past-banner', { timeout: 8000 });
+    await page.waitForSelector('[data-vzf="past-mark"]', { timeout: 8000 });
     const testsAfter = await page.evaluate(async () => ((await (await fetch('/api/state')).json()) as { fdr: { tests: number } }).fdr.tests);
     expect(testsAfter).toBe(testsBefore); // scrubbing back refunds no test / no alpha
 
@@ -1048,7 +1048,7 @@ describe.skipIf(!existsSync(CHROME))('step navigation — ⟵/⟶ buttons + keyb
 
     // ⟵ Step back TWICE → lands on the ROOT
     await page.locator('[data-step="back"]').click();
-    await page.waitForSelector('.vzf-past-banner', { timeout: 8000 });
+    await page.waitForSelector('[data-vzf="past-mark"]', { timeout: 8000 });
     await page.locator('[data-step="back"]').click();
     await page.waitForFunction(() => (document.querySelector('[data-step="back"]') as HTMLButtonElement | null)?.disabled === true, undefined, {
       timeout: 8000,
@@ -1060,7 +1060,7 @@ describe.skipIf(!existsSync(CHROME))('step navigation — ⟵/⟶ buttons + keyb
       timeout: 8000,
     });
     await page.locator('[data-step="forward"]').click();
-    await page.waitForSelector('.vzf-past-banner', { state: 'detached', timeout: 8000 });
+    await page.waitForSelector('[data-vzf="past-mark"]', { state: 'detached', timeout: 8000 });
     await page.waitForFunction(() => (document.querySelector('[data-step="forward"]') as HTMLButtonElement | null)?.disabled === true, undefined, {
       timeout: 8000,
     });
@@ -1072,7 +1072,7 @@ describe.skipIf(!existsSync(CHROME))('step navigation — ⟵/⟶ buttons + keyb
 
   it('ArrowLeft/ArrowRight seek, but NOT while the checkpoint modal\'s name field has focus', async () => {
     // starts at head (past-banner absent) from the previous test's end state
-    expect(await page.locator('.vzf-past-banner').count()).toBe(0);
+    expect(await page.locator('[data-vzf="past-mark"]').count()).toBe(0);
 
     // the ⚑ modal autofocuses its name field: ArrowLeft must be swallowed by
     // the field, not seek
@@ -1081,17 +1081,17 @@ describe.skipIf(!existsSync(CHROME))('step navigation — ⟵/⟶ buttons + keyb
     expect(await page.locator('[data-vzf-modal="checkpoint"] .vzf-ckpt-name').evaluate((el) => el === document.activeElement)).toBe(true);
     await page.keyboard.press('ArrowLeft');
     await page.waitForTimeout(250);
-    expect(await page.locator('.vzf-past-banner').count()).toBe(0); // no seek happened
+    expect(await page.locator('[data-vzf="past-mark"]').count()).toBe(0); // no seek happened
 
     // Esc cancels the modal — ArrowLeft now DOES seek
     await page.keyboard.press('Escape');
     await page.waitForSelector('[data-vzf-modal="checkpoint"]', { state: 'detached' });
     await page.keyboard.press('ArrowLeft');
-    await page.waitForSelector('.vzf-past-banner', { timeout: 8000 });
+    await page.waitForSelector('[data-vzf="past-mark"]', { timeout: 8000 });
 
     // ArrowRight steps forward again, back to the head
     await page.keyboard.press('ArrowRight');
-    await page.waitForSelector('.vzf-past-banner', { state: 'detached', timeout: 8000 });
+    await page.waitForSelector('[data-vzf="past-mark"]', { state: 'detached', timeout: 8000 });
   }, 30_000);
 
   it('the step-navigation page ran with zero console errors', () => {
@@ -1371,7 +1371,7 @@ describe.skipIf(!existsSync(CHROME))('BR-3: named branching — fork toast + pil
 
     // seek BACK to c1 (now behind head) — HEAD detaches, the pill flips to "viewing past"
     await page.locator('[data-vzf="timeline"] [data-commit]').first().click();
-    await page.waitForSelector('.vzf-past-banner', { timeout: 8000 });
+    await page.waitForSelector('[data-vzf="past-mark"]', { timeout: 8000 });
     await page.waitForFunction(() => document.querySelector('[data-vzf="branch-pill"]')?.getAttribute('data-state') === 'viewing-past');
 
     // act from the past → a SIBLING commit lands and AUTO-NAMES a brand-new path

@@ -42,7 +42,7 @@
  * This is the ONLY layout shell — every consumer (the gallery, demo-agent)
  * mounts the cockpit as the whole page.
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, UIEvent } from 'react';
 import { themeStyle, themeAttr, type ThemeConfig } from '../tokens/theme.js';
 import type { LayoutChange, LayoutPreset, LayoutView } from '../adapter/types.js';
@@ -63,6 +63,41 @@ export interface CockpitChart {
   readonly active?: boolean;
   /** SET-1: clear this chart's OWN selection — a real commit with a cause. Rendered as a ✕ pill beside the chart when `active`. */
   readonly onClear?: () => void;
+  /** Open the editor for THIS chart — rendered as a ✎ on the cell (shown on hover and focus), never a floating button over the cockpit. */
+  readonly onEdit?: () => void;
+}
+
+/** One entry of the cockpit's menu (☰): the host's acts, in the host's words. */
+export interface CockpitMenuItem {
+  readonly id: string;
+  readonly label: ReactNode;
+  readonly icon?: ReactNode;
+  readonly onSelect: () => void;
+  readonly disabled?: boolean;
+  /** One line under the label, when the act needs a word of explanation. */
+  readonly hint?: string;
+}
+
+/**
+ * PRESENT MODE AS A SLIDESHOW — the story layer's live lens. The dashboard
+ * itself is the slide: the host seeks the session to each named checkpoint
+ * and hands the cockpit the beat's words; the cockpit takes the screen
+ * (fullscreen when the browser allows), hides every strip but a slim slide
+ * bar, and walks prev/next on the arrow keys and space. Interactions stay
+ * off: nothing is recorded in a slideshow (the cockpit is read-only).
+ */
+export interface CockpitSlideshow {
+  readonly active: boolean;
+  /** The beat's label. */
+  readonly title: string;
+  /** The dashboard's words at this beat (its caption), when it has any. */
+  readonly words?: string;
+  /** 0-based position and the count of beats on the presented lineage. */
+  readonly index: number;
+  readonly count: number;
+  readonly onPrev: () => void;
+  readonly onNext: () => void;
+  readonly onExit: () => void;
 }
 
 /** One report chip on the status strip — opens a large modal hosting `content`. */
@@ -117,6 +152,10 @@ export interface VizCockpitProps {
   readonly layout?: LayoutView;
   /** LY-1: every arrangement gesture lands here — wire to `view.setLayout`. */
   readonly onLayoutChange?: (change: LayoutChange) => void;
+  /** The cockpit's menu (☰) at the top right: the host's acts. Omitted → no menu. */
+  readonly menu?: readonly CockpitMenuItem[];
+  /** Present mode as a fullscreen slideshow over the checkpoints (see {@link CockpitSlideshow}). */
+  readonly slideshow?: CockpitSlideshow;
   /** Present mode: dim + block the charts, show the note. */
   readonly readOnly?: boolean;
   readonly readOnlyNote?: ReactNode;
@@ -179,7 +218,11 @@ function cellIdAt(e: PointerEvent): string | null {
 }
 
 export function VizCockpit(props: VizCockpitProps): JSX.Element {
-  const { theme, layout, readOnly = false } = props;
+  const { theme, layout } = props;
+  const show = props.slideshow;
+  const showing = show?.active === true;
+  // nothing is recorded in a slideshow: the cockpit is read-only while the show runs, whatever the host passed
+  const readOnly = props.readOnly === true || showing;
   const reports = props.reports ?? [];
   const style: CSSProperties = { ...(themeStyle(theme) as CSSProperties), ...props.style };
 
@@ -197,6 +240,105 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
   const stripRef = useRef<HTMLDivElement | null>(null);
   const [page, setPage] = useState(0);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const menuListRef = useRef<HTMLDivElement | null>(null);
+  // the show's callbacks ride a ref: the effects below depend on `showing` alone, so a host that rebuilds the
+  // slideshow object every render (the demo does) never tears the screen down between beats
+  const showRef = useRef(props.slideshow);
+  showRef.current = props.slideshow;
+  /** Close from the keyboard or an act: focus goes back to ☰ (a click outside closes without moving focus — the person is elsewhere). */
+  const closeMenu = (): void => {
+    setMenuOpen(false);
+    menuButtonRef.current?.focus();
+  };
+  // the menu closes on Escape (focus back on ☰) and on a click outside it; while open, the arrows rove its items
+  useEffect(() => {
+    if (!menuOpen) return;
+    // the list is mounted while menuOpen renders it — unless the host shrank `menu` to nothing meanwhile
+    const items = (): HTMLElement[] => {
+      const list = menuListRef.current;
+      /* v8 ignore next -- the host emptied the menu while it was open: the list is gone */
+      if (list === null) return [];
+      return [...list.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    };
+    items()[0]?.focus();
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeMenu();
+        return;
+      }
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      const list = items();
+      /* v8 ignore next -- the host emptied the menu while it was open: nothing to rove */
+      if (list.length === 0) return;
+      e.preventDefault();
+      const at = list.indexOf(document.activeElement as HTMLElement);
+      const next = e.key === 'ArrowDown' ? (at + 1) % list.length : (at - 1 + list.length) % list.length;
+      list[next]!.focus();
+    };
+    const onDown = (e: PointerEvent): void => {
+      if (menuRef.current !== null && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('pointerdown', onDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pointerdown', onDown);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- closeMenu reads refs and a setter only
+  }, [menuOpen]);
+  // a show takes the strip away: the menu cannot stay open under it
+  useEffect(() => {
+    if (showing) setMenuOpen(false);
+  }, [showing]);
+  // the slideshow's keys: arrows, space and page keys walk the beats, Escape leaves — never while a field or a button has the keyboard
+  useEffect(() => {
+    if (!showing) return;
+    const onKey = (e: KeyboardEvent): void => {
+      const show = showRef.current;
+      /* v8 ignore next -- a keydown landing between the render that cleared the show and this listener's cleanup: real in a browser, not reachable under act() */
+      if (show === undefined) return;
+      const el = document.activeElement;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el instanceof HTMLElement && el.isContentEditable)) return; // a field keeps its keys
+      if (e.key === ' ' && tag === 'BUTTON') return; // space activates the focused button, it does not also advance
+      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+        e.preventDefault();
+        show.onNext();
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault();
+        show.onPrev();
+      } else if (e.key === 'Escape') show.onExit();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showing]);
+  // the screen is taken while the show runs, and given back when it ends — or the show ends when the browser takes it back (F11, Esc)
+  useEffect(() => {
+    if (!showing) return;
+    const root = document.documentElement;
+    let entered = false;
+    if (typeof root.requestFullscreen === 'function' && document.fullscreenElement === null) {
+      entered = true;
+      root.requestFullscreen().catch(() => {
+        entered = false; // a browser that refused (no gesture, a policy) — the show still runs, in the window
+      });
+    }
+    const onChange = (): void => {
+      if (entered && document.fullscreenElement === null) {
+        entered = false;
+        showRef.current?.onExit();
+      }
+    };
+    document.addEventListener('fullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      if (entered && document.fullscreenElement !== null && typeof document.exitFullscreen === 'function') void document.exitFullscreen().catch(() => undefined);
+    };
+  }, [showing]);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const activeReport = reports.find((r) => r.id === openId) ?? null;
@@ -302,14 +444,14 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
 
   let thumbCursor = 0;
   return (
-    <div className={`vzf vzf-cockpit-root${props.className ? ' ' + props.className : ''}`} style={style} data-theme={themeAttr(theme)}>
+    <div className={`vzf vzf-cockpit-root${showing ? ' vzf-slideshow' : ''}${props.className ? ' ' + props.className : ''}`} style={style} data-theme={themeAttr(theme)} data-slideshow={showing ? 'true' : undefined}>
       <div className={`vzf-cockpit${readOnly ? ' vzf-readonly' : ''}`} data-vzf="cockpit" data-readonly={readOnly ? 'true' : 'false'}>
         {readOnly && (
           <div className="vzf-readonly-note" role="status">
             {props.readOnlyNote ?? '👁 Present mode — acting is paused; navigate the story beats. Switch to Explore to act.'}
           </div>
         )}
-        {(props.top !== undefined || switcher !== null) && (
+        {(props.top !== undefined || switcher !== null || (props.menu !== undefined && props.menu.length > 0)) && (
           <div className="vzf-cockpit-top" data-vzf="cockpit-top">
             {props.top !== undefined && (
               <div className="vzf-cockpit-top-main" data-vzf="cockpit-top-main">
@@ -317,6 +459,62 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
               </div>
             )}
             {switcher}
+            {props.menu !== undefined && props.menu.length > 0 && (
+              <div className="vzf-cockpit-menu" ref={menuRef} data-vzf="cockpit-menu">
+                <button type="button" ref={menuButtonRef} className="vzf-menu-button" aria-haspopup="menu" aria-expanded={menuOpen} aria-controls="vzf-cockpit-menu-list" aria-label="Dashboard menu" onClick={() => setMenuOpen((o) => !o)}>
+                  ☰
+                </button>
+                {menuOpen && (
+                  <div className="vzf-menu-list" id="vzf-cockpit-menu-list" ref={menuListRef} role="menu" aria-label="Dashboard menu">
+                    {props.menu.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        role="menuitem"
+                        className="vzf-menu-item"
+                        data-menu-item={item.id}
+                        aria-disabled={item.disabled === true ? 'true' : undefined}
+                        onClick={() => {
+                          if (item.disabled === true) return; // a disabled item stays readable and focusable; it does nothing
+                          closeMenu();
+                          item.onSelect();
+                        }}
+                      >
+                        {item.icon !== undefined && (
+                          <span className="vzf-menu-icon" aria-hidden="true">
+                            {item.icon}
+                          </span>
+                        )}
+                        <span className="vzf-menu-label">{item.label}</span>
+                        {item.hint !== undefined && <span className="vzf-menu-hint">{item.hint}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        {showing && show !== undefined && (
+          <div className="vzf-slide-bar" data-vzf="slide-bar" role="toolbar" aria-label="slideshow">
+            <div className="vzf-step-group" role="group" aria-label="beats">
+              <button type="button" className="vzf-btn" data-slide="prev" disabled={show.index <= 0} onClick={show.onPrev} aria-label="previous beat">
+                ⟵
+              </button>
+              <button type="button" className="vzf-btn" data-slide="next" disabled={show.index >= show.count - 1} onClick={show.onNext} aria-label="next beat">
+                ⟶
+              </button>
+            </div>
+            <div className="vzf-slide-words">
+              <span className="vzf-slide-count">
+                {show.index + 1} of {show.count}
+              </span>
+              <span className="vzf-slide-title">{show.title}</span>
+              {show.words !== undefined && <span className="vzf-slide-caption">{show.words}</span>}
+            </div>
+            <button type="button" className="vzf-btn" data-slide="exit" onClick={show.onExit} aria-label="leave the slideshow">
+              ✕
+            </button>
           </div>
         )}
 
@@ -352,6 +550,11 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
                   >
                     ⠿
                   </div>
+                )}
+                {c.onEdit !== undefined && !readOnly && (
+                  <button type="button" className="vzf-cell-edit" data-vzf="cell-edit" aria-label={`Edit ${c.id}`} title="Edit this chart" onClick={c.onEdit}>
+                    ✎
+                  </button>
                 )}
                 <ChartFrame>{c.render}</ChartFrame>
                 {c.onClear !== undefined && c.active === true && (

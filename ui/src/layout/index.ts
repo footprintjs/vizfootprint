@@ -1,5 +1,5 @@
 export { VizCockpit, orderCharts, reorderIds } from './VizCockpit.js';
-export type { VizCockpitProps, CockpitChart, CockpitReport, CockpitAside } from './VizCockpit.js';
+export type { VizCockpitProps, CockpitChart, CockpitReport, CockpitAside, CockpitMenuItem, CockpitSlideshow } from './VizCockpit.js';
 export { useLayoutMorph } from './layoutMorph.js';
 export { VizModal } from './VizModal.js';
 export type { VizModalProps } from './VizModal.js';
