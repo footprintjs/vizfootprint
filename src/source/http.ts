@@ -1,8 +1,8 @@
 /**
  * The http carrier — a URL fetched by THIS process (browser or node). Its own
  * module, like the file carrier: the barrel never assumes a network. The
- * version is what the server vouches for (an ETag, else Last-Modified), else
- * a hash of the bytes. Every way a request can fail has a name from the
+ * version is what the server vouches for (an ETag exactly as sent, weak marker
+ * and quotes included, else Last-Modified), else a hash of the bytes. Every way a request can fail has a name from the
  * closed vocabulary: cancelled (the caller's signal), timeout (no answer in
  * time), disconnected (no connection), unauthorized (401/403), unavailable
  * (any other non-2xx, or a 2xx with an empty body), too-large (over the byte
@@ -11,7 +11,7 @@
 import { decodeRows } from './decode.js';
 import { fnv1a } from './hash.js';
 import { SourceRefusal, isSourceRefusal } from './types.js';
-import type { SourceAdapter, SourceDecl, SourceSnapshot } from './types.js';
+import type { SourceAdapter, SourceDecl, SourceSnapshot, SourceUnchanged } from './types.js';
 
 export interface HttpSourceOptions {
   /** The fetch to use (a host may pass a wrapped one); default = the global fetch, read at call time. */
@@ -25,6 +25,16 @@ export interface HttpSourceOptions {
    * byte is read; when the server declares nothing, a diagnostic on what arrived (UTF-16 units, after the read). Default 64 MiB.
    */
   readonly maxBytes?: number;
+}
+
+/**
+ * The validator to send back: the entity-tag exactly as received (RFC 9110 §13.1.2 —
+ * If-None-Match compares weakly, so a weak `W/"x"` goes back weak; the version keeps
+ * the quotes and the marker, so a CDN that flips weakness yields a different version,
+ * which is the honest answer, not a spurious "unchanged").
+ */
+function etagHeader(stored: string): string {
+  return stored;
 }
 
 /** Release a body we will not read. Cleanup never changes the diagnosis: a cancel that rejects is swallowed. */
@@ -48,7 +58,7 @@ export function httpSource(options: HttpSourceOptions = {}): SourceAdapter {
       const refuse = (reason: SourceRefusal['reason'], detail: string): SourceRefusal => new SourceRefusal(reason, `${where}: ${detail}`, table, 'http');
       return {
         capabilities: { live: false, pushdown: false },
-        snapshot: async (opts): Promise<SourceSnapshot> => {
+        snapshot: async (opts): Promise<SourceSnapshot | SourceUnchanged> => {
           // a missing runtime fetch is a missing carrier, not a network fault
           const doFetch = options.fetch ?? globalThis.fetch;
           if (typeof doFetch !== 'function') throw refuse('no-adapter', 'no-adapter — this runtime has no fetch; pass one in httpSource({ fetch })');
@@ -61,7 +71,15 @@ export function httpSource(options: HttpSourceOptions = {}): SourceAdapter {
           let res: Response;
           try {
             // the whole answer — headers and body — sits under the timeout and the caller's signal
-            res = await doFetch(at, { ...(options.headers ? { headers: options.headers } : {}), signal: controller.signal });
+            // a conditional read: the version the caller holds becomes the validator the server understands
+            const since = opts?.sinceVersion;
+            const conditional: Record<string, string> =
+              since === undefined ? {} : since.startsWith('etag:') ? { 'if-none-match': etagHeader(since.slice('etag:'.length)) } : since.startsWith('last-modified:') ? { 'if-modified-since': since.slice('last-modified:'.length) } : {};
+            res = await doFetch(at, { headers: { ...(options.headers ?? {}), ...conditional }, signal: controller.signal });
+            if (res.status === 304 && since !== undefined) {
+              await drain(res);
+              return { unchanged: true, version: since };
+            }
             if (res.status === 401 || res.status === 403) {
               await drain(res);
               throw refuse('unauthorized', `unauthorized (${String(res.status)})`);
@@ -88,6 +106,11 @@ export function httpSource(options: HttpSourceOptions = {}): SourceAdapter {
           // the place answered without data — the zero-becomes-absence class, refused by name
           if (text.length === 0) throw refuse('unavailable', `unavailable (${String(res.status)} with an empty body)`);
           if (text.length > maxBytes) throw refuse('too-large', `too-large — ${String(text.length)} UTF-16 units arrived (the server declared no length), the cap is ${String(maxBytes)}`);
+          const etag = res.headers.get('etag');
+          const lastModified = res.headers.get('last-modified');
+          const version = etag !== null ? `etag:${etag.trim()}` : lastModified !== null ? `last-modified:${lastModified}` : `hash:${fnv1a(text)}`;
+          // a server that vouches for nothing: the hash decides the conditional read after the read (the bytes moved, the decode is saved)
+          if (opts?.sinceVersion !== undefined && opts.sinceVersion === version) return { unchanged: true, version };
           let payload: unknown = text;
           if (decl.format === 'rows') {
             try {
@@ -98,10 +121,6 @@ export function httpSource(options: HttpSourceOptions = {}): SourceAdapter {
           }
           const rows = decodeRows(decl.format, payload, decl.options);
           if ('rejected' in rows) throw refuse('malformed', rows.rejected);
-          const etag = res.headers.get('etag');
-          const lastModified = res.headers.get('last-modified');
-          // a weak validator stays weak: `W/` claims only semantic equivalence, and a version is a byte identity
-          const version = etag !== null ? `etag:${etag.trim().replace(/"/g, '')}` : lastModified !== null ? `last-modified:${lastModified}` : `hash:${fnv1a(text)}`;
           return { rows, version, retrievedAt: new Date().toISOString() };
         },
         close: async () => {},

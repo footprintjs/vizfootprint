@@ -81,6 +81,13 @@ export interface CommitRecord {
   cause: Cause;
   /** Authoring timestamp (logical ok; not load-bearing). */
   ts: number;
+  /**
+   * The DATA this commit was true of: table → the source version the engine
+   * held when it landed (absent for tables declared inline, which never move).
+   * A replay against another version is labelled by comparing this, never
+   * silently re-answered.
+   */
+  data?: Readonly<Record<string, string>>;
 }
 
 /** Input to author one commit. `cause` is validated before anything is built. */
@@ -97,6 +104,8 @@ export interface CommitInput {
   /** REQUIRED for kind:'cell' (commit() refuses a cell without its pair); ignored otherwise. */
   fields?: readonly [string, string];
   cause: Cause;
+  /** The data versions this commit is true of; absent = ask the log's `stampData` hook, if any. */
+  data?: Readonly<Record<string, string>>;
   /** Defaults to [viewId] — a view excludes only its own clause. */
   clientViewIds?: string[];
   ts?: number;
@@ -111,6 +120,8 @@ export class CauseSelectionSession {
   readonly selection: Selection;
   readonly registry: SourceRegistry;
   readonly records: CommitRecord[] = [];
+  /** Set by the session: the data versions to stamp on every commit that names none (table → version). */
+  stampData?: () => Readonly<Record<string, string>> | undefined;
 
   constructor(selection = Selection.crossfilter(), registry = new SourceRegistry()) {
     this.selection = selection;
@@ -146,6 +157,7 @@ export class CauseSelectionSession {
     const clause = causeClause(spec);
     this.selection.update(clause);
 
+    const data = input.data ?? this.stampData?.();
     const record: CommitRecord = {
       id: input.id,
       parent: input.parent,
@@ -160,6 +172,7 @@ export class CauseSelectionSession {
       predicateSQL: String(clause.predicate),
       cause,
       ts: input.ts ?? this.records.length,
+      ...(data !== undefined && Object.keys(data).length > 0 && { data }),
     };
     // R8, enforced by construction: once a commit lands, it cannot be edited
     // in place. Only `commit()` ever grows `records` (always via push, never
@@ -219,6 +232,8 @@ export function replayLog(
       value: rec.value,
       // D30: a cell record's authoritative field pair replays verbatim.
       ...(rec.fields !== undefined && { fields: rec.fields }),
+      // the data a commit was true of is provenance: it replays verbatim (commit() prefers an explicit `data` over the hook)
+      ...(rec.data !== undefined && { data: rec.data }),
       clientViewIds: rec.clientViewIds,
       cause: markReplayed(rec.cause), // R2: additive replay marker
       ts: rec.ts,

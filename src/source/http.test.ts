@@ -11,6 +11,13 @@ import { isSourceRefusal, openSource, SourceRefusal, SOURCE_REFUSALS, CAPABILITY
 import { fileSource } from './file.js';
 import { buildDashboardAsync } from '../def/index.js';
 import { makeDashboardDef } from '../session/dashboard.fixture.js';
+import type { SourceSnapshot, SourceUnchanged } from './types.js';
+/** A first read never answers "unchanged"; the tests read the snapshot's rows and version. */
+function full(s: SourceSnapshot | SourceUnchanged): SourceSnapshot {
+  if ('unchanged' in s) throw new Error('unexpected unchanged');
+  return s;
+}
+
 
 let server: Server;
 let base = '';
@@ -18,6 +25,11 @@ beforeAll(async () => {
   server = createServer((req, res) => {
     const url = req.url ?? '/';
     if (url === '/cells.csv') {
+      if (req.headers['if-none-match'] === 'W/"abc123"') {
+        res.writeHead(304, { etag: 'W/"abc123"' });
+        res.end();
+        return;
+      }
       res.writeHead(200, { 'content-type': 'text/csv', etag: 'W/"abc123"' });
       res.end('state,cases\nOhio,3\nIowa,\n');
     } else if (url === '/rows.json') {
@@ -81,15 +93,15 @@ const reasonOf = async (p: Promise<unknown>): Promise<string> => {
 describe('httpSource', () => {
   it('reads CSV and keeps the ETag as the version; a JSON list; last-modified; a hash when the server vouches for nothing', async () => {
     const http = httpSource();
-    const csv = await (await http.open({ format: 'csv', via: 'http', at: `${base}/cells.csv` }, { table: 'cells' })).snapshot();
+    const csv = await (await http.open({ format: 'csv', via: 'http', at: `${base}/cells.csv` }, { table: 'cells' })).snapshot().then(full);
     expect(csv.rows).toEqual([{ state: 'Ohio', cases: 3 }, { state: 'Iowa', cases: null }]);
-    expect(csv.version).toBe('etag:W/abc123'); // a weak validator stays weak
-    const list = await (await http.open({ format: 'rows', via: 'http', at: `${base}/rows.json` }, { table: 'r' })).snapshot();
+    expect(csv.version).toBe('etag:W/"abc123"'); // the validator exactly as sent — weak marker and quotes
+    const list = await (await http.open({ format: 'rows', via: 'http', at: `${base}/rows.json` }, { table: 'r' })).snapshot().then(full);
     expect(list.rows).toEqual([{ a: 1 }, { a: 2 }]);
     expect(list.version).toBe('last-modified:Tue, 02 Sep 2026 10:00:00 GMT');
     const h = await http.open({ format: 'json', via: 'http', at: `${base}/plain.json` }, { table: 'p' });
     expect(h.capabilities).toEqual({ live: false, pushdown: false });
-    const plain = await h.snapshot();
+    const plain = await h.snapshot().then(full);
     expect(plain.rows).toEqual([{ a: 1 }]);
     expect(plain.version).toMatch(/^hash:[0-9a-f]{8}$/);
     expect(typeof plain.retrievedAt).toBe('string');
@@ -98,15 +110,15 @@ describe('httpSource', () => {
   it('names every refusal: malformed locator, unauthorized, unavailable, malformed payloads', async () => {
     const http = httpSource();
     expect(await reasonOf(http.open({ format: 'csv', via: 'http', at: 'ftp://x' }, { table: 'x' }))).toBe('malformed: table "x" http source: `at` must be an http(s) URL');
-    expect(await reasonOf((await http.open({ format: 'csv', via: 'http', at: `${base}/private` }, { table: 'x' })).snapshot())).toBe(`unauthorized: table "x" http source ${base}/private: unauthorized (401)`);
-    expect(await reasonOf((await http.open({ format: 'csv', via: 'http', at: `${base}/missing` }, { table: 'x' })).snapshot())).toBe(`unavailable: table "x" http source ${base}/missing: unavailable (404)`);
-    expect(await reasonOf((await http.open({ format: 'rows', via: 'http', at: `${base}/not-json.rows` }, { table: 'x' })).snapshot())).toContain('malformed: table "x" http source');
-    expect(await reasonOf((await http.open({ format: 'rows', via: 'http', at: `${base}/bad.rows` }, { table: 'x' })).snapshot())).toContain('malformed: ');
+    expect(await reasonOf((await http.open({ format: 'csv', via: 'http', at: `${base}/private` }, { table: 'x' })).snapshot().then(full))).toBe(`unauthorized: table "x" http source ${base}/private: unauthorized (401)`);
+    expect(await reasonOf((await http.open({ format: 'csv', via: 'http', at: `${base}/missing` }, { table: 'x' })).snapshot().then(full))).toBe(`unavailable: table "x" http source ${base}/missing: unavailable (404)`);
+    expect(await reasonOf((await http.open({ format: 'rows', via: 'http', at: `${base}/not-json.rows` }, { table: 'x' })).snapshot().then(full))).toContain('malformed: table "x" http source');
+    expect(await reasonOf((await http.open({ format: 'rows', via: 'http', at: `${base}/bad.rows` }, { table: 'x' })).snapshot().then(full))).toContain('malformed: ');
   });
   it('names the time refusals: disconnected, timeout, cancelled', async () => {
     const http = httpSource({ timeoutMs: 100, headers: { accept: 'text/csv' } });
-    expect(await reasonOf((await http.open({ format: 'csv', via: 'http', at: 'http://127.0.0.1:1/x' }, { table: 'x' })).snapshot())).toMatch(/^disconnected: table "x" http source http:\/\/127\.0\.0\.1:1\/x: disconnected — /);
-    expect(await reasonOf((await http.open({ format: 'csv', via: 'http', at: `${base}/slow` }, { table: 'x' })).snapshot())).toBe(`timeout: table "x" http source ${base}/slow: timeout — no answer within 100 ms`);
+    expect(await reasonOf((await http.open({ format: 'csv', via: 'http', at: 'http://127.0.0.1:1/x' }, { table: 'x' })).snapshot().then(full))).toMatch(/^disconnected: table "x" http source http:\/\/127\.0\.0\.1:1\/x: disconnected — /);
+    expect(await reasonOf((await http.open({ format: 'csv', via: 'http', at: `${base}/slow` }, { table: 'x' })).snapshot().then(full))).toBe(`timeout: table "x" http source ${base}/slow: timeout — no answer within 100 ms`);
     const slow = await httpSource({ timeoutMs: 5000 }).open({ format: 'csv', via: 'http', at: `${base}/slow` }, { table: 'x' });
     const controller = new AbortController();
     const pending = reasonOf(slow.snapshot({ signal: controller.signal }));
@@ -116,27 +128,27 @@ describe('httpSource', () => {
   });
   it('the body phase is under the guard: a slow body times out, an abort during the body cancels, an empty 2xx is unavailable, a big body is too-large', async () => {
     const quick = httpSource({ timeoutMs: 100 });
-    expect(await reasonOf((await quick.open({ format: 'csv', via: 'http', at: `${base}/slow-body` }, { table: 'x' })).snapshot())).toBe(`timeout: table "x" http source ${base}/slow-body: timeout — no answer within 100 ms`);
+    expect(await reasonOf((await quick.open({ format: 'csv', via: 'http', at: `${base}/slow-body` }, { table: 'x' })).snapshot().then(full))).toBe(`timeout: table "x" http source ${base}/slow-body: timeout — no answer within 100 ms`);
     const h = await httpSource({ timeoutMs: 5000 }).open({ format: 'csv', via: 'http', at: `${base}/slow-body` }, { table: 'x' });
     const controller = new AbortController();
     const pending = reasonOf(h.snapshot({ signal: controller.signal }));
     setTimeout(() => controller.abort(), 50);
     expect(await pending).toBe(`cancelled: table "x" http source ${base}/slow-body: cancelled — the request was aborted`);
-    expect(await reasonOf((await httpSource().open({ format: 'csv', via: 'http', at: `${base}/empty` }, { table: 'x' })).snapshot())).toBe(`unavailable: table "x" http source ${base}/empty: unavailable (204 with an empty body)`);
-    expect(await reasonOf((await httpSource().open({ format: 'csv', via: 'http', at: `${base}/empty-200` }, { table: 'x' })).snapshot())).toBe(`unavailable: table "x" http source ${base}/empty-200: unavailable (200 with an empty body)`);
-    expect(await reasonOf((await httpSource().open({ format: 'csv', via: 'http', at: `${base}/big` }, { table: 'x' })).snapshot())).toBe(`too-large: table "x" http source ${base}/big: too-large — the server declares 999999999 bytes, the cap is 67108864`);
-    expect(await reasonOf((await httpSource({ maxBytes: 100 }).open({ format: 'csv', via: 'http', at: `${base}/wide` }, { table: 'x' })).snapshot())).toMatch(/^too-large: .*: too-large — \d+ UTF-16 units arrived \(the server declared no length\), the cap is 100$/);
+    expect(await reasonOf((await httpSource().open({ format: 'csv', via: 'http', at: `${base}/empty` }, { table: 'x' })).snapshot().then(full))).toBe(`unavailable: table "x" http source ${base}/empty: unavailable (204 with an empty body)`);
+    expect(await reasonOf((await httpSource().open({ format: 'csv', via: 'http', at: `${base}/empty-200` }, { table: 'x' })).snapshot().then(full))).toBe(`unavailable: table "x" http source ${base}/empty-200: unavailable (200 with an empty body)`);
+    expect(await reasonOf((await httpSource().open({ format: 'csv', via: 'http', at: `${base}/big` }, { table: 'x' })).snapshot().then(full))).toBe(`too-large: table "x" http source ${base}/big: too-large — the server declares 999999999 bytes, the cap is 67108864`);
+    expect(await reasonOf((await httpSource({ maxBytes: 100 }).open({ format: 'csv', via: 'http', at: `${base}/wide` }, { table: 'x' })).snapshot().then(full))).toMatch(/^too-large: .*: too-large — \d+ UTF-16 units arrived \(the server declared no length\), the cap is 100$/);
   });
   it('no fetch in the runtime is a missing carrier, read at call time', async () => {
     const h = await httpSource().open({ format: 'csv', via: 'http', at: `${base}/cells.csv` }, { table: 'x' });
     const real = globalThis.fetch;
     (globalThis as { fetch?: typeof fetch }).fetch = undefined;
     try {
-      expect(await reasonOf(h.snapshot())).toBe(`no-adapter: table "x" http source ${base}/cells.csv: no-adapter — this runtime has no fetch; pass one in httpSource({ fetch })`);
+      expect(await reasonOf(h.snapshot().then(full))).toBe(`no-adapter: table "x" http source ${base}/cells.csv: no-adapter — this runtime has no fetch; pass one in httpSource({ fetch })`);
     } finally {
       globalThis.fetch = real;
     }
-    expect((await h.snapshot()).rows).toHaveLength(2); // the global is read at call time, so restoring it is enough
+    expect((await h.snapshot().then(full)).rows).toHaveLength(2); // the global is read at call time, so restoring it is enough
   });
   it('the vocabulary is closed and the capabilities name their refusal; a refusal is an Error with a name, survives JSON and a foreign copy', () => {
     expect(SOURCE_REFUSALS).toEqual(['no-adapter', 'malformed', 'unavailable', 'unauthorized', 'disconnected', 'timeout', 'cancelled', 'too-large', 'no-live', 'no-pushdown']);
@@ -158,6 +170,22 @@ describe('httpSource', () => {
     const sources = (await ok.createSession().overview()).sources;
     expect(sources['data']).toMatchObject({ format: 'rows', via: 'http', at: `${base}/rows.json`, version: 'last-modified:Tue, 02 Sep 2026 10:00:00 GMT', rows: 2 });
     expect(await reasonOf(openSource({ format: 'csv', via: 'http', at: `${base}/cells.csv` }, 't'))).toContain('no-adapter: ');
-    expect(await reasonOf(openSource({ format: 'csv', via: 'file', at: '/nowhere/at/all.csv' }, 't', [fileSource]).then((h) => h.snapshot()))).toBe('unavailable: table "t" file source /nowhere/at/all.csv: unavailable — ENOENT');
+    expect(await reasonOf(openSource({ format: 'csv', via: 'file', at: '/nowhere/at/all.csv' }, 't', [fileSource]).then((h) => h.snapshot().then(full)))).toBe('unavailable: table "t" file source /nowhere/at/all.csv: unavailable — ENOENT');
+  });
+});
+
+describe('conditional reads', () => {
+  it('a held ETag becomes If-None-Match and a 304 is unchanged; a server that vouches for nothing is compared by hash after the read', async () => {
+    const http = httpSource();
+    const h = await http.open({ format: 'csv', via: 'http', at: `${base}/cells.csv` }, { table: 'cells' });
+    const first = full(await h.snapshot());
+    expect(await h.snapshot({ sinceVersion: first.version })).toEqual({ unchanged: true, version: 'etag:W/"abc123"' });
+    expect(full(await h.snapshot({ sinceVersion: 'etag:other' })).rows).toHaveLength(2);
+    const p = await http.open({ format: 'json', via: 'http', at: `${base}/plain.json` }, { table: 'p' });
+    const v = full(await p.snapshot()).version;
+    expect(await p.snapshot({ sinceVersion: v })).toEqual({ unchanged: true, version: v });
+    expect(full(await p.snapshot({ sinceVersion: 'hash:00000000' })).rows).toEqual([{ a: 1 }]);
+    const lm = await http.open({ format: 'rows', via: 'http', at: `${base}/rows.json` }, { table: 'r' });
+    expect(full(await lm.snapshot({ sinceVersion: 'last-modified:Mon, 01 Sep 2026 00:00:00 GMT' })).rows).toHaveLength(2); // the server here never answers 304 to If-Modified-Since
   });
 });

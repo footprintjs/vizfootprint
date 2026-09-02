@@ -68,6 +68,11 @@ export function CommitLog(props: CommitLogProps): JSX.Element {
           >
             <span className={`vzf-badge vzf-${c.actor}`}>{c.actor}</span>
             <span className={`vzf-family vzf-family-${familyOfCommit(c)}`} title="commit family">{familyOfCommit(c)}</span>
+            {c.dataMoved === true && c.moved !== undefined ? (
+              <span className="vzf-data-moved" title={`the data has moved since: ${c.moved.map((m) => `${m.table} was ${m.from}, now ${m.to}`).join('; ')}`}>
+                data moved
+              </span>
+            ) : null}
             <span className="vzf-mono vzf-soft" style={{ fontSize: '0.72em' }}>
               {c.kind}
             </span>

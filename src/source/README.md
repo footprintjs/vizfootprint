@@ -38,6 +38,14 @@ Every way a source can fail has one name from a closed vocabulary, `SOURCE_REFUS
 
 `overview().sources` carries each declared table's `SourceInfo` (format, via, locator, version, retrieval time, row count), so `whats_here` and a cockpit can say what the data is and when it was read.
 
+## A row key, a conditional read, a refresh with a delta, a stamp on every commit
+
+- **`data[t].key`** names the row identity column. With it a refresh says exactly what was added, updated and removed (`deltaByKey`); without it a refreshed table is **replaced** and nothing is guessed — the no-row-key law. A key that names an undeclared column is refused at the def door.
+- **`snapshot({ sinceVersion })`** is a conditional read: the file carrier answers by a stat (mtime and size), the http carrier by `If-None-Match` / `If-Modified-Since` (a 304 is `{ unchanged }`) or, when the server vouches for nothing, by comparing the hash after the read; the inline carrier by its own version.
+- **`dashboard.refresh(tables?)`** (the async builder) re-reads every declared source with the version held: unchanged moves nothing; changed replaces the table's rows in place — every session sees them on its next query — and reports `{ from, to, rows, delta }`; a carrier's refusal is reported by its reason, never thrown. Columns an analysis materialised on a replaced table are gone with the old rows: re-run the analysis. A synchronous dashboard answers unchanged for its inline sources.
+- **The http version's spelling changed in Round 5**: an ETag is kept exactly as the server sent it (`etag:W/"abc123"`, marker and quotes), where an earlier build stripped both. A version persisted before that — a stored `SourceInfo`, an old commit stamp — no longer compares equal, so the first refresh after the change reports `changed` once on an unmoved resource, and commits stamped with the old spelling read as moved. One-time, and honest: the bytes were never compared, the spelling was.
+- **Every commit carries `data`**: table → the version the engine held when it landed, for tables with a source. The ui marks a commit whose table has since moved (`dataMoved`), so a number it shows is never mistaken for reproducible; a replay against another version is labelled, not silently re-answered.
+
 ## Not yet
 
 the streaming carrier (`snapshot(options)` already takes an abort signal; a conditional read `sinceVersion` and a delta channel gated by `live` arrive with it), the row key and the version stamp on commits, snapshot plus delta, and a package `exports` map (`./source`, `./source/file`) — today the library is consumed by path, so a host imports the file carrier from `src/source/file`.

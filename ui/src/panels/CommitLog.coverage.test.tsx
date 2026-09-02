@@ -88,3 +88,21 @@ describe('CommitLog — a link commit reads as its edge', () => {
     expect(container.querySelector('.vzf-chip-body')?.textContent).toBe('map point → bar: highlight');
   });
 });
+
+describe('a commit true of data that has moved', () => {
+  it('shows a "data moved" mark naming the versions it was true of; a current commit shows none', () => {
+    const base = { parent: null, viewId: 'bar', kind: 'point' as const, field: 'category', actor: 'user' as const, label: 'category', onBranch: true, isCursor: false, isHead: false };
+    const { container } = render(
+      <CommitLog
+        commits={[
+          { ...base, id: 'c1', value: 'Formal', data: { cells: 'mtime:1;size:2' }, dataMoved: true, moved: [{ table: 'cells', from: 'mtime:1;size:2', to: 'mtime:3;size:4' }] },
+          { ...base, id: 'c2', value: 'Work', data: { cells: 'mtime:3;size:4' }, dataMoved: false },
+        ]}
+      />,
+    );
+    const marks = container.querySelectorAll('.vzf-data-moved');
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.textContent).toBe('data moved');
+    expect(marks[0]!.getAttribute('title')).toBe('the data has moved since: cells was mtime:1;size:2, now mtime:3;size:4');
+  });
+});

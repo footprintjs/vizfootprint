@@ -701,6 +701,8 @@ export interface Overview {
   readonly sources: Readonly<Record<string, SourceInfo>>;
   /** How many rows of the default table the live selection keeps — counted by the engine in one query, no row materialised; `null` when the engine could not answer (never a fake 0). */
   readonly selectedRowCount: number | null;
+  /** The declared row key per table — with one a refresh's delta is exact; without, a refreshed table is replaced. */
+  readonly keys: Readonly<Record<string, string>>;
   readonly analyses: readonly AnalysisReadiness[];
   readonly fdr: FdrSummary;
   readonly columns: Readonly<Record<string, readonly ColumnFacet[]>>;

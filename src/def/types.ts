@@ -169,6 +169,12 @@ export interface DataSourceDef {
    * short way. A non-inline source needs `buildDashboardAsync`.
    */
   readonly source?: SourceDecl;
+  /**
+   * The row identity column, if the table has one. With it a refresh can say
+   * what was added, updated and removed; without it a refreshed table is
+   * "replaced" and nothing is guessed (the no-row-key law).
+   */
+  readonly key?: string;
 }
 
 /**
@@ -366,6 +372,8 @@ export interface DashboardRuntime {
   readonly sources: Readonly<Record<string, SourceInfo>>;
   /** Build notes a def should hear: e.g. `engine: 'auto'` resolved to memory because the thresholds are unmeasured. */
   readonly notes: readonly string[];
+  /** The declared row key per table (absent = positional rows, no delta). */
+  readonly keys: Readonly<Record<string, string>>;
   makeFdrStepper(): FdrStepper;
   readonly fdrProcedure: 'LORD++' | 'alpha-investing';
   readonly fdrAlpha: number;

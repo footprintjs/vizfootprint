@@ -311,6 +311,10 @@ export function validateDashboardDef(def: unknown): string[] {
         // a source table is materialised in memory; another engine beside it would be silently overridden
         if (src.engine !== undefined && src.engine !== 'memory') problems.push(`data["${table}"] sets engine "${String(src.engine)}" with a source; a source table is materialised in memory — remove the engine key`);
       }
+      if (src.key !== undefined) {
+        if (typeof src.key !== 'string' || src.key.length === 0) problems.push(`data["${table}"].key must be a column name`);
+        else if (isObject(src.columns) && !(src.key in src.columns)) problems.push(`data["${table}"].key "${src.key}" is not a declared column`);
+      }
       if (hasRows && !Array.isArray(src.rows)) problems.push(`data["${table}"].rows must be an array`);
       if (hasCsv && typeof src.csv !== 'string') problems.push(`data["${table}"].csv must be a string`);
       if (src.engine !== undefined && !ENGINES.has(src.engine as string)) {

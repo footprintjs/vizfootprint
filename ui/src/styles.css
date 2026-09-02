@@ -2194,3 +2194,6 @@
 .vzf-saved-view, .vzf-saved-words { opacity: .75; }
 .vzf-saved-badge { font-size: 11px; opacity: .7; }
 .vzf-saved-apply, .vzf-selchip-save { font: inherit; font-size: 11px; border: 1px solid rgba(0,0,0,.2); border-radius: 999px; background: transparent; padding: 0 6px; cursor: pointer; }
+
+/* a commit true of a data version the table has since left */
+.vzf-data-moved { font-size: 10.5px; margin-left: 6px; padding: 0 5px; border-radius: 999px; background: rgba(168,102,26,.14); color: #a8661a; }

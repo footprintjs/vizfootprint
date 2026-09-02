@@ -510,6 +510,13 @@ class InteractionSessionImpl implements InteractionSession {
     this.runtime = runtime;
     this.defaultActor = opts.as ?? 'agent';
     this.defaultTable = opts.defaultTable ?? runtime.defaultTable;
+    // every commit says which data it was true of: the version the default table's source vouched for at that
+    // moment (the table selections, filters and analyses act on) — never every table, so an unrelated refresh
+    // does not mark every commit as moved
+    this.log.stampData = () => {
+      const info = this.runtime.sources[this.defaultTable];
+      return info === undefined ? undefined : { [this.defaultTable]: info.version };
+    };
     this.fdrStepper = runtime.makeFdrStepper();
     // Initial alpha-wealth W0 for the summary before any test lands.
     const fdr = runtime.def.fdr;
@@ -2641,6 +2648,7 @@ class InteractionSessionImpl implements InteractionSession {
       clearedSelections,
       offers,
       sources: this.runtime.sources,
+      keys: this.runtime.keys,
       selectedRowCount: selCount,
       analyses,
       fdr: {

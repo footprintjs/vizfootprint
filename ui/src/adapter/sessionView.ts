@@ -182,6 +182,8 @@ export interface RawPollPaths {
   readonly events?: readonly PathEventView[];
 }
 interface RawPollCommit {
+  /** The data versions this commit was true of (table → version), when the tables declare sources. */
+  readonly data?: Readonly<Record<string, string>>;
   readonly id: string;
   readonly parent: string | null;
   readonly viewId: string;
@@ -269,6 +271,8 @@ const DEFAULT_ENDPOINTS: PollEndpoints = {
 // ── shared normalization ───────────────────────────────────────────────────────
 
 interface RawCommit {
+  /** The data versions this commit was true of (table → version), when the tables declare sources. */
+  readonly data?: Readonly<Record<string, string>>;
   id: string;
   parent: string | null;
   viewId: string;
@@ -334,6 +338,7 @@ interface StatePieces {
 function finalize(p: StatePieces): SessionViewState {
   const active = activePath(p.rawCommits, p.head);
   const commits: CommitView[] = p.rawCommits.map((c) => ({
+    ...movedSince(c.data, p.sources),
     id: c.id,
     parent: c.parent,
     viewId: c.viewId,
@@ -346,6 +351,7 @@ function finalize(p: StatePieces): SessionViewState {
     correlationId: c.correlationId,
     replayedFrom: c.replayedFrom,
     revertOf: c.revertOf,
+    ...(c.data !== undefined ? { data: c.data } : {}),
     conflicts: c.conflicts,
     label: commitLabel(c.field, c.viewId),
     family: familyOf({ viewId: c.viewId }),
@@ -554,6 +560,26 @@ function mapLinks(raw: unknown): LinkGraphView | undefined {
   return { default: g.default, views: g.views as LinkGraphView['views'], edges: g.edges as LinkGraphView['edges'] };
 }
 
+/** A commit true of a data version the table has since left is marked, so a number it shows is not mistaken for reproducible. */
+function movedSince(data: Readonly<Record<string, string>> | undefined, sources: Readonly<Record<string, SourceInfoView>> | undefined): Pick<CommitView, 'dataMoved' | 'moved'> {
+  if (data === undefined || sources === undefined) return {};
+  const moved = Object.entries(data).flatMap(([table, from]) => (sources[table] !== undefined && sources[table].version !== from ? [{ table, from, to: sources[table].version }] : []));
+  return { dataMoved: moved.length > 0, ...(moved.length > 0 ? { moved } : {}) };
+}
+
+/** The stamp as a spread: `{ data }` when the wire carries a well-formed one, else nothing. */
+function stampOf(raw: unknown): { readonly data?: Readonly<Record<string, string>> } {
+  const stamp = mapStamp(raw);
+  return stamp === undefined ? {} : { data: stamp };
+}
+
+/** The stamp as the wire carries it: a table → version map of strings, or nothing. */
+function mapStamp(raw: unknown): Readonly<Record<string, string>> | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
+  const entries = Object.entries(raw as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string');
+  return entries.length === 0 ? undefined : Object.fromEntries(entries);
+}
+
 /** Provenance rows as the wire carries them; a malformed row is dropped rather than shown as a fact. */
 function mapSources(raw: unknown): Readonly<Record<string, SourceInfoView>> | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
@@ -756,6 +782,7 @@ async function mapSession(session: SessionLike, defaultLayout?: LayoutPreset): P
     correlationId: r.correlationId,
     replayedFrom: r.cause?.replayedFrom,
     revertOf: r.cause?.revertOf,
+    ...stampOf(r.data),
     conflicts: r.cause?.conflicts,
   }));
   const views = mapViews(overview.views);
@@ -807,6 +834,7 @@ export function mapPollState(raw: RawPollState, defaultLayout?: LayoutPreset): S
     correlationId: r.correlationId,
     replayedFrom: r.cause?.replayedFrom,
     revertOf: r.cause?.revertOf,
+    ...stampOf(r.data),
     conflicts: r.cause?.conflicts,
   }));
   const views = mapViews(raw.views);

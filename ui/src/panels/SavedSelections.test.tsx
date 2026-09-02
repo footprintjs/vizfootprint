@@ -29,15 +29,16 @@ const state = mapPollState({
   ],
   activeSelections: [{ viewId: 'map', field: 'region', kind: 'match', value: { values: ['Ohio', 'Iowa'] }, commitId: 's2' }],
 });
+const saved = state.saved ?? [];
 
 describe('savedSelectionsOf', () => {
   it('newest note first, one per selection commit (the latest note names it); cleared, ghost, loose and beat notes are not saved selections', () => {
-    expect(state.saved.map((s) => [s.name, s.commitId, s.noteId, s.viewId, s.kind])).toEqual([
+    expect(saved.map((s) => [s.name, s.commitId, s.noteId, s.viewId, s.kind])).toEqual([
       ['Pricey formal', 's3', 'n8', 'heat', 'cell'],
       ['The Midwest pair', 's2', 'n3', 'map', 'match'],
       ['Formal wear', 's1', 'n1', 'bar', 'point'],
     ]);
-    expect(state.saved[0]?.fields).toEqual(['price', 'category']); // a cell keeps its pair
+    expect(saved[0]?.fields).toEqual(['price', 'category']); // a cell keeps its pair
     expect(savedSelectionsOf([])).toEqual([]);
     expect(state.selections[0]?.commitId).toBe('s2');
   });
@@ -46,7 +47,7 @@ describe('savedSelectionsOf', () => {
 describe('<SavedSelections>', () => {
   it('lists each saved selection in words; the live one is marked, the other applies with one click', () => {
     const onApply = vi.fn();
-    render(<SavedSelections saved={state.saved} selections={state.selections} labels={{ bar: 'Category' }} onApply={onApply} />);
+    render(<SavedSelections saved={saved} selections={state.selections} labels={{ bar: 'Category' }} onApply={onApply} />);
     expect(screen.getByText('Formal wear')).toBeDefined();
     expect(screen.getByText('The Midwest pair').closest('li')!.className).toContain('vzf-saved-live');
     expect(screen.getByText('live')).toBeDefined();
@@ -58,10 +59,10 @@ describe('<SavedSelections>', () => {
     render(<SavedSelections saved={[]} />);
     expect(screen.getByText(/no saved selection/)).toBeDefined();
     cleanup();
-    render(<SavedSelections saved={state.saved} onApply={() => {}} readOnly />);
+    render(<SavedSelections saved={saved} onApply={() => {}} readOnly />);
     expect((screen.getAllByRole('button')[0] as HTMLButtonElement).disabled).toBe(true);
     cleanup();
-    render(<SavedSelections saved={state.saved} className="mine" />);
+    render(<SavedSelections saved={saved} className="mine" />);
     expect(screen.queryByRole('button')).toBeNull();
     expect(document.querySelector('.vzf-saved.mine')).not.toBeNull();
   });

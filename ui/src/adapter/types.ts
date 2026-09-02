@@ -41,6 +41,12 @@ export interface CommitView {
   readonly revertOf?: string;
   /** Commit ids that touched the same state on this path since the fork (honest conflict note). */
   readonly conflicts?: readonly string[];
+  /** The data versions this commit was true of (table → version), when the tables declare sources. */
+  readonly data?: Readonly<Record<string, string>>;
+  /** True when a table this commit was true of has since moved to another version — the number it shows may not be reproducible. */
+  readonly dataMoved?: boolean;
+  /** The tables that moved, each with the version the commit was true of and the version now. */
+  readonly moved?: readonly { readonly table: string; readonly from: string; readonly to: string }[];
   /** A short, safe label for a chip/dot — never a raw value dump. */
   readonly label: string;
   // ── derived per build (so components stay dumb) ──

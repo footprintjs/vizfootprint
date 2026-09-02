@@ -11,6 +11,11 @@ import { decodeRows } from './decode.js';
 import { SourceRefusal } from './types.js';
 import type { SourceAdapter, SourceDecl } from './types.js';
 
+/** What the file system vouches for: modification time and size. */
+function versionOf(info: { readonly mtime: Date; readonly size: number }): string {
+  return `mtime:${info.mtime.toISOString()};size:${String(info.size)}`;
+}
+
 function pathOf(at: unknown, table: string): string {
   if (typeof at !== 'string' || at.length === 0) throw new SourceRefusal('malformed', `table "${table}" file source: \`at\` must be a path or a file URL`, table, 'file');
   return at.startsWith('file:') ? fileURLToPath(at) : at;
@@ -27,6 +32,12 @@ export const fileSource: SourceAdapter = {
         let text: string;
         let info: Awaited<ReturnType<typeof stat>>;
         try {
+          if (options?.sinceVersion !== undefined) {
+            // a conditional read: the file system's own version (mtime;size) decides without moving the bytes
+            const now = await stat(path);
+            const version = versionOf(now);
+            if (version === options.sinceVersion) return { unchanged: true, version };
+          }
           text = await readFile(path, { encoding: 'utf8', ...(options?.signal ? { signal: options.signal } : {}) });
           info = await stat(path);
         } catch (e) {
@@ -47,7 +58,7 @@ export const fileSource: SourceAdapter = {
         }
         const rows = decodeRows(decl.format, payload, decl.options);
         if ('rejected' in rows) throw new SourceRefusal('malformed', `${where}: ${rows.rejected}`, table, 'file');
-        return { rows, version: `mtime:${info.mtime.toISOString()};size:${String(info.size)}`, retrievedAt: new Date().toISOString() };
+        return { rows, version: versionOf(info), retrievedAt: new Date().toISOString() };
       },
       close: async () => {},
     };

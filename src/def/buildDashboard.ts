@@ -47,8 +47,8 @@ import type { EncodingPorts, EncodingProblem } from '../encoding/index.js';
 import { validateProseRecord } from '../prose/index.js';
 import type { ProseProblem } from '../prose/index.js';
 import { isRejection } from '../data/index.js';
-import { decodeRows, inlineVersion, isSourceRefusal, openSource } from '../source/index.js';
-import type { SourceAdapter, SourceDecl, SourceInfo, SourceSnapshot } from '../source/index.js';
+import { decodeRows, deltaByKey, inlineVersion, isSourceRefusal, isUnchanged, openSource, SourceRefusal } from '../source/index.js';
+import type { RefreshDelta, SourceAdapter, SourceDecl, SourceInfo, SourceRefusalReason, SourceSnapshot } from '../source/index.js';
 import type { ColumnFacet } from '../data/index.js';
 
 /** The offline dashboard handle. `createSession()` opens one live, stateful session. */
@@ -61,6 +61,16 @@ export interface Dashboard {
   readonly sources: Readonly<Record<string, SourceInfo>>;
   /** Build notes a def should hear (an `auto` engine resolved to memory, and why). */
   readonly notes: readonly string[];
+  /**
+   * Re-read every declared source (or the named tables) with the version held:
+   * an unchanged source moves nothing; a changed one replaces the table's rows
+   * in place — every session sees the new rows on its next query — and reports
+   * what changed, exactly when the table declares a row key. Columns an analysis
+   * materialised on a replaced table are gone with the old rows: re-run it.
+   */
+  refresh(tables?: readonly string[]): Promise<RefreshResult>;
+  /** Judge the data declarations against the real data: today, that a declared row key names a column the engine lists. Sentences, never thrown. */
+  lintData(): Promise<readonly string[]>;
   /** Open a fresh session: one live Mosaic Selection + commit log + FDR ledger. */
   createSession(opts?: SessionOptions): InteractionSession;
   /**
@@ -75,6 +85,25 @@ export interface Dashboard {
 }
 
 /** Options controlling engine resolution for `engine: 'auto'` tables. */
+/** One table's answer to a refresh. */
+export type RefreshOutcome =
+  | { readonly unchanged: true; readonly version: string }
+  | {
+      readonly changed: true;
+      readonly from: string;
+      readonly to: string;
+      readonly retrievedAt: string;
+      readonly rows: number;
+      readonly delta: RefreshDelta;
+      /** Columns an analysis had materialised on the old rows, gone with them — re-run the analysis. */
+      readonly materialisedLost?: readonly string[];
+    }
+  | { readonly refused: true; readonly reason: SourceRefusalReason | 'no-source'; readonly message: string };
+
+export interface RefreshResult {
+  readonly tables: Readonly<Record<string, RefreshOutcome>>;
+}
+
 /** The async builder's options: the source adapters the host brought (`inline` is always known). */
 export interface BuildDashboardAsyncOptions extends BuildDashboardOptions {
   readonly sources?: readonly SourceAdapter[];
@@ -237,7 +266,63 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
     engines[table] = engine;
     providers.set(table, buildProvider(engine, table, source));
   }
-  return assemble(def, options, providers, engines, sources, notes);
+  const dashboard = assemble(def, options, providers, engines, sources, notes);
+  const adapters = options.sources ?? [];
+  const run = async (which?: readonly string[]): Promise<RefreshResult> => {
+    const out: Record<string, RefreshOutcome> = {};
+    for (const table of which ?? Object.keys(def.data)) {
+      const decl = def.data[table];
+      const held = sources[table];
+      if (decl?.source === undefined || held === undefined) {
+        out[table] = { refused: true, reason: 'no-source', message: `data["${table}"] declares no source — inline rows never move` };
+        continue;
+      }
+      try {
+        const handle = await openSource(decl.source, table, adapters);
+        try {
+          const snap = await handle.snapshot({ sinceVersion: held.version });
+          // a carrier that cannot answer conditionally but vouches for the same version moved nothing either
+          if (isUnchanged(snap) || snap.version === held.version) {
+            out[table] = { unchanged: true, version: snap.version };
+            continue;
+          }
+          // the delta is exact only with a row key; the old rows come from the provider being replaced —
+          // compared like with like: columns an analysis materialised on them are not in the new bytes,
+          // so they are stripped before the compare and REPORTED as lost, never read as "every row updated"
+          const old = providers.get(table)!;
+          const fresh = memoryProvider(snap.rows, { tableName: table, ...(decl.layout ? { layout: decl.layout } : {}) });
+          const prior = await old.evaluate(table, null, { mode: 'rows' });
+          /* v8 ignore next -- the table being replaced is a memory provider, which never rejects a rows read and always sets `.rows`; the arms keep the type honest */
+          const before = isRejection(prior) ? [] : (prior.rows ?? []);
+          // the columns both engines list — no scan of the rows for their keys
+          const [oldCols, newCols] = await Promise.all([old.columns(table), fresh.columns(table)]);
+          /* v8 ignore next -- a memory provider always lists its columns */
+          const arrived = new Set((isRejection(newCols) ? [] : newCols).map((c) => c.name));
+          /* v8 ignore next -- a memory provider always lists its columns */
+          const lost = (isRejection(oldCols) ? [] : oldCols).map((c) => c.name).filter((c) => !arrived.has(c));
+          const base = lost.length === 0 ? before : before.map((r) => Object.fromEntries(Object.entries(r).filter(([c]) => arrived.has(c))));
+          providers.set(table, fresh);
+          sources[table] = { ...held, version: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length };
+          out[table] = { changed: true, from: held.version, to: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length, delta: deltaByKey(base, snap.rows, decl.key), ...(lost.length > 0 ? { materialisedLost: lost } : {}) };
+        } finally {
+          await handle.close();
+        }
+      } catch (e) {
+        out[table] = { refused: true, reason: isSourceRefusal(e) ? e.reason : 'no-source', message: e instanceof Error ? e.message : String(e) };
+      }
+    }
+    return { tables: out };
+  };
+  // refreshes run one after another: two overlapping ones would read each other's swap as a change of their own
+  // `run` never rejects today (every table's failure is REPORTED in its outcome); the chain survives even if that changes
+  let queue: Promise<unknown> = Promise.resolve();
+  const refresh = (which?: readonly string[]): Promise<RefreshResult> => {
+    const next = queue.then(() => run(which));
+    /* v8 ignore next -- the settle-on-rejection arm guards an invariant no test can break */
+    queue = next.catch(() => undefined);
+    return next;
+  };
+  return { ...dashboard, refresh };
 }
 
 /** Open, snapshot, close — and turn what the carrier refused into a def problem. */
@@ -245,7 +330,10 @@ async function readSource(decl: SourceDecl, table: string, adapters: readonly So
   try {
     const handle = await openSource(decl, table, adapters);
     try {
-      return await handle.snapshot();
+      const snap = await handle.snapshot();
+      /* v8 ignore next -- a snapshot asked without sinceVersion never answers unchanged; the guard keeps the type honest */
+      if (isUnchanged(snap)) throw new SourceRefusal('malformed', `table "${table}": the carrier answered "unchanged" to a first read`, table, decl.via);
+      return snap;
     } finally {
       await handle.close();
     }
@@ -258,6 +346,7 @@ async function readSource(decl: SourceDecl, table: string, adapters: readonly So
 /** Everything after the providers exist — one assembly for both builders. */
 function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[]): Dashboard {
   const tables = [...providers.keys()];
+  const keys: Record<string, string> = Object.fromEntries(Object.entries(def.data).flatMap(([t, d]) => (d.key !== undefined ? [[t, d.key]] : [])));
   const defaultTable = def.defaultTable ?? tables[0]!;
 
   // ── promote declared analyses (L3) ──
@@ -318,6 +407,7 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     prose: new Map((def.prose ?? []).map((p) => [p.viewId, p.slots] as const)),
     sources,
     notes,
+    keys,
     makeFdrStepper,
     fdrProcedure: def.fdr?.procedure ?? 'LORD++',
     fdrAlpha: def.fdr?.alpha ?? 0.05,
@@ -331,6 +421,12 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     engines,
     sources,
     notes,
+    // a synchronous dashboard holds inline sources only, which never move; a table with no source has nothing to refresh
+    refresh: async (which) => ({
+      tables: Object.fromEntries(
+        (which ?? Object.keys(def.data)).map((t) => [t, sources[t] !== undefined ? { unchanged: true, version: sources[t]!.version } : { refused: true, reason: 'no-source', message: `data["${t}"] declares no source — inline rows never move` }]),
+      ),
+    }),
     createSession: (opts) => createInteractionSession(runtime, opts),
     lintProse: async () => {
       const cols = await providers.get(defaultTable)!.columns(defaultTable);
@@ -339,6 +435,19 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
       const problems: ProseProblem[] = [];
       for (const [viewId, slots] of runtime.prose) for (const [slot, record] of Object.entries(slots)) problems.push(...validateProseRecord(viewId, slot, record, world));
       return problems;
+    },
+    lintData: async () => {
+      const out: string[] = [];
+      for (const [table, key] of Object.entries(keys)) {
+        const cols = await providers.get(table)!.columns(table);
+        if (isRejection(cols)) {
+          /* v8 ignore next -- every provider's reject() supplies a `detail`; the `reason` fallback is unreachable via the public API (the allRows precedent) */
+          out.push(`data["${table}"].key "${key}": the engine cannot list this table's columns — ${cols.detail ?? cols.reason}`);
+          continue;
+        }
+        if (!cols.some((c) => c.name === key)) out.push(`data["${table}"].key "${key}" names no column of the table — the columns are ${cols.map((c) => c.name).join(', ')}`);
+      }
+      return out;
     },
     lint: async () => {
       const cols = await providers.get(defaultTable)!.columns(defaultTable);

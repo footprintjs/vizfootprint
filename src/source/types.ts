@@ -34,10 +34,27 @@ export interface SourceCapabilities {
 }
 
 /** One reading of a source: the rows, a version the adapter can vouch for, and when it was read. */
-/** What a snapshot may be asked: today only an abort signal. */
+/** What a snapshot may be asked: an abort signal, and the version the caller already holds (a conditional read). */
 export interface SnapshotOptions {
   readonly signal?: AbortSignal;
+  /**
+   * The version the caller holds; a carrier that can tell answers `{ unchanged: true }`
+   * without moving the bytes. Each carrier's version is only as sharp as what it
+   * vouches for: the file carrier's `mtime;size` reads "unchanged" for bytes rewritten
+   * in the same second at the same size (a restored mtime, a coarse file system);
+   * the http carrier trusts the server's validator. A hash would cost the read the
+   * conditional exists to avoid, so the assumption is stated rather than hidden.
+   */
+  readonly sinceVersion?: string;
 }
+
+/** The answer to a conditional read whose version still holds. */
+export interface SourceUnchanged {
+  readonly unchanged: true;
+  readonly version: string;
+}
+
+export const isUnchanged = (s: SourceSnapshot | SourceUnchanged): s is SourceUnchanged => 'unchanged' in s;
 
 export interface SourceSnapshot {
   readonly rows: readonly Row[];
@@ -51,10 +68,11 @@ export interface SourceHandle {
   readonly capabilities: SourceCapabilities;
   /**
    * The rows as of now. A carrier honours `signal` where its transport can be
-   * cut (a read, a request); conditional reads (`sinceVersion`) and a delta
-   * channel gated by `live` arrive with the http and streaming carriers.
+   * cut (a read, a request) and answers `sinceVersion` with `{ unchanged }`
+   * when its version still holds (a stat, a 304, a hash compare); a delta
+   * channel gated by `live` arrives with the streaming carrier.
    */
-  snapshot(options?: SnapshotOptions): Promise<SourceSnapshot>;
+  snapshot(options?: SnapshotOptions): Promise<SourceSnapshot | SourceUnchanged>;
   close(): Promise<void>;
 }
 

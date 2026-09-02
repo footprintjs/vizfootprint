@@ -23,7 +23,7 @@ export const inlineSource: SourceAdapter = {
     const version = inlineVersion(decl.at);
     return {
       capabilities: { live: false, pushdown: false },
-      snapshot: async () => ({ rows, version, retrievedAt: new Date().toISOString() }),
+      snapshot: async (options) => (options?.sinceVersion === version ? { unchanged: true, version } : { rows, version, retrievedAt: new Date().toISOString() }),
       close: async () => {},
     };
   },
