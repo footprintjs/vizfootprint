@@ -516,3 +516,49 @@ describe('createSessionView — link with channel pairs (an encoding edge)', () 
     view.dispose();
   });
 });
+
+describe('the prose plane on the wire', () => {
+  it('maps well-formed slots, drops malformed ones, labels a describe commit, and posts describe with the record or null', async () => {
+    const raw = {
+      records: [{ id: 'p1', parent: null, viewId: 'prose:map', kind: 'point', field: 'title', value: { text: 'T', author: { kind: 'human' } }, cause: { requestedBy: 'user' } }],
+      views: [
+        {
+          viewId: 'map',
+          actor: 'user',
+          prose: [
+            { slot: 'title', text: 'Cases by state', status: 'current', changed: [], record: { author: { kind: 'human', by: 'sanjay' }, levels: ['construction'] } },
+            { slot: 'caption', text: 'Oklahoma leads.', status: 'stale', changed: ['filters', 7], record: { author: { kind: 'agent', model: 'm', at: 'now' }, basis: { columns: ['cases'] } } },
+            { slot: 'howToRead', status: 'derived', record: { author: { kind: 'derived' }, levels: 'x' } },
+            { slot: 'poem', text: 'x', status: 'current', changed: [], record: { author: { kind: 'human' } } },
+            { slot: 'altShort', text: 'x', status: 'weird', changed: [], record: { author: { kind: 'human' } } },
+            { slot: 'altLong', text: 'x', status: 'current', changed: [], record: { author: { kind: 'ghost' } } },
+            'nope',
+          ],
+        },
+        { viewId: 'bar', actor: 'user', prose: 'x' },
+      ],
+      cursor: 'p1',
+      head: 'p1',
+    } as unknown as RawPollState;
+    const state = mapPollState(raw);
+    expect(state.views.find((v) => v.viewId === 'map')!.prose).toEqual([
+      { slot: 'title', text: 'Cases by state', status: 'current', changed: [], author: { kind: 'human', by: 'sanjay' }, levels: ['construction'] },
+      { slot: 'caption', text: 'Oklahoma leads.', status: 'stale', changed: ['filters'], author: { kind: 'agent', model: 'm', at: 'now' }, levels: [], basis: { columns: ['cases'] } },
+      { slot: 'howToRead', text: '', status: 'derived', changed: [], author: { kind: 'derived' }, levels: [] },
+    ]);
+    expect(state.views.find((v) => v.viewId === 'bar')!.prose).toEqual([]);
+    expect(state.commits[0]!.label).toBe('describe map.title');
+
+    const { impl, calls } = fakeFetch();
+    const view = createSessionView(pollingSource({ fetchImpl: impl }), { refreshOnAction: false });
+    await view.refresh();
+    await view.describe('map', 'title', { text: 'New', author: { kind: 'human' } }, 'retitle');
+    await view.describe('map', 'title', null);
+    await view.describe('map', 'caption', { text: 'C', author: { kind: 'human' } });
+    const posts = calls.filter((c) => c.url === '/api/dispatch').map((c) => c.body as { verb: string; slot: string; record: unknown; intent: string });
+    expect(posts[0]).toMatchObject({ verb: 'describe', slot: 'title', record: { text: 'New' }, intent: 'retitle' });
+    expect(posts[1]).toMatchObject({ verb: 'describe', record: null, intent: 'map.title: back to the declaration' });
+    expect(posts[2]!.intent).toBe('describe map.caption');
+    view.dispose();
+  });
+});

@@ -13,6 +13,10 @@ where you ended up. Its future package name is **foottrail**. Read
 [`docs/foottrail.md`](docs/foottrail.md) for the full pattern, what it
 deliberately leaves out, and the rule for when it becomes its own package.
 
+## The interaction grammar — four planes, one shape
+
+Everything a person or an agent does to a dashboard is declared as data on the def, judged by one validator behind three doors (build throws, dispatch refuses with a sentence, lint lists), and landed as a commit with a cause. Four planes share that shape: the **data** plane (`src/links`: what one view's selection does to another, and one chart following another's bindings), the **encoding** plane (`src/encoding`: which column may sit on which channel), the **prose** plane (`src/prose`: a view's words with an author, a level of claim and a basis), and the arrangement plane (the layout acts). Each folder has a small README with an example.
+
 ## Named paths over your analysis history
 
 Every interaction lands as a commit in an append-only log, so your analysis

@@ -372,6 +372,7 @@ describe('dispatchVerbs', () => {
       'checkpoint',
       'reencode',
       'link',
+      'describe',
     ]);
   });
 });

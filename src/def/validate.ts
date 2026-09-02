@@ -20,11 +20,13 @@ import { ENCODING_SET_FIELD,
   LAYOUT_VIEW_PREFIX,
   BEAT_VIEW_PREFIX,
   LINK_VIEW_PREFIX,
+  PROSE_VIEW_PREFIX,
 } from '../branches/index.js';
 import { ABSENCE_UNKNOWN, DISPATCH_VERBS, type DispatchVerb } from './types.js';
 import { lintEncodings, resolveFacets, validateColumnDecls, validateEncodingRulesShape } from '../encoding/index.js';
 import type { EncodingRules, EncodingSurface, FacetSource } from '../encoding/index.js';
 import type { ColumnInfo } from '../data/index.js';
+import { validateProseDecls } from '../prose/index.js';
 
 /** Thrown when a def is structurally malformed. Carries every problem at once. */
 export class DashboardDefError extends Error {
@@ -54,6 +56,7 @@ const DEF_KEYS = new Set([
   'links',
   'linkDefault',
   'encodingRules',
+  'prose',
 ]);
 
 /** The exhaustive set of keys a `SeriesGrain` may carry (R12: stated facts only, nothing executable). */
@@ -85,6 +88,7 @@ const RESERVED_VIEW_PREFIXES = [
   LAYOUT_VIEW_PREFIX,
   BEAT_VIEW_PREFIX,
   LINK_VIEW_PREFIX, // layer 4: `link:<edgeId>` is a keyed namespace — a view there would be read as a link-graph edit
+  PROSE_VIEW_PREFIX, // the prose plane: `prose:<viewId>` carries a view's words
 ] as const;
 
 /** The reserved namespace a view id squats, or undefined when it is free to use. */
@@ -370,6 +374,12 @@ export function validateDashboardDef(def: unknown): string[] {
         }
       });
     }
+  }
+
+  // ── prose (optional): the prose plane — every slot a record; the laws judged with what the def alone knows (declared analyses; columns are the provider's) ──
+  if (def.prose !== undefined && isObject(def.actors)) {
+    const surfaced = new Set(Array.isArray(def.encodings) ? wellFormedSurfaces(def.encodings).map((s) => s.surface.viewId) : []);
+    validateProseDecls(def.prose, new Set(Object.keys(def.actors)), problems, { analyses: new Set(Object.keys(isObject(def.analyses) ? def.analyses : {})), surfaced });
   }
 
   // ── encodingRules (optional): the encoding plane's rule set — shape here, meaning just below ──

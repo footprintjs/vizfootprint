@@ -17,7 +17,7 @@ import type { CompareChangeView, CompareEntryView, CompareView } from './types.j
 
 /** The `src/branches` FoldEntry wire shape (duck-typed — this also arrives as poll JSON). */
 interface RawFoldEntry {
-  readonly kind: 'selection' | 'encoding' | 'analysis' | 'link';
+  readonly kind: 'selection' | 'encoding' | 'analysis' | 'link' | 'prose';
   readonly viewId?: string;
   readonly clause?: {
     readonly kind: 'point' | 'interval' | 'cell' | 'match';
@@ -33,6 +33,9 @@ interface RawFoldEntry {
   /** layer 4: the edited edge (kind:'link'). */
   readonly link?: { readonly source: string; readonly kind: string; readonly target: string; readonly response: string };
   readonly edgeId?: string;
+  /** the prose plane: the slot and its record (kind:'prose'). */
+  readonly slot?: string;
+  readonly record?: { readonly text?: unknown; readonly author?: { readonly kind?: unknown } } | null;
   /** the last writer of the key (rides the wire; informational here). */
   readonly commitId?: string;
 }
@@ -59,6 +62,7 @@ function word(v: unknown): string {
 /** What the entry is ABOUT — the view it acts on, or the analysis id. */
 export function entryLabel(e: RawFoldEntry): string {
   if (e.kind === 'analysis') return e.analysisId ?? 'analysis';
+  if (e.kind === 'prose') return `${e.viewId ?? 'view'}.${e.slot ?? 'words'}`;
   return e.viewId ?? 'view';
 }
 
@@ -106,6 +110,12 @@ export function entryDetail(e: RawFoldEntry): string {
     return `${c.field} between ${word(lo)} and ${word(hi)}`;
   }
   if (e.kind === 'encoding') return `${e.channel ?? '?'} axis shows ${word(e.value)}`;
+  if (e.kind === 'prose') {
+    // the prose plane: what the slot says on this path, and who said it
+    const text = typeof e.record?.text === 'string' ? e.record.text : '';
+    const by = typeof e.record?.author?.kind === 'string' ? ` (${e.record.author.kind})` : '';
+    return text.length > 0 ? `says "${text}"${by}` : `words derived${by}`;
+  }
   if (e.kind === 'link') {
     // layer 4: an edited edge — the edge as declared, in the matrix's own words
     const l = e.link;

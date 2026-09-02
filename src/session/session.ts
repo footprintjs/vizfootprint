@@ -53,6 +53,8 @@ import type {
 } from '../def/types.js';
 import { describeRules, fitsFor, refuses, validateBindings } from '../encoding/index.js';
 import { ENCODING_KIND, edgesInto } from '../links/index.js';
+import { PROSE_SLOTS, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
+import type { ProseRecord, ProseSlot, ProseStatus } from '../prose/index.js';
 import type { LinkGraph } from '../links/index.js';
 import type { Bindings, EncodingProblem, Fit } from '../encoding/index.js';
 import { GapLedger } from './gapLedger.js';
@@ -73,7 +75,7 @@ import {
   planBringOver,
   planUndo,
   slugForCommit,
-  uniqueSlug, ENCODING_SET_FIELD, isEncodingSet, encodingSetOf } from '../branches/index.js';
+  uniqueSlug, ENCODING_SET_FIELD, isEncodingSet, encodingSetOf , PROSE_VIEW_PREFIX } from '../branches/index.js';
 import type { PlanRecipe } from '../branches/index.js';
 import type {
   AdoptPathResult,
@@ -410,6 +412,8 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly activeLinks = new Map<string, LinkDecl>();
   /** layout scope → its current prop→value arrangement map (the LY-1 layout fold — see LAYOUT_SOURCE_META). */
   private readonly activeLayouts = new Map<string, Record<string, string>>();
+  /** The prose plane's fold: viewId → slot → record, seeded from the def, overridden by `describe` commits (null = the def's words again). */
+  private readonly activeProse = new Map<string, Map<ProseSlot, ProseRecord>>();
   /** materialised column name → its producing analysis provenance (L6 `why({kind:'column'})`). */
   private readonly whyByColumn = new Map<string, WhyProvenance>();
   /** analysisId → the last invocation's provenance (L6 `why({kind:'hypothesis'})`). */
@@ -545,6 +549,8 @@ class InteractionSessionImpl implements InteractionSession {
     for (const view of this.runtime.views.values()) {
       if (view.encoding?.initial) this.activeEncodings.set(view.viewId, { ...view.encoding.initial });
     }
+    this.activeProse.clear();
+    for (const [viewId, slots] of this.runtime.prose) this.activeProse.set(viewId, new Map(Object.entries(slots) as [ProseSlot, ProseRecord][]));
     for (const rec of this.branchPath(cursorId)) {
       if (rec.viewId.startsWith(LINK_VIEW_PREFIX)) {
         // Layer 4: an edited edge, last-wins per edge id; null un-declares it
@@ -563,6 +569,10 @@ class InteractionSessionImpl implements InteractionSession {
       // LY-1: the layout fold — last-wins per (scope, prop), exactly like the
       // encoding fold above, so seek/switchPath restore the OLD arrangement.
       // No initial seeding: an empty scope means "the consumer's default".
+      if (rec.viewId.startsWith(PROSE_VIEW_PREFIX)) {
+        this.foldProse(rec.viewId.slice(PROSE_VIEW_PREFIX.length), rec.field as ProseSlot, rec.value === null ? null : (rec.value as ProseRecord));
+        continue;
+      }
       if (rec.viewId.startsWith(LAYOUT_VIEW_PREFIX)) {
         const scope = rec.viewId.slice(LAYOUT_VIEW_PREFIX.length);
         const current = this.activeLayouts.get(scope) ?? {};
@@ -974,6 +984,9 @@ class InteractionSessionImpl implements InteractionSession {
         return { verb: 'analyze', analysisId: recipe.analysisId, cause };
       case 'annotation':
         return { verb: 'annotate', target: recipe.target, note: recipe.note, cause };
+      case 'prose':
+        // the plan layer types the record structurally (it imports only the log); doDescribe judges it again before landing
+        return { verb: 'describe', viewId: recipe.viewId, slot: recipe.slot as ProseSlot, record: recipe.record as ProseRecord | null, cause };
       case 'link': {
         // the plan layer types the edge structurally (it imports only the log); the real LinkDecl narrows it back here
         const link = recipe.link as LinkDecl;
@@ -1202,6 +1215,8 @@ class InteractionSessionImpl implements InteractionSession {
         return this.doAnnotate(action.target, action.note, action.cause, as, intent);
       case 'link':
         return this.doLink(action, as, intent);
+      case 'describe':
+        return this.doDescribe(action.viewId, action.slot, action.record, action.cause, as, intent, action.correlationId);
       case 'navigate':
         return this.doNavigate(action.viewId, action.field, action.value, action.cause, as, intent, action.correlationId);
       case 'analyze':
@@ -1500,6 +1515,93 @@ class InteractionSessionImpl implements InteractionSession {
   private refusalGap(judged: readonly EncodingProblem[], target: string): GapRow {
     const sentence = judged.filter((p) => p.severity === 'refused').map((p) => p.explained ?? p.sentence).join('; ');
     return this.gapLedger.file('guard-failed', 'reencode', sentence, target);
+  }
+
+  /** Fold one prose commit: a record sets the slot; null puts the def's own words back (or clears the slot when the def had none). */
+  private foldProse(viewId: string, slot: ProseSlot, record: ProseRecord | null): void {
+    const slots = this.activeProse.get(viewId) ?? new Map<ProseSlot, ProseRecord>();
+    if (record !== null) slots.set(slot, record);
+    else {
+      const declared = this.runtime.prose.get(viewId)?.[slot];
+      if (declared !== undefined) slots.set(slot, declared);
+      else slots.delete(slot);
+    }
+    this.activeProse.set(viewId, slots);
+  }
+
+  /** The live selections as JSON-safe data — what a caption's basis is compared against. */
+  private filtersNow(): Readonly<Record<string, unknown>> {
+    return Object.fromEntries([...this.activeFilters.entries()].map(([viewId, clause]) => [viewId, { ...clause }]));
+  }
+
+  /** Every slot a view carries at the cursor, in slot order, each with its staleness judged against what is on screen. */
+  private proseOf(viewId: string, facets: readonly ColumnFacet[]): ProseStatus[] {
+    const slots = this.activeProse.get(viewId);
+    if (slots === undefined || slots.size === 0) return [];
+    const view = this.runtime.views.get(viewId)!;
+    const effective = view.encoding !== undefined ? this.effectiveEncodings(facets).get(viewId)!.bindings : this.viewEncodings(viewId);
+    const now = {
+      encodings: effective,
+      filters: this.filtersNow(),
+      columns: new Set(facets.map((f) => f.field)),
+      analyses: new Set(this.runtime.analyses.keys()),
+      ...(view.encoding !== undefined ? { surface: view.encoding } : {}),
+    };
+    return PROSE_SLOTS.filter((slot) => slots.has(slot)).map((slot) => proseStatus(slot, slots.get(slot)!, now));
+  }
+
+  /**
+   * The `describe` verb (the prose plane's dispatch door): one slot of one
+   * view set to a record — judged by the one prose validator against the
+   * columns on this branch and the declared analyses, refused as a gap with
+   * the sentence — or null, back to the def's own words. One commit under
+   * `prose:${viewId}`, field = the slot, last-wins per slot; undo restores
+   * the prior words, seek shows whatever was said at that point.
+   */
+  private async doDescribe(
+    viewId: string,
+    slot: ProseSlot,
+    record: ProseRecord | null,
+    cause: Cause,
+    as: Actor | undefined,
+    intent: DispatchResult['intent'],
+    correlationId: string | undefined,
+  ): Promise<DispatchResult> {
+    if (!this.runtime.views.has(viewId)) {
+      return this.reject('describe', intent, this.gapLedger.file('needs-view', 'describe', `no declared view "${viewId}"`, viewId));
+    }
+    if (!(PROSE_SLOTS as readonly string[]).includes(slot)) {
+      return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', `"${String(slot)}" is not a prose slot — the slots are ${PROSE_SLOTS.join(', ')}`, String(slot)));
+    }
+    const cols = await this.effectiveColumnsOf(this.defaultTable);
+    if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
+    if (record !== null) {
+      const problems = validateProseRecord(viewId, slot, record, {
+        columns: new Set(cols.map((c) => c.name)),
+        analyses: new Set(this.runtime.analyses.keys()),
+        surfaced: new Set([...this.runtime.views.values()].filter((v) => v.encoding !== undefined).map((v) => v.viewId)),
+      });
+      if (proseRefuses(problems)) {
+        return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', problems.map((p) => p.sentence).join('; '), slot));
+      }
+    }
+    const stamped = this.stampCause(cause, 'describe', as);
+    const { record: commit } = this.log.commit({
+      id: this.nextId(),
+      parent: this._cursor, // R8 branch-on-act
+      ...(correlationId !== undefined ? { correlationId } : {}),
+      viewId: `${PROSE_VIEW_PREFIX}${viewId}`,
+      // ONE stable source identity per view's prose (the BR-1 rule the encoding namespace follows)
+      actorMeta: this.runtime.views.get(viewId)!.meta,
+      kind: 'point',
+      field: slot,
+      value: record,
+      cause: stamped,
+    });
+    this.landed(commit);
+    this.foldProse(viewId, slot, record);
+    const described = this.proseOf(viewId, this.runtime.encoding.facetsOf(this.defaultTable, cols)).find((p) => p.slot === slot) ?? null;
+    return { ok: true, verb: 'describe', intent, commit, described };
   }
 
   /** The last effective map, keyed by what it depends on (the folds, the graph, the columns). */
@@ -2175,6 +2277,8 @@ class InteractionSessionImpl implements InteractionSession {
               effective: this.effectiveEncodings(columns[this.defaultTable] ?? []).get(view.viewId)!,
             }
           : {}),
+        // the prose plane: every slot at the cursor, its staleness judged against what is on screen
+        prose: this.proseOf(view.viewId, columns[this.defaultTable] ?? []),
       };
     });
     const encodingPolicy = { onInvalid: this.runtime.encoding.rules.onInvalid ?? 'refuse', ruleScope: this.runtime.encoding.rules.ruleScope ?? ('dashboard' as const) };

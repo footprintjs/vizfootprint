@@ -11,7 +11,7 @@
  */
 
 import type { CommitRecord } from '../log/index.js';
-import type { FoldEntry, LinkValue, PlanRecipe, PlanResult } from './types.js';
+import type { FoldEntry, LinkValue, PlanRecipe, PlanResult, ProseValue } from './types.js';
 import {
   LINK_VIEW_PREFIX,
   ANALYSIS_VIEW_PREFIX,
@@ -19,6 +19,7 @@ import {
   BEAT_VIEW_PREFIX,
   ENCODING_VIEW_PREFIX,
   LAYOUT_VIEW_PREFIX,
+  PROSE_VIEW_PREFIX,
   encodingSetOf,
   foldStateAt,
   isEncodingSet,
@@ -73,6 +74,10 @@ function bringOverRecipe(rec: CommitRecord): PlanRecipe {
     // Layer 4: an edited edge re-lands as the same edit (or the same un-declare) on the target path
     const link = rec.value as LinkValue | null;
     return link === null ? { apply: 'clear-link', link: linkOfId(rec.viewId.slice(LINK_VIEW_PREFIX.length)) } : { apply: 'link', link };
+  }
+  if (rec.viewId.startsWith(PROSE_VIEW_PREFIX)) {
+    // the prose plane: the same words (or the same un-declare) land again on the target path
+    return { apply: 'prose', viewId: rec.viewId.slice(PROSE_VIEW_PREFIX.length), slot: rec.field, record: rec.value === null ? null : (rec.value as ProseValue) };
   }
   if (isEncodingSet(rec)) {
     // encoding plane: a binding set re-lands as the same set (one act, one commit)
@@ -177,6 +182,10 @@ export function planUndo(records: readonly CommitRecord[], commitId: string, tip
     const priorLink = prior as Extract<FoldEntry, { kind: 'link' }> | undefined;
     const link = (rec.value as LinkValue | null) ?? linkOfId(rec.viewId.slice(LINK_VIEW_PREFIX.length));
     recipe = priorLink !== undefined ? { apply: 'link', link: priorLink.link } : { apply: 'clear-link', link };
+  } else if (rec.viewId.startsWith(PROSE_VIEW_PREFIX)) {
+    // the prose plane: restore the prior words on this path, or null = the def's own words show through
+    const priorProse = prior as Extract<FoldEntry, { kind: 'prose' }> | undefined;
+    recipe = { apply: 'prose', viewId: rec.viewId.slice(PROSE_VIEW_PREFIX.length), slot: rec.field, record: priorProse !== undefined ? priorProse.record : null };
   } else if (isEncodingSet(rec)) {
     // encoding plane: restore EVERY channel the set touched to its value at the parent — a prior binding, or null (= the declared initial)
     const viewId = rec.viewId.slice(ENCODING_VIEW_PREFIX.length);

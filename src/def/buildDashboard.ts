@@ -44,6 +44,8 @@ import type { SessionOptions } from '../session/types.js';
 import { materializeLinks, voiceOf } from '../links/index.js';
 import { lintEncodings, resolveFacet, resolveFacets } from '../encoding/index.js';
 import type { EncodingPorts, EncodingProblem } from '../encoding/index.js';
+import { validateProseRecord } from '../prose/index.js';
+import type { ProseProblem } from '../prose/index.js';
 import { isRejection } from '../data/index.js';
 import type { ColumnFacet } from '../data/index.js';
 
@@ -62,6 +64,8 @@ export interface Dashboard {
    * its columns (a stub engine) — nothing to judge is not "nothing wrong".
    */
   lint(): Promise<EncodingProblem[]>;
+  /** The LINT door of the prose plane: every declared slot judged with the data's real columns and the declared analyses. */
+  lintProse(): Promise<ProseProblem[]>;
 }
 
 /** Options controlling engine resolution for `engine: 'auto'` tables. */
@@ -216,6 +220,7 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
       ports: options.encoding ?? {},
       facetsOf: (table, cols) => resolveFacets(cols, def.data[table]!), // every runtime table is a def table
     },
+    prose: new Map((def.prose ?? []).map((p) => [p.viewId, p.slots] as const)),
     makeFdrStepper,
     fdrProcedure: def.fdr?.procedure ?? 'LORD++',
     fdrAlpha: def.fdr?.alpha ?? 0.05,
@@ -228,6 +233,14 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
     def,
     engines,
     createSession: (opts) => createInteractionSession(runtime, opts),
+    lintProse: async () => {
+      const cols = await providers.get(defaultTable)!.columns(defaultTable);
+      if (isRejection(cols)) throw new Error(`lintProse: the "${defaultTable}" provider cannot list its columns — ${cols.reason}`);
+      const world = { columns: new Set(cols.map((c) => c.name)), analyses: new Set(analyses.keys()), surfaced: new Set([...views.values()].filter((v) => v.encoding !== undefined).map((v) => v.viewId)) };
+      const problems: ProseProblem[] = [];
+      for (const [viewId, slots] of runtime.prose) for (const [slot, record] of Object.entries(slots)) problems.push(...validateProseRecord(viewId, slot, record, world));
+      return problems;
+    },
     lint: async () => {
       const cols = await providers.get(defaultTable)!.columns(defaultTable);
       if (isRejection(cols)) throw new Error(`lint: the "${defaultTable}" provider cannot list its columns — ${cols.reason}`);

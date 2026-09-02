@@ -17,6 +17,7 @@ import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/i
 import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
 import type { CellClause, ColumnFacet, ColumnType, IntervalClause } from '../data/index.js';
 import type { EncodingProblem, Fit, RuleLine, RuleScope } from '../encoding/index.js';
+import type { ProseRecord, ProseSlot, ProseStatus } from '../prose/index.js';
 import type { DispatchVerb, IntentClass } from '../def/types.js';
 import type { DiffChange, DiffOnly, PlanRecipe, RefEvent } from '../branches/index.js';
 
@@ -128,6 +129,15 @@ export type DispatchAction =
       /** Encoding edges only: which channels follow (absent = every channel both ends share, written out at materialization). */
       readonly channels?: readonly ChannelPair[];
       readonly onClear?: LinkOnClear;
+      readonly cause: Cause;
+      readonly correlationId?: string;
+    }
+  | {
+      /** The prose plane: set one of a view's words — title, caption, altShort, altLong, howToRead — as a record with an author; null = back to the def's own words. */
+      readonly verb: 'describe';
+      readonly viewId: string;
+      readonly slot: ProseSlot;
+      readonly record: ProseRecord | null;
       readonly cause: Cause;
       readonly correlationId?: string;
     }
@@ -501,6 +511,8 @@ export type DispatchResult =
       readonly coerced?: readonly EncodingProblem[];
       /** Layer 4: the edge as it now stands (an edited edge, or the base edge after an un-declare). */
       readonly linked?: LinkEdge;
+      /** The prose plane: the slot as it now stands at the cursor (null after a back-to-the-def that leaves no declared words). */
+      readonly described?: ProseStatus | null;
     }
   | {
       readonly ok: false;
@@ -587,6 +599,8 @@ export interface ViewInfo {
    * edit `encodings`.
    */
   readonly effective?: EffectiveEncoding;
+  /** The prose plane: every slot the view carries at the cursor, each with its staleness judged against what is on screen. */
+  readonly prose: readonly ProseStatus[];
 }
 
 /** A view's effective bindings under the link graph (see src/links/README.md, the encoding kind). */

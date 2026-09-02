@@ -59,7 +59,7 @@ import { LinkGraphView,
   type ChartCellView,
   type LayoutChange,
   type LayoutView,
-  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView } from './types.js';
+  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
 import type { NavigateViewState } from '../contract/types.js';
@@ -281,6 +281,7 @@ interface RawCommit {
 
 /** A short, safe label for a chip/dot — never a raw value dump. */
 function commitLabel(field: string, viewId: string): string {
+  if (viewId.startsWith('prose:')) return `describe ${viewId.slice('prose:'.length)}.${field}`; // the prose plane: a view's words
   // encoding plane: a binding SET (a swap) lands as one commit whose field is the `*` marker
   if (viewId.startsWith('encoding:') && field === '*') return `reencode ${viewId.slice('encoding:'.length)} (several channels)`;
   if (viewId.startsWith('layout:')) return 'layout'; // LY-1: an arrangement note ('preset'/'order'/'focus' rides field)
@@ -389,6 +390,8 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       fits?: unknown;
       /** Encoding links: `views[].effective` serialized. */
       effective?: unknown;
+      /** The prose plane: `views[].prose` serialized. */
+      prose?: unknown;
       canProbe?: boolean;
       mounted?: boolean;
     };
@@ -403,6 +406,7 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       columns: (o.columns ?? []).map((c) => ({ field: c.field, type: String(c.type) })),
       ...(o.fits !== undefined ? { fits: mapFits(o.fits) } : {}),
       ...(o.effective !== undefined ? { effective: mapEffective(o.effective) } : {}),
+      ...(o.prose !== undefined ? { prose: mapProse(o.prose) } : {}),
     };
   });
 }
@@ -438,6 +442,31 @@ function mapEffective(raw: unknown): EffectiveEncodingView | undefined {
     if (typeof y?.edge === 'string' && typeof y.field === 'string' && typeof y.sentence === 'string') refused[ch] = { edge: y.edge, field: y.field, sentence: y.sentence };
   }
   return { bindings: strings(x.bindings), followed, refused };
+}
+/** The prose slots the wire serves — a slot with the shape src/prose serves; anything malformed is dropped, never invented. */
+function mapProse(raw: unknown): readonly ProseStatusView[] {
+  if (!Array.isArray(raw)) return [];
+  const SLOTS = ['title', 'caption', 'altShort', 'altLong', 'howToRead'];
+  const STATUS = ['current', 'stale', 'derived'];
+  const KINDS = ['human', 'agent', 'derived', 'humanEdited'];
+  return raw.flatMap((p) => {
+    if (typeof p !== 'object' || p === null) return [];
+    const x = p as { slot?: unknown; text?: unknown; status?: unknown; changed?: unknown; record?: { author?: { kind?: unknown; by?: unknown; model?: unknown; at?: unknown }; levels?: unknown; basis?: unknown } };
+    const kind = x.record?.author?.kind;
+    if (typeof x.slot !== 'string' || !SLOTS.includes(x.slot) || typeof x.status !== 'string' || !STATUS.includes(x.status) || typeof kind !== 'string' || !KINDS.includes(kind)) return [];
+    const a = x.record!.author!;
+    return [
+      {
+        slot: x.slot as ProseStatusView['slot'],
+        text: typeof x.text === 'string' ? x.text : '',
+        status: x.status as ProseStatusView['status'],
+        changed: Array.isArray(x.changed) ? x.changed.filter((c): c is string => typeof c === 'string') : [],
+        author: { kind: kind as ProseStatusView['author']['kind'], ...(typeof a.by === 'string' ? { by: a.by } : {}), ...(typeof a.model === 'string' ? { model: a.model } : {}), ...(typeof a.at === 'string' ? { at: a.at } : {}) },
+        levels: Array.isArray(x.record!.levels) ? x.record!.levels.filter((l): l is string => typeof l === 'string') : [],
+        ...(typeof x.record!.basis === 'object' && x.record!.basis !== null && !Array.isArray(x.record!.basis) ? { basis: x.record!.basis as Record<string, unknown> } : {}),
+      },
+    ];
+  });
 }
 /** The rules as sentences, when the wire carries them. */
 function mapRules(raw: unknown): readonly RuleLineView[] | undefined {
@@ -764,6 +793,8 @@ export interface SessionView {
   reencode(viewId: string, channel: string, field: string): Promise<void>;
   /** Encoding plane: rebind SEVERAL channels in one act — a swap is `{ x: <the y field>, y: <the x field> }` and lands as ONE commit. */
   reencodeSet(viewId: string, bindings: Readonly<Record<string, string>>, intent?: string): Promise<void>;
+  /** The prose plane: set one of a view's words as a record (the person as author unless the record says otherwise); null = back to the def's own words. */
+  describe(viewId: string, slot: ProseStatusView['slot'], record: Readonly<Record<string, unknown>> | null, intent?: string): Promise<void>;
   /**
    * RP-1: record a pan/zoom view state through the `navigate` dispatch verb.
    * Deliberately NON-filtering — a viewport is not a data claim; the view
@@ -1008,6 +1039,12 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
         { verb: 'reencode', viewId, channel, field, cause: cause(intent) },
         { verb: 'reencode', viewId, channel, field, intent },
       );
+    },
+
+    async describe(viewId, slot, record, intentWord) {
+      const intent = intentWord ?? (record === null ? `${viewId}.${slot}: back to the declaration` : `describe ${viewId}.${slot}`);
+      const body = { verb: 'describe' as const, viewId, slot, record };
+      await dispatch({ ...body, record: record as never, cause: cause(intent) }, { ...body, intent });
     },
 
     async reencodeSet(viewId, bindings, intentWord) {

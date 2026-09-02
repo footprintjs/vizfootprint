@@ -158,3 +158,13 @@ describe('entryDetail — a link entry (layer 4)', () => {
     expect(entryDetail({ kind: 'link', edgeId: 'map:point→bar', commitId: 'l1' })).toBe('a link edit');
   });
 });
+
+describe('the prose plane in a compare', () => {
+  it('names the slot and reads the words', () => {
+    expect(entryLabel({ kind: 'prose', viewId: 'map', slot: 'caption' })).toBe('map.caption');
+    expect(entryLabel({ kind: 'prose' })).toBe('view.words');
+    expect(entryDetail({ kind: 'prose', viewId: 'map', slot: 'caption', record: { text: 'Oklahoma leads.', author: { kind: 'agent' } } })).toBe('says "Oklahoma leads." (agent)');
+    expect(entryDetail({ kind: 'prose', viewId: 'map', slot: 'howToRead', record: { author: { kind: 'derived' } } })).toBe('words derived (derived)');
+    expect(entryDetail({ kind: 'prose', viewId: 'map', slot: 'title', record: null })).toBe('words derived');
+  });
+});

@@ -375,6 +375,20 @@ edge to land as a `link` commit. See `src/links/README.md`.
 
 An edge of kind `encoding` carries a source view's channel bindings; the target `follow`s them (or `none`, on purpose). The session serves what each view shows as `state.effectiveEncodings` and, per view, `effective` with the channels it follows (and through which edge) and the follows its own rules refused. **Render effective, edit encodings**: pass `state.effectiveEncodings[id]` to the chart and land rebinds through `view.reencode` as before — a followed channel's own rebind is refused with a sentence that names the edge, and the matrix shows the pairs beside a `follow` cell.
 
+## The prose plane — a view's words, with an author
+
+The fourth plane. A view's title, caption, short and long alt text, and how-to-read line arrive on the wire as `state.views[].prose`: each a record with its **author** (a person, the analyst, or derived by the library from the chart's bindings), the **kind of claim** it makes, and a **status** judged at every read against what is on screen — `current`, `stale` (with what moved), or `derived` (never stale). Render them under the plot; never hide or rewrite a stale one.
+
+```tsx
+const words = state.views.find((v) => v.viewId === 'map')?.prose ?? [];
+// [{ slot: 'caption', text: 'Oklahoma reports 502 cases.', status: 'stale', changed: ['filters'], author: { kind: 'agent', model: '…' }, levels: ['statistic'] }]
+
+await view.describe('map', 'title', { text: 'Reported cases by state', author: { kind: 'human', by: 'ana' } }, 'retitle');
+await view.describe('map', 'title', null); // back to the declaration
+```
+
+A `describe` lands one commit per slot, so undo and time travel carry the words like any act; an agent's record must state a basis and may never claim a cause — the session refuses it with the sentence.
+
 ## The encoding plane — which column may sit on which channel
 
 The second plane of the interaction grammar (the links are the first). The **library** owns the rules as data and the one validator (`src/encoding/README.md`); the UI only shows what the session already decided, so the picker, the agent and a build error say the same sentence.

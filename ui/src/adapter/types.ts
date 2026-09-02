@@ -75,6 +75,21 @@ export interface ViewView {
   readonly fits?: Readonly<Record<string, readonly FitView[]>>;
   /** Encoding links: what the view shows, which channels it follows (and through which edge), and which follows its own rules refused. */
   readonly effective?: EffectiveEncodingView;
+  /** The prose plane: the view's words at the cursor — each slot with its author kind and whether it went stale. Absent on a server that predates prose. */
+  readonly prose?: readonly ProseStatusView[];
+}
+
+/** One prose slot as the wire serves it (src/prose `ProseStatus`, the parts a cockpit renders). */
+export interface ProseStatusView {
+  readonly slot: 'title' | 'caption' | 'altShort' | 'altLong' | 'howToRead';
+  readonly text: string;
+  readonly status: 'current' | 'stale' | 'derived';
+  /** For a stale slot: what moved. */
+  readonly changed: readonly string[];
+  readonly author: { readonly kind: 'human' | 'agent' | 'derived' | 'humanEdited'; readonly by?: string; readonly model?: string; readonly at?: string };
+  readonly levels: readonly string[];
+  /** What the words were written against (encodings, filters, columns, analysisId) — shown so a person can see why a slot went stale. */
+  readonly basis?: Readonly<Record<string, unknown>>;
 }
 
 export interface EffectiveEncodingView {
@@ -194,7 +209,7 @@ export interface CompareSideView {
 /** One state entry present on exactly ONE side, in plain language. */
 export interface CompareEntryView {
   readonly key: string;
-  readonly kind: 'selection' | 'encoding' | 'analysis' | 'link';
+  readonly kind: 'selection' | 'encoding' | 'analysis' | 'link' | 'prose';
   /** What the entry is about (a view id or an analysis id). */
   readonly label: string;
   /** The entry's value, in plain words (e.g. "price between 30 and 210"). */
@@ -204,7 +219,7 @@ export interface CompareEntryView {
 /** One state entry present on BOTH sides with different values. */
 export interface CompareChangeView {
   readonly key: string;
-  readonly kind: 'selection' | 'encoding' | 'analysis' | 'link';
+  readonly kind: 'selection' | 'encoding' | 'analysis' | 'link' | 'prose';
   readonly label: string;
   readonly a: string;
   readonly b: string;

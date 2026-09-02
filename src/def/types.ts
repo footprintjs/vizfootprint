@@ -26,6 +26,7 @@
 import type { Actor, Cause } from '../cause/index.js';
 import type { LinkDecl, LinkDefault, LinkGraph } from '../links/types.js';
 import type { ColumnDecl, EncodingPorts, EncodingRules } from '../encoding/types.js';
+import type { ProseDecl } from '../prose/types.js';
 import type { ActorMeta } from '../mosaic/index.js';
 import type {
   AnalysisDef,
@@ -42,7 +43,7 @@ import type { ColumnFacet, ColumnInfo, DataProvider, Engine, Row } from '../data
 // changing a view's visual encoding is a state-changing transition too, not an
 // optional-interaction affordance — docs/RESEARCH_STATE.md Q6/D-note). ────────
 
-/** The nine semantic verbs the agent drives every interaction through (R4) — the ninth, `link`, edits the link graph (layer 4). */
+/** The ten semantic verbs the agent drives every interaction through (R4) — `link` edits the link graph, `describe` a view's words (layer 4). */
 export type DispatchVerb =
   | 'select'
   | 'filter'
@@ -52,9 +53,10 @@ export type DispatchVerb =
   | 'fork'
   | 'checkpoint'
   | 'reencode'
-  | 'link';
+  | 'link'
+  | 'describe';
 
-/** The nine verbs, frozen (used for validation + tool-schema enumeration). `link` (layer 4) edits the graph, not a data view. */
+/** The ten verbs, frozen (used for validation + tool-schema enumeration). `link` (layer 4) edits the graph, not a data view. */
 export const DISPATCH_VERBS: readonly DispatchVerb[] = [
   'select',
   'filter',
@@ -65,6 +67,7 @@ export const DISPATCH_VERBS: readonly DispatchVerb[] = [
   'checkpoint',
   'reencode',
   'link',
+  'describe',
 ] as const;
 
 /**
@@ -94,6 +97,8 @@ export const DEFAULT_INTENTS: Readonly<Record<DispatchVerb, IntentClass>> = {
   reencode: 'mandatory-analytical',
   // link changes what FILTERS what — the graph itself — so it is state-changing like reencode.
   link: 'mandatory-analytical',
+  // describe changes what a view SAYS — the same class as reencode changing what it shows (never the inert annotate).
+  describe: 'mandatory-analytical',
   annotate: 'optional-interaction',
   navigate: 'optional-interaction',
 };
@@ -291,6 +296,8 @@ export interface DashboardDef {
   readonly linkDefault?: LinkDefault;
   /** The encoding plane's rule set as data: channel requirements per chart kind, business rules, and the policy (see src/encoding/README.md). */
   readonly encodingRules?: EncodingRules;
+  /** The prose plane: a view's words — title, caption, alt text, how to read it — as records with an author, a level of claim and a basis (see src/prose/README.md). */
+  readonly prose?: readonly ProseDecl[];
 }
 
 // ── The resolved runtime bundle `buildDashboard` produces for a session. ───────
@@ -335,6 +342,8 @@ export interface DashboardRuntime {
   readonly links: LinkGraph;
   /** The encoding plane: the def's rule set, the ports passed at build, and column → facet resolution per table. */
   readonly encoding: EncodingRuntime;
+  /** The prose plane: each view's declared slots (the fold's root before any `describe` commit). */
+  readonly prose: ReadonlyMap<string, ProseDecl['slots']>;
   makeFdrStepper(): FdrStepper;
   readonly fdrProcedure: 'LORD++' | 'alpha-investing';
   readonly fdrAlpha: number;

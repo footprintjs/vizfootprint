@@ -24,7 +24,7 @@
  * session layer enriches per-side row counts on top (`compare()`).
  */
 
-import type { LinkValue } from './types.js';
+import type { LinkValue, ProseValue } from './types.js';
 import type { CommitRecord } from '../log/index.js';
 import type { DiffChange, DiffOnly, FoldDiffResult, FoldEntry, FoldState } from './types.js';
 import { chainToRoot, indexById, lcaOf } from './walk.js';
@@ -60,6 +60,13 @@ export const CHART_VIEW_PREFIX = 'chart:';
  */
 export const LAYOUT_VIEW_PREFIX = 'layout:';
 /**
+ * The prose plane: a `describe` commit lands under `prose:${viewId}` with
+ * `field` = the slot and `value` = the record (or null = back to the def's
+ * own words). A keyed namespace like `link:` — last-wins per (view, slot) —
+ * so undo, bring-over and compare see every slot.
+ */
+export const PROSE_VIEW_PREFIX = 'prose:';
+/**
  * A story beat (`checkpoint` verb, `beat:${n}` synthetic identity). A beat is a
  * DECISION and therefore a commit — cause-tagged, on the lineage, replayable,
  * seek-able — but a NAME is never crossfilter state, so it is INERT here
@@ -94,6 +101,7 @@ export function keyOf(record: CommitRecord): string | null {
     return `analysis:${record.viewId.slice(ANALYSIS_VIEW_PREFIX.length)}`;
   }
   if (record.viewId.startsWith(LINK_VIEW_PREFIX)) return record.viewId; // `link:<edgeId>` is its own key
+  if (record.viewId.startsWith(PROSE_VIEW_PREFIX)) return `prose:${record.viewId.slice(PROSE_VIEW_PREFIX.length)}:${record.field}`;
   return `selection:${record.viewId}`;
 }
 
@@ -138,6 +146,10 @@ export function foldStateAt(records: readonly CommitRecord[], tipId: string | nu
       } else {
         state.set(key, { kind: 'encoding', viewId, channel: rec.field, field: String(rec.value), commitId: rec.id });
       }
+    } else if (rec.viewId.startsWith(PROSE_VIEW_PREFIX)) {
+      // null = back to the def's own words: the key drops and the declaration shows through
+      if (rec.value === null) state.delete(key);
+      else state.set(key, { kind: 'prose', viewId: rec.viewId.slice(PROSE_VIEW_PREFIX.length), slot: rec.field, record: rec.value as ProseValue, commitId: rec.id });
     } else if (rec.viewId.startsWith(LINK_VIEW_PREFIX)) {
       // a null value un-declares the edit: the key drops and the def's rule shows through
       if (rec.value === null) state.delete(key);
@@ -181,6 +193,8 @@ function fingerprint(e: FoldEntry): string {
   switch (e.kind) {
     case 'link':
       return `link:${enc(e.link)}`;
+    case 'prose':
+      return `prose|${e.viewId}|${e.slot}|${enc(e.record)}`;
     case 'selection':
       // The `fields` segment keeps a cell honest even against a real column
       // whose NAME happens to equal the joint label; `null` for plain kinds.

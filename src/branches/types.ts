@@ -89,6 +89,9 @@ export interface LinkValue {
   readonly onClear?: string;
 }
 
+/** A prose record as the log layer sees it — structural, the prose plane narrows it back (this layer imports only the log). */
+export type ProseValue = Readonly<Record<string, unknown>>;
+
 export type FoldEntry =
   | {
       readonly kind: 'selection';
@@ -108,6 +111,13 @@ export type FoldEntry =
       readonly viewId: string;
       readonly channel: string;
       readonly field: string;
+      readonly commitId: string;
+    }
+  | {
+      readonly kind: 'prose';
+      readonly viewId: string;
+      readonly slot: string;
+      readonly record: ProseValue;
       readonly commitId: string;
     }
   | {
@@ -206,6 +216,8 @@ export type PlanRecipe =
   | { readonly apply: 'layout'; readonly scope: string; readonly prop: string; readonly value: string }
   /** Layer 4: re-land an edited edge (`link` verb). */
   | { readonly apply: 'link'; readonly link: LinkValue }
+  /** The prose plane: re-land a slot's record, or null = back to the def's own words. */
+  | { readonly apply: 'prose'; readonly viewId: string; readonly slot: string; readonly record: ProseValue | null }
   /** Layer 4: un-declare an edit — the edge falls back to the def's rule (`link` verb with response null). */
   | { readonly apply: 'clear-link'; readonly link: LinkValue };
 
