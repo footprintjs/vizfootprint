@@ -449,10 +449,9 @@
   min-width: 0;
   display: grid;
   gap: var(--vzf-space-4);
-  /* the rows are 1fr, so the band fits its space; if a browser ever gives it less than that,
-     the band SCROLLS rather than cutting charts off in silence */
-  overflow: auto;
-  overscroll-behavior: contain;
+  /* the band fills the space flex gives it and never scrolls: the rows are 1fr, so a dashboard that does
+     not fit is a layout bug to find, not a scrollbar to hide it behind (the owner's law, 2026-09-02) */
+  overflow: hidden;
 }
 :where(.vzf) .vzf-cockpit-cell {
   position: relative; /* anchors the drag handle + the focus-thumb overlay (LY-1) */
