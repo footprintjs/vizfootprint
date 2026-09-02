@@ -4,8 +4,8 @@
  * firewall; offline, no API key.
  */
 
-export { buildDashboard } from './buildDashboard.js';
-export type { Dashboard, BuildDashboardOptions } from './buildDashboard.js';
+export { buildDashboard, buildDashboardAsync } from './buildDashboard.js';
+export type { Dashboard, BuildDashboardOptions, BuildDashboardAsyncOptions } from './buildDashboard.js';
 export { validateDashboardDef, DashboardDefError, dispatchVerbs } from './validate.js';
 export {
   DISPATCH_VERBS,
@@ -98,3 +98,7 @@ export type {
   ColumnDecl,
   RuleLine,
 } from '../encoding/index.js';
+
+// The data-source layer (owned by src/source; the file carrier is its own module, src/source/file.ts).
+export { SOURCE_FORMATS, SOURCE_VIAS, decodeRows, inlineSource, inlineVersion, openSource } from '../source/index.js';
+export type { SourceFormat, SourceVia, SourceDecl, SourceCapabilities, SnapshotOptions, SourceSnapshot, SourceHandle, SourceAdapter, SourceInfo, SourceRejection } from '../source/index.js';

@@ -31,7 +31,7 @@ describe('validateDashboardDef — data table shape', () => {
   });
 
   it('rejects a data table that sets neither rows nor csv', () => {
-    expect(validateDashboardDef(baseDef({ data: { t: {} } }))).toContain('data["t"] must set rows or csv');
+    expect(validateDashboardDef(baseDef({ data: { t: {} } }))).toContain('data["t"] must set rows, csv, or source');
   });
 
   it('rejects rows that are not an array', () => {

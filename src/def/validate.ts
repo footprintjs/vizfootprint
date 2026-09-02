@@ -27,6 +27,7 @@ import { lintEncodings, resolveFacets, validateColumnDecls, validateEncodingRule
 import type { EncodingRules, EncodingSurface, FacetSource } from '../encoding/index.js';
 import type { ColumnInfo } from '../data/index.js';
 import { validateProseDecls } from '../prose/index.js';
+import { SOURCE_FORMATS, SOURCE_VIAS } from '../source/index.js';
 
 /** Thrown when a def is structurally malformed. Carries every problem at once. */
 export class DashboardDefError extends Error {
@@ -95,6 +96,20 @@ const RESERVED_VIEW_PREFIXES = [
 function reservedPrefix(viewId: string): string | undefined {
   return RESERVED_VIEW_PREFIXES.find((prefix) => viewId.startsWith(prefix));
 }
+/** `data[t].source` — three tags and a locator; the laws each carrier adds are the adapter's, at open. */
+function validateSourceDecl(raw: unknown, where: string, problems: string[]): void {
+  if (!isObject(raw)) {
+    problems.push(`${where} must be an object { format, via, at?, options? }`);
+    return;
+  }
+  for (const key of Object.keys(raw)) if (!['format', 'via', 'at', 'options'].includes(key)) problems.push(`${where}.${key} is not a source key`);
+  if (!(SOURCE_FORMATS as readonly unknown[]).includes(raw.format)) problems.push(`${where}.format must be one of ${SOURCE_FORMATS.join('|')}`);
+  if (!(SOURCE_VIAS as readonly unknown[]).includes(raw.via)) problems.push(`${where}.via must be one of ${SOURCE_VIAS.join('|')}`);
+  if (raw.via === 'inline' && raw.at === undefined) problems.push(`${where}.at must carry the payload when via is inline`);
+  if ((raw.via === 'file' || raw.via === 'http') && (typeof raw.at !== 'string' || raw.at.length === 0)) problems.push(`${where}.at must be a path or URL string when via is ${String(raw.via)}`);
+  if (raw.options !== undefined && !isObject(raw.options)) problems.push(`${where}.options, if present, must be an object`);
+}
+
 /** The absence field a well-formed `absence` names, for the column-declaration check; undefined when malformed (already refused). */
 function absenceFieldOf(src: Record<string, unknown>): string | undefined {
   const a = src.absence;
@@ -239,7 +254,7 @@ export function validateDashboardDef(def: unknown): string[] {
 
   // ── data (required) ──
   if (!isObject(def.data)) {
-    problems.push('data must be an object mapping table name -> { rows | csv }');
+    problems.push('data must be an object mapping table name -> { rows | csv | source }');
   } else if (Object.keys(def.data).length === 0) {
     problems.push('data must declare at least one table');
   } else {
@@ -250,8 +265,14 @@ export function validateDashboardDef(def: unknown): string[] {
       }
       const hasRows = src.rows !== undefined;
       const hasCsv = src.csv !== undefined;
-      if (hasRows && hasCsv) problems.push(`data["${table}"] must not set both rows and csv`);
-      if (!hasRows && !hasCsv) problems.push(`data["${table}"] must set rows or csv`);
+      const hasSource = src.source !== undefined;
+      if ([hasRows, hasCsv, hasSource].filter(Boolean).length > 1) problems.push(`data["${table}"] must set only one of rows, csv, source`);
+      if (!hasRows && !hasCsv && !hasSource) problems.push(`data["${table}"] must set rows, csv, or source`);
+      if (hasSource) {
+        validateSourceDecl(src.source, `data["${table}"].source`, problems);
+        // a source table is materialised in memory; another engine beside it would be silently overridden
+        if (src.engine !== undefined && src.engine !== 'memory') problems.push(`data["${table}"] sets engine "${String(src.engine)}" with a source; a source table is materialised in memory — remove the engine key`);
+      }
       if (hasRows && !Array.isArray(src.rows)) problems.push(`data["${table}"].rows must be an array`);
       if (hasCsv && typeof src.csv !== 'string') problems.push(`data["${table}"].csv must be a string`);
       if (src.engine !== undefined && !ENGINES.has(src.engine as string)) {

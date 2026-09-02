@@ -27,6 +27,7 @@ import type { Actor, Cause } from '../cause/index.js';
 import type { LinkDecl, LinkDefault, LinkGraph } from '../links/types.js';
 import type { ColumnDecl, EncodingPorts, EncodingRules } from '../encoding/types.js';
 import type { ProseDecl } from '../prose/types.js';
+import type { SourceDecl, SourceInfo } from '../source/types.js';
 import type { ActorMeta } from '../mosaic/index.js';
 import type {
   AnalysisDef,
@@ -161,6 +162,13 @@ export interface DataSourceDef {
    * absent, never guessed (see src/encoding/README.md).
    */
   readonly columns?: Readonly<Record<string, ColumnDecl>>;
+  /**
+   * Where the rows come from, as three tags (see src/source/README.md):
+   * `format` (rows | csv | json), `via` (inline | file | http), `at`. Mutually
+   * exclusive with `rows` / `csv`, which say `{ format, via: 'inline' }` the
+   * short way. A non-inline source needs `buildDashboardAsync`.
+   */
+  readonly source?: SourceDecl;
 }
 
 /**
@@ -344,6 +352,10 @@ export interface DashboardRuntime {
   readonly encoding: EncodingRuntime;
   /** The prose plane: each view's declared slots (the fold's root before any `describe` commit). */
   readonly prose: ReadonlyMap<string, ProseDecl['slots']>;
+  /** The data-source layer: what each declared source vouched for when it was read (absent for `rows` / `csv` tables). */
+  readonly sources: Readonly<Record<string, SourceInfo>>;
+  /** Build notes a def should hear: e.g. `engine: 'auto'` resolved to memory because the thresholds are unmeasured. */
+  readonly notes: readonly string[];
   makeFdrStepper(): FdrStepper;
   readonly fdrProcedure: 'LORD++' | 'alpha-investing';
   readonly fdrAlpha: number;

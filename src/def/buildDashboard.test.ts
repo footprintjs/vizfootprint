@@ -21,7 +21,7 @@ describe('validateDashboardDef (R12 firewall)', () => {
 
   it('rejects a missing/empty data map', () => {
     expect(validateDashboardDef({ actors: {} } as unknown)).toContain(
-      'data must be an object mapping table name -> { rows | csv }',
+      'data must be an object mapping table name -> { rows | csv | source }',
     );
     expect(validateDashboardDef({ data: {}, actors: {} } as unknown)).toContain(
       'data must declare at least one table',
@@ -41,7 +41,7 @@ describe('validateDashboardDef (R12 firewall)', () => {
 
   it('rejects data that sets both rows and csv', () => {
     const bad = { data: { t: { rows: [], csv: 'a,b' } }, actors: {} } as unknown;
-    expect(validateDashboardDef(bad)).toContain('data["t"] must not set both rows and csv');
+    expect(validateDashboardDef(bad)).toContain('data["t"] must set only one of rows, csv, source');
   });
 
   it('re-firewalls a raw AnalysisDef through L3 (kind:test without a statistic rejected)', () => {

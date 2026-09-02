@@ -47,6 +47,8 @@ import type { EncodingPorts, EncodingProblem } from '../encoding/index.js';
 import { validateProseRecord } from '../prose/index.js';
 import type { ProseProblem } from '../prose/index.js';
 import { isRejection } from '../data/index.js';
+import { decodeRows, inlineVersion, openSource } from '../source/index.js';
+import type { SourceAdapter, SourceDecl, SourceInfo, SourceSnapshot } from '../source/index.js';
 import type { ColumnFacet } from '../data/index.js';
 
 /** The offline dashboard handle. `createSession()` opens one live, stateful session. */
@@ -55,6 +57,10 @@ export interface Dashboard {
   readonly def: DashboardDef;
   /** The resolved engine each table routed to (D24 audit). */
   readonly engines: Readonly<Record<string, Engine>>;
+  /** What each declared source vouched for when it was read — the table's provenance. */
+  readonly sources: Readonly<Record<string, SourceInfo>>;
+  /** Build notes a def should hear (an `auto` engine resolved to memory, and why). */
+  readonly notes: readonly string[];
   /** Open a fresh session: one live Mosaic Selection + commit log + FDR ledger. */
   createSession(opts?: SessionOptions): InteractionSession;
   /**
@@ -69,11 +75,17 @@ export interface Dashboard {
 }
 
 /** Options controlling engine resolution for `engine: 'auto'` tables. */
+/** The async builder's options: the source adapters the host brought (`inline` is always known). */
+export interface BuildDashboardAsyncOptions extends BuildDashboardOptions {
+  readonly sources?: readonly SourceAdapter[];
+}
+
 export interface BuildDashboardOptions {
   /**
-   * Engines actually available in this environment. `wasm`/`server` are typed
-   * stubs today, so a caller driving real data should leave this at its default
-   * (`['memory']`) — `auto` then always resolves to the runnable memory engine.
+   * Engines actually available in this environment. It bounds an EXPLICIT
+   * `engine` (a declared `server` needs it listed); `auto` no longer routes on
+   * it — `auto` resolves to memory with a note until a measured bench exists,
+   * and the guess the placeholder thresholds would have made is only quoted.
    */
   readonly availableEngines?: readonly ResolvedEngine[];
   /** The encoding plane's PORTS — explainer, coercers, recommender (code, so never on the def; see src/encoding/README.md). */
@@ -98,14 +110,22 @@ function statsOf(source: { rows?: readonly unknown[]; csv?: string }): DatasetSt
   return { rowCountEstimate: 0 };
 }
 
+/** The engine a table runs on, and the note owed when `auto` was declared. */
 function resolveEngine(
   declared: Engine | undefined,
   stats: DatasetStats,
   available: readonly ResolvedEngine[],
+  table: string,
+  notes: string[],
 ): ResolvedEngine {
   const engine = declared ?? 'memory';
   if (engine !== 'auto') return engine;
-  return chooseEngine(stats, { availableEngines: available });
+  // `auto` resolves to the one engine that runs, and says so: the thresholds behind
+  // `chooseEngine` are an unmeasured placeholder (Q12), and a round number must not
+  // route a real table to a stub that refuses every query.
+  const guess = chooseEngine(stats, { availableEngines: available });
+  notes.push(`data["${table}"]: engine "auto" resolved to memory (the placeholder thresholds would have said "${guess}"; they are unmeasured — declare an engine to choose otherwise)`);
+  return 'memory';
 }
 
 function buildProvider(
@@ -154,17 +174,88 @@ function makeFdrStepperFactory(def: DashboardDef): () => FdrStepper {
 export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions = {}): Dashboard {
   const problems = validateDashboardDef(def);
   if (problems.length) throw new DashboardDefError(problems);
+  // a table whose rows must be fetched cannot be built synchronously — say so rather than pretend
+  const remote = Object.entries(def.data).filter(([, src]) => src.source !== undefined && src.source.via !== 'inline').map(([t, src]) => `data["${t}"] declares a source via ${src.source!.via} — build it with buildDashboardAsync`);
+  if (remote.length) throw new DashboardDefError(remote);
 
   const available = options.availableEngines ?? DEFAULT_AVAILABLE;
+  const notes: string[] = [];
+  const sources: Record<string, SourceInfo> = {};
 
   // ── resolve data → one provider per table (D24) ──
   const providers = new Map<string, DataProvider>();
   const engines: Record<string, Engine> = {};
   for (const [table, source] of Object.entries(def.data)) {
-    const engine = resolveEngine(source.engine, statsOf(source), available);
+    if (source.source !== undefined) {
+      // an inline source: decoded here, the same rows `rows:` would have carried
+      const rows = decodeRows(source.source.format, source.source.at, source.source.options);
+      if ('rejected' in rows) throw new DashboardDefError([`data["${table}"].source: ${rows.rejected}`]);
+      engines[table] = 'memory';
+      providers.set(table, memoryProvider(rows, { tableName: table, ...(source.layout ? { layout: source.layout } : {}) }));
+      sources[table] = { format: source.source.format, via: 'inline', version: inlineVersion(source.source.at), retrievedAt: new Date().toISOString(), rows: rows.length };
+      continue;
+    }
+    const engine = resolveEngine(source.engine, statsOf(source), available, table, notes);
     engines[table] = engine;
     providers.set(table, buildProvider(engine, table, source));
   }
+  return assemble(def, options, providers, engines, sources, notes);
+}
+
+/**
+ * The same build, awaiting every declared source: each table's `source` is
+ * opened with the adapters the host brought (`inline` is always known), its
+ * snapshot becomes a memory table, and what the adapter vouched for — version,
+ * retrieval time, row count — is kept as the table's provenance.
+ */
+export async function buildDashboardAsync(def: DashboardDef, options: BuildDashboardAsyncOptions = {}): Promise<Dashboard> {
+  const problems = validateDashboardDef(def);
+  if (problems.length) throw new DashboardDefError(problems);
+  const available = options.availableEngines ?? DEFAULT_AVAILABLE;
+  const notes: string[] = [];
+  const sources: Record<string, SourceInfo> = {};
+  const providers = new Map<string, DataProvider>();
+  const engines: Record<string, Engine> = {};
+  for (const [table, source] of Object.entries(def.data)) {
+    if (source.source !== undefined) {
+      // the carrier's refusal is the def's problem, in the same shape the sync door raises it
+      const snap = await readSource(source.source, table, options.sources ?? []);
+      engines[table] = 'memory';
+      providers.set(table, memoryProvider(snap.rows, { tableName: table, ...(source.layout ? { layout: source.layout } : {}) }));
+      sources[table] = {
+        format: source.source.format,
+        via: source.source.via,
+        // an inline payload is never repeated; a locator is
+        ...(source.source.via !== 'inline' && typeof source.source.at === 'string' ? { at: source.source.at } : {}),
+        version: snap.version,
+        retrievedAt: snap.retrievedAt,
+        rows: snap.rows.length,
+      };
+      continue;
+    }
+    const engine = resolveEngine(source.engine, statsOf(source), available, table, notes);
+    engines[table] = engine;
+    providers.set(table, buildProvider(engine, table, source));
+  }
+  return assemble(def, options, providers, engines, sources, notes);
+}
+
+/** Open, snapshot, close — and turn what the carrier refused into a def problem. */
+async function readSource(decl: SourceDecl, table: string, adapters: readonly SourceAdapter[]): Promise<SourceSnapshot> {
+  try {
+    const handle = await openSource(decl, table, adapters);
+    try {
+      return await handle.snapshot();
+    } finally {
+      await handle.close();
+    }
+  } catch (e) {
+    throw new DashboardDefError([`data["${table}"].source: ${e instanceof Error ? e.message : String(e)}`]);
+  }
+}
+
+/** Everything after the providers exist — one assembly for both builders. */
+function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[]): Dashboard {
   const tables = [...providers.keys()];
   const defaultTable = def.defaultTable ?? tables[0]!;
 
@@ -221,6 +312,8 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
       facetsOf: (table, cols) => resolveFacets(cols, def.data[table]!), // every runtime table is a def table
     },
     prose: new Map((def.prose ?? []).map((p) => [p.viewId, p.slots] as const)),
+    sources,
+    notes,
     makeFdrStepper,
     fdrProcedure: def.fdr?.procedure ?? 'LORD++',
     fdrAlpha: def.fdr?.alpha ?? 0.05,
@@ -232,6 +325,8 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
   return {
     def,
     engines,
+    sources,
+    notes,
     createSession: (opts) => createInteractionSession(runtime, opts),
     lintProse: async () => {
       const cols = await providers.get(defaultTable)!.columns(defaultTable);
