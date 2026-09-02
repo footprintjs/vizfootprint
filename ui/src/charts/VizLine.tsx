@@ -149,6 +149,28 @@ function aggregate(data: readonly LinePoint[]): { series: SeriesGeom[]; dates: {
 }
 
 const PAD = { l: 52, r: 18, t: 18, b: 44 };
+/** One legend row's height, and the width the tick font takes per character (a measure, not a rule — SVG cannot ask before it draws). */
+const LEGEND_ROW = 14;
+const LEGEND_CHAR = 6.4;
+const LEGEND_GAP = 14;
+
+/** Lay the legend's names out in rows that fit `maxWidth`, left to right; one name alone on a row may exceed it (never dropped). */
+function layoutLegend(names: readonly string[], maxWidth: number): { readonly items: readonly { readonly x: number; readonly row: number }[]; readonly height: number } {
+  if (names.length < 2) return { items: [], height: 0 };
+  const items: { x: number; row: number }[] = [];
+  let x = 0;
+  let row = 0;
+  for (const name of names) {
+    const w = 12 + name.length * LEGEND_CHAR;
+    if (x > 0 && x + w > maxWidth) {
+      x = 0;
+      row++;
+    }
+    items.push({ x, row });
+    x += w + LEGEND_GAP;
+  }
+  return { items, height: (row + 1) * LEGEND_ROW + 4 };
+}
 
 export function VizLine(props: VizLineProps): JSX.Element {
   const {
@@ -189,7 +211,11 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const x = linearScale(elo, ehi, PAD.l, width - PAD.r);
   const allMeans = series.flatMap((s) => s.points);
   const [vlo, vhi] = extent(allMeans, (p) => p.mean, 0.5);
-  const y = linearScale(vlo, vhi, height - PAD.b, PAD.t);
+  // ≥2 series carry a legend ABOVE the plot, never over it: the band's rows are laid out first and the plot starts
+  // below them, so a legend of nine regions cannot sit on top of nine spiky lines (identity is never colour-alone).
+  const legend = layoutLegend(series.map((s) => s.name ?? 'all'), width - PAD.l - PAD.r);
+  const top = PAD.t + legend.height;
+  const y = linearScale(vlo, vhi, height - PAD.b, top);
 
   /** The distinct data date NEAREST an epoch (dates is chronological, monotone in its argument). */
   const snapToDate = (epoch: number): { date: string; epoch: number } | null => {
@@ -260,7 +286,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
       >
         {/* axes frame */}
         <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />
-        <line className="vzf-axis" x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={height - PAD.b} />
+        <line className="vzf-axis" x1={PAD.l} y1={top} x2={PAD.l} y2={height - PAD.b} />
         {/* x ticks — actual data dates; the edge labels anchor inward so they
             never clip at the plot edges or collide with each other */}
         {tickSpecs.map((d) => (
@@ -297,13 +323,11 @@ export function VizLine(props: VizLineProps): JSX.Element {
             ))}
           </g>
         ))}
-        {/* inline legend — identity is never color-alone across ≥2 series.
-            Top-LEFT inside the plot: a rising series occupies the top-right,
-            so the left corner is the collision-free spot for trend data. */}
+        {/* the legend band above the plot — identity is never color-alone across ≥2 series */}
         {showLegend && (
           <g className="vzf-line-legend" aria-hidden="true">
             {series.map((s, i) => (
-              <g key={s.name ?? '__single__'} transform={`translate(${PAD.l + 10}, ${PAD.t + i * 14})`}>
+              <g key={s.name ?? '__single__'} transform={`translate(${PAD.l + legend.items[i]!.x}, ${PAD.t + legend.items[i]!.row * LEGEND_ROW})`}>
                 <rect width={8} height={8} rx={2} fill={seriesColor(s.name)} />
                 <text className="vzf-tick" x={12} y={7.5}>
                   {s.name ?? 'all'}
@@ -313,7 +337,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
           </g>
         )}
         {/* brush */}
-        <BrushOverlay brush={brush} y={PAD.t} height={height - PAD.t - PAD.b} />
+        <BrushOverlay brush={brush} y={top} height={height - top - PAD.b} />
         {/* interactive axis labels */}
         <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />
         <AxisLabel x={14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={-90} onOpen={openPicker} />

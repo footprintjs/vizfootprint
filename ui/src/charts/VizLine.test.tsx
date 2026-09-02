@@ -128,6 +128,21 @@ describe('VizLine — aggregation and rendering', () => {
     expect(legend.textContent).toContain('B');
   });
 
+  it('the legend is a band ABOVE the plot, never over it: the plot starts below the rows, and long lists wrap', () => {
+    const one = render(<VizLine data={[{ date: '2026-04-01', value: 1 }, { date: '2026-04-02', value: 2 }]} />).container;
+    const axisTop = (c: HTMLElement): number => Number(c.querySelectorAll('line.vzf-axis')[1]!.getAttribute('y1'));
+    expect(axisTop(one)).toBe(18); // no legend ⇒ the plot keeps the top padding
+    const two = render(<VizLine data={[{ date: '2026-04-01', value: 1, series: 'A' }, { date: '2026-04-01', value: 2, series: 'B' }]} />).container;
+    expect(axisTop(two)).toBe(18 + 14 + 4); // one legend row above the plot
+    const rows = (c: HTMLElement): Set<string> => new Set([...c.querySelectorAll('.vzf-line-legend > g')].map((g) => g.getAttribute('transform')!.split(', ')[1]!));
+    expect(rows(two).size).toBe(1);
+    const nine = render(<VizLine width={320} data={Array.from({ length: 9 }, (_, i) => ({ date: '2026-04-01', value: i, series: `Region number ${i}` }))} />).container;
+    expect(rows(nine).size).toBeGreaterThan(1); // nine long names cannot share one 250px row
+    expect(axisTop(nine)).toBe(18 + rows(nine).size * 14 + 4);
+    const items = [...nine.querySelectorAll('.vzf-line-legend > g')].map((g) => g.getAttribute('transform')!);
+    expect(items[0]).toBe('translate(52, 18)'); // the first name sits at the left edge of the plot's column
+  });
+
   it('renders 3 x ticks (first/middle/last data dates) with inward edge anchors, and appends className', () => {
     const many = Array.from({ length: 12 }, (_, i) => ({
       date: `2026-04-${String(i + 1).padStart(2, '0')}`,
