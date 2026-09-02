@@ -449,7 +449,10 @@
   min-width: 0;
   display: grid;
   gap: var(--vzf-space-4);
-  overflow: hidden;
+  /* the rows are 1fr, so the band fits its space; if a browser ever gives it less than that,
+     the band SCROLLS rather than cutting charts off in silence */
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 :where(.vzf) .vzf-cockpit-cell {
   position: relative; /* anchors the drag handle + the focus-thumb overlay (LY-1) */
