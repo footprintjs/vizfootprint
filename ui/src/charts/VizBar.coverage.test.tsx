@@ -79,10 +79,24 @@ describe('VizBar', () => {
       expect(tick.textContent?.endsWith('…')).toBe(true);
       expect(tick.querySelector('title')?.textContent).toMatch(/^Carbapenemase-producing Enterobacterales/);
     }
-    // a 4-digit value needs 24px; twelve bands in 240px minus padding leave ~15px each
+    // a 4-digit value needs ~26px; twelve bands in 240px minus padding leave ~15px each — and values are all-or-nothing
     expect(container.querySelectorAll('text.vzf-barval')).toHaveLength(0);
+    // the first tick has the least room to its left, so it is clipped shortest — never run off the edge
+    const texts = ticks.map((tick) => tick.textContent ?? '');
+    expect(texts[0]!.length).toBeLessThan(texts[11]!.length);
     // the axis moved up to make room: it sits SLANT_PAD higher than the flat layout's
     expect(container.querySelector('line.vzf-axis')?.getAttribute('y1')).toBe(String(300 - 48 - 40));
+  });
+
+  it('omits EVERY value label when any one would collide — never only the wide (large) ones', () => {
+    const mixed = [
+      { category: 'a', count: 0 },
+      { category: 'b', count: 88344 },
+      { category: 'c', count: 0 },
+    ];
+    const { container } = render(<VizBar data={mixed} field="k" width={110} height={200} />);
+    // three bands of ~19px: '0' fits, '88344' (33px) does not → none are drawn
+    expect(container.querySelectorAll('text.vzf-barval')).toHaveLength(0);
   });
 
   it('keeps ticks flat and whole when they fit, and shows the values', () => {
@@ -110,10 +124,13 @@ describe('VizBar', () => {
     const { container } = render(<VizBar data={mid} field="disease" width={360} height={340} />);
     const ticks = [...container.querySelectorAll('text.vzf-tick')];
     expect(ticks).toHaveLength(12);
-    for (const tick of ticks) {
-      expect(tick.getAttribute('transform')).toMatch(/^rotate\(-40 /);
+    // every tick slants; the ones with room to their LEFT stay whole (the leftmost is bounded by the chart's edge)
+    for (const tick of ticks) expect(tick.getAttribute('transform')).toMatch(/^rotate\(-40 /);
+    for (const tick of ticks.slice(3)) {
       expect(tick.textContent?.endsWith('…')).toBe(false);
       expect(tick.querySelector('title')).toBeNull();
     }
+    expect(ticks[0]?.textContent?.endsWith('…')).toBe(true);
+    expect(ticks[0]?.querySelector('title')?.textContent).toBe('SalmonellosiA');
   });
 });

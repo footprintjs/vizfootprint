@@ -90,6 +90,16 @@ describe('VizMap — geometry and projection', () => {
     expect(yOf('North')).toBeLessThan(yOf('South'));
   });
 
+  it('coordinates="planar" fits already-projected shapes as-is: larger y renders LOWER, no latitude compression', () => {
+    const { container } = render(<VizMap geo={GEO} coordinates="planar" regionField="region" data={DATA} width={420} height={340} />);
+    const yOf = (region: string): number => {
+      const d = container.querySelector(`[data-region="${region}"]`)!.getAttribute('d')!;
+      return Number(d.slice(1).split(' ')[0]!.split(',')[1]);
+    };
+    // the fixture's "North" carries the larger second coordinate — on a screen plane that is further DOWN
+    expect(yOf('North')).toBeGreaterThan(yOf('South'));
+  });
+
   it('a feature without properties (or without the name property) gets an indexed fallback name', () => {
     const anon: GeoFeatureCollection = {
       type: 'FeatureCollection',

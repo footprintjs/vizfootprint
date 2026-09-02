@@ -12,7 +12,7 @@
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import type { ColumnView, ViewEncoding } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { fitTick, fitsBand } from './tickFit.js';
+import { TICK_ANGLE, VALUE_CHAR_PX, fitTick, fitsBand } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { pointEmission, keyActivates } from '../primitives/pointSelect.js';
 import { selectedValue } from '../primitives/useSelection.js';
@@ -82,6 +82,8 @@ export function VizBar(props: VizBarProps): JSX.Element {
   const tickRoom = Math.max(0, padB - 12 - AXIS_LABEL_ROOM);
   const plot = Math.max(0, height - PAD.t - padB);
   const axisY = height - padB;
+  // value labels are all-or-nothing: omitting only the wide ones would keep the small numbers and drop the large
+  const showValues = data.every((d) => fitsBand(String(d.count), band, VALUE_CHAR_PX));
 
   const emit = (category: string): void => {
     onEmit?.(pointEmission(field, category));
@@ -101,8 +103,8 @@ export function VizBar(props: VizBarProps): JSX.Element {
           const h = (d.count / max) * plot;
           const barY = axisY - h;
           const isSel = selected === d.category;
-          const tick = fitTick(d.category, band, tickRoom);
           const tx = cx + band / 2;
+          const tick = fitTick(d.category, band, tickRoom, tx);
           return (
             <g key={d.category}>
               <rect
@@ -123,13 +125,13 @@ export function VizBar(props: VizBarProps): JSX.Element {
               >
                 <title>{`click to select ${d.category}`}</title>
               </rect>
-              {fitsBand(String(d.count), band) ? (
+              {showValues ? (
                 <text className="vzf-barval" x={tx} y={barY - 5} textAnchor="middle">
                   {d.count}
                 </text>
               ) : null}
               {tick.rotate ? (
-                <text className="vzf-tick" x={tx} y={axisY + 12} textAnchor="end" transform={`rotate(-40 ${String(tx)} ${String(axisY + 12)})`}>
+                <text className="vzf-tick" x={tx} y={axisY + 12} textAnchor="end" transform={`rotate(-${String(TICK_ANGLE)} ${String(tx)} ${String(axisY + 12)})`}>
                   {tick.clipped ? <title>{d.category}</title> : null}
                   {tick.text}
                 </text>

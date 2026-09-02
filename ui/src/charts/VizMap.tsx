@@ -69,6 +69,13 @@ export interface VizMapProps {
   readonly regionField: string;
   /** The feature property carrying the region name. Default `'name'`. */
   readonly nameProperty?: string;
+  /**
+   * What the feature coordinates ARE. `'lonlat'` (default): degrees, fitted
+   * equirectangular with cos(mid-latitude) x-compression, north up.
+   * `'planar'`: already projected to a screen-like plane (us-atlas, any Albers
+   * output) — fitted uniformly, y growing DOWN, no compression.
+   */
+  readonly coordinates?: 'lonlat' | 'planar';
   /** Value per region, consumer-computed (canonically: crossfiltered row count). */
   readonly data: readonly RegionDatum[];
   /** The unit word for tooltips/legend (default `'rows'`). */
@@ -95,9 +102,10 @@ interface Projector {
 
 /**
  * Fitted equirectangular: uniform scale of the collection's bbox into the
- * plot with cos(mid-latitude) x-compression, centered on both axes.
+ * plot with cos(mid-latitude) x-compression, centered on both axes. With
+ * `planar`, the bbox is fitted as-is: no compression, y already downward.
  */
-function fitProjection(geo: GeoFeatureCollection, plot: { x: number; y: number; w: number; h: number }): Projector {
+function fitProjection(geo: GeoFeatureCollection, plot: { x: number; y: number; w: number; h: number }, planar = false): Projector {
   let minLon = Infinity;
   let maxLon = -Infinity;
   let minLat = Infinity;
@@ -124,12 +132,13 @@ function fitProjection(geo: GeoFeatureCollection, plot: { x: number; y: number; 
     minLat = 0;
     maxLat = 1;
   }
-  const kx = Math.cos(((minLat + maxLat) / 2) * (Math.PI / 180));
+  const kx = planar ? 1 : Math.cos(((minLat + maxLat) / 2) * (Math.PI / 180));
   const spanX = (maxLon - minLon) * kx || 1;
   const spanY = maxLat - minLat || 1;
   const scale = Math.min(plot.w / spanX, plot.h / spanY);
   const offX = plot.x + (plot.w - spanX * scale) / 2;
   const offY = plot.y + (plot.h - spanY * scale) / 2;
+  if (planar) return ([x, y]) => [offX + (x - minLon) * scale, offY + (y - minLat) * scale];
   return ([lon, lat]) => [offX + (lon - minLon) * kx * scale, offY + (maxLat - lat) * scale];
 }
 
@@ -169,7 +178,7 @@ export function VizMap(props: VizMapProps): JSX.Element {
 
   const values = new Map(data.map((d) => [d.region, d.value]));
   const max = Math.max(0, ...data.map((d) => d.value));
-  const project = fitProjection(geo, { x: PAD.l, y: PAD.t, w: width - PAD.l - PAD.r, h: height - PAD.t - PAD.b });
+  const project = fitProjection(geo, { x: PAD.l, y: PAD.t, w: width - PAD.l - PAD.r, h: height - PAD.t - PAD.b }, props.coordinates === 'planar');
 
   const emit = (region: string): void => {
     // clicking the selected region again CLEARS the point selection — the

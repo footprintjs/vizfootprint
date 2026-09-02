@@ -20,4 +20,17 @@ describe('tickFit', () => {
   it('no room at all still leaves one character', () => {
     expect(fitTick('Pertussis', 10, 0).text).toBe('P…');
   });
+
+  it('the left edge bounds the slant too — the leftmost tick clips harder than one with room to its left', () => {
+    const label = 'Carbapenemase-producing Enterobacterales';
+    const withRoom = fitTick(label, 30, 56, Infinity);
+    const nearEdge = fitTick(label, 30, 56, 20); // 20px to the left edge → ~26px along the slant → 4 chars
+    expect(nearEdge.rotate).toBe(true);
+    expect(nearEdge.text.length).toBeLessThan(withRoom.text.length);
+    expect(nearEdge.text).toBe('Car…');
+  });
+  it('fitsBand measures values at their own character width', () => {
+    expect(fitsBand('88344', 30)).toBe(true); // 5 × 6 = 30 at tick size
+    expect(fitsBand('88344', 30, 6.6)).toBe(false); // 33 at value size
+  });
 });
