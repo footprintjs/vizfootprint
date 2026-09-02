@@ -5,5 +5,5 @@ export type { CheckpointModalProps } from './CheckpointModal.js';
 export { BranchMap, undoBlockReason } from './BranchMap.js';
 export type { BranchMapProps } from './BranchMap.js';
 export { orderedCheckpoints, currentBeatIndex, beatTarget } from './presentBeat.js';
-export { railTick, TICK_MAX, TICK_MIN, TICK_LABELLED } from './rail.js';
+export { railTick, TICK_UNMEASURED, TICK_MIN, TICK_LABELLED } from './rail.js';
 export type { RailTicks } from './rail.js';

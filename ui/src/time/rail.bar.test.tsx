@@ -36,6 +36,29 @@ describe('the rail in the bar', () => {
     expect(rail.querySelector('[data-commit="c4"]')!.getAttribute('aria-label')).toBe('#c4 select c4');
   });
 
+  it('each bar says where it stands: the cursor, the head, and everything AHEAD of the cursor — and only a beat carries a flag', () => {
+    const { container } = render(<TimeTravelBar compact commits={MANY} cursor="c10" head="c39" checkpoints={BEATS} viewingPast />);
+    const rail = container.querySelector('[data-vzf="timeline"]')!;
+    expect(rail.querySelector('.vzf-tl-dot.vzf-cursor')!.getAttribute('data-commit')).toBe('c10'); // where one stands
+    expect(rail.querySelectorAll('.vzf-tl-dot.vzf-head')).toHaveLength(1);
+    expect(rail.querySelector('.vzf-tl-dot.vzf-head')!.getAttribute('data-commit')).toBe('c39'); // now, the tip of this lineage
+    expect(rail.querySelector('[data-commit="c11"]')!.classList.contains('vzf-ahead')).toBe(true); // the future one is looking back from
+    expect(rail.querySelector('[data-commit="c9"]')!.classList.contains('vzf-ahead')).toBe(false); // already lived through
+    expect(rail.querySelector('[data-commit="c10"]')!.classList.contains('vzf-ahead')).toBe(false); // the cursor is not ahead of itself
+    expect(rail.querySelectorAll('.vzf-tl-dot.vzf-ahead')).toHaveLength(29); // c11 … c39
+    // the flag slot: a beat shows ⚑, every other bar keeps the same empty box, so no bar sits lower than its neighbour
+    expect(rail.querySelectorAll('.vzf-tl-flag')).toHaveLength(2);
+    expect(rail.querySelectorAll('.vzf-tl-flagslot')).toHaveLength(38);
+  });
+
+  it('a cursor that is on no bar of this lineage leaves nothing "ahead" — and the head is still marked', () => {
+    const { container } = render(<TimeTravelBar compact commits={MANY} cursor={null} head="c39" checkpoints={BEATS} />);
+    const rail = container.querySelector('[data-vzf="timeline"]')!;
+    expect(rail.querySelectorAll('.vzf-tl-dot.vzf-cursor')).toHaveLength(0);
+    expect(rail.querySelectorAll('.vzf-tl-dot.vzf-ahead')).toHaveLength(0);
+    expect(rail.querySelector('.vzf-tl-dot.vzf-head')!.getAttribute('data-commit')).toBe('c39');
+  });
+
   it('present: beats on a rail of their own, the step group first, and Play only when the host brought it', () => {
     const onPlay = vi.fn();
     const { container, rerender } = render(<TimeTravelBar compact mode="present" commits={MANY} cursor="c39" head="c39" checkpoints={BEATS} onPlay={onPlay} />);

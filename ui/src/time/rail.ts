@@ -1,37 +1,52 @@
 /**
- * THE TIMELINE RAIL — ticks that shrink as commits accumulate, so the strip
- * never grows and the dashboard beneath it never jumps.
+ * THE TIMELINE RAIL — a FIXED strip whose bars share it, so the header never
+ * grows and the dashboard beneath it never jumps.
  *
- * The law: the rail is given a width by the header (flex, one row, never
- * wrapping); the ticks share it. With few commits a tick is a comfortable
- * 28px with its id beneath; as commits pile up the tick narrows down to a
- * minimum, its id hides first (dense), and only past the minimum does the
- * rail scroll. A tick is never dropped: every commit stays reachable.
+ * The law: the rail's width is the header's, not the commits' — it neither
+ * grows nor shrinks with the count. The count only decides how the bars
+ * SHARE that width: with N commits each bar is `(width − the gaps) / N`. One
+ * commit fills the rail, two take half each, four a quarter each, and so on,
+ * with NO upper limit — a lone bar is as wide as the rail.
+ *
+ * Two floors keep it usable as commits pile up: a bar's id hides once the bar
+ * is narrower than {@link TICK_LABELLED} (dense), and a bar never goes under
+ * {@link TICK_MIN} — past that the rail scrolls instead. A bar is never
+ * dropped: every commit stays reachable.
  */
 import { useCallback, useLayoutEffect, useState } from 'react';
 
 export interface RailTicks {
-  /** One tick's width in CSS pixels. */
+  /** One bar's width in CSS pixels — the share of the fixed rail this count earns. */
   readonly tick: number;
-  /** True when the ticks are too narrow to carry their ids. */
+  /** True when the bars are too narrow to carry their ids. */
   readonly dense: boolean;
 }
 
-/** Placeholder dials — a comfortable tick, the narrowest tick, the width beneath which an id no longer fits. */
-export const TICK_MAX = 28;
+/** The width a bar is drawn at before the rail has been measured (no layout yet, or nothing to draw). NOT a maximum: a measured rail with one commit gives that commit the whole width. */
+export const TICK_UNMEASURED = 28;
+/** The narrowest a bar ever gets; past it the bars keep this width and the rail scrolls. */
 export const TICK_MIN = 6;
+/** The width beneath which a bar can no longer carry its id (dense). */
 export const TICK_LABELLED = 18;
+/** The space between two bars, in pixels — the rail's own `gap`. */
 const TICK_GAP = 4;
 
-/** The tick width for `count` ticks sharing `width` pixels: comfortable when there is room, narrower as they pile up, never under the minimum. */
+/**
+ * The bar width for `count` bars sharing a FIXED rail of `width` pixels:
+ * `(width − the gaps) / count`, floored — one bar fills the rail, two take
+ * half each, four a quarter each. No upper limit; {@link TICK_MIN} is the
+ * floor, and a bar narrower than {@link TICK_LABELLED} is `dense` (its id
+ * hides). Before layout (`width` 0) or with nothing to draw (`count` 0) the
+ * answer is the unmeasured placeholder, labelled.
+ */
 export function railTick(width: number, count: number): RailTicks {
-  if (count <= 0 || width <= 0) return { tick: TICK_MAX, dense: false };
+  if (count <= 0 || width <= 0) return { tick: TICK_UNMEASURED, dense: false };
   const share = Math.floor((width - (count - 1) * TICK_GAP) / count);
-  const tick = Math.max(TICK_MIN, Math.min(TICK_MAX, share));
+  const tick = Math.max(TICK_MIN, share);
   return { tick, dense: tick < TICK_LABELLED };
 }
 
-/** The rail's CONTENT width: what the ticks may share — the padding is the rail's, not theirs. */
+/** The rail's CONTENT width: what the bars may share — the padding is the rail's, not theirs. */
 function contentWidth(el: HTMLElement): number {
   const cs = getComputedStyle(el);
   const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
@@ -39,7 +54,7 @@ function contentWidth(el: HTMLElement): number {
 }
 
 /**
- * The rail's ticks, re-measured whenever the rail's content box changes (a
+ * The rail's bar width, re-measured whenever the rail's content box changes (a
  * ResizeObserver, when the environment has one). The rail may mount later
  * than the component that asks (Present mode has no rail until a beat is
  * named), so the node is held in state through a callback ref and the

@@ -1,7 +1,7 @@
 /**
  * `<TimeTravelBar>` — two modes over the same branching history.
  *
- *   EXPLORE  — the full commit-dot timeline (active lineage) with ⟵/⟶ step
+ *   EXPLORE  — the full commit-bar timeline (active lineage) with ⟵/⟶ step
  *              semantics (the fork-safe tree rule, not a slider), a ⚑
  *              checkpoint button, and a "return to now" when viewing the past.
  *   PRESENT  — checkpoint-ONLY traversal: prev/next walk the NAMED beats, the
@@ -137,6 +137,7 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
           lineage={lineage}
           active={active}
           cursor={cursor}
+          head={head}
           ckptByCommit={ckptByCommit}
           backDisabled={backDisabled}
           forwardDisabled={forwardDisabled}
@@ -169,6 +170,8 @@ interface ExploreBodyProps {
   lineage: CommitView[];
   active: Set<string>;
   cursor: string | null;
+  /** The tip of this lineage — its bar is marked, so "now" is findable at a glance. */
+  head: string | null;
   ckptByCommit: Map<string, string>;
   backDisabled: boolean;
   forwardDisabled: boolean;
@@ -182,6 +185,10 @@ interface ExploreBodyProps {
 }
 function ExploreBody(p: ExploreBodyProps): JSX.Element {
   const { rail, tick, dense } = useRailTicks(p.lineage.length);
+  // where the cursor stands on this lineage; everything after it is the FUTURE
+  // one is looking back from (−1 = the cursor is on another lane, so nothing
+  // on this one is "ahead" of it)
+  const cursorAt = p.lineage.findIndex((c) => c.id === p.cursor);
   return (
     <>
       <div className="vzf-timeline-row">
@@ -198,10 +205,10 @@ function ExploreBody(p: ExploreBodyProps): JSX.Element {
           {p.lineage.length === 0 ? (
             <span className="vzf-tl-empty">no commits yet — brush, click a bar, or ask the analyst to start the timeline</span>
           ) : (
-            p.lineage.map((c) => (
+            p.lineage.map((c, i) => (
               <button
                 key={c.id}
-                className={`vzf-tl-dot${c.id === p.cursor ? ' vzf-cursor' : ''}`}
+                className={`vzf-tl-dot${c.id === p.cursor ? ' vzf-cursor' : ''}${c.id === p.head ? ' vzf-head' : ''}${cursorAt >= 0 && i > cursorAt ? ' vzf-ahead' : ''}`}
                 data-actor={c.actor}
                 data-commit={c.id}
                 title={`#${c.id} ${c.label} (${c.actor})${c.intent ? ': ' + c.intent : ''}`}
