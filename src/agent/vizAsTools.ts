@@ -63,7 +63,9 @@ const WHATS_HERE_DESCRIPTION =
   'Call this first, then act with dispatch.';
 
 const DISPATCH_DESCRIPTION =
-  'Perform ONE semantic interaction. verb is one of: select (a point value on a field — OR a CELL: ' +
+  'Perform ONE semantic interaction. verb is one of: select (a point value on a field — OR MANY values: pass ' +
+  'field + values (an array) to keep exactly those, add exclude: true to keep everything BUT them; ' +
+  'values: null clears — OR a CELL: ' +
   'pass fields + values instead of field/value to select on TWO fields with one gesture, e.g. a ' +
   'heatmap cell "price 100-150 AND category Formal"; the two constraints land as ONE commit whose ' +
   'predicate is the AND of both sides, and values: null clears the cell), filter (an ' +
@@ -158,6 +160,20 @@ const DISPATCH_SCHEMA = {
         'The selected DATA-space point value (select), or — for a navigate on "layout:<scope>" — the ' +
         'plain-string new value of the arrangement prop named by field.',
     },
+    values: {
+      type: ['array', 'null'],
+      description:
+        'Two forms, never both. (1) select WITH field: MANY data-space values on that field — a multi-select ' +
+        '(strings, numbers, booleans; null in the list means "is empty"), or null to clear the match. ' +
+        '(2) select WITH fields — a CELL: the two sides matching fields, each a plain value (equality; null ' +
+        'means "is empty") or a [lo, hi] interval (bucket bounds, inclusive; either bound may be null for ' +
+        'open-ended), e.g. [[100, 150], "Formal"]; values: null clears the cell. A cell lands ONE commit whose ' +
+        'predicate is the AND of both sides.',
+    },
+    exclude: {
+      type: 'boolean',
+      description: 'For a multi-value select only: true keeps everything BUT the listed values (NOT IN). Default false.',
+    },
     range: {
       type: ['array', 'null'],
       description:
@@ -179,14 +195,6 @@ const DISPATCH_SCHEMA = {
         'CELL-select only: the TWO fields selected in one gesture, x side then y side, e.g. ' +
         '["price", "category"]. Use together with values (and omit field/value/range). The view must ' +
         'declare the cell emission kind (a heatmap does; classic charts do not).',
-    },
-    values: {
-      type: ['array', 'null'],
-      description:
-        'CELL-select only: the two sides matching fields — each side is a plain value (equality; null ' +
-        'means "is empty") or a [lo, hi] interval (bucket bounds, inclusive; either bound may be null ' +
-        'for open-ended), e.g. [[100, 150], "Formal"]. Pass values: null to clear the cell. Lands ONE ' +
-        'commit whose predicate is the AND of both sides.',
     },
     ...OPTIONAL_INTENT,
   },
@@ -333,6 +341,11 @@ function isValidFilterRange(range: unknown): range is readonly [RawBound, RawBou
  * anything else must be a plain JSON scalar (number/string/boolean/null —
  * `null` is a real IS-NULL constraint, never a per-side clear).
  */
+/** A plain value a match list may carry — a string, number, boolean, or null (IS NULL). */
+function isScalarValue(v: unknown): boolean {
+  return v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
+}
+
 function isValidCellSide(side: unknown): side is CellValuesSide {
   if (Array.isArray(side)) return isValidFilterRange(side);
   return side === null || typeof side === 'number' || typeof side === 'string' || typeof side === 'boolean';
@@ -390,7 +403,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
         if (typeof args['viewId'] !== 'string') return { error: 'select requires a string viewId' };
         // D30: the CELL form — fields+values selects on two fields in one
         // gesture, landing ONE compound commit (never two linked ones).
-        if (args['fields'] !== undefined || args['values'] !== undefined) {
+        if (args['fields'] !== undefined) {
           if (!isValidCellFields(args['fields'])) {
             return { error: 'cell select requires fields: exactly two column names, x side then y side, e.g. ["price", "category"]' };
           }
@@ -412,6 +425,16 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
         }
         if (typeof args['field'] !== 'string') {
           return { error: 'select requires string viewId and field' };
+        }
+        // SET-1: the MATCH form — field + values (many), optional exclude.
+        if (args['values'] !== undefined) {
+          const values = args['values'];
+          if (values !== null && (!Array.isArray(values) || !values.every(isScalarValue))) {
+            return { error: 'a multi-value select requires values: an array of plain values (strings, numbers, booleans, null) on field — or values: null to clear' };
+          }
+          const exclude = args['exclude'];
+          if (exclude !== undefined && typeof exclude !== 'boolean') return { error: 'exclude must be true or false' };
+          return { verb: 'select', viewId: args['viewId'], field: args['field'], values, ...(exclude === undefined ? {} : { exclude }), cause };
         }
         return { verb: 'select', viewId: args['viewId'], field: args['field'], value: args['value'], cause };
       }

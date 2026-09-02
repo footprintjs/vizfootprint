@@ -213,9 +213,11 @@ export interface CapabilityDecl {
   readonly canProbe: boolean;
   /**
    * Which emission kinds it can produce (`'cell'` = the D30 compound —
-   * a heatmap declares `['cell']`). Default: every kind is allowed.
+   * a heatmap declares `['cell']`; `'match'` = the SET-1 many-values select).
+   * Default: every kind is allowed. A view that declares `'point'` may also
+   * emit `'match'` — a set is a point's plural, never a new capability.
    */
-  readonly encodings?: readonly ('point' | 'interval' | 'cell')[];
+  readonly encodings?: readonly ('point' | 'interval' | 'cell' | 'match')[];
   /** Which data fields it encodes (informational; drives readiness hints). */
   readonly fields?: readonly string[];
 }

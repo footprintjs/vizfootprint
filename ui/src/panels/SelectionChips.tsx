@@ -1,0 +1,86 @@
+/**
+ * `<SelectionChips>` — every LIVE selection in words, each one removable, each
+ * keep/exclude-flippable (SET-1). The deselection affordance the charts alone
+ * cannot give: clicking empty space is ambiguous under linked views, so the
+ * chips are the one place a person sees what is filtering what and takes any
+ * of it away — as a commit, like any act. Words come from `formatCommitValue`
+ * (the same spelling the commit log uses), never a second vocabulary.
+ */
+import type { SelectionView } from '../adapter/types.js';
+import { formatCommitValue } from './format.js';
+
+export interface SelectionChipsProps {
+  readonly selections: readonly SelectionView[];
+  /** viewId → display label (the def's `label`), optional. */
+  readonly labels?: Readonly<Record<string, string>>;
+  /** Clear ONE view's selection (kind-faithful) — wire to `view.clear(viewId)`. */
+  readonly onClear?: (viewId: string) => void;
+  /** Clear every selection — wire to `view.clearAll()`. */
+  readonly onClearAll?: () => void;
+  /** Flip a point/match between keep and exclude — wire to `view.setPolarity(viewId, exclude)`. */
+  readonly onSetPolarity?: (viewId: string, exclude: boolean) => void;
+  /** Present mode: read the chips, act on none. */
+  readonly readOnly?: boolean;
+  readonly className?: string;
+}
+
+/** One chip's words: "<view>: <field> = A" / "<field> in {A, B}" / "<field> 100 – 150" / the cell's two sides. */
+export function chipWords(s: SelectionView): string {
+  if (s.kind === 'cell') return formatCommitValue(s);
+  if (s.kind === 'match') return `${s.field} ${formatCommitValue(s)}`;
+  if (s.kind === 'interval') return `${s.field} ${formatCommitValue(s)}`;
+  return `${s.field} = ${formatCommitValue(s)}`;
+}
+
+/** Whether a selection has a polarity to flip (a live point or match). */
+function flippable(s: SelectionView): boolean {
+  if (s.kind === 'point') return s.value != null;
+  return s.kind === 'match' && s.value != null;
+}
+
+function isExcluded(s: SelectionView): boolean {
+  return s.kind === 'match' && (s.value as { readonly exclude?: boolean } | null)?.exclude === true;
+}
+
+export function SelectionChips({ selections, labels = {}, onClear, onClearAll, onSetPolarity, readOnly = false, className }: SelectionChipsProps): JSX.Element {
+  const live = selections.filter((s) => s.value != null); // a cleared clause (null on the wire) is not a chip
+  return (
+    <div className={`vzf vzf-selchips${className ? ' ' + className : ''}`} role="group" aria-label="live selections" data-vzf="selection-chips">
+      {live.length === 0 ? (
+        <span className="vzf-soft vzf-selchips-empty">no selection — click a mark, shift-click to add, drag across bars for a run</span>
+      ) : (
+        live.map((s) => {
+          const excluded = isExcluded(s);
+          return (
+            <span key={s.viewId} className={`vzf-selchip${excluded ? ' vzf-selchip-exclude' : ''}`} data-view={s.viewId} data-kind={s.kind}>
+              <span className="vzf-selchip-view">{labels[s.viewId] ?? s.viewId}</span>
+              <span className="vzf-selchip-words">{chipWords(s)}</span>
+              {onSetPolarity !== undefined && flippable(s) && (
+                <button
+                  type="button"
+                  className="vzf-selchip-flip"
+                  disabled={readOnly}
+                  aria-label={`${excluded ? 'keep' : 'exclude'} these ${s.field} values instead`}
+                  title={excluded ? 'keep only these instead' : 'exclude these instead (everything but them)'}
+                  onClick={() => onSetPolarity(s.viewId, !excluded)}
+                >
+                  {excluded ? 'keep' : 'exclude'}
+                </button>
+              )}
+              {onClear !== undefined && (
+                <button type="button" className="vzf-selchip-clear" disabled={readOnly} aria-label={`clear the ${labels[s.viewId] ?? s.viewId} selection`} title="clear (a commit, like any act)" onClick={() => onClear(s.viewId)}>
+                  ✕
+                </button>
+              )}
+            </span>
+          );
+        })
+      )}
+      {live.length > 1 && onClearAll !== undefined && (
+        <button type="button" className="vzf-selchips-clearall" disabled={readOnly} onClick={onClearAll} aria-label="clear all selections">
+          clear all
+        </button>
+      )}
+    </div>
+  );
+}

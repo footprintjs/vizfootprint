@@ -60,3 +60,20 @@ describe('CommitLog — BR-1 provenance tags (bring-over / undo / conflicts)', (
     expect(container.querySelector('[data-commit="p4"] .vzf-conflict')).toBeNull();
   });
 });
+
+describe('CommitLog — a match commit (SET-1) reads as its field and list', () => {
+  it('"category in {A, B}" for a keep-set, "not in" for an exclude-set, "(cleared)" for a cleared match', () => {
+    const base = { parent: null, viewId: 'bar', kind: 'match' as const, field: 'category', actor: 'user' as const, label: 'category', onBranch: true, isCursor: false, isHead: false };
+    const { container } = render(
+      <CommitLog
+        commits={[
+          { ...base, id: 'm1', value: { values: ['A', 'B'] } },
+          { ...base, id: 'm2', value: { values: ['A'], exclude: true } },
+          { ...base, id: 'm3', value: null },
+        ]}
+      />,
+    );
+    const bodies = [...container.querySelectorAll('.vzf-chip-body')].map((el) => el.textContent);
+    expect(bodies).toEqual(['category in {A, B}', 'category not in {A}', 'category (cleared)']);
+  });
+});

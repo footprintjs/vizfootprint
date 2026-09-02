@@ -80,7 +80,7 @@ export type FoldEntry =
       readonly kind: 'selection';
       readonly viewId: string;
       readonly clause: {
-        readonly kind: 'point' | 'interval' | 'cell';
+        readonly kind: 'point' | 'interval' | 'cell' | 'match';
         /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D30). */
         readonly field: string;
         readonly value: unknown;
@@ -158,7 +158,7 @@ export type PlanRecipe =
   | {
       readonly apply: 'selection';
       readonly viewId: string;
-      readonly kind: 'point' | 'interval' | 'cell';
+      readonly kind: 'point' | 'interval' | 'cell' | 'match';
       readonly field: string;
       readonly value: unknown;
       /** kind:'cell' only — the two selected fields (D30); the executor re-lands the compound. */
@@ -168,6 +168,8 @@ export type PlanRecipe =
       readonly apply: 'clear-selection';
       readonly viewId: string;
       readonly field: string;
+      /** The kind of the commit being cleared — the executor clears KIND-FAITHFULLY (a cleared point/match/interval of the same view). */
+      readonly kind?: 'point' | 'interval' | 'cell' | 'match';
       /** Present when the commit being cleared was a cell — the executor clears kind-faithfully (a cleared CELL commit). */
       readonly fields?: readonly [string, string];
     }

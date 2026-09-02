@@ -267,7 +267,7 @@ describe('Q6 — reencode: the 8th dispatch verb (a state-changing view-encoding
     expect(scatter.encodings).toEqual({ x: 'rating', y: 'rating' });
     expect(scatter.columns.map((c) => c.field).sort()).toEqual(['category', 'id', 'price', 'rating']);
     // The old point/interval capability field is unaffected by the rename.
-    expect(scatter.selectionKinds).toEqual(['point', 'interval']);
+    expect(scatter.selectionKinds).toEqual(['point', 'interval', 'match']); // SET-1: a set is a point's plural
     // The top-level convenience projection (viewId -> its encodings) agrees with `views[]`.
     expect(ov.encodings['scatter']).toEqual(scatter.encodings);
     expect(ov.encodings['bar']).toEqual({ x: 'category' }); // untouched — reencode only targeted scatter

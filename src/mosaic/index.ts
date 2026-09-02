@@ -9,5 +9,6 @@ export type {
   PointEncoding,
   IntervalEncoding,
   CellEncoding,
+  MatchEncoding,
   EmissionContext,
 } from './emission.js';

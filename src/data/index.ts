@@ -12,6 +12,8 @@ export type {
   IntervalBounds,
   IntervalClause,
   MatchClause,
+  MatchValue,
+  MatchValueBody,
   PointClause,
   PredicateClause,
   RejectionReason,

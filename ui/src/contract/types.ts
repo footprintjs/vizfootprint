@@ -49,7 +49,7 @@ export type { ChartEmission };
  * is the compound two-field selection — a heatmap cell ("price 100–150 AND
  * category Formal") emitted as ONE emission and landed as ONE commit.
  */
-export type EmissionKind = 'point' | 'interval' | 'cell';
+export type EmissionKind = 'point' | 'interval' | 'cell' | 'match';
 
 /**
  * What a renderer can honestly do — declared once at mount, never guessed.
@@ -130,7 +130,7 @@ export interface SelectionClauseView {
   readonly kind: EmissionKind;
   /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D30). */
   readonly field: string;
-  /** For kind:'cell': the two-sided pair `[x side, y side]` (each side a value or [lo, hi]). */
+  /** For kind:'cell': the two-sided pair `[x side, y side]` (each side a value or [lo, hi]); for kind:'match': `{ values, exclude? }` or null. */
   readonly value: unknown;
   /** kind:'cell' only — the two selected fields, x side then y side. */
   readonly fields?: readonly [string, string];

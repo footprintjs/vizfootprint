@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 import { VizBar } from './VizBar.js';
 import type { ColumnView } from '../adapter/types.js';
+import { selectionForView } from '../contract/selection.js';
 
 afterEach(cleanup);
 
@@ -132,5 +133,58 @@ describe('VizBar', () => {
     }
     expect(ticks[0]?.textContent?.endsWith('…')).toBe(true);
     expect(ticks[0]?.querySelector('title')?.textContent).toBe('SalmonellosiA');
+  });
+});
+
+describe('SET-1 — deselect, shift-click sets, drag runs (VizBar)', () => {
+  const sel = (value: unknown, kind: 'point' | 'match' = 'match') => selectionForView([{ viewId: 'bar', field: 'category', kind, value }], 'bar');
+  it('clicking the selected bar again CLEARS (rawValue undefined); clicking another bar selects it as a point', () => {
+    const onEmit = vi.fn();
+    render(<VizBar viewId="bar" data={data} field="category" selection={sel('Casual', 'point')} onEmit={onEmit} />);
+    fireEvent.click(screen.getByRole('button', { name: /select Casual/ }));
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: undefined, encoding: { kind: 'point', field: 'category' } });
+    fireEvent.click(screen.getByRole('button', { name: /select Formal/ }));
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: 'Formal', encoding: { kind: 'point', field: 'category' } });
+  });
+  it('shift-click adds to the view\'s own set (a point promotes to a set); every value in the set is outlined; an exclude-set is dashed', () => {
+    const onEmit = vi.fn();
+    const { container, rerender } = render(<VizBar viewId="bar" data={data} field="category" selection={sel('Casual', 'point')} onEmit={onEmit} />);
+    fireEvent.click(screen.getByRole('button', { name: /select Formal/ }), { shiftKey: true });
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: { values: ['Casual', 'Formal'] }, encoding: { kind: 'match', field: 'category' } });
+    rerender(<VizBar viewId="bar" data={data} field="category" selection={sel({ values: ['Casual', 'Formal'] })} onEmit={onEmit} />);
+    expect(container.querySelectorAll('rect.vzf-selected')).toHaveLength(2);
+    // Enter with shift is the keyboard spelling of the same act; a plain Enter on a set member narrows to a point
+    fireEvent.keyDown(screen.getByRole('button', { name: /select Party/ }), { key: 'Enter', shiftKey: true });
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: { values: ['Casual', 'Formal', 'Party'] }, encoding: { kind: 'match', field: 'category' } });
+    fireEvent.keyDown(screen.getByRole('button', { name: /select Party/ }), { key: 'Enter' });
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: 'Party', encoding: { kind: 'point', field: 'category' } });
+    rerender(<VizBar viewId="bar" data={data} field="category" selection={sel({ values: ['Casual'], exclude: true })} onEmit={onEmit} />);
+    expect(container.querySelectorAll('rect.vzf-excluded')).toHaveLength(1);
+    expect(container.querySelectorAll('rect.vzf-selected')).toHaveLength(0);
+  });
+  it('a drag from one bar to another selects the RUN between them as a match (in data order, either direction); a click stays a click', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizBar viewId="bar" data={data} field="category" onEmit={onEmit} />);
+    const svg = container.querySelector('svg')!;
+    const bars = () => screen.getAllByRole('button', { name: /^select / });
+    fireEvent.pointerEnter(bars()[1]!); // a stray enter with no run in flight is nothing
+    fireEvent.pointerDown(bars()[0]!);
+    fireEvent.pointerEnter(bars()[2]!);
+    fireEvent.pointerUp(svg);
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: { values: ['Casual', 'Formal', 'Party'] }, encoding: { kind: 'match', field: 'category' } });
+    fireEvent.pointerDown(bars()[2]!);
+    fireEvent.pointerEnter(bars()[1]!);
+    fireEvent.pointerEnter(bars()[0]!);
+    fireEvent.pointerUp(svg);
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: { values: ['Casual', 'Formal', 'Party'] }, encoding: { kind: 'match', field: 'category' } });
+    onEmit.mockClear();
+    fireEvent.pointerDown(bars()[1]!);
+    fireEvent.pointerUp(svg); // same bar: no run — the click handler owns it
+    expect(onEmit).not.toHaveBeenCalled();
+    fireEvent.pointerDown(bars()[0]!);
+    fireEvent.pointerEnter(bars()[1]!);
+    fireEvent.pointerLeave(svg); // the pointer left the chart: the run is abandoned
+    fireEvent.pointerUp(svg);
+    expect(onEmit).not.toHaveBeenCalled();
   });
 });

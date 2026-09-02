@@ -164,3 +164,19 @@ describe('VizCockpit — mobile carousel dots', () => {
     expect(container.querySelectorAll('.vzf-cockpit-dot')[0]!.classList.contains('vzf-active')).toBe(true);
   });
 });
+
+describe('SET-1 — the per-chart ✕ clear', () => {
+  it('renders only for an ACTIVE chart that gave onClear, names the view, and calls it', () => {
+    const onClear = vi.fn();
+    const charts: CockpitChart[] = [
+      { id: 'bar', render: () => <svg />, active: true, onClear },
+      { id: 'idle', render: () => <svg />, active: false, onClear: vi.fn() },
+      { id: 'noHandler', render: () => <svg />, active: true },
+    ];
+    const { container } = render(<VizCockpit charts={charts} />);
+    const pills = container.querySelectorAll('[data-vzf="clear-selection"]');
+    expect(pills).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear the bar selection' }));
+    expect(onClear).toHaveBeenCalledTimes(1);
+  });
+});

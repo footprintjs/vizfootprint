@@ -75,6 +75,15 @@ export function keyOf(record: CommitRecord): string | null {
  * `null` (or an id the records don't contain) folds the empty path — validate
  * ids upstream where absence must be an honest miss (`foldDiff` does).
  */
+/**
+ * Is this selection commit a CLEAR? A point clears with `undefined` (the
+ * three-way point split: `null` is a real IS NULL); every other kind clears
+ * with `null` (the cleared-interval rule, shared by cell and match).
+ */
+export function isClearedSelection(rec: Pick<CommitRecord, 'kind' | 'value'>): boolean {
+  return rec.kind === 'point' ? rec.value === undefined : rec.value === null;
+}
+
 export function foldStateAt(records: readonly CommitRecord[], tipId: string | null): FoldState {
   const byId = indexById(records);
   const path = chainToRoot(byId, tipId).reverse(); // root→tip
@@ -98,8 +107,8 @@ export function foldStateAt(records: readonly CommitRecord[], tipId: string | nu
         value: rec.value,
         commitId: rec.id,
       });
-    } else if ((rec.kind === 'interval' || rec.kind === 'cell') && rec.value === null) {
-      state.delete(key); // a cleared interval OR cleared cell drops the view's selection (D30: same rule)
+    } else if (isClearedSelection(rec)) {
+      state.delete(key); // a cleared interval, cell, match — or point — drops the view's selection (one rule)
     } else {
       state.set(key, {
         kind: 'selection',
@@ -119,9 +128,9 @@ export function foldStateAt(records: readonly CommitRecord[], tipId: string | nu
   return state;
 }
 
-/** JSON-encode a commit value for comparison (`undefined` gets its own tag — it is a distinct Mosaic clause state). */
+/** JSON-encode a commit value for comparison. A cleared point (`undefined`) never enters the fold (SET-1: one clearing rule), so every folded value is JSON-representable. */
 function enc(v: unknown): string {
-  return v === undefined ? 'undefined' : JSON.stringify(v);
+  return JSON.stringify(v);
 }
 
 /** A VALUE fingerprint (excludes `commitId`: identical state via different commits is NOT a change). */

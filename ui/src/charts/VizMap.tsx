@@ -32,8 +32,8 @@
  */
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import type { RenderSelection } from '../contract/types.js';
-import { togglePointEmission, keyActivates } from '../primitives/pointSelect.js';
-import { selectedValue } from '../primitives/useSelection.js';
+import { togglePointEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
+import { markClass, selectedSet } from '../primitives/useSelection.js';
 import { rampStep, SEQ_RAMP_STEPS } from '../primitives/scales.js';
 
 /** A lon/lat ring: `[ [lon, lat], … ]`. */
@@ -173,18 +173,19 @@ export function VizMap(props: VizMapProps): JSX.Element {
     height = 340,
   } = props;
 
-  // explicit `selected` wins; otherwise the outline derives from the fold's own point clause
-  const selected = selectedValue(props.selected, selection);
+  // explicit `selected` wins; otherwise the outline derives from the fold's own point OR match clause (SET-1)
+  const set = selectedSet(props.selected, selection);
+  const selected = set.values.length === 1 && !set.exclude ? set.values[0]! : null;
 
   const values = new Map(data.map((d) => [d.region, d.value]));
   const max = Math.max(0, ...data.map((d) => d.value));
   const project = fitProjection(geo, { x: PAD.l, y: PAD.t, w: width - PAD.l - PAD.r, h: height - PAD.t - PAD.b }, props.coordinates === 'planar');
 
-  const emit = (region: string): void => {
-    // clicking the selected region again CLEARS the point selection — the
-    // togglePointEmission primitive (rawValue undefined = the cleared state of
-    // src/data's three-way point split; null would mean "match SQL NULL")
-    const emission: ChartEmission = togglePointEmission(regionField, region, selected);
+  const emit = (region: string, additive: boolean): void => {
+    // plain click: the selected region again CLEARS the point (rawValue undefined —
+    // src/data's three-way split; null would mean "match SQL NULL"), another
+    // region selects it; shift/⌘/ctrl-click toggles it in the view's own SET (SET-1)
+    const emission: ChartEmission = additive ? toggleInSetEmission(regionField, region, set) : togglePointEmission(regionField, region, selected);
     onEmit?.(emission);
   };
 
@@ -202,11 +203,11 @@ export function VizMap(props: VizMapProps): JSX.Element {
         const name = String(f.properties?.[nameProperty] ?? `region ${i + 1}`);
         const value = values.get(name);
         const hasData = value !== undefined && value > 0 && max > 0;
-        const isSel = selected === name;
+        const isSel = set.values.includes(name);
         return (
           <path
             key={name}
-            className={`vzf-region${hasData ? '' : ' vzf-region-empty'}${isSel ? ' vzf-selected' : ''}`}
+            className={`vzf-region${hasData ? '' : ' vzf-region-empty'}${markClass(name, set)}`}
             d={featurePath(f, project)}
             fillRule="evenodd"
             fill={hasData ? `var(--vzf-seq-${rampStep(value, max)})` : 'var(--vzf-map-empty)'}
@@ -215,8 +216,12 @@ export function VizMap(props: VizMapProps): JSX.Element {
             aria-pressed={isSel}
             aria-label={hasData ? `${name} · ${value} ${valueLabel}` : `${name} · no ${valueLabel}`}
             data-region={name}
-            onClick={() => emit(name)}
-            onKeyDown={keyActivates(() => emit(name))}
+            onClick={(e) => emit(name, e.shiftKey || e.metaKey || e.ctrlKey)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' && e.key !== ' ') return;
+              e.preventDefault();
+              emit(name, e.shiftKey || e.metaKey || e.ctrlKey);
+            }}
           >
             <title>
               {hasData

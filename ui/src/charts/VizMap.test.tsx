@@ -274,3 +274,19 @@ describe('VizMap — gesture, selection, keyboard', () => {
     expect(container.querySelector('[data-region="North"]')!.getAttribute('class')).not.toContain('vzf-selected');
   });
 });
+
+describe('SET-1 — shift-click sets and exclude outlines (VizMap)', () => {
+  it('shift-click toggles the region in the view\'s own set; a set outlines every member; an exclude-set is dashed', () => {
+    const onEmit = vi.fn();
+    const point = selectionForView([{ viewId: 'map', field: 'region', kind: 'point', value: 'North' }], 'map');
+    const { container, rerender } = render(<VizMap viewId="map" geo={GEO} regionField="region" data={DATA} selection={point} onEmit={onEmit} width={420} height={340} />);
+    fireEvent.click(container.querySelector('[data-region="South"]')!, { shiftKey: true });
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: { values: ['North', 'South'] }, encoding: { kind: 'match', field: 'region' } });
+    fireEvent.keyDown(container.querySelector('[data-region="North"]')!, { key: ' ', shiftKey: true });
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: null, encoding: { kind: 'match', field: 'region' } }); // the last member leaves → cleared, never an empty list
+    const excluded = selectionForView([{ viewId: 'map', field: 'region', kind: 'match', value: { values: ['North', 'South'], exclude: true } }], 'map');
+    rerender(<VizMap viewId="map" geo={GEO} regionField="region" data={DATA} selection={excluded} onEmit={onEmit} width={420} height={340} />);
+    expect(container.querySelectorAll('path.vzf-excluded')).toHaveLength(2);
+    expect(container.querySelectorAll('path.vzf-selected')).toHaveLength(0);
+  });
+});

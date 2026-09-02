@@ -12,10 +12,11 @@
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import type { ColumnView, ViewEncoding } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
+import { useRef } from 'react';
 import { TICK_ANGLE, VALUE_CHAR_PX, fitTick, fitsBand } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
-import { pointEmission, keyActivates } from '../primitives/pointSelect.js';
-import { selectedValue } from '../primitives/useSelection.js';
+import { matchEmission, togglePointEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
+import { markClass, selectedSet } from '../primitives/useSelection.js';
 import { useReencodePicker } from '../primitives/reencode.js';
 import { EncodingPicker } from './EncodingPicker.js';
 
@@ -69,9 +70,12 @@ export function VizBar(props: VizBarProps): JSX.Element {
     width = 360,
     height = 340,
   } = props;
-  // explicit `selected` wins; otherwise the outline derives from the fold's own point clause
-  const selected = selectedValue(props.selected, selection);
+  // explicit `selected` wins; otherwise the outline derives from the fold's own point OR match clause (SET-1)
+  const set = selectedSet(props.selected, selection);
+  const selected = set.values.length === 1 && !set.exclude ? set.values[0]! : null;
   const { pickerChannel, openPicker, closePicker } = useReencodePicker(onReencodeRequest);
+  // SET-1 drag-run: pointer down on one bar, up on another selects the RUN between them (a match)
+  const run = useRef<{ start: number; end: number } | null>(null);
 
   const max = Math.max(1, ...data.map((d) => d.count));
   const band = (width - PAD.l - PAD.r) / Math.max(1, data.length);
@@ -85,8 +89,17 @@ export function VizBar(props: VizBarProps): JSX.Element {
   // value labels are all-or-nothing: omitting only the wide ones would keep the small numbers and drop the large
   const showValues = data.every((d) => fitsBand(String(d.count), band, VALUE_CHAR_PX));
 
-  const emit = (category: string): void => {
-    onEmit?.(pointEmission(field, category));
+  // plain click: the single kept value clears, anything else selects it (a point);
+  // shift/⌘/ctrl-click: toggle the value in the view's own SET (a match) — SET-1
+  const emit = (category: string, additive: boolean): void => {
+    onEmit?.(additive ? toggleInSetEmission(field, category, set) : togglePointEmission(field, category, selected));
+  };
+  const endRun = (): void => {
+    const r = run.current;
+    run.current = null;
+    if (r === null || r.start === r.end) return; // a click on one bar is the click handler's business
+    const [lo, hi] = r.start < r.end ? [r.start, r.end] : [r.end, r.start];
+    onEmit?.(matchEmission(field, data.slice(lo, hi + 1).map((d) => d.category), set.exclude));
   };
 
   return (
@@ -96,19 +109,23 @@ export function VizBar(props: VizBarProps): JSX.Element {
         viewBox={`0 0 ${width} ${height}`}
         role="img"
         aria-label={`count by ${label}`}
+        onPointerUp={endRun}
+        onPointerLeave={() => {
+          run.current = null;
+        }}
       >
         <line className="vzf-axis" x1={PAD.l} y1={axisY} x2={width - PAD.r} y2={axisY} />
         {data.map((d, i) => {
           const cx = PAD.l + band * i;
           const h = (d.count / max) * plot;
           const barY = axisY - h;
-          const isSel = selected === d.category;
+          const isSel = set.values.includes(d.category);
           const tx = cx + band / 2;
           const tick = fitTick(d.category, band, tickRoom, tx);
           return (
             <g key={d.category}>
               <rect
-                className={`vzf-barrect${isSel ? ' vzf-selected' : ''}`}
+                className={`vzf-barrect${markClass(d.category, set)}`}
                 x={cx + band * 0.12}
                 y={barY}
                 width={band * 0.76}
@@ -120,8 +137,18 @@ export function VizBar(props: VizBarProps): JSX.Element {
                 aria-pressed={isSel}
                 aria-label={`select ${d.category} (${d.count})`}
                 style={{ cursor: 'pointer' }}
-                onClick={() => emit(d.category)}
-                onKeyDown={keyActivates(() => emit(d.category))}
+                onClick={(e) => emit(d.category, e.shiftKey || e.metaKey || e.ctrlKey)}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' && e.key !== ' ') return;
+                  e.preventDefault();
+                  emit(d.category, e.shiftKey || e.metaKey || e.ctrlKey);
+                }}
+                onPointerDown={() => {
+                  run.current = { start: i, end: i };
+                }}
+                onPointerEnter={() => {
+                  if (run.current !== null) run.current.end = i;
+                }}
               >
                 <title>{`click to select ${d.category}`}</title>
               </rect>

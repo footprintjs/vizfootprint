@@ -123,8 +123,9 @@ function resolveIntervalSQL(clause: IntervalClause): string {
  * "cleared" state (that is `clause === null` at the `evaluate()` level).
  */
 function resolveMatchSQL(clause: MatchClause): string {
-  if (clause.values.length === 0) return '(FALSE)';
-  return `(${quoteIdent(clause.field)} IN (${clause.values.map(literalToSQL).join(', ')}))`;
+  if (clause.values.length === 0) return clause.exclude === true ? '(TRUE)' : '(FALSE)';
+  const op = clause.exclude === true ? 'NOT IN' : 'IN';
+  return `(${quoteIdent(clause.field)} ${op} (${clause.values.map(literalToSQL).join(', ')}))`;
 }
 
 /**
@@ -255,9 +256,11 @@ export function matchesClause(row: Row, clause: PredicateClause | null): boolean
       return true;
     }
     case 'match': {
-      if (clause.values.length === 0) return false; // real FALSE, not "cleared"
       const v = row[clause.field];
-      return clause.values.some((candidate) => candidate === v);
+      const hit = clause.values.some((candidate) => candidate === v);
+      // keep: an empty list matches nothing (real FALSE, not "cleared");
+      // exclude: an empty list excludes nothing — everything is kept
+      return clause.exclude === true ? !hit : hit;
     }
     case 'cell': {
       if (clause.value === null) return true; // whole cell cleared -> matches everything

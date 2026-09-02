@@ -92,6 +92,14 @@ export type CellValues = CellClause['value'];
 export type DispatchAction =
   | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly value: unknown; readonly cause: Cause; readonly correlationId?: string }
   /**
+   * The MATCH form of `select` (SET-1): one field, MANY values — the plural of
+   * a point (shift-click adds one, a drag crosses a run). `exclude: true`
+   * keeps everything BUT them. Same verb, same intent class, same fold key
+   * (`selection:${viewId}`, last-wins per view); `values: null` clears (the
+   * cleared-interval rule).
+   */
+  | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly values: readonly unknown[] | null; readonly exclude?: boolean; readonly cause: Cause; readonly correlationId?: string }
+  /**
    * The CELL form of `select` (D30): one heatmap-cell gesture selects on TWO
    * fields at once ("price 100–150 AND category Formal") and lands ONE
    * commit whose predicate is the AND of both sides — never two
@@ -522,7 +530,7 @@ export interface ViewInfo {
    * visual-channel sense below; nothing shipped ever read the old name off
    * `Overview`).
    */
-  readonly selectionKinds: readonly ('point' | 'interval' | 'cell')[];
+  readonly selectionKinds: readonly ('point' | 'interval' | 'cell' | 'match')[];
   readonly canProbe: boolean;
   readonly mounted: boolean;
   /**
@@ -546,8 +554,8 @@ export interface SelectionInfo {
   readonly viewId: string;
   /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D30). */
   readonly field: string;
-  readonly kind: 'point' | 'interval' | 'cell';
-  /** For kind:'cell': the two-sided pair `[x side, y side]`. */
+  readonly kind: 'point' | 'interval' | 'cell' | 'match';
+  /** For kind:'cell': the two-sided pair `[x side, y side]`; for kind:'match': the `MatchValue` (values + polarity). */
   readonly value: unknown;
   /** kind:'cell' only — the two selected fields, x side then y side. */
   readonly fields?: readonly [string, string];

@@ -399,3 +399,30 @@ describe('D30 — the agent can CELL-select through the dispatch tool (one gestu
     expect(session.log.records[0]!.value).toEqual([[150, null], 'Formal']);
   });
 });
+
+describe('SET-1 — dispatch select with values (many) and exclude', () => {
+  const port = () => vizAsTools(buildDashboard(makeDashboardDef()).createSession());
+  it('field + values lands ONE match commit; exclude rides along; whats_here shows the IN-list as one value', async () => {
+    const p = port();
+    const many = await p.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', values: ['Formal', 'Party'] });
+    expect(get(many, 'error')).toBeUndefined();
+    expect(JSON.stringify(many)).toContain('"kind":"match"');
+    const excluded = await p.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', values: ['Formal'], exclude: true });
+    expect(get(excluded, 'error')).toBeUndefined();
+    expect(JSON.stringify(excluded)).toContain('"exclude":true');
+    const here = await p.call('viz.whats_here', {});
+    expect(JSON.stringify(get(here, 'activeSelections'))).toContain('"exclude":true');
+    const cleared = await p.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', values: null });
+    expect(get(cleared, 'error')).toBeUndefined();
+    expect(JSON.stringify(get(await p.call('viz.whats_here', {}), 'activeSelections'))).toBe('[]');
+  });
+  it('refuses a values list that is not plain values, and a non-boolean exclude — typed errors, never a guess', async () => {
+    const p = port();
+    const bad = async (args: Record<string, unknown>) => p.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', ...args });
+    const notList = await bad({ values: 'Formal' });
+    expect(get(notList, 'reason')).toBe('PAYLOAD_INVALID');
+    expect(String(get(notList, 'detail'))).toMatch(/array of plain values/);
+    expect(String(get(await bad({ values: [{ nested: true }] }), 'detail'))).toMatch(/array of plain values/);
+    expect(String(get(await bad({ values: ['Formal'], exclude: 'yes' }), 'detail'))).toMatch(/exclude must be true or false/);
+  });
+});

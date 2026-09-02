@@ -28,7 +28,18 @@ import { CauseSelectionSession } from '../log/index.js';
 import type { CommitRecord } from '../log/index.js';
 import { TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
-import { cellFieldLabel, isRejection, matchesClause, type CellClause, type ColumnInfo, type PredicateClause, type Row } from '../data/index.js';
+import { cellFieldLabel, isRejection, matchesClause, type CellClause, type ColumnInfo, type MatchValue, type PredicateClause, type Row } from '../data/index.js';
+import { isClearedSelection } from '../branches/fold.js';
+
+/** The predicate clause a landed point/interval/match probe folds to — ONE spelling for the live path and the replay fold. */
+function probeClause(kind: 'point' | 'interval' | 'match', field: string, value: unknown): PredicateClause {
+  if (kind === 'point') return { kind, field, value };
+  if (kind === 'match') {
+    const body = value as Exclude<MatchValue, null>;
+    return { kind, field, values: body.values, ...(body.exclude === true ? { exclude: true } : {}) };
+  }
+  return { kind, field, value: value as FilterRange };
+}
 import type { CauseClause } from '../mosaic/index.js';
 import { registerAnalysisSlot } from '../def/register.js';
 import type {
@@ -542,18 +553,16 @@ class InteractionSessionImpl implements InteractionSession {
       }
       if (!this.runtime.views.has(rec.viewId)) continue; // skip annotation:/analysis: commits
       if (RESERVED_PROBE_FIELDS.has(rec.field)) continue;
-      if ((rec.kind === 'interval' || rec.kind === 'cell') && rec.value === null) {
-        // a cleared interval — or a cleared CELL (D30, same rule) — drops the filter
+      if (isClearedSelection(rec)) {
+        // a cleared interval, cell, match — or point — drops the filter (ONE rule, shared with the branch fold)
         this.activeFilters.delete(rec.viewId);
         this.activeFilterCommits.delete(rec.viewId);
       } else {
         const clause: PredicateClause =
-          rec.kind === 'point'
-            ? { kind: 'point', field: rec.field, value: rec.value }
-            : rec.kind === 'cell'
-              ? // the log's commit() guarantees `fields` on every cell record
-                { kind: 'cell', fields: rec.fields!, value: rec.value as CellClause['value'] }
-              : { kind: 'interval', field: rec.field, value: rec.value as FilterRange };
+          rec.kind === 'cell'
+            ? // the log's commit() guarantees `fields` on every cell record
+              { kind: 'cell', fields: rec.fields!, value: rec.value as CellClause['value'] }
+            : probeClause(rec.kind, rec.field, rec.value);
         this.activeFilters.set(rec.viewId, clause);
         this.activeFilterCommits.set(rec.viewId, rec.id);
       }
@@ -901,16 +910,22 @@ class InteractionSessionImpl implements InteractionSession {
         if (recipe.kind === 'cell') {
           return { verb: 'select', viewId: recipe.viewId, fields: recipe.fields!, values: recipe.value as CellValues, cause };
         }
+        if (recipe.kind === 'match') {
+          const body = recipe.value as Exclude<MatchValue, null>;
+          return { verb: 'select', viewId: recipe.viewId, field: recipe.field, values: body.values, ...(body.exclude === true ? { exclude: true } : {}), cause };
+        }
         return recipe.kind === 'point'
           ? { verb: 'select', viewId: recipe.viewId, field: recipe.field, value: recipe.value, cause }
           : { verb: 'filter', viewId: recipe.viewId, field: recipe.field, range: recipe.value as FilterRange, cause };
       case 'clear-selection':
-        // D30: clearing what a CELL selected clears kind-faithfully (a cleared
-        // cell commit) — the recipe's `field` for a cell is the joint label,
-        // not a column, so an interval-clear would trip the column guard.
+        // Clearing is KIND-FAITHFUL: a cleared cell commit for a cell (D30 — the
+        // recipe's `field` is the joint label, not a column), a cleared match
+        // for a match, a cleared point for a point, a cleared interval otherwise.
         if (recipe.fields !== undefined) {
           return { verb: 'select', viewId: recipe.viewId, fields: recipe.fields, values: null, cause };
         }
+        if (recipe.kind === 'match') return { verb: 'select', viewId: recipe.viewId, field: recipe.field, values: null, cause };
+        if (recipe.kind === 'point') return { verb: 'select', viewId: recipe.viewId, field: recipe.field, value: undefined, cause };
         return { verb: 'filter', viewId: recipe.viewId, field: recipe.field, range: null, cause };
       case 'encoding':
         return { verb: 'reencode', viewId: recipe.viewId, channel: recipe.channel, field: recipe.field, cause };
@@ -1047,7 +1062,7 @@ class InteractionSessionImpl implements InteractionSession {
   // ── capability resolution (R14 / R3) ─────────────────────────────────────────
   private probeCapability(
     viewId: string,
-  ): { canProbe: boolean; encodings?: readonly ('point' | 'interval' | 'cell')[] } | undefined {
+  ): { canProbe: boolean; encodings?: readonly ('point' | 'interval' | 'cell' | 'match')[] } | undefined {
     const adapter = this.adapters.get(viewId);
     if (adapter) return adapter.capabilities;
     const view = this.runtime.views.get(viewId);
@@ -1061,11 +1076,13 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** Returns a `guard-failed` detail string if the view cannot accept this probe, else null. */
-  private probeGuard(viewId: string, kind: 'point' | 'interval' | 'cell'): string | null {
+  private probeGuard(viewId: string, kind: 'point' | 'interval' | 'cell' | 'match'): string | null {
     const cap = this.probeCapability(viewId);
     if (!cap) return null; // no capability declared → default allow
     if (!cap.canProbe) return `view "${viewId}" declares no-probe capability`;
-    if (cap.encodings && !cap.encodings.includes(kind)) {
+    // SET-1: a set is a point's plural — a view that declares 'point' emits 'match' too
+    const allowed = cap.encodings === undefined || cap.encodings.includes(kind) || (kind === 'match' && cap.encodings.includes('point'));
+    if (!allowed) {
       return `view "${viewId}" does not encode a ${kind} selection`;
     }
     return null;
@@ -1091,6 +1108,11 @@ class InteractionSessionImpl implements InteractionSession {
         // gesture — one gesture, ONE commit; the plain form stays the point probe.
         if ('fields' in action) {
           return this.doCellProbe(action.viewId, action.fields, action.values, action.cause, as, intent, action.correlationId);
+        }
+        if ('values' in action) {
+          // SET-1: the MATCH form — many values on one field, optional exclude; `values: null` clears.
+          const value: MatchValue = action.values === null ? null : { values: action.values, ...(action.exclude === true ? { exclude: true } : {}) };
+          return this.doProbe(action.viewId, action.field, value, 'match', action.cause, as, intent, action.correlationId);
         }
         return this.doProbe(action.viewId, action.field, action.value, 'point', action.cause, as, intent, action.correlationId);
       case 'filter':
@@ -1127,13 +1149,13 @@ class InteractionSessionImpl implements InteractionSession {
     viewId: string,
     field: string,
     value: unknown,
-    kind: 'point' | 'interval',
+    kind: 'point' | 'interval' | 'match',
     cause: Cause,
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
   ): Promise<DispatchResult> {
-    const verb: DispatchVerb = kind === 'point' ? 'select' : 'filter';
+    const verb: DispatchVerb = kind === 'interval' ? 'filter' : 'select';
     // 1. the view must be declared (R14: needs-view).
     if (!this.runtime.views.has(viewId)) {
       return this.reject(verb, intent, this.gapLedger.file('needs-view', verb, `no declared view "${viewId}"`, viewId));
@@ -1171,11 +1193,11 @@ class InteractionSessionImpl implements InteractionSession {
       cause: stamped,
     });
     this.landed(record);
-    if (kind === 'interval' && value === null) {
+    if (isClearedSelection({ kind, value })) {
       this.activeFilters.delete(viewId);
-      this.activeFilterCommits.delete(viewId); // a cleared filter is no longer an input dependency
+      this.activeFilterCommits.delete(viewId); // a cleared selection is no longer an input dependency
     } else {
-      this.activeFilters.set(viewId, kind === 'point' ? { kind, field, value } : { kind, field, value: value as FilterRange });
+      this.activeFilters.set(viewId, probeClause(kind, field, value));
       this.activeFilterCommits.set(viewId, record.id); // a superseded select on the same view drops out here
     }
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
@@ -1893,7 +1915,7 @@ class InteractionSessionImpl implements InteractionSession {
         viewId: view.viewId,
         actor: view.meta.actor,
         ...(view.meta.label !== undefined ? { label: view.meta.label } : {}),
-        selectionKinds: cap?.encodings ?? (['point', 'interval'] as const),
+        selectionKinds: cap?.encodings ?? (['point', 'interval', 'match'] as const),
         canProbe: cap?.canProbe ?? true,
         mounted: this.adapters.has(view.viewId),
         // The `reencode` fold (SPEC Q6 8th verb), branch-scoped at the cursor —
@@ -1915,12 +1937,20 @@ class InteractionSessionImpl implements InteractionSession {
             value: clause.value,
             fields: clause.fields,
           }
-        : {
-            viewId,
-            field: clause.field,
-            kind: clause.kind as 'point' | 'interval',
-            value: (clause as { value?: unknown }).value ?? null,
-          },
+        : clause.kind === 'match'
+          ? {
+              viewId,
+              field: clause.field,
+              kind: 'match' as const,
+              // the wire carries the IN-list and its polarity as ONE value (a `MatchValue`)
+              value: { values: clause.values, ...(clause.exclude === true ? { exclude: true } : {}) },
+            }
+          : {
+              viewId,
+              field: clause.field,
+              kind: clause.kind as 'point' | 'interval',
+              value: (clause as { value: unknown }).value, // never a cleared point: one clearing rule drops it from the fold (SET-1)
+            },
     );
 
     const analyses = this.analysisIds().map((id) => {

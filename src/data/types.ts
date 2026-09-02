@@ -108,13 +108,29 @@ export interface IntervalClause {
 /**
  * A trivial IN-list predicate — NOT Mosaic's `clauseMatch` (see file header).
  * An empty `values` array matches nothing (never "everything"); to mean "no
- * filter", pass `null` as the whole clause, not an empty match.
+ * filter", pass `null` as the whole clause, not an empty match. `exclude`
+ * flips it to NOT IN — "everything but these" (so an empty exclude-list keeps
+ * everything: nothing is excluded).
  */
 export interface MatchClause {
   readonly kind: 'match';
   readonly field: string;
   readonly values: readonly unknown[];
+  readonly exclude?: boolean;
 }
+
+/**
+ * What a `match` commit CARRIES (`CommitRecord.value` for kind:'match'): the
+ * IN-list and its polarity in ONE JSON-safe object, or `null` to clear — the
+ * cleared-interval rule. Polarity rides the value, not the record, so every
+ * replica of the wire (fold, recipe, adapter, agent) carries it without
+ * learning a new field.
+ */
+export interface MatchValueBody {
+  readonly values: readonly unknown[];
+  readonly exclude?: boolean;
+}
+export type MatchValue = MatchValueBody | null;
 
 /**
  * One SIDE of a `cell` selection (D30 — the compound-cell commit): either a

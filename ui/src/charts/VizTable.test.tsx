@@ -232,3 +232,20 @@ describe('VizTable — clause-addressable selection (dim, never hide; RP-1)', ()
     container.querySelectorAll('tbody tr').forEach((r) => expect(r.className).not.toContain('vzf-dim'));
   });
 });
+
+describe('SET-1 — shift-click sets and exclude rows (VizTable)', () => {
+  it('shift-click (and shift+Enter) toggles the row in the view\'s own set; excluded rows say so', () => {
+    const onEmit = vi.fn();
+    const first = String(ROWS[0]!['id']);
+    const second = String(ROWS[1]!['id']);
+    const point = selectionForView([{ viewId: 'table', field: 'id', kind: 'point', value: first }], 'table');
+    const { rerender } = render(<VizTable viewId="table" data={ROWS} columns={COLUMNS} idField="id" selection={point} onEmit={onEmit} />);
+    fireEvent.click(screen.getByRole('row', { name: `row ${second}` }), { shiftKey: true });
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: { values: [first, second] }, encoding: { kind: 'match', field: 'id' } });
+    fireEvent.keyDown(screen.getByRole('row', { name: `row ${first} selected` }), { key: 'Enter', shiftKey: true });
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: null, encoding: { kind: 'match', field: 'id' } });
+    const excluded = selectionForView([{ viewId: 'table', field: 'id', kind: 'match', value: { values: [first], exclude: true } }], 'table');
+    rerender(<VizTable viewId="table" data={ROWS} columns={COLUMNS} idField="id" selection={excluded} onEmit={onEmit} />);
+    expect(screen.getByRole('row', { name: `row ${first} excluded` }).className).toContain('vzf-excluded');
+  });
+});

@@ -207,7 +207,7 @@ export function barRenderer(options: BarRendererOptions = {}): Renderer {
       canHighlight: false,
       canReencode: true,
       canPanZoom: false,
-      emissionKinds: ['point'],
+      emissionKinds: ['point', 'match'], // SET-1: shift-click adds to the view's own set
     },
     render(state, handshake) {
       const field = state.encodings['category'] ?? 'category';
@@ -256,7 +256,7 @@ export function mapRenderer(options: MapRendererOptions): Renderer {
       canHighlight: false,
       canReencode: false,
       canPanZoom: false,
-      emissionKinds: ['point'],
+      emissionKinds: ['point', 'match'], // SET-1: shift-click adds to the view's own set
     },
     render(state, handshake) {
       const regionField = state.encodings['region'] ?? 'region';
@@ -492,7 +492,7 @@ export function tableRenderer(options: TableRendererOptions): Renderer {
       canReencode: false,
       canPanZoom: false,
       canRearrange: true,
-      emissionKinds: ['point'],
+      emissionKinds: ['point', 'match'], // SET-1: shift-click adds to the view's own set
     },
     render(state, handshake) {
       return (

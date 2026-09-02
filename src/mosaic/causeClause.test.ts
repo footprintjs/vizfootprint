@@ -173,3 +173,36 @@ describe('causeClause — the D30 compound cell kind', () => {
     expect(causeOf(clause)).toEqual({ requestedBy: 'user', computedBy: 'user', intent: 'cell' });
   });
 });
+
+describe('match (SET-1) — the IN-list built from the REAL factories', () => {
+  const setup = () => {
+    const reg = new SourceRegistry();
+    return reg.register('A', { actor: 'user' });
+  };
+  it('many values → the real OR of real point predicates; one value → that predicate alone', () => {
+    const a = setup();
+    const many = causeClause({ kind: 'match', source: a, field: 'category', value: { values: ['Formal', 'Party'] }, cause: cause({ intent: 'two' }) });
+    expect(String(many.predicate)).toBe(`(("category" IN ('Formal')) OR ("category" IN ('Party')))`);
+    expect(many.meta.type).toBe('match');
+    expect(causeOf(many)?.intent).toBe('two');
+    const one = causeClause({ kind: 'match', source: a, field: 'category', value: { values: ['Formal'] }, cause: cause() });
+    expect(String(one.predicate)).toBe(`("category" IN ('Formal'))`);
+  });
+  it('exclude wraps the list in the real NOT; a null value in the list is a real IS NULL', () => {
+    const a = setup();
+    const excluded = causeClause({ kind: 'match', source: a, field: 'category', value: { values: ['Formal', 'Party'], exclude: true }, cause: cause() });
+    expect(String(excluded.predicate)).toBe(`(NOT (("category" IN ('Formal')) OR ("category" IN ('Party'))))`);
+    const withNull = causeClause({ kind: 'match', source: a, field: 'category', value: { values: [null] }, cause: cause() });
+    expect(String(withNull.predicate)).toMatch(/IS NULL/);
+  });
+  it('an empty keep-list is the constant FALSE; an empty exclude-list is its negation', () => {
+    const a = setup();
+    expect(String(causeClause({ kind: 'match', source: a, field: 'category', value: { values: [] }, cause: cause() }).predicate)).toBe('FALSE');
+    expect(String(causeClause({ kind: 'match', source: a, field: 'category', value: { values: [], exclude: true }, cause: cause() }).predicate)).toBe('(NOT FALSE)');
+  });
+  it('null clears (no predicate); an undefined value is refused — that is a point\'s "cleared", not a value', () => {
+    const a = setup();
+    expect(causeClause({ kind: 'match', source: a, field: 'category', value: null, cause: cause() }).predicate).toBeNull();
+    expect(() => causeClause({ kind: 'match', source: a, field: 'category', value: { values: [undefined] }, cause: cause() })).toThrow(/must be concrete/);
+  });
+});

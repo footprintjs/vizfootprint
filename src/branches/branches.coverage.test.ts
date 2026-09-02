@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import type { CommitRecord } from '../log/index.js';
 import { BranchRefs, foldDiff, foldStateAt, planBringOver } from './index.js';
+import { isClearedSelection } from './fold.js';
 
 function rec(id: string, parent: string | null, over: Partial<CommitRecord> = {}): CommitRecord {
   return {
@@ -79,15 +80,37 @@ describe('raw-log honesty — dangling parents and cycles terminate, never spin'
 });
 
 describe('foldDiff — `undefined` and `null` commit values are DISTINCT states (Mosaic clause semantics)', () => {
-  it('a point value of undefined vs null on siblings is a CHANGE, not an identity', () => {
+  it('a point value of undefined is a CLEAR (absent from the fold); null is IS NULL (present) — distinct, never an identity', () => {
     const log = [
       rec('c1', null, { viewId: 'scatter', field: 'price', value: 5 }),
-      rec('x', 'c1', { value: undefined }), // point clear (inactive filter)
-      rec('y', 'c1', { value: null }), // point IS NULL (matches nulls)
+      rec('x', 'c1', { value: undefined }), // point clear — SET-1: the key is DROPPED, like a cleared interval
+      rec('y', 'c1', { value: null }), // point IS NULL (matches nulls) — a live clause
     ];
     const d = foldDiff(log, 'x', 'y');
     expect(d.ok).toBe(true);
     if (!d.ok) return;
-    expect(d.changed.map((c) => c.key)).toEqual(['selection:bar']);
+    expect(d.changed).toEqual([]);
+    expect(d.onlyA).toEqual([]);
+    expect(d.onlyB.map((c) => c.key)).toEqual(['selection:bar']);
+  });
+});
+
+describe('isClearedSelection — ONE clearing rule for every selection kind (SET-1)', () => {
+  it('a point clears with undefined (null is IS NULL); every other kind clears with null', () => {
+    expect(isClearedSelection({ kind: 'point', value: undefined })).toBe(true);
+    expect(isClearedSelection({ kind: 'point', value: null })).toBe(false);
+    expect(isClearedSelection({ kind: 'interval', value: null })).toBe(true);
+    expect(isClearedSelection({ kind: 'cell', value: null })).toBe(true);
+    expect(isClearedSelection({ kind: 'match', value: null })).toBe(true);
+    expect(isClearedSelection({ kind: 'match', value: { values: [] } })).toBe(false); // an empty keep-list is a live clause (matches nothing)
+  });
+  it('the fold keeps a match clause, value and all, and drops the key on a cleared match', () => {
+    const log = [
+      rec('m1', null, { kind: 'match', value: { values: ['Formal', 'Party'], exclude: true } }),
+      rec('m2', 'm1', { kind: 'match', value: null }),
+    ];
+    const at1 = foldStateAt(log, 'm1').get('selection:bar');
+    expect(at1).toEqual({ kind: 'selection', viewId: 'bar', clause: { kind: 'match', field: 'category', value: { values: ['Formal', 'Party'], exclude: true } }, commitId: 'm1' });
+    expect(foldStateAt(log, 'm2').has('selection:bar')).toBe(false);
   });
 });

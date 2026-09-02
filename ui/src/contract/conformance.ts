@@ -57,6 +57,7 @@ export type ConformanceStepName =
   | 'commit-lands'
   | 'crossfilter-returns'
   | 'cell'
+  | 'match'
   | 'navigate'
   | 'unmount';
 
@@ -98,6 +99,12 @@ export interface ConformancePlan {
    * renderer declares the 'cell' emission kind; ignored otherwise.
    */
   cellGesture?(el: HTMLElement): void | Promise<void>;
+  /**
+   * SET-1: drive a MANY-values gesture (a shift-click on a second mark, a drag
+   * across a run) after `gesture` selected one. REQUIRED when the renderer
+   * declares the 'match' emission kind; ignored otherwise.
+   */
+  matchGesture?(el: HTMLElement): void | Promise<void>;
   /** Prove the post-crossfilter re-render is visible. Default: the mount's DOM changed since before the gesture. */
   verifyUpdate?(el: HTMLElement): boolean;
   /** The view state for the navigate step. Default `{ x: [0, 1] }`. */
@@ -210,7 +217,7 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
         if (!res.ok) throw new StepFailed(`the bind was refused: ${res.gap.detail}`);
         bound = res.view;
         const caps = bound.capabilities;
-        const invalid = caps.emissionKinds.filter((k) => k !== 'point' && k !== 'interval' && k !== 'cell');
+        const invalid = caps.emissionKinds.filter((k) => k !== 'point' && k !== 'interval' && k !== 'cell' && k !== 'match');
         const kinds = flag(
           caps.emissionKinds.length === 0,
           'none declared',
@@ -334,6 +341,46 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
           // the failure path a non-cell commit carries no pair to name
           `the cell gesture landed ONE compound cell commit (${(landed.fields ?? []).join(' AND ')}) and its clause is addressable`,
           `the cell arm misbehaved: ${descriptor}`,
+        );
+      },
+    },
+    {
+      name: 'match',
+      async run() {
+        // SET-1: the many-values arm — exercised only by renderers that DECLARE
+        // the match emission kind; everyone else skips honestly (the
+        // declared-capability rule, not a silent pass).
+        if (!bound!.capabilities.emissionKinds.includes('match')) {
+          return 'the renderer declares no match emissions — the match arm is honestly skipped';
+        }
+        if (!plan.matchGesture) {
+          throw new StepFailed('the renderer declares the match emission kind but the plan provides no matchGesture to drive');
+        }
+        const emissionsBefore = emissions.length;
+        const commitsBefore = view.getState().commits.length;
+        await plan.matchGesture(el);
+        await settle();
+        const matchEmissions = emissions.slice(emissionsBefore).filter((e) => e.encoding.kind === 'match');
+        if (matchEmissions.length === 0) {
+          throw new StepFailed('the match gesture produced no match emission');
+        }
+        const st = view.getState();
+        const landedCount = st.commits.length - commitsBefore;
+        if (landedCount !== 1) {
+          throw new StepFailed(`the match gesture landed ${landedCount} commit(s) — one gesture is exactly ONE`);
+        }
+        const landed = st.commits[st.commits.length - 1]!;
+        const own = selectionForView(st.selections, viewId).clauses.get(viewId);
+        const body = landed.value as { readonly values?: readonly unknown[] } | null;
+        const descriptor = [
+          flag(landed.kind === 'match', 'match-kind', `kind:${landed.kind}`),
+          flag((body?.values?.length ?? 0) >= 2, 'many-values', 'not-many'),
+          flag(own?.kind === 'match', 'self-addressable', 'self-missing'),
+        ].join(' · ');
+        return check(
+          descriptor === 'match-kind · many-values · self-addressable',
+          `the match gesture landed ONE match commit over ${String(body?.values?.length ?? 0)} values and its clause is addressable`,
+          `the match arm misbehaved: ${descriptor}`,
         );
       },
     },

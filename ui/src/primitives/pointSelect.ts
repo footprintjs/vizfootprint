@@ -9,6 +9,10 @@
  *     selected value emits the CLEARED point (`rawValue: undefined` — the
  *     "no filter" arm; `null` would mean "match SQL NULL", a different
  *     filter), releasing it;
+ *   - `matchEmission` / `toggleInSetEmission` (SET-1) — the many-values
+ *     language: shift-click toggles a value in the view's own SET (a point
+ *     promotes to a one-value set; removing the last value emits the CLEARED
+ *     match, never an empty list — an empty keep-list would match nothing);
  *   - `keyActivates` — the shared Enter/Space keyboard affordance for
  *     clickable marks (`role="button"` + `tabIndex` stay the chart's job).
  */
@@ -28,6 +32,22 @@ export function togglePointEmission(field: string, value: string, selected: stri
   return selected === value
     ? { rawValue: undefined, encoding: { kind: 'point', field } }
     : { rawValue: value, encoding: { kind: 'point', field } };
+}
+
+/** The R3 match emission (SET-1): many DATA values on a field — or `null` to clear the match. */
+export function matchEmission(field: string, values: readonly unknown[] | null, exclude = false): ChartEmission {
+  return { rawValue: values === null ? null : exclude ? { values, exclude: true } : { values }, encoding: { kind: 'match', field } };
+}
+
+/**
+ * Shift-click semantics: toggle `value` in the view's own set (`current` —
+ * see `selfSelectedSet`), keeping its polarity. Removing the last value
+ * emits the CLEARED match (`rawValue: null`).
+ */
+export function toggleInSetEmission(field: string, value: string, current: { readonly values: readonly string[]; readonly exclude: boolean }): ChartEmission {
+  const has = current.values.includes(value);
+  const next = has ? current.values.filter((v) => v !== value) : [...current.values, value];
+  return matchEmission(field, next.length === 0 ? null : next, current.exclude);
 }
 
 /** Enter/Space activates — the shared keyboard handler for clickable marks. */

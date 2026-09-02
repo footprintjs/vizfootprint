@@ -99,7 +99,7 @@ const OBJECT_ROWS: Row[] = [
 const CSV_TEXT = 'category,amount\nData,15\nAnalytics,25\nData,5\nOther,30\n';
 
 function clauseFromCommit(record: {
-  kind: 'point' | 'interval' | 'cell';
+  kind: 'point' | 'interval' | 'cell' | 'match';
   field: string;
   value: unknown;
   fields?: readonly [string, string];

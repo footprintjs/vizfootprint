@@ -20,7 +20,7 @@ interface RawFoldEntry {
   readonly kind: 'selection' | 'encoding' | 'analysis';
   readonly viewId?: string;
   readonly clause?: {
-    readonly kind: 'point' | 'interval' | 'cell';
+    readonly kind: 'point' | 'interval' | 'cell' | 'match';
     readonly field: string;
     readonly value: unknown;
     /** kind:'cell' only (D30) — the two selected fields. */
@@ -81,6 +81,12 @@ export function entryDetail(e: RawFoldEntry): string {
       return `${cellSideWords(c.fields[0], pair[0])} and ${cellSideWords(c.fields[1], pair[1])}`;
     }
     if (c.kind === 'point') return `${c.field} is ${word(c.value)}`;
+    if (c.kind === 'match') {
+      // SET-1: the list in words, its polarity as a word
+      const v = c.value as { readonly values?: readonly unknown[]; readonly exclude?: boolean } | null;
+      if (v === null || v === undefined) return `${c.field} match cleared`;
+      return `${c.field} is ${v.exclude === true ? 'none of' : 'one of'} ${(v.values ?? []).map(word).join(', ')}`;
+    }
     if (c.value === null) return `${c.field} filter cleared`;
     const range = c.value as readonly [unknown, unknown];
     const [lo, hi] = range;

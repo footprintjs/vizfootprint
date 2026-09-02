@@ -22,7 +22,7 @@
 import { causeClause, type CauseClause } from './causeClause.js';
 import type { RegisteredSource } from './SourceRegistry.js';
 import type { Cause } from '../cause/index.js';
-import type { CellSide } from '../data/index.js';
+import type { CellSide, MatchValue } from '../data/index.js';
 
 /** A point selection: one field, one DATA-space value. */
 export interface PointEncoding {
@@ -50,7 +50,18 @@ export interface CellEncoding {
   readonly fields: readonly [string, string];
 }
 
-export type ChartEncoding = PointEncoding | IntervalEncoding | CellEncoding;
+/**
+ * A MATCH selection (SET-1): one field, MANY data-space values — the plural
+ * of a point (shift-click adds a bar; a drag crosses a run of them). The
+ * emission carries the list and its polarity (`exclude` = everything BUT
+ * these) as one `MatchValue`, or `null` to clear.
+ */
+export interface MatchEncoding {
+  readonly kind: 'match';
+  readonly field: string;
+}
+
+export type ChartEncoding = PointEncoding | IntervalEncoding | CellEncoding | MatchEncoding;
 
 /**
  * What a chart emits on interaction. Deliberately only two keys — `rawValue`
@@ -63,7 +74,8 @@ export type ChartEncoding = PointEncoding | IntervalEncoding | CellEncoding;
 export type ChartEmission =
   | { readonly rawValue: unknown; readonly encoding: PointEncoding }
   | { readonly rawValue: [number, number] | null; readonly encoding: IntervalEncoding }
-  | { readonly rawValue: readonly [CellSide, CellSide] | null; readonly encoding: CellEncoding };
+  | { readonly rawValue: readonly [CellSide, CellSide] | null; readonly encoding: CellEncoding }
+  | { readonly rawValue: MatchValue; readonly encoding: MatchEncoding };
 
 /**
  * Type guard narrowing `ChartEmission` by its nested `encoding.kind`
@@ -77,6 +89,13 @@ function isIntervalEmission(
   e: ChartEmission,
 ): e is Extract<ChartEmission, { readonly encoding: IntervalEncoding }> {
   return e.encoding.kind === 'interval';
+}
+
+/** The match sibling of {@link isIntervalEmission} — same nested-discriminant honesty. */
+function isMatchEmission(
+  e: ChartEmission,
+): e is Extract<ChartEmission, { readonly encoding: MatchEncoding }> {
+  return e.encoding.kind === 'match';
 }
 
 /** The cell sibling of {@link isIntervalEmission} — same nested-discriminant honesty. */
@@ -115,6 +134,16 @@ export function causeClauseFromEmission(
       kind: 'cell',
       source: ctx.source,
       fields: emission.encoding.fields,
+      value: emission.rawValue,
+      cause: ctx.cause,
+      clients: ctx.clients,
+    });
+  }
+  if (isMatchEmission(emission)) {
+    return causeClause({
+      kind: 'match',
+      source: ctx.source,
+      field: emission.encoding.field,
       value: emission.rawValue,
       cause: ctx.cause,
       clients: ctx.clients,

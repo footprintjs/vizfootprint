@@ -288,6 +288,51 @@ show (`columns`) — the chart never guesses a "sane" count from the data.
 />
 ```
 
+## Deselect, multi-select, exclude — the SET-1 gestures
+
+Every selecting chart speaks the same three-way language, derived from the
+session fold (never local state):
+
+1. **Click a mark → select it (a point).** Click the selected mark again →
+   **clear** (`togglePointEmission`; the cleared point is `rawValue:
+   undefined`, never `null` — `null` would mean IS NULL). Clicking empty
+   space does nothing on purpose: under linked views it is ambiguous, so
+   clearing is an explicit act — the ✕ on a chart, the ✕ on a chip, or
+   "clear all".
+2. **Shift-click (or ⌘/ctrl-click) → toggle the mark in the view's own
+   SET** (`toggleInSetEmission`): a point promotes to a one-value set; a
+   second value joins it; a member leaves; removing the last one emits the
+   CLEARED match (`rawValue: null`), never an empty list (an empty keep-list
+   would match nothing). Shift+Enter is the keyboard spelling.
+3. **Drag across bars → the RUN between them** (`VizBar` only: pointer down
+   on one bar, up on another, in either direction — a match over the data
+   order). A press-and-release on one bar stays a click.
+4. **Exclude** flips a set's polarity: "everything but these". Excluded
+   marks wear a DASHED outline (`.vzf-excluded`) instead of the solid
+   `.vzf-selected`; the chip says *not in {…}*, the commit log the same.
+
+The set rides the session's `match` clause (`{ values, exclude? }` — the
+IN-list and its polarity as ONE value, or `null` to clear) through the
+`select` verb: same fold key, same undo, same time travel, same agent tool
+(`dispatch` with `values` + `exclude`).
+
+**Adapter:** `view.clear(viewId)` clears one view KIND-FAITHFULLY (a cleared
+point / interval / cell / match commit of that view — a real act with a
+cause); `view.clearAll()` clears every live selection, one commit each;
+`view.setPolarity(viewId, exclude)` flips a point (as a one-value set) or a
+match between keep and exclude. An interval or a cell has no polarity.
+
+**Chips:** `<SelectionChips selections={state.selections} labels={…}
+onClear={(id) => view.clear(id)} onClearAll={() => view.clearAll()}
+onSetPolarity={(id, ex) => view.setPolarity(id, ex)} />` names every live
+clause in the commit log's own words, each removable, each flippable. Put it
+in the cockpit's `top` slot. A `CockpitChart` may also carry `active` +
+`onClear` for a ✕ pill on the chart itself.
+
+Chart-side helpers for a consumer-built chart: `selectedSet` (the view's own
+set from the fold), `markClass` (`.vzf-selected` / `.vzf-excluded` / none),
+`matchEmission`, `toggleInSetEmission`.
+
 ## The renderer contract — a versioned protocol
 
 Any charting stack — the five first-party charts, a canvas renderer, a
@@ -341,7 +386,7 @@ value here always means "cleared".
 
 | verb | meaning |
 |---|---|
-| `emit(emission)` | a selection gesture — the unchanged R3 `{ rawValue, encoding }` shape in DATA space; the renderer never builds a clause |
+| `emit(emission)` | a selection gesture — the unchanged R3 `{ rawValue, encoding }` shape in DATA space (point, interval, cell, or the SET-1 match); the renderer never builds a clause |
 | `hover(keys \| null)` | ephemeral hover keys; never committed |
 | `reencodeRequest(channel)` | ask the host to re-encode a channel — the HOST owns the picker and the `reencode` verb |
 | `navigate(viewState)` | record a pan/zoom view state — lands as the `navigate` dispatch verb, deliberately NON-filtering (a viewport is not a data claim) |

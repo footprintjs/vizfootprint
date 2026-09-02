@@ -57,8 +57,8 @@ export interface CommitRecord {
   viewId: string;
   /** Serializable actor metadata so a fresh registry can rebuild the source. */
   actorMeta: ActorMeta;
-  /** Which clause factory to reconstruct with (`'cell'` = the D30 compound). */
-  kind: 'point' | 'interval' | 'cell';
+  /** Which clause factory to reconstruct with (`'cell'` = the D30 compound; `'match'` = the SET-1 IN-list, its value a `MatchValue`). */
+  kind: 'point' | 'interval' | 'cell' | 'match';
   /**
    * Column / expression the clause filters on. For `kind: 'cell'` this slot
    * carries the DISPLAY-ONLY joint label ("price × category" —
@@ -91,7 +91,7 @@ export interface CommitInput {
   correlationId?: string;
   viewId: string;
   actorMeta: ActorMeta;
-  kind: 'point' | 'interval' | 'cell';
+  kind: 'point' | 'interval' | 'cell' | 'match';
   field: string;
   value: unknown;
   /** REQUIRED for kind:'cell' (commit() refuses a cell without its pair); ignored otherwise. */

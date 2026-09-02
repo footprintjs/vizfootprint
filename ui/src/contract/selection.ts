@@ -29,6 +29,10 @@
  *     dates, lexicographic == chronological) only ever match string cells;
  *     numeric bounds only numeric non-NaN cells; a `null` bound is half-open
  *     (only the present side is tested). Exact `matchesClause` parity.
+ *   - match (SET-1): `null` value = cleared (keep all); otherwise strict
+ *     equality against the list — `exclude` keeps everything NOT in it. An
+ *     empty keep-list matches nothing, an empty exclude-list keeps all.
+ *     Exact `matchesClause` parity.
  */
 
 import type { SelectionView } from '../adapter/types.js';
@@ -42,6 +46,9 @@ type IntervalValue =
 
 /** One cell side on the wire: a plain value (equality; null = IS NULL) or a [lo, hi] interval. */
 type CellSideValue = number | string | boolean | null | IntervalValue;
+
+/** A match clause's wire value — the session's own `MatchValue` shape (values + polarity, or null). */
+type MatchWire = { readonly values: readonly unknown[]; readonly exclude?: boolean } | null;
 
 /** The interval evaluator, shared by the plain interval arm and a cell's interval side. */
 function intervalPredicate(field: string, iv: Exclude<IntervalValue, null>): (row: RenderRow) => boolean {
@@ -97,6 +104,15 @@ export function clausePredicate(
     const px = cellSidePredicate(fields[0], pair[0]);
     const py = cellSidePredicate(fields[1], pair[1]);
     return (row) => px(row) && py(row);
+  }
+  if (kind === 'match') {
+    // SET-1: cleared (null) keeps all; keep = in the list; exclude = not in it —
+    // strict equality per value, exactly `matchesClause`'s match arm
+    const body = value as MatchWire;
+    if (body == null) return () => true;
+    const values = body.values;
+    const hit = (row: RenderRow): boolean => values.some((candidate) => candidate === row[field]);
+    return body.exclude === true ? (row) => !hit(row) : hit;
   }
   if (kind === 'point') {
     // nullish = CLEARED at the adapter tier (see the file header: overview()
@@ -170,6 +186,33 @@ export function selfSelectedValue(selection: RenderSelection): string | null {
   const own = selection.clauses.get(selection.selfClauseId);
   if (!own || own.kind !== 'point' || own.value == null) return null;
   return String(own.value);
+}
+
+/** The consuming view's own live SET: the values it keeps or excludes. */
+export interface SelfSelectedSet {
+  /** The values, as the strings chart marks compare against. */
+  readonly values: readonly string[];
+  /** True when the set is an EXCLUDE (everything but these). */
+  readonly exclude: boolean;
+}
+
+/**
+ * The consuming view's own live selection as a SET (SET-1): a point is a
+ * one-value keep-set, a match is its list and polarity, anything else (no
+ * clause, cleared, an interval, a cell) is the empty keep-set. This is how a
+ * bar/map/table outlines EVERY selected mark and knows whether shift-click
+ * adds to a keep-set or an exclude-set — from the addressable fold, never
+ * from local state.
+ */
+export function selfSelectedSet(selection: RenderSelection): SelfSelectedSet {
+  const none: SelfSelectedSet = { values: [], exclude: false };
+  if (selection.selfClauseId === null) return none;
+  const own = selection.clauses.get(selection.selfClauseId);
+  if (!own || own.value == null) return none;
+  if (own.kind === 'point') return { values: [String(own.value)], exclude: false };
+  if (own.kind !== 'match') return none;
+  const body = own.value as Exclude<MatchWire, null>;
+  return { values: body.values.map((v) => String(v)), exclude: body.exclude === true };
 }
 
 /**

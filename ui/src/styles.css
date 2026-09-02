@@ -2023,3 +2023,88 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* ── SET-1: exclude outlines, the per-chart ✕, the selection chips ──────── */
+/* an EXCLUDED mark: the same outline, dashed — "everything but these" */
+:where(.vzf) .vzf-barrect.vzf-excluded,
+:where(.vzf) .vzf-region.vzf-excluded {
+  stroke: var(--vzf-ink);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+}
+:where(.vzf) .vzf-table-row.vzf-excluded td {
+  background: var(--vzf-surface-2);
+  text-decoration: line-through;
+  text-decoration-color: var(--vzf-ink-soft);
+}
+/* the per-chart clear pill — top-left, opposite the drag grip */
+:where(.vzf) .vzf-chart-clear {
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  z-index: 3;
+  font: inherit;
+  font-size: 0.72em;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--vzf-line);
+  background: var(--vzf-surface);
+  color: var(--vzf-ink-soft);
+  cursor: pointer;
+}
+:where(.vzf) .vzf-chart-clear:hover {
+  color: var(--vzf-ink);
+  border-color: var(--vzf-ink-soft);
+}
+/* the chips: one per live selection, in words */
+:where(.vzf) .vzf-selchips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85em;
+}
+:where(.vzf) .vzf-selchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--vzf-line);
+  background: var(--vzf-brand-tint);
+}
+:where(.vzf) .vzf-selchip.vzf-selchip-exclude {
+  background: var(--vzf-surface-2);
+  border-style: dashed;
+}
+:where(.vzf) .vzf-selchip-view {
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--vzf-ink-soft);
+}
+:where(.vzf) .vzf-selchip-flip,
+:where(.vzf) .vzf-selchip-clear,
+:where(.vzf) .vzf-selchips-clearall {
+  font: inherit;
+  font-size: 0.85em;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--vzf-ink-soft);
+  cursor: pointer;
+}
+:where(.vzf) .vzf-selchip-flip:hover,
+:where(.vzf) .vzf-selchip-clear:hover,
+:where(.vzf) .vzf-selchips-clearall:hover {
+  color: var(--vzf-ink);
+  border-color: var(--vzf-line);
+}
+:where(.vzf) .vzf-selchip-flip:disabled,
+:where(.vzf) .vzf-selchip-clear:disabled,
+:where(.vzf) .vzf-selchips-clearall:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+

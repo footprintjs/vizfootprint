@@ -6,6 +6,7 @@
  * contract stated in selection.ts's header).
  */
 import { describe, it, expect } from 'vitest';
+import { selfSelectedSet } from './selection.js';
 import { matchesClause } from '../../../src/data/predicate.js';
 import type { PredicateClause } from '../../../src/data/types.js';
 import {
@@ -234,5 +235,30 @@ describe('selfSelectedCell (the cell sibling — the heatmap’s own-cell deriva
     ).toBeNull();
     expect(selfSelectedCell(selectionForView(cellSel([[100, 150], 'Formal']), 'heatmap'))).toBeNull(); // pair lost
     expect(selfSelectedCell(selectionForView(cellSel([[100, 150], 'Formal'], ['price', 'category']), null))).toBeNull();
+  });
+});
+
+describe('SET-1 — the match arm mirrors matchesClause; selfSelectedSet is the view\'s own set', () => {
+  const rows = [{ category: 'A' }, { category: 'B' }, { category: 'C' }];
+  const sel = (value: unknown) => selectionForView([{ viewId: 'bar', field: 'category', kind: 'match', value }], null);
+  it('keep: in the list; exclude: not in it; an empty keep-list matches nothing; an empty exclude-list keeps all; null is cleared', () => {
+    const kept = (value: unknown) => rows.filter(keepPredicate(sel(value))).map((r) => r.category);
+    expect(kept({ values: ['A', 'C'] })).toEqual(['A', 'C']);
+    expect(kept({ values: ['A', 'C'], exclude: true })).toEqual(['B']);
+    expect(kept({ values: [] })).toEqual([]);
+    expect(kept({ values: [], exclude: true })).toEqual(['A', 'B', 'C']);
+    expect(kept(null)).toEqual(['A', 'B', 'C']);
+  });
+  it('selfSelectedSet: a point is a one-value keep-set; a match is its list and polarity; an interval, a cell, a cleared clause or no clause is the empty keep-set', () => {
+    const point = selectionForView([{ viewId: 'bar', field: 'category', kind: 'point', value: 'A' }], 'bar');
+    expect(selfSelectedSet(point)).toEqual({ values: ['A'], exclude: false });
+    const match = selectionForView([{ viewId: 'bar', field: 'category', kind: 'match', value: { values: ['A', 7], exclude: true } }], 'bar');
+    expect(selfSelectedSet(match)).toEqual({ values: ['A', '7'], exclude: true });
+    const interval = selectionForView([{ viewId: 'bar', field: 'price', kind: 'interval', value: [1, 2] }], 'bar');
+    expect(selfSelectedSet(interval)).toEqual({ values: [], exclude: false });
+    const cleared = selectionForView([{ viewId: 'bar', field: 'category', kind: 'match', value: null }], 'bar');
+    expect(selfSelectedSet(cleared)).toEqual({ values: [], exclude: false });
+    expect(selfSelectedSet(selectionForView([], 'bar'))).toEqual({ values: [], exclude: false });
+    expect(selfSelectedSet(selectionForView([{ viewId: 'bar', field: 'category', kind: 'point', value: 'A' }], null))).toEqual({ values: [], exclude: false });
   });
 });

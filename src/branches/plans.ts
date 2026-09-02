@@ -185,6 +185,7 @@ export function planUndo(records: readonly CommitRecord[], commitId: string, tip
             apply: 'clear-selection',
             viewId: rec.viewId,
             field: rec.field,
+            kind: rec.kind, // the executor clears kind-faithfully (a cleared match is not a cleared interval)
             // D30: undoing a cell with nothing prior clears KIND-FAITHFULLY (a
             // cleared cell commit) — rec.field is the joint label, not a column,
             // so a flattened interval-clear would trip the executor's column guard.

@@ -16,11 +16,11 @@ import type { SelectionClause, ClauseMetadata, MosaicClient } from '@uwdata/mosa
 // mosaic-sql is mosaic-core's own predicate-AST layer (a declared direct
 // dependency here, same 0.28.x line): `and` composes the D30 cell's compound
 // predicate from the two REAL side factories below — no hand-built AST node.
-import { and } from '@uwdata/mosaic-sql';
+import { and, literal, not, or } from '@uwdata/mosaic-sql';
 import type { ExprNode } from '@uwdata/mosaic-sql';
 import { validateCause, type Cause } from '../cause/index.js';
 import type { RegisteredSource } from './SourceRegistry.js';
-import type { CellSide } from '../data/index.js';
+import type { CellSide, MatchValue } from '../data/index.js';
 
 /** ClauseMetadata + the two-slot cause. A strict superset of Mosaic's type. */
 export interface CauseMetadata extends ClauseMetadata {
@@ -33,7 +33,7 @@ export interface CauseClause extends SelectionClause {
   meta: CauseMetadata;
 }
 
-/** The three clause kinds the engine carries: point, interval, and the D30 compound cell. */
+/** The four clause kinds the engine carries: point, interval, the D30 compound cell, and the SET-1 match. */
 export type CauseClauseSpec =
   | {
       kind: 'point';
@@ -86,6 +86,21 @@ export type CauseClauseSpec =
       value: readonly [CellSide, CellSide] | null;
       cause: Cause;
       clients?: RegisteredSource[];
+    }
+  | {
+      /**
+       * The SET-1 MATCH: one field, MANY values (IN) — or everything but them
+       * (`exclude`, NOT IN). Each value's predicate comes from the REAL
+       * `clausePoint` (a `null` value is a real IS NULL, exactly the point
+       * rule), the list is the real `or`, the polarity the real `not`.
+       * `value: null` clears the match (the cleared-interval rule).
+       */
+      kind: 'match';
+      source: RegisteredSource;
+      field: string;
+      value: MatchValue;
+      cause: Cause;
+      clients?: RegisteredSource[];
     };
 
 /**
@@ -130,6 +145,30 @@ function cellSidePredicate(
 }
 
 /**
+ * The IN-list predicate of a match clause. Every value goes through the REAL
+ * `clausePoint`, the arms are joined by the real `or`, and `exclude` wraps the
+ * list in the real `not`. An empty keep-list has no true arm — it is the
+ * constant FALSE (matches nothing, `src/data`'s law); an empty exclude-list is
+ * its negation, TRUE. `undefined` is not a value (it is a point's "cleared"):
+ * refused honestly rather than landing a half-empty OR.
+ */
+function matchPredicate(
+  field: string,
+  body: Exclude<MatchValue, null>,
+  opts: { source: RegisteredSource; clients: Set<MosaicClient> },
+): ExprNode {
+  const arms = body.values.map((v) => {
+    const built = clausePoint(field, v, opts);
+    if (built.predicate === null) {
+      throw new TypeError(`causeClause: a match value must be concrete — "${field}" got undefined; clear the match with value: null instead`);
+    }
+    return built.predicate;
+  });
+  const inList: ExprNode = arms.length === 0 ? literal(false) : arms.length === 1 ? arms[0]! : or(...arms);
+  return body.exclude === true ? not(inList) : inList;
+}
+
+/**
  * Build a cause-tagged Mosaic clause. Validates the cause first (R12: malformed
  * causes never enter the clause stream), then attaches it to the clause meta.
  */
@@ -158,6 +197,11 @@ export function causeClause(spec: CauseClauseSpec): CauseClause {
             cellSidePredicate(spec.fields[1], spec.value[1], { source, clients }),
           );
     clause = { meta: { type: 'cell' }, source, clients, value: spec.value, predicate };
+  } else if (spec.kind === 'match') {
+    // SET-1: the IN-list — cleared (`null`) carries a `null` predicate like a
+    // cleared interval; `meta.type: 'match'` is legal (an open string).
+    const predicate = spec.value === null ? null : matchPredicate(spec.field, spec.value, { source, clients });
+    clause = { meta: { type: 'match' }, source, clients, value: spec.value, predicate };
   } else {
     // Real Mosaic's own .d.ts types `clauseInterval`'s value as a plain
     // `[number, number]` domain — it has no half-open/string-extent concept

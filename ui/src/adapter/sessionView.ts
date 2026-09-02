@@ -173,7 +173,7 @@ interface RawPollCommit {
   readonly id: string;
   readonly parent: string | null;
   readonly viewId: string;
-  readonly kind: 'point' | 'interval' | 'cell';
+  readonly kind: 'point' | 'interval' | 'cell' | 'match';
   readonly field: string;
   readonly value: unknown;
   /** kind:'cell' only (D30) — the two selected fields, x side then y side. */
@@ -260,7 +260,7 @@ interface RawCommit {
   id: string;
   parent: string | null;
   viewId: string;
-  kind: 'point' | 'interval' | 'cell';
+  kind: 'point' | 'interval' | 'cell' | 'match';
   field: string;
   value: unknown;
   /** kind:'cell' only (D30). */
@@ -632,6 +632,19 @@ export interface SessionView {
   refresh(): Promise<void>;
   /** Turn a chart's R3 emission into a filter/select commit (charts never build clauses). */
   emit(viewId: string, emission: ChartEmission, intent?: string): Promise<void>;
+  /**
+   * SET-1: clear one view's live selection KIND-FAITHFULLY — a cleared point /
+   * interval / cell / match commit of that view, a real act with a cause,
+   * never a silent reset. No-op when the view holds no live clause.
+   */
+  clear(viewId: string, intent?: string): Promise<void>;
+  /** Clear every live selection, one commit each — the log stays honest about what was cleared. */
+  clearAll(intent?: string): Promise<void>;
+  /**
+   * SET-1: flip a view's live point/match between KEEP and EXCLUDE (a point
+   * becomes a one-value set). An interval or a cell has no polarity — no-op.
+   */
+  setPolarity(viewId: string, exclude: boolean, intent?: string): Promise<void>;
   /** UI-0: rebind a view's visual channel to a field. */
   reencode(viewId: string, channel: string, field: string): Promise<void>;
   /**
@@ -792,6 +805,18 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
         return;
       }
       const label = intent ?? `${emission.encoding.kind} ${emission.encoding.field}`;
+      if (emission.encoding.kind === 'match') {
+        // SET-1: the match rides the SELECT verb's values form — one gesture, ONE commit; null clears
+        const body = emission.rawValue as { readonly values: readonly unknown[]; readonly exclude?: boolean } | null;
+        const field = emission.encoding.field;
+        const values = body === null ? null : body.values;
+        const polarity = body?.exclude === true ? { exclude: true } : {};
+        await dispatch(
+          { verb: 'select', viewId, field, values, ...polarity, cause: cause(label) },
+          { verb: 'select', viewId, field, values, ...polarity, intent: label },
+        );
+        return;
+      }
       if (emission.encoding.kind === 'interval') {
         // the discriminant sits on `encoding.kind` (nested), so `rawValue` does
         // not auto-narrow — assert the interval payload the guard guarantees
@@ -807,6 +832,40 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
           { verb: 'select', viewId, field: emission.encoding.field, value, intent: label },
         );
       }
+    },
+
+    async clear(viewId, intent) {
+      const own = state.selections.find((s) => s.viewId === viewId);
+      if (own === undefined) return;
+      const label = intent ?? `clear ${viewId}`;
+      if (own.kind === 'cell') {
+        const fields = own.fields as readonly [string, string];
+        await dispatch({ verb: 'select', viewId, fields, values: null, cause: cause(label) }, { verb: 'select', viewId, fields, values: null, intent: label });
+      } else if (own.kind === 'interval') {
+        await dispatch({ verb: 'filter', viewId, field: own.field, range: null, cause: cause(label) }, { verb: 'filter', viewId, field: own.field, range: null, intent: label });
+      } else if (own.kind === 'match') {
+        await dispatch({ verb: 'select', viewId, field: own.field, values: null, cause: cause(label) }, { verb: 'select', viewId, field: own.field, values: null, intent: label });
+      } else {
+        // a point clears with an ABSENT value (the three-way split: null would mean IS NULL) — the wire body carries no value
+        await dispatch({ verb: 'select', viewId, field: own.field, value: undefined, cause: cause(label) }, { verb: 'select', viewId, field: own.field, intent: label });
+      }
+    },
+
+    async clearAll(intent) {
+      for (const s of [...state.selections]) await view.clear(s.viewId, intent ?? 'clear all');
+    },
+
+    async setPolarity(viewId, exclude, intent) {
+      const own = state.selections.find((s) => s.viewId === viewId);
+      // no live point or match on that view → nothing to flip (an interval, a cell, a cleared clause, an unknown view)
+      if (own === undefined || own.value == null || (own.kind !== 'point' && own.kind !== 'match')) return;
+      const values: readonly unknown[] = own.kind === 'point' ? [own.value] : (own.value as { readonly values: readonly unknown[] }).values;
+      const label = intent ?? `${exclude ? 'exclude' : 'keep'} ${own.field}`;
+      const polarity = exclude ? { exclude: true } : {};
+      await dispatch(
+        { verb: 'select', viewId, field: own.field, values, ...polarity, cause: cause(label) },
+        { verb: 'select', viewId, field: own.field, values, ...polarity, intent: label },
+      );
     },
 
     async reencode(viewId, channel, field) {

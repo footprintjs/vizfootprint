@@ -314,7 +314,7 @@ describe('BR-1 — undo(): restore the key\'s value at the commit\'s parent; cau
     expect(validateCause(wire.find((r) => r.id === res.commit!.id)!.cause).revertOf).toBe(eId);
   });
 
-  it('absent at parent → CLEAR recipe (filter null), with later touches named as conflicts', async () => {
+  it('absent at parent → CLEAR recipe (a cleared point — kind-faithful), with later touches named as conflicts', async () => {
     const s = freshSession();
     const a = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
     const aId = a.ok ? a.commit!.id : '';
@@ -324,7 +324,7 @@ describe('BR-1 — undo(): restore the key\'s value at the commit\'s parent; cau
     const res = await s.undo(aId); // parent of a is the root — nothing there → clear
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.recipe).toEqual({ apply: 'clear-selection', viewId: 'bar', field: 'category' });
+    expect(res.recipe).toEqual({ apply: 'clear-selection', viewId: 'bar', field: 'category', kind: 'point' });
     expect(res.conflicts).toEqual([eId]); // e touched the same key after a — explicit, still executed
     expect(res.commit?.cause.revertOf).toBe(aId);
     expect(res.commit?.cause.conflicts).toEqual([eId]);

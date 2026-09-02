@@ -43,6 +43,13 @@ export function formatCommitValue(c: Pick<CommitView, 'kind' | 'value' | 'fields
     if (v === null) return '(cleared)';
     return formatIntervalWords(v[0], v[1]);
   }
+  if (c.kind === 'match') {
+    // SET-1: the list in braces, its polarity as a word — "in {A, B}" / "not in {A, B}"
+    const v = c.value as { readonly values?: readonly unknown[]; readonly exclude?: boolean } | null | undefined;
+    if (v === null || v === undefined) return '(cleared)';
+    const words = (v.values ?? []).map((x) => (x === null || x === undefined ? '∅' : typeof x === 'number' ? (Number.isInteger(x) ? String(x) : String(round2(x))) : String(x)));
+    return `${v.exclude === true ? 'not in' : 'in'} {${words.join(', ')}}`;
+  }
   if (c.value === null || c.value === undefined) return '∅';
   if (typeof c.value === 'number') return Number.isInteger(c.value) ? String(c.value) : String(round2(c.value));
   return String(c.value);

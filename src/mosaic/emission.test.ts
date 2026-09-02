@@ -208,3 +208,27 @@ describe('vizfootprint/mosaic barrel — "chart never builds clauses" (no raw fa
     );
   });
 });
+
+describe('match emission (SET-1) — many values on one field, or null to clear', () => {
+  it('lands a clause of type match whose predicate names every value; polarity rides the value', () => {
+    const reg = new SourceRegistry();
+    const a = reg.register('A', { actor: 'user' });
+    const emission: ChartEmission = { rawValue: { values: ['Data', 'Ops'] }, encoding: { kind: 'match', field: 'category' } };
+    const clause = causeClauseFromEmission(emission, { source: a, cause: cause({ intent: 'two categories' }) });
+    expect(clause.meta.type).toBe('match');
+    expect(causeOf(clause)?.intent).toBe('two categories');
+    const sql = String(clause.predicate);
+    expect(sql).toContain("'Data'");
+    expect(sql).toContain("'Ops'");
+    expect(sql).toMatch(/ OR /);
+    const excluded = causeClauseFromEmission({ rawValue: { values: ['Data'], exclude: true }, encoding: { kind: 'match', field: 'category' } }, { source: a, cause: cause() });
+    expect(String(excluded.predicate)).toMatch(/^\(NOT /);
+  });
+  it('a null rawValue is the cleared match — no predicate', () => {
+    const reg = new SourceRegistry();
+    const a = reg.register('A', { actor: 'user' });
+    const clause = causeClauseFromEmission({ rawValue: null, encoding: { kind: 'match', field: 'category' } }, { source: a, cause: cause() });
+    expect(clause.predicate).toBeNull();
+    expect(clause.meta.type).toBe('match');
+  });
+});

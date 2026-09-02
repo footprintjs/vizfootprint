@@ -230,7 +230,7 @@ describe('conformance — all eight first-party charts pass (the reference claim
       },
     });
     expect(report.ok, explain(report)).toBe(true);
-    expect(report.steps).toHaveLength(10);
+    expect(report.steps).toHaveLength(11);
     // a renderer with no cell declaration skips the D30 arm honestly
     expect(report.steps.find((s) => s.step === 'cell')!.detail).toContain('honestly skipped');
     expect(report.emissions[0]!.encoding.kind).toBe('interval');
@@ -254,9 +254,16 @@ describe('conformance — all eight first-party charts pass (the reference claim
         fireEvent.click(el.querySelector('rect.vzf-barrect')!);
       },
       verifyUpdate: (el) => el.querySelector('rect.vzf-selected') !== null,
+      // SET-1: shift-click a SECOND bar — the first is the base gesture's point, promoted to a set
+      matchGesture: (el) => {
+        fireEvent.click(el.querySelectorAll('rect.vzf-barrect')[1]!, { shiftKey: true });
+      },
     });
     expect(report.ok, explain(report)).toBe(true);
     expect(report.emissions[0]).toEqual({ rawValue: 'Casual', encoding: { kind: 'point', field: 'category' } });
+    const matchStep = report.steps.find((s) => s.step === 'match')!;
+    expect(matchStep.ok, explain(report)).toBe(true);
+    expect(matchStep.detail).toContain('ONE match commit over 2 values');
   });
 
   it('VizMap (point select on a region)', async () => {
@@ -265,9 +272,13 @@ describe('conformance — all eight first-party charts pass (the reference claim
         fireEvent.click(el.querySelector('path.vzf-region')!);
       },
       verifyUpdate: (el) => el.querySelector('path.vzf-selected') !== null,
+      matchGesture: (el) => {
+        fireEvent.click(el.querySelectorAll('path.vzf-region')[1]!, { shiftKey: true });
+      },
     });
     expect(report.ok, explain(report)).toBe(true);
     expect(report.emissions[0]).toEqual({ rawValue: 'North', encoding: { kind: 'point', field: 'region' } });
+    expect(report.steps.find((s) => s.step === 'match')!.detail).toContain('ONE match commit over 2 values');
   });
 
   it('VizHistogram (bucket-snapping interval brush over HOST-computed bins)', async () => {
@@ -326,9 +337,13 @@ describe('conformance — all eight first-party charts pass (the reference claim
         fireEvent.click(el.querySelector('tbody tr')!);
       },
       verifyUpdate: (el) => el.querySelector('tr.vzf-selected') !== null,
+      matchGesture: (el) => {
+        fireEvent.click(el.querySelectorAll('tbody tr')[1]!, { shiftKey: true });
+      },
     });
     expect(report.ok, explain(report)).toBe(true);
     expect(report.emissions[0]).toEqual({ rawValue: 'd01', encoding: { kind: 'point', field: 'id' } });
+    expect(report.steps.find((s) => s.step === 'match')!.detail).toContain('ONE match commit over 2 values');
   });
 });
 
@@ -345,6 +360,8 @@ interface StubOptions {
   readonly emission?: ChartEmission;
   /** What its SECOND button (the "cell" probe) emits, in order — the D30 hostile arm. */
   readonly cellEmissions?: readonly ChartEmission[];
+  /** What its `button.match` click emits (SET-1) — several, to simulate a refused match shadowed by a stray point. */
+  readonly matchEmissions?: readonly ChartEmission[];
   readonly dirtyUnmount?: boolean;
 }
 
@@ -391,6 +408,15 @@ function stubRenderer(options: StubOptions = {}): Renderer {
                 for (const e of options.cellEmissions!) handshake.callbacks.emit(e);
               });
               host.appendChild(cellButton);
+            }
+            if (options.matchEmissions) {
+              const matchButton = document.createElement('button');
+              matchButton.className = 'match';
+              matchButton.textContent = 'match probe';
+              matchButton.addEventListener('click', () => {
+                for (const e of options.matchEmissions!) handshake.callbacks.emit(e);
+              });
+              host.appendChild(matchButton);
             }
           }
           if (mode === 'normal') {
@@ -522,7 +548,7 @@ describe('conformance — hostile renderers are caught at the exact step', () =>
       gesture: clickProbe,
     });
     await expectFailAt(report, 'unmount', 'left');
-    expect(report.steps.filter((s) => s.ok)).toHaveLength(9); // everything else passed (incl. the honest cell skip)
+    expect(report.steps.filter((s) => s.ok)).toHaveLength(10); // everything else passed (incl. the honest cell + match skips)
   });
 
   it('a renderer DECLARING the cell kind but given no cellGesture fails the cell arm honestly', async () => {
@@ -547,6 +573,52 @@ describe('conformance — hostile renderers are caught at the exact step', () =>
       { gesture: clickProbe, verifyUpdate: () => true, cellGesture: clickProbe }, // the "cell" gesture emits a point
     );
     await expectFailAt(report, 'cell', 'no cell emission');
+  });
+
+  // ── SET-1: the match arm's honest failures ───────────────────────────────────
+  const clickMatchProbe = (el: HTMLElement): void => {
+    fireEvent.click(el.querySelector('button.match')!);
+  };
+  const MATCH_CAPS = { capabilities: { emissionKinds: ['point', 'match'] as const }, emission: point('category', 'Casual') };
+
+  it('a renderer DECLARING the match kind but given no matchGesture fails the match arm honestly', async () => {
+    const report = await runFor(stubRenderer({ ...MATCH_CAPS }), 'static', { gesture: clickProbe, verifyUpdate: () => true });
+    await expectFailAt(report, 'match', 'no matchGesture');
+  });
+
+  it('a match gesture that emits a NON-match emission fails the match arm', async () => {
+    const report = await runFor(stubRenderer({ ...MATCH_CAPS }), 'static', { gesture: clickProbe, verifyUpdate: () => true, matchGesture: clickProbe });
+    await expectFailAt(report, 'match', 'no match emission');
+  });
+
+  it('a match the session REFUSES (a ghost field) lands zero commits — one gesture is exactly ONE', async () => {
+    const report = await runFor(
+      stubRenderer({ ...MATCH_CAPS, matchEmissions: [{ rawValue: { values: ['a', 'b'] }, encoding: { kind: 'match', field: 'ghost' } }] }),
+      'static',
+      { gesture: clickProbe, verifyUpdate: () => true, matchGesture: clickMatchProbe },
+    );
+    await expectFailAt(report, 'match', 'landed 0 commit(s)');
+  });
+
+  it('a refused match shadowed by a stray point commit is caught by the descriptor (kind · many · self)', async () => {
+    const report = await runFor(
+      stubRenderer({
+        ...MATCH_CAPS,
+        matchEmissions: [{ rawValue: { values: ['a', 'b'] }, encoding: { kind: 'match', field: 'ghost' } }, point('category', 'Formal')],
+      }),
+      'static',
+      { gesture: clickProbe, verifyUpdate: () => true, matchGesture: clickMatchProbe },
+    );
+    await expectFailAt(report, 'match', 'kind:point · not-many · self-missing');
+  });
+
+  it('a CLEARED match (values null) is one honest commit but not a many-values selection — the descriptor says so', async () => {
+    const report = await runFor(
+      stubRenderer({ ...MATCH_CAPS, matchEmissions: [{ rawValue: null, encoding: { kind: 'match', field: 'category' } }] }),
+      'static',
+      { gesture: clickProbe, verifyUpdate: () => true, matchGesture: clickMatchProbe },
+    );
+    await expectFailAt(report, 'match', 'match-kind · not-many · self-missing');
   });
 
   const clickCellProbe = (el: HTMLElement): void => {

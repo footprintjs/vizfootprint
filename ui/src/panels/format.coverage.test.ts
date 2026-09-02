@@ -38,3 +38,12 @@ describe('formatCommitValue — the D30 cell wording ("price 100 – 150 and cat
     expect(formatCommitValue({ kind: 'cell', value: [[0, 10], 'x'] })).toBe('(cleared)');
   });
 });
+
+describe('formatCommitValue — match (SET-1)', () => {
+  it('reads "in {…}" / "not in {…}" with numbers rounded and null as ∅; a cleared match says so', () => {
+    expect(formatCommitValue({ kind: 'match', value: { values: ['A', 2.345, null] } })).toBe('in {A, 2.35, ∅}');
+    expect(formatCommitValue({ kind: 'match', value: { values: [7], exclude: true } })).toBe('not in {7}');
+    expect(formatCommitValue({ kind: 'match', value: null })).toBe('(cleared)');
+    expect(formatCommitValue({ kind: 'match', value: {} })).toBe('in {}');
+  });
+});

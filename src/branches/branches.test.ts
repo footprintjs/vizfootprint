@@ -465,7 +465,7 @@ describe('planUndo — revert as a PLAN: restore the key\'s value at the commit\
     const plan = planUndo(LOG, 'c1', 'e2');
     expect(plan).toEqual({
       ok: true,
-      recipe: { apply: 'clear-selection', viewId: 'bar', field: 'category' },
+      recipe: { apply: 'clear-selection', viewId: 'bar', field: 'category', kind: 'point' }, // kind-faithful: a cleared POINT
       conflicts: ['c2'], // c2 touched the same key after c1 on the target path — explicit, still executable
     });
   });
@@ -473,7 +473,7 @@ describe('planUndo — revert as a PLAN: restore the key\'s value at the commit\
   it('undo of an interval commit with no prior interval → clear-selection', () => {
     expect(planUndo(LOG, 'c3', 'e2')).toEqual({
       ok: true,
-      recipe: { apply: 'clear-selection', viewId: 'scatter', field: 'price' },
+      recipe: { apply: 'clear-selection', viewId: 'scatter', field: 'price', kind: 'interval' },
       conflicts: [],
     });
   });

@@ -322,3 +322,22 @@ describe('the D30 compound cell — SQL descriptor + in-process evaluation', () 
     expect(matchesClause({ price: '120', category: 'Formal' }, clause)).toBe(false);
   });
 });
+
+describe('match — exclude flips the IN-list to NOT IN (SET-1)', () => {
+  const row: Row = { category: 'Data' };
+  it('keep: a listed value matches, an unlisted one does not; an empty keep-list matches NOTHING', () => {
+    expect(matchesClause(row, { kind: 'match', field: 'category', values: ['Data', 'Ops'] })).toBe(true);
+    expect(matchesClause(row, { kind: 'match', field: 'category', values: ['Ops'] })).toBe(false);
+    expect(matchesClause(row, { kind: 'match', field: 'category', values: [] })).toBe(false);
+  });
+  it('exclude: a listed value is dropped, an unlisted one kept; an empty exclude-list keeps EVERYTHING', () => {
+    expect(matchesClause(row, { kind: 'match', field: 'category', values: ['Data'], exclude: true })).toBe(false);
+    expect(matchesClause(row, { kind: 'match', field: 'category', values: ['Ops'], exclude: true })).toBe(true);
+    expect(matchesClause(row, { kind: 'match', field: 'category', values: [], exclude: true })).toBe(true);
+  });
+  it('the SQL descriptor says NOT IN for exclude, and TRUE for an empty exclude-list', () => {
+    expect(resolvePredicateSQL({ kind: 'match', field: 'category', values: ['Data', 'Ops'], exclude: true })).toBe(`("category" NOT IN ('Data', 'Ops'))`);
+    expect(resolvePredicateSQL({ kind: 'match', field: 'category', values: [], exclude: true })).toBe('(TRUE)');
+    expect(resolvePredicateSQL({ kind: 'match', field: 'category', values: [] })).toBe('(FALSE)');
+  });
+});

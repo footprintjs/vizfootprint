@@ -695,3 +695,82 @@ describe('createSessionView — REAL InteractionSession (UI-0 reencode end-to-en
     view.dispose();
   });
 });
+
+describe('SET-1 — emit(match), clear, clearAll, setPolarity', () => {
+  const STATE: RawPollState = {
+    ...RAW,
+    activeSelections: [
+      { viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' },
+      { viewId: 'scatter', field: 'price', kind: 'interval', value: [40, 60] },
+      { viewId: 'heatmap', field: 'price × category', kind: 'cell', value: [[100, 150], 'Formal'], fields: ['price', 'category'] },
+      { viewId: 'map', field: 'region', kind: 'match', value: { values: ['North', 'South'], exclude: true } },
+      { viewId: 'line', field: 'date', kind: 'point', value: null },
+    ],
+  };
+  function fetchOf(state: RawPollState) {
+    const posts: Record<string, unknown>[] = [];
+    const impl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (!init || init.method !== 'POST') return { ok: true, json: async () => state } as unknown as Response;
+      posts.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return { ok: true, json: async () => ({ ok: true }) } as unknown as Response;
+    });
+    return { impl: impl as unknown as typeof fetch, posts };
+  }
+  it('emit(match) posts the select verb\'s values form — polarity only when excluding, null to clear', async () => {
+    const { impl, posts } = fetchOf(RAW);
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    await view.emit('bar', { rawValue: { values: ['Formal', 'Party'] }, encoding: { kind: 'match', field: 'category' } });
+    await view.emit('bar', { rawValue: { values: ['Formal'], exclude: true }, encoding: { kind: 'match', field: 'category' } }, 'all but Formal');
+    await view.emit('bar', { rawValue: null, encoding: { kind: 'match', field: 'category' } });
+    expect(posts[0]).toEqual({ verb: 'select', viewId: 'bar', field: 'category', values: ['Formal', 'Party'], intent: 'match category' });
+    expect(posts[1]).toEqual({ verb: 'select', viewId: 'bar', field: 'category', values: ['Formal'], exclude: true, intent: 'all but Formal' });
+    expect(posts[2]).toEqual({ verb: 'select', viewId: 'bar', field: 'category', values: null, intent: 'match category' });
+    view.dispose();
+  });
+  it('clear(viewId) is kind-faithful: a point clears with NO value on the wire, an interval with range null, a cell with values null, a match with values null; an unknown view is a no-op', async () => {
+    const { impl, posts } = fetchOf(STATE);
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    await view.clear('bar');
+    await view.clear('scatter', 'let go of the brush');
+    await view.clear('heatmap');
+    await view.clear('map');
+    await view.clear('nowhere');
+    expect(posts).toEqual([
+      { verb: 'select', viewId: 'bar', field: 'category', intent: 'clear bar' },
+      { verb: 'filter', viewId: 'scatter', field: 'price', range: null, intent: 'let go of the brush' },
+      { verb: 'select', viewId: 'heatmap', fields: ['price', 'category'], values: null, intent: 'clear heatmap' },
+      { verb: 'select', viewId: 'map', field: 'region', values: null, intent: 'clear map' },
+    ]);
+    expect('value' in posts[0]!).toBe(false); // the cleared point carries NO value key — undefined, never null (IS NULL)
+    view.dispose();
+  });
+  it('clearAll clears every live selection, one commit each', async () => {
+    const { impl, posts } = fetchOf(STATE);
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    await view.clearAll();
+    expect(posts.map((p) => p['viewId'])).toEqual(['bar', 'scatter', 'heatmap', 'map', 'line']);
+    expect(posts.every((p) => p['intent'] === 'clear all')).toBe(true);
+    view.dispose();
+  });
+  it('setPolarity flips a point (as a one-value set) or a match; an interval, a cell, a cleared point, an unknown view are no-ops', async () => {
+    const { impl, posts } = fetchOf(STATE);
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    await view.setPolarity('bar', true);
+    await view.setPolarity('map', false);
+    await view.setPolarity('map', false, 'keep the north and south');
+    await view.setPolarity('scatter', true);
+    await view.setPolarity('heatmap', true);
+    await view.setPolarity('line', true);
+    await view.setPolarity('nowhere', true);
+    expect(posts).toEqual([
+      { verb: 'select', viewId: 'bar', field: 'category', values: ['Formal'], exclude: true, intent: 'exclude category' },
+      { verb: 'select', viewId: 'map', field: 'region', values: ['North', 'South'], intent: 'keep region' },
+      { verb: 'select', viewId: 'map', field: 'region', values: ['North', 'South'], intent: 'keep the north and south' },
+    ]);
+    view.dispose();
+  });
+});

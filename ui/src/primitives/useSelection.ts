@@ -18,7 +18,7 @@
  * consumption layer.
  */
 import { useMemo } from 'react';
-import { keepPredicate, selfSelectedValue } from '../contract/selection.js';
+import { keepPredicate, selfSelectedSet, selfSelectedValue, type SelfSelectedSet } from '../contract/selection.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
 
 /** The memoized self-excluded crossfilter fold — null when no selection rides the props. */
@@ -32,6 +32,23 @@ export function selectedValue(
   selection: RenderSelection | undefined,
 ): string | null {
   return explicit !== undefined ? explicit : selection ? selfSelectedValue(selection) : null;
+}
+
+/**
+ * The view's own selection as a SET (SET-1): an explicit `selected` prop is a
+ * one-value keep-set (or empty for null); otherwise the fold's own point or
+ * match. A mark whose value is in `values` wears `.vzf-selected` (keep) or
+ * `.vzf-excluded` (exclude) — see `markClass`.
+ */
+export function selectedSet(explicit: string | null | undefined, selection: RenderSelection | undefined): SelfSelectedSet {
+  if (explicit !== undefined) return { values: explicit === null ? [] : [explicit], exclude: false };
+  return selection ? selfSelectedSet(selection) : { values: [], exclude: false };
+}
+
+/** The outline class for a mark whose value is (or is not) in the view's own set — `''` when it is not. */
+export function markClass(value: string, set: SelfSelectedSet): string {
+  if (!set.values.includes(value)) return '';
+  return set.exclude ? ' vzf-excluded' : ' vzf-selected';
 }
 
 /** Dim, never hide — `''` for a kept mark, `' vzf-dim'` (leading space) otherwise. */

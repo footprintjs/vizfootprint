@@ -7,3 +7,5 @@ export type { GapsPanelProps } from './GapsPanel.js';
 export { ReadinessPanel } from './ReadinessPanel.js';
 export type { ReadinessPanelProps } from './ReadinessPanel.js';
 export { formatCommitValue } from './format.js';
+export { SelectionChips, chipWords } from './SelectionChips.js';
+export type { SelectionChipsProps } from './SelectionChips.js';

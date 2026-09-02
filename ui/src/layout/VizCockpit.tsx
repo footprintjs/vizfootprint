@@ -59,6 +59,10 @@ export interface CockpitChart {
   readonly caption?: ReactNode;
   /** Render the chart; pass `size.width`/`size.height` straight to the chart's props. */
   readonly render: (size: ChartSize) => ReactNode;
+  /** SET-1: true when this chart's view holds a live selection — shows the ✕ clear affordance (needs `onClear`). */
+  readonly active?: boolean;
+  /** SET-1: clear this chart's OWN selection — a real commit with a cause. Rendered as a ✕ pill beside the chart when `active`. */
+  readonly onClear?: () => void;
 }
 
 /** One report chip on the status strip — opens a large modal hosting `content`. */
@@ -331,6 +335,18 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
                   </div>
                 )}
                 <ChartFrame>{c.render}</ChartFrame>
+                {c.onClear !== undefined && c.active === true && (
+                  <button
+                    type="button"
+                    className="vzf-chart-clear"
+                    data-vzf="clear-selection"
+                    aria-label={`Clear the ${c.id} selection`}
+                    title="Clear this view's selection (a commit, like any act)"
+                    onClick={c.onClear}
+                  >
+                    ✕ clear
+                  </button>
+                )}
                 {c.caption !== undefined && <div className="vzf-chart-caption">{c.caption}</div>}
                 {isThumb && (
                   <button

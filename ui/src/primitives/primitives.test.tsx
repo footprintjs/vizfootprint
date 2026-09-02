@@ -25,7 +25,8 @@ beforeAll(() => {
 
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import { useHorizontalBrush, BrushOverlay, type HorizontalBrushOptions } from './brush.js';
-import { pointEmission, togglePointEmission, keyActivates } from './pointSelect.js';
+import { pointEmission, togglePointEmission, keyActivates, matchEmission, toggleInSetEmission } from './pointSelect.js';
+import { selectedSet, markClass } from './useSelection.js';
 import { useKeepPredicate, selectedValue, dimClass } from './useSelection.js';
 import { useReencodePicker } from './reencode.js';
 import { epochOf, dayOf } from './scales.js';
@@ -261,3 +262,26 @@ describe('scales — the shared date handling', () => {
 // the emission type stays the single vocabulary — a compile-time pin
 const _pin: ChartEmission = pointEmission('f', 1);
 void _pin;
+
+describe('SET-1 primitives — matchEmission, toggleInSetEmission, selectedSet, markClass', () => {
+  it('matchEmission carries the list and its polarity as one value; null clears', () => {
+    expect(matchEmission('category', ['A', 'B'])).toEqual({ rawValue: { values: ['A', 'B'] }, encoding: { kind: 'match', field: 'category' } });
+    expect(matchEmission('category', ['A'], true)).toEqual({ rawValue: { values: ['A'], exclude: true }, encoding: { kind: 'match', field: 'category' } });
+    expect(matchEmission('category', null)).toEqual({ rawValue: null, encoding: { kind: 'match', field: 'category' } });
+  });
+  it('toggleInSetEmission adds a missing value, removes a present one, keeps the polarity, and CLEARS when the last one goes', () => {
+    expect(toggleInSetEmission('category', 'B', { values: ['A'], exclude: false })).toEqual(matchEmission('category', ['A', 'B']));
+    expect(toggleInSetEmission('category', 'A', { values: ['A', 'B'], exclude: true })).toEqual(matchEmission('category', ['B'], true));
+    expect(toggleInSetEmission('category', 'A', { values: ['A'], exclude: false })).toEqual(matchEmission('category', null));
+  });
+  it('selectedSet: an explicit selected prop wins (null = empty); otherwise the fold; markClass names keep vs exclude', () => {
+    expect(selectedSet('A', undefined)).toEqual({ values: ['A'], exclude: false });
+    expect(selectedSet(null, undefined)).toEqual({ values: [], exclude: false });
+    expect(selectedSet(undefined, undefined)).toEqual({ values: [], exclude: false });
+    const fold = selectionForView([{ viewId: 'bar', field: 'category', kind: 'match', value: { values: ['A'], exclude: true } }], 'bar');
+    expect(selectedSet(undefined, fold)).toEqual({ values: ['A'], exclude: true });
+    expect(markClass('A', { values: ['A'], exclude: false })).toBe(' vzf-selected');
+    expect(markClass('A', { values: ['A'], exclude: true })).toBe(' vzf-excluded');
+    expect(markClass('B', { values: ['A'], exclude: false })).toBe('');
+  });
+});
