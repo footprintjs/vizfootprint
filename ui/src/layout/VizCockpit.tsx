@@ -77,11 +77,30 @@ export interface CockpitReport {
   readonly content: ReactNode;
 }
 
+/** The cockpit's push-aside panel. */
+export interface CockpitAside {
+  readonly open: boolean;
+  readonly title: string;
+  readonly onClose?: () => void;
+  readonly children?: ReactNode;
+  /** Width in CSS pixels when open. Default 380. */
+  readonly width?: number;
+}
+
 export interface VizCockpitProps {
   /** The time-travel strip (pinned top). */
   readonly top?: ReactNode;
   readonly charts?: readonly CockpitChart[];
   readonly reports?: readonly CockpitReport[];
+  /**
+   * A side panel that PUSHES the dashboard aside (the arrangement plane's
+   * drawer): it reserves its width inside the cockpit instead of floating over
+   * it, animates open and closed (no motion under prefers-reduced-motion), and
+   * never blocks the charts — so an edit made in it is seen happening. Use it
+   * for the chart editor; use `EditorDrawer` from `vizfootprint-ui/editor`
+   * when there is no cockpit to push.
+   */
+  readonly aside?: CockpitAside;
   /** The left side of the status strip (rows selected, provider label …). */
   readonly status?: ReactNode;
   /**
@@ -413,6 +432,26 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
         </VizModal>
         {props.toast}
       </div>
+      {props.aside !== undefined ? (
+        <aside
+          className={`vzf-cockpit-aside${props.aside.open ? ' vzf-open' : ''}`}
+          data-vzf="cockpit-aside"
+          aria-hidden={props.aside.open ? undefined : 'true'}
+          style={{ ['--vzf-aside-w' as string]: `${props.aside.width ?? 380}px` }}
+        >
+          <div className="vzf-cockpit-aside-inner" role="complementary" aria-label={props.aside.title} style={{ width: props.aside.width ?? 380 }}>
+            <div className="vzf-drawer-head">
+              <span className="vzf-drawer-title">{props.aside.title}</span>
+              {props.aside.onClose !== undefined ? (
+                <button type="button" className="vzf-drawer-close" aria-label="Close" onClick={props.aside.onClose}>
+                  ✕
+                </button>
+              ) : null}
+            </div>
+            <div className="vzf-drawer-body">{props.aside.children}</div>
+          </div>
+        </aside>
+      ) : null}
     </div>
   );
 }

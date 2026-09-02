@@ -2133,3 +2133,34 @@
   pointer-events: none;
 }
 :where(.vzf) .vzf-linkmatrix-edited { background: var(--vzf-brand-tint); color: var(--vzf-ink); font-weight: 600; box-shadow: inset 0 0 0 2px var(--vzf-brand); }
+
+/* ── vizfootprint-ui/editor — the side drawer and the chart editor ── */
+:where(.vzf).vzf-drawer,
+:where(.vzf) .vzf-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 30; display: flex; flex-direction: column; background: var(--vzf-bg, #fff); color: var(--vzf-fg, #1b1f23); border-left: 1px solid var(--vzf-line, #d8dee4); box-shadow: -8px 0 24px rgba(0, 0, 0, 0.08); max-width: 92vw; }
+:where(.vzf) .vzf-drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--vzf-line, #d8dee4); font-weight: 600; }
+:where(.vzf) .vzf-drawer-close { border: 0; background: transparent; cursor: pointer; font-size: 14px; }
+:where(.vzf) .vzf-drawer-body { overflow: auto; padding: 12px; flex: 1; }
+:where(.vzf) .vzf-editor-section { margin: 0 0 18px; }
+:where(.vzf) .vzf-editor-h { margin: 0 0 8px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.7; }
+:where(.vzf) .vzf-editor-row { margin: 0 0 10px; display: flex; flex-direction: column; gap: 4px; }
+:where(.vzf) .vzf-editor-label { font-size: 12.5px; }
+:where(.vzf) .vzf-editor-text { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 6px; border: 1px solid var(--vzf-line, #d8dee4); border-radius: 4px; resize: vertical; }
+:where(.vzf) .vzf-editor-select { font: inherit; font-size: 13px; padding: 4px; max-width: 100%; }
+:where(.vzf) .vzf-editor-actions { display: flex; gap: 8px; }
+:where(.vzf) .vzf-editor-save, :where(.vzf) .vzf-editor-reset { font: inherit; font-size: 12px; padding: 3px 8px; cursor: pointer; }
+:where(.vzf) .vzf-editor-derived { font-size: 13px; opacity: 0.75; font-style: italic; }
+:where(.vzf) .vzf-editor-note { font-size: 12px; color: #a8661a; }
+:where(.vzf) .vzf-editor-status { font-size: 11px; opacity: 0.7; }
+:where(.vzf) .vzf-editor-stale { color: #a8661a; opacity: 1; }
+:where(.vzf) .vzf-editor-origin { font-size: 11px; opacity: 0.6; }
+
+/* ── the cockpit's push-aside: reserves its width beside the charts and animates it ── */
+:where(.vzf).vzf-cockpit-root,
+:where(.vzf) .vzf-cockpit-root { display: flex; flex-direction: row; align-items: stretch; min-height: 0; }
+:where(.vzf) .vzf-cockpit-aside { flex: none; width: 0; overflow: hidden; border-left: 0 solid var(--vzf-line, #d8dee4); background: var(--vzf-bg, #fff); transition: width 0.28s ease, border-left-width 0.28s ease; display: flex; }
+:where(.vzf) .vzf-cockpit-aside.vzf-open { width: var(--vzf-aside-w, 380px); border-left-width: 1px; }
+:where(.vzf) .vzf-cockpit-aside-inner { display: flex; flex-direction: column; min-height: 0; max-height: 100%; }
+:where(.vzf) .vzf-cockpit-aside .vzf-drawer-body { overflow: auto; }
+@media (prefers-reduced-motion: reduce) {
+  :where(.vzf) .vzf-cockpit-aside { transition: none; }
+}

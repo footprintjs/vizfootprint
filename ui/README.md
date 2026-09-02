@@ -375,6 +375,20 @@ edge to land as a `link` commit. See `src/links/README.md`.
 
 An edge of kind `encoding` carries a source view's channel bindings; the target `follow`s them (or `none`, on purpose). The session serves what each view shows as `state.effectiveEncodings` and, per view, `effective` with the channels it follows (and through which edge) and the follows its own rules refused. **Render effective, edit encodings**: pass `state.effectiveEncodings[id]` to the chart and land rebinds through `view.reencode` as before — a followed channel's own rebind is refused with a sentence that names the edge, and the matrix shows the pairs beside a `follow` cell.
 
+## The editor — a side panel that pushes the dashboard aside
+
+`vizfootprint-ui/editor` is its own entry: `<ChartEditor>` shows one chart's words, channels and links, each edit landing as a commit through the host (`describe`, `reencode`, `link`), and `<EditorDrawer>` is a floating side panel for a host without a cockpit. Inside the cockpit, pass `aside` instead: the panel **reserves its width beside the charts and animates open**, so a change is seen happening on the dashboard (no motion under `prefers-reduced-motion`).
+
+```tsx
+<VizCockpit
+  charts={charts}
+  aside={{ open: editing !== null, title: `Edit ${editing}`, onClose: () => setEditing(null), children: (
+    <ChartEditor view={state.views.find((v) => v.viewId === editing)!} links={state.links} by="ana"
+      onDescribe={(id, slot, r) => void view.describe(id, slot, r)} onReencode={(id, ch, f) => void view.reencode(id, ch, f)} onLink={(e) => void view.link(e)} />
+  ) }}
+/>
+```
+
 ## The prose plane — a view's words, with an author
 
 The fourth plane. A view's title, caption, short and long alt text, and how-to-read line arrive on the wire as `state.views[].prose`: each a record with its **author** (a person, the analyst, or derived by the library from the chart's bindings), the **kind of claim** it makes, and a **status** judged at every read against what is on screen — `current`, `stale` (with what moved), or `derived` (never stale). Render them under the plot; never hide or rewrite a stale one.

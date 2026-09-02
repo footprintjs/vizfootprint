@@ -23,6 +23,11 @@
       "types": "./types/links.d.ts",
       "import": "./dist/links.js",
       "default": "./dist/links.js"
+    },
+    "./editor": {
+      "types": "./types/editor.d.ts",
+      "import": "./dist/editor.js",
+      "default": "./dist/editor.js"
     }
   },
   "files": [
