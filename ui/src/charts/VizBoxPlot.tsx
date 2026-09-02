@@ -216,8 +216,8 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
   const outerPad = (rawHi - rawLo) * 0.08;
   const y = linearScale(rawLo - outerPad, rawHi + outerPad, height - PAD.b, PAD.t);
 
-  const band = (width - PAD.l - PAD.r) / Math.max(1, geoms.length);
-  const boxW = Math.max(6, Math.min(band * 0.5, 64));
+  const band = Math.max(0, (width - PAD.l - PAD.r) / Math.max(1, geoms.length)); // a pushed-narrow cell never draws a negative width
+  const boxW = Math.max(0, Math.max(6, Math.min(band * 0.5, 64))); // a pushed-narrow cell never draws a negative width
   const capW = boxW * 0.6;
   const cx = (i: number): number => PAD.l + band * i + band / 2;
 

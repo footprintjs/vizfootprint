@@ -91,7 +91,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const max = Math.max(1, ...data.map((d) => d.count));
-  const band = (width - PAD.l - PAD.r) / Math.max(1, data.length);
+  const band = Math.max(0, (width - PAD.l - PAD.r) / Math.max(1, data.length)); // a pushed-narrow cell never draws a negative width
   // ticks: flat when they fit their band; slanted (and the plot shorter) when any does not
   // (a short chart cannot give the slant its full room — the plot keeps MIN_PLOT and the ticks clip harder)
   const slanted = data.some((d) => fitTick(d.category, band, 0).rotate);
