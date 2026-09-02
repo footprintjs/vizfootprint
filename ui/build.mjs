@@ -61,6 +61,15 @@ await esbuild.build({
   external: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
 });
 
+// the link matrix as its own entry point — an app that never edits links never bundles it
+await esbuild.build({
+  ...base,
+  entryPoints: ['src/links/index.ts'],
+  format: 'esm',
+  outfile: 'dist/links.js',
+  external: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+});
+
 await esbuild.build({
   ...base,
   entryPoints: ['src/index.ts'],
@@ -75,5 +84,6 @@ await esbuild.build({
 // types/ui/src/ — a flat entry shim keeps package.json's `types` field stable.
 execFileSync('tsc', ['-p', 'tsconfig.build.json'], { stdio: 'inherit', shell: process.platform === 'win32' });
 writeFileSync('types/index.d.ts', "export * from './ui/src/index.js';\n");
+writeFileSync('types/links.d.ts', "export * from './ui/src/links/index.js';\n");
 
 console.log('✓ built dist/ + types/');

@@ -36,7 +36,7 @@ import type {
   BringOverResult,
 } from '../../../src/session/index.js';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
-import {
+import { LinkGraphView,
   HONESTY_LINE,
   emptyState,
   emptyPaths,
@@ -155,6 +155,8 @@ export interface RawPollState {
   readonly charts?: readonly RawChart[];
   /** LY-1: the layout fold (`overview().layouts` serialized) — scope → prop → value. */
   readonly layouts?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /** Layer 4: the link graph (`overview().links` serialized) — absent on a server that predates links. */
+  readonly links?: unknown;
 }
 /** The `paths` slice of `/api/state` — `PathsState` from `src/session`, verbatim JSON. */
 export interface RawPollPaths {
@@ -304,6 +306,7 @@ interface StatePieces {
   charts: ChartCellView[];
   layout: LayoutView;
   mode?: string;
+  readonly links?: LinkGraphView;
 }
 
 /** Turn extracted pieces into the finalized, derivation-stamped state. */
@@ -332,6 +335,7 @@ function finalize(p: StatePieces): SessionViewState {
   const ledger: LedgerView = { ...p.ledgerBase, cursorTests: p.cursorTests, honesty: HONESTY_LINE };
   return {
     defaultTable: p.defaultTable,
+    ...(p.links !== undefined ? { links: p.links } : {}),
     views: p.views,
     encodings: p.encodings,
     columns: p.columns,
@@ -382,6 +386,14 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
     };
   });
 }
+/** The link graph, when the wire carries one with the shape src/links serves; anything else = absent (the old rule). */
+function mapLinks(raw: unknown): LinkGraphView | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const g = raw as { default?: unknown; views?: unknown; edges?: unknown };
+  if ((g.default !== 'crossfilter' && g.default !== 'none') || !Array.isArray(g.views) || !Array.isArray(g.edges)) return undefined;
+  return { default: g.default, views: g.views as LinkGraphView['views'], edges: g.edges as LinkGraphView['edges'] };
+}
+
 function mapSelections(sels: readonly unknown[] | undefined): SelectionView[] {
   return (sels ?? []).map((s) => {
     const o = s as SelectionView;
@@ -556,6 +568,7 @@ async function mapSession(session: SessionLike): Promise<SessionViewState> {
     encodings: overview.encodings ?? encodingsFromViews(views),
     columns: mapColumns(overview.columns),
     selections: mapSelections(overview.activeSelections),
+    links: mapLinks((overview as { links?: unknown }).links),
     branches: session.branches().map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
     // TL-1: the overview's `paths` carries the VISIBLE rows; the archived ones
     // come from the session's own full listing (whats_here only reports their
@@ -601,6 +614,7 @@ export function mapPollState(raw: RawPollState): SessionViewState {
     encodings: raw.encodings ?? encodingsFromViews(views),
     columns: mapColumns(raw.columns),
     selections: mapSelections(raw.activeSelections),
+    links: mapLinks(raw.links),
     branches: (raw.branches ?? []).map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
     paths: mapPaths(raw.paths),
     checkpoints: (raw.checkpoints ?? []).map((c) => ({ label: c.label, commitId: c.commitId, ...(c.at !== undefined ? { at: c.at } : {}), ts: c.ts })),

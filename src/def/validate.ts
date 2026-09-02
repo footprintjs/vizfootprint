@@ -11,6 +11,7 @@
  */
 
 import { validateAnalysisDef } from '../analysis/index.js';
+import { validateLinks, voiceOf, type EmissionKind } from '../links/index.js';
 import {
   ANALYSIS_VIEW_PREFIX,
   ANNOTATION_VIEW_PREFIX,
@@ -46,6 +47,8 @@ const DEF_KEYS = new Set([
   'fdr',
   'agent',
   'defaultTable',
+  'links',
+  'linkDefault',
 ]);
 
 /** The exhaustive set of keys a `SeriesGrain` may carry (R12: stated facts only, nothing executable). */
@@ -57,7 +60,7 @@ const GRAIN_STRING_KEYS = ['bucket', 'reducer', 'note'] as const;
 const ACTORS = new Set(['user', 'agent', 'system']);
 const ENGINES = new Set(['memory', 'wasm', 'server', 'auto']);
 const PROCEDURES = new Set(['LORD++', 'alpha-investing']);
-const ENCODINGS = new Set(['point', 'interval', 'cell']);
+const ENCODINGS = new Set(['point', 'interval', 'cell', 'match']);
 
 /**
  * The synthetic-viewId namespaces the SESSION owns, single-sourced from
@@ -260,7 +263,7 @@ export function validateDashboardDef(def: unknown): string[] {
         }
         if (cap.encodings !== undefined) {
           if (!Array.isArray(cap.encodings) || cap.encodings.some((e) => !ENCODINGS.has(e as string))) {
-            problems.push(`capabilities[${i}].encodings must be an array of "point" | "interval" | "cell"`);
+            problems.push(`capabilities[${i}].encodings must be an array of "point" | "interval" | "cell" | "match"`);
           }
         }
         if (cap.fields !== undefined && (!Array.isArray(cap.fields) || cap.fields.some((f) => typeof f !== 'string'))) {
@@ -268,6 +271,21 @@ export function validateDashboardDef(def: unknown): string[] {
         }
       });
     }
+  }
+
+  // ── links (optional) — layer 4: the edges between views, refused at declaration in sentences ──
+  if (isObject(def.actors)) {
+    const capabilityByView = new Map<string, { canProbe: boolean; encodings?: readonly EmissionKind[] }>();
+    if (Array.isArray(def.capabilities)) {
+      for (const cap of def.capabilities) {
+        if (isObject(cap) && typeof cap.viewId === 'string' && typeof cap.canProbe === 'boolean') {
+          const encodings = Array.isArray(cap.encodings) && cap.encodings.every((e) => ENCODINGS.has(e as string)) ? (cap.encodings as EmissionKind[]) : undefined;
+          capabilityByView.set(cap.viewId, { canProbe: cap.canProbe, ...(encodings !== undefined ? { encodings } : {}) });
+        }
+      }
+    }
+    const linkViews = Object.keys(def.actors).map((viewId) => ({ viewId, voice: voiceOf(capabilityByView.get(viewId)) }));
+    validateLinks(def.links, def.linkDefault, linkViews, problems);
   }
 
   // ── encodings (optional) — the `reencode` verb's per-view validation surface ──

@@ -284,3 +284,24 @@ describe('VizLine — the encoding picker', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
+
+describe('layer 4 navigate — xDomain shows a window without filtering the data', () => {
+  it('draws only the dates inside the window (ISO or epoch bounds, either side open); no window = the data extent', () => {
+    const data = [
+      { date: '2026-01-01', value: 1 },
+      { date: '2026-02-01', value: 2 },
+      { date: '2026-03-01', value: 3 },
+      { date: 'not a date', value: 9 },
+    ];
+    const dots = (el: HTMLElement) => el.querySelectorAll('circle').length;
+    const { container, rerender } = render(<VizLine viewId="line" data={data} dateField="date" valueField="value" width={400} height={200} />);
+    expect(dots(container)).toBe(3);
+    rerender(<VizLine viewId="line" data={data} dateField="date" valueField="value" width={400} height={200} xDomain={['2026-01-15', null]} />);
+    expect(dots(container)).toBe(2);
+    rerender(<VizLine viewId="line" data={data} dateField="date" valueField="value" width={400} height={200} xDomain={[null, Date.UTC(2026, 1, 15)]} />);
+    expect(dots(container)).toBe(2);
+    rerender(<VizLine viewId="line" data={data} dateField="date" valueField="value" width={400} height={200} xDomain={['2026-01-15', '2026-02-15']} />);
+    expect(dots(container)).toBe(1);
+  });
+});
+

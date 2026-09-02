@@ -24,6 +24,7 @@
  */
 
 import type { Actor, Cause } from '../cause/index.js';
+import type { LinkDecl, LinkDefault, LinkGraph } from '../links/types.js';
 import type { ActorMeta } from '../mosaic/index.js';
 import type {
   AnalysisDef,
@@ -276,6 +277,10 @@ export interface DashboardDef {
   readonly agent?: AgentDecl;
   /** The default table `select`/`filter`/`analyze` operate over. Default: the first `data` key. */
   readonly defaultTable?: string;
+  /** Layer 4: the declared LINKS between views — what one view's emission does to another (see src/links/README.md). */
+  readonly links?: readonly LinkDecl[];
+  /** The rule the link graph starts from: `crossfilter` (every view filters every other, self excluded — the default) or `none`. */
+  readonly linkDefault?: LinkDefault;
 }
 
 // ── The resolved runtime bundle `buildDashboard` produces for a session. ───────
@@ -316,6 +321,8 @@ export interface DashboardRuntime {
   readonly engines: Readonly<Record<string, Engine>>; // resolved engine per table (D24 audit)
   readonly analyses: ReadonlyMap<string, RegisteredAnalysis>;
   readonly views: ReadonlyMap<string, ViewDecl>;
+  /** Layer 4: the MATERIALIZED link graph — the default rule written out as edges, declared edges overriding in place. */
+  readonly links: LinkGraph;
   makeFdrStepper(): FdrStepper;
   readonly fdrProcedure: 'LORD++' | 'alpha-investing';
   readonly fdrAlpha: number;

@@ -14,7 +14,7 @@
  *
  * Composed from the PUBLIC primitives (`../primitives`): scales +
  * `useHorizontalBrush`/`BrushOverlay` (the gesture machinery + completion
- * discipline) + `useKeepPredicate`/`dimClass` (self-excluded dim-not-hide) +
+ * discipline) + `useBrightPredicate`/`dimClass` (self-excluded dim-not-hide) +
  * `AxisLabel`/`useReencodePicker` (the re-encode seam) — the same pieces a
  * consumer-built chart gets.
  */
@@ -24,7 +24,7 @@ import type { RenderRow, RenderSelection } from '../contract/types.js';
 import { linearScale, extent, ticks } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
-import { useKeepPredicate, dimClass } from '../primitives/useSelection.js';
+import { useBrightPredicate, dimClass } from '../primitives/useSelection.js';
 import { useReencodePicker } from '../primitives/reencode.js';
 import { EncodingPicker } from './EncodingPicker.js';
 
@@ -105,7 +105,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   } = props;
 
   // the self-excluded crossfilter fold — recomputed only when the selection changes
-  const keep = useKeepPredicate(selection);
+  const keep = useBrightPredicate(selection);
 
   const [xlo, xhi] = extent(data, (d) => d.x, 5);
   const x = linearScale(xlo, xhi, PAD.l, width - PAD.r);

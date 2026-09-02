@@ -34,7 +34,7 @@
  *     Exact `matchesClause` parity.
  */
 
-import type { SelectionView } from '../adapter/types.js';
+import type { LinkGraphView, SelectionView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection, SelectionClauseView, EmissionKind } from './types.js';
 
 /** An interval clause's wire value — the session's own `FilterRange` shape (see header). */
@@ -141,15 +141,33 @@ export function selectionForView(
   selections: readonly SelectionView[],
   selfViewId: string | null,
   resolve: 'union' | 'intersect' = 'intersect',
+  links?: LinkGraphView,
 ): RenderSelection {
   const clauses = new Map<string, SelectionClauseView>();
   for (const s of selections) {
+    // Layer 4: which edge carries this clause INTO the consumer decides what it does here.
+    // No graph = the legacy rule (every clause filters). Self, or a whole-dashboard fold
+    // (selfViewId null), keeps the clause as-is. A `none` edge or NO edge = the clause never arrives.
+    let response: SelectionClauseView['response'] | undefined;
+    let field = s.field;
+    let fields = s.fields;
+    if (links !== undefined && selfViewId !== null && s.viewId !== selfViewId) {
+      const edge = links.edges.find((e) => e.source === s.viewId && e.target === selfViewId && e.kind === s.kind);
+      if (edge === undefined || edge.response === 'none') continue;
+      response = edge.response;
+      if (edge.mapping !== undefined) {
+        const to = (f: string): string => edge.mapping!.find((m) => m.from === f)?.to ?? f;
+        field = to(field);
+        if (fields !== undefined) fields = [to(fields[0]), to(fields[1])];
+      }
+    }
     clauses.set(s.viewId, {
       kind: s.kind,
-      field: s.field,
+      field,
       value: s.value,
-      ...(s.fields !== undefined ? { fields: s.fields } : {}),
-      predicate: clausePredicate(s.kind, s.field, s.value, s.fields),
+      ...(fields !== undefined ? { fields } : {}),
+      ...(response !== undefined ? { response } : {}),
+      predicate: clausePredicate(s.kind, field, s.value, fields),
     });
   }
   return { clauses, resolve, selfClauseId: selfViewId };
@@ -164,11 +182,34 @@ export function keepPredicate(
   selection: RenderSelection,
   opts: { readonly includeSelf?: boolean } = {},
 ): (row: RenderRow) => boolean {
-  const preds: ((row: RenderRow) => boolean)[] = [];
+  return foldPredicates(selection, (clause, viewId) => (opts.includeSelf || viewId !== selection.selfClauseId) && (clause.response === undefined || clause.response === 'filter'));
+}
+
+/**
+ * Layer 4: the BRIGHT predicate a chart dims by — every clause that reaches this
+ * view as a `filter` (rows the host already dropped; harmless to re-test) or a
+ * `highlight` (rows kept, shown dim when they fail). Never the view's own clause.
+ * With no link graph this equals `keepPredicate`, so nothing changes for a
+ * consumer that predates links.
+ */
+export function brightPredicate(selection: RenderSelection): (row: RenderRow) => boolean {
+  return foldPredicates(selection, (clause, viewId) => viewId !== selection.selfClauseId && (clause.response === undefined || clause.response === 'filter' || clause.response === 'highlight'));
+}
+
+/** The `navigate` clause that reaches this view, if any: the source's interval as the viewport to show. */
+export function navigateDomain(selection: RenderSelection): { readonly field: string; readonly range: readonly [unknown, unknown] } | null {
   for (const [viewId, clause] of selection.clauses) {
-    if (!opts.includeSelf && viewId === selection.selfClauseId) continue;
-    preds.push(clause.predicate);
+    if (viewId === selection.selfClauseId || clause.response !== 'navigate') continue;
+    if (clause.kind !== 'interval' || clause.value == null) continue;
+    const [lo, hi] = clause.value as readonly [unknown, unknown];
+    return { field: clause.field, range: [lo, hi] };
   }
+  return null;
+}
+
+function foldPredicates(selection: RenderSelection, take: (clause: SelectionClauseView, viewId: string) => boolean): (row: RenderRow) => boolean {
+  const preds: ((row: RenderRow) => boolean)[] = [];
+  for (const [viewId, clause] of selection.clauses) if (take(clause, viewId)) preds.push(clause.predicate);
   if (preds.length === 0) return () => true;
   if (selection.resolve === 'union') return (row) => preds.some((p) => p(row));
   return (row) => preds.every((p) => p(row));
@@ -207,10 +248,23 @@ export function selfSelectedSet(selection: RenderSelection): SelfSelectedSet {
   const none: SelfSelectedSet = { values: [], exclude: false };
   if (selection.selfClauseId === null) return none;
   const own = selection.clauses.get(selection.selfClauseId);
-  if (!own || own.value === undefined) return none;
-  if (own.kind === 'point') return { values: [own.value], exclude: false }; // a null point is a live IS-NULL selection
-  if (own.kind !== 'match' || own.value === null) return none;
-  const body = own.value as Exclude<MatchWire, null>;
+  if (own !== undefined && own.value !== undefined) return setOf(own) ?? none;
+  // Layer 4 `mirror`: with no clause of its own, the view outlines the values a
+  // mirror edge brings in — the union of every mirrored point/match keep-set.
+  const mirrored: unknown[] = [];
+  for (const [viewId, clause] of selection.clauses) {
+    if (viewId === selection.selfClauseId || clause.response !== 'mirror') continue;
+    const set = setOf(clause);
+    if (set !== null && !set.exclude) mirrored.push(...set.values);
+  }
+  return mirrored.length > 0 ? { values: mirrored, exclude: false } : none;
+}
+
+/** A point's one value or a match's list, as a set; null for any other clause or a cleared one. */
+function setOf(clause: SelectionClauseView): SelfSelectedSet | null {
+  if (clause.kind === 'point') return { values: [clause.value], exclude: false }; // a null point is a live IS-NULL selection
+  if (clause.kind !== 'match' || clause.value === null) return null;
+  const body = clause.value as Exclude<MatchWire, null>;
   return { values: body.values, exclude: body.exclude === true };
 }
 

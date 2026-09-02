@@ -76,6 +76,12 @@ export interface VizLineProps {
   readonly width?: number;
   readonly height?: number;
   readonly className?: string;
+  /**
+   * Layer 4 `navigate`: the time window to SHOW, `[lo, hi]` as ISO dates or
+   * epochs (either side null = open). Points outside are not drawn; nothing is
+   * filtered — a viewport is not a data claim. Absent = the data's own extent.
+   */
+  readonly xDomain?: readonly [string | number | null, string | number | null];
 }
 
 /**
@@ -159,7 +165,19 @@ export function VizLine(props: VizLineProps): JSX.Element {
     height = 340,
   } = props;
 
-  const { series, dates } = useMemo(() => aggregate(data), [data]);
+  const xDomain = props.xDomain;
+  // the navigate window: keep only the points inside it — drawn extent follows the window, the data stays whole
+  const scoped = useMemo(() => {
+    if (xDomain === undefined) return data;
+    const bound = (b: string | number | null): number | null => (b === null ? null : typeof b === 'number' ? b : epochOf(b));
+    const lo = bound(xDomain[0]);
+    const hi = bound(xDomain[1]);
+    return data.filter((p) => {
+      const e = epochOf(p.date);
+      return e !== null && (lo === null || e >= lo) && (hi === null || e <= hi);
+    });
+  }, [data, xDomain]);
+  const { series, dates } = useMemo(() => aggregate(scoped), [scoped]);
   const compat = useMemo(() => lineCompat(dateFields ?? [dateField]), [dateFields, dateField]);
 
   const [elo, ehi] = extent(dates, (d) => d.epoch, 0);

@@ -2108,3 +2108,28 @@
   cursor: default;
 }
 
+
+/* ── layer 4: the link matrix ─────────────────────────────────────────────── */
+:where(.vzf) .vzf-linkmatrix { overflow-x: auto; font-size: 0.85em; }
+:where(.vzf) .vzf-linkmatrix-table { border-collapse: collapse; }
+:where(.vzf) .vzf-linkmatrix-table th,
+:where(.vzf) .vzf-linkmatrix-table td { padding: 4px 8px; border: 1px solid var(--vzf-line); text-align: center; white-space: nowrap; }
+:where(.vzf) .vzf-linkmatrix-table th { font-weight: 600; color: var(--vzf-ink-soft); }
+:where(.vzf) .vzf-linkmatrix-table th[scope='row'] { text-align: left; }
+:where(.vzf) .vzf-linkmatrix-corner { font-weight: 400; font-size: 0.85em; }
+:where(.vzf) .vzf-linkmatrix-self { color: var(--vzf-ink-faint); }
+:where(.vzf) .vzf-linkmatrix-default { background: var(--vzf-surface); color: var(--vzf-ink-soft); }
+:where(.vzf) .vzf-linkmatrix-declared { background: var(--vzf-brand-tint); color: var(--vzf-ink); font-weight: 600; }
+:where(.vzf) .vzf-linkmatrix-none { background: var(--vzf-surface-2); color: var(--vzf-ink-soft); font-weight: 600; text-decoration: line-through; }
+:where(.vzf) .vzf-linkmatrix-silence { background: transparent; }
+:where(.vzf) .vzf-linkmatrix-select { font: inherit; font-size: 0.95em; }
+:where(.vzf) .vzf-linkmatrix-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; font-size: 0.85em; color: var(--vzf-ink-soft); }
+:where(.vzf) .vzf-linkmatrix-legend span { padding: 1px 8px; border: 1px solid var(--vzf-line); border-radius: 3px; }
+
+/* layer 4 highlight overlay on a bar: the bright share of the base bar */
+:where(.vzf) .vzf-barhl {
+  fill: var(--vzf-ink);
+  opacity: 0.55;
+  pointer-events: none;
+}
+

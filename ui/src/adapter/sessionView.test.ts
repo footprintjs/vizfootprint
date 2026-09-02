@@ -777,3 +777,14 @@ describe('SET-1 — emit(match), clear, clearAll, setPolarity', () => {
     view.dispose();
   });
 });
+
+describe('layer 4 — the link graph rides the wire into state', () => {
+  it('a well-shaped links object is carried; a malformed or absent one leaves links undefined (the old rule)', async () => {
+    const graph = { default: 'crossfilter', views: [{ viewId: 'bar', voice: ['point', 'match'] }], edges: [{ id: 'bar:point→scatter', source: 'bar', kind: 'point', target: 'scatter', response: 'highlight', origin: 'declared' }] };
+    const state = mapPollState({ ...RAW, links: graph });
+    expect(state.links).toEqual(graph);
+    expect(mapPollState(RAW).links).toBeUndefined();
+    expect(mapPollState({ ...RAW, links: { default: 'sometimes', views: [], edges: [] } }).links).toBeUndefined();
+    expect(mapPollState({ ...RAW, links: 'nope' }).links).toBeUndefined();
+  });
+});

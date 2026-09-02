@@ -28,6 +28,13 @@ export interface BarDatum {
 export interface VizBarProps {
   readonly viewId?: string;
   readonly data: readonly BarDatum[];
+  /**
+   * Layer 4 `highlight`: the SAME categories counted over the rows a highlight
+   * edge keeps bright — drawn as a narrower inner bar over each base bar, so a
+   * highlight reads as "this much of it" instead of dropping rows. Host-computed,
+   * like `data`. Absent = no overlay.
+   */
+  readonly highlight?: readonly BarDatum[];
   readonly field?: string;
   readonly label?: string;
   readonly colorOf?: (category: string) => string;
@@ -58,6 +65,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
   const {
     viewId = 'bar',
     data,
+    highlight,
     field = 'category',
     label = field,
     colorOf,
@@ -155,6 +163,11 @@ export function VizBar(props: VizBarProps): JSX.Element {
           const tick = fitTick(d.category, band, tickRoom, tx);
           return (
             <g key={d.category}>
+              {highlight !== undefined && (() => {
+                const hl = highlight.find((h) => h.category === d.category)?.count ?? 0;
+                const hh = (Math.min(hl, d.count) / max) * plot;
+                return <rect className="vzf-barhl" x={cx + band * 0.3} y={axisY - hh} width={band * 0.4} height={hh} rx={2} aria-hidden="true" />;
+              })()}
               <rect
                 className={`vzf-barrect${markClass(d.category, set)}`}
                 x={cx + band * 0.12}

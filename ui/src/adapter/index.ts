@@ -62,4 +62,4 @@ export type {
   LayoutView,
   LayoutChange,
   Actor,
-} from './types.js';
+  LinkGraphView, LinkEdgeView } from './types.js';

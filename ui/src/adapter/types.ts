@@ -326,6 +326,26 @@ export interface ChartCellView {
 }
 
 /** The normalized dashboard state — the single render source. */
+/** One edge of the link graph as the wire carries it (src/links `LinkEdge`, verbatim JSON). */
+export interface LinkEdgeView {
+  readonly id: string;
+  readonly source: string;
+  readonly kind: 'point' | 'interval' | 'cell' | 'match';
+  readonly target: string;
+  readonly response: 'filter' | 'highlight' | 'navigate' | 'mirror' | 'none';
+  readonly origin: 'declared' | 'default';
+  readonly mapping?: readonly { readonly from: string; readonly to: string }[];
+  readonly onClear?: 'leave' | 'showAll' | 'excludeAll';
+  readonly fold?: string;
+  readonly label?: string;
+}
+/** The materialized link graph (layer 4): what each view's emission does to every other view. */
+export interface LinkGraphView {
+  readonly default: 'crossfilter' | 'none';
+  readonly views: readonly { readonly viewId: string; readonly voice: readonly ('point' | 'interval' | 'cell' | 'match')[] }[];
+  readonly edges: readonly LinkEdgeView[];
+}
+
 export interface SessionViewState {
   readonly defaultTable: string;
   readonly views: readonly ViewView[];
@@ -353,6 +373,11 @@ export interface SessionViewState {
   readonly layout: LayoutView;
   /** Optional provider/mode label for a status readout. */
   readonly mode?: string;
+  /**
+   * Layer 4: the link graph at the cursor. ABSENT when the server predates
+   * links — then the old rule holds (every clause filters every other view).
+   */
+  readonly links?: LinkGraphView;
 }
 
 /** The verbatim honesty line (single-sourced here). */

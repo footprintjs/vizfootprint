@@ -37,7 +37,7 @@ import type { KeyboardEvent } from 'react';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import type { RenderSelection } from '../contract/types.js';
 import { clickEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
-import { useKeepPredicate, selectedSet, inSet, markClass, dimClass } from '../primitives/useSelection.js';
+import { useBrightPredicate, selectedSet, inSet, markClass, dimClass } from '../primitives/useSelection.js';
 
 /** One row of table data — arbitrary fields, keyed by column name. */
 export interface TableRow {
@@ -112,7 +112,7 @@ export function VizTable(props: VizTableProps): JSX.Element {
 
   // explicit `selected` wins; otherwise the outline derives from the fold's own point OR match clause (SET-1)
   const set = selectedSet(props.selected, selection);
-  const keep = useKeepPredicate(selection);
+  const keep = useBrightPredicate(selection);
 
   const [sort, setSort] = useState<TableSortState | null>(null);
   const sorted = useMemo(() => sortRows(data, sort), [data, sort]);

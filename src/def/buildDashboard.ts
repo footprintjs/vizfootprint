@@ -41,6 +41,7 @@ import {
 } from './types.js';
 import { createInteractionSession, type InteractionSession } from '../session/session.js';
 import type { SessionOptions } from '../session/types.js';
+import { materializeLinks, voiceOf } from '../links/index.js';
 
 /** The offline dashboard handle. `createSession()` opens one live, stateful session. */
 export interface Dashboard {
@@ -177,6 +178,13 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
 
   const makeFdrStepper = makeFdrStepperFactory(def);
 
+  // ── layer 4: the link graph, materialized once (the default rule written out; declared edges override in place) ──
+  const links = materializeLinks(
+    [...views.values()].map((v) => ({ viewId: v.viewId, voice: voiceOf(v.capability) })),
+    def.links ?? [],
+    def.linkDefault ?? 'crossfilter',
+  );
+
   const runtime: DashboardRuntime = {
     def,
     defaultTable,
@@ -185,6 +193,7 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
     engines,
     analyses,
     views,
+    links,
     makeFdrStepper,
     fdrProcedure: def.fdr?.procedure ?? 'LORD++',
     fdrAlpha: def.fdr?.alpha ?? 0.05,

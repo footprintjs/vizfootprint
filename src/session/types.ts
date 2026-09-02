@@ -10,6 +10,7 @@
  */
 
 import type { Actor, Cause } from '../cause/index.js';
+import type { LinkGraph } from '../links/types.js';
 import type { CommitRecord } from '../log/index.js';
 import type { CauseClause } from '../mosaic/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
@@ -632,6 +633,8 @@ export interface Overview {
   readonly paths: PathsState;
   /** RP-3: the agent-authored charts registered this session + their ledger status. */
   readonly charts: readonly ChartInfo[];
+  /** Layer 4: the materialized link graph — what each view's emission does to every other view (src/links). */
+  readonly links: LinkGraph;
 }
 
 /** Options for a direct `declareAnalysis` invocation. */

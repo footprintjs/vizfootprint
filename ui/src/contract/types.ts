@@ -128,6 +128,14 @@ export type RenderRow = Readonly<Record<string, unknown>>;
  */
 export interface SelectionClauseView {
   readonly kind: EmissionKind;
+  /**
+   * Layer 4: what THIS consumer does with the clause, read off the link graph's
+   * edge from the clause's source view into the consumer — `filter` drops rows,
+   * `highlight` dims them, `mirror` outlines the value, `navigate` moves the
+   * viewport. Absent = the legacy rule (every clause filters) or the consumer's
+   * own clause. A `none` edge or an absent edge never yields a clause at all.
+   */
+  readonly response?: 'filter' | 'highlight' | 'navigate' | 'mirror';
   /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D30). */
   readonly field: string;
   /** For kind:'cell': the two-sided pair `[x side, y side]` (each side a value or [lo, hi]); for kind:'match': `{ values, exclude? }` or null. */

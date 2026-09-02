@@ -25,7 +25,7 @@ export {
   selfSelectedValue,
   selfSelectedInterval,
   selfSelectedCell,
-} from './selection.js';
+  brightPredicate, navigateDomain } from './selection.js';
 export type { SelfSelectedCell } from './selection.js';
 
 export { bindRenderer } from './bind.js';

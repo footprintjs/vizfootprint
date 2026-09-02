@@ -152,13 +152,13 @@ describe('validateDashboardDef — capabilities shape', () => {
   it('rejects capabilities.encodings that is not an array', () => {
     expect(
       validateDashboardDef(baseDef({ capabilities: [{ viewId: 'v', canProbe: true, encodings: 'point' }] })),
-    ).toContain('capabilities[0].encodings must be an array of "point" | "interval" | "cell"');
+    ).toContain('capabilities[0].encodings must be an array of "point" | "interval" | "cell" | "match"');
   });
 
-  it('rejects capabilities.encodings entries outside point|interval|cell', () => {
+  it('rejects capabilities.encodings entries outside point|interval|cell|match', () => {
     expect(
       validateDashboardDef(baseDef({ capabilities: [{ viewId: 'v', canProbe: true, encodings: ['area'] }] })),
-    ).toContain('capabilities[0].encodings must be an array of "point" | "interval" | "cell"');
+    ).toContain('capabilities[0].encodings must be an array of "point" | "interval" | "cell" | "match"');
   });
 
   it('accepts the D30 cell emission kind in capabilities.encodings', () => {

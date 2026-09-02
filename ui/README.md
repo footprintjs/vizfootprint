@@ -333,6 +333,44 @@ Chart-side helpers for a consumer-built chart: `selectedSet` (the view's own
 set from the fold), `markClass` (`.vzf-selected` / `.vzf-excluded` / none),
 `matchEmission`, `toggleInSetEmission`.
 
+## Links — what one view's emission does to another (layer 4)
+
+The session serves a **link graph** (`state.links`): the default rule
+(`crossfilter`: every view filters every other, self excluded) written out as
+explicit edges, with the def's declared edges overriding in place. Each edge
+names a **response**: `filter` drops rows there, `highlight` dims them and
+keeps them, `navigate` moves the target's viewport and never filters,
+`mirror` outlines the same value there, `none` turns the link off on purpose.
+An absent edge is a silence, drawn blank, and distinct from `none`.
+
+The host applies the graph in one call:
+
+```ts
+const sel = selectionForView(state.selections, 'trend', 'intersect', state.links);
+rows.filter(keepPredicate(sel));        // filter edges only — what the host drops
+brightPredicate(sel);                   // filter + highlight — what a chart dims by
+navigateDomain(sel);                    // the interval a navigate edge hands the view
+selfSelectedSet(sel);                   // the view's own set, or what a mirror brings in
+```
+
+Charts dim by `useBrightPredicate`; hosts drop by `useKeepPredicate`. With
+no graph on the wire (an older server) every clause filters, exactly as
+before. `<VizLine xDomain>` takes the navigate window; `<VizBar highlight>`
+draws the bright share of each bar as an inner bar.
+
+**The matrix editor** ships as its own entry point so an app that never edits
+links never bundles it:
+
+```ts
+import { LinkMatrix } from 'vizfootprint-ui/links';
+<LinkMatrix graph={state.links} labels={…} readOnly />
+```
+
+Rows are a source view and what it emits, columns are targets, a cell is the
+response; default, declared and none wear three looks, silence is blank.
+Give it `onChange` and every cell becomes a select that hands the host one
+edge to land as a `link` commit. See `src/links/README.md`.
+
 ## The renderer contract — a versioned protocol
 
 Any charting stack — the five first-party charts, a canvas renderer, a

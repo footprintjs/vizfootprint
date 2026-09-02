@@ -30,15 +30,7 @@ import { TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord } from '../fdr/i
 import { gateChartSpec } from '../renderer/index.js';
 import { cellFieldLabel, isRejection, matchesClause, type CellClause, type ColumnInfo, type MatchValue, type PredicateClause, type Row } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
-
-/**
- * SET-1: a set is a point's plural — a view that declares `point` emits
- * `match` too. ONE helper, used by the guard AND the overview's
- * `selectionKinds`, so what an agent is told matches what the guard accepts.
- */
-function impliedKinds(encodings: readonly ('point' | 'interval' | 'cell' | 'match')[]): readonly ('point' | 'interval' | 'cell' | 'match')[] {
-  return encodings.includes('point') && !encodings.includes('match') ? [...encodings, 'match'] : encodings;
-}
+import { impliedKinds } from '../links/index.js';
 
 /** The predicate clause a landed point/interval/match probe folds to — ONE spelling for the live path and the replay fold. */
 function probeClause(kind: 'point' | 'interval' | 'match', field: string, value: unknown): PredicateClause {
@@ -2033,6 +2025,7 @@ class InteractionSessionImpl implements InteractionSession {
 
     return {
       defaultTable: this.defaultTable,
+      links: this.runtime.links,
       views,
       activeSelections,
       analyses,

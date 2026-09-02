@@ -249,4 +249,16 @@ describe('SET-1 — deselect, shift-click sets, drag runs (VizBar)', () => {
     expect(captured).toBe(1);
     expect(onEmit).toHaveBeenLastCalledWith({ rawValue: { values: ['Casual', 'Formal', 'Party'] }, encoding: { kind: 'match', field: 'category' } });
   });
+
+  it('a highlight overlay draws the bright share as an inner bar per category, clipped to the base and absent when no overlay is given', () => {
+    const { container, rerender } = render(<VizBar viewId="bar" data={data} field="category" highlight={[{ category: 'Formal', count: 3 }, { category: 'Party', count: 99 }]} width={360} height={340} />);
+    const hl = [...container.querySelectorAll('rect.vzf-barhl')];
+    expect(hl).toHaveLength(3); // one per base bar, zero-height where the highlight has nothing
+    const heights = hl.map((r) => Number(r.getAttribute('height')));
+    expect(heights[0]).toBe(0); // Casual: not in the overlay
+    expect(heights[1]).toBeGreaterThan(0); // Formal: 3 of 9
+    expect(heights[2]).toBeCloseTo(Number(container.querySelectorAll('rect.vzf-barrect')[2]!.getAttribute('height')), 5); // Party: clipped to its base (2), never taller
+    rerender(<VizBar viewId="bar" data={data} field="category" width={360} height={340} />);
+    expect(container.querySelectorAll('rect.vzf-barhl')).toHaveLength(0);
+  });
 });

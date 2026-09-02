@@ -18,12 +18,21 @@
  * consumption layer.
  */
 import { useMemo } from 'react';
-import { keepPredicate, selfSelectedSet, selfSelectedValue, type SelfSelectedSet } from '../contract/selection.js';
+import { brightPredicate, keepPredicate, selfSelectedSet, selfSelectedValue, type SelfSelectedSet } from '../contract/selection.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
 
-/** The memoized self-excluded crossfilter fold — null when no selection rides the props. */
+/** The memoized self-excluded crossfilter fold (filter edges only) — null when no selection rides the props. */
 export function useKeepPredicate(selection: RenderSelection | undefined): ((row: RenderRow) => boolean) | null {
   return useMemo(() => (selection ? keepPredicate(selection) : null), [selection]);
+}
+
+/**
+ * Layer 4: what a chart DIMS by — filter AND highlight edges into this view
+ * (`brightPredicate`). Charts use this; hosts keep `useKeepPredicate` for the
+ * rows they drop. With no link graph the two are the same fold.
+ */
+export function useBrightPredicate(selection: RenderSelection | undefined): ((row: RenderRow) => boolean) | null {
+  return useMemo(() => (selection ? brightPredicate(selection) : null), [selection]);
 }
 
 /** Explicit `selected` wins; otherwise the outline derives from the fold's own point clause. */

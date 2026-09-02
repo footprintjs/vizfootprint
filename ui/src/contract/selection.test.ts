@@ -6,7 +6,8 @@
  * contract stated in selection.ts's header).
  */
 import { describe, it, expect } from 'vitest';
-import { selfSelectedSet } from './selection.js';
+import { selfSelectedSet, brightPredicate, navigateDomain } from './selection.js';
+import type { LinkGraphView } from '../adapter/types.js';
 import { matchesClause } from '../../../src/data/predicate.js';
 import type { PredicateClause } from '../../../src/data/types.js';
 import {
@@ -255,5 +256,71 @@ describe('SET-1 — the match arm mirrors matchesClause; selfSelectedSet is the 
     expect(selfSelectedSet(cleared)).toEqual({ values: [], exclude: false });
     expect(selfSelectedSet(selectionForView([], 'bar'))).toEqual({ values: [], exclude: false });
     expect(selfSelectedSet(selectionForView([{ viewId: 'bar', field: 'category', kind: 'point', value: 'A' }], null))).toEqual({ values: [], exclude: false });
+  });
+});
+
+describe('layer 4 — responses from the link graph decide what a clause does at each view', () => {
+  const rows = [
+    { category: 'A', region: 'North', price: 10, t: '2026-01-01' },
+    { category: 'B', region: 'South', price: 20, t: '2026-02-01' },
+    { category: 'C', region: 'North', price: 30, t: '2026-03-01' },
+  ];
+  const sels: SelectionView[] = [
+    { viewId: 'bar', field: 'category', kind: 'point', value: 'A' },
+    { viewId: 'map', field: 'region', kind: 'point', value: 'North' },
+    { viewId: 'line', field: 't', kind: 'interval', value: ['2026-01-15', '2026-03-15'] },
+  ];
+  const graph = (edges: LinkGraphView['edges']): LinkGraphView => ({
+    default: 'none',
+    views: [{ viewId: 'bar', voice: ['point'] }, { viewId: 'map', voice: ['point'] }, { viewId: 'line', voice: ['interval'] }, { viewId: 'table', voice: ['point'] }],
+    edges,
+  });
+  const edge = (source: string, kind: 'point' | 'interval', target: string, response: 'filter' | 'highlight' | 'navigate' | 'mirror' | 'none', extra: Partial<LinkGraphView['edges'][number]> = {}) => ({ id: `${source}:${kind}→${target}`, source, kind, target, response, origin: 'declared' as const, ...extra });
+
+  it('no graph = the old rule: every other clause filters, and bright equals keep', () => {
+    const sel = selectionForView(sels, 'table');
+    expect(rows.filter(keepPredicate(sel)).map((r) => r.category)).toEqual([]); // A ∧ North ∧ Feb–Mar → nothing
+    expect(rows.filter(brightPredicate(sel)).map((r) => r.category)).toEqual([]);
+  });
+
+  it('a filter edge drops rows; a highlight edge keeps them and dims; a none edge — or no edge — is a silence', () => {
+    const sel = selectionForView(sels, 'table', 'intersect', graph([edge('bar', 'point', 'table', 'filter'), edge('map', 'point', 'table', 'highlight'), edge('line', 'interval', 'table', 'none')]));
+    expect(rows.filter(keepPredicate(sel)).map((r) => r.category)).toEqual(['A']); // only bar filters
+    expect(rows.filter(brightPredicate(sel)).map((r) => r.category)).toEqual(['A']); // A is North too
+    expect(sel.clauses.has('line')).toBe(false); // none: the clause never arrives
+    const silent = selectionForView(sels, 'table', 'intersect', graph([edge('map', 'point', 'table', 'highlight')]));
+    expect(rows.filter(keepPredicate(silent)).map((r) => r.category)).toEqual(['A', 'B', 'C']); // nothing filters
+    expect(rows.filter(brightPredicate(silent)).map((r) => r.category)).toEqual(['A', 'C']); // North stays bright
+  });
+
+  it('a mapping renames the clause field for the target (both sides of a cell; an unmapped field keeps its name); the whole-dashboard fold (null self) keeps every clause as-is', () => {
+    const mapped = selectionForView(sels, 'table', 'intersect', graph([edge('map', 'point', 'table', 'filter', { mapping: [{ from: 'region', to: 'area' }] })]));
+    expect(mapped.clauses.get('map')?.field).toBe('area');
+    expect(rows.filter(keepPredicate(mapped))).toEqual([]); // no row carries `area`
+    const cellSel: SelectionView[] = [{ viewId: 'heat', field: 'price × region', kind: 'cell', value: [[5, 15], 'North'], fields: ['price', 'region'] }];
+    const cellGraph: LinkGraphView = { default: 'none', views: [{ viewId: 'heat', voice: ['cell'] }, { viewId: 'table', voice: ['point'] }], edges: [{ id: 'heat:cell→table', source: 'heat', kind: 'cell', target: 'table', response: 'filter', origin: 'declared', mapping: [{ from: 'region', to: 'area' }] }] };
+    const cellMapped = selectionForView(cellSel, 'table', 'intersect', cellGraph);
+    expect(cellMapped.clauses.get('heat')?.fields).toEqual(['price', 'area']); // price unmapped keeps its name
+    const whole = selectionForView(sels, null, 'intersect', graph([]));
+    expect(whole.clauses.size).toBe(3);
+  });
+
+  it('a mirror edge outlines the source values in a view with no clause of its own; the view\'s own clause wins when it has one', () => {
+    const mirrored = selectionForView(sels, 'table', 'intersect', graph([edge('bar', 'point', 'table', 'mirror'), edge('map', 'point', 'table', 'mirror')]));
+    expect(selfSelectedSet(mirrored)).toEqual({ values: ['A', 'North'], exclude: false });
+    expect(rows.filter(keepPredicate(mirrored))).toHaveLength(3); // a mirror never filters
+    const own = selectionForView([...sels, { viewId: 'table', field: 'id', kind: 'point', value: 'r1' }], 'table', 'intersect', graph([edge('bar', 'point', 'table', 'mirror')]));
+    expect(selfSelectedSet(own)).toEqual({ values: ['r1'], exclude: false });
+    const excludedMirror = selectionForView([{ viewId: 'bar', field: 'category', kind: 'match', value: { values: ['A'], exclude: true } }], 'table', 'intersect', graph([edge('bar', 'point', 'table', 'mirror')]));
+    expect(selfSelectedSet(excludedMirror)).toEqual({ values: [], exclude: false }); // an exclude-set has nothing to outline
+  });
+
+  it('a navigate edge hands the target the source interval as a viewport, and never filters', () => {
+    const nav = selectionForView([...sels, { viewId: 'table', field: 't', kind: 'interval', value: ['2026-01-01', '2026-01-02'] }], 'table', 'intersect', graph([edge('line', 'interval', 'table', 'navigate'), edge('bar', 'point', 'table', 'navigate')]));
+    expect(navigateDomain(nav)).toEqual({ field: 't', range: ['2026-01-15', '2026-03-15'] });
+    expect(rows.filter(keepPredicate(nav))).toHaveLength(3);
+    expect(rows.filter(brightPredicate(nav))).toHaveLength(3);
+    expect(navigateDomain(selectionForView(sels, 'table', 'intersect', graph([edge('bar', 'point', 'table', 'navigate')])))).toBeNull(); // a point cannot be a viewport
+    expect(navigateDomain(selectionForView([{ viewId: 'line', field: 't', kind: 'interval', value: null }], 'table', 'intersect', graph([edge('line', 'interval', 'table', 'navigate')])))).toBeNull(); // cleared
   });
 });

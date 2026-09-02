@@ -2,7 +2,7 @@
   "name": "vizfootprint-ui",
   "version": "0.0.0",
   "private": true,
-  "description": "The designed, reusable component library for vizfootprint — a headless session-view adapter plus layout, chart, time-travel, and panel React components that render a coordinated, cause-tagged, branching-provenance dashboard. Part of the footprintjs family.",
+  "description": "The designed, reusable component library for vizfootprint \u2014 a headless session-view adapter plus layout, chart, time-travel, and panel React components that render a coordinated, cause-tagged, branching-provenance dashboard. Part of the footprintjs family.",
   "type": "module",
   "license": "MIT",
   "types": "./types/index.d.ts",
@@ -18,7 +18,12 @@
     },
     "./umd": "./dist/vizfootprint-ui.umd.js",
     "./styles.css": "./dist/vizfootprint-ui.css",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./links": {
+      "types": "./types/links.d.ts",
+      "import": "./dist/links.js",
+      "default": "./dist/links.js"
+    }
   },
   "files": [
     "dist",
