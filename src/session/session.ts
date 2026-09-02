@@ -52,6 +52,8 @@ import type {
   ViewEncodingDecl,
 } from '../def/types.js';
 import { describeRules, fitsFor, refuses, validateBindings } from '../encoding/index.js';
+import { ENCODING_KIND, edgesInto } from '../links/index.js';
+import type { LinkGraph } from '../links/index.js';
 import type { Bindings, EncodingProblem, Fit } from '../encoding/index.js';
 import { GapLedger } from './gapLedger.js';
 import { why } from '../why/index.js';
@@ -109,6 +111,7 @@ import type {
   SwitchPathResult,
   TimeState,
   ViewAdapter,
+  EffectiveEncoding,
 } from './types.js';
 
 /**
@@ -1124,11 +1127,11 @@ class InteractionSessionImpl implements InteractionSession {
 
   // ── link (layer 4) — edit ONE edge of the graph, as a commit ───────────────────
   private doLink(action: Extract<DispatchAction, { verb: 'link' }>, as: Actor | undefined, intent: DispatchResult['intent']): DispatchResult {
-    const { source, kind, target, response, mapping, onClear, cause, correlationId } = action;
+    const { source, kind, target, response, mapping, channels, onClear, cause, correlationId } = action;
     const id = edgeId(source, kind, target);
     // the same refusals a declared edge gets, in the same sentences (the response may be null = un-declare)
     const problems: string[] = [];
-    const probe: LinkDecl = { source, kind, target, response: response ?? 'none', ...(mapping !== undefined ? { mapping } : {}), ...(onClear !== undefined ? { onClear } : {}) };
+    const probe: LinkDecl = { source, kind, target, response: response ?? 'none', ...(mapping !== undefined ? { mapping } : {}), ...(channels !== undefined ? { channels } : {}), ...(onClear !== undefined ? { onClear } : {}) };
     validateLinks([probe], undefined, this.runtime.links.views, problems);
     if (problems.length > 0) {
       return this.reject('link', intent, this.gapLedger.file('guard-failed', 'link', problems.map((p) => p.replace(/^links\[0\]/, `link ${id}`)).join('; '), id));
@@ -1408,6 +1411,12 @@ class InteractionSessionImpl implements InteractionSession {
         return { gap: this.gapLedger.file('needs-column', 'reencode', `no column "${field}" in table "${this.defaultTable}"`, field) };
       }
     }
+    // 5. a channel this view FOLLOWS belongs to the edge (encoding links): its own rebind is refused with the sentence that names the edge
+    const followed = this.effectiveEncodings(this.runtime.encoding.facetsOf(this.defaultTable, cols)).get(viewId)!.followed; // the view has a surface (step 2)
+    for (const [channel] of pairs) {
+      const f = followed[channel];
+      if (f !== undefined) return { gap: this.gapLedger.file('guard-failed', 'reencode', this.followSentence(viewId, channel, f), channel) };
+    }
     return { cols };
   }
 
@@ -1493,36 +1502,117 @@ class InteractionSessionImpl implements InteractionSession {
     return this.gapLedger.file('guard-failed', 'reencode', sentence, target);
   }
 
+  /** The last effective map, keyed by what it depends on (the folds, the graph, the columns). */
+  private effectiveMemo: { readonly key: string; readonly value: ReadonlyMap<string, EffectiveEncoding> } | undefined;
+
+  /** The link graph at the cursor: the def's materialized graph with the edited edges laid over it. */
+  private currentGraph(): LinkGraph {
+    return applyLinkOverrides(this.runtime.links, this.activeLinks);
+  }
+
+  /**
+   * Every view's EFFECTIVE encoding under the link graph — the encoding kind
+   * of edge, read through, never landed. Two passes: (1) each view's own fold
+   * plus the channels it follows, ONE HOP — a follow reads the source's OWN
+   * fold, never a binding the source is itself following, so two views may
+   * point at each other and no cycle can form; where two edges reach one
+   * channel, graph order decides (last wins); (2) each followed channel judged
+   * by the TARGET's own rules through the one validator, against the other
+   * views' effective bindings — a refused follow leaves the view's own binding
+   * in place and reports the sentence. Reported, never filed: this is the lint
+   * door running continuously, not a refused act.
+   */
+  private effectiveEncodings(facets: readonly ColumnFacet[]): ReadonlyMap<string, EffectiveEncoding> {
+    const key = JSON.stringify([[...this.activeEncodings.entries()], [...this.activeLinks.entries()], facets.map((f) => [f.field, f.type, f.role, f.scale])]);
+    if (this.effectiveMemo?.key === key) return this.effectiveMemo.value;
+    const graph = this.currentGraph();
+    type Candidate = { readonly field: string; readonly edge: string; readonly from: string; readonly sourceChannel: string };
+    const raw = new Map<string, { readonly own: Bindings; readonly byChannel: ReadonlyMap<string, Candidate> }>();
+    for (const [viewId, view] of this.runtime.views) {
+      if (view.encoding === undefined) continue;
+      const byChannel = new Map<string, Candidate>();
+      for (const edge of edgesInto(graph, viewId)) {
+        if (edge.kind !== ENCODING_KIND || edge.response !== 'follow') continue;
+        const sourceOwn = this.viewEncodings(edge.source); // one hop: the source's OWN fold
+        for (const pair of edge.channels!) { // an encoding edge is always written out with its pairs (materialize)
+          const field = sourceOwn[pair.from];
+          if (field !== undefined) byChannel.set(pair.to, { field, edge: edge.id, from: edge.source, sourceChannel: pair.from });
+        }
+      }
+      raw.set(viewId, { own: this.viewEncodings(viewId), byChannel });
+    }
+    // The other views a follow is judged against are their RAW effective bindings (own + every candidate,
+    // refused ones included), not their judged ones: judging B against judged C against judged B would be the
+    // fixed point the one-hop law exists to avoid. The dispatch door (`bindingsOfOthers`) reads the judged map.
+    const rawAll = new Map([...raw].map(([id, r]) => [id, { ...r.own, ...Object.fromEntries([...r.byChannel].map(([ch, c]) => [ch, c.field])) } as Bindings] as const));
+    const { rules, ports } = this.runtime.encoding;
+    const out = new Map<string, EffectiveEncoding>();
+    for (const [viewId, r] of raw) {
+      const others: Record<string, Bindings> = {};
+      for (const [id, b] of rawAll) if (id !== viewId) others[id] = b;
+      const bindings: Record<string, string> = { ...r.own };
+      const followed: Record<string, { edge: string; from: string; sourceChannel: string }> = {};
+      const refused: Record<string, { edge: string; field: string; sentence: string }> = {};
+      for (const [channel, c] of r.byChannel) {
+        const problems = validateBindings({ view: this.runtime.views.get(viewId)!.encoding!, bindings: { ...bindings, [channel]: c.field }, facets, others, rules, ports, changed: [channel] });
+        // a follow is a READING, not an act: it is never coerced — a follow that would need a coercer is refused with the sentence
+        if (problems.length > 0) {
+          refused[channel] = { edge: c.edge, field: c.field, sentence: problems.map((p) => p.explained ?? p.sentence).join('; ') };
+        } else {
+          bindings[channel] = c.field;
+          followed[channel] = { edge: c.edge, from: c.from, sourceChannel: c.sourceChannel };
+        }
+      }
+      out.set(viewId, { bindings, followed, refused });
+    }
+    this.effectiveMemo = { key, value: out };
+    return out;
+  }
+
+  /** The sentence a view's own rebind of a FOLLOWED channel is refused with — the edge owns the channel. */
+  private followSentence(viewId: string, channel: string, f: { readonly edge: string; readonly from: string }): string {
+    return `view "${viewId}"'s ${channel} follows "${f.from}" (edge ${f.edge}) — change the edge, or set it to none`;
+  }
+
   /** The last verdicts per view, keyed by what they depend on — a poll between acts costs nothing. */
   private readonly fitsMemo = new Map<string, { readonly key: string; readonly fits: Readonly<Record<string, readonly Fit[]>> }>();
 
   /** One view's verdicts, recomputed only when its bindings, the other views' bindings, or the columns changed. */
   private fitsOfView(viewId: string, surface: ViewEncodingDecl, facets: readonly ColumnFacet[]): Readonly<Record<string, readonly Fit[]>> {
-    const bindings = this.viewEncodings(viewId);
-    const others = this.bindingsOfOthers(viewId);
-    const key = JSON.stringify([bindings, others, facets.map((f) => [f.field, f.type, f.role, f.scale])]);
+    const effective = this.effectiveEncodings(facets).get(viewId)!; // every view with a surface has an entry
+    const bindings = effective.bindings;
+    const others = this.bindingsOfOthers(viewId, facets);
+    const key = JSON.stringify([bindings, others, [...this.activeLinks.entries()], facets.map((f) => [f.field, f.type, f.role, f.scale])]);
     const hit = this.fitsMemo.get(viewId);
     if (hit !== undefined && hit.key === key) return hit.fits;
-    const fits = fitsFor({ view: surface, bindings, facets, others, rules: this.runtime.encoding.rules, ports: this.runtime.encoding.ports });
+    const judged = fitsFor({ view: surface, bindings, facets, others, rules: this.runtime.encoding.rules, ports: this.runtime.encoding.ports });
+    // a followed channel is the edge's to change: every column is refused with the sentence that names it
+    const fits: Record<string, readonly Fit[]> = { ...judged };
+    for (const [channel, f] of Object.entries(effective.followed)) {
+      // a followed channel is one the view declares (the pair was validated), so it has verdicts to overwrite
+      fits[channel] = judged[channel]!.map((fit) => ({ field: fit.field, ok: false, because: this.followSentence(viewId, channel, f) }));
+    }
     this.fitsMemo.set(viewId, { key, fits });
     return fits;
   }
 
-  /** The other views' current bindings — what a dashboard-scoped rule reads. */
-  private bindingsOfOthers(viewId: string): Record<string, Bindings> {
+  /** The other views' bindings ON SCREEN (effective under the link graph) — what a dashboard-scoped rule must read. */
+  private bindingsOfOthers(viewId: string, facets: readonly ColumnFacet[]): Record<string, Bindings> {
+    const effective = this.effectiveEncodings(facets);
     const others: Record<string, Bindings> = {};
-    for (const [id, view] of this.runtime.views) if (id !== viewId && view.encoding !== undefined) others[id] = this.viewEncodings(id);
+    for (const [id, view] of this.runtime.views) if (id !== viewId && view.encoding !== undefined) others[id] = effective.get(id)!.bindings; // every surfaced view has an entry
     return others;
   }
 
   /** One view's would-be bindings judged by the plane's validator, with the default table's facets. */
   private judgeBindings(viewId: string, bindings: Bindings, changed: readonly string[], cols: readonly ColumnInfo[]) {
     const { rules, ports } = this.runtime.encoding;
+    const facets = this.runtime.encoding.facetsOf(this.defaultTable, cols);
     return validateBindings({
       view: this.runtime.views.get(viewId)!.encoding!,
       bindings,
-      facets: this.runtime.encoding.facetsOf(this.defaultTable, cols),
-      others: this.bindingsOfOthers(viewId),
+      facets,
+      others: this.bindingsOfOthers(viewId, facets),
       rules,
       ports,
       changed,
@@ -2078,7 +2168,13 @@ class InteractionSessionImpl implements InteractionSession {
         // The encoding plane: per channel, every column judged as if bound
         // there now, with the sentence for each refusal (the picker greys with
         // it; the agent's whats_here projects it to the names that fit).
-        ...(view.encoding !== undefined ? { fits: this.fitsOfView(view.viewId, view.encoding, columns[this.defaultTable] ?? []) } : {}),
+        ...(view.encoding !== undefined
+          ? {
+              fits: this.fitsOfView(view.viewId, view.encoding, columns[this.defaultTable] ?? []),
+              // encoding links: what the view SHOWS — own bindings with followed channels laid over, refusals named
+              effective: this.effectiveEncodings(columns[this.defaultTable] ?? []).get(view.viewId)!,
+            }
+          : {}),
       };
     });
     const encodingPolicy = { onInvalid: this.runtime.encoding.rules.onInvalid ?? 'refuse', ruleScope: this.runtime.encoding.rules.ruleScope ?? ('dashboard' as const) };
@@ -2193,6 +2289,7 @@ class InteractionSessionImpl implements InteractionSession {
       },
       columns,
       encodings: Object.fromEntries(views.map((v) => [v.viewId, v.encodings])),
+      effectiveEncodings: Object.fromEntries(views.map((v) => [v.viewId, v.effective?.bindings ?? v.encodings])),
       // LY-1: the layout fold (scope → prop → value), branch-scoped at the
       // cursor like `encodings` — cloned so a caller can never mutate the fold.
       layouts: Object.fromEntries([...this.activeLayouts.entries()].map(([scope, props]) => [scope, { ...props }])),

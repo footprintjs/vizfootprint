@@ -476,3 +476,43 @@ describe('mapPollState — the encoding plane on the wire', () => {
     expect(bare.encodingPolicy).toBeUndefined();
   });
 });
+
+describe('mapPollState — encoding links on the wire', () => {
+  it('keeps a well-formed effective block and the flat map; drops malformed parts, never invents', () => {
+    const raw = {
+      records: [],
+      views: [
+        { viewId: 'bar', actor: 'user', effective: { bindings: { x: 'k', color: 'z', bad: 1 }, followed: { color: { edge: 'a:encoding→bar', from: 'a', sourceChannel: 'color' }, nope: { edge: 1 } }, refused: { x: { edge: 'a:encoding→bar', field: 'v', sentence: 'no' }, junk: 'x' } } },
+        { viewId: 'a', actor: 'user', effective: 'nope' },
+      ],
+      effectiveEncodings: { bar: { x: 'k', color: 'z', n: 2 }, junk: 3 },
+      cursor: null,
+      head: null,
+    } as unknown as RawPollState;
+    const state = mapPollState(raw);
+    expect(state.views.find((v) => v.viewId === 'bar')!.effective).toEqual({
+      bindings: { x: 'k', color: 'z' },
+      followed: { color: { edge: 'a:encoding→bar', from: 'a', sourceChannel: 'color' } },
+      refused: { x: { edge: 'a:encoding→bar', field: 'v', sentence: 'no' } },
+    });
+    expect(state.views.find((v) => v.viewId === 'a')!.effective).toBeUndefined();
+    expect(state.effectiveEncodings).toEqual({ bar: { x: 'k', color: 'z' } });
+    expect(mapPollState({ ...raw, effectiveEncodings: 'x' } as unknown as RawPollState).effectiveEncodings).toBeUndefined();
+    // a block missing followed/refused still maps; a block missing bindings maps to none
+    const bare = mapPollState({ ...raw, views: [{ viewId: 'bar', actor: 'user', effective: { bindings: { x: 'k' } } }, { viewId: 'c', actor: 'user', effective: { followed: {} } }] } as unknown as RawPollState);
+    expect(bare.views[0]!.effective).toEqual({ bindings: { x: 'k' }, followed: {}, refused: {} });
+    expect(bare.views[1]!.effective).toEqual({ bindings: {}, followed: {}, refused: {} });
+  });
+});
+
+describe('createSessionView — link with channel pairs (an encoding edge)', () => {
+  it('posts the pairs with the edit', async () => {
+    const { impl, calls } = fakeFetch();
+    const view = createSessionView(pollingSource({ fetchImpl: impl }), { refreshOnAction: false });
+    await view.refresh();
+    await view.link({ source: 'weeks', kind: 'encoding', target: 'trend', response: 'follow', channels: [{ from: 'color', to: 'color' }] });
+    const post = calls.find((c) => c.url === '/api/dispatch')!;
+    expect(post.body).toMatchObject({ verb: 'link', kind: 'encoding', response: 'follow', channels: [{ from: 'color', to: 'color' }] });
+    view.dispose();
+  });
+});

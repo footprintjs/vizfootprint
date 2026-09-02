@@ -153,7 +153,8 @@ export function selectionForView(
     let fields = s.fields;
     if (links !== undefined && selfViewId !== null && s.viewId !== selfViewId) {
       const edge = links.edges.find((e) => e.source === s.viewId && e.target === selfViewId && e.kind === s.kind);
-      if (edge === undefined || edge.response === 'none') continue;
+      // an `encoding` edge never matches a clause's kind, so `follow` cannot reach here; the guard keeps the type honest
+      if (edge === undefined || edge.response === 'none' || edge.response === 'follow') continue;
       response = edge.response;
       if (edge.mapping !== undefined) {
         const to = (f: string): string => edge.mapping!.find((m) => m.from === f)?.to ?? f;

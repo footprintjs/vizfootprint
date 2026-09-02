@@ -10,7 +10,7 @@
  */
 
 import type { Actor, Cause } from '../cause/index.js';
-import type { EmissionKind, FieldMapping, LinkEdge, LinkGraph, LinkOnClear, LinkResponse } from '../links/types.js';
+import type { EmissionKind, FieldMapping, LinkEdge, LinkGraph, LinkOnClear, LinkResponse, LinkKind, ChannelPair } from '../links/types.js';
 import type { CommitRecord } from '../log/index.js';
 import type { CauseClause } from '../mosaic/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
@@ -121,10 +121,12 @@ export type DispatchAction =
   | {
       readonly verb: 'link';
       readonly source: string;
-      readonly kind: EmissionKind;
+      readonly kind: LinkKind;
       readonly target: string;
       readonly response: LinkResponse | null;
       readonly mapping?: readonly FieldMapping[];
+      /** Encoding edges only: which channels follow (absent = every channel both ends share, written out at materialization). */
+      readonly channels?: readonly ChannelPair[];
       readonly onClear?: LinkOnClear;
       readonly cause: Cause;
       readonly correlationId?: string;
@@ -578,6 +580,23 @@ export interface ViewInfo {
    * Present only for a view with a declared encoding surface.
    */
   readonly fits?: Readonly<Record<string, readonly Fit[]>>;
+  /**
+   * What the view SHOWS (encoding links): its own bindings with followed
+   * channels laid over them, one hop, each judged by this view's own rules.
+   * Present only for a view with an encoding surface. Hosts render this and
+   * edit `encodings`.
+   */
+  readonly effective?: EffectiveEncoding;
+}
+
+/** A view's effective bindings under the link graph (see src/links/README.md, the encoding kind). */
+export interface EffectiveEncoding {
+  /** The bindings on screen: own, overlaid by every followed channel that passed this view's rules. */
+  readonly bindings: Readonly<Record<string, string>>;
+  /** channel → the edge it follows, the source view, and the source channel it reads. */
+  readonly followed: Readonly<Record<string, { readonly edge: string; readonly from: string; readonly sourceChannel: string }>>;
+  /** channel → a follow this view's own rules refused (the view keeps its own binding; the sentence says why). */
+  readonly refused: Readonly<Record<string, { readonly edge: string; readonly field: string; readonly sentence: string }>>;
 }
 
 /** An active DATA-space selection (never pixels; R5). */
@@ -636,6 +655,8 @@ export interface Overview {
    * off the identical `activeEncodings` fold in the same `overview()` call).
    */
   readonly encodings: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /** viewId → the bindings on screen under the link graph (`views[].effective.bindings`, flattened). Render these; edit `encodings`. */
+  readonly effectiveEncodings: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /**
    * LY-1: scope → prop → value — the cockpit-layout fold (`navigate` verb,
    * `layout:${scope}` synthetic identity), branch-scoped at the cursor exactly

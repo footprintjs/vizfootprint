@@ -61,13 +61,13 @@ describe('validate — refusals in sentences, at declaration', () => {
   it('names every bad shape', () => {
     expect(run('nope')).toEqual(['links, if present, must be an array of LinkDecl']);
     expect(run([], 'sometimes')).toEqual(['linkDefault, if present, must be one of crossfilter|none']);
-    expect(run([42])).toEqual(['links[0] must be an object { source, kind, target, response, mapping?, onClear?, fold?, label? }']);
+    expect(run([42])).toEqual(['links[0] must be an object { source, kind, target, response, mapping?, channels?, onClear?, fold?, label? }']);
     const p = run([{ source: '', target: 'ghost', kind: 'blob', response: 'shout', mapping: [{ from: 'a' }], onClear: 'never', fold: '', label: 3, extra: 1 }]);
     expect(p).toEqual([
       'links[0]: unknown key "extra"',
       'links[0].source must be a declared view id',
       'links[0].target "ghost" is not a declared view',
-      'links[0].kind must be one of point|interval|cell|match',
+      'links[0].kind must be one of point|interval|cell|match|encoding',
       'links[0].response must be one of filter|highlight|navigate|mirror|none',
       'links[0].mapping, if present, must be an array of { from, to } field names',
       'links[0].onClear, if present, must be one of leave|showAll|excludeAll',

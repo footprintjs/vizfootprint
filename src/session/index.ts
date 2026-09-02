@@ -26,6 +26,7 @@ export type {
   DeclareAnalysisOptions,
   Overview,
   ViewInfo,
+  EffectiveEncoding,
   SelectionInfo,
   AnalysisReadiness,
   FdrSummary,

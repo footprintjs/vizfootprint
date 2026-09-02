@@ -9,13 +9,27 @@
  * IN PLACE — so a declared edge keeps the position the default gave it, and
  * declared edges with no default counterpart append in declaration order.
  */
-import { edgeId, type LinkDecl, type LinkDefault, type LinkEdge, type LinkGraph, type LinkView } from './types.js';
+import { ENCODING_KIND, edgeId, type ChannelPair, type LinkDecl, type LinkDefault, type LinkEdge, type LinkGraph, type LinkView } from './types.js';
+
+/** The channel pairs an encoding edge follows when the author states none: every channel both ends declare, by the same name. */
+export function defaultChannelPairs(source: LinkView | undefined, target: LinkView | undefined): readonly ChannelPair[] {
+  const targetChannels = new Set(target?.channels ?? []);
+  return (source?.channels ?? []).filter((c) => targetChannels.has(c)).map((c) => ({ from: c, to: c }));
+}
+
+/** A declared edge written out in full: an encoding edge always states its channel pairs. */
+function writtenOut(decl: LinkDecl, views: readonly LinkView[]): LinkDecl {
+  if (decl.kind !== ENCODING_KIND || decl.channels !== undefined) return decl;
+  const byId = new Map(views.map((v) => [v.viewId, v] as const));
+  return { ...decl, channels: defaultChannelPairs(byId.get(decl.source), byId.get(decl.target)) };
+}
 
 export function materializeLinks(views: readonly LinkView[], declared: readonly LinkDecl[] = [], defaultRule: LinkDefault = 'crossfilter'): LinkGraph {
   const edges: LinkEdge[] = [];
   if (defaultRule === 'crossfilter') {
     for (const source of views) {
       for (const kind of source.voice) {
+        if (kind === ENCODING_KIND) continue; // no default encoding edge: absent is a silence (law 1, amended)
         for (const target of views) {
           if (target.viewId === source.viewId) continue; // self excluded — the one cycle-breaker
           edges.push({ id: edgeId(source.viewId, kind, target.viewId), source: source.viewId, kind, target: target.viewId, response: 'filter', origin: 'default' });
@@ -23,7 +37,8 @@ export function materializeLinks(views: readonly LinkView[], declared: readonly 
       }
     }
   }
-  for (const decl of declared) {
+  for (const raw of declared) {
+    const decl = writtenOut(raw, views);
     const edge: LinkEdge = { ...decl, id: edgeId(decl.source, decl.kind, decl.target), origin: 'declared' };
     const at = edges.findIndex((e) => e.id === edge.id);
     if (at >= 0) edges[at] = edge;
@@ -41,8 +56,8 @@ export function materializeLinks(views: readonly LinkView[], declared: readonly 
 export function applyLinkOverrides(base: LinkGraph, overrides: ReadonlyMap<string, LinkDecl>): LinkGraph {
   if (overrides.size === 0) return base;
   const edges = [...base.edges];
-  for (const [id, decl] of overrides) {
-    const edge: LinkEdge = { ...decl, id, origin: 'edited' };
+  for (const [id, raw] of overrides) {
+    const edge: LinkEdge = { ...writtenOut(raw, base.views), id, origin: 'edited' };
     const at = edges.findIndex((e) => e.id === id);
     if (at >= 0) edges[at] = edge;
     else edges.push(edge);

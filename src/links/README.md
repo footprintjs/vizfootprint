@@ -31,7 +31,7 @@ and not yet applied; every clear behaves as `showAll`.
 | file | one job |
 |---|---|
 | `types.ts` | the vocabulary and the `LinkGraph` shape; `edgeId` |
-| `voice.ts` | `voiceOf(capability)` / `impliedKinds` — the ONE owner of "what can this view emit" |
+| `voice.ts` | `voiceOf(capability, { hasEncodingSurface })` / `impliedKinds` — the ONE owner of "what can this view emit" (selection kinds from the capability; the `encoding` voice from having a surface) |
 | `materialize.ts` | default rule → edges; declared edges override in place; `edgesInto` / `edgesFrom` |
 | `validate.ts` | the refusals, as sentences, for `validateDashboardDef` |
 | `mermaid.ts` | `linksToMermaid(graph)` — declared === drawn |
@@ -57,3 +57,23 @@ edge in place with origin `edited`, and rides undo, bring-over and time travel
 like every act. `response: null` un-declares the edit: the edge falls back to
 the def's rule (a cleared interval's shape). `applyLinkOverrides(base,
 overrides)` is the fold.
+
+## The encoding kind — one chart follows another's bindings
+
+An edge may carry a source view's channel **binding** instead of a selection: `kind: 'encoding'`, response `follow` or `none`. A view has that voice exactly when it declares an encoding surface — even one nobody can brush, whose axis choice the others may follow.
+
+```ts
+links: [{ source: 'weeks', kind: 'encoding', target: 'trend', response: 'follow', channels: [{ from: 'color', to: 'color' }] }]
+// omit `channels` and the edge is written out with every channel both views declare, by name — never left implicit
+```
+
+Two laws, beside the first:
+
+- **No default encoding edge.** Crossfilter is a data-plane sentence; there is no honest default for "every chart's encoding follows every other's." An encoding edge is only ever declared or edited; absent is a silence, a declared `none` is a fact.
+- **One hop.** A follow reads the source's **own** binding, never one the source is itself following. Two views may point at each other and each mirrors the other's own choice; where two edges reach one channel, graph order decides.
+
+**Read through, never landed.** A rebind on the source lands one commit and nothing for the target. The target's *effective* bindings are its own fold with the followed channels laid over it, computed at every read, so undo, seek and compare on the source carry the target for free. Each followed channel is judged by the **target's own rules** through the one validator; a refused follow leaves the target's own binding in place and reports the sentence on the wire (`views[].effective.refused`) — reported, never filed as a gap, since a projection must not spend the ledger.
+
+**A follow is never coerced.** A coercion belongs to an act; a follow is a reading. A followed binding that would need a coercer under the target's policy is refused with the sentence, like any other misfit.
+
+**The edge owns a followed channel.** The target's own `reencode` of that channel is refused with a sentence that names the edge; to break a follow, edit the matrix. The wire keeps `encodings` as what a view *chose* and adds `effective` (bindings, followed, refused) and a flat `effectiveEncodings`: render `effective`, edit `encodings`. `onClear` and `fold` do not apply to an encoding edge and are refused at declaration. `why()` does not yet explain a followed binding; the effective block names the edge and its `link` commit carries the cause.

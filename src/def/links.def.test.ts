@@ -29,3 +29,30 @@ describe('links on the dashboard def', () => {
     expect(plain.links.edges.length).toBe(ov.links.edges.length);
   });
 });
+
+describe('encoding edges at the def door', () => {
+  it('a view with an encoding surface has the encoding voice and its channels; the built graph carries a declared follow with its pairs', async () => {
+    const { buildDashboard, validateDashboardDef } = await import('./index.js');
+    const { makeDashboardDef } = await import('../session/dashboard.fixture.js');
+    const def = makeDashboardDef();
+    const before = buildDashboard(def).createSession();
+    const base = (await before.overview()).links;
+    const scatter = base.views.find((v) => v.viewId === 'scatter')!;
+    expect(scatter.voice).toContain('encoding');
+    expect(scatter.channels).toEqual(['x', 'y', 'color']);
+    expect(base.views.find((v) => v.viewId === 'cluster')!.voice).not.toContain('encoding');
+    expect(base.edges.some((e) => e.kind === 'encoding')).toBe(false);
+    const withEdge = { ...def, links: [{ source: 'scatter', kind: 'encoding' as const, target: 'bar', response: 'follow' as const }] };
+    expect(validateDashboardDef(withEdge)).toEqual([]);
+    const g = (await buildDashboard(withEdge).createSession().overview()).links;
+    expect(g.edges.filter((e) => e.kind === 'encoding')).toEqual([
+      { id: 'scatter:encoding→bar', source: 'scatter', kind: 'encoding', target: 'bar', response: 'follow', origin: 'declared', channels: [{ from: 'x', to: 'x' }, { from: 'color', to: 'color' }] },
+    ]);
+    // the emission edges are byte-identical with or without the new voice entry
+    expect(g.edges.filter((e) => e.kind !== 'encoding')).toEqual(base.edges);
+    // and the def door speaks the same sentences
+    expect(validateDashboardDef({ ...def, links: [{ source: 'cluster', kind: 'encoding', target: 'bar', response: 'follow' }] })).toEqual([
+      'links[0]: view "cluster" declares no encoding surface — it has no binding to follow',
+    ]);
+  });
+});

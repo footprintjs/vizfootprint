@@ -330,7 +330,12 @@ export function validateDashboardDef(def: unknown): string[] {
         }
       }
     }
-    const linkViews = Object.keys(def.actors).map((viewId) => ({ viewId, voice: voiceOf(capabilityByView.get(viewId)) }));
+    // a view's encoding surface gives it the `encoding` voice and tells an encoding edge which channels exist
+    const surfaceByView = new Map(Array.isArray(def.encodings) ? wellFormedSurfaces(def.encodings).map((s) => [s.surface.viewId, s.surface] as const) : []);
+    const linkViews = Object.keys(def.actors).map((viewId) => {
+      const surface = surfaceByView.get(viewId);
+      return { viewId, voice: voiceOf(capabilityByView.get(viewId), { hasEncodingSurface: surface !== undefined }), ...(surface !== undefined ? { channels: surface.channels } : {}) };
+    });
     validateLinks(def.links, def.linkDefault, linkViews, problems);
   }
 

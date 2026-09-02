@@ -59,7 +59,7 @@ import { LinkGraphView,
   type ChartCellView,
   type LayoutChange,
   type LayoutView,
-  parseLayout, type FitView, type RuleLineView } from './types.js';
+  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
 import type { NavigateViewState } from '../contract/types.js';
@@ -157,6 +157,8 @@ export interface RawPollState {
   /** Layer 4: the link graph (`overview().links` serialized) — absent on a server that predates links. */
   /** The encoding plane (`overview().rules` / `encodingPolicy` serialized). */
   readonly rules?: unknown;
+  /** Encoding links: `overview().effectiveEncodings` serialized. */
+  readonly effectiveEncodings?: unknown;
   readonly encodingPolicy?: unknown;
   readonly links?: unknown;
 }
@@ -315,6 +317,7 @@ interface StatePieces {
   /** The encoding plane's rules as sentences + policy, when the wire carries them. */
   rules?: readonly RuleLineView[];
   encodingPolicy?: SessionViewState['encodingPolicy'];
+  effectiveEncodings?: Record<string, ViewEncoding>;
 }
 
 /** Turn extracted pieces into the finalized, derivation-stamped state. */
@@ -345,6 +348,7 @@ function finalize(p: StatePieces): SessionViewState {
     defaultTable: p.defaultTable,
     ...(p.links !== undefined ? { links: p.links } : {}),
     ...(p.rules !== undefined ? { rules: p.rules } : {}),
+    ...(p.effectiveEncodings !== undefined ? { effectiveEncodings: p.effectiveEncodings } : {}),
     ...(p.encodingPolicy !== undefined ? { encodingPolicy: p.encodingPolicy } : {}),
     views: p.views,
     encodings: p.encodings,
@@ -383,6 +387,8 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       columns?: readonly { field: string; type: string }[];
       /** The encoding plane's verdicts per channel (`views[].fits` serialized). */
       fits?: unknown;
+      /** Encoding links: `views[].effective` serialized. */
+      effective?: unknown;
       canProbe?: boolean;
       mounted?: boolean;
     };
@@ -396,6 +402,7 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       encoding: o.encodings ?? {},
       columns: (o.columns ?? []).map((c) => ({ field: c.field, type: String(c.type) })),
       ...(o.fits !== undefined ? { fits: mapFits(o.fits) } : {}),
+      ...(o.effective !== undefined ? { effective: mapEffective(o.effective) } : {}),
     };
   });
 }
@@ -414,6 +421,24 @@ function mapFits(raw: unknown): Readonly<Record<string, readonly FitView[]>> {
   }
   return out;
 }
+/** A view's effective encoding (encoding links), when the wire carries one with the session's shape. */
+function mapEffective(raw: unknown): EffectiveEncodingView | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const x = raw as { bindings?: unknown; followed?: unknown; refused?: unknown };
+  const strings = (v: unknown): Record<string, string> =>
+    typeof v === 'object' && v !== null ? Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([, f]) => typeof f === 'string')) as Record<string, string> : {};
+  const followed: Record<string, { edge: string; from: string; sourceChannel: string }> = {};
+  for (const [ch, f] of Object.entries((typeof x.followed === 'object' && x.followed !== null ? x.followed : {}) as Record<string, unknown>)) {
+    const y = f as { edge?: unknown; from?: unknown; sourceChannel?: unknown };
+    if (typeof y?.edge === 'string' && typeof y.from === 'string' && typeof y.sourceChannel === 'string') followed[ch] = { edge: y.edge, from: y.from, sourceChannel: y.sourceChannel };
+  }
+  const refused: Record<string, { edge: string; field: string; sentence: string }> = {};
+  for (const [ch, f] of Object.entries((typeof x.refused === 'object' && x.refused !== null ? x.refused : {}) as Record<string, unknown>)) {
+    const y = f as { edge?: unknown; field?: unknown; sentence?: unknown };
+    if (typeof y?.edge === 'string' && typeof y.field === 'string' && typeof y.sentence === 'string') refused[ch] = { edge: y.edge, field: y.field, sentence: y.sentence };
+  }
+  return { bindings: strings(x.bindings), followed, refused };
+}
 /** The rules as sentences, when the wire carries them. */
 function mapRules(raw: unknown): readonly RuleLineView[] | undefined {
   if (!Array.isArray(raw)) return undefined;
@@ -421,6 +446,16 @@ function mapRules(raw: unknown): readonly RuleLineView[] | undefined {
     const x = r as { id?: unknown; builtIn?: unknown; sentence?: unknown } | null;
     return typeof x?.id === 'string' && typeof x.sentence === 'string' ? [{ id: x.id, builtIn: x.builtIn === true, sentence: x.sentence }] : [];
   });
+}
+/** viewId → channel → field, when the wire carries the map; malformed entries dropped. */
+function mapEncodingMap(raw: unknown): Record<string, ViewEncoding> | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const out: Record<string, ViewEncoding> = {};
+  for (const [viewId, enc] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof enc !== 'object' || enc === null) continue;
+    out[viewId] = Object.fromEntries(Object.entries(enc as Record<string, unknown>).filter(([, f]) => typeof f === 'string')) as ViewEncoding;
+  }
+  return out;
 }
 function mapPolicy(raw: unknown): SessionViewState['encodingPolicy'] {
   const x = raw as { onInvalid?: unknown; ruleScope?: unknown } | null;
@@ -611,6 +646,7 @@ async function mapSession(session: SessionLike): Promise<SessionViewState> {
     selections: mapSelections(overview.activeSelections),
     links: mapLinks((overview as { links?: unknown }).links),
     rules: mapRules((overview as { rules?: unknown }).rules),
+    effectiveEncodings: mapEncodingMap((overview as { effectiveEncodings?: unknown }).effectiveEncodings),
     encodingPolicy: mapPolicy((overview as { encodingPolicy?: unknown }).encodingPolicy),
     branches: session.branches().map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
     // TL-1: the overview's `paths` carries the VISIBLE rows; the archived ones
@@ -659,6 +695,7 @@ export function mapPollState(raw: RawPollState): SessionViewState {
     selections: mapSelections(raw.activeSelections),
     links: mapLinks(raw.links),
     rules: mapRules(raw.rules),
+    effectiveEncodings: mapEncodingMap(raw.effectiveEncodings),
     encodingPolicy: mapPolicy(raw.encodingPolicy),
     branches: (raw.branches ?? []).map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
     paths: mapPaths(raw.paths),
@@ -688,10 +725,14 @@ export interface SessionViewOptions {
 /** One edge as the matrix hands it to the host (layer 4). */
 export interface LinkEdit {
   readonly source: string;
-  readonly kind: 'point' | 'interval' | 'cell' | 'match';
+  /** An emission kind, or `encoding` (the target follows the source's bindings). */
+  readonly kind: LinkEdgeView['kind'];
   readonly target: string;
-  readonly response: 'filter' | 'highlight' | 'navigate' | 'mirror' | 'none' | null;
+  /** null = back to the def's rule. */
+  readonly response: LinkEdgeView['response'] | null;
   readonly mapping?: readonly { readonly from: string; readonly to: string }[];
+  /** Encoding edges: which channels follow (absent = every channel both views share, written out on the edge). */
+  readonly channels?: readonly { readonly from: string; readonly to: string }[];
 }
 
 export interface SessionView {
@@ -933,7 +974,15 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
 
     async link(edge, intent) {
       const label = intent ?? `${edge.source} ${edge.kind} → ${edge.target}: ${edge.response ?? 'back to the rule'}`;
-      const body = { verb: 'link' as const, source: edge.source, kind: edge.kind, target: edge.target, response: edge.response, ...(edge.mapping !== undefined ? { mapping: edge.mapping } : {}) };
+      const body = {
+        verb: 'link' as const,
+        source: edge.source,
+        kind: edge.kind,
+        target: edge.target,
+        response: edge.response,
+        ...(edge.mapping !== undefined ? { mapping: edge.mapping } : {}),
+        ...(edge.channels !== undefined ? { channels: edge.channels } : {}),
+      };
       await dispatch({ ...body, cause: cause(label) }, { ...body, intent: label });
     },
 

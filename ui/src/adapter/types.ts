@@ -73,6 +73,14 @@ export interface ViewView {
   readonly columns: readonly ColumnView[];
   /** The encoding plane: per channel, every column judged as if bound there now — the picker greys with `because`. Absent when the wire predates the plane or the view has no encoding surface. */
   readonly fits?: Readonly<Record<string, readonly FitView[]>>;
+  /** Encoding links: what the view shows, which channels it follows (and through which edge), and which follows its own rules refused. */
+  readonly effective?: EffectiveEncodingView;
+}
+
+export interface EffectiveEncodingView {
+  readonly bindings: Readonly<Record<string, string>>;
+  readonly followed: Readonly<Record<string, { readonly edge: string; readonly from: string; readonly sourceChannel: string }>>;
+  readonly refused: Readonly<Record<string, { readonly edge: string; readonly field: string; readonly sentence: string }>>;
 }
 
 /** One column's fitness for one channel (src/encoding `Fit`). */
@@ -346,11 +354,15 @@ export interface ChartCellView {
 export interface LinkEdgeView {
   readonly id: string;
   readonly source: string;
-  readonly kind: 'point' | 'interval' | 'cell' | 'match';
+  /** An emission kind (a selection), or `encoding` — the source's channel BINDING, which the target may follow. */
+  readonly kind: 'point' | 'interval' | 'cell' | 'match' | 'encoding';
   readonly target: string;
-  readonly response: 'filter' | 'highlight' | 'navigate' | 'mirror' | 'none';
+  /** `follow` and `none` are the responses of an encoding edge; the rest answer a selection. */
+  readonly response: 'filter' | 'highlight' | 'navigate' | 'mirror' | 'none' | 'follow';
   readonly origin: 'declared' | 'default' | 'edited';
   readonly mapping?: readonly { readonly from: string; readonly to: string }[];
+  /** Encoding edges: which channels follow (source channel → target channel), always written out. */
+  readonly channels?: readonly { readonly from: string; readonly to: string }[];
   readonly onClear?: 'leave' | 'showAll' | 'excludeAll';
   readonly fold?: string;
   readonly label?: string;
@@ -358,7 +370,7 @@ export interface LinkEdgeView {
 /** The materialized link graph (layer 4): what each view's emission does to every other view. */
 export interface LinkGraphView {
   readonly default: 'crossfilter' | 'none';
-  readonly views: readonly { readonly viewId: string; readonly voice: readonly ('point' | 'interval' | 'cell' | 'match')[] }[];
+  readonly views: readonly { readonly viewId: string; readonly voice: readonly ('point' | 'interval' | 'cell' | 'match' | 'encoding')[]; readonly channels?: readonly string[] }[];
   readonly edges: readonly LinkEdgeView[];
 }
 
@@ -367,6 +379,8 @@ export interface SessionViewState {
   readonly views: readonly ViewView[];
   /** viewId → { channel: field } — the `reencode` fold (Overview.encodings). */
   readonly encodings: Readonly<Record<string, ViewEncoding>>;
+  /** viewId → the bindings ON SCREEN under the link graph (followed channels laid over the view's own). Render these; edit `encodings`. Absent on a server that predates encoding links. */
+  readonly effectiveEncodings?: Readonly<Record<string, ViewEncoding>>;
   /** table → column facets (schema). */
   readonly columns: Readonly<Record<string, readonly ColumnView[]>>;
   readonly selections: readonly SelectionView[];

@@ -48,8 +48,8 @@ export type {
 } from './types.js';
 
 // Layer 4 — the link graph (owned by src/links; re-exported here beside the def that declares it).
-export { EMISSION_KINDS, LINK_RESPONSES, LINK_ON_CLEAR, LINK_DEFAULTS, edgeId, impliedKinds, voiceOf, materializeLinks, edgesInto, edgesFrom, validateLinks, linksToMermaid } from '../links/index.js';
-export type { EmissionKind, LinkResponse, LinkOnClear, LinkDefault, FieldMapping, LinkDecl, LinkEdge, LinkView, LinkGraph } from '../links/index.js';
+export { EMISSION_KINDS, ENCODING_KIND, LINK_KINDS, LINK_RESPONSES, ENCODING_RESPONSES, responsesFor, LINK_ON_CLEAR, LINK_DEFAULTS, edgeId, impliedKinds, voiceOf, materializeLinks, defaultChannelPairs, applyLinkOverrides, edgesInto, edgesFrom, validateLinks, linksToMermaid } from '../links/index.js';
+export type { EmissionKind, LinkKind, ChannelPair, LinkResponse, LinkOnClear, LinkDefault, FieldMapping, LinkDecl, LinkEdge, LinkView, LinkGraph } from '../links/index.js';
 
 
 // The encoding plane (owned by src/encoding; re-exported here beside the def that declares its rule set).

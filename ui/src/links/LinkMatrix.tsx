@@ -8,6 +8,10 @@
  * SILENCE — no edge at all, which only happens under `linkDefault: 'none'` —
  * and is drawn as blank, never as a response. `self` is not a cell to edit.
  *
+ * An `encoding` row is the source's channel BINDINGS: a `follow` cell means the
+ * target's channels follow the source's (the pairs are shown beside it), and
+ * there is no default rule for it — absent is a silence.
+ *
  * Read-only by default. With `onChange`, every cell is a select and a change
  * is handed to the host as one edge — the host lands it as a `link` commit,
  * like any act (this component never talks to a session).
@@ -18,7 +22,13 @@
 import type { LinkEdgeView, LinkGraphView } from '../adapter/types.js';
 
 export type LinkResponse = LinkEdgeView['response'];
+/** The responses a SELECTION edge may carry. */
 export const LINK_RESPONSES: readonly LinkResponse[] = ['filter', 'highlight', 'navigate', 'mirror', 'none'];
+/** The responses an ENCODING edge may carry: the target follows the source's binding, or does not, on purpose. */
+export const ENCODING_RESPONSES: readonly LinkResponse[] = ['follow', 'none'];
+export function responsesFor(kind: LinkEdgeView['kind']): readonly LinkResponse[] {
+  return kind === 'encoding' ? ENCODING_RESPONSES : LINK_RESPONSES;
+}
 
 export interface LinkMatrixProps {
   readonly graph: LinkGraphView;
@@ -27,7 +37,7 @@ export interface LinkMatrixProps {
   /** Present when the host lets the person edit: called with the edge as it should be after the change. */
   readonly onChange?: (edge: { readonly source: string; readonly kind: LinkEdgeView['kind']; readonly target: string; readonly response: LinkResponse | null }) => void;
   readonly readOnly?: boolean;
-  /** Hide views with a silent voice from the rows (they still appear as targets). Default true. */
+  /** Hide views with NO voice at all from the rows (they still appear as targets). A view that only carries the `encoding` voice — one nobody can brush, whose bindings others may follow — keeps its row. Default true. */
   readonly hideSilentSources?: boolean;
   readonly className?: string;
 }
@@ -89,8 +99,8 @@ export function LinkMatrix({ graph, labels = {}, onChange, readOnly = false, hid
                           onChange={(e) => onChange({ source: s.viewId, kind, target: t.viewId, response: e.target.value === 'rule' ? null : (e.target.value as LinkResponse) })}
                         >
                           {cell.fact === 'silence' && <option value="">silence</option>}
-                          {cell.fact === 'edited' && <option value="rule">back to the rule</option>}
-                          {LINK_RESPONSES.map((r) => (
+                          {cell.fact === 'edited' && <option value="rule">{kind === 'encoding' ? 'back to the declaration' : 'back to the rule'}</option>}
+                          {responsesFor(kind).map((r) => (
                             <option key={r} value={r}>
                               {r}
                             </option>
@@ -99,6 +109,12 @@ export function LinkMatrix({ graph, labels = {}, onChange, readOnly = false, hid
                       ) : (
                         <span title={edge?.label ?? label}>{cell.text}</span>
                       )}
+                      {edge?.kind === 'encoding' && edge.channels !== undefined && edge.response === 'follow' ? (
+                        <span className="vzf-linkmatrix-pairs vzf-mono vzf-soft" title="which channels follow: source channel → target channel">
+                          {' '}
+                          {edge.channels.map((c) => (c.from === c.to ? c.from : `${c.from}→${c.to}`)).join(', ') || 'no shared channel'}
+                        </span>
+                      ) : null}
                     </td>
                   );
                 })}

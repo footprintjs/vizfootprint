@@ -59,7 +59,8 @@ const WHATS_HERE_DESCRIPTION =
   'Describe the current analytical position: the declared views, their current channel->field visual ' +
   'encodings and the columns available to put on them, the active selections in DATA space, the ' +
   'declared analyses with their readiness, the online-FDR ledger, the count of unmet requests ' +
-  '(gaps), the encoding plane (per view, `accepts`: the column names that FIT each channel right now; ' +
+  '(gaps), the encoding plane (per view, `accepts`: the column names that FIT each channel right now — an empty list on a ' +
+  'channel the view FOLLOWS through an encoding edge (see `effective.followed`: change the edge, not the channel); ' +
   '`rules`: the house laws as sentences; `encodingPolicy`: whether a misfit is refused or coerced), ' +
   'and the NAMED PATHS of the history (which path you are on, every path with its tip, and ' +
   'how many paths are ARCHIVED — hidden from the list but never erased; the paths tool lists them). ' +
@@ -84,7 +85,8 @@ const DISPATCH_DESCRIPTION =
   'whats_here.views[].accepts first; a misfit is refused with the sentence that says why; pass ' +
   '`bindings` to rebind several channels in ONE act — a swap of the axes is one commit, never two). This is ' +
   'link (layer 4: edit ONE edge of the link graph — what target does with source\'s kind emission: response ' +
-  'filter | highlight | navigate | mirror | none, or null to fall back to the def\'s rule; read the graph in ' +
+  'filter | highlight | navigate | mirror | none, or null to fall back to the def\'s rule; with kind "encoding" the target ' +
+  'FOLLOWS the source\'s channel bindings (response follow | none) — read views[].effective to see what a view shows and which edge it follows; read the graph in ' +
   'whats_here.links first). This is the ONLY way to change state — there is no raw-event path.';
 
 const DECLARE_ANALYSIS_DESCRIPTION =
@@ -192,7 +194,16 @@ const DISPATCH_SCHEMA = {
     },
     target: { type: 'string', description: 'The annotation target (annotate) — or, for link, the target view id.' },
     source: { type: 'string', description: 'link only: the source view id whose emission the edge carries.' },
-    kind: { type: 'string', enum: ['point', 'interval', 'cell', 'match'], description: 'link only: the emission kind the edge carries (must be in the source view\'s voice — see whats_here.links.views).' },
+    kind: {
+      type: 'string',
+      enum: ['point', 'interval', 'cell', 'match', 'encoding'],
+      description: 'link only: what the edge carries — an emission kind (a selection), or "encoding" (the source view\'s channel BINDING, so the target follows a rebind; a view has that voice when it declares an encoding surface — see whats_here.links.views).',
+    },
+    channels: {
+      type: 'array',
+      items: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from', 'to'] },
+      description: 'link + kind "encoding" only: which channels follow, source channel → target channel. Omit for every channel both views share, by name (written out on the edge).',
+    },
     response: {
       type: ['string', 'null'],
       enum: ['filter', 'highlight', 'navigate', 'mirror', 'none', null],
@@ -525,12 +536,16 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
         return { verb: 'reencode', viewId: args['viewId'], channel: args['channel'], field: args['field'], cause };
       }
       case 'link': {
-        const { source, kind, target, response, mapping } = args;
-        if (typeof source !== 'string' || typeof target !== 'string' || !['point', 'interval', 'cell', 'match'].includes(kind as string)) {
-          return { error: 'link requires string source and target view ids and kind: point | interval | cell | match' };
+        const { source, kind, target, response, mapping, channels } = args;
+        if (typeof source !== 'string' || typeof target !== 'string' || !['point', 'interval', 'cell', 'match', 'encoding'].includes(kind as string)) {
+          return { error: 'link requires string source and target view ids and kind: point | interval | cell | match | encoding' };
         }
-        if (response !== null && !['filter', 'highlight', 'navigate', 'mirror', 'none'].includes(response as string)) {
-          return { error: 'link.response must be filter | highlight | navigate | mirror | none, or null to fall back to the def\'s rule' };
+        const allowed = kind === 'encoding' ? ['follow', 'none'] : ['filter', 'highlight', 'navigate', 'mirror', 'none'];
+        if (response !== null && !allowed.includes(response as string)) {
+          return { error: `link.response must be ${allowed.join(' | ')}, or null to fall back to the def\'s rule` };
+        }
+        if (channels !== undefined && (!Array.isArray(channels) || !channels.every((c) => typeof c === 'object' && c !== null && typeof (c as { from?: unknown }).from === 'string' && typeof (c as { to?: unknown }).to === 'string'))) {
+          return { error: 'link.channels, if given, must be an array of { from, to } channel names' };
         }
         if (mapping !== undefined && (!Array.isArray(mapping) || !mapping.every((m) => typeof m === 'object' && m !== null && typeof (m as { from?: unknown }).from === 'string' && typeof (m as { to?: unknown }).to === 'string'))) {
           return { error: 'link.mapping, if given, must be an array of { from, to } field names' };
@@ -538,9 +553,10 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
         return {
           verb: 'link',
           source,
-          kind: kind as 'point' | 'interval' | 'cell' | 'match',
+          kind: kind as 'point' | 'interval' | 'cell' | 'match' | 'encoding',
           target,
-          response: response as 'filter' | 'highlight' | 'navigate' | 'mirror' | 'none' | null,
+          response: response as 'filter' | 'highlight' | 'navigate' | 'mirror' | 'none' | 'follow' | null,
+          ...(channels !== undefined ? { channels: channels as { from: string; to: string }[] } : {}),
           ...(mapping !== undefined ? { mapping: mapping as readonly { from: string; to: string }[] } : {}),
           cause,
         };
@@ -712,7 +728,16 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
           // channel (`accepts`) instead of every column's verdict — a refusal's
           // sentence arrives with the refusal, when the agent asks.
           const o = await session.overview();
-          return { ok: true, ...o, views: o.views.map(({ fits, ...view }) => (fits === undefined ? view : { ...view, accepts: acceptsOf(fits) })) };
+          // `effective.bindings` already rides as `effectiveEncodings`; per view only what FOLLOWS and what was REFUSED stay
+          return {
+            ok: true,
+            ...o,
+            views: o.views.map(({ fits, effective, ...view }) => ({
+              ...view,
+              ...(fits === undefined ? {} : { accepts: acceptsOf(fits) }),
+              ...(effective === undefined ? {} : { effective: { followed: effective.followed, refused: effective.refused } }),
+            })),
+          };
         }
         case NAMES.dispatch:
           return callDispatch(args);

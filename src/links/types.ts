@@ -19,8 +19,33 @@ export const EMISSION_KINDS = ['point', 'interval', 'cell', 'match'] as const;
 export type EmissionKind = (typeof EMISSION_KINDS)[number];
 
 /** What a target does with a source's emission. */
+/**
+ * The ENCODING kind — an edge that carries a source view's channel BINDING,
+ * not a selection. Deliberately outside `EMISSION_KINDS`: a view emits it
+ * only by having an encoding surface, the crossfilter default never writes
+ * it out (there is no honest sentence for "every chart's encoding follows
+ * every other's"), and the probe guard never sees it.
+ */
+export const ENCODING_KIND = 'encoding' as const;
+export type LinkKind = EmissionKind | typeof ENCODING_KIND;
+export const LINK_KINDS = [...EMISSION_KINDS, ENCODING_KIND] as const;
+
+/** What a target does with a SELECTION it receives. */
 export const LINK_RESPONSES = ['filter', 'highlight', 'navigate', 'mirror', 'none'] as const;
-export type LinkResponse = (typeof LINK_RESPONSES)[number];
+/** What a target does with a BINDING it receives: follow it, or nothing (on purpose). */
+export const ENCODING_RESPONSES = ['follow', 'none'] as const;
+export type LinkResponse = (typeof LINK_RESPONSES)[number] | (typeof ENCODING_RESPONSES)[number];
+
+/** The responses an edge of `kind` may carry. */
+export function responsesFor(kind: LinkKind): readonly LinkResponse[] {
+  return kind === ENCODING_KIND ? ENCODING_RESPONSES : LINK_RESPONSES;
+}
+
+/** One channel pair an encoding edge follows: the source's `from` channel lands on the target's `to` channel. */
+export interface ChannelPair {
+  readonly from: string;
+  readonly to: string;
+}
 
 /** What the target does when the source CLEARS its selection. */
 export const LINK_ON_CLEAR = ['leave', 'showAll', 'excludeAll'] as const;
@@ -39,11 +64,17 @@ export interface FieldMapping {
 /** A DECLARED edge, as the author writes it on the dashboard def. */
 export interface LinkDecl {
   readonly source: string;
-  readonly kind: EmissionKind;
+  readonly kind: LinkKind;
   readonly target: string;
   readonly response: LinkResponse;
   /** Field renames when the source's field is not the target's column. Absent = same field. */
   readonly mapping?: readonly FieldMapping[];
+  /**
+   * Encoding edges only: WHICH channels follow. Omitted at declaration = every
+   * channel both ends declare, by the same name — written out at
+   * materialization, never left implicit (law 1).
+   */
+  readonly channels?: readonly ChannelPair[];
   /** Absent = `showAll` (a cleared source stops filtering the target). */
   readonly onClear?: LinkOnClear;
   /** How an aggregate emission folds down to the target's rows. NOT yet enforced (see README). */
@@ -61,7 +92,9 @@ export interface LinkEdge extends LinkDecl {
 /** A view as the graph sees it: its id and its voice. */
 export interface LinkView {
   readonly viewId: string;
-  readonly voice: readonly EmissionKind[];
+  readonly voice: readonly LinkKind[];
+  /** The channels the view's encoding surface declares — present exactly when it has one (so an encoding edge can be judged). */
+  readonly channels?: readonly string[];
 }
 
 /** The materialized graph the session serves and the cockpit draws. */
@@ -72,6 +105,6 @@ export interface LinkGraph {
 }
 
 /** The id every replica of the wire uses for an edge. */
-export function edgeId(source: string, kind: EmissionKind, target: string): string {
+export function edgeId(source: string, kind: LinkKind, target: string): string {
   return `${source}:${kind}→${target}`;
 }

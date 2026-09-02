@@ -371,6 +371,10 @@ response; default, declared and none wear three looks, silence is blank.
 Give it `onChange` and every cell becomes a select that hands the host one
 edge to land as a `link` commit. See `src/links/README.md`.
 
+### Encoding links — one chart follows another's bindings
+
+An edge of kind `encoding` carries a source view's channel bindings; the target `follow`s them (or `none`, on purpose). The session serves what each view shows as `state.effectiveEncodings` and, per view, `effective` with the channels it follows (and through which edge) and the follows its own rules refused. **Render effective, edit encodings**: pass `state.effectiveEncodings[id]` to the chart and land rebinds through `view.reencode` as before — a followed channel's own rebind is refused with a sentence that names the edge, and the matrix shows the pairs beside a `follow` cell.
+
 ## The encoding plane — which column may sit on which channel
 
 The second plane of the interaction grammar (the links are the first). The **library** owns the rules as data and the one validator (`src/encoding/README.md`); the UI only shows what the session already decided, so the picker, the agent and a build error say the same sentence.

@@ -193,7 +193,11 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
 
   // ── layer 4: the link graph, materialized once (the default rule written out; declared edges override in place) ──
   const links = materializeLinks(
-    [...views.values()].map((v) => ({ viewId: v.viewId, voice: voiceOf(v.capability) })),
+    [...views.values()].map((v) => ({
+      viewId: v.viewId,
+      voice: voiceOf(v.capability, { hasEncodingSurface: v.encoding !== undefined }),
+      ...(v.encoding !== undefined ? { channels: v.encoding.channels } : {}),
+    })),
     def.links ?? [],
     def.linkDefault ?? 'crossfilter',
   );
