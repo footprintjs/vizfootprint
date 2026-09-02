@@ -44,10 +44,24 @@ export function matchEmission(field: string, values: readonly unknown[] | null, 
  * see `selfSelectedSet`), keeping its polarity. Removing the last value
  * emits the CLEARED match (`rawValue: null`).
  */
-export function toggleInSetEmission(field: string, value: string, current: { readonly values: readonly string[]; readonly exclude: boolean }): ChartEmission {
-  const has = current.values.includes(value);
-  const next = has ? current.values.filter((v) => v !== value) : [...current.values, value];
+export function toggleInSetEmission(field: string, value: string, current: { readonly values: readonly unknown[]; readonly exclude: boolean }): ChartEmission {
+  // the set stays TYPED (an agent may have landed numbers): membership is by string, the survivors keep their type
+  const has = current.values.some((v) => String(v) === value);
+  const next = has ? current.values.filter((v) => String(v) !== value) : [...current.values, value];
   return matchEmission(field, next.length === 0 ? null : next, current.exclude);
+}
+
+/**
+ * The PLAIN click, read against the view's own set: on a member of an
+ * EXCLUDE-set it removes that member (polarity never flips from a gesture
+ * that reads as "select" — the chip flips polarity); on the single kept
+ * value it clears; anywhere else it selects that one value (a point).
+ */
+export function clickEmission(field: string, value: string, current: { readonly values: readonly unknown[]; readonly exclude: boolean }): ChartEmission {
+  const member = current.values.some((v) => String(v) === value);
+  if (current.exclude && member) return toggleInSetEmission(field, value, current);
+  const single = current.values.length === 1 && !current.exclude && member ? value : null;
+  return togglePointEmission(field, value, single);
 }
 
 /** Enter/Space activates — the shared keyboard handler for clickable marks. */

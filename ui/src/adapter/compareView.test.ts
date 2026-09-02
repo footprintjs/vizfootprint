@@ -144,10 +144,10 @@ describe('D30 — a cell selection entry in plain words', () => {
 
 describe('entryDetail — match (SET-1)', () => {
   const entry = (value: unknown) => ({ kind: 'selection' as const, viewId: 'bar', clause: { kind: 'match' as const, field: 'category', value }, commitId: 'c1' });
-  it('reads "is one of …" / "is none of …"; a cleared match says so', () => {
-    expect(entryDetail(entry({ values: ['A', 'B'] }))).toBe('category is one of A, B');
-    expect(entryDetail(entry({ values: ['A'], exclude: true }))).toBe('category is none of A');
+  it('reads "in {…}" / "not in {…}" — the chips\' and the commit log\'s own words; a cleared match says so', () => {
+    expect(entryDetail(entry({ values: ['A', 'B'] }))).toBe('category in {A, B}');
+    expect(entryDetail(entry({ values: ['A'], exclude: true }))).toBe('category not in {A}');
     expect(entryDetail(entry(null))).toBe('category match cleared');
-    expect(entryDetail(entry({}))).toBe('category is one of ');
+    expect(entryDetail(entry({}))).toBe('category in {}');
   });
 });

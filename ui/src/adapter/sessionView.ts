@@ -858,7 +858,8 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
     async setPolarity(viewId, exclude, intent) {
       const own = state.selections.find((s) => s.viewId === viewId);
       // no live point or match on that view → nothing to flip (an interval, a cell, a cleared clause, an unknown view)
-      if (own === undefined || own.value == null || (own.kind !== 'point' && own.kind !== 'match')) return;
+      if (own === undefined || own.value === undefined || (own.kind !== 'point' && own.kind !== 'match')) return;
+      if (own.kind === 'match' && own.value === null) return; // a cleared match has no polarity
       const values: readonly unknown[] = own.kind === 'point' ? [own.value] : (own.value as { readonly values: readonly unknown[] }).values;
       const label = intent ?? `${exclude ? 'exclude' : 'keep'} ${own.field}`;
       const polarity = exclude ? { exclude: true } : {};

@@ -207,7 +207,7 @@ describe('probeCapability / probeGuard — a statically declared capability.enco
     }
 
     const ov = await s.overview();
-    expect(ov.views.find((v) => v.viewId === 'narrow')!.selectionKinds).toEqual(['point']);
+    expect(ov.views.find((v) => v.viewId === 'narrow')!.selectionKinds).toEqual(['point', 'match']) // SET-1: the implied kind is reported where it is honoured;
   });
 });
 

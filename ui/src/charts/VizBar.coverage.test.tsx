@@ -164,27 +164,89 @@ describe('SET-1 — deselect, shift-click sets, drag runs (VizBar)', () => {
   });
   it('a drag from one bar to another selects the RUN between them as a match (in data order, either direction); a click stays a click', () => {
     const onEmit = vi.fn();
-    const { container } = render(<VizBar viewId="bar" data={data} field="category" onEmit={onEmit} />);
+    const { container } = render(<VizBar viewId="bar" data={data} field="category" onEmit={onEmit} width={360} />);
     const svg = container.querySelector('svg')!;
     const bars = () => screen.getAllByRole('button', { name: /^select / });
-    fireEvent.pointerEnter(bars()[1]!); // a stray enter with no run in flight is nothing
+    // three bands over a 360px chart (38px left pad, 14px right): centres at ~89, ~192, ~295 — in viewBox units (jsdom measures nothing).
+    // jsdom has no PointerEvent, so a positioned move is a MouseEvent wearing the pointermove type (React reads clientX off it)
+    const move = (i: number) => {
+      const ev = new window.MouseEvent('pointermove', { clientX: 38 + (i + 0.5) * ((360 - 38 - 14) / 3), bubbles: true });
+      Object.defineProperty(ev, 'pointerId', { value: 1 });
+      fireEvent(svg, ev);
+    };
+    move(1); // a stray move with no run in flight is nothing
     fireEvent.pointerDown(bars()[0]!);
-    fireEvent.pointerEnter(bars()[2]!);
+    fireEvent.pointerMove(svg); // a move that carries no position says nothing
+    move(1);
+    move(2);
+    move(2); // the same band again is nothing
     fireEvent.pointerUp(svg);
     expect(onEmit).toHaveBeenLastCalledWith({ rawValue: { values: ['Casual', 'Formal', 'Party'] }, encoding: { kind: 'match', field: 'category' } });
+    onEmit.mockClear();
     fireEvent.pointerDown(bars()[2]!);
-    fireEvent.pointerEnter(bars()[1]!);
-    fireEvent.pointerEnter(bars()[0]!);
+    move(0);
     fireEvent.pointerUp(svg);
     expect(onEmit).toHaveBeenLastCalledWith({ rawValue: { values: ['Casual', 'Formal', 'Party'] }, encoding: { kind: 'match', field: 'category' } });
     onEmit.mockClear();
     fireEvent.pointerDown(bars()[1]!);
-    fireEvent.pointerUp(svg); // same bar: no run — the click handler owns it
+    fireEvent.pointerUp(svg); // press and release on one bar: no run — the click handler owns it
     expect(onEmit).not.toHaveBeenCalled();
     fireEvent.pointerDown(bars()[0]!);
-    fireEvent.pointerEnter(bars()[1]!);
+    move(1);
     fireEvent.pointerLeave(svg); // the pointer left the chart: the run is abandoned
     fireEvent.pointerUp(svg);
+    fireEvent.pointerDown(bars()[0]!);
+    fireEvent.pointerCancel(svg); // a cancelled touch is abandoned too
+    fireEvent.pointerUp(svg);
     expect(onEmit).not.toHaveBeenCalled();
+  });
+
+  it('a run whose bars vanished under it (the data changed mid-drag) selects nothing rather than guessing', () => {
+    const onEmit = vi.fn();
+    const { container, rerender } = render(<VizBar viewId="bar" data={data} field="category" onEmit={onEmit} width={360} />);
+    const svg = container.querySelector('svg')!;
+    fireEvent.pointerDown(screen.getByRole('button', { name: /select Casual/ }));
+    const ev = new window.MouseEvent('pointermove', { clientX: 300, bubbles: true });
+    Object.defineProperty(ev, 'pointerId', { value: 1 });
+    fireEvent(svg, ev);
+    rerender(<VizBar viewId="bar" data={data.slice(1)} field="category" onEmit={onEmit} width={360} />);
+    fireEvent.pointerUp(svg);
+    expect(onEmit).not.toHaveBeenCalled();
+  });
+
+  it('a plain click on a member of an EXCLUDE-set removes it from the set — the polarity never flips from a click', () => {
+    const onEmit = vi.fn();
+    const excluded = selectionForView([{ viewId: 'bar', field: 'category', kind: 'match', value: { values: ['Casual', 'Formal'], exclude: true } }], 'bar');
+    render(<VizBar viewId="bar" data={data} field="category" selection={excluded} onEmit={onEmit} />);
+    fireEvent.click(screen.getByRole('button', { name: /select Casual/ }));
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: { values: ['Formal'], exclude: true }, encoding: { kind: 'match', field: 'category' } });
+    fireEvent.click(screen.getByRole('button', { name: /select Party/ })); // not a member: a plain point select
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: 'Party', encoding: { kind: 'point', field: 'category' } });
+    expect(screen.getByRole('button', { name: /select Casual/ }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByRole('button', { name: /select Casual/ }).getAttribute('aria-label')).toMatch(/— excluded$/);
+  });
+
+  it('with a measured chart (a real layout) the pointer x is scaled from screen to viewBox units, and a real drag captures the pointer ONCE', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizBar viewId="bar" data={data} field="category" onEmit={onEmit} width={360} />);
+    const svg = container.querySelector('svg')! as SVGSVGElement & { setPointerCapture: (id: number) => void; hasPointerCapture: (id: number) => boolean };
+    // the chart is drawn twice as wide as its viewBox, 10px in from the left of the screen
+    svg.getBoundingClientRect = () => ({ left: 10, top: 0, width: 720, height: 680, right: 730, bottom: 680, x: 10, y: 0, toJSON: () => ({}) });
+    let captured = 0;
+    svg.setPointerCapture = () => {
+      captured += 1;
+    };
+    svg.hasPointerCapture = () => captured > 0;
+    const move = (viewBoxX: number) => {
+      const ev = new window.MouseEvent('pointermove', { clientX: 10 + viewBoxX * 2, bubbles: true });
+      Object.defineProperty(ev, 'pointerId', { value: 7 });
+      fireEvent(svg, ev);
+    };
+    fireEvent.pointerDown(screen.getByRole('button', { name: /select Casual/ }));
+    move(38 + 1.5 * ((360 - 38 - 14) / 3)); // the second band, in viewBox units — scaled back from screen px
+    move(38 + 2.5 * ((360 - 38 - 14) / 3)); // the third: the pointer is already captured, no second capture
+    fireEvent.pointerUp(svg);
+    expect(captured).toBe(1);
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: { values: ['Casual', 'Formal', 'Party'] }, encoding: { kind: 'match', field: 'category' } });
   });
 });

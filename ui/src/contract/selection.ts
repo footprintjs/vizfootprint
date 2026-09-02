@@ -17,14 +17,13 @@
  * package rule is "import src TYPES, never src values" (see
  * `adapter/types.ts`), so the evaluator is restated here and parity is
  * enforced by test, not by convention:
- *   - point: a nullish value = CLEARED (keep all); anything else = strict
- *     equality. ONE pinned divergence from `matchesClause`: at the src tier
- *     `null` means IS NULL — but this module evaluates ADAPTER-tier values,
- *     and at that tier a cleared point selection ARRIVES as `null`
- *     (`session.overview()` projects the kept-but-cleared `undefined` clause
- *     as `value ?? null`, and the JSON poll wire cannot carry `undefined` at
- *     all), so `null` can only mean "cleared" here. A genuine IS-NULL point
- *     selection is not representable at the adapter tier.
+ *   - point: `undefined` = CLEARED (keep all) — which never reaches this
+ *     tier since SET-1 drops a cleared point from the fold; `null` = IS NULL
+ *     (`row[field] == null`), exactly the src tier. (Before SET-1 the
+ *     overview collapsed a cleared point to null, so null had to mean
+ *     "cleared" here and an IS-NULL point was unrepresentable — that
+ *     collapse is gone, and so is the divergence.) Anything else = strict
+ *     equality.
  *   - interval: `null` value = cleared (keep all); string bounds (ISO-8601
  *     dates, lexicographic == chronological) only ever match string cells;
  *     numeric bounds only numeric non-NaN cells; a `null` bound is half-open
@@ -115,9 +114,9 @@ export function clausePredicate(
     return body.exclude === true ? (row) => !hit(row) : hit;
   }
   if (kind === 'point') {
-    // nullish = CLEARED at the adapter tier (see the file header: overview()
-    // collapses the cleared `undefined` to null; JSON cannot carry undefined)
-    if (value == null) return () => true;
+    // the three-way point split, exactly `matchesClause`: undefined = cleared (keep all), null = IS NULL, else strict equality
+    if (value === undefined) return () => true;
+    if (value === null) return (row) => row[field] == null;
     return (row) => row[field] === value;
   }
   // interval — the wire only ever carries the session's FilterRange; this is
@@ -190,8 +189,8 @@ export function selfSelectedValue(selection: RenderSelection): string | null {
 
 /** The consuming view's own live SET: the values it keeps or excludes. */
 export interface SelfSelectedSet {
-  /** The values, as the strings chart marks compare against. */
-  readonly values: readonly string[];
+  /** The values, UNTYPED as they ride the clause (a mark compares via `String(v)` — see `markClass`); a set is never widened to strings. */
+  readonly values: readonly unknown[];
   /** True when the set is an EXCLUDE (everything but these). */
   readonly exclude: boolean;
 }
@@ -208,11 +207,11 @@ export function selfSelectedSet(selection: RenderSelection): SelfSelectedSet {
   const none: SelfSelectedSet = { values: [], exclude: false };
   if (selection.selfClauseId === null) return none;
   const own = selection.clauses.get(selection.selfClauseId);
-  if (!own || own.value == null) return none;
-  if (own.kind === 'point') return { values: [String(own.value)], exclude: false };
-  if (own.kind !== 'match') return none;
+  if (!own || own.value === undefined) return none;
+  if (own.kind === 'point') return { values: [own.value], exclude: false }; // a null point is a live IS-NULL selection
+  if (own.kind !== 'match' || own.value === null) return none;
   const body = own.value as Exclude<MatchWire, null>;
-  return { values: body.values.map((v) => String(v)), exclude: body.exclude === true };
+  return { values: body.values, exclude: body.exclude === true };
 }
 
 /**

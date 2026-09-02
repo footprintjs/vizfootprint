@@ -31,6 +31,15 @@ import { gateChartSpec } from '../renderer/index.js';
 import { cellFieldLabel, isRejection, matchesClause, type CellClause, type ColumnInfo, type MatchValue, type PredicateClause, type Row } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
 
+/**
+ * SET-1: a set is a point's plural — a view that declares `point` emits
+ * `match` too. ONE helper, used by the guard AND the overview's
+ * `selectionKinds`, so what an agent is told matches what the guard accepts.
+ */
+function impliedKinds(encodings: readonly ('point' | 'interval' | 'cell' | 'match')[]): readonly ('point' | 'interval' | 'cell' | 'match')[] {
+  return encodings.includes('point') && !encodings.includes('match') ? [...encodings, 'match'] : encodings;
+}
+
 /** The predicate clause a landed point/interval/match probe folds to — ONE spelling for the live path and the replay fold. */
 function probeClause(kind: 'point' | 'interval' | 'match', field: string, value: unknown): PredicateClause {
   if (kind === 'point') return { kind, field, value };
@@ -1080,9 +1089,7 @@ class InteractionSessionImpl implements InteractionSession {
     const cap = this.probeCapability(viewId);
     if (!cap) return null; // no capability declared → default allow
     if (!cap.canProbe) return `view "${viewId}" declares no-probe capability`;
-    // SET-1: a set is a point's plural — a view that declares 'point' emits 'match' too
-    const allowed = cap.encodings === undefined || cap.encodings.includes(kind) || (kind === 'match' && cap.encodings.includes('point'));
-    if (!allowed) {
+    if (cap.encodings !== undefined && !impliedKinds(cap.encodings).includes(kind)) {
       return `view "${viewId}" does not encode a ${kind} selection`;
     }
     return null;
@@ -1111,6 +1118,10 @@ class InteractionSessionImpl implements InteractionSession {
         }
         if ('values' in action) {
           // SET-1: the MATCH form — many values on one field, optional exclude; `values: null` clears.
+          // ONE shape guard at the boundary (the doors need not each re-check): a typed gap, never a raw TypeError.
+          if (action.values !== null && !Array.isArray(action.values)) {
+            return this.reject('select', intent, this.gapLedger.file('guard-failed', 'select', 'select.values must be an array of values, or null to clear the match', action.field));
+          }
           const value: MatchValue = action.values === null ? null : { values: action.values, ...(action.exclude === true ? { exclude: true } : {}) };
           return this.doProbe(action.viewId, action.field, value, 'match', action.cause, as, intent, action.correlationId);
         }
@@ -1915,7 +1926,7 @@ class InteractionSessionImpl implements InteractionSession {
         viewId: view.viewId,
         actor: view.meta.actor,
         ...(view.meta.label !== undefined ? { label: view.meta.label } : {}),
-        selectionKinds: cap?.encodings ?? (['point', 'interval', 'match'] as const),
+        selectionKinds: cap?.encodings !== undefined ? impliedKinds(cap.encodings) : (['point', 'interval', 'match'] as const),
         canProbe: cap?.canProbe ?? true,
         mounted: this.adapters.has(view.viewId),
         // The `reencode` fold (SPEC Q6 8th verb), branch-scoped at the cursor —

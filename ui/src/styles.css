@@ -2030,7 +2030,7 @@
 :where(.vzf) .vzf-region.vzf-excluded {
   stroke: var(--vzf-ink);
   stroke-width: 2;
-  stroke-dasharray: 4 3;
+  stroke-dasharray: 2 2; /* short enough to read as a dash on a 3px bar */
 }
 :where(.vzf) .vzf-table-row.vzf-excluded td {
   background: var(--vzf-surface-2);

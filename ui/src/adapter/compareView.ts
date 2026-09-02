@@ -85,7 +85,8 @@ export function entryDetail(e: RawFoldEntry): string {
       // SET-1: the list in words, its polarity as a word
       const v = c.value as { readonly values?: readonly unknown[]; readonly exclude?: boolean } | null;
       if (v === null || v === undefined) return `${c.field} match cleared`;
-      return `${c.field} is ${v.exclude === true ? 'none of' : 'one of'} ${(v.values ?? []).map(word).join(', ')}`;
+      // the same words the chips and the commit log use — one vocabulary for one clause
+      return `${c.field} ${v.exclude === true ? 'not in' : 'in'} {${(v.values ?? []).map(word).join(', ')}}`;
     }
     if (c.value === null) return `${c.field} filter cleared`;
     const range = c.value as readonly [unknown, unknown];

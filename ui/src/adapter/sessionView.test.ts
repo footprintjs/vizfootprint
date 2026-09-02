@@ -705,6 +705,7 @@ describe('SET-1 — emit(match), clear, clearAll, setPolarity', () => {
       { viewId: 'heatmap', field: 'price × category', kind: 'cell', value: [[100, 150], 'Formal'], fields: ['price', 'category'] },
       { viewId: 'map', field: 'region', kind: 'match', value: { values: ['North', 'South'], exclude: true } },
       { viewId: 'line', field: 'date', kind: 'point', value: null },
+      { viewId: 'cleared', field: 'region', kind: 'match', value: null },
     ],
   };
   function fetchOf(state: RawPollState) {
@@ -751,11 +752,11 @@ describe('SET-1 — emit(match), clear, clearAll, setPolarity', () => {
     const view = createSessionView(pollingSource({ fetchImpl: impl }));
     await view.refresh();
     await view.clearAll();
-    expect(posts.map((p) => p['viewId'])).toEqual(['bar', 'scatter', 'heatmap', 'map', 'line']);
+    expect(posts.map((p) => p['viewId'])).toEqual(['bar', 'scatter', 'heatmap', 'map', 'line', 'cleared']);
     expect(posts.every((p) => p['intent'] === 'clear all')).toBe(true);
     view.dispose();
   });
-  it('setPolarity flips a point (as a one-value set) or a match; an interval, a cell, a cleared point, an unknown view are no-ops', async () => {
+  it('setPolarity flips a point (as a one-value set — a null point is a live IS-NULL one) or a match; an interval, a cell, an unknown view are no-ops', async () => {
     const { impl, posts } = fetchOf(STATE);
     const view = createSessionView(pollingSource({ fetchImpl: impl }));
     await view.refresh();
@@ -765,11 +766,13 @@ describe('SET-1 — emit(match), clear, clearAll, setPolarity', () => {
     await view.setPolarity('scatter', true);
     await view.setPolarity('heatmap', true);
     await view.setPolarity('line', true);
+    await view.setPolarity('cleared', true);
     await view.setPolarity('nowhere', true);
     expect(posts).toEqual([
       { verb: 'select', viewId: 'bar', field: 'category', values: ['Formal'], exclude: true, intent: 'exclude category' },
       { verb: 'select', viewId: 'map', field: 'region', values: ['North', 'South'], intent: 'keep region' },
       { verb: 'select', viewId: 'map', field: 'region', values: ['North', 'South'], intent: 'keep the north and south' },
+      { verb: 'select', viewId: 'line', field: 'date', values: [null], exclude: true, intent: 'exclude date' }, // IS NULL → everything but the empties
     ]);
     view.dispose();
   });

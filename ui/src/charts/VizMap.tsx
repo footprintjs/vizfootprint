@@ -32,8 +32,8 @@
  */
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import type { RenderSelection } from '../contract/types.js';
-import { togglePointEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
-import { markClass, selectedSet } from '../primitives/useSelection.js';
+import { clickEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
+import { inSet, markClass, selectedSet } from '../primitives/useSelection.js';
 import { rampStep, SEQ_RAMP_STEPS } from '../primitives/scales.js';
 
 /** A lon/lat ring: `[ [lon, lat], … ]`. */
@@ -175,7 +175,6 @@ export function VizMap(props: VizMapProps): JSX.Element {
 
   // explicit `selected` wins; otherwise the outline derives from the fold's own point OR match clause (SET-1)
   const set = selectedSet(props.selected, selection);
-  const selected = set.values.length === 1 && !set.exclude ? set.values[0]! : null;
 
   const values = new Map(data.map((d) => [d.region, d.value]));
   const max = Math.max(0, ...data.map((d) => d.value));
@@ -185,7 +184,7 @@ export function VizMap(props: VizMapProps): JSX.Element {
     // plain click: the selected region again CLEARS the point (rawValue undefined —
     // src/data's three-way split; null would mean "match SQL NULL"), another
     // region selects it; shift/⌘/ctrl-click toggles it in the view's own SET (SET-1)
-    const emission: ChartEmission = additive ? toggleInSetEmission(regionField, region, set) : togglePointEmission(regionField, region, selected);
+    const emission: ChartEmission = additive ? toggleInSetEmission(regionField, region, set) : clickEmission(regionField, region, set);
     onEmit?.(emission);
   };
 
@@ -203,7 +202,7 @@ export function VizMap(props: VizMapProps): JSX.Element {
         const name = String(f.properties?.[nameProperty] ?? `region ${i + 1}`);
         const value = values.get(name);
         const hasData = value !== undefined && value > 0 && max > 0;
-        const isSel = set.values.includes(name);
+        const isSel = inSet(name, set);
         return (
           <path
             key={name}
@@ -213,8 +212,8 @@ export function VizMap(props: VizMapProps): JSX.Element {
             fill={hasData ? `var(--vzf-seq-${rampStep(value, max)})` : 'var(--vzf-map-empty)'}
             role="button"
             tabIndex={0}
-            aria-pressed={isSel}
-            aria-label={hasData ? `${name} · ${value} ${valueLabel}` : `${name} · no ${valueLabel}`}
+            aria-pressed={isSel && !set.exclude}
+            aria-label={`${hasData ? `${name} · ${value} ${valueLabel}` : `${name} · no ${valueLabel}`}${isSel && set.exclude ? ' — excluded' : ''}`}
             data-region={name}
             onClick={(e) => emit(name, e.shiftKey || e.metaKey || e.ctrlKey)}
             onKeyDown={(e) => {

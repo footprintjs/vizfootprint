@@ -70,7 +70,9 @@ describe('SET-1 — select with values (a match)', () => {
     expect(onScatter.ok).toBe(false);
     expect(JSON.stringify(onScatter)).toMatch(/guard-failed/);
     expect(JSON.stringify(onScatter)).toMatch(/does not encode a match selection/);
-    expect((await s.overview()).views.find((v) => v.viewId === 'bar')?.selectionKinds).toEqual(['point']); // the declaration is reported as declared
+    // what an agent is told matches what the guard accepts: the implied kind is REPORTED
+    expect((await s.overview()).views.find((v) => v.viewId === 'bar')?.selectionKinds).toEqual(['point', 'match']);
+    expect((await s.overview()).views.find((v) => v.viewId === 'scatter')?.selectionKinds).toEqual(['interval']);
   });
 
   it('time travel rebuilds a match from the log — seek back to it and the same rows are kept', async () => {
@@ -126,5 +128,16 @@ describe('SET-1 — select with values (a match)', () => {
     if (!res.ok) return;
     expect(res.recipe).toEqual({ apply: 'selection', viewId: 'bar', kind: 'match', field: 'category', value: { values: [A] } });
     expect(res.commit?.value).toEqual({ values: [A] });
+  });
+
+  it('a values that is not an array (or an explicit undefined) is refused as a typed gap at the boundary — never a raw TypeError', async () => {
+    const s = freshSession();
+    const bad = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', values: 'Formal' as unknown as readonly unknown[], cause: userCause() });
+    expect(bad.ok).toBe(false);
+    expect(JSON.stringify(bad)).toMatch(/guard-failed/);
+    expect(JSON.stringify(bad)).toMatch(/must be an array of values/);
+    const spread = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', values: undefined as unknown as readonly unknown[], cause: userCause() });
+    expect(spread.ok).toBe(false);
+    expect(s.log.records).toHaveLength(0);
   });
 });

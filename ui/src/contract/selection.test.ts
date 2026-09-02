@@ -57,19 +57,12 @@ describe('clausePredicate ↔ matchesClause parity (the pinned mirror)', () => {
     }
   });
 
-  it('THE pinned divergence: a null point value is CLEARED at the adapter tier (src tier reads IS NULL)', () => {
-    // overview() projects a kept-but-cleared point clause as `value ?? null`,
-    // and JSON cannot carry undefined — so at this tier null can only mean
-    // "cleared". The src evaluator (operating on session-internal values,
-    // where undefined survives) reads null as IS NULL instead.
+  it('a null point is IS NULL at BOTH tiers (SET-1 removed the old adapter-tier divergence: a cleared point never reaches the wire)', () => {
     const mirrored = clausePredicate('point', 'note', null);
-    expect(ROWS.map((r) => mirrored(r))).toEqual([true, true, true, true]); // cleared — keeps everything
-    expect(ROWS.map((r) => matchesClause(r, { kind: 'point', field: 'note', value: null }))).toEqual([
-      true, // note: null — IS NULL matches
-      false,
-      true, // note: undefined — == null matches
-      false,
-    ]);
+    const real = ROWS.map((r) => matchesClause(r, { kind: 'point', field: 'note', value: null }));
+    expect(ROWS.map((r) => mirrored(r))).toEqual(real);
+    expect(real).toEqual([true, false, true, false]); // note: null / present / undefined / present
+    expect(ROWS.every((r) => clausePredicate('point', 'note', undefined)(r))).toBe(true); // undefined = cleared, keep all
   });
 });
 
@@ -253,7 +246,9 @@ describe('SET-1 — the match arm mirrors matchesClause; selfSelectedSet is the 
     const point = selectionForView([{ viewId: 'bar', field: 'category', kind: 'point', value: 'A' }], 'bar');
     expect(selfSelectedSet(point)).toEqual({ values: ['A'], exclude: false });
     const match = selectionForView([{ viewId: 'bar', field: 'category', kind: 'match', value: { values: ['A', 7], exclude: true } }], 'bar');
-    expect(selfSelectedSet(match)).toEqual({ values: ['A', '7'], exclude: true });
+    expect(selfSelectedSet(match)).toEqual({ values: ['A', 7], exclude: true }); // typed — never widened to strings
+    const nullPoint = selectionForView([{ viewId: 'bar', field: 'category', kind: 'point', value: null }], 'bar');
+    expect(selfSelectedSet(nullPoint)).toEqual({ values: [null], exclude: false }); // a live IS-NULL point
     const interval = selectionForView([{ viewId: 'bar', field: 'price', kind: 'interval', value: [1, 2] }], 'bar');
     expect(selfSelectedSet(interval)).toEqual({ values: [], exclude: false });
     const cleared = selectionForView([{ viewId: 'bar', field: 'category', kind: 'match', value: null }], 'bar');

@@ -45,9 +45,14 @@ export function selectedSet(explicit: string | null | undefined, selection: Rend
   return selection ? selfSelectedSet(selection) : { values: [], exclude: false };
 }
 
+/** Is a mark's (string) value a member of the set? The set keeps its values typed; the mark compares by their string. */
+export function inSet(value: string, set: SelfSelectedSet): boolean {
+  return set.values.some((v) => String(v) === value);
+}
+
 /** The outline class for a mark whose value is (or is not) in the view's own set — `''` when it is not. */
 export function markClass(value: string, set: SelfSelectedSet): string {
-  if (!set.values.includes(value)) return '';
+  if (!inSet(value, set)) return '';
   return set.exclude ? ' vzf-excluded' : ' vzf-selected';
 }
 

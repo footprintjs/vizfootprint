@@ -15,8 +15,8 @@ import type { RenderSelection } from '../contract/types.js';
 import { useRef } from 'react';
 import { TICK_ANGLE, VALUE_CHAR_PX, fitTick, fitsBand } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
-import { matchEmission, togglePointEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
-import { markClass, selectedSet } from '../primitives/useSelection.js';
+import { clickEmission, matchEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
+import { inSet, markClass, selectedSet } from '../primitives/useSelection.js';
 import { useReencodePicker } from '../primitives/reencode.js';
 import { EncodingPicker } from './EncodingPicker.js';
 
@@ -72,10 +72,12 @@ export function VizBar(props: VizBarProps): JSX.Element {
   } = props;
   // explicit `selected` wins; otherwise the outline derives from the fold's own point OR match clause (SET-1)
   const set = selectedSet(props.selected, selection);
-  const selected = set.values.length === 1 && !set.exclude ? set.values[0]! : null;
   const { pickerChannel, openPicker, closePicker } = useReencodePicker(onReencodeRequest);
-  // SET-1 drag-run: pointer down on one bar, up on another selects the RUN between them (a match)
-  const run = useRef<{ start: number; end: number } | null>(null);
+  // SET-1 drag-run: pointer down on one bar, release over another selects the RUN between them (a
+  // match). The run is tracked by CATEGORY (a poll may reorder the data mid-drag) and the pointer by
+  // its x over the whole plot (a bar's own height is not the hit target; touch works through capture).
+  const run = useRef<{ start: string; end: string } | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
 
   const max = Math.max(1, ...data.map((d) => d.count));
   const band = (width - PAD.l - PAD.r) / Math.max(1, data.length);
@@ -89,17 +91,45 @@ export function VizBar(props: VizBarProps): JSX.Element {
   // value labels are all-or-nothing: omitting only the wide ones would keep the small numbers and drop the large
   const showValues = data.every((d) => fitsBand(String(d.count), band, VALUE_CHAR_PX));
 
-  // plain click: the single kept value clears, anything else selects it (a point);
-  // shift/⌘/ctrl-click: toggle the value in the view's own SET (a match) — SET-1
+  // plain click: read against the view's own set (a member of an exclude-set leaves it; the single
+  // kept value clears; anything else selects a point); shift/⌘/ctrl-click: toggle in the SET — SET-1
   const emit = (category: string, additive: boolean): void => {
-    onEmit?.(additive ? toggleInSetEmission(field, category, set) : togglePointEmission(field, category, selected));
+    onEmit?.(additive ? toggleInSetEmission(field, category, set) : clickEmission(field, category, set));
+  };
+  /** The band index under a pointer event, from its x over the svg (viewBox units; identity when unmeasured); -1 for an event without a position. */
+  const bandAt = (e: { clientX: number }): number => {
+    const box = svgRef.current?.getBoundingClientRect();
+    const sx = box !== undefined && box.width > 0 ? (e.clientX - box.left) * (width / box.width) : e.clientX;
+    if (!Number.isFinite(sx)) return -1;
+    return Math.min(data.length - 1, Math.max(0, Math.floor((sx - PAD.l) / band)));
+  };
+  const beginRun = (category: string): void => {
+    run.current = { start: category, end: category };
+  };
+  const moveRun = (e: { clientX: number; pointerId: number }): void => {
+    if (run.current === null || data.length === 0) return;
+    const idx = bandAt(e);
+    if (idx < 0) return; // a pointer event with no position says nothing about where the pointer is
+    const end = data[idx]!.category;
+    if (end === run.current.end) return;
+    // the pointer has left the pressed bar: this is a DRAG now, so capture it — a plain click never
+    // captures (capturing on pointerdown would retarget the click away from the bar in real browsers)
+    const svg = svgRef.current as (SVGSVGElement & { setPointerCapture?: (id: number) => void; hasPointerCapture?: (id: number) => boolean }) | null;
+    if (svg?.setPointerCapture !== undefined && svg.hasPointerCapture?.(e.pointerId) !== true) svg.setPointerCapture(e.pointerId);
+    run.current.end = end;
   };
   const endRun = (): void => {
     const r = run.current;
     run.current = null;
-    if (r === null || r.start === r.end) return; // a click on one bar is the click handler's business
-    const [lo, hi] = r.start < r.end ? [r.start, r.end] : [r.end, r.start];
+    if (r === null || r.start === r.end) return; // a press-and-release on one bar is the click handler's business
+    const a = data.findIndex((d) => d.category === r.start);
+    const b = data.findIndex((d) => d.category === r.end);
+    if (a < 0 || b < 0) return; // the data changed under the drag — nothing honest to select
+    const [lo, hi] = a < b ? [a, b] : [b, a];
     onEmit?.(matchEmission(field, data.slice(lo, hi + 1).map((d) => d.category), set.exclude));
+  };
+  const cancelRun = (): void => {
+    run.current = null;
   };
 
   return (
@@ -107,19 +137,20 @@ export function VizBar(props: VizBarProps): JSX.Element {
       <svg
         className={`vzf-chart vzf-bar${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
+        ref={svgRef}
         role="img"
         aria-label={`count by ${label}`}
+        onPointerMove={moveRun}
         onPointerUp={endRun}
-        onPointerLeave={() => {
-          run.current = null;
-        }}
+        onPointerCancel={cancelRun}
+        onPointerLeave={cancelRun}
       >
         <line className="vzf-axis" x1={PAD.l} y1={axisY} x2={width - PAD.r} y2={axisY} />
         {data.map((d, i) => {
           const cx = PAD.l + band * i;
           const h = (d.count / max) * plot;
           const barY = axisY - h;
-          const isSel = set.values.includes(d.category);
+          const isSel = inSet(d.category, set);
           const tx = cx + band / 2;
           const tick = fitTick(d.category, band, tickRoom, tx);
           return (
@@ -134,8 +165,8 @@ export function VizBar(props: VizBarProps): JSX.Element {
                 fill={colorOf ? colorOf(d.category) : 'var(--vzf-brand)'}
                 role="button"
                 tabIndex={0}
-                aria-pressed={isSel}
-                aria-label={`select ${d.category} (${d.count})`}
+                aria-pressed={isSel && !set.exclude}
+                aria-label={`select ${d.category} (${d.count})${isSel && set.exclude ? ' — excluded' : ''}`}
                 style={{ cursor: 'pointer' }}
                 onClick={(e) => emit(d.category, e.shiftKey || e.metaKey || e.ctrlKey)}
                 onKeyDown={(e) => {
@@ -143,12 +174,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
                   e.preventDefault();
                   emit(d.category, e.shiftKey || e.metaKey || e.ctrlKey);
                 }}
-                onPointerDown={() => {
-                  run.current = { start: i, end: i };
-                }}
-                onPointerEnter={() => {
-                  if (run.current !== null) run.current.end = i;
-                }}
+                onPointerDown={() => beginRun(d.category)}
               >
                 <title>{`click to select ${d.category}`}</title>
               </rect>

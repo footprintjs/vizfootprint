@@ -36,8 +36,8 @@ import { useMemo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import type { RenderSelection } from '../contract/types.js';
-import { togglePointEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
-import { useKeepPredicate, selectedSet, markClass, dimClass } from '../primitives/useSelection.js';
+import { clickEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
+import { useKeepPredicate, selectedSet, inSet, markClass, dimClass } from '../primitives/useSelection.js';
 
 /** One row of table data — arbitrary fields, keyed by column name. */
 export interface TableRow {
@@ -112,7 +112,6 @@ export function VizTable(props: VizTableProps): JSX.Element {
 
   // explicit `selected` wins; otherwise the outline derives from the fold's own point OR match clause (SET-1)
   const set = selectedSet(props.selected, selection);
-  const selected = set.values.length === 1 && !set.exclude ? set.values[0]! : null;
   const keep = useKeepPredicate(selection);
 
   const [sort, setSort] = useState<TableSortState | null>(null);
@@ -135,11 +134,11 @@ export function VizTable(props: VizTableProps): JSX.Element {
 
   const emit = (id: string, additive: boolean): void => {
     // plain click: click-again-clears (VizMap's gesture); shift/⌘/ctrl-click toggles the row in the view's own SET (SET-1)
-    const emission: ChartEmission = additive ? toggleInSetEmission(idField, id, set) : togglePointEmission(idField, id, selected);
+    const emission: ChartEmission = additive ? toggleInSetEmission(idField, id, set) : clickEmission(idField, id, set);
     onEmit?.(emission);
   };
   const onRowKey = (e: KeyboardEvent<HTMLTableRowElement>, id: string): void => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       emit(id, e.shiftKey || e.metaKey || e.ctrlKey);
     }
@@ -197,14 +196,14 @@ export function VizTable(props: VizTableProps): JSX.Element {
               <tbody>
                 {sorted.map((row) => {
                   const id = String(row[idField]);
-                  const isSelected = set.values.includes(id);
+                  const isSelected = inSet(id, set);
                   const isKept = keep ? keep(row) : true;
                   return (
                     <tr
                       key={id}
                       className={`vzf-table-row${markClass(id, set)}${dimClass(isKept)}`}
                       tabIndex={0}
-                      aria-selected={isSelected}
+                      aria-selected={isSelected && !set.exclude}
                       aria-label={`row ${id}${isSelected ? (set.exclude ? ' excluded' : ' selected') : ''}`}
                       onClick={(e) => emit(id, e.shiftKey || e.metaKey || e.ctrlKey)}
                       onKeyDown={(e) => onRowKey(e, id)}

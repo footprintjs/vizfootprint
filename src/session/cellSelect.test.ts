@@ -302,7 +302,7 @@ describe('D30 — TARGETED: branching / compare / time-travel machinery untouche
     const s = freshSession();
     const ov = await s.overview();
     expect(ov.views.find((v) => v.viewId === 'heatmap')?.selectionKinds).toEqual(['cell']);
-    expect(ov.views.find((v) => v.viewId === 'bar')?.selectionKinds).toEqual(['point', 'interval']);
+    expect(ov.views.find((v) => v.viewId === 'bar')?.selectionKinds).toEqual(['point', 'interval', 'match']) // SET-1: a declared point implies match, and the implied kind is REPORTED;
   });
 
   it('session-level replay: a serialized log with a cell commit replays byte-identically (R2)', async () => {

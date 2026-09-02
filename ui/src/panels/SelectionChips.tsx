@@ -32,10 +32,9 @@ export function chipWords(s: SelectionView): string {
   return `${s.field} = ${formatCommitValue(s)}`;
 }
 
-/** Whether a selection has a polarity to flip (a live point or match). */
+/** Whether a selection has a polarity to flip (a live point or match — `live` already dropped the cleared ones). */
 function flippable(s: SelectionView): boolean {
-  if (s.kind === 'point') return s.value != null;
-  return s.kind === 'match' && s.value != null;
+  return s.kind === 'point' || s.kind === 'match';
 }
 
 function isExcluded(s: SelectionView): boolean {
@@ -43,7 +42,8 @@ function isExcluded(s: SelectionView): boolean {
 }
 
 export function SelectionChips({ selections, labels = {}, onClear, onClearAll, onSetPolarity, readOnly = false, className }: SelectionChipsProps): JSX.Element {
-  const live = selections.filter((s) => s.value != null); // a cleared clause (null on the wire) is not a chip
+  // a cleared clause is not a chip: a cleared point never reaches the wire (dropped from the fold), a cleared interval/cell/match arrives as null
+  const live = selections.filter((s) => s.value !== undefined && (s.kind === 'point' || s.value !== null));
   return (
     <div className={`vzf vzf-selchips${className ? ' ' + className : ''}`} role="group" aria-label="live selections" data-vzf="selection-chips">
       {live.length === 0 ? (
