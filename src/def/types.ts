@@ -42,7 +42,7 @@ import type { ColumnFacet, ColumnInfo, DataProvider, Engine, Row } from '../data
 // changing a view's visual encoding is a state-changing transition too, not an
 // optional-interaction affordance — docs/RESEARCH_STATE.md Q6/D-note). ────────
 
-/** The eight semantic verbs the agent drives every interaction through (R4). */
+/** The nine semantic verbs the agent drives every interaction through (R4) — the ninth, `link`, edits the link graph (layer 4). */
 export type DispatchVerb =
   | 'select'
   | 'filter'

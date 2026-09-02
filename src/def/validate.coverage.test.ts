@@ -98,11 +98,22 @@ describe('validateDashboardDef — actors shape', () => {
     ['annotation:user', 'annotation:'],
     ['layout:dashboard', 'layout:'],
     ['beat:0', 'beat:'],
+    ['link:bar:point→map', 'link:'],
   ])('rejects a view id in the reserved namespace %p', (viewId, prefix) => {
     const problems = validateDashboardDef(baseDef({ actors: { [viewId]: { actor: 'user' } } }));
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain(`actors["${viewId}"]: a view id may not start with "${prefix}"`);
     expect(problems[0]).toContain('silently skipped when a path is adopted');
+  });
+
+  it('DRIFT PIN: every *_VIEW_PREFIX the branches layer exports is reserved at the def boundary (a new namespace cannot be forgotten)', async () => {
+    const branches = (await import('../branches/index.js')) as Record<string, unknown>;
+    const prefixes = Object.entries(branches).filter(([name, v]) => name.endsWith('_VIEW_PREFIX') && typeof v === 'string') as [string, string][];
+    expect(prefixes.length).toBeGreaterThanOrEqual(7);
+    for (const [name, prefix] of prefixes) {
+      const problems = validateDashboardDef(baseDef({ actors: { [`${prefix}x`]: { actor: 'user' } } }));
+      expect(problems.some((p) => p.includes(`may not start with "${prefix}"`)), `${name} (${prefix}) is not reserved`).toBe(true);
+    }
   });
 
   it('a view id that merely CONTAINS a reserved word is fine — only the prefix is reserved', () => {

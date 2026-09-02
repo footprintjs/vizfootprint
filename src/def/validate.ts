@@ -19,6 +19,7 @@ import { ENCODING_SET_FIELD,
   ENCODING_VIEW_PREFIX,
   LAYOUT_VIEW_PREFIX,
   BEAT_VIEW_PREFIX,
+  LINK_VIEW_PREFIX,
 } from '../branches/index.js';
 import { ABSENCE_UNKNOWN, DISPATCH_VERBS, type DispatchVerb } from './types.js';
 import { lintEncodings, resolveFacets, validateColumnDecls, validateEncodingRulesShape } from '../encoding/index.js';
@@ -83,6 +84,7 @@ const RESERVED_VIEW_PREFIXES = [
   CHART_VIEW_PREFIX,
   LAYOUT_VIEW_PREFIX,
   BEAT_VIEW_PREFIX,
+  LINK_VIEW_PREFIX, // layer 4: `link:<edgeId>` is a keyed namespace — a view there would be read as a link-graph edit
 ] as const;
 
 /** The reserved namespace a view id squats, or undefined when it is free to use. */
