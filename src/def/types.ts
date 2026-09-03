@@ -39,7 +39,7 @@ import type {
   RunAnalysisOptions,
 } from '../analysis/index.js';
 import type { FdrStep, GammaSequence, HypothesisRecord } from '../fdr/index.js';
-import type { ColumnFacet, ColumnInfo, DataProvider, Engine, Row } from '../data/index.js';
+import type { ColumnFacet, ColumnInfo, DataProvider, DerivedColumnStore, Engine, Row } from '../data/index.js';
 
 // ── The dispatch verb vocabulary (SPEC §9; Q6 — the 7-verb set was INCOMPLETE:
 // changing a view's visual encoding is a state-changing transition too, not an
@@ -496,6 +496,14 @@ export interface DashboardRuntime {
   readonly bookmarks: BookmarkStore;
   /** The commit-id counter — one per dashboard, so two sessions can never mint the same commit id (see {@link CommitIdStore}). */
   readonly commitIds: CommitIdStore;
+  /**
+   * Which slots in the table stores hold TRACE-derived columns, and which act
+   * made each — dashboard-scoped, because the stores are (see
+   * `src/data/README.md`). A session resolves a derived column's name through
+   * this at its cursor; every store column NOT registered here is declared
+   * source data, and is visible on every branch.
+   */
+  readonly derived: DerivedColumnStore;
   /** Build notes a def should hear: e.g. `engine: 'auto'` resolved to memory because the thresholds are unmeasured. */
   readonly notes: readonly string[];
   /** The declared row key per table (absent = positional rows, no delta). */

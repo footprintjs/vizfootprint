@@ -15,6 +15,7 @@
 
 import {
   chooseEngine,
+  DerivedColumnStore,
   memoryProvider,
   serverProvider,
   wasmProvider,
@@ -264,7 +265,7 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
     engines[table] = engine;
     providers.set(table, buildProvider(engine, table, source));
   }
-  return assemble(def, options, providers, engines, sources, notes, journal);
+  return assemble(def, options, providers, engines, sources, notes, journal, new DerivedColumnStore());
 }
 
 /**
@@ -304,6 +305,10 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
     providers.set(table, buildProvider(engine, table, source));
   }
   const adapters = options.sources ?? [];
+  // Which table-store slots hold TRACE-derived columns (src/data/README.md).
+  // Dashboard-scoped because the stores are: two sessions write into one
+  // provider. A refresh replaces a provider, so it drops that table's slots.
+  const derived = new DerivedColumnStore();
   const run = async (which?: readonly string[]): Promise<RefreshResult> => {
     const out: Record<string, RefreshOutcome> = {};
     for (const table of which ?? Object.keys(def.data)) {
@@ -340,8 +345,14 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
           /* v8 ignore next -- a memory provider always lists its columns */
           const arrived = new Set((isRejection(newCols) ? [] : newCols).map((c) => c.name));
           /* v8 ignore next -- a memory provider always lists its columns */
-          const lost = (isRejection(oldCols) ? [] : oldCols).map((c) => c.name).filter((c) => !arrived.has(c));
-          const base = lost.length === 0 ? before : before.map((r) => Object.fromEntries(Object.entries(r).filter(([c]) => arrived.has(c))));
+          const goneSlots = (isRejection(oldCols) ? [] : oldCols).map((c) => c.name).filter((c) => !arrived.has(c));
+          // A derived column is REPORTED by the name a person knows, not by the
+          // slot it lived in; and the registry is dropped with the provider that
+          // held it, or the session would keep resolving a name the store lacks.
+          const spelling = derived.logicalByPhysical(table);
+          const lost = goneSlots.map((c) => spelling.get(c) ?? c);
+          derived.clear(table);
+          const base = goneSlots.length === 0 ? before : before.map((r) => Object.fromEntries(Object.entries(r).filter(([c]) => arrived.has(c))));
           providers.set(table, fresh);
           sources[table] = { ...held, version: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length };
           out[table] = { changed: true, from: held.version, to: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length, delta: deltaByKey(base, snap.rows, decl.key), ...(lost.length > 0 ? { materialisedLost: lost } : {}) };
@@ -364,7 +375,7 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
     queue = next.catch(() => undefined);
     return next;
   };
-  return assemble(def, options, providers, engines, sources, notes, journal, refresh);
+  return assemble(def, options, providers, engines, sources, notes, journal, derived, refresh);
 }
 
 /**
@@ -525,7 +536,7 @@ export function restoreBookmarksInto(store: BookmarkStore, list: readonly Restor
  * never saw a refresh again. One object literal, built once, cannot go wrong
  * that way.
  */
-function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[], refresh?: Dashboard['refresh']): Dashboard {
+function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[], derived: DerivedColumnStore, refresh?: Dashboard['refresh']): Dashboard {
   freezeDefinition(def);
   const saved: SavedStore = { list: [], minted: 0 }; // saved selections: logic beside the log, shared by every session (the counter rides the store: it outlives every session)
   const bookmarks: BookmarkStore = { list: [], minted: 0 }; // bookmarks: names on moments beside the log, shared by every session
@@ -599,6 +610,7 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     saved,
     bookmarks,
     commitIds,
+    derived,
     makeFdrStepper,
     fdrProcedure: def.fdr?.procedure ?? 'LORD++',
     fdrAlpha: def.fdr?.alpha ?? 0.05,

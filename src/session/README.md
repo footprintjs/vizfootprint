@@ -141,6 +141,14 @@ out.materialized;           // []  — honestly claims nothing was written
 out.gap;                    // { code: 'effect-failed', op: 'declareAnalysis', target: 'cluster_id', … }
 ```
 
+That write has a JUDGE in front of it, and the judge is rule 1 above: a computed
+column may never take a declared source column's name, refused before a single
+value moves (`guard-failed`). Which columns a derived one is allowed to take,
+how two branches computing the same name stay apart, and why column VISIBILITY
+is a consequence of that resolution rather than a second mechanism, are in
+[`../data/README.md`](../data/README.md) — "a derived column belongs to the act
+that made it".
+
 The `op` on an `effect-failed` gap is the verb where there is one, and `commit`
 where there is not: the live selection's update happens inside
 [`../log`](../log/README.md), which does not have a verb — so the gap's `target`
@@ -306,7 +314,9 @@ which are session-local records of what this walker asked for; the stores
 beside the log (saved pictures, bookmarks, the data journal), which live on the
 dashboard and have their own persistence doors; and materialized columns —
 re-running an analysis means running third-party code again, which a log replay
-deliberately does not do and `adoptPath` deliberately does.
+deliberately does not do and `adoptPath` deliberately does. (A materialized
+column that IS present is branch-scoped, and that scoping is one mechanism, not
+two: see [`../data/README.md`](../data/README.md).)
 
 One caveat, stated because it matters: a fold read after a `seek` is ALREADY a
 rebuild, so comparing that to a replay compares `rebuildFold` with itself and

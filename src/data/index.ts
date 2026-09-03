@@ -37,6 +37,10 @@ export type { BoxSummary, BoxSummaryOptions } from './boxSummary.js';
 export { parseCSV, parseCSVTyped } from './csv.js';
 export type { ParsedCSV, SniffedCSV } from './csv.js';
 
+// Derived columns — the trace's columns, versioned by the act that made them.
+export { DerivedColumnStore, derivedColumnName, renameClauseFields, renameRowSlots, resolveDerived } from './derivedColumns.js';
+export type { DerivedColumn } from './derivedColumns.js';
+
 export { memoryProvider } from './memoryProvider.js';
 export type { Layout, MemoryProviderOptions, RowsInput } from './memoryProvider.js';
 

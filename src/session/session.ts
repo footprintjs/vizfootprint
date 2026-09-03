@@ -33,7 +33,7 @@ import { CauseSelectionSession } from '../log/index.js';
 import type { CommitRecord } from '../log/index.js';
 import { TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
-import { cellFieldLabel, isRejection, type CellClause, type ColumnInfo, type MatchValue, type PredicateClause, type Row } from '../data/index.js';
+import { cellFieldLabel, derivedColumnName, isRejection, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchValue, type PredicateClause, type Row } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
 import { applyLinkOverrides, edgeId, impliedKinds, validateLinks, type LinkDecl } from '../links/index.js';
 
@@ -561,6 +561,8 @@ export const VIEW_QUERY_DEFAULT_LIMIT = 200;
 
 /** The one frozen empty map every "this view binds nothing" answer shares. */
 const EMPTY_BINDINGS: Readonly<Record<string, string>> = Object.freeze({});
+/** No derived column on this table — the shared empty answer {@link Session.derivedAt} hands back. */
+const EMPTY_DERIVED: ReadonlyMap<string, DerivedColumn> = new Map();
 
 /** The subject-independent half of a prose record's staleness world at the cursor. */
 interface ProseWorldNow {
@@ -595,8 +597,14 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly activeProse = new Map<string, Map<ProseSlot, ProseRecord>>();
   /** The proposal lane's fold: viewId → slot → the latest proposal (with the proposing commit's id). */
   private readonly activeProposals = new Map<string, Map<ProseSlot, ProseProposal & { readonly proposal: string }>>();
-  /** materialised column name → its producing analysis provenance (L6 `why({kind:'column'})`). */
+  /**
+   * The SLOT a derived column landed in → its producing analysis provenance
+   * (L6 `why({kind:'column'})`). Keyed by slot, not by name: two branches
+   * computing `risk` are two acts with two answers.
+   */
   private readonly whyByColumn = new Map<string, WhyProvenance>();
+  /** Logical column name → every slot this session landed it in, oldest first — see {@link slotForColumn}. */
+  private readonly whyColumnSlots = new Map<string, string[]>();
   /** analysisId → the last invocation's provenance (L6 `why({kind:'hypothesis'})`). */
   private readonly whyByAnalysisId = new Map<string, WhyProvenance>();
   private readonly fdrStepper: FdrStepper;
@@ -604,17 +612,6 @@ class InteractionSessionImpl implements InteractionSession {
   /** RP-3: agent-authored charts registered this session, in proposal order (chartId → view). */
   private readonly _charts = new Map<string, ChartView>();
   private readonly initialWealth: number;
-
-  /**
-   * commitId → the (table, column) pairs an analysis materialized AT that commit.
-   * Column visibility is branch-scoped through the FOLD: a materialized column is
-   * visible iff its producing commit is on the cursor's branch path. (The memory
-   * provider physically stores the column globally — see the branch-isolation
-   * note in `effectiveColumnsOf` — so the session scopes visibility itself.)
-   */
-  private readonly materializedByCommit = new Map<string, { table: string; name: string }[]>();
-  /** `${table}::${name}` for every column ever materialized in this session (across all branches). */
-  private readonly allMaterialized = new Set<string>();
 
   /** The ACTIVE branch head — tip of the lineage linear commits extend. Moves only on a landed act. */
   private _head: string | null = null;
@@ -1289,14 +1286,17 @@ class InteractionSessionImpl implements InteractionSession {
     }
   }
 
-  /** The materialized columns visible on the current cursor's branch path, for one table. */
-  private visibleMaterialized(table: string): Set<string> {
-    const out = new Set<string>();
-    for (const rec of this.branchPath(this._cursor)) {
-      const cols = this.materializedByCommit.get(rec.id);
-      if (cols) for (const c of cols) if (c.table === table) out.add(c.name);
-    }
-    return out;
+  /**
+   * What each derived column NAME means at the cursor, for one table: the one
+   * resolution everything else reads. A name absent from this map is not
+   * derived here — either it is declared source data (visible on every branch)
+   * or it was computed on a branch the cursor is not on (visible nowhere here).
+   * See `src/data/README.md`.
+   */
+  private derivedAt(table: string): ReadonlyMap<string, DerivedColumn> {
+    const entries = this.runtime.derived.forTable(table);
+    if (entries.length === 0) return EMPTY_DERIVED; // fast path: nothing derived on this table
+    return resolveDerived(entries, this.branchPath(this._cursor).map((r) => r.id));
   }
 
   // ── ids ────────────────────────────────────────────────────────────────────
@@ -1343,11 +1343,47 @@ class InteractionSessionImpl implements InteractionSession {
     const provider = this.runtime.providerFor(table);
     if (!provider) return { rejected: `no provider for table "${table}"` };
     // the whole live selection is ONE query to the engine — the session never folds rows in JS after the answer
-    const res = await provider.evaluate(table, clauses.length === 0 ? null : clauses, { mode: 'rows' });
+    const res = await this.ask(table, provider, clauses, { mode: 'rows' });
     /* v8 ignore next -- every provider's reject() (memory/wasm/server, src/data/*Provider.ts) always supplies a `detail`; `res.reason` fallback is unreachable via the public API */
     if (isRejection(res)) return { rejected: res.detail ?? res.reason };
     /* v8 ignore next -- allRows always requests { mode: 'rows' }, and the only non-rejecting provider (memory) always sets `.rows` in that mode; the `?? []` fallback is unreachable via the public API */
     return res.rows ?? [];
+  }
+
+  /**
+   * THE ONE DOOR from a clause to an engine. Everything a caller says is in
+   * LOGICAL names — the names on the commits, the charts and the screen. The
+   * store spells a derived column by the act that made it, so this is where the
+   * two meet: fields, sort keys and the column projection go in translated, and
+   * the rows come back wearing the names the caller asked for.
+   *
+   * A table with no derived column resolved at the cursor takes the untouched
+   * path — no map, no rewrite, no per-row allocation — which is every table on
+   * every dashboard until an analysis lands a column.
+   *
+   * The `sql` descriptor deliberately keeps the PHYSICAL spelling: it is a
+   * record of the column the engine actually read, and that name is the act
+   * that produced it. Nothing outside `src/data` reads it.
+   */
+  private async ask(
+    table: string,
+    provider: DataProvider,
+    clauses: readonly PredicateClause[],
+    options: EvaluateOptions,
+  ): Promise<EvaluateResult | DataProviderRejection> {
+    const here = this.derivedAt(table);
+    if (here.size === 0) return provider.evaluate(table, clauses.length === 0 ? null : clauses, options);
+    const slot = (field: string): string => here.get(field)?.physical ?? field;
+    const asked: EvaluateOptions = {
+      ...options,
+      ...(options.columns !== undefined ? { columns: options.columns.map(slot) } : {}),
+      ...(options.sort !== undefined ? { sort: options.sort.map((k) => ({ ...k, field: slot(k.field) })) } : {}),
+    };
+    const mapped = clauses.map((c) => renameClauseFields(c, slot));
+    const res = await provider.evaluate(table, mapped.length === 0 ? null : mapped, asked);
+    if (isRejection(res) || res.rows === undefined) return res;
+    const back = new Map([...here.values()].map((d) => [d.physical, d.name] as const));
+    return { ...res, rows: res.rows.map((r) => renameRowSlots(r, back)) };
   }
 
   private async columnsOf(table: string): Promise<readonly ColumnInfo[] | { rejected: string }> {
@@ -1360,23 +1396,50 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /**
-   * The columns VISIBLE on the current cursor's branch (branch-scoped fold).
-   * Base columns are always visible; a MATERIALIZED column (produced by an
-   * analysis on some branch) is visible only when its producing commit is on the
-   * cursor's path. This is where branch isolation for materialized columns is
-   * enforced: the memory provider mutates its column store IN PLACE and cannot
-   * un-materialize per branch (`materializeColumn`, memoryProvider.ts:235-257),
-   * so `cluster_id` materialized on branch A physically persists in the shared
-   * store — but the SESSION FOLD hides it on any branch whose path excludes the
-   * clustering commit, so a `select cluster_id` on branch B is an honest
-   * `needs-column` and `overview().columns` omits it there.
+   * The names on one table that are the MAP's: declared source data, present
+   * before any act and not the trace's to edit. Every store column the derived
+   * registry does not know is one — which is why a re-run of an analysis is not
+   * a collision with itself (its own earlier output lives in a registered slot,
+   * never under the bare name).
+   */
+  private async declaredColumnsOf(table: string): Promise<Set<string> | { rejected: string }> {
+    const cols = await this.columnsOf(table);
+    if ('rejected' in cols) return cols;
+    const slots = this.runtime.derived.physicalNames(table);
+    return new Set(cols.map((c) => c.name).filter((name) => !slots.has(name)));
+  }
+
+  /**
+   * The columns visible at the cursor — the store's columns, read through
+   * {@link derivedAt}.
+   *
+   * This used to be a second mechanism: the provider stored a derived column
+   * under its bare name and the session kept a parallel set of "names that are
+   * materialized somewhere" to filter by. The name was branch-scoped and the
+   * BYTES were not, so two branches' `risk` were one array and seeking picked
+   * the wrong numbers with the right provenance on them. There is one source of
+   * truth now — a derived column lives in a slot per ACT, and visibility is what
+   * falls out of resolving a name at a position.
+   *
+   * A store column the registry does not know is DECLARED source data, and is
+   * visible on every branch: the map does not move with the walker.
    */
   private async effectiveColumnsOf(table: string): Promise<readonly ColumnInfo[] | { rejected: string }> {
     const cols = await this.columnsOf(table);
     if ('rejected' in cols) return cols;
-    if (this.allMaterialized.size === 0) return cols; // fast path: nothing materialized yet
-    const visible = this.visibleMaterialized(table);
-    return cols.filter((c) => !this.allMaterialized.has(`${table}::${c.name}`) || visible.has(c.name));
+    const slots = this.runtime.derived.physicalNames(table);
+    if (slots.size === 0) return cols; // fast path: nothing derived on this table
+    const here = new Map([...this.derivedAt(table).values()].map((d) => [d.physical, d.name] as const));
+    const out: ColumnInfo[] = [];
+    for (const c of cols) {
+      if (!slots.has(c.name)) {
+        out.push(c); // declared source data
+        continue;
+      }
+      const logical = here.get(c.name);
+      if (logical !== undefined) out.push({ name: logical, type: c.type }); // derived, and on this branch
+    }
+    return out;
   }
 
   /**
@@ -1467,7 +1530,7 @@ class InteractionSessionImpl implements InteractionSession {
     }
     if (key !== undefined && !columns.includes(key)) columns = [...columns, key]; // identity rides every window
     const cursor = this._cursor;
-    const res = await provider.evaluate(table, filters.length === 0 ? null : filters, {
+    const res = await this.ask(table, provider, filters, {
       mode: 'rows',
       columns,
       indices: true,
@@ -1481,8 +1544,11 @@ class InteractionSessionImpl implements InteractionSession {
       // a column a link's mapping invented is the link's doing — say so, or the person cannot find it (judged against the table's own columns, never the projection)
       if (res.reason === 'unknown-column') {
         const own = await this.columnsOf(table);
+        // by the names a link's mapping speaks: a derived column's store slot is
+        // spelled by its act, and a mapping never names it that way
+        const spelling = this.runtime.derived.logicalByPhysical(table);
         /* v8 ignore next -- the engine just named a column it lacks, so it can list the ones it has; the rejected arm keeps the type honest */
-        const has = new Set('rejected' in own ? [] : own.map((c) => c.name));
+        const has = new Set('rejected' in own ? [] : own.map((c) => spelling.get(c.name) ?? c.name));
         const invented = this.mappingsInto(query.viewId).filter((m) => !has.has(m.to));
         if (invented.length > 0) rejected += ` — ${invented.map((m) => `the link from ${m.from} maps ${m.field} → ${m.to}`).join('; ')}`;
       }
@@ -1778,7 +1844,7 @@ class InteractionSessionImpl implements InteractionSession {
   private async selectedCount(table: string, clauses: readonly PredicateClause[]): Promise<number | null> {
     const provider = this.runtime.providerFor(table);
     if (!provider) return null;
-    const res = await provider.evaluate(table, clauses.length === 0 ? null : clauses, { mode: 'count' });
+    const res = await this.ask(table, provider, clauses, { mode: 'count' });
     return isRejection(res) ? null : res.count;
   }
 
@@ -2853,18 +2919,40 @@ class InteractionSessionImpl implements InteractionSession {
     // R11: a columns-channel output materializes back into the data space so it
     // re-enters as ordinary, filterable columns.
     let materialized: string[] | undefined;
+    /** logical name → the store slot this act landed it in, for the provenance keys below. */
+    const slots = new Map<string, string>();
     let gap: AnalysisCommit['gap'];
     if (run.result.output.as === 'columns') {
       const out = run.result.output;
       const provider = this.runtime.providerFor(out.table);
       materialized = [];
+      // JUDGE FIRST (src/session/README.md): which names on this table are the
+      // MAP's — declared source data — decides, before a single value moves,
+      // which of this analysis's columns are allowed to land at all. A store
+      // column the derived registry does not know is declared.
+      const declared = await this.declaredColumnsOf(out.table);
       if (!provider) {
         gap = this.gapLedger.file('needs-view', 'declareAnalysis', `no provider for table "${out.table}"`, out.table);
+      } else if ('rejected' in declared) {
+        // the engine could not say which columns are the map's, so nothing may
+        // be written over them — refusing is the only honest direction
+        gap = this.gapLedger.file('needs-backend-data', 'declareAnalysis', `analysis "${id}" produced columns, but table "${out.table}" could not say which columns are its own: ${declared.rejected}`, out.table);
       } else {
         for (const name of Object.keys(out.columns)) {
           const values = run.snapshot?.sharedState[name];
           if (!Array.isArray(values)) {
             gap = this.gapLedger.file('guard-failed', 'declareAnalysis', `analysis "${id}" produced no values for column "${name}"`, name);
+            continue;
+          }
+          // A DERIVED column may never take a DECLARED column's name. Source
+          // data is the map: it is not the trace's to edit, and overwriting it
+          // would destroy real values for every branch and every session on this
+          // dashboard, with no commit recording the destruction. A refusal, not
+          // a merge — and judged here, before anything is written.
+          const slot = derivedColumnName(name, record.id);
+          const collision = declared.has(name) ? name : declared.has(slot) ? slot : undefined;
+          if (collision !== undefined) {
+            gap = this.gapLedger.file('guard-failed', 'declareAnalysis', `analysis "${id}" would write column "${name}" over the declared source column "${collision}" of table "${out.table}" — a computed column may not take a source column's name`, name);
             continue;
           }
           // OUTBOUND, and after the declaring commit already landed: writing a
@@ -2877,7 +2965,7 @@ class InteractionSessionImpl implements InteractionSession {
           // turn: the answer says exactly which column did not land.
           let landed: Awaited<ReturnType<typeof provider.materializeColumn>>;
           try {
-            landed = await provider.materializeColumn(out.table, name, values);
+            landed = await provider.materializeColumn(out.table, slot, values);
           } catch (error) {
             gap = this.gapLedger.file('effect-failed', 'declareAnalysis', `analysis "${id}" ran, but writing column "${name}" back into table "${out.table}" threw: ${messageOf(error)}`, name);
             continue;
@@ -2887,15 +2975,12 @@ class InteractionSessionImpl implements InteractionSession {
             /* v8 ignore next -- every provider's materializeColumn() rejection (memory/wasm/server, src/data/*Provider.ts) always supplies a `detail`; the `landed.reason` fallback is unreachable via the public API */
             gap = this.gapLedger.file(code, 'declareAnalysis', landed.detail ?? landed.reason, name);
           } else {
+            // the slot is the act's; the NAME is what everything else speaks
+            this.runtime.derived.record({ table: out.table, name, physical: slot, commitId: record.id });
+            slots.set(name, slot);
             materialized.push(name);
           }
         }
-      }
-      // Branch-scope the materialized columns to THIS commit (the fold makes them
-      // visible only on branches whose path includes it — see effectiveColumnsOf).
-      if (materialized.length > 0) {
-        this.materializedByCommit.set(record.id, materialized.map((name) => ({ table: out.table, name })));
-        for (const name of materialized) this.allMaterialized.add(`${out.table}::${name}`);
       }
     }
 
@@ -2919,11 +3004,15 @@ class InteractionSessionImpl implements InteractionSession {
     };
     const output = run.result.output;
     if (output.as === 'columns') {
-      // Kernel key == the column name (the flowchart writes the column directly
-      // into committed state — session.ts reads `sharedState[name]` above).
-      /* v8 ignore next -- `materialized` is unconditionally assigned (line ~840) whenever `run.result.output.as === 'columns'`, the same discriminant guarding this block; the `?? []` fallback exists only to satisfy the `string[] | undefined` field type and is unreachable via the public API */
-      for (const name of materialized ?? []) {
-        this.whyByColumn.set(name, { ...baseProv, kernelKey: name });
+      // Keyed by the SLOT, not the name: two branches computing `risk` are two
+      // acts, and each must answer `why` with its own. The kernel key stays the
+      // logical NAME — that is the key the analysis kernel wrote into committed
+      // state (`sharedState[name]` above).
+      for (const [name, slot] of slots) {
+        this.whyByColumn.set(slot, { ...baseProv, kernelKey: name });
+        const made = this.whyColumnSlots.get(name);
+        if (made) made.push(slot);
+        else this.whyColumnSlots.set(name, [slot]);
       }
     } else if (output.as === 'scalar') {
       // The scalar's kernel key is the (unique) committed state key holding its
@@ -3086,11 +3175,34 @@ class InteractionSessionImpl implements InteractionSession {
     return { ok: true, chartId: id, view, hypothesis, commit: specCommit, fdrStep };
   }
 
+  /**
+   * The act a derived column NAME asks about. `why({ kind: 'column' })` names a
+   * column the way a person does, and two branches may both have computed one
+   * by that name, so the name alone is not always an answer.
+   *
+   * The cursor's branch decides when it can: the `risk` in front of you is the
+   * one you ask about. Off every such branch the name still answers IF exactly
+   * one act in this session ever produced it — which is what keeps `why()`
+   * working after the branch that made the column is archived or switched away
+   * from (TL-1: parking a path must not destroy the statistics). Only when
+   * SEVERAL acts made that name and none is on this branch is there no answer,
+   * because any one of them would be a guess — and a guess is precisely the
+   * failure this whole area exists to remove.
+   */
+  private slotForColumn(column: string): string | undefined {
+    for (const table of this.runtime.tables) {
+      const hit = this.derivedAt(table).get(column);
+      if (hit) return hit.physical;
+    }
+    const made = this.whyColumnSlots.get(column);
+    return made?.length === 1 ? made[0] : undefined;
+  }
+
   // ── L6 why(target) ─────────────────────────────────────────────────────────────
   why(target: WhyTarget, opts: { agentEventLog?: readonly AgentEventFrame[] } = {}): WhyResult {
     if (target.kind === 'prose') return this.whyProse(target, opts);
     const prov = target.kind === 'column'
-      ? this.whyByColumn.get(target.column)
+      ? this.whyByColumn.get(this.slotForColumn(target.column) ?? target.column)
       : this.whyByAnalysisId.get(target.analysisId);
     if (!prov) return { ok: false, missing: 'no-such-target', target };
     return why(target, {
