@@ -39,7 +39,7 @@
  * a `protocol-version-mismatch` gap — honest, never silent.
  */
 
-import type { ChartEmission } from '../../../src/mosaic/index.js';
+import type { ChartEmission } from 'vizfootprint/mosaic';
 
 /**
  * The protocol version this build of vizfootprint-ui speaks. 1.1 ADDED the

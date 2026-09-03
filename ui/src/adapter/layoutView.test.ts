@@ -32,7 +32,7 @@ describe('parseLayout — defensive wire parsing', () => {
 describe('LY-1: the dashboard layout identity is pinned to the src wire prefix', () => {
   it('LAYOUT_DASHBOARD_VIEW_ID === LAYOUT_VIEW_PREFIX + "dashboard" (byte parity — the two layers cannot drift)', async () => {
     // test-only value import of the src constant (production ui code stays type-only)
-    const { LAYOUT_VIEW_PREFIX } = await import('../../../src/branches/index.js');
+    const { LAYOUT_VIEW_PREFIX } = await import('vizfootprint/branches');
     expect(LAYOUT_DASHBOARD_VIEW_ID).toBe(`${LAYOUT_VIEW_PREFIX}dashboard`);
   });
 });
@@ -85,7 +85,7 @@ describe('setLayout — poll source POSTs navigate dispatches with plain-words i
 describe('setLayout — REAL InteractionSession end to end (fold-carried view-state)', () => {
   async function liveView() {
     // test-only value import of the real L5 grammar (production ui code stays type-only)
-    const { buildDashboard } = await import('../../../src/agent/index.js');
+    const { buildDashboard } = await import('vizfootprint/agent');
     const rows = [
       { id: 'a', category: 'Casual', price: 20, rating: 3 },
       { id: 'b', category: 'Formal', price: 120, rating: 5 },

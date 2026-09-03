@@ -5,13 +5,14 @@
  * loop can all read it the same way. The two supported SOURCES (an in-process
  * {@link SessionLike} or a polled state endpoint) both normalize INTO this.
  *
- * `Actor`, `ColumnFacet`, `FdrStep`, and the raw session/log shapes are imported
- * from `../../../src` (the packet's rule — import src types, never modify src),
- * but the public `SessionViewState` re-declares its own view-models so the
- * contract stays self-contained and stable even as src evolves.
+ * `Actor`, `ColumnFacet`, `FdrStep`, and the raw session/log shapes come from the
+ * library through its public doors (`vizfootprint/cause`, `/session`, `/log` — see
+ * ../../../PACKAGING.md; import them, never modify them), but the public
+ * `SessionViewState` re-declares its own view-models so the contract stays
+ * self-contained and stable even as the library evolves.
  */
 
-import type { Actor } from '../../../src/cause/index.js';
+import type { Actor } from 'vizfootprint/cause';
 
 export type { Actor };
 

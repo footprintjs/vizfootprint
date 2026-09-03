@@ -23,7 +23,7 @@ beforeAll(() => {
   }
 });
 
-import type { ChartEmission } from '../../../src/mosaic/index.js';
+import type { ChartEmission } from 'vizfootprint/mosaic';
 import { useHorizontalBrush, BrushOverlay, type HorizontalBrushOptions } from './brush.js';
 import { pointEmission, togglePointEmission, keyActivates, matchEmission, toggleInSetEmission } from './pointSelect.js';
 import { selectedSet, markClass } from './useSelection.js';

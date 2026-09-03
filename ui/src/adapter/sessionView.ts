@@ -18,10 +18,10 @@
  * of `ViewInfo.encodings` is now `selectionKinds`.
  */
 
-import type { Actor } from '../../../src/cause/index.js';
-import type { CommitRecord } from '../../../src/log/index.js';
-import { familyOf } from '../../../src/branches/fold.js';
-import { PROPOSAL_LANE } from '../../../src/prose/index.js';
+import type { Actor } from 'vizfootprint/cause';
+import type { CommitRecord } from 'vizfootprint/log';
+import { familyOf } from 'vizfootprint/branches';
+import { PROPOSAL_LANE } from 'vizfootprint/prose';
 import type {
   Overview,
   GapRow,
@@ -40,10 +40,10 @@ import type {
   SaveSelectionResult,
   ApplySavedOptions,
   ApplySavedResult,
-} from '../../../src/session/index.js';
-import type { SavedSelection } from '../../../src/def/index.js';
-import type { Cause } from '../../../src/cause/index.js';
-import type { ChartEmission } from '../../../src/mosaic/index.js';
+} from 'vizfootprint/session';
+import type { SavedSelection } from 'vizfootprint/def';
+import type { Cause } from 'vizfootprint/cause';
+import type { ChartEmission } from 'vizfootprint/mosaic';
 import {
   ClearedSelectionView, LinkGraphView,
   HONESTY_LINE,

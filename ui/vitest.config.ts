@@ -1,4 +1,7 @@
 import { defineConfig } from 'vitest/config';
+// The library's doors resolve to SOURCE in a test run (and to dist everywhere
+// else) — the shared list, and why, live in ../vitest.alias.mjs.
+import { vizfootprintAliases } from '../vitest.alias.mjs';
 
 // The component library is React; its unit tests need a DOM. jsdom is the
 // default environment here, but every *.test.tsx ALSO carries a
@@ -10,6 +13,7 @@ import { defineConfig } from 'vitest/config';
 // `jsx: automatic` in build.mjs) so component source needs no `import React`;
 // the UMD build shims `react/jsx-runtime` from `window.React`.
 export default defineConfig({
+  resolve: { alias: vizfootprintAliases },
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}', 'gallery/**/*.test.ts'],

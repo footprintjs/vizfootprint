@@ -30,7 +30,7 @@ import type { TopLevelSpec } from 'vega-lite';
 // rules are single-sourced in the CORE library (runtime-free — no vega-lite),
 // and this bridge CONSUMES that detection so the two layers cannot drift. The
 // bridge keeps its own v1 WORDING and its VL-typed param resolution below.
-import { analyzeSpecShape, type SpecShapeFacts } from '../../../src/renderer/specShapeGate.js';
+import { analyzeSpecShape, type SpecShapeFacts } from 'vizfootprint/renderer';
 
 /** A typed spec-gate refusal — the reason a spec cannot ride bridge v1. */
 export interface SpecGateIssue {

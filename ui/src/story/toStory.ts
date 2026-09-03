@@ -20,9 +20,9 @@
  * host's own markup, inserted verbatim (escape at the seam is the host's
  * duty for its own HTML). Pure: the state in, a plain JSON-safe post out.
  */
-import { BOOKMARK_VIEW_PREFIX, PROSE_VIEW_PREFIX } from '../../../src/branches/fold.js';
-import { DASHBOARD_PROSE_ID, PROSE_SLOTS } from '../../../src/prose/index.js';
-import type { ProseSlot } from '../../../src/prose/index.js';
+import { BOOKMARK_VIEW_PREFIX, PROSE_VIEW_PREFIX } from 'vizfootprint/branches';
+import { DASHBOARD_PROSE_ID, PROSE_SLOTS } from 'vizfootprint/prose';
+import type { ProseSlot } from 'vizfootprint/prose';
 import type { BookmarkView, CommitView, SessionViewState } from '../adapter/types.js';
 import { pathToRoot } from '../adapter/stepNav.js';
 import { bookmarkTarget, orderedBookmarks } from '../time/presentBookmark.js';

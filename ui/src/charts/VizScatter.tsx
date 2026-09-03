@@ -18,7 +18,7 @@
  * `AxisLabel`/`useReencodePicker` (the re-encode seam) — the same pieces a
  * consumer-built chart gets.
  */
-import type { ChartEmission } from '../../../src/mosaic/index.js';
+import type { ChartEmission } from 'vizfootprint/mosaic';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
 import { linearScale, extent, ticks } from '../primitives/scales.js';

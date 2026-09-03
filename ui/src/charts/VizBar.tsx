@@ -9,7 +9,7 @@
  * `onReencodeRequest` asks the HOST (contract mode); otherwise it opens the
  * built-in {@link EncodingPicker} for the categorical channel.
  */
-import type { ChartEmission } from '../../../src/mosaic/index.js';
+import type { ChartEmission } from 'vizfootprint/mosaic';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { useRef } from 'react';

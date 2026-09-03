@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { createSessionView, sessionSource } from './sessionView.js';
-import { buildDashboard } from '../../../src/def/index.js';
+import { buildDashboard } from 'vizfootprint/def';
 import { makeDashboardDef, SAMPLE_ROWS } from '../../../src/session/dashboard.fixture.js';
 
 describe('the data stamp on the in-process path', () => {

@@ -2,14 +2,14 @@
 /**
  * The clause-addressable selection derivation — including the PARITY PIN:
  * `clausePredicate` must agree with `src/data`'s real `matchesClause` on
- * every point/interval shape the wire can carry (the mirror-instead-of-import
- * contract stated in selection.ts's header).
+ * every point/interval shape the wire can carry. `matchesClause` arrives
+ * through the `vizfootprint/data` door — the same door selection.ts's header
+ * says was never what stood in the way of sharing it.
  */
 import { describe, it, expect } from 'vitest';
 import { selfSelectedSet, brightPredicate, navigateDomain } from './selection.js';
 import type { LinkGraphView } from '../adapter/types.js';
-import { matchesClause } from '../../../src/data/predicate.js';
-import type { PredicateClause } from '../../../src/data/types.js';
+import { matchesClause, type PredicateClause } from 'vizfootprint/data';
 import {
   clausePredicate,
   emptySelection,

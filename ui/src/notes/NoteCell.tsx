@@ -13,8 +13,8 @@
  */
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { mentionsToRefs } from '../../../src/prose/index.js';
-import type { MentionWorld } from '../../../src/prose/index.js';
+import { mentionsToRefs } from 'vizfootprint/prose';
+import type { MentionWorld } from 'vizfootprint/prose';
 import type { NoteView, ProseStatusView } from '../adapter/types.js';
 import { ProseText } from '../panels/ProseText.js';
 import type { Linkable } from './linkables.js';

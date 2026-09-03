@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest';
 import { createSessionView, sessionSource, pollingSource, mapPollState, type SessionLike, type RawPollState } from './sessionView.js';
-import type { SavedSelection } from '../../../src/def/index.js';
+import type { SavedSelection } from 'vizfootprint/def';
 
 const RAW: RawPollState = {
   defaultTable: 'data',
@@ -641,7 +641,7 @@ describe('createSessionView — paths actions over a POLL source (the BR-3 endpo
 describe('createSessionView — REAL InteractionSession (UI-0 reencode end-to-end)', () => {
   async function liveView() {
     // test-only value import of the real L5 grammar (production ui code stays type-only)
-    const { buildDashboard } = await import('../../../src/agent/index.js');
+    const { buildDashboard } = await import('vizfootprint/agent');
     const rows = [
       { id: 'a', category: 'Casual', price: 20, rating: 3 },
       { id: 'b', category: 'Formal', price: 120, rating: 5 },

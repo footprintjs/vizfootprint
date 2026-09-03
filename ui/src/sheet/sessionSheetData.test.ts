@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { sessionSheetData, threwSentence, type SheetSessionLike } from './sessionSheetData.js';
-import type { Overview, ViewQuery, ViewQueryResult } from '../../../src/session/index.js';
+import type { Overview, ViewQuery, ViewQueryResult } from 'vizfootprint/session';
 
 const OVERVIEW = {
   defaultTable: 'cells',

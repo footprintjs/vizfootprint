@@ -1,6 +1,10 @@
 import { defineConfig } from 'vitest/config';
+// The doors resolve to SOURCE in a test run and to dist everywhere else —
+// vitest.alias.mjs says why, and is the one list all three configs share.
+import { vizfootprintAliases } from './vitest.alias.mjs';
 
 export default defineConfig({
+  resolve: { alias: vizfootprintAliases },
   test: {
     // Q11 (docs/RESEARCH_STATE.md): the 10k-seeded-sim FDR tests
     // (spikes/x2-fdr/a2-batch-bh-wrong.test.ts) sit close enough to the 5s

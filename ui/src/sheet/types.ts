@@ -16,8 +16,8 @@
  * sentence. There is no third arm — never an empty grid standing in for an
  * answer nobody gave.
  */
-import type { ColumnRole, ColumnType, Row, SortSpec } from '../../../src/data/index.js';
-import type { ViewQueryRefusal } from '../../../src/session/index.js';
+import type { ColumnRole, ColumnType, Row, SortSpec } from 'vizfootprint/data';
+import type { ViewQueryRefusal } from 'vizfootprint/session';
 
 export type { SortSpec, ViewQueryRefusal };
 

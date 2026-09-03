@@ -17,7 +17,7 @@
  * from a wire that predates bookmark ids has no id to link, so it is offered by
  * its commit instead of by its name: the picker and the world stay in step.
  */
-import type { MentionWorld } from '../../../src/prose/index.js';
+import type { MentionWorld } from 'vizfootprint/prose';
 import type { SavedSelectionView, SessionViewState } from '../adapter/types.js';
 
 export interface Linkable {

@@ -20,17 +20,17 @@
     "./styles.css": "./dist/vizfootprint-ui.css",
     "./package.json": "./package.json",
     "./links": {
-      "types": "./types/links.d.ts",
+      "types": "./types/links/index.d.ts",
       "import": "./dist/links.js",
       "default": "./dist/links.js"
     },
     "./editor": {
-      "types": "./types/editor.d.ts",
+      "types": "./types/editor/index.d.ts",
       "import": "./dist/editor.js",
       "default": "./dist/editor.js"
     },
     "./story": {
-      "types": "./types/story.d.ts",
+      "types": "./types/story/index.d.ts",
       "import": "./dist/story.js",
       "default": "./dist/story.js"
     }
@@ -55,7 +55,8 @@
   },
   "peerDependencies": {
     "react": ">=18",
-    "react-dom": ">=18"
+    "react-dom": ">=18",
+    "vizfootprint": "*"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.0",
@@ -70,6 +71,7 @@
     "typescript": "^5.5.0",
     "vega-lite": "6.4.3",
     "vitest": "^4.0.0",
+    "vizfootprint": "file:..",
     "vizfootprint-vega-lite": "0.0.0"
   }
 }

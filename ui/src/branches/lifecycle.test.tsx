@@ -25,7 +25,7 @@ import { ForkToast } from './ForkToast.js';
 import { BranchMap } from '../time/BranchMap.js';
 import { createSessionView, pollingSource, mapPollState, summarizeAdopt, type RawPollState } from '../adapter/sessionView.js';
 import { HIDDEN_NOT_ERASED, type AdoptSummaryView, type PathEventView, type PathsView, type PathView } from '../adapter/types.js';
-import { HIDDEN_NOT_ERASED as SRC_HIDDEN_NOT_ERASED } from '../../../src/agent/index.js';
+import { HIDDEN_NOT_ERASED as SRC_HIDDEN_NOT_ERASED } from 'vizfootprint/agent';
 
 afterEach(cleanup);
 

@@ -33,9 +33,9 @@ beforeAll(() => {
   }
 });
 
-import { buildDashboard } from '../../../src/agent/index.js';
-import { equalWidthBins, recountBins, boxSummary } from '../../../src/data/index.js';
-import type { Cause } from '../../../src/cause/index.js';
+import { buildDashboard } from 'vizfootprint/agent';
+import { equalWidthBins, recountBins, boxSummary } from 'vizfootprint/data';
+import type { Cause } from 'vizfootprint/cause';
 import { createSessionView, sessionSource, type SessionView } from '../adapter/sessionView.js';
 import type { SessionViewState } from '../adapter/types.js';
 import { runConformance, type ConformancePlan, type ConformanceReport } from './conformance.js';

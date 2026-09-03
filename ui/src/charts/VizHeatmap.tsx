@@ -37,7 +37,7 @@
  * (`defaultCompat`), y to category/numeric columns (its own compat — a
  * boolean/unknown column has no honest row vocabulary).
  */
-import type { ChartEmission } from '../../../src/mosaic/index.js';
+import type { ChartEmission } from 'vizfootprint/mosaic';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedCell } from '../contract/selection.js';

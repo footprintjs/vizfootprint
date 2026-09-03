@@ -1,15 +1,90 @@
 {
   "name": "vizfootprint",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Causal/agent provenance layer for coordinated interactive visualization \u2014 cause-tagged clauses over Mosaic, append-only branching provenance, declared analyses with online FDR. Part of the footprintjs family.",
   "type": "module",
   "license": "MIT",
+  "types": "./dist/agent/index.d.ts",
+  "module": "./dist/agent/index.js",
+  "main": "./dist/agent/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/agent/index.d.ts",
+      "default": "./dist/agent/index.js"
+    },
+    "./agent": {
+      "types": "./dist/agent/index.d.ts",
+      "default": "./dist/agent/index.js"
+    },
+    "./session": {
+      "types": "./dist/session/index.d.ts",
+      "default": "./dist/session/index.js"
+    },
+    "./def": {
+      "types": "./dist/def/index.d.ts",
+      "default": "./dist/def/index.js"
+    },
+    "./analysis": {
+      "types": "./dist/analysis/index.d.ts",
+      "default": "./dist/analysis/index.js"
+    },
+    "./source": {
+      "types": "./dist/source/index.d.ts",
+      "default": "./dist/source/index.js"
+    },
+    "./source/file": {
+      "types": "./dist/source/file.d.ts",
+      "default": "./dist/source/file.js"
+    },
+    "./data": {
+      "types": "./dist/data/index.d.ts",
+      "default": "./dist/data/index.js"
+    },
+    "./cause": {
+      "types": "./dist/cause/index.d.ts",
+      "default": "./dist/cause/index.js"
+    },
+    "./mosaic": {
+      "types": "./dist/mosaic/index.d.ts",
+      "default": "./dist/mosaic/index.js"
+    },
+    "./prose": {
+      "types": "./dist/prose/index.d.ts",
+      "default": "./dist/prose/index.js"
+    },
+    "./log": {
+      "types": "./dist/log/index.d.ts",
+      "default": "./dist/log/index.js"
+    },
+    "./branches": {
+      "types": "./dist/branches/index.d.ts",
+      "default": "./dist/branches/index.js"
+    },
+    "./renderer": {
+      "types": "./dist/renderer/index.d.ts",
+      "default": "./dist/renderer/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/index.d.ts",
+      "default": "./dist/mcp/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "PACKAGING.md"
+  ],
+  "sideEffects": false,
   "workspaces": [
     "ui",
     "bridges/vega-lite"
   ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",

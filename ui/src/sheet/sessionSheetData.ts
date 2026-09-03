@@ -15,7 +15,7 @@
  * follows for `SessionLike`): only the two methods a sheet needs are named, so
  * a test double is three lines and no value is imported from `src`.
  */
-import type { Overview, ViewQuery, ViewQueryResult } from '../../../src/session/index.js';
+import type { Overview, ViewQuery, ViewQueryResult } from 'vizfootprint/session';
 import type { SheetColumn, SheetData, SheetRefusal, SheetWindow, SheetWindowRequest } from './types.js';
 
 /** The subset of an `InteractionSession` a sheet reads. */

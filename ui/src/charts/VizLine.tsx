@@ -29,7 +29,7 @@
  * columns, y only numeric ones — disabled-with-reason via {@link lineCompat}.
  */
 import { useMemo } from 'react';
-import type { ChartEmission } from '../../../src/mosaic/index.js';
+import type { ChartEmission } from 'vizfootprint/mosaic';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import { linearScale, extent, ticks, epochOf, dayOf } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';

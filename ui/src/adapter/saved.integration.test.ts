@@ -11,9 +11,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import { createSessionView, sessionSource } from './sessionView.js';
-import { buildDashboard } from '../../../src/def/index.js';
+import { buildDashboard } from 'vizfootprint/def';
 import { makeDashboardDef, SAMPLE_ROWS } from '../../../src/session/dashboard.fixture.js';
-import { mentionsToRefs } from '../../../src/prose/index.js';
+import { mentionsToRefs } from 'vizfootprint/prose';
 import { linkablesOf, mentionWorldOf } from '../notes/linkables.js';
 import { noteRecord } from '../notes/NoteCell.js';
 

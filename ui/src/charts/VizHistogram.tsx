@@ -42,7 +42,7 @@
  * and emitted through the one documented numeric-tuple cast.
  */
 import { useMemo } from 'react';
-import type { ChartEmission } from '../../../src/mosaic/index.js';
+import type { ChartEmission } from 'vizfootprint/mosaic';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedInterval } from '../contract/selection.js';

@@ -43,7 +43,7 @@
  * `aria-label`/`title`.
  */
 import { useMemo } from 'react';
-import type { ChartEmission } from '../../../src/mosaic/index.js';
+import type { ChartEmission } from 'vizfootprint/mosaic';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { linearScale, extent, ticks, epochOf, dayOf } from '../primitives/scales.js';

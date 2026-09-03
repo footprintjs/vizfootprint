@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent, cleanup, waitFor, act } from '@testing-library/react';
 import { NoteCell, linkablesOf, mentionWorldOf, noteRecord, bracketSafe } from './index.js';
-import { mentionsToRefs } from '../../../src/prose/index.js';
+import { mentionsToRefs } from 'vizfootprint/prose';
 import { mapPollState } from '../adapter/sessionView.js';
 import type { RawPollState } from '../adapter/sessionView.js';
 import type { NoteView } from '../adapter/types.js';

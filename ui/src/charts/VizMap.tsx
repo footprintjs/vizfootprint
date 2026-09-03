@@ -30,7 +30,7 @@
  * point split in src/data/types.ts), releasing the filter. Regions are
  * keyboard-focusable; Enter/Space selects; aria labels carry name + value.
  */
-import type { ChartEmission } from '../../../src/mosaic/index.js';
+import type { ChartEmission } from 'vizfootprint/mosaic';
 import type { RenderSelection } from '../contract/types.js';
 import { clickEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
 import { inSet, markClass, selectedSet } from '../primitives/useSelection.js';

@@ -1,0 +1,18 @@
+{
+  "//": "The BUILD. `tsconfig.json` (which this extends) already declared outDir/rootDir/declaration; this file is the one that lets tsc emit, and names what never ships. See PACKAGING.md.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.fixture.ts",
+    "src/**/*.coverage.helpers.ts"
+  ]
+}

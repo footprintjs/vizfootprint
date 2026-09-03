@@ -29,7 +29,7 @@
  * and `splitBlocks` are functions over their arguments.
  */
 import type { SheetRefusal, SheetWindow, SortSpec } from './types.js';
-import type { Row } from '../../../src/data/index.js';
+import type { Row } from 'vizfootprint/data';
 
 /** How many rows one block holds (placeholder — the bench decides the real one). */
 export const SHEET_BLOCK_ROWS = 100;

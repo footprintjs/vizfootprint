@@ -1,5 +1,23 @@
 # vizfootprint (pre-alpha, X1'/X2 spikes in progress)
 
+## Importing it
+
+The library is `private` and always will be, but it is importable by name.
+`npm run build` emits `dist/`, and fifteen doors are declared in `package.json`'s
+`exports` map — `vizfootprint` (the L5 entry) plus `/agent`, `/def`, `/session`,
+`/analysis`, `/source`, `/source/file`, `/data`, `/cause`, `/mosaic`, `/prose`,
+`/log`, `/branches`, `/renderer` and `/mcp`.
+
+```ts
+import { buildDashboard, vizAsTools } from 'vizfootprint';
+import { fileSource } from 'vizfootprint/source/file';   // the node carrier, off the browser barrel
+```
+
+A relative path into `src/` is not a door and stops resolving the moment it
+crosses out of this package. Which symbol belongs on a barrel, which earns a
+subpath, and why the two resolutions (`dist/` outside, `src/` in a test run) are
+one list twice: [`PACKAGING.md`](PACKAGING.md).
+
 ## The foottrail core
 
 Underneath the branching paths below sits a small, standalone pattern:

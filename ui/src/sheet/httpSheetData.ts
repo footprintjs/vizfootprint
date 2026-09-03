@@ -19,7 +19,7 @@
  * roles. The KEY column is not asked of the host at all — every window names
  * it.
  */
-import type { ViewQueryResult } from '../../../src/session/index.js';
+import type { ViewQueryResult } from 'vizfootprint/session';
 import type { SheetColumn, SheetData, SheetRefusal, SheetWindow, SheetWindowRequest } from './types.js';
 
 /** Just the part of `fetch` this adapter uses — so a test passes a function, not a global. */

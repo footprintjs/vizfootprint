@@ -1,14 +1,14 @@
 /*
  * Builds dist/ from the TypeScript source — two bundles, the stylesheet, and
  * the .d.ts types (atui's pattern; §"Build/test discipline"):
- *   dist/vizfootprint-ui.js       ESM, React (+jsx-runtime) externalized  → bundler users
- *   dist/vizfootprint-ui.umd.js   IIFE on window.VizfootprintUI, React from window  → <script>
+ *   dist/vizfootprint-ui.js       ESM, React + `vizfootprint` externalized  → bundler users
+ *   dist/vizfootprint-ui.umd.js   IIFE on window.VizfootprintUI, React from window, library INLINED  → <script>
  *   dist/vizfootprint-ui.css      the stylesheet
- *   types/**.d.ts                 declarations (tsc -p tsconfig.build.json)
+ *   types/**.d.ts                 declarations, flat and ours only (tsc -p tsconfig.build.json)
  * Run:  npm run build
  */
 import esbuild from 'esbuild';
-import { mkdirSync, copyFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, copyFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
 mkdirSync('dist', { recursive: true });
@@ -51,6 +51,14 @@ const reactGlobals = {
   },
 };
 
+// The LIBRARY is a dependency now, not a folder up the tree (../../PACKAGING.md).
+// Before it had an exports map, `../../../src/*` was the only way in and esbuild
+// INLINED it — so dist/ shipped a private copy of vizfootprint's internals under
+// this package's name, and two copies of the commit-id counter could meet in one
+// app. The ESM bundles externalize it: the app resolves one library, once.
+const LIBRARY = ['vizfootprint', 'vizfootprint/*'];
+const REACT = ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'];
+
 const base = { bundle: true, jsx: 'automatic', jsxDev: false, minify: true, sourcemap: true, logLevel: 'info' };
 
 await esbuild.build({
@@ -58,7 +66,7 @@ await esbuild.build({
   entryPoints: ['src/index.ts'],
   format: 'esm',
   outfile: 'dist/vizfootprint-ui.js',
-  external: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+  external: [...REACT, ...LIBRARY],
 });
 
 // the link matrix as its own entry point — an app that never edits links never bundles it
@@ -67,7 +75,7 @@ await esbuild.build({
   entryPoints: ['src/links/index.ts'],
   format: 'esm',
   outfile: 'dist/links.js',
-  external: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+  external: [...REACT, ...LIBRARY],
 });
 
 // the editor (a side drawer + one chart's editable fields) as its own entry point — an app that never edits a dashboard never bundles it
@@ -76,7 +84,7 @@ await esbuild.build({
   entryPoints: ['src/editor/index.ts'],
   format: 'esm',
   outfile: 'dist/editor.js',
-  external: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+  external: [...REACT, ...LIBRARY],
 });
 
 // the story bridge (a session's bookmarks as a storydeck post) as its own entry point — pure data, no React; an app that never tells a story never bundles it
@@ -85,9 +93,14 @@ await esbuild.build({
   entryPoints: ['src/story/index.ts'],
   format: 'esm',
   outfile: 'dist/story.js',
-  external: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+  external: [...REACT, ...LIBRARY],
 });
 
+// The UMD build is the ONE that still inlines the library, and deliberately: a
+// <script> tag has no module resolver, so a self-contained file is the whole
+// point of this artifact. It takes React from window and everything else from
+// inside itself. Anything that resolves imports — a bundler, the demo, Node —
+// gets the ESM entries above and one shared library.
 await esbuild.build({
   ...base,
   entryPoints: ['src/index.ts'],
@@ -97,13 +110,12 @@ await esbuild.build({
   plugins: [reactGlobals],
 });
 
-// .d.ts (emit-only; own tsconfig so the repo-root tsc is unaffected). The
-// program spans ../src for imported types, so tsc nests the tree under
-// types/ui/src/ — a flat entry shim keeps package.json's `types` field stable.
+// .d.ts (emit-only; own tsconfig so the repo-root tsc is unaffected). This used
+// to need four hand-written shim files: the program spanned ../../src for the
+// library's types, so tsc's rootDir became the common ancestor and the tree came
+// out nested under types/ui/src/ — WITH the library's whole src/ tree beside it,
+// published under this package's name. Now that those types arrive as a
+// dependency's .d.ts, rootDir is src/ and the emit is flat and ours alone.
 execFileSync('tsc', ['-p', 'tsconfig.build.json'], { stdio: 'inherit', shell: process.platform === 'win32' });
-writeFileSync('types/index.d.ts', "export * from './ui/src/index.js';\n");
-writeFileSync('types/links.d.ts', "export * from './ui/src/links/index.js';\n");
-writeFileSync('types/editor.d.ts', "export * from './ui/src/editor/index.js';\n");
-writeFileSync('types/story.d.ts', "export * from './ui/src/story/index.js';\n");
 
 console.log('✓ built dist/ + types/');

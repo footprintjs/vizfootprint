@@ -15,24 +15,42 @@
  * (`selection.test.ts`) that runs BOTH over a value matrix.
  *
  * This block used to justify the mirror with a package rule — *"import src
- * TYPES, never src values"* — attributed to `adapter/types.ts`. **That rule
- * does not exist.** `adapter/types.ts` states a different one (import src
- * types, never MODIFY src), and this package imports src VALUES in five
- * non-test places today: `familyOf` and `PROPOSAL_LANE` in
- * `adapter/sessionView.ts`, `mentionsToRefs` in `notes/NoteCell.tsx`,
- * `MAGNITUDE_CHANNELS` in `primitives/compat.ts`, and
- * `BOOKMARK_VIEW_PREFIX`/`PROSE_VIEW_PREFIX`/`DASHBOARD_PROSE_ID`/
- * `PROSE_SLOTS` in `story/toStory.ts`. A rule the codebase does not follow is
- * worse than no rule: it makes a duplication look decided when nobody decided
- * it.
+ * TYPES, never src values"* — attributed to `adapter/types.ts`. That rule never
+ * existed, and the note that said so then pointed at the next suspect: the
+ * clause shape, "which is packaging work". **The packaging is now done, and it
+ * was not the obstacle.** The library has an exports map (../../../PACKAGING.md)
+ * and this package imports it by name; `vizfootprint/data` has exported
+ * `matchesClause` all along, and the parity test below imports it through that
+ * very door. Nothing about the seam was ever in the way.
  *
- * What actually stands in the way of importing `matchesClause` is a SHAPE, not
- * a rule: it reads `Row` + `PredicateClause` — src's own types — while this
- * tier reads `RenderRow` + `SelectionClauseView`, the view-models
- * `adapter/types.ts` re-declares so the contract stays stable as src evolves.
- * Sharing one evaluator therefore means agreeing on one clause shape across
- * that seam, which is packaging work and is deliberately NOT done here. Until
- * it is, the parity test — not this comment — is what holds the two together:
+ * TWO things actually are, and only the first was ever named:
+ *
+ * 1. THE SHAPE. `matchesClause` reads a `PredicateClause` — a typed union where
+ *    a match carries `values`/`exclude` as SIBLING fields and a cell carries
+ *    only `fields`. This tier reads the WIRE triple a commit carries:
+ *    `{kind, field, value}` (+ `fields`), where a match's list rides INSIDE
+ *    `value` as a `MatchValueBody` and a cell's `field` is the display label.
+ *    Sharing needs one total function from the wire triple to a clause — and by
+ *    `adapter/README.md`'s Law 3 that function belongs in the LIBRARY, beside
+ *    the shape it converts, not here: the rule for reading a commit's value is
+ *    the library's rule, and a copy of it in a consumer is the helper in the
+ *    wrong repository. The door would be `clauseFromWire` in `src/data`, and
+ *    then this file's whole evaluator is `matchesClause(row, clauseFromWire(c))`.
+ *
+ * 2. THE STRATEGY, which no note has said out loud before. These are not the
+ *    same algorithm with two spellings. `clausePredicate` COMPILES a clause
+ *    once — `selectionForView` calls it per clause, and `intervalPredicate`
+ *    picks its string/number arm and closes over `lo`/`hi` before a single row
+ *    is seen. `matchesClause` INTERPRETS, re-branching on kind and re-sniffing
+ *    the bounds for every row. The folded predicate runs per row per frame over
+ *    a 90k-row table, so swapping the compiler for the interpreter would put a
+ *    switch in the hottest loop the cockpit has. Sharing without a regression
+ *    means the library owning the COMPILER too, not just the matcher — which is
+ *    a design decision about `src/data`'s surface, and is deliberately NOT taken
+ *    here.
+ *
+ * So: possible, and still not free. Until both are settled the parity test —
+ * not this comment — is what holds the two together:
  *   - point: `undefined` = CLEARED (keep all) — which never reaches this
  *     tier since SET-1 drops a cleared point from the fold; `null` = IS NULL
  *     (`row[field] == null`), exactly the src tier. (Before SET-1 the

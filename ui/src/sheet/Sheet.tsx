@@ -31,7 +31,7 @@
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FocusEvent as ReactFocusEvent, JSX, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, UIEvent as ReactUIEvent } from 'react';
-import type { ColumnRole, Row, SortSpec } from '../../../src/data/index.js';
+import type { ColumnRole, Row, SortSpec } from 'vizfootprint/data';
 import { createBlockCache, type BlockCache } from './blockCache.js';
 import type { SheetColumn, SheetData, SheetWindow } from './types.js';
 

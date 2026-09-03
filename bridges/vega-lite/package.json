@@ -2,7 +2,7 @@
   "name": "vizfootprint-vega-lite",
   "version": "0.0.0",
   "private": true,
-  "description": "The one first-party renderer bridge for vizfootprint-ui: mounts a single-view Vega-Lite spec as a contract Renderer — handshake, capability derivation from the spec, host-owned data/selection mirroring, and a SYNTHESIZED brush-completion signal (one honest interval emission per completed gesture). Part of the footprintjs family.",
+  "description": "The one first-party renderer bridge for vizfootprint-ui: mounts a single-view Vega-Lite spec as a contract Renderer \u2014 handshake, capability derivation from the spec, host-owned data/selection mirroring, and a SYNTHESIZED brush-completion signal (one honest interval emission per completed gesture). Part of the footprintjs family.",
   "type": "module",
   "license": "MIT",
   "exports": {
@@ -23,6 +23,7 @@
     "vega-lite": "6.4.3"
   },
   "peerDependencies": {
+    "vizfootprint": "*",
     "vizfootprint-ui": "*"
   },
   "devDependencies": {
@@ -30,6 +31,7 @@
     "jsdom": "^25.0.0",
     "typescript": "^5.5.0",
     "vitest": "^4.0.0",
+    "vizfootprint": "file:../..",
     "vizfootprint-ui": "0.0.0"
   }
 }

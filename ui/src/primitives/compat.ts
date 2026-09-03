@@ -5,7 +5,7 @@
  * anything. A consumer can override with the picker's `compatible` prop.
  */
 import type { ColumnView } from '../adapter/types.js';
-import { MAGNITUDE_CHANNELS } from '../../../src/def/types.js';
+import { MAGNITUDE_CHANNELS } from 'vizfootprint/def';
 
 export interface Compatibility {
   readonly ok: boolean;

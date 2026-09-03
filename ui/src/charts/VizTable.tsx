@@ -45,7 +45,7 @@
  */
 import { useMemo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import type { ChartEmission } from '../../../src/mosaic/index.js';
+import type { ChartEmission } from 'vizfootprint/mosaic';
 import type { RenderSelection } from '../contract/types.js';
 import { clickEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
 import { useBrightPredicate, selectedSet, inSet, markClass, dimClass } from '../primitives/useSelection.js';
