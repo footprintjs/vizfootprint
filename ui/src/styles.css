@@ -1153,10 +1153,16 @@
   gap: var(--vzf-space-2);
 }
 :where(.vzf) .vzf-timeline {
-  /* THE RAIL IS FIXED. `flex: 1` (basis 0) means the header's row hands it a
-     width; the bars inside NEVER change it — the count only decides how they
-     share it (see time/rail.ts). Its height is fixed too, so neither the
-     count nor the density moves the dashboard beneath it. */
+  /* THE RAIL IS FIXED — it OWNS its width. `--vzf-rail-w` is the rail's width
+     wherever it sits: a flex basis with no grow and no shrink, so neither the
+     header's free space nor the bars inside can change it — the count only
+     decides how the bars share it (see time/rail.ts). (A `flex: 1` rail was
+     content-sized whenever its header cell was content-sized, and shrink-
+     wrapped the bars — the width must come from here, not from a parent.)
+     Only a strip narrower than the rail (a phone) clamps it, via max-width.
+     Its height is fixed too, so neither the count nor the density moves the
+     dashboard beneath it. */
+  --vzf-rail-w: 360px; /* a dial: the rail's width everywhere */
   --vzf-tl-h: 36px; /* the bar stack: flag slot + bar + id slot */
   --vzf-tl-slot: 10px; /* the flag row and the id row — fixed boxes, so hiding an id only makes the BAR taller */
   --vzf-tl-pad: var(--vzf-space-2);
@@ -1170,8 +1176,11 @@
   --vzf-tl-bar-head: var(--vzf-ink); /* now — a thin rim on the tip of this lineage */
   --vzf-tl-bar-cursor: var(--vzf-ink); /* where one stands — the rail's ONE strong mark, filled */
   --vzf-tl-bar-line: var(--vzf-line); /* the 1px edge every bar carries, so colouring one never resizes it */
-  flex: 1;
+  flex: 0 0 var(--vzf-rail-w);
+  width: var(--vzf-rail-w);
+  max-width: 100%;
   min-width: 0;
+  box-sizing: border-box;
   height: calc(var(--vzf-tl-h) + var(--vzf-tl-pad) * 2);
   display: flex;
   align-items: center;
@@ -1347,8 +1356,14 @@
   padding: var(--vzf-tl-pad) var(--vzf-space-1);
 }
 @media (max-width: 700px) {
-  /* phones: the strip is already allowed to wrap here, so the rail gives up a
-     few pixels of bar to keep the whole band slim — still ONE fixed height */
+  /* phones: the strip is already allowed to wrap here, so the rail takes a
+     full line of its own (its fixed width would push the shell sideways) and
+     gives up a few pixels of bar to keep the whole band slim — still ONE
+     fixed height, and the width is fixed by the line, not by the bars */
+  :where(.vzf) .vzf-timeline {
+    flex: 1 1 100%;
+    width: auto;
+  }
   :where(.vzf) .vzf-compact .vzf-timeline {
     --vzf-tl-h: 30px;
   }
@@ -2354,3 +2369,46 @@
 :where(.vzf) .vzf-note-textarea { resize: vertical; min-height: 4.5em; }
 :where(.vzf) .vzf-note-linker select { font: inherit; font-size: 12px; max-width: 100%; }
 :where(.vzf) .vzf-note-problems { margin: 0; padding-left: 18px; color: var(--vzf-clay); font-size: 12.5px; }
+
+/* ── the Sheet: a read-only grid over a data session, virtualized in the DOM ──
+   Fixed row height (a scroll position IS a row index), one 1px line, tabular
+   numerals so a column of counts reads as a column, no shadows. Every colour is
+   a token, so the dark theme is readable without a second rule. */
+:where(.vzf) .vzf-sheet { box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; height: 100%; font-size: 12.5px; color: var(--vzf-ink); background: var(--vzf-surface); border: 1px solid var(--vzf-line); border-radius: var(--vzf-r-md); overflow: hidden; }
+:where(.vzf) .vzf-sheet-grid { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: hidden; }
+:where(.vzf) .vzf-sheet-head { flex: none; background: var(--vzf-surface-2); border-bottom: 1px solid var(--vzf-line); overflow: hidden; }
+:where(.vzf) .vzf-sheet-body { flex: 1; position: relative; overflow: auto; min-height: 0; }
+:where(.vzf) .vzf-sheet-canvas { width: 1px; } /* the ruler: capped at canvasMax, scaled — see Sheet.tsx */
+:where(.vzf) .vzf-sheet-rows { position: absolute; left: 0; right: 0; min-width: max-content; }
+:where(.vzf) .vzf-sheet-row { display: flex; align-items: stretch; min-width: max-content; border-bottom: 1px solid var(--vzf-line-soft); }
+:where(.vzf) .vzf-sheet-pickable { cursor: pointer; }
+:where(.vzf) .vzf-sheet-pickable:hover { background: var(--vzf-surface-2); }
+:where(.vzf) .vzf-sheet-cell { flex: 0 0 auto; width: 148px; min-width: 0; display: flex; align-items: center; padding: 0 var(--vzf-space-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; border-right: 1px solid var(--vzf-line-soft); }
+:where(.vzf) .vzf-sheet-cell:focus-visible { outline: none; box-shadow: inset var(--vzf-focus); }
+/* the frozen leading column: the declared row key when the table has one, else the first column */
+:where(.vzf) .vzf-sheet-row > .vzf-sheet-cell:first-child { position: sticky; left: 0; z-index: 1; background: var(--vzf-surface); border-right: 1px solid var(--vzf-line); }
+:where(.vzf) .vzf-sheet-header > .vzf-sheet-cell:first-child { background: var(--vzf-surface-2); }
+:where(.vzf) .vzf-sheet-colhead { border-right: 1px solid var(--vzf-line); padding: 0; }
+:where(.vzf) .vzf-sheet-sort { display: flex; align-items: center; gap: 6px; width: 100%; height: 100%; padding: 0 var(--vzf-space-2); font: inherit; text-align: left; color: var(--vzf-ink); background: transparent; border: none; cursor: pointer; overflow: hidden; }
+:where(.vzf) span.vzf-sheet-sort { cursor: default; flex-wrap: wrap; align-content: center; }
+/* the cannot-sort sentence is READ, on its own line under the name — a tooltip is not an answer */
+:where(.vzf) .vzf-sheet-cannot { flex-basis: 100%; font-size: 10px; line-height: 1.2; color: var(--vzf-clay); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:where(.vzf) .vzf-sheet-role { font-size: 10px; padding: 0 4px; border-radius: 3px; color: var(--vzf-ink-soft); background: var(--vzf-surface-3); }
+/* a number reads down its column: right-aligned, tabular figures (set on every cell above) */
+:where(.vzf) .vzf-sheet-num { justify-content: flex-end; }
+/* the row the session's own clause holds */
+:where(.vzf) .vzf-sheet-picked, :where(.vzf) .vzf-sheet-picked > .vzf-sheet-cell:first-child { background: var(--vzf-brand-tint); }
+:where(.vzf) .vzf-sheet-said { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+:where(.vzf) .vzf-sheet-colname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+:where(.vzf) .vzf-sheet-type { font-family: var(--vzf-font-mono); font-size: 10px; color: var(--vzf-ink-faint); }
+:where(.vzf) .vzf-sheet-arrow { margin-left: auto; color: var(--vzf-ink-soft); }
+:where(.vzf) .vzf-sheet-status { flex: none; display: flex; align-items: center; gap: 2px; padding: 0 var(--vzf-space-2); font-size: 11.5px; color: var(--vzf-ink-soft); background: var(--vzf-surface-2); border-top: 1px solid var(--vzf-line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:where(.vzf) .vzf-sheet-refused { color: var(--vzf-clay); }
+
+/* ── the Workbook: the data layer's two tabs ── */
+:where(.vzf) .vzf-workbook { display: flex; flex-direction: column; gap: var(--vzf-space-2); min-height: 0; height: 100%; }
+:where(.vzf) .vzf-workbook-tabs { flex: none; display: flex; gap: 2px; border-bottom: 1px solid var(--vzf-line); }
+:where(.vzf) .vzf-workbook-tab { font: inherit; font-size: 12.5px; padding: 4px 12px; color: var(--vzf-ink-soft); background: transparent; border: 1px solid transparent; border-bottom: none; border-radius: var(--vzf-r-sm) var(--vzf-r-sm) 0 0; margin-bottom: -1px; cursor: pointer; }
+:where(.vzf) .vzf-workbook-tab-on { color: var(--vzf-ink); background: var(--vzf-surface); border-color: var(--vzf-line); }
+:where(.vzf) .vzf-workbook-panel { flex: 1; min-height: 0; overflow: auto; }
+:where(.vzf) .vzf-workbook-panel:focus-visible { outline: none; box-shadow: inset var(--vzf-focus); }

@@ -156,7 +156,7 @@ export interface RawPollState {
   readonly journalTotal?: unknown;
   readonly analyses?: readonly unknown[];
   readonly fdr?: unknown;
-  readonly columns?: Readonly<Record<string, readonly { field: string; type: string }[]>>;
+  readonly columns?: Readonly<Record<string, readonly { field: string; type: string; role?: string; absence?: readonly string[] }[]>>;
   readonly encodings?: Readonly<Record<string, ViewEncoding>>;
   readonly gaps?: readonly unknown[];
   readonly branches?: readonly { tip: string; length: number; actor: Actor; active: boolean }[];
@@ -433,7 +433,7 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       /** UI-0: the channel→field visual-encoding fold. */
       encodings?: Readonly<Record<string, string>>;
       /** UI-0: branch-scoped columns available to encode onto. */
-      columns?: readonly { field: string; type: string }[];
+      columns?: readonly { field: string; type: string; role?: string }[];
       /** The encoding plane's verdicts per channel (`views[].fits` serialized). */
       fits?: unknown;
       /** Encoding links: `views[].effective` serialized. */
@@ -453,7 +453,7 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       canProbe: o.canProbe ?? true,
       mounted: o.mounted ?? true,
       encoding: o.encodings ?? {},
-      columns: (o.columns ?? []).map((c) => ({ field: c.field, type: String(c.type) })),
+      columns: (o.columns ?? []).map((c) => ({ field: c.field, type: String(c.type), ...(c.role !== undefined ? { role: String(c.role) } : {}) })),
       ...(o.fits !== undefined ? { fits: mapFits(o.fits) } : {}),
       ...(o.effective !== undefined ? { effective: mapEffective(o.effective) } : {}),
       ...(o.prose !== undefined ? { prose: mapProse(o.prose) } : {}),
@@ -762,12 +762,12 @@ function mapLedgerBase(fdr: unknown): Omit<LedgerView, 'cursorTests' | 'honesty'
   };
 }
 function mapColumns(
-  columns: Readonly<Record<string, readonly { field: string; type: string; absence?: readonly string[] }[]>> | undefined,
+  columns: Readonly<Record<string, readonly { field: string; type: string; role?: string; absence?: readonly string[] }[]>> | undefined,
 ): Record<string, readonly ColumnView[]> {
   const out: Record<string, readonly ColumnView[]> = {};
   for (const [table, cols] of Object.entries(columns ?? {})) {
-    // The absence declaration rides through untouched: the app must never re-spell it.
-    out[table] = cols.map((c) => (c.absence !== undefined ? { field: c.field, type: String(c.type), absence: c.absence } : { field: c.field, type: String(c.type) }));
+    // The role and the absence declaration ride through untouched: the app must never re-spell either.
+    out[table] = cols.map((c) => ({ field: c.field, type: String(c.type), ...(c.role !== undefined ? { role: String(c.role) } : {}), ...(c.absence !== undefined ? { absence: c.absence } : {}) }));
   }
   return out;
 }

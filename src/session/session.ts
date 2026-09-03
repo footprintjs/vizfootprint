@@ -1350,7 +1350,7 @@ class InteractionSessionImpl implements InteractionSession {
     const indices = res.indices ?? [];
     const rowIds = rows.map((row, i) => (key !== undefined ? String(row[key]) : `${version ?? 'inline'}#${indices[i]}`));
     /* v8 ignore next -- an offset is always sent, so `start` is always answered */
-    return { ok: true, columns, rows, rowIds, positional: key === undefined, count: res.count, start: res.start ?? 0, version, cursor, clauses };
+    return { ok: true, columns, rows, rowIds, positional: key === undefined, ...(key !== undefined ? { key } : {}), count: res.count, start: res.start ?? 0, version, cursor, clauses };
   }
 
   /** The field mappings on the edges INTO a view (none for the whole-dashboard truth): which names a link invented for this consumer. */

@@ -18,13 +18,13 @@ const RAW: RawPollState = {
       canProbe: true,
       mounted: true,
       encodings: { x: 'price', y: 'rating' },
-      columns: [{ field: 'price', type: 'number' }, { field: 'rating', type: 'number' }],
+      columns: [{ field: 'price', type: 'number', role: 'measure' }, { field: 'rating', type: 'number' }],
     },
   ],
   activeSelections: [{ viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' }],
   analyses: [{ id: 'correlation', kind: 'test', produces: 'evidence', ready: true }],
   fdr: { procedure: 'LORD++', alpha: 0.05, tests: 2, discoveries: 1, wealth: 0.031, ledger: [{ step: 1, hypothesisId: 'h1', pValue: 0.004, alphaThreshold: 0.02, reject: true, wealthAfter: 0.03 }] },
-  columns: { data: [{ field: 'price', type: 'number' }, { field: 'category', type: 'string' }] },
+  columns: { data: [{ field: 'price', type: 'number', role: 'measure' }, { field: 'category', type: 'string' }] },
   gaps: [{ code: 'needs-column', op: 'analyze', detail: 'cluster_id not present', target: 'cluster_id' }],
   branches: [{ tip: '2', length: 2, actor: 'agent', active: false }, { tip: '3', length: 2, actor: 'user', active: true }],
   checkpoints: [{ label: 'before-cluster', commitId: '1', ts: 100 }],
@@ -61,11 +61,14 @@ describe('mapPollState — normalization + derivations', () => {
     expect(scatter.selectionKinds).toEqual(['interval']);
     expect(scatter.encoding).toEqual({ x: 'price', y: 'rating' });
     expect(scatter.columns.map((c) => c.field)).toEqual(['price', 'rating']);
+    // the ROLE the def declared rides through untouched — a picker (and the sheet's header) reads it, never re-spells it
+    expect(scatter.columns.map((c) => c.role)).toEqual(['measure', undefined]);
     // no top-level encodings in the payload → derived from views[].encodings
     expect(s.encodings['scatter']).toEqual({ x: 'price', y: 'rating' });
   });
   it('carries columns, gaps, readiness, branches, checkpoints', () => {
     expect(s.columns['data']!.map((c) => c.field)).toEqual(['price', 'category']);
+    expect(s.columns['data']!.map((c) => c.role)).toEqual(['measure', undefined]);
     expect(s.gaps[0]!.code).toBe('needs-column');
     expect(s.readiness[0]!.ready).toBe(true);
     expect(s.branches.filter((b) => b.active)).toHaveLength(1);

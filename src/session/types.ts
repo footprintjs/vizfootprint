@@ -740,6 +740,8 @@ export type ViewQueryResult =
       readonly rowIds: readonly string[];
       /** True when the table declares no row key — a row id is then a within-version position, never an identity across refreshes. */
       readonly positional: boolean;
+      /** The declared row key's column, when the table has one — the column a grid freezes and a row click selects on. Absent on a positional table. */
+      readonly key?: string;
       readonly count: number;
       readonly start: number;
       /** The table's data version the window was read at (null for an inline table that has none) — read beside the rows, and re-checked after them. */

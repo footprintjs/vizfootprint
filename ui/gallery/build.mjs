@@ -24,18 +24,28 @@ const stubDuckDb = {
 export async function buildGallery() {
   mkdirSync(OUT, { recursive: true });
   copyFileSync(path.join(__dirname, '..', 'src', 'styles.css'), path.join(OUT, 'vizfootprint-ui.css'));
+  // two pages: the cockpit gallery, and the Sheet over 90,300 rows (its own page,
+  // because 90k rows in the cockpit's document would change every no-scroll assertion)
+  await bundle('entry.tsx', 'gallery.js', 'production');
+  // the SHEET page is built in DEVELOPMENT mode on purpose: React's dev build is the
+  // only thing that warns about a duplicate key or a bad prop, and the sheet's smoke
+  // asserts that nothing is warned. It costs a bigger bundle on one test page.
+  await bundle('sheet.tsx', 'sheet.js', 'development');
+  return OUT;
+}
+
+async function bundle(entry, outfile, mode) {
   await esbuild.build({
-    entryPoints: [path.join(__dirname, 'entry.tsx')],
+    entryPoints: [path.join(__dirname, entry)],
     bundle: true,
-    outfile: path.join(OUT, 'gallery.js'),
+    outfile: path.join(OUT, outfile),
     format: 'iife',
     platform: 'browser',
     target: 'es2022',
     jsx: 'automatic',
-    jsxDev: false,
-    define: { 'process.env.NODE_ENV': '"production"' }, // prod React, no `process` crash
+    jsxDev: mode === 'development',
+    define: { 'process.env.NODE_ENV': `"${mode}"` }, // no `process` crash either way
     logLevel: 'silent',
     plugins: [stubDuckDb],
   });
-  return OUT;
 }

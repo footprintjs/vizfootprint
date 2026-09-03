@@ -12,12 +12,12 @@ import { buildGallery } from './build.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const PAGE = `<!doctype html>
+const page = (title, script) => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>vizfootprint-ui — gallery</title>
+<title>${title}</title>
 <link rel="stylesheet" href="/vizfootprint-ui.css" />
 <style>
   /* host-page chrome only — everything below #root is library-styled */
@@ -27,19 +27,30 @@ const PAGE = `<!doctype html>
 </head>
 <body>
 <div id="root"></div>
-<script src="/gallery.js"></script>
+<script src="${script}"></script>
 </body>
 </html>`;
+
+const PAGE = page('vizfootprint-ui — gallery', '/gallery.js');
+/* the Sheet over 90,300 rows, on its own page */
+const SHEET_PAGE = page('vizfootprint-ui — sheet', '/sheet.js');
 
 export async function startGallery({ port = 5177 } = {}) {
   const out = await buildGallery();
   const bundle = readFileSync(path.join(out, 'gallery.js'));
+  const sheetBundle = readFileSync(path.join(out, 'sheet.js'));
   const css = readFileSync(path.join(out, 'vizfootprint-ui.css'));
   const server = http.createServer((req, res) => {
     const url = (req.url ?? '/').split('?')[0];
     if (url === '/gallery.js') {
       res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
       res.end(bundle);
+    } else if (url === '/sheet.js') {
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
+      res.end(sheetBundle);
+    } else if (url === '/sheet' || url === '/sheet.html') {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(SHEET_PAGE);
     } else if (url === '/vizfootprint-ui.css') {
       res.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
       res.end(css);

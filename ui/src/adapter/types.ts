@@ -58,10 +58,12 @@ export interface CommitView {
   readonly isHead: boolean;
 }
 
-/** One column facet — name + type. VALUES never ride here (schema only). */
+/** One column facet — name, type, and the role the def declared. VALUES never ride here (schema only). */
 export interface ColumnView {
   readonly field: string;
   readonly type: string;
+  /** What the column IS to a chart, when the def declared (or derived) one: `identifier | dimension | measure | absence`. Absent on an older wire. */
+  readonly role?: string;
   /** The declared absence vocabulary, when the def named this column as the table's absence column — words, never values. */
   readonly absence?: readonly string[];
 }

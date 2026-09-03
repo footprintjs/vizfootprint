@@ -39,6 +39,7 @@ describe('viewQuery — the whole-dashboard truth and the window', () => {
     ]);
     // identity: no declared key → `<version>#<source index>`, marked positional; the same row keeps its id across windows
     expect(q.positional).toBe(true);
+    expect(q).not.toHaveProperty('key'); // no key to name
     expect(q.rowIds.every((id) => /^(inline|[^#]+)#\d+$/.test(id))).toBe(true);
     expect(q.rowIds[0]!.endsWith(`#${SAMPLE_ROWS.findIndex((r) => r.category === 'Formal' && (r.price as number) >= 60)}`)).toBe(true);
     expect(q.version === null || typeof q.version === 'string').toBe(true);
@@ -67,6 +68,7 @@ describe('viewQuery — the whole-dashboard truth and the window', () => {
     expect(q.ok).toBe(true);
     if (!q.ok) return;
     expect(q.positional).toBe(false);
+    expect(q.key).toBe('id'); // the window names the key column a grid freezes and selects on
     expect(q.rowIds).toEqual(['d0', 'd1']);
     expect(q.rows).toEqual([
       { price: 50, id: 'd0' },
