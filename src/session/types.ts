@@ -187,6 +187,8 @@ export type DispatchAction =
  * mode orders and seeks by `at`.
  */
 export interface Checkpoint {
+  /** The tag's own id (`t1`, `t2`, …) — what a note's words link and what a badge keys on, so a rename moves nothing. */
+  readonly id: string;
   readonly label: string;
   /** The tagged commit (a legacy beat: the beat commit itself). */
   readonly commitId: string | null;

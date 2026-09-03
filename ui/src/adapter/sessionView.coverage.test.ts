@@ -116,7 +116,7 @@ describe('createSessionView — in-process session edge branches', () => {
         }) as unknown as ReturnType<SessionLike['overview']>,
       gaps: () => [],
       branches: () => [],
-      checkpoints: () => [{ label: 'start', commitId: 'r1', at: null, ts: 1 }], // exercises the checkpoints.map body
+      checkpoints: () => [{ id: 't1', label: 'start', commitId: 'r1', at: null, ts: 1 }], // exercises the checkpoints.map body
       seek: (commitId: string) => ({ ok: true, cursor: commitId }) as unknown as ReturnType<SessionLike['seek']>,
       dispatch: () => ({ ok: true, verb: 'analyze', intent: 'x' }) as unknown as ReturnType<SessionLike['dispatch']>,
       switchPath: (name: string) => ({ ok: true, name, cursor: 'r1' }) as unknown as ReturnType<SessionLike['switchPath']>,

@@ -162,7 +162,7 @@ const DISPATCH_SCHEMA = {
       description:
         'The view identity a select/filter/navigate/reencode targets. For navigate, also accepts the ' +
         '"layout:<scope>" identity (e.g. "layout:dashboard") to rearrange the cockpit layout. For describe, also accepts ' +
-        '"dashboard" — the cockpit itself: its caption is the summary of what the whole dashboard shows now (basis: filters/columns/analysisId, never encodings) — and "note:<id>" — a note on the dashboard (the Text tool): a fresh id-shaped id (letters, digits, _ . -) creates it, it carries a title and a caption only, the caption is the body, refs link its words to commits and beats.',
+        '"dashboard" — the cockpit itself: its caption is the summary of what the whole dashboard shows now (basis: filters/columns/analysisId, never encodings) — and "note:<id>" — a note on the dashboard (the Text tool): a fresh id-shaped id (letters, digits, _ . -) creates it, it carries a title and a caption only, the caption is the body, and refs link its words by ID, never by name: a ref carries exactly one of "commit" (a commit id), "beat" (the id of a TAG, like t1 — whats_here.tags lists the tags with their ids) or "saved" (the id of a SAVED SELECTION, like p1 — whats_here.saved lists the pictures with their ids).',
     },
     field: {
       type: 'string',

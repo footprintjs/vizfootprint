@@ -78,7 +78,7 @@ describe('why({ kind: prose })', () => {
     const s = buildDashboard(withProse()).createSession();
     await s.dispatch({ verb: 'annotate', target: 'bar', note: 'a moment to tag', cause: userCause('a moment to tag') }); // any commit is a moment; a note is not an input to the words
     await s.dispatch({ verb: 'checkpoint', label: 'start', cause: userCause('mark') });
-    const landed = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { text: 'At the start.', author: { kind: 'human' }, refs: [{ span: [0, 5], beat: 'start' }] }, cause: userCause('write') });
+    const landed = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { text: 'At the start.', author: { kind: 'human' }, refs: [{ span: [0, 5], beat: s.tags()[0]!.id }] }, cause: userCause('write') });
     expect(landed.ok).toBe(true);
     const res = s.why({ kind: 'prose', viewId: 'scatter', slot: 'caption' }, { agentEventLog: [] });
     expect(res.ok && res.commits.map((c) => c.kind)).toEqual(['declaring']);

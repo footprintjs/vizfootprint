@@ -12,11 +12,21 @@
  */
 import type { ProseRef } from './types.js';
 
-/** What a mention may point at: the commits the log holds (id → a label for display), the beats named, the saved selections by name (saved LOGIC — a ref to one applies it, it does not seek). A name that is both a saved selection and a beat resolves to the SAVED selection: the logic wins over the moment. */
+/**
+ * What a mention may point at: the commits the log holds (id → a label for
+ * display), the tags by name, and the saved selections by name (saved LOGIC —
+ * a ref to one applies it, it does not seek). A person types a NAME; the ref
+ * carries the record's ID, which is why the two maps read name → id: renaming
+ * a tag or a picture leaves every note pointing at the same thing. A name that
+ * is both a saved selection and a tag resolves to the SAVED selection: the
+ * logic wins over the moment.
+ */
 export interface MentionWorld {
   readonly commits: ReadonlyMap<string, string>;
-  readonly beats: ReadonlySet<string>;
-  readonly saved: ReadonlySet<string>;
+  /** Tag name → the tag's id. */
+  readonly beats: ReadonlyMap<string, string>;
+  /** Saved-selection name → the picture's id. */
+  readonly saved: ReadonlyMap<string, string>;
 }
 
 export interface UnresolvedMention {
@@ -57,8 +67,11 @@ export function mentionsToRefs(text: string, world: MentionWorld): Mentions {
       continue;
     }
     const name = (m[2] ?? m[3])!.trim();
-    if (world.saved.has(name)) refs.push({ span, saved: name, label: name });
-    else if (world.beats.has(name)) refs.push({ span, beat: name, label: name });
+    // the ref carries the id; the words the person typed ride along as the label, so the anchor still reads as they wrote it
+    const savedId = world.saved.get(name);
+    const beatId = world.beats.get(name);
+    if (savedId !== undefined) refs.push({ span, saved: savedId, label: name });
+    else if (beatId !== undefined) refs.push({ span, beat: beatId, label: name });
     else unresolved.push({ mention: m[0], span, sentence: `@${name} is neither a saved selection nor a checkpoint` });
   }
   return { refs, unresolved };

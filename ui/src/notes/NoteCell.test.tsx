@@ -27,8 +27,8 @@ const RAW: RawPollState = {
     { viewId: 'scatter', field: 'price', kind: 'interval', value: [1, 2] }, // a live selection with no commit id cannot be linked
   ],
   checkpoints: [
-    { label: 'Start', commitId: 's3', at: 's2', ts: 3 },
-    { label: 'Older', commitId: null, at: 's1', ts: 1 }, // an older wire's beat: no commit of its own
+    { id: 't1', label: 'Start', commitId: 's3', at: 's2', ts: 3 },
+    { id: 't2', label: 'Older', commitId: null, at: 's1', ts: 1 }, // an older wire's beat: no commit of its own
   ],
   head: 's3',
   cursor: 's3',
@@ -62,8 +62,8 @@ describe('linkables and the mention world', () => {
     expect(list[4]!.description).toBe('user'); // no intent on the beat commit
     expect(list[6]!.description).toBe('pick formal · user');
     const world = mentionWorldOf(state);
-    expect(world.saved.has('coastal')).toBe(true);
-    expect(world.beats.has('Start')).toBe(true);
+    expect(world.saved.get('coastal')).toBe('s1'); // name → the id a ref carries: on this wire a named selection IS its commit
+    expect(world.beats.get('Start')).toBe('t1'); // name → the tag's id
     expect(world.commits.get('s1')).toBe('category — pick formal');
     expect(linkablesOf(mapPollState({ ...RAW, records: [RAW.records[0]!], checkpoints: [], activeSelections: [] })).map((l) => l.kind)).toEqual(['commit']);
   });
@@ -137,7 +137,7 @@ describe('NoteCell', () => {
     expect(record).toEqual({
       text: 'Start was @[Start]  here',
       author: { kind: 'humanEdited', by: 'you', model: 'm' }, // the analyst's words, edited: the model and the basis are kept
-      refs: [{ span: [10, 18], beat: 'Start', label: 'Start' }],
+      refs: [{ span: [10, 18], beat: 't1', label: 'Start' }], // the ref carries the tag's id; the words the writer typed ride as the label
       levels: ['statistic'],
     });
     expect(onDescribe.mock.calls[1]).toEqual(['n1', 'title', { text: 'Renamed', author: { kind: 'human', by: 'you' } }]);
@@ -252,7 +252,7 @@ describe('NoteCell', () => {
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(container.querySelector('form')).toBeNull());
     expect(onDescribe).toHaveBeenCalledTimes(1); // the title stayed blank: no title describe
-    expect(onDescribe.mock.calls[0]).toEqual(['e', 'caption', { text: 'first words @[Start] ', author: { kind: 'human' }, refs: [{ span: [12, 20], beat: 'Start', label: 'Start' }] }]);
+    expect(onDescribe.mock.calls[0]).toEqual(['e', 'caption', { text: 'first words @[Start] ', author: { kind: 'human' }, refs: [{ span: [12, 20], beat: 't1', label: 'Start' }] }]);
     // a current, human-edited caption reads without the stale mark and says whose words they were
     const edited: NoteView = { id: 'h', prose: [{ slot: 'caption', text: 'ok', status: 'current', changed: [], author: { kind: 'humanEdited', by: 'me', model: 'm' }, levels: [] }], proposals: [] };
     const read = render(<NoteCell note={edited} world={world} linkables={linkables} onDescribe={vi.fn()} />).container;
@@ -357,7 +357,13 @@ describe('NoteCell', () => {
         { id: 's6', parent: 's5', viewId: 'bar', kind: 'point', field: 'category', value: 'Semi', cause: { requestedBy: 'user' } },
         { id: 's7', parent: 's6', viewId: 'annotation:bar', kind: 'point', field: 's6', value: 'Formal] wear', cause: { requestedBy: 'user' } }, // a name with a `]` in it
       ],
-      checkpoints: [...(RAW.checkpoints ?? []), { label: 'Bad]label', commitId: 's3', at: 's3', ts: 4 }, { label: 'Also]bad', commitId: null, at: 's3', ts: 5 }],
+      checkpoints: [
+        ...(RAW.checkpoints ?? []),
+        { id: 't3', label: 'Bad]label', commitId: 's3', at: 's3', ts: 4 },
+        { id: 't4', label: 'Also]bad', commitId: null, at: 's3', ts: 5 },
+        { label: 'No tag id', commitId: 's2', at: 's2', ts: 2 }, // a wire that predates tag ids: nothing to link by name
+        { label: 'No tag id at all', commitId: null, at: 's2', ts: 2 }, // …and no commit either: not offered
+      ],
       head: 's7',
       cursor: 's7',
     };
@@ -374,10 +380,12 @@ describe('NoteCell', () => {
       ['Start', '@[Start]'],
       ['Older', '@[Older]'],
       ['Bad]label', '#s3'],
+      ['No tag id', '#s2'], // no id to link by name, so it is reached by its commit
     ]);
     const w = mentionWorldOf(st);
-    expect(w.saved.has('coastal')).toBe(true); // the world knows the name; `@[coastal]` applies the saved logic
-    expect(w.saved.has('Formal] wear')).toBe(true);
+    expect(w.saved.get('coastal')).toBe('s4'); // the NEWEST save owns the name — the one the picker offers `@[coastal]`
+    expect(w.saved.get('Formal] wear')).toBe('s6');
+    expect(w.beats.get('No tag id')).toBeUndefined(); // nothing to link: the picker offered its commit instead
     // and every offered mention resolves against that world
     for (const l of linkablesOf(st)) expect(mentionsToRefs(l.mention, w).unresolved).toEqual([]);
   });

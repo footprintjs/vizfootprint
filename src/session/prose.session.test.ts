@@ -160,11 +160,12 @@ describe('refs at the dispatch door', () => {
     const sel = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
     const selId = sel.ok ? sel.commit!.id : '';
     await s.dispatch({ verb: 'checkpoint', label: 'formal only', cause: userCause() });
+    const beatId = s.tags()[0]!.id; // a ref links the tag's ID, never its name
     const ok = await s.dispatch({
       verb: 'describe',
       viewId: 'scatter',
       slot: 'caption',
-      record: { text: 'Formal items rate higher.', author: { kind: 'human' }, refs: [{ span: [0, 12], commit: selId }, { span: [13, 25], beat: 'formal only' }] },
+      record: { text: 'Formal items rate higher.', author: { kind: 'human' }, refs: [{ span: [0, 12], commit: selId }, { span: [13, 25], beat: beatId }] },
       cause: userCause(),
     });
     expect(ok.ok).toBe(true);
@@ -172,7 +173,7 @@ describe('refs at the dispatch door', () => {
     const bad = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { text: 'x', author: { kind: 'human' }, refs: [{ span: [0, 1], commit: 'nope' }] }, cause: userCause() });
     expect(!bad.ok && bad.rejection.detail).toBe('"scatter".caption.refs[0] points at a commit the log does not hold: "nope"');
     const noBeat = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { text: 'x', author: { kind: 'human' }, refs: [{ span: [0, 1], beat: 'never' }] }, cause: userCause() });
-    expect(!noBeat.ok && noBeat.rejection.detail).toBe('"scatter".caption.refs[0] points at a beat that was never named: "never"');
+    expect(!noBeat.ok && noBeat.rejection.detail).toBe('"scatter".caption.refs[0] points at a beat that was never named: "never" — the beats are "formal only"'); // the ref shows no words, so the sentence lists the beats that DO exist
   });
 });
 

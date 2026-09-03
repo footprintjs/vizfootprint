@@ -23,6 +23,7 @@
  */
 
 import { restoreSavedInto, restoreTagsInto } from '../def/buildDashboard.js';
+import { PICTURE_ID_PREFIX, TAG_ID_PREFIX, mintRecordId } from '../def/recordIds.js';
 import type { FoldEntry } from '../branches/index.js';
 import type { EmissionKind, LinkEdge } from '../links/index.js';
 import { voiceOf } from '../links/index.js';
@@ -47,11 +48,11 @@ function probeClause(kind: 'point' | 'interval' | 'match', field: string, value:
 }
 import type { CauseClause } from '../mosaic/index.js';
 import { registerAnalysisSlot } from '../def/register.js';
-import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, ViewEncodingDecl, SavedClause, SavedSelection, Tag } from '../def/types.js';
+import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RestorableSaved, RestorableTag, RestoreResult, ViewEncodingDecl, SavedClause, SavedSelection, Tag } from '../def/types.js';
 import { describeRules, fitsFor, refuses, validateBindings } from '../encoding/index.js';
 import { ENCODING_KIND, edgesInto } from '../links/index.js';
 import { DASHBOARD_PROSE_ID, NOTE_PROSE_PREFIX, isNoteSubject, PROPOSAL_LANE, PROSE_SLOTS, fillProse, PROSE_SENTENCES, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
-import type { ProseProposal, ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
+import type { ProseProposal, ProseRecord, ProseSlot, ProseStatus, ProposalStatus, ProseWorld } from '../prose/index.js';
 import type { LinkGraph } from '../links/index.js';
 import type { Bindings, EncodingProblem, Fit } from '../encoding/index.js';
 import { GapLedger } from './gapLedger.js';
@@ -428,11 +429,12 @@ export interface InteractionSession {
    */
   saved(): readonly SavedSelection[];
   saveSelection(name: string, source: SaveSelectionSource, as?: Actor): SaveSelectionResult;
+  /** Rename a picture — free: a note links its `id`, so the link survives (only the words it shows may go stale). `by`/`at` stay the creation stamp; `editedBy`/`editedAt` record the rename. */
   renameSaved(from: string, to: string, as?: Actor): SaveSelectionResult;
   forgetSaved(name: string): SaveSelectionResult;
   applySaved(name: string, cause: Cause, opts?: ApplySavedOptions): Promise<ApplySavedResult>;
-  /** Put saved selections back whole (a host's persistence) — judged, never re-stamped; refused entries named. */
-  restoreSaved(list: readonly SavedSelection[]): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] };
+  /** Put saved selections back whole (a host's persistence) — judged, never re-stamped; refused entries named, and any record the store had to re-id said so. */
+  restoreSaved(list: readonly RestorableSaved[]): RestoreResult;
 
   /**
    * TAGS — names on moments, beside the log. `tags()` lists them; `tag(name, commitId?)`
@@ -442,11 +444,12 @@ export interface InteractionSession {
    */
   tags(): readonly Tag[];
   tag(name: string, commitId?: string, as?: Actor, description?: string): TagResult;
-  /** Change a tag's words (null clears them); the author and time move with them. */
+  /** Change a tag's words (null clears them) — `editedBy`/`editedAt` record the change; who tagged the moment and when stay as they were. */
   describeTag(name: string, description: string | null, as?: Actor): TagResult;
+  /** Rename a tag — free: a note links its `id`, so the link survives (only the words it shows may go stale). */
   renameTag(from: string, to: string, as?: Actor): TagResult;
   forgetTag(name: string): TagResult;
-  restoreTags(list: readonly Tag[]): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] };
+  restoreTags(list: readonly RestorableTag[]): RestoreResult;
 
   /**
    * The current channel→field visual-encoding map for one view, branch-scoped
@@ -1427,10 +1430,10 @@ class InteractionSessionImpl implements InteractionSession {
     return [...this.runtime.tags.list].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)).map((t) => ({ ...t }));
   }
 
-  /** Replace (or, with null, remove) a tag by name. */
-  private replaceTag(name: string, next: Tag | null): void {
+  /** Replace (or, with null, remove) a tag by its id — the identity a rename never moves. */
+  private replaceTag(id: string, next: Tag | null): void {
     const store = this.runtime.tags;
-    const at = store.list.findIndex((t) => t.name === name);
+    const at = store.list.findIndex((t) => t.id === id);
     if (next === null) store.list.splice(at, 1);
     else store.list[at] = next;
   }
@@ -1446,7 +1449,7 @@ class InteractionSessionImpl implements InteractionSession {
     if (taken !== undefined) return { ok: false, rejected: taken.commitId === target ? `"${trimmed}" already names this moment` : `"${trimmed}" already names #${taken.commitId} — a tag is one moment; rename or forget it first` };
     const words = description?.trim();
     if (words !== undefined && words.length > 2000) return { ok: false, rejected: 'a tag description is at most 2000 characters' };
-    const tag: Tag = { name: trimmed, commitId: target, ...(words !== undefined && words.length > 0 ? { description: words } : {}), by: as, at: new Date().toISOString() };
+    const tag: Tag = { id: mintRecordId(TAG_ID_PREFIX, this.runtime.tags), name: trimmed, commitId: target, ...(words !== undefined && words.length > 0 ? { description: words } : {}), by: as, at: new Date().toISOString() };
     this.runtime.tags.list.push(tag);
     return { ok: true, tag };
   }
@@ -1457,13 +1460,11 @@ class InteractionSessionImpl implements InteractionSession {
     if (next.length > 200) return { ok: false, rejected: 'a tag name is at most 200 characters' };
     const current = this.tags().find((t) => t.name === from);
     if (current === undefined) return { ok: false, rejected: `no tag "${from}" — the tags are ${this.tagNames()}` };
-    if (next !== from && this.tags().some((t) => t.name === next)) return { ok: false, rejected: `"${next}" is already a tag — rename or forget it first` };
-    if (next !== from) {
-      const linked = this.wordsLinking('beat', from);
-      if (linked.length > 0) return { ok: false, rejected: `"${from}" is linked from ${linked.join(', ')} — change the link in the words first` };
-    }
-    const renamed: Tag = { ...current, name: next, by: as, at: new Date().toISOString() };
-    this.replaceTag(from, renamed);
+    if (next === from) return { ok: true, tag: current }; // the name it already has: nothing changed, so no edit is recorded
+    if (this.tags().some((t) => t.name === next)) return { ok: false, rejected: `"${next}" is already a tag — rename or forget it first` };
+    // renaming is free: a note links the tag's id, so no link can break — only the words it shows may go stale
+    const renamed: Tag = { ...current, name: next, editedBy: as, editedAt: new Date().toISOString() };
+    this.replaceTag(current.id, renamed);
     return { ok: true, tag: renamed };
   }
 
@@ -1473,21 +1474,22 @@ class InteractionSessionImpl implements InteractionSession {
     const words = description?.trim();
     if (words !== undefined && words.length > 2000) return { ok: false, rejected: 'a tag description is at most 2000 characters' };
     const { description: _old, ...rest } = current;
-    const next: Tag = { ...rest, ...(words !== undefined && words.length > 0 ? { description: words } : {}), by: as, at: new Date().toISOString() };
-    this.replaceTag(name, next);
+    const next: Tag = { ...rest, ...(words !== undefined && words.length > 0 ? { description: words } : {}), editedBy: as, editedAt: new Date().toISOString() };
+    this.replaceTag(current.id, next);
     return { ok: true, tag: next };
   }
 
   forgetTag(name: string): TagResult {
     const current = this.tags().find((t) => t.name === name);
     if (current === undefined) return { ok: false, rejected: `no tag "${name}" — the tags are ${this.tagNames()}` };
-    const linked = this.wordsLinking('beat', name);
+    // forgetting really would break a link: the words point at this id and nothing would answer
+    const linked = this.wordsLinking('beat', current.id);
     if (linked.length > 0) return { ok: false, rejected: `"${name}" is linked from ${linked.join(', ')} — change the link in the words first` };
-    this.replaceTag(name, null);
+    this.replaceTag(current.id, null);
     return { ok: true, tag: current };
   }
 
-  restoreTags(list: readonly Tag[]): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] } {
+  restoreTags(list: readonly RestorableTag[]): RestoreResult {
     const ids = new Set(this.log.records.map((r) => r.id));
     return restoreTagsInto(this.runtime.tags, list, (id) => ids.has(id));
   }
@@ -1504,15 +1506,15 @@ class InteractionSessionImpl implements InteractionSession {
     return [...this.runtime.saved.list].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)).map((c) => structuredClone(c));
   }
 
-  /** Replace (or, with null, remove) a saved selection by name. */
-  private replaceSaved(name: string, next: SavedSelection | null): void {
+  /** Replace (or, with null, remove) a saved selection by its id — the identity a rename never moves. */
+  private replaceSaved(id: string, next: SavedSelection | null): void {
     const store = this.runtime.saved;
-    const at = store.list.findIndex((c) => c.name === name);
+    const at = store.list.findIndex((c) => c.id === id);
     if (next === null) store.list.splice(at, 1);
     else store.list[at] = next;
   }
 
-  restoreSaved(list: readonly SavedSelection[]): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] } {
+  restoreSaved(list: readonly RestorableSaved[]): RestoreResult {
     return restoreSavedInto(this.runtime.saved, list, new Set(this.runtime.views.keys()));
   }
 
@@ -1523,7 +1525,7 @@ class InteractionSessionImpl implements InteractionSession {
     const gathered = this.gatherConditions(source);
     if ('rejected' in gathered) return { ok: false, rejected: gathered.rejected };
     const on = { table: this.defaultTable, version: this.runtime.sources[this.defaultTable]?.version ?? null };
-    const saved: SavedSelection = { name: trimmed, conditions: gathered.conditions, by: as, at: new Date().toISOString(), on, ...(gathered.from.length > 0 ? { from: gathered.from } : {}) };
+    const saved: SavedSelection = { id: mintRecordId(PICTURE_ID_PREFIX, this.runtime.saved), name: trimmed, conditions: gathered.conditions, by: as, at: new Date().toISOString(), on, ...(gathered.from.length > 0 ? { from: gathered.from } : {}) };
     this.runtime.saved.list.push(saved);
     return { ok: true, saved };
   }
@@ -1579,22 +1581,21 @@ class InteractionSessionImpl implements InteractionSession {
     if (next.length === 0) return { ok: false, rejected: 'a saved selection needs a name' };
     const current = this.saved().find((c) => c.name === from);
     if (current === undefined) return { ok: false, rejected: `no saved selection "${from}" — the saved ones are ${this.savedNames()}` };
-    if (next !== from && this.saved().some((c) => c.name === next)) return { ok: false, rejected: `"${next}" is already saved — rename or forget it first` };
-    if (next !== from) {
-      const linked = this.notesLinking(from);
-      if (linked.length > 0) return { ok: false, rejected: `"${from}" is linked from ${linked.join(', ')} — change the link in the words first` };
-    }
-    const renamed: SavedSelection = { ...current, name: next, by: as, at: new Date().toISOString() };
-    this.replaceSaved(from, renamed);
+    if (next === from) return { ok: true, saved: current }; // the name it already has: nothing changed, so no edit is recorded
+    if (this.saved().some((c) => c.name === next)) return { ok: false, rejected: `"${next}" is already saved — rename or forget it first` };
+    // renaming is free: a note links the picture's id, so no link can break — only the words it shows may go stale
+    const renamed: SavedSelection = { ...current, name: next, editedBy: as, editedAt: new Date().toISOString() };
+    this.replaceSaved(current.id, renamed);
     return { ok: true, saved: renamed };
   }
 
   forgetSaved(name: string): SaveSelectionResult {
     const current = this.saved().find((c) => c.name === name);
     if (current === undefined) return { ok: false, rejected: `no saved selection "${name}" — the saved ones are ${this.savedNames()}` };
-    const linked = this.notesLinking(name);
+    // forgetting really would break a link: the words point at this id and nothing would answer
+    const linked = this.notesLinking(current.id);
     if (linked.length > 0) return { ok: false, rejected: `"${name}" is linked from ${linked.join(', ')} — change the link in the words first` };
-    this.replaceSaved(name, null);
+    this.replaceSaved(current.id, null);
     return { ok: true, saved: current };
   }
 
@@ -1655,17 +1656,17 @@ class InteractionSessionImpl implements InteractionSession {
     return { ok: true, name, correlationId, applied, cleared, refused };
   }
 
-  /** The notes on screen whose words link a saved selection by name — a rename or a forget would break their links. */
-  private notesLinking(name: string): string[] {
-    return this.wordsLinking('saved', name);
+  /** The notes on screen whose words link a saved selection by its id — forgetting it would break their links. */
+  private notesLinking(id: string): string[] {
+    return this.wordsLinking('saved', id);
   }
 
-  /** The words on screen (notes, the dashboard's, a view's) whose refs link a name by `field` — a rename or a forget would break their links. */
-  private wordsLinking(field: 'saved' | 'beat', name: string): string[] {
+  /** The words on screen (notes, the dashboard's, a view's) whose refs link a record by `field` and id — forgetting it would break their links. */
+  private wordsLinking(field: 'saved' | 'beat', id: string): string[] {
     const out: string[] = [];
     for (const [subject, slots] of this.activeProse) {
       for (const record of slots.values()) {
-        if (record.refs?.some((r) => r[field] === name)) {
+        if (record.refs?.some((r) => r[field] === id)) {
           out.push(subject.startsWith(NOTE_PROSE_PREFIX) ? `note ${subject.slice(NOTE_PROSE_PREFIX.length)}` : subject);
           break;
         }
@@ -2175,14 +2176,32 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** The world a prose record is judged against at dispatch, from the columns already in hand. */
-  private proseWorld(cols: readonly ColumnInfo[], mode: 'set' | 'proposal'): { readonly columns: Set<string>; readonly analyses: Set<string>; readonly surfaced: Set<string>; readonly commits: Set<string>; readonly beats: Set<string>; readonly saved: Set<string>; readonly mode: 'set' | 'proposal' } {
+  private proseWorld(cols: readonly ColumnInfo[], mode: 'set' | 'proposal'): ProseWorld & { readonly mode: 'set' | 'proposal' } {
+    // the ids come straight off the stores: `tags()` / `saved()` would sort and copy every
+    // record on EVERY describe and every proposal, and the answer is the same set of ids.
+    // The names ride along for the refusal sentence — one pass, no copies.
+    const beats = new Set<string>();
+    const beatNames: string[] = [];
+    for (const t of this.runtime.tags.list) {
+      beats.add(t.id);
+      beatNames.push(t.name);
+    }
+    const saved = new Set<string>();
+    const savedNames: string[] = [];
+    for (const c of this.runtime.saved.list) {
+      saved.add(c.id);
+      savedNames.push(c.name);
+    }
     return {
       columns: new Set(cols.map((c) => c.name)),
       analyses: new Set(this.runtime.analyses.keys()),
       surfaced: new Set([...this.runtime.views.values()].filter((v) => v.encoding !== undefined).map((v) => v.viewId)),
       commits: new Set(this.log.records.map((r) => r.id)),
-      beats: new Set(this.checkpoints().map((b) => b.label)),
-      saved: new Set(this.saved().map((c) => c.name)),
+      // a ref links a record's ID, not its name — that is why renaming a tag or a picture never breaks a note
+      beats,
+      beatNames,
+      saved,
+      savedNames,
       mode,
     };
   }
@@ -2654,7 +2673,7 @@ class InteractionSessionImpl implements InteractionSession {
     const stamped = this.stampCause(cause, 'checkpoint', as);
     const tagged = this.tag(label, undefined, stamped.requestedBy);
     if (!tagged.ok) return this.reject('checkpoint', intent, this.gapLedger.file('guard-failed', 'checkpoint', tagged.rejected, label.slice(0, 40)));
-    const checkpoint = this.checkpoints().find((c) => c.label === tagged.tag.name) as Checkpoint;
+    const checkpoint = this.checkpoints().find((c) => c.id === tagged.tag.id) as Checkpoint;
     return { ok: true, verb: 'checkpoint', intent, checkpoint };
   }
 
@@ -3016,10 +3035,10 @@ class InteractionSessionImpl implements InteractionSession {
     return this._ledger;
   }
 
-  /** The wire's view of the tags: `label` = the name, `commitId` and `at` = the tagged moment, `ts` = that commit's position in the log — one truth, the tag store. */
+  /** The wire's view of the tags: `id` = the tag's own id (what a note links, and what a badge keys on), `label` = the name, `commitId` and `at` = the tagged moment, `ts` = that commit's position in the log — one truth, the tag store. */
   checkpoints(): readonly Checkpoint[] {
     const position = new Map(this.log.records.map((r, i) => [r.id, i] as const));
-    return this.tags().map((t) => Object.freeze({ label: t.name, commitId: t.commitId, at: t.commitId, ts: position.get(t.commitId) ?? -1 }));
+    return this.tags().map((t) => Object.freeze({ id: t.id, label: t.name, commitId: t.commitId, at: t.commitId, ts: position.get(t.commitId) ?? -1 }));
   }
 
   // ── the whats_here projection ────────────────────────────────────────────────

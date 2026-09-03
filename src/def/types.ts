@@ -372,15 +372,25 @@ export interface SavedClause {
  * provenance (the commits the conditions were named from), never identity.
  */
 export interface SavedSelection {
+  /** The store's own short id (`p1`, `p2`, …) — the IDENTITY: what a note's words link, so a rename never breaks a link. */
+  readonly id: string;
   readonly name: string;
   readonly conditions: readonly SavedClause[];
+  /** Who saved it — the CREATOR, never restamped. */
   readonly by: Actor;
-  /** ISO time it was saved (or last renamed). */
+  /** ISO time it was saved — CREATION, never restamped (which is why the list's order is stable). */
   readonly at: string;
+  /** Who last renamed it, when anyone has. */
+  readonly editedBy?: Actor;
+  /** ISO time of that rename. */
+  readonly editedAt?: string;
   /** The default table and its data version when it was saved — so a list can say "saved on version 3, applied on version 5". */
   readonly on?: { readonly table: string; readonly version: string | null };
   readonly from?: readonly string[];
 }
+
+/** A saved selection as a HOST hands it back (`restoreSaved`): the whole record, its id optional — a store with room for it keeps the id, otherwise the store names it and says so. */
+export type RestorableSaved = Omit<SavedSelection, 'id'> & { readonly id?: string };
 
 /**
  * A TAG IS A NAME ON A MOMENT — a checkpoint, a story beat: the name, the
@@ -391,23 +401,55 @@ export interface SavedSelection {
  * walks the tagged moments; seeking a tag seeks its commit.
  */
 export interface Tag {
+  /** The store's own short id (`t1`, `t2`, …) — the IDENTITY: what a note's words link, so a rename never breaks a link. */
+  readonly id: string;
   readonly name: string;
   readonly commitId: string;
   /** Words for the list — why this moment matters. Inert data, never parsed. */
   readonly description?: string;
+  /** Who tagged the moment — the CREATOR, never restamped. */
   readonly by: Actor;
-  /** ISO time it was tagged (or last renamed). */
+  /** ISO time it was tagged — CREATION, never restamped (which is why the list's order is stable). */
   readonly at: string;
+  /** Who last renamed it or changed its words, when anyone has. */
+  readonly editedBy?: Actor;
+  /** ISO time of that change. */
+  readonly editedAt?: string;
 }
+
+/** A tag as a HOST hands it back (`restoreTags`): the whole record, its id optional — a store with room for it keeps the id, otherwise the store names it and says so. */
+export type RestorableTag = Omit<Tag, 'id'> & { readonly id?: string };
 
 /** The store: the tags in the order they were made (a mutable list the session's doors write). */
 export interface TagStore {
   readonly list: Tag[];
+  /**
+   * The highest number this store has ever handed out (`t7` ⇒ 7). It only
+   * goes UP: forgetting a tag does not free its number, so a note written at
+   * another moment in the history can never be silently re-pointed at a
+   * different moment. Restoring raises it too, so a host's `t7` is safe after
+   * a restart. Lives on the STORE because the store outlives every session.
+   */
+  minted: number;
 }
 
 /** The store: the saved selections in the order they were saved (a mutable list the session's doors write). */
 export interface SavedStore {
   readonly list: SavedSelection[];
+  /** The highest number this store has ever handed out (`p7` ⇒ 7) — see {@link TagStore.minted}: a freed number never comes back. */
+  minted: number;
+}
+
+/**
+ * What putting records back did: the names restored, the ones refused with a
+ * sentence, and the ones the store had to NAME ITSELF — a record that carried
+ * no id, or one whose id another record already holds. An id is never quietly
+ * overwritten: if it changed, it is on this list.
+ */
+export interface RestoreResult {
+  readonly restored: readonly string[];
+  readonly refused: readonly { readonly name: string; readonly rejected: string }[];
+  readonly reidentified: readonly { readonly name: string; readonly id: string; readonly was?: string }[];
 }
 
 /**

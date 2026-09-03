@@ -38,11 +38,16 @@ import {
   type RegisteredAnalysis,
   type ViewDecl,
   type ViewEncodingDecl,
+  type RestorableSaved,
+  type RestorableTag,
+  type RestoreResult,
+  type SavedClause,
   type SavedSelection,
   type SavedStore,
   type Tag,
   type TagStore,
 } from './types.js';
+import { PICTURE_ID_PREFIX, TAG_ID_PREFIX, restoredRecordId } from './recordIds.js';
 import { createInteractionSession, type InteractionSession } from '../session/session.js';
 import type { SessionOptions } from '../session/types.js';
 import { materializeLinks, voiceOf } from '../links/index.js';
@@ -77,12 +82,12 @@ export interface Dashboard {
   journal(): readonly RefreshRecord[];
   /** The saved selections — saved logic beside the log (see {@link SavedSelection}); the session's doors write it. */
   saved(): readonly SavedSelection[];
-  /** Put saved selections back (a host's persistence): each record whole — name, conditions, who, when, on what — judged, never re-stamped; refused entries are named. */
-  restoreSaved(list: readonly SavedSelection[]): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] };
+  /** Put saved selections back (a host's persistence): each record whole — name, conditions, who, when, on what — judged, never re-stamped; refused entries are named, and so is any record the store had to give a new id. */
+  restoreSaved(list: readonly RestorableSaved[]): RestoreResult;
   /** The tags — names on moments beside the log (see {@link Tag}); the session's doors write them. */
   tags(): readonly Tag[];
-  /** Put tags back whole (a host's persistence) — judged (a name, a commit id, who, when), never re-stamped; refused entries named. A session's `restoreTags` also checks the commit is in its log. */
-  restoreTags(list: readonly Tag[]): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] };
+  /** Put tags back whole (a host's persistence) — judged (a name, a commit id, who, when), never re-stamped; refused entries named, and so is any record the store had to give a new id. A session's `restoreTags` also checks the commit is in its log. */
+  restoreTags(list: readonly RestorableTag[]): RestoreResult;
   /** Judge the data declarations against the real data: today, that a declared row key names a column the engine lists. Sentences, never thrown. */
   lintData(): Promise<readonly string[]>;
   /** Open a fresh session: one live Mosaic Selection + commit log + FDR ledger. */
@@ -390,10 +395,11 @@ async function readSource(decl: SourceDecl, table: string, adapters: readonly So
 }
 
 /** Everything after the providers exist — one assembly for both builders. */
-/** Restore saved selections into the store: a whole record each, judged (a name, at least one condition on a declared view with a field or pair and a value, an author, a time), never re-stamped, refused in words. */
-export function restoreSavedInto(store: SavedStore, list: readonly SavedSelection[], views: ReadonlySet<string>): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] } {
+/** Restore saved selections into the store: a whole record each, judged (a name, at least one condition on a declared view with a field or pair and a value, an author, a time), never re-stamped, refused in words. A record keeps the id it arrives with when no other record holds it; otherwise the store names it and says so in `reidentified`. */
+export function restoreSavedInto(store: SavedStore, list: readonly RestorableSaved[], views: ReadonlySet<string>): RestoreResult {
   const restored: string[] = [];
   const refused: { name: string; rejected: string }[] = [];
+  const reidentified: { name: string; id: string; was?: string }[] = [];
   for (const r of list) {
     const name = typeof r?.name === 'string' ? r.name.trim() : '';
     const say = (rejected: string): void => { refused.push({ name: name.length > 0 ? name : '(unnamed)', rejected }); };
@@ -401,6 +407,8 @@ export function restoreSavedInto(store: SavedStore, list: readonly SavedSelectio
     if (store.list.some((c) => c.name === name)) { say(`"${name}" is already saved — rename or forget it first`); continue; }
     if (!Array.isArray(r.conditions) || r.conditions.length === 0) { say('a saved selection needs at least one condition'); continue; }
     if (typeof r.by !== 'string' || typeof r.at !== 'string') { say('a saved selection carries who saved it and when'); continue; }
+    if (r.id !== undefined && (typeof r.id !== 'string' || r.id.trim().length === 0)) { say('a saved selection\'s id, when it carries one, is a short name'); continue; }
+    if ((r.editedBy !== undefined && typeof r.editedBy !== 'string') || (r.editedAt !== undefined && typeof r.editedAt !== 'string')) { say('a saved selection that was edited carries who edited it and when'); continue; }
     const seen = new Set<string>();
     let bad: string | undefined;
     for (const c of r.conditions) {
@@ -412,16 +420,30 @@ export function restoreSavedInto(store: SavedStore, list: readonly SavedSelectio
       if (c.value === undefined) { bad = `the condition on "${c.viewId}" needs a value`; break; }
     }
     if (bad !== undefined) { say(bad); continue; }
-    store.list.push(structuredClone(r));
+    const named = restoredRecordId(PICTURE_ID_PREFIX, r.id, store);
+    if (named.assigned) reidentified.push({ name, id: named.id, ...(r.id !== undefined ? { was: r.id } : {}) });
+    // field by field, like the tag restore: a host's extra properties stay out of the store (and out of every `saved()` a consumer reads)
+    store.list.push({
+      id: named.id,
+      name,
+      conditions: structuredClone(r.conditions) as SavedClause[],
+      by: r.by,
+      at: r.at,
+      ...(r.on !== undefined ? { on: structuredClone(r.on) } : {}),
+      ...(r.from !== undefined ? { from: [...r.from] } : {}),
+      ...(r.editedBy !== undefined ? { editedBy: r.editedBy } : {}),
+      ...(r.editedAt !== undefined ? { editedAt: r.editedAt } : {}),
+    });
     restored.push(name);
   }
-  return { restored, refused };
+  return { restored, refused, reidentified };
 }
 
-/** Restore tags into the store: a whole record each, judged (a name, a commit id, who, when), never re-stamped, refused in words. `hasCommit` lets a session refuse a commit its log does not hold. */
-export function restoreTagsInto(store: TagStore, list: readonly Tag[], hasCommit?: (id: string) => boolean): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] } {
+/** Restore tags into the store: a whole record each, judged (a name, a commit id, who, when), never re-stamped, refused in words. `hasCommit` lets a session refuse a commit its log does not hold. A record keeps the id it arrives with when no other record holds it; otherwise the store names it and says so in `reidentified`. */
+export function restoreTagsInto(store: TagStore, list: readonly RestorableTag[], hasCommit?: (id: string) => boolean): RestoreResult {
   const restored: string[] = [];
   const refused: { name: string; rejected: string }[] = [];
+  const reidentified: { name: string; id: string; was?: string }[] = [];
   for (const t of list) {
     const name = typeof t?.name === 'string' ? t.name.trim() : '';
     const say = (rejected: string): void => { refused.push({ name: name.length > 0 ? name : '(unnamed)', rejected }); };
@@ -432,15 +454,28 @@ export function restoreTagsInto(store: TagStore, list: readonly Tag[], hasCommit
     if (hasCommit !== undefined && !hasCommit(t.commitId)) { say(`no commit "${t.commitId}" in the log`); continue; }
     if (typeof t.by !== 'string' || typeof t.at !== 'string') { say('a tag carries who made it and when'); continue; }
     if (t.description !== undefined && typeof t.description !== 'string') { say('a tag\'s description is words'); continue; }
-    store.list.push({ name, commitId: t.commitId, ...(t.description !== undefined ? { description: t.description } : {}), by: t.by, at: t.at });
+    if (t.id !== undefined && (typeof t.id !== 'string' || t.id.trim().length === 0)) { say('a tag\'s id, when it carries one, is a short name'); continue; }
+    if ((t.editedBy !== undefined && typeof t.editedBy !== 'string') || (t.editedAt !== undefined && typeof t.editedAt !== 'string')) { say('a tag that was edited carries who edited it and when'); continue; }
+    const named = restoredRecordId(TAG_ID_PREFIX, t.id, store);
+    if (named.assigned) reidentified.push({ name, id: named.id, ...(t.id !== undefined ? { was: t.id } : {}) });
+    store.list.push({
+      id: named.id,
+      name,
+      commitId: t.commitId,
+      ...(t.description !== undefined ? { description: t.description } : {}),
+      by: t.by,
+      at: t.at,
+      ...(t.editedBy !== undefined ? { editedBy: t.editedBy } : {}),
+      ...(t.editedAt !== undefined ? { editedAt: t.editedAt } : {}),
+    });
     restored.push(name);
   }
-  return { restored, refused };
+  return { restored, refused, reidentified };
 }
 
 function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[]): Dashboard {
-  const saved: SavedStore = { list: [] }; // saved selections: logic beside the log, shared by every session
-  const tags: TagStore = { list: [] }; // tags: names on moments beside the log, shared by every session
+  const saved: SavedStore = { list: [], minted: 0 }; // saved selections: logic beside the log, shared by every session (the counter rides the store: it outlives every session)
+  const tags: TagStore = { list: [], minted: 0 }; // tags: names on moments beside the log, shared by every session
   const tables = [...providers.keys()];
   const keys: Record<string, string> = Object.fromEntries(Object.entries(def.data).flatMap(([t, d]) => (d.key !== undefined ? [[t, d.key]] : [])));
   const defaultTable = def.defaultTable ?? tables[0]!;

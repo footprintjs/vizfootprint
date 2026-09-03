@@ -162,7 +162,7 @@ export interface RawPollState {
   readonly branches?: readonly { tip: string; length: number; actor: Actor; active: boolean }[];
   /** BR-2: the named-paths surface (`overview().paths` serialized as-is). */
   readonly paths?: RawPollPaths;
-  readonly checkpoints?: readonly { label: string; commitId: string | null; at?: string | null; ts: number }[];
+  readonly checkpoints?: readonly { id?: string; label: string; commitId: string | null; at?: string | null; ts: number }[];
   readonly cursor?: string | null;
   readonly head?: string | null;
   readonly cursorTests?: number;
@@ -634,7 +634,7 @@ function mapRefs(raw: unknown): ProseRefView[] {
     if (typeof x !== 'object' || x === null || !Array.isArray(x.span) || x.span.length !== 2 || !x.span.every((n) => typeof n === 'number')) return [];
     const commit = typeof x.commit === 'string' ? x.commit : undefined;
     const beat = typeof x.beat === 'string' ? x.beat : undefined;
-    const saved = typeof x.saved === 'string' ? x.saved : undefined; // a saved selection by name: a click applies its logic, never seeks
+    const saved = typeof x.saved === 'string' ? x.saved : undefined; // a saved selection by its id: a click applies its logic, never seeks
     if (Number(commit !== undefined) + Number(beat !== undefined) + Number(saved !== undefined) !== 1) return [];
     return [{ span: [x.span[0] as number, x.span[1] as number] as const, ...(commit !== undefined ? { commit } : {}), ...(beat !== undefined ? { beat } : {}), ...(saved !== undefined ? { saved } : {}), ...(typeof x.label === 'string' ? { label: x.label } : {}) }];
   });
@@ -920,7 +920,7 @@ async function mapSession(session: SessionLike, defaultLayout?: LayoutPreset): P
     // come from the session's own full listing (whats_here only reports their
     // COUNT, deliberately — a hidden path is hidden until asked for).
     paths: withArchived(mapPaths(overview.paths), session.paths({ includeArchived: true })),
-    checkpoints: session.checkpoints().map((c) => ({ label: c.label, commitId: c.commitId, at: c.at, ts: c.ts })),
+    checkpoints: session.checkpoints().map((c) => ({ id: c.id, label: c.label, commitId: c.commitId, at: c.at, ts: c.ts })),
     cursor: overview.time.cursor,
     head: overview.time.head,
     viewingPast: overview.time.viewingPast,
@@ -975,7 +975,7 @@ export function mapPollState(raw: RawPollState, defaultLayout?: LayoutPreset): S
     encodingPolicy: mapPolicy(raw.encodingPolicy),
     branches: (raw.branches ?? []).map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
     paths: mapPaths(raw.paths),
-    checkpoints: (raw.checkpoints ?? []).map((c) => ({ label: c.label, commitId: c.commitId, ...(c.at !== undefined ? { at: c.at } : {}), ts: c.ts })),
+    checkpoints: (raw.checkpoints ?? []).map((c) => ({ ...(c.id !== undefined ? { id: c.id } : {}), label: c.label, commitId: c.commitId, ...(c.at !== undefined ? { at: c.at } : {}), ts: c.ts })),
     cursor: raw.cursor ?? null,
     head: raw.head ?? null,
     viewingPast: raw.viewingPast ?? false,

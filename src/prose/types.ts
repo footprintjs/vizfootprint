@@ -98,11 +98,13 @@ export interface ProseBasis {
 export interface ProseRef {
   /** Character span `[start, end)` within `text`. */
   readonly span: readonly [number, number];
+  /** A commit by its id. */
   readonly commit?: string;
+  /** A tag by its ID (`t1`, …), never its name — that is what lets a tag be renamed without touching a word of the prose. */
   readonly beat?: string;
-  /** A saved selection by name — clicking it APPLIES the condition (an ordinary act), it does not seek. */
+  /** A saved selection by its ID (`p1`, …) — clicking it APPLIES the condition (an ordinary act), it does not seek. Renaming the picture leaves this ref pointing at it. */
   readonly saved?: string;
-  /** Words for the anchor, echoed verbatim. */
+  /** Words for the anchor, echoed verbatim — the name as it read when the link was made, which a later rename may leave stale. */
   readonly label?: string;
 }
 

@@ -45,7 +45,7 @@ The model's permission follows the kind of claim: a **statistic** may be stated 
 
 ## Refs
 
-A record's `refs` are spans of its text that point at a commit the log holds or a beat by its label: a span inside the text, exactly one target, a target that exists. The UI renders them as small corner anchors (`ProseText`).
+A record's `refs` are spans of its text that point at a commit the log holds, a tag, or a saved selection: a span inside the text, exactly one target, a target that exists. A tag and a saved selection are named by their ID (`t1`, `p1`), never by their name — that is what lets either be renamed without touching a word of the prose; the ref's `label` keeps the words the writer typed, so an anchor still reads as they wrote it (and a later rename simply leaves those words stale). A ref that points at nothing is refused by NAME AND ID together — `… does not exist: "coastal" (p3)` — because the words alone can name a record that does exist; a ref that shows no words gets the id and the list of the ones that do. The UI renders them as small corner anchors (`ProseText`).
 
 ## What is not here yet
 

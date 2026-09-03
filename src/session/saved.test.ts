@@ -153,18 +153,22 @@ describe('saved selections — saved logic beside the log', () => {
     expect(s.clausesFor('scatter')).toMatchObject([{ from: 'bar', clause: { value: 'Party' } }]);
   });
 
-  it('a rename or a forget is refused while words on screen link the name — a note or the dashboard\'s caption — and allowed once the link is gone', async () => {
+  it('renaming is FREE while words on screen link the picture (they link its id, not its name); forgetting is still refused until the link is gone', async () => {
     const s = fresh().createSession();
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
-    expect(s.saveSelection('coastal', { live: 'all' }).ok).toBe(true);
-    await s.dispatch({ verb: 'describe', viewId: 'note:n1', slot: 'caption', record: { text: 'see @[coastal]', author: { kind: 'human' }, refs: [{ span: [4, 14], saved: 'coastal' }] }, cause: userCause() });
-    await s.dispatch({ verb: 'describe', viewId: 'dashboard', slot: 'caption', record: { text: '@[coastal] matters', author: { kind: 'human' }, refs: [{ span: [0, 10], saved: 'coastal' }] }, cause: userCause() });
-    expect(s.renameSaved('coastal', 'coast')).toEqual({ ok: false, rejected: '"coastal" is linked from note n1, dashboard — change the link in the words first' });
-    expect(s.forgetSaved('coastal')).toEqual({ ok: false, rejected: '"coastal" is linked from note n1, dashboard — change the link in the words first' });
-    expect(s.renameSaved('coastal', 'coastal').ok).toBe(true); // a rename to itself breaks nothing
+    const made = s.saveSelection('coastal', { live: 'all' });
+    expect(made.ok).toBe(true);
+    if (!made.ok) return;
+    const id = made.saved.id;
+    await s.dispatch({ verb: 'describe', viewId: 'note:n1', slot: 'caption', record: { text: 'see @[coastal]', author: { kind: 'human' }, refs: [{ span: [4, 14], saved: id, label: 'coastal' }] }, cause: userCause() });
+    await s.dispatch({ verb: 'describe', viewId: 'dashboard', slot: 'caption', record: { text: '@[coastal] matters', author: { kind: 'human' }, refs: [{ span: [0, 10], saved: id, label: 'coastal' }] }, cause: userCause() });
+    // the rename lands: the words still point at the same picture, and only the label they show is now stale
+    expect(s.renameSaved('coastal', 'coast')).toMatchObject({ ok: true, saved: { id, name: 'coast' } });
+    expect(s.saved().map((c) => [c.id, c.name])).toEqual([[id, 'coast']]);
+    // forgetting really would break the link, so it is refused — naming the words that hold it
+    expect(s.forgetSaved('coast')).toEqual({ ok: false, rejected: '"coast" is linked from note n1, dashboard — change the link in the words first' });
     await s.dispatch({ verb: 'describe', viewId: 'note:n1', slot: 'caption', record: null, cause: userCause('drop the note') });
     await s.dispatch({ verb: 'describe', viewId: 'dashboard', slot: 'caption', record: { text: 'plain', author: { kind: 'human' } }, cause: userCause() });
-    expect(s.renameSaved('coastal', 'coast').ok).toBe(true);
     expect(s.forgetSaved('coast').ok).toBe(true);
   });
 
@@ -191,6 +195,7 @@ describe('saved selections — saved logic beside the log', () => {
       { ...older, name: 'view is a number', conditions: [{ viewId: 7 as unknown as string, kind: 'point', field: 'category', value: 1 }] },
     ]);
     expect(r.restored).toEqual(['newer', 'older']);
+    expect(r.reidentified).toEqual([{ name: 'newer', id: 'p1' }, { name: 'older', id: 'p2' }]); // neither carried an id, so the store named them — and said so
     expect(r.refused).toEqual([
       { name: '(unnamed)', rejected: 'a saved selection needs a name' },
       { name: 'older', rejected: '"older" is already saved — rename or forget it first' },
@@ -207,7 +212,7 @@ describe('saved selections — saved logic beside the log', () => {
       { name: 'view is a number', rejected: 'no declared view "7"' },
     ]);
     expect(s.saved().map((c) => c.name)).toEqual(['older', 'newer']); // oldest first by `at`, whatever order they were put back in
-    expect(s.saved()[1]).toEqual(newer); // whole: by, at, on kept, not re-stamped
+    expect(s.saved()[1]).toEqual({ ...newer, id: 'p1' }); // whole: by, at, on kept, not re-stamped — with the id the store gave it
     expect(dash.saved().map((c) => c.name)).toEqual(['newer', 'older']);
     expect(dash.restoreSaved([older]).refused).toHaveLength(1);
     // copies: a consumer cannot reach into the store — through the session or the dashboard
@@ -215,28 +220,35 @@ describe('saved selections — saved logic beside the log', () => {
     (dash.saved()[0]!.conditions as unknown as unknown[]).push('y');
     expect(s.saved()[0]!.conditions).toHaveLength(1);
     expect(dash.saved()[0]!.conditions).toHaveLength(1);
-    // a rename keeps `on` and `from`; an apply reads the copy
-    expect(s.renameSaved('newer', 'newest')).toMatchObject({ ok: true, saved: { on: { version: 'v3' } } });
+    // a rename keeps the id, `on` and `from`, and the creation stamp — the edit is recorded beside it
+    expect(s.renameSaved('newer', 'newest')).toMatchObject({ ok: true, saved: { id: 'p1', on: { version: 'v3' }, by: 'agent', at: newer.at, editedBy: 'user' } });
     const applied = await s.applySaved('newest', userCause());
     expect(applied.ok && applied.applied[0]!.value).toBe('Formal');
   });
 
-  it('renaming keeps the picture and stamps the new author and time; forgetting removes it; both refuse an unknown name and a taken name', async () => {
+  it('renaming keeps the picture, its id and its creation stamp — the edit is recorded beside them, so the list never reorders; forgetting removes it; both refuse an unknown name and a taken name', async () => {
     const s = fresh().createSession();
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
-    expect(s.saveSelection('a', { live: 'all' }).ok).toBe(true);
+    const a = s.saveSelection('a', { live: 'all' });
+    expect(a.ok).toBe(true);
+    if (!a.ok) return;
     expect(s.saveSelection('b', { conditions: [{ viewId: 'bar', kind: 'point', field: 'category', value: 'Party' }] }).ok).toBe(true);
     expect(s.renameSaved('a', ' ')).toEqual({ ok: false, rejected: 'a saved selection needs a name' });
     expect(s.renameSaved('zzz', 'y')).toEqual({ ok: false, rejected: 'no saved selection "zzz" — the saved ones are "a", "b"' });
     expect(s.renameSaved('a', 'b')).toEqual({ ok: false, rejected: '"b" is already saved — rename or forget it first' });
     const renamed = s.renameSaved('a', 'formal', 'agent');
-    expect(renamed).toMatchObject({ ok: true, saved: { name: 'formal', conditions: [{ value: 'Formal' }], by: 'agent' } });
-    expect(s.renameSaved('formal', 'formal').ok).toBe(true); // a rename to itself is allowed
-    expect(s.saved().map((c) => c.name).sort()).toEqual(['b', 'formal']); // a rename re-stamps the time, so it may sort after 'b'
+    expect(renamed).toMatchObject({ ok: true, saved: { id: 'p1', name: 'formal', conditions: [{ value: 'Formal' }], by: 'user', editedBy: 'agent' } }); // who SAVED it stays 'user'; the renamer rides `editedBy`
+    expect(renamed.ok && renamed.saved.at).toBe(a.saved.at); // the time it was saved, untouched
+    expect(renamed.ok && Number.isNaN(Date.parse(renamed.saved.editedAt!))).toBe(false);
+    const untouched = s.saved().find((c) => c.name === 'b')!;
+    expect(s.renameSaved('b', 'b')).toEqual({ ok: true, saved: untouched }); // a rename to itself is allowed AND records nothing: no editedBy, no editedAt
+    expect(s.renameSaved('formal', 'formal').ok).toBe(true);
+    expect(s.saved().map((c) => c.name)).toEqual(['formal', 'b']); // the order the pictures were saved in — a rename cannot move a row
     expect(s.forgetSaved('b')).toMatchObject({ ok: true, saved: { name: 'b' } });
     expect(s.forgetSaved('b')).toEqual({ ok: false, rejected: 'no saved selection "b" — the saved ones are "formal"' });
     expect(s.forgetSaved('formal').ok).toBe(true);
-    expect(s.saveSelection('formal', { live: 'all' }).ok).toBe(true); // the name is free again
+    expect(s.saveSelection('formal', { live: 'all' }).ok).toBe(true); // the NAME is free again
+    expect(s.saved().map((c) => c.id)).toEqual(['p3']); // the NUMBER is not: p1 and p2 are spent for the life of the store, so no words anywhere in the history can be re-pointed
     expect(s.renameSaved('formal', 'x').ok).toBe(true);
     expect(s.forgetSaved('x').ok).toBe(true);
     expect(s.forgetSaved('x')).toEqual({ ok: false, rejected: 'no saved selection "x" — the saved ones are none' });
@@ -254,16 +266,44 @@ describe('saved selections — saved logic beside the log', () => {
     expect(applied.ok && applied.applied[0]!.value).toBe('Formal');
   });
 
-  it('a note may link a saved selection by name: the ref is judged against the saved names', async () => {
+  it('a note links a saved selection by its ID: the ref is judged against the ids, and the refusal names the words the ref shows (its id when it shows none)', async () => {
     const s = fresh().createSession();
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
-    expect(s.saveSelection('coastal', { live: 'all' }).ok).toBe(true);
-    const ok = await s.dispatch({ verb: 'describe', viewId: 'note:n1', slot: 'caption', record: { text: 'see @[coastal]', author: { kind: 'human' }, refs: [{ span: [4, 14], saved: 'coastal', label: 'coastal' }] }, cause: userCause('note') });
+    const made = s.saveSelection('coastal', { live: 'all' });
+    expect(made.ok).toBe(true);
+    if (!made.ok) return;
+    const ok = await s.dispatch({ verb: 'describe', viewId: 'note:n1', slot: 'caption', record: { text: 'see @[coastal]', author: { kind: 'human' }, refs: [{ span: [4, 14], saved: made.saved.id, label: 'coastal' }] }, cause: userCause('note') });
     expect(ok.ok).toBe(true);
-    const bad = await s.dispatch({ verb: 'describe', viewId: 'note:n2', slot: 'caption', record: { text: 'see @[ghost]', author: { kind: 'human' }, refs: [{ span: [4, 12], saved: 'ghost' }] }, cause: userCause('note') });
-    expect(!bad.ok && bad.rejection.detail).toContain('points at a saved selection that does not exist: "ghost"');
-    const two = await s.dispatch({ verb: 'describe', viewId: 'note:n3', slot: 'caption', record: { text: 'x', author: { kind: 'human' }, refs: [{ span: [0, 1], saved: 'coastal', beat: 'b' }] }, cause: userCause('note') });
+    const bad = await s.dispatch({ verb: 'describe', viewId: 'note:n2', slot: 'caption', record: { text: 'see @[ghost]', author: { kind: 'human' }, refs: [{ span: [4, 12], saved: 'p9', label: 'ghost' }] }, cause: userCause('note') });
+    expect(!bad.ok && bad.rejection.detail).toBe('"note:n2".caption.refs[0] points at a saved selection that does not exist: "ghost" (p9)');
+    const bare = await s.dispatch({ verb: 'describe', viewId: 'note:n2', slot: 'caption', record: { text: 'see it', author: { kind: 'human' }, refs: [{ span: [4, 6], saved: 'p9' }] }, cause: userCause('note') });
+    expect(!bare.ok && bare.rejection.detail).toBe('"note:n2".caption.refs[0] points at a saved selection that does not exist: "p9" — the pictures are "coastal"'); // no words to show: the id, and what DOES exist
+    // the words a ref shows can name a picture that exists while the id it links does not — the sentence must not read as if the picture were missing
+    expect(s.saveSelection('ghost', { live: 'all' }).ok).toBe(true);
+    const both = await s.dispatch({ verb: 'describe', viewId: 'note:n4', slot: 'caption', record: { text: 'see @[ghost]', author: { kind: 'human' }, refs: [{ span: [4, 12], saved: 'p9', label: 'ghost' }] }, cause: userCause('note') });
+    expect(!both.ok && both.rejection.detail).toBe('"note:n4".caption.refs[0] points at a saved selection that does not exist: "ghost" (p9)'); // "ghost" is right there in the list; p9 is what the words link
+    const two = await s.dispatch({ verb: 'describe', viewId: 'note:n3', slot: 'caption', record: { text: 'x', author: { kind: 'human' }, refs: [{ span: [0, 1], saved: made.saved.id, beat: 'b' }] }, cause: userCause('note') });
     expect(!two.ok && two.rejection.detail).toContain('must name exactly one of commit, beat, saved');
+  });
+
+  it('a restored picture KEEPS the id it carries when the store has room for it, and is renamed only when it must be — never silently', async () => {
+    const s = fresh().createSession();
+    const one = { name: 'one', conditions: [{ viewId: 'bar', kind: 'point' as const, field: 'category', value: 'Formal' }], by: 'user' as const, at: '2020-01-01T00:00:00.000Z' };
+    // a host's own ids come back untouched, and the store's next number is one past the highest it can see
+    expect(s.restoreSaved([{ ...one, id: 'p7' }, { ...one, name: 'two', id: 'p3', editedBy: 'agent' as const, editedAt: '2021-02-02T00:00:00.000Z' }])).toEqual({ restored: ['one', 'two'], refused: [], reidentified: [] });
+    expect(s.saved().map((c) => [c.id, c.name, c.editedBy])).toEqual([['p7', 'one', undefined], ['p3', 'two', 'agent']]);
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
+    expect(s.saveSelection('fresh', { live: 'all' })).toMatchObject({ ok: true, saved: { id: 'p8' } });
+    // an id another record already holds cannot be kept: the store names the record and says what it arrived with
+    const clash = s.restoreSaved([{ ...one, name: 'three', id: 'p7' }]);
+    expect(clash.reidentified).toEqual([{ name: 'three', id: 'p9', was: 'p7' }]);
+    expect(s.saved().find((c) => c.name === 'three')!.id).toBe('p9');
+    // a shape that is not an id, and an edit stamp that is not who-and-when, are refused in words
+    expect(s.restoreSaved([{ ...one, name: 'bad id', id: '  ' }, { ...one, name: 'worse id', id: 5 as unknown as string }, { ...one, name: 'bad edit', editedAt: 7 as unknown as string }]).refused).toEqual([
+      { name: 'bad id', rejected: "a saved selection's id, when it carries one, is a short name" },
+      { name: 'worse id', rejected: "a saved selection's id, when it carries one, is a short name" },
+      { name: 'bad edit', rejected: 'a saved selection that was edited carries who edited it and when' },
+    ]);
   });
 
   it('every kind lands and every kind clears: an excluding match and a cell apply through their own doors; replace clears a cell, a match and an interval it does not name', async () => {
@@ -312,5 +352,53 @@ describe('saved selections — saved logic beside the log', () => {
     const r = await s.applySaved('on a stub', userCause());
     expect(!r.ok && r.rejected.startsWith('"on a stub" cannot be applied here — ')).toBe(true);
     expect(s.log.records).toHaveLength(before);
+  });
+
+  it('the number a picture carried is SPENT: time travel gets past the words-on-screen guard, but the freed number never comes back', async () => {
+    const s = fresh().createSession();
+    const first = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
+    const beforeTheNote = first.ok ? first.commit!.id : '';
+    expect(s.saveSelection('coastal', { live: 'all' })).toMatchObject({ ok: true, saved: { id: 'p1' } });
+    const note = await s.dispatch({ verb: 'describe', viewId: 'note:n1', slot: 'caption', record: { text: 'see @[coastal]', author: { kind: 'human' }, refs: [{ span: [4, 14], saved: 'p1', label: 'coastal' }] }, cause: userCause('note') });
+    const atTheNote = note.ok ? note.commit!.id : '';
+    // at the note the guard holds: the words on screen link the picture
+    expect(s.forgetSaved('coastal')).toEqual({ ok: false, rejected: '"coastal" is linked from note n1 — change the link in the words first' });
+    // one seek and the note is off screen — the guard folds the prose to the CURSOR, so it cannot see the link, and the forget goes through
+    s.seek(beforeTheNote);
+    expect(s.forgetSaved('coastal').ok).toBe(true);
+    // THE FIX: the next picture gets a NEW number. Before it, this saved 'inland' as p1 and the note came back
+    // pointing at a different picture — a wrong filter nobody could see.
+    expect(s.saveSelection('inland', { live: 'all' })).toMatchObject({ ok: true, saved: { id: 'p2' } });
+    s.seek(atTheNote);
+    expect(s.saved().map((c) => [c.id, c.name])).toEqual([['p2', 'inland']]);
+    // the note's ref is now a DEAD link, and the validator says so in words — the honest failure, not a silent one
+    const dead = await s.dispatch({ verb: 'describe', viewId: 'note:n2', slot: 'caption', record: { text: 'see @[coastal]', author: { kind: 'human' }, refs: [{ span: [4, 14], saved: 'p1', label: 'coastal' }] }, cause: userCause('note') });
+    expect(!dead.ok && dead.rejection.detail).toBe('"note:n2".caption.refs[0] points at a saved selection that does not exist: "coastal" (p1)');
+  });
+
+  it('a restored id names a number only when it is DIGITS, and a restored number is spent even after the record is forgotten', async () => {
+    const s = fresh().createSession();
+    const one = { name: 'one', conditions: [{ viewId: 'bar', kind: 'point' as const, field: 'category', value: 'Formal' }], by: 'user' as const, at: '2020-01-01T00:00:00.000Z' };
+    // `Number('1e3')` is 1000 and `Number('0x10')` is 16 — neither is a number of this store's, so a host restoring one cannot jump the numbering
+    expect(s.restoreSaved([{ ...one, name: 'exponent', id: 'p1e3' }, { ...one, name: 'hex', id: 'p0x10' }]).restored).toEqual(['exponent', 'hex']);
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
+    expect(s.saveSelection('fresh', { live: 'all' })).toMatchObject({ ok: true, saved: { id: 'p1' } });
+    // a restored `p7` raises the counter, so `p7` is never minted again — even once the record that carried it is gone from the list
+    expect(s.restoreSaved([{ ...one, name: 'seven', id: 'p7' }]).reidentified).toEqual([]);
+    expect(s.forgetSaved('seven').ok).toBe(true);
+    expect(s.saveSelection('after', { live: 'all' })).toMatchObject({ ok: true, saved: { id: 'p8' } });
+  });
+
+  it('a restored picture carries only the fields a picture has — a host cannot smuggle anything else into the store, and its own arrays are copied', () => {
+    const s = fresh().createSession();
+    const conditions = [{ viewId: 'bar', kind: 'point' as const, field: 'category', value: 'Formal' }];
+    const from = ['s1'];
+    const smuggled = { name: '  spaced  ', conditions, by: 'user' as const, at: '2020-01-01T00:00:00.000Z', on: { table: 'data', version: 'v1' }, from, editedBy: 'agent' as const, editedAt: '2021-02-02T00:00:00.000Z', secret: 'not a picture field', id: 'p2' };
+    expect(s.restoreSaved([smuggled as never]).restored).toEqual(['spaced']); // the name is trimmed, as the tag restore trims its own
+    expect(s.saved()[0]).toEqual({ id: 'p2', name: 'spaced', conditions: [{ viewId: 'bar', kind: 'point', field: 'category', value: 'Formal' }], by: 'user', at: '2020-01-01T00:00:00.000Z', on: { table: 'data', version: 'v1' }, from: ['s1'], editedBy: 'agent', editedAt: '2021-02-02T00:00:00.000Z' });
+    conditions.push({ viewId: 'scatter', kind: 'point', field: 'category', value: 'Party' });
+    from.push('s2');
+    expect(s.saved()[0]!.conditions).toHaveLength(1); // the store took copies: the host's later push cannot reach it
+    expect(s.saved()[0]!.from).toEqual(['s1']);
   });
 });

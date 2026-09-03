@@ -11,20 +11,20 @@ const WORLD: MentionWorld = {
     ['s12', 'select map.state = TX'],
     ['s40', 'describe dashboard.caption'],
   ]),
-  beats: new Set(['Start', 'Formal wear']),
-  saved: new Set(['coastal', 'Formal wear']),
+  beats: new Map([['Start', 't1'], ['Formal wear', 't2']]),
+  saved: new Map([['coastal', 'p1'], ['Formal wear', 'p2']]),
 };
 
 describe('mentionsToRefs', () => {
-  it('resolves commits by id, saved selections by name, beats by label — bracketed or bare — with exact spans', () => {
+  it('resolves commits by id, saved selections and beats by NAME to the record\'s ID (the words ride along as the label) — bracketed or bare — with exact spans', () => {
     const text = 'See #s12 then @coastal and @[Formal wear], also @Start.';
     const { refs, unresolved } = mentionsToRefs(text, WORLD);
     expect(unresolved).toEqual([]);
     expect(refs).toEqual([
       { span: [4, 8], commit: 's12', label: 'select map.state = TX' },
-      { span: [14, 22], saved: 'coastal', label: 'coastal' },
-      { span: [27, 41], saved: 'Formal wear', label: 'Formal wear' },
-      { span: [48, 54], beat: 'Start', label: 'Start' },
+      { span: [14, 22], saved: 'p1', label: 'coastal' },
+      { span: [27, 41], saved: 'p2', label: 'Formal wear' }, // a name that is both resolves to the saved selection: the logic wins over the moment
+      { span: [48, 54], beat: 't1', label: 'Start' },
     ]);
     for (const r of refs) expect(text.slice(r.span[0], r.span[1]).length).toBe(r.span[1] - r.span[0]);
     expect(text.slice(48, 54)).toBe('@Start'); // the trailing period is not part of the mention
@@ -42,11 +42,11 @@ describe('mentionsToRefs', () => {
     const { refs, unresolved } = mentionsToRefs(`"@coastal" and @coastal's`, WORLD);
     expect(unresolved).toEqual([]);
     expect(refs).toEqual([
-      { span: [1, 9], saved: 'coastal', label: 'coastal' },
-      { span: [15, 23], saved: 'coastal', label: 'coastal' },
+      { span: [1, 9], saved: 'p1', label: 'coastal' },
+      { span: [15, 23], saved: 'p1', label: 'coastal' },
     ]);
-    expect(mentionsToRefs('\u201c@coastal\u201d and @coastal\u2019s', WORLD).refs.map((r) => r.saved)).toEqual(['coastal', 'coastal']); // the curly ones too
-    expect(mentionsToRefs('@[it\'s mine]', { ...WORLD, saved: new Set(["it's mine"]) }).refs).toEqual([{ span: [0, 12], saved: "it's mine", label: "it's mine" }]); // a name that really carries one is bracketed
+    expect(mentionsToRefs('\u201c@coastal\u201d and @coastal\u2019s', WORLD).refs.map((r) => r.saved)).toEqual(['p1', 'p1']); // the curly ones too
+    expect(mentionsToRefs('@[it\'s mine]', { ...WORLD, saved: new Map([["it's mine", 'p9']]) }).refs).toEqual([{ span: [0, 12], saved: 'p9', label: "it's mine" }]); // a name that really carries one is bracketed
   });
   it('plain words carry no mention; a marker inside a word is plain text (an email, issue#12), a marker after a boundary is a mention', () => {
     expect(mentionsToRefs('nothing to link here', WORLD)).toEqual({ refs: [], unresolved: [] });

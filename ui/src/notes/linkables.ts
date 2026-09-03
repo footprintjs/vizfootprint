@@ -7,6 +7,13 @@
  * name the bracketed form cannot carry (a `]` inside it, a line break, a space
  * at either end) is inserted by its commit id instead; two saves under one
  * name resolve to the NEWEST, and the older one is offered by its id.
+ *
+ * A ref carries an ID, never a name — that is what lets a record be renamed
+ * without touching a word of the prose — so the mention world maps name → id.
+ * A checkpoint's id is the tag's (`t1`, …); this wire's saved selections are
+ * the log's NAMED SELECTIONS, whose stable id is the commit they name. A beat
+ * from a wire that predates tag ids has no id to link, so it is offered by its
+ * commit instead of by its name: the picker and the world stay in step.
  */
 import type { MentionWorld } from '../../../src/prose/index.js';
 import type { SessionViewState } from '../adapter/types.js';
@@ -45,7 +52,7 @@ export function linkablesOf(state: SessionViewState): readonly Linkable[] {
     out.push({ kind: 'saved', mention: byId ? `#${s.commitId}` : `@[${s.name}]`, label: s.name, description: `saved selection · ${s.viewId}: ${s.field} ${s.kind}${older ? ` · an older save, #${s.commitId}` : ''}` });
   }
   for (const c of state.checkpoints) {
-    if (bracketSafe(c.label)) out.push({ kind: 'beat', mention: `@[${c.label}]`, label: c.label, description: `checkpoint${c.commitId !== null ? ` · #${c.commitId}` : ''}` });
+    if (c.id !== undefined && bracketSafe(c.label)) out.push({ kind: 'beat', mention: `@[${c.label}]`, label: c.label, description: `checkpoint${c.commitId !== null ? ` · #${c.commitId}` : ''}` });
     else if (c.commitId !== null) out.push({ kind: 'beat', mention: `#${c.commitId}`, label: c.label, description: `checkpoint · #${c.commitId}` });
     // a beat with no commit of its own and a label the grammar cannot carry has no mention — it is not offered
   }
@@ -58,11 +65,15 @@ export function linkablesOf(state: SessionViewState): readonly Linkable[] {
   return out;
 }
 
-/** The mention grammar's world for this state: every commit the log holds, every beat named, every saved selection by name. */
+/** The mention grammar's world for this state: every commit the log holds, and every beat and saved selection by NAME → the id a ref carries. Two records under one name: the first row wins, which is the newest — the same one the picker offers `@[name]`. */
 export function mentionWorldOf(state: SessionViewState): MentionWorld {
+  const beats = new Map<string, string>();
+  for (const c of state.checkpoints) if (c.id !== undefined && !beats.has(c.label)) beats.set(c.label, c.id);
+  const saved = new Map<string, string>();
+  for (const s of savedOf(state)) if (!saved.has(s.name)) saved.set(s.name, s.commitId); // saved logic: a `@[name]` ref applies the condition the commit named
   return {
     commits: new Map(state.commits.map((c) => [c.id, c.intent !== undefined ? `${c.label} — ${c.intent}` : c.label])),
-    beats: new Set(state.checkpoints.map((c) => c.label)),
-    saved: new Set(savedOf(state).map((s) => s.name)), // saved logic by name: a `@[name]` ref applies the condition
+    beats,
+    saved,
   };
 }

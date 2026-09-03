@@ -28,8 +28,9 @@ export const PROSE_SENTENCES = Object.freeze({
   refSpan: '"{view}".{slot}.refs[{index}] spans [{start}, {end}) but the text has {length} characters',
   refTarget: '"{view}".{slot}.refs[{index}] must name exactly one of commit, beat, saved',
   refCommit: '"{view}".{slot}.refs[{index}] points at a commit the log does not hold: "{commit}"',
-  refBeat: '"{view}".{slot}.refs[{index}] points at a beat that was never named: "{beat}"',
-  refSaved: '"{view}".{slot}.refs[{index}] points at a saved selection that does not exist: "{saved}"',
+  // the target slot carries BOTH what the ref shows and the id behind it (see deadRef in validate.ts): the words alone can name a record that does exist
+  refBeat: '"{view}".{slot}.refs[{index}] points at a beat that was never named: {beat}',
+  refSaved: '"{view}".{slot}.refs[{index}] points at a saved selection that does not exist: {saved}',
   view: 'prose[{index}].viewId "{view}" is not a declared view (or "dashboard", the cockpit itself)',
   repeat: 'prose[{index}] repeats view "{view}" — one prose entry per view',
 });

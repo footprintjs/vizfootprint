@@ -102,4 +102,4 @@ export type {
 // The data-source layer (owned by src/source; the file carrier is its own module, src/source/file.ts).
 export { SOURCE_FORMATS, SOURCE_VIAS, SOURCE_REFUSALS, CAPABILITY_REFUSALS, SourceRefusal, isSourceRefusal, isUnchanged, deltaByKey, decodeRows, inlineSource, inlineVersion, openSource } from '../source/index.js';
 export type { SourceFormat, SourceVia, SourceRefusalReason, SourceUnchanged, RefreshDelta, SourceDecl, SourceCapabilities, SnapshotOptions, SourceSnapshot, SourceHandle, SourceAdapter, SourceInfo, SourceRejection } from '../source/index.js';
-export type { SavedClause, SavedSelection, SavedStore, Tag, TagStore } from './types.js';
+export type { RestorableSaved, RestorableTag, RestoreResult, SavedClause, SavedSelection, SavedStore, Tag, TagStore } from './types.js';

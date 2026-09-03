@@ -123,7 +123,12 @@ describe('refs — spans that point at a saved interaction', () => {
     expect(say([{ span: [0, 5] }])).toEqual(['"map".caption.refs[0] must name exactly one of commit, beat, saved']);
     expect(say([{ span: [0, 5], commit: 'c1', beat: 'b' }])).toEqual(['"map".caption.refs[0] must name exactly one of commit, beat, saved']);
     expect(say([{ span: [0, 5], commit: 'ghost' }], { commits: new Set(['c1']) })).toEqual(['"map".caption.refs[0] points at a commit the log does not hold: "ghost"']);
-    expect(say([{ span: [0, 5], beat: 'ghost' }], { beats: new Set() })).toEqual(['"map".caption.refs[0] points at a beat that was never named: "ghost"']);
+    expect(say([{ span: [0, 5], beat: 'ghost' }], { beats: new Set() })).toEqual(['"map".caption.refs[0] points at a beat that was never named: "ghost"']); // no names in the world: the id alone is all the sentence can say
+    // a dead ref names the WORDS IT SHOWS AND THE ID BEHIND THEM (the words alone can name a record that does exist), and lists what does exist when it shows no words
+    expect(say([{ span: [0, 5], beat: 'ghost', label: 'Start' }], { beats: new Set(['t1']), beatNames: ['Start'] })).toEqual(['"map".caption.refs[0] points at a beat that was never named: "Start" (ghost)']);
+    expect(say([{ span: [0, 5], beat: 't9' }], { beats: new Set(), beatNames: [] })).toEqual(['"map".caption.refs[0] points at a beat that was never named: "t9" — the beats are none']);
+    expect(say([{ span: [0, 5], saved: 'p9' }], { saved: new Set(['p1']), savedNames: ['coastal', 'inland'] })).toEqual(['"map".caption.refs[0] points at a saved selection that does not exist: "p9" — the pictures are "coastal", "inland"']);
+    expect(say([{ span: [0, 5], saved: 'p9', label: 'coastal' }], { saved: new Set(['p1']), savedNames: ['coastal'] })).toEqual(['"map".caption.refs[0] points at a saved selection that does not exist: "coastal" (p9)']);
     // no world = nothing to judge existence against
     expect(say([{ span: [0, 5], commit: 'ghost' }])).toEqual([]);
     // a ref on words that do not exist yet has nothing to span

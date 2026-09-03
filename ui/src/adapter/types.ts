@@ -102,7 +102,7 @@ export interface ProseStatusView {
   readonly levels: readonly string[];
   /** What the words were written against (encodings, filters, columns, analysisId) — shown so a person can see why a slot went stale. */
   readonly basis?: Readonly<Record<string, unknown>>;
-  /** Spans of the text that point at a saved interaction (a commit, or a beat by its label) — rendered as small anchors. Absent when there are none. */
+  /** Spans of the text that point at a saved interaction (a commit, a tag or a saved selection, each by its id) — rendered as small anchors. Absent when there are none. */
   readonly refs?: readonly ProseRefView[];
 }
 
@@ -135,10 +135,13 @@ export interface ProposalView {
 
 export interface ProseRefView {
   readonly span: readonly [number, number];
+  /** A commit by its id. */
   readonly commit?: string;
+  /** A tag by its ID (`t1`, …), never its name — which is why renaming a tag leaves every note working. */
   readonly beat?: string;
+  /** The words the anchor shows: the name as it read when the link was made (a later rename may leave it stale). */
   readonly label?: string;
-  /** A saved selection by name — a click applies the saved logic, it never seeks. */
+  /** A saved selection by its ID (`p1`, …) — a click applies the saved logic, it never seeks. */
   readonly saved?: string;
 }
 
@@ -356,6 +359,8 @@ export type CompareView =
 
 /** A named log position (checkpoint) — a story beat in present mode. */
 export interface CheckpointView {
+  /** The tag's own id (`t1`, …) — what a note's words link and what a badge keys on, so a rename moves nothing. Absent on a wire that predates tag ids. */
+  readonly id?: string;
   readonly label: string;
   /** The beat commit (the act of naming). */
   readonly commitId: string | null;

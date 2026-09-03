@@ -80,4 +80,4 @@ export type {
   WhyTargetMiss,
 } from '../why/index.js';
 export { VIEW_QUERY_DEFAULT_LIMIT } from './session.js';
-export type { SavedClause, SavedSelection, SavedStore, Tag, TagStore } from '../def/types.js';
+export type { RestorableSaved, RestorableTag, RestoreResult, SavedClause, SavedSelection, SavedStore, Tag, TagStore } from '../def/types.js';

@@ -22,7 +22,8 @@ describe('notes', () => {
     const selId = sel.ok ? sel.commit!.id : '';
     const beat = await s.dispatch({ verb: 'checkpoint', label: 'Formal wear', cause: userCause() });
     expect(beat.ok).toBe(true);
-    const body: ProseRecord = { text: 'Formal wear dominates — see #sel and the @beat.', author: { kind: 'human', by: 'sanjay' }, refs: [{ span: [26, 30], commit: selId, label: 'pick formal' }, { span: [39, 44], beat: 'Formal wear', label: 'Formal wear' }] };
+    const beatId = s.tags()[0]!.id; // a ref links the tag's ID; the label is only the words the anchor shows
+    const body: ProseRecord = { text: 'Formal wear dominates — see #sel and the @beat.', author: { kind: 'human', by: 'sanjay' }, refs: [{ span: [26, 30], commit: selId, label: 'pick formal' }, { span: [39, 44], beat: beatId, label: 'Formal wear' }] };
     const first = await s.dispatch({ verb: 'describe', viewId: 'note:n1', slot: 'caption', record: body, cause: userCause('write a note') });
     expect(first.ok).toBe(true);
     expect(first.ok && first.commit?.viewId).toBe('prose:note:n1');

@@ -11,6 +11,21 @@ import { PROSE_SENTENCES, fillProse } from './sentences.js';
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
+/**
+ * How a refusal names a ref's dead target. A ref carries an ID and may SHOW
+ * words, and the sentence says both: the words alone can name a record that
+ * does exist (a restore re-identified `p3` to `p5`, the words still say
+ * "coastal", and a picture called "coastal" is right there in the list — the
+ * old sentence read as if it were missing). With no words the id alone says
+ * nothing to a person, so the records that DO exist ride along, the way every
+ * other refusal in the house lists them.
+ */
+function deadRef(id: string, label: string | undefined, noun: 'pictures' | 'beats', names: readonly string[] | undefined): string {
+  if (label !== undefined) return `"${label}" (${id})`;
+  if (names === undefined) return `"${id}"`;
+  return `"${id}" — the ${noun} are ${names.length > 0 ? names.map((n) => `"${n}"`).join(', ') : 'none'}`;
+}
+
 /** What the validator may check a basis against; absent = cannot judge (the def door before data), never refuse on ignorance. */
 export interface ProseWorld {
   readonly columns?: ReadonlySet<string>;
@@ -19,10 +34,14 @@ export interface ProseWorld {
   readonly surfaced?: ReadonlySet<string>;
   /** The commit ids the log holds — a ref may only point at one of them. */
   readonly commits?: ReadonlySet<string>;
-  /** The beats named so far — a ref may only point at one of them. */
+  /** The tag IDS the store holds — a `beat` ref may only point at one of them (ids, not names: a rename must not turn a good ref bad). */
   readonly beats?: ReadonlySet<string>;
-  /** The saved selections by name; absent = not judged. */
+  /** The tag NAMES the store holds, for the refusal sentence when a dead ref shows no words; absent = the sentence names the id alone. */
+  readonly beatNames?: readonly string[];
+  /** The saved-selection IDS the store holds; absent = not judged. */
   readonly saved?: ReadonlySet<string>;
+  /** The picture NAMES the store holds — the same courtesy as {@link ProseWorld.beatNames}. */
+  readonly savedNames?: readonly string[];
   /** `proposal` when the record is being proposed for a person to accept; `set` (the default) when it is being stated as the words. */
   readonly mode?: 'set' | 'proposal';
 }
@@ -96,8 +115,10 @@ export function validateProseRecord(viewId: string, slot: string, raw: unknown, 
         const hasSaved = typeof ref.saved === 'string';
         if (Number(hasCommit) + Number(hasBeat) + Number(hasSaved) !== 1) at('ref-target', PROSE_SENTENCES.refTarget, slots);
         if (hasCommit && world.commits !== undefined && !world.commits.has(ref.commit as string)) at('ref-commit', PROSE_SENTENCES.refCommit, { ...slots, commit: ref.commit as string });
-        if (hasBeat && world.beats !== undefined && !world.beats.has(ref.beat as string)) at('ref-beat', PROSE_SENTENCES.refBeat, { ...slots, beat: ref.beat as string });
-        if (hasSaved && world.saved !== undefined && !world.saved.has(ref.saved as string)) at('ref-saved', PROSE_SENTENCES.refSaved, { ...slots, saved: ref.saved as string });
+        // a ref carries an id and may show words: the sentence names both, and the list of what exists when it shows none
+        const shown = typeof ref.label === 'string' && ref.label.length > 0 ? ref.label : undefined;
+        if (hasBeat && world.beats !== undefined && !world.beats.has(ref.beat as string)) at('ref-beat', PROSE_SENTENCES.refBeat, { ...slots, beat: deadRef(ref.beat as string, shown, 'beats', world.beatNames) });
+        if (hasSaved && world.saved !== undefined && !world.saved.has(ref.saved as string)) at('ref-saved', PROSE_SENTENCES.refSaved, { ...slots, saved: deadRef(ref.saved as string, shown, 'pictures', world.savedNames) });
       });
     }
   }
