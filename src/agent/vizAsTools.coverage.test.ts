@@ -269,8 +269,11 @@ describe('viz.dispatch — fork / checkpoint (never dispatched by the R4/Q6/Q8 s
     expect(res).toEqual({ ok: false, reason: 'PAYLOAD_INVALID', detail: 'checkpoint requires a string label' });
   });
 
-  it('a well-formed checkpoint through viz.dispatch lands and echoes the label', async () => {
+  it('a well-formed checkpoint through viz.dispatch tags the cursor and echoes the label — and there must be a moment to tag', async () => {
     const port = freshPort();
+    const early = await port.call('viz.dispatch', { verb: 'checkpoint', label: 'too early' });
+    expect(get(early, 'ok')).toBe(false); // nothing to tag yet
+    await port.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Formal' });
     const res = await port.call('viz.dispatch', { verb: 'checkpoint', label: 'my-checkpoint' });
     expect(get(res, 'ok')).toBe(true);
     expect(get(res, 'checkpoint')).toMatchObject({ label: 'my-checkpoint' });
@@ -292,8 +295,9 @@ describe('viz.fork / viz.checkpoint — the dedicated tool routes (distinct swit
     expect(res).toEqual({ ok: false, reason: 'PAYLOAD_INVALID', detail: 'fork requires a string fromCommitId' });
   });
 
-  it('viz.checkpoint routes to the checkpoint verb and lands a named pointer', async () => {
+  it('viz.checkpoint routes to the checkpoint verb and tags the cursor', async () => {
     const port = freshPort();
+    await port.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Formal' });
     const res = await port.call('viz.checkpoint', { label: 'via-dedicated-tool' });
     expect(get(res, 'ok')).toBe(true);
     expect(get(res, 'checkpoint')).toMatchObject({ label: 'via-dedicated-tool' });

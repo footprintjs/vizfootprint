@@ -22,7 +22,7 @@
  *  - R14 every unhonorable request is a TYPED gap (D14 taxonomy), never dropped.
  */
 
-import { restoreSavedInto } from '../def/buildDashboard.js';
+import { restoreSavedInto, restoreTagsInto } from '../def/buildDashboard.js';
 import type { FoldEntry } from '../branches/index.js';
 import type { EmissionKind, LinkEdge } from '../links/index.js';
 import { voiceOf } from '../links/index.js';
@@ -47,7 +47,7 @@ function probeClause(kind: 'point' | 'interval' | 'match', field: string, value:
 }
 import type { CauseClause } from '../mosaic/index.js';
 import { registerAnalysisSlot } from '../def/register.js';
-import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, ViewEncodingDecl, SavedClause, SavedSelection } from '../def/types.js';
+import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, ViewEncodingDecl, SavedClause, SavedSelection, Tag } from '../def/types.js';
 import { describeRules, fitsFor, refuses, validateBindings } from '../encoding/index.js';
 import { ENCODING_KIND, edgesInto } from '../links/index.js';
 import { DASHBOARD_PROSE_ID, NOTE_PROSE_PREFIX, isNoteSubject, PROPOSAL_LANE, PROSE_SLOTS, fillProse, PROSE_SENTENCES, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
@@ -61,7 +61,6 @@ import type { AgentEventFrame, WhyResult, WhyTarget } from '../why/index.js';
 import {
   ANALYSIS_VIEW_PREFIX,
   ANNOTATION_VIEW_PREFIX,
-  BEAT_VIEW_PREFIX,
   BranchRefs,
   CHART_VIEW_PREFIX,
   ENCODING_VIEW_PREFIX,
@@ -122,6 +121,7 @@ import type {
   SaveSelectionResult,
   ApplySavedOptions,
   ApplySavedResult,
+  TagResult,
 } from './types.js';
 
 /**
@@ -148,7 +148,12 @@ interface WhyProvenance {
 /** Reserved log fields the session lands non-filter commits under (never real data columns). */
 const ANALYSIS_FIELD = '__analysis__';
 const ANNOTATION_FIELD = '__annotation__';
-/** The field a beat commit carries its label under (inert in the fold; reserved from probes like the others). */
+/**
+ * The field a beat commit carried its label under. The session lands NO beat
+ * commits any more (a checkpoint is a TAG, beside the log), but the field stays
+ * reserved from probes: the UI's log reader still labels a `__beat__` commit
+ * "beat", so a data column of that name would read as a beat that never was.
+ */
 const BEAT_FIELD = '__beat__';
 /** How many journal records the overview carries (the latest) — a poll must not grow without bound; `dashboard.journal()` holds them all. Placeholder until measured. */
 const JOURNAL_TAIL = 50;
@@ -415,8 +420,7 @@ export interface InteractionSession {
 
   /**
    * SAVED SELECTIONS ARE SAVED LOGIC. `saved()` lists the named pictures (the
-   * store beside the log, plus the legacy ones an older log recorded as
-   * annotations on selection commits, unless forgotten). `saveSelection`
+   * store beside the log). `saveSelection`
    * names every live clause, one view's, or explicit conditions — it lands NO
    * commit. `applySaved` is the act: one ordinary select/filter commit per
    * condition under one cause and one correlation id (`replace` clears the
@@ -429,6 +433,20 @@ export interface InteractionSession {
   applySaved(name: string, cause: Cause, opts?: ApplySavedOptions): Promise<ApplySavedResult>;
   /** Put saved selections back whole (a host's persistence) — judged, never re-stamped; refused entries named. */
   restoreSaved(list: readonly SavedSelection[]): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] };
+
+  /**
+   * TAGS — names on moments, beside the log. `tags()` lists them; `tag(name, commitId?)`
+   * names a commit (the cursor by default) and lands NOTHING; a tag name is
+   * one moment. The `checkpoint` verb is the same act by its old name.
+   * `checkpoints()` is the wire's view of the tags.
+   */
+  tags(): readonly Tag[];
+  tag(name: string, commitId?: string, as?: Actor, description?: string): TagResult;
+  /** Change a tag's words (null clears them); the author and time move with them. */
+  describeTag(name: string, description: string | null, as?: Actor): TagResult;
+  renameTag(from: string, to: string, as?: Actor): TagResult;
+  forgetTag(name: string): TagResult;
+  restoreTags(list: readonly Tag[]): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] };
 
   /**
    * The current channel→field visual-encoding map for one view, branch-scoped
@@ -1213,8 +1231,6 @@ class InteractionSessionImpl implements InteractionSession {
         const link = recipe.link as LinkDecl;
         return { verb: 'link', source: link.source, kind: link.kind, target: link.target, response: null, cause };
       }
-      case 'beat':
-        return { verb: 'checkpoint', label: recipe.label, cause };
       case 'layout':
         // LY-1: re-land the arrangement prop here through the navigate verb.
         return { verb: 'navigate', viewId: `${LAYOUT_VIEW_PREFIX}${recipe.scope}`, field: recipe.prop, value: recipe.value, cause };
@@ -1405,14 +1421,95 @@ class InteractionSessionImpl implements InteractionSession {
     return { ok: true, columns, rows, rowIds, positional: key === undefined, ...(key !== undefined ? { key } : {}), count: res.count, start: res.start ?? 0, version, cursor, clauses };
   }
 
+  // ── tags: names on moments beside the log ────────────────────────────────────
+
+  tags(): readonly Tag[] {
+    return [...this.runtime.tags.list].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)).map((t) => ({ ...t }));
+  }
+
+  /** Replace (or, with null, remove) a tag by name. */
+  private replaceTag(name: string, next: Tag | null): void {
+    const store = this.runtime.tags;
+    const at = store.list.findIndex((t) => t.name === name);
+    if (next === null) store.list.splice(at, 1);
+    else store.list[at] = next;
+  }
+
+  tag(name: string, commitId?: string, as: Actor = 'user', description?: string): TagResult {
+    const trimmed = name.trim();
+    if (trimmed.length === 0) return { ok: false, rejected: 'a tag needs a name' };
+    if (trimmed.length > 200) return { ok: false, rejected: 'a tag name is at most 200 characters' };
+    const target = commitId ?? this._cursor;
+    if (target === null) return { ok: false, rejected: 'nothing to tag yet — act first' };
+    if (!this.log.records.some((r) => r.id === target)) return { ok: false, rejected: `no commit "${target}" in the log` };
+    const taken = this.tags().find((t) => t.name === trimmed);
+    if (taken !== undefined) return { ok: false, rejected: taken.commitId === target ? `"${trimmed}" already names this moment` : `"${trimmed}" already names #${taken.commitId} — a tag is one moment; rename or forget it first` };
+    const words = description?.trim();
+    if (words !== undefined && words.length > 2000) return { ok: false, rejected: 'a tag description is at most 2000 characters' };
+    const tag: Tag = { name: trimmed, commitId: target, ...(words !== undefined && words.length > 0 ? { description: words } : {}), by: as, at: new Date().toISOString() };
+    this.runtime.tags.list.push(tag);
+    return { ok: true, tag };
+  }
+
+  renameTag(from: string, to: string, as: Actor = 'user'): TagResult {
+    const next = to.trim();
+    if (next.length === 0) return { ok: false, rejected: 'a tag needs a name' };
+    if (next.length > 200) return { ok: false, rejected: 'a tag name is at most 200 characters' };
+    const current = this.tags().find((t) => t.name === from);
+    if (current === undefined) return { ok: false, rejected: `no tag "${from}" — the tags are ${this.tagNames()}` };
+    if (next !== from && this.tags().some((t) => t.name === next)) return { ok: false, rejected: `"${next}" is already a tag — rename or forget it first` };
+    if (next !== from) {
+      const linked = this.wordsLinking('beat', from);
+      if (linked.length > 0) return { ok: false, rejected: `"${from}" is linked from ${linked.join(', ')} — change the link in the words first` };
+    }
+    const renamed: Tag = { ...current, name: next, by: as, at: new Date().toISOString() };
+    this.replaceTag(from, renamed);
+    return { ok: true, tag: renamed };
+  }
+
+  describeTag(name: string, description: string | null, as: Actor = 'user'): TagResult {
+    const current = this.tags().find((t) => t.name === name);
+    if (current === undefined) return { ok: false, rejected: `no tag "${name}" — the tags are ${this.tagNames()}` };
+    const words = description?.trim();
+    if (words !== undefined && words.length > 2000) return { ok: false, rejected: 'a tag description is at most 2000 characters' };
+    const { description: _old, ...rest } = current;
+    const next: Tag = { ...rest, ...(words !== undefined && words.length > 0 ? { description: words } : {}), by: as, at: new Date().toISOString() };
+    this.replaceTag(name, next);
+    return { ok: true, tag: next };
+  }
+
+  forgetTag(name: string): TagResult {
+    const current = this.tags().find((t) => t.name === name);
+    if (current === undefined) return { ok: false, rejected: `no tag "${name}" — the tags are ${this.tagNames()}` };
+    const linked = this.wordsLinking('beat', name);
+    if (linked.length > 0) return { ok: false, rejected: `"${name}" is linked from ${linked.join(', ')} — change the link in the words first` };
+    this.replaceTag(name, null);
+    return { ok: true, tag: current };
+  }
+
+  restoreTags(list: readonly Tag[]): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] } {
+    const ids = new Set(this.log.records.map((r) => r.id));
+    return restoreTagsInto(this.runtime.tags, list, (id) => ids.has(id));
+  }
+
+  private tagNames(): string {
+    const names = this.tags().map((t) => `"${t.name}"`);
+    return names.length === 0 ? 'none' : names.join(', ');
+  }
+
   // ── saved selections: saved logic beside the log ─────────────────────────────
 
   saved(): readonly SavedSelection[] {
-    const store = this.runtime.saved;
-    const names = new Set(store.list.map((c) => c.name));
-    const legacy = this.legacySaved().filter((c) => !names.has(c.name) && !store.forgotten.has(c.name));
     // oldest first by the time saved; a consumer gets its own copies, never the store's objects
-    return [...store.list, ...legacy].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)).map((c) => structuredClone(c));
+    return [...this.runtime.saved.list].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)).map((c) => structuredClone(c));
+  }
+
+  /** Replace (or, with null, remove) a saved selection by name. */
+  private replaceSaved(name: string, next: SavedSelection | null): void {
+    const store = this.runtime.saved;
+    const at = store.list.findIndex((c) => c.name === name);
+    if (next === null) store.list.splice(at, 1);
+    else store.list[at] = next;
   }
 
   restoreSaved(list: readonly SavedSelection[]): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] } {
@@ -1428,7 +1525,6 @@ class InteractionSessionImpl implements InteractionSession {
     const on = { table: this.defaultTable, version: this.runtime.sources[this.defaultTable]?.version ?? null };
     const saved: SavedSelection = { name: trimmed, conditions: gathered.conditions, by: as, at: new Date().toISOString(), on, ...(gathered.from.length > 0 ? { from: gathered.from } : {}) };
     this.runtime.saved.list.push(saved);
-    this.runtime.saved.forgotten.delete(trimmed);
     return { ok: true, saved };
   }
 
@@ -1561,10 +1657,15 @@ class InteractionSessionImpl implements InteractionSession {
 
   /** The notes on screen whose words link a saved selection by name — a rename or a forget would break their links. */
   private notesLinking(name: string): string[] {
+    return this.wordsLinking('saved', name);
+  }
+
+  /** The words on screen (notes, the dashboard's, a view's) whose refs link a name by `field` — a rename or a forget would break their links. */
+  private wordsLinking(field: 'saved' | 'beat', name: string): string[] {
     const out: string[] = [];
     for (const [subject, slots] of this.activeProse) {
       for (const record of slots.values()) {
-        if (record.refs?.some((r) => r.saved === name)) {
+        if (record.refs?.some((r) => r[field] === name)) {
           out.push(subject.startsWith(NOTE_PROSE_PREFIX) ? `note ${subject.slice(NOTE_PROSE_PREFIX.length)}` : subject);
           break;
         }
@@ -1579,59 +1680,12 @@ class InteractionSessionImpl implements InteractionSession {
     return names.length === 0 ? 'none' : names.join(', ');
   }
 
-  /** Replace (or, with null, remove) a saved selection by name — a legacy one is first taken over from the log into the store. */
-  private replaceSaved(name: string, next: SavedSelection | null): void {
-    const store = this.runtime.saved;
-    const at = store.list.findIndex((c) => c.name === name);
-    if (at >= 0) {
-      if (next === null) store.list.splice(at, 1);
-      else store.list[at] = next;
-    } else if (next !== null) {
-      store.list.push(next); // a legacy (log-derived) one is taken over into the store
-    }
-    store.forgotten.add(name); // the old name is let go — a legacy annotation under it never comes back on its own
-    if (next !== null) store.forgotten.delete(next.name);
-  }
-
   /**
    * The saved selections an OLDER log recorded as annotations on selection
    * commits (the note's `field` names the commit, its `value` the name) —
    * read as one-condition pictures so nothing already recorded is lost.
    * Newest wins per commit and per name.
    */
-  private legacyMemo: { readonly length: number; readonly list: SavedSelection[] } | undefined;
-  private legacySaved(): SavedSelection[] {
-    if (this.legacyMemo !== undefined && this.legacyMemo.length === this.log.records.length) return this.legacyMemo.list; // the log only grows: one scan per new commit, not per read
-    const list = this.scanLegacySaved();
-    this.legacyMemo = { length: this.log.records.length, list };
-    return list;
-  }
-
-  private scanLegacySaved(): SavedSelection[] {
-    if (!this.log.records.some((r) => r.viewId.startsWith(ANNOTATION_VIEW_PREFIX))) return []; // no annotation ever landed: nothing to read
-    const byId = new Map(this.log.records.map((r) => [r.id, r] as const));
-    const out: SavedSelection[] = [];
-    const namedTargets = new Set<string>();
-    const names = new Set<string>();
-    for (let i = this.log.records.length - 1; i >= 0; i--) {
-      const note = this.log.records[i]!;
-      if (!note.viewId.startsWith(ANNOTATION_VIEW_PREFIX) || typeof note.value !== 'string' || note.value.length === 0) continue;
-      const target = byId.get(note.field);
-      if (target === undefined || !this.runtime.views.has(target.viewId) || target.value === undefined || target.value === null) continue; // not a live selection
-      if (namedTargets.has(target.id) || names.has(note.value)) continue;
-      namedTargets.add(target.id);
-      names.add(note.value);
-      out.push({
-        name: note.value,
-        conditions: [{ viewId: target.viewId, kind: target.kind, field: target.field, ...(target.fields !== undefined ? { fields: [target.fields[0], target.fields[1]] as const } : {}), value: copyValue(target.value) }],
-        by: note.cause.requestedBy,
-        /* v8 ignore next -- the log stamps every commit it lands with `ts`; the arm keeps a hand-built record honest */
-        at: typeof (note as { ts?: unknown }).ts === 'number' ? new Date((note as { ts: number }).ts).toISOString() : 'unknown',
-        from: [target.id],
-      });
-    }
-    return out.reverse(); // oldest first, like the store
-  }
 
   /** The field mappings on the edges INTO a view (none for the whole-dashboard truth): which names a link invented for this consumer. */
   private mappingsInto(viewId: string | undefined): readonly { readonly from: string; readonly field: string; readonly to: string }[] {
@@ -2593,30 +2647,15 @@ class InteractionSessionImpl implements InteractionSession {
     if (label.length > 200) {
       return this.reject('checkpoint', intent, this.gapLedger.file('guard-failed', 'checkpoint', 'checkpoint label too long (max 200 chars)', label.slice(0, 40)));
     }
-    // A beat is a DECISION, so it is a COMMIT — cause-tagged (who named it),
-    // branch-scoped (it sits on the lineage it names), replayable and seek-able
-    // — under the `beat:` synthetic identity, INERT in the fold like an
-    // annotation (a name is never crossfilter state). Before this, a checkpoint
-    // was a bare {label, commitId, arrivalIndex} outside the log: no cause, no
-    // actor, and present mode ordered beats by arrival, splicing in beats from
-    // abandoned branches. Now `commitId` IS the beat commit: seeking to it
-    // restores exactly the state that was named.
+    // A checkpoint is a TAG — a name on the moment the cursor stands on. It
+    // lands NO commit and starts no branch (before this it landed a `beat:`
+    // commit, which put a step on the rail and forked the path when named
+    // from the past). The cause still says who named it.
     const stamped = this.stampCause(cause, 'checkpoint', as);
-    const { record } = this.log.commit({
-      id: this.nextId(),
-      parent: this._cursor,
-      viewId: `${BEAT_VIEW_PREFIX}${this.checkpoints().length}`,
-      actorMeta: { actor: stamped.requestedBy },
-      kind: 'point',
-      field: BEAT_FIELD,
-      value: label,
-      cause: stamped,
-    });
-    this.landed(record);
-    // The beat's record IS the checkpoint — `checkpoints()` derives from the log,
-    // so there is one truth, never a side array that can disagree with it.
-    const checkpoint = this.checkpoints().find((c) => c.commitId === record.id) as Checkpoint;
-    return { ok: true, verb: 'checkpoint', intent, commit: record, checkpoint };
+    const tagged = this.tag(label, undefined, stamped.requestedBy);
+    if (!tagged.ok) return this.reject('checkpoint', intent, this.gapLedger.file('guard-failed', 'checkpoint', tagged.rejected, label.slice(0, 40)));
+    const checkpoint = this.checkpoints().find((c) => c.label === tagged.tag.name) as Checkpoint;
+    return { ok: true, verb: 'checkpoint', intent, checkpoint };
   }
 
   // ── declareAnalysis (the L3 flags' landing spot) ─────────────────────────────
@@ -2977,13 +3016,10 @@ class InteractionSessionImpl implements InteractionSession {
     return this._ledger;
   }
 
-  /** Every story beat, derived from the log (a `beat:` commit's label + id + position) — one truth. */
+  /** The wire's view of the tags: `label` = the name, `commitId` and `at` = the tagged moment, `ts` = that commit's position in the log — one truth, the tag store. */
   checkpoints(): readonly Checkpoint[] {
-    const out: Checkpoint[] = [];
-    this.log.records.forEach((r, i) => {
-      if (r.viewId.startsWith(BEAT_VIEW_PREFIX)) out.push(Object.freeze({ label: String(r.value), commitId: r.id, at: r.parent, ts: i }));
-    });
-    return out;
+    const position = new Map(this.log.records.map((r, i) => [r.id, i] as const));
+    return this.tags().map((t) => Object.freeze({ label: t.name, commitId: t.commitId, at: t.commitId, ts: position.get(t.commitId) ?? -1 }));
   }
 
   // ── the whats_here projection ────────────────────────────────────────────────
@@ -3127,6 +3163,7 @@ class InteractionSessionImpl implements InteractionSession {
       // the notes on the dashboard (the Text tool): every note subject with words at the cursor, in the order they were first written
       notes: this.notesInfo(columns[this.defaultTable] ?? []),
       saved: this.saved(),
+      tags: this.tags(),
       activeSelections,
       // the live selections in the shape a prose basis states them (`basis.filters`) — an agent copies this verbatim
       filters: this.filtersNow(),

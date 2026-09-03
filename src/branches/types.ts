@@ -210,8 +210,6 @@ export type PlanRecipe =
   | { readonly apply: 'encoding-set'; readonly viewId: string; readonly bindings: Readonly<Record<string, string | null>> }
   | { readonly apply: 'analysis'; readonly analysisId: string }
   | { readonly apply: 'annotation'; readonly target: string; readonly note: string }
-  /** A story beat re-named on the target path (`checkpoint` verb) — a position is named again, never copied. */
-  | { readonly apply: 'beat'; readonly label: string }
   /** LY-1: re-land a cockpit-layout prop (`navigate` verb, `layout:${scope}` identity). */
   | { readonly apply: 'layout'; readonly scope: string; readonly prop: string; readonly value: string }
   /** Layer 4: re-land an edited edge (`link` verb). */

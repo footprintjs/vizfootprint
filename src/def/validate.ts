@@ -80,10 +80,12 @@ const ENCODINGS = new Set(['point', 'interval', 'cell', 'match']);
  * The synthetic-viewId namespaces the SESSION owns, single-sourced from
  * `src/branches/fold` (the one place the log wire is defined, so this list and
  * the fold can never drift). A host-declared view may NOT squat one: the session
- * lands its own `encoding:` / `analysis:` / `annotation:` / `chart:` / `layout:` / `beat:`
+ * lands its own `encoding:` / `analysis:` / `annotation:` / `chart:` / `layout:`
  * commits there, which are INERT in the fold by design (`keyOf` returns null),
  * so such a view's probes would be unfoldable, invisible to `compare`, and
- * silently skipped when a path is adopted. Rejected at the def boundary (R12)
+ * silently skipped when a path is adopted. `beat:` is reserved for the older
+ * reason it was: nothing lands one now (a checkpoint is a tag, beside the log),
+ * but the UI still reads that shape as a story beat. Rejected at the def boundary (R12)
  * rather than left to fail confusingly at runtime.
  */
 const RESERVED_VIEW_PREFIXES = [

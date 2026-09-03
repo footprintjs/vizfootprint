@@ -159,41 +159,44 @@ describe('R8 — the ledger never rewinds: scrubbing back refunds no alpha (cf. 
   });
 });
 
-describe('R8/R12 — checkpoint is a named, inert, listable pointer that round-trips through seek', () => {
-  it('checkpoints name the cursor, list in order, and seeking a named commit restores its fold; a bad label is a typed gap', async () => {
+describe('R8/R12 — a checkpoint is a TAG: a name on the cursor\'s moment, beside the log, that round-trips through seek', () => {
+  it('checkpoints name the cursor without landing a commit, list in order, and seeking a named moment restores its fold; a bad label is a typed gap', async () => {
     const s = freshSession();
     const a = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Work', cause: userCause() });
     const aId = a.ok ? a.commit!.id : '';
-    // A checkpoint LANDS a `beat:` commit whose parent is the named position;
-    // `commitId` is the beat itself and `ts` its index in the log (a is 0).
     const cp1 = await s.dispatch({ verb: 'checkpoint', label: 'picked-work', cause: userCause() });
-    const beat1 = cp1.ok ? cp1.commit!.id : '';
-    expect(cp1.ok && cp1.checkpoint).toMatchObject({ label: 'picked-work', commitId: beat1, ts: 1 });
-    expect(s.log.records.find((r) => r.id === beat1)!.parent).toBe(aId);
+    expect(cp1.ok && cp1.commit).toBeUndefined(); // a tag lands nothing
+    expect(cp1.ok && cp1.checkpoint).toMatchObject({ label: 'picked-work', commitId: aId, at: aId, ts: 0 });
+    expect(s.log.records).toHaveLength(1);
 
     const b = await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [80, 120], cause: userCause() });
     const bId = b.ok ? b.commit!.id : '';
     const cp2 = await s.dispatch({ verb: 'checkpoint', label: 'narrowed-price', cause: userCause() });
-    const beat2 = cp2.ok ? cp2.commit!.id : '';
-    expect(cp2.ok && cp2.checkpoint).toMatchObject({ label: 'narrowed-price', commitId: beat2, ts: 3 });
-    expect(s.log.records.find((r) => r.id === beat2)!.parent).toBe(bId);
+    expect(cp2.ok && cp2.checkpoint).toMatchObject({ label: 'narrowed-price', commitId: bId, at: bId, ts: 1 });
+    expect(s.log.records).toHaveLength(2);
 
-    // listable, in order, both retained
+    // listable, in order, both retained — the wire's view of the tags
     expect(s.checkpoints().map((c) => [c.label, c.commitId])).toEqual([
-      ['picked-work', beat1],
-      ['narrowed-price', beat2],
+      ['picked-work', aId],
+      ['narrowed-price', bId],
+    ]);
+    expect(s.tags().map((t) => [t.name, t.commitId, t.by])).toEqual([
+      ['picked-work', aId, 'user'],
+      ['narrowed-price', bId, 'user'],
     ]);
 
-    // round-trip: seek to the beat restores the NAMED position's fold — the
-    // beat is inert, so the state at beat1 is exactly the state at `a`.
+    // round-trip: seeking the tagged moment restores its fold
     s.seek(s.checkpoints()[0]!.commitId!);
-    expect(s.cursor()).toBe(beat1);
+    expect(s.cursor()).toBe(aId);
     expect((await s.overview()).activeSelections).toMatchObject([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Work' }]);
 
     // R12: an all-whitespace label is a typed guard-failed gap — nothing is named
     const bad = await s.dispatch({ verb: 'checkpoint', label: '   ', cause: userCause() });
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.rejection.code).toBe('guard-failed');
+    // a name is one moment: the same name on another commit is refused with a sentence
+    const taken = await s.dispatch({ verb: 'checkpoint', label: 'narrowed-price', cause: userCause() });
+    expect(!taken.ok && taken.rejection.detail).toBe(`"narrowed-price" already names #${bId} — a tag is one moment; rename or forget it first`);
     expect(s.checkpoints()).toHaveLength(2); // unchanged
   });
 

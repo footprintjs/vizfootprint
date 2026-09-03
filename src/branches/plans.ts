@@ -16,7 +16,6 @@ import {
   LINK_VIEW_PREFIX,
   ANALYSIS_VIEW_PREFIX,
   ANNOTATION_VIEW_PREFIX,
-  BEAT_VIEW_PREFIX,
   ENCODING_VIEW_PREFIX,
   LAYOUT_VIEW_PREFIX,
   PROSE_VIEW_PREFIX,
@@ -101,12 +100,6 @@ function bringOverRecipe(rec: CommitRecord): PlanRecipe {
     // The note's `field` names WHAT it annotates (a commit id, a view, a
     // column); `__annotation__` is a loose note under the actor namespace.
     return { apply: 'annotation', target: rec.field === '__annotation__' ? '' : rec.field, note: String(rec.value) };
-  }
-  if (rec.viewId.startsWith(BEAT_VIEW_PREFIX)) {
-    // A beat names a position. Bringing it over names the TARGET position with
-    // the same label — the recipe re-lands a checkpoint there; nothing about the
-    // source lineage is copied (a name is never state, so it carries no conflicts).
-    return { apply: 'beat', label: String(rec.value) };
   }
   if (rec.viewId.startsWith(LAYOUT_VIEW_PREFIX)) {
     // LY-1: bringing a layout note over RE-LANDS the same arrangement prop here

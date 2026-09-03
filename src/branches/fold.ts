@@ -67,12 +67,15 @@ export const LAYOUT_VIEW_PREFIX = 'layout:';
  */
 export const PROSE_VIEW_PREFIX = 'prose:';
 /**
- * A story beat (`checkpoint` verb, `beat:${n}` synthetic identity). A beat is a
- * DECISION and therefore a commit — cause-tagged, on the lineage, replayable,
- * seek-able — but a NAME is never crossfilter state, so it is INERT here
- * exactly like an annotation. Ordering beats by lineage instead of arrival is
- * what this buys: present mode can no longer splice a beat from an abandoned
- * branch into a story the cursor never walked.
+ * A story beat (`beat:${n}` synthetic identity). The session lands NO beat
+ * commits any more: a checkpoint is a TAG — a name on a moment, beside the log
+ * (see `src/session/README.md`, "Tags are names on moments") — so nothing this
+ * library writes carries this namespace. It stays declared, reserved and INERT
+ * for two reasons: a NAME is never crossfilter state, and the UI still reads
+ * the shape (`ui/src/story` orders beats, `ui/src/adapter` labels them). The
+ * reservation is what keeps it safe: `src/def/validate` single-sources its
+ * reserved-view list from HERE, so a host-declared view can never squat the
+ * namespace and be read as a story beat by the readers above.
  */
 export const BEAT_VIEW_PREFIX = 'beat:';
 /**

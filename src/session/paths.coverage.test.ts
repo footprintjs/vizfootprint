@@ -71,27 +71,6 @@ describe('bringOver — the remaining recipe arms', () => {
     expect(res.result.ok && res.result.annotated?.note).toBe('looks linear');
   });
 
-  it('a BEAT commit brings over as a fresh checkpoint on the target path — the position is re-NAMED, never copied', async () => {
-    const s = freshSession();
-    const a = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
-    const aId = a.ok ? a.commit!.id : '';
-    const k = await s.dispatch({ verb: 'checkpoint', label: 'formal-only', cause: userCause() });
-    const kId = k.ok ? k.commit!.id : '';
-
-    s.seek(aId);
-    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Casual', cause: userCause('premium focus') });
-    const res = await s.bringOver(kId);
-    expect(res.ok).toBe(true);
-    if (!res.ok) return;
-    expect(res.recipe).toEqual({ apply: 'beat', label: 'formal-only' });
-    expect(res.commit?.cause.replayedFrom).toBe(kId);
-    // The re-landed beat names the TARGET path's tip: a new checkpoint, same label, new commit.
-    expect(res.result.ok && res.result.checkpoint?.label).toBe('formal-only');
-    expect(res.result.ok && res.result.checkpoint?.commitId).toBe(res.commit?.id);
-    expect(s.checkpoints().map((c) => c.label)).toEqual(['formal-only', 'formal-only']);
-    expect(s.checkpoints()[1]!.commitId).not.toBe(kId);
-  });
-
   it('a bring-over the dispatch layer rejects (branch-foreign materialized column) surfaces THAT gap', async () => {
     const s = freshSession();
     const a = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });

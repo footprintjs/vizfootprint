@@ -33,6 +33,7 @@ export type {
   SaveSelectionResult,
   ApplySavedOptions,
   ApplySavedResult,
+  TagResult,
   ViewInfo,
   EffectiveEncoding,
   SelectionInfo,
@@ -79,4 +80,4 @@ export type {
   WhyTargetMiss,
 } from '../why/index.js';
 export { VIEW_QUERY_DEFAULT_LIMIT } from './session.js';
-export type { SavedClause, SavedSelection, SavedStore } from '../def/types.js';
+export type { SavedClause, SavedSelection, SavedStore, Tag, TagStore } from '../def/types.js';

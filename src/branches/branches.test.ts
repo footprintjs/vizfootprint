@@ -30,6 +30,8 @@ import {
   planBringOver,
   planUndo,
   slugForCommit,
+  keysOf,
+  familyOf,
   ENCODING_VIEW_PREFIX,
   ANALYSIS_VIEW_PREFIX,
   ANNOTATION_VIEW_PREFIX,
@@ -376,6 +378,14 @@ describe('foldDiff — the structured state diff computed from the log ALONE (la
     expect(d.ok && d.ancestor).toBe('a4');
     expect(d.ok && d.changed).toEqual([]);
   });
+
+  it('a `beat:` record is INERT in the fold — a name is never crossfilter state (the namespace `src/def/validate` reserves, and the story bridge reads)', () => {
+    const beat = rec('k1', null, { viewId: `${BEAT_VIEW_PREFIX}0`, field: '__beat__', value: 'after cleanup' });
+    expect(keyOf(beat)).toBeNull();
+    expect(keysOf(beat)).toEqual([]);
+    expect(familyOf(beat)).toBe('story'); // still a story-family record, exactly like an annotation
+    expect(foldStateAt([beat], 'k1').size).toBe(0);
+  });
 });
 
 describe('planBringOver — cherry-pick as a PLAN: {recipe, conflicts}, never an execution', () => {
@@ -415,15 +425,6 @@ describe('planBringOver — cherry-pick as a PLAN: {recipe, conflicts}, never an
     expect(planBringOver(log, 'e1', 'c1')).toMatchObject({ ok: true, recipe: { apply: 'encoding', viewId: 'scatter', channel: 'x', field: 'rating' } });
     expect(planBringOver(log, 't1', 'c1')).toMatchObject({ ok: true, recipe: { apply: 'analysis', analysisId: 'correlation' } });
     expect(planBringOver(log, 'n1', 'c1')).toMatchObject({ ok: true, recipe: { apply: 'annotation', target: '', note: 'note!' }, conflicts: [] }); // a loose note (the plain field) re-notes loosely; a note on a commit carries that commit id
-  });
-
-  it('a beat commit maps to a `beat` recipe (re-named on the target), carries no conflicts, and is inert in the fold', () => {
-    const log = [
-      rec('c1', null),
-      rec('k1', 'c1', { viewId: `${BEAT_VIEW_PREFIX}0`, field: '__beat__', value: 'after-cleanup' }),
-    ];
-    expect(planBringOver(log, 'k1', 'c1')).toMatchObject({ ok: true, recipe: { apply: 'beat', label: 'after-cleanup' }, conflicts: [] });
-    expect(keyOf(log[1]!)).toBeNull(); // a name is never crossfilter state
   });
 
   it('a null target tip (empty timeline) plans with no conflicts', () => {

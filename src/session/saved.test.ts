@@ -4,9 +4,8 @@
  * nothing; applying is the ordinary act, one commit per condition under one
  * cause and one correlation id, replacing the other live filters (or layering
  * onto them), honest per condition about what could not land; renaming and
- * forgetting change the store with the author kept; an older log's
- * annotation-saved selections still read as one-condition pictures; a note's
- * `@[name]` ref names one.
+ * forgetting change the store with the author kept; a note's `@[name]` ref
+ * names one.
  */
 import { describe, expect, it } from 'vitest';
 import { buildDashboard } from '../def/index.js';
@@ -169,16 +168,6 @@ describe('saved selections — saved logic beside the log', () => {
     expect(s.forgetSaved('coast').ok).toBe(true);
   });
 
-  it('a forgotten store entry never comes back from a legacy annotation under the same name', async () => {
-    const s = fresh().createSession();
-    const pick = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
-    await s.dispatch({ verb: 'annotate', target: pick.ok ? pick.commit!.id : '', note: 'same', cause: userCause() });
-    expect(s.saved().map((c) => c.name)).toEqual(['same']); // the legacy one
-    expect(s.renameSaved('same', 'mine').ok).toBe(true); // taken over into the store under a new name
-    expect(s.forgetSaved('mine').ok).toBe(true);
-    expect(s.saved()).toEqual([]); // neither "mine" nor the legacy "same" is back
-  });
-
   it('restoreSaved puts pictures back whole — who, when and on-what kept, judged, refused in words — and the list reads oldest first by the time saved; a consumer gets copies', async () => {
     const dash = fresh();
     const s = dash.createSession();
@@ -253,34 +242,6 @@ describe('saved selections — saved logic beside the log', () => {
     expect(s.forgetSaved('x')).toEqual({ ok: false, rejected: 'no saved selection "x" — the saved ones are none' });
   });
 
-  it('an older log\'s annotation-saved selections still read as one-condition pictures (newest per commit and per name), a store name shadows a legacy one, and a forgotten legacy one stays forgotten', async () => {
-    const s = fresh().createSession();
-    const pick = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick') });
-    const pickId = pick.ok ? pick.commit!.id : '';
-    await s.dispatch({ verb: 'annotate', target: pickId, note: 'coastal', cause: userCause('save it the old way') });
-    await s.dispatch({ verb: 'annotate', target: pickId, note: 'coastal again', cause: userCause('renamed the old way') }); // newest per commit wins
-    await s.dispatch({ verb: 'annotate', target: 'scatter', note: 'a note on a view, not a save', cause: userCause() });
-    const legacy = s.saved();
-    expect(legacy).toHaveLength(1);
-    expect(legacy[0]).toMatchObject({ name: 'coastal again', conditions: [{ viewId: 'bar', kind: 'point', field: 'category', value: 'Formal' }], by: 'user', from: [pickId] });
-    expect(typeof legacy[0]!.at).toBe('string');
-    const applied = await s.applySaved('coastal again', userCause());
-    expect(applied.ok && applied.applied[0]!.value).toBe('Formal');
-    expect(s.renameSaved('coastal again', 'coast')).toMatchObject({ ok: true, saved: { name: 'coast' } }); // taken over into the store; the log keeps its annotation
-    expect(s.saved().map((c) => c.name)).toEqual(['coast']);
-    expect(s.forgetSaved('coast').ok).toBe(true);
-    expect(s.saved()).toEqual([]); // forgetting the store copy does not resurrect the legacy name
-    await s.dispatch({ verb: 'annotate', target: pickId, note: 'shadowed', cause: userCause() });
-    expect(s.saved().map((c) => c.name)).toEqual(['shadowed']);
-    expect(s.forgetSaved('shadowed').ok).toBe(true);
-    expect(s.saved()).toEqual([]);
-    await s.dispatch({ verb: 'annotate', target: pickId, note: 'twice', cause: userCause() });
-    expect(s.saveSelection('twice', { conditions: [{ viewId: 'bar', kind: 'point', field: 'category', value: 'Party' }] })).toMatchObject({ ok: false });
-    expect(s.forgetSaved('twice').ok).toBe(true);
-    expect(s.saveSelection('twice', { conditions: [{ viewId: 'bar', kind: 'point', field: 'category', value: 'Party' }] })).toMatchObject({ ok: true });
-    expect(s.saved().map((c) => [c.name, c.conditions[0]!.value])).toEqual([['twice', 'Party']]);
-  });
-
   it('the store is the dashboard\'s, shared by every session, and read off the dashboard too', async () => {
     const dash = fresh();
     const a = dash.createSession();
@@ -327,15 +288,6 @@ describe('saved selections — saved logic beside the log', () => {
     const corner = await s.applySaved('corner', userCause(), { mode: 'layer' });
     expect(corner.ok && corner.applied[0]).toMatchObject({ viewId: 'scatter', kind: 'cell' });
     expect((await s.overview()).activeSelections.map((a) => a.viewId).sort()).toEqual(['bar', 'scatter']);
-  });
-
-  it('a legacy annotation on a CELL selection reads as a cell condition with its pair', async () => {
-    const s = fresh().createSession();
-    const cell = await s.dispatch({ verb: 'select', viewId: 'scatter', fields: ['price', 'rating'], values: [[50, 60], [1, 2]], cause: userCause() });
-    await s.dispatch({ verb: 'annotate', target: cell.ok ? cell.commit!.id : '', note: 'old corner', cause: userCause() });
-    expect(s.saved()[0]).toMatchObject({ name: 'old corner', conditions: [{ viewId: 'scatter', kind: 'cell', fields: ['price', 'rating'], value: [[50, 60], [1, 2]] }] });
-    const applied = await s.applySaved('old corner', userCause());
-    expect(applied.ok && applied.applied[0]!.kind).toBe('cell');
   });
 
   it('the pre-flight also judges a view\'s capability: a condition on a view that cannot be probed is refused before anything is cleared', async () => {

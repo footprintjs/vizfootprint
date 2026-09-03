@@ -81,8 +81,8 @@ const DISPATCH_DESCRIPTION =
   'e.g. "layout:dashboard", rearranges the cockpit — field names the arrangement prop (preset|order|' +
   'focus) and value is its new plain-string value, and this lands a real commit), ' +
   'analyze (run a declared analysis over the current selection), fork (travel the cursor back to a ' +
-  'prior commit so your NEXT act branches off it — a sibling, no history rewritten), checkpoint (name ' +
-  'the current position to return to), reencode (rebind a view\'s visual channel, e.g. x, to a ' +
+  'prior commit so your NEXT act branches off it — a sibling, no history rewritten), checkpoint (tag ' +
+  'the current position with a name to return to — a tag beside the log, no commit, no branch), reencode (rebind a view\'s visual channel, e.g. x, to a ' +
   'different data field — must be a channel valid for that view and a column that FITS it: read ' +
   'whats_here.views[].accepts first; a misfit is refused with the sentence that says why; pass ' +
   '`bindings` to rebind several channels in ONE act — a swap of the axes is one commit, never two), describe (the prose plane: ' +
@@ -114,7 +114,7 @@ const FORK_DESCRIPTION =
   'from its cause — see the paths tool to list, switch, or rename.';
 
 const CHECKPOINT_DESCRIPTION =
-  'Name the current cursor position (a checkpoint) so you can fork back to it later. Stored as inert ' +
+  'Tag the current cursor position (a checkpoint): a name on this moment, beside the log — no commit lands, no branch starts. Stored as inert ' +
   'data; never parsed.';
 
 const PATHS_DESCRIPTION =

@@ -76,6 +76,7 @@ describe('why({ kind: prose })', () => {
   });
   it('a ref to a beat is not a commit; an agent event log offered by the caller threads the agent tier', async () => {
     const s = buildDashboard(withProse()).createSession();
+    await s.dispatch({ verb: 'annotate', target: 'bar', note: 'a moment to tag', cause: userCause('a moment to tag') }); // any commit is a moment; a note is not an input to the words
     await s.dispatch({ verb: 'checkpoint', label: 'start', cause: userCause('mark') });
     const landed = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { text: 'At the start.', author: { kind: 'human' }, refs: [{ span: [0, 5], beat: 'start' }] }, cause: userCause('write') });
     expect(landed.ok).toBe(true);

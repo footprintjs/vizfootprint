@@ -206,20 +206,20 @@ describe('fork / checkpoint (R8 branching + named positions)', () => {
     expect(s.head).toBe(secondId);
     expect(s.cursor()).toBe(secondId); // linear flow: cursor == head
 
-    // A checkpoint is a DECISION, so it lands a `beat:` commit (inert in the
-    // fold) as the new tip — `commitId` IS that beat, and head/cursor move to it.
+    // A checkpoint is a TAG on the cursor's moment: it lands nothing, so the
+    // head stays where it was — `commitId` IS c2.
     const cp = await s.dispatch({ verb: 'checkpoint', label: 'after-two', cause: userCause() });
-    const beatId = cp.ok ? cp.commit!.id : '';
-    expect(cp.ok && cp.checkpoint?.commitId).toBe(beatId);
-    expect(s.log.records.find((r) => r.id === beatId)!.parent).toBe(secondId); // the beat names c2's state
-    expect(s.head).toBe(beatId);
+    expect(cp.ok && cp.checkpoint?.commitId).toBe(secondId);
+    expect(s.log.records).toHaveLength(2);
+    expect(s.head).toBe(secondId);
+    const beatId = secondId; // the moment the tag names — the old tip
 
     // Fork back to c1 (DEMO-2 fix): the CURSOR moves to the fork point; the head
     // (old tip) is left INTACT so the old lineage stays a live branch. The next
     // commit branches off c1 (same parent as c2) — a real sibling, no rewrite.
     await s.dispatch({ verb: 'fork', fromCommitId: firstId, cause: userCause() });
     expect(s.cursor()).toBe(firstId); // fork moved the cursor…
-    expect(s.head).toBe(beatId); // …NOT the head — the old branch tip (now the beat) is preserved
+    expect(s.head).toBe(beatId); // …NOT the head — the old branch tip (the tagged moment) is preserved
     const sibling = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', cause: userCause() });
     const siblingId = sibling.ok ? sibling.commit!.id : '';
     const siblingRec = s.log.records.find((r) => r.id === siblingId)!;
@@ -228,7 +228,7 @@ describe('fork / checkpoint (R8 branching + named positions)', () => {
     // acting made the new lineage active: head + cursor now coincide on the sibling
     expect(s.head).toBe(siblingId);
     expect(s.cursor()).toBe(siblingId);
-    // the old tip (the beat over c2) is still a leaf — branches() lists BOTH lineages
+    // the old tip (the tagged c2) is still a leaf — branches() lists BOTH lineages
     const tips = s.branches().map((b) => b.tip).sort();
     expect(tips).toEqual([beatId, siblingId].sort());
     expect(s.branches().find((b) => b.tip === siblingId)!.active).toBe(true);

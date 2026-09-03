@@ -40,6 +40,8 @@ import {
   type ViewEncodingDecl,
   type SavedSelection,
   type SavedStore,
+  type Tag,
+  type TagStore,
 } from './types.js';
 import { createInteractionSession, type InteractionSession } from '../session/session.js';
 import type { SessionOptions } from '../session/types.js';
@@ -77,6 +79,10 @@ export interface Dashboard {
   saved(): readonly SavedSelection[];
   /** Put saved selections back (a host's persistence): each record whole — name, conditions, who, when, on what — judged, never re-stamped; refused entries are named. */
   restoreSaved(list: readonly SavedSelection[]): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] };
+  /** The tags — names on moments beside the log (see {@link Tag}); the session's doors write them. */
+  tags(): readonly Tag[];
+  /** Put tags back whole (a host's persistence) — judged (a name, a commit id, who, when), never re-stamped; refused entries named. A session's `restoreTags` also checks the commit is in its log. */
+  restoreTags(list: readonly Tag[]): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] };
   /** Judge the data declarations against the real data: today, that a declared row key names a column the engine lists. Sentences, never thrown. */
   lintData(): Promise<readonly string[]>;
   /** Open a fresh session: one live Mosaic Selection + commit log + FDR ledger. */
@@ -407,14 +413,34 @@ export function restoreSavedInto(store: SavedStore, list: readonly SavedSelectio
     }
     if (bad !== undefined) { say(bad); continue; }
     store.list.push(structuredClone(r));
-    store.forgotten.delete(name);
+    restored.push(name);
+  }
+  return { restored, refused };
+}
+
+/** Restore tags into the store: a whole record each, judged (a name, a commit id, who, when), never re-stamped, refused in words. `hasCommit` lets a session refuse a commit its log does not hold. */
+export function restoreTagsInto(store: TagStore, list: readonly Tag[], hasCommit?: (id: string) => boolean): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] } {
+  const restored: string[] = [];
+  const refused: { name: string; rejected: string }[] = [];
+  for (const t of list) {
+    const name = typeof t?.name === 'string' ? t.name.trim() : '';
+    const say = (rejected: string): void => { refused.push({ name: name.length > 0 ? name : '(unnamed)', rejected }); };
+    if (name.length === 0) { say('a tag needs a name'); continue; }
+    if (name.length > 200) { say('a tag name is at most 200 characters'); continue; }
+    if (store.list.some((c) => c.name === name)) { say(`"${name}" is already a tag — rename or forget it first`); continue; }
+    if (typeof t.commitId !== 'string' || t.commitId.length === 0) { say('a tag names a commit'); continue; }
+    if (hasCommit !== undefined && !hasCommit(t.commitId)) { say(`no commit "${t.commitId}" in the log`); continue; }
+    if (typeof t.by !== 'string' || typeof t.at !== 'string') { say('a tag carries who made it and when'); continue; }
+    if (t.description !== undefined && typeof t.description !== 'string') { say('a tag\'s description is words'); continue; }
+    store.list.push({ name, commitId: t.commitId, ...(t.description !== undefined ? { description: t.description } : {}), by: t.by, at: t.at });
     restored.push(name);
   }
   return { restored, refused };
 }
 
 function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[]): Dashboard {
-  const saved: SavedStore = { list: [], forgotten: new Set() }; // saved selections: logic beside the log, shared by every session
+  const saved: SavedStore = { list: [] }; // saved selections: logic beside the log, shared by every session
+  const tags: TagStore = { list: [] }; // tags: names on moments beside the log, shared by every session
   const tables = [...providers.keys()];
   const keys: Record<string, string> = Object.fromEntries(Object.entries(def.data).flatMap(([t, d]) => (d.key !== undefined ? [[t, d.key]] : [])));
   const defaultTable = def.defaultTable ?? tables[0]!;
@@ -480,6 +506,7 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     keys,
     journal,
     saved,
+    tags,
     makeFdrStepper,
     fdrProcedure: def.fdr?.procedure ?? 'LORD++',
     fdrAlpha: def.fdr?.alpha ?? 0.05,
@@ -516,6 +543,8 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     saved: () => saved.list.map((c) => structuredClone(c)), // a host gets its own copies, never the store's objects
     /* v8 ignore next -- a validated def always declares its actors; the fallback keeps the type honest */
     restoreSaved: (list) => restoreSavedInto(saved, list, new Set(Object.keys(def.actors ?? {}))),
+    tags: () => tags.list.map((t) => ({ ...t })),
+    restoreTags: (list) => restoreTagsInto(tags, list),
     createSession: (opts) => createInteractionSession(runtime, opts),
     lintProse: async () => {
       const cols = await providers.get(defaultTable)!.columns(defaultTable);

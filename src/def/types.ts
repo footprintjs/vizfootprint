@@ -382,10 +382,32 @@ export interface SavedSelection {
   readonly from?: readonly string[];
 }
 
-/** The store: the saved selections in the order they were saved, and the names of legacy (log-derived) ones a person forgot. */
+/**
+ * A TAG IS A NAME ON A MOMENT — a checkpoint, a story beat: the name, the
+ * commit it marks, a description, who tagged it and when. Several tags may
+ * sit on one commit; a name is one moment. Like a git tag it lives BESIDE the
+ * log, never in it: tagging lands no commit and starts no branch, and a tag
+ * stays valid on every branch that runs through its commit. Present mode
+ * walks the tagged moments; seeking a tag seeks its commit.
+ */
+export interface Tag {
+  readonly name: string;
+  readonly commitId: string;
+  /** Words for the list — why this moment matters. Inert data, never parsed. */
+  readonly description?: string;
+  readonly by: Actor;
+  /** ISO time it was tagged (or last renamed). */
+  readonly at: string;
+}
+
+/** The store: the tags in the order they were made (a mutable list the session's doors write). */
+export interface TagStore {
+  readonly list: Tag[];
+}
+
+/** The store: the saved selections in the order they were saved (a mutable list the session's doors write). */
 export interface SavedStore {
   readonly list: SavedSelection[];
-  readonly forgotten: Set<string>;
 }
 
 /**
@@ -414,6 +436,8 @@ export interface DashboardRuntime {
   readonly journal: readonly RefreshRecord[];
   /** The saved selections — saved LOGIC beside the log, never in it (see {@link SavedSelection}); shared by every session, like the journal. */
   readonly saved: SavedStore;
+  /** The tags — names on moments beside the log (see {@link Tag}); shared by every session. */
+  readonly tags: TagStore;
   /** Build notes a def should hear: e.g. `engine: 'auto'` resolved to memory because the thresholds are unmeasured. */
   readonly notes: readonly string[];
   /** The declared row key per table (absent = positional rows, no delta). */

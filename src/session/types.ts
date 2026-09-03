@@ -19,7 +19,7 @@ import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
 import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause, PredicateClause, Row, SortSpec } from '../data/index.js';
 import type { EncodingProblem, Fit, RuleLine, RuleScope } from '../encoding/index.js';
 import type { ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
-import type { DispatchVerb, IntentClass, SeriesGrain, SavedClause, SavedSelection } from '../def/types.js';
+import type { DispatchVerb, IntentClass, SeriesGrain, SavedClause, SavedSelection, Tag } from '../def/types.js';
 import type { RefreshRecord } from '../def/buildDashboard.js';
 import type { DiffChange, DiffOnly, PlanRecipe, RefEvent } from '../branches/index.js';
 
@@ -179,18 +179,20 @@ export type DispatchAction =
   /** Encoding plane: several channels in ONE act — a swap is `{ x: <the y field>, y: <the x field> }` — judged as a whole, landed as one commit. */
   | { readonly verb: 'reencode'; readonly viewId: string; readonly bindings: Readonly<Record<string, string>>; readonly cause: Cause; readonly correlationId?: string };
 
-/** A named log position (the `checkpoint` verb). A NAMED pointer to a commit — stored as inert data, listable. */
+/**
+ * A checkpoint as the wire has always carried it — now a VIEW of a tag (see
+ * `Tag`): `label` is the tag's name, `commitId` and `at` are both the tagged
+ * commit (the moment), `ts` its position in the log. A legacy beat commit from
+ * an older log reads the same way (its `at` = the position it named). Present
+ * mode orders and seeks by `at`.
+ */
 export interface Checkpoint {
   readonly label: string;
-  /** The beat commit itself — the recorded act of naming. */
+  /** The tagged commit (a legacy beat: the beat commit itself). */
   readonly commitId: string | null;
-  /**
-   * The position the beat NAMES — the beat commit's parent. Present mode
-   * orders and seeks by this: a beat named at a commit stays on every
-   * lineage that runs through that commit, even after a fork below it.
-   */
+  /** The moment the tag names — the tagged commit (a legacy beat: its parent). */
   readonly at: string | null;
-  /** The beat commit's index in the log. */
+  /** The named commit's index in the log (ordering). */
   readonly ts: number;
 }
 
@@ -697,6 +699,9 @@ export interface NoteInfo {
 }
 
 /** One declared table as the def states it (see `Overview.tables`). Nothing here is inferred from the rows. */
+/** What tagging (or renaming, forgetting) came back with. */
+export type TagResult = { readonly ok: true; readonly tag: Tag } | { readonly ok: false; readonly rejected: string };
+
 // ── Saved selections: saved LOGIC beside the log (see SavedSelection in def/types). ──
 
 /** What to save: every live clause (the whole picture), one view's live clause, or explicit conditions. */
@@ -813,6 +818,8 @@ export interface Overview {
   readonly notes: readonly NoteInfo[];
   /** The saved selections — saved logic beside the log, oldest first (legacy log-derived ones included unless forgotten). */
   readonly saved: readonly SavedSelection[];
+  /** The tags — names on moments beside the log, oldest first (legacy beat commits included unless forgotten). */
+  readonly tags: readonly Tag[];
   readonly activeSelections: readonly SelectionInfo[];
   /**
    * The live selections in the SHAPE a prose basis states them: viewId → clause, `{}` for none — byte-equal to what
