@@ -28,6 +28,17 @@
  * table, not just styled markup. Numeric cells render with the shared
  * `.vzf-mono` token (monospace + tabular-nums) so digits align in a column.
  *
+ * THE SORT IS LOCAL AND UNRECORDED, on purpose and stated rather than left
+ * to be assumed. It lives in this component's own `useState`, it emits
+ * nothing, and no commit lands: like a scroll position it changes no rows,
+ * no selection and no fold, so a replay of the trace reproduces the
+ * dashboard exactly without it. The renderer contract therefore declares NO
+ * capability for it — the empty `canRearrange` flag was removed (see
+ * `contract/types.ts`) — because the one thing a user must never be able to
+ * believe is that a reordering was recorded when it was not. If a sort ever
+ * has to survive time travel it becomes an ARRANGEMENT commit, not a bigger
+ * `useState`.
+ *
  * The consumer supplies which fields to show (`columns`) — the chart never
  * guesses a "sane" column count; that restraint lives at the call site,
  * where the actual data shape is known.

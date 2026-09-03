@@ -20,7 +20,11 @@
  *   • pointSelect           — `pointEmission`/`togglePointEmission`
  *                             (click-again-clears) + `keyActivates`.
  *   • useSelection          — `useKeepPredicate` (the self-excluded fold),
- *                             `selectedValue`, `dimClass` (dim, never hide).
+ *                             `useBrightPredicate` (what a chart DIMS by once
+ *                             a link graph is on the wire), `selectedValue`,
+ *                             `selectedSet`/`inSet`/`markClass` (SET-1: the
+ *                             view's own set and the outline it earns),
+ *                             `dimClass` (dim, never hide).
  *   • `announce`            — the ONE polite live region: tell a screen-reader
  *                             user about a change nothing focused reports
  *                             (a re-encode), silently for sighted users.
@@ -45,9 +49,13 @@ export type { Compatibility } from './compat.js';
 export { useHorizontalBrush, BrushOverlay } from './brush.js';
 export type { BrushGeometry, BrushHandlers, BrushOverlayProps, HorizontalBrush, HorizontalBrushOptions } from './brush.js';
 
-export { pointEmission, togglePointEmission, keyActivates } from './pointSelect.js';
+// point + SET-1 (`matchEmission`/`toggleInSetEmission`/`clickEmission`): the
+// whole click language the first-party charts speak. The SET-1 three were
+// added to pointSelect.ts and never re-exported here, so a consumer-built
+// chart could copy the gesture but not the emission it lands.
+export { pointEmission, togglePointEmission, matchEmission, toggleInSetEmission, clickEmission, keyActivates } from './pointSelect.js';
 
-export { useKeepPredicate, selectedValue, dimClass } from './useSelection.js';
+export { useKeepPredicate, useBrightPredicate, selectedValue, selectedSet, inSet, markClass, dimClass } from './useSelection.js';
 
 export { useReencodePicker } from './reencode.js';
 export type { ReencodePicker } from './reencode.js';

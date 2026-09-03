@@ -16,9 +16,19 @@
  *     acknowledgement on purpose.
  *   - The four callbacks wire straight through: a brush/click → `emit`; an
  *     axis-label click → `reencodeRequest` (the HOST owns the picker — the
- *     charts' built-in EncodingPicker never opens in contract mode); none of
- *     the five implements hover or pan/zoom, and their capabilities say so
- *     (canPanZoom: false — a host-driven navigate lands a typed gap).
+ *     charts' built-in EncodingPicker never opens in contract mode). None of
+ *     the eight pans or zooms, and each says so where it counts
+ *     (`canPanZoom: false` — a host-driven navigate lands a typed gap
+ *     instead of silently recording nothing). None of them speaks `hover`
+ *     either, and no capability says so BY DESIGN: hover records nothing, so
+ *     a host loses nothing by discovering the silence at runtime — see the
+ *     note on `RendererCallbacks.hover` in types.ts.
+ *   - Every capability here is a promise about the BOUND renderer, never
+ *     about the chart underneath it (the capability-honesty law — types.ts
+ *     header, worked example in this folder's README.md). Where a chart can
+ *     do more by hand than the wrapper delivers, the flag stays false until
+ *     the wrapper delivers it: that is why `barRenderer`'s `canHighlight` is
+ *     computed from its options rather than written as a constant.
  *   - RenderState.theme (a `--vzf-*` token map) lands as CSS variables on the
  *     `.vzf` wrapper, so a themed host stays themed inside the mount.
  *   - `encodings` picks the fields: x/y (scatter, line), color (series),
@@ -194,20 +204,40 @@ export function lineRenderer(options: LineRendererOptions = {}): Renderer {
 export interface BarRendererOptions {
   /** The row field carrying the HOST-aggregated count. Default `'count'`. */
   readonly countField?: string;
+  /**
+   * The row field carrying the HOST-aggregated BRIGHT count for the same
+   * category — the Layer-4 highlight share, drawn as a narrower inner bar
+   * ("this much of it", never dropped rows). Naming it is what makes this
+   * renderer's `canHighlight` TRUE, and the reason it must be named at all
+   * is the transform-ownership rule: rows arrive as one row per category and
+   * the chart may never recount, so the bright share can only reach it as a
+   * SECOND host aggregate on the row. Absent = no overlay, and
+   * `canHighlight: false` — an honest "this bound renderer does not do that".
+   */
+  readonly highlightCountField?: string;
   readonly colorOf?: (category: string) => string;
 }
 
 /**
- * Point select on the category · axis re-encode requests. Rows arrive
- * host-AGGREGATED: one row per category, its count on `countField` — the
- * chart never counts (the transform-ownership rule).
+ * Point select on the category · axis re-encode requests · the Layer-4
+ * highlight overlay when the host names its field. Rows arrive
+ * host-AGGREGATED: one row per category, its count on `countField` (and its
+ * bright share on `highlightCountField`, if the host sends one) — the chart
+ * never counts (the transform-ownership rule).
+ *
+ * `canHighlight` is COMPUTED, not asserted: this chart has no rows on screen
+ * to dim, so the only highlight it can draw is the share the host aggregated
+ * for it. With no `highlightCountField` the wrapper delivers nothing and the
+ * flag is false; naming the field makes both true at once, which is the
+ * capability-honesty law in one line of code.
  */
 export function barRenderer(options: BarRendererOptions = {}): Renderer {
+  const highlightField = options.highlightCountField;
   return reactRenderer({
     capabilities: {
       canBrush: false,
       canPointSelect: true,
-      canHighlight: false,
+      canHighlight: highlightField !== undefined,
       canReencode: true,
       canPanZoom: false,
       emissionKinds: ['point', 'match'], // SET-1: shift-click adds to the view's own set
@@ -216,10 +246,19 @@ export function barRenderer(options: BarRendererOptions = {}): Renderer {
       const field = boundField(state.encodings, 'category', 'category');
       const countField = options.countField ?? 'count';
       const data = state.rows.map((r) => ({ category: String(r[field]), count: num(r[countField]) }));
+      // The overlay rides only while the host is actually sending the share.
+      // A frame whose rows carry no such number means no highlight edge is
+      // live, and an overlay of zeros would draw a claim of its own ("none of
+      // this bar is bright") over every bar — so the absence stays an absence.
+      const highlight =
+        highlightField === undefined || !state.rows.some((r) => typeof r[highlightField] === 'number')
+          ? undefined
+          : state.rows.map((r) => ({ category: String(r[field]), count: num(r[highlightField]) }));
       return (
         <VizBar
           viewId={handshake.viewId}
           data={data}
+          highlight={highlight}
           field={field}
           selection={state.selection}
           colorOf={options.colorOf}
@@ -485,7 +524,20 @@ export interface TableRendererOptions {
   readonly labels?: Readonly<Record<string, string>>;
 }
 
-/** Point select by row id · dims under the non-self clauses · sortable (canRearrange). */
+/**
+ * Point select by row id · dims under the non-self clauses.
+ *
+ * It also SORTS: a header click reorders the rows in `VizTable`'s own local
+ * state. That reordering is deliberately NOT declared as a capability. It
+ * used to be (`canRearrange: true`) and the declaration was empty — no
+ * outbound verb carried the new order, no guard read the flag, and the sort
+ * reached neither the host nor the trace. A user reordering a table and
+ * believing the dashboard recorded it is precisely the failure this library
+ * exists to prevent, so the claim is gone while the behaviour stays visible
+ * and local (the same class as a scroll position: it changes no rows, no
+ * selection and no fold). What an honest recorded reorder would need is
+ * listed on `RendererCapabilities` in types.ts.
+ */
 export function tableRenderer(options: TableRendererOptions): Renderer {
   return reactRenderer({
     capabilities: {
@@ -494,7 +546,6 @@ export function tableRenderer(options: TableRendererOptions): Renderer {
       canHighlight: true,
       canReencode: false,
       canPanZoom: false,
-      canRearrange: true,
       emissionKinds: ['point', 'match'], // SET-1: shift-click adds to the view's own set
     },
     render(state, handshake) {

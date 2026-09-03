@@ -433,14 +433,20 @@ await view.reencodeSet('scatter', { x: 'rating', y: 'price' }, 'swap axes');
 Any charting stack — the five first-party charts, a canvas renderer, a
 wrapped external library — can join the coordinated, cause-tagged dashboard
 by implementing ONE small surface. The protocol is framework-agnostic and
-versioned (`RENDERER_PROTOCOL_VERSION`, currently `1.0`).
+versioned (`RENDERER_PROTOCOL_VERSION`, currently `1.1`). The laws it is
+reviewed against — what a capability flag may claim, and why — are written up
+in `src/contract/README.md`.
 
 **The handshake.** The host calls `renderer.mount(el, handshake)`; the
 handshake carries the protocol version the host speaks, the `viewId`, and the
 four callbacks. The renderer answers with a hello: the version IT speaks, its
 honest capabilities (`canBrush`, `canPointSelect`, `canHighlight`,
-`canReencode`, `canPanZoom`, optional `canRearrange`, and which
-`emissionKinds` it produces), and any internal data transforms it declares.
+`canReencode`, `canPanZoom`, and which `emissionKinds` it produces), and any
+internal data transforms it declares. **A flag is `true` only when the BOUND
+renderer delivers that behaviour through the contract** — not when the chart
+underneath could deliver it if a host wired it by hand; `barRenderer` computes
+its `canHighlight` from its options for exactly that reason, and the pair is
+pinned by a test.
 `bindRenderer` guards the hello — a refused bind is a **typed gap**, never a
 silent no-op:
 
@@ -482,7 +488,7 @@ value here always means "cleared".
 | verb | meaning |
 |---|---|
 | `emit(emission)` | a selection gesture — the unchanged R3 `{ rawValue, encoding }` shape in DATA space (point, interval, cell, or the SET-1 match); the renderer never builds a clause |
-| `hover(keys \| null)` | ephemeral hover keys; never committed |
+| `hover(keys \| null)` | ephemeral hover keys; never committed — the one verb that records nothing, which is why it carries no `canHover` capability (nothing is lost when a renderer stays silent) and why no first-party renderer speaks it |
 | `reencodeRequest(channel)` | ask the host to re-encode a channel — the HOST owns the picker and the `reencode` verb |
 | `navigate(viewState)` | record a pan/zoom view state — lands as the `navigate` dispatch verb, deliberately NON-filtering (a viewport is not a data claim) |
 
@@ -497,7 +503,10 @@ renderers — `scatterRenderer()`, `lineRenderer()`, `barRenderer()`,
 `heatmapRenderer()`, `boxPlotRenderer()` — built on one generic
 `reactRenderer` bridge (mount a root, render synchronously, theme tokens on
 the `.vzf` wrapper). Their React props remain a thin convenience layer over
-the same contract types.
+the same contract types. An aggregate chart cannot dim rows it does not have,
+so the bar draws the Layer-4 bright SHARE instead, from a second host-computed
+number: `barRenderer({ highlightCountField: 'brightCases' })` draws the inner
+overlay and declares `canHighlight: true`; without it, neither.
 
 **Conformance kit v0.** `runConformance(plan)` mounts ANY renderer against a
 real scripted session and walks the full loop in order — version-guard,
@@ -533,8 +542,10 @@ What each primitive is, and what contract behavior it guarantees:
 | `<AxisLabel>` + `useReencodePicker` + `defaultCompat` | The interactive axis label and its two-mode dispatch. | In contract mode the HOST owns the picker (`reencodeRequest`); the built-in picker disables incompatible columns **with the reason**. |
 
 The selection derivation itself (`selectionForView`, `keepPredicate`,
-`selfSelectedValue`, `selfSelectedInterval`) lives in the contract layer and
-is imported from the same package root.
+`brightPredicate`, `selfSelectedValue`, `selfSelectedInterval`,
+`selfSelectedSet`, `selfSelectedCell`) lives in the contract layer and is
+imported from the same package root — one reader per selection shape, so a
+chart never keeps its own copy of what is selected.
 
 ### The afternoon chart — `VizHistogram`, the proof
 
@@ -661,7 +672,7 @@ plumbing beyond the primitives tier.
 |---|---|
 | `tokens/` | design tokens + theme engine — scoped CSS variables on the `.vzf` root (never `:root`), light+dark via `prefers-color-scheme` with a `data-theme` override that wins both ways |
 | `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods incl. `navigate`) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView` |
-| `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION` (1.1 — adds the `cell` kind), `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`selfSelectedValue`/`selfSelectedInterval`/`selfSelectedCell`, the eight reference renderers, `runConformance` (now with the cell arm) |
+| `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION` (1.1 — adds the `cell` kind), `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`brightPredicate`/`selfSelectedValue`/`selfSelectedInterval`/`selfSelectedSet`/`selfSelectedCell`, the eight reference renderers, `runConformance` (now with the cell arm), and the capability-honesty law in `src/contract/README.md` |
 | `primitives/` | the chart-building tier (see above): `<ChartFrame>`, scales + date handling, `<AxisLabel>`/`useReencodePicker`/`defaultCompat`, `useHorizontalBrush`/`<BrushOverlay>`, `pointEmission`/`togglePointEmission`/`keyActivates`, `useKeepPredicate`/`selectedValue`/`dimClass` — compose a chart from these and it is born contract-conformant |
 | `layout/` | `<VizCockpit>` (the flagship — and only — single-screen shell) + `<VizModal>` (the one modal system) + `<VizPanel>`/`<VizCard>` |
 | `charts/` | `<VizScatter>`, `<VizBar>` (category ticks slant and clip to their band when they would collide; values that would collide are omitted — the full label rides a `<title>`), `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click; `coordinates="planar"` for shapes already projected to a screen plane, e.g. us-atlas), `<VizTable>` (sortable rows, click-to-select), `<VizHistogram>` (host-computed buckets, edge-snapped brush), `<VizHeatmap>` (host-computed 2-D cells, one-click compound cell selection — D30), `<VizBoxPlot>` (host-summarized quartiles/whiskers/outliers, click-to-select a category) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |

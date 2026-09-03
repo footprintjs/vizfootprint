@@ -25,6 +25,14 @@
  * `canPanZoom: false` renderer that receives a zoom gesture files nothing;
  * a HOST asking to navigate a non-capable view lands a typed gap instead).
  *
+ * CAPABILITY HONESTY — the law this file is reviewed against (written up
+ * with its worked example in `README.md`, beside this file): a flag is
+ * `true` only when the BOUND renderer actually delivers that behaviour
+ * THROUGH the contract. Not what the wrapped chart could do if a host wired
+ * it by hand — what `update()` on this mount visibly does. A flag nothing
+ * honours is worse than a missing one, because it invites a host (or a
+ * user) to believe an act was carried, or recorded, when it was not.
+ *
  * VERSIONING POLICY: `RENDERER_PROTOCOL_VERSION` is `major.minor`. Two sides
  * bind iff they speak the SAME MAJOR; a minor difference is compatible (minor
  * revisions only ADD optional fields). A major mismatch refuses to bind with
@@ -61,14 +69,43 @@ export interface RendererCapabilities {
   readonly canBrush: boolean;
   /** Can click-select a point value. */
   readonly canPointSelect: boolean;
-  /** Can visually dim/highlight rows under the crossfilter selection. */
+  /**
+   * Can visually mark the rows under the crossfilter selection: a ROW chart
+   * DIMS the rows a non-self clause excludes (scatter, table); an AGGREGATE
+   * chart draws the bright SHARE of each mark (the bar's inner overlay),
+   * since it has no rows on screen to dim. True only when THIS bound
+   * renderer does it — an aggregate chart needs the share as a second
+   * host-computed number on the row, so its factory derives the flag from
+   * the option that names that field (see `barRenderer`).
+   */
   readonly canHighlight: boolean;
   /** Can surface a re-encode affordance (asks the host via `reencodeRequest`). */
   readonly canReencode: boolean;
   /** Can pan/zoom its viewport (records via `navigate` — never a data claim). */
   readonly canPanZoom: boolean;
-  /** Can reorder its marks (e.g. a sortable table). Optional — absent = false. */
-  readonly canRearrange?: boolean;
+  // There is deliberately NO `canRearrange`. It was declared here and NOTHING
+  // honoured it: the table sorts its own rows in local state, `RendererCallbacks`
+  // has no rearrange verb, and `bindRenderer` never guarded it — so a user
+  // visibly reordered a table and the record never heard about it, which is the
+  // one thing this library exists to prevent. It is removed rather than left
+  // standing, because a flag that lies is worse than a contract that is narrow.
+  // Re-adding it takes four things, in this order: (1) a dispatch verb that
+  // RECORDS an arrangement — the library already has the shape, `navigate` with
+  // the `layout:${scope}` identity, which lands one cause-tagged commit carrying
+  // plain `field`/`value` strings and is restored by time travel; (2) a FIFTH
+  // outbound callback carrying the new order (today's four are the renderer's
+  // entire voice, so this is a protocol MAJOR decision, not a minor add);
+  // (3) a `bindRenderer` guard so a host-driven rearrange on a non-capable view
+  // files a typed gap the way `navigate` does; (4) a conformance step proving
+  // the reorder lands a commit. Squeezing an order through today's `navigate`
+  // callback is NOT the shortcut it looks like: its payload is typed as
+  // DATA-space domains and the host records it as a viewport move, so a sort
+  // would enter the trace under another act's name — a second lie, on the
+  // record this time. Until all four exist, a renderer that reorders says so in
+  // its own docs (see `tableRenderer`) and claims no capability. The removal
+  // did NOT bump `RENDERER_PROTOCOL_VERSION`: no code ever read the flag, and
+  // a third-party hello still carrying the key binds byte-identically (the
+  // guards read version, transforms and emissionKinds — never this).
   /** Which R3 emission kinds this renderer produces. */
   readonly emissionKinds: readonly EmissionKind[];
 }
@@ -89,7 +126,23 @@ export type NavigateViewState = Readonly<
 export interface RendererCallbacks {
   /** A selection gesture, as the unchanged R3 emission (DATA space, no clause). */
   emit(emission: ChartEmission): void;
-  /** Ephemeral hover keys (row ids), or null when the pointer leaves. Never committed. */
+  /**
+   * Ephemeral hover keys (row ids), or null when the pointer leaves. NEVER
+   * committed — this is the one verb on the rail that records nothing, and
+   * that is exactly why there is deliberately no `canHover` capability. A
+   * capability earns its place when the HOST must refuse an act honestly:
+   * a `navigate` on a non-capable view files a typed gap because otherwise
+   * a visible act would go unrecorded. Nothing goes unrecorded when a
+   * renderer simply never hovers, so there is nothing to guard and nothing
+   * for a host to branch on — a host pushes `RenderState.hover` to everyone
+   * and a renderer without a hover concept ignores it.
+   *
+   * No first-party renderer speaks it today (all eight are silent here).
+   * The channel stays because it is the protocol's only home for a renderer
+   * that HAS a hover concept — a crosshair a host wants to coordinate — and
+   * the conformance kit collects whatever a renderer says on it, proving
+   * the hover reaches the host and never reaches the trace.
+   */
   hover(keys: readonly string[] | null): void;
   /** Ask the host to re-encode a visual channel — the HOST owns the picker + the verb. */
   reencodeRequest(channel: string): void;
@@ -172,6 +225,13 @@ export interface RenderState {
   readonly rows: readonly RenderRow[];
   readonly encodings: Readonly<Record<string, string>>;
   readonly selection: RenderSelection;
+  /**
+   * The host's coordinated hover (row ids), or null. Transient by nature: it
+   * comes from a pointer, never from the trace, and it never lands a commit —
+   * so a renderer must draw it as decoration and never let it change what it
+   * emits. No first-party renderer reads it today; see `RendererCallbacks.hover`
+   * for why it carries no capability flag.
+   */
   readonly hover: readonly string[] | null;
   readonly theme: Readonly<Record<string, string>>;
   readonly size: { readonly width: number; readonly height: number };

@@ -24,9 +24,13 @@ export {
   keepPredicate,
   selfSelectedValue,
   selfSelectedInterval,
+  // the SET-1 sibling of the three above: without it a host building its own
+  // chart could outline a point, an interval and a cell — but not a
+  // multi-select, the one shape SET-1 added
+  selfSelectedSet,
   selfSelectedCell,
   brightPredicate, navigateDomain } from './selection.js';
-export type { SelfSelectedCell } from './selection.js';
+export type { SelfSelectedCell, SelfSelectedSet } from './selection.js';
 
 export { bindRenderer } from './bind.js';
 export type { BindOptions, BindResult, BoundRenderer, NavigateOutcome } from './bind.js';

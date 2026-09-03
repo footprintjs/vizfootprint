@@ -15,6 +15,20 @@
  * gap instead of silently no-oping (and never reaches the recording rail).
  * Every gap is BOTH returned to the caller and offered to `onGap` (so an app
  * can surface contract gaps beside the session's own in `<GapsPanel>`).
+ *
+ * WHY `canPanZoom` IS THE ONLY CAPABILITY GUARDED HERE. A guard belongs
+ * where the HOST drives an act that would otherwise vanish: `navigate` is
+ * the one verb a host can push INTO a view, so a non-capable view has to
+ * refuse out loud or the request is lost with no trace. The rest need no
+ * guard, and adding one would be theatre: `canBrush` / `canPointSelect`
+ * describe gestures the USER makes, and those ride `emit`, which the
+ * session records whether or not the flag was set; `canHighlight` and
+ * `canReencode` describe what a renderer does with state the host pushes,
+ * where absence is visible on screen rather than silent. So the flags are
+ * declarations a host READS (which views can be asked to do what), and
+ * exactly one of them is enforced. A new capability earns a guard here only
+ * if a host-driven request could otherwise go unrecorded — see this
+ * folder's README.md.
  */
 
 import {
