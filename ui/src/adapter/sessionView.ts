@@ -630,12 +630,13 @@ function mapProposals(raw: unknown): ProposalView[] {
 function mapRefs(raw: unknown): ProseRefView[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((r) => {
-    const x = r as { span?: unknown; commit?: unknown; beat?: unknown; label?: unknown } | null;
+    const x = r as { span?: unknown; commit?: unknown; beat?: unknown; saved?: unknown; label?: unknown } | null;
     if (typeof x !== 'object' || x === null || !Array.isArray(x.span) || x.span.length !== 2 || !x.span.every((n) => typeof n === 'number')) return [];
     const commit = typeof x.commit === 'string' ? x.commit : undefined;
     const beat = typeof x.beat === 'string' ? x.beat : undefined;
-    if ((commit === undefined) === (beat === undefined)) return [];
-    return [{ span: [x.span[0] as number, x.span[1] as number] as const, ...(commit !== undefined ? { commit } : {}), ...(beat !== undefined ? { beat } : {}), ...(typeof x.label === 'string' ? { label: x.label } : {}) }];
+    const saved = typeof x.saved === 'string' ? x.saved : undefined; // a saved selection by name: a click applies its logic, never seeks
+    if (Number(commit !== undefined) + Number(beat !== undefined) + Number(saved !== undefined) !== 1) return [];
+    return [{ span: [x.span[0] as number, x.span[1] as number] as const, ...(commit !== undefined ? { commit } : {}), ...(beat !== undefined ? { beat } : {}), ...(saved !== undefined ? { saved } : {}), ...(typeof x.label === 'string' ? { label: x.label } : {}) }];
   });
 }
 /** The rules as sentences, when the wire carries them. */

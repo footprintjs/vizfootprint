@@ -62,7 +62,7 @@ describe('linkables and the mention world', () => {
     expect(list[4]!.description).toBe('user'); // no intent on the beat commit
     expect(list[6]!.description).toBe('pick formal · user');
     const world = mentionWorldOf(state);
-    expect(world.saved.get('coastal')).toBe('s1');
+    expect(world.saved.has('coastal')).toBe(true);
     expect(world.beats.has('Start')).toBe(true);
     expect(world.commits.get('s1')).toBe('category — pick formal');
     expect(linkablesOf(mapPollState({ ...RAW, records: [RAW.records[0]!], checkpoints: [], activeSelections: [] })).map((l) => l.kind)).toEqual(['commit']);
@@ -376,8 +376,8 @@ describe('NoteCell', () => {
       ['Bad]label', '#s3'],
     ]);
     const w = mentionWorldOf(st);
-    expect(w.saved.get('coastal')).toBe('s4'); // the world agrees with the picker: `@[coastal]` is the newest save
-    expect(w.saved.get('Formal] wear')).toBe('s6');
+    expect(w.saved.has('coastal')).toBe(true); // the world knows the name; `@[coastal]` applies the saved logic
+    expect(w.saved.has('Formal] wear')).toBe(true);
     // and every offered mention resolves against that world
     for (const l of linkablesOf(st)) expect(mentionsToRefs(l.mention, w).unresolved).toEqual([]);
   });

@@ -12,11 +12,11 @@
  */
 import type { ProseRef } from './types.js';
 
-/** What a mention may point at: the commits the log holds (id → a label for display), the beats named, the saved selections (name → the commit that saved them). */
+/** What a mention may point at: the commits the log holds (id → a label for display), the beats named, the saved selections by name (saved LOGIC — a ref to one applies it, it does not seek). A name that is both a saved selection and a beat resolves to the SAVED selection: the logic wins over the moment. */
 export interface MentionWorld {
   readonly commits: ReadonlyMap<string, string>;
   readonly beats: ReadonlySet<string>;
-  readonly saved: ReadonlyMap<string, string>;
+  readonly saved: ReadonlySet<string>;
 }
 
 export interface UnresolvedMention {
@@ -57,8 +57,7 @@ export function mentionsToRefs(text: string, world: MentionWorld): Mentions {
       continue;
     }
     const name = (m[2] ?? m[3])!.trim();
-    const saved = world.saved.get(name);
-    if (saved !== undefined) refs.push({ span, commit: saved, label: name });
+    if (world.saved.has(name)) refs.push({ span, saved: name, label: name });
     else if (world.beats.has(name)) refs.push({ span, beat: name, label: name });
     else unresolved.push({ mention: m[0], span, sentence: `@${name} is neither a saved selection nor a checkpoint` });
   }

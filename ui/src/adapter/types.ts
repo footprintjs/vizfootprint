@@ -138,6 +138,8 @@ export interface ProseRefView {
   readonly commit?: string;
   readonly beat?: string;
   readonly label?: string;
+  /** A saved selection by name — a click applies the saved logic, it never seeks. */
+  readonly saved?: string;
 }
 
 export interface EffectiveEncodingView {

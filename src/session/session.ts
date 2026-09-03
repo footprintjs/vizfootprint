@@ -22,6 +22,7 @@
  *  - R14 every unhonorable request is a TYPED gap (D14 taxonomy), never dropped.
  */
 
+import { restoreSavedInto } from '../def/buildDashboard.js';
 import type { FoldEntry } from '../branches/index.js';
 import type { EmissionKind, LinkEdge } from '../links/index.js';
 import { voiceOf } from '../links/index.js';
@@ -46,14 +47,7 @@ function probeClause(kind: 'point' | 'interval' | 'match', field: string, value:
 }
 import type { CauseClause } from '../mosaic/index.js';
 import { registerAnalysisSlot } from '../def/register.js';
-import type {
-  AnalysisSlot,
-  DashboardRuntime,
-  DispatchVerb,
-  FdrStepper,
-  RegisteredAnalysis,
-  ViewEncodingDecl,
-} from '../def/types.js';
+import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, ViewEncodingDecl, SavedClause, SavedSelection } from '../def/types.js';
 import { describeRules, fitsFor, refuses, validateBindings } from '../encoding/index.js';
 import { ENCODING_KIND, edgesInto } from '../links/index.js';
 import { DASHBOARD_PROSE_ID, NOTE_PROSE_PREFIX, isNoteSubject, PROPOSAL_LANE, PROSE_SLOTS, fillProse, PROSE_SENTENCES, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
@@ -124,6 +118,10 @@ import type {
   ReachingClause,
   ViewQuery,
   ViewQueryResult,
+  SaveSelectionSource,
+  SaveSelectionResult,
+  ApplySavedOptions,
+  ApplySavedResult,
 } from './types.js';
 
 /**
@@ -416,6 +414,23 @@ export interface InteractionSession {
   viewQuery(query?: ViewQuery): Promise<ViewQueryResult>;
 
   /**
+   * SAVED SELECTIONS ARE SAVED LOGIC. `saved()` lists the named pictures (the
+   * store beside the log, plus the legacy ones an older log recorded as
+   * annotations on selection commits, unless forgotten). `saveSelection`
+   * names every live clause, one view's, or explicit conditions — it lands NO
+   * commit. `applySaved` is the act: one ordinary select/filter commit per
+   * condition under one cause and one correlation id (`replace` clears the
+   * other live filters first), honest per condition about what could not land.
+   */
+  saved(): readonly SavedSelection[];
+  saveSelection(name: string, source: SaveSelectionSource, as?: Actor): SaveSelectionResult;
+  renameSaved(from: string, to: string, as?: Actor): SaveSelectionResult;
+  forgetSaved(name: string): SaveSelectionResult;
+  applySaved(name: string, cause: Cause, opts?: ApplySavedOptions): Promise<ApplySavedResult>;
+  /** Put saved selections back whole (a host's persistence) — judged, never re-stamped; refused entries named. */
+  restoreSaved(list: readonly SavedSelection[]): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] };
+
+  /**
    * The current channel→field visual-encoding map for one view, branch-scoped
    * at the cursor (the `reencode` verb's fold — SPEC Q6 8th verb). Empty if
    * the view declares no encoding surface or is unknown. Synchronous — no
@@ -470,6 +485,42 @@ function selectionInfoOf(viewId: string, clause: PredicateClause, commitId?: str
               value: (clause as { value: unknown }).value, // never a cleared point: one clearing rule drops it from the fold (SET-1)
             }  );
   return commitId === undefined ? info : { ...info, commitId };
+}
+
+/** A value's own copy — JSON-shaped through every door; one that will not clone is kept as it is rather than thrown on. */
+function copyValue<T>(value: T): T {
+  try {
+    return structuredClone(value);
+  } catch {
+    /* v8 ignore next -- unreachable through the JSON-shaped doors: only a hand-built value with a function or symbol refuses to clone */
+    return value;
+  }
+}
+
+/** A view's live clause as a saved condition. */
+function clauseOfLive(viewId: string, clause: PredicateClause): SavedClause {
+  if (clause.kind === 'cell') return { viewId, kind: 'cell', field: cellFieldLabel(clause.fields), fields: [clause.fields[0], clause.fields[1]], value: copyValue(clause.value) };
+  if (clause.kind === 'match') return { viewId, kind: 'match', field: clause.field, value: { values: copyValue(clause.values), ...(clause.exclude === true ? { exclude: true } : {}) } };
+  return { viewId, kind: clause.kind, field: clause.field, value: copyValue(clause.value) };
+}
+
+/** The ordinary act a saved condition lands as — the same mapping a bring-over uses for a selection recipe. */
+function selectionAction(c: SavedClause, cause: Cause): Extract<DispatchAction, { verb: 'select' | 'filter' }> {
+  if (c.kind === 'cell') return { verb: 'select', viewId: c.viewId, fields: c.fields!, values: c.value as CellValues, cause }; // a cell condition always carries its pair
+  if (c.kind === 'match') {
+    const body = c.value as Exclude<MatchValue, null>;
+    return { verb: 'select', viewId: c.viewId, field: c.field, values: body.values, ...(body.exclude === true ? { exclude: true } : {}), cause };
+  }
+  if (c.kind === 'point') return { verb: 'select', viewId: c.viewId, field: c.field, value: c.value, cause };
+  return { verb: 'filter', viewId: c.viewId, field: c.field, range: c.value as FilterRange, cause };
+}
+
+/** The kind-faithful clear of a live clause (the same shapes a bring-over's clear-selection recipe lands). */
+function clearAction(viewId: string, clause: PredicateClause, cause: Cause): Extract<DispatchAction, { verb: 'select' | 'filter' }> {
+  if (clause.kind === 'cell') return { verb: 'select', viewId, fields: [clause.fields[0], clause.fields[1]], values: null, cause };
+  if (clause.kind === 'match') return { verb: 'select', viewId, field: clause.field, values: null, cause };
+  if (clause.kind === 'point') return { verb: 'select', viewId, field: clause.field, value: undefined, cause };
+  return { verb: 'filter', viewId, field: clause.field, range: null, cause };
 }
 
 /** A consumer's own copy of a clause — never the session's live object. A clause is JSON-shaped through every door; one that is not is handed over as a shallow copy rather than thrown on. */
@@ -739,7 +790,7 @@ class InteractionSessionImpl implements InteractionSession {
       if (isClearedSelection(rec)) {
         // a cleared interval, cell, match — or point — drops the filter (ONE rule, shared with the branch fold);
         // what it WAS is kept for the edges whose `onClear` says leave or excludeAll
-        if (rec.cause.revertOf === undefined) this.noteCleared(rec.viewId, rec.id); // an undo takes the selection back, it does not "clear" it
+        if (rec.cause.revertOf === undefined && rec.cause.replacedBy === undefined) this.noteCleared(rec.viewId, rec.id); // an undo takes the selection back, it does not "clear" it; nor does a clear that makes room for a saved picture
         this.activeFilters.delete(rec.viewId);
         this.activeFilterCommits.delete(rec.viewId);
       } else {
@@ -1197,6 +1248,7 @@ class InteractionSessionImpl implements InteractionSession {
     // a bring-over/undo is an ORDINARY commit — its cause carries the story.
     if (validated.replayedFrom !== undefined) out.replayedFrom = validated.replayedFrom;
     if (validated.revertOf !== undefined) out.revertOf = validated.revertOf;
+    if (validated.replacedBy !== undefined) out.replacedBy = validated.replacedBy; // a clear that makes room for a saved picture says so
     if (validated.conflicts !== undefined) out.conflicts = validated.conflicts;
     return out;
   }
@@ -1351,6 +1403,234 @@ class InteractionSessionImpl implements InteractionSession {
     const rowIds = rows.map((row, i) => (key !== undefined ? String(row[key]) : `${version ?? 'inline'}#${indices[i]}`));
     /* v8 ignore next -- an offset is always sent, so `start` is always answered */
     return { ok: true, columns, rows, rowIds, positional: key === undefined, ...(key !== undefined ? { key } : {}), count: res.count, start: res.start ?? 0, version, cursor, clauses };
+  }
+
+  // ── saved selections: saved logic beside the log ─────────────────────────────
+
+  saved(): readonly SavedSelection[] {
+    const store = this.runtime.saved;
+    const names = new Set(store.list.map((c) => c.name));
+    const legacy = this.legacySaved().filter((c) => !names.has(c.name) && !store.forgotten.has(c.name));
+    // oldest first by the time saved; a consumer gets its own copies, never the store's objects
+    return [...store.list, ...legacy].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)).map((c) => structuredClone(c));
+  }
+
+  restoreSaved(list: readonly SavedSelection[]): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] } {
+    return restoreSavedInto(this.runtime.saved, list, new Set(this.runtime.views.keys()));
+  }
+
+  saveSelection(name: string, source: SaveSelectionSource, as: Actor = 'user'): SaveSelectionResult {
+    const trimmed = name.trim();
+    if (trimmed.length === 0) return { ok: false, rejected: 'a saved selection needs a name' };
+    if (this.saved().some((c) => c.name === trimmed)) return { ok: false, rejected: `"${trimmed}" is already saved — rename or forget it first` };
+    const gathered = this.gatherConditions(source);
+    if ('rejected' in gathered) return { ok: false, rejected: gathered.rejected };
+    const on = { table: this.defaultTable, version: this.runtime.sources[this.defaultTable]?.version ?? null };
+    const saved: SavedSelection = { name: trimmed, conditions: gathered.conditions, by: as, at: new Date().toISOString(), on, ...(gathered.from.length > 0 ? { from: gathered.from } : {}) };
+    this.runtime.saved.list.push(saved);
+    this.runtime.saved.forgotten.delete(trimmed);
+    return { ok: true, saved };
+  }
+
+  /** The conditions a source names, judged: every live clause, one view's live clause, or explicit ones (each with a declared view, a field or pair, and a value). */
+  private gatherConditions(source: SaveSelectionSource): { readonly conditions: readonly SavedClause[]; readonly from: readonly string[] } | { readonly rejected: string } {
+    if ('live' in source) {
+      if (this.activeFilters.size === 0) return { rejected: 'nothing is selected to save' };
+      const conditions: SavedClause[] = [];
+      const from: string[] = [];
+      for (const [viewId, clause] of this.activeFilters) {
+        conditions.push(clauseOfLive(viewId, clause));
+        const commit = this.activeFilterCommits.get(viewId);
+        /* v8 ignore next -- every live clause was landed by a door that records its commit beside it; the arm keeps the type honest */
+        if (commit !== undefined) from.push(commit);
+      }
+      return { conditions, from };
+    }
+    if ('viewId' in source) {
+      if (!this.runtime.views.has(source.viewId)) return { rejected: `no declared view "${source.viewId}" — the views are ${[...this.runtime.views.keys()].join(', ')}` };
+      const live = this.activeFilters.get(source.viewId);
+      if (live === undefined) return { rejected: `"${source.viewId}" has nothing selected to save` };
+      const commit = this.activeFilterCommits.get(source.viewId);
+      /* v8 ignore next -- every live clause was landed by a door that records its commit beside it; the arm keeps the type honest */
+      return { conditions: [clauseOfLive(source.viewId, live)], from: commit !== undefined ? [commit] : [] };
+    }
+    if (!Array.isArray(source.conditions) || source.conditions.length === 0) return { rejected: 'a saved selection needs at least one condition' };
+    const conditions: SavedClause[] = [];
+    const seen = new Set<string>();
+    for (const c of source.conditions) {
+      if (!this.runtime.views.has(c.viewId)) return { rejected: `no declared view "${c.viewId}" — the views are ${[...this.runtime.views.keys()].join(', ')}` };
+      if (seen.has(c.viewId)) return { rejected: `the picture already has a condition on "${c.viewId}" — one condition per view` };
+      seen.add(c.viewId);
+      if (c.kind === 'cell') {
+        if (c.fields === undefined) return { rejected: `a cell condition on "${c.viewId}" needs its two fields` };
+      } else if (typeof c.field !== 'string' || c.field.length === 0) {
+        return { rejected: `a ${c.kind} condition on "${c.viewId}" needs a field` };
+      }
+      if (c.value === undefined) return { rejected: `the condition on "${c.viewId}" needs a value — an interval its bounds, a match its values, a point its value` };
+      conditions.push({
+        viewId: c.viewId,
+        kind: c.kind,
+        field: c.kind === 'cell' ? cellFieldLabel(c.fields!) : c.field,
+        ...(c.kind === 'cell' ? { fields: [c.fields![0], c.fields![1]] as const } : {}),
+        value: copyValue(c.value),
+      });
+    }
+    return { conditions, from: [] };
+  }
+
+  renameSaved(from: string, to: string, as: Actor = 'user'): SaveSelectionResult {
+    const next = to.trim();
+    if (next.length === 0) return { ok: false, rejected: 'a saved selection needs a name' };
+    const current = this.saved().find((c) => c.name === from);
+    if (current === undefined) return { ok: false, rejected: `no saved selection "${from}" — the saved ones are ${this.savedNames()}` };
+    if (next !== from && this.saved().some((c) => c.name === next)) return { ok: false, rejected: `"${next}" is already saved — rename or forget it first` };
+    if (next !== from) {
+      const linked = this.notesLinking(from);
+      if (linked.length > 0) return { ok: false, rejected: `"${from}" is linked from ${linked.join(', ')} — change the link in the words first` };
+    }
+    const renamed: SavedSelection = { ...current, name: next, by: as, at: new Date().toISOString() };
+    this.replaceSaved(from, renamed);
+    return { ok: true, saved: renamed };
+  }
+
+  forgetSaved(name: string): SaveSelectionResult {
+    const current = this.saved().find((c) => c.name === name);
+    if (current === undefined) return { ok: false, rejected: `no saved selection "${name}" — the saved ones are ${this.savedNames()}` };
+    const linked = this.notesLinking(name);
+    if (linked.length > 0) return { ok: false, rejected: `"${name}" is linked from ${linked.join(', ')} — change the link in the words first` };
+    this.replaceSaved(name, null);
+    return { ok: true, saved: current };
+  }
+
+  async applySaved(name: string, cause: Cause, opts: ApplySavedOptions = {}): Promise<ApplySavedResult> {
+    const saved = this.saved().find((c) => c.name === name);
+    if (saved === undefined) return { ok: false, rejected: `no saved selection "${name}" — the saved ones are ${this.savedNames()}` };
+    // JUDGE FIRST, CLEAR SECOND: a condition on a view no longer here, or on a field the table no longer has, is refused before anything is touched — an apply that could land nothing clears nothing
+    const cols = await this.effectiveColumnsOf(this.defaultTable);
+    if ('rejected' in cols) return { ok: false, rejected: `"${name}" cannot be applied here — ${cols.rejected}` }; // the select door would refuse every condition without the columns: say so before clearing anything
+    const has = new Set(cols.map((c) => c.name));
+    const refused: { viewId: string; rejected: string }[] = [];
+    const landable: SavedClause[] = [];
+    for (const c of saved.conditions) {
+      if (!this.runtime.views.has(c.viewId)) {
+        refused.push({ viewId: c.viewId, rejected: `"${c.viewId}" is no longer on the dashboard` });
+        continue;
+      }
+      const missing = (c.kind === 'cell' ? [...c.fields!] : [c.field]).find((f) => !has.has(f));
+      if (missing !== undefined) {
+        refused.push({ viewId: c.viewId, rejected: `table "${this.defaultTable}" no longer has the column "${missing}"` });
+        continue;
+      }
+      const cannot = this.probeGuard(c.viewId, c.kind);
+      if (cannot !== null) {
+        refused.push({ viewId: c.viewId, rejected: cannot });
+        continue;
+      }
+      landable.push(c);
+    }
+    if (landable.length === 0) return { ok: false, rejected: `"${name}" cannot be applied here — ${refused.map((r) => r.rejected).join('; ')}` };
+    const correlationId = `saved:${name}#${this.log.records.length}`; // one id for the whole batch: the rail folds it (undo is per commit today)
+    const intent = cause.intent !== undefined ? `${cause.intent} — applied saved selection ${name}` : `applied saved selection ${name}`; // the name always rides the cause
+    const stamped: Cause = { ...cause, intent };
+    const dispatchOpts = opts.as !== undefined ? { as: opts.as } : {};
+    const applied: CommitRecord[] = [];
+    const cleared: CommitRecord[] = [];
+    // replace: the picture comes back — every live filter on a view the picture does not name is cleared first, kind-faithfully, and marked as making room (no link remembers it)
+    if ((opts.mode ?? 'replace') === 'replace') {
+      const named = new Set(saved.conditions.map((c) => c.viewId));
+      const making: Cause = { ...stamped, replacedBy: name };
+      for (const [viewId, clause] of [...this.activeFilters]) {
+        if (named.has(viewId)) continue;
+        const r = await this.dispatch({ ...clearAction(viewId, clause, making), correlationId }, dispatchOpts);
+        /* v8 ignore next -- clearing a live clause on a declared view is never refused; the arm keeps the result honest */
+        if (r.ok && r.commit !== undefined) cleared.push(r.commit);
+      }
+    }
+    for (const c of landable) {
+      const r = await this.dispatch({ ...selectionAction(c, stamped), correlationId }, dispatchOpts);
+      /* v8 ignore next 4 -- the pre-flight judges every refusal the doors know (view, columns, capability); the arm keeps the result honest for one they do not */
+      if (!r.ok) {
+        refused.push({ viewId: c.viewId, rejected: r.rejection.detail });
+        continue;
+      }
+      /* v8 ignore next -- a landed select/filter always carries its commit; the arm keeps the type honest */
+      if (r.commit !== undefined) applied.push(r.commit);
+    }
+    return { ok: true, name, correlationId, applied, cleared, refused };
+  }
+
+  /** The notes on screen whose words link a saved selection by name — a rename or a forget would break their links. */
+  private notesLinking(name: string): string[] {
+    const out: string[] = [];
+    for (const [subject, slots] of this.activeProse) {
+      for (const record of slots.values()) {
+        if (record.refs?.some((r) => r.saved === name)) {
+          out.push(subject.startsWith(NOTE_PROSE_PREFIX) ? `note ${subject.slice(NOTE_PROSE_PREFIX.length)}` : subject);
+          break;
+        }
+      }
+    }
+    return out;
+  }
+
+  /** The saved names, for a refusal sentence — or "none" when nothing is saved. */
+  private savedNames(): string {
+    const names = this.saved().map((c) => `"${c.name}"`);
+    return names.length === 0 ? 'none' : names.join(', ');
+  }
+
+  /** Replace (or, with null, remove) a saved selection by name — a legacy one is first taken over from the log into the store. */
+  private replaceSaved(name: string, next: SavedSelection | null): void {
+    const store = this.runtime.saved;
+    const at = store.list.findIndex((c) => c.name === name);
+    if (at >= 0) {
+      if (next === null) store.list.splice(at, 1);
+      else store.list[at] = next;
+    } else if (next !== null) {
+      store.list.push(next); // a legacy (log-derived) one is taken over into the store
+    }
+    store.forgotten.add(name); // the old name is let go — a legacy annotation under it never comes back on its own
+    if (next !== null) store.forgotten.delete(next.name);
+  }
+
+  /**
+   * The saved selections an OLDER log recorded as annotations on selection
+   * commits (the note's `field` names the commit, its `value` the name) —
+   * read as one-condition pictures so nothing already recorded is lost.
+   * Newest wins per commit and per name.
+   */
+  private legacyMemo: { readonly length: number; readonly list: SavedSelection[] } | undefined;
+  private legacySaved(): SavedSelection[] {
+    if (this.legacyMemo !== undefined && this.legacyMemo.length === this.log.records.length) return this.legacyMemo.list; // the log only grows: one scan per new commit, not per read
+    const list = this.scanLegacySaved();
+    this.legacyMemo = { length: this.log.records.length, list };
+    return list;
+  }
+
+  private scanLegacySaved(): SavedSelection[] {
+    if (!this.log.records.some((r) => r.viewId.startsWith(ANNOTATION_VIEW_PREFIX))) return []; // no annotation ever landed: nothing to read
+    const byId = new Map(this.log.records.map((r) => [r.id, r] as const));
+    const out: SavedSelection[] = [];
+    const namedTargets = new Set<string>();
+    const names = new Set<string>();
+    for (let i = this.log.records.length - 1; i >= 0; i--) {
+      const note = this.log.records[i]!;
+      if (!note.viewId.startsWith(ANNOTATION_VIEW_PREFIX) || typeof note.value !== 'string' || note.value.length === 0) continue;
+      const target = byId.get(note.field);
+      if (target === undefined || !this.runtime.views.has(target.viewId) || target.value === undefined || target.value === null) continue; // not a live selection
+      if (namedTargets.has(target.id) || names.has(note.value)) continue;
+      namedTargets.add(target.id);
+      names.add(note.value);
+      out.push({
+        name: note.value,
+        conditions: [{ viewId: target.viewId, kind: target.kind, field: target.field, ...(target.fields !== undefined ? { fields: [target.fields[0], target.fields[1]] as const } : {}), value: copyValue(target.value) }],
+        by: note.cause.requestedBy,
+        /* v8 ignore next -- the log stamps every commit it lands with `ts`; the arm keeps a hand-built record honest */
+        at: typeof (note as { ts?: unknown }).ts === 'number' ? new Date((note as { ts: number }).ts).toISOString() : 'unknown',
+        from: [target.id],
+      });
+    }
+    return out.reverse(); // oldest first, like the store
   }
 
   /** The field mappings on the edges INTO a view (none for the whole-dashboard truth): which names a link invented for this consumer. */
@@ -1565,7 +1845,7 @@ class InteractionSessionImpl implements InteractionSession {
     });
     this.landed(record);
     if (isClearedSelection({ kind, value })) {
-      if (record.cause.revertOf === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it
+      if (record.cause.revertOf === undefined && record.cause.replacedBy === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it; nor does a clear that makes room for a saved picture
       this.activeFilters.delete(viewId);
       this.activeFilterCommits.delete(viewId); // a cleared selection is no longer an input dependency
     } else {
@@ -1646,7 +1926,7 @@ class InteractionSessionImpl implements InteractionSession {
     });
     this.landed(record);
     if (values === null) {
-      if (record.cause.revertOf === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it — the same rule as the point door
+      if (record.cause.revertOf === undefined && record.cause.replacedBy === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it; nor does a clear that makes room for a saved picture — the same rule as the point door
       this.activeFilters.delete(viewId); // a cleared cell releases the view's filter
       this.activeFilterCommits.delete(viewId);
     } else {
@@ -1841,13 +2121,14 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** The world a prose record is judged against at dispatch, from the columns already in hand. */
-  private proseWorld(cols: readonly ColumnInfo[], mode: 'set' | 'proposal'): { readonly columns: Set<string>; readonly analyses: Set<string>; readonly surfaced: Set<string>; readonly commits: Set<string>; readonly beats: Set<string>; readonly mode: 'set' | 'proposal' } {
+  private proseWorld(cols: readonly ColumnInfo[], mode: 'set' | 'proposal'): { readonly columns: Set<string>; readonly analyses: Set<string>; readonly surfaced: Set<string>; readonly commits: Set<string>; readonly beats: Set<string>; readonly saved: Set<string>; readonly mode: 'set' | 'proposal' } {
     return {
       columns: new Set(cols.map((c) => c.name)),
       analyses: new Set(this.runtime.analyses.keys()),
       surfaced: new Set([...this.runtime.views.values()].filter((v) => v.encoding !== undefined).map((v) => v.viewId)),
       commits: new Set(this.log.records.map((r) => r.id)),
       beats: new Set(this.checkpoints().map((b) => b.label)),
+      saved: new Set(this.saved().map((c) => c.name)),
       mode,
     };
   }
@@ -2845,6 +3126,7 @@ class InteractionSessionImpl implements InteractionSession {
       dashboard: { prose: this.proseOf(DASHBOARD_PROSE_ID, columns[this.defaultTable] ?? []), proposals: this.proposalsOf(DASHBOARD_PROSE_ID) },
       // the notes on the dashboard (the Text tool): every note subject with words at the cursor, in the order they were first written
       notes: this.notesInfo(columns[this.defaultTable] ?? []),
+      saved: this.saved(),
       activeSelections,
       // the live selections in the shape a prose basis states them (`basis.filters`) — an agent copies this verbatim
       filters: this.filtersNow(),

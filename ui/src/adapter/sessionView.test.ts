@@ -946,3 +946,22 @@ describe('the notes and the basis-shaped filters (overview.notes, overview.filte
     expect(mapPollState({ ...RAW, notes: 'x' }).notes).toEqual([]);
   });
 });
+
+describe('mapPollState — a note ref to a SAVED selection rides the wire', () => {
+  it('keeps a saved ref (by name), and drops a ref that names two targets or none', () => {
+    const st = mapPollState({
+      ...RAW,
+      notes: [
+        {
+          id: 'n1',
+          prose: [{ slot: 'caption', text: 'see @[coastal] and #s1', status: 'current', changed: [], record: { author: { kind: 'human' } }, refs: [{ span: [4, 14], saved: 'coastal', label: 'coastal' }, { span: [19, 22], commit: 's1' }, { span: [0, 1], saved: 'x', beat: 'y' }, { span: [0, 1] }] }],
+          proposals: [],
+        },
+      ],
+    } as RawPollState);
+    expect(st.notes?.[0]?.prose[0]?.refs).toEqual([
+      { span: [4, 14], saved: 'coastal', label: 'coastal' },
+      { span: [19, 22], commit: 's1' },
+    ]);
+  });
+});

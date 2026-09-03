@@ -12,10 +12,7 @@ const WORLD: MentionWorld = {
     ['s40', 'describe dashboard.caption'],
   ]),
   beats: new Set(['Start', 'Formal wear']),
-  saved: new Map([
-    ['coastal', 's7'],
-    ['Formal wear', 's9'], // a saved selection may share a beat's name: the saved one wins, it is the more specific link
-  ]),
+  saved: new Set(['coastal', 'Formal wear']),
 };
 
 describe('mentionsToRefs', () => {
@@ -25,8 +22,8 @@ describe('mentionsToRefs', () => {
     expect(unresolved).toEqual([]);
     expect(refs).toEqual([
       { span: [4, 8], commit: 's12', label: 'select map.state = TX' },
-      { span: [14, 22], commit: 's7', label: 'coastal' },
-      { span: [27, 41], commit: 's9', label: 'Formal wear' },
+      { span: [14, 22], saved: 'coastal', label: 'coastal' },
+      { span: [27, 41], saved: 'Formal wear', label: 'Formal wear' },
       { span: [48, 54], beat: 'Start', label: 'Start' },
     ]);
     for (const r of refs) expect(text.slice(r.span[0], r.span[1]).length).toBe(r.span[1] - r.span[0]);
@@ -45,11 +42,11 @@ describe('mentionsToRefs', () => {
     const { refs, unresolved } = mentionsToRefs(`"@coastal" and @coastal's`, WORLD);
     expect(unresolved).toEqual([]);
     expect(refs).toEqual([
-      { span: [1, 9], commit: 's7', label: 'coastal' },
-      { span: [15, 23], commit: 's7', label: 'coastal' },
+      { span: [1, 9], saved: 'coastal', label: 'coastal' },
+      { span: [15, 23], saved: 'coastal', label: 'coastal' },
     ]);
-    expect(mentionsToRefs('\u201c@coastal\u201d and @coastal\u2019s', WORLD).refs.map((r) => r.commit)).toEqual(['s7', 's7']); // the curly ones too
-    expect(mentionsToRefs('@[it\'s mine]', { ...WORLD, saved: new Map([["it's mine", 's7']]) }).refs).toEqual([{ span: [0, 12], commit: 's7', label: "it's mine" }]); // a name that really carries one is bracketed
+    expect(mentionsToRefs('\u201c@coastal\u201d and @coastal\u2019s', WORLD).refs.map((r) => r.saved)).toEqual(['coastal', 'coastal']); // the curly ones too
+    expect(mentionsToRefs('@[it\'s mine]', { ...WORLD, saved: new Set(["it's mine"]) }).refs).toEqual([{ span: [0, 12], saved: "it's mine", label: "it's mine" }]); // a name that really carries one is bracketed
   });
   it('plain words carry no mention; a marker inside a word is plain text (an email, issue#12), a marker after a boundary is a mention', () => {
     expect(mentionsToRefs('nothing to link here', WORLD)).toEqual({ refs: [], unresolved: [] });

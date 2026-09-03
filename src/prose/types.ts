@@ -100,6 +100,8 @@ export interface ProseRef {
   readonly span: readonly [number, number];
   readonly commit?: string;
   readonly beat?: string;
+  /** A saved selection by name — clicking it APPLIES the condition (an ordinary act), it does not seek. */
+  readonly saved?: string;
   /** Words for the anchor, echoed verbatim. */
   readonly label?: string;
 }

@@ -51,6 +51,12 @@ export interface Cause {
    */
   revertOf?: string;
   /**
+   * The saved selection whose `replace` apply made this clear. A clear that
+   * only makes room for a picture is not a person clearing: nothing is
+   * remembered for a link's `onClear`, so no ghost of the old picture survives.
+   */
+  replacedBy?: string;
+  /**
    * BR-1 conflict note: the ids of the commits that touched the SAME state
    * key on the target path since the common ancestor, at the moment a
    * bring-over/undo plan was executed. Present only when the plan reported
@@ -61,7 +67,7 @@ export interface Cause {
 }
 
 /** The exhaustive set of keys a Cause may carry. Anything else is rejected. */
-const CAUSE_KEYS = new Set(['requestedBy', 'computedBy', 'replayed', 'intent', 'replayedFrom', 'revertOf', 'conflicts']);
+const CAUSE_KEYS = new Set(['requestedBy', 'computedBy', 'replayed', 'intent', 'replayedFrom', 'revertOf', 'replacedBy', 'conflicts']);
 
 /** Error thrown when a value is not a well-formed Cause. Carries every problem. */
 export class CauseValidationError extends Error {
@@ -128,6 +134,9 @@ export function parseCause(value: unknown): CauseParseResult {
     problems.push('replayedFrom, if present, must be a string commit id');
   }
 
+  if ('replacedBy' in record && typeof record.replacedBy !== 'string') {
+    problems.push('replacedBy, if present, must be the saved selection\'s name');
+  }
   if ('revertOf' in record && typeof record.revertOf !== 'string') {
     problems.push('revertOf, if present, must be a string commit id');
   }
@@ -151,6 +160,7 @@ export function parseCause(value: unknown): CauseParseResult {
   if (typeof record.intent === 'string') cause.intent = record.intent;
   if (typeof record.replayedFrom === 'string') cause.replayedFrom = record.replayedFrom;
   if (typeof record.revertOf === 'string') cause.revertOf = record.revertOf;
+  if (typeof record.replacedBy === 'string') cause.replacedBy = record.replacedBy;
   if (Array.isArray(record.conflicts)) cause.conflicts = [...(record.conflicts as string[])]; // fresh array — the firewall copies, never aliases
   return { ok: true, cause };
 }

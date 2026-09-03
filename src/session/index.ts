@@ -29,6 +29,10 @@ export type {
   ViewQuery,
   ViewQueryResult,
   ViewQueryRefusal,
+  SaveSelectionSource,
+  SaveSelectionResult,
+  ApplySavedOptions,
+  ApplySavedResult,
   ViewInfo,
   EffectiveEncoding,
   SelectionInfo,
@@ -75,3 +79,4 @@ export type {
   WhyTargetMiss,
 } from '../why/index.js';
 export { VIEW_QUERY_DEFAULT_LIMIT } from './session.js';
+export type { SavedClause, SavedSelection, SavedStore } from '../def/types.js';

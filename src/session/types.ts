@@ -19,7 +19,7 @@ import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
 import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause, PredicateClause, Row, SortSpec } from '../data/index.js';
 import type { EncodingProblem, Fit, RuleLine, RuleScope } from '../encoding/index.js';
 import type { ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
-import type { DispatchVerb, IntentClass, SeriesGrain } from '../def/types.js';
+import type { DispatchVerb, IntentClass, SeriesGrain, SavedClause, SavedSelection } from '../def/types.js';
 import type { RefreshRecord } from '../def/buildDashboard.js';
 import type { DiffChange, DiffOnly, PlanRecipe, RefEvent } from '../branches/index.js';
 
@@ -697,6 +697,36 @@ export interface NoteInfo {
 }
 
 /** One declared table as the def states it (see `Overview.tables`). Nothing here is inferred from the rows. */
+// ── Saved selections: saved LOGIC beside the log (see SavedSelection in def/types). ──
+
+/** What to save: every live clause (the whole picture), one view's live clause, or explicit conditions. */
+export type SaveSelectionSource = { readonly live: 'all' } | { readonly viewId: string } | { readonly conditions: readonly SavedClause[] };
+
+export type SaveSelectionResult = { readonly ok: true; readonly saved: SavedSelection } | { readonly ok: false; readonly rejected: string };
+
+/** How a saved selection lands: `replace` (the default) clears the other live filters first — the picture comes back; `layer` adds its conditions to what is selected now. */
+export interface ApplySavedOptions {
+  readonly mode?: 'replace' | 'layer';
+  readonly as?: Actor;
+}
+
+/**
+ * What applying did — honest per condition: the commits that landed (and the
+ * clears a replace made), and every condition that could not land, with its
+ * sentence (a view no longer on the dashboard, a field it no longer binds).
+ * Never a silent partial apply.
+ */
+export type ApplySavedResult =
+  | {
+      readonly ok: true;
+      readonly name: string;
+      readonly correlationId: string;
+      readonly applied: readonly CommitRecord[];
+      readonly cleared: readonly CommitRecord[];
+      readonly refused: readonly { readonly viewId: string; readonly rejected: string }[];
+    }
+  | { readonly ok: false; readonly rejected: string };
+
 // ── The view-query port: the sheet's window on a table, judged by the same laws as a chart. ──
 
 /** A live (or remembered-on-clear) clause that reaches a view through the link graph, with the response its edge carries. */
@@ -781,6 +811,8 @@ export interface Overview {
   readonly dashboard: { readonly prose: readonly ProseStatus[]; readonly proposals: readonly ProposalStatus[] };
   /** The notes on the dashboard (the Text tool): every `note:<id>` subject with words at the cursor, oldest first. */
   readonly notes: readonly NoteInfo[];
+  /** The saved selections — saved logic beside the log, oldest first (legacy log-derived ones included unless forgotten). */
+  readonly saved: readonly SavedSelection[];
   readonly activeSelections: readonly SelectionInfo[];
   /**
    * The live selections in the SHAPE a prose basis states them: viewId → clause, `{}` for none — byte-equal to what

@@ -120,8 +120,8 @@ describe('refs — spans that point at a saved interaction', () => {
     expect(say([{ span: [0, 5], commit: 'c1', label: 3 }])).toEqual(['"map".caption.refs must be a list of { span: [start, end], commit? | beat?, label? }']);
     expect(say([{ span: [10, 99], commit: 'c1' }])).toEqual(['"map".caption.refs[0] spans [10, 99) but the text has 30 characters']);
     expect(say([{ span: [5, 5], commit: 'c1' }])).toEqual(['"map".caption.refs[0] spans [5, 5) but the text has 30 characters']);
-    expect(say([{ span: [0, 5] }])).toEqual(['"map".caption.refs[0] must name exactly one of commit, beat']);
-    expect(say([{ span: [0, 5], commit: 'c1', beat: 'b' }])).toEqual(['"map".caption.refs[0] must name exactly one of commit, beat']);
+    expect(say([{ span: [0, 5] }])).toEqual(['"map".caption.refs[0] must name exactly one of commit, beat, saved']);
+    expect(say([{ span: [0, 5], commit: 'c1', beat: 'b' }])).toEqual(['"map".caption.refs[0] must name exactly one of commit, beat, saved']);
     expect(say([{ span: [0, 5], commit: 'ghost' }], { commits: new Set(['c1']) })).toEqual(['"map".caption.refs[0] points at a commit the log does not hold: "ghost"']);
     expect(say([{ span: [0, 5], beat: 'ghost' }], { beats: new Set() })).toEqual(['"map".caption.refs[0] points at a beat that was never named: "ghost"']);
     // no world = nothing to judge existence against

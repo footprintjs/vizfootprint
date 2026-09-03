@@ -13,6 +13,8 @@ export interface ProseTextProps {
   /** Words for a commit's anchor (e.g. the commit's label and intent), by id. */
   readonly describeCommit?: (commitId: string) => string | undefined;
   readonly onSeek?: (commitId: string) => void;
+  /** A ref to a saved selection: APPLY the saved logic (an ordinary act) — never a seek. */
+  readonly onSaved?: (name: string) => void;
   readonly onBeat?: (label: string) => void;
   readonly className?: string;
 }
@@ -32,7 +34,7 @@ export function pieces(text: string, refs: readonly ProseRefView[] = []): readon
   return out;
 }
 
-export function ProseText({ text, refs = [], describeCommit, onSeek, onBeat, className }: ProseTextProps): JSX.Element {
+export function ProseText({ text, refs = [], describeCommit, onSeek, onBeat, onSaved, className }: ProseTextProps): JSX.Element {
   let n = 0;
   return (
     <span className={`vzf-prosetext${className ? ' ' + className : ''}`} data-vzf="prose-text">
@@ -40,15 +42,16 @@ export function ProseText({ text, refs = [], describeCommit, onSeek, onBeat, cla
         if (piece.ref === undefined) return <span key={i}>{piece.text}</span>;
         const ref = piece.ref;
         n += 1;
-        const target = ref.commit !== undefined ? `commit #${ref.commit}` : `beat "${ref.beat ?? ''}"`;
+        const target = ref.commit !== undefined ? `commit #${ref.commit}` : ref.saved !== undefined ? `saved selection "${ref.saved}"` : `beat "${ref.beat ?? ''}"`;
         const words = ref.commit !== undefined ? describeCommit?.(ref.commit) : undefined;
         const title = ref.label ?? (words !== undefined ? `${target}: ${words}` : target);
         const go = (): void => {
           if (ref.commit !== undefined) onSeek?.(ref.commit);
+          else if (ref.saved !== undefined) onSaved?.(ref.saved);
           else if (ref.beat !== undefined) onBeat?.(ref.beat);
         };
         return (
-          <span key={i} className="vzf-prosetext-ref" data-ref-commit={ref.commit} data-ref-beat={ref.beat}>
+          <span key={i} className="vzf-prosetext-ref" data-ref-commit={ref.commit} data-ref-beat={ref.beat} data-ref-saved={ref.saved}>
             {piece.text}
             <button type="button" className="vzf-prosetext-anchor" title={title} aria-label={`go to ${target}`} onClick={go}>
               {n}

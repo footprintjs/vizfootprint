@@ -58,13 +58,11 @@ export function linkablesOf(state: SessionViewState): readonly Linkable[] {
   return out;
 }
 
-/** The mention grammar's world for this state: every commit the log holds, every beat named, every saved selection by name — the newest save owns the name. */
+/** The mention grammar's world for this state: every commit the log holds, every beat named, every saved selection by name. */
 export function mentionWorldOf(state: SessionViewState): MentionWorld {
-  const saved = new Map<string, string>();
-  for (const s of savedOf(state)) if (!saved.has(s.name)) saved.set(s.name, s.commitId);
   return {
     commits: new Map(state.commits.map((c) => [c.id, c.intent !== undefined ? `${c.label} — ${c.intent}` : c.label])),
     beats: new Set(state.checkpoints.map((c) => c.label)),
-    saved,
+    saved: new Set(savedOf(state).map((s) => s.name)), // saved logic by name: a `@[name]` ref applies the condition
   };
 }

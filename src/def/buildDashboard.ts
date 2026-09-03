@@ -38,6 +38,8 @@ import {
   type RegisteredAnalysis,
   type ViewDecl,
   type ViewEncodingDecl,
+  type SavedSelection,
+  type SavedStore,
 } from './types.js';
 import { createInteractionSession, type InteractionSession } from '../session/session.js';
 import type { SessionOptions } from '../session/types.js';
@@ -71,6 +73,10 @@ export interface Dashboard {
   refresh(tables?: readonly string[]): Promise<RefreshResult>;
   /** The data journal: every refresh this dashboard ran, oldest first (see {@link RefreshRecord}). */
   journal(): readonly RefreshRecord[];
+  /** The saved selections — saved logic beside the log (see {@link SavedSelection}); the session's doors write it. */
+  saved(): readonly SavedSelection[];
+  /** Put saved selections back (a host's persistence): each record whole — name, conditions, who, when, on what — judged, never re-stamped; refused entries are named. */
+  restoreSaved(list: readonly SavedSelection[]): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] };
   /** Judge the data declarations against the real data: today, that a declared row key names a column the engine lists. Sentences, never thrown. */
   lintData(): Promise<readonly string[]>;
   /** Open a fresh session: one live Mosaic Selection + commit log + FDR ledger. */
@@ -378,7 +384,37 @@ async function readSource(decl: SourceDecl, table: string, adapters: readonly So
 }
 
 /** Everything after the providers exist — one assembly for both builders. */
+/** Restore saved selections into the store: a whole record each, judged (a name, at least one condition on a declared view with a field or pair and a value, an author, a time), never re-stamped, refused in words. */
+export function restoreSavedInto(store: SavedStore, list: readonly SavedSelection[], views: ReadonlySet<string>): { readonly restored: readonly string[]; readonly refused: readonly { readonly name: string; readonly rejected: string }[] } {
+  const restored: string[] = [];
+  const refused: { name: string; rejected: string }[] = [];
+  for (const r of list) {
+    const name = typeof r?.name === 'string' ? r.name.trim() : '';
+    const say = (rejected: string): void => { refused.push({ name: name.length > 0 ? name : '(unnamed)', rejected }); };
+    if (name.length === 0) { say('a saved selection needs a name'); continue; }
+    if (store.list.some((c) => c.name === name)) { say(`"${name}" is already saved — rename or forget it first`); continue; }
+    if (!Array.isArray(r.conditions) || r.conditions.length === 0) { say('a saved selection needs at least one condition'); continue; }
+    if (typeof r.by !== 'string' || typeof r.at !== 'string') { say('a saved selection carries who saved it and when'); continue; }
+    const seen = new Set<string>();
+    let bad: string | undefined;
+    for (const c of r.conditions) {
+      if (typeof c?.viewId !== 'string' || !views.has(c.viewId)) { bad = `no declared view "${String(c?.viewId)}"`; break; }
+      if (seen.has(c.viewId)) { bad = `the picture already has a condition on "${c.viewId}" — one condition per view`; break; }
+      seen.add(c.viewId);
+      if (!['point', 'interval', 'match', 'cell'].includes(c.kind as string)) { bad = `"${String(c.kind)}" is not a condition kind`; break; }
+      if (c.kind === 'cell' ? !Array.isArray(c.fields) || c.fields.length !== 2 : typeof c.field !== 'string' || c.field.length === 0) { bad = c.kind === 'cell' ? `a cell condition on "${c.viewId}" needs its two fields` : `a ${c.kind} condition on "${c.viewId}" needs a field`; break; }
+      if (c.value === undefined) { bad = `the condition on "${c.viewId}" needs a value`; break; }
+    }
+    if (bad !== undefined) { say(bad); continue; }
+    store.list.push(structuredClone(r));
+    store.forgotten.delete(name);
+    restored.push(name);
+  }
+  return { restored, refused };
+}
+
 function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[]): Dashboard {
+  const saved: SavedStore = { list: [], forgotten: new Set() }; // saved selections: logic beside the log, shared by every session
   const tables = [...providers.keys()];
   const keys: Record<string, string> = Object.fromEntries(Object.entries(def.data).flatMap(([t, d]) => (d.key !== undefined ? [[t, d.key]] : [])));
   const defaultTable = def.defaultTable ?? tables[0]!;
@@ -443,6 +479,7 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     notes,
     keys,
     journal,
+    saved,
     makeFdrStepper,
     fdrProcedure: def.fdr?.procedure ?? 'LORD++',
     fdrAlpha: def.fdr?.alpha ?? 0.05,
@@ -476,6 +513,9 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
       return result;
     },
     journal: () => [...journal],
+    saved: () => saved.list.map((c) => structuredClone(c)), // a host gets its own copies, never the store's objects
+    /* v8 ignore next -- a validated def always declares its actors; the fallback keeps the type honest */
+    restoreSaved: (list) => restoreSavedInto(saved, list, new Set(Object.keys(def.actors ?? {}))),
     createSession: (opts) => createInteractionSession(runtime, opts),
     lintProse: async () => {
       const cols = await providers.get(defaultTable)!.columns(defaultTable);

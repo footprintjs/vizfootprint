@@ -21,6 +21,8 @@ export interface ProseWorld {
   readonly commits?: ReadonlySet<string>;
   /** The beats named so far — a ref may only point at one of them. */
   readonly beats?: ReadonlySet<string>;
+  /** The saved selections by name; absent = not judged. */
+  readonly saved?: ReadonlySet<string>;
   /** `proposal` when the record is being proposed for a person to accept; `set` (the default) when it is being stated as the words. */
   readonly mode?: 'set' | 'proposal';
 }
@@ -80,7 +82,7 @@ export function validateProseRecord(viewId: string, slot: string, raw: unknown, 
   }
   // refs: a span inside the text, exactly one target, and a target that exists (judged only when the world names it)
   if (r.refs !== undefined) {
-    const shape = (ref: unknown): ref is { span: [number, number]; commit?: unknown; beat?: unknown; label?: unknown } =>
+    const shape = (ref: unknown): ref is { span: [number, number]; commit?: unknown; beat?: unknown; saved?: unknown; label?: unknown } =>
       isObject(ref) && Array.isArray(ref.span) && ref.span.length === 2 && ref.span.every((n) => Number.isInteger(n) && (n as number) >= 0) && (ref.label === undefined || typeof ref.label === 'string');
     if (!Array.isArray(r.refs) || !r.refs.every(shape)) at('refs', PROSE_SENTENCES.refs);
     else {
@@ -91,9 +93,11 @@ export function validateProseRecord(viewId: string, slot: string, raw: unknown, 
         if (!(start < end && end <= length)) at('ref-span', PROSE_SENTENCES.refSpan, slots);
         const hasCommit = typeof ref.commit === 'string';
         const hasBeat = typeof ref.beat === 'string';
-        if (hasCommit === hasBeat) at('ref-target', PROSE_SENTENCES.refTarget, slots);
+        const hasSaved = typeof ref.saved === 'string';
+        if (Number(hasCommit) + Number(hasBeat) + Number(hasSaved) !== 1) at('ref-target', PROSE_SENTENCES.refTarget, slots);
         if (hasCommit && world.commits !== undefined && !world.commits.has(ref.commit as string)) at('ref-commit', PROSE_SENTENCES.refCommit, { ...slots, commit: ref.commit as string });
         if (hasBeat && world.beats !== undefined && !world.beats.has(ref.beat as string)) at('ref-beat', PROSE_SENTENCES.refBeat, { ...slots, beat: ref.beat as string });
+        if (hasSaved && world.saved !== undefined && !world.saved.has(ref.saved as string)) at('ref-saved', PROSE_SENTENCES.refSaved, { ...slots, saved: ref.saved as string });
       });
     }
   }

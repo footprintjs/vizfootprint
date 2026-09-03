@@ -349,6 +349,45 @@ export interface FdrStepper {
   step(h: HypothesisRecord): FdrStep;
 }
 
+/** One condition of a saved selection: which chart, which field, which test on the value. One per view — a picture names a view once. */
+export interface SavedClause {
+  readonly viewId: string;
+  readonly kind: 'point' | 'interval' | 'match' | 'cell';
+  /** The column (a cell's joint label — the pair rides `fields`). */
+  readonly field: string;
+  readonly fields?: readonly [string, string];
+  /** JSON-safe: a point's value, an interval's bounds, a match body `{ values, exclude? }`, a cell's two sides. */
+  readonly value: unknown;
+}
+
+/**
+ * A SAVED SELECTION IS SAVED LOGIC: the whole picture a person had filtered
+ * to, written as data — one condition per view — plus who saved it, when, and
+ * the data version it was made on. It lives BESIDE the commit log, never in
+ * it: naming a picture is not an act on the data, so it lands nothing on the
+ * rail. Applying it is the act: one ordinary select or filter commit per
+ * condition, all under one cause ("applied saved selection <name>") and one
+ * correlation id, on any branch, after a fresh start, on refreshed rows —
+ * each condition is evaluated against whatever rows are there now. `from` is
+ * provenance (the commits the conditions were named from), never identity.
+ */
+export interface SavedSelection {
+  readonly name: string;
+  readonly conditions: readonly SavedClause[];
+  readonly by: Actor;
+  /** ISO time it was saved (or last renamed). */
+  readonly at: string;
+  /** The default table and its data version when it was saved — so a list can say "saved on version 3, applied on version 5". */
+  readonly on?: { readonly table: string; readonly version: string | null };
+  readonly from?: readonly string[];
+}
+
+/** The store: the saved selections in the order they were saved, and the names of legacy (log-derived) ones a person forgot. */
+export interface SavedStore {
+  readonly list: SavedSelection[];
+  readonly forgotten: Set<string>;
+}
+
 /**
  * The resolved bundle a `Dashboard` hands each session: data providers, promoted
  * analyses, declared views, a fresh-per-session FDR stepper factory, and the
@@ -373,6 +412,8 @@ export interface DashboardRuntime {
   readonly sources: Readonly<Record<string, SourceInfo>>;
   /** The data journal: every refresh the dashboard ran, oldest first — a dashboard-level record beside the log, shared by every session. */
   readonly journal: readonly RefreshRecord[];
+  /** The saved selections — saved LOGIC beside the log, never in it (see {@link SavedSelection}); shared by every session, like the journal. */
+  readonly saved: SavedStore;
   /** Build notes a def should hear: e.g. `engine: 'auto'` resolved to memory because the thresholds are unmeasured. */
   readonly notes: readonly string[];
   /** The declared row key per table (absent = positional rows, no delta). */
