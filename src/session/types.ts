@@ -123,7 +123,7 @@ export type FilterRange = IntervalClause['value'];
 export type CellValues = CellClause['value'];
 
 export type DispatchAction =
-  | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly value: unknown; readonly cause: Cause; readonly correlationId?: string; readonly offerId?: string }
+  | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly value: unknown; readonly cause: Cause; readonly correlationId?: string; readonly asOf?: string }
   /**
    * The MATCH form of `select` (SET-1): one field, MANY values — the plural of
    * a point (shift-click adds one, a drag crosses a run). `exclude: true`
@@ -131,7 +131,7 @@ export type DispatchAction =
    * (`selection:${viewId}`, last-wins per view); `values: null` clears (the
    * cleared-interval rule).
    */
-  | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly values: readonly unknown[] | null; readonly exclude?: boolean; readonly cause: Cause; readonly correlationId?: string; readonly offerId?: string }
+  | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly values: readonly unknown[] | null; readonly exclude?: boolean; readonly cause: Cause; readonly correlationId?: string; readonly asOf?: string }
   /**
    * The CELL form of `select` (D30): one heatmap-cell gesture selects on TWO
    * fields at once ("price 100–150 AND category Formal") and lands ONE
@@ -140,9 +140,9 @@ export type DispatchAction =
    * (`selection:${viewId}`, last-wins per view) — the vocabulary stays at 8
    * verbs. `values: null` clears the cell (the cleared-interval rule).
    */
-  | { readonly verb: 'select'; readonly viewId: string; readonly fields: readonly [string, string]; readonly values: CellValues; readonly cause: Cause; readonly correlationId?: string; readonly offerId?: string }
-  /** Layer 4: `offerId` names the offer (from whats_here.offers) an act answers; a stale one is refused by naming the current one. */
-  | { readonly verb: 'filter'; readonly viewId: string; readonly field: string; readonly range: FilterRange; readonly cause: Cause; readonly correlationId?: string; readonly offerId?: string }
+  | { readonly verb: 'select'; readonly viewId: string; readonly fields: readonly [string, string]; readonly values: CellValues; readonly cause: Cause; readonly correlationId?: string; readonly asOf?: string }
+  /** Layer 4: `asOf` names the offer (from whats_here.offers) an act answers; a stale one is refused by naming the current one. */
+  | { readonly verb: 'filter'; readonly viewId: string; readonly field: string; readonly range: FilterRange; readonly cause: Cause; readonly correlationId?: string; readonly asOf?: string }
   | { readonly verb: 'annotate'; readonly target: string; readonly note: string; readonly cause: Cause }
   /**
    * Layer 4 `link`: edit ONE edge of the link graph — what `target` does with
@@ -615,7 +615,7 @@ export interface ViewAdapter {
 export interface SessionOptions {
   /** Default acting principal for dispatches / the tool port. Default `'agent'`. */
   readonly as?: Actor;
-  /** Layer 4 offers: require every select/filter to name a current offerId from whats_here (default false: an offer is accepted, not yet enforced). */
+  /** Layer 4 offers: require every select/filter to name a current asOf from whats_here (default false: an offer is accepted, not yet enforced). */
   readonly requireOffer?: boolean;
   /** Override the runtime default table. Must be a declared table. */
   readonly defaultTable?: string;
@@ -703,7 +703,7 @@ export interface SelectionInfo {
 /**
  * Layer 4, the OFFER: one (view, emission kind) an act can reach. A voice is
  * DECLARED, so this list does not move with the cursor — the position it is
- * good at rides once, on `Overview.offerId`, and that is the id the act door
+ * good at rides once, on `Overview.asOf`, and that is the id the act door
  * checks.
  */
 export interface Offer {
@@ -887,13 +887,13 @@ export interface Overview {
   readonly offers: readonly Offer[];
   /**
    * Layer 4 offers: the POSITION every offer above is good at, stated ONCE —
-   * the id a select/filter passes back as `offerId`. A stale one (the position
+   * the id a select/filter passes back as `asOf`. A stale one (the position
    * moved since this answer) is refused by naming the current one. It is one
    * field rather than a stamp on each offer because the act already names its
    * own view and kind: repeating the node in N ids said nothing extra and made
    * `offers` the largest churning item in the answer.
    */
-  readonly offerId: string;
+  readonly asOf: string;
   /** Provenance: what each declared source vouched for when it was read (version, retrieval time, row count) — absent for a table declared inline as rows/csv. */
   readonly sources: Readonly<Record<string, SourceInfo>>;
   /** How many rows of the default table the live selection keeps — counted by the engine in one query, no row materialised; `null` when the engine could not answer (never a fake 0). */

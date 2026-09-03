@@ -205,7 +205,7 @@ describe('the answer states each fact once', () => {
     await p.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Formal' });
     const after = await p.call('viz.whats_here');
     expect(JSON.stringify(get(after, 'offers'))).toBe(JSON.stringify(get(before, 'offers'))); // byte-identical
-    expect(get(after, 'offerId')).not.toBe(get(before, 'offerId')); // one field moved, and it is the one that had to
+    expect(get(after, 'asOf')).not.toBe(get(before, 'asOf')); // one field moved, and it is the one that had to
   });
 
   it('a view carries no copy of the table column list; `columns` states it once and `accepts` answers per channel', async () => {

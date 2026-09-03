@@ -188,26 +188,30 @@ Both are measured, checked in, and reproducible: `node bench/surface/run.mjs`
 (see [`bench/surface/README.md`](../../bench/surface/README.md)).
 
 **Worked example (a) — one position, not N stamps.** Every offer used to carry
-an `offerId` minted from `(position, viewId, kind)`. Because the position is in
+its own `offerId`, minted from `(position, viewId, kind)`. Because the position is in
 every one of them, a single select moved every id in the list while their
 content was identical — `offers` was the largest CHURNING item in the answer.
 
 ```ts
 // before                                    // after
 offers: [                                    offers: [
-  { offerId: 'o-1f3a…', viewId: 'bar',         { viewId: 'bar', kind: 'point' },
+  { offerId: 'o-1f3a…', viewId: 'bar',      { viewId: 'bar', kind: 'point' },
     kind: 'point' },                           { viewId: 'scatter', kind: 'interval' },
-  { offerId: 'o-9c22…', viewId: 'scatter',     …
+  { offerId: 'o-9c22…', viewId: 'scatter',  …
     kind: 'interval' },                      ],
-  …                                          offerId: 'o-1f3a…'   // the position, once
+  …                                          asOf: 'o-1f3a…'   // the position, once
 ]
 ```
 
-Nothing was given up. What an offer proves is that the agent read a CURRENT
+It is called `asOf` rather than `offerId` because that is what it is: not the
+identifier of an offer, but the moment the answer was made. An agent copies it
+back to say which moment it is acting on.
+
+Nothing was given up. What it proves is that the agent read a CURRENT
 answer, and the act it rides on already names its own view and kind — so the
 node never needed restating in the id. `offerGuard` still checks both halves and
-still says which failed: *"view "display" has no interval voice"*, or *"the
-position moved; the current offer is o-…"*. The list is now byte-identical
+still says which failed: *"view "display" has no interval voice"*, or *"asOf
+o-… is stale — the position moved since whats_here answered"*. The list is now byte-identical
 across an act, and the only thing that moves is the one field that had to.
 
 **Worked example (b) — the per-view column list, cut.** `ViewInfo.columns` was

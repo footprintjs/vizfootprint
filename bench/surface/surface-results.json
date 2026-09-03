@@ -1,10 +1,10 @@
 {
  "node": "v22.16.0",
  "platform": "darwin arm64",
- "generatedAt": "2026-09-03T22:23:44.270Z",
+ "generatedAt": "2026-09-03T22:30:22.579Z",
  "unit": "UTF-8 bytes of the JSON serialization (Buffer.byteLength). Tokens only ever come from the optional --tokens pass.",
  "menu": {
-  "bytes": 17521,
+  "bytes": 17565,
   "tools": [
    {
     "name": "viz.whats_here",
@@ -14,9 +14,9 @@
    },
    {
     "name": "viz.dispatch",
-    "bytes": 9873,
+    "bytes": 9917,
     "descriptionBytes": 2526,
-    "schemaBytes": 7294
+    "schemaBytes": 7338
    },
    {
     "name": "viz.declare_analysis",
@@ -68,9 +68,9 @@
    "ok": true,
    "note": "byte-identical across all three shapes and across a session that acted — the documented claim holds",
    "perShapeBytes": {
-    "small": 17521,
-    "realistic": 17521,
-    "large": 17521
+    "small": 17565,
+    "realistic": 17565,
+    "large": 17565
    }
   }
  },
@@ -91,18 +91,18 @@
    "materializedEdges": 12,
    "tableColumns": 8,
    "declaredAnalyses": 2,
-   "whatsHereBytes": 7010,
+   "whatsHereBytes": 7007,
    "composition": [
     {
      "key": "views",
      "bytes": 2420,
-     "share": 34.52,
+     "share": 34.54,
      "count": 3
     },
     {
      "key": "links",
      "bytes": 2069,
-     "share": 29.51,
+     "share": 29.53,
      "count": 3
     },
     {
@@ -120,7 +120,7 @@
     {
      "key": "offers",
      "bytes": 233,
-     "share": 3.32,
+     "share": 3.33,
      "count": 6
     },
     {
@@ -132,7 +132,7 @@
     {
      "key": "effectiveEncodings",
      "bytes": 191,
-     "share": 2.72,
+     "share": 2.73,
      "count": 3
     },
     {
@@ -196,11 +196,6 @@
      "count": 0
     },
     {
-     "key": "offerId",
-     "bytes": 22,
-     "share": 0.31
-    },
-    {
      "key": "selectedRowCount",
      "bytes": 22,
      "share": 0.31
@@ -215,6 +210,11 @@
      "bytes": 21,
      "share": 0.3,
      "count": 0
+    },
+    {
+     "key": "asOf",
+     "bytes": 19,
+     "share": 0.27
     },
     {
      "key": "currentView",
@@ -383,8 +383,8 @@
     "strict": 587,
     "shared": 437,
     "verbs": 98,
-    "strictPct": 8.37,
-    "sharedPct": 6.23
+    "strictPct": 8.38,
+    "sharedPct": 6.24
    }
   },
   {
@@ -403,7 +403,7 @@
    "materializedEdges": 132,
    "tableColumns": 30,
    "declaredAnalyses": 6,
-   "whatsHereBytes": 45707,
+   "whatsHereBytes": 45704,
    "composition": [
     {
      "key": "links",
@@ -508,11 +508,6 @@
      "count": 0
     },
     {
-     "key": "offerId",
-     "bytes": 22,
-     "share": 0.05
-    },
-    {
      "key": "selectedRowCount",
      "bytes": 22,
      "share": 0.05
@@ -527,6 +522,11 @@
      "bytes": 21,
      "share": 0.05,
      "count": 0
+    },
+    {
+     "key": "asOf",
+     "bytes": 19,
+     "share": 0.04
     },
     {
      "key": "currentView",
@@ -715,7 +715,7 @@
    "materializedEdges": 674,
    "tableColumns": 80,
    "declaredAnalyses": 12,
-   "whatsHereBytes": 190428,
+   "whatsHereBytes": 190425,
    "composition": [
     {
      "key": "links",
@@ -825,11 +825,6 @@
      "count": 0
     },
     {
-     "key": "offerId",
-     "bytes": 22,
-     "share": 0.01
-    },
-    {
      "key": "defaultTable",
      "bytes": 21,
      "share": 0.01
@@ -839,6 +834,11 @@
      "bytes": 21,
      "share": 0.01,
      "count": 0
+    },
+    {
+     "key": "asOf",
+     "bytes": 19,
+     "share": 0.01
     },
     {
      "key": "currentView",
@@ -1016,12 +1016,12 @@
   {
    "shape": "small",
    "act": "select (point value on a bar)",
-   "beforeBytes": 7010,
-   "afterBytes": 7277,
+   "beforeBytes": 7007,
+   "afterBytes": 7274,
    "topLevelStableBytes": 6510,
-   "topLevelStablePct": 92.87,
+   "topLevelStablePct": 92.91,
    "deepStableBytes": 6778,
-   "deepStablePct": 96.69,
+   "deepStablePct": 96.73,
    "changedKeys": [
     {
      "key": "analyses",
@@ -1037,11 +1037,6 @@
      "key": "paths",
      "beforeBytes": 79,
      "afterBytes": 200
-    },
-    {
-     "key": "offerId",
-     "beforeBytes": 22,
-     "afterBytes": 22
     },
     {
      "key": "selectedRowCount",
@@ -1054,6 +1049,11 @@
      "afterBytes": 108
     },
     {
+     "key": "asOf",
+     "beforeBytes": 19,
+     "afterBytes": 19
+    },
+    {
      "key": "filters",
      "beforeBytes": 12,
      "afterBytes": 74
@@ -1063,12 +1063,12 @@
   {
    "shape": "small",
    "act": "filter (interval on a scatter)",
-   "beforeBytes": 7010,
-   "afterBytes": 7275,
+   "beforeBytes": 7007,
+   "afterBytes": 7272,
    "topLevelStableBytes": 6510,
-   "topLevelStablePct": 92.87,
+   "topLevelStablePct": 92.91,
    "deepStableBytes": 6778,
-   "deepStablePct": 96.69,
+   "deepStablePct": 96.73,
    "changedKeys": [
     {
      "key": "analyses",
@@ -1086,11 +1086,6 @@
      "afterBytes": 200
     },
     {
-     "key": "offerId",
-     "beforeBytes": 22,
-     "afterBytes": 22
-    },
-    {
      "key": "selectedRowCount",
      "beforeBytes": 22,
      "afterBytes": 21
@@ -1099,6 +1094,11 @@
      "key": "activeSelections",
      "beforeBytes": 21,
      "afterBytes": 107
+    },
+    {
+     "key": "asOf",
+     "beforeBytes": 19,
+     "afterBytes": 19
     },
     {
      "key": "filters",
@@ -1110,12 +1110,12 @@
   {
    "shape": "small",
    "act": "reencode (rebind one channel)",
-   "beforeBytes": 7010,
-   "afterBytes": 7140,
+   "beforeBytes": 7007,
+   "afterBytes": 7137,
    "topLevelStableBytes": 3985,
-   "topLevelStablePct": 56.85,
+   "topLevelStablePct": 56.87,
    "deepStableBytes": 6776,
-   "deepStablePct": 96.66,
+   "deepStablePct": 96.7,
    "changedKeys": [
     {
      "key": "views",
@@ -1143,21 +1143,21 @@
      "afterBytes": 200
     },
     {
-     "key": "offerId",
-     "beforeBytes": 22,
-     "afterBytes": 22
+     "key": "asOf",
+     "beforeBytes": 19,
+     "afterBytes": 19
     }
    ]
   },
   {
    "shape": "realistic",
    "act": "select (point value on a bar)",
-   "beforeBytes": 45707,
-   "afterBytes": 45970,
+   "beforeBytes": 45704,
+   "afterBytes": 45967,
    "topLevelStableBytes": 44821,
-   "topLevelStablePct": 98.06,
+   "topLevelStablePct": 98.07,
    "deepStableBytes": 45374,
-   "deepStablePct": 99.27,
+   "deepStablePct": 99.28,
    "changedKeys": [
     {
      "key": "analyses",
@@ -1173,11 +1173,6 @@
      "key": "paths",
      "beforeBytes": 79,
      "afterBytes": 200
-    },
-    {
-     "key": "offerId",
-     "beforeBytes": 22,
-     "afterBytes": 22
     },
     {
      "key": "selectedRowCount",
@@ -1190,6 +1185,11 @@
      "afterBytes": 108
     },
     {
+     "key": "asOf",
+     "beforeBytes": 19,
+     "afterBytes": 19
+    },
+    {
      "key": "filters",
      "beforeBytes": 12,
      "afterBytes": 74
@@ -1199,12 +1199,12 @@
   {
    "shape": "realistic",
    "act": "filter (interval on a scatter)",
-   "beforeBytes": 45707,
-   "afterBytes": 45968,
+   "beforeBytes": 45704,
+   "afterBytes": 45965,
    "topLevelStableBytes": 44821,
-   "topLevelStablePct": 98.06,
+   "topLevelStablePct": 98.07,
    "deepStableBytes": 45374,
-   "deepStablePct": 99.27,
+   "deepStablePct": 99.28,
    "changedKeys": [
     {
      "key": "analyses",
@@ -1222,11 +1222,6 @@
      "afterBytes": 200
     },
     {
-     "key": "offerId",
-     "beforeBytes": 22,
-     "afterBytes": 22
-    },
-    {
      "key": "selectedRowCount",
      "beforeBytes": 22,
      "afterBytes": 21
@@ -1235,6 +1230,11 @@
      "key": "activeSelections",
      "beforeBytes": 21,
      "afterBytes": 107
+    },
+    {
+     "key": "asOf",
+     "beforeBytes": 19,
+     "afterBytes": 19
     },
     {
      "key": "filters",
@@ -1246,12 +1246,12 @@
   {
    "shape": "realistic",
    "act": "reencode (rebind one channel)",
-   "beforeBytes": 45707,
-   "afterBytes": 45828,
+   "beforeBytes": 45704,
+   "afterBytes": 45825,
    "topLevelStableBytes": 25248,
    "topLevelStablePct": 55.24,
    "deepStableBytes": 45485,
-   "deepStablePct": 99.51,
+   "deepStablePct": 99.52,
    "changedKeys": [
     {
      "key": "views",
@@ -1279,17 +1279,17 @@
      "afterBytes": 200
     },
     {
-     "key": "offerId",
-     "beforeBytes": 22,
-     "afterBytes": 22
+     "key": "asOf",
+     "beforeBytes": 19,
+     "afterBytes": 19
     }
    ]
   },
   {
    "shape": "large",
    "act": "select (point value on a bar)",
-   "beforeBytes": 190428,
-   "afterBytes": 190685,
+   "beforeBytes": 190425,
+   "afterBytes": 190682,
    "topLevelStableBytes": 188958,
    "topLevelStablePct": 99.23,
    "deepStableBytes": 189931,
@@ -1316,14 +1316,14 @@
      "afterBytes": 22
     },
     {
-     "key": "offerId",
-     "beforeBytes": 22,
-     "afterBytes": 22
-    },
-    {
      "key": "activeSelections",
      "beforeBytes": 21,
      "afterBytes": 108
+    },
+    {
+     "key": "asOf",
+     "beforeBytes": 19,
+     "afterBytes": 19
     },
     {
      "key": "filters",
@@ -1335,8 +1335,8 @@
   {
    "shape": "large",
    "act": "filter (interval on a scatter)",
-   "beforeBytes": 190428,
-   "afterBytes": 190670,
+   "beforeBytes": 190425,
+   "afterBytes": 190667,
    "topLevelStableBytes": 188958,
    "topLevelStablePct": 99.23,
    "deepStableBytes": 189931,
@@ -1363,14 +1363,14 @@
      "afterBytes": 21
     },
     {
-     "key": "offerId",
-     "beforeBytes": 22,
-     "afterBytes": 22
-    },
-    {
      "key": "activeSelections",
      "beforeBytes": 21,
      "afterBytes": 107
+    },
+    {
+     "key": "asOf",
+     "beforeBytes": 19,
+     "afterBytes": 19
     },
     {
      "key": "filters",
@@ -1382,8 +1382,8 @@
   {
    "shape": "large",
    "act": "reencode (rebind one channel)",
-   "beforeBytes": 190428,
-   "afterBytes": 190594,
+   "beforeBytes": 190425,
+   "afterBytes": 190591,
    "topLevelStableBytes": 110275,
    "topLevelStablePct": 57.91,
    "deepStableBytes": 189991,
@@ -1415,9 +1415,9 @@
      "afterBytes": 200
     },
     {
-     "key": "offerId",
-     "beforeBytes": 22,
-     "afterBytes": 22
+     "key": "asOf",
+     "beforeBytes": 19,
+     "afterBytes": 19
     }
    ]
   }

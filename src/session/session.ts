@@ -587,7 +587,7 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly activeEncodings = new Map<string, Record<string, string>>();
   /** Layer 4: the `link` edits at the cursor, one per edge id (folded by rebuildFold like the encodings). */
   private readonly activeLinks = new Map<string, LinkDecl>();
-  /** Layer 4 offers: when true, a select/filter must name a current offerId (the act door enforces what whats_here served). */
+  /** Layer 4 offers: when true, a select/filter must name a current asOf (the act door enforces what whats_here served). */
   private readonly requireOffer: boolean;
   /** Layer 4 `onClear`: each view whose last selection was CLEARED, with what it was and the clearing commit — a target edge's policy reads it. */
   private readonly clearedFilters = new Map<string, { readonly clause: PredicateClause; readonly clearedBy: string }>();
@@ -763,7 +763,7 @@ class InteractionSessionImpl implements InteractionSession {
 
   /**
    * The one id every offer in an answer is good at: the CURRENT POSITION,
-   * hashed. An `offerId` minted by an earlier `whats_here` goes stale the
+   * hashed. An `asOf` minted by an earlier `whats_here` goes stale the
    * moment the position moves, and the act door says so.
    *
    * It used to be stamped onto every offer — N copies of one fact, and the
@@ -778,15 +778,15 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** The act door's half of the offer: the named offer must be current, and its node must have that voice; a session may require one. */
-  private offerGuard(verb: DispatchVerb, viewId: string, kind: EmissionKind, offerId: string | undefined, intent: DispatchResult['intent']): DispatchResult | null {
-    if (offerId === undefined && !this.requireOffer) return null;
+  private offerGuard(verb: DispatchVerb, viewId: string, kind: EmissionKind, asOf: string | undefined, intent: DispatchResult['intent']): DispatchResult | null {
+    if (asOf === undefined && !this.requireOffer) return null;
     const voiced = this.offersNow().some((o) => o.viewId === viewId && o.kind === kind);
     const current = this.offerStamp();
-    if (offerId === undefined) {
-      return this.reject(verb, intent, this.gapLedger.file('stale-offer', verb, `this session requires an offerId from whats_here${voiced ? ` — the current offer is ${current}` : ` — and view "${viewId}" has no ${kind} voice`}`, viewId));
+    if (asOf === undefined) {
+      return this.reject(verb, intent, this.gapLedger.file('stale-offer', verb, `this session requires the \`asOf\` from whats_here${voiced ? ` — the current position is ${current}` : ` — and view "${viewId}" has no ${kind} voice`}`, viewId));
     }
-    if (!voiced) return this.reject(verb, intent, this.gapLedger.file('stale-offer', verb, `offer ${offerId} names view "${viewId}" ${kind} — view "${viewId}" has no ${kind} voice`, viewId));
-    if (offerId !== current) return this.reject(verb, intent, this.gapLedger.file('stale-offer', verb, `offer ${offerId} is not current for view "${viewId}" ${kind} — the position moved; the current offer is ${current}`, viewId));
+    if (!voiced) return this.reject(verb, intent, this.gapLedger.file('stale-offer', verb, `asOf ${asOf} names view "${viewId}" ${kind} — view "${viewId}" has no ${kind} voice`, viewId));
+    if (asOf !== current) return this.reject(verb, intent, this.gapLedger.file('stale-offer', verb, `asOf ${asOf} is stale — the position moved since whats_here answered; the current position is ${current}`, viewId));
     return null;
   }
 
@@ -1219,7 +1219,7 @@ class InteractionSessionImpl implements InteractionSession {
       if (!voiced) {
         return { ok: false, gap: this.gapLedger.file('stale-offer', op, `this step selects on view "${action.viewId}" ${kindOfAct(action)}, which that view has no voice for — the definition changed since the step was landed`, action.viewId) };
       }
-      stamped = { ...action, offerId: this.offerStamp() };
+      stamped = { ...action, asOf: this.offerStamp() };
     }
     const result = await this.dispatch(stamped, { as: actor });
     if (!result.ok) return { ok: false, gap: result.rejection };
@@ -1954,7 +1954,7 @@ class InteractionSessionImpl implements InteractionSession {
     const as = opts.as;
     switch (action.verb) {
       case 'select': {
-        const stale = this.offerGuard('select', action.viewId, kindOfAct(action), action.offerId, intent);
+        const stale = this.offerGuard('select', action.viewId, kindOfAct(action), action.asOf, intent);
         if (stale !== null) return stale;
         // D30: the cell form of `select` (fields+values) is the compound-cell
         // gesture — one gesture, ONE commit; the plain form stays the point probe.
@@ -1973,7 +1973,7 @@ class InteractionSessionImpl implements InteractionSession {
         return this.doProbe(action.viewId, action.field, action.value, 'point', action.cause, as, intent, action.correlationId);
       }
       case 'filter': {
-        const stale = this.offerGuard('filter', action.viewId, 'interval', action.offerId, intent);
+        const stale = this.offerGuard('filter', action.viewId, 'interval', action.asOf, intent);
         if (stale !== null) return stale;
         return this.doProbe(
           action.viewId,
@@ -3459,7 +3459,7 @@ class InteractionSessionImpl implements InteractionSession {
 
     const activeSelections = [...this.activeFilters.entries()].map(([viewId, clause]) => selectionInfoOf(viewId, clause, this.activeFilterCommits.get(viewId)));
     const offers = this.offersNow();
-    const offerId = this.offerStamp();
+    const asOf = this.offerStamp();
     // layer 4 `onClear`: what each cleared view LAST selected, for the edges whose policy keeps it in force
     const clearedSelections = [...this.clearedFilters.entries()].map(([viewId, { clause, clearedBy }]) => ({ ...selectionInfoOf(viewId, clause), clearedBy }));
 
@@ -3555,7 +3555,7 @@ class InteractionSessionImpl implements InteractionSession {
       filters: this.filtersNow(),
       clearedSelections,
       offers,
-      offerId,
+      asOf,
       // the one runtime record that MOVES (a refresh replaces a table's entry):
       // a frozen COPY, so a reader never holds the object the dashboard is
       // still writing. `keys`, `engines` and the link graph beside it are

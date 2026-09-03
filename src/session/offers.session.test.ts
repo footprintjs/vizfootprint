@@ -1,6 +1,6 @@
 /**
  * Layer 4 offers (step 6) and saved selections: whats_here serves every
- * reachable (view, kind), and ONE `offerId` — the position they are all good
+ * reachable (view, kind), and ONE `asOf` — the position they are all good
  * at — beside them; an act may name it; a stale one is refused by naming the
  * current one; a session may require one. A note names what it annotates, and
  * a live selection names its commit.
@@ -21,49 +21,49 @@ const id = (r: { ok: boolean; commit?: { id: string } }): string => (r.ok && r.c
 describe('offers', () => {
   it('one offer per reachable (view, kind), with the does sentence; the POSITION rides once, and only it moves when the position does', async () => {
     const s = buildDashboard(withDoes()).createSession();
-    const { offers, offerId } = await s.overview();
+    const { offers, asOf } = await s.overview();
     expect(offers.map((o) => `${o.viewId}:${o.kind}`)).toContain('bar:point');
     const views = (await s.overview()).views;
     expect(views.find((v) => v.viewId === 'bar')?.does).toBe('pick a category'); // the sentence rides once, on the view
     expect(views.find((v) => v.viewId === 'scatter')?.does).toBeUndefined();
     // an offer names its NODE and nothing else — the position is not stamped N times
     expect(Object.keys(offers[0]!).sort()).toEqual(['kind', 'viewId']);
-    expect(/^o-[0-9a-f]{8}$/.test(offerId)).toBe(true);
+    expect(/^o-[0-9a-f]{8}$/.test(asOf)).toBe(true);
     expect(offers.some((o) => (o.kind as string) === 'encoding')).toBe(false);
     expect((await s.overview()).offers).toEqual(offers); // the same position, the same answer
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick') });
     const after = await s.overview();
     expect(after.offers).toEqual(offers); // a voice is DECLARED — the list itself never moves
-    expect(after.offerId).not.toBe(offerId); // only the position did
+    expect(after.asOf).not.toBe(asOf); // only the position did
   });
   it('an act naming the current offer lands; a stale one is refused by naming the current one; an unreachable node is refused', async () => {
     const s = buildDashboard(withDoes()).createSession();
-    const first = (await s.overview()).offerId;
-    const ok = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', offerId: first, cause: userCause('pick') });
+    const first = (await s.overview()).asOf;
+    const ok = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', asOf: first, cause: userCause('pick') });
     expect(ok.ok).toBe(true);
-    const stale = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', offerId: first, cause: userCause('pick again') });
+    const stale = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', asOf: first, cause: userCause('pick again') });
     expect(stale.ok).toBe(false);
-    const now = (await s.overview()).offerId;
+    const now = (await s.overview()).asOf;
     if (!stale.ok) {
       expect(stale.rejection.code).toBe('stale-offer');
-      expect(stale.rejection.detail).toBe(`offer ${first} is not current for view "bar" point — the position moved; the current offer is ${now}`);
+      expect(stale.rejection.detail).toBe(`asOf ${first} is stale — the position moved since whats_here answered; the current position is ${now}`);
     }
-    const unreachable = await s.dispatch({ verb: 'filter', viewId: 'display', field: 'price', range: [1, 2], offerId: 'o-00000000', cause: userCause('brush a readout?') });
-    expect(!unreachable.ok && unreachable.rejection.detail).toBe('offer o-00000000 names view "display" interval — view "display" has no interval voice');
+    const unreachable = await s.dispatch({ verb: 'filter', viewId: 'display', field: 'price', range: [1, 2], asOf: 'o-00000000', cause: userCause('brush a readout?') });
+    expect(!unreachable.ok && unreachable.rejection.detail).toBe('asOf o-00000000 names view "display" interval — view "display" has no interval voice');
     expect(s.gaps().map((g) => g.code)).toEqual(['stale-offer', 'stale-offer']);
   });
   it('a session that requires offers refuses an act that names none, and says which offer would do', async () => {
     const s = buildDashboard(withDoes()).createSession({ requireOffer: true });
     const bare = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick') });
-    const offer = (await s.overview()).offerId;
-    expect(!bare.ok && bare.rejection.detail).toBe(`this session requires an offerId from whats_here — the current offer is ${offer}`);
+    const offer = (await s.overview()).asOf;
+    expect(!bare.ok && bare.rejection.detail).toBe(`this session requires the \`asOf\` from whats_here — the current position is ${offer}`);
     const noKind = await s.dispatch({ verb: 'filter', viewId: 'display', field: 'price', range: [1, 2], cause: userCause('brush') });
-    expect(!noKind.ok && noKind.rejection.detail).toBe('this session requires an offerId from whats_here — and view "display" has no interval voice');
+    expect(!noKind.ok && noKind.rejection.detail).toBe('this session requires the `asOf` from whats_here — and view "display" has no interval voice');
     const cell = await s.dispatch({ verb: 'select', viewId: 'scatter', fields: ['price', 'rating'], values: [1, 2], cause: userCause('cell') });
     expect(!cell.ok && cell.rejection.code).toBe('stale-offer');
     const match = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', values: ['Formal'], cause: userCause('set') });
     expect(!match.ok && match.rejection.code).toBe('stale-offer');
-    const named = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', offerId: offer, cause: userCause('pick') });
+    const named = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', asOf: offer, cause: userCause('pick') });
     expect(named.ok).toBe(true);
   });
 });
@@ -71,8 +71,8 @@ describe('offers', () => {
 describe('replays under requireOffer', () => {
   it('undo and bring-over answer the current offer themselves — a person chose the step, the offer is only the position\'s stamp', async () => {
     const s = buildDashboard(withDoes()).createSession({ requireOffer: true });
-    const offer = (await s.overview()).offerId;
-    const pick = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', offerId: offer, cause: userCause('pick') });
+    const offer = (await s.overview()).asOf;
+    const pick = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', asOf: offer, cause: userCause('pick') });
     expect(pick.ok).toBe(true);
     const undone = await s.undo(id(pick));
     expect(undone.ok).toBe(true);
@@ -81,8 +81,8 @@ describe('replays under requireOffer', () => {
     expect(back.ok).toBe(true);
     expect((await s.overview()).activeSelections).toMatchObject([{ viewId: 'bar', value: 'Formal' }]);
     // a filter replay stamps its interval offer the same way
-    const brushOffer = (await s.overview()).offerId;
-    const brush = await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [50, 150], offerId: brushOffer, cause: userCause('brush') });
+    const brushOffer = (await s.overview()).asOf;
+    const brush = await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [50, 150], asOf: brushOffer, cause: userCause('brush') });
     expect(brush.ok).toBe(true);
     expect((await s.undo(id(brush))).ok).toBe(true);
     expect(s.gaps().map((g) => g.code)).toEqual([]);

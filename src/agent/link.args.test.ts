@@ -35,16 +35,16 @@ describe('why: a view\'s words', () => {
 });
 
 describe('select/filter: the offer an act answers', () => {
-  it('a current offerId rides through to the session and lands; a stale one is refused with the session\'s own sentence', async () => {
+  it('a current asOf rides through to the session and lands; a stale one is refused with the session\'s own sentence', async () => {
     const p = port();
-    const here = (await p.call('viz.whats_here')) as { offerId: string; offers: readonly { viewId: string; kind: string }[] };
+    const here = (await p.call('viz.whats_here')) as { asOf: string; offers: readonly { viewId: string; kind: string }[] };
     expect(here.offers.some((o) => o.viewId === 'bar' && o.kind === 'point')).toBe(true); // the node is on the list
-    const offer = here.offerId; // the position they are all good at — stated once
-    const ok = await p.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', offerId: offer });
+    const offer = here.asOf; // the position they are all good at — stated once
+    const ok = await p.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', asOf: offer });
     expect(JSON.stringify(ok)).toContain('"ok":true');
-    const stale = await p.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Party', offerId: offer });
+    const stale = await p.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Party', asOf: offer });
     expect(JSON.stringify(stale)).toContain('"code":"stale-offer"');
-    expect(JSON.stringify(stale)).toContain('is not current for view');
+    expect(JSON.stringify(stale)).toContain('is stale — the position moved');
     const noOffer = await p.call('viz.dispatch', { verb: 'filter', viewId: 'scatter', field: 'price', range: [1, 2] });
     expect(JSON.stringify(noOffer)).toContain('"ok":true');
   });

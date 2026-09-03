@@ -218,7 +218,7 @@ const DISPATCH_SCHEMA = {
       description: 'link only: what the target does with it — filter drops rows, highlight dims them, navigate moves the viewport, mirror outlines the value, none turns the link off; null un-declares the edit (back to the def\'s rule).',
     },
     mapping: { type: 'array', description: 'link only, optional: [{ from, to }] field renames when the source field is not the target\'s column.' },
-    offerId: { type: 'string', description: 'select/filter, optional: whats_here.offerId, copied verbatim — the position the offers you read were good at (whats_here.offers lists the view + kind you may act on). A stale offer (the position moved) is refused by naming the current one; a session may require one.' },
+    asOf: { type: 'string', description: 'select/filter, optional: whats_here.asOf, copied verbatim — the position the answer you are acting on was made at (whats_here.offers lists the view + kind you may act on, and they are all good AS OF that one position). Stale (the position moved since) is refused, naming the current one; a session may require it.' },
     onClear: { type: 'string', enum: ['leave', 'showAll', 'excludeAll'], description: 'link only, optional: what the target does when the source CLEARS — showAll drops the clause (default), leave keeps the last emission in force, excludeAll keeps nothing.' },
     fold: { type: 'string', description: 'link only: how the emission folds down to the target\'s rows, in words — required when the edge crosses grains (the source emits over an aggregate the target does not show); whats_here.links.views[].grain says each view\'s.' },
     note: { type: 'string', description: 'The inert annotation text (annotate).' },
@@ -668,7 +668,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
 
     if ('error' in action) return { ok: false, reason: 'PAYLOAD_INVALID', detail: action.error };
     // layer 4: the offer an act answers rides through untouched — the session judges it
-    const offered: DispatchAction = (action.verb === 'select' || action.verb === 'filter') && typeof args['offerId'] === 'string' ? { ...action, offerId: args['offerId'] } : action;
+    const offered: DispatchAction = (action.verb === 'select' || action.verb === 'filter') && typeof args['asOf'] === 'string' ? { ...action, asOf: args['asOf'] } : action;
     const result = await session.dispatch(offered, { as: source });
     return projectDispatch(result);
   }
