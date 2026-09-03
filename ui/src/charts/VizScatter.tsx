@@ -63,7 +63,7 @@ export interface VizScatterProps {
    * The clause-addressable crossfilter selection (RP-1) — REPLACES the old
    * flat `highlight` keep-predicate. Points whose source `row` fails the
    * non-self clauses are dimmed; the chart's OWN clause never dims it.
-   * Build it with `selectionForView(state.selections, viewId)`.
+   * Build it with `selectionForView(state.selections, viewId, 'intersect', state.links, state.clearedSelections)` — the graph decides which clauses reach this view (a `highlight` edge dims, a `none` edge never arrives) and a cleared source is remembered per its edge; the two-argument form applies every clause and ignores both.
    */
   readonly selection?: RenderSelection;
   readonly regression?: RegressionGeom | null;

@@ -68,7 +68,7 @@ export interface VizTableProps {
   /**
    * The clause-addressable crossfilter selection (RP-1) — rows failing the
    * non-self clauses are DIMMED, never removed (the VizScatter pattern; see
-   * file header). Build it with `selectionForView(state.selections, viewId)`.
+   * file header). Build it with `selectionForView(state.selections, viewId, 'intersect', state.links, state.clearedSelections)` — the graph decides which clauses reach this view (a `highlight` edge dims, a `none` edge never arrives) and a cleared source is remembered per its edge; the two-argument form applies every clause and ignores both.
    */
   readonly selection?: RenderSelection;
   readonly onEmit?: (emission: ChartEmission) => void;

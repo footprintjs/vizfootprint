@@ -34,6 +34,7 @@ import {
   type EvaluateResult,
   type PredicateClause,
   type Row,
+  type SortSpec,
 } from './types.js';
 
 export type Layout = 'row' | 'column';
@@ -47,6 +48,8 @@ export interface MemoryProviderOptions {
   /** Used only when a bare `RowsInput` (not a `{ [table]: RowsInput }` map) is passed. Default `'data'`. */
   readonly tableName?: string;
   readonly csvDelimiter?: string;
+  /** How many sort permutations to keep per table (default `SORT_CACHE_PER_TABLE`). A dial: 4 bytes per row per kept sort. */
+  readonly sortCache?: number;
 }
 
 // ── Internal per-layout table stores. ───────────────────────────────────────
@@ -132,20 +135,102 @@ function fieldAt(store: TableStore, field: string, i: number): unknown {
   return store.layout === 'row' ? store.rows[i]?.[field] : store.columns[field]?.[i];
 }
 
-function matchingIndices(store: TableStore, clauses: readonly PredicateClause[]): number[] {
+/** Absent for a sort: null, undefined, or a number that is not a number — the absence law's cell states are the session's, not the engine's. */
+function isAbsent(v: unknown): boolean {
+  return v === null || v === undefined || (typeof v === 'number' && Number.isNaN(v)) || (v instanceof Date && Number.isNaN(v.getTime())); // an invalid date is a date that is not one
+}
+
+/** The text of a value for the sort's last resort, or null when the value cannot say itself (a null-prototype object, a throwing toString) — it then sorts after everything. */
+function textOf(v: unknown): string | null {
+  if (typeof v === 'string') return v; // the common case pays no try
+  try {
+    return String(v);
+  } catch {
+    return null;
+  }
+}
+
+/** The rank a present value sorts in: numbers, then dates, then booleans, then everything by its text, then what has no text. Ranks never mix, so the order is total. */
+function rankOf(v: unknown): 0 | 1 | 2 | 3 | 4 {
+  if (typeof v === 'string') return 3;
+  if (typeof v === 'number') return 0;
+  if (v instanceof Date) return 1;
+  if (typeof v === 'boolean') return 2;
+  return textOf(v) === null ? 4 : 3;
+}
+
+/** A difference that is a number: two infinities are equal (their difference is NaN), never a scramble — only the sign of a comparator is read, so an infinite difference is fine as it is. */
+function finiteDiff(d: number): number {
+  return Number.isNaN(d) ? 0 : d;
+}
+
+/** Two present values in ONE total order: by rank first, then within the rank — so `2`, `10` and `"100"` sort as 2, 10, "100", never in a loop. */
+function comparePresent(a: unknown, b: unknown): number {
+  const ra = rankOf(a);
+  const rb = rankOf(b);
+  if (ra !== rb) return ra - rb;
+  if (ra === 0) return finiteDiff((a as number) - (b as number));
+  if (ra === 1) return finiteDiff((a as Date).getTime() - (b as Date).getTime());
+  if (ra === 2) return a === b ? 0 : a ? 1 : -1;
+  if (ra === 4) return 0; // neither can say itself: equal, and source order decides
+  const sa = textOf(a)!; // rank 3: the text exists
+  const sb = textOf(b)!;
+  return sa < sb ? -1 : sa > sb ? 1 : 0;
+}
+
+/**
+ * ONE permutation of the table's rows for a sort spec: stable (ties keep
+ * source order), absent values first or last per key, built once and cached
+ * by the provider per (table, spec). A window walks it; a brush never rebuilds it.
+ * Sorted in place in its typed array — one allocation, no boxed copy.
+ */
+function sortPermutation(store: TableStore, sort: readonly SortSpec[]): Int32Array {
   const n = storeRowCount(store);
-  const out: number[] = [];
+  const keys = sort.map((k) => ({ field: k.field, sign: k.dir === 'desc' ? -1 : 1, absentFirst: k.absent === 'first' }));
+  const order = new Int32Array(n);
+  for (let i = 0; i < n; i++) order[i] = i;
+  order.sort((x, y) => {
+    for (const k of keys) {
+      const a = fieldAt(store, k.field, x);
+      const b = fieldAt(store, k.field, y);
+      const aa = isAbsent(a);
+      const ba = isAbsent(b);
+      if (aa || ba) {
+        if (aa && ba) continue;
+        // absent values sit at the same end regardless of direction — a person reading a descending column still finds the blanks together
+        return (aa ? -1 : 1) * (k.absentFirst ? 1 : -1);
+      }
+      const c = comparePresent(a, b);
+      if (c !== 0) return c * k.sign;
+    }
+    return x - y; // stable: source order breaks every tie
+  });
+  return order;
+}
+
+/** The cache key of a sort spec — the spec alone, never the filter. */
+function sortKey(sort: readonly SortSpec[]): string {
+  return JSON.stringify(sort.map((k) => [k.field, k.dir, k.absent ?? 'last']));
+}
+
+/** How many sort permutations one table keeps unless the options say otherwise: the few sorts a person flips between, least recently used evicted. Each holds 4 bytes per row. */
+export const SORT_CACHE_PER_TABLE = 8;
+
+/** The matches in `order` (or source order): every one counted, only the first `need` collected — a window never allocates the whole match list. */
+function collectMatches(store: TableStore, clauses: readonly PredicateClause[], order: Int32Array | undefined, need: number | undefined): { readonly indices: number[]; readonly count: number } {
+  const n = storeRowCount(store);
+  const indices: number[] = [];
+  let count = 0;
   const fields = [...new Set(clauses.flatMap((c) => clauseFields(c)))];
-  for (let i = 0; i < n; i++) {
-    // matchesClause reads via a Row-shaped accessor either way — build a
-    // minimal proxy row limited to the clauses' own fields (both for a
-    // D30 cell) so both layouts share EXACTLY the same evaluation code path
-    // (no row/column fork here). A list is its AND; an empty list keeps every row.
+  for (let k = 0; k < n; k++) {
+    const i = order === undefined ? k : order[k]!;
     const probe: Row = {};
     for (const f of fields) probe[f] = fieldAt(store, f, i);
-    if (clauses.every((c) => matchesClause(probe, c))) out.push(i);
+    if (!clauses.every((c) => matchesClause(probe, c))) continue;
+    count++;
+    if (need === undefined || indices.length < need) indices.push(i);
   }
-  return out;
+  return { indices, count };
 }
 
 /** One clause, a list, or null — as the list the matcher walks. */
@@ -181,7 +266,31 @@ export function memoryProvider(
     // resolved SQL text against a real query engine.
     canEvaluateSQL: false,
     canMaterialize: true,
+    canSort: true,
   };
+  // one sort-permutation cache per table, keyed by the sort spec alone (see sortPermutation); least recently used evicted
+  const keep = options.sortCache ?? SORT_CACHE_PER_TABLE;
+  const sortCache = new Map<string, Map<string, { readonly order: Int32Array; readonly rows: number }>>();
+  const permutationFor = (table: string, store: TableStore, sort: readonly SortSpec[]): Int32Array => {
+    let perTable = sortCache.get(table);
+    if (perTable === undefined) {
+      perTable = new Map();
+      sortCache.set(table, perTable);
+    }
+    const key = sortKey(sort);
+    const hit = perTable.get(key);
+    if (hit !== undefined && hit.rows === storeRowCount(store)) {
+      perTable.delete(key); // a hit moves to the back: a Map keeps insertion order, so the front is the least recently used
+      perTable.set(key, hit);
+      return hit.order;
+    }
+    const entry = { order: sortPermutation(store, sort), rows: storeRowCount(store) };
+    perTable.delete(key);
+    if (perTable.size >= keep) perTable.delete(perTable.keys().next().value!);
+    perTable.set(key, entry);
+    return entry.order;
+  };
+  const badWindowValue = (name: string, v: number | undefined): string | undefined => (v === undefined || (Number.isInteger(v) && v >= 0) ? undefined : `${name} must be a whole number at or above zero (got ${String(v)})`);
 
   const provider: DataProvider = {
     engine: 'memory',
@@ -220,21 +329,37 @@ export function memoryProvider(
       }
 
       const sql = resolvePredicateSQL(clauses);
-      const indices = matchingIndices(store, clauses);
-      const count = indices.length;
-
-      if (evalOptions.mode === 'count') {
-        return { sql, count };
+      // the window and the sort are judged the same way in both modes — a malformed one is refused, never clamped into something the caller did not ask
+      const badWindow = badWindowValue('offset', evalOptions.offset) ?? badWindowValue('limit', evalOptions.limit);
+      if (badWindow !== undefined) return reject('memory', 'evaluate', 'bad-window', badWindow);
+      const sort = evalOptions.sort ?? [];
+      const missingSort = sort.map((k) => k.field).find((f) => !names.includes(f));
+      if (missingSort !== undefined) {
+        return reject('memory', 'evaluate', 'unknown-column', `table "${table}" has no column "${missingSort}" to sort by`);
       }
-
-      const capped = evalOptions.limit !== undefined ? indices.slice(0, evalOptions.limit) : indices;
-      const rows = capped.map((i) => rowAt(store, i, evalOptions.columns));
-      return { sql, count, rows };
+      if (evalOptions.mode === 'count') {
+        return { sql, count: collectMatches(store, clauses, undefined, 0).count };
+      }
+      const order = sort.length > 0 ? permutationFor(table, store, sort) : undefined;
+      const offset = evalOptions.offset ?? 0;
+      const need = evalOptions.limit !== undefined ? offset + evalOptions.limit : undefined; // collect only what the window can show; count everything
+      const { indices, count } = collectMatches(store, clauses, order, need);
+      const start = Math.min(offset, count);
+      const windowed = indices.slice(start, evalOptions.limit !== undefined ? start + evalOptions.limit : undefined);
+      const rows = windowed.map((i) => rowAt(store, i, evalOptions.columns));
+      return {
+        sql,
+        count,
+        rows,
+        ...(evalOptions.offset !== undefined ? { start } : {}),
+        ...(evalOptions.indices === true ? { indices: windowed } : {}),
+      };
     },
 
     async materializeColumn(table: string, name: string, values: readonly unknown[]) {
       const store = tableMap.get(table);
       if (!store) return reject('memory', 'materializeColumn', 'unknown-table', `no such table "${table}"`);
+      sortCache.delete(table); // a column's values may have changed under a cached order
       const rowCount = storeRowCount(store);
       if (values.length !== rowCount) {
         return reject(

@@ -25,6 +25,10 @@ export type {
   SessionOptions,
   DeclareAnalysisOptions,
   Overview,
+  ReachingClause,
+  ViewQuery,
+  ViewQueryResult,
+  ViewQueryRefusal,
   ViewInfo,
   EffectiveEncoding,
   SelectionInfo,
@@ -70,3 +74,4 @@ export type {
   WhyTarget,
   WhyTargetMiss,
 } from '../why/index.js';
+export { VIEW_QUERY_DEFAULT_LIMIT } from './session.js';

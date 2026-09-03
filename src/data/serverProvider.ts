@@ -83,8 +83,10 @@ export function serverProvider(options: ServerProviderOptions = {}): DataProvide
     async evaluate(
       _table: string,
       _clause: PredicateClause | readonly PredicateClause[] | null,
-      _options?: EvaluateOptions,
+      options?: EvaluateOptions,
     ): Promise<EvaluateResult | DataProviderRejection> {
+      // the one law every engine keeps: a sort it cannot honour is refused, never answered in source order
+      if (options?.sort !== undefined && options.sort.length > 0) return reject('server', 'evaluate', 'unsupported-sort', 'the server engine cannot sort. Ask for this window without a sort');
       return noBackend('evaluate');
     },
 

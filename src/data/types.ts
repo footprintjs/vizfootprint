@@ -229,6 +229,24 @@ export interface EvaluateOptions {
   readonly columns?: readonly string[];
   /** Optional row cap (rows mode only). A provider MAY still return fewer per `capabilities.maxRows`. */
   readonly limit?: number;
+  /**
+   * The sheet's window (rows mode only): the order the rows come back in, and
+   * how many matching rows to skip before the first one returned. A provider
+   * without `capabilities.canSort` rejects a `sort` with `unsupported-sort` —
+   * never a silent source order. `offset` past the last match answers zero
+   * rows with the honest `count`; a negative or fractional offset is rejected.
+   */
+  readonly sort?: readonly SortSpec[];
+  readonly offset?: number;
+  /** Rows mode only: also return each returned row's index in the table's source order (`EvaluateResult.indices`) — what a positional row identity is made of. */
+  readonly indices?: boolean;
+}
+
+/** One sort key: a column, a direction, and where absent values (null, undefined, NaN) go — last unless said otherwise. */
+export interface SortSpec {
+  readonly field: string;
+  readonly dir: 'asc' | 'desc';
+  readonly absent?: 'first' | 'last';
 }
 
 export interface EvaluateResult {
@@ -246,6 +264,10 @@ export interface EvaluateResult {
   readonly count: number;
   /** Present unless `mode: 'count'`. */
   readonly rows?: readonly Row[];
+  /** Rows mode with an `offset`: the offset honoured (clamped to `count`), so a window knows where it starts. */
+  readonly start?: number;
+  /** Rows mode with `indices: true`: the source-order index of each returned row, parallel to `rows`. */
+  readonly indices?: readonly number[];
 }
 
 // ── R14: honest capability declaration + typed rejection. ─────────────────
@@ -257,6 +279,8 @@ export interface DataProviderCapabilities {
   readonly canMaterialize: boolean;
   /** Soft cap this engine is comfortable with, if any. `undefined` = no declared cap. */
   readonly maxRows?: number;
+  /** Can `evaluate` honour a `sort`? Absent = no (the stub engines); the memory engine sorts in JS over a cached permutation. */
+  readonly canSort?: boolean;
 }
 
 /** Typed reason codes — every rejection names one; never a bare `false`/`undefined`. */
@@ -272,7 +296,11 @@ export type RejectionReason =
   /** `materializeColumn`'s `values` length does not match the table's row count. */
   | 'row-count-mismatch'
   /** The clause carries a literal type this engine cannot honestly render as SQL (e.g. a nested object). */
-  | 'unsupported-literal';
+  | 'unsupported-literal'
+  /** `evaluate` was asked to sort and this engine cannot (`capabilities.canSort` is not true). */
+  | 'unsupported-sort'
+  /** `evaluate`'s window is malformed: a negative or fractional `offset` or `limit`. */
+  | 'bad-window';
 
 export interface DataProviderRejection {
   readonly ok: false;

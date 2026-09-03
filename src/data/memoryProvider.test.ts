@@ -30,7 +30,7 @@ describe('memoryProvider — single-table construction (bare array, default tabl
 
   it('capabilities are honest: canEvaluateSQL is false, canMaterialize is true', () => {
     const p = memoryProvider(SAMPLE);
-    expect(p.capabilities).toEqual({ canEvaluateSQL: false, canMaterialize: true });
+    expect(p.capabilities).toEqual({ canEvaluateSQL: false, canMaterialize: true, canSort: true });
   });
 });
 

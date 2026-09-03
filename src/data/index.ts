@@ -11,6 +11,7 @@ export type {
   DataProviderRejection,
   Engine,
   EvaluateOptions,
+  SortSpec,
   EvaluateResult,
   IntervalBounds,
   IntervalClause,

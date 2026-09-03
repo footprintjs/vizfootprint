@@ -23,7 +23,7 @@
  */
 
 import type { FoldEntry } from '../branches/index.js';
-import type { EmissionKind } from '../links/index.js';
+import type { EmissionKind, LinkEdge } from '../links/index.js';
 import { voiceOf } from '../links/index.js';
 import type { Actor, Cause } from '../cause/index.js';
 import { validateCause } from '../cause/index.js';
@@ -118,7 +118,13 @@ import type {
   SwitchPathResult,
   TimeState,
   ViewAdapter,
-  EffectiveEncoding, TableInfo, NoteInfo } from './types.js';
+  EffectiveEncoding,
+  TableInfo,
+  NoteInfo,
+  ReachingClause,
+  ViewQuery,
+  ViewQueryResult,
+} from './types.js';
 
 /**
  * Per-invocation provenance the session captures DURING a `declareAnalysis` (the
@@ -393,6 +399,23 @@ export interface InteractionSession {
   selectedRows(table?: string): Promise<readonly Row[]>;
 
   /**
+   * The clauses that reach one view through the link graph at the cursor —
+   * its own clause excluded, each edge's response and field mapping applied,
+   * a cleared source remembered per the edge's `onClear`. The engine, not a
+   * renderer, owns which gestures reach a view: the sheet and the charts read
+   * the same answer.
+   */
+  clausesFor(viewId: string): readonly ReachingClause[];
+
+  /**
+   * One window of rows for the sheet: sorted, offset, with a row identity per
+   * row. Every window is ONE evaluate on the engine (the sort is a cached
+   * permutation there; a brush never rebuilds it). Reads only — scrolling
+   * lands no commit. Refused with a sentence, never a fabricated window.
+   */
+  viewQuery(query?: ViewQuery): Promise<ViewQueryResult>;
+
+  /**
    * The current channel→field visual-encoding map for one view, branch-scoped
    * at the cursor (the `reencode` verb's fold — SPEC Q6 8th verb). Empty if
    * the view declares no encoding surface or is unknown. Synchronous — no
@@ -448,6 +471,19 @@ function selectionInfoOf(viewId: string, clause: PredicateClause, commitId?: str
             }  );
   return commitId === undefined ? info : { ...info, commitId };
 }
+
+/** A consumer's own copy of a clause — never the session's live object. A clause is JSON-shaped through every door; one that is not is handed over as a shallow copy rather than thrown on. */
+function copyClause(clause: PredicateClause): PredicateClause {
+  try {
+    return structuredClone(clause);
+  } catch {
+    /* v8 ignore next -- unreachable through the JSON-shaped agent and UI doors: only a hand-built clause with a function or symbol value refuses to clone */
+    return { ...clause };
+  }
+}
+
+/** A window's default size (placeholder): a page a grid can hold without holding the table. */
+export const VIEW_QUERY_DEFAULT_LIMIT = 200;
 
 /** The subject-independent half of a prose record's staleness world at the cursor. */
 interface ProseWorldNow {
@@ -1225,6 +1261,109 @@ class InteractionSessionImpl implements InteractionSession {
     return 'rejected' in rows ? [] : rows;
   }
 
+  clausesFor(viewId: string): readonly ReachingClause[] {
+    // one lookup per (source, kind) INTO this consumer — the same law the renderer contract applies (ui/src/contract/selection.ts)
+    const into = new Map<string, LinkEdge>();
+    for (const e of this.currentGraph().edges) if (e.target === viewId) into.set(`${e.source}|${e.kind}`, e);
+    const reaches = (from: string, kind: string): LinkEdge | undefined => {
+      if (from === viewId) return undefined; // never its own clause
+      const edge = into.get(`${from}|${kind}`);
+      // an encoding edge never matches a clause's kind, so `follow` cannot reach here; the guard keeps the type honest
+      return edge === undefined || edge.response === 'none' || edge.response === 'follow' ? undefined : edge;
+    };
+    // the consumer gets its own copy: a clause handed out is never the session's live object
+    const mapped = (edge: LinkEdge, clause: PredicateClause): PredicateClause => {
+      const own = copyClause(clause);
+      if (edge.mapping === undefined) return own;
+      const to = (f: string): string => edge.mapping!.find((m) => m.from === f)?.to ?? f;
+      return own.kind === 'cell' ? { ...own, fields: [to(own.fields[0]), to(own.fields[1])] } : { ...own, field: to(own.field) };
+    };
+    const out: ReachingClause[] = [];
+    // a source that CLEARED still reaches a consumer whose edge says so: `leave` keeps the last clause, `excludeAll` keeps nothing, `showAll` (the default) = gone
+    for (const [from, rec] of this.clearedFilters) {
+      /* v8 ignore next -- every select door drops the view's cleared record when a live clause lands, so the two maps are disjoint; the guard enforces here what the doors maintain */
+      if (this.activeFilters.has(from)) continue; // it is selecting again — the live clause speaks, and it is listed once
+      const edge = reaches(from, rec.clause.kind);
+      if (edge === undefined) continue;
+      const policy = edge.onClear ?? 'showAll';
+      if (policy === 'showAll') continue;
+      const clause = mapped(edge, rec.clause);
+      out.push({ from, response: edge.response, clause: policy === 'leave' ? clause : { kind: 'match', field: clause.kind === 'cell' ? clause.fields[0] : clause.field, values: [] } });
+    }
+    for (const [from, clause] of this.activeFilters) {
+      const edge = reaches(from, clause.kind);
+      if (edge === undefined) continue;
+      out.push({ from, response: edge.response, clause: mapped(edge, clause) });
+    }
+    return out;
+  }
+
+  async viewQuery(query: ViewQuery = {}): Promise<ViewQueryResult> {
+    const table = query.table ?? this.defaultTable;
+    if (!this.runtime.tables.includes(table)) return { ok: false, reason: 'unknown-table', rejected: `no table "${table}" is declared — the tables are ${this.runtime.tables.join(', ')}` };
+    if (query.viewId !== undefined && !this.runtime.views.has(query.viewId)) return { ok: false, reason: 'unknown-view', rejected: `no declared view "${query.viewId}" — the views are ${[...this.runtime.views.keys()].join(', ')}` };
+    const provider = this.runtime.providerFor(table);
+    // the version is read in the SAME instant as the provider, and checked again after the rows: a refresh landing anywhere in between is a moved version, never a misdated window
+    const version = this.runtime.sources[table]?.version ?? null;
+    /* v8 ignore next -- every declared table resolves a provider (the def validator refuses an unknown engine; the stubs are providers too) */
+    if (!provider) return { ok: false, reason: 'engine', rejected: `no provider for table "${table}"` };
+    const sorted = query.sort !== undefined && query.sort.length > 0;
+    if (sorted && provider.capabilities.canSort !== true) return { ok: false, reason: 'unsupported-sort', rejected: `the ${provider.engine} engine cannot sort. Ask for this window without a sort` };
+    // whose eyes: a view sees what reaches it; no view = the whole-dashboard truth, every live clause filtering (what selectedRowCount counts)
+    const clauses: ReachingClause[] = query.viewId === undefined ? [...this.activeFilters].map(([from, clause]) => ({ from, clause: copyClause(clause), response: 'filter' as const })) : [...this.clausesFor(query.viewId)];
+    const filters = clauses.filter((c) => c.response === 'filter').map((c) => c.clause);
+    const key = this.runtime.def.data[table]!.key; // the table is declared: its def row exists
+    let columns = query.columns;
+    if (columns === undefined) {
+      const cols = await this.effectiveColumnsOf(table);
+      if ('rejected' in cols) return { ok: false, reason: 'no-columns', rejected: cols.rejected };
+      columns = cols.map((c) => c.name);
+    }
+    if (key !== undefined && !columns.includes(key)) columns = [...columns, key]; // identity rides every window
+    const cursor = this._cursor;
+    const res = await provider.evaluate(table, filters.length === 0 ? null : filters, {
+      mode: 'rows',
+      columns,
+      indices: true,
+      offset: query.offset ?? 0,
+      limit: query.limit ?? VIEW_QUERY_DEFAULT_LIMIT,
+      ...(sorted ? { sort: query.sort } : {}),
+    });
+    if (isRejection(res)) {
+      /* v8 ignore next -- every provider's reject() supplies a `detail`; the `reason` fallback is unreachable through the public engines */
+      let rejected = res.detail ?? res.reason;
+      // a column a link's mapping invented is the link's doing — say so, or the person cannot find it (judged against the table's own columns, never the projection)
+      if (res.reason === 'unknown-column') {
+        const own = await this.columnsOf(table);
+        /* v8 ignore next -- the engine just named a column it lacks, so it can list the ones it has; the rejected arm keeps the type honest */
+        const has = new Set('rejected' in own ? [] : own.map((c) => c.name));
+        const invented = this.mappingsInto(query.viewId).filter((m) => !has.has(m.to));
+        if (invented.length > 0) rejected += ` — ${invented.map((m) => `the link from ${m.from} maps ${m.field} → ${m.to}`).join('; ')}`;
+      }
+      return { ok: false, reason: 'engine', engineReason: res.reason, rejected };
+    }
+    const after = this.runtime.sources[table]?.version ?? null;
+    if (after !== version) return { ok: false, reason: 'version-moved', rejected: `table "${table}" was refreshed while the window was read — ask again` };
+    /* v8 ignore next -- rows mode always sets `rows` on the memory engine, the only engine that answers today */
+    const rows = res.rows ?? [];
+    /* v8 ignore next -- `indices: true` always sets `indices` on the memory engine, the only engine that answers today */
+    const indices = res.indices ?? [];
+    const rowIds = rows.map((row, i) => (key !== undefined ? String(row[key]) : `${version ?? 'inline'}#${indices[i]}`));
+    /* v8 ignore next -- an offset is always sent, so `start` is always answered */
+    return { ok: true, columns, rows, rowIds, positional: key === undefined, count: res.count, start: res.start ?? 0, version, cursor, clauses };
+  }
+
+  /** The field mappings on the edges INTO a view (none for the whole-dashboard truth): which names a link invented for this consumer. */
+  private mappingsInto(viewId: string | undefined): readonly { readonly from: string; readonly field: string; readonly to: string }[] {
+    if (viewId === undefined) return [];
+    const out: { from: string; field: string; to: string }[] = [];
+    for (const e of this.currentGraph().edges) {
+      if (e.target !== viewId || e.mapping === undefined) continue;
+      for (const m of e.mapping) out.push({ from: e.source, field: m.from, to: m.to }); // an identity pair names a real column and is never picked as invented
+    }
+    return out;
+  }
+
   /** How many rows the live selection keeps — the engine counts; no row is materialised. */
   private async selectedCount(table: string, clauses: readonly PredicateClause[]): Promise<number | null> {
     const provider = this.runtime.providerFor(table);
@@ -1507,9 +1646,11 @@ class InteractionSessionImpl implements InteractionSession {
     });
     this.landed(record);
     if (values === null) {
+      if (record.cause.revertOf === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it — the same rule as the point door
       this.activeFilters.delete(viewId); // a cleared cell releases the view's filter
       this.activeFilterCommits.delete(viewId);
     } else {
+      this.clearedFilters.delete(viewId); // a live cell speaks for itself: nothing cleared is remembered beside it
       const cell: CellClause = { kind: 'cell', fields: [fields[0], fields[1]], value: values };
       this.activeFilters.set(viewId, cell);
       this.activeFilterCommits.set(viewId, record.id);

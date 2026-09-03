@@ -16,7 +16,7 @@ import type { CommitRecord } from '../log/index.js';
 import type { CauseClause } from '../mosaic/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
 import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
-import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause } from '../data/index.js';
+import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause, PredicateClause, Row, SortSpec } from '../data/index.js';
 import type { EncodingProblem, Fit, RuleLine, RuleScope } from '../encoding/index.js';
 import type { ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
 import type { DispatchVerb, IntentClass, SeriesGrain } from '../def/types.js';
@@ -697,6 +697,60 @@ export interface NoteInfo {
 }
 
 /** One declared table as the def states it (see `Overview.tables`). Nothing here is inferred from the rows. */
+// ── The view-query port: the sheet's window on a table, judged by the same laws as a chart. ──
+
+/** A live (or remembered-on-clear) clause that reaches a view through the link graph, with the response its edge carries. */
+export interface ReachingClause {
+  /** The view whose gesture this is. */
+  readonly from: string;
+  /** The clause as the consumer sees it — the edge's field mapping already applied. */
+  readonly clause: PredicateClause;
+  readonly response: LinkResponse;
+}
+
+/**
+ * One window of rows: the table, whose eyes (a view: its own clause excluded,
+ * link responses applied — or none: the whole-dashboard truth, every live
+ * clause), which columns, in what order, and where the window starts.
+ */
+export interface ViewQuery {
+  /** Default: the dashboard's default table. */
+  readonly table?: string;
+  /** The consumer. Absent = every live clause filters (what `Overview.selectedRowCount` counts). */
+  readonly viewId?: string;
+  /** Default: the columns visible at the cursor. A declared row key is always projected — identity rides every window. */
+  readonly columns?: readonly string[];
+  readonly sort?: readonly SortSpec[];
+  /** Default `VIEW_QUERY_DEFAULT_LIMIT` — a window is a window; ask for a larger one explicitly. */
+  readonly limit?: number;
+  /** Default 0. Past the last match answers no rows and the honest count. */
+  readonly offset?: number;
+}
+
+/** Why a window was refused — a code to branch on beside the sentence. `engine` carries the provider's own reason. */
+export type ViewQueryRefusal = 'unknown-table' | 'unknown-view' | 'unsupported-sort' | 'no-columns' | 'version-moved' | 'engine';
+
+export type ViewQueryResult =
+  | {
+      readonly ok: true;
+      /** The columns each row carries, in order — the projection asked for, plus the declared key when it was left out. */
+      readonly columns: readonly string[];
+      readonly rows: readonly Row[];
+      /** Parallel to `rows`: the declared key's value, or `<version>#<source index>` on a positional table. */
+      readonly rowIds: readonly string[];
+      /** True when the table declares no row key — a row id is then a within-version position, never an identity across refreshes. */
+      readonly positional: boolean;
+      readonly count: number;
+      readonly start: number;
+      /** The table's data version the window was read at (null for an inline table that has none) — read beside the rows, and re-checked after them. */
+      readonly version: string | null;
+      /** The cursor commit the window was read at — a late answer can be dropped when the cursor has moved on. */
+      readonly cursor: string | null;
+      /** Every clause that reached the consumer, with its response — only `filter` ones restricted the rows. Clauses are ANDed: the sheet is intersect-only. */
+      readonly clauses: readonly ReachingClause[];
+    }
+  | { readonly ok: false; readonly reason: ViewQueryRefusal; readonly engineReason?: string; readonly rejected: string };
+
 export interface TableInfo {
   readonly name: string;
   /** Where the rows come from: a declared source (`format · via · at`, the locator only when it is a string), or inline rows / CSV text carried by the def. */
