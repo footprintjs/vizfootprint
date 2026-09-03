@@ -37,7 +37,8 @@ export interface NoteCellProps {
   /** Cancel on a fresh note: the host drops the unsaved cell. */
   readonly onDiscard?: () => void;
   readonly onSeek?: (commitId: string) => void;
-  readonly onBeat?: (label: string) => void;
+  /** A ref to a tag, by its ID (`t1`, …) — never its name, so a renamed beat keeps working. The host resolves the id and goes to the moment. */
+  readonly onBeat?: (beatId: string) => void;
   readonly describeCommit?: (commitId: string) => string | undefined;
   /** Present mode: the words stay, the doors close. */
   readonly readOnly?: boolean;
@@ -175,7 +176,8 @@ export function NoteCell({ note, world, linkables, by, onDescribe, fresh = false
           {title !== undefined && <h3 className="vzf-note-title">{title.text}</h3>}
           {caption !== undefined ? (
             <div className={`vzf-note-body${caption.status === 'stale' ? ' vzf-note-stale' : ''}`}>
-              <ProseText text={caption.text} refs={caption.refs} describeCommit={describeCommit} onSeek={onSeek} onBeat={onBeat} />
+              {/* the light marks a model writes (**bold**, `code`) are formatting here too — a reply added to the dashboard reads the way it read in the panel */}
+              <ProseText markdown text={caption.text} refs={caption.refs} describeCommit={describeCommit} onSeek={onSeek} onBeat={onBeat} />
             </div>
           ) : (
             <div className="vzf-note-body vzf-soft">(no words yet)</div>

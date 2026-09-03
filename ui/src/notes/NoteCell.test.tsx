@@ -94,6 +94,15 @@ describe('NoteCell', () => {
     expect(empty.textContent).toContain('(no words yet)');
   });
 
+  it("the analyst's light marks read as formatting here too, so a reply added to the dashboard looks the way it looked in the panel", () => {
+    const note: NoteView = { id: 'n2', prose: [{ slot: 'caption', text: '**South Atlantic** leads at `19.09`.', status: 'current', changed: [], author: { kind: 'agent', model: 'm' }, levels: [], refs: [{ span: [2, 16], commit: 's1', label: 'pick formal' }] }], proposals: [] };
+    const { container } = render(<NoteCell note={note} world={world} linkables={linkables} onDescribe={vi.fn()} />);
+    const body = container.querySelector('.vzf-note-body')!;
+    expect(body.textContent).toBe('South Atlantic1 leads at 19.09.'); // no asterisks, no backticks
+    expect(body.querySelector('strong')!.textContent).toBe('South Atlantic'); // the linked words are the bold ones
+    expect(body.querySelector('code')!.textContent).toBe('19.09');
+  });
+
   /** A session that says yes — typed like `onDescribe`, so `mock.calls` is the describe's own tuple and not `[]`. */
   const landed = () => vi.fn(async (_id: string, _slot: 'title' | 'caption', _record: Readonly<Record<string, unknown>> | null) => ({ ok: true as const }));
 
