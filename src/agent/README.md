@@ -76,9 +76,34 @@ deliberately not the record, because that commit's VALUE is the spec and this
 surface does not echo a spec back at the agent that sent it.
 
 **When you add a door**, list what its result decides, then check each against
-the projection. The compiler will not catch this one: `VizToolResult` is
-`Record<string, unknown>`, so a dropped key is a silent, type-clean omission.
+the projection. The compiler will not catch a dropped key on its own:
+`VizToolResult` is `Record<string, unknown>`, so an omission is type-clean.
 That is exactly how these four survived.
+
+### What the openness cost a READER, and what it costs now
+
+`call(name)` is routed by a name the caller already knows, so a union return
+type would make every consumer narrow on something it is not in doubt about.
+That is why `VizToolResult` stays open. What the openness actually cost was
+nobody being able to read an ACT: three of the nine tools decide where a mark
+landed, and they put it in four different places — `commit` (dispatch),
+`analysis.commit` (an analysis, one level down), `commitId` (a proposal, the id
+alone), and `bookmark` (no commit at all: bookmarking mints a store record).
+
+So the acts are typed — `VizDispatchResult`, `VizAnalysisResult`,
+`VizProposeChartResult`, `VizPortRefusal`, all exported — and the question
+every consumer was answering by hand has a door:
+
+```ts
+whatLanded(await port.call('viz.dispatch', { verb: 'select', … }));  // { commit: 's7' }
+whatLanded(await port.call('viz.bookmark', { label: 'the spike' })); // { bookmark: 'b1' }
+whatLanded(refusal);                                                 // undefined — a refusal left nothing
+```
+
+The demo wrote that walk twice in one file, and the two copies had drifted:
+one gated on `ok === true` and the other did not, so a refusal could be matched
+as the act that landed a commit. Four shapes for one question is a reason to
+give the question a door, not a reason for every reader to learn the four.
 
 ---
 

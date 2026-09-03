@@ -184,7 +184,7 @@ describe('setLayout — REAL InteractionSession end to end (fold-carried view-st
       restorePath: () => ({ ok: false }),
       discardFromHere: () => ({ ok: false }),
       adoptPath: async () => ({ ok: false }),
-      log: { records: [] },
+      commits: () => [],
     };
     const relicView = createSessionView(sessionSource(relic));
     await relicView.refresh();

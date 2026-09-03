@@ -393,6 +393,37 @@ export interface InteractionSession {
    */
   why(target: WhyTarget, opts?: { agentEventLog?: readonly AgentEventFrame[] }): WhyResult;
 
+  /**
+   * THE COMMITS — the door every reader of the trace walks through, instead of
+   * reaching into `log.records` and deciding for itself which question it is
+   * asking.
+   *
+   * The scope is REQUIRED because the two answers are two different claims,
+   * and Law 5 (`README.md`) exists because nothing in the code used to say
+   * which one a read meant:
+   *
+   * - `'path'` — the commits on the branch path at the cursor, root→cursor:
+   *   everything this position could have seen. This is what a read answering
+   *   *what is true* or *what happened* wants. A null cursor is an empty path.
+   * - `'anywhere'` — every commit in the log, all branches, in arrival order.
+   *   This is what a read answering *what exists anywhere in this history*
+   *   wants: a branch map to draw, an id set to verify a citation against.
+   *
+   * ```ts
+   * s.commits('path').slice(-6);                      // the last acts THIS position saw
+   * new Set(s.commits('anywhere').map((r) => r.id));  // does this id name a commit at all?
+   * ```
+   *
+   * `'anywhere'` and not `'history'`: a scope word that can be heard as *the
+   * past* — the commits BEHIND the cursor — would be ambiguous in exactly the
+   * way this law exists to remove. These two words are the law's own, so the
+   * door teaches it: what is TRUE on a path, against what EXISTS anywhere.
+   *
+   * Detached either way, at no cost: the log hands out a frozen array of
+   * frozen records, and a path is a fresh array over those same records.
+   */
+  commits(scope: 'path' | 'anywhere'): readonly CommitRecord[];
+
   /** The gap ledger (R14 / D14). */
   gaps(): readonly GapRow[];
   readonly gapLedger: GapLedger;
@@ -3395,6 +3426,11 @@ class InteractionSessionImpl implements InteractionSession {
    */
   ledger(): readonly FdrStep[] {
     return Object.freeze([...this._ledger]);
+  }
+
+  /** The commits, scoped as the caller asks — see {@link InteractionSession.commits}. The whole log is already a frozen array of frozen records; a path is a fresh array over the same records. */
+  commits(scope: 'path' | 'anywhere'): readonly CommitRecord[] {
+    return scope === 'anywhere' ? this.log.records : Object.freeze(this.branchPath(this._cursor));
   }
 
   /** The wire's view of the bookmarks: `id` = the bookmark's own id (what a note links, and what a badge keys on), `label` = the name, `commitId` and `at` = the bookmarked moment, `ts` = that commit's position in the log — one truth, the bookmark store. */

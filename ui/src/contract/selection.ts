@@ -12,11 +12,27 @@
  *
  * PREDICATE SEMANTICS — a deliberate mirror of `src/data`'s `matchesClause`
  * point/interval arms (`src/data/predicate.ts`), pinned by a parity test
- * (`selection.test.ts`) that runs BOTH over a value matrix. The mirror exists
- * (instead of a value import) because vizfootprint-ui ships standalone: the
- * package rule is "import src TYPES, never src values" (see
- * `adapter/types.ts`), so the evaluator is restated here and parity is
- * enforced by test, not by convention:
+ * (`selection.test.ts`) that runs BOTH over a value matrix.
+ *
+ * This block used to justify the mirror with a package rule — *"import src
+ * TYPES, never src values"* — attributed to `adapter/types.ts`. **That rule
+ * does not exist.** `adapter/types.ts` states a different one (import src
+ * types, never MODIFY src), and this package imports src VALUES in five
+ * non-test places today: `familyOf` and `PROPOSAL_LANE` in
+ * `adapter/sessionView.ts`, `mentionsToRefs` in `notes/NoteCell.tsx`,
+ * `MAGNITUDE_CHANNELS` in `primitives/compat.ts`, and
+ * `BOOKMARK_VIEW_PREFIX`/`PROSE_VIEW_PREFIX`/`DASHBOARD_PROSE_ID`/
+ * `PROSE_SLOTS` in `story/toStory.ts`. A rule the codebase does not follow is
+ * worse than no rule: it makes a duplication look decided when nobody decided
+ * it.
+ *
+ * What actually stands in the way of importing `matchesClause` is a SHAPE, not
+ * a rule: it reads `Row` + `PredicateClause` — src's own types — while this
+ * tier reads `RenderRow` + `SelectionClauseView`, the view-models
+ * `adapter/types.ts` re-declares so the contract stays stable as src evolves.
+ * Sharing one evaluator therefore means agreeing on one clause shape across
+ * that seam, which is packaging work and is deliberately NOT done here. Until
+ * it is, the parity test — not this comment — is what holds the two together:
  *   - point: `undefined` = CLEARED (keep all) — which never reaches this
  *     tier since SET-1 drops a cleared point from the fold; `null` = IS NULL
  *     (`row[field] == null`), exactly the src tier. (Before SET-1 the
@@ -201,6 +217,25 @@ export function selectionForView(
 }
 
 /**
+ * Does this clause NARROW the view it reached, or only colour it?
+ *
+ * The link graph has already decided whether the clause arrives at all
+ * (`selectionForView` drops a `none` edge and an absent one). This is the
+ * remaining half: `filter` (and a graph-less wire's `undefined`, the legacy
+ * rule where every clause filters) narrows the rows; `highlight`, `navigate`
+ * and `mirror` do not.
+ *
+ * It is exported because it is the rule {@link keepPredicate} folds by, and a
+ * host that reads one clause's value BY HAND must narrow by exactly the same
+ * rule or the dashboard says a link is off while the view moves anyway. The
+ * demo restated this line for that purpose; a rule with two spellings is a
+ * rule with two answers.
+ */
+export function filtersHere(clause: SelectionClauseView | undefined): clause is SelectionClauseView {
+  return clause !== undefined && (clause.response === undefined || clause.response === 'filter');
+}
+
+/**
  * Fold a selection into ONE keep-predicate. By default the self clause is
  * excluded (crossfilter self-exclusion — "dim under everyone's brush but my
  * own"); pass `includeSelf: true` for the whole-dashboard truth.
@@ -209,7 +244,7 @@ export function keepPredicate(
   selection: RenderSelection,
   opts: { readonly includeSelf?: boolean } = {},
 ): (row: RenderRow) => boolean {
-  return foldPredicates(selection, (clause, viewId) => (opts.includeSelf || viewId !== selection.selfClauseId) && (clause.response === undefined || clause.response === 'filter'));
+  return foldPredicates(selection, (clause, viewId) => (opts.includeSelf || viewId !== selection.selfClauseId) && filtersHere(clause));
 }
 
 /**

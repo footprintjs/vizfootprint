@@ -170,6 +170,31 @@ describe('a read at a cursor answers about that cursor', () => {
     expect((await s.dispatch({ verb: 'describe', viewId: 'note:n1', slot: 'caption', record: words, cause: userCause('now it is here') })).ok).toBe(true);
   });
 
+  it('`commits(scope)` is the door, and the scope is the whole point: the PATH is root->cursor, the HISTORY is every branch', async () => {
+    const { s, root, a, b } = await twoBranches();
+
+    // standing on B: the path is what THIS position could have seen, and A's brush is not on it
+    expect(s.cursor()).toBe(b);
+    expect(s.commits('path').map((r) => r.id)).toEqual([root, b]);
+    // the history is the whole tree, in arrival order — a branch map's list, and an existence check's
+    expect(s.commits('anywhere').map((r) => r.id)).toEqual([root, a, b]);
+
+    // seek across, and the path answers about where you now stand
+    s.seek(a);
+    expect(s.commits('path').map((r) => r.id)).toEqual([root, a]);
+    expect(s.commits('anywhere').map((r) => r.id)).toEqual([root, a, b]); // unmoved: the history is not a position
+
+    // detached: a null cursor has seen nothing, and says so rather than falling back to the log
+    const fresh = buildDashboard(makeDashboardDef()).createSession();
+    expect(fresh.cursor()).toBeNull();
+    expect(fresh.commits('path')).toEqual([]);
+    expect(fresh.commits('anywhere')).toEqual([]);
+
+    // detached either way — a reader never holds something the session is still writing to
+    expect(Object.isFrozen(s.commits('path'))).toBe(true);
+    expect(Object.isFrozen(s.commits('anywhere'))).toBe(true);
+  });
+
   it('an agent-authored chart is deliberately NOT branch-scoped — the ledger already charged for it', async () => {
     const { s, a } = await twoBranches();
     const proposed = await s.proposeChart({ id: 'pr', claim: 'price vs rating', spec: { mark: 'circle', encoding: { x: { field: 'price', type: 'quantitative' }, y: { field: 'rating', type: 'quantitative' } } } }, { as: 'agent' });

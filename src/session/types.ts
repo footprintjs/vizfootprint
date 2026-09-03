@@ -590,8 +590,12 @@ export interface AdapterCapabilities {
   /**
    * Which emission kinds it produces. Absent = every kind is allowed
    * (declare the list to narrow honestly — e.g. a heatmap is `['cell']`).
+   * The mount-time twin of {@link CapabilityDecl.encodings}, and typed from
+   * the same `EmissionKind` — as a literal union it had silently missed
+   * `'match'` since SET-1, so an adapter could not declare the set voice its
+   * own guard (`voiceOf`) already accepted.
    */
-  readonly encodings?: readonly ('point' | 'interval' | 'cell')[];
+  readonly encodings?: readonly EmissionKind[];
   /** Which data fields it encodes (informational). */
   readonly fields?: readonly string[];
 }

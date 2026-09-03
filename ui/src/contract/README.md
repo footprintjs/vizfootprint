@@ -172,3 +172,11 @@ from `index.ts` in the same change, and give the chart-side helpers
 (`selectedSet`, `inSet`, `markClass`, and the SET-1 emission builders) the same
 treatment in `primitives/index.ts`. A law nobody can import is a law nobody
 obeys.
+
+`filtersHere` is the same habit applied to a RULE rather than a shape. Which
+link response NARROWS a view — `filter` and, on a graph-less wire, `undefined`;
+never `highlight`, `navigate` or `mirror` — is the rule `keepPredicate` folds
+by, and it used to live only inside that fold. A host that reads one clause's
+value by hand has to narrow by the same rule or its dashboard says a link is
+off while the view moves anyway, so the demo restated the line. It is exported
+now and `keepPredicate` calls it: one rule, one spelling, one answer.

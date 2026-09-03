@@ -354,6 +354,32 @@ for that array, and until this section they were not marked: some of them were
 asking a question the whole tree answers, and some were asking a question only
 the cursor's prefix answers, and nothing in the code said which was which.
 
+**The door, so a reader never has to decide silently.** `commits(scope)` is
+how anything outside the session reads the trace — the scope is a REQUIRED
+argument, because the two answers are two different claims and the whole point
+of this law is that the code should say which one it meant:
+
+```ts
+s.commits('path');       // root -> cursor: everything THIS position could have seen
+s.commits('anywhere');   // every commit on every branch, in arrival order
+```
+
+The two words are this law's own, deliberately: `'anywhere'` rather than
+`'history'`, because a reader can hear "history" as *the past* — the commits
+behind the cursor — which is the very ambiguity the law exists to remove. The
+door and the law now say the same thing, so reading one teaches the other.
+
+`log.records` is still there (the trace is a public, frozen, append-only
+array), but a consumer reaching for it is a consumer answering this law's
+question in its own head. The demo did, in three places, and the cockpit
+adapter had baked `readonly log: { records }` into its own session contract for
+want of anything better to ask for. Two of those reads genuinely wanted the
+whole history (a branch map draws every lineage; a citation check asks whether
+an id names a commit at all) and one wanted the path (the last six acts, handed
+to an analyst as context — which after a seek used to include acts from a
+branch the dashboard was not standing on). One door, one word at the call site,
+and each of them now says which.
+
 **The rule, in one line:**
 
 - A read that answers **what is true**, or **what happened**, is about a

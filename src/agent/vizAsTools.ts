@@ -38,8 +38,58 @@ export interface VizTool {
   readonly inputSchema: Record<string, unknown>;
 }
 
-/** A tool result — a plain data object; serialize one as the tool_result body. */
+/**
+ * A tool result — a plain data object; serialize one as the tool_result body.
+ *
+ * Deliberately open, because the nine tools answer nine different shapes and
+ * `call` is routed by a NAME the caller already knows: a union here would make
+ * every consumer narrow on something it is not in doubt about. What the
+ * openness cost was a consumer having to guess at the ACTS — so the three
+ * results that decide something are named below ({@link VizDispatchResult},
+ * {@link VizAnalysisResult}, {@link VizProposeChartResult}), and the one
+ * question every consumer asked of a bag — *what id did this act land* — has a
+ * door of its own in `whatLanded` (`./landed.ts`), rather than a walk per
+ * caller.
+ */
 export type VizToolResult = Record<string, unknown>;
+
+/** A refusal from the PORT itself, before the session was asked: a payload it could not read, or a name it does not route. */
+export type VizPortRefusal =
+  | { readonly ok: false; readonly reason: 'PAYLOAD_INVALID'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'UNKNOWN_TOOL'; readonly tools: readonly string[] };
+
+/** The successful arm of a dispatch, as the port projects it: every decision the session made, with `analysis` projected and absent keys OMITTED (never `undefined` on the wire). */
+export type VizDispatchOk = Omit<Extract<DispatchResult, { ok: true }>, 'analysis'> & { readonly analysis?: VizAnalysisResult };
+
+/** The refused arm: the session's typed gap, under the name the served answer uses for every refusal (`gap`, not `rejection`). */
+export type VizDispatchRefusal = Omit<Extract<DispatchResult, { ok: false }>, 'rejection'> & { readonly gap: Extract<DispatchResult, { ok: false }>['rejection'] };
+
+/** What `dispatch` (and `declare_analysis`, `fork`, `bookmark`, which route through it) answers. */
+export type VizDispatchResult = VizDispatchOk | VizDispatchRefusal;
+
+/** What an analysis answers — the session's own {@link AnalysisCommit}, absent keys omitted rather than carried as `undefined`. */
+export type VizAnalysisResult = AnalysisCommit;
+
+/**
+ * What `propose_chart` answers. `commitId`, not the commit: the
+ * spec-registration commit's VALUE is the spec, and this surface does not echo
+ * a spec back at the agent that sent it — the id alone is the moment the claim
+ * was made, and the anchor a reply cites or a person seeks to.
+ */
+export type VizProposeChartResult =
+  | {
+      readonly ok: true;
+      readonly chartId: string;
+      readonly viewId: string;
+      readonly commitId: string;
+      readonly claim: Extract<ProposeChartResult, { ok: true }>['view']['claim'];
+      readonly authoredBy: Extract<ProposeChartResult, { ok: true }>['view']['authoredBy'];
+      readonly ledgered: true;
+      readonly tested: Extract<ProposeChartResult, { ok: true }>['hypothesis']['tested'];
+      readonly ledgerStep: number;
+      readonly fdrStep: Extract<ProposeChartResult, { ok: true }>['fdrStep'];
+    }
+  | { readonly ok: false; readonly gap: Extract<ProposeChartResult, { ok: false }>['gap'] };
 
 export interface VizToolsPort {
   /** The STATIC tool array — identical bytes for the life of the session. */
@@ -629,7 +679,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
    * truthiness one: a describe that goes back to the def's own words answers
    * `described: null`, and `null` is the answer, not an absence.
    */
-  function projectDispatch(result: DispatchResult): VizToolResult {
+  function projectDispatch(result: DispatchResult): VizDispatchResult {
     if (!result.ok) {
       return { ok: false, verb: result.verb, intent: result.intent, gap: result.rejection };
     }
@@ -650,7 +700,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     };
   }
 
-  function projectAnalysis(a: AnalysisCommit): VizToolResult {
+  function projectAnalysis(a: AnalysisCommit): VizAnalysisResult {
     return {
       analysisId: a.analysisId,
       kind: a.kind,
@@ -663,7 +713,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     };
   }
 
-  async function callDispatch(args: Record<string, unknown>): Promise<VizToolResult> {
+  async function callDispatch(args: Record<string, unknown>): Promise<VizDispatchResult | VizPortRefusal> {
     const action = buildAction(args);
 
     if ('error' in action) return { ok: false, reason: 'PAYLOAD_INVALID', detail: action.error };
@@ -687,7 +737,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
    * cites or a person seeks to. Without it a proposal was the one act on this
    * surface that landed a commit and told nobody which.
    */
-  async function callProposeChart(args: Record<string, unknown>): Promise<VizToolResult> {
+  async function callProposeChart(args: Record<string, unknown>): Promise<VizProposeChartResult | VizPortRefusal> {
     if (typeof args['id'] !== 'string') {
       return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'propose_chart requires a string id' };
     }

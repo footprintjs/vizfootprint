@@ -14,7 +14,9 @@ The bars are **grey on purpose** — no chart on the dashboard draws in these to
 
 ## Present mode
 
-Bookmarks are ordered along the presented lineage (root → tip, see `presentBookmark.ts`), never by arrival; prev and next seek the session to the position a bookmark names. `onPlay` hands the host the slideshow — see `layout/README.md`.
+Bookmarks are ordered along the presented lineage (root → tip, see `presentBookmark.ts`), never by arrival; prev and next seek the session to the position a bookmark names.
+
+**Which commit a bookmark names is answered in exactly one place**, and `presentBookmark.ts` is it: `bookmarkTarget(record)` for a record you already hold, `bookmarkRefTarget(bookmarks, ref)` for the id a note's `@[bookmark]` link carries (a label is accepted second, for words written before bookmarks had ids). They are one rule called two ways. A consumer that finds the record itself and reads `.commitId` off it has written a second, different resolver: for a legacy `bookmark:` commit `commitId` is the ACT of naming and `at` is the moment NAMED, so the slideshow and a note anchor would seek two different commits for one bookmark. That is not hypothetical — it is what the demo shipped until this rule was written down. `onPlay` hands the host the slideshow — see `layout/README.md`.
 
 ## Not here, on purpose
 

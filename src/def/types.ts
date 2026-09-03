@@ -25,7 +25,7 @@
 
 import type { Actor, Cause } from '../cause/index.js';
 import type { RefreshRecord } from './buildDashboard.js';
-import type { LinkDecl, LinkDefault, LinkGraph } from '../links/types.js';
+import type { EmissionKind, LinkDecl, LinkDefault, LinkGraph } from '../links/types.js';
 import type { ColumnDecl, EncodingPorts, EncodingRules } from '../encoding/types.js';
 import type { ProseDecl } from '../prose/types.js';
 import type { SourceDecl, SourceInfo } from '../source/types.js';
@@ -245,8 +245,14 @@ export interface CapabilityDecl {
    * a heatmap declares `['cell']`; `'match'` = the SET-1 many-values select).
    * Default: every kind is allowed. A view that declares `'point'` may also
    * emit `'match'` — a set is a point's plural, never a new capability.
+   *
+   * Spelled `EmissionKind` rather than a literal union, and so is
+   * {@link AdapterCapabilities.encodings}: one idea, one declaration. The
+   * literal restatement here and in the session's twin drifted — the twin
+   * never gained `'match'` — while `voiceOf`, the one reader of both, had
+   * always typed it as the full set.
    */
-  readonly encodings?: readonly ('point' | 'interval' | 'cell' | 'match')[];
+  readonly encodings?: readonly EmissionKind[];
   /** Which data fields it encodes (informational; drives readiness hints). */
   readonly fields?: readonly string[];
 }

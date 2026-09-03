@@ -3,7 +3,7 @@
  *
  * A SOURCE is one of two things:
  *   • an in-process {@link SessionLike} (a live vizfootprint InteractionSession),
- *     read via `overview()` + `log.records` + `gaps/branches/bookmarks`;
+ *     read via `overview()` + `commits('anywhere')` + `gaps/branches/bookmarks`;
  *   • a polled state ENDPOINT (the demo's `/api/state` shape), fetched on a timer.
  * Both normalize into the ONE {@link SessionViewState}. The store exposes
  * `getState()` + `subscribe()` (so a React `useSyncExternalStore`, or any other
@@ -111,7 +111,20 @@ export interface SessionLike {
   renameSaved(from: string, to: string, as?: Actor): SaveSelectionResult;
   /** Apply one BY NAME: judged first, then one ordinary commit per condition under one cause. Honest per condition about what could not land. */
   applySaved(name: string, cause: Cause, opts?: ApplySavedOptions): Promise<ApplySavedResult> | ApplySavedResult;
-  readonly log: { readonly records: readonly CommitRecord[] };
+  /**
+   * The commits, scoped by the caller — the session's own door (README, Law 1:
+   * project what the library serves). `'anywhere'` is what this adapter asks
+   * for and the only scope it needs: `state.commits` feeds the rail and the
+   * BRANCH MAP, which draw the whole tree, and `finalize` marks each row
+   * `onBranch` against the cursor's path itself — a presentation derivation,
+   * about the screen rather than the data.
+   *
+   * This used to be `readonly log: { records }` — the raw trace, baked into
+   * the contract because the session had no door. A door that hands out the
+   * whole array leaves every consumer to decide silently whether it meant the
+   * position or the history; this one makes the caller say.
+   */
+  commits(scope: 'path' | 'anywhere'): readonly CommitRecord[];
 }
 
 /** One path row as either source serializes it (src `PathInfo` / its `/api/state` JSON). */
@@ -367,7 +380,7 @@ interface StatePieces {
   journalTotal?: number;
   branches: BranchView[];
   paths: PathsView;
-  bookmarks: BookmarkView[];
+  bookmarks: readonly BookmarkView[];
   saved: readonly SavedSelectionView[];
   cursor: string | null;
   head: string | null;
@@ -703,6 +716,34 @@ function movedSince(data: Readonly<Record<string, string>> | undefined, sources:
   return { dataMoved: moved.length > 0, ...(moved.length > 0 ? { moved } : {}) };
 }
 
+/**
+ * The commits, as either source hands them in — a live session's own records
+ * or the same commits off the wire — into the adapter's `RawCommit` rows.
+ *
+ * ONE mapper, per the checklist below: this body was written twice, once per
+ * source, byte for byte. Two copies of a mapper are two chances for a field to
+ * reach the polled cockpit and not the in-process one (or the reverse), which
+ * is the failure the checklist's rule 2 exists to prevent.
+ */
+function mapCommits(records: readonly RawPollCommit[]): RawCommit[] {
+  return records.map((r) => ({
+    id: r.id,
+    parent: r.parent,
+    viewId: r.viewId,
+    kind: r.kind,
+    field: r.field,
+    value: r.value,
+    fields: r.fields,
+    actor: (r.cause?.requestedBy ?? 'system') as Actor,
+    intent: r.cause?.intent,
+    correlationId: r.correlationId,
+    replayedFrom: r.cause?.replayedFrom,
+    revertOf: r.cause?.revertOf,
+    ...stampOf(r.data),
+    conflicts: r.cause?.conflicts,
+  }));
+}
+
 /** The stamp as a spread: `{ data }` when the wire carries a well-formed one, else nothing. */
 function stampOf(raw: unknown): { readonly data?: Readonly<Record<string, string>> } {
   const stamp = mapStamp(raw);
@@ -941,22 +982,7 @@ function encodingsFromViews(views: readonly ViewView[]): Record<string, ViewEnco
 /** Map a live session's async projection into `SessionViewState`. */
 async function mapSession(session: SessionLike, defaultLayout?: LayoutPreset): Promise<SessionViewState> {
   const overview: Overview = await Promise.resolve(session.overview());
-  const rawCommits: RawCommit[] = session.log.records.map((r) => ({
-    id: r.id,
-    parent: r.parent,
-    viewId: r.viewId,
-    kind: r.kind,
-    field: r.field,
-    value: r.value,
-    fields: r.fields,
-    actor: (r.cause?.requestedBy ?? 'system') as Actor,
-    intent: r.cause?.intent,
-    correlationId: r.correlationId,
-    replayedFrom: r.cause?.replayedFrom,
-    revertOf: r.cause?.revertOf,
-    ...stampOf(r.data),
-    conflicts: r.cause?.conflicts,
-  }));
+  const rawCommits = mapCommits(session.commits('anywhere'));
   const views = mapViews(overview.views);
   return finalize({
     defaultTable: overview.defaultTable,
@@ -982,7 +1008,8 @@ async function mapSession(session: SessionLike, defaultLayout?: LayoutPreset): P
     // come from the session's own full listing (whats_here only reports their
     // COUNT, deliberately — a hidden path is hidden until asked for).
     paths: withArchived(mapPaths(overview.paths), session.paths({ includeArchived: true })),
-    bookmarks: session.bookmarkViews().map((c) => ({ id: c.id, label: c.label, commitId: c.commitId, at: c.at, ts: c.ts })),
+    // `bookmarkViews()` IS the wire's view of the bookmarks (src/session/README.md) — Law 1: project it, never re-project it field by field
+    bookmarks: session.bookmarkViews(),
     saved: mapSaved(overview.saved),
     cursor: overview.time.cursor,
     head: overview.time.head,
@@ -1000,22 +1027,7 @@ async function mapSession(session: SessionLike, defaultLayout?: LayoutPreset): P
 
 /** Map a raw `/api/state` payload into `SessionViewState`. */
 export function mapPollState(raw: RawPollState, defaultLayout?: LayoutPreset): SessionViewState {
-  const rawCommits: RawCommit[] = raw.records.map((r) => ({
-    id: r.id,
-    parent: r.parent,
-    viewId: r.viewId,
-    kind: r.kind,
-    field: r.field,
-    value: r.value,
-    fields: r.fields,
-    actor: (r.cause?.requestedBy ?? 'system') as Actor,
-    intent: r.cause?.intent,
-    correlationId: r.correlationId,
-    replayedFrom: r.cause?.replayedFrom,
-    revertOf: r.cause?.revertOf,
-    ...stampOf(r.data),
-    conflicts: r.cause?.conflicts,
-  }));
+  const rawCommits = mapCommits(raw.records);
   const views = mapViews(raw.views);
   return finalize({
     defaultTable: raw.defaultTable ?? 'data',

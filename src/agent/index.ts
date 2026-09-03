@@ -13,7 +13,21 @@
  */
 
 export { vizAsTools, HIDDEN_NOT_ERASED } from './vizAsTools.js';
-export type { VizTool, VizToolResult, VizToolsPort, VizToolsOptions } from './vizAsTools.js';
+export type {
+  VizTool,
+  VizToolResult,
+  VizToolsPort,
+  VizToolsOptions,
+  // the ACTS, typed: what a consumer reads a field off instead of guessing at a bag
+  VizDispatchResult,
+  VizDispatchOk,
+  VizDispatchRefusal,
+  VizAnalysisResult,
+  VizProposeChartResult,
+  VizPortRefusal,
+} from './vizAsTools.js';
+export { whatLanded } from './landed.js';
+export type { VizLanded } from './landed.js';
 
 // Re-export the declare + connect halves so `vizfootprint/agent` is the one L5 entry.
 export { buildDashboard, validateDashboardDef, DashboardDefError, DISPATCH_VERBS, DEFAULT_INTENTS, dispatchVerbs } from '../def/index.js';
@@ -23,6 +37,8 @@ export type {
   DashboardDef,
   DataSourceDef,
   CapabilityDecl,
+  // the emission kinds a view may declare — the ONE spelling behind both `CapabilityDecl.encodings` and `AdapterCapabilities.encodings`
+  EmissionKind,
   ViewEncodingDecl,
   FdrDecl,
   AgentDecl,

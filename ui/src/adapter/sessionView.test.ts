@@ -248,7 +248,7 @@ describe('createSessionView — in-process session source', () => {
       pathCalls,
       savedCalls,
       savedStore,
-      log: { records: [] },
+      commits: () => [],
       overview: () => ({
         defaultTable: 'data',
         views: [],

@@ -11,8 +11,9 @@ Everything the surrounding library claims rests on one property: *what you see
 is derived from a recorded trace, and the library is the one that derived it*.
 An adapter that recomputes a fact the library already holds does not break that
 loudly — nothing crashes; the cockpit simply starts believing a second version
-of the truth. So this folder is written to a single standard, and the two laws
-below are why each mapper looks the way it does.
+of the truth. So this folder is written to a single standard, and the three
+laws below are why each mapper looks the way it does — the third one reaching
+past this folder, to the doors the library owes it.
 
 ---
 
@@ -142,6 +143,82 @@ session gave no reason"`) rather than inventing a reason it was not given.
 
 ---
 
+## Law 3 — when a consumer has written a helper the library should have given it, the fix is the DOOR, not the helper
+
+Law 1 is about a fact the library already holds and the adapter recomputed.
+This is its sibling, one step further out: a fact the library holds and gives
+**no way to ask for**, so the consumer writes a small helper of its own. That
+helper is not the mistake. The mistake is leaving it there, because a helper
+outside the library is a second implementation of a library rule — and the
+second implementation is the one nobody tests, nobody versions, and nobody
+tells when the rule changes.
+
+The tell is the same one Law 1 uses, asked one level up. Law 1: *which library
+call already answers this?* Law 3: *if none does, why not?* If the answer is
+"the library knows this and simply has no door for it", the fix is the door.
+Writing the helper instead is a decision to keep the rule in two places
+forever, made silently, by whoever was in a hurry.
+
+### The scar: two bookmark resolvers that had already drifted
+
+A bookmark names a moment. Which commit is that? There are two fields, and for
+a legacy `bookmark:` commit from an older log they are **different commits**:
+`commitId` is the act of naming and `at` is the moment named.
+
+The UI had the answer, for a record: `bookmarkTarget(c)` = `at ?? commitId`.
+What it did not have was a way to go from a REF — the id a note's
+`@[bookmark]` link carries — to that moment. So the demo wrote one:
+
+```ts
+// the demo's own resolver — gone
+export function bookmarkCommitId(bookmarks, ref) {
+  const bookmark = bookmarks.find((c) => c.id === ref) ?? bookmarks.find((c) => c.label === ref);
+  return bookmark?.commitId ?? null;   //  ← commitId, not `at ?? commitId`
+}
+```
+
+One character of drift, and the dashboard now seeks **two different commits for
+one bookmark**: the slideshow's prev/next went to the moment named, every note
+anchor and every prose link went to the act of naming. Both worked. Neither
+threw. On this demo's data the two fields happen to be equal, so nothing was
+visibly wrong — the bug was already written and was waiting for the first
+legacy log to arrive.
+
+Notice what the drift was NOT: nobody re-derived a fact from the log, nobody
+recomputed a fold. Law 1 was obeyed. The rule that broke was one the library
+knew and had not exported, so the copy that mattered lived somewhere the
+library's tests could not see it.
+
+```ts
+// the door, in ui/src/time/presentBookmark.ts, beside the record resolver it calls
+bookmarkRefTarget(state.bookmarks, ref);   // id first, then label; null when nothing matches
+```
+
+`bookmarkTarget` — the one owner of `at ?? commitId` — is now called by the
+ref resolver rather than restated beside it, and the two are exported from the
+same barrel, so the next consumer reaches the door before it reaches for a
+`find`.
+
+### The same shape, three more times in one packet
+
+Each is the same story with a different door, and they are listed because the
+pattern is what you are meant to recognise, not the individual fix:
+
+| the helper a consumer wrote | why it existed | the door |
+|---|---|---|
+| the demo's `landedBy` / `actLabel`, walking four result shapes for "what id did this act land" — **twice, and the two disagreed about a refusal** | `VizToolResult` is `Record<string, unknown>`, so there was nothing to read a field off | `whatLanded(result)`, plus real types for the act results (`vizfootprint/agent`) |
+| three demo reads of `session.log.records`, and `readonly log: { records }` baked into `SessionLike` itself | the session served the raw trace and no scoped list | `session.commits('path' \| 'anywhere')` — the scope is REQUIRED, so the signature says which question was asked |
+| the demo's `filtersHere`, restating which link response NARROWS a view | `keepPredicate` folded by that rule and never exported it | `filtersHere` (`contract/selection.ts`), which `keepPredicate` now calls |
+
+**How to tell you are about to break this law.** You are in a consumer, about
+to write a function whose body encodes a rule the library states in prose — a
+fallback order, which field wins, what a response means. Stop and ask whether
+the library could hand you the answer. If it could and does not, describe the
+door and let the library grow it; the helper you were about to write IS the
+door, in the wrong repository.
+
+---
+
 ## Adding a field to `SessionViewState` — the checklist
 
 1. **Name the source.** Which session call already answers it? If the answer is
@@ -149,6 +226,11 @@ session gave no reason"`) rather than inventing a reason it was not given.
 2. **Both sources, one mapper.** Add it to `SessionLike` (or read it off
    `Overview`) AND to `RawPollState`, and map both through the SAME function.
    A field only one source fills is a field half the cockpit will never see.
+   The commit rows themselves were the exception that proved it: `mapSession`
+   and `mapPolled` each built `rawCommits` inline, byte for byte the same, so
+   a new field on a commit had to be remembered twice. They share `mapCommits`
+   now, and the in-process side reaches its records through
+   `session.commits('anywhere')` rather than the raw log (Law 3).
 3. **Server side too.** A polled field that no server serializes is absent
    forever. `/api/state` in the demo is the reference implementation.
 4. **Required, not optional.** `saved?:` invited a `?? []` fallback in three

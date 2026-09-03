@@ -94,12 +94,10 @@ describe('mapPollState — edge branches the happy-path fixture never exercises'
 describe('createSessionView — in-process session edge branches', () => {
   function fakeSessionNoCauseNoEncodings(): SessionLike {
     return {
-      log: {
-        records: [
-          // no `cause` -> actor falls back to 'system' on the SESSION path too
-          { id: 'r1', parent: null, viewId: 'scatter', kind: 'point', field: 'category', value: 'A' } as unknown as SessionLike['log']['records'][number],
-        ],
-      },
+      commits: () => [
+        // no `cause` -> actor falls back to 'system' on the SESSION path too
+        { id: 'r1', parent: null, viewId: 'scatter', kind: 'point', field: 'category', value: 'A' } as unknown as ReturnType<SessionLike['commits']>[number],
+      ],
       overview: () =>
         ({
           defaultTable: 'data',
@@ -317,7 +315,7 @@ describe('RP-3 — agent-authored charts (mapCharts) flow through both sources',
 
   it('mapSession reads session.charts() when present (the optional-call present branch)', async () => {
     const session = {
-      log: { records: [] as unknown as SessionLike['log']['records'] },
+      commits: () => [],
       overview: () =>
         ({
           defaultTable: 'data',

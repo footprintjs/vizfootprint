@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { mapPollState } from '../adapter/sessionView.js';
-import { bookmarkTarget, currentBookmarkIndex, orderedBookmarks } from './presentBookmark.js';
+import { bookmarkRefTarget, bookmarkTarget, currentBookmarkIndex, orderedBookmarks } from './presentBookmark.js';
 
 const rec = (id: string, parent: string | null, viewId = 'bar') => ({
   id,
@@ -36,6 +36,37 @@ describe('bookmarkTarget', () => {
     expect(bookmarkTarget({ label: 'x', commitId: 'b', at: null, ts: 0 })).toBe('b');
     expect(bookmarkTarget({ label: 'x', commitId: 'b', ts: 0 })).toBe('b');
     expect(bookmarkTarget({ label: 'x', commitId: null, at: null, ts: 0 })).toBeNull();
+  });
+});
+
+describe('bookmarkRefTarget — a note links a bookmark by ID, and lands on the same commit the slideshow does', () => {
+  const BOOKMARKS = [
+    { id: 'b1', label: 'the spike week', commitId: 'c7', at: 'c7', ts: 1 },
+    { label: 'an older bookmark', commitId: 'c3', ts: 2 }, // a wire that predates bookmark ids
+  ];
+
+  it('resolves the bookmark ID a note actually carries', () => {
+    expect(bookmarkRefTarget(BOOKMARKS, 'b1')).toBe('c7');
+  });
+
+  it('still resolves a NAME, so words written before bookmark ids keep working', () => {
+    expect(bookmarkRefTarget(BOOKMARKS, 'an older bookmark')).toBe('c3');
+    expect(bookmarkRefTarget(BOOKMARKS, 'the spike week')).toBe('c7');
+  });
+
+  it('an id wins over a same-named label, and an unknown ref resolves to nothing (a click that does nothing, never a wrong seek)', () => {
+    expect(bookmarkRefTarget([{ id: 'b2', label: 'b1', commitId: 'cA', ts: 1 }, { id: 'b1', label: 'x', commitId: 'cB', ts: 2 }], 'b1')).toBe('cB');
+    expect(bookmarkRefTarget(BOOKMARKS, 'b9')).toBeNull();
+    expect(bookmarkRefTarget([{ id: 'b1', label: 'floating', commitId: null, ts: 1 }], 'b1')).toBeNull();
+  });
+
+  it('a legacy `bookmark:` commit lands on the moment NAMED, never on the act of naming — the drift a second resolver produced', () => {
+    // `commitId` is the bookmark commit; `at` is the moment it names. A resolver
+    // that reached for `commitId` sent a note anchor one commit past where the
+    // slideshow's own seek goes.
+    const legacy = [{ id: 'b1', label: 'named at a', commitId: 'b1c', at: 'a', ts: 2 }];
+    expect(bookmarkRefTarget(legacy, 'b1')).toBe('a');
+    expect(bookmarkRefTarget(legacy, 'b1')).toBe(bookmarkTarget(legacy[0]!));
   });
 });
 

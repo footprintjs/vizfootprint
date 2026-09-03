@@ -21,6 +21,8 @@ export {
   clausePredicate,
   emptySelection,
   selectionForView,
+  // the rule `keepPredicate` folds by, exported so a host reading one clause by hand narrows by the SAME rule
+  filtersHere,
   keepPredicate,
   selfSelectedValue,
   selfSelectedInterval,

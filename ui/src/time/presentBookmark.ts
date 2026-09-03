@@ -17,19 +17,46 @@
  * "next bookmark" walks to). Seeking a bookmark goes to the named position.
  * Without commits or a tip, arrival order is the honest fallback; a bookmark
  * with no `at` (an older wire) names itself.
+ *
+ * ── One answer to "which commit does this bookmark name" ────────────────────
+ * `bookmarkTarget` is that answer for a RECORD and `bookmarkRefTarget` for a
+ * REF (the id a note's `@[bookmark]` link carries, or — for words written
+ * before bookmarks had ids — its label). They are one function called two
+ * ways on purpose: a consumer that has a ref and reads `.commitId` off the
+ * record it found has quietly written a second, different resolver, and for a
+ * legacy `bookmark:` commit the two land on different commits — `commitId` is
+ * the act of naming, `at` is the moment named. The slideshow seeks one and a
+ * note anchor the other, so a dashboard would seek two places for one
+ * bookmark. That is why the ref lookup lives here rather than in the caller.
  */
 import type { BookmarkView, CommitView } from '../adapter/types.js';
 import { pathToRoot } from '../adapter/stepNav.js';
+
+/** The position a bookmark names — `at` when the wire carried it, else the bookmark commit itself (older wires). */
+export function bookmarkTarget(c: BookmarkView): string | null {
+  return c.at !== undefined && c.at !== null ? c.at : c.commitId;
+}
+
+/**
+ * The position named by the bookmark a REF points at — the one resolver every
+ * bookmark anchor uses (a view's words, a dashboard summary, a note, an
+ * agent's reply).
+ *
+ * A note's `@[bookmark]` link carries the bookmark's ID (`b1`, …), never its
+ * name, so that renaming a bookmark leaves every note working; a label is
+ * still accepted second, because words written before bookmark ids carry one.
+ * `null` when nothing matches — a click that does nothing at all, rather than
+ * a seek somewhere arbitrary.
+ */
+export function bookmarkRefTarget(bookmarks: readonly BookmarkView[], ref: string): string | null {
+  const found = bookmarks.find((c) => c.id === ref) ?? bookmarks.find((c) => c.label === ref);
+  return found === undefined ? null : bookmarkTarget(found);
+}
 
 /**
  * Bookmarks that point at a real commit, ordered along the lineage that ends
  * at `tip` (root first). Falls back to arrival order when no commits/tip are given.
  */
-/** The position a bookmark names — its parent when known, else the bookmark commit itself (older wires). */
-export function bookmarkTarget(c: BookmarkView): string | null {
-  return c.at !== undefined && c.at !== null ? c.at : c.commitId;
-}
-
 export function orderedBookmarks(
   bookmarks: readonly BookmarkView[],
   commits?: readonly CommitView[],
