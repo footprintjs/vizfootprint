@@ -1,59 +1,73 @@
 // @vitest-environment jsdom
 /**
- * Saved selections: a note on a selection commit names it; the panel lists
- * every named one in words, applies with one click, and marks the live one.
+ * Saved selections: the library's store, PROJECTED. The panel lists each named
+ * picture with every condition it carries, applies one by its ID (never by a
+ * commit), and marks a picture that is wholly on screen as live.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, cleanup, screen, fireEvent } from '@testing-library/react';
 import { SavedSelections } from './SavedSelections.js';
 import { SelectionChips } from './SelectionChips.js';
-import { mapPollState, savedSelectionsOf } from '../adapter/sessionView.js';
+import { mapPollState, mapSaved } from '../adapter/sessionView.js';
 
 afterEach(cleanup);
 
-const state = mapPollState({
-  records: [
-    { id: 's1', parent: null, viewId: 'bar', kind: 'point', field: 'category', value: 'Formal', cause: { requestedBy: 'user' } },
-    { id: 'n1', parent: 's1', viewId: 'annotation:user', kind: 'point', field: 's1', value: 'Formal wear', cause: { requestedBy: 'user' } },
-    { id: 's2', parent: 'n1', viewId: 'map', kind: 'match', field: 'region', value: { values: ['Ohio', 'Iowa'] }, cause: { requestedBy: 'user' } },
-    { id: 'n2', parent: 's2', viewId: 'annotation:user', kind: 'point', field: 's2', value: 'Two states', cause: { requestedBy: 'user' } },
-    { id: 'n3', parent: 'n2', viewId: 'annotation:user', kind: 'point', field: 's2', value: 'The Midwest pair', cause: { requestedBy: 'agent' } },
-    { id: 'c1', parent: 'n3', viewId: 'bar', kind: 'point', field: 'category', value: undefined, cause: { requestedBy: 'user' } },
-    { id: 'n4', parent: 'c1', viewId: 'annotation:user', kind: 'point', field: 'c1', value: 'a cleared one is not a selection', cause: { requestedBy: 'user' } },
-    { id: 'n5', parent: 'n4', viewId: 'annotation:user', kind: 'point', field: 'ghost', value: 'names nothing', cause: { requestedBy: 'user' } },
-    { id: 'n6', parent: 'n5', viewId: 'annotation:user', kind: 'point', field: '__annotation__', value: 'a loose note', cause: { requestedBy: 'user' } },
-    { id: 'b1', parent: 'n6', viewId: 'bookmark:1', kind: 'point', field: '__bookmark__', value: 'start', cause: { requestedBy: 'user' } },
-    { id: 'n7', parent: 'b1', viewId: 'annotation:user', kind: 'point', field: 'b1', value: 'a bookmark is not a selection', cause: { requestedBy: 'user' } },
-    { id: 's3', parent: 'n7', viewId: 'heat', kind: 'cell', field: 'price × category', fields: ['price', 'category'], value: [[100, 200], 'Formal'], cause: { requestedBy: 'user' } },
-    { id: 'n8', parent: 's3', viewId: 'annotation:user', kind: 'point', field: 's3', value: 'Pricey formal', cause: { requestedBy: 'user' } },
-  ],
-  activeSelections: [{ viewId: 'map', field: 'region', kind: 'match', value: { values: ['Ohio', 'Iowa'] }, commitId: 's2' }],
-});
-const saved = state.saved ?? [];
+const STORE = [
+  { id: 'p1', name: 'Formal wear', conditions: [{ viewId: 'bar', kind: 'point', field: 'category', value: 'Formal' }], by: 'user', at: '2026-01-01T00:00:00.000Z', on: { table: 'data', version: 'v1' } },
+  { id: 'p2', name: 'The Midwest pair', conditions: [{ viewId: 'map', kind: 'match', field: 'region', value: { values: ['Ohio', 'Iowa'] } }], by: 'user', at: '2026-01-02T00:00:00.000Z' },
+  { id: 'p3', name: 'Pricey formal', conditions: [{ viewId: 'heat', kind: 'cell', field: 'price × category', fields: ['price', 'category'], value: [[100, 200], 'Formal'] }, { viewId: 'bar', kind: 'point', field: 'category', value: 'Formal' }], by: 'agent', at: '2026-01-03T00:00:00.000Z', from: ['s3'], editedBy: 'user', editedAt: '2026-01-04T00:00:00.000Z' },
+];
 
-describe('savedSelectionsOf', () => {
-  it('newest note first, one per selection commit (the latest note names it); cleared, ghost, loose and bookmark notes are not saved selections', () => {
-    expect(saved.map((s) => [s.name, s.commitId, s.noteId, s.viewId, s.kind])).toEqual([
-      ['Pricey formal', 's3', 'n8', 'heat', 'cell'],
-      ['The Midwest pair', 's2', 'n3', 'map', 'match'],
-      ['Formal wear', 's1', 'n1', 'bar', 'point'],
+const state = mapPollState({
+  records: [{ id: 's1', parent: null, viewId: 'map', kind: 'match', field: 'region', value: { values: ['Ohio', 'Iowa'] }, cause: { requestedBy: 'user' } }],
+  activeSelections: [{ viewId: 'map', field: 'region', kind: 'match', value: { values: ['Ohio', 'Iowa'] }, commitId: 's1' }],
+  saved: STORE,
+});
+const saved = state.saved;
+
+describe('mapSaved', () => {
+  it('projects the store field for field — the id, the conditions, who and when, the edit stamp and the provenance', () => {
+    expect(saved.map((s) => [s.id, s.name, s.by, s.conditions.length])).toEqual([
+      ['p1', 'Formal wear', 'user', 1],
+      ['p2', 'The Midwest pair', 'user', 1],
+      ['p3', 'Pricey formal', 'agent', 2],
     ]);
-    expect(saved[0]?.fields).toEqual(['price', 'category']); // a cell keeps its pair
-    expect(savedSelectionsOf([])).toEqual([]);
-    expect(state.selections[0]?.commitId).toBe('s2');
+    expect(saved[2]?.conditions[0]?.fields).toEqual(['price', 'category']); // a cell keeps its pair
+    expect(saved[0]?.on).toEqual({ table: 'data', version: 'v1' });
+    expect(saved[2]?.from).toEqual(['s3']); // provenance rides along, and is never the identity
+    expect(saved[2]?.editedAt).toBe('2026-01-04T00:00:00.000Z');
+    expect(mapSaved(undefined)).toEqual([]);
+  });
+
+  it('the log is not a source of pictures: an annotation naming a selection commit is NOT a saved selection', () => {
+    const annotated = mapPollState({
+      records: [
+        { id: 's1', parent: null, viewId: 'bar', kind: 'point', field: 'category', value: 'Formal', cause: { requestedBy: 'user' } },
+        { id: 'n1', parent: 's1', viewId: 'annotation:user', kind: 'point', field: 's1', value: 'Formal wear', cause: { requestedBy: 'user' } },
+      ],
+    });
+    expect(annotated.saved).toEqual([]);
+  });
+
+  it('a record the store could not have minted (no id, no conditions) is dropped, never guessed at', () => {
+    expect(mapSaved([{ name: 'no id', conditions: [] }, { id: 'p9' }, null, 'nonsense'])).toEqual([]);
   });
 });
 
 describe('<SavedSelections>', () => {
-  it('lists each saved selection in words; the live one is marked, the other applies with one click', () => {
+  it('lists each picture with its conditions; the one wholly on screen is marked, the others apply by ID with one click', () => {
     const onApply = vi.fn();
     render(<SavedSelections saved={saved} selections={state.selections} labels={{ bar: 'Category' }} onApply={onApply} />);
     expect(screen.getByText('Formal wear')).toBeDefined();
     expect(screen.getByText('The Midwest pair').closest('li')!.className).toContain('vzf-saved-live');
     expect(screen.getByText('live')).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: 'apply the saved selection Formal wear' }));
-    expect(onApply).toHaveBeenCalledWith('s1');
-    expect(screen.getByText('Category')).toBeDefined();
+    expect(onApply).toHaveBeenCalledWith('p1'); // the PICTURE's id — never a commit
+    expect(screen.getAllByText('Category').length).toBe(2); // the def's label, on every condition that names that view
+    // a two-condition picture shows both, and is not live while only one of them is
+    const rows = document.querySelectorAll('[data-saved="p3"] .vzf-saved-condition');
+    expect(rows.length).toBe(2);
+    expect(document.querySelector('[data-saved="p3"]')!.className).not.toContain('vzf-saved-live');
   });
   it('empty and read-only states', () => {
     render(<SavedSelections saved={[]} />);

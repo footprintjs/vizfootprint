@@ -220,20 +220,44 @@ export interface RefreshRecordView {
   readonly tables: Readonly<Record<string, RefreshOutcomeView>>;
 }
 
-/** A SAVED selection: a selection commit somebody named with a note. Applying it is `bringOver(commitId)`. */
-export interface SavedSelectionView {
-  /** The note's words — the name. */
-  readonly name: string;
-  /** The selection commit the note names. */
-  readonly commitId: string;
-  /** The annotation commit that named it. */
-  readonly noteId: string;
+/** One condition of a saved picture: which chart, which field, which test on the value. Shaped like a {@link SelectionView} on purpose, so the same words render it. */
+export interface SavedClauseView {
   readonly viewId: string;
   readonly kind: 'point' | 'interval' | 'cell' | 'match';
+  /** The column (a cell's joint label — the pair rides `fields`). */
   readonly field: string;
-  readonly value: unknown;
   readonly fields?: readonly [string, string];
-  readonly actor: Actor;
+  readonly value: unknown;
+}
+
+/**
+ * A SAVED SELECTION IS SAVED LOGIC — the whole picture a person had filtered
+ * to, written as data: one condition per view, plus who saved it, when, and
+ * the data version it was made on. It lives BESIDE the log in the library's
+ * store, and this is the store's record projected, field for field. It is NOT
+ * a commit and it names no commit: `from` is provenance, never identity.
+ *
+ * `id` is the identity — what a note's words link — which is why renaming a
+ * picture never breaks a link. Apply one with `view.applySaved(id)`.
+ */
+export interface SavedSelectionView {
+  /** The store's own short id (`p1`, `p2`, …) — the IDENTITY a note's `@[name]` ref carries. */
+  readonly id: string;
+  readonly name: string;
+  /** One condition per view — the LOGIC, which is the whole point of a saved selection. */
+  readonly conditions: readonly SavedClauseView[];
+  /** Who saved it — the CREATOR, never restamped. */
+  readonly by: Actor;
+  /** ISO time it was saved — CREATION, never restamped (which is why the list's order is stable under a rename). */
+  readonly at: string;
+  /** Who last renamed it, when anyone has. */
+  readonly editedBy?: Actor;
+  /** ISO time of that rename. */
+  readonly editedAt?: string;
+  /** The default table and its data version when it was saved — so a row can say "saved on version 3". */
+  readonly on?: { readonly table: string; readonly version: string | null };
+  /** PROVENANCE: the commits the conditions were named from. Never identity — a picture applied on a fresh branch names none of them. */
+  readonly from?: readonly string[];
 }
 
 /** A view whose last selection was CLEARED, and what it was — an edge's `onClear` policy reads it (layer 4). */
@@ -521,8 +545,8 @@ export interface SessionViewState {
   readonly selections: readonly SelectionView[];
   /** Layer 4: views whose selection was cleared and what it was, so an edge's `onClear` policy can act on it. */
   readonly cleared?: readonly ClearedSelectionView[];
-  /** Saved selections: every selection commit a note named, newest note first; apply one with `bringOver`. Absent = an older adapter. */
-  readonly saved?: readonly SavedSelectionView[];
+  /** Saved selections: the library's own store, PROJECTED — oldest first, each with its `id`. Apply one with `view.applySaved(id)`. Never derived from the log. */
+  readonly saved: readonly SavedSelectionView[];
   /** Provenance per table: what each declared source vouched for (version, retrieval time, rows). Absent = an older server, or no declared source. */
   readonly sources?: Readonly<Record<string, SourceInfoView>>;
   /** The prose plane's one non-view subject: the dashboard's own words at the cursor (its caption = the summary), with the proposals on the table for them. Absent on an older wire. */

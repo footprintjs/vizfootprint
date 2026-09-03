@@ -166,6 +166,11 @@ describe('setLayout — REAL InteractionSession end to end (fold-carried view-st
       gaps: () => [],
       branches: () => [],
       bookmarkViews: () => [],
+      // a session holding no pictures: the WRITE doors exist and refuse in words (never a silent empty).
+      // Reading is not here: `overview.saved` serves the store (adapter README, Law 1).
+      saveSelection: (name: string) => ({ ok: false as const, rejected: `nothing is selected to save as "${name}"` }),
+      renameSaved: (from: string) => ({ ok: false as const, rejected: `no saved selection "${from}" — the saved ones are none` }),
+      applySaved: (name: string) => ({ ok: false as const, rejected: `no saved selection "${name}" — the saved ones are none` }),
       seek: () => ({ ok: true, cursor: 'x' }),
       dispatch: async () => ({ ok: true }) as never,
       switchPath: () => ({ ok: true, name: 'main', cursor: 'x' }),

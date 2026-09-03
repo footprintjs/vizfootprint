@@ -19,7 +19,7 @@ const RAW: RawPollState = {
   defaultTable: 'data',
   records: [
     { id: 's1', parent: null, viewId: 'bar', kind: 'point', field: 'category', value: 'Formal', cause: { requestedBy: 'user', intent: 'pick formal' } },
-    { id: 's2', parent: 's1', viewId: 'annotation:bar', kind: 'point', field: 's1', value: 'coastal', cause: { requestedBy: 'user', intent: 'save it' } }, // a saved selection = an annotation whose field is the selection's commit and whose value is the name
+    { id: 's2', parent: 's1', viewId: 'annotation:bar', kind: 'point', field: 's1', value: 'coastal', cause: { requestedBy: 'user', intent: 'save it' } }, // a loose annotation — NOT a saved selection: pictures live in the store, never in the log
     { id: 's3', parent: 's2', viewId: 'bookmark:0', kind: 'point', field: '__bookmark__', value: 'Start', cause: { requestedBy: 'user' } },
   ],
   activeSelections: [
@@ -32,6 +32,8 @@ const RAW: RawPollState = {
   ],
   head: 's3',
   cursor: 's3',
+  // the saved pictures the dashboard's STORE holds — the only place a saved selection comes from
+  saved: [{ id: 'p1', name: 'coastal', conditions: [{ viewId: 'bar', kind: 'point', field: 'category', value: 'Formal' }], by: 'user', at: '2026-01-01T00:00:00.000Z' }],
 };
 
 const NOTE: NoteView = {
@@ -62,10 +64,10 @@ describe('linkables and the mention world', () => {
     expect(list[4]!.description).toBe('user'); // no intent on the bookmark commit
     expect(list[6]!.description).toBe('pick formal · user');
     const world = mentionWorldOf(state);
-    expect(world.saved.get('coastal')).toBe('s1'); // name → the id a ref carries: on this wire a named selection IS its commit
+    expect(world.saved.get('coastal')).toBe('p1'); // name → the PICTURE's id, which is what a ref carries and what a rename never moves
     expect(world.bookmarks.get('Start')).toBe('b1'); // name → the bookmark's id
     expect(world.commits.get('s1')).toBe('category — pick formal');
-    expect(linkablesOf(mapPollState({ ...RAW, records: [RAW.records[0]!], bookmarks: [], activeSelections: [] })).map((l) => l.kind)).toEqual(['commit']);
+    expect(linkablesOf(mapPollState({ ...RAW, records: [RAW.records[0]!], bookmarks: [], activeSelections: [], saved: [] })).map((l) => l.kind)).toEqual(['commit']);
   });
 });
 
@@ -354,17 +356,18 @@ describe('NoteCell', () => {
     expect(noteRecord('y', [{ span: [0, 1], commit: 's1' }], agent, undefined)).toEqual({ text: 'y', author: { kind: 'humanEdited', model: 'm' }, refs: [{ span: [0, 1], commit: 's1' }], levels: ['statistic'], basis: { filters: {} } });
   });
 
-  it('every mention the picker offers resolves: a name the brackets cannot carry, or an older save under a taken name, is offered by its commit id; a bookmark with neither is not offered', () => {
+  it('every mention the picker offers resolves: a picture whose name the brackets cannot carry is not offered AT ALL (it has no commit to fall back on); a bookmark with neither is not offered either', () => {
     expect(['coastal', 'Formal wear'].map(bracketSafe)).toEqual([true, true]);
     expect(['', ' coastal', 'coastal ', 'Formal] wear', 'two\nlines'].map(bracketSafe)).toEqual([false, false, false, false, false]);
     const raw: RawPollState = {
       ...RAW,
+      saved: [
+        ...(RAW.saved ?? []),
+        { id: 'p2', name: 'Formal] wear', conditions: [{ viewId: 'bar', kind: 'point', field: 'category', value: 'Semi' }], by: 'user', at: '2026-01-02T00:00:00.000Z' }, // a name with a `]` in it
+      ],
       records: [
         ...RAW.records,
         { id: 's4', parent: 's3', viewId: 'bar', kind: 'point', field: 'category', value: 'Casual', cause: { requestedBy: 'user' } },
-        { id: 's5', parent: 's4', viewId: 'annotation:bar', kind: 'point', field: 's4', value: 'coastal', cause: { requestedBy: 'user' } }, // a NEWER save under the same name
-        { id: 's6', parent: 's5', viewId: 'bar', kind: 'point', field: 'category', value: 'Semi', cause: { requestedBy: 'user' } },
-        { id: 's7', parent: 's6', viewId: 'annotation:bar', kind: 'point', field: 's6', value: 'Formal] wear', cause: { requestedBy: 'user' } }, // a name with a `]` in it
       ],
       bookmarks: [
         ...(RAW.bookmarks ?? []),
@@ -373,17 +376,16 @@ describe('NoteCell', () => {
         { label: 'No bookmark id', commitId: 's2', at: 's2', ts: 2 }, // a wire that predates bookmark ids: nothing to link by name
         { label: 'No bookmark id at all', commitId: null, at: 's2', ts: 2 }, // …and no commit either: not offered
       ],
-      head: 's7',
-      cursor: 's7',
+      head: 's4',
+      cursor: 's4',
     };
     const st = mapPollState(raw);
     const saved = linkablesOf(st).filter((l) => l.kind === 'saved');
     expect(saved.map((l) => [l.label, l.mention])).toEqual([
-      ['Formal] wear', '#s6'],
-      ['coastal', '@[coastal]'], // the newest owns the name
-      ['coastal', '#s1'], // the older is reached by its id
+      ['coastal', '@[coastal]'],
+      // "Formal] wear" is NOT here: a picture is logic, not a moment, so there is no commit to offer instead
     ]);
-    expect(saved[2]!.description).toContain('an older save, #s1');
+    expect(saved[0]!.description).toBe('saved selection · bar: category point');
     const bookmarks = linkablesOf(st).filter((l) => l.kind === 'bookmark');
     expect(bookmarks.map((l) => [l.label, l.mention])).toEqual([
       ['Start', '@[Start]'],
@@ -392,8 +394,8 @@ describe('NoteCell', () => {
       ['No bookmark id', '#s2'], // no id to link by name, so it is reached by its commit
     ]);
     const w = mentionWorldOf(st);
-    expect(w.saved.get('coastal')).toBe('s4'); // the NEWEST save owns the name — the one the picker offers `@[coastal]`
-    expect(w.saved.get('Formal] wear')).toBe('s6');
+    expect(w.saved.get('coastal')).toBe('p1'); // the picture's own id — the only thing a ref ever carries
+    expect(w.saved.get('Formal] wear')).toBe('p2'); // the WORLD still holds it: an agent may write the ref even though the picker cannot type it
     expect(w.bookmarks.get('No bookmark id')).toBeUndefined(); // nothing to link: the picker offered its commit instead
     // and every offered mention resolves against that world
     for (const l of linkablesOf(st)) expect(mentionsToRefs(l.mention, w).unresolved).toEqual([]);

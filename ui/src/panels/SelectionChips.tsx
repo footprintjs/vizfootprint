@@ -23,7 +23,7 @@ export interface SelectionChipsProps {
   readonly onClearAll?: () => void;
   /** Flip a point/match between keep and exclude — wire to `view.setPolarity(viewId, exclude)`. */
   readonly onSetPolarity?: (viewId: string, exclude: boolean) => void;
-  /** Save a view's live selection under a name — the host asks for the name and calls `view.saveSelection(viewId, name)`. */
+  /** Save a view's live selection under a name — the host asks for the name and calls `view.saveSelection(name, { viewId })`. */
   readonly onSave?: (viewId: string) => void;
   /** Present mode: read the chips, act on none. */
   readonly readOnly?: boolean;

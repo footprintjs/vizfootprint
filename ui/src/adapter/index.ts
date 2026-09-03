@@ -3,12 +3,14 @@ export {
   sessionSource,
   pollingSource,
   mapPollState,
+  mapSaved,
   summarizeAdopt,
   LAYOUT_DASHBOARD_VIEW_ID,
 } from './sessionView.js';
 export type {
   SessionView,
   DescribeOutcome,
+  ApplySavedOutcome,
   SessionViewSource,
   SessionSourceInput,
   PollSourceInput,
@@ -62,5 +64,6 @@ export type {
   LayoutView,
   LayoutChange,
   Actor,
+  SavedSelectionView,
+  SavedClauseView,
   LinkGraphView, LinkEdgeView, FitView, RuleLineView, EffectiveEncodingView, ProseStatusView, ProseRefView, ProposalView } from './types.js';
-export { savedSelectionsOf } from './sessionView.js';

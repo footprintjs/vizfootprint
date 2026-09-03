@@ -2347,6 +2347,10 @@
 .vzf-saved-item { display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(0,0,0,.14); border-radius: 999px; padding: 2px 8px; font-size: 12.5px; }
 .vzf-saved-live { border-style: double; }
 .vzf-saved-name { font-weight: 600; }
+.vzf-saved-conditions { display: inline-flex; align-items: center; gap: 6px; }
+/* one condition per view: the views a picture names are separated so two of them never read as one clause */
+.vzf-saved-condition { display: inline-flex; align-items: baseline; gap: 4px; }
+.vzf-saved-condition + .vzf-saved-condition::before { content: '·'; opacity: .4; }
 .vzf-saved-view, .vzf-saved-words { opacity: .75; }
 .vzf-saved-badge { font-size: 11px; opacity: .7; }
 .vzf-saved-apply, .vzf-selchip-save { font: inherit; font-size: 11px; border: 1px solid rgba(0,0,0,.2); border-radius: 999px; background: transparent; padding: 0 6px; cursor: pointer; }

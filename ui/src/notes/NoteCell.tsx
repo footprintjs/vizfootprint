@@ -39,6 +39,13 @@ export interface NoteCellProps {
   readonly onSeek?: (commitId: string) => void;
   /** A ref to a bookmark, by its ID (`b1`, …) — never its name, so a renamed bookmark keeps working. The host resolves the id and goes to the moment. */
   readonly onBookmark?: (bookmarkId: string) => void;
+  /**
+   * A ref to a saved selection, by its ID (`p1`, …) — never its name, so a
+   * renamed picture keeps working. Clicking it APPLIES the saved logic (the
+   * same act the panel's apply button performs, `view.applySaved(id)`); it
+   * never seeks, because a picture is logic, not a moment.
+   */
+  readonly onSaved?: (savedId: string) => void;
   readonly describeCommit?: (commitId: string) => string | undefined;
   /** Present mode: the words stay, the doors close. */
   readonly readOnly?: boolean;
@@ -46,7 +53,7 @@ export interface NoteCellProps {
 }
 
 /** A person's record for the note's words: a human edit of the agent's words keeps the agent's basis and model; fresh words are the person's. */
-export function noteRecord(text: string, refs: readonly { readonly span: readonly [number, number]; readonly commit?: string; readonly bookmark?: string; readonly label?: string }[], current: ProseStatusView | undefined, by: string | undefined): Record<string, unknown> {
+export function noteRecord(text: string, refs: readonly { readonly span: readonly [number, number]; readonly commit?: string; readonly bookmark?: string; readonly saved?: string; readonly label?: string }[], current: ProseStatusView | undefined, by: string | undefined): Record<string, unknown> {
   const fromAgent = current?.author.kind === 'agent' || current?.author.kind === 'humanEdited';
   return {
     text,
@@ -59,7 +66,7 @@ export function noteRecord(text: string, refs: readonly { readonly span: readonl
 
 const GLYPH: Record<Linkable['kind'], string> = { saved: '💾', bookmark: '⚑', selection: '◎', commit: '#' };
 
-export function NoteCell({ note, world, linkables, by, onDescribe, fresh = false, onDiscard, onSeek, onBookmark, describeCommit, readOnly = false, className }: NoteCellProps): JSX.Element {
+export function NoteCell({ note, world, linkables, by, onDescribe, fresh = false, onDiscard, onSeek, onBookmark, onSaved, describeCommit, readOnly = false, className }: NoteCellProps): JSX.Element {
   const title = note.prose.find((p) => p.slot === 'title');
   const caption = note.prose.find((p) => p.slot === 'caption');
   const [editing, setEditing] = useState(fresh);
@@ -177,7 +184,7 @@ export function NoteCell({ note, world, linkables, by, onDescribe, fresh = false
           {caption !== undefined ? (
             <div className={`vzf-note-body${caption.status === 'stale' ? ' vzf-note-stale' : ''}`}>
               {/* the light marks a model writes (**bold**, `code`) are formatting here too — a reply added to the dashboard reads the way it read in the panel */}
-              <ProseText markdown text={caption.text} refs={caption.refs} describeCommit={describeCommit} onSeek={onSeek} onBookmark={onBookmark} />
+              <ProseText markdown text={caption.text} refs={caption.refs} describeCommit={describeCommit} onSeek={onSeek} onBookmark={onBookmark} onSaved={onSaved} />
             </div>
           ) : (
             <div className="vzf-note-body vzf-soft">(no words yet)</div>

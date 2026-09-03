@@ -36,7 +36,13 @@ import type {
   NewPathResult,
   CompareResult,
   BringOverResult,
+  SaveSelectionSource,
+  SaveSelectionResult,
+  ApplySavedOptions,
+  ApplySavedResult,
 } from '../../../src/session/index.js';
+import type { SavedSelection } from '../../../src/def/index.js';
+import type { Cause } from '../../../src/cause/index.js';
 import type { ChartEmission } from '../../../src/mosaic/index.js';
 import {
   ClearedSelectionView, LinkGraphView,
@@ -62,7 +68,7 @@ import {
   type ChartCellView,
   type LayoutChange,
   type LayoutView,
-  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView, type ProposalView, type SavedSelectionView, type SourceInfoView, type DashboardWordsView, type NoteView, type TableView, type RefreshRecordView, type RefreshOutcomeView, type RefreshDeltaView, type LayoutPreset } from './types.js';
+  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView, type ProposalView, type SavedSelectionView, type SavedClauseView, type SourceInfoView, type DashboardWordsView, type NoteView, type TableView, type RefreshRecordView, type RefreshOutcomeView, type RefreshDeltaView, type LayoutPreset } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
 import type { NavigateViewState } from '../contract/types.js';
@@ -93,6 +99,18 @@ export interface SessionLike {
   adoptPath(name: string, opts?: { as?: Actor }): Promise<RawAdoptResult> | RawAdoptResult;
   /** RP-3: agent-authored charts (with their gated specs). Optional — a pre-RP-3 session simply has none. */
   charts?(): readonly RawChart[];
+  // ── saved selections: saved LOGIC in the library's store, beside the log ──
+  // WRITE doors only. These are not dispatch verbs — naming a picture lands no
+  // commit, and applying one lands several — and they are not on the overview,
+  // so there is nowhere else to reach them. READING the pictures is NOT here:
+  // `overview.saved` already serves the store, and the adapter projects that
+  // (see README, Law 1 — one field, one path).
+  /** Name a picture — the whole live selection, one view's, or explicit conditions. Lands NO commit. */
+  saveSelection(name: string, source: SaveSelectionSource, as?: Actor): SaveSelectionResult;
+  /** Rename one — free, even under a note's link: the note links the `id`. */
+  renameSaved(from: string, to: string, as?: Actor): SaveSelectionResult;
+  /** Apply one BY NAME: judged first, then one ordinary commit per condition under one cause. Honest per condition about what could not land. */
+  applySaved(name: string, cause: Cause, opts?: ApplySavedOptions): Promise<ApplySavedResult> | ApplySavedResult;
   readonly log: { readonly records: readonly CommitRecord[] };
 }
 
@@ -163,6 +181,8 @@ export interface RawPollState {
   /** BR-2: the named-paths surface (`overview().paths` serialized as-is). */
   readonly paths?: RawPollPaths;
   readonly bookmarks?: readonly { id?: string; label: string; commitId: string | null; at?: string | null; ts: number }[];
+  /** The saved pictures the dashboard's store holds — a server serializes `overview.saved` (or `session.saved()`) here, verbatim. */
+  readonly saved?: readonly unknown[];
   readonly cursor?: string | null;
   readonly head?: string | null;
   readonly cursorTests?: number;
@@ -237,6 +257,11 @@ export interface SessionSourceInput {
  *                     the session's CompareResult JSON, verbatim
  *   POST bringOver  → { commitId }
  *   POST undo       → { commitId }
+ *   POST saved      → { action: 'save', name, source }
+ *                   | { action: 'rename', from, to }
+ *                   | { action: 'apply', name, mode? }   // the RESPONSE body is
+ *                     the session's ApplySavedResult JSON, verbatim (what
+ *                     landed, what was cleared, and every condition refused)
  *
  * `/api/state`'s `paths` slice gains `archivedList` (the source's
  * `paths({includeArchived:true})` rows) so the modal can reveal the hidden ones.
@@ -250,6 +275,8 @@ export interface PollEndpoints {
   readonly compare: string;
   readonly bringOver: string;
   readonly undo: string;
+  /** The saved-picture door: naming, renaming and applying (see the contract above). */
+  readonly saved: string;
 }
 export interface PollSourceInput {
   readonly kind: 'poll';
@@ -279,6 +306,7 @@ const DEFAULT_ENDPOINTS: PollEndpoints = {
   compare: '/api/compare',
   bringOver: '/api/bring-over',
   undo: '/api/undo',
+  saved: '/api/saved',
 };
 
 // ── shared normalization ───────────────────────────────────────────────────────
@@ -340,6 +368,7 @@ interface StatePieces {
   branches: BranchView[];
   paths: PathsView;
   bookmarks: BookmarkView[];
+  saved: readonly SavedSelectionView[];
   cursor: string | null;
   head: string | null;
   viewingPast: boolean;
@@ -403,7 +432,7 @@ function finalize(p: StatePieces): SessionViewState {
     ...(p.journal !== undefined ? { journal: p.journal } : {}),
     ...(p.journalTotal !== undefined ? { journalTotal: p.journalTotal } : {}),
     commits,
-    saved: savedSelectionsOf(commits),
+    saved: p.saved,
     branches: p.branches,
     paths: p.paths,
     bookmarks: p.bookmarks,
@@ -717,24 +746,60 @@ function mapSelections(sels: readonly unknown[] | undefined): SelectionView[] {
 }
 
 /**
- * The saved selections in a log: every annotation whose `field` names a
- * selection commit with a live-shaped value. Newest note first; one entry per
- * selection commit (the latest note wins its name).
+ * The saved pictures, PROJECTED from the library's store — never derived from
+ * the log. Both sources hand in the same records (`session.saved()`, or the
+ * `saved` slice of `/api/state`), so this is one field-for-field copy: the
+ * store's `id` is the identity a note's words link, and it must survive.
+ * A record without an id or a condition list is not a picture this store could
+ * have minted, so it is dropped rather than guessed at.
  */
-export function savedSelectionsOf(commits: readonly CommitView[]): SavedSelectionView[] {
-  const byId = new Map(commits.map((c) => [c.id, c] as const));
-  const out: SavedSelectionView[] = [];
-  const named = new Set<string>();
-  for (let i = commits.length - 1; i >= 0; i--) {
-    const note = commits[i]!;
-    if (!note.viewId.startsWith('annotation:') || typeof note.value !== 'string' || note.value.length === 0) continue;
-    const target = byId.get(note.field);
-    if (target === undefined || named.has(target.id)) continue;
-    if ((target.family !== undefined && target.family !== 'interaction') || target.value === undefined || target.value === null) continue; // not a live selection
-    named.add(target.id);
-    out.push({ name: note.value, commitId: target.id, noteId: note.id, viewId: target.viewId, kind: target.kind, field: target.field, value: target.value, ...(target.fields !== undefined ? { fields: target.fields } : {}), actor: target.actor });
-  }
-  return out;
+/**
+ * The two answers the saved-picture door gives, read STRUCTURALLY so one reader
+ * serves the in-process session and the wire alike (`SaveSelectionResult` /
+ * `ApplySavedResult`, or the same JSON off an endpoint).
+ */
+interface SavedAnswer {
+  readonly ok?: boolean;
+  readonly rejected?: string;
+  readonly name?: string;
+  readonly applied?: readonly unknown[];
+  readonly cleared?: readonly unknown[];
+  readonly refused?: readonly { readonly viewId: string; readonly rejected: string }[];
+}
+
+/** The sentence a refused saved-picture door gave. A refusal with no words is reported AS one — never dressed up as an explanation the session did not give. */
+function refusalOf(r: SavedAnswer, door: string): string {
+  return typeof r.rejected === 'string' && r.rejected.length > 0 ? r.rejected : `the ${door} was refused and the session gave no reason`;
+}
+
+/** A picture the state does not hold: forgotten, or on a dashboard this cockpit has moved off. */
+function forgotten(savedId: string): string {
+  return `no saved selection "${savedId}" is on screen — it may have been forgotten`;
+}
+
+export function mapSaved(list: readonly unknown[] | undefined): SavedSelectionView[] {
+  return (list ?? []).flatMap((raw) => {
+    const c = raw as SavedSelection | null;
+    if (c === null || typeof c !== 'object' || typeof c.id !== 'string' || typeof c.name !== 'string' || !Array.isArray(c.conditions)) return [];
+    const conditions: SavedClauseView[] = c.conditions.map((k) => ({
+      viewId: k.viewId,
+      kind: k.kind,
+      field: k.field,
+      ...(k.fields !== undefined ? { fields: [k.fields[0], k.fields[1]] as const } : {}),
+      value: k.value,
+    }));
+    return [{
+      id: c.id,
+      name: c.name,
+      conditions,
+      by: c.by,
+      at: c.at,
+      ...(c.editedBy !== undefined ? { editedBy: c.editedBy } : {}),
+      ...(c.editedAt !== undefined ? { editedAt: c.editedAt } : {}),
+      ...(c.on !== undefined ? { on: c.on } : {}),
+      ...(c.from !== undefined ? { from: [...c.from] } : {}),
+    }];
+  });
 }
 function mapReadiness(analyses: readonly unknown[] | undefined): ReadinessView[] {
   return (analyses ?? []).map((a) => {
@@ -921,6 +986,7 @@ async function mapSession(session: SessionLike, defaultLayout?: LayoutPreset): P
     // COUNT, deliberately — a hidden path is hidden until asked for).
     paths: withArchived(mapPaths(overview.paths), session.paths({ includeArchived: true })),
     bookmarks: session.bookmarkViews().map((c) => ({ id: c.id, label: c.label, commitId: c.commitId, at: c.at, ts: c.ts })),
+    saved: mapSaved(overview.saved),
     cursor: overview.time.cursor,
     head: overview.time.head,
     viewingPast: overview.time.viewingPast,
@@ -976,6 +1042,7 @@ export function mapPollState(raw: RawPollState, defaultLayout?: LayoutPreset): S
     branches: (raw.branches ?? []).map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
     paths: mapPaths(raw.paths),
     bookmarks: (raw.bookmarks ?? []).map((c) => ({ ...(c.id !== undefined ? { id: c.id } : {}), label: c.label, commitId: c.commitId, ...(c.at !== undefined ? { at: c.at } : {}), ts: c.ts })),
+    saved: mapSaved(raw.saved),
     cursor: raw.cursor ?? null,
     head: raw.head ?? null,
     viewingPast: raw.viewingPast ?? false,
@@ -1019,6 +1086,24 @@ export interface LinkEdit {
 
 /** What a gesture came back with: landed, or refused with the session's sentence. */
 export type DescribeOutcome = { readonly ok: true } | { readonly ok: false; readonly sentence: string };
+
+/**
+ * What applying a saved picture did. `ok: true` may STILL carry refusals — an
+ * apply is honest per condition, and a picture that half-lands says which half
+ * did not and why. A surface that shows only the failure arm hides that.
+ */
+export type ApplySavedOutcome =
+  | {
+      readonly ok: true;
+      readonly name: string;
+      /** How many conditions landed as ordinary commits. */
+      readonly applied: number;
+      /** How many live filters a `replace` cleared to make room. */
+      readonly cleared: number;
+      /** Every condition that could not land, with the session's sentence. */
+      readonly refused: readonly { readonly viewId: string; readonly rejected: string }[];
+    }
+  | { readonly ok: false; readonly sentence: string };
 
 export interface SessionView {
   getState(): SessionViewState;
@@ -1079,8 +1164,23 @@ export interface SessionView {
   stepBack(): Promise<void>;
   stepForward(): Promise<void>;
   bookmark(label: string): Promise<void>;
-  /** Save a view's LIVE selection under a name — a note on its commit; it then rides `state.saved` and applies with `bringOver`. */
-  saveSelection(viewId: string, name: string): Promise<void>;
+  // ── saved selections: saved LOGIC in the library's store (never a commit somebody named) ──
+  /**
+   * Name a picture: the whole live selection (the default), one view's, or
+   * explicit conditions. Lands NO commit — naming is not an act on the data.
+   * It then rides `state.saved` with its own id, and applies with `applySaved`.
+   */
+  saveSelection(name: string, what?: SaveSelectionSource): Promise<DescribeOutcome>;
+  /** Rename a picture BY ITS ID. Free, even while notes link it: they link the id, so only the words an anchor shows may go stale. */
+  renameSaved(savedId: string, to: string): Promise<DescribeOutcome>;
+  /**
+   * Apply a picture BY ITS ID — the identity a note's words carry and the row's
+   * key, so a rename never breaks either. `replace` (the default) clears the
+   * other live filters first so the picture comes back; `layer` adds to what is
+   * selected now. Judged first: an apply that could land nothing clears
+   * nothing, and says why.
+   */
+  applySaved(savedId: string, opts?: { readonly mode?: 'replace' | 'layer' }): Promise<ApplySavedOutcome>;
   returnToNow(): Promise<void>;
   // ── named paths (BR-2 over BR-1) — state rides `state.paths` ──
   /** Switch to a named path: jump to its tip and make it the active line of work. */
@@ -1196,6 +1296,22 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       return { ok: false, sentence: raw.rejection?.detail ?? raw.error ?? `the session answered ${res.status}` };
     } catch {
       return { ok: false, sentence: 'could not reach the session' };
+    }
+  }
+
+  /**
+   * POST to the saved-picture door and read the SESSION'S OWN answer back
+   * (`SaveSelectionResult` / `ApplySavedResult`, verbatim). A door that cannot
+   * be reached answers with a refusal in the same shape — never a fabricated
+   * success, and never a fabricated sentence.
+   */
+  async function postSaved(body: unknown): Promise<Record<string, unknown>> {
+    try {
+      const res = await doFetch(endpoints.saved, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      if (!res.ok) return { ok: false, rejected: `the saved-selection door answered ${res.status}` };
+      return (await res.json()) as Record<string, unknown>;
+    } catch {
+      return { ok: false, rejected: 'could not reach the saved-selection door' };
     }
   }
 
@@ -1403,11 +1519,36 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       if (target) await view.seek(target);
     },
 
-    async saveSelection(viewId, name) {
-      const own = state.selections.find((s) => s.viewId === viewId);
-      if (own?.commitId === undefined || name.trim().length === 0) return; // nothing live to name (or an older server sends no commit id)
-      const body = { verb: 'annotate' as const, target: own.commitId, note: name.trim() };
-      await dispatch({ ...body, cause: cause(`save the ${viewId} selection as "${name.trim()}"`) }, { ...body, intent: `save ${name.trim()}` });
+    async saveSelection(name, what = { live: 'all' }) {
+      const trimmed = name.trim();
+      if (trimmed.length === 0) return { ok: false, sentence: 'a saved selection needs a name' };
+      const r: SavedAnswer = source.kind === 'session' ? source.session.saveSelection(trimmed, what, as) : ((await postSaved({ action: 'save', name: trimmed, source: what })) as SavedAnswer);
+      await afterAction();
+      return r.ok === true ? { ok: true } : { ok: false, sentence: refusalOf(r, 'save') };
+    },
+
+    async renameSaved(savedId, to) {
+      const picture = state.saved.find((c) => c.id === savedId);
+      if (picture === undefined) return { ok: false, sentence: forgotten(savedId) };
+      const next = to.trim();
+      if (next.length === 0) return { ok: false, sentence: 'a saved selection needs a name' };
+      const r: SavedAnswer = source.kind === 'session' ? source.session.renameSaved(picture.name, next, as) : ((await postSaved({ action: 'rename', from: picture.name, to: next })) as SavedAnswer);
+      await afterAction();
+      return r.ok === true ? { ok: true } : { ok: false, sentence: refusalOf(r, 'rename') };
+    },
+
+    async applySaved(savedId, opts = {}) {
+      const picture = state.saved.find((c) => c.id === savedId);
+      if (picture === undefined) return { ok: false, sentence: forgotten(savedId) };
+      const mode = opts.mode ?? 'replace';
+      // no intent of our own: the session stamps "applied saved selection <name>" on every commit of the batch
+      const r: SavedAnswer =
+        source.kind === 'session'
+          ? await Promise.resolve(source.session.applySaved(picture.name, cause(), { mode, as }))
+          : ((await postSaved({ action: 'apply', name: picture.name, mode })) as SavedAnswer);
+      await afterAction();
+      if (r.ok !== true) return { ok: false, sentence: refusalOf(r, 'apply') };
+      return { ok: true, name: r.name ?? picture.name, applied: (r.applied ?? []).length, cleared: (r.cleared ?? []).length, refused: r.refused ?? [] };
     },
 
     async bookmark(label) {

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest';
 import { createSessionView, sessionSource, pollingSource, mapPollState, type SessionLike, type RawPollState } from './sessionView.js';
+import type { SavedSelection } from '../../../src/def/index.js';
 
 const RAW: RawPollState = {
   defaultTable: 'data',
@@ -238,12 +239,16 @@ describe('createSessionView — poll source with injected fetch', () => {
 });
 
 describe('createSessionView — in-process session source', () => {
-  function fakeSession(): SessionLike & { dispatched: unknown[]; pathCalls: unknown[] } {
+  function fakeSession(): SessionLike & { dispatched: unknown[]; pathCalls: unknown[]; savedCalls: unknown[]; savedStore: SavedSelection[] } {
     const dispatched: unknown[] = [];
     const pathCalls: unknown[] = [];
+    const savedCalls: unknown[] = [];
+    const savedStore: SavedSelection[] = [];
     return {
       dispatched,
       pathCalls,
+      savedCalls,
+      savedStore,
       log: { records: [] },
       overview: () => ({
         defaultTable: 'data',
@@ -262,6 +267,25 @@ describe('createSessionView — in-process session source', () => {
       gaps: () => [],
       branches: () => [],
       bookmarkViews: () => [],
+      // ── saved pictures: the store's WRITE doors (a picture is not a commit, so none of these ride `dispatch`).
+      //    Reading rides `overview.saved`, not a door — adapter README, Law 1. ──
+      saveSelection: (name, source, as) => {
+        savedCalls.push({ op: 'save', name, source, as });
+        const picture = { id: `p${savedStore.length + 1}`, name, conditions: [{ viewId: 'bar', kind: 'point' as const, field: 'category', value: 'Formal' }], by: as ?? 'user', at: '2026-01-01T00:00:00.000Z' };
+        savedStore.push(picture);
+        return { ok: true, saved: picture };
+      },
+      renameSaved: (from, to, as) => {
+        savedCalls.push({ op: 'rename', from, to, as });
+        const at = savedStore.findIndex((c) => c.name === from);
+        if (at < 0) return { ok: false, rejected: `no saved selection "${from}"` };
+        savedStore[at] = { ...savedStore[at]!, name: to };
+        return { ok: true, saved: savedStore[at]! };
+      },
+      applySaved: (name, cause, opts) => {
+        savedCalls.push({ op: 'apply', name, intent: cause.intent, mode: opts?.mode, as: opts?.as });
+        return { ok: true, name, correlationId: 'k1', applied: [{ id: 'c1' }], cleared: [], refused: [{ viewId: 'gone', rejected: '"gone" is no longer on the dashboard' }] } as unknown as ReturnType<SessionLike['applySaved']>;
+      },
       seek: (commitId: string) => ({ ok: true, cursor: commitId }) as ReturnType<SessionLike['seek']>,
       dispatch: (action) => {
         dispatched.push(action);

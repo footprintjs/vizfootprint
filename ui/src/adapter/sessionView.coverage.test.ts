@@ -117,6 +117,11 @@ describe('createSessionView — in-process session edge branches', () => {
       gaps: () => [],
       branches: () => [],
       bookmarkViews: () => [{ id: 'b1', label: 'start', commitId: 'r1', at: null, ts: 1 }], // exercises the bookmarks.map body
+      // a session holding no pictures: the WRITE doors exist and refuse in words (never a silent empty).
+      // Reading is not here: `overview.saved` serves the store (adapter README, Law 1).
+      saveSelection: (name: string) => ({ ok: false as const, rejected: `nothing is selected to save as "${name}"` }),
+      renameSaved: (from: string) => ({ ok: false as const, rejected: `no saved selection "${from}" — the saved ones are none` }),
+      applySaved: (name: string) => ({ ok: false as const, rejected: `no saved selection "${name}" — the saved ones are none` }),
       seek: (commitId: string) => ({ ok: true, cursor: commitId }) as unknown as ReturnType<SessionLike['seek']>,
       dispatch: () => ({ ok: true, verb: 'analyze', intent: 'x' }) as unknown as ReturnType<SessionLike['dispatch']>,
       switchPath: (name: string) => ({ ok: true, name, cursor: 'r1' }) as unknown as ReturnType<SessionLike['switchPath']>,
@@ -330,6 +335,11 @@ describe('RP-3 — agent-authored charts (mapCharts) flow through both sources',
       gaps: () => [],
       branches: () => [],
       bookmarkViews: () => [],
+      // a session holding no pictures: the doors exist and refuse in words (never a silent empty)
+      saved: () => [],
+      saveSelection: (name: string) => ({ ok: false as const, rejected: `nothing is selected to save as "${name}"` }),
+      renameSaved: (from: string) => ({ ok: false as const, rejected: `no saved selection "${from}" — the saved ones are none` }),
+      applySaved: (name: string) => ({ ok: false as const, rejected: `no saved selection "${name}" — the saved ones are none` }),
       seek: (id: string) => ({ ok: true, cursor: id }) as unknown as ReturnType<SessionLike['seek']>,
       dispatch: () => ({ ok: true, verb: 'analyze', intent: 'x' }) as unknown as ReturnType<SessionLike['dispatch']>,
       switchPath: (name: string) => ({ ok: true, name, cursor: 'x' }) as unknown as ReturnType<SessionLike['switchPath']>,
