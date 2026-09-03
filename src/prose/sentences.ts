@@ -28,6 +28,8 @@ export const PROSE_SENTENCES = Object.freeze({
   refSpan: '"{view}".{slot}.refs[{index}] spans [{start}, {end}) but the text has {length} characters',
   refTarget: '"{view}".{slot}.refs[{index}] must name exactly one of commit, bookmark, saved',
   refCommit: '"{view}".{slot}.refs[{index}] points at a commit the log does not hold: "{commit}"',
+  // the commit is REAL, and that is exactly why the refusal has to be its own sentence: "the log does not hold it" would be a lie, and the writer would go looking for a commit that is sitting right there in the rail
+  refCommitOffBranch: '"{view}".{slot}.refs[{index}] cites commit "{commit}", which is on another branch — these words stand at a moment that never saw it; seek to it (or bring it over) and write them there',
   // the target slot carries BOTH what the ref shows and the id behind it (see deadRef in validate.ts): the words alone can name a record that does exist
   refBookmark: '"{view}".{slot}.refs[{index}] points at a bookmark that does not exist: {bookmark}',
   refSaved: '"{view}".{slot}.refs[{index}] points at a saved selection that does not exist: {saved}',

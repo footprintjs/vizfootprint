@@ -605,8 +605,14 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly whyByColumn = new Map<string, WhyProvenance>();
   /** Logical column name → every slot this session landed it in, oldest first — see {@link slotForColumn}. */
   private readonly whyColumnSlots = new Map<string, string[]>();
-  /** analysisId → the last invocation's provenance (L6 `why({kind:'hypothesis'})`). */
-  private readonly whyByAnalysisId = new Map<string, WhyProvenance>();
+  /**
+   * analysisId → EVERY invocation this session ran, oldest first (L6
+   * `why({kind:'hypothesis'})`). A list rather than a last-wins slot, for the
+   * same reason {@link whyByColumn} is keyed by slot: two branches running
+   * `clustering` are two acts with two answers, and the name alone is not one
+   * of them — {@link provenanceForAnalysis} picks the one the position means.
+   */
+  private readonly whyByAnalysisId = new Map<string, WhyProvenance[]>();
   private readonly fdrStepper: FdrStepper;
   private readonly _ledger: FdrStep[] = [];
   /** RP-3: agent-authored charts registered this session, in proposal order (chartId → view). */
@@ -2318,7 +2324,23 @@ class InteractionSessionImpl implements InteractionSession {
     return null;
   }
 
-  /** The world a prose record is judged against at dispatch, from the columns already in hand. */
+  /**
+   * The world a prose record is judged against at dispatch, from the columns
+   * already in hand.
+   *
+   * Every member of this world that comes from the MAP — the columns, the
+   * declared analyses, the views with an encoding surface — is global, because
+   * the map does not move with the walker. The one member that comes from the
+   * TRACE, the commits a `refs[].commit` may cite, is scoped to THIS POSITION:
+   * a citation is a claim about evidence, and a commit on another branch is
+   * evidence these words never stood in front of. The bookmark and picture ids
+   * beside it stay whole-store on purpose — those are names on records that are
+   * dashboard-wide by design, not moments on this walk.
+   *
+   * The off-branch commits are gathered too, and never admitted: they only pick
+   * the refusal's sentence, so a writer is told "it is on another branch"
+   * rather than the untrue "the log does not hold it".
+   */
   private proseWorld(cols: readonly ColumnInfo[], mode: 'set' | 'proposal'): ProseWorld & { readonly mode: 'set' | 'proposal' } {
     // the ids come straight off the stores: `bookmarks()` / `saved()` would sort and copy every
     // record on EVERY describe and every proposal, and the answer is the same set of ids.
@@ -2335,11 +2357,15 @@ class InteractionSessionImpl implements InteractionSession {
       saved.add(c.id);
       savedNames.push(c.name);
     }
+    const commits = new Set(this.branchPath(this._cursor).map((r) => r.id));
+    const commitsElsewhere = new Set<string>();
+    for (const r of this.log.records) if (!commits.has(r.id)) commitsElsewhere.add(r.id);
     return {
       columns: new Set(cols.map((c) => c.name)),
       analyses: new Set(this.runtime.analyses.keys()),
       surfaced: new Set([...this.runtime.views.values()].filter((v) => v.encoding !== undefined).map((v) => v.viewId)),
-      commits: new Set(this.log.records.map((r) => r.id)),
+      commits,
+      commitsElsewhere,
       // a ref links a record's ID, not its name — that is why renaming a bookmark or a picture never breaks a note
       bookmarks,
       bookmarkNames,
@@ -3018,11 +3044,11 @@ class InteractionSessionImpl implements InteractionSession {
       // The scalar's kernel key is the (unique) committed state key holding its
       // value; unresolved (ambiguous/absent) → `why()` reports a kernel miss.
       const kernelKey = this.resolveScalarKernelKey(run.snapshot, output.value);
-      this.whyByAnalysisId.set(id, { ...baseProv, ...(kernelKey !== undefined ? { kernelKey } : {}) });
+      this.noteAnalysisProvenance(id, { ...baseProv, ...(kernelKey !== undefined ? { kernelKey } : {}) });
     } else {
       // table / geometry — indexed for `why({kind:'hypothesis'})`; no scalar key
       // (kernel tier reports `kernel-key-unresolved`, honestly).
-      this.whyByAnalysisId.set(id, baseProv);
+      this.noteAnalysisProvenance(id, baseProv);
     }
 
     return {
@@ -3037,6 +3063,35 @@ class InteractionSessionImpl implements InteractionSession {
     };
   }
 
+  /** File one invocation's provenance under its analysis id, appended — a re-run never erases the run before it (they may be on different branches). */
+  private noteAnalysisProvenance(analysisId: string, prov: WhyProvenance): void {
+    const made = this.whyByAnalysisId.get(analysisId);
+    if (made) made.push(prov);
+    else this.whyByAnalysisId.set(analysisId, [prov]);
+  }
+
+  /**
+   * The invocation a hypothesis NAME asks about at a position — the exact law
+   * {@link slotForColumn} states for a column name, and for the same reason.
+   * The run on the branch in front of you is the one you mean (the LAST of
+   * them, since a re-run supersedes). Off every such branch the name still
+   * answers IF exactly one act in this session ever ran it, which is what keeps
+   * `why()` working after the branch that ran it is archived or switched away
+   * from (TL-1: parking a path must not destroy the statistics). Only when
+   * SEVERAL runs made that name and none is here is there no answer, because
+   * any one of them would be a guess.
+   */
+  private provenanceForAnalysis(analysisId: string, at: string | null): WhyProvenance | undefined {
+    const made = this.whyByAnalysisId.get(analysisId);
+    if (made === undefined) return undefined;
+    const onPath = new Set(this.branchPath(at).map((r) => r.id));
+    for (let i = made.length - 1; i >= 0; i--) {
+      const prov = made[i] as WhyProvenance;
+      if (onPath.has(prov.declaringCommitId)) return prov;
+    }
+    return made.length === 1 ? made[0] : undefined;
+  }
+
   /** The unique committed state key whose value === `value`, or undefined if 0/≥2 match. */
   private resolveScalarKernelKey(snapshot: RuntimeSnapshot | undefined, value: unknown): string | undefined {
     if (!snapshot) return undefined;
@@ -3046,6 +3101,28 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   // ── proposeChart (RP-3: ledger-gated agent-authored charts) ──────────────────
+
+  /**
+   * The agent-authored charts registered THIS SESSION — deliberately NOT
+   * branch-scoped, and the reason is the FDR ledger beside it.
+   *
+   * A proposal spends multiplicity budget the moment it is made, and this
+   * library's standing law is that the ledger counts every test a walker ran,
+   * archived paths included ("parking a path must not destroy the statistics",
+   * TL-1). A chart IS a ledgered claim: `ledgered: true`, `ledgerStep: n`. If
+   * `charts()` hid a chart when you walked to another path, the ledger would
+   * still be charging you for a claim you could no longer see — which is the
+   * one shape of dishonesty the FDR surface exists to prevent. So the register
+   * sits on the same side of the line as `_ledger` and `gapLedger`: a
+   * session-local record of what this walker did, not a fold of the trace.
+   *
+   * Two consequences are stated rather than hidden. A chart proposed on a path
+   * you have left still renders (its spec is branch-independent; only its
+   * CLAIM was made at a moment, and `view.commitId` names that moment for
+   * anyone who wants to check). And a replay of the log rebuilds no charts at
+   * all, which is why `adoptPath` skips a chart commit and says so: a proposal
+   * is re-proposed, never replayed. See `README.md`, law 5.
+   */
   charts(): readonly ChartView[] {
     return [...this._charts.values()];
   }
@@ -3203,10 +3280,18 @@ class InteractionSessionImpl implements InteractionSession {
     if (target.kind === 'prose') return this.whyProse(target, opts);
     const prov = target.kind === 'column'
       ? this.whyByColumn.get(this.slotForColumn(target.column) ?? target.column)
-      : this.whyByAnalysisId.get(target.analysisId);
+      : this.provenanceForAnalysis(target.analysisId, this._cursor);
     if (!prov) return { ok: false, missing: 'no-such-target', target };
     return why(target, {
-      vizRecords: this.log.records,
+      // The records this answer may name are the DECLARING COMMIT's own
+      // ancestry — the target's position, not the reader's. `why()` validates
+      // every id it is handed against this list before letting it into the
+      // commit set, so scoping it here is what stops an id from another branch
+      // (a stale one, or one an agent supplied) being reported as provenance
+      // for an act that never saw it. It costs no honest answer: an act's input
+      // selections are, by construction, on the act's own path. Note the anchor
+      // may legitimately be off the CURSOR's branch — see `slotForColumn`.
+      vizRecords: this.branchPath(prov.declaringCommitId),
       declaringCommitId: prov.declaringCommitId,
       inputSelectionCommitIds: prov.inputSelectionCommitIds,
       ...(prov.snapshot ? { kernelSnapshot: prov.snapshot } : {}),
@@ -3235,15 +3320,23 @@ class InteractionSessionImpl implements InteractionSession {
       return { ok: false, missing: declared ? 'declared-in-def' : 'no-such-target', target };
     }
     const landing = this.log.records.find((r) => r.id === entry.commitId)!; // the fold entry names a commit of this log
+    // The words' OWN position: root→the commit that landed them. Everything
+    // this answer may name is drawn from it, so a ref or a basis pointing at
+    // another branch is dropped rather than reported as provenance — the same
+    // honesty the door applies when the words are written (see `proseWorld`),
+    // applied again on the way out, because a log restored from the wire or
+    // written before that door existed can still carry one.
+    const path = this.branchPath(landing.id);
     const record = entry.record as unknown as ProseRecord;
     const inputSelectionCommitIds = [...foldStateAt(this.log.records, landing.id).values()].flatMap((e) => (e.kind === 'selection' ? [e.commitId] : []));
     const related: { id: string; kind: 'proposal' | 'basis' | 'ref' }[] = [];
     if (record.author.acceptedFrom !== undefined) related.push({ id: record.author.acceptedFrom, kind: 'proposal' });
     if (typeof record.basis?.atCommit === 'string') related.push({ id: record.basis.atCommit, kind: 'basis' });
     for (const ref of record.refs ?? []) if (ref.commit !== undefined) related.push({ id: ref.commit, kind: 'ref' });
-    const quoted = record.basis?.analysisId !== undefined ? this.whyByAnalysisId.get(record.basis.analysisId) : undefined;
+    // the analysis the words quote is resolved at the WORDS' position, not the reader's: they quoted the run they were standing in front of
+    const quoted = record.basis?.analysisId !== undefined ? this.provenanceForAnalysis(record.basis.analysisId, landing.id) : undefined;
     return why(target, {
-      vizRecords: this.log.records,
+      vizRecords: path,
       declaringCommitId: landing.id,
       inputSelectionCommitIds,
       relatedCommits: related,

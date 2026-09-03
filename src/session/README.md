@@ -2,7 +2,9 @@
 
 One session = one person's (or agent's) walk through a dashboard: a commit log of acts (select, filter, describe, link, …), a cursor into it, branches, bookmarks, and the fold that turns the log into what is on screen. Every act lands as a commit with a cause; reads never land anything.
 
-## The all-or-nothing law: an act either fully happens, or it does not happen at all
+Five laws govern this folder, and the sections below are them in order: **1** an act either fully happens or it does not happen at all; **2** a fold result is detached; **3** folding as you walk equals folding a replay; **4** commit identity is per dashboard; **5** a read at a cursor answers about that cursor. The sections in between (the view-query port, saved selections, bookmarks) describe doors rather than laws.
+
+## Law 1 — the all-or-nothing law: an act either fully happens, or it does not happen at all
 
 Everything on screen is derived from the TRACE. That is the whole claim of this
 library, and it is a claim about *moments*, not about averages: there must be no
@@ -198,7 +200,7 @@ Persistence: a host reads `session.saved()` and puts the pictures back whole wit
 
 A bookmark is a name (and a description) on a commit, plus who made it and when — kept beside the log, never in it. Bookmarking lands no commit, starts no branch and saves no state; several bookmarks may sit on one commit; a name points at one moment. The `bookmark` dispatch verb is the same act. `bookmarkViews()` is the wire's view of the same bookmarks — the bookmark's `id`, its `label`, the bookmarked `commitId` (also `at`), and the commit's position `ts` (`-1` when the bookmark names a moment this log does not hold); `whats_here` carries the records as `Overview.bookmarks`. Every bookmark carries its own short id (`b1`, `b2`, …), minted by the store — which never mints a number twice, for the reason a picture's never is — and that is what a note's `@[bookmark]` ref links: renaming is FREE, even under a link. `by`/`at` are the CREATION stamp and never move; a rename and `describeBookmark` (which is how a bookmark's words change) record `editedBy`/`editedAt` beside them, so the list never reorders. Forgetting IS still refused while words on screen link the bookmark — that link really would break. `restoreBookmarks` puts bookmarks back whole for a host's persistence, keeping a free id and naming any record it had to re-id (`reidentified`), and refusing a commit the session's log does not hold — `dashboard.restoreBookmarks` has no log to check against, so a host's own record is taken as it stands.
 
-## A fold result is DETACHED (`overview`, `viewEncodings`, `ledger`, `gaps`, `links`)
+## Law 2 — a fold result is DETACHED (`overview`, `viewEncodings`, `ledger`, `gaps`, `links`)
 
 The FOLD derives what may responsibly be claimed now; a LENS serves a bounded
 view of that fold to a reader. The law: **a reader never holds the object the
@@ -274,7 +276,7 @@ of `sources` the moment `sources` became a getter. `assemble` now takes the
 refresh door as a parameter, so there is one dashboard object literal and no
 place for that to happen again.
 
-## The conformance law: folding as you WALK equals folding a REPLAY
+## Law 3 — the conformance law: folding as you WALK equals folding a REPLAY
 
 The fold a session builds incrementally while a person walks (each door writing
 its own bit of state as an act lands) must equal the fold rebuilt from nothing
@@ -329,7 +331,7 @@ The session has no public "replay this log into me" door today; the test
 re-commits each record through `session.log` and then seeks, which is what
 `replayLog` does at L1. That seam is worth adding.
 
-## Commit identity is per DASHBOARD, not per session
+## Law 4 — commit identity is per DASHBOARD, not per session
 
 A commit id (`s1`, `s2`, …) is minted from a counter on the dashboard runtime,
 beside the saved-picture and bookmark stores — because those stores NAME COMMIT
@@ -338,3 +340,201 @@ mint `s1`, so a bookmark made in one silently resolved to a different act in the
 other. A session's own log therefore has gaps in its numbering, which is
 correct. The full law, the reproduction and a worked example are in
 [`src/log/README.md`](../log/README.md), "Law 2".
+
+## Law 5 — a read at a cursor must answer about that cursor
+
+The session has two pointers. `_head` is the tip of the branch acts extend;
+`_cursor` is where you are standing and looking. `branchPath(cursor)` walks the
+parent chain and hands back the root→cursor prefix — everything this position
+could have seen — and `rebuildFold` refills the fold from exactly that.
+
+The commit log, though, is not a line. It is a tree, and `this.log.records` is
+every commit on every branch of it. Roughly twenty reads in `session.ts` reach
+for that array, and until this section they were not marked: some of them were
+asking a question the whole tree answers, and some were asking a question only
+the cursor's prefix answers, and nothing in the code said which was which.
+
+**The rule, in one line:**
+
+- A read that answers **what is true**, or **what happened**, is about a
+  position — scope it to the cursor's branch prefix.
+- A read that answers **what exists anywhere in this history** is legitimately
+  whole-log: an existence check before a seek, the id set for minting, listing
+  branches, comparing two branches, planning a bring-over between them.
+
+The dangerous shape is a read that **sounds** cursor-scoped and is not. It does
+not fail loudly. It produces a confident answer about a moment, built out of
+evidence from a branch that moment never saw — and because this library dresses
+its answers in provenance, the wrongness arrives wearing a commit id.
+
+### Worked example of each side
+
+**Position (must be scoped).** Two brushes off one pick — the affordable end on
+path A, the premium end on path B — and a note written on B:
+
+```ts
+const root = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause });
+const a    = await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [30, 120], cause });
+s.seek(root.commit.id);
+const b    = await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [120, 220], cause });
+
+// standing on B, citing A's brush
+await s.dispatch({ verb: 'describe', viewId: 'note:n1', slot: 'caption', cause,
+  record: { text: 'The premium end is where the ratings are, see the cheap brush.',
+            author: { kind: 'human' },
+            refs: [{ span: [46, 51], commit: a.commit.id }] } });
+
+// { ok: false, rejection: { code: 'guard-failed', detail:
+//   '"note:n1".caption.refs[0] cites commit "s2", which is on another branch —
+//    these words stand at a moment that never saw it; seek to it (or bring it
+//    over) and write them there' } }
+```
+
+That used to land. The note then hung on the dashboard on path B with a working
+anchor pointing at a brush that had never been applied there, and `why()` on
+those words listed it as one of the commits they depend on.
+
+**Existence (legitimately whole-log).** Every one of these still reads the whole
+tree, on purpose:
+
+```ts
+s.seek(a.commit.id);              // travelling to another branch IS the point of a cursor
+s.bookmark('the cheap end', a.commit.id);  // a name on a MOMENT; the store is dashboard-wide
+await s.compare('A', 'B');        // comparing two branches reads both, by definition
+await s.bringOver(a.commit.id);   // planning to carry a step across is not a claim about here
+```
+
+And after that bring-over, the citation refused above is honest here — because
+the step is now on this path. The refusal never removed an ability; it named
+the one step that was missing.
+
+### The full classification
+
+| read (`session.ts`) | side | why |
+|---|---|---|
+| `seek` — commit exists (:727) | whole | you seek TO other branches; that is navigation |
+| `branchPath` — the id map (:785) | whole | the substrate the scoping is computed FROM; a parent chain crosses no branch |
+| `rebuildFold` (:825) | scoped | the fold IS the position |
+| `branches()` (:877, :887) | whole | listing the branches of the tree |
+| `paths()` (:896, :901) | whole | listing named refs and their lengths; each `branchPath` is scoped to ITS tip on purpose |
+| `newPathAt` — commit exists (:933) | whole | you may start a path at any commit |
+| `pathToRewind` (:979, :986) | scoped, to the named path | "is `at` on the path I would rewind" — deliberately not the cursor's |
+| `discardFromHere` (:999, :1007, :1016) | whole for existence, scoped for the step count | two different questions, two different reads |
+| `stepsSinceAncestor` (:1027–1028) | both, deliberately | it exists to compare two branches |
+| `adoptPath` → `planBringOver` (:1064) | whole | planning a bring-over between branches |
+| `rowsAtTip` → `foldStateAt(records, tip)` (:1125) | scoped by `tip` | `foldStateAt` walks the chain itself; the whole log is only its index |
+| `compare` → `foldDiff` (:1142) | whole | comparing two branches |
+| `bringOver` / `undo` plans (:1161, :1169) | whole | both are planned AGAINST the cursor, which the planner is given |
+| `derivedAt` (:1305) | scoped | which `risk` is in front of you — see [`../data/README.md`](../data/README.md) |
+| `bookmark` — commit exists (:1594) | whole | a bookmark names a moment anywhere; the store is dashboard-wide |
+| `restoreBookmarks` — the id set (:1640) | whole | validating restored records against the history |
+| `applySaved` correlation id (:1776) | whole | `records.length` is used as a counter, never as a claim |
+| **`proseWorld` — `commits` (:2360)** | **scoped (was whole)** | the mention world; the decision is below |
+| `doFork` — commit exists (:2810) | whole | you may fork from any commit |
+| **`provenanceForAnalysis` (:3087)** | **scoped (new)** | which run of `clustering` you are asking about |
+| **`why()` — `vizRecords` (:3293)** | **scoped to the TARGET's branch (was whole)** | the answer may only name commits the declaring act could have seen |
+| `whyProse` — the entry at the cursor (:3313) | scoped | which words are on screen |
+| `whyProse` — the landing record (:3321) | whole | an id-to-record lookup for a commit the fold already named |
+| **`whyProse` — `vizRecords` (:3328)** | **scoped to the WORDS' branch (was whole)** | same reason as above, at the words' own position |
+| `whyProse` — input selections (:3330) | scoped by `landing.id` | the selections live when the words landed |
+| `bookmarkViews` — positions (:3368) | whole | a bookmark may name a moment on any branch; `ts: -1` when the log does not hold it |
+| `overview` — `cursorTests` (:3465) | scoped | the two-truths surface: tests on YOUR path vs the session's whole ledger |
+
+Four were on the wrong side. Every other row was already right, and several
+were right in a way worth noticing: `foldStateAt`, `planBringOver`, `planUndo`
+and `foldDiff` all take the whole log and scope it THEMSELVES from the tip they
+are given, so handing them everything is correct — the position is the second
+argument, not the first.
+
+### The decision: may a note cite a commit on another branch? No.
+
+There is a real argument on both sides, and it is written down here so it can be
+revisited on purpose rather than by accident.
+
+**For allowing it.** The commit exists. A note is a durable record that may
+outlive the branch you were on — you might archive the path tomorrow — and
+refusing to let a person point at something that demonstrably happened is a
+strange thing for a provenance library to do. This repo already holds that
+parking a path must not destroy the statistics (TL-1).
+
+**Against, which is what we chose.** A citation is not a pointer, it is a claim
+about *evidence*. A reader who follows a `refs[].commit` anchor is being told
+"this is what these words rest on". Evidence from a branch the words' own
+position never saw is precisely the confusion this law exists to remove, and it
+arrives silently: nothing about the anchor looks different.
+
+Three things settled it.
+
+1. **The rest of this very world is already at the cursor.** `validateProseRecord`
+   judges `basis.columns` against this branch's columns — its refusal literally
+   reads *"names a column that is not on this branch"*. The commits were the one
+   member of the same record's world that was global. That asymmetry was not a
+   decision anyone made; it was the absence of one.
+2. **Map versus trace.** The other members of the mention world — the columns,
+   the declared analyses, the views with an encoding surface — come from the MAP,
+   and the map does not move with the walker, so they are global and should be.
+   Commits are TRACE. A world member drawn from the trace has to be read at a
+   position, or it is not a reading of the trace at all.
+3. **Scoping at write time makes the citation permanently sound; not scoping
+   makes it permanently ambiguous.** A commit's ancestor set is frozen the
+   moment it lands — the log is append-only, so the prefix behind the note can
+   never change. A citation judged against that prefix is therefore true
+   forever, including after the branch is archived, restored, serialized or
+   replayed. Under the whole-log rule the citation stays *resolvable* but its
+   MEANING quietly depends on which branch the reader is standing on. The
+   durability argument, on inspection, favours the strict rule.
+
+The refusal is also cheap to escape and the sentence says how: seek to the
+commit and write the note there, or bring the step over and write it here. That
+is why `proseWorld` gathers the off-branch ids as well — never to admit one,
+only so the refusal can say *"it is on another branch"* rather than the untrue
+*"the log does not hold it"*, the same courtesy `bookmarkNames` pays.
+
+**What did NOT change, deliberately.** A `@[bookmark]` or `@[saved]` ref still
+sees the whole store. Those name records that are dashboard-wide by design
+(see [`../log/README.md`](../log/README.md), Law 2) — a bookmark is explicitly a
+name on a moment anywhere in the history, and a saved picture is logic, not a
+moment. They are the "what exists" side of the same rule.
+
+**And on the way out, not only on the way in.** `basis.atCommit` is inert data
+the describe door does not judge at all (a ghost id is dropped, never faked —
+that law predates this one). So `why({ kind: 'prose' })` scopes its own record
+list to the words' branch: a log restored from the wire, or written before this
+door existed, can still carry an off-branch id, and the answer must not dress it
+up as provenance. Same for `why({ kind: 'column' | 'hypothesis' })`, scoped to
+the DECLARING commit's branch — which may legitimately not be the cursor's, per
+`slotForColumn`.
+
+### Rebuilding at a cursor must rebuild everything derived from it
+
+`rebuildFold(cursor)` is the whole of the position-derived state. The audit,
+with what a person would see if a row were missing:
+
+| derived from position | rebuilt? | verdict |
+|---|---|---|
+| `activeFilters`, `activeFilterCommits` | yes | correct — this is the fold |
+| `clearedFilters` (the `onClear` memory) | yes | correct; a link's policy would otherwise honour a clear from another branch |
+| `activeEncodings` | yes, re-seeded from each view's declared `initial` first | correct — a seek restores the axes that were live |
+| `activeLayouts` | yes | correct — each path keeps its own arrangement |
+| `activeLinks` | yes | correct |
+| `activeProse`, `activeProposals` | yes, re-seeded from the def's words first | correct |
+| the derived-column registry (`runtime.derived`) | **not rebuilt — resolved** | correct, and better. It is a dashboard-scoped store; `derivedAt` resolves a name against `branchPath(cursor)` on every read. Visibility falls out of resolution rather than being a second mechanism beside it ([`../data/README.md`](../data/README.md), rule 3). Rebuilding it would be a second copy of the same truth. |
+| the effective-encoding memo, the `fits` memo | **not rebuilt — self-invalidating** | correct. Each is keyed by a `JSON.stringify` of exactly what it depends on (`activeEncodings`, `activeLinks`, the facets). `rebuildFold` replaces those, the key changes, the memo recomputes. Clearing them too would be belt-and-braces on a key that is already the belt. |
+| the FDR ledger (`_ledger`) | **not rebuilt, on purpose** | a session-local record of what THIS walker asked for. Alpha is spent when a test is run, not when its commit is in front of you; the ledger counts every test including those on archived paths, which is the whole point of an online-FDR budget. Rebuilding it per cursor would refund alpha by walking away — the one thing the procedure must never do. Already stated under Law 3 as a legitimate walk/replay difference. |
+| the gap ledger (`gapLedger`) | **not rebuilt, on purpose** | likewise session-local: a record of what this walker asked for and did not get, including asks that landed nothing at all and so have no position. Already stated under Law 3. |
+| the chart register (`_charts`) | **not rebuilt, on purpose — a third session-local record** | a proposal spends ledger budget the moment it is made, so a chart carries `ledgered: true` and a `ledgerStep`. If `charts()` hid a chart when you walked to another path, the ledger would still be charging you for a claim you could no longer see. It belongs on the same side of the line as `_ledger`, and it is named here because it is the one row of this table that could plausibly have gone either way. Its `view.commitId` names the moment the claim was made, for anyone who wants to check. `adoptPath` skips a chart commit for the matching reason: a proposal is re-proposed, never replayed. |
+| the `why` provenance maps (`whyByColumn`, `whyByAnalysisId`) | **not rebuilt — resolved, like the derived registry** | keyed by SLOT and by analysis id, and read through `slotForColumn` / `provenanceForAnalysis`, which resolve at a position. `whyByAnalysisId` used to be a last-wins slot, which is the bug this law names: run `correlation` on two branches and both branches answered with whichever ran last, ledger row and all. It is a list now, and the resolver applies the law `slotForColumn` already stated — the run on your branch, else the only run there has ever been, else no answer. |
+| `_head` | **not rebuilt, on purpose** | HEAD is where the walker stands, not what the fold says. `seek` is navigation, not mutation. |
+| `refs` / `BranchRefs` | **not rebuilt, on purpose** | refs live beside the log; `seek` detaches HEAD rather than moving a ref. |
+| `_currentView` | **not rebuilt, and not derived** | a navigate on a declared view lands no commit at all (pan/zoom is never a data claim), so there is nothing on the trace to rebuild it from. |
+
+**The expiry condition under Law 1 still stands.** Two places there are sound
+only because `rebuildFold` cannot throw over records this session's own doors
+landed and froze. Nothing in this law touched `rebuildFold`, and every read it
+added is either in a judge phase (`proseWorld`, before anything moves) or in a
+read-only door (`why`, `charts`); the one write it changed,
+`noteAnalysisProvenance`, is a `Map` read plus a `push`, which is the same class
+of step the assignment it replaced was. If a door is ever added that lands a
+record `rebuildFold` has to *interpret*, that expiry fires exactly as written.
+
+Pinned by `branchScoped.test.ts`.

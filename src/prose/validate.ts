@@ -32,8 +32,22 @@ export interface ProseWorld {
   readonly analyses?: ReadonlySet<string>;
   /** The views that declare an encoding surface — a derived slot has nothing to derive from on any other. */
   readonly surfaced?: ReadonlySet<string>;
-  /** The commit ids the log holds — a ref may only point at one of them. */
+  /**
+   * The commit ids a ref may point at: the ones on the POSITION these words
+   * are being written at (root→cursor), not every commit the log holds. A
+   * citation is a claim about evidence, and evidence from a branch this
+   * record's position never saw is a confident answer about the wrong moment.
+   * See `src/session/README.md`, "a read at a cursor answers about that cursor".
+   */
   readonly commits?: ReadonlySet<string>;
+  /**
+   * Commit ids that exist in the log but NOT at this position. They are never
+   * admitted — this set exists only so the refusal can say which of the two
+   * things went wrong ("the log does not hold it" vs "it is on another
+   * branch"), the same courtesy {@link ProseWorld.bookmarkNames} pays. Absent
+   * = not distinguished, and every dead ref reads as "the log does not hold it".
+   */
+  readonly commitsElsewhere?: ReadonlySet<string>;
   /** The bookmark IDS the store holds — a `bookmark` ref may only point at one of them (ids, not names: a rename must not turn a good ref bad). */
   readonly bookmarks?: ReadonlySet<string>;
   /** The bookmark NAMES the store holds, for the refusal sentence when a dead ref shows no words; absent = the sentence names the id alone. */
@@ -114,7 +128,12 @@ export function validateProseRecord(viewId: string, slot: string, raw: unknown, 
         const hasBookmark = typeof ref.bookmark === 'string';
         const hasSaved = typeof ref.saved === 'string';
         if (Number(hasCommit) + Number(hasBookmark) + Number(hasSaved) !== 1) at('ref-target', PROSE_SENTENCES.refTarget, slots);
-        if (hasCommit && world.commits !== undefined && !world.commits.has(ref.commit as string)) at('ref-commit', PROSE_SENTENCES.refCommit, { ...slots, commit: ref.commit as string });
+        // a commit ref is judged against THIS POSITION's commits, the way `basis.columns` just
+        // above is judged against this branch's columns — one world, one moment
+        if (hasCommit && world.commits !== undefined && !world.commits.has(ref.commit as string)) {
+          const elsewhere = world.commitsElsewhere?.has(ref.commit as string) === true;
+          at('ref-commit', elsewhere ? PROSE_SENTENCES.refCommitOffBranch : PROSE_SENTENCES.refCommit, { ...slots, commit: ref.commit as string });
+        }
         // a ref carries an id and may show words: the sentence names both, and the list of what exists when it shows none
         const shown = typeof ref.label === 'string' && ref.label.length > 0 ? ref.label : undefined;
         if (hasBookmark && world.bookmarks !== undefined && !world.bookmarks.has(ref.bookmark as string)) at('ref-bookmark', PROSE_SENTENCES.refBookmark, { ...slots, bookmark: deadRef(ref.bookmark as string, shown, 'bookmarks', world.bookmarkNames) });
