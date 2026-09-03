@@ -7,6 +7,7 @@
  * verbatim, never parsed or dispatched on.
  */
 
+import { GAP_CODES } from './types.js';
 import type { GapCode, GapOp, GapRow } from './types.js';
 
 export class GapLedger {
@@ -40,19 +41,18 @@ export class GapLedger {
     return Object.freeze([...this._rows]);
   }
 
-  /** Counts by taxonomy code. */
+  /**
+   * Counts by taxonomy code — every code, zero included, so a reader can
+   * compare two ledgers without checking for absent keys.
+   *
+   * The zeroes are SEEDED FROM `GAP_CODES`, not hand-listed. They were
+   * hand-listed once and the list fell behind the type: `stale-offer` existed
+   * as a code with no seed, so the first stale-offer gap counted as
+   * `undefined + 1` — `NaN`, in a histogram, silently. Reading the codes from
+   * the one place they are declared makes that drift unrepresentable.
+   */
   byCode(): Record<GapCode, number> {
-    const hist = {
-      'needs-column': 0,
-      'needs-analysis-kind': 0,
-      'needs-view': 0,
-      'guard-failed': 0,
-      'needs-backend-data': 0,
-      'chart-invalid-spec': 0,
-      'chart-transforms-not-owned': 0,
-      'chart-unsupported-composition': 0,
-      'chart-hypothesis-rejected': 0,
-    } as Record<GapCode, number>;
+    const hist = Object.fromEntries(GAP_CODES.map((code) => [code, 0])) as Record<GapCode, number>;
     for (const r of this._rows) hist[r.code] += 1;
     return hist;
   }

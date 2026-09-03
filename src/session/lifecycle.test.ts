@@ -26,6 +26,7 @@ import { buildDashboard } from '../def/index.js';
 import { makeDashboardDef } from './dashboard.fixture.js';
 import { foldStateAt } from '../branches/index.js';
 import type { Cause } from '../cause/index.js';
+import type { AnalysisDef, AnalysisModule, ScalarOutput } from '../analysis/index.js';
 
 const userCause = (intent?: string): Cause => ({ requestedBy: 'user', computedBy: 'user', ...(intent ? { intent } : {}) });
 
@@ -40,6 +41,36 @@ async function mainLine(s: Session): Promise<{ aId: string; bId: string }> {
   const a = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
   const b = await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [60, 130], cause: userCause() });
   return { aId: a.ok ? a.commit!.id : '', bId: b.ok ? b.commit!.id : '' };
+}
+
+/**
+ * An analysis module that RUNS the first time and throws every time after —
+ * the shape a replay's own third-party work really has (it worked when the step
+ * was authored; it blows up when the step is re-run somewhere else).
+ */
+function throwsOnReplay(message: string, how: 'error' | 'bare' = 'error'): AnalysisModule<void, ScalarOutput> {
+  let runs = 0;
+  const def: AnalysisDef<void, ScalarOutput> = {
+    id: 'flaky',
+    kind: 'transform',
+    produces: 'scalar',
+    inputs: [],
+    build: () => ({}) as never,
+    toRunInput: () => undefined,
+    readOutput: () => ({ ok: true, output: { as: 'scalar', name: 'flaky', value: 1 } }),
+  };
+  return {
+    id: 'flaky',
+    kind: 'transform',
+    def,
+    run: async () => {
+      if (++runs > 1) {
+        if (how === 'bare') throw message; // eslint-disable-line no-throw-literal
+        throw new Error(message);
+      }
+      return { result: { ok: true, output: { as: 'scalar', name: 'flaky', value: 1 } } };
+    },
+  };
 }
 
 /** main (a→b) plus a sibling path "premium-focus" forked at `a`. Leaves HEAD on the sibling. */
@@ -441,23 +472,18 @@ describe('TL-1 adoptPath — merge by replay, in order, honestly', () => {
     const s = freshSession();
     const { aId } = await mainLine(s);
     s.seek(aId);
-    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', cause: userCause('party lane') });
+    // An analysis whose own code blows up on the SECOND run — real third-party
+    // work a replay genuinely re-RUNS, and the one thing left that can take a
+    // step down (a mounted adapter no longer can: see the test below).
+    s.registerAnalysis('flaky', throwsOnReplay('analysis blew up'));
+    await s.declareAnalysis('flaky', { cause: userCause('party lane') }); // the source lane's own run: fine
     await s.dispatch({ verb: 'annotate', target: 'scatter', note: 'and a note after it', cause: userCause() });
     s.switchPath('main');
-    // a mounted view whose inbound render THROWS — real third-party code the
-    // replay calls (R3 applyClause). The bar select cannot land; the annotation
-    // after it must still be attempted.
-    s.mountView('bar', {
-      capabilities: { canProbe: true },
-      applyClause: () => {
-        throw new Error('renderer blew up');
-      },
-    });
 
     const res = await s.adoptPath('party-lane');
     expect(res.ok).toBe(true); // the caller ALWAYS gets its report
     if (!res.ok) return;
-    expect(res.steps[0]).toMatchObject({ applied: false, skippedReason: 'replaying this step threw: renderer blew up' });
+    expect(res.steps[0]).toMatchObject({ applied: false, skippedReason: 'replaying this step threw: analysis blew up' });
     expect(res.steps.at(-1)!.applied).toBe(true); // the run went on to the annotation
     expect(res).toMatchObject({ applied: 1, skipped: 1 });
     // R14: the throw is filed, never dropped
@@ -468,18 +494,41 @@ describe('TL-1 adoptPath — merge by replay, in order, honestly', () => {
     const s = freshSession();
     const { aId } = await mainLine(s);
     s.seek(aId);
-    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', cause: userCause('party lane') });
+    s.registerAnalysis('flaky', throwsOnReplay('plain string blow-up', 'bare'));
+    await s.declareAnalysis('flaky', { cause: userCause('party lane') });
     s.switchPath('main');
-    s.mountView('bar', {
-      capabilities: { canProbe: true },
-      applyClause: () => {
-        throw 'plain string blow-up'; // eslint-disable-line no-throw-literal
-      },
-    });
 
     const res = await s.adoptPath('party-lane');
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.steps[0]!.skippedReason).toBe('replaying this step threw: plain string blow-up');
+  });
+
+  it('a mounted adapter that throws does NOT un-apply a replayed step — the commit landed, so the report says so', async () => {
+    const s = freshSession();
+    const { aId } = await mainLine(s);
+    s.seek(aId);
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', cause: userCause('party lane') });
+    s.switchPath('main');
+    // R3 applyClause is an OUTBOUND effect. It used to run inside the act, so a
+    // throwing renderer produced a report that said the step did not apply —
+    // while its commit sat on the trace, landed. The step applies; the failed
+    // render is a gap.
+    s.mountView('bar', {
+      capabilities: { canProbe: true },
+      applyClause: () => {
+        throw new Error('renderer blew up');
+      },
+    });
+
+    const before = s.log.records.length;
+    const res = await s.adoptPath('party-lane');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.steps[0]).toMatchObject({ applied: true });
+    expect(res.steps[0]!.landedAs).toBe(s.log.records.at(-1)!.id); // the report names the commit that really landed
+    expect(s.log.records.length).toBe(before + 1);
+    expect(s.gaps().at(-1)).toMatchObject({ code: 'effect-failed', op: 'select', target: 'bar' });
+    expect(s.gaps().at(-1)!.detail).toContain('renderer blew up');
   });
 
   it('a replayed analysis RE-RUNS here — degenerate on this path, it lands nothing and spends nothing', async () => {

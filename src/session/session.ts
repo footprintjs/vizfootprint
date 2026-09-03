@@ -472,6 +472,15 @@ function kindOfAct(action: Extract<DispatchAction, { verb: 'select' | 'filter' }
   return 'fields' in action ? 'cell' : 'values' in action ? 'match' : 'point';
 }
 
+/**
+ * What a thrown thing SAYS, for a gap's inert `detail`. Third-party code may
+ * throw anything at all (an adapter that throws a string, a provider that
+ * rejects with an object), and a gap must still read as a sentence.
+ */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /** FNV-1a over a string — a short, stable id for an offer minted at a position. */
 function fnv1a(text: string): string {
   let h = 0x811c9dc5;
@@ -632,6 +641,13 @@ class InteractionSessionImpl implements InteractionSession {
       const info = this.runtime.sources[this.defaultTable];
       return info === undefined ? undefined : { [this.defaultTable]: info.version };
     };
+    // The commit's one OUTBOUND step — pushing the clause onto the live
+    // Selection, which emits to whatever a host attached — must not be able to
+    // fail an act that already landed. The log rethrows when nobody is
+    // listening; the session listens, and files the honest gap instead (R14).
+    this.log.onSelectionUpdateFailed = (error, record) => {
+      this.gapLedger.file('effect-failed', 'commit', `commit ${record.id} landed, but the live selection for view "${record.viewId}" threw while taking it: ${messageOf(error)}`, record.id);
+    };
     this.fdrStepper = runtime.makeFdrStepper();
     // Initial alpha-wealth W0 for the summary before any test lands.
     const fdr = runtime.def.fdr;
@@ -661,9 +677,41 @@ class InteractionSessionImpl implements InteractionSession {
    * auto-creates a NAMED ref (today's branch-on-act, now named) — journaled.
    */
   private landed(record: CommitRecord): void {
+    // Routing through the refs FIRST, then moving the two pointers, keeps this
+    // an apply phase in the same shape as everything else: the one step that
+    // does real work (naming or advancing a ref, journaling the event) runs
+    // while the session still stands where it stood, and the pointers move as
+    // the last two assignments — which cannot fail. `noteCommit` reads only the
+    // refs' own HEAD, never `_head`/`_cursor`, so the order is free.
+    this.refs.noteCommit(record);
     this._head = record.id;
     this._cursor = record.id;
-    this.refs.noteCommit(record);
+  }
+
+  /**
+   * Tell a mounted view its clause changed — an OUTBOUND effect, never part of
+   * the act (R3 inbound render).
+   *
+   * An adapter is third-party code. It used to be called bare, at the end of
+   * the dispatch: an adapter that threw took the whole dispatch down AFTER the
+   * commit had landed and the active filters had moved, so the caller was told
+   * the act failed when it had, in fact, entirely happened — and the rail, the
+   * fold and the log all disagreed with the exception the caller saw.
+   *
+   * So it is outside the transaction now, and its failure is a typed gap (R14)
+   * naming the act, the view, and what the adapter said. The act stands. A
+   * dashboard whose chart failed to redraw is a dashboard with a stale picture
+   * on it; a dashboard that swallowed the commit would be one whose picture is
+   * not derived from the trace at all.
+   */
+  private notifyAdapter(viewId: string, clause: CauseClause, verb: DispatchVerb, commitId: string): void {
+    const adapter = this.adapters.get(viewId);
+    if (adapter?.applyClause === undefined) return;
+    try {
+      adapter.applyClause(clause);
+    } catch (error) {
+      this.gapLedger.file('effect-failed', verb, `commit ${commitId} landed, but the mounted adapter for view "${viewId}" threw while re-rendering it: ${messageOf(error)}`, viewId);
+    }
   }
 
   /** Move the cursor + rebuild the fold at `commitId` (no head change, no validation — callers pre-validate). */
@@ -1016,16 +1064,22 @@ class InteractionSessionImpl implements InteractionSession {
         report.push({ commitId: step.id, applied: false, conflicts: [], skippedReason: plan.detail });
         continue;
       }
-      // A replay runs REAL third-party code — an analysis def's stage, a mounted
-      // adapter's applyClause — and either can THROW. One throwing step must not
-      // abort the run and lose the report the caller is owed: catch it, file the
-      // typed gap (R14 — never a silent drop), and carry on with the next step.
-      // The report stays honest about exactly which step failed and why.
+      // A replay runs REAL third-party code — an analysis def's own stage — and
+      // it can THROW. One throwing step must not abort the run and lose the
+      // report the caller is owed: catch it, file the typed gap (R14 — never a
+      // silent drop), and carry on with the next step. The report stays honest
+      // about exactly which step failed and why.
+      //
+      // A mounted adapter used to be the other source of throws here, and the
+      // report it produced was a LIE: the step's commit had already landed, and
+      // the run reported it `applied: false`. Adapter notification is outbound
+      // now (see `notifyAdapter`), so a throwing renderer leaves an applied
+      // step and an `effect-failed` gap — which is what actually happened.
       let landed: BringOverResult;
       try {
         landed = await this.executePlan(plan, { replayedFrom: step.id }, 'adoptPath', opts.as);
       } catch (error) {
-        const detail = `replaying this step threw: ${error instanceof Error ? error.message : String(error)}`;
+        const detail = `replaying this step threw: ${messageOf(error)}`; // ONE spelling of "what did it say" — see messageOf
         this.gapLedger.file('guard-failed', 'adoptPath', detail, step.id);
         report.push({ commitId: step.id, applied: false, conflicts: plan.conflicts, skippedReason: detail });
         continue;
@@ -1930,7 +1984,8 @@ class InteractionSessionImpl implements InteractionSession {
       this.activeFilterCommits.set(viewId, record.id); // a superseded select on the same view drops out here
     }
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
-    this.adapters.get(viewId)?.applyClause?.(clause as CauseClause);
+    // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
+    this.notifyAdapter(viewId, clause as CauseClause, verb, record.id);
     return { ok: true, verb, intent, commit: record };
   }
 
@@ -2012,7 +2067,8 @@ class InteractionSessionImpl implements InteractionSession {
       this.activeFilterCommits.set(viewId, record.id);
     }
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
-    this.adapters.get(viewId)?.applyClause?.(clause as CauseClause);
+    // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
+    this.notifyAdapter(viewId, clause as CauseClause, verb, record.id);
     return { ok: true, verb, intent, commit: record };
   }
 
@@ -2811,7 +2867,21 @@ class InteractionSessionImpl implements InteractionSession {
             gap = this.gapLedger.file('guard-failed', 'declareAnalysis', `analysis "${id}" produced no values for column "${name}"`, name);
             continue;
           }
-          const landed = await provider.materializeColumn(out.table, name, values);
+          // OUTBOUND, and after the declaring commit already landed: writing a
+          // column back into the data space reaches a provider (a wasm engine,
+          // an HTTP backend), which may reject — handled below — or THROW. A
+          // throw used to escape `declareAnalysis` entirely, leaving the commit
+          // on the trace, the head moved, the FDR alpha spent, and the caller
+          // holding an exception for an analysis that had really happened. It
+          // is a typed gap now, and the run's other columns still get their
+          // turn: the answer says exactly which column did not land.
+          let landed: Awaited<ReturnType<typeof provider.materializeColumn>>;
+          try {
+            landed = await provider.materializeColumn(out.table, name, values);
+          } catch (error) {
+            gap = this.gapLedger.file('effect-failed', 'declareAnalysis', `analysis "${id}" ran, but writing column "${name}" back into table "${out.table}" threw: ${messageOf(error)}`, name);
+            continue;
+          }
           if (isRejection(landed)) {
             const code = landed.reason === 'not-implemented' || landed.reason === 'no-backend-connection' ? 'needs-backend-data' : 'guard-failed';
             /* v8 ignore next -- every provider's materializeColumn() rejection (memory/wasm/server, src/data/*Provider.ts) always supplies a `detail`; the `landed.reason` fallback is unreachable via the public API */
@@ -2948,6 +3018,22 @@ class InteractionSessionImpl implements InteractionSession {
     const stamped: Cause = { requestedBy, computedBy, ...(validated.intent !== undefined ? { intent: validated.intent } : {}) };
     const claim = typeof input.claim === 'string' && input.claim.length > 0 ? input.claim : `${fields.join(' vs ')} reveals a relationship`;
 
+    // The spec's wire form is rendered HERE, while this is still a judgement
+    // and nothing has moved. `gateChartSpec` judges the spec's SHAPE, not
+    // whether it can be written down: a spec carrying a BigInt, or a reference
+    // back to itself, passes every gate above and then makes `JSON.stringify`
+    // throw. That throw used to happen BETWEEN the two commits this act lands —
+    // after the FDR ledger had spent a step and the `pValue` hypothesis commit
+    // was already history — leaving a chart that half-exists: a ledgered claim,
+    // on the trace, for a chart with no spec and no view. Refused up here, the
+    // act simply does not happen.
+    let payload: string;
+    try {
+      payload = JSON.stringify({ spec, claim, authoredBy: computedBy });
+    } catch (error) {
+      return file('chart-invalid-spec', `the chart spec cannot be written to the trace — it must be plain JSON: ${messageOf(error)}`, id);
+    }
+
     // (a) the ledgered hypothesis — an UNTESTED visual claim entered at p = 1.0:
     //     it COSTS multiplicity budget (an agent cannot fish charts for free) but
     //     can never be a discovery (reject is always false at p=1). Landed as a
@@ -2971,8 +3057,8 @@ class InteractionSessionImpl implements InteractionSession {
     // (b) register the chart as a session view (the render source). The gated
     //     spec is stored as a JSON STRING (inert like the annotation note — the
     //     log's clause factory takes a primitive value), so it round-trips
-    //     structuredClone + JSON with the rest of the log.
-    const payload = JSON.stringify({ spec, claim, authoredBy: computedBy });
+    //     structuredClone + JSON with the rest of the log. Rendered above, in
+    //     the judge phase — nothing between the two commits may throw.
     const { record: specCommit } = this.log.commit({
       id: this.nextId(),
       parent: this._cursor,

@@ -149,6 +149,22 @@ export class CauseSelectionSession {
   #view: readonly CommitRecord[] | undefined;
   /** Set by the session: the data versions to stamp on every commit that names none (table → version). */
   stampData?: () => Readonly<Record<string, string>> | undefined;
+  /**
+   * Set by the session: what to do when pushing the clause onto the live
+   * `Selection` throws — see {@link commit}'s APPLY phase.
+   *
+   * The selection update is the one OUTBOUND step of a commit: it relays to
+   * downstream selections and emits to every listener a host attached (the
+   * demo's charts are exactly that). Third-party code, in other words, and it
+   * runs AFTER the record is already on the trace — so a throw from it must
+   * never un-land the commit, and must never be swallowed either.
+   *
+   * This log has no ledger of its own, so it does not invent one: a session
+   * installs this hook and files the failure as a typed gap. With no hook
+   * installed the error is RETHROWN (the record stays landed) — which is what a
+   * bare `CauseSelectionSession` did before this hook existed.
+   */
+  onSelectionUpdateFailed?: (error: unknown, record: CommitRecord) => void;
 
   constructor(selection = Selection.crossfilter(), registry = new SourceRegistry()) {
     this.selection = selection;
@@ -181,10 +197,37 @@ export class CauseSelectionSession {
 
   /**
    * Author one commit: reconstruct source identity from the registry, build the
-   * cause-tagged clause, apply it to the selection, and append the record.
-   * Returns both the record and the live clause.
+   * cause-tagged clause, append the record, and push the clause onto the live
+   * selection. Returns both the record and the live clause.
+   *
+   * ALL-OR-NOTHING, in two phases (the session law — src/session/README.md,
+   * "a dispatch either fully happens or does not happen at all"):
+   *
+   *  - **JUDGE** — everything that can throw happens here, and NOTHING
+   *    observable has moved yet: the cause gate, the registry lookups, the
+   *    value copy, the cell's field-pair refusal, building the clause, asking
+   *    the session for the data stamp, rendering `predicateSQL` and the deep
+   *    freeze. Any of these throwing leaves the log and the selection exactly
+   *    as they were, so the act simply did not happen.
+   *  - **APPLY** — pure assignment: push the record, drop the cached snapshot.
+   *
+   * This ORDER is the fix for a real window. The selection used to be updated
+   * the moment the clause existed, several fallible steps BEFORE the record was
+   * built and frozen — so a throwing `stampData`, a predicate whose `toString`
+   * threw, or a freeze that failed left the live selection standing on a clause
+   * with no commit behind it. That is precisely what
+   * [`src/detach/README.md`](../detach/README.md) says must be impossible: what
+   * is on screen would no longer be derived from the trace.
    */
   commit(input: CommitInput): { record: CommitRecord; clause: SelectionClause } {
+    // ── JUDGE ────────────────────────────────────────────────────────────────
+    // D30: a cell commit carries its authoritative field PAIR; refusing an
+    // absent pair here (not downstream) keeps every replica of the wire
+    // (fold, replay, adapter) free to trust `fields` on a cell record. It is
+    // the FIRST thing judged so the refusal cannot even register a source.
+    if (input.kind === 'cell' && input.fields === undefined) {
+      throw new Error('vizfootprint log: a cell commit needs `fields` — the two columns selected together');
+    }
     const cause = validateCause(input.cause); // R12 gate at the log boundary too
     const source = this.registry.register(input.viewId, input.actorMeta);
     const clientViewIds = input.clientViewIds ?? [input.viewId];
@@ -199,20 +242,14 @@ export class CauseSelectionSession {
     // the selection that is already standing.
     const value = copyValue(input.value);
 
-    let spec: CauseClauseSpec;
-    if (input.kind === 'cell') {
-      // D30: a cell commit carries its authoritative field PAIR; refusing an
-      // absent pair here (not downstream) keeps every replica of the wire
-      // (fold, replay, adapter) free to trust `fields` on a cell record.
-      if (input.fields === undefined) {
-        throw new Error('vizfootprint log: a cell commit needs `fields` — the two columns selected together');
-      }
-      spec = { kind: 'cell', source, fields: input.fields, value: value as never, cause, clients };
-    } else {
-      spec = { kind: input.kind, source, field: input.field, value: value as never, cause, clients };
-    }
+    const spec: CauseClauseSpec =
+      input.kind === 'cell'
+        // `fields!` — the refusal at the top of this method already proved it
+        // present; `CommitInput` is one interface rather than a discriminated
+        // union, so the compiler cannot carry that proof down here.
+        ? { kind: 'cell', source, fields: input.fields!, value: value as never, cause, clients }
+        : { kind: input.kind, source, field: input.field, value: value as never, cause, clients };
     const clause = causeClause(spec);
-    this.selection.update(clause);
 
     const data = input.data ?? this.stampData?.();
     const record: CommitRecord = {
@@ -250,8 +287,25 @@ export class CauseSelectionSession {
     // class instance is left as it stands (src/detach/README.md says so
     // plainly); every value this library itself commits is plain JSON.
     deepFreeze(record);
+
+    // ── APPLY ────────────────────────────────────────────────────────────────
+    // Pure assignment. Nothing between these two lines can fail, so there is no
+    // moment at which the record exists and the snapshot still says otherwise.
     this.#records.push(record);
     this.#view = undefined; // the log moved: the next `records` read rebuilds the snapshot
+
+    // ── OUTBOUND (not part of the act) ───────────────────────────────────────
+    // Pushing the clause onto the live Selection relays to downstream
+    // selections and emits to every listener a host attached — third-party code
+    // running after the commit is already history. It must not be able to
+    // un-land the commit, and it must not be swallowed either: see
+    // {@link onSelectionUpdateFailed}.
+    try {
+      this.selection.update(clause);
+    } catch (error) {
+      if (this.onSelectionUpdateFailed === undefined) throw error;
+      this.onSelectionUpdateFailed(error, record);
+    }
     return { record, clause };
   }
 }

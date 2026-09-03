@@ -373,3 +373,74 @@ describe('D30 — cell commits: wire shape, JSON round-trip, replay', () => {
     expect(record.predicateSQL).toBe('null');
   });
 });
+
+/**
+ * THE ORDERING LAW — a commit either fully lands or does not land at all.
+ *
+ * `commit()` runs everything that can throw in a JUDGE phase, while nothing has
+ * moved; the APPLY phase is the push. The one OUTBOUND step (pushing the clause
+ * onto the live Selection, which emits to whatever a host attached) runs LAST
+ * and cannot un-land a commit that is already history.
+ *
+ * The session's half of this law — the gap an outbound failure files, and the
+ * doors that must not half-apply — is in `src/session/atomicity.test.ts`.
+ */
+describe('commit() — judge everything first, then apply', () => {
+  const POINT: CommitInput = {
+    id: 'x1',
+    parent: null,
+    viewId: 'A',
+    actorMeta: { actor: 'user' },
+    kind: 'point',
+    field: 'category',
+    value: 'Data',
+    cause: { requestedBy: 'user', computedBy: 'user' },
+  };
+
+  it('a throwing stampData leaves the log AND the live selection exactly as they were', () => {
+    const s = new CauseSelectionSession();
+    s.commit(POINT);
+    s.stampData = () => {
+      throw new Error('no version to be had');
+    };
+    expect(() => s.commit({ ...POINT, id: 'x2', parent: 'x1', value: 'Ops' })).toThrow('no version to be had');
+    // it used to update the selection first: one clause, no commit behind it
+    expect(s.records.length).toBe(1);
+    expect(s.selection.clauses.length).toBe(1);
+    expect(s.selection.clauses[0]!.value).toBe('Data');
+  });
+
+  it('a cell refused for its missing pair registers NO source — the refusal is the first thing judged', () => {
+    const s = new CauseSelectionSession();
+    const cell: CommitInput = { ...POINT, id: 'c-none', viewId: 'never-seen', kind: 'cell', field: 'price × category', value: [[100, 150], 'Formal'] };
+    expect(() => s.commit(cell)).toThrow(/needs `fields`/);
+    expect(() => s.registry.require('never-seen')).toThrow(); // nothing was registered on the way out
+    expect(s.records.length).toBe(0);
+    expect(s.selection.clauses.length).toBe(0);
+  });
+
+  it('a listener that throws does NOT un-land the commit; with no hook installed the error is rethrown, never swallowed', () => {
+    const s = new CauseSelectionSession();
+    s.selection.addEventListener('value', () => {
+      throw new Error('a chart blew up');
+    });
+    expect(() => s.commit(POINT)).toThrow('a chart blew up');
+    expect(s.records.length).toBe(1); // the commit is history: it happened
+    expect(s.records[0]!.id).toBe('x1');
+  });
+
+  it('with the hook installed the failure is reported instead of thrown, and the commit still stands', () => {
+    const s = new CauseSelectionSession();
+    const reported: string[] = [];
+    s.onSelectionUpdateFailed = (error, record) => {
+      reported.push(`${record.id}: ${(error as Error).message}`);
+    };
+    s.selection.addEventListener('value', () => {
+      throw new Error('a chart blew up');
+    });
+    const { record } = s.commit(POINT);
+    expect(record.id).toBe('x1');
+    expect(s.records.length).toBe(1);
+    expect(reported).toEqual(['x1: a chart blew up']);
+  });
+});

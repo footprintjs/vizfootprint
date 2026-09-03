@@ -105,6 +105,19 @@ its array afterwards would still be editing the selection that had already
 landed — a change to what the dashboard is showing, with no commit behind it,
 which is the exact thing this folder exists to make impossible.
 
+**And in that ORDER.** `commit()` runs in two phases: everything that can throw
+(the cause gate, the registry lookups, the clause, the data stamp,
+`predicateSQL`, the deep freeze) happens while nothing has moved; then the
+record is pushed. The selection update comes LAST, because it is the one
+OUTBOUND step — it relays to downstream selections and emits to every listener a
+host attached, which is third-party code running after the commit is already
+history. It cannot un-land that commit: a session installs
+`onSelectionUpdateFailed` and files the failure as a gap; with no hook installed
+the error is rethrown, never swallowed. The full law, and why the two halves are
+ordered this way, is in
+[`src/session/README.md`](../session/README.md) — "an act either fully happens,
+or it does not happen at all".
+
 ### ③ `parseCommitLog` — the door back in
 
 `deserializeLog` used to check `Array.isArray` and hand the result back cast as

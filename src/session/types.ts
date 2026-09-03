@@ -26,24 +26,42 @@ import type { DiffChange, DiffOnly, PlanRecipe, RefEvent } from '../branches/ind
 // ── The gap ledger (D14 taxonomy) — every unmet request, typed, never dropped. ─
 
 /**
- * The D14 gap taxonomy codes. The `chart-*` codes (RP-3) are the four governed
- * `proposeChart` pipeline refusals — each a stage of schema-valid →
- * capability-check → hypothesis, landed instead of a silent drop so the agent
- * reads the reason back and repairs.
+ * The D14 gap taxonomy codes, as DATA — so the one place that has to enumerate
+ * them at runtime (`GapLedger.byCode`) reads this list rather than repeating
+ * it. It repeated it once, and drifted: `stale-offer` was added to the type and
+ * not to the histogram, which then counted it as `undefined + 1` = `NaN`.
+ *
+ * The `chart-*` codes (RP-3) are the four governed `proposeChart` pipeline
+ * refusals — each a stage of schema-valid → capability-check → hypothesis,
+ * landed instead of a silent drop so the agent reads the reason back and
+ * repairs.
  */
-export type GapCode =
-  | 'needs-column'
-  | 'needs-analysis-kind'
-  | 'needs-view'
-  | 'guard-failed'
-  | 'needs-backend-data'
+export const GAP_CODES = [
+  'needs-column',
+  'needs-analysis-kind',
+  'needs-view',
+  'guard-failed',
+  'needs-backend-data',
   // ── layer 4 offers: an act named an offer that is not the current one for its node (or none, where one is required) ──
-  | 'stale-offer'
+  'stale-offer',
+  /**
+   * An OUTBOUND effect of an act that already happened failed — a mounted
+   * adapter's `applyClause` threw, the live selection's listeners threw, a
+   * provider THREW while writing a materialized column back (a provider that
+   * refuses in the ordinary way is still `needs-backend-data`). The act STANDS: its
+   * commit is on the trace and the session's own state agrees with it. This
+   * code is the honest record that the world outside the session did not keep
+   * up. See src/session/README.md, "an act either fully happens or does not".
+   */
+  'effect-failed',
   // ── RP-3: agent-authored chart pipeline refusals ──
-  | 'chart-invalid-spec'
-  | 'chart-transforms-not-owned'
-  | 'chart-unsupported-composition'
-  | 'chart-hypothesis-rejected';
+  'chart-invalid-spec',
+  'chart-transforms-not-owned',
+  'chart-unsupported-composition',
+  'chart-hypothesis-rejected',
+] as const;
+
+export type GapCode = (typeof GAP_CODES)[number];
 
 /** The operation a gap was filed against. */
 export type GapOp =
@@ -62,7 +80,15 @@ export type GapOp =
   | 'archivePath'
   | 'restorePath'
   | 'discardFromHere'
-  | 'adoptPath';
+  | 'adoptPath'
+  /**
+   * Landing a commit itself, as opposed to any one verb: the op an
+   * `effect-failed` gap carries when the live selection's own update threw
+   * after the record was already on the trace. The verb is not known at that
+   * depth (the log does not have one) — the gap's `target` names the COMMIT,
+   * which identifies the act more exactly than a verb would.
+   */
+  | 'commit';
 
 /** One unmet request, filed with a taxonomy code. `detail`/`target` are INERT data (R12). */
 export interface GapRow {

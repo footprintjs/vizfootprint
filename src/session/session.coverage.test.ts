@@ -18,6 +18,7 @@ import type { Cause } from '../cause/index.js';
 import type { AnalysisDef, AnalysisModule, ColumnsOutput, ScalarOutput, TableOutput, DataRow } from '../analysis/index.js';
 import type { AgentEventFrame } from '../why/index.js';
 import { GapLedger } from './gapLedger.js';
+import { GAP_CODES } from './types.js';
 
 const userCause = (intent?: string): Cause => ({ requestedBy: 'user', computedBy: 'user', ...(intent ? { intent } : {}) });
 
@@ -564,6 +565,22 @@ describe('GapLedger — a gap filed with no target omits the field entirely', ()
     expect(row.target).toBeUndefined();
     expect(ledger.rows()).toEqual([row]);
     expect(ledger.byCode()).toMatchObject({ 'needs-view': 1 });
+  });
+
+  it('byCode seeds EVERY declared code, so a newly added one counts rather than reading NaN', () => {
+    const ledger = new GapLedger();
+    // `stale-offer` and `effect-failed` were the two the hand-written histogram
+    // could have missed — a missing seed made the first such gap count as
+    // `undefined + 1`, silently NaN. The seeds come from GAP_CODES now.
+    ledger.file('stale-offer', 'select', 'the position moved');
+    ledger.file('effect-failed', 'select', 'the renderer threw');
+    ledger.file('effect-failed', 'commit', 'the live selection threw');
+    const hist = ledger.byCode();
+    expect(Object.keys(hist).sort()).toEqual([...GAP_CODES].sort());
+    expect(Object.values(hist).every((n) => Number.isFinite(n))).toBe(true);
+    expect(hist['stale-offer']).toBe(1);
+    expect(hist['effect-failed']).toBe(2);
+    expect(hist['needs-view']).toBe(0);
   });
 });
 

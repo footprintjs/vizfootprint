@@ -2,6 +2,178 @@
 
 One session = one person's (or agent's) walk through a dashboard: a commit log of acts (select, filter, describe, link, …), a cursor into it, branches, bookmarks, and the fold that turns the log into what is on screen. Every act lands as a commit with a cause; reads never land anything.
 
+## The all-or-nothing law: an act either fully happens, or it does not happen at all
+
+Everything on screen is derived from the TRACE. That is the whole claim of this
+library, and it is a claim about *moments*, not about averages: there must be no
+moment at which the live session has moved and no commit records it, and no
+moment at which a commit is on the log and the session disagrees with it.
+
+A half-applied act breaks that claim **silently**. There is nothing in the log to
+show for it — that is precisely what it means for the state and the trace to
+have come apart — so it does not surface as a bad answer, it surfaces as a
+dashboard that is quietly no longer explaining itself. Every other law here
+(the fold is detached, the trace is append-only, replay equals the walk) rests
+on this one.
+
+Three rules keep it. Each `doX` in `session.ts` already obeyed the first; the
+second and third are what this section added.
+
+### 1. JUDGE FIRST — every refusal happens before anything moves
+
+Every door runs its guards and returns a `reject(...)` before it touches the
+log, the cursor, the head, the filters, the folds, or a store. A view that is
+not declared, a column the table lacks, a channel this chart kind has no slot
+for, a saved picture that could land nothing: all refused with a typed gap
+(R14), with the session exactly as it was.
+
+`applySaved` is the sharpest case, and it says so in its own section below: it
+judges every condition first, because a `replace` clears the live filters to
+make room — and clearing to make room for something that then cannot land would
+be a change to the dashboard nobody asked for.
+
+### 2. THE APPLY PHASE MAY NOT FAIL PARTWAY
+
+Judging first is only half of it. Once judging is done, the steps that actually
+move things must not be able to throw between them — otherwise the refusal is
+sound and the *success* is what half-happens.
+
+The shape is: **compute everything that can throw during the judge phase; leave
+the apply phase as pure assignment.** Never a rollback. This codebase has no
+state rollback anywhere, on purpose (a rollback path is more state you have to
+get right, and it is exercised only when things are already going wrong).
+
+Two windows were open and are now closed, both of them the same mistake — a
+fallible step standing between two halves of one act:
+
+- **`log.commit()` used to move the live selection before the record existed.**
+  `causeClause(spec)` → `selection.update(clause)` → *then* ask the session for
+  the data stamp, render `predicateSQL`, build the record, deep-freeze it, push
+  it. Four fallible steps after the screen had already moved. A throwing
+  `stampData`, or a predicate whose `toString` threw, left the live selection
+  standing on a clause with no commit behind it — the exact thing
+  [`../detach/README.md`](../detach/README.md) says must be impossible. Now the
+  clause, the stamp, the record and the freeze are all built while nothing has
+  moved, and the apply phase is two assignments: push the record, drop the
+  cached snapshot.
+- **`proposeChart` used to render the spec BETWEEN its two commits.**
+  `gateChartSpec` judges a spec's *shape* — it does not judge whether the spec
+  can be written down. A spec carrying a `BigInt` (or a reference back to
+  itself) passes every gate and then makes `JSON.stringify` throw — after the
+  FDR ledger had spent a step and the `pValue` hypothesis commit was already
+  history. That left a ledgered claim on the trace for a chart with no spec and
+  no view. The wire form is rendered in the judge phase now, and an unwritable
+  spec is an ordinary `chart-invalid-spec` refusal.
+
+**A burnt commit id is NOT a window, and that is worth stating.** `nextId()`
+mints before `log.commit()` runs, so a refusal inside `commit()` spends a number
+nothing ever uses. That is fine, and it is fine for a reason already on the
+record: ids are minted per DASHBOARD, so a session's own log has gaps in its
+numbering anyway, and nothing anywhere reads an id as a position — order is the
+parent chain and `ts`. See [`../log/README.md`](../log/README.md), Law 2. What
+would NOT be fine is any *other* state surviving that throw, so the log's cell
+refusal is now the first thing `commit()` judges, before it registers a source.
+
+### 3. AN OUTBOUND EFFECT IS NOT PART OF THE ACT
+
+Some steps genuinely can fail and are genuinely not the act: they reach outside
+the session, into code this library does not own. A mounted adapter re-rendering
+(`ViewAdapter.applyClause`, R3 inbound). The live Mosaic `Selection` relaying to
+whatever listeners a host attached. A provider writing an analysis column back
+into the data space.
+
+Those are moved OUT of the transaction, and their failure is a typed
+`effect-failed` gap naming the act, the thing that failed, and what it said.
+Never swallowed — the gap ledger is this library's channel for "something did
+not work" and it is used here exactly as everywhere else.
+
+The reasoning is worth being explicit about, because "swallow it" and "let it
+throw" are both wrong. A dashboard whose chart failed to redraw is a dashboard
+with a stale picture on it — annoying, visible, recoverable. A dashboard that
+lost the commit because the chart failed to redraw is one whose picture is not
+derived from the trace at all. And a dispatch that *throws* for an act that
+already landed tells the caller the opposite of the truth: the rail, the fold
+and the log all say it happened.
+
+#### Worked example — an adapter that throws, and the act still stands
+
+```ts
+const s = buildDashboard(def).createSession();
+s.mountView('bar', {
+  capabilities: { canProbe: true },
+  applyClause: () => { throw new Error('renderer blew up'); },
+});
+
+const res = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category',
+                               value: 'Formal', cause });
+
+res.ok;                                    // true  — it happened, and it says so
+s.log.records.length;                      // 1
+s.head === res.commit.id;                  // true
+s.cursor() === res.commit.id;              // true
+(await s.overview()).activeSelections;     // [{ viewId: 'bar', value: 'Formal', … }]
+(await s.overview()).selectedRowCount;     // 8 — the filter really is applied
+
+s.gaps().at(-1);
+// { code: 'effect-failed', op: 'select', target: 'bar',
+//   detail: 'commit s1 landed, but the mounted adapter for view "bar" threw
+//            while re-rendering it: renderer blew up' }
+```
+
+Before this, that same call **threw** `renderer blew up` out of `dispatch` — with
+the commit already on the log, the head already moved and the filter already
+live. The caller saw a failure for an act that had entirely happened. A replay
+of the trail (`adoptPath`) told the same lie in report form: it reported the step
+`applied: false` while the commit it had just landed sat in the log.
+
+Two more of the same shape, same answer:
+
+```ts
+s.log.selection.addEventListener('value', () => { throw new Error('a chart blew up'); });
+await s.dispatch({ verb: 'select', … });
+// ok. gap: { code: 'effect-failed', op: 'commit', target: 's1',
+//            detail: 'commit s1 landed, but the live selection for view "bar" threw …' }
+
+// a provider that cannot write a materialized column back
+const out = await s.declareAnalysis('clustering');
+out.commit;                 // the analysis ran, and its commit stands
+out.materialized;           // []  — honestly claims nothing was written
+out.gap;                    // { code: 'effect-failed', op: 'declareAnalysis', target: 'cluster_id', … }
+```
+
+The `op` on an `effect-failed` gap is the verb where there is one, and `commit`
+where there is not: the live selection's update happens inside
+[`../log`](../log/README.md), which does not have a verb — so the gap's `target`
+names the COMMIT, which identifies the act more exactly than a verb would
+anyway.
+
+### What this means when you add a door
+
+List, in order, what your `doX` mutates: the log, `_head`/`_cursor`, the refs,
+`activeFilters`/`activeFilterCommits`/`clearedFilters`, `activeEncodings`/
+`activeLayouts`/`activeLinks`, the prose folds, the memos, the gap ledger, the
+dashboard-level stores, the adapters. Then ask of each step: *can it throw, and
+if it throws, is what came before it observable?* Anything that can throw belongs
+above `log.commit()`; anything that reaches outside the session belongs below the
+last assignment, wrapped, with a gap.
+
+`landed()` is written the same way and for the same reason: it routes the record
+through the refs first (the one step that does real work — naming or advancing a
+path, journaling the event) and moves `_head`/`_cursor` last, as two assignments
+that cannot fail.
+
+Pinned by `atomicity.test.ts` (the session half) and by the "judge everything
+first, then apply" block in [`../log`](../log/README.md)'s `log.test.ts`.
+
+**Deliberately not guarded**, and stated rather than hidden: `rebuildFold`
+clears every fold map and refills it from the branch path, so a throw partway
+through would leave a genuinely half-built fold. It is not defended, because
+every record it reads is one this session's own doors landed and deep-froze —
+plain JSON, judged on the way in — and every operation over them is a string or
+`Map` write. If a door is ever added that lands a record `rebuildFold` has to
+*interpret* (rather than route), that reasoning expires and the fold should be
+built into fresh maps and swapped in.
+
 ## The view-query port (`viewQuery`, `clausesFor`)
 
 A sheet window is ONE call: `viewQuery({ table?, viewId?, columns?, sort?, limit?, offset? })` answers `{ columns, rows, rowIds, positional, key?, count, start, version, cursor, clauses }` or a typed refusal with a sentence. `clausesFor(viewId)` is the engine-side twin of the renderer's crossfilter law — which gestures reach a view through the link graph (own clause excluded, each edge's response and mapping applied, a cleared source remembered per its `onClear`). With no view, the count is exactly what `Overview.selectedRowCount` counts. The engine keeps one sort permutation per (table, sort spec); a brush never rebuilds a sort. The version is read beside the provider and re-checked after the rows: a refresh in between is `version-moved`, never a misdated window.
