@@ -1,5 +1,5 @@
 /**
- * L5 session — COVERAGE PACKET (dispatch/seek/branch/checkpoint corners).
+ * L5 session — COVERAGE PACKET (dispatch/seek/branch/bookmark corners).
  *
  * session.test.ts and timeTravel.test.ts already pin the documented R#
  * behaviors; this file drives the remaining verb-validation edges,
@@ -325,17 +325,17 @@ describe('dispatch — the analyze verb (existing tests only exercise its needs-
   });
 });
 
-describe('doCheckpoint — a too-long label is a typed guard-failed gap', () => {
+describe('doBookmark — a too-long label is a typed guard-failed gap', () => {
   it('rejects a label over 200 chars and truncates the detail to 40 chars', async () => {
     const s = freshSession();
     const long = 'x'.repeat(250);
-    const res = await s.dispatch({ verb: 'checkpoint', label: long, cause: userCause() });
+    const res = await s.dispatch({ verb: 'bookmark', label: long, cause: userCause() });
     expect(res.ok).toBe(false);
     if (!res.ok) {
       expect(res.rejection.code).toBe('guard-failed');
       expect(res.rejection.target).toBe(long.slice(0, 40));
     }
-    expect(s.checkpoints()).toHaveLength(0);
+    expect(s.bookmarks()).toHaveLength(0);
   });
 });
 

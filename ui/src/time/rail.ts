@@ -95,7 +95,7 @@ function contentWidth(el: HTMLElement): number {
 /**
  * The rail's bar width, re-measured whenever the rail's content box changes (a
  * ResizeObserver, when the environment has one). The rail may mount later
- * than the component that asks (Present mode has no rail until a beat is
+ * than the component that asks (Present mode has no rail until a bookmark is
  * named), so the node is held in state through a callback ref and the
  * observer attaches when the rail appears.
  */

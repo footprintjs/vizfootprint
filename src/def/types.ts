@@ -53,7 +53,7 @@ export type DispatchVerb =
   | 'navigate'
   | 'analyze'
   | 'fork'
-  | 'checkpoint'
+  | 'bookmark'
   | 'reencode'
   | 'link'
   | 'describe';
@@ -66,7 +66,7 @@ export const DISPATCH_VERBS: readonly DispatchVerb[] = [
   'navigate',
   'analyze',
   'fork',
-  'checkpoint',
+  'bookmark',
   'reencode',
   'link',
   'describe',
@@ -77,7 +77,7 @@ export const DISPATCH_VERBS: readonly DispatchVerb[] = [
  * honored or a gap is filed) or **optional-interaction** (best-effort UI
  * affordance). Per SPEC §7 the defaults are: `analyze` mandatory-analytical;
  * `annotate`/`navigate` optional-interaction; the state-changing analytical
- * verbs (`select`/`filter`/`fork`/`checkpoint`) mandatory-analytical.
+ * verbs (`select`/`filter`/`fork`/`bookmark`) mandatory-analytical.
  */
 export type IntentClass = 'mandatory-analytical' | 'optional-interaction';
 
@@ -92,10 +92,10 @@ export const DEFAULT_INTENTS: Readonly<Record<DispatchVerb, IntentClass>> = {
   filter: 'mandatory-analytical',
   analyze: 'mandatory-analytical',
   fork: 'mandatory-analytical',
-  checkpoint: 'mandatory-analytical',
+  bookmark: 'mandatory-analytical',
   // reencode changes what a view SHOWS, not just what it highlights — a
   // state-changing transition (the orchestrator ruling), same class as
-  // select/filter/fork/checkpoint: must be honored or filed as a typed gap.
+  // select/filter/fork/bookmark: must be honored or filed as a typed gap.
   reencode: 'mandatory-analytical',
   // link changes what FILTERS what — the graph itself — so it is state-changing like reencode.
   link: 'mandatory-analytical',
@@ -393,23 +393,24 @@ export interface SavedSelection {
 export type RestorableSaved = Omit<SavedSelection, 'id'> & { readonly id?: string };
 
 /**
- * A TAG IS A NAME ON A MOMENT — a checkpoint, a story beat: the name, the
- * commit it marks, a description, who tagged it and when. Several tags may
- * sit on one commit; a name is one moment. Like a git tag it lives BESIDE the
- * log, never in it: tagging lands no commit and starts no branch, and a tag
- * stays valid on every branch that runs through its commit. Present mode
- * walks the tagged moments; seeking a tag seeks its commit.
+ * A BOOKMARK IS A NAME ON A MOMENT — a place in the history you want to come
+ * back to: the name, the commit it marks, a description, who made it and when.
+ * Several bookmarks may sit on one commit; a name points at one moment. A
+ * bookmark lives BESIDE the log, never in it: bookmarking lands no commit and
+ * starts no branch, saves no state, and a bookmark stays valid on every branch
+ * that runs through its commit. Present mode walks the bookmarked moments;
+ * seeking a bookmark seeks its commit.
  */
-export interface Tag {
-  /** The store's own short id (`t1`, `t2`, …) — the IDENTITY: what a note's words link, so a rename never breaks a link. */
+export interface Bookmark {
+  /** The store's own short id (`b1`, `b2`, …) — the IDENTITY: what a note's words link, so a rename never breaks a link. */
   readonly id: string;
   readonly name: string;
   readonly commitId: string;
   /** Words for the list — why this moment matters. Inert data, never parsed. */
   readonly description?: string;
-  /** Who tagged the moment — the CREATOR, never restamped. */
+  /** Who made the bookmark — the CREATOR, never restamped. */
   readonly by: Actor;
-  /** ISO time it was tagged — CREATION, never restamped (which is why the list's order is stable). */
+  /** ISO time it was made — CREATION, never restamped (which is why the list's order is stable). */
   readonly at: string;
   /** Who last renamed it or changed its words, when anyone has. */
   readonly editedBy?: Actor;
@@ -417,17 +418,17 @@ export interface Tag {
   readonly editedAt?: string;
 }
 
-/** A tag as a HOST hands it back (`restoreTags`): the whole record, its id optional — a store with room for it keeps the id, otherwise the store names it and says so. */
-export type RestorableTag = Omit<Tag, 'id'> & { readonly id?: string };
+/** A bookmark as a HOST hands it back (`restoreBookmarks`): the whole record, its id optional — a store with room for it keeps the id, otherwise the store names it and says so. */
+export type RestorableBookmark = Omit<Bookmark, 'id'> & { readonly id?: string };
 
-/** The store: the tags in the order they were made (a mutable list the session's doors write). */
-export interface TagStore {
-  readonly list: Tag[];
+/** The store: the bookmarks in the order they were made (a mutable list the session's doors write). */
+export interface BookmarkStore {
+  readonly list: Bookmark[];
   /**
-   * The highest number this store has ever handed out (`t7` ⇒ 7). It only
-   * goes UP: forgetting a tag does not free its number, so a note written at
+   * The highest number this store has ever handed out (`b7` ⇒ 7). It only
+   * goes UP: forgetting a bookmark does not free its number, so a note written at
    * another moment in the history can never be silently re-pointed at a
-   * different moment. Restoring raises it too, so a host's `t7` is safe after
+   * different moment. Restoring raises it too, so a host's `b7` is safe after
    * a restart. Lives on the STORE because the store outlives every session.
    */
   minted: number;
@@ -436,7 +437,7 @@ export interface TagStore {
 /** The store: the saved selections in the order they were saved (a mutable list the session's doors write). */
 export interface SavedStore {
   readonly list: SavedSelection[];
-  /** The highest number this store has ever handed out (`p7` ⇒ 7) — see {@link TagStore.minted}: a freed number never comes back. */
+  /** The highest number this store has ever handed out (`p7` ⇒ 7) — see {@link BookmarkStore.minted}: a freed number never comes back. */
   minted: number;
 }
 
@@ -478,8 +479,8 @@ export interface DashboardRuntime {
   readonly journal: readonly RefreshRecord[];
   /** The saved selections — saved LOGIC beside the log, never in it (see {@link SavedSelection}); shared by every session, like the journal. */
   readonly saved: SavedStore;
-  /** The tags — names on moments beside the log (see {@link Tag}); shared by every session. */
-  readonly tags: TagStore;
+  /** The bookmarks — names on moments beside the log (see {@link Bookmark}); shared by every session. */
+  readonly bookmarks: BookmarkStore;
   /** Build notes a def should hear: e.g. `engine: 'auto'` resolved to memory because the thresholds are unmeasured. */
   readonly notes: readonly string[];
   /** The declared row key per table (absent = positional rows, no delta). */

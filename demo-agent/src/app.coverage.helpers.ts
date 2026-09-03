@@ -70,7 +70,7 @@ export const STATE_A = {
   fdr: { procedure: 'LORD++', alpha: 0.05, tests: 1, discoveries: 0, wealth: 0.9, ledger: [{ step: 1, hypothesisId: 'h1', pValue: 0.2, alphaThreshold: 0.05, reject: false, wealthAfter: 0.9 }] },
   gaps: [{ code: 'E_NO_COLUMN', op: 'reencode', detail: 'no such column', target: 'scatter' }],
   branches: [{ tip: 'c2', length: 2, actor: 'agent', active: true }],
-  checkpoints: [{ label: 'start', commitId: 'c1', ts: 1000 }],
+  bookmarks: [{ label: 'start', commitId: 'c1', ts: 1000 }],
   columns: { data: COLS },
   // 'line' is explicitly present (exercises the encodings["line"] ?? {} TRUTHY
   // arm) but names the SAME fields the app-side default would — x MUST stay
@@ -126,7 +126,7 @@ export const STATE_B = {
   fdr: {},
   gaps: [],
   branches: [],
-  checkpoints: [],
+  bookmarks: [],
   cursor: null,
   head: null,
   viewingPast: true,

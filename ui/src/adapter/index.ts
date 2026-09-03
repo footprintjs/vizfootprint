@@ -51,7 +51,7 @@ export type {
   CompareSideView,
   CompareEntryView,
   CompareChangeView,
-  CheckpointView,
+  BookmarkView,
   LedgerView,
   LedgerStep,
   GapView,

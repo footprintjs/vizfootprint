@@ -3,7 +3,7 @@
  * component (composed beside, not inside, the time bar). Pure geometry comes
  * from the adapter's `layoutBranches`: the active lineage rides lane 0 (top),
  * each divergent leaf drops to its own lane, siblings fork downward as smooth
- * curves. Nodes are badged by actor; the cursor and head wear rings; checkpoints
+ * curves. Nodes are badged by actor; the cursor and head wear rings; bookmarks
  * fly a flag. Scrolls horizontally within its own box.
  *
  * BR-2 upgrades (all opt-in, old call sites unchanged):
@@ -30,14 +30,14 @@
  *     they cannot apply, rather than leaving the refusal to the session.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { CommitView, CheckpointView, PathView } from '../adapter/types.js';
+import type { CommitView, BookmarkView, PathView } from '../adapter/types.js';
 import { layoutBranches } from '../adapter/stepNav.js';
 
 export interface BranchMapProps {
   readonly commits: readonly CommitView[];
   readonly cursor: string | null;
   readonly head: string | null;
-  readonly checkpoints?: readonly CheckpointView[];
+  readonly bookmarks?: readonly BookmarkView[];
   /** Named lane labels (BR-2): each path's name is drawn at its tip's lane. */
   readonly paths?: readonly PathView[];
   /**
@@ -91,7 +91,7 @@ interface MenuItem {
 }
 
 export function BranchMap(props: BranchMapProps): JSX.Element {
-  const { commits, cursor, head, checkpoints = [], paths = [], archivedPaths = [], showArchived = false, onSeek } = props;
+  const { commits, cursor, head, bookmarks = [], paths = [], archivedPaths = [], showArchived = false, onSeek } = props;
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const hasMenu =
@@ -113,7 +113,7 @@ export function BranchMap(props: BranchMapProps): JSX.Element {
   const { nodes, edges, maxDepth, maxLane } = layoutBranches(commits, head);
   const pos = new Map(nodes.map((n) => [n.node.id, n]));
   const byId = new Map(commits.map((c) => [c.id, c]));
-  const ckptAt = new Map(checkpoints.filter((c) => c.commitId).map((c) => [c.commitId!, c.label]));
+  const bookmarkAt = new Map(bookmarks.filter((c) => c.commitId).map((c) => [c.commitId!, c.label]));
   // lane labels: only refs whose tip is actually drawn (a stale name can't crash
   // the map). TL-1: the archived ones join the list ONLY when revealed — their
   // steps are always drawn, just unnamed by default.
@@ -255,7 +255,7 @@ export function BranchMap(props: BranchMapProps): JSX.Element {
                 cy={yOf(c.id)}
                 r={isCursor ? R + 2 : R}
               />
-              {ckptAt.has(c.id) && (
+              {bookmarkAt.has(c.id) && (
                 <text className="vzf-bm-flag" x={xOf(c.id)} y={yOf(c.id) - R - 5} textAnchor="middle">
                   ⚑
                 </text>

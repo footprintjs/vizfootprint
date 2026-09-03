@@ -18,7 +18,7 @@ import { ENCODING_SET_FIELD,
   CHART_VIEW_PREFIX,
   ENCODING_VIEW_PREFIX,
   LAYOUT_VIEW_PREFIX,
-  BEAT_VIEW_PREFIX,
+  BOOKMARK_VIEW_PREFIX,
   LINK_VIEW_PREFIX,
   PROSE_VIEW_PREFIX,
 } from '../branches/index.js';
@@ -83,10 +83,10 @@ const ENCODINGS = new Set(['point', 'interval', 'cell', 'match']);
  * lands its own `encoding:` / `analysis:` / `annotation:` / `chart:` / `layout:`
  * commits there, which are INERT in the fold by design (`keyOf` returns null),
  * so such a view's probes would be unfoldable, invisible to `compare`, and
- * silently skipped when a path is adopted. `beat:` is reserved for the older
- * reason it was: nothing lands one now (a checkpoint is a tag, beside the log),
- * but the UI still reads that shape as a story beat. Rejected at the def boundary (R12)
- * rather than left to fail confusingly at runtime.
+ * silently skipped when a path is adopted. `bookmark:` is reserved for the older
+ * reason it was: nothing lands one now (a bookmark lives beside the log, not in
+ * it), but the UI still reads that shape as a bookmark. Rejected at the def
+ * boundary (R12) rather than left to fail confusingly at runtime.
  */
 const RESERVED_VIEW_PREFIXES = [
   ENCODING_VIEW_PREFIX,
@@ -94,7 +94,7 @@ const RESERVED_VIEW_PREFIXES = [
   ANNOTATION_VIEW_PREFIX,
   CHART_VIEW_PREFIX,
   LAYOUT_VIEW_PREFIX,
-  BEAT_VIEW_PREFIX,
+  BOOKMARK_VIEW_PREFIX,
   LINK_VIEW_PREFIX, // layer 4: `link:<edgeId>` is a keyed namespace — a view there would be read as a link-graph edit
   PROSE_VIEW_PREFIX, // the prose plane: `prose:<viewId>` carries a view's words
   NOTE_PROSE_PREFIX, // the prose plane's notes: `note:<id>` is a prose subject, never a view

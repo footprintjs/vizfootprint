@@ -155,25 +155,25 @@ describe('the remaining doors', () => {
 });
 
 describe('refs at the dispatch door', () => {
-  it('a caption may point at a commit the log holds or a beat that was named; anything else is refused with the sentence', async () => {
+  it('a caption may point at a commit the log holds or a bookmark that was named; anything else is refused with the sentence', async () => {
     const s = buildDashboard(withProse()).createSession();
     const sel = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
     const selId = sel.ok ? sel.commit!.id : '';
-    await s.dispatch({ verb: 'checkpoint', label: 'formal only', cause: userCause() });
-    const beatId = s.tags()[0]!.id; // a ref links the tag's ID, never its name
+    await s.dispatch({ verb: 'bookmark', label: 'formal only', cause: userCause() });
+    const bookmarkId = s.bookmarks()[0]!.id; // a ref links the bookmark's ID, never its name
     const ok = await s.dispatch({
       verb: 'describe',
       viewId: 'scatter',
       slot: 'caption',
-      record: { text: 'Formal items rate higher.', author: { kind: 'human' }, refs: [{ span: [0, 12], commit: selId }, { span: [13, 25], beat: beatId }] },
+      record: { text: 'Formal items rate higher.', author: { kind: 'human' }, refs: [{ span: [0, 12], commit: selId }, { span: [13, 25], bookmark: bookmarkId }] },
       cause: userCause(),
     });
     expect(ok.ok).toBe(true);
     if (ok.ok) expect(ok.described!.refs).toHaveLength(2);
     const bad = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { text: 'x', author: { kind: 'human' }, refs: [{ span: [0, 1], commit: 'nope' }] }, cause: userCause() });
     expect(!bad.ok && bad.rejection.detail).toBe('"scatter".caption.refs[0] points at a commit the log does not hold: "nope"');
-    const noBeat = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { text: 'x', author: { kind: 'human' }, refs: [{ span: [0, 1], beat: 'never' }] }, cause: userCause() });
-    expect(!noBeat.ok && noBeat.rejection.detail).toBe('"scatter".caption.refs[0] points at a beat that was never named: "never" — the beats are "formal only"'); // the ref shows no words, so the sentence lists the beats that DO exist
+    const noBookmark = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { text: 'x', author: { kind: 'human' }, refs: [{ span: [0, 1], bookmark: 'never' }] }, cause: userCause() });
+    expect(!noBookmark.ok && noBookmark.rejection.detail).toBe('"scatter".caption.refs[0] points at a bookmark that does not exist: "never" — the bookmarks are "formal only"'); // the ref shows no words, so the sentence lists the bookmarks that DO exist
   });
 });
 

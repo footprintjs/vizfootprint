@@ -15,7 +15,7 @@ const TOOL_NAMES = [
   'viz.declare_analysis',
   'viz.why',
   'viz.fork',
-  'viz.checkpoint',
+  'viz.bookmark',
   'viz.paths',
   'viz.compare',
   'viz.propose_chart',

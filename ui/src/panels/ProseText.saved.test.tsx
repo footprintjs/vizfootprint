@@ -22,22 +22,22 @@ describe('ProseText — a saved-selection ref', () => {
   });
 
   // The marker a paused surface reads (VizCockpit's read-only): a commit or a
-  // beat anchor GOES somewhere and keeps working while acting is paused; a
+  // bookmark anchor GOES somewhere and keeps working while acting is paused; a
   // saved-selection anchor APPLIES a selection, which is an act, so it does not.
-  it('marks a commit and a beat anchor as seek-only, and a saved-selection anchor as not', () => {
+  it('marks a commit and a bookmark anchor as seek-only, and a saved-selection anchor as not', () => {
     const { container } = render(
       <ProseText
         text="at #c7 and @[the spike] and @[coastal]"
         refs={[
           { span: [3, 6], commit: 'c7' },
-          { span: [11, 22], beat: 't1', label: 'the spike' },
+          { span: [11, 22], bookmark: 'b1', label: 'the spike' },
           { span: [27, 37], saved: 'p1', label: 'coastal' },
         ]}
       />,
     );
     const anchorIn = (sel: string): HTMLElement => container.querySelector(`${sel} .vzf-prosetext-anchor`) as HTMLElement;
     expect(anchorIn('[data-ref-commit="c7"]').hasAttribute('data-vzf-seek'), 'a commit anchor only ever seeks').toBe(true);
-    expect(anchorIn('[data-ref-beat="t1"]').hasAttribute('data-vzf-seek'), 'so does a beat anchor').toBe(true);
+    expect(anchorIn('[data-ref-bookmark="b1"]').hasAttribute('data-vzf-seek'), 'so does a bookmark anchor').toBe(true);
     expect(anchorIn('[data-ref-saved="p1"]').hasAttribute('data-vzf-seek'), 'applying a saved selection is an act, not a seek').toBe(false);
   });
 });

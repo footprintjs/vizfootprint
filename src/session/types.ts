@@ -19,7 +19,7 @@ import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
 import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause, PredicateClause, Row, SortSpec } from '../data/index.js';
 import type { EncodingProblem, Fit, RuleLine, RuleScope } from '../encoding/index.js';
 import type { ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
-import type { DispatchVerb, IntentClass, SeriesGrain, SavedClause, SavedSelection, Tag } from '../def/types.js';
+import type { DispatchVerb, IntentClass, SeriesGrain, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
 import type { RefreshRecord } from '../def/buildDashboard.js';
 import type { DiffChange, DiffOnly, PlanRecipe, RefEvent } from '../branches/index.js';
 
@@ -168,7 +168,7 @@ export type DispatchAction =
   | { readonly verb: 'navigate'; readonly viewId: string; readonly field?: string; readonly value?: string; readonly cause: Cause; readonly correlationId?: string }
   | { readonly verb: 'analyze'; readonly analysisId: string; readonly input?: readonly Record<string, unknown>[]; readonly cause: Cause; readonly correlationId?: string }
   | { readonly verb: 'fork'; readonly fromCommitId: string; readonly cause: Cause }
-  | { readonly verb: 'checkpoint'; readonly label: string; readonly cause: Cause }
+  | { readonly verb: 'bookmark'; readonly label: string; readonly cause: Cause }
   /**
    * The 8th verb (Q6 completeness gap, orchestrator-adjudicated): rebind a
    * view's visual CHANNEL (e.g. `x`) to a different data `field` — a
@@ -180,19 +180,19 @@ export type DispatchAction =
   | { readonly verb: 'reencode'; readonly viewId: string; readonly bindings: Readonly<Record<string, string>>; readonly cause: Cause; readonly correlationId?: string };
 
 /**
- * A checkpoint as the wire has always carried it — now a VIEW of a tag (see
- * `Tag`): `label` is the tag's name, `commitId` and `at` are both the tagged
- * commit (the moment), `ts` its position in the log. A legacy beat commit from
- * an older log reads the same way (its `at` = the position it named). Present
- * mode orders and seeks by `at`.
+ * A bookmark as the WIRE carries it — a view of a {@link Bookmark} record:
+ * `label` is the bookmark's name, `commitId` and `at` are both the bookmarked
+ * commit (the moment), `ts` its position in the log. A legacy `bookmark:`
+ * commit from an older log reads the same way (its `at` = the position it
+ * named). Present mode orders and seeks by `at`.
  */
-export interface Checkpoint {
-  /** The tag's own id (`t1`, `t2`, …) — what a note's words link and what a badge keys on, so a rename moves nothing. */
+export interface BookmarkView {
+  /** The bookmark's own id (`b1`, `b2`, …) — what a note's words link and what a badge keys on, so a rename moves nothing. */
   readonly id: string;
   readonly label: string;
-  /** The tagged commit (a legacy beat: the beat commit itself). */
+  /** The bookmarked commit (a legacy `bookmark:` commit: itself). */
   readonly commitId: string | null;
-  /** The moment the tag names — the tagged commit (a legacy beat: its parent). */
+  /** The moment the bookmark names — the bookmarked commit (a legacy `bookmark:` commit: its parent). */
   readonly at: string | null;
   /** The named commit's index in the log (ordering). */
   readonly ts: number;
@@ -230,8 +230,8 @@ export interface TimeState {
   readonly head: string | null;
   /** Number of divergent lineages (leaves) currently in the log. */
   readonly branches: number;
-  /** Number of named checkpoints. */
-  readonly checkpoints: number;
+  /** Number of named bookmarks. */
+  readonly bookmarks: number;
   /**
    * Test-analog commits visible on the cursor's branch path — the CURSOR-LOCAL
    * truth ("tests visible at this point on this branch"). The GLOBAL truth (all
@@ -520,7 +520,7 @@ export type DispatchResult =
       readonly intent: IntentClass;
       readonly commit?: CommitRecord;
       readonly analysis?: AnalysisCommit;
-      readonly checkpoint?: Checkpoint;
+      readonly bookmark?: BookmarkView;
       readonly annotated?: { readonly target: string; readonly note: string };
       readonly navigatedTo?: string;
       readonly reencoded?: { readonly viewId: string; readonly channel: string; readonly field: string } | { readonly viewId: string; readonly bindings: Readonly<Record<string, string>> };
@@ -701,8 +701,8 @@ export interface NoteInfo {
 }
 
 /** One declared table as the def states it (see `Overview.tables`). Nothing here is inferred from the rows. */
-/** What tagging (or renaming, forgetting) came back with. */
-export type TagResult = { readonly ok: true; readonly tag: Tag } | { readonly ok: false; readonly rejected: string };
+/** What bookmarking (or renaming, forgetting) came back with. */
+export type BookmarkResult = { readonly ok: true; readonly bookmark: Bookmark } | { readonly ok: false; readonly rejected: string };
 
 // ── Saved selections: saved LOGIC beside the log (see SavedSelection in def/types). ──
 
@@ -820,8 +820,8 @@ export interface Overview {
   readonly notes: readonly NoteInfo[];
   /** The saved selections — saved logic beside the log, oldest first (legacy log-derived ones included unless forgotten). */
   readonly saved: readonly SavedSelection[];
-  /** The tags — names on moments beside the log, oldest first (legacy beat commits included unless forgotten). */
-  readonly tags: readonly Tag[];
+  /** The bookmarks — names on moments beside the log, oldest first (legacy bookmark commits included unless forgotten). */
+  readonly bookmarks: readonly Bookmark[];
   readonly activeSelections: readonly SelectionInfo[];
   /**
    * The live selections in the SHAPE a prose basis states them: viewId → clause, `{}` for none — byte-equal to what
@@ -877,7 +877,7 @@ export interface Overview {
   readonly gaps: number;
   readonly currentView: string | null;
   readonly engines: Readonly<Record<string, string>>;
-  /** Time-travel position: cursor vs active head, branch/checkpoint counts, cursor-local test count (Phase A). */
+  /** Time-travel position: cursor vs active head, branch/bookmark counts, cursor-local test count (Phase A). */
   readonly time: TimeState;
   /** Named paths (BR-1): the refs, where HEAD is, and the ref-event journal. */
   readonly paths: PathsState;

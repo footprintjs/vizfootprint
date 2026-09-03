@@ -2,7 +2,7 @@
  * vizAsTools(session) — the FIXED agent tool surface (Mode B, mirroring
  * hcifootprint's `skillsAsTools`). The tool array NEVER changes for the life of
  * a session: `whats_here`, `dispatch`, `declare_analysis`, `why`, `fork`,
- * `checkpoint`, `paths`, `compare` (BR-1), `propose_chart` (RP-3). Disclosure rides the RESULT channel
+ * `bookmark`, `paths`, `compare` (BR-1), `propose_chart` (RP-3). Disclosure rides the RESULT channel
  * (`whats_here` returns the current views/selections/analyses-with-readiness
  * plus the named paths), never the tool channel — so the byte-identical tool
  * list keeps prompt caches stable and the library is a PLAIN MCP server for
@@ -81,8 +81,8 @@ const DISPATCH_DESCRIPTION =
   'e.g. "layout:dashboard", rearranges the cockpit — field names the arrangement prop (preset|order|' +
   'focus) and value is its new plain-string value, and this lands a real commit), ' +
   'analyze (run a declared analysis over the current selection), fork (travel the cursor back to a ' +
-  'prior commit so your NEXT act branches off it — a sibling, no history rewritten), checkpoint (tag ' +
-  'the current position with a name to return to — a tag beside the log, no commit, no branch), reencode (rebind a view\'s visual channel, e.g. x, to a ' +
+  'prior commit so your NEXT act branches off it — a sibling, no history rewritten), bookmark (give the ' +
+  'current position a name to come back to — kept beside the log: no commit, no branch, no state saved), reencode (rebind a view\'s visual channel, e.g. x, to a ' +
   'different data field — must be a channel valid for that view and a column that FITS it: read ' +
   'whats_here.views[].accepts first; a misfit is refused with the sentence that says why; pass ' +
   '`bindings` to rebind several channels in ONE act — a swap of the axes is one commit, never two), describe (the prose plane: ' +
@@ -113,9 +113,9 @@ const FORK_DESCRIPTION =
   'alpha spent on the branch you left is never refunded). The sibling starts a NAMED path, auto-named ' +
   'from its cause — see the paths tool to list, switch, or rename.';
 
-const CHECKPOINT_DESCRIPTION =
-  'Tag the current cursor position (a checkpoint): a name on this moment, beside the log — no commit lands, no branch starts. Stored as inert ' +
-  'data; never parsed.';
+const BOOKMARK_DESCRIPTION =
+  'Name the current cursor position so you can come back to it: a bookmark, kept beside the log — no commit lands, no branch starts, no state is saved. ' +
+  'The name is stored as inert data; never parsed.';
 
 const PATHS_DESCRIPTION =
   'Work with the NAMED paths (branches) of the analysis history. action=list shows every path with its ' +
@@ -162,7 +162,7 @@ const DISPATCH_SCHEMA = {
       description:
         'The view identity a select/filter/navigate/reencode targets. For navigate, also accepts the ' +
         '"layout:<scope>" identity (e.g. "layout:dashboard") to rearrange the cockpit layout. For describe, also accepts ' +
-        '"dashboard" — the cockpit itself: its caption is the summary of what the whole dashboard shows now (basis: filters/columns/analysisId, never encodings) — and "note:<id>" — a note on the dashboard (the Text tool): a fresh id-shaped id (letters, digits, _ . -) creates it, it carries a title and a caption only, the caption is the body, and refs link its words by ID, never by name: a ref carries exactly one of "commit" (a commit id), "beat" (the id of a TAG, like t1 — whats_here.tags lists the tags with their ids) or "saved" (the id of a SAVED SELECTION, like p1 — whats_here.saved lists the pictures with their ids).',
+        '"dashboard" — the cockpit itself: its caption is the summary of what the whole dashboard shows now (basis: filters/columns/analysisId, never encodings) — and "note:<id>" — a note on the dashboard (the Text tool): a fresh id-shaped id (letters, digits, _ . -) creates it, it carries a title and a caption only, the caption is the body, and refs link its words by ID, never by name: a ref carries exactly one of "commit" (a commit id), "bookmark" (the id of a BOOKMARK, like b1 — whats_here.bookmarks lists the bookmarks with their ids) or "saved" (the id of a SAVED SELECTION, like p1 — whats_here.saved lists the pictures with their ids).',
     },
     field: {
       type: 'string',
@@ -222,7 +222,7 @@ const DISPATCH_SCHEMA = {
     note: { type: 'string', description: 'The inert annotation text (annotate).' },
     analysisId: { type: 'string', description: 'A declared analysis id (analyze).' },
     fromCommitId: { type: 'string', description: 'The commit id to branch off (fork).' },
-    label: { type: 'string', description: 'A checkpoint label (checkpoint).' },
+    label: { type: 'string', description: 'The name for the bookmark (bookmark).' },
     channel: { type: 'string', description: 'The visual channel to rebind, e.g. "x" | "y" | "color" (reencode) — must be valid for the view.' },
     slot: { type: 'string', enum: ['title', 'caption', 'altShort', 'altLong', 'howToRead'], description: 'describe only: which of the view\'s words to set.' },
     record: {
@@ -290,9 +290,9 @@ const FORK_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const CHECKPOINT_SCHEMA = {
+const BOOKMARK_SCHEMA = {
   type: 'object',
-  properties: { label: { type: 'string', description: 'The checkpoint label.' }, ...OPTIONAL_INTENT },
+  properties: { label: { type: 'string', description: 'The name for the bookmark.' }, ...OPTIONAL_INTENT },
   required: ['label'],
   additionalProperties: false,
 } as const;
@@ -419,7 +419,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     declare: sanitize(`${ns}.declare_analysis`),
     why: sanitize(`${ns}.why`),
     fork: sanitize(`${ns}.fork`),
-    checkpoint: sanitize(`${ns}.checkpoint`),
+    bookmark: sanitize(`${ns}.bookmark`),
     paths: sanitize(`${ns}.paths`),
     compare: sanitize(`${ns}.compare`),
     proposeChart: sanitize(`${ns}.propose_chart`),
@@ -431,7 +431,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     { name: NAMES.declare, description: DECLARE_ANALYSIS_DESCRIPTION, inputSchema: structuredClone(DECLARE_ANALYSIS_SCHEMA) },
     { name: NAMES.why, description: WHY_DESCRIPTION, inputSchema: structuredClone(WHY_SCHEMA) },
     { name: NAMES.fork, description: FORK_DESCRIPTION, inputSchema: structuredClone(FORK_SCHEMA) },
-    { name: NAMES.checkpoint, description: CHECKPOINT_DESCRIPTION, inputSchema: structuredClone(CHECKPOINT_SCHEMA) },
+    { name: NAMES.bookmark, description: BOOKMARK_DESCRIPTION, inputSchema: structuredClone(BOOKMARK_SCHEMA) },
     { name: NAMES.paths, description: PATHS_DESCRIPTION, inputSchema: structuredClone(PATHS_SCHEMA) },
     { name: NAMES.compare, description: COMPARE_DESCRIPTION, inputSchema: structuredClone(COMPARE_SCHEMA) },
     { name: NAMES.proposeChart, description: PROPOSE_CHART_DESCRIPTION, inputSchema: structuredClone(PROPOSE_CHART_SCHEMA) },
@@ -538,9 +538,9 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
       case 'fork':
         if (typeof args['fromCommitId'] !== 'string') return { error: 'fork requires a string fromCommitId' };
         return { verb: 'fork', fromCommitId: args['fromCommitId'], cause };
-      case 'checkpoint':
-        if (typeof args['label'] !== 'string') return { error: 'checkpoint requires a string label' };
-        return { verb: 'checkpoint', label: args['label'], cause };
+      case 'bookmark':
+        if (typeof args['label'] !== 'string') return { error: 'bookmark requires a string label' };
+        return { verb: 'bookmark', label: args['label'], cause };
       case 'reencode': {
         if (typeof args['viewId'] !== 'string') return { error: 'reencode requires a string viewId' };
         const set = args['bindings'];
@@ -616,7 +616,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
       intent: result.intent,
       ...(result.commit ? { commit: result.commit } : {}),
       ...(result.analysis ? { analysis: projectAnalysis(result.analysis) } : {}),
-      ...(result.checkpoint ? { checkpoint: result.checkpoint } : {}),
+      ...(result.bookmark ? { bookmark: result.bookmark } : {}),
       ...(result.annotated ? { annotated: result.annotated } : {}),
       ...(result.navigatedTo ? { navigatedTo: result.navigatedTo } : {}),
       ...(result.reencoded ? { reencoded: result.reencoded } : {}),
@@ -791,8 +791,8 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
         }
         case NAMES.fork:
           return callDispatch({ verb: 'fork', ...args });
-        case NAMES.checkpoint:
-          return callDispatch({ verb: 'checkpoint', ...args });
+        case NAMES.bookmark:
+          return callDispatch({ verb: 'bookmark', ...args });
         case NAMES.paths:
           return await callPaths(args);
         case NAMES.compare: {

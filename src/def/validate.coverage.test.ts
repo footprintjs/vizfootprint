@@ -97,7 +97,7 @@ describe('validateDashboardDef — actors shape', () => {
     ['analysis:correlation', 'analysis:'],
     ['annotation:user', 'annotation:'],
     ['layout:dashboard', 'layout:'],
-    ['beat:0', 'beat:'],
+    ['bookmark:0', 'bookmark:'],
     ['link:bar:point→map', 'link:'],
   ])('rejects a view id in the reserved namespace %p', (viewId, prefix) => {
     const problems = validateDashboardDef(baseDef({ actors: { [viewId]: { actor: 'user' } } }));
@@ -375,7 +375,7 @@ describe('dispatchVerbs', () => {
       'navigate',
       'analyze',
       'fork',
-      'checkpoint',
+      'bookmark',
       'reencode',
       'link',
       'describe',

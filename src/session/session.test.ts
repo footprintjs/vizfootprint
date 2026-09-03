@@ -3,7 +3,7 @@
  * entry), R1 (computedBy forced to 'system'), R1/R2 (cause histogram + replay
  * at session level), R6 (selects are never tests), R11 (materialized column
  * re-enters via ordinary dispatch), R14 (typed gaps incl. a no-probe adapter),
- * fork/checkpoint, and the L6 why-stub.
+ * fork/bookmark, and the L6 why-stub.
  */
 import { describe, it, expect } from 'vitest';
 import { buildDashboard } from '../def/index.js';
@@ -196,8 +196,8 @@ describe('R14 — honest degenerate fit (no commit, no wealth spent)', () => {
   });
 });
 
-describe('fork / checkpoint (R8 branching + named positions)', () => {
-  it('fork moves the cursor (not the head) so the next commit is a sibling; checkpoint names the cursor', async () => {
+describe('fork / bookmark (R8 branching + named positions)', () => {
+  it('fork moves the cursor (not the head) so the next commit is a sibling; bookmark names the cursor', async () => {
     const s = freshSession();
     const c1 = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Casual', cause: userCause() });
     const c2 = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
@@ -206,20 +206,20 @@ describe('fork / checkpoint (R8 branching + named positions)', () => {
     expect(s.head).toBe(secondId);
     expect(s.cursor()).toBe(secondId); // linear flow: cursor == head
 
-    // A checkpoint is a TAG on the cursor's moment: it lands nothing, so the
+    // A bookmark is a name on the cursor's moment: it lands nothing, so the
     // head stays where it was — `commitId` IS c2.
-    const cp = await s.dispatch({ verb: 'checkpoint', label: 'after-two', cause: userCause() });
-    expect(cp.ok && cp.checkpoint?.commitId).toBe(secondId);
+    const cp = await s.dispatch({ verb: 'bookmark', label: 'after-two', cause: userCause() });
+    expect(cp.ok && cp.bookmark?.commitId).toBe(secondId);
     expect(s.log.records).toHaveLength(2);
     expect(s.head).toBe(secondId);
-    const beatId = secondId; // the moment the tag names — the old tip
+    const bookmarkId = secondId; // the moment the bookmark names — the old tip
 
     // Fork back to c1 (DEMO-2 fix): the CURSOR moves to the fork point; the head
     // (old tip) is left INTACT so the old lineage stays a live branch. The next
     // commit branches off c1 (same parent as c2) — a real sibling, no rewrite.
     await s.dispatch({ verb: 'fork', fromCommitId: firstId, cause: userCause() });
     expect(s.cursor()).toBe(firstId); // fork moved the cursor…
-    expect(s.head).toBe(beatId); // …NOT the head — the old branch tip (the tagged moment) is preserved
+    expect(s.head).toBe(bookmarkId); // …NOT the head — the old branch tip (the bookmarked moment) is preserved
     const sibling = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', cause: userCause() });
     const siblingId = sibling.ok ? sibling.commit!.id : '';
     const siblingRec = s.log.records.find((r) => r.id === siblingId)!;
@@ -228,11 +228,11 @@ describe('fork / checkpoint (R8 branching + named positions)', () => {
     // acting made the new lineage active: head + cursor now coincide on the sibling
     expect(s.head).toBe(siblingId);
     expect(s.cursor()).toBe(siblingId);
-    // the old tip (the tagged c2) is still a leaf — branches() lists BOTH lineages
+    // the old tip (the bookmarked c2) is still a leaf — branches() lists BOTH lineages
     const tips = s.branches().map((b) => b.tip).sort();
-    expect(tips).toEqual([beatId, siblingId].sort());
+    expect(tips).toEqual([bookmarkId, siblingId].sort());
     expect(s.branches().find((b) => b.tip === siblingId)!.active).toBe(true);
-    expect(s.branches().find((b) => b.tip === beatId)!.active).toBe(false);
+    expect(s.branches().find((b) => b.tip === bookmarkId)!.active).toBe(false);
   });
 
   it('fork from an unknown commit is a typed guard-failed gap', async () => {

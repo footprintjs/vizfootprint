@@ -15,7 +15,7 @@ const RAW: RawPollState = {
     { id: 'b', parent: 'a', viewId: 'scatter', kind: 'interval', field: 'price', value: [40, 60], cause: { requestedBy: 'user' } },
     { id: 'c', parent: 'a', viewId: 'scatter', kind: 'interval', field: 'price', value: [70, 90], cause: { requestedBy: 'agent' } },
   ],
-  checkpoints: [{ label: 'start', commitId: 'r', ts: 10 }],
+  bookmarks: [{ label: 'start', commitId: 'r', ts: 10 }],
   cursor: 'b',
   head: 'b',
 };

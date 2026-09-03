@@ -14,7 +14,7 @@
  * backdrop click close, and focus RESTORES to the opener — HTML **or SVG**
  * (an axis label is an SVG node, and the keyboard must come back to it).
  *
- * Two sizes: `'small'` (a prompt — the checkpoint namer, the encoding picker)
+ * Two sizes: `'small'` (a prompt — the bookmark namer, the encoding picker)
  * and `'large'` (a report surface, ~min(92vw, 1100px) × 82vh); in both, any
  * overflow scrolls INSIDE `.vzf-modal-body` — never the page.
  */

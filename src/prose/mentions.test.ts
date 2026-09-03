@@ -11,12 +11,12 @@ const WORLD: MentionWorld = {
     ['s12', 'select map.state = TX'],
     ['s40', 'describe dashboard.caption'],
   ]),
-  beats: new Map([['Start', 't1'], ['Formal wear', 't2']]),
+  bookmarks: new Map([['Start', 'b1'], ['Formal wear', 'b2']]),
   saved: new Map([['coastal', 'p1'], ['Formal wear', 'p2']]),
 };
 
 describe('mentionsToRefs', () => {
-  it('resolves commits by id, saved selections and beats by NAME to the record\'s ID (the words ride along as the label) — bracketed or bare — with exact spans', () => {
+  it('resolves commits by id, saved selections and bookmarks by NAME to the record\'s ID (the words ride along as the label) — bracketed or bare — with exact spans', () => {
     const text = 'See #s12 then @coastal and @[Formal wear], also @Start.';
     const { refs, unresolved } = mentionsToRefs(text, WORLD);
     expect(unresolved).toEqual([]);
@@ -24,18 +24,18 @@ describe('mentionsToRefs', () => {
       { span: [4, 8], commit: 's12', label: 'select map.state = TX' },
       { span: [14, 22], saved: 'p1', label: 'coastal' },
       { span: [27, 41], saved: 'p2', label: 'Formal wear' }, // a name that is both resolves to the saved selection: the logic wins over the moment
-      { span: [48, 54], beat: 't1', label: 'Start' },
+      { span: [48, 54], bookmark: 'b1', label: 'Start' },
     ]);
     for (const r of refs) expect(text.slice(r.span[0], r.span[1]).length).toBe(r.span[1] - r.span[0]);
     expect(text.slice(48, 54)).toBe('@Start'); // the trailing period is not part of the mention
   });
   it('reports what resolves to nothing, with the sentence and the span, and never invents', () => {
-    const { refs, unresolved } = mentionsToRefs('#nope and @ghost and @[no such beat]', WORLD);
+    const { refs, unresolved } = mentionsToRefs('#nope and @ghost and @[no such bookmark]', WORLD);
     expect(refs).toEqual([]);
     expect(unresolved).toEqual([
       { mention: '#nope', span: [0, 5], sentence: '#nope names no commit the log holds' },
-      { mention: '@ghost', span: [10, 16], sentence: '@ghost is neither a saved selection nor a checkpoint' },
-      { mention: '@[no such beat]', span: [21, 36], sentence: '@no such beat is neither a saved selection nor a checkpoint' },
+      { mention: '@ghost', span: [10, 16], sentence: '@ghost is neither a saved selection nor a bookmark' },
+      { mention: '@[no such bookmark]', span: [21, 40], sentence: '@no such bookmark is neither a saved selection nor a bookmark' },
     ]);
   });
   it('a quote or an apostrophe ends a bare mention: quoted words and a possessive link the name, not the punctuation', () => {

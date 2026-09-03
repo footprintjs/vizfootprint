@@ -4,10 +4,10 @@
  * two-principal story so every component has real state to render:
  *
  *   #1 user brushes price          → a user commit (the fork point later)
- *   ⚑  "opening brush"             → checkpoint (present-mode beat 1)
+ *   ⚑  "opening brush"             → bookmark 1 (the first stop present mode walks)
  *   #2 agent selects Formal        → an agent commit
  *   #3 user declares correlation   → an FDR ledger row (a real LORD++ step)
- *   ⚑  "first test"                → checkpoint (beat 2)
+ *   ⚑  "first test"                → bookmark 2
  *   —  user tries reencode(theta)  → an HONEST typed gap (invalid channel)
  *   —  user seeks back to #1, brushes again → BRANCH-ON-ACT (two lineages;
  *      #2/#3 dim off-branch in the log; the branch map forks)
@@ -84,14 +84,14 @@ export async function buildScriptedSession(): Promise<ScriptedGallery> {
   // #1 the user's opening brush (the later fork point)
   const first = await session.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [30, 210], cause: cause('user', 'opening price brush') });
   const firstId = first.ok && first.commit ? first.commit.id : null;
-  await session.dispatch({ verb: 'checkpoint', label: 'opening brush', cause: cause('user', 'checkpoint opening brush') });
+  await session.dispatch({ verb: 'bookmark', label: 'opening brush', cause: cause('user', 'bookmark opening brush') });
 
   // #2 the agent narrows to Formal
   await session.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: cause('agent', 'focus Formal dresses') }, { as: 'agent' });
 
   // #3 a declared test → one real LORD++ ledger row
   await session.dispatch({ verb: 'analyze', analysisId: 'correlation', cause: cause('user', 'is price correlated with rating?') });
-  await session.dispatch({ verb: 'checkpoint', label: 'first test', cause: cause('user', 'checkpoint first test') });
+  await session.dispatch({ verb: 'bookmark', label: 'first test', cause: cause('user', 'bookmark first test') });
 
   // an HONEST gap: theta is not a declared channel on the scatter
   await session.dispatch({ verb: 'reencode', viewId: 'scatter', channel: 'theta', field: 'price', cause: cause('user', 'try an undeclared channel') });

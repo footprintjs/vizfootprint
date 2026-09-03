@@ -9,7 +9,7 @@
  *     NON-FILTERING (an arrangement is not a data claim — the same honesty
  *     ruling as pan/zoom): row counts, foldDiff, and conflicts never see it;
  *   - it is FOLD-CARRIED (`rebuildFold` → `activeLayouts`, last-wins per
- *     (scope, prop)) so `seek` / `switchPath` / checkpoint travel restore the
+ *     (scope, prop)) so `seek` / `switchPath` / bookmark travel restore the
  *     arrangement, and branch-on-act gives each path its OWN arrangement;
  *   - `overview().layouts` exposes the fold (scope → prop → value), cloned;
  *   - a bring-over RE-LANDS the same layout prop here (the `layout` plan
@@ -51,8 +51,8 @@ describe('LY-1 — the layout navigate lands a recorded, non-filtering commit', 
     expect(s.head).toBe(commit.id);
     expect(s.cursor()).toBe(commit.id);
     // a caller-supplied cross-tier join key rides the commit (R10)
-    const tagged = await s.dispatch({ verb: 'navigate', viewId: LAYOUT, field: 'focus', value: 'scatter', cause: cause('user', 'layout = focus on scatter'), correlationId: 'corr-9' });
-    expect(tagged.ok && tagged.commit!.correlationId === 'corr-9').toBe(true);
+    const bookmarked = await s.dispatch({ verb: 'navigate', viewId: LAYOUT, field: 'focus', value: 'scatter', cause: cause('user', 'layout = focus on scatter'), correlationId: 'corr-9' });
+    expect(bookmarked.ok && bookmarked.commit!.correlationId === 'corr-9').toBe(true);
   });
 
   it('is deliberately NON-FILTERING: selections, row counts, and foldDiff never see it', async () => {
@@ -153,13 +153,13 @@ describe('LY-1 — the fold carries the arrangement (last-wins per scope+prop)',
     expect((await s.overview()).layouts).toEqual({ dashboard: { preset: 'focus', focus: 'bar' } });
   });
 
-  it('a checkpoint names a commit whose seek restores that beat’s arrangement (present-mode contract)', async () => {
+  it('a bookmark names a commit whose seek restores that bookmark’s arrangement (present-mode contract)', async () => {
     const s = freshSession();
     await s.dispatch({ verb: 'navigate', viewId: LAYOUT, field: 'preset', value: 'grid', cause: cause('user') });
-    await s.dispatch({ verb: 'checkpoint', label: 'grid beat', cause: cause('user') });
+    await s.dispatch({ verb: 'bookmark', label: 'grid bookmark', cause: cause('user') });
     await s.dispatch({ verb: 'navigate', viewId: LAYOUT, field: 'preset', value: 'focus', cause: cause('user') });
-    const beat = s.checkpoints().find((c) => c.label === 'grid beat')!;
-    expect(s.seek(beat.commitId!).ok).toBe(true);
+    const bookmark = s.bookmarkViews().find((c) => c.label === 'grid bookmark')!;
+    expect(s.seek(bookmark.commitId!).ok).toBe(true);
     expect((await s.overview()).layouts).toEqual({ dashboard: { preset: 'grid' } });
   });
 });

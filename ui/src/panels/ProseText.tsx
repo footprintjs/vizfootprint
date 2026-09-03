@@ -1,17 +1,17 @@
 /**
  * `<ProseText>` — a slot's words with its REFS as small corner anchors: a span
- * of the text that points at a saved interaction (a commit, a tag, or a saved
+ * of the text that points at a saved interaction (a commit, a bookmark, or a saved
  * selection). Hover shows the act (the host supplies the words per commit);
- * click asks the host to act on it (`onSeek` / `onBeat` / `onSaved`). The
+ * click asks the host to act on it (`onSeek` / `onBookmark` / `onSaved`). The
  * component never talks to a session.
  *
- * A tag and a saved selection are named by their ID — `onBeat` and `onSaved`
+ * A bookmark and a saved selection are named by their ID — `onBookmark` and `onSaved`
  * are handed that id, never a name — and the anchor's words come from the
  * ref's own `label`: the name as it read when the link was made. So the id is
  * what the host is handed, and it is the host that resolves it (`applySaved`,
  * `seek`).
  *
- * SEEK-ONLY, AND MARKED AS SUCH: a commit or beat anchor carries
+ * SEEK-ONLY, AND MARKED AS SUCH: a commit or bookmark anchor carries
  * `data-vzf-seek`, the library's marker for "this control navigates, it never
  * acts". A surface that pauses acting (Present mode — see `VizCockpit`) leaves
  * marked controls alone, because going to a moment in the story is the whole
@@ -34,8 +34,8 @@ export interface ProseTextProps {
   readonly onSeek?: (commitId: string) => void;
   /** A ref to a saved selection, by its ID: APPLY the saved logic (an ordinary act) — never a seek. The host resolves the id. */
   readonly onSaved?: (savedId: string) => void;
-  /** A ref to a tag, by its ID (`t1`, …) — never its name. The host resolves the id and goes to the moment. */
-  readonly onBeat?: (beatId: string) => void;
+  /** A ref to a bookmark, by its ID (`b1`, …) — never its name. The host resolves the id and goes to the moment. */
+  readonly onBookmark?: (bookmarkId: string) => void;
   /** Read `**bold**` and `` `code` `` as formatting instead of literal characters. Off by default — nothing else is ever formatted. */
   readonly markdown?: boolean;
   readonly className?: string;
@@ -115,7 +115,7 @@ export function pieces(text: string, refs: readonly ProseRefView[] = []): readon
   return out;
 }
 
-export function ProseText({ text, refs = [], describeCommit, onSeek, onBeat, onSaved, markdown = false, className }: ProseTextProps): JSX.Element {
+export function ProseText({ text, refs = [], describeCommit, onSeek, onBookmark, onSaved, markdown = false, className }: ProseTextProps): JSX.Element {
   let n = 0;
   const map = markdown ? runs(text) : null;
   /** The words of one piece: cut by the marks when the caller asked for them, the characters themselves when it did not. */
@@ -134,24 +134,24 @@ export function ProseText({ text, refs = [], describeCommit, onSeek, onBeat, onS
         const ref = piece.ref;
         n += 1;
         // the words a reader recognises are the ref's own label; the id is the fallback, and all a click ever carries
-        const named = ref.label ?? ref.saved ?? ref.beat ?? '';
-        const target = ref.commit !== undefined ? `commit #${ref.commit}` : ref.saved !== undefined ? `saved selection "${named}"` : `beat "${named}"`;
+        const named = ref.label ?? ref.saved ?? ref.bookmark ?? '';
+        const target = ref.commit !== undefined ? `commit #${ref.commit}` : ref.saved !== undefined ? `saved selection "${named}"` : `bookmark "${named}"`;
         const words = ref.commit !== undefined ? describeCommit?.(ref.commit) : undefined;
         const title = ref.label ?? (words !== undefined ? `${target}: ${words}` : target);
         const go = (): void => {
           if (ref.commit !== undefined) onSeek?.(ref.commit);
           else if (ref.saved !== undefined) onSaved?.(ref.saved);
-          else if (ref.beat !== undefined) onBeat?.(ref.beat);
+          else if (ref.bookmark !== undefined) onBookmark?.(ref.bookmark);
         };
-        // A commit or a beat anchor only ever GOES somewhere — it is navigation,
+        // A commit or a bookmark anchor only ever GOES somewhere — it is navigation,
         // and a surface that has paused ACTING (Present mode, `VizCockpit`'s
         // read-only) must leave it working: walking the story is what that mode
         // is for. A SAVED-selection anchor is not navigation — it applies the
         // saved logic, an ordinary act — so it carries no such promise and
         // pauses with everything else.
-        const seekOnly = ref.commit !== undefined || ref.beat !== undefined;
+        const seekOnly = ref.commit !== undefined || ref.bookmark !== undefined;
         return (
-          <span key={i} className="vzf-prosetext-ref" data-ref-commit={ref.commit} data-ref-beat={ref.beat} data-ref-saved={ref.saved}>
+          <span key={i} className="vzf-prosetext-ref" data-ref-commit={ref.commit} data-ref-bookmark={ref.bookmark} data-ref-saved={ref.saved}>
             {marked(piece.from, piece.to)}
             <button type="button" className="vzf-prosetext-anchor" data-vzf-seek={seekOnly ? '' : undefined} title={title} aria-label={`go to ${target}`} onClick={go}>
               {n}

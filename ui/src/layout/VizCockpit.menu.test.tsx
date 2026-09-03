@@ -2,7 +2,7 @@
 /**
  * The cockpit's menu, the per-chart edit affordance, and Present mode as a
  * slideshow: the host's acts in one popover, an ✎ on every editable cell
- * (never a floating button), and a slide bar that walks the beats on the
+ * (never a floating button), and a slide bar that walks the bookmarks on the
  * keyboard while every other strip is gone.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -91,7 +91,7 @@ describe('the per-chart edit affordance', () => {
 describe('the slideshow', () => {
   const show = (over: Partial<CockpitSlideshow> = {}): CockpitSlideshow => ({ active: true, title: 'Start', words: 'Every category.', index: 0, count: 3, onPrev: vi.fn(), onNext: vi.fn(), onExit: vi.fn(), ...over });
 
-  it('takes the screen: the root is marked, the slide bar shows the beat and its words, prev/next/exit are wired and the ends are disabled', () => {
+  it('takes the screen: the root is marked, the slide bar shows the bookmark and its words, prev/next/exit are wired and the ends are disabled', () => {
     const s = show();
     const { container, rerender } = render(<VizCockpit charts={[{ ...CHARTS[0]!, onEdit: vi.fn() }, CHARTS[1]!]} top={<div>strip</div>} slideshow={s} />);
     expect(container.querySelector('.vzf-cockpit-root')!.classList.contains('vzf-slideshow')).toBe(true);
@@ -117,7 +117,7 @@ describe('the slideshow', () => {
     expect(container.querySelector('.vzf-slide-caption')).toBeNull();
   });
 
-  it('walks the beats on the keyboard and leaves on Escape; an inactive show renders no bar and binds no keys', () => {
+  it('walks the bookmarks on the keyboard and leaves on Escape; an inactive show renders no bar and binds no keys', () => {
     const s = show({ index: 1 });
     const { container, rerender } = render(<VizCockpit charts={CHARTS} readOnly slideshow={s} />);
     fireEvent.keyDown(window, { key: 'ArrowRight' });
@@ -163,7 +163,7 @@ describe('the slideshow', () => {
     const first = render(<VizCockpit charts={CHARTS} readOnly slideshow={show()} />);
     expect(request).toHaveBeenCalledTimes(1);
     element = root; // the browser granted it
-    // a host that rebuilds the slideshow object every render (a beat step) neither leaves nor re-requests the screen
+    // a host that rebuilds the slideshow object every render (a bookmark step) neither leaves nor re-requests the screen
     first.rerender(<VizCockpit charts={CHARTS} readOnly slideshow={show({ index: 1 })} />);
     expect(exit).not.toHaveBeenCalled();
     expect(request).toHaveBeenCalledTimes(1);

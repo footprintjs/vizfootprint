@@ -282,8 +282,8 @@ describe('saved selections — saved logic beside the log', () => {
     expect(s.saveSelection('ghost', { live: 'all' }).ok).toBe(true);
     const both = await s.dispatch({ verb: 'describe', viewId: 'note:n4', slot: 'caption', record: { text: 'see @[ghost]', author: { kind: 'human' }, refs: [{ span: [4, 12], saved: 'p9', label: 'ghost' }] }, cause: userCause('note') });
     expect(!both.ok && both.rejection.detail).toBe('"note:n4".caption.refs[0] points at a saved selection that does not exist: "ghost" (p9)'); // "ghost" is right there in the list; p9 is what the words link
-    const two = await s.dispatch({ verb: 'describe', viewId: 'note:n3', slot: 'caption', record: { text: 'x', author: { kind: 'human' }, refs: [{ span: [0, 1], saved: made.saved.id, beat: 'b' }] }, cause: userCause('note') });
-    expect(!two.ok && two.rejection.detail).toContain('must name exactly one of commit, beat, saved');
+    const two = await s.dispatch({ verb: 'describe', viewId: 'note:n3', slot: 'caption', record: { text: 'x', author: { kind: 'human' }, refs: [{ span: [0, 1], saved: made.saved.id, bookmark: 'b' }] }, cause: userCause('note') });
+    expect(!two.ok && two.rejection.detail).toContain('must name exactly one of commit, bookmark, saved');
   });
 
   it('a restored picture KEEPS the id it carries when the store has room for it, and is renamed only when it must be — never silently', async () => {
@@ -394,7 +394,7 @@ describe('saved selections — saved logic beside the log', () => {
     const conditions = [{ viewId: 'bar', kind: 'point' as const, field: 'category', value: 'Formal' }];
     const from = ['s1'];
     const smuggled = { name: '  spaced  ', conditions, by: 'user' as const, at: '2020-01-01T00:00:00.000Z', on: { table: 'data', version: 'v1' }, from, editedBy: 'agent' as const, editedAt: '2021-02-02T00:00:00.000Z', secret: 'not a picture field', id: 'p2' };
-    expect(s.restoreSaved([smuggled as never]).restored).toEqual(['spaced']); // the name is trimmed, as the tag restore trims its own
+    expect(s.restoreSaved([smuggled as never]).restored).toEqual(['spaced']); // the name is trimmed, as the bookmark restore trims its own
     expect(s.saved()[0]).toEqual({ id: 'p2', name: 'spaced', conditions: [{ viewId: 'bar', kind: 'point', field: 'category', value: 'Formal' }], by: 'user', at: '2020-01-01T00:00:00.000Z', on: { table: 'data', version: 'v1' }, from: ['s1'], editedBy: 'agent', editedAt: '2021-02-02T00:00:00.000Z' });
     conditions.push({ viewId: 'scatter', kind: 'point', field: 'category', value: 'Party' });
     from.push('s2');

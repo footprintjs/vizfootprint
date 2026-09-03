@@ -3,7 +3,7 @@
  *
  * A note is words with an author and refs: the prose plane's `note:<id>`
  * subject. Reading it shows the title, the body with its links as anchors
- * (a click seeks the commit or the beat), and whether the words went stale.
+ * (a click seeks the commit or the bookmark), and whether the words went stale.
  * Editing it is typing: `#s12`, `@coastal` or `@[Formal wear]` become links
  * when the note is saved, and the picker inserts a mention for anything the
  * session holds. A mention that resolves to nothing is refused with its
@@ -37,8 +37,8 @@ export interface NoteCellProps {
   /** Cancel on a fresh note: the host drops the unsaved cell. */
   readonly onDiscard?: () => void;
   readonly onSeek?: (commitId: string) => void;
-  /** A ref to a tag, by its ID (`t1`, …) — never its name, so a renamed beat keeps working. The host resolves the id and goes to the moment. */
-  readonly onBeat?: (beatId: string) => void;
+  /** A ref to a bookmark, by its ID (`b1`, …) — never its name, so a renamed bookmark keeps working. The host resolves the id and goes to the moment. */
+  readonly onBookmark?: (bookmarkId: string) => void;
   readonly describeCommit?: (commitId: string) => string | undefined;
   /** Present mode: the words stay, the doors close. */
   readonly readOnly?: boolean;
@@ -46,7 +46,7 @@ export interface NoteCellProps {
 }
 
 /** A person's record for the note's words: a human edit of the agent's words keeps the agent's basis and model; fresh words are the person's. */
-export function noteRecord(text: string, refs: readonly { readonly span: readonly [number, number]; readonly commit?: string; readonly beat?: string; readonly label?: string }[], current: ProseStatusView | undefined, by: string | undefined): Record<string, unknown> {
+export function noteRecord(text: string, refs: readonly { readonly span: readonly [number, number]; readonly commit?: string; readonly bookmark?: string; readonly label?: string }[], current: ProseStatusView | undefined, by: string | undefined): Record<string, unknown> {
   const fromAgent = current?.author.kind === 'agent' || current?.author.kind === 'humanEdited';
   return {
     text,
@@ -57,9 +57,9 @@ export function noteRecord(text: string, refs: readonly { readonly span: readonl
   };
 }
 
-const GLYPH: Record<Linkable['kind'], string> = { saved: '💾', beat: '⚑', selection: '◎', commit: '#' };
+const GLYPH: Record<Linkable['kind'], string> = { saved: '💾', bookmark: '⚑', selection: '◎', commit: '#' };
 
-export function NoteCell({ note, world, linkables, by, onDescribe, fresh = false, onDiscard, onSeek, onBeat, describeCommit, readOnly = false, className }: NoteCellProps): JSX.Element {
+export function NoteCell({ note, world, linkables, by, onDescribe, fresh = false, onDiscard, onSeek, onBookmark, describeCommit, readOnly = false, className }: NoteCellProps): JSX.Element {
   const title = note.prose.find((p) => p.slot === 'title');
   const caption = note.prose.find((p) => p.slot === 'caption');
   const [editing, setEditing] = useState(fresh);
@@ -177,7 +177,7 @@ export function NoteCell({ note, world, linkables, by, onDescribe, fresh = false
           {caption !== undefined ? (
             <div className={`vzf-note-body${caption.status === 'stale' ? ' vzf-note-stale' : ''}`}>
               {/* the light marks a model writes (**bold**, `code`) are formatting here too — a reply added to the dashboard reads the way it read in the panel */}
-              <ProseText markdown text={caption.text} refs={caption.refs} describeCommit={describeCommit} onSeek={onSeek} onBeat={onBeat} />
+              <ProseText markdown text={caption.text} refs={caption.refs} describeCommit={describeCommit} onSeek={onSeek} onBookmark={onBookmark} />
             </div>
           ) : (
             <div className="vzf-note-body vzf-soft">(no words yet)</div>
@@ -220,13 +220,13 @@ export function NoteCell({ note, world, linkables, by, onDescribe, fresh = false
             onKeyUp={remember}
             onClick={remember}
             onBlur={remember}
-            placeholder="Write here. #s12 links a commit, @[a saved selection] or @[a checkpoint] links by name — or pick one below and press Insert."
+            placeholder="Write here. #s12 links a commit, @[a saved selection] or @[a bookmark] links by name — or pick one below and press Insert."
           />
           <div className="vzf-note-linker">
             <label className="vzf-soft">
               Link{' '}
               <select aria-label="a link to insert" value={pick} onChange={(e) => setPick(e.target.value)}>
-                <option value="">to a selection, checkpoint or commit…</option>
+                <option value="">to a selection, bookmark or commit…</option>
                 {linkables.map((l) => (
                   <option key={`${l.kind}:${l.mention}`} value={l.mention}>
                     {GLYPH[l.kind]} {l.label} — {l.description}

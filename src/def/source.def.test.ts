@@ -27,7 +27,7 @@ describe('the def door — data[t].source', () => {
     const none = { ...makeDashboardDef(), data: { data: {} } } as unknown;
     expect(validateDashboardDef(none)).toContain('data["data"] must set rows, csv, or source');
   });
-  it('refuses a malformed source with the sentence for each tag', () => {
+  it('refuses a malformed source with the sentence for each bookmark', () => {
     const at = (source: unknown): string[] => validateDashboardDef({ ...makeDashboardDef(), data: { data: { source } } } as unknown);
     expect(at('rows')).toContain('data["data"].source must be an object { format, via, at?, options? }');
     expect(at({ format: 'xml', via: 'inline', at: '', extra: 1 })).toEqual(expect.arrayContaining(['data["data"].source.extra is not a source key', 'data["data"].source.format must be one of rows|csv|json']));

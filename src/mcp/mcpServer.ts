@@ -4,7 +4,7 @@
  * client, Cursor, …) can drive the dashboard with no framework-specific glue.
  *
  * It wraps {@link vizAsTools} (Mode B): `tools/list` returns the FIXED tool
- * array (whats_here / dispatch / declare_analysis / why / fork / checkpoint /
+ * array (whats_here / dispatch / declare_analysis / why / fork / bookmark /
  * paths / compare / propose_chart) and `tools/call` routes to the port. Because
  * the tool set never changes, a plain MCP server works with no
  * `tools/list_changed` churn — the whole point of the fixed-tool design.

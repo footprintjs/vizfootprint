@@ -35,7 +35,7 @@ import {
   ENCODING_VIEW_PREFIX,
   ANALYSIS_VIEW_PREFIX,
   ANNOTATION_VIEW_PREFIX,
-  BEAT_VIEW_PREFIX,
+  BOOKMARK_VIEW_PREFIX,
 } from './index.js';
 
 /** Hand-author a raw CommitRecord — branches/ must work on a bare log (no session). */
@@ -379,12 +379,12 @@ describe('foldDiff — the structured state diff computed from the log ALONE (la
     expect(d.ok && d.changed).toEqual([]);
   });
 
-  it('a `beat:` record is INERT in the fold — a name is never crossfilter state (the namespace `src/def/validate` reserves, and the story bridge reads)', () => {
-    const beat = rec('k1', null, { viewId: `${BEAT_VIEW_PREFIX}0`, field: '__beat__', value: 'after cleanup' });
-    expect(keyOf(beat)).toBeNull();
-    expect(keysOf(beat)).toEqual([]);
-    expect(familyOf(beat)).toBe('story'); // still a story-family record, exactly like an annotation
-    expect(foldStateAt([beat], 'k1').size).toBe(0);
+  it('a `bookmark:` record is INERT in the fold — a name is never crossfilter state (the namespace `src/def/validate` reserves, and the story bridge reads)', () => {
+    const bookmark = rec('k1', null, { viewId: `${BOOKMARK_VIEW_PREFIX}0`, field: '__bookmark__', value: 'after cleanup' });
+    expect(keyOf(bookmark)).toBeNull();
+    expect(keysOf(bookmark)).toEqual([]);
+    expect(familyOf(bookmark)).toBe('story'); // still a story-family record, exactly like an annotation
+    expect(foldStateAt([bookmark], 'k1').size).toBe(0);
   });
 });
 

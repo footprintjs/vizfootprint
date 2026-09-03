@@ -2,8 +2,8 @@
  * vizAsTools.coverage.test.ts — closes the remaining statement/branch gaps in
  * vizAsTools.ts: the object forms of `why`'s target coercion, every dispatch
  * verb's PAYLOAD_INVALID guard (missing/malformed args), the annotate/navigate/
- * fork/checkpoint success arms (never dispatched in the R4/Q6/Q8 suites), the
- * `viz.fork` / `viz.checkpoint` dedicated tool routes, `declare_analysis`'s
+ * fork/bookmark success arms (never dispatched in the R4/Q6/Q8 suites), the
+ * `viz.fork` / `viz.bookmark` dedicated tool routes, `declare_analysis`'s
  * invalid-id guard + intent pass-through, and the filter `range: null` clear
  * path. Every assertion reads a real field off a real dispatch/tool result —
  * no execute-only lines.
@@ -248,7 +248,7 @@ describe('viz.dispatch — reencode PAYLOAD_INVALID guard', () => {
   });
 });
 
-describe('viz.dispatch — fork / checkpoint (never dispatched by the R4/Q6/Q8 suites)', () => {
+describe('viz.dispatch — fork / bookmark (never dispatched by the R4/Q6/Q8 suites)', () => {
   it('fork without fromCommitId is a typed PAYLOAD_INVALID', async () => {
     const port = freshPort();
     const res = await port.call('viz.dispatch', { verb: 'fork' });
@@ -263,24 +263,24 @@ describe('viz.dispatch — fork / checkpoint (never dispatched by the R4/Q6/Q8 s
     expect(res).toEqual({ ok: true, verb: 'fork', intent: expect.any(String) });
   });
 
-  it('checkpoint without a label is a typed PAYLOAD_INVALID', async () => {
+  it('bookmark without a label is a typed PAYLOAD_INVALID', async () => {
     const port = freshPort();
-    const res = await port.call('viz.dispatch', { verb: 'checkpoint' });
-    expect(res).toEqual({ ok: false, reason: 'PAYLOAD_INVALID', detail: 'checkpoint requires a string label' });
+    const res = await port.call('viz.dispatch', { verb: 'bookmark' });
+    expect(res).toEqual({ ok: false, reason: 'PAYLOAD_INVALID', detail: 'bookmark requires a string label' });
   });
 
-  it('a well-formed checkpoint through viz.dispatch tags the cursor and echoes the label — and there must be a moment to tag', async () => {
+  it('a well-formed bookmark through viz.dispatch bookmarks the cursor and echoes the label — and there must be a moment to bookmark', async () => {
     const port = freshPort();
-    const early = await port.call('viz.dispatch', { verb: 'checkpoint', label: 'too early' });
-    expect(get(early, 'ok')).toBe(false); // nothing to tag yet
+    const early = await port.call('viz.dispatch', { verb: 'bookmark', label: 'too early' });
+    expect(get(early, 'ok')).toBe(false); // nothing to bookmark yet
     await port.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Formal' });
-    const res = await port.call('viz.dispatch', { verb: 'checkpoint', label: 'my-checkpoint' });
+    const res = await port.call('viz.dispatch', { verb: 'bookmark', label: 'my-bookmark' });
     expect(get(res, 'ok')).toBe(true);
-    expect(get(res, 'checkpoint')).toMatchObject({ label: 'my-checkpoint' });
+    expect(get(res, 'bookmark')).toMatchObject({ label: 'my-bookmark' });
   });
 });
 
-describe('viz.fork / viz.checkpoint — the dedicated tool routes (distinct switch arms from viz.dispatch)', () => {
+describe('viz.fork / viz.bookmark — the dedicated tool routes (distinct switch arms from viz.dispatch)', () => {
   it('viz.fork routes to the fork verb and succeeds given a real commit id', async () => {
     const port = freshPort();
     const sel = await port.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Work' });
@@ -295,18 +295,18 @@ describe('viz.fork / viz.checkpoint — the dedicated tool routes (distinct swit
     expect(res).toEqual({ ok: false, reason: 'PAYLOAD_INVALID', detail: 'fork requires a string fromCommitId' });
   });
 
-  it('viz.checkpoint routes to the checkpoint verb and tags the cursor', async () => {
+  it('viz.bookmark routes to the bookmark verb and bookmarks the cursor', async () => {
     const port = freshPort();
     await port.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Formal' });
-    const res = await port.call('viz.checkpoint', { label: 'via-dedicated-tool' });
+    const res = await port.call('viz.bookmark', { label: 'via-dedicated-tool' });
     expect(get(res, 'ok')).toBe(true);
-    expect(get(res, 'checkpoint')).toMatchObject({ label: 'via-dedicated-tool' });
+    expect(get(res, 'bookmark')).toMatchObject({ label: 'via-dedicated-tool' });
   });
 
-  it('viz.checkpoint without a label is a typed PAYLOAD_INVALID (same guard, dedicated route)', async () => {
+  it('viz.bookmark without a label is a typed PAYLOAD_INVALID (same guard, dedicated route)', async () => {
     const port = freshPort();
-    const res = await port.call('viz.checkpoint', {});
-    expect(res).toEqual({ ok: false, reason: 'PAYLOAD_INVALID', detail: 'checkpoint requires a string label' });
+    const res = await port.call('viz.bookmark', {});
+    expect(res).toEqual({ ok: false, reason: 'PAYLOAD_INVALID', detail: 'bookmark requires a string label' });
   });
 });
 

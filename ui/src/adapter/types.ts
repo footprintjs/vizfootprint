@@ -102,7 +102,7 @@ export interface ProseStatusView {
   readonly levels: readonly string[];
   /** What the words were written against (encodings, filters, columns, analysisId) — shown so a person can see why a slot went stale. */
   readonly basis?: Readonly<Record<string, unknown>>;
-  /** Spans of the text that point at a saved interaction (a commit, a tag or a saved selection, each by its id) — rendered as small anchors. Absent when there are none. */
+  /** Spans of the text that point at a saved interaction (a commit, a bookmark or a saved selection, each by its id) — rendered as small anchors. Absent when there are none. */
   readonly refs?: readonly ProseRefView[];
 }
 
@@ -137,8 +137,8 @@ export interface ProseRefView {
   readonly span: readonly [number, number];
   /** A commit by its id. */
   readonly commit?: string;
-  /** A tag by its ID (`t1`, …), never its name — which is why renaming a tag leaves every note working. */
-  readonly beat?: string;
+  /** A bookmark by its ID (`b1`, …), never its name — which is why renaming a bookmark leaves every note working. */
+  readonly bookmark?: string;
   /** The words the anchor shows: the name as it read when the link was made (a later rename may leave it stale). */
   readonly label?: string;
   /** A saved selection by its ID (`p1`, …) — a click applies the saved logic, it never seeks. */
@@ -357,14 +357,14 @@ export type CompareView =
     }
   | { readonly ok: false; readonly reason: string };
 
-/** A named log position (checkpoint) — a story beat in present mode. */
-export interface CheckpointView {
-  /** The tag's own id (`t1`, …) — what a note's words link and what a badge keys on, so a rename moves nothing. Absent on a wire that predates tag ids. */
+/** A named log position: one bookmark, as the wire carries it (present mode walks these). */
+export interface BookmarkView {
+  /** The bookmark's own id (`b1`, …) — what a note's words link and what a badge keys on, so a rename moves nothing. Absent on a wire that predates bookmark ids. */
   readonly id?: string;
   readonly label: string;
-  /** The beat commit (the act of naming). */
+  /** The bookmark commit (the act of naming). */
   readonly commitId: string | null;
-  /** The position it names (the beat's parent); absent on older wires ⇒ the beat itself. */
+  /** The position it names (the bookmark's parent); absent on older wires ⇒ the bookmark itself. */
   readonly at?: string | null;
   readonly ts: number;
 }
@@ -425,7 +425,7 @@ export type LayoutPreset = 'flow' | 'grid' | 'focus';
 /**
  * The dashboard's arrangement at the cursor — parsed from the session's
  * `layout:dashboard` fold (the `navigate` verb's layout namespace, LY-1), so
- * seeking / switching paths / walking present-mode beats restores it. The
+ * seeking / switching paths / walking present-mode bookmarks restores it. The
  * cockpit is DRIVEN by this (never self-stateful).
  */
 export interface LayoutView {
@@ -541,7 +541,7 @@ export interface SessionViewState {
   readonly branches: readonly BranchView[];
   /** The NAMED paths surface (BR-1): current/detached, list, journal. */
   readonly paths: PathsView;
-  readonly checkpoints: readonly CheckpointView[];
+  readonly bookmarks: readonly BookmarkView[];
   readonly cursor: string | null;
   readonly head: string | null;
   /** root→head commit ids (the active lineage). */
@@ -610,7 +610,7 @@ export function emptyState(defaultTable = 'data'): SessionViewState {
     commits: [],
     branches: [],
     paths: emptyPaths(),
-    checkpoints: [],
+    bookmarks: [],
     cursor: null,
     head: null,
     activePathIds: [],

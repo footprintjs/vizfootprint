@@ -27,7 +27,7 @@ const RAW: RawPollState = {
   columns: { data: [{ field: 'price', type: 'number', role: 'measure' }, { field: 'category', type: 'string' }] },
   gaps: [{ code: 'needs-column', op: 'analyze', detail: 'cluster_id not present', target: 'cluster_id' }],
   branches: [{ tip: '2', length: 2, actor: 'agent', active: false }, { tip: '3', length: 2, actor: 'user', active: true }],
-  checkpoints: [{ label: 'before-cluster', commitId: '1', ts: 100 }],
+  bookmarks: [{ label: 'before-cluster', commitId: '1', ts: 100 }],
   cursor: '1',
   head: '3',
   cursorTests: 0,
@@ -66,13 +66,13 @@ describe('mapPollState — normalization + derivations', () => {
     // no top-level encodings in the payload → derived from views[].encodings
     expect(s.encodings['scatter']).toEqual({ x: 'price', y: 'rating' });
   });
-  it('carries columns, gaps, readiness, branches, checkpoints', () => {
+  it('carries columns, gaps, readiness, branches, bookmarks', () => {
     expect(s.columns['data']!.map((c) => c.field)).toEqual(['price', 'category']);
     expect(s.columns['data']!.map((c) => c.role)).toEqual(['measure', undefined]);
     expect(s.gaps[0]!.code).toBe('needs-column');
     expect(s.readiness[0]!.ready).toBe(true);
     expect(s.branches.filter((b) => b.active)).toHaveLength(1);
-    expect(s.checkpoints[0]!.label).toBe('before-cluster');
+    expect(s.bookmarks[0]!.label).toBe('before-cluster');
     expect(s.viewingPast).toBe(true);
   });
 
@@ -215,24 +215,24 @@ describe('createSessionView — poll source with injected fetch', () => {
     view.dispose();
   });
 
-  it('checkpoint posts to its OWN endpoint (endpoints.checkpoint), never endpoints.dispatch (UI-2 regression — found dogfooding)', async () => {
+  it('bookmark posts to its OWN endpoint (endpoints.bookmark), never endpoints.dispatch (UI-2 regression — found dogfooding)', async () => {
     const { impl, calls } = fakeFetch();
     const view = createSessionView(pollingSource({ fetchImpl: impl }));
     await view.refresh();
-    await view.checkpoint('opening brush');
-    const ckptCall = calls.find((c) => c.url === '/api/checkpoint');
-    expect(ckptCall?.body).toMatchObject({ label: 'opening brush' });
+    await view.bookmark('opening brush');
+    const bookmarkCall = calls.find((c) => c.url === '/api/bookmark');
+    expect(bookmarkCall?.body).toMatchObject({ label: 'opening brush' });
     // never fell through to the generic dispatch endpoint
     expect(calls.some((c) => c.url === '/api/dispatch' && (c.body as { label?: string } | undefined)?.label === 'opening brush')).toBe(false);
     view.dispose();
   });
 
-  it('checkpoint honors a custom endpoints override, same as seek/dispatch', async () => {
+  it('bookmark honors a custom endpoints override, same as seek/dispatch', async () => {
     const { impl, calls } = fakeFetch();
-    const view = createSessionView(pollingSource({ fetchImpl: impl, endpoints: { checkpoint: '/custom/checkpoint' } }));
+    const view = createSessionView(pollingSource({ fetchImpl: impl, endpoints: { bookmark: '/custom/bookmark' } }));
     await view.refresh();
-    await view.checkpoint('custom point');
-    expect(calls.some((c) => c.url === '/custom/checkpoint' && (c.body as { label?: string })?.label === 'custom point')).toBe(true);
+    await view.bookmark('custom point');
+    expect(calls.some((c) => c.url === '/custom/bookmark' && (c.body as { label?: string })?.label === 'custom point')).toBe(true);
     view.dispose();
   });
 });
@@ -256,12 +256,12 @@ describe('createSessionView — in-process session source', () => {
         gaps: 0,
         currentView: null,
         engines: {},
-        time: { cursor: null, head: null, branches: 0, checkpoints: 0, cursorTests: 0, viewingPast: false },
+        time: { cursor: null, head: null, branches: 0, bookmarks: 0, cursorTests: 0, viewingPast: false },
         paths: { current: 'main', detachedAt: null, list: [{ name: 'main', tip: '1', steps: 1, lastTs: 0, active: true }], events: [] },
       }) as unknown as ReturnType<SessionLike['overview']>,
       gaps: () => [],
       branches: () => [],
-      checkpoints: () => [],
+      bookmarkViews: () => [],
       seek: (commitId: string) => ({ ok: true, cursor: commitId }) as ReturnType<SessionLike['seek']>,
       dispatch: (action) => {
         dispatched.push(action);
@@ -398,12 +398,12 @@ describe('createSessionView — in-process session source', () => {
     view.dispose();
   });
 
-  it('checkpoint dispatches the checkpoint verb over an in-process session too', async () => {
+  it('bookmark dispatches the bookmark verb over an in-process session too', async () => {
     const session = fakeSession();
     const view = createSessionView(sessionSource(session), { as: 'user' });
     await view.refresh();
-    await view.checkpoint('opening brush');
-    expect(session.dispatched[0]).toMatchObject({ verb: 'checkpoint', label: 'opening brush', cause: { requestedBy: 'user' } });
+    await view.bookmark('opening brush');
+    expect(session.dispatched[0]).toMatchObject({ verb: 'bookmark', label: 'opening brush', cause: { requestedBy: 'user' } });
     view.dispose();
   });
 
@@ -570,7 +570,7 @@ describe('createSessionView — paths actions over a POLL source (the BR-3 endpo
   });
 
   it('paths state + BR-1 cause tags ride /api/state into the snapshot', async () => {
-    const tagged: RawPollState = {
+    const bookmarked: RawPollState = {
       ...RAW,
       records: [
         ...RAW.records,
@@ -584,7 +584,7 @@ describe('createSessionView — paths actions over a POLL source (the BR-3 endpo
         events: [{ type: 'create', name: 'main', at: '1', auto: true, ts: 0 }],
       },
     };
-    const impl = vi.fn(async () => ({ ok: true, json: async () => tagged }) as unknown as Response);
+    const impl = vi.fn(async () => ({ ok: true, json: async () => bookmarked }) as unknown as Response);
     const view = createSessionView(pollingSource({ fetchImpl: impl as unknown as typeof fetch }));
     await view.refresh();
     const s = view.getState();
@@ -954,7 +954,7 @@ describe('mapPollState — a note ref to a SAVED selection rides the wire', () =
       notes: [
         {
           id: 'n1',
-          prose: [{ slot: 'caption', text: 'see @[coastal] and #s1', status: 'current', changed: [], record: { author: { kind: 'human' } }, refs: [{ span: [4, 14], saved: 'coastal', label: 'coastal' }, { span: [19, 22], commit: 's1' }, { span: [0, 1], saved: 'x', beat: 'y' }, { span: [0, 1] }] }],
+          prose: [{ slot: 'caption', text: 'see @[coastal] and #s1', status: 'current', changed: [], record: { author: { kind: 'human' } }, refs: [{ span: [4, 14], saved: 'coastal', label: 'coastal' }, { span: [19, 22], commit: 's1' }, { span: [0, 1], saved: 'x', bookmark: 'y' }, { span: [0, 1] }] }],
           proposals: [],
         },
       ],

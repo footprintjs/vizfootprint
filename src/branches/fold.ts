@@ -67,17 +67,17 @@ export const LAYOUT_VIEW_PREFIX = 'layout:';
  */
 export const PROSE_VIEW_PREFIX = 'prose:';
 /**
- * A story beat (`beat:${n}` synthetic identity). The session lands NO beat
- * commits any more: a checkpoint is a TAG — a name on a moment, beside the log
- * (see `src/session/README.md`, "Tags are names on moments") — so nothing this
- * library writes carries this namespace. It stays declared, reserved and INERT
- * for two reasons: a NAME is never crossfilter state, and the UI still reads
- * the shape (`ui/src/story` orders beats, `ui/src/adapter` labels them). The
- * reservation is what keeps it safe: `src/def/validate` single-sources its
- * reserved-view list from HERE, so a host-declared view can never squat the
- * namespace and be read as a story beat by the readers above.
+ * A bookmark commit (`bookmark:${n}` synthetic identity). The session lands NO
+ * such commits any more — a bookmark is a name on a moment, kept BESIDE the log
+ * (see `src/session/README.md`, "Bookmarks are names on moments") — so nothing
+ * this library writes carries this namespace. It stays declared, reserved and
+ * INERT for two reasons: a NAME is never crossfilter state, and the UI still
+ * reads the shape (`ui/src/story` orders bookmarks, `ui/src/adapter` labels
+ * them). The reservation is what keeps it safe: `src/def/validate`
+ * single-sources its reserved-view list from HERE, so a host-declared view can
+ * never squat the namespace and be read as a bookmark by the readers above.
  */
-export const BEAT_VIEW_PREFIX = 'beat:';
+export const BOOKMARK_VIEW_PREFIX = 'bookmark:';
 /**
  * Layer 4: a `link` commit (`link:${edgeId}` synthetic identity). Its value is
  * the edge as a LinkDecl (self-describing — never parsed out of the id), or
@@ -89,8 +89,8 @@ export const LINK_VIEW_PREFIX = 'link:';
 /** The state key a commit touches, or null for an inert (annotation / chart / layout) commit. */
 export function keyOf(record: CommitRecord): string | null {
   if (record.viewId.startsWith(ANNOTATION_VIEW_PREFIX)) return null;
-  // A beat names a position; it never filters (see BEAT_VIEW_PREFIX).
-  if (record.viewId.startsWith(BEAT_VIEW_PREFIX)) return null;
+  // A bookmark names a position; it never filters (see BOOKMARK_VIEW_PREFIX).
+  if (record.viewId.startsWith(BOOKMARK_VIEW_PREFIX)) return null;
   // RP-3: a chart proposal (its spec-registration + p=1 hypothesis commits) is
   // NOT crossfilter state — it is inert in the fold, exactly like an annotation.
   // The chart renders as its own view; its ledger row lives in the FDR ledger.
@@ -114,7 +114,7 @@ export function keyOf(record: CommitRecord): string | null {
  *   - `interaction` — a selection, a filter, a navigation: what the person or the agent asked of the DATA
  *   - `design`      — an encoding, a link, a view's words, a layout: what the dashboard IS
  *   - `analysis`    — a declared analysis or an agent-authored chart
- *   - `story`       — a beat or an annotation
+ *   - `story`       — a bookmark or an annotation
  * The log can be filtered by family, so design edits can be hidden while
  * reading an analysis, or tidied before a story is told.
  */
@@ -124,7 +124,7 @@ export function familyOf(record: Pick<CommitRecord, 'viewId'>): CommitFamily {
   const id = record.viewId;
   if (id.startsWith(ENCODING_VIEW_PREFIX) || id.startsWith(LINK_VIEW_PREFIX) || id.startsWith(PROSE_VIEW_PREFIX) || id.startsWith(LAYOUT_VIEW_PREFIX)) return 'design';
   if (id.startsWith(ANALYSIS_VIEW_PREFIX) || id.startsWith(CHART_VIEW_PREFIX)) return 'analysis';
-  if (id.startsWith(BEAT_VIEW_PREFIX) || id.startsWith(ANNOTATION_VIEW_PREFIX)) return 'story';
+  if (id.startsWith(BOOKMARK_VIEW_PREFIX) || id.startsWith(ANNOTATION_VIEW_PREFIX)) return 'story';
   return 'interaction';
 }
 

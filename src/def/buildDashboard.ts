@@ -39,15 +39,15 @@ import {
   type ViewDecl,
   type ViewEncodingDecl,
   type RestorableSaved,
-  type RestorableTag,
+  type RestorableBookmark,
   type RestoreResult,
   type SavedClause,
   type SavedSelection,
   type SavedStore,
-  type Tag,
-  type TagStore,
+  type Bookmark,
+  type BookmarkStore,
 } from './types.js';
-import { PICTURE_ID_PREFIX, TAG_ID_PREFIX, restoredRecordId } from './recordIds.js';
+import { PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, restoredRecordId } from './recordIds.js';
 import { createInteractionSession, type InteractionSession } from '../session/session.js';
 import type { SessionOptions } from '../session/types.js';
 import { materializeLinks, voiceOf } from '../links/index.js';
@@ -84,10 +84,10 @@ export interface Dashboard {
   saved(): readonly SavedSelection[];
   /** Put saved selections back (a host's persistence): each record whole — name, conditions, who, when, on what — judged, never re-stamped; refused entries are named, and so is any record the store had to give a new id. */
   restoreSaved(list: readonly RestorableSaved[]): RestoreResult;
-  /** The tags — names on moments beside the log (see {@link Tag}); the session's doors write them. */
-  tags(): readonly Tag[];
-  /** Put tags back whole (a host's persistence) — judged (a name, a commit id, who, when), never re-stamped; refused entries named, and so is any record the store had to give a new id. A session's `restoreTags` also checks the commit is in its log. */
-  restoreTags(list: readonly RestorableTag[]): RestoreResult;
+  /** The bookmarks — names on moments beside the log (see {@link Bookmark}); the session's doors write them. */
+  bookmarks(): readonly Bookmark[];
+  /** Put bookmarks back whole (a host's persistence) — judged (a name, a commit id, who, when), never re-stamped; refused entries named, and so is any record the store had to give a new id. A session's `restoreBookmarks` also checks the commit is in its log. */
+  restoreBookmarks(list: readonly RestorableBookmark[]): RestoreResult;
   /** Judge the data declarations against the real data: today, that a declared row key names a column the engine lists. Sentences, never thrown. */
   lintData(): Promise<readonly string[]>;
   /** Open a fresh session: one live Mosaic Selection + commit log + FDR ledger. */
@@ -422,7 +422,7 @@ export function restoreSavedInto(store: SavedStore, list: readonly RestorableSav
     if (bad !== undefined) { say(bad); continue; }
     const named = restoredRecordId(PICTURE_ID_PREFIX, r.id, store);
     if (named.assigned) reidentified.push({ name, id: named.id, ...(r.id !== undefined ? { was: r.id } : {}) });
-    // field by field, like the tag restore: a host's extra properties stay out of the store (and out of every `saved()` a consumer reads)
+    // field by field, like the bookmark restore: a host's extra properties stay out of the store (and out of every `saved()` a consumer reads)
     store.list.push({
       id: named.id,
       name,
@@ -439,24 +439,24 @@ export function restoreSavedInto(store: SavedStore, list: readonly RestorableSav
   return { restored, refused, reidentified };
 }
 
-/** Restore tags into the store: a whole record each, judged (a name, a commit id, who, when), never re-stamped, refused in words. `hasCommit` lets a session refuse a commit its log does not hold. A record keeps the id it arrives with when no other record holds it; otherwise the store names it and says so in `reidentified`. */
-export function restoreTagsInto(store: TagStore, list: readonly RestorableTag[], hasCommit?: (id: string) => boolean): RestoreResult {
+/** Restore bookmarks into the store: a whole record each, judged (a name, a commit id, who, when), never re-stamped, refused in words. `hasCommit` lets a session refuse a commit its log does not hold. A record keeps the id it arrives with when no other record holds it; otherwise the store names it and says so in `reidentified`. */
+export function restoreBookmarksInto(store: BookmarkStore, list: readonly RestorableBookmark[], hasCommit?: (id: string) => boolean): RestoreResult {
   const restored: string[] = [];
   const refused: { name: string; rejected: string }[] = [];
   const reidentified: { name: string; id: string; was?: string }[] = [];
   for (const t of list) {
     const name = typeof t?.name === 'string' ? t.name.trim() : '';
     const say = (rejected: string): void => { refused.push({ name: name.length > 0 ? name : '(unnamed)', rejected }); };
-    if (name.length === 0) { say('a tag needs a name'); continue; }
-    if (name.length > 200) { say('a tag name is at most 200 characters'); continue; }
-    if (store.list.some((c) => c.name === name)) { say(`"${name}" is already a tag — rename or forget it first`); continue; }
-    if (typeof t.commitId !== 'string' || t.commitId.length === 0) { say('a tag names a commit'); continue; }
+    if (name.length === 0) { say('a bookmark needs a name'); continue; }
+    if (name.length > 200) { say('a bookmark name is at most 200 characters'); continue; }
+    if (store.list.some((c) => c.name === name)) { say(`"${name}" is already a bookmark — rename or forget it first`); continue; }
+    if (typeof t.commitId !== 'string' || t.commitId.length === 0) { say('a bookmark names a commit'); continue; }
     if (hasCommit !== undefined && !hasCommit(t.commitId)) { say(`no commit "${t.commitId}" in the log`); continue; }
-    if (typeof t.by !== 'string' || typeof t.at !== 'string') { say('a tag carries who made it and when'); continue; }
-    if (t.description !== undefined && typeof t.description !== 'string') { say('a tag\'s description is words'); continue; }
-    if (t.id !== undefined && (typeof t.id !== 'string' || t.id.trim().length === 0)) { say('a tag\'s id, when it carries one, is a short name'); continue; }
-    if ((t.editedBy !== undefined && typeof t.editedBy !== 'string') || (t.editedAt !== undefined && typeof t.editedAt !== 'string')) { say('a tag that was edited carries who edited it and when'); continue; }
-    const named = restoredRecordId(TAG_ID_PREFIX, t.id, store);
+    if (typeof t.by !== 'string' || typeof t.at !== 'string') { say('a bookmark carries who made it and when'); continue; }
+    if (t.description !== undefined && typeof t.description !== 'string') { say('a bookmark\'s description is words'); continue; }
+    if (t.id !== undefined && (typeof t.id !== 'string' || t.id.trim().length === 0)) { say('a bookmark\'s id, when it carries one, is a short name'); continue; }
+    if ((t.editedBy !== undefined && typeof t.editedBy !== 'string') || (t.editedAt !== undefined && typeof t.editedAt !== 'string')) { say('a bookmark that was edited carries who edited it and when'); continue; }
+    const named = restoredRecordId(BOOKMARK_ID_PREFIX, t.id, store);
     if (named.assigned) reidentified.push({ name, id: named.id, ...(t.id !== undefined ? { was: t.id } : {}) });
     store.list.push({
       id: named.id,
@@ -475,7 +475,7 @@ export function restoreTagsInto(store: TagStore, list: readonly RestorableTag[],
 
 function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[]): Dashboard {
   const saved: SavedStore = { list: [], minted: 0 }; // saved selections: logic beside the log, shared by every session (the counter rides the store: it outlives every session)
-  const tags: TagStore = { list: [], minted: 0 }; // tags: names on moments beside the log, shared by every session
+  const bookmarks: BookmarkStore = { list: [], minted: 0 }; // bookmarks: names on moments beside the log, shared by every session
   const tables = [...providers.keys()];
   const keys: Record<string, string> = Object.fromEntries(Object.entries(def.data).flatMap(([t, d]) => (d.key !== undefined ? [[t, d.key]] : [])));
   const defaultTable = def.defaultTable ?? tables[0]!;
@@ -541,7 +541,7 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     keys,
     journal,
     saved,
-    tags,
+    bookmarks,
     makeFdrStepper,
     fdrProcedure: def.fdr?.procedure ?? 'LORD++',
     fdrAlpha: def.fdr?.alpha ?? 0.05,
@@ -578,8 +578,8 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     saved: () => saved.list.map((c) => structuredClone(c)), // a host gets its own copies, never the store's objects
     /* v8 ignore next -- a validated def always declares its actors; the fallback keeps the type honest */
     restoreSaved: (list) => restoreSavedInto(saved, list, new Set(Object.keys(def.actors ?? {}))),
-    tags: () => tags.list.map((t) => ({ ...t })),
-    restoreTags: (list) => restoreTagsInto(tags, list),
+    bookmarks: () => bookmarks.list.map((t) => ({ ...t })),
+    restoreBookmarks: (list) => restoreBookmarksInto(bookmarks, list),
     createSession: (opts) => createInteractionSession(runtime, opts),
     lintProse: async () => {
       const cols = await providers.get(defaultTable)!.columns(defaultTable);

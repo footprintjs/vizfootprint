@@ -10,7 +10,7 @@
  *                               (+ BR-3: the `paths` block — current/detached/list/journal)
  *   POST /api/dispatch        → the human's brush/click → a `user`-badged commit
  *   POST /api/seek            → move the read-only cursor
- *   POST /api/checkpoint      → name the cursor position
+ *   POST /api/bookmark      → name the cursor position
  *   POST /api/paths           → BR-3 named paths: {action:'switch',name} | {action:'rename',from,to}
  *                               | {action:'new',commitId,name?} — human-only (`user`-badged)
  *   POST /api/compare         → {a,b} (path names or commit ids) → the session's CompareResult, verbatim
@@ -142,9 +142,9 @@ export async function startServer({ port = DEFAULT_PORT, mock, provider } = {}) 
           const { commitId } = await readBody(req);
           return send(res, 200, await analyst.seek(commitId));
         }
-        if (req.method === 'POST' && url === '/api/checkpoint') {
+        if (req.method === 'POST' && url === '/api/bookmark') {
           const { label } = await readBody(req);
-          return send(res, 200, await analyst.checkpoint(label));
+          return send(res, 200, await analyst.bookmark(label));
         }
         if (req.method === 'POST' && url === '/api/paths') {
           // BR-3: named paths — switch/rename/new, human-only (the agent has its own `paths` tool).

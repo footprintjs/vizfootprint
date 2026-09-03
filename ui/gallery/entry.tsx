@@ -5,7 +5,7 @@
  * action callbacks back into the store.
  *
  * Single screen, nothing to scroll: the compact time bar rides the top strip
- * (⚑ opens the checkpoint naming modal), the charts FILL all remaining height
+ * (⚑ opens the bookmark naming modal), the charts FILL all remaining height
  * at their measured size (crisp SVG), and the panels live behind the report
  * chips on the slim status strip — each chip carries a live badge and opens a
  * large frosted-glass modal. The charts read their axis fields from the
@@ -235,7 +235,7 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
           commits={state.commits}
           cursor={state.cursor}
           head={state.head}
-          checkpoints={state.checkpoints}
+          bookmarks={state.bookmarks}
           branches={state.branches}
           viewingPast={state.viewingPast}
           {...(state.paths.current !== null ? { pathName: state.paths.current } : {})}
@@ -243,7 +243,7 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
           onSeek={(id) => void view.seek(id)}
           onStepBack={() => void view.stepBack()}
           onStepForward={() => void view.stepForward()}
-          onCheckpoint={(label) => void view.checkpoint(label)}
+          onNameBookmark={(label) => void view.bookmark(label)}
           onReturnToNow={() => void view.returnToNow()}
         />
       }
@@ -466,7 +466,7 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
                 commits={state.commits}
                 cursor={state.cursor}
                 head={state.head}
-                checkpoints={state.checkpoints}
+                bookmarks={state.bookmarks}
                 paths={state.paths.list}
                 archivedPaths={state.paths.archivedList}
                 showArchived={showArchivedLanes}

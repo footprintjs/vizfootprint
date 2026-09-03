@@ -20,7 +20,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
  * nothing to a person, so the records that DO exist ride along, the way every
  * other refusal in the house lists them.
  */
-function deadRef(id: string, label: string | undefined, noun: 'pictures' | 'beats', names: readonly string[] | undefined): string {
+function deadRef(id: string, label: string | undefined, noun: 'pictures' | 'bookmarks', names: readonly string[] | undefined): string {
   if (label !== undefined) return `"${label}" (${id})`;
   if (names === undefined) return `"${id}"`;
   return `"${id}" — the ${noun} are ${names.length > 0 ? names.map((n) => `"${n}"`).join(', ') : 'none'}`;
@@ -34,13 +34,13 @@ export interface ProseWorld {
   readonly surfaced?: ReadonlySet<string>;
   /** The commit ids the log holds — a ref may only point at one of them. */
   readonly commits?: ReadonlySet<string>;
-  /** The tag IDS the store holds — a `beat` ref may only point at one of them (ids, not names: a rename must not turn a good ref bad). */
-  readonly beats?: ReadonlySet<string>;
-  /** The tag NAMES the store holds, for the refusal sentence when a dead ref shows no words; absent = the sentence names the id alone. */
-  readonly beatNames?: readonly string[];
+  /** The bookmark IDS the store holds — a `bookmark` ref may only point at one of them (ids, not names: a rename must not turn a good ref bad). */
+  readonly bookmarks?: ReadonlySet<string>;
+  /** The bookmark NAMES the store holds, for the refusal sentence when a dead ref shows no words; absent = the sentence names the id alone. */
+  readonly bookmarkNames?: readonly string[];
   /** The saved-selection IDS the store holds; absent = not judged. */
   readonly saved?: ReadonlySet<string>;
-  /** The picture NAMES the store holds — the same courtesy as {@link ProseWorld.beatNames}. */
+  /** The picture NAMES the store holds — the same courtesy as {@link ProseWorld.bookmarkNames}. */
   readonly savedNames?: readonly string[];
   /** `proposal` when the record is being proposed for a person to accept; `set` (the default) when it is being stated as the words. */
   readonly mode?: 'set' | 'proposal';
@@ -101,7 +101,7 @@ export function validateProseRecord(viewId: string, slot: string, raw: unknown, 
   }
   // refs: a span inside the text, exactly one target, and a target that exists (judged only when the world names it)
   if (r.refs !== undefined) {
-    const shape = (ref: unknown): ref is { span: [number, number]; commit?: unknown; beat?: unknown; saved?: unknown; label?: unknown } =>
+    const shape = (ref: unknown): ref is { span: [number, number]; commit?: unknown; bookmark?: unknown; saved?: unknown; label?: unknown } =>
       isObject(ref) && Array.isArray(ref.span) && ref.span.length === 2 && ref.span.every((n) => Number.isInteger(n) && (n as number) >= 0) && (ref.label === undefined || typeof ref.label === 'string');
     if (!Array.isArray(r.refs) || !r.refs.every(shape)) at('refs', PROSE_SENTENCES.refs);
     else {
@@ -111,13 +111,13 @@ export function validateProseRecord(viewId: string, slot: string, raw: unknown, 
         const slots = { index: String(index), start: String(start), end: String(end), length: String(length) };
         if (!(start < end && end <= length)) at('ref-span', PROSE_SENTENCES.refSpan, slots);
         const hasCommit = typeof ref.commit === 'string';
-        const hasBeat = typeof ref.beat === 'string';
+        const hasBookmark = typeof ref.bookmark === 'string';
         const hasSaved = typeof ref.saved === 'string';
-        if (Number(hasCommit) + Number(hasBeat) + Number(hasSaved) !== 1) at('ref-target', PROSE_SENTENCES.refTarget, slots);
+        if (Number(hasCommit) + Number(hasBookmark) + Number(hasSaved) !== 1) at('ref-target', PROSE_SENTENCES.refTarget, slots);
         if (hasCommit && world.commits !== undefined && !world.commits.has(ref.commit as string)) at('ref-commit', PROSE_SENTENCES.refCommit, { ...slots, commit: ref.commit as string });
         // a ref carries an id and may show words: the sentence names both, and the list of what exists when it shows none
         const shown = typeof ref.label === 'string' && ref.label.length > 0 ? ref.label : undefined;
-        if (hasBeat && world.beats !== undefined && !world.beats.has(ref.beat as string)) at('ref-beat', PROSE_SENTENCES.refBeat, { ...slots, beat: deadRef(ref.beat as string, shown, 'beats', world.beatNames) });
+        if (hasBookmark && world.bookmarks !== undefined && !world.bookmarks.has(ref.bookmark as string)) at('ref-bookmark', PROSE_SENTENCES.refBookmark, { ...slots, bookmark: deadRef(ref.bookmark as string, shown, 'bookmarks', world.bookmarkNames) });
         if (hasSaved && world.saved !== undefined && !world.saved.has(ref.saved as string)) at('ref-saved', PROSE_SENTENCES.refSaved, { ...slots, saved: deadRef(ref.saved as string, shown, 'pictures', world.savedNames) });
       });
     }

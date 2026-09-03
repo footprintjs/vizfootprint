@@ -37,7 +37,7 @@
  * blocked, and out of the tab order (a paused control is disabled, never
  * merely unclickable) — while navigation (top strip) and the report chips
  * stay live; the
- * arrangement controls disable — each story beat restores its OWN layout
+ * arrangement controls disable — each bookmark restores its OWN layout
  * through the session fold, so present mode replays arrangements, never
  * authors them.
  *
@@ -82,19 +82,19 @@ export interface CockpitMenuItem {
 
 /**
  * PRESENT MODE AS A SLIDESHOW — the story layer's live lens. The dashboard
- * itself is the slide: the host seeks the session to each named checkpoint
- * and hands the cockpit the beat's words; the cockpit takes the screen
+ * itself is the slide: the host seeks the session to each named bookmark
+ * and hands the cockpit the bookmark's words; the cockpit takes the screen
  * (fullscreen when the browser allows), hides every strip but a slim slide
  * bar, and walks prev/next on the arrow keys and space. Interactions stay
  * off: nothing is recorded in a slideshow (the cockpit is read-only).
  */
 export interface CockpitSlideshow {
   readonly active: boolean;
-  /** The beat's label. */
+  /** The bookmark's label. */
   readonly title: string;
-  /** The dashboard's words at this beat (its caption), when it has any. */
+  /** The dashboard's words at this bookmark (its caption), when it has any. */
   readonly words?: string;
-  /** 0-based position and the count of beats on the presented lineage. */
+  /** 0-based position and the count of bookmarks on the presented lineage. */
   readonly index: number;
   readonly count: number;
   readonly onPrev: () => void;
@@ -156,7 +156,7 @@ export interface VizCockpitProps {
   readonly onLayoutChange?: (change: LayoutChange) => void;
   /** The cockpit's menu (☰) at the top right: the host's acts. Omitted → no menu. */
   readonly menu?: readonly CockpitMenuItem[];
-  /** Present mode as a fullscreen slideshow over the checkpoints (see {@link CockpitSlideshow}). */
+  /** Present mode as a fullscreen slideshow over the bookmarks (see {@link CockpitSlideshow}). */
   readonly slideshow?: CockpitSlideshow;
   /** Present mode: dim + block the charts, show the note. */
   readonly readOnly?: boolean;
@@ -212,7 +212,7 @@ function bandStyle(preset: LayoutPreset, charts: readonly CockpitChart[]): CSSPr
 const BAND_FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]';
 /**
  * THE ONE EXEMPTION: a control that only ever NAVIGATES, marked by whoever
- * drew it. `<ProseText>` stamps it on a commit/beat anchor — a link in a
+ * drew it. `<ProseText>` stamps it on a commit/bookmark anchor — a link in a
  * chart's words, or in a note, that goes to a moment in the story. Present
  * mode pauses ACTING; walking the story is the very thing it is for, so a
  * marked control keeps its tab stop and its click. (A saved-selection anchor
@@ -268,7 +268,7 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const menuListRef = useRef<HTMLDivElement | null>(null);
   // the show's callbacks ride a ref: the effects below depend on `showing` alone, so a host that rebuilds the
-  // slideshow object every render (the demo does) never tears the screen down between beats
+  // slideshow object every render (the demo does) never tears the screen down between bookmarks
   const showRef = useRef(props.slideshow);
   showRef.current = props.slideshow;
   /** Close from the keyboard or an act: focus goes back to ☰ (a click outside closes without moving focus — the person is elsewhere). */
@@ -376,7 +376,7 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
     // the observer, and re-query every node in the band, once a second for as
     // long as the show runs. The observer is what catches nodes born later.
   }, [readOnly]);
-  // the slideshow's keys: arrows, space and page keys walk the beats, Escape leaves — never while a field or a button has the keyboard
+  // the slideshow's keys: arrows, space and page keys walk the bookmarks, Escape leaves — never while a field or a button has the keyboard
   useEffect(() => {
     if (!showing) return;
     const onKey = (e: KeyboardEvent): void => {
@@ -533,7 +533,7 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
    * which this mode exists for), and — from the keyboard — anything that is
    * not an activation key. Swallowing every keydown made Present mode a
    * KEYBOARD TRAP: Tab and Shift+Tab could not leave the chart, the arrows
-   * could not walk the beats, and Escape could not close the slideshow (a
+   * could not walk the bookmarks, and Escape could not close the slideshow (a
    * React `stopPropagation` stops the native event too, so the window-level
    * handler never ran).
    */
@@ -561,7 +561,7 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
       <div className={`vzf-cockpit${readOnly ? ' vzf-readonly' : ''}`} data-vzf="cockpit" data-readonly={readOnly ? 'true' : 'false'}>
         {readOnly && (
           <div className="vzf-readonly-note" role="status">
-            {props.readOnlyNote ?? '👁 Present mode — acting is paused; navigate the story beats. Switch to Explore to act.'}
+            {props.readOnlyNote ?? '👁 Present mode — acting is paused; navigate the bookmarks. Switch to Explore to act.'}
           </div>
         )}
         {(props.top !== undefined || switcher !== null || (props.menu !== undefined && props.menu.length > 0)) && (
@@ -610,11 +610,11 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
         )}
         {showing && show !== undefined && (
           <div className="vzf-slide-bar" data-vzf="slide-bar" role="toolbar" aria-label="slideshow">
-            <div className="vzf-step-group" role="group" aria-label="beats">
-              <button type="button" className="vzf-btn" data-slide="prev" disabled={show.index <= 0} onClick={show.onPrev} aria-label="previous beat">
+            <div className="vzf-step-group" role="group" aria-label="bookmarks">
+              <button type="button" className="vzf-btn" data-slide="prev" disabled={show.index <= 0} onClick={show.onPrev} aria-label="previous bookmark">
                 ⟵
               </button>
-              <button type="button" className="vzf-btn" data-slide="next" disabled={show.index >= show.count - 1} onClick={show.onNext} aria-label="next beat">
+              <button type="button" className="vzf-btn" data-slide="next" disabled={show.index >= show.count - 1} onClick={show.onNext} aria-label="next bookmark">
                 ⟶
               </button>
             </div>

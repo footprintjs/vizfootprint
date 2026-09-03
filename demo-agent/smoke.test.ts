@@ -238,10 +238,10 @@ describe.skipIf(!existsSync(CHROME))('demo-agent smoke (real headless Chromium, 
  * UX-2 — the reencode path: an axis-label click opens the EncodingPicker (an
  * incompatible column is disabled-with-reason), picking a compatible column
  * lands a REAL `reencode` commit and the axis re-renders — the human path.
- * Then: naming a checkpoint via the ⚑ modal, and present mode (checkpoint-only
+ * Then: naming a bookmark via the ⚑ modal, and present mode (bookmark-only
  * traversal, the shell dims + blocks acting).
  */
-describe.skipIf(!existsSync(CHROME))('UX-2: axis click -> EncodingPicker -> reencode; ⚑ checkpoint modal; present mode', () => {
+describe.skipIf(!existsSync(CHROME))('UX-2: axis click -> EncodingPicker -> reencode; ⚑ bookmark modal; present mode', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
@@ -299,23 +299,23 @@ describe.skipIf(!existsSync(CHROME))('UX-2: axis click -> EncodingPicker -> reen
     await page.waitForSelector('[data-vzf-modal="report-commits"]', { state: 'detached' });
   }, 30_000);
 
-  it('⚑ opens the checkpoint naming modal; Enter lands a REAL checkpoint, then present mode = checkpoint-ONLY traversal, read-only shell', async () => {
-    // name a checkpoint through the ⚑ modal first (present mode needs at least one story beat)
-    await page.locator('[data-vzf="checkpoint-open"]').click();
-    await page.waitForSelector('[data-vzf-modal="checkpoint"] [role="dialog"]');
-    expect(await page.locator('[data-vzf-modal="checkpoint"] .vzf-ckpt-name').evaluate((el) => el === document.activeElement)).toBe(true);
-    expect((await page.locator('[data-vzf-modal="checkpoint"] .vzf-ckpt-target').textContent()) ?? '').toContain('marks commit #');
-    await page.locator('[data-vzf-modal="checkpoint"] .vzf-ckpt-name').fill('after reencode');
+  it('⚑ opens the bookmark naming modal; Enter lands a REAL bookmark, then present mode = bookmark-ONLY traversal, read-only shell', async () => {
+    // name a bookmark through the ⚑ modal first (present mode needs at least one bookmark)
+    await page.locator('[data-vzf="bookmark-open"]').click();
+    await page.waitForSelector('[data-vzf-modal="bookmark"] [role="dialog"]');
+    expect(await page.locator('[data-vzf-modal="bookmark"] .vzf-bookmark-name').evaluate((el) => el === document.activeElement)).toBe(true);
+    expect((await page.locator('[data-vzf-modal="bookmark"] .vzf-bookmark-target').textContent()) ?? '').toContain('marks commit #');
+    await page.locator('[data-vzf-modal="bookmark"] .vzf-bookmark-name').fill('after reencode');
     await page.keyboard.press('Enter');
-    await page.waitForSelector('[data-vzf-modal="checkpoint"]', { state: 'detached' });
+    await page.waitForSelector('[data-vzf-modal="bookmark"]', { state: 'detached' });
     await page.waitForSelector('[data-vzf="timeline"] .vzf-tl-flag', { timeout: 8000 });
 
     await page.locator('[data-vzf="time-travel-bar"] [role="tab"]:has-text("Present")').click();
     await page.waitForSelector('[data-vzf="present"]', { timeout: 8000 });
 
-    // the full commit timeline is GONE; only the named beat(s) remain
+    // the full commit timeline is GONE; only the named bookmark(s) remain
     expect(await page.locator('[data-vzf="timeline"]').count()).toBe(0);
-    expect(await page.locator('.vzf-beat-title').count()).toBe(1);
+    expect(await page.locator('.vzf-bookmark-title').count()).toBe(1);
 
     // the shell dims + blocks acting surfaces
     await page.waitForSelector('[data-vzf="cockpit"][data-readonly="true"]');
@@ -998,7 +998,7 @@ describe.skipIf(!existsSync(CHROME))('time-travel bar (real headless Chromium, m
  * Phase C — step navigation (real headless Chromium, mock provider): the
  * ⟵/⟶ buttons AND ArrowLeft/ArrowRight move the cursor (charts + readout
  * re-render), disable correctly at the root/leaf edges, never hijack the
- * checkpoint modal's own arrow-key text-cursor movement.
+ * bookmark modal's own arrow-key text-cursor movement.
  * ZERO console errors. Screenshots the bar.
  */
 describe.skipIf(!existsSync(CHROME))('step navigation — ⟵/⟶ buttons + keyboard', () => {
@@ -1070,22 +1070,22 @@ describe.skipIf(!existsSync(CHROME))('step navigation — ⟵/⟶ buttons + keyb
     await maybeScreenshot(page, { path: path.join(SHOTS, 'time-travel-step-nav.png'), fullPage: true });
   }, 60_000);
 
-  it('ArrowLeft/ArrowRight seek, but NOT while the checkpoint modal\'s name field has focus', async () => {
+  it('ArrowLeft/ArrowRight seek, but NOT while the bookmark modal\'s name field has focus', async () => {
     // starts at head (past-banner absent) from the previous test's end state
     expect(await page.locator('[data-vzf="past-mark"]').count()).toBe(0);
 
     // the ⚑ modal autofocuses its name field: ArrowLeft must be swallowed by
     // the field, not seek
-    await page.locator('[data-vzf="checkpoint-open"]').click();
-    await page.waitForSelector('[data-vzf-modal="checkpoint"] [role="dialog"]');
-    expect(await page.locator('[data-vzf-modal="checkpoint"] .vzf-ckpt-name').evaluate((el) => el === document.activeElement)).toBe(true);
+    await page.locator('[data-vzf="bookmark-open"]').click();
+    await page.waitForSelector('[data-vzf-modal="bookmark"] [role="dialog"]');
+    expect(await page.locator('[data-vzf-modal="bookmark"] .vzf-bookmark-name').evaluate((el) => el === document.activeElement)).toBe(true);
     await page.keyboard.press('ArrowLeft');
     await page.waitForTimeout(250);
     expect(await page.locator('[data-vzf="past-mark"]').count()).toBe(0); // no seek happened
 
     // Esc cancels the modal — ArrowLeft now DOES seek
     await page.keyboard.press('Escape');
-    await page.waitForSelector('[data-vzf-modal="checkpoint"]', { state: 'detached' });
+    await page.waitForSelector('[data-vzf-modal="bookmark"]', { state: 'detached' });
     await page.keyboard.press('ArrowLeft');
     await page.waitForSelector('[data-vzf="past-mark"]', { timeout: 8000 });
 
@@ -1139,7 +1139,7 @@ describe.skipIf(!existsSync(CHROME))('mobile viewport — scroll-snap chart caro
     // BR-3: the always-visible BranchPill now rides the pathPill slot beside
     // the Explore/Present toggle (measured ~71px at "no paths yet"). At the
     // narrowest (390px) width with zero commits, pill+toggle (~223px) no
-    // longer fit alongside the timeline row and the ⚑ Checkpoint control on
+    // longer fit alongside the timeline row and the ⚑ Bookmark control on
     // one line, so `.vzf-time-controls` wraps to a SECOND row — still clean
     // extra rows, not the historical wrapped-column collapse this test
     // guards against.
@@ -1147,7 +1147,7 @@ describe.skipIf(!existsSync(CHROME))('mobile viewport — scroll-snap chart caro
     // The band grew again (measured ~143px) when the ≤700px rail fix landed:
     // the timeline ROW now wraps and the rail claims a real width instead of
     // being squeezed to 8px with the ⟵/⟶ buttons OVERFLOWING onto the ⚑
-    // Checkpoint beside them. That overlap is what used to keep this number
+    // Bookmark beside them. That overlap is what used to keep this number
     // small — three honest rows beat two rows drawn on top of each other.
     const m = await page.evaluate(() => {
       const top = document.querySelector('[data-vzf="cockpit-top"]')!.getBoundingClientRect();
@@ -1208,11 +1208,11 @@ describe.skipIf(!existsSync(CHROME))('mobile viewport — scroll-snap chart caro
     await page.waitForSelector('[data-vzf-modal="report-gaps"]', { state: 'detached' });
   }, 30_000);
 
-  it('with commits, the rail is a RAIL — real bars, and the ⟶ never sits on top of the ⚑ Checkpoint (defect 6)', async () => {
+  it('with commits, the rail is a RAIL — real bars, and the ⟶ never sits on top of the ⚑ Bookmark (defect 6)', async () => {
     // REGRESSION. At 390px the compact strip wraps, but `.vzf-timeline-row`
     // did NOT: the rail's `flex: 1 1 100%` could not start a line of its own,
     // so the row was squeezed to ~50px, its (flex: none) ⟵/⟶ buttons
-    // OVERFLOWED it and drew on top of the ⚑ Checkpoint control beside it,
+    // OVERFLOWED it and drew on top of the ⚑ Bookmark control beside it,
     // and the rail itself rendered EIGHT PIXELS wide holding every commit —
     // the core visual of the whole strip, gone and unclickable.
     // the carousel is parked on another chart from the test above — swipe back
@@ -1237,7 +1237,7 @@ describe.skipIf(!existsSync(CHROME))('mobile viewport — scroll-snap chart caro
       return {
         forward: box('[data-step="forward"]')!,
         back: box('[data-step="back"]')!,
-        checkpoint: box('[data-vzf="checkpoint-open"]')!,
+        bookmark: box('[data-vzf="bookmark-open"]')!,
         rail: box('[data-vzf="timeline"]')!,
         bars: bars.length,
         narrowestBar: Math.min(...bars.map((b) => b.getBoundingClientRect().width)),
@@ -1245,8 +1245,8 @@ describe.skipIf(!existsSync(CHROME))('mobile viewport — scroll-snap chart caro
       };
     });
     const overlaps = (a: typeof m.forward, b: typeof m.forward): boolean => a.x < b.right && b.x < a.right && a.y < b.bottom && b.y < a.bottom;
-    expect(overlaps(m.forward, m.checkpoint), 'the forward step and the ⚑ Checkpoint are drawn on top of each other').toBe(false);
-    expect(overlaps(m.back, m.checkpoint), 'so are the back step and the ⚑ Checkpoint').toBe(false);
+    expect(overlaps(m.forward, m.bookmark), 'the forward step and the ⚑ Bookmark are drawn on top of each other').toBe(false);
+    expect(overlaps(m.back, m.bookmark), 'so are the back step and the ⚑ Bookmark').toBe(false);
     expect(m.rail.w, 'the rail is a rail, not a sliver (it was 8px)').toBeGreaterThanOrEqual(140);
     expect(m.rail.right, 'and it stays inside the phone').toBeLessThanOrEqual(m.viewportW);
     expect(m.bars).toBeGreaterThanOrEqual(2);

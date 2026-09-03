@@ -523,7 +523,7 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
     // `viz.declare_analysis` — the latter two always project a `verb` field on success
     // (`projectDispatch`, src/agent/vizAsTools.ts), so `'verb' in r` is always true by the time
     // a successful result reaches here; the final `return 'ok=true'` fallback below it (reached
-    // only for a tool this file never calls, e.g. `viz.why`/`viz.fork`/`viz.checkpoint`) is
+    // only for a tool this file never calls, e.g. `viz.why`/`viz.fork`/`viz.bookmark`) is
     // unreachable via this file's own three-tool usage.
     /* v8 ignore next -- see the comment just above: always true via this file's own calls. */
     if ('verb' in r) {

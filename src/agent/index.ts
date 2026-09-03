@@ -39,7 +39,7 @@ export type {
   DispatchResult,
   FilterRange,
   AnalysisCommit,
-  Checkpoint,
+  BookmarkView,
   BranchInfo,
   TimeState,
   SeekResult,

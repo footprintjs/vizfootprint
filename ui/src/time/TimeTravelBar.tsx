@@ -7,29 +7,29 @@
  *              plain-words note saying which path those bars are and how much
  *              of the story they are, plus ⟵/⟶ step
  *              semantics (the fork-safe tree rule, not a slider), a ⚑
- *              checkpoint button, and a "return to now" when viewing the past.
- *   PRESENT  — checkpoint-ONLY traversal: prev/next walk the NAMED beats, the
- *              current beat's title shows LARGE, and ACTING is disabled. This is
+ *              bookmark button, and a "return to now" when viewing the past.
+ *   PRESENT  — bookmark-ONLY traversal: prev/next walk the NAMED bookmarks, the
+ *              current bookmark's title shows LARGE, and ACTING is disabled. This is
  *              the read-only storytelling mode; it reports `readOnly` up via
  *              `onReadOnlyChange` so the shell can dim its acting inputs.
  *
- * Controlled: `commits`, `cursor`, `head`, `checkpoints` come from the adapter;
+ * Controlled: `commits`, `cursor`, `head`, `bookmarks` come from the adapter;
  * `mode` is controllable (pass `mode`+`onModeChange`) or self-managed. Every
  * navigation is a callback — the bar never mutates state itself.
  *
  * COCKPIT dial: `compact` folds the bar into one slim strip (for the
- * {@link VizCockpit} top row). Naming a checkpoint always rides the
- * ⚑-triggered {@link CheckpointModal} — the inline text-field composer (the
+ * {@link VizCockpit} top row). Naming a bookmark always rides the
+ * ⚑-triggered {@link BookmarkModal} — the inline text-field composer (the
  * old demo-agent dashboard's only consumer) is gone now that every consumer
  * has adopted the cockpit.
  */
 import { useEffect, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import type { CommitView, CheckpointView, BranchView } from '../adapter/types.js';
+import type { CommitView, BookmarkView, BranchView } from '../adapter/types.js';
 import { stepBackTarget, stepForwardTarget, activePath, pathToRoot } from '../adapter/stepNav.js';
-import { orderedCheckpoints, currentBeatIndex, beatTarget } from './presentBeat.js';
+import { orderedBookmarks, currentBookmarkIndex, bookmarkTarget } from './presentBookmark.js';
 import { useRailTicks, railScope } from './rail.js';
-import { CheckpointModal } from './CheckpointModal.js';
+import { BookmarkModal } from './BookmarkModal.js';
 
 export type TimeMode = 'explore' | 'present';
 
@@ -61,15 +61,15 @@ export interface TimeTravelBarProps {
   readonly commits: readonly CommitView[];
   readonly cursor: string | null;
   readonly head: string | null;
-  readonly checkpoints?: readonly CheckpointView[];
+  readonly bookmarks?: readonly BookmarkView[];
   readonly branches?: readonly BranchView[];
   readonly viewingPast?: boolean;
   readonly onSeek?: (commitId: string) => void;
   readonly onStepBack?: () => void;
   readonly onStepForward?: () => void;
-  readonly onCheckpoint?: (label: string) => void;
+  readonly onNameBookmark?: (label: string) => void;
   readonly onReturnToNow?: () => void;
-  /** Present mode: play the beats as a fullscreen slideshow — the host owns the show (see `VizCockpit`'s `slideshow`). */
+  /** Present mode: play the bookmarks as a fullscreen slideshow — the host owns the show (see `VizCockpit`'s `slideshow`). */
   readonly onPlay?: () => void;
 }
 
@@ -78,13 +78,13 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
     commits,
     cursor,
     head,
-    checkpoints = [],
+    bookmarks = [],
     branches = [],
     viewingPast = false,
     onSeek,
     onStepBack,
     onStepForward,
-    onCheckpoint,
+    onNameBookmark,
     onReturnToNow,
     onModeChange,
     onReadOnlyChange,
@@ -92,7 +92,7 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
 
   const [internalMode, setInternalMode] = useState<TimeMode>(props.defaultMode ?? 'explore');
   const mode = props.mode ?? internalMode;
-  const [ckptModalOpen, setCkptModalOpen] = useState(false);
+  const [bookmarkModalOpen, setBookmarkModalOpen] = useState(false);
   const compact = props.compact ?? false;
 
   const setMode = (next: TimeMode): void => {
@@ -114,12 +114,12 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
   const headLineage = pathToRoot(commits, head); // root→head
   const onHeadLineage = cursor === null || headLineage.some((c) => c.id === cursor);
   const lineage = onHeadLineage ? headLineage : pathToRoot(commits, cursor);
-  const ckptByCommit = new Map(checkpoints.filter((c) => c.commitId).map((c) => [c.commitId!, c.label]));
+  const bookmarkByCommit = new Map(bookmarks.filter((c) => c.commitId).map((c) => [c.commitId!, c.label]));
 
   const backDisabled = stepBackTarget(commits, cursor) === null;
   const forwardDisabled = stepForwardTarget(commits, cursor, head) === null;
 
-  const defaultCkptName = `cp-${checkpoints.length + 1}`;
+  const defaultBookmarkName = `bookmark-${bookmarks.length + 1}`;
   const cursorCommit = commits.find((c) => c.id === cursor);
 
   return (
@@ -161,7 +161,7 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
           active={active}
           cursor={cursor}
           head={head}
-          ckptByCommit={ckptByCommit}
+          bookmarkByCommit={bookmarkByCommit}
           backDisabled={backDisabled}
           forwardDisabled={forwardDisabled}
           onSeek={onSeek}
@@ -169,7 +169,7 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
           onStepForward={onStepForward}
           viewingPast={viewingPast}
           onReturnToNow={onReturnToNow}
-          openCheckpointModal={() => setCkptModalOpen(true)}
+          openBookmarkModal={() => setBookmarkModalOpen(true)}
           branchCount={branches.length}
           scope={railScope({
             shown: lineage.length,
@@ -181,16 +181,16 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
           })}
         />
       ) : (
-        <PresentBody head={head} checkpoints={checkpoints} commits={commits} cursor={cursor} onSeek={onSeek} onPlay={props.onPlay} />
+        <PresentBody head={head} bookmarks={bookmarks} commits={commits} cursor={cursor} onSeek={onSeek} onPlay={props.onPlay} />
       )}
 
-      <CheckpointModal
-        open={ckptModalOpen}
+      <BookmarkModal
+        open={bookmarkModalOpen}
         commitId={cursor}
         commitLabel={cursorCommit?.label}
-        defaultName={defaultCkptName}
-        onSave={(label) => onCheckpoint?.(label)}
-        onClose={() => setCkptModalOpen(false)}
+        defaultName={defaultBookmarkName}
+        onSave={(label) => onNameBookmark?.(label)}
+        onClose={() => setBookmarkModalOpen(false)}
       />
     </div>
   );
@@ -208,7 +208,7 @@ interface ExploreBodyProps {
    * carries the mark: the rail's `scope` sentence says so in words.
    */
   head: string | null;
-  ckptByCommit: Map<string, string>;
+  bookmarkByCommit: Map<string, string>;
   backDisabled: boolean;
   forwardDisabled: boolean;
   onSeek?: (id: string) => void;
@@ -216,7 +216,7 @@ interface ExploreBodyProps {
   onStepForward?: () => void;
   viewingPast: boolean;
   onReturnToNow?: () => void;
-  openCheckpointModal: () => void;
+  openBookmarkModal: () => void;
   branchCount: number;
   /** What the rail is showing, in words (see `railScope`); null = it shows the whole story. */
   scope: string | null;
@@ -253,7 +253,7 @@ function ExploreBody(p: ExploreBodyProps): JSX.Element {
                 aria-label={`#${c.id} ${c.label}`}
                 onClick={() => p.onSeek?.(c.id)}
               >
-                {p.ckptByCommit.has(c.id) ? <span className="vzf-tl-flag">⚑</span> : <span className="vzf-tl-flagslot" aria-hidden="true" />}
+                {p.bookmarkByCommit.has(c.id) ? <span className="vzf-tl-flag">⚑</span> : <span className="vzf-tl-flagslot" aria-hidden="true" />}
                 <span className="vzf-tl-node" />
                 {!dense && <span className="vzf-tl-cid">#{c.id}</span>}
               </button>
@@ -271,8 +271,8 @@ function ExploreBody(p: ExploreBodyProps): JSX.Element {
         )}
       </div>
       <div className="vzf-time-controls">
-        <button className="vzf-btn" data-vzf="checkpoint-open" title="Name a checkpoint at the cursor" onClick={p.openCheckpointModal}>
-          ⚑ Checkpoint
+        <button className="vzf-btn" data-vzf="bookmark-open" title="Name a bookmark at the cursor" onClick={p.openBookmarkModal}>
+          ⚑ Bookmark
         </button>
         {p.viewingPast && (
           <button className="vzf-btn" data-vzf="return-now" onClick={() => p.onReturnToNow?.()}>
@@ -287,56 +287,56 @@ function ExploreBody(p: ExploreBodyProps): JSX.Element {
   );
 }
 
-// ── present body (checkpoint-only, read-only) ────────────────────────────────────
+// ── present body (bookmark-only, read-only) ────────────────────────────────────
 interface PresentBodyProps {
-  checkpoints: readonly CheckpointView[];
+  bookmarks: readonly BookmarkView[];
   commits: readonly CommitView[];
   cursor: string | null;
-  /** The tip of the presented lineage (the head); beats ahead of the cursor on it are what "next" walks to. */
+  /** The tip of the presented lineage (the head); bookmarks ahead of the cursor on it are what "next" walks to. */
   head: string | null;
   onSeek?: (id: string) => void;
   onPlay?: () => void;
 }
 function PresentBody(p: PresentBodyProps): JSX.Element {
-  // The presented lineage is the one that ends at the HEAD (beats ahead of the
-  // cursor are what "next beat" walks to); the cursor's position is found on it.
+  // The presented lineage is the one that ends at the HEAD (bookmarks ahead of the
+  // cursor are what "next bookmark" walks to); the cursor's position is found on it.
   const tip = p.head ?? p.cursor;
-  const ordered = orderedCheckpoints(p.checkpoints, p.commits, tip);
-  const idx = currentBeatIndex(p.checkpoints, p.commits, p.cursor, tip);
+  const ordered = orderedBookmarks(p.bookmarks, p.commits, tip);
+  const idx = currentBookmarkIndex(p.bookmarks, p.commits, p.cursor, tip);
   const { rail, tick, dense } = useRailTicks(ordered.length);
   if (ordered.length === 0) {
-    return <div className="vzf-present-empty">No story beats on this lineage yet — name a checkpoint in Explore mode to build the guided tour.</div>;
+    return <div className="vzf-present-empty">No bookmarks on this lineage yet — name one in Explore mode to build the guided tour.</div>;
   }
   const clamped = idx < 0 ? 0 : idx;
-  const beat = ordered[clamped]!;
-  // `ordered` holds only beats whose commit is on the presented lineage, and
+  const bookmark = ordered[clamped]!;
+  // `ordered` holds only bookmarks whose commit is on the presented lineage, and
   // the callers (prev/next buttons disabled at the ends, dots mapped over
-  // `ordered`) never ask for an index outside it — so a beat here always
+  // `ordered`) never ask for an index outside it — so a bookmark here always
   // names a commit.
   const go = (to: number): void => {
-    p.onSeek?.(beatTarget(ordered[to]!) as string);
+    p.onSeek?.(bookmarkTarget(ordered[to]!) as string);
   };
   return (
     <div data-vzf="present">
       <div className="vzf-timeline-row">
-        <div className="vzf-step-group" role="group" aria-label="beats">
-          <button className="vzf-btn" data-beat="prev" disabled={clamped <= 0} onClick={() => go(clamped - 1)} aria-label="previous beat">
+        <div className="vzf-step-group" role="group" aria-label="bookmarks">
+          <button className="vzf-btn" data-bookmark="prev" disabled={clamped <= 0} onClick={() => go(clamped - 1)} aria-label="previous bookmark">
             ⟵
           </button>
-          <button className="vzf-btn" data-beat="next" disabled={clamped >= ordered.length - 1} onClick={() => go(clamped + 1)} aria-label="next beat">
+          <button className="vzf-btn" data-bookmark="next" disabled={clamped >= ordered.length - 1} onClick={() => go(clamped + 1)} aria-label="next bookmark">
             ⟶
           </button>
         </div>
-        <div className="vzf-present-beat">
-          <div className="vzf-beat-title">{beat.label}</div>
-          <div className="vzf-beat-meta">
-            beat {clamped + 1} of {ordered.length}
-            {idx < 0 ? ' · (nearest to cursor)' : ''} · #{beat.commitId}
+        <div className="vzf-present-bookmark">
+          <div className="vzf-bookmark-title">{bookmark.label}</div>
+          <div className="vzf-bookmark-meta">
+            bookmark {clamped + 1} of {ordered.length}
+            {idx < 0 ? ' · (nearest to cursor)' : ''} · #{bookmark.commitId}
           </div>
         </div>
-        <div className="vzf-timeline vzf-beat-rail" data-vzf="beat-rail" ref={rail} data-dense={dense ? 'true' : undefined} style={{ '--vzf-tick': `${tick}px` } as CSSProperties}>
+        <div className="vzf-timeline vzf-bookmark-rail" data-vzf="bookmark-rail" ref={rail} data-dense={dense ? 'true' : undefined} style={{ '--vzf-tick': `${tick}px` } as CSSProperties}>
           {ordered.map((c, i) => (
-            <button key={c.commitId} className={`vzf-tl-dot${i === clamped ? ' vzf-cursor' : ''}`} data-beat-dot={c.commitId} title={c.label} aria-label={c.label} onClick={() => go(i)}>
+            <button key={c.commitId} className={`vzf-tl-dot${i === clamped ? ' vzf-cursor' : ''}`} data-bookmark-dot={c.commitId} title={c.label} aria-label={c.label} onClick={() => go(i)}>
               <span className="vzf-tl-flag">⚑</span>
               <span className="vzf-tl-node" />
               {!dense && <span className="vzf-tl-cid">{c.label}</span>}
@@ -344,7 +344,7 @@ function PresentBody(p: PresentBodyProps): JSX.Element {
           ))}
         </div>
         {p.onPlay !== undefined && (
-          <button className="vzf-btn vzf-play" data-vzf="play" onClick={() => p.onPlay?.()} title="Play the beats as a fullscreen slideshow — interactions stay off">
+          <button className="vzf-btn vzf-play" data-vzf="play" onClick={() => p.onPlay?.()} title="Play the bookmarks as a fullscreen slideshow — interactions stay off">
             ▶ Play
           </button>
         )}

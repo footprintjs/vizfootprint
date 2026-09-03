@@ -41,7 +41,7 @@ export {
   COMMIT_FAMILIES,
   familyOf,
   LINK_VIEW_PREFIX, ENCODING_SET_FIELD, isEncodingSet, encodingSetOf, keysOf,
-  BEAT_VIEW_PREFIX,
+  BOOKMARK_VIEW_PREFIX,
 } from './fold.js';
 export { planBringOver, planUndo } from './plans.js';
 export { slugForCommit, slugify, uniqueSlug } from './slug.js';

@@ -22,8 +22,8 @@
  *  - R14 every unhonorable request is a TYPED gap (D14 taxonomy), never dropped.
  */
 
-import { restoreSavedInto, restoreTagsInto } from '../def/buildDashboard.js';
-import { PICTURE_ID_PREFIX, TAG_ID_PREFIX, mintRecordId } from '../def/recordIds.js';
+import { restoreSavedInto, restoreBookmarksInto } from '../def/buildDashboard.js';
+import { PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, mintRecordId } from '../def/recordIds.js';
 import type { FoldEntry } from '../branches/index.js';
 import type { EmissionKind, LinkEdge } from '../links/index.js';
 import { voiceOf } from '../links/index.js';
@@ -48,7 +48,7 @@ function probeClause(kind: 'point' | 'interval' | 'match', field: string, value:
 }
 import type { CauseClause } from '../mosaic/index.js';
 import { registerAnalysisSlot } from '../def/register.js';
-import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RestorableSaved, RestorableTag, RestoreResult, ViewEncodingDecl, SavedClause, SavedSelection, Tag } from '../def/types.js';
+import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RestorableSaved, RestorableBookmark, RestoreResult, ViewEncodingDecl, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
 import { describeRules, fitsFor, refuses, validateBindings } from '../encoding/index.js';
 import { ENCODING_KIND, edgesInto } from '../links/index.js';
 import { DASHBOARD_PROSE_ID, NOTE_PROSE_PREFIX, isNoteSubject, PROPOSAL_LANE, PROSE_SLOTS, fillProse, PROSE_SENTENCES, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
@@ -87,7 +87,7 @@ import type {
   ChartHypothesis,
   ChartInfo,
   ChartView,
-  Checkpoint,
+  BookmarkView,
   ColumnFacet,
   CompareResult,
   DeclareAnalysisOptions,
@@ -122,7 +122,7 @@ import type {
   SaveSelectionResult,
   ApplySavedOptions,
   ApplySavedResult,
-  TagResult,
+  BookmarkResult,
 } from './types.js';
 
 /**
@@ -150,12 +150,13 @@ interface WhyProvenance {
 const ANALYSIS_FIELD = '__analysis__';
 const ANNOTATION_FIELD = '__annotation__';
 /**
- * The field a beat commit carried its label under. The session lands NO beat
- * commits any more (a checkpoint is a TAG, beside the log), but the field stays
- * reserved from probes: the UI's log reader still labels a `__beat__` commit
- * "beat", so a data column of that name would read as a beat that never was.
+ * The field a bookmark commit carried its label under. The session lands NO
+ * bookmark commits any more (a bookmark lives beside the log, not in it), but
+ * the field stays reserved from probes: the UI's log reader still labels a
+ * `__bookmark__` commit "bookmark", so a data column of that name would read as
+ * a bookmark that never was.
  */
-const BEAT_FIELD = '__beat__';
+const BOOKMARK_FIELD = '__bookmark__';
 /** How many journal records the overview carries (the latest) — a poll must not grow without bound; `dashboard.journal()` holds them all. Placeholder until measured. */
 const JOURNAL_TAIL = 50;
 /** The dashboard subject's registry meta: its words are the system's, its label the cockpit's. */
@@ -210,7 +211,7 @@ const chartViewId = (id: string): string => `${CHART_VIEW_PREFIX}${id}`;
  * above) — WHO acted lives in the cause (`requestedBy`).
  */
 const LAYOUT_SOURCE_META = { actor: 'system', label: 'layout' } as const;
-/** A layout value is inert display state — cap it like a checkpoint label (order lists fit easily). */
+/** A layout value is inert display state — cap it like a bookmark label (order lists fit easily). */
 const LAYOUT_VALUE_MAX = 500;
 
 /**
@@ -220,7 +221,7 @@ const LAYOUT_VALUE_MAX = 500;
  * `pValue` carrying a value in [0,1] would be miscounted as a declared test by
  * `hypothesisRecordsFromLog` on log replay (R6). Reject it as a typed gap.
  */
-const RESERVED_PROBE_FIELDS = new Set<string>([TEST_ANALOG_FIELD, ANALYSIS_FIELD, ANNOTATION_FIELD, CHART_FIELD, BEAT_FIELD]);
+const RESERVED_PROBE_FIELDS = new Set<string>([TEST_ANALOG_FIELD, ANALYSIS_FIELD, ANNOTATION_FIELD, CHART_FIELD, BOOKMARK_FIELD]);
 
 /** The public session surface (family-symmetric with hcifootprint's Session). */
 export interface InteractionSession {
@@ -397,7 +398,7 @@ export interface InteractionSession {
 
   /** The online-FDR audit trail (one row per declared test). */
   ledger(): readonly FdrStep[];
-  checkpoints(): readonly Checkpoint[];
+  bookmarkViews(): readonly BookmarkView[];
 
   /** Rows under the current selection (across all views). */
   selectedRows(table?: string): Promise<readonly Row[]>;
@@ -437,19 +438,20 @@ export interface InteractionSession {
   restoreSaved(list: readonly RestorableSaved[]): RestoreResult;
 
   /**
-   * TAGS — names on moments, beside the log. `tags()` lists them; `tag(name, commitId?)`
-   * names a commit (the cursor by default) and lands NOTHING; a tag name is
-   * one moment. The `checkpoint` verb is the same act by its old name.
-   * `checkpoints()` is the wire's view of the tags.
+   * BOOKMARKS — names on moments, beside the log. `bookmarks()` lists the
+   * records; `bookmark(name, commitId?)` names a commit (the cursor by
+   * default) and lands NOTHING; a bookmark name points at one moment. The
+   * `bookmark` dispatch verb is the same act. `bookmarkViews()` is the wire's
+   * view of the same bookmarks (label + the commit + its position in the log).
    */
-  tags(): readonly Tag[];
-  tag(name: string, commitId?: string, as?: Actor, description?: string): TagResult;
-  /** Change a tag's words (null clears them) — `editedBy`/`editedAt` record the change; who tagged the moment and when stay as they were. */
-  describeTag(name: string, description: string | null, as?: Actor): TagResult;
-  /** Rename a tag — free: a note links its `id`, so the link survives (only the words it shows may go stale). */
-  renameTag(from: string, to: string, as?: Actor): TagResult;
-  forgetTag(name: string): TagResult;
-  restoreTags(list: readonly RestorableTag[]): RestoreResult;
+  bookmarks(): readonly Bookmark[];
+  bookmark(name: string, commitId?: string, as?: Actor, description?: string): BookmarkResult;
+  /** Change a bookmark's words (null clears them) — `editedBy`/`editedAt` record the change; who bookmarked the moment and when stay as they were. */
+  describeBookmark(name: string, description: string | null, as?: Actor): BookmarkResult;
+  /** Rename a bookmark — free: a note links its `id`, so the link survives (only the words it shows may go stale). */
+  renameBookmark(from: string, to: string, as?: Actor): BookmarkResult;
+  forgetBookmark(name: string): BookmarkResult;
+  restoreBookmarks(list: readonly RestorableBookmark[]): RestoreResult;
 
   /**
    * The current channel→field visual-encoding map for one view, branch-scoped
@@ -1129,7 +1131,7 @@ class InteractionSessionImpl implements InteractionSession {
    */
   private async executePlan(
     plan: { readonly recipe: PlanRecipe; readonly conflicts: readonly string[] },
-    tag: { replayedFrom?: string; revertOf?: string },
+    bookmark: { replayedFrom?: string; revertOf?: string },
     op: 'bringOver' | 'undo' | 'adoptPath',
     as: Actor | undefined,
   ): Promise<BringOverResult> {
@@ -1137,7 +1139,7 @@ class InteractionSessionImpl implements InteractionSession {
     const cause: Cause = {
       requestedBy: actor,
       computedBy: actor,
-      ...tag,
+      ...bookmark,
       ...(plan.conflicts.length > 0 ? { conflicts: plan.conflicts } : {}),
     };
     const action = this.actionForRecipe(plan.recipe, cause, op);
@@ -1424,78 +1426,78 @@ class InteractionSessionImpl implements InteractionSession {
     return { ok: true, columns, rows, rowIds, positional: key === undefined, ...(key !== undefined ? { key } : {}), count: res.count, start: res.start ?? 0, version, cursor, clauses };
   }
 
-  // ── tags: names on moments beside the log ────────────────────────────────────
+  // ── bookmarks: names on moments beside the log ────────────────────────────────────
 
-  tags(): readonly Tag[] {
-    return [...this.runtime.tags.list].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)).map((t) => ({ ...t }));
+  bookmarks(): readonly Bookmark[] {
+    return [...this.runtime.bookmarks.list].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)).map((t) => ({ ...t }));
   }
 
-  /** Replace (or, with null, remove) a tag by its id — the identity a rename never moves. */
-  private replaceTag(id: string, next: Tag | null): void {
-    const store = this.runtime.tags;
+  /** Replace (or, with null, remove) a bookmark by its id — the identity a rename never moves. */
+  private replaceBookmark(id: string, next: Bookmark | null): void {
+    const store = this.runtime.bookmarks;
     const at = store.list.findIndex((t) => t.id === id);
     if (next === null) store.list.splice(at, 1);
     else store.list[at] = next;
   }
 
-  tag(name: string, commitId?: string, as: Actor = 'user', description?: string): TagResult {
+  bookmark(name: string, commitId?: string, as: Actor = 'user', description?: string): BookmarkResult {
     const trimmed = name.trim();
-    if (trimmed.length === 0) return { ok: false, rejected: 'a tag needs a name' };
-    if (trimmed.length > 200) return { ok: false, rejected: 'a tag name is at most 200 characters' };
+    if (trimmed.length === 0) return { ok: false, rejected: 'a bookmark needs a name' };
+    if (trimmed.length > 200) return { ok: false, rejected: 'a bookmark name is at most 200 characters' };
     const target = commitId ?? this._cursor;
-    if (target === null) return { ok: false, rejected: 'nothing to tag yet — act first' };
+    if (target === null) return { ok: false, rejected: 'nothing to bookmark yet — act first' };
     if (!this.log.records.some((r) => r.id === target)) return { ok: false, rejected: `no commit "${target}" in the log` };
-    const taken = this.tags().find((t) => t.name === trimmed);
-    if (taken !== undefined) return { ok: false, rejected: taken.commitId === target ? `"${trimmed}" already names this moment` : `"${trimmed}" already names #${taken.commitId} — a tag is one moment; rename or forget it first` };
+    const taken = this.bookmarks().find((t) => t.name === trimmed);
+    if (taken !== undefined) return { ok: false, rejected: taken.commitId === target ? `"${trimmed}" already names this moment` : `"${trimmed}" already names #${taken.commitId} — a bookmark is one moment; rename or forget it first` };
     const words = description?.trim();
-    if (words !== undefined && words.length > 2000) return { ok: false, rejected: 'a tag description is at most 2000 characters' };
-    const tag: Tag = { id: mintRecordId(TAG_ID_PREFIX, this.runtime.tags), name: trimmed, commitId: target, ...(words !== undefined && words.length > 0 ? { description: words } : {}), by: as, at: new Date().toISOString() };
-    this.runtime.tags.list.push(tag);
-    return { ok: true, tag };
+    if (words !== undefined && words.length > 2000) return { ok: false, rejected: 'a bookmark description is at most 2000 characters' };
+    const bookmark: Bookmark = { id: mintRecordId(BOOKMARK_ID_PREFIX, this.runtime.bookmarks), name: trimmed, commitId: target, ...(words !== undefined && words.length > 0 ? { description: words } : {}), by: as, at: new Date().toISOString() };
+    this.runtime.bookmarks.list.push(bookmark);
+    return { ok: true, bookmark };
   }
 
-  renameTag(from: string, to: string, as: Actor = 'user'): TagResult {
+  renameBookmark(from: string, to: string, as: Actor = 'user'): BookmarkResult {
     const next = to.trim();
-    if (next.length === 0) return { ok: false, rejected: 'a tag needs a name' };
-    if (next.length > 200) return { ok: false, rejected: 'a tag name is at most 200 characters' };
-    const current = this.tags().find((t) => t.name === from);
-    if (current === undefined) return { ok: false, rejected: `no tag "${from}" — the tags are ${this.tagNames()}` };
-    if (next === from) return { ok: true, tag: current }; // the name it already has: nothing changed, so no edit is recorded
-    if (this.tags().some((t) => t.name === next)) return { ok: false, rejected: `"${next}" is already a tag — rename or forget it first` };
-    // renaming is free: a note links the tag's id, so no link can break — only the words it shows may go stale
-    const renamed: Tag = { ...current, name: next, editedBy: as, editedAt: new Date().toISOString() };
-    this.replaceTag(current.id, renamed);
-    return { ok: true, tag: renamed };
+    if (next.length === 0) return { ok: false, rejected: 'a bookmark needs a name' };
+    if (next.length > 200) return { ok: false, rejected: 'a bookmark name is at most 200 characters' };
+    const current = this.bookmarks().find((t) => t.name === from);
+    if (current === undefined) return { ok: false, rejected: `no bookmark "${from}" — the bookmarks are ${this.bookmarkNames()}` };
+    if (next === from) return { ok: true, bookmark: current }; // the name it already has: nothing changed, so no edit is recorded
+    if (this.bookmarks().some((t) => t.name === next)) return { ok: false, rejected: `"${next}" is already a bookmark — rename or forget it first` };
+    // renaming is free: a note links the bookmark's id, so no link can break — only the words it shows may go stale
+    const renamed: Bookmark = { ...current, name: next, editedBy: as, editedAt: new Date().toISOString() };
+    this.replaceBookmark(current.id, renamed);
+    return { ok: true, bookmark: renamed };
   }
 
-  describeTag(name: string, description: string | null, as: Actor = 'user'): TagResult {
-    const current = this.tags().find((t) => t.name === name);
-    if (current === undefined) return { ok: false, rejected: `no tag "${name}" — the tags are ${this.tagNames()}` };
+  describeBookmark(name: string, description: string | null, as: Actor = 'user'): BookmarkResult {
+    const current = this.bookmarks().find((t) => t.name === name);
+    if (current === undefined) return { ok: false, rejected: `no bookmark "${name}" — the bookmarks are ${this.bookmarkNames()}` };
     const words = description?.trim();
-    if (words !== undefined && words.length > 2000) return { ok: false, rejected: 'a tag description is at most 2000 characters' };
+    if (words !== undefined && words.length > 2000) return { ok: false, rejected: 'a bookmark description is at most 2000 characters' };
     const { description: _old, ...rest } = current;
-    const next: Tag = { ...rest, ...(words !== undefined && words.length > 0 ? { description: words } : {}), editedBy: as, editedAt: new Date().toISOString() };
-    this.replaceTag(current.id, next);
-    return { ok: true, tag: next };
+    const next: Bookmark = { ...rest, ...(words !== undefined && words.length > 0 ? { description: words } : {}), editedBy: as, editedAt: new Date().toISOString() };
+    this.replaceBookmark(current.id, next);
+    return { ok: true, bookmark: next };
   }
 
-  forgetTag(name: string): TagResult {
-    const current = this.tags().find((t) => t.name === name);
-    if (current === undefined) return { ok: false, rejected: `no tag "${name}" — the tags are ${this.tagNames()}` };
+  forgetBookmark(name: string): BookmarkResult {
+    const current = this.bookmarks().find((t) => t.name === name);
+    if (current === undefined) return { ok: false, rejected: `no bookmark "${name}" — the bookmarks are ${this.bookmarkNames()}` };
     // forgetting really would break a link: the words point at this id and nothing would answer
-    const linked = this.wordsLinking('beat', current.id);
+    const linked = this.wordsLinking('bookmark', current.id);
     if (linked.length > 0) return { ok: false, rejected: `"${name}" is linked from ${linked.join(', ')} — change the link in the words first` };
-    this.replaceTag(current.id, null);
-    return { ok: true, tag: current };
+    this.replaceBookmark(current.id, null);
+    return { ok: true, bookmark: current };
   }
 
-  restoreTags(list: readonly RestorableTag[]): RestoreResult {
+  restoreBookmarks(list: readonly RestorableBookmark[]): RestoreResult {
     const ids = new Set(this.log.records.map((r) => r.id));
-    return restoreTagsInto(this.runtime.tags, list, (id) => ids.has(id));
+    return restoreBookmarksInto(this.runtime.bookmarks, list, (id) => ids.has(id));
   }
 
-  private tagNames(): string {
-    const names = this.tags().map((t) => `"${t.name}"`);
+  private bookmarkNames(): string {
+    const names = this.bookmarks().map((t) => `"${t.name}"`);
     return names.length === 0 ? 'none' : names.join(', ');
   }
 
@@ -1662,7 +1664,7 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** The words on screen (notes, the dashboard's, a view's) whose refs link a record by `field` and id — forgetting it would break their links. */
-  private wordsLinking(field: 'saved' | 'beat', id: string): string[] {
+  private wordsLinking(field: 'saved' | 'bookmark', id: string): string[] {
     const out: string[] = [];
     for (const [subject, slots] of this.activeProse) {
       for (const record of slots.values()) {
@@ -1838,8 +1840,8 @@ class InteractionSessionImpl implements InteractionSession {
         return this.doAnalyze(action.analysisId, action.input, action.cause, as, intent, action.correlationId);
       case 'fork':
         return this.doFork(action.fromCommitId, intent);
-      case 'checkpoint':
-        return this.doCheckpoint(action.label, action.cause, as, intent);
+      case 'bookmark':
+        return this.doBookmark(action.label, action.cause, as, intent);
       case 'reencode':
         return 'bindings' in action
           ? this.doReencodeSet(action.viewId, action.bindings, action.cause, as, intent, action.correlationId)
@@ -2177,14 +2179,14 @@ class InteractionSessionImpl implements InteractionSession {
 
   /** The world a prose record is judged against at dispatch, from the columns already in hand. */
   private proseWorld(cols: readonly ColumnInfo[], mode: 'set' | 'proposal'): ProseWorld & { readonly mode: 'set' | 'proposal' } {
-    // the ids come straight off the stores: `tags()` / `saved()` would sort and copy every
+    // the ids come straight off the stores: `bookmarks()` / `saved()` would sort and copy every
     // record on EVERY describe and every proposal, and the answer is the same set of ids.
     // The names ride along for the refusal sentence — one pass, no copies.
-    const beats = new Set<string>();
-    const beatNames: string[] = [];
-    for (const t of this.runtime.tags.list) {
-      beats.add(t.id);
-      beatNames.push(t.name);
+    const bookmarks = new Set<string>();
+    const bookmarkNames: string[] = [];
+    for (const t of this.runtime.bookmarks.list) {
+      bookmarks.add(t.id);
+      bookmarkNames.push(t.name);
     }
     const saved = new Set<string>();
     const savedNames: string[] = [];
@@ -2197,9 +2199,9 @@ class InteractionSessionImpl implements InteractionSession {
       analyses: new Set(this.runtime.analyses.keys()),
       surfaced: new Set([...this.runtime.views.values()].filter((v) => v.encoding !== undefined).map((v) => v.viewId)),
       commits: new Set(this.log.records.map((r) => r.id)),
-      // a ref links a record's ID, not its name — that is why renaming a tag or a picture never breaks a note
-      beats,
-      beatNames,
+      // a ref links a record's ID, not its name — that is why renaming a bookmark or a picture never breaks a note
+      bookmarks,
+      bookmarkNames,
       saved,
       savedNames,
       mode,
@@ -2652,7 +2654,7 @@ class InteractionSessionImpl implements InteractionSession {
     return { ok: true, verb: 'fork', intent };
   }
 
-  private doCheckpoint(
+  private doBookmark(
     label: string,
     cause: Cause,
     as: Actor | undefined,
@@ -2661,20 +2663,20 @@ class InteractionSessionImpl implements InteractionSession {
     // R12: the label is validated as inert data — a non-empty, length-capped
     // string, stored VERBATIM and never parsed or dispatched on.
     if (typeof label !== 'string' || label.trim().length === 0) {
-      return this.reject('checkpoint', intent, this.gapLedger.file('guard-failed', 'checkpoint', 'checkpoint label must be a non-empty string', ''));
+      return this.reject('bookmark', intent, this.gapLedger.file('guard-failed', 'bookmark', 'bookmark label must be a non-empty string', ''));
     }
     if (label.length > 200) {
-      return this.reject('checkpoint', intent, this.gapLedger.file('guard-failed', 'checkpoint', 'checkpoint label too long (max 200 chars)', label.slice(0, 40)));
+      return this.reject('bookmark', intent, this.gapLedger.file('guard-failed', 'bookmark', 'bookmark label too long (max 200 chars)', label.slice(0, 40)));
     }
-    // A checkpoint is a TAG — a name on the moment the cursor stands on. It
-    // lands NO commit and starts no branch (before this it landed a `beat:`
-    // commit, which put a step on the rail and forked the path when named
-    // from the past). The cause still says who named it.
-    const stamped = this.stampCause(cause, 'checkpoint', as);
-    const tagged = this.tag(label, undefined, stamped.requestedBy);
-    if (!tagged.ok) return this.reject('checkpoint', intent, this.gapLedger.file('guard-failed', 'checkpoint', tagged.rejected, label.slice(0, 40)));
-    const checkpoint = this.checkpoints().find((c) => c.id === tagged.tag.id) as Checkpoint;
-    return { ok: true, verb: 'checkpoint', intent, checkpoint };
+    // A bookmark is a NAME ON THE MOMENT the cursor stands on. It lands NO
+    // commit and starts no branch (before this it landed a `bookmark:` commit,
+    // which put a step on the rail and forked the path when named from the
+    // past). The cause still says who named it.
+    const stamped = this.stampCause(cause, 'bookmark', as);
+    const made = this.bookmark(label, undefined, stamped.requestedBy);
+    if (!made.ok) return this.reject('bookmark', intent, this.gapLedger.file('guard-failed', 'bookmark', made.rejected, label.slice(0, 40)));
+    const bookmark = this.bookmarkViews().find((c) => c.id === made.bookmark.id) as BookmarkView;
+    return { ok: true, verb: 'bookmark', intent, bookmark };
   }
 
   // ── declareAnalysis (the L3 flags' landing spot) ─────────────────────────────
@@ -3035,10 +3037,10 @@ class InteractionSessionImpl implements InteractionSession {
     return this._ledger;
   }
 
-  /** The wire's view of the tags: `id` = the tag's own id (what a note links, and what a badge keys on), `label` = the name, `commitId` and `at` = the tagged moment, `ts` = that commit's position in the log — one truth, the tag store. */
-  checkpoints(): readonly Checkpoint[] {
+  /** The wire's view of the bookmarks: `id` = the bookmark's own id (what a note links, and what a badge keys on), `label` = the name, `commitId` and `at` = the bookmarked moment, `ts` = that commit's position in the log — one truth, the bookmark store. */
+  bookmarkViews(): readonly BookmarkView[] {
     const position = new Map(this.log.records.map((r, i) => [r.id, i] as const));
-    return this.tags().map((t) => Object.freeze({ id: t.id, label: t.name, commitId: t.commitId, at: t.commitId, ts: position.get(t.commitId) ?? -1 }));
+    return this.bookmarks().map((t) => Object.freeze({ id: t.id, label: t.name, commitId: t.commitId, at: t.commitId, ts: position.get(t.commitId) ?? -1 }));
   }
 
   // ── the whats_here projection ────────────────────────────────────────────────
@@ -3142,7 +3144,7 @@ class InteractionSessionImpl implements InteractionSession {
       cursor: this._cursor,
       head: this._head,
       branches: this.branches().length,
-      checkpoints: this.checkpoints().length,
+      bookmarks: this.bookmarks().length,
       cursorTests,
       viewingPast: this._cursor !== this._head,
     };
@@ -3182,7 +3184,7 @@ class InteractionSessionImpl implements InteractionSession {
       // the notes on the dashboard (the Text tool): every note subject with words at the cursor, in the order they were first written
       notes: this.notesInfo(columns[this.defaultTable] ?? []),
       saved: this.saved(),
-      tags: this.tags(),
+      bookmarks: this.bookmarks(),
       activeSelections,
       // the live selections in the shape a prose basis states them (`basis.filters`) — an agent copies this verbatim
       filters: this.filtersNow(),

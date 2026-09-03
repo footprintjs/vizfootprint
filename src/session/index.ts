@@ -13,7 +13,7 @@ export type {
   FilterRange,
   CellValues,
   AnalysisCommit,
-  Checkpoint,
+  BookmarkView,
   BranchInfo,
   TimeState,
   SeekResult,
@@ -33,7 +33,7 @@ export type {
   SaveSelectionResult,
   ApplySavedOptions,
   ApplySavedResult,
-  TagResult,
+  BookmarkResult,
   ViewInfo,
   EffectiveEncoding,
   SelectionInfo,
@@ -80,4 +80,4 @@ export type {
   WhyTargetMiss,
 } from '../why/index.js';
 export { VIEW_QUERY_DEFAULT_LIMIT } from './session.js';
-export type { RestorableSaved, RestorableTag, RestoreResult, SavedClause, SavedSelection, SavedStore, Tag, TagStore } from '../def/types.js';
+export type { RestorableSaved, RestorableBookmark, RestoreResult, SavedClause, SavedSelection, SavedStore, Bookmark, BookmarkStore } from '../def/types.js';

@@ -271,18 +271,18 @@ describe('time-travel: seek + branch-on-act + two-truths (Phase B wiring)', () =
     expect(st.branches.filter((b) => b.active).length).toBe(1);
   }, 30_000);
 
-  it('checkpoint names the cursor; the GLOBAL ledger survives travel (cursor-local 0 vs global 1)', async () => {
+  it('bookmark names the cursor; the GLOBAL ledger survives travel (cursor-local 0 vs global 1)', async () => {
     const analyst = createAnalyst({ csv: CSV, mock: true });
     await analyst.dispatchUser({ verb: 'filter', viewId: 'scatter', field: 'price', range: [0, 500], intent: 'brush all' });
-    const cp = await analyst.checkpoint('before-test');
+    const cp = await analyst.bookmark('before-test');
     expect((cp as { ok: boolean }).ok).toBe(true);
 
     await analyst.dispatchUser({ verb: 'analyze', analysisId: 'correlation', intent: 'declare correlation' });
     let st = await analyst.state();
     expect((st.fdr as { tests: number }).tests).toBe(1);
-    const cid = st.checkpoints.find((c) => c.label === 'before-test')!.commitId!;
+    const cid = st.bookmarks.find((c) => c.label === 'before-test')!.commitId!;
 
-    // travel back to the checkpoint: cursor-local sees 0 tests, global stays 1 (never rewinds)
+    // travel back to the bookmark: cursor-local sees 0 tests, global stays 1 (never rewinds)
     await analyst.seek(cid);
     st = await analyst.state();
     expect(st.cursor).toBe(cid);
@@ -290,20 +290,20 @@ describe('time-travel: seek + branch-on-act + two-truths (Phase B wiring)', () =
     expect((st.fdr as { tests: number }).tests).toBe(1);
   }, 30_000);
 
-  it('POST /api/seek and /api/checkpoint drive the shared session', async () => {
+  it('POST /api/seek and /api/bookmark drive the shared session', async () => {
     const handle = await startServer({ port: 0, mock: true });
     try {
       const c1 = await postJSON(handle.url + '/api/dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Work', intent: 'pick Work' });
       const id = (c1['commit'] as { id: string }).id;
-      const ck = await postJSON(handle.url + '/api/checkpoint', { label: 'p1' });
+      const ck = await postJSON(handle.url + '/api/bookmark', { label: 'p1' });
       expect(ck['ok']).toBe(true);
       await postJSON(handle.url + '/api/dispatch', { verb: 'filter', viewId: 'scatter', field: 'price', range: [10, 90], intent: 'brush' });
       const seek = await postJSON(handle.url + '/api/seek', { commitId: id });
       expect(seek['ok']).toBe(true);
-      const st = (await (await fetch(handle.url + '/api/state')).json()) as { cursor: string; viewingPast: boolean; checkpoints: { label: string }[] };
+      const st = (await (await fetch(handle.url + '/api/state')).json()) as { cursor: string; viewingPast: boolean; bookmarks: { label: string }[] };
       expect(st.cursor).toBe(id);
       expect(st.viewingPast).toBe(true);
-      expect(st.checkpoints.map((c) => c.label)).toContain('p1');
+      expect(st.bookmarks.map((c) => c.label)).toContain('p1');
     } finally {
       await handle.close();
     }
@@ -466,6 +466,6 @@ describe('agent debugger surface (atui, served local)', () => {
     const kinds = t.steps.map((s) => s.kind);
     expect(kinds).toContain('answer'); // the turn finished
     const asks = t.steps.filter((s) => s.kind === 'ask').map((s) => s.tool);
-    expect(asks).toEqual(['whats_here', 'dispatch', 'declare_analysis']); // the real tool beats
+    expect(asks).toEqual(['whats_here', 'dispatch', 'declare_analysis']); // the real tool bookmarks
   }, 60_000);
 });

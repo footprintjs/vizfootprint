@@ -262,7 +262,7 @@ describe('VizCockpit — the single-viewport shell', () => {
   it('Escape from a paused chart still leaves the slideshow', async () => {
     measurable();
     const onExit = vi.fn();
-    const show = { active: true, title: 'a beat', index: 0, count: 2, onPrev: vi.fn(), onNext: vi.fn(), onExit };
+    const show = { active: true, title: 'a bookmark', index: 0, count: 2, onPrev: vi.fn(), onNext: vi.fn(), onExit };
     const charts: CockpitChart[] = [
       { id: 'bar', render: () => <svg className="vzf-chart"><rect role="button" tabIndex={0} data-testid="mark" /></svg> },
     ];

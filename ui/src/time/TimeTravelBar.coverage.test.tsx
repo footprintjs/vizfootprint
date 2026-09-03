@@ -7,7 +7,7 @@ import { TimeTravelBar } from './TimeTravelBar.js';
 afterEach(cleanup);
 
 // r → a → b (head); a → c (sibling leaf). 'a' carries an intent so the
-// lineage-dot title's truthy arm gets exercised. checkpoints at r ("start")
+// lineage-dot title's truthy arm gets exercised. bookmarks at r ("start")
 // and b ("mid").
 const RAW: RawPollState = {
   records: [
@@ -16,7 +16,7 @@ const RAW: RawPollState = {
     { id: 'b', parent: 'a', viewId: 'scatter', kind: 'interval', field: 'price', value: [40, 60], cause: { requestedBy: 'user' } },
     { id: 'c', parent: 'a', viewId: 'scatter', kind: 'interval', field: 'price', value: [70, 90], cause: { requestedBy: 'agent' } },
   ],
-  checkpoints: [
+  bookmarks: [
     { label: 'start', commitId: 'r', ts: 10 },
     { label: 'mid', commitId: 'b', ts: 20 },
   ],
@@ -30,7 +30,7 @@ describe('TimeTravelBar — mode toggle', () => {
   it('clicking the Explore tab switches back (uncontrolled) and fires onModeChange', () => {
     const onModeChange = vi.fn();
     const { container } = render(
-      <TimeTravelBar defaultMode="present" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} onModeChange={onModeChange} />,
+      <TimeTravelBar defaultMode="present" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} onModeChange={onModeChange} />,
     );
     expect(container.querySelector('[data-vzf="present"]')).not.toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: 'Explore' }));
@@ -41,7 +41,7 @@ describe('TimeTravelBar — mode toggle', () => {
   it('a controlled mode prop ignores the internal toggle — the DOM stays put even after a tab click', () => {
     const onModeChange = vi.fn();
     const { container } = render(
-      <TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} onModeChange={onModeChange} />,
+      <TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} onModeChange={onModeChange} />,
     );
     fireEvent.click(screen.getByRole('tab', { name: 'Present' }));
     expect(onModeChange).toHaveBeenCalledWith('present');
@@ -71,24 +71,24 @@ describe('TimeTravelBar — explore mode edges', () => {
     expect(onStepForward).toHaveBeenCalled();
   });
 
-  it('⚑ opens the checkpoint modal, and an empty name submits the auto-numbered default', () => {
-    const onCheckpoint = vi.fn();
-    render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} onCheckpoint={onCheckpoint} />);
-    fireEvent.click(screen.getByRole('button', { name: /Checkpoint/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save checkpoint' }));
-    expect(onCheckpoint).toHaveBeenCalledWith('cp-3'); // checkpoints.length (2) + 1
+  it('⚑ opens the bookmark modal, and an empty name submits the auto-numbered default', () => {
+    const onNameBookmark = vi.fn();
+    render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} onNameBookmark={onNameBookmark} />);
+    fireEvent.click(screen.getByRole('button', { name: /Bookmark/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save bookmark' }));
+    expect(onNameBookmark).toHaveBeenCalledWith('bookmark-3'); // bookmarks.length (2) + 1
   });
 
-  it('Enter in the checkpoint modal field submits; any other key does nothing', () => {
-    const onCheckpoint = vi.fn();
-    render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" onCheckpoint={onCheckpoint} />);
-    fireEvent.click(screen.getByRole('button', { name: /Checkpoint/ }));
-    const input = screen.getByLabelText('checkpoint name');
-    fireEvent.change(input, { target: { value: 'checkpoint A' } });
+  it('Enter in the bookmark modal field submits; any other key does nothing', () => {
+    const onNameBookmark = vi.fn();
+    render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" onNameBookmark={onNameBookmark} />);
+    fireEvent.click(screen.getByRole('button', { name: /Bookmark/ }));
+    const input = screen.getByLabelText('bookmark name');
+    fireEvent.change(input, { target: { value: 'bookmark A' } });
     fireEvent.keyDown(input, { key: 'a' });
-    expect(onCheckpoint).not.toHaveBeenCalled();
+    expect(onNameBookmark).not.toHaveBeenCalled();
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onCheckpoint).toHaveBeenCalledWith('checkpoint A');
+    expect(onNameBookmark).toHaveBeenCalledWith('bookmark A');
   });
 
   it('the past banner shows only outside read-only, and "Return to now" fires onReturnToNow', () => {
@@ -101,7 +101,7 @@ describe('TimeTravelBar — explore mode edges', () => {
     expect(onReturnToNow).toHaveBeenCalled();
 
     // present mode is read-only — the banner is suppressed even though viewingPast is still true
-    rerender(<TimeTravelBar mode="present" commits={S.commits} cursor="a" head="b" checkpoints={S.checkpoints} viewingPast onReturnToNow={onReturnToNow} />);
+    rerender(<TimeTravelBar mode="present" commits={S.commits} cursor="a" head="b" bookmarks={S.bookmarks} viewingPast onReturnToNow={onReturnToNow} />);
     expect(container.querySelector('.vzf-past-banner')).toBeNull();
   });
 
@@ -116,31 +116,31 @@ describe('TimeTravelBar — explore mode edges', () => {
 });
 
 describe('TimeTravelBar — present mode edges', () => {
-  it('with no checkpoints it shows the guided-tour placeholder', () => {
-    const { container } = render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head="b" checkpoints={[]} />);
-    expect(container.querySelector('.vzf-present-empty')?.textContent).toMatch(/No story beats on this lineage yet/);
+  it('with no bookmarks it shows the guided-tour placeholder', () => {
+    const { container } = render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head="b" bookmarks={[]} />);
+    expect(container.querySelector('.vzf-present-empty')?.textContent).toMatch(/No bookmarks on this lineage yet/);
   });
 
-  it('a cursor unreached by any checkpoint clamps to beat 0 and flags "(nearest to cursor)"', () => {
-    const { container } = render(<TimeTravelBar mode="present" commits={S.commits} cursor={null} head="b" checkpoints={S.checkpoints} />);
-    expect(container.querySelector('.vzf-beat-title')?.textContent).toBe('start');
-    expect(container.querySelector('.vzf-beat-meta')?.textContent).toContain('(nearest to cursor)');
+  it('a cursor unreached by any bookmark clamps to bookmark 0 and flags "(nearest to cursor)"', () => {
+    const { container } = render(<TimeTravelBar mode="present" commits={S.commits} cursor={null} head="b" bookmarks={S.bookmarks} />);
+    expect(container.querySelector('.vzf-bookmark-title')?.textContent).toBe('start');
+    expect(container.querySelector('.vzf-bookmark-meta')?.textContent).toContain('(nearest to cursor)');
   });
 
-  it('the next button walks forward to the following beat', () => {
+  it('the next button walks forward to the following bookmark', () => {
     const onSeek = vi.fn();
-    render(<TimeTravelBar mode="present" commits={S.commits} cursor="r" head="b" checkpoints={S.checkpoints} onSeek={onSeek} />);
-    const next = screen.getByRole('button', { name: 'next beat' }) as HTMLButtonElement;
+    render(<TimeTravelBar mode="present" commits={S.commits} cursor="r" head="b" bookmarks={S.bookmarks} onSeek={onSeek} />);
+    const next = screen.getByRole('button', { name: 'next bookmark' }) as HTMLButtonElement;
     expect(next.disabled).toBe(false);
     fireEvent.click(next);
     expect(onSeek).toHaveBeenCalledWith('b');
   });
 
-  it('a beat whose commitId is on no lineage (an empty string) is not a dot at all — beats are ordered by lineage, never by arrival', () => {
+  it('a bookmark whose commitId is on no lineage (an empty string) is not a dot at all — bookmarks are ordered by lineage, never by arrival', () => {
     const onSeek = vi.fn();
-    const withGhost = [...S.checkpoints, { label: 'ghost', commitId: '', ts: 30 }];
-    const { container } = render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head="b" checkpoints={withGhost} onSeek={onSeek} />);
-    const dots = container.querySelectorAll('[data-beat-dot]');
+    const withGhost = [...S.bookmarks, { label: 'ghost', commitId: '', ts: 30 }];
+    const { container } = render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head="b" bookmarks={withGhost} onSeek={onSeek} />);
+    const dots = container.querySelectorAll('[data-bookmark-dot]');
     expect(dots).toHaveLength(2); // start, mid — the ghost names nothing on this lineage
     fireEvent.click(dots[1]!); // 'mid' → commitId 'b'
     expect(onSeek).toHaveBeenCalledWith('b');
@@ -148,8 +148,8 @@ describe('TimeTravelBar — present mode edges', () => {
   });
 
   it('with no head, the presented lineage is the one that ends at the cursor', () => {
-    const { container } = render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head={null} checkpoints={S.checkpoints} />);
-    expect(container.querySelectorAll('[data-beat-dot]')).toHaveLength(2);
-    expect(container.querySelector('.vzf-beat-title')?.textContent).toBe('mid');
+    const { container } = render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head={null} bookmarks={S.bookmarks} />);
+    expect(container.querySelectorAll('[data-bookmark-dot]')).toHaveLength(2);
+    expect(container.querySelector('.vzf-bookmark-title')?.textContent).toBe('mid');
   });
 });

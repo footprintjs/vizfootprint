@@ -73,8 +73,8 @@ export interface BranchDot {
   readonly active: boolean;
 }
 
-/** One named log position (the checkpoint verb). */
-export interface CheckpointInfo {
+/** One named log position (the bookmark verb). */
+export interface BookmarkInfo {
   readonly label: string;
   readonly commitId: string | null;
   readonly ts: number;
@@ -123,8 +123,8 @@ export interface AnalystState {
   readonly head: string | null;
   /** Every divergent lineage (leaf) in the DAG, active flagged — the branch map. */
   readonly branches: readonly BranchDot[];
-  /** Named log positions (checkpoint flags on the timeline). */
-  readonly checkpoints: readonly CheckpointInfo[];
+  /** Named log positions (bookmark flags on the timeline). */
+  readonly bookmarks: readonly BookmarkInfo[];
   /** Test-analog commits visible on the cursor's branch path (the cursor-local truth). */
   readonly cursorTests: number;
   /** Whether the cursor is behind the active head (you are viewing the past). */
@@ -148,8 +148,8 @@ export interface Analyst {
   dispatchUser(body: UserDispatchBody): Promise<DispatchResult | { ok: false; error: string }>;
   /** Move the read-only cursor to a prior commit + rebuild the fold there (charts/log/ledger re-render). */
   seek(commitId: string): Promise<{ ok: boolean; cursor?: string | null; error?: string }>;
-  /** Name the current cursor position (the checkpoint verb, badged `user`). */
-  checkpoint(label: string): Promise<DispatchResult | { ok: false; error: string }>;
+  /** Name the current cursor position (the bookmark verb, badged `user`). */
+  bookmark(label: string): Promise<DispatchResult | { ok: false; error: string }>;
   /**
    * Work with the NAMED paths (BR-1 refs): list is read straight off `state()`'s
    * `paths` field, so this only ever needs switch/rename/new — the human-only
@@ -255,10 +255,10 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
       return res.ok ? { ok: true, cursor: res.cursor } : { ok: false, error: res.gap.detail };
     },
 
-    async checkpoint(label: string) {
-      if (typeof label !== 'string' || label.trim().length === 0) return { ok: false, error: 'checkpoint needs a non-empty label' };
-      // The human path names the position (badged `user`); the agent uses its own checkpoint tool.
-      return session.dispatch({ verb: 'checkpoint', label, cause: userCause(`checkpoint ${label}`) }, { as: 'user' });
+    async bookmark(label: string) {
+      if (typeof label !== 'string' || label.trim().length === 0) return { ok: false, error: 'bookmark needs a non-empty label' };
+      // The human path names the position (badged `user`); the agent uses its own bookmark tool.
+      return session.dispatch({ verb: 'bookmark', label, cause: userCause(`bookmark ${label}`) }, { as: 'user' });
     },
 
     async paths(body: PathsRequestBody) {
@@ -339,7 +339,7 @@ export function createAnalyst(options: CreateAnalystOptions): Analyst {
         cursor: overview.time.cursor,
         head: overview.time.head,
         branches: session.branches().map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
-        checkpoints: session.checkpoints().map((c) => ({ label: c.label, commitId: c.commitId, at: c.at, ts: c.ts })),
+        bookmarks: session.bookmarkViews().map((c) => ({ label: c.label, commitId: c.commitId, at: c.at, ts: c.ts })),
         cursorTests: overview.time.cursorTests,
         viewingPast: overview.time.viewingPast,
         // TL-1: the adapter's documented /api/state extension — the hidden rows

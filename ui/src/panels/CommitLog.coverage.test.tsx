@@ -36,11 +36,11 @@ describe('CommitLog — BR-1 provenance tags (bring-over / undo / conflicts)', (
     isHead: false,
   };
 
-  it('a replayedFrom commit wears the ↷ tag; revertOf wears ⎌; conflicts wear ⚠ with the ids in the title', () => {
+  it('a replayedFrom commit wears the ↷ bookmark; revertOf wears ⎌; conflicts wear ⚠ with the ids in the title', () => {
     const { container } = render(
       <CommitLog
         commits={[
-          { ...base, id: 'p1' }, // plain — no tags at all
+          { ...base, id: 'p1' }, // plain — no bookmarks at all
           { ...base, id: 'p2', replayedFrom: '5', conflicts: ['3', '4'] },
           { ...base, id: 'p3', revertOf: 'p2' },
           { ...base, id: 'p4', conflicts: [] }, // an empty conflicts list is honestly silent

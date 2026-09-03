@@ -2,13 +2,13 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { mapPollState, type RawPollState } from '../adapter/sessionView.js';
-import { orderedCheckpoints, currentBeatIndex } from './presentBeat.js';
+import { orderedBookmarks, currentBookmarkIndex } from './presentBookmark.js';
 import { TimeTravelBar } from './TimeTravelBar.js';
 import { BranchMap } from './BranchMap.js';
 
 afterEach(cleanup);
 
-// r → a → b (head); a → c (sibling leaf).  checkpoints at r ("start") and b ("mid").
+// r → a → b (head); a → c (sibling leaf).  bookmarks at r ("start") and b ("mid").
 const RAW: RawPollState = {
   records: [
     { id: 'r', parent: null, viewId: 'scatter', kind: 'interval', field: 'price', value: [0, 100], cause: { requestedBy: 'user' } },
@@ -16,7 +16,7 @@ const RAW: RawPollState = {
     { id: 'b', parent: 'a', viewId: 'scatter', kind: 'interval', field: 'price', value: [40, 60], cause: { requestedBy: 'user' } },
     { id: 'c', parent: 'a', viewId: 'scatter', kind: 'interval', field: 'price', value: [70, 90], cause: { requestedBy: 'agent' } },
   ],
-  checkpoints: [
+  bookmarks: [
     { label: 'start', commitId: 'r', ts: 10 },
     { label: 'mid', commitId: 'b', ts: 20 },
   ],
@@ -26,22 +26,22 @@ const RAW: RawPollState = {
 };
 const S = mapPollState(RAW);
 
-describe('presentBeat pure logic', () => {
-  it('orders checkpoints by ts and drops null commitIds', () => {
-    const ck = orderedCheckpoints([...S.checkpoints, { label: 'floating', commitId: null, ts: 5 }]);
+describe('presentBookmark pure logic', () => {
+  it('orders bookmarks by ts and drops null commitIds', () => {
+    const ck = orderedBookmarks([...S.bookmarks, { label: 'floating', commitId: null, ts: 5 }]);
     expect(ck.map((c) => c.label)).toEqual(['start', 'mid']);
   });
-  it('finds the exact beat, else the nearest ancestor beat, else -1', () => {
-    expect(currentBeatIndex(S.checkpoints, S.commits, 'b')).toBe(1); // exact = mid
-    expect(currentBeatIndex(S.checkpoints, S.commits, 'r')).toBe(0); // exact = start
-    expect(currentBeatIndex(S.checkpoints, S.commits, 'a')).toBe(0); // a's nearest ancestor beat = start(r)
-    expect(currentBeatIndex([], S.commits, 'b')).toBe(-1);
+  it('finds the exact bookmark, else the nearest ancestor bookmark, else -1', () => {
+    expect(currentBookmarkIndex(S.bookmarks, S.commits, 'b')).toBe(1); // exact = mid
+    expect(currentBookmarkIndex(S.bookmarks, S.commits, 'r')).toBe(0); // exact = start
+    expect(currentBookmarkIndex(S.bookmarks, S.commits, 'a')).toBe(0); // a's nearest ancestor bookmark = start(r)
+    expect(currentBookmarkIndex([], S.commits, 'b')).toBe(-1);
   });
 });
 
 describe('TimeTravelBar — explore mode', () => {
   it('renders the active lineage as commit dots with the cursor marked', () => {
-    const { container } = render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} branches={S.branches} />);
+    const { container } = render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} branches={S.branches} />);
     const dots = container.querySelectorAll('[data-vzf="timeline"] [data-commit]');
     expect(dots).toHaveLength(3); // r, a, b (NOT the off-branch c)
     expect(container.querySelector('.vzf-tl-dot.vzf-cursor')?.getAttribute('data-commit')).toBe('b');
@@ -93,44 +93,44 @@ describe('TimeTravelBar — explore mode', () => {
     expect(onStepBack).toHaveBeenCalled();
   });
 
-  it('⚑ opens the checkpoint modal; naming there fires onCheckpoint with the typed label', () => {
-    const onCheckpoint = vi.fn();
-    render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" onCheckpoint={onCheckpoint} />);
-    fireEvent.click(screen.getByRole('button', { name: /Checkpoint/ }));
-    const input = screen.getByLabelText('checkpoint name');
+  it('⚑ opens the bookmark modal; naming there fires onNameBookmark with the typed label', () => {
+    const onNameBookmark = vi.fn();
+    render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" onNameBookmark={onNameBookmark} />);
+    fireEvent.click(screen.getByRole('button', { name: /Bookmark/ }));
+    const input = screen.getByLabelText('bookmark name');
     fireEvent.change(input, { target: { value: 'before cluster' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onCheckpoint).toHaveBeenCalledWith('before cluster');
+    expect(onNameBookmark).toHaveBeenCalledWith('before cluster');
   });
 });
 
 describe('TimeTravelBar — present mode', () => {
-  it('hides ordinary commits, shows ONLY checkpoint beats with the current title large', () => {
-    const { container } = render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} />);
-    // the explore timeline is gone; the present beat surface is shown
+  it('hides ordinary commits, shows ONLY bookmark bookmarks with the current title large', () => {
+    const { container } = render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} />);
+    // the explore timeline is gone; the present bookmark surface is shown
     expect(container.querySelector('[data-vzf="timeline"]')).toBeNull();
     expect(container.querySelector('[data-vzf="present"]')).not.toBeNull();
-    // exactly one beat dot per checkpoint (2), NOT one per commit (4)
-    expect(container.querySelectorAll('[data-beat-dot]')).toHaveLength(2);
-    // current beat title is the cursor's checkpoint (mid)
-    expect(container.querySelector('.vzf-beat-title')?.textContent).toBe('mid');
-    // no checkpoint composer in read-only present mode
-    expect(container.querySelector('.vzf-ckpt-input')).toBeNull();
+    // exactly one bookmark dot per bookmark (2), NOT one per commit (4)
+    expect(container.querySelectorAll('[data-bookmark-dot]')).toHaveLength(2);
+    // current bookmark title is the cursor's bookmark (mid)
+    expect(container.querySelector('.vzf-bookmark-title')?.textContent).toBe('mid');
+    // no bookmark composer in read-only present mode
+    expect(container.querySelector('.vzf-bookmark-input')).toBeNull();
   });
 
-  it('prev/next walk the beats and seek to their commit ids; reports readOnly up', () => {
+  it('prev/next walk the bookmarks and seek to their commit ids; reports readOnly up', () => {
     const onSeek = vi.fn();
     const onReadOnlyChange = vi.fn();
-    render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} onSeek={onSeek} onReadOnlyChange={onReadOnlyChange} />);
+    render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} onSeek={onSeek} onReadOnlyChange={onReadOnlyChange} />);
     expect(onReadOnlyChange).toHaveBeenCalledWith(true);
     // at 'mid' (index 1); prev → seek to 'start' (commit r)
-    fireEvent.click(screen.getByRole('button', { name: 'previous beat' }));
+    fireEvent.click(screen.getByRole('button', { name: 'previous bookmark' }));
     expect(onSeek).toHaveBeenCalledWith('r');
   });
 
   it('the mode toggle switches modes (uncontrolled) and fires onModeChange', () => {
     const onModeChange = vi.fn();
-    const { container } = render(<TimeTravelBar defaultMode="explore" commits={S.commits} cursor="b" head="b" checkpoints={S.checkpoints} onModeChange={onModeChange} />);
+    const { container } = render(<TimeTravelBar defaultMode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} onModeChange={onModeChange} />);
     expect(container.querySelector('[data-vzf="timeline"]')).not.toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: 'Present' }));
     expect(onModeChange).toHaveBeenCalledWith('present');
@@ -141,7 +141,7 @@ describe('TimeTravelBar — present mode', () => {
 describe('BranchMap', () => {
   it('renders a node per commit, rings the cursor + head, and seeks on click', () => {
     const onSeek = vi.fn();
-    const { container } = render(<BranchMap commits={S.commits} cursor="a" head="b" checkpoints={S.checkpoints} onSeek={onSeek} />);
+    const { container } = render(<BranchMap commits={S.commits} cursor="a" head="b" bookmarks={S.bookmarks} onSeek={onSeek} />);
     expect(container.querySelectorAll('.vzf-bm-node')).toHaveLength(4);
     expect(container.querySelector('.vzf-bm-dot.vzf-cursor')).not.toBeNull();
     expect(container.querySelector('.vzf-bm-dot.vzf-head')).not.toBeNull();

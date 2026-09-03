@@ -25,7 +25,7 @@ export const DASHBOARD_PROSE_ID = 'dashboard';
  * dashboard (the Text tool), addressed `note:<id>`, created by the first
  * `describe` on a fresh id and gone when its last slot goes back to nothing.
  * A note carries a `title` and a `caption` (the body) whose refs link words
- * to commits and beats; like the dashboard it binds nothing, so nothing of it
+ * to commits and bookmarks; like the dashboard it binds nothing, so nothing of it
  * is derived and its basis never states encodings.
  */
 export const NOTE_PROSE_PREFIX = 'note:';
@@ -91,7 +91,7 @@ export interface ProseBasis {
 
 /**
  * A REF: a span of the text that points at a saved interaction — a commit, or
- * a beat by its label — so a reader can hover to see the act and click to go
+ * a bookmark by its label — so a reader can hover to see the act and click to go
  * there, and an agent's summary carries the position each sentence was
  * computed at. Rendered as a small corner anchor in the text.
  */
@@ -100,8 +100,8 @@ export interface ProseRef {
   readonly span: readonly [number, number];
   /** A commit by its id. */
   readonly commit?: string;
-  /** A tag by its ID (`t1`, …), never its name — that is what lets a tag be renamed without touching a word of the prose. */
-  readonly beat?: string;
+  /** A bookmark by its ID (`b1`, …), never its name — that is what lets a bookmark be renamed without touching a word of the prose. */
+  readonly bookmark?: string;
   /** A saved selection by its ID (`p1`, …) — clicking it APPLIES the condition (an ordinary act), it does not seek. Renaming the picture leaves this ref pointing at it. */
   readonly saved?: string;
   /** Words for the anchor, echoed verbatim — the name as it read when the link was made, which a later rename may leave stale. */

@@ -2,7 +2,7 @@
  * Coverage packet COV-demo-agent — closes the remaining gaps in `core.ts`:
  * the `/api/dispatch` rejection arms (`dispatchUser`'s per-verb shape guards),
  * the default-intent state projection (`${verb} ${field ?? analysisId ?? ''}`),
- * `seek`/`checkpoint`'s own guards, the live/no-provider mode branch, the
+ * `seek`/`bookmark`'s own guards, the live/no-provider mode branch, the
  * `trace()` passthrough, and the 60-entry activity ring-buffer cap.
  *
  * These call `createAnalyst` DIRECTLY (same style as the "time-travel" and
@@ -189,17 +189,17 @@ describe('seek — commitId guard + unknown-commit gap (core.ts:170-174)', () =>
   });
 });
 
-describe('checkpoint — label guard (core.ts:176-180)', () => {
+describe('bookmark — label guard (core.ts:176-180)', () => {
   it('an empty label is rejected', async () => {
     const analyst = createAnalyst({ csv: CSV, mock: true });
-    const res = await analyst.checkpoint('');
-    expect(res).toEqual({ ok: false, error: 'checkpoint needs a non-empty label' });
+    const res = await analyst.bookmark('');
+    expect(res).toEqual({ ok: false, error: 'bookmark needs a non-empty label' });
   });
 
   it('a whitespace-only label is ALSO rejected (the guard trims before checking length)', async () => {
     const analyst = createAnalyst({ csv: CSV, mock: true });
-    const res = await analyst.checkpoint('   ');
-    expect(res).toEqual({ ok: false, error: 'checkpoint needs a non-empty label' });
+    const res = await analyst.bookmark('   ');
+    expect(res).toEqual({ ok: false, error: 'bookmark needs a non-empty label' });
   });
 });
 

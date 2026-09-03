@@ -20,15 +20,15 @@ const RAW: RawPollState = {
   records: [
     { id: 's1', parent: null, viewId: 'bar', kind: 'point', field: 'category', value: 'Formal', cause: { requestedBy: 'user', intent: 'pick formal' } },
     { id: 's2', parent: 's1', viewId: 'annotation:bar', kind: 'point', field: 's1', value: 'coastal', cause: { requestedBy: 'user', intent: 'save it' } }, // a saved selection = an annotation whose field is the selection's commit and whose value is the name
-    { id: 's3', parent: 's2', viewId: 'beat:0', kind: 'point', field: '__beat__', value: 'Start', cause: { requestedBy: 'user' } },
+    { id: 's3', parent: 's2', viewId: 'bookmark:0', kind: 'point', field: '__bookmark__', value: 'Start', cause: { requestedBy: 'user' } },
   ],
   activeSelections: [
     { viewId: 'bar', field: 'category', kind: 'point', value: 'Formal', commitId: 's1' },
     { viewId: 'scatter', field: 'price', kind: 'interval', value: [1, 2] }, // a live selection with no commit id cannot be linked
   ],
-  checkpoints: [
-    { id: 't1', label: 'Start', commitId: 's3', at: 's2', ts: 3 },
-    { id: 't2', label: 'Older', commitId: null, at: 's1', ts: 1 }, // an older wire's beat: no commit of its own
+  bookmarks: [
+    { id: 'b1', label: 'Start', commitId: 's3', at: 's2', ts: 3 },
+    { id: 'b2', label: 'Older', commitId: null, at: 's1', ts: 1 }, // an older wire's bookmark: no commit of its own
   ],
   head: 's3',
   cursor: 's3',
@@ -44,28 +44,28 @@ const NOTE: NoteView = {
 };
 
 describe('linkables and the mention world', () => {
-  it('list saved selections, checkpoints, live selections and recent commits with the mention to type; the world resolves the same names', () => {
+  it('list saved selections, bookmarks, live selections and recent commits with the mention to type; the world resolves the same names', () => {
     const state = mapPollState(RAW);
     const list = linkablesOf(state);
     expect(list.map((l) => [l.kind, l.mention])).toEqual([
       ['saved', '@[coastal]'],
-      ['beat', '@[Start]'],
-      ['beat', '@[Older]'],
+      ['bookmark', '@[Start]'],
+      ['bookmark', '@[Older]'],
       ['selection', '#s1'],
       ['commit', '#s3'],
       ['commit', '#s2'],
       ['commit', '#s1'],
     ]);
     expect(list[0]!.description).toContain('saved selection');
-    expect(list[1]!.description).toBe('checkpoint · #s3');
-    expect(list[2]!.description).toBe('checkpoint');
-    expect(list[4]!.description).toBe('user'); // no intent on the beat commit
+    expect(list[1]!.description).toBe('bookmark · #s3');
+    expect(list[2]!.description).toBe('bookmark');
+    expect(list[4]!.description).toBe('user'); // no intent on the bookmark commit
     expect(list[6]!.description).toBe('pick formal · user');
     const world = mentionWorldOf(state);
     expect(world.saved.get('coastal')).toBe('s1'); // name → the id a ref carries: on this wire a named selection IS its commit
-    expect(world.beats.get('Start')).toBe('t1'); // name → the tag's id
+    expect(world.bookmarks.get('Start')).toBe('b1'); // name → the bookmark's id
     expect(world.commits.get('s1')).toBe('category — pick formal');
-    expect(linkablesOf(mapPollState({ ...RAW, records: [RAW.records[0]!], checkpoints: [], activeSelections: [] })).map((l) => l.kind)).toEqual(['commit']);
+    expect(linkablesOf(mapPollState({ ...RAW, records: [RAW.records[0]!], bookmarks: [], activeSelections: [] })).map((l) => l.kind)).toEqual(['commit']);
   });
 });
 
@@ -116,7 +116,7 @@ describe('NoteCell', () => {
     fireEvent.submit(container.querySelector('form')!);
     expect(onDescribe).not.toHaveBeenCalled();
     const alert = container.querySelector('[role="alert"]')!;
-    expect(alert.textContent).toBe('@ghost is neither a saved selection nor a checkpoint');
+    expect(alert.textContent).toBe('@ghost is neither a saved selection nor a bookmark');
     expect(area.getAttribute('aria-invalid')).toBe('true');
     expect(area.getAttribute('aria-describedby')).toBe(alert.id); // the refusal is tied to the field it is about
     expect(document.activeElement).toBe(area); // and the writer is put back in the words
@@ -128,7 +128,7 @@ describe('NoteCell', () => {
     const select = container.querySelector('select') as HTMLSelectElement;
     const insertBtn = container.querySelector('[aria-label="insert the link"]') as HTMLButtonElement;
     expect(insertBtn.disabled).toBe(true);
-    fireEvent.change(select, { target: { value: '@[Start]' } }); // the checkpoint — by its MENTION, never by a row number
+    fireEvent.change(select, { target: { value: '@[Start]' } }); // the bookmark — by its MENTION, never by a row number
     expect(area.value).toBe('Start was here');
     expect(insertBtn.disabled).toBe(false);
     insertBtn.focus(); // as a real click does: the writer is no longer in the words when Insert runs
@@ -146,7 +146,7 @@ describe('NoteCell', () => {
     expect(record).toEqual({
       text: 'Start was @[Start]  here',
       author: { kind: 'humanEdited', by: 'you', model: 'm' }, // the analyst's words, edited: the model and the basis are kept
-      refs: [{ span: [10, 18], beat: 't1', label: 'Start' }], // the ref carries the tag's id; the words the writer typed ride as the label
+      refs: [{ span: [10, 18], bookmark: 'b1', label: 'Start' }], // the ref carries the bookmark's id; the words the writer typed ride as the label
       levels: ['statistic'],
     });
     expect(onDescribe.mock.calls[1]).toEqual(['n1', 'title', { text: 'Renamed', author: { kind: 'human', by: 'you' } }]);
@@ -261,7 +261,7 @@ describe('NoteCell', () => {
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(container.querySelector('form')).toBeNull());
     expect(onDescribe).toHaveBeenCalledTimes(1); // the title stayed blank: no title describe
-    expect(onDescribe.mock.calls[0]).toEqual(['e', 'caption', { text: 'first words @[Start] ', author: { kind: 'human' }, refs: [{ span: [12, 20], beat: 't1', label: 'Start' }] }]);
+    expect(onDescribe.mock.calls[0]).toEqual(['e', 'caption', { text: 'first words @[Start] ', author: { kind: 'human' }, refs: [{ span: [12, 20], bookmark: 'b1', label: 'Start' }] }]);
     // a current, human-edited caption reads without the stale mark and says whose words they were
     const edited: NoteView = { id: 'h', prose: [{ slot: 'caption', text: 'ok', status: 'current', changed: [], author: { kind: 'humanEdited', by: 'me', model: 'm' }, levels: [] }], proposals: [] };
     const read = render(<NoteCell note={edited} world={world} linkables={linkables} onDescribe={vi.fn()} />).container;
@@ -289,13 +289,13 @@ describe('NoteCell', () => {
     const select = container.querySelector('select') as HTMLSelectElement;
     const insertBtn = container.querySelector('[aria-label="insert the link"]') as HTMLButtonElement;
     expect([...select.options].map((o) => o.value)).toEqual(['', ...linkables.map((l) => l.mention)]); // the option's value IS the mention
-    // the writer picks the checkpoint — then a poll lands a new commit and every row of the list shifts
+    // the writer picks the bookmark — then a poll lands a new commit and every row of the list shifts
     fireEvent.change(select, { target: { value: '@[Start]' } });
-    const shifted = [linkables[1]!, linkables[0]!, linkables[3]!]; // the same checkpoint, at another position
+    const shifted = [linkables[1]!, linkables[0]!, linkables[3]!]; // the same bookmark, at another position
     rerender(<NoteCell note={{ id: 'p', prose: [], proposals: [] }} world={world} linkables={shifted} onDescribe={onDescribe} />);
     insertBtn.focus();
     fireEvent.click(insertBtn);
-    expect(area.value).toBe('@[Start] '); // the checkpoint they chose, not whatever now sits where it used to be
+    expect(area.value).toBe('@[Start] '); // the bookmark they chose, not whatever now sits where it used to be
     expect(container.querySelector('[role="alert"]')).toBeNull();
     // and when the pick is no longer offered at all, nothing is inserted: it is said, and the picker goes back to its placeholder
     rerender(<NoteCell note={{ id: 'p', prose: [], proposals: [] }} world={world} linkables={shifted} onDescribe={onDescribe} />);
@@ -354,7 +354,7 @@ describe('NoteCell', () => {
     expect(noteRecord('y', [{ span: [0, 1], commit: 's1' }], agent, undefined)).toEqual({ text: 'y', author: { kind: 'humanEdited', model: 'm' }, refs: [{ span: [0, 1], commit: 's1' }], levels: ['statistic'], basis: { filters: {} } });
   });
 
-  it('every mention the picker offers resolves: a name the brackets cannot carry, or an older save under a taken name, is offered by its commit id; a beat with neither is not offered', () => {
+  it('every mention the picker offers resolves: a name the brackets cannot carry, or an older save under a taken name, is offered by its commit id; a bookmark with neither is not offered', () => {
     expect(['coastal', 'Formal wear'].map(bracketSafe)).toEqual([true, true]);
     expect(['', ' coastal', 'coastal ', 'Formal] wear', 'two\nlines'].map(bracketSafe)).toEqual([false, false, false, false, false]);
     const raw: RawPollState = {
@@ -366,12 +366,12 @@ describe('NoteCell', () => {
         { id: 's6', parent: 's5', viewId: 'bar', kind: 'point', field: 'category', value: 'Semi', cause: { requestedBy: 'user' } },
         { id: 's7', parent: 's6', viewId: 'annotation:bar', kind: 'point', field: 's6', value: 'Formal] wear', cause: { requestedBy: 'user' } }, // a name with a `]` in it
       ],
-      checkpoints: [
-        ...(RAW.checkpoints ?? []),
-        { id: 't3', label: 'Bad]label', commitId: 's3', at: 's3', ts: 4 },
-        { id: 't4', label: 'Also]bad', commitId: null, at: 's3', ts: 5 },
-        { label: 'No tag id', commitId: 's2', at: 's2', ts: 2 }, // a wire that predates tag ids: nothing to link by name
-        { label: 'No tag id at all', commitId: null, at: 's2', ts: 2 }, // …and no commit either: not offered
+      bookmarks: [
+        ...(RAW.bookmarks ?? []),
+        { id: 'b3', label: 'Bad]label', commitId: 's3', at: 's3', ts: 4 },
+        { id: 'b4', label: 'Also]bad', commitId: null, at: 's3', ts: 5 },
+        { label: 'No bookmark id', commitId: 's2', at: 's2', ts: 2 }, // a wire that predates bookmark ids: nothing to link by name
+        { label: 'No bookmark id at all', commitId: null, at: 's2', ts: 2 }, // …and no commit either: not offered
       ],
       head: 's7',
       cursor: 's7',
@@ -384,17 +384,17 @@ describe('NoteCell', () => {
       ['coastal', '#s1'], // the older is reached by its id
     ]);
     expect(saved[2]!.description).toContain('an older save, #s1');
-    const beats = linkablesOf(st).filter((l) => l.kind === 'beat');
-    expect(beats.map((l) => [l.label, l.mention])).toEqual([
+    const bookmarks = linkablesOf(st).filter((l) => l.kind === 'bookmark');
+    expect(bookmarks.map((l) => [l.label, l.mention])).toEqual([
       ['Start', '@[Start]'],
       ['Older', '@[Older]'],
       ['Bad]label', '#s3'],
-      ['No tag id', '#s2'], // no id to link by name, so it is reached by its commit
+      ['No bookmark id', '#s2'], // no id to link by name, so it is reached by its commit
     ]);
     const w = mentionWorldOf(st);
     expect(w.saved.get('coastal')).toBe('s4'); // the NEWEST save owns the name — the one the picker offers `@[coastal]`
     expect(w.saved.get('Formal] wear')).toBe('s6');
-    expect(w.beats.get('No tag id')).toBeUndefined(); // nothing to link: the picker offered its commit instead
+    expect(w.bookmarks.get('No bookmark id')).toBeUndefined(); // nothing to link: the picker offered its commit instead
     // and every offered mention resolves against that world
     for (const l of linkablesOf(st)) expect(mentionsToRefs(l.mention, w).unresolved).toEqual([]);
   });

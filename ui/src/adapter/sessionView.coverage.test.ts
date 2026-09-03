@@ -112,11 +112,11 @@ describe('createSessionView — in-process session edge branches', () => {
           gaps: 0,
           currentView: null,
           engines: {},
-          time: { cursor: null, head: null, branches: 0, checkpoints: 0, cursorTests: 0, viewingPast: false },
+          time: { cursor: null, head: null, branches: 0, bookmarks: 0, cursorTests: 0, viewingPast: false },
         }) as unknown as ReturnType<SessionLike['overview']>,
       gaps: () => [],
       branches: () => [],
-      checkpoints: () => [{ id: 't1', label: 'start', commitId: 'r1', at: null, ts: 1 }], // exercises the checkpoints.map body
+      bookmarkViews: () => [{ id: 'b1', label: 'start', commitId: 'r1', at: null, ts: 1 }], // exercises the bookmarks.map body
       seek: (commitId: string) => ({ ok: true, cursor: commitId }) as unknown as ReturnType<SessionLike['seek']>,
       dispatch: () => ({ ok: true, verb: 'analyze', intent: 'x' }) as unknown as ReturnType<SessionLike['dispatch']>,
       switchPath: (name: string) => ({ ok: true, name, cursor: 'r1' }) as unknown as ReturnType<SessionLike['switchPath']>,
@@ -133,14 +133,14 @@ describe('createSessionView — in-process session edge branches', () => {
     };
   }
 
-  it('a record with no `cause`, a checkpoints() list, and missing overview.encodings all fall back correctly', async () => {
+  it('a record with no `cause`, a bookmarks() list, and missing overview.encodings all fall back correctly', async () => {
     const session = fakeSessionNoCauseNoEncodings();
     const view = createSessionView(sessionSource(session));
     await view.refresh();
     const s = view.getState();
     expect(s.commits[0]!.actor).toBe('system');
     expect(s.encodings['scatter']).toEqual({ x: 'price' });
-    expect(s.checkpoints[0]!.label).toBe('start');
+    expect(s.bookmarks[0]!.label).toBe('start');
     // no `paths` on this overview at all → the honest empty surface (defensive arm)
     expect(s.paths).toEqual({ current: null, detachedAt: null, list: [], archivedList: [], events: [] });
     view.dispose();
@@ -324,12 +324,12 @@ describe('RP-3 — agent-authored charts (mapCharts) flow through both sources',
           gaps: 0,
           currentView: null,
           engines: {},
-          time: { cursor: null, head: null, branches: 0, checkpoints: 0, cursorTests: 0, viewingPast: false },
+          time: { cursor: null, head: null, branches: 0, bookmarks: 0, cursorTests: 0, viewingPast: false },
           paths: { current: null, detachedAt: null, list: [], events: [] },
         }) as unknown as ReturnType<SessionLike['overview']>,
       gaps: () => [],
       branches: () => [],
-      checkpoints: () => [],
+      bookmarkViews: () => [],
       seek: (id: string) => ({ ok: true, cursor: id }) as unknown as ReturnType<SessionLike['seek']>,
       dispatch: () => ({ ok: true, verb: 'analyze', intent: 'x' }) as unknown as ReturnType<SessionLike['dispatch']>,
       switchPath: (name: string) => ({ ok: true, name, cursor: 'x' }) as unknown as ReturnType<SessionLike['switchPath']>,
@@ -353,7 +353,7 @@ describe('RP-3 — agent-authored charts (mapCharts) flow through both sources',
   });
 });
 
-describe('P0 seams — absence on the column facet, beat labels, poll guards', () => {
+describe('P0 seams — absence on the column facet, bookmark labels, poll guards', () => {
   it('mapPollState carries a declared absence vocabulary onto the ColumnView, and only there', () => {
     const raw = {
       records: [],
@@ -365,12 +365,12 @@ describe('P0 seams — absence on the column facet, beat labels, poll guards', (
     expect(cols.find((c) => c.field === 'n')).toEqual({ field: 'n', type: 'number' });
   });
 
-  it('a beat commit is labelled "beat", not its wire field', () => {
+  it('a bookmark commit is labelled "bookmark", not its wire field', () => {
     const raw = {
-      records: [{ id: 'b0', parent: null, viewId: 'beat:0', kind: 'point', field: '__beat__', value: 'after cleanup', cause: { requestedBy: 'user', computedBy: 'user' } }],
+      records: [{ id: 'b0', parent: null, viewId: 'bookmark:0', kind: 'point', field: '__bookmark__', value: 'after cleanup', cause: { requestedBy: 'user', computedBy: 'user' } }],
       defaultTable: 'data',
     } as unknown as Parameters<typeof mapPollState>[0];
-    expect(mapPollState(raw).commits[0]!.label).toBe('beat');
+    expect(mapPollState(raw).commits[0]!.label).toBe('bookmark');
   });
 
   it('a stale (out-of-order) poll never overwrites a newer one, and an unchanged poll does not re-notify', async () => {
@@ -407,17 +407,17 @@ describe('P0 seams — absence on the column facet, beat labels, poll guards', (
   });
 });
 
-describe('P0 — a beat names its parent: the `at` position rides the wire when present', () => {
+describe('P0 — a bookmark names its parent: the `at` position rides the wire when present', () => {
   it('mapPollState carries `at` when the wire has it and omits it when it does not (older wires name themselves)', () => {
     const raw = {
       records: [],
       defaultTable: 'data',
-      checkpoints: [
+      bookmarks: [
         { label: 'named', commitId: 'b1', at: 'c1', ts: 1 },
         { label: 'old-wire', commitId: 'b0', ts: 0 },
       ],
     } as unknown as Parameters<typeof mapPollState>[0];
-    const cps = mapPollState(raw).checkpoints;
+    const cps = mapPollState(raw).bookmarks;
     expect(cps[0]).toEqual({ label: 'named', commitId: 'b1', at: 'c1', ts: 1 });
     expect(cps[1]).toEqual({ label: 'old-wire', commitId: 'b0', ts: 0 });
   });
@@ -529,7 +529,7 @@ describe('the prose plane on the wire', () => {
             { slot: 'title', text: 'Cases by state', status: 'current', changed: [], record: { author: { kind: 'human', by: 'sanjay' }, levels: ['construction'] } },
             { slot: 'caption', text: 'Oklahoma leads.', status: 'stale', changed: ['filters', 7], record: { author: { kind: 'agent', model: 'm', at: 'now' }, basis: { columns: ['cases'] } } },
             { slot: 'howToRead', status: 'derived', record: { author: { kind: 'derived' }, levels: 'x' } },
-            { slot: 'altLong', text: 'Texas leads.', status: 'current', changed: [], refs: [{ span: [0, 5], commit: 'c1', label: 'L' }, { span: [6, 11], beat: 'b' }, { span: [0, 1] }, { span: [0, 1], commit: 'x', beat: 'y' }, 'nope', null, { span: 'x', commit: 'c' }, { span: [0, 'x'], commit: 'c' }, { span: [0, 1, 2], commit: 'c' }], record: { author: { kind: 'human' } } },
+            { slot: 'altLong', text: 'Texas leads.', status: 'current', changed: [], refs: [{ span: [0, 5], commit: 'c1', label: 'L' }, { span: [6, 11], bookmark: 'b' }, { span: [0, 1] }, { span: [0, 1], commit: 'x', bookmark: 'y' }, 'nope', null, { span: 'x', commit: 'c' }, { span: [0, 'x'], commit: 'c' }, { span: [0, 1, 2], commit: 'c' }], record: { author: { kind: 'human' } } },
             { slot: 'poem', text: 'x', status: 'current', changed: [], record: { author: { kind: 'human' } } },
             { slot: 'altShort', text: 'x', status: 'weird', changed: [], record: { author: { kind: 'human' } } },
             { slot: 'altLong', text: 'x', status: 'current', changed: [], record: { author: { kind: 'ghost' } } },
@@ -546,7 +546,7 @@ describe('the prose plane on the wire', () => {
       { slot: 'title', text: 'Cases by state', status: 'current', changed: [], author: { kind: 'human', by: 'sanjay' }, levels: ['construction'] },
       { slot: 'caption', text: 'Oklahoma leads.', status: 'stale', changed: ['filters'], author: { kind: 'agent', model: 'm', at: 'now' }, levels: [], basis: { columns: ['cases'] } },
       { slot: 'howToRead', text: '', status: 'derived', changed: [], author: { kind: 'derived' }, levels: [] },
-      { slot: 'altLong', text: 'Texas leads.', status: 'current', changed: [], author: { kind: 'human' }, levels: [], refs: [{ span: [0, 5], commit: 'c1', label: 'L' }, { span: [6, 11], beat: 'b' }] },
+      { slot: 'altLong', text: 'Texas leads.', status: 'current', changed: [], author: { kind: 'human' }, levels: [], refs: [{ span: [0, 5], commit: 'c1', label: 'L' }, { span: [6, 11], bookmark: 'b' }] },
     ]);
     expect(state.views.find((v) => v.viewId === 'bar')!.prose).toEqual([]);
     expect(state.commits[0]!.label).toBe('describe map.title');

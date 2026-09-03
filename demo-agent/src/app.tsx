@@ -189,7 +189,7 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
   const [showArchivedLanes, setShowArchivedLanes] = useState(false);
 
   // step-nav keyboard mirror (ArrowLeft/ArrowRight), but never while an
-  // <input>/<textarea> has focus (the checkpoint modal's field, the chat composer).
+  // <input>/<textarea> has focus (the bookmark modal's field, the chat composer).
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
@@ -301,13 +301,13 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
           commits={state.commits}
           cursor={state.cursor}
           head={state.head}
-          checkpoints={state.checkpoints}
+          bookmarks={state.bookmarks}
           branches={state.branches}
           viewingPast={state.viewingPast}
           onSeek={(id) => void view.seek(id)}
           onStepBack={() => void view.stepBack()}
           onStepForward={() => void view.stepForward()}
-          onCheckpoint={(label) => void view.checkpoint(label)}
+          onNameBookmark={(label) => void view.bookmark(label)}
           onReturnToNow={() => void view.returnToNow()}
         />
       }
@@ -490,7 +490,7 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
                 commits={state.commits}
                 cursor={state.cursor}
                 head={state.head}
-                checkpoints={state.checkpoints}
+                bookmarks={state.bookmarks}
                 paths={state.paths.list}
                 archivedPaths={state.paths.archivedList}
                 showArchived={showArchivedLanes}

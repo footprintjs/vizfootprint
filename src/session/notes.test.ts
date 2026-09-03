@@ -20,10 +20,10 @@ describe('notes', () => {
     expect((await s.overview()).notes).toEqual([]);
     const sel = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick formal') });
     const selId = sel.ok ? sel.commit!.id : '';
-    const beat = await s.dispatch({ verb: 'checkpoint', label: 'Formal wear', cause: userCause() });
-    expect(beat.ok).toBe(true);
-    const beatId = s.tags()[0]!.id; // a ref links the tag's ID; the label is only the words the anchor shows
-    const body: ProseRecord = { text: 'Formal wear dominates — see #sel and the @beat.', author: { kind: 'human', by: 'sanjay' }, refs: [{ span: [26, 30], commit: selId, label: 'pick formal' }, { span: [39, 44], beat: beatId, label: 'Formal wear' }] };
+    const bookmark = await s.dispatch({ verb: 'bookmark', label: 'Formal wear', cause: userCause() });
+    expect(bookmark.ok).toBe(true);
+    const bookmarkId = s.bookmarks()[0]!.id; // a ref links the bookmark's ID; the label is only the words the anchor shows
+    const body: ProseRecord = { text: 'Formal wear dominates — see #sel and the @bookmark.', author: { kind: 'human', by: 'sanjay' }, refs: [{ span: [26, 30], commit: selId, label: 'pick formal' }, { span: [39, 44], bookmark: bookmarkId, label: 'Formal wear' }] };
     const first = await s.dispatch({ verb: 'describe', viewId: 'note:n1', slot: 'caption', record: body, cause: userCause('write a note') });
     expect(first.ok).toBe(true);
     expect(first.ok && first.commit?.viewId).toBe('prose:note:n1');
@@ -32,7 +32,7 @@ describe('notes', () => {
     expect(o.notes.map((n) => n.id)).toEqual(['n1']);
     expect(o.notes[0]!.prose.map((p) => [p.slot, p.status, p.text])).toEqual([
       ['title', 'current', 'What formal wear does'],
-      ['caption', 'current', 'Formal wear dominates — see #sel and the @beat.'],
+      ['caption', 'current', 'Formal wear dominates — see #sel and the @bookmark.'],
     ]);
     expect(o.notes[0]!.prose[1]!.refs).toHaveLength(2);
     expect(o.views.map((v) => v.viewId)).not.toContain('note:n1'); // a note is not a view
@@ -48,7 +48,7 @@ describe('notes', () => {
     expect((await s.overview()).notes.map((n) => n.id)).toEqual(['n1']);
   });
 
-  it('a note is judged like the dashboard: nothing derived, no encodings in a basis, a ref must point at a commit or beat that exists; a bad id is still a missing view', async () => {
+  it('a note is judged like the dashboard: nothing derived, no encodings in a basis, a ref must point at a commit or bookmark that exists; a bad id is still a missing view', async () => {
     const s = buildDashboard(makeDashboardDef()).createSession();
     const derived = await s.dispatch({ verb: 'describe', viewId: 'note:x', slot: 'caption', record: { author: { kind: 'derived' } }, cause: userCause() });
     expect(!derived.ok && derived.rejection.detail).toContain("a note's caption cannot be derived");

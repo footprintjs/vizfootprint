@@ -1299,17 +1299,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-:where(.vzf) .vzf-present-beat {
+:where(.vzf) .vzf-present-bookmark {
   text-align: center;
   padding: var(--vzf-space-3);
 }
-:where(.vzf) .vzf-present-beat .vzf-beat-title {
+:where(.vzf) .vzf-present-bookmark .vzf-bookmark-title {
   font-family: var(--vzf-font-display);
   font-size: 1.5em;
   font-weight: 600;
   color: var(--vzf-ink);
 }
-:where(.vzf) .vzf-present-beat .vzf-beat-meta {
+:where(.vzf) .vzf-present-bookmark .vzf-bookmark-meta {
   font-size: 0.82em;
   color: var(--vzf-ink-faint);
   margin-top: var(--vzf-space-1);
@@ -1397,7 +1397,7 @@
      rail cannot start a new line by itself: its parent `.vzf-timeline-row` is
      a nowrap flex row, so the basis was simply shrunk away. At 390px the row
      was squeezed to ~50px, its (flex: none) ⟵/⟶ buttons overflowed it and
-     drew on top of the ⚑ Checkpoint control beside it, and the rail was left
+     drew on top of the ⚑ Bookmark control beside it, and the rail was left
      EIGHT PIXELS wide holding thirty bars. So: the row wraps, the rail is the
      item that claims a whole line of it, and it may never be a sliver. */
   :where(.vzf) .vzf-timeline-row {
@@ -1407,9 +1407,9 @@
     flex: 1 1 100%;
   }
   :where(.vzf) .vzf-timeline,
-  /* two classes on purpose: the beat rail's own `flex: 1` rule sits LATER in
+  /* two classes on purpose: the bookmark rail's own `flex: 1` rule sits LATER in
      this file, and a media query adds no specificity — one class would lose */
-  :where(.vzf) .vzf-timeline.vzf-beat-rail {
+  :where(.vzf) .vzf-timeline.vzf-bookmark-rail {
     /* grows into whatever the row has left, never below a rail's worth of
        pixels: at 140px it wraps onto its own line instead of shrinking to the
        sliver this rule exists to prevent */
@@ -1438,28 +1438,28 @@
   flex: 1;
   min-width: 0;
 }
-:where(.vzf) .vzf-compact .vzf-present-beat {
+:where(.vzf) .vzf-compact .vzf-present-bookmark {
   padding: 2px var(--vzf-space-2);
 }
-:where(.vzf) .vzf-compact .vzf-present-beat .vzf-beat-title {
+:where(.vzf) .vzf-compact .vzf-present-bookmark .vzf-bookmark-title {
   font-size: 1.05em;
 }
-:where(.vzf) .vzf-compact .vzf-present-beat .vzf-beat-meta {
+:where(.vzf) .vzf-compact .vzf-present-bookmark .vzf-bookmark-meta {
   font-size: 0.74em;
   margin-top: 0;
 }
 
-/* ── checkpoint naming modal (small glass prompt) ───────────── */
-:where(.vzf) .vzf-ckpt-form {
+/* ── bookmark naming modal (small glass prompt) ───────────── */
+:where(.vzf) .vzf-bookmark-form {
   display: flex;
   flex-direction: column;
   gap: var(--vzf-space-3);
   padding: var(--vzf-space-2);
 }
-:where(.vzf) .vzf-ckpt-form .vzf-ckpt-name {
+:where(.vzf) .vzf-bookmark-form .vzf-bookmark-name {
   width: 100%;
 }
-:where(.vzf) .vzf-ckpt-target {
+:where(.vzf) .vzf-bookmark-target {
   font-size: 0.84em;
   color: var(--vzf-ink-soft);
 }
@@ -2380,15 +2380,15 @@
 :where(.vzf) .vzf-step-group { display: inline-flex; gap: 2px; flex: none; }
 :where(.vzf) .vzf-timeline .vzf-tl-dot { flex: 0 0 var(--vzf-tick, 28px); width: var(--vzf-tick, 28px); min-width: 0; padding: 1px 0; }
 :where(.vzf) .vzf-tl-flagslot { font-size: 9px; line-height: var(--vzf-tl-slot); height: var(--vzf-tl-slot); } /* byte-for-byte the flag's box, so flagged and plain bars share one baseline */
-/* the beat rail's bars are all checkpoints and carry no actor — the same neutral
-   grey, and the beat being shown takes the rail's one strong mark. The ⚑ keeps
-   its brand colour: the flag is the beat, the bar is only its place. */
-:where(.vzf) .vzf-beat-rail .vzf-tl-dot .vzf-tl-node { background: var(--vzf-tl-bar); border-color: var(--vzf-tl-bar-line); }
-:where(.vzf) .vzf-beat-rail .vzf-tl-dot.vzf-cursor .vzf-tl-node { background: var(--vzf-tl-bar-cursor); border-color: var(--vzf-tl-bar-cursor); }
-:where(.vzf) .vzf-beat-rail { flex: 1; min-width: 0; }
-:where(.vzf) .vzf-present-beat { min-width: 0; }
-:where(.vzf) .vzf-compact .vzf-present-beat { flex: none; max-width: 32ch; overflow: hidden; }
-:where(.vzf) .vzf-compact .vzf-beat-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the bookmark rail's bars are all bookmarks and carry no actor — the same neutral
+   grey, and the bookmark being shown takes the rail's one strong mark. The ⚑ keeps
+   its brand colour: the flag is the bookmark, the bar is only its place. */
+:where(.vzf) .vzf-bookmark-rail .vzf-tl-dot .vzf-tl-node { background: var(--vzf-tl-bar); border-color: var(--vzf-tl-bar-line); }
+:where(.vzf) .vzf-bookmark-rail .vzf-tl-dot.vzf-cursor .vzf-tl-node { background: var(--vzf-tl-bar-cursor); border-color: var(--vzf-tl-bar-cursor); }
+:where(.vzf) .vzf-bookmark-rail { flex: 1; min-width: 0; }
+:where(.vzf) .vzf-present-bookmark { min-width: 0; }
+:where(.vzf) .vzf-compact .vzf-present-bookmark { flex: none; max-width: 32ch; overflow: hidden; }
+:where(.vzf) .vzf-compact .vzf-bookmark-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 :where(.vzf) .vzf-play { flex: none; }
 
 /* ── the cockpit menu (☰): the host's acts, one popover ── */

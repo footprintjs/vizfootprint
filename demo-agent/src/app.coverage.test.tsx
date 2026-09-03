@@ -163,7 +163,7 @@ describe('boot — rich fixture (STATE_A): renders every "has value" branch', ()
     expect(casualBtn.getAttribute('aria-pressed')).toBe('true'); // the bar's own point clause ('Casual') derives the outline
   });
 
-  it('the time-travel bar reads the same commit/branch/checkpoint state; the branch-map and commit-log chips carry it into their report modals', async () => {
+  it('the time-travel bar reads the same commit/branch/bookmark state; the branch-map and commit-log chips carry it into their report modals', async () => {
     expect(screen.getByText(/1 branch\b/)).toBeTruthy();
     expect(document.querySelector('[data-report="branches"] .vzf-report-badge')?.textContent).toBe('1');
     expect(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent).toBe('2');
@@ -479,16 +479,16 @@ describe('dashboard interactions — time travel', () => {
     expect(api.callsTo('/api/seek').at(-1)?.body).toMatchObject({ commitId: 'c2' });
   });
 
-  it('naming a checkpoint through the ⚑ modal dispatches the checkpoint verb', async () => {
+  it('naming a bookmark through the ⚑ modal dispatches the bookmark verb', async () => {
     await boot(STATE_A);
-    await click(screen.getByRole('button', { name: /Checkpoint/ }));
-    const input = screen.getByLabelText('checkpoint name');
+    await click(screen.getByRole('button', { name: /Bookmark/ }));
+    const input = screen.getByLabelText('bookmark name');
     await act(async () => {
-      fireEvent.change(input, { target: { value: 'my beat' } });
+      fireEvent.change(input, { target: { value: 'my bookmark' } });
       await flush();
     });
-    await click(screen.getByRole('button', { name: 'Save checkpoint' }));
-    expect(api.callsTo('/api/checkpoint').at(-1)?.body).toMatchObject({ label: 'my beat' });
+    await click(screen.getByRole('button', { name: 'Save bookmark' }));
+    expect(api.callsTo('/api/bookmark').at(-1)?.body).toMatchObject({ label: 'my bookmark' });
   });
 
   it('toggling Present/Explore flips the dashboard\'s readOnly flag', async () => {
@@ -753,9 +753,9 @@ describe('keyboard step-nav mirror', () => {
     expect(api.callsTo('/api/seek').length).toBe(before);
   });
 
-  it('ArrowLeft while the checkpoint modal\'s name <input> is focused is swallowed (never steps)', async () => {
-    await click(screen.getByRole('button', { name: /Checkpoint/ }));
-    const input = screen.getByLabelText('checkpoint name') as HTMLInputElement;
+  it('ArrowLeft while the bookmark modal\'s name <input> is focused is swallowed (never steps)', async () => {
+    await click(screen.getByRole('button', { name: /Bookmark/ }));
+    const input = screen.getByLabelText('bookmark name') as HTMLInputElement;
     expect(document.activeElement).toBe(input); // the modal autofocuses it
     const before = api.callsTo('/api/seek').length;
     await act(async () => {

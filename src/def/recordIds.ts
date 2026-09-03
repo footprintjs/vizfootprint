@@ -1,6 +1,6 @@
 /**
  * IDS FOR THE RECORDS BESIDE THE LOG — a saved selection is `p1`, `p2`… (a
- * picture), a tag is `t1`, `t2`…. The id, not the name, is what a note's words
+ * picture), a bookmark is `b1`, `b2`…. The id, not the name, is what a note's words
  * link, so renaming a record is free: the link still points at the same thing
  * and only the display words go stale.
  *
@@ -23,8 +23,8 @@
 /** The prefix a saved selection's id carries. */
 export const PICTURE_ID_PREFIX = 'p';
 
-/** The prefix a tag's id carries. */
-export const TAG_ID_PREFIX = 't';
+/** The prefix a bookmark's id carries. */
+export const BOOKMARK_ID_PREFIX = 'b';
 
 /** What minting needs of a store: the records it holds, and `minted` — the highest number it has ever handed out. */
 export interface RecordStore {

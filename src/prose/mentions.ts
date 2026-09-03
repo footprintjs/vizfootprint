@@ -2,9 +2,9 @@
  * MENTIONS — how a person's typed words link to what the session holds.
  *
  * The analyst's replies carry refs (a span of text tied to a commit or a
- * beat). A person typing a note gets the same power through three mentions:
+ * bookmark). A person typing a note gets the same power through three mentions:
  *   `#s12`             a commit by its id
- *   `@Formal wear`     a beat by its label, or a saved selection by its name
+ *   `@Formal wear`     a bookmark by its label, or a saved selection by its name
  *   `@[Formal wear]`   the same, bracketed, when the name carries spaces or ends mid-sentence
  * A mention that resolves to nothing is REPORTED with its span — never
  * silently dropped and never invented — so the caller can refuse the words
@@ -14,17 +14,17 @@ import type { ProseRef } from './types.js';
 
 /**
  * What a mention may point at: the commits the log holds (id → a label for
- * display), the tags by name, and the saved selections by name (saved LOGIC —
+ * display), the bookmarks by name, and the saved selections by name (saved LOGIC —
  * a ref to one applies it, it does not seek). A person types a NAME; the ref
  * carries the record's ID, which is why the two maps read name → id: renaming
- * a tag or a picture leaves every note pointing at the same thing. A name that
- * is both a saved selection and a tag resolves to the SAVED selection: the
+ * a bookmark or a picture leaves every note pointing at the same thing. A name that
+ * is both a saved selection and a bookmark resolves to the SAVED selection: the
  * logic wins over the moment.
  */
 export interface MentionWorld {
   readonly commits: ReadonlyMap<string, string>;
-  /** Tag name → the tag's id. */
-  readonly beats: ReadonlyMap<string, string>;
+  /** Bookmark name → the bookmark's id. */
+  readonly bookmarks: ReadonlyMap<string, string>;
   /** Saved-selection name → the picture's id. */
   readonly saved: ReadonlyMap<string, string>;
 }
@@ -69,10 +69,10 @@ export function mentionsToRefs(text: string, world: MentionWorld): Mentions {
     const name = (m[2] ?? m[3])!.trim();
     // the ref carries the id; the words the person typed ride along as the label, so the anchor still reads as they wrote it
     const savedId = world.saved.get(name);
-    const beatId = world.beats.get(name);
+    const bookmarkId = world.bookmarks.get(name);
     if (savedId !== undefined) refs.push({ span, saved: savedId, label: name });
-    else if (beatId !== undefined) refs.push({ span, beat: beatId, label: name });
-    else unresolved.push({ mention: m[0], span, sentence: `@${name} is neither a saved selection nor a checkpoint` });
+    else if (bookmarkId !== undefined) refs.push({ span, bookmark: bookmarkId, label: name });
+    else unresolved.push({ mention: m[0], span, sentence: `@${name} is neither a saved selection nor a bookmark` });
   }
   return { refs, unresolved };
 }

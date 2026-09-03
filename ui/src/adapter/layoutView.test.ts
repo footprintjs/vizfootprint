@@ -162,10 +162,10 @@ describe('setLayout — REAL InteractionSession end to end (fold-carried view-st
     expect(s.layout).toEqual(defaultLayout());
     // and a hand-rolled SessionLike with a pre-LY-1 overview (no layouts key at all)
     const relic: SessionLike = {
-      overview: () => ({ defaultTable: 'data', views: [], activeSelections: [], analyses: [], fdr: {}, columns: {}, encodings: {}, gaps: 0, currentView: null, engines: {}, time: { cursor: null, head: null, branches: 0, checkpoints: 0, cursorTests: 0, viewingPast: false }, paths: { current: null, detachedAt: null, list: [], events: [] }, charts: [] }) as never,
+      overview: () => ({ defaultTable: 'data', views: [], activeSelections: [], analyses: [], fdr: {}, columns: {}, encodings: {}, gaps: 0, currentView: null, engines: {}, time: { cursor: null, head: null, branches: 0, bookmarks: 0, cursorTests: 0, viewingPast: false }, paths: { current: null, detachedAt: null, list: [], events: [] }, charts: [] }) as never,
       gaps: () => [],
       branches: () => [],
-      checkpoints: () => [],
+      bookmarkViews: () => [],
       seek: () => ({ ok: true, cursor: 'x' }),
       dispatch: async () => ({ ok: true }) as never,
       switchPath: () => ({ ok: true, name: 'main', cursor: 'x' }),

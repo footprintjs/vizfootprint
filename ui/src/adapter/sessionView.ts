@@ -3,7 +3,7 @@
  *
  * A SOURCE is one of two things:
  *   • an in-process {@link SessionLike} (a live vizfootprint InteractionSession),
- *     read via `overview()` + `log.records` + `gaps/branches/checkpoints`;
+ *     read via `overview()` + `log.records` + `gaps/branches/bookmarks`;
  *   • a polled state ENDPOINT (the demo's `/api/state` shape), fetched on a timer.
  * Both normalize into the ONE {@link SessionViewState}. The store exposes
  * `getState()` + `subscribe()` (so a React `useSyncExternalStore`, or any other
@@ -27,7 +27,7 @@ import type {
   GapRow,
   BranchInfo,
   CellValues,
-  Checkpoint,
+  BookmarkView as SessionBookmarkView,
   SeekResult,
   DispatchAction,
   DispatchResult,
@@ -54,7 +54,7 @@ import {
   type PathsView,
   type PathEventView,
   type CompareView,
-  type CheckpointView,
+  type BookmarkView,
   type LedgerView,
   type GapView,
   type ReadinessView,
@@ -74,7 +74,7 @@ export interface SessionLike {
   overview(): Promise<Overview> | Overview;
   gaps(): readonly GapRow[];
   branches(): readonly BranchInfo[];
-  checkpoints(): readonly Checkpoint[];
+  bookmarkViews(): readonly SessionBookmarkView[];
   seek(commitId: string): SeekResult;
   dispatch(action: DispatchAction, opts?: { as?: Actor }): Promise<DispatchResult> | DispatchResult;
   // ── named paths (BR-1) — a rejected call files a typed gap; the next refresh shows it ──
@@ -162,7 +162,7 @@ export interface RawPollState {
   readonly branches?: readonly { tip: string; length: number; actor: Actor; active: boolean }[];
   /** BR-2: the named-paths surface (`overview().paths` serialized as-is). */
   readonly paths?: RawPollPaths;
-  readonly checkpoints?: readonly { id?: string; label: string; commitId: string | null; at?: string | null; ts: number }[];
+  readonly bookmarks?: readonly { id?: string; label: string; commitId: string | null; at?: string | null; ts: number }[];
   readonly cursor?: string | null;
   readonly head?: string | null;
   readonly cursorTests?: number;
@@ -217,12 +217,12 @@ export interface SessionSourceInput {
 }
 /**
  * The polled server's endpoint map — each action POSTs JSON to its OWN
- * endpoint (the seek/checkpoint pattern). The BR-2/BR-3 contract:
+ * endpoint (the seek/bookmark pattern). The BR-2/BR-3 contract:
  *
  *   GET  state      → the RawPollState JSON (now incl. `paths` + BR-1 cause tags)
  *   POST dispatch   → a dispatch action body ({ verb, … })
  *   POST seek       → { commitId }
- *   POST checkpoint → { label }
+ *   POST bookmark → { label }
  *   POST paths      → { action: 'switch', name }
  *                   | { action: 'rename', from, to }
  *                   | { action: 'new', commitId, name? }
@@ -245,7 +245,7 @@ export interface PollEndpoints {
   readonly state: string;
   readonly dispatch: string;
   readonly seek: string;
-  readonly checkpoint: string;
+  readonly bookmark: string;
   readonly paths: string;
   readonly compare: string;
   readonly bringOver: string;
@@ -274,7 +274,7 @@ const DEFAULT_ENDPOINTS: PollEndpoints = {
   state: '/api/state',
   dispatch: '/api/dispatch',
   seek: '/api/seek',
-  checkpoint: '/api/checkpoint',
+  bookmark: '/api/bookmark',
   paths: '/api/paths',
   compare: '/api/compare',
   bringOver: '/api/bring-over',
@@ -317,7 +317,7 @@ function commitLabel(field: string, viewId: string): string {
   if (field === 'pValue') return 'test';
   if (field === '__annotation__') return 'note';
   if (viewId.startsWith('annotation:')) return `note on ${field}`;
-  if (field === '__beat__') return 'beat'; // a story beat — the checkpoint verb's commit
+  if (field === '__bookmark__') return 'bookmark'; // a legacy `bookmark:` commit from an older log
   if (field === '__chart__') return 'chart'; // RP-3: an agent-authored chart's spec-registration commit
   return field;
 }
@@ -339,7 +339,7 @@ interface StatePieces {
   journalTotal?: number;
   branches: BranchView[];
   paths: PathsView;
-  checkpoints: CheckpointView[];
+  bookmarks: BookmarkView[];
   cursor: string | null;
   head: string | null;
   viewingPast: boolean;
@@ -406,7 +406,7 @@ function finalize(p: StatePieces): SessionViewState {
     saved: savedSelectionsOf(commits),
     branches: p.branches,
     paths: p.paths,
-    checkpoints: p.checkpoints,
+    bookmarks: p.bookmarks,
     cursor: p.cursor,
     head: p.head,
     activePathIds,
@@ -630,13 +630,13 @@ function mapProposals(raw: unknown): ProposalView[] {
 function mapRefs(raw: unknown): ProseRefView[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((r) => {
-    const x = r as { span?: unknown; commit?: unknown; beat?: unknown; saved?: unknown; label?: unknown } | null;
+    const x = r as { span?: unknown; commit?: unknown; bookmark?: unknown; saved?: unknown; label?: unknown } | null;
     if (typeof x !== 'object' || x === null || !Array.isArray(x.span) || x.span.length !== 2 || !x.span.every((n) => typeof n === 'number')) return [];
     const commit = typeof x.commit === 'string' ? x.commit : undefined;
-    const beat = typeof x.beat === 'string' ? x.beat : undefined;
+    const bookmark = typeof x.bookmark === 'string' ? x.bookmark : undefined;
     const saved = typeof x.saved === 'string' ? x.saved : undefined; // a saved selection by its id: a click applies its logic, never seeks
-    if (Number(commit !== undefined) + Number(beat !== undefined) + Number(saved !== undefined) !== 1) return [];
-    return [{ span: [x.span[0] as number, x.span[1] as number] as const, ...(commit !== undefined ? { commit } : {}), ...(beat !== undefined ? { beat } : {}), ...(saved !== undefined ? { saved } : {}), ...(typeof x.label === 'string' ? { label: x.label } : {}) }];
+    if (Number(commit !== undefined) + Number(bookmark !== undefined) + Number(saved !== undefined) !== 1) return [];
+    return [{ span: [x.span[0] as number, x.span[1] as number] as const, ...(commit !== undefined ? { commit } : {}), ...(bookmark !== undefined ? { bookmark } : {}), ...(saved !== undefined ? { saved } : {}), ...(typeof x.label === 'string' ? { label: x.label } : {}) }];
   });
 }
 /** The rules as sentences, when the wire carries them. */
@@ -920,7 +920,7 @@ async function mapSession(session: SessionLike, defaultLayout?: LayoutPreset): P
     // come from the session's own full listing (whats_here only reports their
     // COUNT, deliberately — a hidden path is hidden until asked for).
     paths: withArchived(mapPaths(overview.paths), session.paths({ includeArchived: true })),
-    checkpoints: session.checkpoints().map((c) => ({ id: c.id, label: c.label, commitId: c.commitId, at: c.at, ts: c.ts })),
+    bookmarks: session.bookmarkViews().map((c) => ({ id: c.id, label: c.label, commitId: c.commitId, at: c.at, ts: c.ts })),
     cursor: overview.time.cursor,
     head: overview.time.head,
     viewingPast: overview.time.viewingPast,
@@ -975,7 +975,7 @@ export function mapPollState(raw: RawPollState, defaultLayout?: LayoutPreset): S
     encodingPolicy: mapPolicy(raw.encodingPolicy),
     branches: (raw.branches ?? []).map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
     paths: mapPaths(raw.paths),
-    checkpoints: (raw.checkpoints ?? []).map((c) => ({ ...(c.id !== undefined ? { id: c.id } : {}), label: c.label, commitId: c.commitId, ...(c.at !== undefined ? { at: c.at } : {}), ts: c.ts })),
+    bookmarks: (raw.bookmarks ?? []).map((c) => ({ ...(c.id !== undefined ? { id: c.id } : {}), label: c.label, commitId: c.commitId, ...(c.at !== undefined ? { at: c.at } : {}), ts: c.ts })),
     cursor: raw.cursor ?? null,
     head: raw.head ?? null,
     viewingPast: raw.viewingPast ?? false,
@@ -1078,7 +1078,7 @@ export interface SessionView {
   seek(commitId: string): Promise<void>;
   stepBack(): Promise<void>;
   stepForward(): Promise<void>;
-  checkpoint(label: string): Promise<void>;
+  bookmark(label: string): Promise<void>;
   /** Save a view's LIVE selection under a name — a note on its commit; it then rides `state.saved` and applies with `bringOver`. */
   saveSelection(viewId: string, name: string): Promise<void>;
   returnToNow(): Promise<void>;
@@ -1410,16 +1410,16 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       await dispatch({ ...body, cause: cause(`save the ${viewId} selection as "${name.trim()}"`) }, { ...body, intent: `save ${name.trim()}` });
     },
 
-    async checkpoint(label) {
+    async bookmark(label) {
       // NOT routed through the generic dispatch() helper: for a poll source that
-      // helper always POSTs to endpoints.dispatch, but the demo's checkpoint
-      // route is its OWN endpoint (endpoints.checkpoint = '/api/checkpoint',
+      // helper always POSTs to endpoints.dispatch, but the demo's bookmark
+      // route is its OWN endpoint (endpoints.bookmark = '/api/bookmark',
       // matching seek's own-endpoint pattern below) — bug found dogfooding UI-2
-      // (the checkpoint composer silently no-opped over a polled session; only
+      // (the bookmark composer silently no-opped over a polled session; only
       // the in-process `sessionSource` path, which never used this helper's poll
       // branch, was ever exercised before).
-      if (source.kind === 'session') await Promise.resolve(source.session.dispatch({ verb: 'checkpoint', label, cause: cause(`checkpoint ${label}`) }, { as }));
-      else await postJson(endpoints.checkpoint, { label });
+      if (source.kind === 'session') await Promise.resolve(source.session.dispatch({ verb: 'bookmark', label, cause: cause(`bookmark ${label}`) }, { as }));
+      else await postJson(endpoints.bookmark, { label });
       await afterAction();
     },
 

@@ -33,8 +33,8 @@
  *     plumbing beyond the primitives tier;
  *   - a report chip opens a LARGE frosted-glass modal hosting the panel, with
  *     scrolling allowed only INSIDE the modal body;
- *   - ⚑ opens the checkpoint naming modal; Enter lands a REAL checkpoint;
- *   - PRESENT mode is checkpoint-only traversal and dims/blocks the charts;
+ *   - ⚑ opens the bookmark naming modal; Enter lands a REAL bookmark;
+ *   - PRESENT mode is bookmark-only traversal and dims/blocks the charts;
  *   - BR-2, the full named-paths loop LIVE: acting from a past cursor forks a
  *     NAMED path (ForkToast + BranchPill update), the PathsModal renames and
  *     switches, the branch map wears named lane labels and a per-commit glass
@@ -506,19 +506,19 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('vizfootprint-ui ga
     await page.waitForSelector('[data-vzf-modal="report-ledger"]', { state: 'detached' });
   }, 30_000);
 
-  it('⚑ opens the checkpoint naming modal; Enter lands a REAL checkpoint at the cursor', async () => {
+  it('⚑ opens the bookmark naming modal; Enter lands a REAL bookmark at the cursor', async () => {
     const flagsBefore = await page.locator('[data-vzf="timeline"] .vzf-tl-flag', { hasText: '⚑' }).count();
-    await page.locator('[data-vzf="checkpoint-open"]').click();
-    await page.waitForSelector('[data-vzf-modal="checkpoint"] [role="dialog"]');
+    await page.locator('[data-vzf="bookmark-open"]').click();
+    await page.waitForSelector('[data-vzf-modal="bookmark"] [role="dialog"]');
     // the field is autofocused and the prompt names the commit it will mark
-    expect(await page.locator('[data-vzf-modal="checkpoint"] .vzf-ckpt-name').evaluate((el) => el === document.activeElement)).toBe(true);
-    expect((await page.locator('[data-vzf-modal="checkpoint"] .vzf-ckpt-target').textContent()) ?? '').toContain('marks commit #');
+    expect(await page.locator('[data-vzf-modal="bookmark"] .vzf-bookmark-name').evaluate((el) => el === document.activeElement)).toBe(true);
+    expect((await page.locator('[data-vzf-modal="bookmark"] .vzf-bookmark-target').textContent()) ?? '').toContain('marks commit #');
     await page.waitForTimeout(250); // let the 160ms entrance animation land before shooting
-    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-checkpoint-modal.png'), fullPage: false });
-    await page.locator('[data-vzf-modal="checkpoint"] .vzf-ckpt-name').fill('after reencode');
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-bookmark-modal.png'), fullPage: false });
+    await page.locator('[data-vzf-modal="bookmark"] .vzf-bookmark-name').fill('after reencode');
     await page.keyboard.press('Enter');
-    await page.waitForSelector('[data-vzf-modal="checkpoint"]', { state: 'detached' });
-    // a new ⚑ flies on the timeline — the checkpoint went through the real adapter action
+    await page.waitForSelector('[data-vzf-modal="bookmark"]', { state: 'detached' });
+    // a new ⚑ flies on the timeline — the bookmark went through the real adapter action
     await page.waitForFunction(
       (n) =>
         Array.from(document.querySelectorAll('[data-vzf="timeline"] .vzf-tl-flag')).filter((el) => el.textContent === '⚑').length > n,
@@ -527,20 +527,20 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('vizfootprint-ui ga
     );
   }, 30_000);
 
-  it('present mode = checkpoint-ONLY traversal, read-only shell', async () => {
+  it('present mode = bookmark-ONLY traversal, read-only shell', async () => {
     // how much story there is BEFORE the show: nothing below may add to it
     const dotsBefore = await page.locator('[data-vzf="timeline"] [data-commit]').count();
     await page.locator('[data-vzf="time-travel-bar"] [role="tab"]:has-text("Present")').click();
     await page.waitForSelector('[data-vzf="present"]');
-    // the full commit timeline is GONE; only the named beats remain
+    // the full commit timeline is GONE; only the named bookmarks remain
     expect(await page.locator('[data-vzf="timeline"]').count()).toBe(0);
-    // Beats are ordered by the presented LINEAGE (the head's), keyed on the position
-    // each beat NAMES: 'opening brush' names #1, an ancestor of the fork the story
+    // Bookmarks are ordered by the presented LINEAGE (the head's), keyed on the position
+    // each bookmark NAMES: 'opening brush' names #1, an ancestor of the fork the story
     // is standing on, so it stays; 'first test' names a commit on the OTHER path,
     // so it belongs to that path's tour; plus the one named above at the head.
-    expect(await page.locator('[data-beat-dot]').count()).toBe(2);
-    // the current story-beat title shows
-    expect(((await page.locator('.vzf-beat-title').textContent()) ?? '').length).toBeGreaterThan(0);
+    expect(await page.locator('[data-bookmark-dot]').count()).toBe(2);
+    // the current bookmark's title shows
+    expect(((await page.locator('.vzf-bookmark-title').textContent()) ?? '').length).toBeGreaterThan(0);
     // the shell dims the band and takes the mouse off it — except the
     // seek-only controls, which navigate and never act (see styles.css)
     await page.waitForSelector('[data-vzf="cockpit"][data-readonly="true"]');
@@ -590,16 +590,16 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('vizfootprint-ui ga
       'and so does Shift+Tab',
     ).toBe(false);
 
-    // prev/next traverse the beats
-    const title0 = await page.locator('.vzf-beat-title').textContent();
-    const nextBtn = page.locator('[data-beat="next"]');
-    const prevBtn = page.locator('[data-beat="prev"]');
+    // prev/next traverse the bookmarks
+    const title0 = await page.locator('.vzf-bookmark-title').textContent();
+    const nextBtn = page.locator('[data-bookmark="next"]');
+    const prevBtn = page.locator('[data-bookmark="prev"]');
     if (await nextBtn.isEnabled()) {
       await nextBtn.click();
-      await page.waitForFunction((t) => document.querySelector('.vzf-beat-title')?.textContent !== t, title0, { timeout: 8000 });
+      await page.waitForFunction((t) => document.querySelector('.vzf-bookmark-title')?.textContent !== t, title0, { timeout: 8000 });
     } else {
       await prevBtn.click();
-      await page.waitForFunction((t) => document.querySelector('.vzf-beat-title')?.textContent !== t, title0, { timeout: 8000 });
+      await page.waitForFunction((t) => document.querySelector('.vzf-bookmark-title')?.textContent !== t, title0, { timeout: 8000 });
     }
     await maybeScreenshot(page, { path: path.join(SHOTS, 'gallery-present.png'), fullPage: false });
     // still a single screen in present mode

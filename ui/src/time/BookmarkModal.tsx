@@ -1,26 +1,26 @@
 /**
- * `<CheckpointModal>` — the small frosted-glass prompt the ⚑ button opens: one
- * autofocused name field, Enter (or the Save button) commits the checkpoint
+ * `<BookmarkModal>` — the small frosted-glass prompt the ⚑ button opens: one
+ * autofocused name field, Enter (or the Save button) commits the bookmark
  * through the caller's `onSave` (which routes to the existing adapter action),
  * Esc / Cancel / backdrop click cancel, and it shows WHICH commit the flag will
- * mark. An empty name falls back to `defaultName` (the bar passes `cp-N`).
+ * mark. An empty name falls back to `defaultName` (the bar passes `bookmark-N`).
  */
 import { useEffect, useState } from 'react';
 import { VizModal } from '../layout/VizModal.js';
 
-export interface CheckpointModalProps {
+export interface BookmarkModalProps {
   readonly open: boolean;
-  /** The commit the checkpoint will mark (the current cursor). */
+  /** The commit the bookmark will mark (the current cursor). */
   readonly commitId: string | null;
   /** Optional short label of that commit, shown beside its id. */
   readonly commitLabel?: string;
-  /** Used when the field is left empty (e.g. `cp-3`). */
+  /** Used when the field is left empty (e.g. `bookmark-3`). */
   readonly defaultName?: string;
   readonly onSave: (label: string) => void;
   readonly onClose: () => void;
 }
 
-export function CheckpointModal(props: CheckpointModalProps): JSX.Element | null {
+export function BookmarkModal(props: BookmarkModalProps): JSX.Element | null {
   const { open, onSave, onClose } = props;
   const [name, setName] = useState('');
 
@@ -30,7 +30,7 @@ export function CheckpointModal(props: CheckpointModalProps): JSX.Element | null
   }, [open]);
 
   const save = (): void => {
-    onSave(name.trim() || props.defaultName || 'checkpoint');
+    onSave(name.trim() || props.defaultName || 'bookmark');
     onClose();
   };
 
@@ -39,26 +39,26 @@ export function CheckpointModal(props: CheckpointModalProps): JSX.Element | null
       open={open}
       onClose={onClose}
       size="small"
-      name="checkpoint"
-      title="⚑ Name this checkpoint"
-      initialFocus=".vzf-ckpt-name"
+      name="bookmark"
+      title="⚑ Name this bookmark"
+      initialFocus=".vzf-bookmark-name"
       footer={
         <>
           <button type="button" className="vzf-btn" onClick={onClose}>
             Cancel
           </button>
-          <button type="button" className="vzf-btn vzf-btn-primary" data-vzf="checkpoint-save" onClick={save}>
-            Save checkpoint
+          <button type="button" className="vzf-btn vzf-btn-primary" data-vzf="bookmark-save" onClick={save}>
+            Save bookmark
           </button>
         </>
       }
     >
-      <div className="vzf-ckpt-form">
+      <div className="vzf-bookmark-form">
         <input
-          className="vzf-input vzf-ckpt-name"
+          className="vzf-input vzf-bookmark-name"
           type="text"
           placeholder={props.defaultName ?? 'name this point'}
-          aria-label="checkpoint name"
+          aria-label="bookmark name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
@@ -71,7 +71,7 @@ export function CheckpointModal(props: CheckpointModalProps): JSX.Element | null
             }
           }}
         />
-        <div className="vzf-ckpt-target">
+        <div className="vzf-bookmark-target">
           {props.commitId !== null ? (
             <>
               marks commit <span className="vzf-mono">#{props.commitId}</span>

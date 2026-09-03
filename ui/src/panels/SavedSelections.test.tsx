@@ -22,8 +22,8 @@ const state = mapPollState({
     { id: 'n4', parent: 'c1', viewId: 'annotation:user', kind: 'point', field: 'c1', value: 'a cleared one is not a selection', cause: { requestedBy: 'user' } },
     { id: 'n5', parent: 'n4', viewId: 'annotation:user', kind: 'point', field: 'ghost', value: 'names nothing', cause: { requestedBy: 'user' } },
     { id: 'n6', parent: 'n5', viewId: 'annotation:user', kind: 'point', field: '__annotation__', value: 'a loose note', cause: { requestedBy: 'user' } },
-    { id: 'b1', parent: 'n6', viewId: 'beat:1', kind: 'point', field: '__beat__', value: 'start', cause: { requestedBy: 'user' } },
-    { id: 'n7', parent: 'b1', viewId: 'annotation:user', kind: 'point', field: 'b1', value: 'a beat is not a selection', cause: { requestedBy: 'user' } },
+    { id: 'b1', parent: 'n6', viewId: 'bookmark:1', kind: 'point', field: '__bookmark__', value: 'start', cause: { requestedBy: 'user' } },
+    { id: 'n7', parent: 'b1', viewId: 'annotation:user', kind: 'point', field: 'b1', value: 'a bookmark is not a selection', cause: { requestedBy: 'user' } },
     { id: 's3', parent: 'n7', viewId: 'heat', kind: 'cell', field: 'price × category', fields: ['price', 'category'], value: [[100, 200], 'Formal'], cause: { requestedBy: 'user' } },
     { id: 'n8', parent: 's3', viewId: 'annotation:user', kind: 'point', field: 's3', value: 'Pricey formal', cause: { requestedBy: 'user' } },
   ],
@@ -32,7 +32,7 @@ const state = mapPollState({
 const saved = state.saved ?? [];
 
 describe('savedSelectionsOf', () => {
-  it('newest note first, one per selection commit (the latest note names it); cleared, ghost, loose and beat notes are not saved selections', () => {
+  it('newest note first, one per selection commit (the latest note names it); cleared, ghost, loose and bookmark notes are not saved selections', () => {
     expect(saved.map((s) => [s.name, s.commitId, s.noteId, s.viewId, s.kind])).toEqual([
       ['Pricey formal', 's3', 'n8', 'heat', 'cell'],
       ['The Midwest pair', 's2', 'n3', 'map', 'match'],

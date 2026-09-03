@@ -103,7 +103,7 @@ describe('stepForwardTarget — the fork rule', () => {
     expect(stepForwardTarget(records, 'a1', 'd1')).toBe('a2');
   });
 
-  it('a leaf on an inactive lane is still disabled (no children beats lane membership)', () => {
+  it('a leaf on an inactive lane is still disabled (no children bookmarks lane membership)', () => {
     expect(stepForwardTarget(records, 'b1', 'd1')).toBe(null);
     expect(stepForwardTarget(records, 'c1', 'd1')).toBe(null);
   });

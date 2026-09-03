@@ -46,6 +46,6 @@ describe('commit families', () => {
     expect(familyOf({ viewId: 'bar' })).toBe('interaction');
     for (const id of ['encoding:scatter', 'link:a:point→b', 'prose:map', 'layout:dashboard']) expect(familyOf({ viewId: id })).toBe('design');
     for (const id of ['analysis:corr', 'chart:c1']) expect(familyOf({ viewId: id })).toBe('analysis');
-    for (const id of ['beat:0', 'annotation:user']) expect(familyOf({ viewId: id })).toBe('story');
+    for (const id of ['bookmark:0', 'annotation:user']) expect(familyOf({ viewId: id })).toBe('story');
   });
 });

@@ -21,7 +21,7 @@ npm run gallery    # http://localhost:5177 — the cockpit on a scripted real se
 ever scrolls. Three bands:
 
 - **top strip** — time travel: the compact `<TimeTravelBar>` (Explore/Present
-  toggle, the commit timeline, and the ⚑ checkpoint button).
+  toggle, the commit timeline, and the ⚑ bookmark button).
 - **charts** — fill ALL remaining height. Each chart is a render prop that
   receives its cell's measured size (`<ChartFrame>` does the measuring), so the
   SVG viewBox matches the on-screen box 1:1 — charts scale with the window and
@@ -83,7 +83,7 @@ it, so:
 
 - seeking back in time restores the arrangement you had then;
 - every named path keeps its OWN arrangement (fork freely);
-- Present mode replays each story beat's layout — it never authors one;
+- Present mode replays each bookmark's layout — it never authors one;
 - the commit log tells it in plain words: `layout = focus on scatter`.
 
 Wire it in two lines — the cockpit is driven, never self-stateful:
@@ -106,7 +106,7 @@ engine without WAAPI) skips the animation and just lands the new layout.
 ## One modal system — VizModal
 
 Every overlay in the library rides `<VizModal>`: the report chips, the
-⚑ checkpoint prompt, and the axis `<EncodingPicker>` — no duplicate modal
+⚑ bookmark prompt, and the axis `<EncodingPicker>` — no duplicate modal
 systems. It is frosted glass on both themes (a translucent scrim +
 `backdrop-filter` blur; the dark palette raises the scrim opacity so contrast
 holds over dark content), with real dialog behavior: `role="dialog"
@@ -118,8 +118,8 @@ the page.
 
 ![a report modal](gallery/screenshots/gallery-report-modal.png)
 
-Clicking ⚑ opens the checkpoint namer (`<CheckpointModal>`): one autofocused
-field, Enter/Save commits through the adapter's `checkpoint` action, and the
+Clicking ⚑ opens the bookmark namer (`<BookmarkModal>`): one autofocused
+field, Enter/Save commits through the adapter's `bookmark` action, and the
 prompt shows which commit the flag will mark.
 
 ## Named paths — branching you can read
@@ -377,7 +377,7 @@ An edge of kind `encoding` carries a source view's channel bindings; the target 
 
 ## Commit families — filter the log by what a commit is
 
-Every commit belongs to a family derived from its namespace, never a new field: **interaction** (a selection, a filter, a navigation), **design** (an encoding, a link, a view's words, a layout), **analysis** (a declared analysis or an agent's chart), **story** (a beat or an annotation). The adapter stamps `family` on every `CommitView`, and `<CommitLog>` shows one chip per family present: click a chip to hide that family from the list (the commits stay in the log), so design edits can be tucked away while reading an analysis, or tidied before a story is told. `familyOf(record)` is exported by the library for any other reader.
+Every commit belongs to a family derived from its namespace, never a new field: **interaction** (a selection, a filter, a navigation), **design** (an encoding, a link, a view's words, a layout), **analysis** (a declared analysis or an agent's chart), **story** (a bookmark or an annotation). The adapter stamps `family` on every `CommitView`, and `<CommitLog>` shows one chip per family present: click a chip to hide that family from the list (the commits stay in the log), so design edits can be tucked away while reading an analysis, or tidied before a story is told. `familyOf(record)` is exported by the library for any other reader.
 
 ## The editor — a side panel that pushes the dashboard aside
 
@@ -405,7 +405,7 @@ await view.describe('map', 'title', { text: 'Reported cases by state', author: {
 await view.describe('map', 'title', null); // back to the declaration
 ```
 
-A `describe` lands one commit per slot, so undo and time travel carry the words like any act; an agent's record must state a basis and may never claim a cause — the session refuses it with the sentence. The **author port** rides the same verb: `view.propose(...)` puts an agent's draft on the table (`state.views[].proposals`), `view.acceptProposal(id, slot, proposal)` lands it as the words, `view.declineProposal(id, slot, proposal, reason)` answers it; the editor's Proposals section offers both. A slot's `refs` (spans pointing at a commit by its id, or at a tag or a saved selection by ITS id) render as small anchors with `<ProseText>`: the anchor's words come from the ref's own `label`, and a click hands the host the id to resolve (`seek`, `applySaved`) — so renaming a tag or a picture never breaks a note.
+A `describe` lands one commit per slot, so undo and time travel carry the words like any act; an agent's record must state a basis and may never claim a cause — the session refuses it with the sentence. The **author port** rides the same verb: `view.propose(...)` puts an agent's draft on the table (`state.views[].proposals`), `view.acceptProposal(id, slot, proposal)` lands it as the words, `view.declineProposal(id, slot, proposal, reason)` answers it; the editor's Proposals section offers both. A slot's `refs` (spans pointing at a commit by its id, or at a bookmark or a saved selection by ITS id) render as small anchors with `<ProseText>`: the anchor's words come from the ref's own `label`, and a click hands the host the id to resolve (`seek`, `applySaved`) — so renaming a bookmark or a picture never breaks a note.
 
 ## The encoding plane — which column may sit on which channel
 
@@ -665,7 +665,7 @@ plumbing beyond the primitives tier.
 | `primitives/` | the chart-building tier (see above): `<ChartFrame>`, scales + date handling, `<AxisLabel>`/`useReencodePicker`/`defaultCompat`, `useHorizontalBrush`/`<BrushOverlay>`, `pointEmission`/`togglePointEmission`/`keyActivates`, `useKeepPredicate`/`selectedValue`/`dimClass` — compose a chart from these and it is born contract-conformant |
 | `layout/` | `<VizCockpit>` (the flagship — and only — single-screen shell) + `<VizModal>` (the one modal system) + `<VizPanel>`/`<VizCard>` |
 | `charts/` | `<VizScatter>`, `<VizBar>` (category ticks slant and clip to their band when they would collide; values that would collide are omitted — the full label rides a `<title>`), `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click; `coordinates="planar"` for shapes already projected to a screen plane, e.g. us-atlas), `<VizTable>` (sortable rows, click-to-select), `<VizHistogram>` (host-computed buckets, edge-snapped brush), `<VizHeatmap>` (host-computed 2-D cells, one-click compound cell selection — D30), `<VizBoxPlot>` (host-summarized quartiles/whiskers/outliers, click-to-select a category) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |
-| `time/` | `<TimeTravelBar>` with `explore` (full commit timeline + fork-safe ⟵/⟶ step rules, `compact` for the cockpit) and `present` (checkpoint-ONLY story beats, acting disabled, `onReadOnlyChange` up to the shell) + `<CheckpointModal>` + `<BranchMap>` |
+| `time/` | `<TimeTravelBar>` with `explore` (full commit timeline + fork-safe ⟵/⟶ step rules, `compact` for the cockpit) and `present` (bookmark-ONLY traversal, acting disabled, `onReadOnlyChange` up to the shell) + `<BookmarkModal>` + `<BranchMap>` |
 | `panels/` | `<CommitLog>` (cause badges, click-to-seek, off-branch dimming), `<FdrLedger>` (two truths + the verbatim honesty line), `<GapsPanel>`, `<ReadinessPanel>` — cockpit hosts these inside report modals, unchanged |
 
 ## Quick start
@@ -685,8 +685,8 @@ function App() {
     <VizCockpit
       top={<TimeTravelBar compact
         commits={state.commits} cursor={state.cursor} head={state.head}
-        checkpoints={state.checkpoints} onSeek={(id) => void view.seek(id)}
-        onCheckpoint={(label) => void view.checkpoint(label)} />}
+        bookmarks={state.bookmarks} onSeek={(id) => void view.seek(id)}
+        onNameBookmark={(label) => void view.bookmark(label)} />}
       charts={[{ id: 'scatter', render: ({ width, height }) => (
         <VizScatter width={width} height={height} data={points}
           columns={state.columns[state.defaultTable]}
@@ -718,10 +718,10 @@ inside an iframe (a real document boundary); CSS alone cannot promise it.
 ## Present mode semantics
 
 `present` is the read-only storytelling mode: prev/next traverse only the
-**named checkpoints** (in checkpoint order), the current beat's title renders
-large, ordinary commits are hidden, the checkpoint composer disappears, and the
+**named bookmarks** (in lineage order), the current bookmark's title renders
+large, ordinary commits are hidden, the bookmark composer disappears, and the
 bar reports `readOnly` upward so the shell dims and pointer-blocks the acting
 surfaces (the cockpit dims its charts band; navigation and the read-only report
-chips stay live). The current beat is the checkpoint at the cursor, or — when
-the cursor sits between beats — the most recent beat on the cursor's own
+chips stay live). The current bookmark is the bookmark at the cursor, or — when
+the cursor sits between bookmarks — the most recent bookmark on the cursor's own
 lineage.

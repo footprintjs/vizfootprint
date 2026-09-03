@@ -40,7 +40,7 @@ describe('mcpServer — a real MCP server backed by a live session', () => {
       'viz.declare_analysis',
       'viz.why',
       'viz.fork',
-      'viz.checkpoint',
+      'viz.bookmark',
       'viz.paths',
       'viz.compare',
       'viz.propose_chart',
