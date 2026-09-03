@@ -23,7 +23,7 @@
  */
 
 import { restoreSavedInto, restoreBookmarksInto } from '../def/buildDashboard.js';
-import { PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, mintRecordId } from '../def/recordIds.js';
+import { COMMIT_ID_PREFIX, PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, mintRecordId } from '../def/recordIds.js';
 import type { FoldEntry } from '../branches/index.js';
 import type { EmissionKind, LinkEdge } from '../links/index.js';
 import { voiceOf } from '../links/index.js';
@@ -48,6 +48,7 @@ function probeClause(kind: 'point' | 'interval' | 'match', field: string, value:
 }
 import type { CauseClause } from '../mosaic/index.js';
 import { registerAnalysisSlot } from '../def/register.js';
+import { copyValue, deepFreeze } from '../detach/index.js';
 import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RestorableSaved, RestorableBookmark, RestoreResult, ViewEncodingDecl, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
 import { describeRules, fitsFor, refuses, validateBindings } from '../encoding/index.js';
 import { ENCODING_KIND, edgesInto } from '../links/index.js';
@@ -510,16 +511,6 @@ function selectionInfoOf(viewId: string, clause: PredicateClause, commitId?: str
   return commitId === undefined ? info : { ...info, commitId };
 }
 
-/** A value's own copy — JSON-shaped through every door; one that will not clone is kept as it is rather than thrown on. */
-function copyValue<T>(value: T): T {
-  try {
-    return structuredClone(value);
-  } catch {
-    /* v8 ignore next -- unreachable through the JSON-shaped doors: only a hand-built value with a function or symbol refuses to clone */
-    return value;
-  }
-}
-
 /** A view's live clause as a saved condition. */
 function clauseOfLive(viewId: string, clause: PredicateClause): SavedClause {
   if (clause.kind === 'cell') return { viewId, kind: 'cell', field: cellFieldLabel(clause.fields), fields: [clause.fields[0], clause.fields[1]], value: copyValue(clause.value) };
@@ -558,6 +549,9 @@ function copyClause(clause: PredicateClause): PredicateClause {
 
 /** A window's default size (placeholder): a page a grid can hold without holding the table. */
 export const VIEW_QUERY_DEFAULT_LIMIT = 200;
+
+/** The one frozen empty map every "this view binds nothing" answer shares. */
+const EMPTY_BINDINGS: Readonly<Record<string, string>> = Object.freeze({});
 
 /** The subject-independent half of a prose record's staleness world at the cursor. */
 interface ProseWorldNow {
@@ -623,7 +617,6 @@ class InteractionSessionImpl implements InteractionSession {
    * create/advance/switch/rename is journaled as a ref-event.
    */
   private readonly refs = new BranchRefs();
-  private seq = 0;
   private testClock = 0;
   private _currentView: string | null = null;
 
@@ -773,7 +766,7 @@ class InteractionSessionImpl implements InteractionSession {
     this.activeLinks.clear();
     this.activeLayouts.clear();
     for (const view of this.runtime.views.values()) {
-      if (view.encoding?.initial) this.activeEncodings.set(view.viewId, { ...view.encoding.initial });
+      if (view.encoding?.initial) this.activeEncodings.set(view.viewId, Object.freeze({ ...view.encoding.initial }));
     }
     this.activeProse.clear();
     this.activeProposals.clear();
@@ -790,7 +783,7 @@ class InteractionSessionImpl implements InteractionSession {
         const targetViewId = rec.viewId.slice(ENCODING_VIEW_PREFIX.length);
         const current = this.activeEncodings.get(targetViewId) ?? {};
         // a binding set (the `*` marker) carries several channels in one commit
-        this.activeEncodings.set(targetViewId, isEncodingSet(rec) ? { ...current, ...encodingSetOf(rec) } : { ...current, [rec.field]: String(rec.value) });
+        this.activeEncodings.set(targetViewId, Object.freeze(isEncodingSet(rec) ? { ...current, ...encodingSetOf(rec) } : { ...current, [rec.field]: String(rec.value) }));
         continue;
       }
       // LY-1: the layout fold — last-wins per (scope, prop), exactly like the
@@ -805,7 +798,7 @@ class InteractionSessionImpl implements InteractionSession {
       if (rec.viewId.startsWith(LAYOUT_VIEW_PREFIX)) {
         const scope = rec.viewId.slice(LAYOUT_VIEW_PREFIX.length);
         const current = this.activeLayouts.get(scope) ?? {};
-        this.activeLayouts.set(scope, { ...current, [rec.field]: String(rec.value) });
+        this.activeLayouts.set(scope, Object.freeze({ ...current, [rec.field]: String(rec.value) }));
         continue;
       }
       if (!this.runtime.views.has(rec.viewId)) continue; // skip annotation:/analysis: commits
@@ -1253,8 +1246,22 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   // ── ids ────────────────────────────────────────────────────────────────────
+  /**
+   * THE IDENTITY LAW: mint the next commit id from the DASHBOARD's counter, not
+   * a session-local one. Two sessions on one `buildDashboard` used to both mint
+   * `s1`, `s2`, `s3` — and because bookmarks and saved pictures live in a
+   * dashboard-level store and NAME COMMIT IDS, a bookmark made in session A was
+   * visible in session B and seeking it there silently landed on B's different
+   * `s1`. The same name meant one act in A and another in B, with no error.
+   *
+   * The consequence is that a session's own log has GAPS in its numbering
+   * (A holds `s1, s3`; B holds `s2, s4`). That is correct and expected:
+   * nothing reads an id as a position — order is the parent chain and `ts` —
+   * and the gaps are the visible sign that the identity is dashboard-wide.
+   * The spelling is unchanged: still `s` + a number.
+   */
   private nextId(): string {
-    return `s${++this.seq}`;
+    return `${COMMIT_ID_PREFIX}${++this.runtime.commitIds.minted}`;
   }
 
   // ── cause stamping (R1 / R12) ────────────────────────────────────────────────
@@ -1318,9 +1325,21 @@ class InteractionSessionImpl implements InteractionSession {
     return cols.filter((c) => !this.allMaterialized.has(`${table}::${c.name}`) || visible.has(c.name));
   }
 
-  /** The current channel→field visual-encoding map for one view, branch-scoped at the cursor. */
+  /**
+   * The current channel→field visual-encoding map for one view, branch-scoped
+   * at the cursor.
+   *
+   * DETACHED by FREEZING, not by copying. This used to hand back the live
+   * cached object: mutating it changed what the next read said (`x: 'FORGED'`)
+   * with no commit anywhere. A copy per call would also be correct, but this
+   * is read several times per view per `overview()` and once per edge in the
+   * encoding-link pass, and the fold only ever REPLACES these maps
+   * (`set(id, {...current, …})`) — it never writes into one in place. So they
+   * are frozen where they are stored, and handing out the object itself is
+   * free and safe.
+   */
   viewEncodings(viewId: string): Readonly<Record<string, string>> {
-    return this.activeEncodings.get(viewId) ?? {};
+    return this.activeEncodings.get(viewId) ?? EMPTY_BINDINGS;
   }
 
   /**
@@ -1493,7 +1512,7 @@ class InteractionSessionImpl implements InteractionSession {
 
   restoreBookmarks(list: readonly RestorableBookmark[]): RestoreResult {
     const ids = new Set(this.log.records.map((r) => r.id));
-    return restoreBookmarksInto(this.runtime.bookmarks, list, (id) => ids.has(id));
+    return restoreBookmarksInto(this.runtime.bookmarks, list, this.runtime.commitIds, (id) => ids.has(id));
   }
 
   private bookmarkNames(): string {
@@ -1517,7 +1536,7 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   restoreSaved(list: readonly RestorableSaved[]): RestoreResult {
-    return restoreSavedInto(this.runtime.saved, list, new Set(this.runtime.views.keys()));
+    return restoreSavedInto(this.runtime.saved, list, new Set(this.runtime.views.keys()), this.runtime.commitIds);
   }
 
   saveSelection(name: string, source: SaveSelectionSource, as: Actor = 'user'): SaveSelectionResult {
@@ -2077,7 +2096,7 @@ class InteractionSessionImpl implements InteractionSession {
       cause: stamped,
     });
     this.landed(record);
-    this.activeEncodings.set(viewId, { ...(this.activeEncodings.get(viewId) ?? {}), ...next });
+    this.activeEncodings.set(viewId, Object.freeze({ ...(this.activeEncodings.get(viewId) ?? {}), ...next }));
     return record;
   }
 
@@ -2457,7 +2476,11 @@ class InteractionSessionImpl implements InteractionSession {
           followed[channel] = { edge: c.edge, from: c.from, sourceChannel: c.sourceChannel };
         }
       }
-      out.set(viewId, { bindings, followed, refused });
+      // each entry is handed out through `overview().views[].effective`, so it
+      // is frozen where it is BUILT: a memo is a cached object, and a cached
+      // object handed to a reader is exactly the leak this sweep is about. It
+      // is rebuilt whole whenever the memo key changes, never written into.
+      out.set(viewId, deepFreeze({ bindings, followed, refused }));
     }
     this.effectiveMemo = { key, value: out };
     return out;
@@ -2486,6 +2509,9 @@ class InteractionSessionImpl implements InteractionSession {
       // a followed channel is one the view declares (the pair was validated), so it has verdicts to overwrite
       fits[channel] = judged[channel]!.map((fit) => ({ field: fit.field, ok: false, because: this.followSentence(viewId, channel, f) }));
     }
+    // same law as the effective memo above: `overview().views[].fits` hands
+    // this cached object to a reader, so it is frozen where it is built
+    deepFreeze(fits);
     this.fitsMemo.set(viewId, { key, fits });
     return fits;
   }
@@ -2608,7 +2634,7 @@ class InteractionSessionImpl implements InteractionSession {
     });
     this.landed(record);
     const current = this.activeLayouts.get(scope) ?? {};
-    this.activeLayouts.set(scope, { ...current, [field]: value });
+    this.activeLayouts.set(scope, Object.freeze({ ...current, [field]: value }));
     return { ok: true, verb: 'navigate', intent, navigatedTo: viewId, commit: record };
   }
 
@@ -2732,7 +2758,10 @@ class InteractionSessionImpl implements InteractionSession {
       sink: (h) => {
         hypothesis = h;
         fdrStep = this.fdrStepper.step(h); // step L4 exactly once per declared test
-        this._ledger.push(fdrStep);
+        // frozen where it LANDS, like a commit and like a gap row: an audit row
+        // is finished the moment it is written, and `ledger()` copies the list
+        // but shares the rows
+        this._ledger.push(deepFreeze(fdrStep));
       },
     });
 
@@ -2925,7 +2954,7 @@ class InteractionSessionImpl implements InteractionSession {
     //     `pValue` commit so `hypothesisRecordsFromLog` re-derives it on replay.
     const hRecord: HypothesisRecord = { hypothesisId: correlationId ?? id, pValue: 1, timestamp: ++this.testClock };
     const fdrStep = this.fdrStepper.step(hRecord);
-    this._ledger.push(fdrStep);
+    this._ledger.push(deepFreeze(fdrStep)); // an audit row is finished when it lands (see the other push site)
     const { record: hypothesisCommit } = this.log.commit({
       id: this.nextId(),
       parent: this._cursor, // R8 branch-on-act: proposing from a past cursor branches first
@@ -2967,7 +2996,7 @@ class InteractionSessionImpl implements InteractionSession {
       commitId: specCommit.id,
       ledgerStep: fdrStep.step,
     };
-    this._charts.set(id, view);
+    this._charts.set(id, deepFreeze(view)); // a proposed chart is finished when it lands: `charts()` and `overview().charts` hand it out
     return { ok: true, chartId: id, view, hypothesis, commit: specCommit, fdrStep };
   }
 
@@ -3033,8 +3062,15 @@ class InteractionSessionImpl implements InteractionSession {
     return this.gapLedger.rows();
   }
 
+  /**
+   * The online-FDR audit trail. DETACHED by COPYING: `_ledger` is a list the
+   * session still appends to, so a reader must not be handed the array itself
+   * (it used to be — `ledger()` returned `this._ledger`, which a caller could
+   * push a fabricated discovery onto). Cold enough that a copy per call is the
+   * right trade.
+   */
   ledger(): readonly FdrStep[] {
-    return this._ledger;
+    return Object.freeze([...this._ledger]);
   }
 
   /** The wire's view of the bookmarks: `id` = the bookmark's own id (what a note links, and what a badge keys on), `label` = the name, `commitId` and `at` = the bookmarked moment, `ts` = that commit's position in the log — one truth, the bookmark store. */
@@ -3159,7 +3195,7 @@ class InteractionSessionImpl implements InteractionSession {
       // an agent must be able to see that dead ends exist without listing them,
       // and the FDR ledger below still counts every test they ran.
       archived: this.refs.archivedNames().length,
-      events: [...this.refs.events()],
+      events: this.refs.events(), // already a frozen copy of the journal
     };
 
     // RP-3: the agent-authored charts + ledger status (token-lean — the SPEC
@@ -3190,11 +3226,15 @@ class InteractionSessionImpl implements InteractionSession {
       filters: this.filtersNow(),
       clearedSelections,
       offers,
-      sources: this.runtime.sources,
+      // the one runtime record that MOVES (a refresh replaces a table's entry):
+      // a frozen COPY, so a reader never holds the object the dashboard is
+      // still writing. `keys`, `engines` and the link graph beside it are
+      // build-time constants and are frozen once, at build.
+      sources: deepFreeze({ ...this.runtime.sources }),
       keys: this.runtime.keys,
       // the Sources tab's rows: every declared table as the def states it, and the data journal beside the log
       tables: this.tablesInfo(),
-      journal: this.runtime.journal.slice(-JOURNAL_TAIL),
+      journal: Object.freeze(this.runtime.journal.slice(-JOURNAL_TAIL)), // fresh list; each entry was frozen when it was written
       journalTotal: this.runtime.journal.length,
       selectedRowCount: selCount,
       analyses,
@@ -3204,7 +3244,7 @@ class InteractionSessionImpl implements InteractionSession {
         tests: this._ledger.length,
         discoveries,
         wealth,
-        ledger: [...this._ledger],
+        ledger: this.ledger(),
       },
       columns,
       encodings: Object.fromEntries(views.map((v) => [v.viewId, v.encodings])),

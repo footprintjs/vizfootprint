@@ -208,26 +208,18 @@ d2,Vintage,80,3
   });
 });
 
-describe('buildChip — the `rec.cause.intent ?? \'\'` chip title fallback', () => {
-  it('a commit with no intent falls back to an empty title (every real commit here always sets one, so it is forced via the live `cause` object this file never freezes)', async () => {
+describe('buildChip — the chip title is the commit\'s own intent', () => {
+  it('a chip wears the intent of the commit it stands for', async () => {
     await freshMount(NORMAL_CSV);
     await dragAndWaitForCommit(60, 200);
 
-    // `CauseSelectionSession.commit` (src/log/log.ts) only `Object.freeze`s
-    // the RECORD itself (shallow) — the nested `cause` object it points to
-    // is left mutable. `window.__viz.records()` returns that same live
-    // array of real records, so this reaches into REAL session state (not a
-    // fabricated one) to remove the intent every call site here always sets.
+    // The record is REAL session state read through the app's own handle. It
+    // is also deeply frozen (src/log/log.ts): the cause cannot be edited after
+    // the fact, which is why this test reads it instead of rewriting it.
     const rec = getViz().records()[0]!;
-    delete (rec.cause as { intent?: string }).intent;
-
-    // Re-render by selecting the chip (its own click handler calls
-    // `renderChips` again, rebuilding it from the now-intent-less record).
-    document.querySelector('[data-chip]')!.dispatchEvent(new Event('click', { bubbles: true }));
-    // `el()`'s `if (opts.title) node.title = opts.title` never assigns for an
-    // empty string (falsy), so the ATTRIBUTE stays absent — the `.title`
-    // PROPERTY still honestly reads back `''` (the DOM default).
-    expect((document.querySelector('[data-chip]') as HTMLElement).title).toBe('');
+    expect(Object.isFrozen(rec.cause)).toBe(true);
+    expect(rec.cause.intent).toBeTruthy();
+    expect((document.querySelector('[data-chip]') as HTMLElement).title).toBe(rec.cause.intent);
   });
 });
 
@@ -335,23 +327,28 @@ describe('renderChips — the fork badge (⑂) appears only when a parent has >1
     expect(getViz().records().length).toBe(1); // unchanged
   });
 
-  it('"Fork here" when the selected commit id no longer exists in the log is a no-op (the `!rec` guard)', async () => {
+  it('a selected commit can never leave the log — the app\'s own handle cannot shrink the trace', async () => {
     await freshMount(NORMAL_CSV);
     await dragAndWaitForCommit(60, 200);
     document.querySelector('[data-chip]')!.dispatchEvent(new Event('click', { bubbles: true }));
     expect(document.querySelectorAll('[data-chip].sel').length).toBe(1);
 
-    // `window.__viz.records()` returns `session.log.records` itself (a plain
-    // mutable array — CauseSelectionSession freezes each RECORD, never the
-    // array; see src/log/log.ts). Removing the selected commit through this
-    // real, app-exposed handle is a genuine mutation of genuine session
-    // state, not a fabricated return value — it makes the id `selected`
-    // captured really absent from the log, exactly the precondition
-    // `forkHere`'s `if (!rec) return;` guards against.
-    getViz().records().length = 0;
+    // This is the precondition `forkHere`'s `if (!rec) return;` guards against,
+    // and it is now unreachable BY CONSTRUCTION. `window.__viz.records()` is the
+    // real, app-exposed handle on the session's log; it hands back a frozen
+    // snapshot, so the trace cannot be emptied, truncated or spliced through it.
+    // (Before the append-only fix this line read `records().length = 0` and the
+    // log really did empty.)
+    const trace = getViz().records();
+    expect(Object.isFrozen(trace)).toBe(true);
+    expect(() => {
+      (trace as VizRecord[]).length = 0;
+    }).toThrow(TypeError);
+    expect(() => (trace as VizRecord[]).push(trace[0]!)).toThrow(TypeError);
 
+    // …so "Fork here" still finds its commit and lands the sibling.
     document.querySelector<HTMLButtonElement>('[data-action="fork"]')!.click();
-    expect(getViz().records().length).toBe(0); // still a no-op — no fork landed
+    expect(getViz().records().length).toBe(2);
   });
 });
 

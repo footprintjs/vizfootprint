@@ -434,6 +434,19 @@ export interface BookmarkStore {
   minted: number;
 }
 
+/**
+ * The commit-id counter. Lives on the dashboard runtime beside the saved and
+ * bookmark stores, and for exactly the same reason: those records name commit
+ * ids and are shared by every session, so a commit id must be unique per
+ * DASHBOARD. A session's own log therefore has gaps in its numbering (session
+ * A holds `s1, s3`; session B holds `s2, s4`) — nothing reads an id as a
+ * position, so a gap costs nothing. See src/log/README.md, "Law 2".
+ */
+export interface CommitIdStore {
+  /** The highest number this dashboard has ever handed out (`s7` ⇒ 7). It only goes UP. */
+  minted: number;
+}
+
 /** The store: the saved selections in the order they were saved (a mutable list the session's doors write). */
 export interface SavedStore {
   readonly list: SavedSelection[];
@@ -481,6 +494,8 @@ export interface DashboardRuntime {
   readonly saved: SavedStore;
   /** The bookmarks — names on moments beside the log (see {@link Bookmark}); shared by every session. */
   readonly bookmarks: BookmarkStore;
+  /** The commit-id counter — one per dashboard, so two sessions can never mint the same commit id (see {@link CommitIdStore}). */
+  readonly commitIds: CommitIdStore;
   /** Build notes a def should hear: e.g. `engine: 'auto'` resolved to memory because the thresholds are unmeasured. */
   readonly notes: readonly string[];
   /** The declared row key per table (absent = positional rows, no delta). */

@@ -27,9 +27,17 @@ export class GapLedger {
     return row;
   }
 
-  /** All filed gaps, in arrival order. */
+  /**
+   * All filed gaps, in arrival order.
+   *
+   * DETACHED by COPYING: `_rows` is a list this ledger still appends to, so a
+   * reader never gets the array itself (it used to, and could have pushed a
+   * gap nobody filed, or spliced one away). Each row is already frozen at the
+   * moment it is filed — a gap, like a commit, is finished when it lands — so
+   * only the list is copied. Cold path: a copy per call is the right trade.
+   */
   rows(): readonly GapRow[] {
-    return this._rows;
+    return Object.freeze([...this._rows]);
   }
 
   /** Counts by taxonomy code. */

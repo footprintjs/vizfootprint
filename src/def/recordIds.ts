@@ -11,6 +11,13 @@
  * record does not free its number, and a record a host restores as `p7`
  * pushes the counter past 7 even on a store that has minted nothing.
  *
+ * THE SCOPE IS THE DASHBOARD, not the session — for pictures, for bookmarks,
+ * and (since the identity fix) for commits too. These records name each other
+ * ACROSS sessions: a bookmark holds a commit id, and both the bookmark store
+ * and the commit counter are read by every session on the dashboard. Two
+ * sessions minting `s1` each meant a bookmark made in one silently found a
+ * different act in the other. See src/log/README.md, "Law 2".
+ *
  * WHY the counter and not just "one past the highest id in the store":
  * forgetting is refused while words on screen link the record, but the words
  * on screen are the ones the CURRENT CURSOR sees. Seek to an earlier moment
@@ -19,6 +26,9 @@
  * a different picture — a wrong filter, silently. A number that has been
  * handed out is spent for the life of the store.
  */
+
+/** The prefix a commit's id carries (`s1`, `s2`, …). */
+export const COMMIT_ID_PREFIX = 's';
 
 /** The prefix a saved selection's id carries. */
 export const PICTURE_ID_PREFIX = 'p';
@@ -50,6 +60,21 @@ export function mintRecordId(prefix: string, store: RecordStore): string {
   for (const record of store.list) highest = Math.max(highest, numberOf(prefix, record.id));
   store.minted = highest + 1;
   return `${prefix}${store.minted}`;
+}
+
+/**
+ * Raise a counter past every number these ids name under `prefix`.
+ *
+ * A record a host puts back POINTS AT other records — a bookmark names a
+ * commit, a picture names the commits it was saved from — and a number that is
+ * already pointed at must never be handed out again. Without this, a fresh
+ * dashboard whose counter starts at 0 could mint the very commit id a restored
+ * bookmark already names, and the bookmark would silently start resolving to a
+ * real but WRONG act: the same collision the per-session counter used to cause,
+ * one door along. Same digits-only rule as {@link mintRecordId}.
+ */
+export function raiseMinted(prefix: string, ids: readonly string[], store: { minted: number }): void {
+  for (const id of ids) store.minted = Math.max(store.minted, numberOf(prefix, id));
 }
 
 /**

@@ -295,11 +295,18 @@ describe('R8 — append-only enforced by construction (promotion strengthening)'
 
   it('there is no public API to remove or edit a committed record — only commit() ever appends', () => {
     const proto = CauseSelectionSession.prototype as unknown as Record<string, unknown>;
-    const methodNames = Object.getOwnPropertyNames(proto).filter((n) => n !== 'constructor');
+    const named = Object.getOwnPropertyNames(proto).filter((n) => n !== 'constructor');
+    const descriptors = named.map((n) => [n, Object.getOwnPropertyDescriptor(proto, n)!] as const);
+    const methods = descriptors.filter(([, d]) => typeof d.value === 'function').map(([n]) => n);
+    const accessors = descriptors.filter(([, d]) => d.get !== undefined || d.set !== undefined).map(([n]) => n);
     // The class exposes exactly one write method. If this test ever needs to
     // change because a new method was added, that new method must NOT be a
     // delete/remove/edit — re-read R8 before adding one.
-    expect(methodNames).toEqual(['commit']);
+    expect(methods).toEqual(['commit']);
+    // …and exactly one READ accessor, which has no setter: `records` cannot be
+    // replaced wholesale either.
+    expect(accessors).toEqual(['records']);
+    expect(Object.getOwnPropertyDescriptor(proto, 'records')!.set).toBeUndefined();
   });
 });
 

@@ -46,8 +46,9 @@ import {
   type SavedStore,
   type Bookmark,
   type BookmarkStore,
+  type CommitIdStore,
 } from './types.js';
-import { PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, restoredRecordId } from './recordIds.js';
+import { COMMIT_ID_PREFIX, PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, raiseMinted, restoredRecordId } from './recordIds.js';
 import { createInteractionSession, type InteractionSession } from '../session/session.js';
 import type { SessionOptions } from '../session/types.js';
 import { materializeLinks, voiceOf } from '../links/index.js';
@@ -59,6 +60,7 @@ import { isRejection } from '../data/index.js';
 import { decodeRows, deltaByKey, inlineVersion, isSourceRefusal, isUnchanged, openSource, SourceRefusal } from '../source/index.js';
 import type { RefreshDelta, SourceAdapter, SourceDecl, SourceInfo, SourceRefusalReason, SourceSnapshot } from '../source/index.js';
 import type { ColumnFacet } from '../data/index.js';
+import { deepFreeze } from '../detach/index.js';
 
 /** The offline dashboard handle. `createSession()` opens one live, stateful session. */
 export interface Dashboard {
@@ -301,7 +303,6 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
     engines[table] = engine;
     providers.set(table, buildProvider(engine, table, source));
   }
-  const dashboard = assemble(def, options, providers, engines, sources, notes, journal);
   const adapters = options.sources ?? [];
   const run = async (which?: readonly string[]): Promise<RefreshResult> => {
     const out: Record<string, RefreshOutcome> = {};
@@ -363,17 +364,55 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
     queue = next.catch(() => undefined);
     return next;
   };
-  return { ...dashboard, refresh };
+  return assemble(def, options, providers, engines, sources, notes, journal, refresh);
+}
+
+/**
+ * THE MAP IS STILL — freeze the definition in place.
+ *
+ * The def is what could happen: declared once, read for the life of the
+ * dashboard, written by nobody. `dashboard.def` is documented as frozen and it
+ * was not — `def.meta.title = 'HIJACKED'` stuck. It is FROZEN rather than
+ * copied on each read because it is read constantly (every fold, every lint,
+ * every overview) and a copy per read would be the most expensive possible way
+ * to say something that is true forever.
+ *
+ * TWO THINGS ARE DELIBERATELY LEFT ALONE, and both are the same reason:
+ *
+ *  - `deepFreeze` walks plain objects and arrays only, so an author's analysis
+ *    functions and any live analysis module in `def.analyses` are untouched.
+ *  - a table's `rows` and its inline `source.at` are BULK DATA THE AUTHOR
+ *    STILL OWNS. The demo in this repo declares `data: { data: { rows } }` and
+ *    goes on using that same array as its chart's local rows, writing a
+ *    materialized `cluster_id` onto each — legitimate, and freezing it broke
+ *    it. Nothing is lost by leaving it: every provider takes its own copy of
+ *    the rows at build (memoryProvider clones each row), so writing to the
+ *    author's array afterwards changes nothing the dashboard reads.
+ *
+ * Everything else under a table's declaration — its engine, key, layout,
+ * column declarations — is frozen, and so is the `data` map itself, so no
+ * table can be added, removed or re-pointed after the build.
+ */
+function freezeDefinition(def: DashboardDef): void {
+  for (const decl of Object.values(def.data)) {
+    for (const [key, value] of Object.entries(decl)) {
+      if (key !== 'rows' && key !== 'source') deepFreeze(value);
+    }
+    Object.freeze(decl); // shallow ON PURPOSE: the payload doors above stay writable
+  }
+  Object.freeze(def.data); // …and `deepFreeze` below stops here, as its short-circuit promises
+  deepFreeze(def);
 }
 
 /** One journal record: its own copies of what it was handed, frozen — history is never editable through a result someone still holds. */
 function journalRecord(asked: readonly string[], tables: Readonly<Record<string, RefreshOutcome>>): RefreshRecord {
-  const frozen: Record<string, RefreshOutcome> = {};
-  for (const [table, o] of Object.entries(tables)) {
-    // every level the caller can reach through the result it still holds: the outcome, its delta, the lost list
-    frozen[table] = Object.freeze('changed' in o ? { ...o, delta: Object.freeze({ ...o.delta }), ...(o.materialisedLost !== undefined ? { materialisedLost: Object.freeze([...o.materialisedLost]) } : {}) } : { ...o });
-  }
-  return Object.freeze({ at: new Date().toISOString(), asked: Object.freeze([...asked]), tables: Object.freeze(frozen) });
+  // A journal entry is finished the moment it is written, so it is FROZEN, not
+  // copied — every level a caller can reach through the result it still holds:
+  // the outcome, its delta, the lost list. (This used to be three hand-rolled
+  // shallow freezes, which is the same law spelled out one level at a time.)
+  const copied: Record<string, RefreshOutcome> = {};
+  for (const [table, o] of Object.entries(tables)) copied[table] = { ...o };
+  return deepFreeze({ at: new Date().toISOString(), asked: [...asked], tables: copied });
 }
 
 /** Open, snapshot, close — and turn what the carrier refused into a def problem. */
@@ -394,9 +433,8 @@ async function readSource(decl: SourceDecl, table: string, adapters: readonly So
   }
 }
 
-/** Everything after the providers exist — one assembly for both builders. */
 /** Restore saved selections into the store: a whole record each, judged (a name, at least one condition on a declared view with a field or pair and a value, an author, a time), never re-stamped, refused in words. A record keeps the id it arrives with when no other record holds it; otherwise the store names it and says so in `reidentified`. */
-export function restoreSavedInto(store: SavedStore, list: readonly RestorableSaved[], views: ReadonlySet<string>): RestoreResult {
+export function restoreSavedInto(store: SavedStore, list: readonly RestorableSaved[], views: ReadonlySet<string>, commitIds: CommitIdStore): RestoreResult {
   const restored: string[] = [];
   const refused: { name: string; rejected: string }[] = [];
   const reidentified: { name: string; id: string; was?: string }[] = [];
@@ -434,13 +472,15 @@ export function restoreSavedInto(store: SavedStore, list: readonly RestorableSav
       ...(r.editedBy !== undefined ? { editedBy: r.editedBy } : {}),
       ...(r.editedAt !== undefined ? { editedAt: r.editedAt } : {}),
     });
+    // the commits this picture was saved from are now pointed at: their numbers are spent
+    raiseMinted(COMMIT_ID_PREFIX, r.from ?? [], commitIds);
     restored.push(name);
   }
   return { restored, refused, reidentified };
 }
 
 /** Restore bookmarks into the store: a whole record each, judged (a name, a commit id, who, when), never re-stamped, refused in words. `hasCommit` lets a session refuse a commit its log does not hold. A record keeps the id it arrives with when no other record holds it; otherwise the store names it and says so in `reidentified`. */
-export function restoreBookmarksInto(store: BookmarkStore, list: readonly RestorableBookmark[], hasCommit?: (id: string) => boolean): RestoreResult {
+export function restoreBookmarksInto(store: BookmarkStore, list: readonly RestorableBookmark[], commitIds: CommitIdStore, hasCommit?: (id: string) => boolean): RestoreResult {
   const restored: string[] = [];
   const refused: { name: string; rejected: string }[] = [];
   const reidentified: { name: string; id: string; was?: string }[] = [];
@@ -468,14 +508,30 @@ export function restoreBookmarksInto(store: BookmarkStore, list: readonly Restor
       ...(t.editedBy !== undefined ? { editedBy: t.editedBy } : {}),
       ...(t.editedAt !== undefined ? { editedAt: t.editedAt } : {}),
     });
+    // the moment this bookmark names is now pointed at: its number is spent
+    raiseMinted(COMMIT_ID_PREFIX, [t.commitId], commitIds);
     restored.push(name);
   }
   return { restored, refused, reidentified };
 }
 
-function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[]): Dashboard {
+/**
+ * Everything after the providers exist — ONE assembly for both builders.
+ *
+ * `refresh` is passed IN rather than layered on afterwards. It used to be
+ * layered on (`{ ...dashboard, refresh }` in the async builder), and spreading
+ * an object EVALUATES its getters: the moment `sources` became a getter that
+ * reads live state, the async dashboard froze a build-time snapshot of it and
+ * never saw a refresh again. One object literal, built once, cannot go wrong
+ * that way.
+ */
+function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[], refresh?: Dashboard['refresh']): Dashboard {
+  freezeDefinition(def);
   const saved: SavedStore = { list: [], minted: 0 }; // saved selections: logic beside the log, shared by every session (the counter rides the store: it outlives every session)
   const bookmarks: BookmarkStore = { list: [], minted: 0 }; // bookmarks: names on moments beside the log, shared by every session
+  // the commit-id counter: beside those two stores because those two stores POINT AT commit ids
+  // across sessions — an id must therefore be unique per dashboard, not per session
+  const commitIds: CommitIdStore = { minted: 0 };
   const tables = [...providers.keys()];
   const keys: Record<string, string> = Object.fromEntries(Object.entries(def.data).flatMap(([t, d]) => (d.key !== undefined ? [[t, d.key]] : [])));
   const defaultTable = def.defaultTable ?? tables[0]!;
@@ -542,22 +598,30 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     journal,
     saved,
     bookmarks,
+    commitIds,
     makeFdrStepper,
     fdrProcedure: def.fdr?.procedure ?? 'LORD++',
     fdrAlpha: def.fdr?.alpha ?? 0.05,
     intentOf: (verb) => intents[verb],
   };
 
-  Object.freeze(engines);
+  // the other build-time constants, on the same reasoning as the def
+  deepFreeze(engines);
+  deepFreeze(keys);
+  deepFreeze(notes);
 
   return {
     def,
     engines,
-    sources,
+    // `sources` is the one build-time record that MOVES — `refresh()` replaces
+    // a table's entry — so a reader gets a frozen COPY, not the live object.
+    get sources() {
+      return deepFreeze({ ...sources });
+    },
     notes,
     // a synchronous dashboard holds inline sources only, which never move; a table with no source has nothing to refresh —
     // the answer is still journaled, so the tab can say "asked at 14:02: unchanged" instead of nothing
-    refresh: async (which) => {
+    refresh: refresh ?? (async (which) => {
       const asked = [...(which ?? Object.keys(def.data))];
       const result: RefreshResult = {
         tables: Object.fromEntries(
@@ -573,13 +637,13 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
       };
       journal.push(journalRecord(asked, result.tables));
       return result;
-    },
-    journal: () => [...journal],
+    }),
+    journal: () => Object.freeze([...journal]), // the entries are already frozen; the list is a fresh one each read
     saved: () => saved.list.map((c) => structuredClone(c)), // a host gets its own copies, never the store's objects
     /* v8 ignore next -- a validated def always declares its actors; the fallback keeps the type honest */
-    restoreSaved: (list) => restoreSavedInto(saved, list, new Set(Object.keys(def.actors ?? {}))),
+    restoreSaved: (list) => restoreSavedInto(saved, list, new Set(Object.keys(def.actors ?? {})), commitIds),
     bookmarks: () => bookmarks.list.map((t) => ({ ...t })),
-    restoreBookmarks: (list) => restoreBookmarksInto(bookmarks, list),
+    restoreBookmarks: (list) => restoreBookmarksInto(bookmarks, list, commitIds),
     createSession: (opts) => createInteractionSession(runtime, opts),
     lintProse: async () => {
       const cols = await providers.get(defaultTable)!.columns(defaultTable);

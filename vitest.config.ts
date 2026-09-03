@@ -13,7 +13,12 @@ export default defineConfig({
     // at the site.
     coverage: {
       include: ['src/**', 'ui/src/**', 'demo/src/**', 'demo-agent/src/**', 'bridges/vega-lite/src/**'],
-      exclude: ['**/*.test.*', '**/*.coverage.helpers.*'],
+      // `include: ['src/**']` sweeps in the READMEs that sit beside the code
+      // (this repo keeps a small one per feature folder). The v8 provider then
+      // tries to parse each as JavaScript when it accounts for uncovered files
+      // and prints a PARSE_ERROR stack per file — noise, never a failure. Only
+      // source files can carry coverage, so name the ones that cannot.
+      exclude: ['**/*.test.*', '**/*.coverage.helpers.*', '**/*.md'],
       thresholds: {
         statements: 100,
         branches: 100,

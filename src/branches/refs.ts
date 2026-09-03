@@ -59,11 +59,12 @@ export class BranchRefs {
   private readonly _branches = new Map<string, string>(); // name → tipCommitId
   /** TL-1: names hidden from the default listing. The refs themselves are untouched. */
   private readonly _archived = new Set<string>();
+  /** Where HEAD is. Replaced whole on every move, and frozen: `head` and `state()` hand it straight to a reader (a flat record, so shallow is deep). */
   private _head: Head;
   private readonly _events: RefEvent[] = [];
 
   constructor(opts: BranchRefsOptions = {}) {
-    this._head = { branch: opts.defaultName ?? 'main' };
+    this._head = Object.freeze({ branch: opts.defaultName ?? 'main' });
   }
 
   get head(): Head {
@@ -82,7 +83,10 @@ export class BranchRefs {
 
   /** The ref-event journal (frozen entries, append-only). */
   events(): readonly RefEvent[] {
-    return this._events;
+    // DETACHED by COPYING, for the reason `GapLedger.rows()` gives: this is a
+    // journal the refs still append to, so a reader gets a frozen copy of the
+    // list rather than the list itself.
+    return Object.freeze([...this._events]);
   }
 
   /** Every ref name, archived or not — an archived name still OWNS the namespace. */
@@ -162,7 +166,7 @@ export class BranchRefs {
           : this.nameOfTip(record.parent);
       if (name !== null) {
         this._branches.set(name, record.id);
-        this._head = { branch: name };
+        this._head = Object.freeze({ branch: name });
         this.journal({ type: 'advance', name, at: record.id, ts: this.ts });
         return { name, created: false };
       }
@@ -172,7 +176,7 @@ export class BranchRefs {
     //     cause-slugged unique ref and attach HEAD.
     const name = uniqueSlug(slugForCommit(record), (n) => this._branches.has(n));
     this._branches.set(name, record.id);
-    this._head = { branch: name };
+    this._head = Object.freeze({ branch: name });
     this.journal({ type: 'create', name, at: record.id, auto: true, ts: this.ts });
     return { name, created: true };
   }
@@ -186,14 +190,14 @@ export class BranchRefs {
     const tip = this._branches.get(name);
     if (tip === undefined) return { ok: false, detail: `no path named "${name}"` };
     if (this._archived.has(name)) return { ok: false, detail: `path "${name}" is archived — restore it first` };
-    this._head = { branch: name };
+    this._head = Object.freeze({ branch: name });
     this.journal({ type: 'switch', to: name, at: tip, ts: this.ts });
     return { ok: true, tip };
   }
 
   /** Detach HEAD at a commit (the cursor travelled by id, not by name). Journaled. */
   detach(commitId: string | null): void {
-    this._head = { detached: commitId };
+    this._head = Object.freeze({ detached: commitId });
     this.journal({ type: 'switch', to: null, at: commitId, ts: this.ts });
   }
 
@@ -203,7 +207,7 @@ export class BranchRefs {
     if (invalid !== null) return { ok: false, detail: invalid };
     if (this._branches.has(name)) return { ok: false, detail: `a path named "${name}" already exists` };
     this._branches.set(name, commitId);
-    this._head = { branch: name };
+    this._head = Object.freeze({ branch: name });
     this.journal({ type: 'create', name, at: commitId, auto: false, ts: this.ts });
     return { ok: true, name };
   }
@@ -230,7 +234,7 @@ export class BranchRefs {
     if (this._branches.has(to)) return { ok: false, detail: `a path named "${to}" already exists` };
     this._branches.delete(from);
     this._branches.set(to, tip);
-    if (this.currentBranch() === from) this._head = { branch: to };
+    if (this.currentBranch() === from) this._head = Object.freeze({ branch: to });
     this.journal({ type: 'rename', from, to, ts: this.ts });
     return { ok: true };
   }
@@ -306,7 +310,7 @@ export class BranchRefs {
     if (this.currentBranch() !== name) {
       // HEAD was detached (the usual "step back, then discard") — attach it to
       // the rewound path so the next act extends it. Journaled like any switch.
-      this._head = { branch: name };
+      this._head = Object.freeze({ branch: name });
       this.journal({ type: 'switch', to: name, at: commitId, ts: this.ts });
     }
     return { ok: true, kept: keepAs, from };

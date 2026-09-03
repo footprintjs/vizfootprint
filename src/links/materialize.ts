@@ -11,6 +11,7 @@
  */
 import { ENCODING_KIND, edgeId, type ChannelPair, type LinkDecl, type LinkDefault, type LinkEdge, type LinkGraph, type LinkView } from './types.js';
 import { DEFAULT_FOLD, crossesGrain } from './grain.js';
+import { deepFreeze } from '../detach/index.js';
 
 /** The channel pairs an encoding edge follows when the author states none: every channel both ends declare, by the same name. */
 export function defaultChannelPairs(source: LinkView | undefined, target: LinkView | undefined): readonly ChannelPair[] {
@@ -54,7 +55,11 @@ export function materializeLinks(views: readonly LinkView[], declared: readonly 
     if (at >= 0) edges[at] = edge;
     else edges.push(edge);
   }
-  return { default: defaultRule, views, edges };
+  // The graph is FINISHED here — it is the MAP, and the map is still. Freezing
+  // it (rather than copying it on every read) is what lets `applyLinkOverrides`
+  // hand back this very object when there is nothing to lay over it: a
+  // reference to something nobody can change is a safe thing to hand a reader.
+  return deepFreeze({ default: defaultRule, views, edges });
 }
 
 /**
@@ -64,7 +69,14 @@ export function materializeLinks(views: readonly LinkView[], declared: readonly 
  * the base had none (a declared `none` default); its origin is `edited`.
  */
 export function applyLinkOverrides(base: LinkGraph, overrides: ReadonlyMap<string, LinkDecl>): LinkGraph {
-  if (overrides.size === 0) return base;
+  // DETACHED, both ways out. With no overrides the base is handed back BY
+  // REFERENCE — which used to be the bug (a reader pushed a forged edge into
+  // what `overview().links` returned, and the next `overview()` reported it
+  // as real, with no commit in between). The reference is safe now because the
+  // thing referenced is frozen; freezing costs nothing on an already-frozen
+  // graph, and the alternative — copying every edge on every read — would be
+  // paid on a call that happens several times per gesture.
+  if (overrides.size === 0) return deepFreeze(base);
   const edges = [...base.edges];
   for (const [id, raw] of overrides) {
     const edge: LinkEdge = { ...writtenOut(raw, base.views), id, origin: 'edited' };
@@ -72,7 +84,8 @@ export function applyLinkOverrides(base: LinkGraph, overrides: ReadonlyMap<strin
     if (at >= 0) edges[at] = edge;
     else edges.push(edge);
   }
-  return { ...base, edges };
+  // only the NEW edges are actually walked: the base's edges are already frozen
+  return deepFreeze({ ...base, edges });
 }
 
 /** The edges INTO a target view — what that view listens to. */

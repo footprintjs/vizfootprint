@@ -206,7 +206,7 @@ export async function mountDashboard(root: HTMLElement): Promise<void> {
     const kids: (Node | null)[] = [badge, kind, body, idTag];
     if (rec.cause.replayed) kids.push(el('span', { class: 'replay', text: '↺ replay', dataset: { replayed: '1' } }));
     if (isFork) kids.push(el('span', { class: 'fork', text: '⑂ fork' }));
-    const chip = el('div', { class: 'chip', title: rec.cause.intent ?? '', dataset: { chip: rec.id } }, kids);
+    const chip = el('div', { class: 'chip', title: rec.cause.intent, dataset: { chip: rec.id } }, kids);
     if (rec.id === selected) chip.classList.add('sel');
     chip.addEventListener('click', () => {
       selected = rec.id;
@@ -251,6 +251,11 @@ export async function mountDashboard(root: HTMLElement): Promise<void> {
   function forkHere(): void {
     if (selected === null) return;
     const rec = session.log.records.find((r) => r.id === selected);
+    /* v8 ignore next -- unreachable, and now provably so: the TRACE is append-only
+     * (src/log/README.md). `selected` is only ever set from a chip built out of a
+     * record that is in the log, `records` hands back a FROZEN snapshot nobody can
+     * splice, and no commit ever changes its id — so a selected id cannot leave the
+     * log. The guard stays as a guard; there is no honest way to make it fire. */
     if (!rec) return;
     // Append a SIBLING of `rec` (same parent) — an immediate branch off the
     // selected commit, so the fork is visible without a follow-up gesture.
