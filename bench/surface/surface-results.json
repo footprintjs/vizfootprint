@@ -1,0 +1,1432 @@
+{
+ "node": "v22.16.0",
+ "platform": "darwin arm64",
+ "generatedAt": "2026-09-03T20:18:20.381Z",
+ "unit": "UTF-8 bytes of the JSON serialization (Buffer.byteLength). Tokens only ever come from the optional --tokens pass.",
+ "menu": {
+  "bytes": 17318,
+  "tools": [
+   {
+    "name": "viz.whats_here",
+    "bytes": 958,
+    "descriptionBytes": 841,
+    "schemaBytes": 62
+   },
+   {
+    "name": "viz.dispatch",
+    "bytes": 9798,
+    "descriptionBytes": 2526,
+    "schemaBytes": 7219
+   },
+   {
+    "name": "viz.declare_analysis",
+    "bytes": 645,
+    "descriptionBytes": 312,
+    "schemaBytes": 272
+   },
+   {
+    "name": "viz.why",
+    "bytes": 599,
+    "descriptionBytes": 354,
+    "schemaBytes": 197
+   },
+   {
+    "name": "viz.fork",
+    "bytes": 799,
+    "descriptionBytes": 469,
+    "schemaBytes": 281
+   },
+   {
+    "name": "viz.bookmark",
+    "bytes": 518,
+    "descriptionBytes": 200,
+    "schemaBytes": 265
+   },
+   {
+    "name": "viz.paths",
+    "bytes": 1926,
+    "descriptionBytes": 1038,
+    "schemaBytes": 838
+   },
+   {
+    "name": "viz.compare",
+    "bytes": 612,
+    "descriptionBytes": 320,
+    "schemaBytes": 240
+   },
+   {
+    "name": "viz.propose_chart",
+    "bytes": 1453,
+    "descriptionBytes": 857,
+    "schemaBytes": 538
+   }
+  ],
+  "toolCount": 9,
+  "stability": {
+   "shapeIndependent": true,
+   "sessionStable": true,
+   "ok": true,
+   "note": "byte-identical across all three shapes and across a session that acted — the documented claim holds",
+   "perShapeBytes": {
+    "small": 17318,
+    "realistic": 17318,
+    "large": 17318
+   }
+  }
+ },
+ "shapes": [
+  {
+   "shape": "small",
+   "label": "3v/8c/2L/2a/1p",
+   "spec": {
+    "name": "small",
+    "views": 3,
+    "columns": 8,
+    "links": 2,
+    "analyses": 2,
+    "proseSlots": 1,
+    "rows": 120
+   },
+   "declaredViews": 3,
+   "materializedEdges": 12,
+   "tableColumns": 8,
+   "declaredAnalyses": 2,
+   "whatsHereBytes": 8892,
+   "composition": [
+    {
+     "key": "views",
+     "bytes": 4187,
+     "share": 47.09,
+     "count": 3
+    },
+    {
+     "key": "links",
+     "bytes": 2069,
+     "share": 23.27,
+     "count": 3
+    },
+    {
+     "key": "columns",
+     "bytes": 597,
+     "share": 6.71,
+     "count": 1
+    },
+    {
+     "key": "offers",
+     "bytes": 371,
+     "share": 4.17,
+     "count": 6
+    },
+    {
+     "key": "rules",
+     "bytes": 279,
+     "share": 3.14,
+     "count": 1
+    },
+    {
+     "key": "analyses",
+     "bytes": 213,
+     "share": 2.4,
+     "count": 2
+    },
+    {
+     "key": "effectiveEncodings",
+     "bytes": 191,
+     "share": 2.15,
+     "count": 3
+    },
+    {
+     "key": "encodings",
+     "bytes": 182,
+     "share": 2.05,
+     "count": 3
+    },
+    {
+     "key": "tables",
+     "bytes": 117,
+     "share": 1.32,
+     "count": 1
+    },
+    {
+     "key": "time",
+     "bytes": 97,
+     "share": 1.09,
+     "count": 6
+    },
+    {
+     "key": "fdr",
+     "bytes": 94,
+     "share": 1.06,
+     "count": 6
+    },
+    {
+     "key": "paths",
+     "bytes": 79,
+     "share": 0.89,
+     "count": 5
+    },
+    {
+     "key": "encodingPolicy",
+     "bytes": 63,
+     "share": 0.71,
+     "count": 2
+    },
+    {
+     "key": "dashboard",
+     "bytes": 39,
+     "share": 0.44,
+     "count": 2
+    },
+    {
+     "key": "engines",
+     "bytes": 27,
+     "share": 0.3,
+     "count": 1
+    },
+    {
+     "key": "keys",
+     "bytes": 24,
+     "share": 0.27,
+     "count": 1
+    },
+    {
+     "key": "clearedSelections",
+     "bytes": 22,
+     "share": 0.25,
+     "count": 0
+    },
+    {
+     "key": "selectedRowCount",
+     "bytes": 22,
+     "share": 0.25
+    },
+    {
+     "key": "defaultTable",
+     "bytes": 21,
+     "share": 0.24
+    },
+    {
+     "key": "activeSelections",
+     "bytes": 21,
+     "share": 0.24,
+     "count": 0
+    },
+    {
+     "key": "currentView",
+     "bytes": 18,
+     "share": 0.2
+    },
+    {
+     "key": "journalTotal",
+     "bytes": 16,
+     "share": 0.18
+    },
+    {
+     "key": "bookmarks",
+     "bytes": 14,
+     "share": 0.16,
+     "count": 0
+    },
+    {
+     "key": "filters",
+     "bytes": 12,
+     "share": 0.13,
+     "count": 0
+    },
+    {
+     "key": "sources",
+     "bytes": 12,
+     "share": 0.13,
+     "count": 0
+    },
+    {
+     "key": "journal",
+     "bytes": 12,
+     "share": 0.13,
+     "count": 0
+    },
+    {
+     "key": "layouts",
+     "bytes": 12,
+     "share": 0.13,
+     "count": 0
+    },
+    {
+     "key": "charts",
+     "bytes": 11,
+     "share": 0.12,
+     "count": 0
+    },
+    {
+     "key": "notes",
+     "bytes": 10,
+     "share": 0.11,
+     "count": 0
+    },
+    {
+     "key": "saved",
+     "bytes": 10,
+     "share": 0.11,
+     "count": 0
+    },
+    {
+     "key": "ok",
+     "bytes": 9,
+     "share": 0.1
+    },
+    {
+     "key": "gaps",
+     "bytes": 8,
+     "share": 0.09
+    }
+   ],
+   "compositionResidual": 0,
+   "viewsBreakdown": [
+    {
+     "key": "columns",
+     "bytes": 1764,
+     "share": 42.21,
+     "count": 3
+    },
+    {
+     "key": "prose",
+     "bytes": 1093,
+     "share": 26.15,
+     "count": 3
+    },
+    {
+     "key": "accepts",
+     "bytes": 455,
+     "share": 10.89,
+     "count": 3
+    },
+    {
+     "key": "encodings",
+     "bytes": 172,
+     "share": 4.12,
+     "count": 3
+    },
+    {
+     "key": "does",
+     "bytes": 144,
+     "share": 3.45,
+     "count": 3
+    },
+    {
+     "key": "effective",
+     "bytes": 120,
+     "share": 2.87,
+     "count": 3
+    },
+    {
+     "key": "selectionKinds",
+     "bytes": 108,
+     "share": 2.58,
+     "count": 3
+    },
+    {
+     "key": "viewId",
+     "bytes": 54,
+     "share": 1.29,
+     "count": 3
+    },
+    {
+     "key": "label",
+     "bytes": 48,
+     "share": 1.15,
+     "count": 3
+    },
+    {
+     "key": "canProbe",
+     "bytes": 45,
+     "share": 1.08,
+     "count": 3
+    },
+    {
+     "key": "mounted",
+     "bytes": 45,
+     "share": 1.08,
+     "count": 3
+    },
+    {
+     "key": "actor",
+     "bytes": 43,
+     "share": 1.03,
+     "count": 3
+    },
+    {
+     "key": "proposals",
+     "bytes": 42,
+     "share": 1.01,
+     "count": 3
+    }
+   ],
+   "linksBreakdown": [
+    {
+     "key": "edges",
+     "bytes": 1710,
+     "share": 82.97,
+     "count": 12
+    },
+    {
+     "key": "views",
+     "bytes": 324,
+     "share": 15.72,
+     "count": 3
+    },
+    {
+     "key": "default",
+     "bytes": 23,
+     "share": 1.12
+    }
+   ],
+   "floor": {
+    "strict": 587,
+    "shared": 437,
+    "verbs": 98,
+    "strictPct": 6.6,
+    "sharedPct": 4.91
+   }
+  },
+  {
+   "shape": "realistic",
+   "label": "9v/30c/12L/6a/3p",
+   "spec": {
+    "name": "realistic",
+    "views": 9,
+    "columns": 30,
+    "links": 12,
+    "analyses": 6,
+    "proseSlots": 3,
+    "rows": 400
+   },
+   "declaredViews": 9,
+   "materializedEdges": 132,
+   "tableColumns": 30,
+   "declaredAnalyses": 6,
+   "whatsHereBytes": 65609,
+   "composition": [
+    {
+     "key": "views",
+     "bytes": 38827,
+     "share": 59.18,
+     "count": 9
+    },
+    {
+     "key": "links",
+     "bytes": 20384,
+     "share": 31.07,
+     "count": 3
+    },
+    {
+     "key": "columns",
+     "bytes": 2181,
+     "share": 3.32,
+     "count": 1
+    },
+    {
+     "key": "offers",
+     "bytes": 984,
+     "share": 1.5,
+     "count": 16
+    },
+    {
+     "key": "dashboard",
+     "bytes": 633,
+     "share": 0.96,
+     "count": 2
+    },
+    {
+     "key": "analyses",
+     "bytes": 599,
+     "share": 0.91,
+     "count": 6
+    },
+    {
+     "key": "effectiveEncodings",
+     "bytes": 483,
+     "share": 0.74,
+     "count": 9
+    },
+    {
+     "key": "encodings",
+     "bytes": 474,
+     "share": 0.72,
+     "count": 9
+    },
+    {
+     "key": "rules",
+     "bytes": 279,
+     "share": 0.43,
+     "count": 1
+    },
+    {
+     "key": "tables",
+     "bytes": 118,
+     "share": 0.18,
+     "count": 1
+    },
+    {
+     "key": "time",
+     "bytes": 97,
+     "share": 0.15,
+     "count": 6
+    },
+    {
+     "key": "fdr",
+     "bytes": 94,
+     "share": 0.14,
+     "count": 6
+    },
+    {
+     "key": "paths",
+     "bytes": 79,
+     "share": 0.12,
+     "count": 5
+    },
+    {
+     "key": "encodingPolicy",
+     "bytes": 63,
+     "share": 0.1,
+     "count": 2
+    },
+    {
+     "key": "engines",
+     "bytes": 27,
+     "share": 0.04,
+     "count": 1
+    },
+    {
+     "key": "keys",
+     "bytes": 24,
+     "share": 0.04,
+     "count": 1
+    },
+    {
+     "key": "clearedSelections",
+     "bytes": 22,
+     "share": 0.03,
+     "count": 0
+    },
+    {
+     "key": "selectedRowCount",
+     "bytes": 22,
+     "share": 0.03
+    },
+    {
+     "key": "defaultTable",
+     "bytes": 21,
+     "share": 0.03
+    },
+    {
+     "key": "activeSelections",
+     "bytes": 21,
+     "share": 0.03,
+     "count": 0
+    },
+    {
+     "key": "currentView",
+     "bytes": 18,
+     "share": 0.03
+    },
+    {
+     "key": "journalTotal",
+     "bytes": 16,
+     "share": 0.02
+    },
+    {
+     "key": "bookmarks",
+     "bytes": 14,
+     "share": 0.02,
+     "count": 0
+    },
+    {
+     "key": "filters",
+     "bytes": 12,
+     "share": 0.02,
+     "count": 0
+    },
+    {
+     "key": "sources",
+     "bytes": 12,
+     "share": 0.02,
+     "count": 0
+    },
+    {
+     "key": "journal",
+     "bytes": 12,
+     "share": 0.02,
+     "count": 0
+    },
+    {
+     "key": "layouts",
+     "bytes": 12,
+     "share": 0.02,
+     "count": 0
+    },
+    {
+     "key": "charts",
+     "bytes": 11,
+     "share": 0.02,
+     "count": 0
+    },
+    {
+     "key": "notes",
+     "bytes": 10,
+     "share": 0.02,
+     "count": 0
+    },
+    {
+     "key": "saved",
+     "bytes": 10,
+     "share": 0.02,
+     "count": 0
+    },
+    {
+     "key": "ok",
+     "bytes": 9,
+     "share": 0.01
+    },
+    {
+     "key": "gaps",
+     "bytes": 8,
+     "share": 0.01
+    }
+   ],
+   "compositionResidual": 0,
+   "viewsBreakdown": [
+    {
+     "key": "columns",
+     "bytes": 19548,
+     "share": 50.36,
+     "count": 9
+    },
+    {
+     "key": "prose",
+     "bytes": 12645,
+     "share": 32.57,
+     "count": 9
+    },
+    {
+     "key": "accepts",
+     "bytes": 3065,
+     "share": 7.9,
+     "count": 9
+    },
+    {
+     "key": "effective",
+     "bytes": 1366,
+     "share": 3.52,
+     "count": 9
+    },
+    {
+     "key": "encodings",
+     "bytes": 459,
+     "share": 1.18,
+     "count": 9
+    },
+    {
+     "key": "does",
+     "bytes": 443,
+     "share": 1.14,
+     "count": 9
+    },
+    {
+     "key": "selectionKinds",
+     "bytes": 304,
+     "share": 0.78,
+     "count": 9
+    },
+    {
+     "key": "viewId",
+     "bytes": 173,
+     "share": 0.45,
+     "count": 9
+    },
+    {
+     "key": "label",
+     "bytes": 155,
+     "share": 0.4,
+     "count": 9
+    },
+    {
+     "key": "canProbe",
+     "bytes": 135,
+     "share": 0.35,
+     "count": 9
+    },
+    {
+     "key": "mounted",
+     "bytes": 135,
+     "share": 0.35,
+     "count": 9
+    },
+    {
+     "key": "actor",
+     "bytes": 129,
+     "share": 0.33,
+     "count": 9
+    },
+    {
+     "key": "proposals",
+     "bytes": 126,
+     "share": 0.32,
+     "count": 9
+    }
+   ],
+   "linksBreakdown": [
+    {
+     "key": "edges",
+     "bytes": 19414,
+     "share": 95.28,
+     "count": 132
+    },
+    {
+     "key": "views",
+     "bytes": 935,
+     "share": 4.59,
+     "count": 9
+    },
+    {
+     "key": "default",
+     "bytes": 23,
+     "share": 0.11
+    }
+   ],
+   "floor": {
+    "strict": 3056,
+    "shared": 1048,
+    "verbs": 98,
+    "strictPct": 4.66,
+    "sharedPct": 1.6
+   }
+  },
+  {
+   "shape": "large",
+   "label": "20v/80c/30L/12a/5p",
+   "spec": {
+    "name": "large",
+    "views": 20,
+    "columns": 80,
+    "links": 30,
+    "analyses": 12,
+    "proseSlots": 5,
+    "rows": 1200
+   },
+   "declaredViews": 20,
+   "materializedEdges": 674,
+   "tableColumns": 80,
+   "declaredAnalyses": 12,
+   "whatsHereBytes": 306670,
+   "composition": [
+    {
+     "key": "views",
+     "bytes": 193358,
+     "share": 63.05,
+     "count": 20
+    },
+    {
+     "key": "links",
+     "bytes": 100499,
+     "share": 32.77,
+     "count": 3
+    },
+    {
+     "key": "columns",
+     "bytes": 5781,
+     "share": 1.89,
+     "count": 1
+    },
+    {
+     "key": "offers",
+     "bytes": 2148,
+     "share": 0.7,
+     "count": 35
+    },
+    {
+     "key": "analyses",
+     "bytes": 1182,
+     "share": 0.39,
+     "count": 12
+    },
+    {
+     "key": "effectiveEncodings",
+     "bytes": 1016,
+     "share": 0.33,
+     "count": 20
+    },
+    {
+     "key": "encodings",
+     "bytes": 1007,
+     "share": 0.33,
+     "count": 20
+    },
+    {
+     "key": "dashboard",
+     "bytes": 633,
+     "share": 0.21,
+     "count": 2
+    },
+    {
+     "key": "rules",
+     "bytes": 279,
+     "share": 0.09,
+     "count": 1
+    },
+    {
+     "key": "tables",
+     "bytes": 119,
+     "share": 0.04,
+     "count": 1
+    },
+    {
+     "key": "time",
+     "bytes": 97,
+     "share": 0.03,
+     "count": 6
+    },
+    {
+     "key": "fdr",
+     "bytes": 94,
+     "share": 0.03,
+     "count": 6
+    },
+    {
+     "key": "paths",
+     "bytes": 79,
+     "share": 0.03,
+     "count": 5
+    },
+    {
+     "key": "encodingPolicy",
+     "bytes": 63,
+     "share": 0.02,
+     "count": 2
+    },
+    {
+     "key": "engines",
+     "bytes": 27,
+     "share": 0.01,
+     "count": 1
+    },
+    {
+     "key": "keys",
+     "bytes": 24,
+     "share": 0.01,
+     "count": 1
+    },
+    {
+     "key": "selectedRowCount",
+     "bytes": 23,
+     "share": 0.01
+    },
+    {
+     "key": "clearedSelections",
+     "bytes": 22,
+     "share": 0.01,
+     "count": 0
+    },
+    {
+     "key": "defaultTable",
+     "bytes": 21,
+     "share": 0.01
+    },
+    {
+     "key": "activeSelections",
+     "bytes": 21,
+     "share": 0.01,
+     "count": 0
+    },
+    {
+     "key": "currentView",
+     "bytes": 18,
+     "share": 0.01
+    },
+    {
+     "key": "journalTotal",
+     "bytes": 16,
+     "share": 0.01
+    },
+    {
+     "key": "bookmarks",
+     "bytes": 14,
+     "share": 0,
+     "count": 0
+    },
+    {
+     "key": "filters",
+     "bytes": 12,
+     "share": 0,
+     "count": 0
+    },
+    {
+     "key": "sources",
+     "bytes": 12,
+     "share": 0,
+     "count": 0
+    },
+    {
+     "key": "journal",
+     "bytes": 12,
+     "share": 0,
+     "count": 0
+    },
+    {
+     "key": "layouts",
+     "bytes": 12,
+     "share": 0,
+     "count": 0
+    },
+    {
+     "key": "charts",
+     "bytes": 11,
+     "share": 0,
+     "count": 0
+    },
+    {
+     "key": "notes",
+     "bytes": 10,
+     "share": 0,
+     "count": 0
+    },
+    {
+     "key": "saved",
+     "bytes": 10,
+     "share": 0,
+     "count": 0
+    },
+    {
+     "key": "ok",
+     "bytes": 9,
+     "share": 0
+    },
+    {
+     "key": "gaps",
+     "bytes": 8,
+     "share": 0
+    }
+   ],
+   "compositionResidual": 0,
+   "viewsBreakdown": [
+    {
+     "key": "columns",
+     "bytes": 115440,
+     "share": 59.71,
+     "count": 20
+    },
+    {
+     "key": "prose",
+     "bytes": 51375,
+     "share": 26.57,
+     "count": 20
+    },
+    {
+     "key": "accepts",
+     "bytes": 18678,
+     "share": 9.66,
+     "count": 20
+    },
+    {
+     "key": "effective",
+     "bytes": 2993,
+     "share": 1.55,
+     "count": 20
+    },
+    {
+     "key": "does",
+     "bytes": 993,
+     "share": 0.51,
+     "count": 20
+    },
+    {
+     "key": "encodings",
+     "bytes": 981,
+     "share": 0.51,
+     "count": 20
+    },
+    {
+     "key": "selectionKinds",
+     "bytes": 667,
+     "share": 0.34,
+     "count": 20
+    },
+    {
+     "key": "viewId",
+     "bytes": 393,
+     "share": 0.2,
+     "count": 20
+    },
+    {
+     "key": "label",
+     "bytes": 363,
+     "share": 0.19,
+     "count": 20
+    },
+    {
+     "key": "canProbe",
+     "bytes": 300,
+     "share": 0.16,
+     "count": 20
+    },
+    {
+     "key": "mounted",
+     "bytes": 300,
+     "share": 0.16,
+     "count": 20
+    },
+    {
+     "key": "actor",
+     "bytes": 286,
+     "share": 0.15,
+     "count": 20
+    },
+    {
+     "key": "proposals",
+     "bytes": 280,
+     "share": 0.14,
+     "count": 20
+    }
+   ],
+   "linksBreakdown": [
+    {
+     "key": "edges",
+     "bytes": 98400,
+     "share": 97.92,
+     "count": 674
+    },
+    {
+     "key": "views",
+     "bytes": 2064,
+     "share": 2.05,
+     "count": 20
+    },
+    {
+     "key": "default",
+     "bytes": 23,
+     "share": 0.02
+    }
+   ],
+   "floor": {
+    "strict": 14620,
+    "shared": 2251,
+    "verbs": 98,
+    "strictPct": 4.77,
+    "sharedPct": 0.73
+   }
+  }
+ ],
+ "churn": [
+  {
+   "shape": "small",
+   "act": "select (point value on a bar)",
+   "beforeBytes": 8892,
+   "afterBytes": 9159,
+   "topLevelStableBytes": 8044,
+   "topLevelStablePct": 90.46,
+   "deepStableBytes": 8520,
+   "deepStablePct": 95.82,
+   "changedKeys": [
+    {
+     "key": "offers",
+     "beforeBytes": 371,
+     "afterBytes": 371
+    },
+    {
+     "key": "analyses",
+     "beforeBytes": 213,
+     "afterBytes": 211
+    },
+    {
+     "key": "time",
+     "beforeBytes": 97,
+     "afterBytes": 97
+    },
+    {
+     "key": "paths",
+     "beforeBytes": 79,
+     "afterBytes": 200
+    },
+    {
+     "key": "selectedRowCount",
+     "beforeBytes": 22,
+     "afterBytes": 21
+    },
+    {
+     "key": "activeSelections",
+     "beforeBytes": 21,
+     "afterBytes": 108
+    },
+    {
+     "key": "filters",
+     "beforeBytes": 12,
+     "afterBytes": 74
+    }
+   ]
+  },
+  {
+   "shape": "small",
+   "act": "filter (interval on a scatter)",
+   "beforeBytes": 8892,
+   "afterBytes": 9157,
+   "topLevelStableBytes": 8044,
+   "topLevelStablePct": 90.46,
+   "deepStableBytes": 8520,
+   "deepStablePct": 95.82,
+   "changedKeys": [
+    {
+     "key": "offers",
+     "beforeBytes": 371,
+     "afterBytes": 371
+    },
+    {
+     "key": "analyses",
+     "beforeBytes": 213,
+     "afterBytes": 211
+    },
+    {
+     "key": "time",
+     "beforeBytes": 97,
+     "afterBytes": 97
+    },
+    {
+     "key": "paths",
+     "beforeBytes": 79,
+     "afterBytes": 200
+    },
+    {
+     "key": "selectedRowCount",
+     "beforeBytes": 22,
+     "afterBytes": 21
+    },
+    {
+     "key": "activeSelections",
+     "beforeBytes": 21,
+     "afterBytes": 107
+    },
+    {
+     "key": "filters",
+     "beforeBytes": 12,
+     "afterBytes": 73
+    }
+   ]
+  },
+  {
+   "shape": "small",
+   "act": "reencode (rebind one channel)",
+   "beforeBytes": 8892,
+   "afterBytes": 9022,
+   "topLevelStableBytes": 3752,
+   "topLevelStablePct": 42.2,
+   "deepStableBytes": 8517,
+   "deepStablePct": 95.78,
+   "changedKeys": [
+    {
+     "key": "views",
+     "beforeBytes": 4187,
+     "afterBytes": 4196
+    },
+    {
+     "key": "offers",
+     "beforeBytes": 371,
+     "afterBytes": 371
+    },
+    {
+     "key": "effectiveEncodings",
+     "beforeBytes": 191,
+     "afterBytes": 191
+    },
+    {
+     "key": "encodings",
+     "beforeBytes": 182,
+     "afterBytes": 182
+    },
+    {
+     "key": "time",
+     "beforeBytes": 97,
+     "afterBytes": 97
+    },
+    {
+     "key": "paths",
+     "beforeBytes": 79,
+     "afterBytes": 200
+    }
+   ]
+  },
+  {
+   "shape": "realistic",
+   "act": "select (point value on a bar)",
+   "beforeBytes": 65609,
+   "afterBytes": 65872,
+   "topLevelStableBytes": 63762,
+   "topLevelStablePct": 97.18,
+   "deepStableBytes": 64866,
+   "deepStablePct": 98.87,
+   "changedKeys": [
+    {
+     "key": "offers",
+     "beforeBytes": 984,
+     "afterBytes": 984
+    },
+    {
+     "key": "analyses",
+     "beforeBytes": 599,
+     "afterBytes": 593
+    },
+    {
+     "key": "time",
+     "beforeBytes": 97,
+     "afterBytes": 97
+    },
+    {
+     "key": "paths",
+     "beforeBytes": 79,
+     "afterBytes": 200
+    },
+    {
+     "key": "selectedRowCount",
+     "beforeBytes": 22,
+     "afterBytes": 21
+    },
+    {
+     "key": "activeSelections",
+     "beforeBytes": 21,
+     "afterBytes": 108
+    },
+    {
+     "key": "filters",
+     "beforeBytes": 12,
+     "afterBytes": 74
+    }
+   ]
+  },
+  {
+   "shape": "realistic",
+   "act": "filter (interval on a scatter)",
+   "beforeBytes": 65609,
+   "afterBytes": 65870,
+   "topLevelStableBytes": 63762,
+   "topLevelStablePct": 97.18,
+   "deepStableBytes": 64866,
+   "deepStablePct": 98.87,
+   "changedKeys": [
+    {
+     "key": "offers",
+     "beforeBytes": 984,
+     "afterBytes": 984
+    },
+    {
+     "key": "analyses",
+     "beforeBytes": 599,
+     "afterBytes": 593
+    },
+    {
+     "key": "time",
+     "beforeBytes": 97,
+     "afterBytes": 97
+    },
+    {
+     "key": "paths",
+     "beforeBytes": 79,
+     "afterBytes": 200
+    },
+    {
+     "key": "selectedRowCount",
+     "beforeBytes": 22,
+     "afterBytes": 21
+    },
+    {
+     "key": "activeSelections",
+     "beforeBytes": 21,
+     "afterBytes": 107
+    },
+    {
+     "key": "filters",
+     "beforeBytes": 12,
+     "afterBytes": 73
+    }
+   ]
+  },
+  {
+   "shape": "realistic",
+   "act": "reencode (rebind one channel)",
+   "beforeBytes": 65609,
+   "afterBytes": 65730,
+   "topLevelStableBytes": 24632,
+   "topLevelStablePct": 37.54,
+   "deepStableBytes": 64976,
+   "deepStablePct": 99.04,
+   "changedKeys": [
+    {
+     "key": "views",
+     "beforeBytes": 38827,
+     "afterBytes": 38827
+    },
+    {
+     "key": "offers",
+     "beforeBytes": 984,
+     "afterBytes": 984
+    },
+    {
+     "key": "effectiveEncodings",
+     "beforeBytes": 483,
+     "afterBytes": 483
+    },
+    {
+     "key": "encodings",
+     "beforeBytes": 474,
+     "afterBytes": 474
+    },
+    {
+     "key": "time",
+     "beforeBytes": 97,
+     "afterBytes": 97
+    },
+    {
+     "key": "paths",
+     "beforeBytes": 79,
+     "afterBytes": 200
+    }
+   ]
+  },
+  {
+   "shape": "large",
+   "act": "select (point value on a bar)",
+   "beforeBytes": 306670,
+   "afterBytes": 306927,
+   "topLevelStableBytes": 303075,
+   "topLevelStablePct": 98.83,
+   "deepStableBytes": 305250,
+   "deepStablePct": 99.54,
+   "changedKeys": [
+    {
+     "key": "offers",
+     "beforeBytes": 2148,
+     "afterBytes": 2148
+    },
+    {
+     "key": "analyses",
+     "beforeBytes": 1182,
+     "afterBytes": 1170
+    },
+    {
+     "key": "time",
+     "beforeBytes": 97,
+     "afterBytes": 97
+    },
+    {
+     "key": "paths",
+     "beforeBytes": 79,
+     "afterBytes": 200
+    },
+    {
+     "key": "selectedRowCount",
+     "beforeBytes": 23,
+     "afterBytes": 22
+    },
+    {
+     "key": "activeSelections",
+     "beforeBytes": 21,
+     "afterBytes": 108
+    },
+    {
+     "key": "filters",
+     "beforeBytes": 12,
+     "afterBytes": 74
+    }
+   ]
+  },
+  {
+   "shape": "large",
+   "act": "filter (interval on a scatter)",
+   "beforeBytes": 306670,
+   "afterBytes": 306912,
+   "topLevelStableBytes": 303075,
+   "topLevelStablePct": 98.83,
+   "deepStableBytes": 305250,
+   "deepStablePct": 99.54,
+   "changedKeys": [
+    {
+     "key": "offers",
+     "beforeBytes": 2148,
+     "afterBytes": 2148
+    },
+    {
+     "key": "analyses",
+     "beforeBytes": 1182,
+     "afterBytes": 1158
+    },
+    {
+     "key": "time",
+     "beforeBytes": 97,
+     "afterBytes": 97
+    },
+    {
+     "key": "paths",
+     "beforeBytes": 79,
+     "afterBytes": 200
+    },
+    {
+     "key": "selectedRowCount",
+     "beforeBytes": 23,
+     "afterBytes": 21
+    },
+    {
+     "key": "activeSelections",
+     "beforeBytes": 21,
+     "afterBytes": 107
+    },
+    {
+     "key": "filters",
+     "beforeBytes": 12,
+     "afterBytes": 73
+    }
+   ]
+  },
+  {
+   "shape": "large",
+   "act": "reencode (rebind one channel)",
+   "beforeBytes": 306670,
+   "afterBytes": 306836,
+   "topLevelStableBytes": 108932,
+   "topLevelStablePct": 35.52,
+   "deepStableBytes": 305309,
+   "deepStablePct": 99.56,
+   "changedKeys": [
+    {
+     "key": "views",
+     "beforeBytes": 193358,
+     "afterBytes": 193403
+    },
+    {
+     "key": "offers",
+     "beforeBytes": 2148,
+     "afterBytes": 2148
+    },
+    {
+     "key": "effectiveEncodings",
+     "beforeBytes": 1016,
+     "afterBytes": 1016
+    },
+    {
+     "key": "encodings",
+     "beforeBytes": 1007,
+     "afterBytes": 1007
+    },
+    {
+     "key": "time",
+     "beforeBytes": 97,
+     "afterBytes": 97
+    },
+    {
+     "key": "paths",
+     "beforeBytes": 79,
+     "afterBytes": 200
+    }
+   ]
+  }
+ ],
+ "tokens": {
+  "counted": false,
+  "reason": "not requested — run with --tokens to count real tokens"
+ }
+}

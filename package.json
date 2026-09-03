@@ -24,7 +24,8 @@
     "typecheck:ui": "npm run typecheck -w vizfootprint-ui",
     "typecheck:vega-lite": "npm run typecheck -w vizfootprint-vega-lite",
     "test:vega-lite": "npm run test -w vizfootprint-vega-lite",
-    "gallery:ui": "npm run gallery -w vizfootprint-ui"
+    "gallery:ui": "npm run gallery -w vizfootprint-ui",
+    "bench:surface": "node bench/surface/run.mjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
