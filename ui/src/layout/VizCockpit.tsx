@@ -33,8 +33,10 @@
  * motion honoured). On narrow screens (≤700px) the charts stay the snap
  * carousel REGARDLESS of preset, and the arrangement controls hide.
  *
- * `readOnly` (present mode) dims and pointer-blocks the acting charts while
- * navigation (top strip) and the read-only report chips stay live; the
+ * `readOnly` (present mode) makes the acting charts INERT — dimmed, pointer-
+ * blocked, and out of the tab order (a paused control is disabled, never
+ * merely unclickable) — while navigation (top strip) and the report chips
+ * stay live; the
  * arrangement controls disable — each story beat restores its OWN layout
  * through the session fold, so present mode replays arrangements, never
  * authors them.
@@ -43,7 +45,7 @@
  * mounts the cockpit as the whole page.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, UIEvent } from 'react';
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, UIEvent } from 'react';
 import { themeStyle, themeAttr, type ThemeConfig } from '../tokens/theme.js';
 import type { LayoutChange, LayoutPreset, LayoutView } from '../adapter/types.js';
 import { ChartFrame, type ChartSize } from '../primitives/ChartFrame.js';
@@ -206,6 +208,27 @@ function bandStyle(preset: LayoutPreset, charts: readonly CockpitChart[]): CSSPr
   return { gridTemplateColumns: charts.map((c) => `minmax(0, ${c.weight ?? 1}fr)`).join(' ') };
 }
 
+/** Everything a keyboard could reach in the charts band (see the read-only effect). */
+const BAND_FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]';
+/**
+ * THE ONE EXEMPTION: a control that only ever NAVIGATES, marked by whoever
+ * drew it. `<ProseText>` stamps it on a commit/beat anchor — a link in a
+ * chart's words, or in a note, that goes to a moment in the story. Present
+ * mode pauses ACTING; walking the story is the very thing it is for, so a
+ * marked control keeps its tab stop and its click. (A saved-selection anchor
+ * is deliberately NOT marked: applying a selection is an act.)
+ *
+ * Scoping by container instead was the wrong cut — the cockpit renders every
+ * cell inside a `<ChartFrame>`, and a note IS a cell, so "outside the frame"
+ * exempted a chart's caption while silently disabling every link inside a
+ * note. What matters is what a control DOES, not where it sits.
+ */
+const SEEK_ONLY = '[data-vzf-seek]';
+/** Where a paused node's own tabindex is remembered, so Explore restores it exactly. */
+const WAS_TABINDEX = 'data-vzf-was-tabindex';
+/** The keys that ACTIVATE a control. Everything else — Tab, Shift+Tab, Escape, the arrows — must always pass. */
+const ACTIVATION_KEYS = new Set([' ', 'Enter']);
+
 /** Where the pointer is, cell-wise: real hit-testing when the engine has it, the event target otherwise. */
 function cellIdAt(e: PointerEvent): string | null {
   const under =
@@ -294,6 +317,65 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
   useEffect(() => {
     if (showing) setMenuOpen(false);
   }, [showing]);
+  /**
+   * READ-ONLY MEANS INERT — not merely unclickable.
+   *
+   * `pointer-events: none` (the `.vzf-readonly` rule) stops the MOUSE and
+   * nothing else. Every mark in the band is a focusable node — the charts draw
+   * `role="button" tabIndex={0}` rects, and the cockpit's own ✕ clear rides
+   * beside them — so Present mode used to say "acting is paused" while Tab
+   * still reached a control and Enter still landed a real commit.
+   *
+   * While read-only, everything focusable in the charts band leaves the TAB
+   * ORDER and says it is disabled — everything except a {@link SEEK_ONLY}
+   * control, which goes to a moment in the story and is the one thing this
+   * mode is for. They stay in the accessibility TREE on purpose: Present mode
+   * exists to TELL the story, and a screen-reader user must still be able to
+   * read the charts — which `inert`, the other obvious tool, would have
+   * hidden outright.
+   *
+   * A MutationObserver keeps it true: the band's marks are rebuilt whenever
+   * the story moves (a seek in Present mode draws new bars, and a new bar is
+   * born tabbable), and those rebuilds come from the CHARTS' own renders, not
+   * from this component's — so a plain effect would miss them.
+   */
+  useEffect(() => {
+    const band = stripRef.current;
+    /* v8 ignore next -- the charts band is unconditional, so the ref is always attached by the time an effect runs */
+    if (band === null) return;
+    const apply = (): void => {
+      const nodes = [...band.querySelectorAll<Element>(BAND_FOCUSABLE)].filter((n) => !n.matches(SEEK_ONLY));
+      if (readOnly) {
+        for (const n of nodes) {
+          if (n.hasAttribute(WAS_TABINDEX)) continue; // already paused — leave the remembered value alone
+          n.setAttribute(WAS_TABINDEX, n.getAttribute('tabindex') ?? '');
+          n.setAttribute('tabindex', '-1');
+          n.setAttribute('aria-disabled', 'true');
+        }
+        return;
+      }
+      for (const n of nodes) {
+        const was = n.getAttribute(WAS_TABINDEX);
+        if (was === null) continue; // never paused (or already restored)
+        if (was === '') n.removeAttribute('tabindex');
+        else n.setAttribute('tabindex', was);
+        n.removeAttribute(WAS_TABINDEX);
+        n.removeAttribute('aria-disabled');
+      }
+    };
+    apply();
+    // Explore needs no watcher: a node born now is born free. Present does —
+    // and the observer watches childList only, so `apply`'s own attribute
+    // writes can never re-trigger it.
+    if (!readOnly) return;
+    const observer = new MutationObserver(apply);
+    observer.observe(band, { subtree: true, childList: true });
+    return () => observer.disconnect();
+    // `readOnly` ALONE: a host that rebuilds its `charts` array every render
+    // (most do — the demo polls at 1 Hz) would otherwise tear down and rebuild
+    // the observer, and re-query every node in the band, once a second for as
+    // long as the show runs. The observer is what catches nodes born later.
+  }, [readOnly]);
   // the slideshow's keys: arrows, space and page keys walk the beats, Escape leaves — never while a field or a button has the keyboard
   useEffect(() => {
     if (!showing) return;
@@ -442,6 +524,37 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
     return id === focusedId ? { gridRow: '1', gridColumn: '1 / -1' } : { gridRow: '2', gridColumn: `${thumbIndex + 1}` };
   };
 
+  /**
+   * In read-only, an ACT aimed at the charts band never reaches its handler —
+   * belt and braces with the tab-order sweep, because a screen reader can
+   * still click a control that has no tab stop.
+   *
+   * What it must NOT swallow: a control marked {@link SEEK_ONLY} (navigation,
+   * which this mode exists for), and — from the keyboard — anything that is
+   * not an activation key. Swallowing every keydown made Present mode a
+   * KEYBOARD TRAP: Tab and Shift+Tab could not leave the chart, the arrows
+   * could not walk the beats, and Escape could not close the slideshow (a
+   * React `stopPropagation` stops the native event too, so the window-level
+   * handler never ran).
+   */
+  const pausedTarget = (e: ReactMouseEvent | ReactKeyboardEvent): Element | null => {
+    if (!readOnly) return null;
+    // a React DOM event inside this band always targets an element in it
+    const target = e.target as Element;
+    return target.closest(SEEK_ONLY) === null ? target : null;
+  };
+  const pauseClick = (e: ReactMouseEvent): void => {
+    if (pausedTarget(e) === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  const pauseKey = (e: ReactKeyboardEvent): void => {
+    if (!ACTIVATION_KEYS.has(e.key)) return; // Tab / Shift+Tab / Escape / arrows are never an act
+    if (pausedTarget(e) === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   let thumbCursor = 0;
   return (
     <div className={`vzf vzf-cockpit-root${showing ? ' vzf-slideshow' : ''}${props.className ? ' ' + props.className : ''}`} style={style} data-theme={themeAttr(theme)} data-slideshow={showing ? 'true' : undefined}>
@@ -524,6 +637,11 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
           data-preset={preset}
           ref={stripRef}
           onScroll={onStripScroll}
+          // Read-only: these two swallow an ACT before the mark's own handler
+          // sees it (see `pauseClick` / `pauseKey`). Never a seek anchor, and
+          // never a key that only moves the keyboard around.
+          onClickCapture={pauseClick}
+          onKeyDownCapture={pauseKey}
           style={bandStyle(preset, charts)}
         >
           {charts.map((c) => {
@@ -563,7 +681,11 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
                     className="vzf-chart-clear"
                     data-vzf="clear-selection"
                     aria-label={`Clear the ${c.id} selection`}
-                    title="Clear this view's selection (a commit, like any act)"
+                    // clearing is an ACT: paused in Present mode, and paused
+                    // means inert — a `disabled` button, not one the mouse
+                    // merely cannot reach (the keyboard could, and did)
+                    disabled={readOnly}
+                    title={readOnly ? 'Present mode — acting is paused; switch to Explore to clear this selection' : "Clear this view's selection (a commit, like any act)"}
                     onClick={c.onClear}
                   >
                     ✕ clear

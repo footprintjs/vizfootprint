@@ -528,6 +528,8 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('vizfootprint-ui ga
   }, 30_000);
 
   it('present mode = checkpoint-ONLY traversal, read-only shell', async () => {
+    // how much story there is BEFORE the show: nothing below may add to it
+    const dotsBefore = await page.locator('[data-vzf="timeline"] [data-commit]').count();
     await page.locator('[data-vzf="time-travel-bar"] [role="tab"]:has-text("Present")').click();
     await page.waitForSelector('[data-vzf="present"]');
     // the full commit timeline is GONE; only the named beats remain
@@ -539,12 +541,55 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('vizfootprint-ui ga
     expect(await page.locator('[data-beat-dot]').count()).toBe(2);
     // the current story-beat title shows
     expect(((await page.locator('.vzf-beat-title').textContent()) ?? '').length).toBeGreaterThan(0);
-    // the shell dims + blocks the acting charts
+    // the shell dims the band and takes the mouse off it — except the
+    // seek-only controls, which navigate and never act (see styles.css)
     await page.waitForSelector('[data-vzf="cockpit"][data-readonly="true"]');
     expect(await page.locator('.vzf-readonly-note').count()).toBe(1);
+    const paused = await page.evaluate(() => ({
+      band: getComputedStyle(document.querySelector('[data-vzf="cockpit-charts"]')!).opacity,
+      pointer: getComputedStyle(document.querySelector('[data-vzf="cockpit-charts"]')!).pointerEvents,
+    }));
+    expect(Number(paused.band), 'the whole band reads as paused').toBeLessThan(1);
+    expect(paused.pointer, 'and takes no mouse').toBe('none');
+    // …and READ-ONLY MEANS INERT, not merely unclickable (defect 5). CSS
+    // pointer-events stops the mouse and nothing else: every mark a chart
+    // draws is a focusable `role="button"` node, so Tab used to reach one and
+    // Enter used to land a real commit while the banner read "acting is
+    // paused". Proven from the KEYBOARD, and against a screen reader's own
+    // click too.
+    const stillTabbable = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-vzf="cockpit-charts"] .vzf-chart-frame [tabindex]')].filter((el) => el.getAttribute('tabindex') !== '-1').length,
+    );
+    expect(stillTabbable, 'nothing a chart draws is in the tab order while acting is paused').toBe(0);
     expect(
-      await page.evaluate(() => getComputedStyle(document.querySelector('[data-vzf="cockpit-charts"]')!).pointerEvents),
-    ).toBe('none');
+      await page.evaluate(() => document.querySelector('[data-vzf="cockpit-charts"] .vzf-barrect')?.getAttribute('aria-disabled')),
+      'and it says so, instead of silently doing nothing',
+    ).toBe('true');
+    await page.evaluate(() => {
+      const mark = document.querySelector('[data-vzf="cockpit-charts"] .vzf-barrect') as SVGElement;
+      mark.focus(); // a keyboard user could still land here through a screen reader
+      mark.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      mark.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await page.waitForTimeout(200);
+
+    // …and pausing acts must never become a KEYBOARD TRAP. Standing on a
+    // paused mark, Tab and Shift+Tab still move the focus OFF it: swallowing
+    // every keydown (rather than the activation keys alone) left a keyboard
+    // user stuck inside the chart with no way out.
+    await page.evaluate(() => (document.querySelector('[data-vzf="cockpit-charts"] .vzf-barrect') as SVGElement).focus());
+    await page.keyboard.press('Tab');
+    expect(
+      await page.evaluate(() => document.activeElement?.classList.contains('vzf-barrect') === true),
+      'Tab leaves the paused mark',
+    ).toBe(false);
+    await page.evaluate(() => (document.querySelector('[data-vzf="cockpit-charts"] .vzf-barrect') as SVGElement).focus());
+    await page.keyboard.press('Shift+Tab');
+    expect(
+      await page.evaluate(() => document.activeElement?.classList.contains('vzf-barrect') === true),
+      'and so does Shift+Tab',
+    ).toBe(false);
+
     // prev/next traverse the beats
     const title0 = await page.locator('.vzf-beat-title').textContent();
     const nextBtn = page.locator('[data-beat="next"]');
@@ -562,6 +607,11 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('vizfootprint-ui ga
     // back to explore — acting returns
     await page.locator('[data-vzf="time-travel-bar"] [role="tab"]:has-text("Explore")').click();
     await page.waitForSelector('[data-vzf="cockpit"][data-readonly="false"]');
+    expect(await page.locator('[data-vzf="timeline"] [data-commit]').count(), 'the paused show landed NO commit').toBe(dotsBefore);
+    expect(
+      await page.evaluate(() => document.querySelector('[data-vzf="cockpit-charts"] .vzf-barrect')?.getAttribute('tabindex')),
+      'and Explore gives the marks their tab order back',
+    ).toBe('0');
   }, 30_000);
 
   it('BR-2: forking from the past auto-names a path — toast up, pill flips to the new path', async () => {
@@ -591,6 +641,46 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('vizfootprint-ui ga
     await page.locator('[data-vzf="fork-toast-dismiss"]').click();
     await page.waitForSelector('[data-vzf="fork-toast"]', { state: 'detached' });
     await expectNoPageOrShellScroll(page); // the toast never takes layout space
+
+    // defect 4: the rail just went from the whole story to ONE path of several.
+    // Said out loud that is a fork; said in silence it reads as data loss.
+    const scope = (await page.locator('[data-vzf="rail-scope"]').textContent()) ?? '';
+    expect(scope, 'the rail names the path its bars belong to').toContain('bar-click');
+    const shown = await page.locator('[data-vzf="timeline"] [data-commit]').count();
+    const [railShown, railTotal] = (/(\d+) of (\d+) steps/.exec(scope) ?? []).slice(1).map(Number);
+    expect(railShown, 'and counts them honestly').toBe(shown);
+    expect(railTotal, 'out of a story with more steps than this path holds').toBeGreaterThan(shown);
+
+    // …and wherever the cursor stands, it is DRAWN. Jump onto ANOTHER lane (a
+    // commit that is not on this path): the rail used to redraw the head's
+    // path with no mark on it at all — `.vzf-tl-dot.vzf-cursor` matched
+    // nothing, and "where am I standing?" had no answer on screen.
+    const onRail = await page.evaluate(() => [...document.querySelectorAll('[data-vzf="timeline"] [data-commit]')].map((d) => d.getAttribute('data-commit')));
+    await page.locator('[data-report="branches"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-branches"] [data-vzf="branch-map"]');
+    const offLane = await page.evaluate(
+      (rail: (string | null)[]) =>
+        [...document.querySelectorAll('[data-vzf-modal="report-branches"] g.vzf-bm-node')]
+          .map((n) => n.getAttribute('data-commit'))
+          .find((id) => id !== null && !rail.includes(id)) ?? null,
+      onRail,
+    );
+    expect(offLane, 'the story has a commit on another lane').not.toBe(null);
+    await page.locator(`[data-vzf-modal="report-branches"] g.vzf-bm-node[data-commit="${offLane!}"]`).click();
+    await page.waitForSelector('[data-vzf="ctx-menu"]');
+    await page.locator('[data-vzf="ctx-menu"] [data-ctx="jump"]').click();
+    await page.locator('[data-vzf-modal="report-branches"] [aria-label="Close"]').click();
+    await page.waitForSelector('[data-vzf-modal="report-branches"]', { state: 'detached' });
+    await page.waitForFunction((id: string) => document.querySelector('.vzf-tl-dot.vzf-cursor')?.getAttribute('data-commit') === id, offLane!, { timeout: 8000 });
+    expect(await page.locator('[data-vzf="timeline"] [data-commit]').count(), 'the rail follows the cursor onto its own lane').toBeGreaterThan(0);
+    expect((await page.locator('[data-vzf="rail-scope"]').textContent()) ?? '', 'and still says how much of the story it is showing').toMatch(/of \d+ steps/);
+    // …and back onto the path the story was standing on, for the tests that
+    // follow (a seek alone leaves the cursor detached — switching re-attaches)
+    await page.locator('[data-vzf="branch-pill"]').click();
+    await page.waitForSelector('[data-vzf-modal="paths"] [role="dialog"]');
+    await page.locator('[data-vzf-modal="paths"] [data-path="bar-click"] [data-vzf="path-switch"]').click();
+    await page.waitForSelector('[data-vzf-modal="paths"]', { state: 'detached' });
+    await page.waitForFunction(() => document.querySelector('[data-vzf="branch-pill"]')?.getAttribute('data-state') === 'on-path', undefined, { timeout: 8000 });
   }, 30_000);
 
   it('BR-2: the PathsModal renames the fork inline and switches back to main; the pill follows', async () => {

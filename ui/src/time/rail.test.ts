@@ -5,7 +5,7 @@
  * and a bar is never dropped.
  */
 import { describe, expect, it } from 'vitest';
-import { railTick, TICK_UNMEASURED, TICK_MIN, TICK_LABELLED } from './rail.js';
+import { railTick, railScope, TICK_UNMEASURED, TICK_MIN, TICK_LABELLED } from './rail.js';
 
 describe('railTick', () => {
   it('N commits share the fixed rail: one fills it, two take half, four take a quarter — the gaps are the only difference', () => {
@@ -36,5 +36,40 @@ describe('railTick', () => {
     expect(railTick(0, 40)).toEqual({ tick: TICK_UNMEASURED, dense: false });
     expect(railTick(500, 0)).toEqual({ tick: TICK_UNMEASURED, dense: false });
     expect(TICK_LABELLED).toBeLessThan(TICK_UNMEASURED); // the placeholder is a labelled width, so nothing flickers dense before the first measure
+  });
+});
+
+// defect 4: a fork silently redrew the rail (53 bars → 11) with no sentence
+// anywhere saying it was now showing ONE path of two.
+describe('railScope — what the rail is showing, in words', () => {
+  it('says how much of the story is on the rail, which path it is, and how many paths there are', () => {
+    expect(railScope({ shown: 11, total: 53, pathName: 'work-2', pathCount: 2 })).toBe('11 of 53 steps · path “work-2” of 2');
+  });
+
+  it('falls back to "this path" when the story has not named one yet', () => {
+    expect(railScope({ shown: 11, total: 53, pathCount: 2 })).toBe('11 of 53 steps · this path of 2');
+    expect(railScope({ shown: 11, total: 53, pathName: '', pathCount: 2 })).toBe('11 of 53 steps · this path of 2');
+  });
+
+  it('one path with a step off the rail still says so; a single path drops the "of N"', () => {
+    expect(railScope({ shown: 3, total: 5 })).toBe('3 of 5 steps · this path');
+  });
+
+  it('says NOTHING when the rail holds the whole story on the only path — a note always there stops being read', () => {
+    expect(railScope({ shown: 53, total: 53 })).toBe(null);
+    expect(railScope({ shown: 0, total: 0 })).toBe(null);
+  });
+
+  it('a second path is worth saying even when every step is on this one', () => {
+    expect(railScope({ shown: 5, total: 5, pathName: 'main', pathCount: 2 })).toBe('5 of 5 steps · path “main” of 2');
+  });
+
+  // when the rail draws a lane the head is not on, NO bar can carry the head
+  // mark — the sentence has to say where "now" went, or the mark a reader
+  // navigates by has simply gone missing
+  it('says where "now" is when the rail is drawing another lane', () => {
+    expect(railScope({ shown: 3, total: 4, pathCount: 2, offLane: true })).toBe('3 of 4 steps · this path of 2 · now is on another path');
+    // …even when this lane happens to hold every step of the story
+    expect(railScope({ shown: 4, total: 4, offLane: true })).toBe('4 of 4 steps · this path · now is on another path');
   });
 });

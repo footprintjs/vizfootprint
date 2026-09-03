@@ -1140,15 +1140,21 @@ describe.skipIf(!existsSync(CHROME))('mobile viewport — scroll-snap chart caro
     // the Explore/Present toggle (measured ~71px at "no paths yet"). At the
     // narrowest (390px) width with zero commits, pill+toggle (~223px) no
     // longer fit alongside the timeline row and the ⚑ Checkpoint control on
-    // one line, so `.vzf-time-controls` wraps to a SECOND row (measured
-    // ~103px total) — still one clean extra row, not the historical
-    // wrapped-column collapse this test guards against.
+    // one line, so `.vzf-time-controls` wraps to a SECOND row — still clean
+    // extra rows, not the historical wrapped-column collapse this test
+    // guards against.
+    //
+    // The band grew again (measured ~143px) when the ≤700px rail fix landed:
+    // the timeline ROW now wraps and the rail claims a real width instead of
+    // being squeezed to 8px with the ⟵/⟶ buttons OVERFLOWING onto the ⚑
+    // Checkpoint beside them. That overlap is what used to keep this number
+    // small — three honest rows beat two rows drawn on top of each other.
     const m = await page.evaluate(() => {
       const top = document.querySelector('[data-vzf="cockpit-top"]')!.getBoundingClientRect();
       const empty = document.querySelector('.vzf-tl-empty')!.getBoundingClientRect();
       return { topH: top.height, emptyH: empty.height };
     });
-    expect(m.topH, 'empty-state top strip stays a slim one-or-two-row band (was ~250px before the original fix)').toBeLessThan(115);
+    expect(m.topH, 'empty-state top strip stays a slim few-row band (was ~250px before the original fix)').toBeLessThan(155);
     expect(m.emptyH, 'the hint renders on ONE line (nowrap + ellipsis), never a wrapped column').toBeLessThan(40);
     await expectNoPageOrShellScroll(page);
   }, 30_000);
@@ -1200,6 +1206,55 @@ describe.skipIf(!existsSync(CHROME))('mobile viewport — scroll-snap chart caro
     await expectNoPageOrShellScroll(page);
     await page.keyboard.press('Escape');
     await page.waitForSelector('[data-vzf-modal="report-gaps"]', { state: 'detached' });
+  }, 30_000);
+
+  it('with commits, the rail is a RAIL — real bars, and the ⟶ never sits on top of the ⚑ Checkpoint (defect 6)', async () => {
+    // REGRESSION. At 390px the compact strip wraps, but `.vzf-timeline-row`
+    // did NOT: the rail's `flex: 1 1 100%` could not start a line of its own,
+    // so the row was squeezed to ~50px, its (flex: none) ⟵/⟶ buttons
+    // OVERFLOWED it and drew on top of the ⚑ Checkpoint control beside it,
+    // and the rail itself rendered EIGHT PIXELS wide holding every commit —
+    // the core visual of the whole strip, gone and unclickable.
+    // the carousel is parked on another chart from the test above — swipe back
+    // to the scatter before dragging on it
+    await page.locator('[data-vzf="cockpit-dots"] .vzf-cockpit-dot').first().click();
+    await page.waitForFunction(() => (document.querySelector('[data-vzf="cockpit-charts"]') as HTMLElement).scrollLeft < 2, undefined, { timeout: 8000 });
+    await page.waitForTimeout(200); // let the smooth scroll settle before the drag
+    await brush(page, 0.15, 0.45);
+    await page.waitForFunction(() => document.querySelectorAll('[data-vzf="timeline"] [data-commit]').length >= 1);
+    await brush(page, 0.5, 0.8);
+    await page.waitForFunction(() => document.querySelectorAll('[data-vzf="timeline"] [data-commit]').length >= 2);
+
+    const m = await page.evaluate(() => {
+      const box = (sel: string): { x: number; y: number; right: number; bottom: number; w: number; h: number } | null => {
+        const el = document.querySelector(sel);
+        if (el === null) return null;
+        const r = el.getBoundingClientRect();
+        return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, w: r.width, h: r.height };
+      };
+      const rail = document.querySelector('[data-vzf="timeline"]')!;
+      const bars = [...rail.querySelectorAll('.vzf-tl-dot')];
+      return {
+        forward: box('[data-step="forward"]')!,
+        back: box('[data-step="back"]')!,
+        checkpoint: box('[data-vzf="checkpoint-open"]')!,
+        rail: box('[data-vzf="timeline"]')!,
+        bars: bars.length,
+        narrowestBar: Math.min(...bars.map((b) => b.getBoundingClientRect().width)),
+        viewportW: window.innerWidth,
+      };
+    });
+    const overlaps = (a: typeof m.forward, b: typeof m.forward): boolean => a.x < b.right && b.x < a.right && a.y < b.bottom && b.y < a.bottom;
+    expect(overlaps(m.forward, m.checkpoint), 'the forward step and the ⚑ Checkpoint are drawn on top of each other').toBe(false);
+    expect(overlaps(m.back, m.checkpoint), 'so are the back step and the ⚑ Checkpoint').toBe(false);
+    expect(m.rail.w, 'the rail is a rail, not a sliver (it was 8px)').toBeGreaterThanOrEqual(140);
+    expect(m.rail.right, 'and it stays inside the phone').toBeLessThanOrEqual(m.viewportW);
+    expect(m.bars).toBeGreaterThanOrEqual(2);
+    expect(m.narrowestBar, 'every bar is wide enough to hit with a thumb-ish tap (TICK_MIN)').toBeGreaterThanOrEqual(6);
+    // the cursor is DRAWN, wherever it stands (defect 4's other half)
+    expect(await page.locator('[data-vzf="timeline"] .vzf-tl-dot.vzf-cursor').count()).toBe(1);
+    await expectNoPageOrShellScroll(page);
+    await maybeScreenshot(page, { path: path.join(SHOTS, 'mobile-rail.png'), fullPage: false });
   }, 30_000);
 
   it('the mobile page ran with zero console errors', () => {

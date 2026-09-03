@@ -1,7 +1,11 @@
 /**
  * `<TimeTravelBar>` — two modes over the same branching history.
  *
- *   EXPLORE  — the full commit-bar timeline (active lineage) with ⟵/⟶ step
+ *   EXPLORE  — the commit-bar timeline for the lineage THE CURSOR IS ON (the
+ *              head's, unless time travel took the cursor onto another lane —
+ *              the rail follows it so "where am I?" always has a mark), with a
+ *              plain-words note saying which path those bars are and how much
+ *              of the story they are, plus ⟵/⟶ step
  *              semantics (the fork-safe tree rule, not a slider), a ⚑
  *              checkpoint button, and a "return to now" when viewing the past.
  *   PRESENT  — checkpoint-ONLY traversal: prev/next walk the NAMED beats, the
@@ -24,7 +28,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import type { CommitView, CheckpointView, BranchView } from '../adapter/types.js';
 import { stepBackTarget, stepForwardTarget, activePath, pathToRoot } from '../adapter/stepNav.js';
 import { orderedCheckpoints, currentBeatIndex, beatTarget } from './presentBeat.js';
-import { useRailTicks } from './rail.js';
+import { useRailTicks, railScope } from './rail.js';
 import { CheckpointModal } from './CheckpointModal.js';
 
 export type TimeMode = 'explore' | 'present';
@@ -43,6 +47,17 @@ export interface TimeTravelBarProps {
    * in?" (both answer "where am I?"). Any node fits; the pill is the intent.
    */
   readonly pathPill?: ReactNode;
+  /**
+   * The NAME of the path the story is on (`state.paths.current`) — the rail
+   * says which path its bars belong to, so a fork reads as a fork and not as
+   * fifty-three steps that vanished. Absent = "this path".
+   *
+   * It names the HEAD's path, so the rail uses it only while it is drawing
+   * that path. Travel onto another lane and the bars are somebody else's
+   * steps: printing a last-known name over them would be a lie, so the rail
+   * falls back to "this path" and says where "now" went instead.
+   */
+  readonly pathName?: string;
   readonly commits: readonly CommitView[];
   readonly cursor: string | null;
   readonly head: string | null;
@@ -90,7 +105,15 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
   }, [readOnly, onReadOnlyChange]);
 
   const active = activePath(commits, head);
-  const lineage = pathToRoot(commits, head); // root→head, the explore timeline
+  // The rail draws the lineage the CURSOR is standing on. Normally that is the
+  // head's — but travel onto another lane and the head's path no longer holds
+  // the cursor, and the rail used to draw a set of bars with none of them
+  // marked (`.vzf-tl-dot.vzf-cursor` matched nothing: "where am I?" had no
+  // answer on screen). Following the cursor keeps the mark always drawable;
+  // `railScope` below says which path the bars belong to.
+  const headLineage = pathToRoot(commits, head); // root→head
+  const onHeadLineage = cursor === null || headLineage.some((c) => c.id === cursor);
+  const lineage = onHeadLineage ? headLineage : pathToRoot(commits, cursor);
   const ckptByCommit = new Map(checkpoints.filter((c) => c.commitId).map((c) => [c.commitId!, c.label]));
 
   const backDisabled = stepBackTarget(commits, cursor) === null;
@@ -148,6 +171,14 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
           onReturnToNow={onReturnToNow}
           openCheckpointModal={() => setCkptModalOpen(true)}
           branchCount={branches.length}
+          scope={railScope({
+            shown: lineage.length,
+            total: commits.length,
+            // the name belongs to the HEAD's path — never printed over another lane's bars
+            ...(onHeadLineage && props.pathName !== undefined ? { pathName: props.pathName } : {}),
+            pathCount: branches.length,
+            offLane: !onHeadLineage,
+          })}
         />
       ) : (
         <PresentBody head={head} checkpoints={checkpoints} commits={commits} cursor={cursor} onSeek={onSeek} onPlay={props.onPlay} />
@@ -170,7 +201,12 @@ interface ExploreBodyProps {
   lineage: CommitView[];
   active: Set<string>;
   cursor: string | null;
-  /** The tip of this lineage — its bar is marked, so "now" is findable at a glance. */
+  /**
+   * The tip of the ACTIVE lineage — its bar is marked, so "now" is findable at
+   * a glance whenever the rail is drawing that lineage. When the cursor has
+   * walked onto another lane, the head is not among these bars and no bar
+   * carries the mark: the rail's `scope` sentence says so in words.
+   */
   head: string | null;
   ckptByCommit: Map<string, string>;
   backDisabled: boolean;
@@ -182,6 +218,8 @@ interface ExploreBodyProps {
   onReturnToNow?: () => void;
   openCheckpointModal: () => void;
   branchCount: number;
+  /** What the rail is showing, in words (see `railScope`); null = it shows the whole story. */
+  scope: string | null;
 }
 function ExploreBody(p: ExploreBodyProps): JSX.Element {
   const { rail, tick, dense } = useRailTicks(p.lineage.length);
@@ -222,6 +260,15 @@ function ExploreBody(p: ExploreBodyProps): JSX.Element {
             ))
           )}
         </div>
+        {p.scope !== null && (
+          <span
+            className="vzf-tl-scope"
+            data-vzf="rail-scope"
+            title="The rail draws the path you are standing on. The other steps are on other paths — open Paths to see them all."
+          >
+            {p.scope}
+          </span>
+        )}
       </div>
       <div className="vzf-time-controls">
         <button className="vzf-btn" data-vzf="checkpoint-open" title="Name a checkpoint at the cursor" onClick={p.openCheckpointModal}>

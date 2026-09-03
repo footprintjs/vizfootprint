@@ -47,6 +47,40 @@ describe('TimeTravelBar — explore mode', () => {
     expect(container.querySelector('.vzf-tl-dot.vzf-cursor')?.getAttribute('data-commit')).toBe('b');
   });
 
+  // defect 4: seeking onto ANOTHER lane left the rail with no cursor mark at
+  // all — `.vzf-tl-dot.vzf-cursor` matched nothing, so "where am I standing?"
+  // had no answer on screen.
+  it('when the cursor sits on another lane the rail follows it, and the mark is always drawn', () => {
+    // head is 'b'; 'c' is the other child of 'a' — off the head's lineage
+    const { container } = render(<TimeTravelBar mode="explore" commits={S.commits} cursor="c" head="b" branches={S.branches} />);
+    const dots = [...container.querySelectorAll('[data-vzf="timeline"] [data-commit]')].map((d) => d.getAttribute('data-commit'));
+    expect(dots).toEqual(['r', 'a', 'c']); // the cursor's own lineage
+    expect(container.querySelector('.vzf-tl-dot.vzf-cursor')?.getAttribute('data-commit')).toBe('c');
+    // and the rail says which path it is drawing, how much of the story it is,
+    // and where "now" went — no bar on this lane can carry the head mark
+    expect(container.querySelector('[data-vzf="rail-scope"]')?.textContent).toBe('3 of 4 steps · this path of 2 · now is on another path');
+    expect(container.querySelector('.vzf-tl-dot.vzf-head'), 'the head is not on these bars, and the sentence says so').toBeNull();
+  });
+
+  it('never prints the head path\'s NAME over another lane\'s bars', () => {
+    // `pathName` names the path the HEAD is on; on another lane it would be a lie
+    const { container } = render(<TimeTravelBar mode="explore" commits={S.commits} cursor="c" head="b" branches={S.branches} pathName="main" />);
+    const scope = container.querySelector('[data-vzf="rail-scope"]')?.textContent ?? '';
+    expect(scope).not.toContain('main');
+    expect(scope).toContain('this path');
+  });
+
+  it('names the path when the host knows it, and says nothing when the rail holds the whole story', () => {
+    const { container, rerender } = render(
+      <TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" branches={S.branches} pathName="work-2" />,
+    );
+    expect(container.querySelector('[data-vzf="rail-scope"]')?.textContent).toBe('3 of 4 steps · path “work-2” of 2');
+    expect(container.querySelector('.vzf-tl-dot.vzf-head'), 'on the head\'s own lane, "now" is a mark on the rail').not.toBeNull();
+    // one path, every step on the rail — no note
+    rerender(<TimeTravelBar mode="explore" commits={S.commits.slice(0, 2)} cursor="a" head="a" branches={[{ tip: 'a', length: 2, actor: 'user', active: true }]} />);
+    expect(container.querySelector('[data-vzf="rail-scope"]')).toBeNull();
+  });
+
   it('step buttons: forward disabled at the leaf head, back enabled; both fire callbacks', () => {
     const onStepBack = vi.fn();
     const onStepForward = vi.fn();

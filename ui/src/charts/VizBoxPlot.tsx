@@ -51,6 +51,7 @@ import { AxisLabel } from '../primitives/AxisLabel.js';
 import { togglePointEmission, keyActivates } from '../primitives/pointSelect.js';
 import { selectedValue } from '../primitives/useSelection.js';
 import { useReencodePicker } from '../primitives/reencode.js';
+import { boundField } from './binding.js';
 import { defaultCompat, type Compatibility } from '../primitives/compat.js';
 import { EncodingPicker } from './EncodingPicker.js';
 
@@ -91,7 +92,11 @@ export interface VizBoxPlotProps {
   readonly columns?: readonly ColumnView[];
   /** The encoding plane's verdicts per channel (`views[].fits` on the wire) — the built-in picker greys with the session's own sentences. */
   readonly fits?: Readonly<Record<string, readonly FitView[]>>;
-  /** Current channel→field map for the pickers' highlight. */
+  /**
+   * The session's live channel→field map at the cursor. A channel it names
+   * WINS over the field props below — see {@link boundField}: one binding,
+   * named on the axis and emitted on a gesture alike.
+   */
   readonly encoding?: ViewEncoding;
   readonly onEmit?: (emission: ChartEmission) => void;
   readonly onReencode?: (viewId: string, channel: string, field: string) => void;
@@ -191,10 +196,6 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
   const {
     viewId = 'boxplot',
     data,
-    xField = 'category',
-    yField = 'value',
-    xLabel = xField,
-    yLabel = yField,
     countLabel = 'rows',
     selection,
     columns = [],
@@ -206,6 +207,13 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
     width = 420,
     height = 340,
   } = props;
+  // ONE binding per channel — the session's when it named one, this chart's own
+  // field prop otherwise; both axis labels, the accessible names, the tooltips
+  // and the emitted category field all use these.
+  const xField = boundField(encoding, 'x', props.xField ?? 'category');
+  const yField = boundField(encoding, 'y', props.yField ?? 'value');
+  const xLabel = props.xLabel ?? xField;
+  const yLabel = props.yLabel ?? yField;
 
   const geoms = useMemo(() => toGeoms(data), [data]);
 
@@ -339,7 +347,7 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
         channel={pickerChannel ?? 'x'}
         columns={columns}
         fits={fits}
-        currentField={pickerChannel === 'y' ? encoding['y'] ?? yField : encoding['x'] ?? xField}
+        currentField={pickerChannel === 'y' ? yField : xField}
         compatible={(channel, column) => (channel === 'x' ? categoryCompat(channel, column) : defaultCompat(channel, column))}
         onReencode={(v, c, f) => onReencode?.(v, c, f)}
         onClose={closePicker}

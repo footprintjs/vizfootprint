@@ -11,6 +11,13 @@
  * what the host is handed, and it is the host that resolves it (`applySaved`,
  * `seek`).
  *
+ * SEEK-ONLY, AND MARKED AS SUCH: a commit or beat anchor carries
+ * `data-vzf-seek`, the library's marker for "this control navigates, it never
+ * acts". A surface that pauses acting (Present mode — see `VizCockpit`) leaves
+ * marked controls alone, because going to a moment in the story is the whole
+ * point of that mode. A saved-selection anchor APPLIES a selection, which is
+ * an act, so it is deliberately unmarked.
+ *
  * `markdown` turns on the two light marks a model actually writes. Marks and
  * ref spans are cut against ONE offset map, so a link INSIDE a pair of
  * asterisks still reads as bold and the asterisks still leave the screen; a
@@ -136,10 +143,17 @@ export function ProseText({ text, refs = [], describeCommit, onSeek, onBeat, onS
           else if (ref.saved !== undefined) onSaved?.(ref.saved);
           else if (ref.beat !== undefined) onBeat?.(ref.beat);
         };
+        // A commit or a beat anchor only ever GOES somewhere — it is navigation,
+        // and a surface that has paused ACTING (Present mode, `VizCockpit`'s
+        // read-only) must leave it working: walking the story is what that mode
+        // is for. A SAVED-selection anchor is not navigation — it applies the
+        // saved logic, an ordinary act — so it carries no such promise and
+        // pauses with everything else.
+        const seekOnly = ref.commit !== undefined || ref.beat !== undefined;
         return (
           <span key={i} className="vzf-prosetext-ref" data-ref-commit={ref.commit} data-ref-beat={ref.beat} data-ref-saved={ref.saved}>
             {marked(piece.from, piece.to)}
-            <button type="button" className="vzf-prosetext-anchor" title={title} aria-label={`go to ${target}`} onClick={go}>
+            <button type="button" className="vzf-prosetext-anchor" data-vzf-seek={seekOnly ? '' : undefined} title={title} aria-label={`go to ${target}`} onClick={go}>
               {n}
             </button>
           </span>

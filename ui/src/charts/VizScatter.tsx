@@ -26,6 +26,7 @@ import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { useBrightPredicate, dimClass } from '../primitives/useSelection.js';
 import { useReencodePicker } from '../primitives/reencode.js';
+import { boundField } from './binding.js';
 import { EncodingPicker } from './EncodingPicker.js';
 
 export interface ScatterDatum {
@@ -53,7 +54,7 @@ export interface VizScatterProps {
   readonly ariaLabel?: string;
   readonly viewId?: string;
   readonly data: readonly ScatterDatum[];
-  /** DATA fields the axes encode (also the brush emit field). */
+  /** DATA fields the axes encode (also the brush emit field) — defaults, overridden by `encoding.x` / `encoding.y`. */
   readonly xField?: string;
   readonly yField?: string;
   readonly xLabel?: string;
@@ -71,7 +72,11 @@ export interface VizScatterProps {
   readonly columns?: readonly ColumnView[];
   /** The encoding plane's verdicts per channel (`views[].fits` on the wire) — the built-in picker greys with the session's own sentences. */
   readonly fits?: Readonly<Record<string, readonly FitView[]>>;
-  /** Current channel→field map for the picker's highlight. */
+  /**
+   * The session's live channel→field map at the cursor. A channel it names
+   * WINS over the field props below — see {@link boundField}: one binding,
+   * named on the axis and emitted on a gesture alike.
+   */
   readonly encoding?: ViewEncoding;
   readonly onEmit?: (emission: ChartEmission) => void;
   readonly onReencode?: (viewId: string, channel: string, field: string) => void;
@@ -92,10 +97,6 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   const {
     viewId = 'scatter',
     data,
-    xField = 'x',
-    yField = 'y',
-    xLabel = xField,
-    yLabel = yField,
     colorOf,
     selection,
     regression,
@@ -108,6 +109,12 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
     width = 520,
     height = 340,
   } = props;
+  // ONE binding per channel — the session's when it named one, this chart's own
+  // field prop otherwise; label, accessible name, tooltip and emit all use these.
+  const xField = boundField(encoding, 'x', props.xField ?? 'x');
+  const yField = boundField(encoding, 'y', props.yField ?? 'y');
+  const xLabel = props.xLabel ?? xField;
+  const yLabel = props.yLabel ?? yField;
 
   // the self-excluded crossfilter fold — recomputed only when the selection changes
   const keep = useBrightPredicate(selection);
@@ -202,7 +209,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         channel={pickerChannel ?? 'x'}
         columns={columns}
         fits={fits}
-        currentField={pickerChannel ? encoding[pickerChannel] ?? (pickerChannel === 'x' ? xField : yField) : undefined}
+        currentField={pickerChannel === null ? undefined : pickerChannel === 'x' ? xField : boundField(encoding, pickerChannel, yField)}
         onReencode={(v, c, f) => onReencode?.(v, c, f)}
         onClose={closePicker}
       />

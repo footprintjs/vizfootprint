@@ -23,7 +23,9 @@
  *     `.vzf` wrapper, so a themed host stays themed inside the mount.
  *   - `encodings` picks the fields: x/y (scatter, line), color (series),
  *     category (bar), region (map). Missing entries fall back to each chart's
- *     own documented defaults.
+ *     own documented defaults — through `boundField` (`../charts/binding.ts`),
+ *     the ONE law for "which field does this channel encode", so a renderer
+ *     cannot drift from the charts it wraps.
  */
 
 import type { CSSProperties } from 'react';
@@ -36,6 +38,7 @@ import {
   type RendererCapabilities,
   type RenderState,
 } from './types.js';
+import { boundField } from '../charts/binding.js';
 import { VizScatter } from '../charts/VizScatter.js';
 import { VizLine } from '../charts/VizLine.js';
 import { VizBar } from '../charts/VizBar.js';
@@ -109,8 +112,8 @@ export function scatterRenderer(options: ScatterRendererOptions = {}): Renderer 
       emissionKinds: ['interval'],
     },
     render(state, handshake) {
-      const x = state.encodings['x'] ?? 'x';
-      const y = state.encodings['y'] ?? 'y';
+      const x = boundField(state.encodings, 'x', 'x');
+      const y = boundField(state.encodings, 'y', 'y');
       const color = state.encodings['color'];
       const idField = options.idField ?? 'id';
       const data = state.rows.map((r, i) => ({
@@ -161,8 +164,8 @@ export function lineRenderer(options: LineRendererOptions = {}): Renderer {
       emissionKinds: ['interval'],
     },
     render(state, handshake) {
-      const dateField = state.encodings['x'] ?? 'date';
-      const valueField = state.encodings['y'] ?? 'value';
+      const dateField = boundField(state.encodings, 'x', 'date');
+      const valueField = boundField(state.encodings, 'y', 'value');
       const seriesField = state.encodings['color'];
       const data = state.rows.map((r) => ({
         date: String(r[dateField]),
@@ -210,7 +213,7 @@ export function barRenderer(options: BarRendererOptions = {}): Renderer {
       emissionKinds: ['point', 'match'], // SET-1: shift-click adds to the view's own set
     },
     render(state, handshake) {
-      const field = state.encodings['category'] ?? 'category';
+      const field = boundField(state.encodings, 'category', 'category');
       const countField = options.countField ?? 'count';
       const data = state.rows.map((r) => ({ category: String(r[field]), count: num(r[countField]) }));
       return (
@@ -259,7 +262,7 @@ export function mapRenderer(options: MapRendererOptions): Renderer {
       emissionKinds: ['point', 'match'], // SET-1: shift-click adds to the view's own set
     },
     render(state, handshake) {
-      const regionField = state.encodings['region'] ?? 'region';
+      const regionField = boundField(state.encodings, 'region', 'region');
       const valueField = options.valueField ?? 'value';
       const data = state.rows.map((r) => ({ region: String(r[regionField]), value: num(r[valueField]) }));
       return (
@@ -316,7 +319,7 @@ export function histogramRenderer(options: HistogramRendererOptions = {}): Rende
       emissionKinds: ['interval'],
     },
     render(state, handshake) {
-      const field = state.encodings['x'] ?? 'value';
+      const field = boundField(state.encodings, 'x', 'value');
       const x0Field = options.x0Field ?? 'x0';
       const x1Field = options.x1Field ?? 'x1';
       const countField = options.countField ?? 'count';
@@ -372,8 +375,8 @@ export function heatmapRenderer(options: HeatmapRendererOptions = {}): Renderer 
       emissionKinds: ['cell'],
     },
     render(state, handshake) {
-      const xField = state.encodings['x'] ?? 'value';
-      const yField = state.encodings['y'] ?? 'category';
+      const xField = boundField(state.encodings, 'x', 'value');
+      const yField = boundField(state.encodings, 'y', 'category');
       const x0Field = options.x0Field ?? 'x0';
       const x1Field = options.x1Field ?? 'x1';
       const yRowField = options.yRowField ?? 'y';
@@ -439,8 +442,8 @@ export function boxPlotRenderer(options: BoxPlotRendererOptions = {}): Renderer 
       emissionKinds: ['point'],
     },
     render(state, handshake) {
-      const xField = state.encodings['x'] ?? 'category';
-      const yField = state.encodings['y'] ?? 'value';
+      const xField = boundField(state.encodings, 'x', 'category');
+      const yField = boundField(state.encodings, 'y', 'value');
       const categoryField = options.categoryField ?? 'category';
       const countLabel = options.countLabel;
       const data = state.rows.map((r) => ({

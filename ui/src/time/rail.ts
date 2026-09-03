@@ -46,6 +46,45 @@ export function railTick(width: number, count: number): RailTicks {
   return { tick, dense: tick < TICK_LABELLED };
 }
 
+/** What the rail is showing, for {@link railScope} to put into words. */
+export interface RailScope {
+  /** Bars on the rail — the lineage it drew. */
+  readonly shown: number;
+  /** Steps in the whole story, every path counted. */
+  readonly total: number;
+  /** The named path the rail's bars belong to, when the host knows it names THESE bars. */
+  readonly pathName?: string;
+  /** How many named paths the story has. */
+  readonly pathCount?: number;
+  /** True when the rail is drawing a lane the HEAD is not on — "now" is elsewhere. */
+  readonly offLane?: boolean;
+}
+
+/**
+ * WHAT THE RAIL IS SHOWING, in words — the sentence beside the bars.
+ *
+ * The rail draws ONE path (the lineage the cursor is standing on), not the
+ * whole story. Fork from a past cursor and it honestly redraws: fifty-three
+ * bars become eleven. Said out loud that is a new path; said in silence it
+ * reads as data loss, which is exactly how it read before this line existed.
+ *
+ * When the cursor has walked onto a lane the HEAD is not on, no bar can wear
+ * the head marker — so the sentence says where "now" went, instead of leaving
+ * a reader to notice that the mark they navigate by has quietly gone missing.
+ *
+ * `null` when there is nothing to explain — one path, every step of it on the
+ * rail, the head among them — because a note that is always there stops being
+ * read.
+ */
+export function railScope(scope: RailScope): string | null {
+  const { shown, total, pathName, pathCount = 1, offLane = false } = scope;
+  if (shown >= total && pathCount <= 1 && !offLane) return null;
+  const path = pathName !== undefined && pathName !== '' ? `path “${pathName}”` : 'this path';
+  const of = pathCount > 1 ? ` of ${String(pathCount)}` : '';
+  const now = offLane ? ' · now is on another path' : '';
+  return `${String(shown)} of ${String(total)} steps · ${path}${of}${now}`;
+}
+
 /** The rail's CONTENT width: what the bars may share — the padding is the rail's, not theirs. */
 function contentWidth(el: HTMLElement): number {
   const cs = getComputedStyle(el);

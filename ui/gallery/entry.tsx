@@ -238,6 +238,7 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
           checkpoints={state.checkpoints}
           branches={state.branches}
           viewingPast={state.viewingPast}
+          {...(state.paths.current !== null ? { pathName: state.paths.current } : {})}
           pathPill={<BranchPill paths={state.paths} onClick={() => setPathsOpen(true)} />}
           onSeek={(id) => void view.seek(id)}
           onStepBack={() => void view.stepBack()}

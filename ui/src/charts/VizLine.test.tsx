@@ -269,6 +269,37 @@ describe('VizLine — the encoding picker', () => {
     expect(onReencode).toHaveBeenCalledWith('line', 'x', 'shipped');
   });
 
+  // REGRESSION (defect 1): the session's encoding plane admits ANY continuous
+  // column on a line's x (number or date), but this chart positions every
+  // point with Date.parse — a numeric column would be drawn as calendar years
+  // (week 12 ⇒ Dec 2001) and every value it cannot parse would be dropped in
+  // silence. When the host passes `fits`, the chart's own rule must still be
+  // able to veto, and say so.
+  it('vetoes a NUMERIC x column the session would allow, and says who refused', () => {
+    const onReencode = vi.fn();
+    render(
+      <VizLine
+        data={DATA}
+        dateField="date"
+        valueField="price"
+        columns={COLS}
+        // the session judged every column fine for a continuous x
+        fits={{ x: COLS.map((c) => ({ field: c.field, ok: c.type !== 'category' })) }}
+        onReencode={onReencode}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Encode the x axis/ }));
+    const dialog = screen.getByRole('dialog');
+    const price = within(dialog).getByRole('button', { name: /price/ }) as HTMLButtonElement;
+    expect(price.disabled, 'a number on a Date.parse axis is refused by the chart').toBe(true);
+    expect(price.getAttribute('data-veto')).toBe('chart');
+    expect(price.textContent).toContain('the time axis needs a date column');
+    expect(within(dialog).getByText(/greyed by this chart, not by the session/)).toBeTruthy();
+    // the date columns the chart CAN draw are still offered and still land the verb
+    fireEvent.click(within(dialog).getByRole('button', { name: /shipped/ }));
+    expect(onReencode).toHaveBeenCalledWith('line', 'x', 'shipped');
+  });
+
   it('the y-axis picker enables only numeric columns and honours an explicit dateFields prop', () => {
     const onReencode = vi.fn();
     render(

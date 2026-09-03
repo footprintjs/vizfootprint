@@ -18,6 +18,7 @@ import { AxisLabel } from '../primitives/AxisLabel.js';
 import { clickEmission, matchEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
 import { inSet, markClass, selectedSet } from '../primitives/useSelection.js';
 import { useReencodePicker } from '../primitives/reencode.js';
+import { boundField } from './binding.js';
 import { EncodingPicker } from './EncodingPicker.js';
 
 export interface BarDatum {
@@ -37,7 +38,9 @@ export interface VizBarProps {
    * like `data`. Absent = no overlay.
    */
   readonly highlight?: readonly BarDatum[];
+  /** The DATA field the category axis encodes (also the emit field) — a default, overridden by `encoding.category`. */
   readonly field?: string;
+  /** Words for the axis label. Given, they win over the binding — the caller chose them. */
   readonly label?: string;
   readonly colorOf?: (category: string) => string;
   /** The selected category (controlled). Omit it and the outline derives from `selection`'s own point clause. */
@@ -47,6 +50,11 @@ export interface VizBarProps {
   readonly columns?: readonly ColumnView[];
   /** The encoding plane's verdicts per channel (`views[].fits` on the wire) — the built-in picker greys with the session's own sentences. */
   readonly fits?: Readonly<Record<string, readonly FitView[]>>;
+  /**
+   * The session's live channel→field map at the cursor. A channel it names
+   * WINS over the field prop — see {@link boundField}: one binding, named on
+   * the axis and emitted on a gesture alike.
+   */
   readonly encoding?: ViewEncoding;
   readonly onEmit?: (emission: ChartEmission) => void;
   readonly onReencode?: (viewId: string, channel: string, field: string) => void;
@@ -70,8 +78,6 @@ export function VizBar(props: VizBarProps): JSX.Element {
     viewId = 'bar',
     data,
     highlight,
-    field = 'category',
-    label = field,
     colorOf,
     selection,
     columns = [],
@@ -83,6 +89,10 @@ export function VizBar(props: VizBarProps): JSX.Element {
     width = 360,
     height = 340,
   } = props;
+  // ONE binding for the category channel — the session's when it named one,
+  // this chart's own `field` otherwise; everything below names only this.
+  const field = boundField(encoding, 'category', props.field ?? 'category');
+  const label = props.label ?? field;
   // explicit `selected` wins; otherwise the outline derives from the fold's own point OR match clause (SET-1)
   const set = selectedSet(props.selected, selection);
   const { pickerChannel, openPicker, closePicker } = useReencodePicker(onReencodeRequest);
@@ -222,7 +232,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
         channel={pickerChannel ?? 'category'}
         columns={columns}
         fits={fits}
-        currentField={pickerChannel ? encoding[pickerChannel] ?? field : undefined}
+        currentField={pickerChannel === null ? undefined : boundField(encoding, pickerChannel, field)}
         onReencode={(v, c, f) => onReencode?.(v, c, f)}
         onClose={closePicker}
       />

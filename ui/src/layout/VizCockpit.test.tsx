@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, createEvent } from '@testing-library/react';
 import { VizCockpit, type CockpitChart, type CockpitReport } from './VizCockpit.js';
 
 afterEach(() => {
@@ -12,6 +12,12 @@ const CHARTS: CockpitChart[] = [
   { id: 'scatter', weight: 3, caption: 'scatter caption', render: (s) => <svg className="vzf-chart" data-size={`${s.width}x${s.height}`} /> },
   { id: 'bar', weight: 2, render: () => <svg className="vzf-chart" /> },
 ];
+
+/** ChartFrame draws nothing until it measures a real box — jsdom has no layout, so lend it one. */
+const measurable = (): void => {
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(() => 400);
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(() => 300);
+};
 
 const REPORTS: CockpitReport[] = [
   { id: 'commits', title: 'Commit log', icon: '🧾', badge: 7, content: <div data-testid="commits-panel">the log</div> },
@@ -90,6 +96,193 @@ describe('VizCockpit — the single-viewport shell', () => {
     expect(container.querySelector('.vzf-readonly-note')).not.toBeNull();
     fireEvent.click(container.querySelector('[data-report="commits"]')!);
     expect(container.querySelector('[data-vzf-modal="report-commits"]')).not.toBeNull();
+  });
+
+  // REGRESSION (defect 5): Present mode blocked the MOUSE with CSS and nothing
+  // else — a chart's ✕ clear (and every mark the charts draw as a focusable
+  // rect) was still reachable by Tab, and Enter landed a real commit while the
+  // banner read "acting is paused".
+  it('readOnly makes the whole charts band inert: nothing in it is tabbable, and the ✕ clear is really disabled', async () => {
+    measurable();
+    const onClear = vi.fn();
+    const marked: CockpitChart[] = [
+      {
+        id: 'bar',
+        active: true,
+        onClear,
+        render: () => (
+          <>
+            <svg className="vzf-chart">
+              <rect role="button" tabIndex={0} data-testid="mark" />
+            </svg>
+            {/* a chart's own control, focusable with no tabindex of its own */}
+            <button type="button" data-testid="chart-btn">
+              reset the zoom
+            </button>
+          </>
+        ),
+      },
+    ];
+    const { container, rerender } = render(<VizCockpit readOnly charts={marked} />);
+    const clear = container.querySelector('[data-vzf="clear-selection"]') as HTMLButtonElement;
+    expect(clear.disabled, 'a paused act is disabled, not merely unclickable').toBe(true);
+    expect(clear.getAttribute('title')).toContain('acting is paused');
+    fireEvent.click(clear);
+    expect(onClear, 'a disabled button never fires its handler').not.toHaveBeenCalled();
+    // the chart's OWN focusable mark left the tab order and says it is paused
+    // (it arrives with the chart's own later render — the observer catches it)
+    const mark = container.querySelector('[data-testid="mark"]')!;
+    await waitFor(() => expect(mark.getAttribute('tabindex')).toBe('-1'));
+    expect(mark.getAttribute('aria-disabled')).toBe('true');
+    // …and stays in the accessibility tree — Present mode is for READING the story
+    expect(mark.getAttribute('role')).toBe('button');
+
+    // a chart's own button had no tabindex of its own — it is paused all the same
+    expect(container.querySelector('[data-testid="chart-btn"]')!.getAttribute('tabindex')).toBe('-1');
+
+    // back to Explore: every remembered tabindex comes back exactly as it was
+    rerender(<VizCockpit charts={marked} />);
+    expect(container.querySelector('[data-testid="mark"]')!.getAttribute('tabindex')).toBe('0');
+    expect(container.querySelector('[data-testid="mark"]')!.hasAttribute('aria-disabled')).toBe(false);
+    expect(container.querySelector('[data-testid="chart-btn"]')!.hasAttribute('tabindex'), 'a node that had no tabindex gets none back').toBe(false);
+    const live = container.querySelector('[data-vzf="clear-selection"]') as HTMLButtonElement;
+    expect(live.disabled).toBe(false);
+    fireEvent.click(live);
+    expect(onClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('readOnly swallows an act aimed at a chart, and lets a SEEK anchor through wherever it sits — inside the frame included', async () => {
+    measurable();
+    const acted = vi.fn();
+    const seeked = vi.fn();
+    const seekedInCaption = vi.fn();
+    const charts: CockpitChart[] = [
+      {
+        id: 'bar',
+        caption: (
+          <button type="button" data-vzf-seek="" data-testid="caption-link" onClick={seekedInCaption}>
+            #c3
+          </button>
+        ),
+        render: () => (
+          <>
+            <svg className="vzf-chart">
+              <rect role="button" tabIndex={0} data-testid="mark" onClick={acted} onKeyDown={acted} />
+            </svg>
+            {/* a NOTE is a cell like any other, so its words live inside the
+                frame — the seek anchors in them are the feature Present mode
+                exists for, and used to be switched off by a frame-scoped rule */}
+            <button type="button" data-vzf-seek="" data-testid="note-link" onClick={seeked}>
+              go to #s2
+            </button>
+            <button type="button" data-testid="note-act">
+              save
+            </button>
+          </>
+        ),
+      },
+    ];
+    const { container, rerender } = render(<VizCockpit readOnly charts={charts} />);
+    const mark = container.querySelector('[data-testid="mark"]')!;
+    await waitFor(() => expect(mark.getAttribute('tabindex')).toBe('-1'));
+    // a screen reader can still CLICK a node that left the tab order — the act must not land
+    fireEvent.click(mark);
+    fireEvent.keyDown(mark, { key: 'Enter' });
+    fireEvent.keyDown(mark, { key: ' ' });
+    expect(acted, 'read-only means inert, not merely unclickable').not.toHaveBeenCalled();
+    // a note's own ACT is paused with everything else
+    expect(container.querySelector('[data-testid="note-act"]')!.getAttribute('tabindex')).toBe('-1');
+    // …but its seek anchors keep BOTH their tab stop and their click, in the frame and in the caption
+    const noteLink = container.querySelector('[data-testid="note-link"]')!;
+    expect(noteLink.hasAttribute('tabindex'), 'a seek anchor keeps its tab stop').toBe(false);
+    expect(noteLink.hasAttribute('aria-disabled')).toBe(false);
+    fireEvent.click(noteLink);
+    expect(seeked, 'and it still goes to the moment').toHaveBeenCalledTimes(1);
+    fireEvent.click(container.querySelector('[data-testid="caption-link"]')!);
+    expect(seekedInCaption).toHaveBeenCalledTimes(1);
+
+    // in Explore the mark acts again
+    rerender(<VizCockpit charts={charts} />);
+    fireEvent.click(container.querySelector('[data-testid="mark"]')!);
+    expect(acted).toHaveBeenCalledTimes(1);
+    // and a later Explore render walks nodes that were never paused, untouched
+    rerender(<VizCockpit charts={[...charts]} status="a nudge" />);
+    expect(container.querySelector('[data-testid="mark"]')!.getAttribute('tabindex')).toBe('0');
+    fireEvent.click(container.querySelector('[data-testid="mark"]')!);
+    expect(acted).toHaveBeenCalledTimes(2);
+  });
+
+  // REGRESSION (the first fix's own defect): swallowing EVERY keydown inside a
+  // chart made Present mode a keyboard trap — Tab and Shift+Tab could not
+  // leave the mark, and Escape could not close the slideshow (a React
+  // stopPropagation stops the native event, so the window handler never ran).
+  it('readOnly never swallows the keys that MOVE the keyboard — only the ones that act', async () => {
+    measurable();
+    const acted = vi.fn();
+    const seeked = vi.fn();
+    const charts: CockpitChart[] = [
+      {
+        id: 'bar',
+        render: () => (
+          <>
+            <svg className="vzf-chart">
+              <rect role="button" tabIndex={0} data-testid="mark" onKeyDown={acted} />
+            </svg>
+            <button type="button" data-vzf-seek="" data-testid="note-link" onKeyDown={seeked}>
+              go to #s2
+            </button>
+          </>
+        ),
+      },
+    ];
+    const { container } = render(<VizCockpit readOnly charts={charts} />);
+    const mark = container.querySelector('[data-testid="mark"]')!;
+    await waitFor(() => expect(mark.getAttribute('tabindex')).toBe('-1'));
+    // the activation keys are swallowed…
+    for (const key of ['Enter', ' ']) {
+      const e = createEvent.keyDown(mark, { key });
+      fireEvent(mark, e);
+      expect(e.defaultPrevented, `${key} is an act and is stopped`).toBe(true);
+    }
+    expect(acted).not.toHaveBeenCalled();
+    // …and every key that only moves the keyboard around passes untouched
+    for (const key of ['Tab', 'Escape', 'ArrowRight', 'ArrowLeft', 'PageDown']) {
+      const e = createEvent.keyDown(mark, { key });
+      fireEvent(mark, e);
+      expect(e.defaultPrevented, `${key} must reach the browser and the shell`).toBe(false);
+    }
+    // Enter on a SEEK anchor is not an act either — the link must fire
+    const link = container.querySelector('[data-testid="note-link"]')!;
+    const onLink = createEvent.keyDown(link, { key: 'Enter' });
+    fireEvent(link, onLink);
+    expect(onLink.defaultPrevented, 'a seek anchor keeps its keyboard activation').toBe(false);
+    expect(seeked).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape from a paused chart still leaves the slideshow', async () => {
+    measurable();
+    const onExit = vi.fn();
+    const show = { active: true, title: 'a beat', index: 0, count: 2, onPrev: vi.fn(), onNext: vi.fn(), onExit };
+    const charts: CockpitChart[] = [
+      { id: 'bar', render: () => <svg className="vzf-chart"><rect role="button" tabIndex={0} data-testid="mark" /></svg> },
+    ];
+    const { container } = render(<VizCockpit charts={charts} slideshow={show} />);
+    const mark = container.querySelector('[data-testid="mark"]')!;
+    await waitFor(() => expect(mark.getAttribute('tabindex')).toBe('-1'));
+    mark.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(onExit, 'the show closes from wherever the keyboard is standing').toHaveBeenCalled();
+  });
+
+  it('pausing twice keeps the FIRST remembered tabindex (a re-render never overwrites it with -1)', async () => {
+    measurable();
+    const marked: CockpitChart[] = [
+      { id: 'bar', render: () => <svg className="vzf-chart"><rect role="button" tabIndex={0} data-testid="mark" /></svg> },
+    ];
+    const { container, rerender } = render(<VizCockpit readOnly charts={marked} />);
+    await waitFor(() => expect(container.querySelector('[data-testid="mark"]')!.getAttribute('tabindex')).toBe('-1'));
+    rerender(<VizCockpit readOnly charts={[...marked]} status="a nudge" />);
+    rerender(<VizCockpit charts={[...marked]} status="a nudge" />);
+    expect(container.querySelector('[data-testid="mark"]')!.getAttribute('tabindex')).toBe('0');
   });
 
   it('a custom readOnlyNote replaces the default', () => {

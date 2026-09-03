@@ -11,8 +11,8 @@
  * EncodingPicker modal): `role="dialog" aria-modal` labelled by the title,
  * focus moves IN on open (the `initialFocus` selector first, else the first
  * focusable), Tab is trapped at the edges in both directions, Esc and a
- * backdrop click close, and focus RESTORES to the opener (only when the opener
- * is a real HTMLElement — an SVG opener is left alone).
+ * backdrop click close, and focus RESTORES to the opener — HTML **or SVG**
+ * (an axis label is an SVG node, and the keyboard must come back to it).
  *
  * Two sizes: `'small'` (a prompt — the checkpoint namer, the encoding picker)
  * and `'large'` (a report surface, ~min(92vw, 1100px) × 82vh); in both, any
@@ -57,7 +57,13 @@ export function VizModal(props: VizModalProps): JSX.Element | null {
       modalRef.current?.querySelector<HTMLElement>(FOCUSABLE);
     target?.focus();
     return () => {
-      if (restoreRef.current instanceof HTMLElement) restoreRef.current.focus();
+      // The opener may be an SVG node — every axis label is one. Both HTML and
+      // SVG elements carry `focus()` (the HTMLOrSVGElement mixin), so the guard
+      // asks for the KIND of element it can focus, not for HTMLElement alone:
+      // the old `instanceof HTMLElement` test was false for an SVG opener and
+      // dropped keyboard focus on the floor (it fell back to <body>).
+      const opener = restoreRef.current;
+      if (opener instanceof HTMLElement || opener instanceof SVGElement) opener.focus();
     };
   }, [open, initialFocus]);
 

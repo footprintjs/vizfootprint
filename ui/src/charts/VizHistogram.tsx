@@ -51,6 +51,7 @@ import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { keyActivates } from '../primitives/pointSelect.js';
 import { useReencodePicker } from '../primitives/reencode.js';
+import { boundField } from './binding.js';
 import { EncodingPicker } from './EncodingPicker.js';
 
 /** One HOST-computed bucket: edges (numeric, or ISO-date strings) + its count. */
@@ -68,8 +69,9 @@ export interface VizHistogramProps {
   readonly viewId?: string;
   /** READY bins, in edge order — host-computed (the chart never bins or counts). */
   readonly data: readonly HistogramBinDatum[];
-  /** The DATA field the buckets divide (also the brush emit field). */
+  /** The DATA field the buckets divide (also the brush emit field) — a default, overridden by `encoding.x`. */
   readonly field?: string;
+  /** Words for the axis label. Given, they win over the binding — the caller chose them. */
   readonly label?: string;
   /** The unit word for tooltips (default `'rows'`). */
   readonly countLabel?: string;
@@ -79,7 +81,11 @@ export interface VizHistogramProps {
   readonly columns?: readonly ColumnView[];
   /** The encoding plane's verdicts per channel (`views[].fits` on the wire) — the built-in picker greys with the session's own sentences. */
   readonly fits?: Readonly<Record<string, readonly FitView[]>>;
-  /** Current channel→field map for the picker's highlight. */
+  /**
+   * The session's live channel→field map at the cursor. A channel it names
+   * WINS over the field prop below — see {@link boundField}: one binding,
+   * named on the axis and emitted on a gesture alike.
+   */
   readonly encoding?: ViewEncoding;
   readonly onEmit?: (emission: ChartEmission) => void;
   readonly onReencode?: (viewId: string, channel: string, field: string) => void;
@@ -123,8 +129,6 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
   const {
     viewId = 'histogram',
     data,
-    field = 'value',
-    label = field,
     countLabel = 'rows',
     selection,
     columns = [],
@@ -136,6 +140,10 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
     width = 420,
     height = 340,
   } = props;
+  // ONE binding for the x channel — the session's when it named one, this chart's
+  // own `field` otherwise; label, accessible name and emit all use it.
+  const field = boundField(encoding, 'x', props.field ?? 'value');
+  const label = props.label ?? field;
 
   const geoms = useMemo(() => toGeoms(data), [data]);
   const d0 = geoms.length > 0 ? geoms[0]!.p0 : 0;
@@ -294,7 +302,7 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
         channel={pickerChannel ?? 'x'}
         columns={columns}
         fits={fits}
-        currentField={pickerChannel ? encoding[pickerChannel] ?? field : undefined}
+        currentField={pickerChannel === null ? undefined : boundField(encoding, pickerChannel, field)}
         onReencode={(v, c, f) => onReencode?.(v, c, f)}
         onClose={closePicker}
       />

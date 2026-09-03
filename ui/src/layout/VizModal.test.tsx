@@ -104,6 +104,30 @@ describe('VizModal — the one modal system', () => {
     document.body.removeChild(opener);
   });
 
+  // defect 3: an SVG opener (every axis label is one) used to be dropped by an
+  // `instanceof HTMLElement` guard — focus fell back to <body>.
+  it('restores focus to an SVG opener too (an axis label is an SVG node)', () => {
+    const opener = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    opener.setAttribute('tabindex', '0');
+    document.body.appendChild(opener);
+    (opener as unknown as { focus: () => void }).focus();
+    expect(opener instanceof HTMLElement).toBe(false);
+    const { rerender } = render(<VizModal open onClose={() => {}} title="T" />);
+    expect(document.activeElement).not.toBe(opener);
+    rerender(<VizModal open={false} onClose={() => {}} title="T" />);
+    expect(document.activeElement).toBe(opener);
+    document.body.removeChild(opener);
+  });
+
+  it('an opener that is no element at all (nothing focused) restores nothing', () => {
+    const spy = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(null);
+    const { rerender } = render(<VizModal open onClose={() => {}} title="T" />);
+    rerender(<VizModal open={false} onClose={() => {}} title="T" />);
+    spy.mockRestore();
+    // no throw, nothing focused — the guard simply did not fire
+    expect(document.querySelector('.vzf-modal')).toBe(null);
+  });
+
   it('traps Tab: forward from the last focusable wraps to the first', () => {
     render(
       <VizModal open onClose={() => {}} title="T" footer={<button>Save</button>}>

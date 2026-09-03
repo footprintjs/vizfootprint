@@ -21,6 +21,9 @@
  *                             (click-again-clears) + `keyActivates`.
  *   • useSelection          — `useKeepPredicate` (the self-excluded fold),
  *                             `selectedValue`, `dimClass` (dim, never hide).
+ *   • `announce`            — the ONE polite live region: tell a screen-reader
+ *                             user about a change nothing focused reports
+ *                             (a re-encode), silently for sighted users.
  *
  * The selection derivation itself (`selectionForView`, `keepPredicate`,
  * `selfSelectedValue`, `selfSelectedInterval`) is the contract layer's —
@@ -48,3 +51,5 @@ export { useKeepPredicate, selectedValue, dimClass } from './useSelection.js';
 
 export { useReencodePicker } from './reencode.js';
 export type { ReencodePicker } from './reencode.js';
+
+export { announce } from './announce.js';

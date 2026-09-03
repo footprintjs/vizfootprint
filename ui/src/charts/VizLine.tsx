@@ -35,6 +35,7 @@ import { linearScale, extent, ticks, epochOf, dayOf } from '../primitives/scales
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { useReencodePicker } from '../primitives/reencode.js';
+import { boundField } from './binding.js';
 import { EncodingPicker } from './EncodingPicker.js';
 import { defaultCompat, type Compatibility } from '../primitives/compat.js';
 
@@ -52,9 +53,9 @@ export interface VizLineProps {
   readonly viewId?: string;
   /** RAW points, already crossfiltered by the consumer — the chart aggregates (mean per date per series). */
   readonly data: readonly LinePoint[];
-  /** The DATA field the time axis encodes (also the brush emit field). */
+  /** The DATA field the time axis encodes (also the brush emit field) — a default, overridden by `encoding.x`. */
   readonly dateField?: string;
-  /** The DATA field the y axis encodes. */
+  /** The DATA field the y axis encodes — a default, overridden by `encoding.y`. */
   readonly valueField?: string;
   readonly xLabel?: string;
   readonly yLabel?: string;
@@ -63,7 +64,11 @@ export interface VizLineProps {
   readonly columns?: readonly ColumnView[];
   /** The encoding plane's verdicts per channel (`views[].fits` on the wire) — the built-in picker greys with the session's own sentences. */
   readonly fits?: Readonly<Record<string, readonly FitView[]>>;
-  /** Current channel→field map for the picker's highlight. */
+  /**
+   * The session's live channel→field map at the cursor. A channel it names
+   * WINS over the field props below — see {@link boundField}: one binding,
+   * named on the axis and emitted on a gesture alike.
+   */
   readonly encoding?: ViewEncoding;
   /**
    * Columns the x picker may treat as date-capable even when their REPORTED
@@ -176,10 +181,6 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const {
     viewId = 'line',
     data,
-    dateField = 'date',
-    valueField = 'value',
-    xLabel = dateField,
-    yLabel = valueField,
     colorOf,
     columns = [],
     fits,
@@ -191,6 +192,12 @@ export function VizLine(props: VizLineProps): JSX.Element {
     width = 520,
     height = 340,
   } = props;
+  // ONE binding per channel — the session's when it named one, this chart's own
+  // field prop otherwise; label, accessible name, tooltip and emit all use these.
+  const dateField = boundField(encoding, 'x', props.dateField ?? 'date');
+  const valueField = boundField(encoding, 'y', props.valueField ?? 'value');
+  const xLabel = props.xLabel ?? dateField;
+  const yLabel = props.yLabel ?? valueField;
 
   const xDomain = props.xDomain;
   // the navigate window: keep only the points inside it — drawn extent follows the window, the data stays whole
@@ -349,7 +356,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
         columns={columns}
         fits={fits}
         compatible={compat}
-        currentField={pickerChannel ? encoding[pickerChannel] ?? (pickerChannel === 'x' ? dateField : valueField) : undefined}
+        currentField={pickerChannel === null ? undefined : pickerChannel === 'x' ? dateField : boundField(encoding, pickerChannel, valueField)}
         onReencode={(v, c, f) => onReencode?.(v, c, f)}
         onClose={closePicker}
       />
