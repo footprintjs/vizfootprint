@@ -79,8 +79,13 @@ export interface ViewView {
   readonly mounted: boolean;
   /** The current channel→field visual-encoding map at the cursor (the `reencode` fold; UI-0). */
   readonly encoding: Readonly<Record<string, string>>;
-  /** Columns available to encode onto, branch-scoped at the cursor (names+types only). */
-  readonly columns: readonly ColumnView[];
+  /*
+   * No per-view `columns` list: it was a copy of `SessionViewState.columns[defaultTable]`
+   * (a view has no table of its own), no component ever read it, and on the wire
+   * it was the largest single item in the answer. Read the table's list, or this
+   * view's own `fits` — which is the judged, per-channel answer to the same
+   * question.
+   */
   /** The encoding plane: per channel, every column judged as if bound there now — the picker greys with `because`. Absent when the wire predates the plane or the view has no encoding surface. */
   readonly fits?: Readonly<Record<string, readonly FitView[]>>;
   /** Encoding links: what the view shows, which channels it follows (and through which edge), and which follows its own rules refused. */

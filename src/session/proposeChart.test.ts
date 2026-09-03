@@ -80,7 +80,8 @@ describe('proposeChart — the happy path (ledgered agent-authored chart)', () =
     const s = freshSession();
     await s.proposeChart({ id: 'pr', spec: validSpec(), claim: 'the claim' });
     const ov = await s.overview();
-    expect(ov.charts).toEqual([{ chartId: 'pr', viewId: 'chart:pr', claim: 'the claim', authoredBy: 'agent', ledgered: true, ledgerStep: 1 }]);
+    const at = s.charts()[0]!.commitId;
+    expect(ov.charts).toEqual([{ chartId: 'pr', viewId: 'chart:pr', claim: 'the claim', authoredBy: 'agent', ledgered: true, ledgerStep: 1, commitId: at, onPath: true }]);
     expect(JSON.stringify(ov.charts)).not.toContain('circle'); // the spec's mark never rides whats_here
     expect(ov.fdr.tests).toBe(1);
   });

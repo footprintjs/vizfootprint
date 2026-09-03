@@ -265,7 +265,9 @@ describe('Q6 — reencode: the 8th dispatch verb (a state-changing view-encoding
     const ov = await s.overview();
     const scatter = ov.views.find((v) => v.viewId === 'scatter')!;
     expect(scatter.encodings).toEqual({ x: 'rating', y: 'rating' });
-    expect(scatter.columns.map((c) => c.field).sort()).toEqual(['category', 'id', 'price', 'rating']);
+    // the columns a view may name are the TABLE's, stated once — never copied per view
+    expect(ov.columns[ov.defaultTable]!.map((c) => c.field).sort()).toEqual(['category', 'id', 'price', 'rating']);
+    expect('columns' in scatter).toBe(false);
     // The old point/interval capability field is unaffected by the rename.
     expect(scatter.selectionKinds).toEqual(['point', 'interval', 'cell', 'match']); // the declared voice, cell included — ONE answer, the same the act door and the offers use (SET-1: a set is a point's plural)
     // The top-level convenience projection (viewId -> its encodings) agrees with `views[]`.

@@ -57,13 +57,12 @@ describe('mapPollState — normalization + derivations', () => {
     expect(s.ledger.discoveries).toBe(1);
     expect(s.ledger.honesty).toBe('alpha spent on abandoned branches is never refunded');
   });
-  it('maps UI-0 view shapes: selectionKinds, per-view encoding+columns, derived top-level encodings', () => {
+  it('maps UI-0 view shapes: selectionKinds, per-view encoding, derived top-level encodings', () => {
     const scatter = s.views.find((v) => v.viewId === 'scatter')!;
     expect(scatter.selectionKinds).toEqual(['interval']);
     expect(scatter.encoding).toEqual({ x: 'price', y: 'rating' });
-    expect(scatter.columns.map((c) => c.field)).toEqual(['price', 'rating']);
-    // the ROLE the def declared rides through untouched — a picker (and the sheet's header) reads it, never re-spells it
-    expect(scatter.columns.map((c) => c.role)).toEqual(['measure', undefined]);
+    // a view carries no copy of the table's column list — the picker reads `columns[table]` (below)
+    expect('columns' in scatter).toBe(false);
     // no top-level encodings in the payload → derived from views[].encodings
     expect(s.encodings['scatter']).toEqual({ x: 'price', y: 'rating' });
   });
@@ -666,7 +665,7 @@ describe('createSessionView — REAL InteractionSession (UI-0 reencode end-to-en
     expect(s.encodings['scatter']).toEqual({ x: 'price', y: 'rating' });
     const scatter = s.views.find((v) => v.viewId === 'scatter')!;
     expect(scatter.encoding).toEqual({ x: 'price', y: 'rating' });
-    expect(scatter.columns.map((c) => c.field)).toContain('rating');
+    expect(s.columns['data']!.map((c) => c.field)).toContain('rating'); // the table's list, stated once
     view.dispose();
   });
 

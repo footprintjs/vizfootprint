@@ -121,11 +121,15 @@ describe('Q6 — reencode is wired through the dispatch tool (the 8th verb, agen
     expect(get(res, 'reencoded')).toEqual({ viewId: 'scatter', channel: 'x', field: 'rating' });
 
     const here = await port.call('viz.whats_here');
-    const views = get(here, 'views') as { viewId: string; encodings: Record<string, string>; columns: { field: string }[] }[];
+    const views = get(here, 'views') as { viewId: string; encodings: Record<string, string>; accepts?: Record<string, readonly string[]> }[];
     const scatter = views.find((v) => v.viewId === 'scatter')!;
     expect(scatter.encodings).toEqual({ x: 'rating', y: 'rating' });
-    // Per-view available columns, so a chat agent can answer "what can I put on x?" from one entry.
-    expect(scatter.columns.map((c) => c.field).sort()).toEqual(['category', 'id', 'price', 'rating']);
+    // The columns a view may name are the TABLE's, stated ONCE — never a copy per view.
+    expect('columns' in scatter).toBe(false);
+    const byTable = get(here, 'columns') as Record<string, { field: string }[]>;
+    expect(byTable[get(here, 'defaultTable') as string]!.map((c) => c.field).sort()).toEqual(['category', 'id', 'price', 'rating']);
+    // "What can I put on x?" is answered per view by `accepts` — judged, not merely listed.
+    expect(scatter.accepts!['x']).toContain('rating');
   });
 
   it('an invalid channel rejects with a typed guard-failed gap over the tool port', async () => {
@@ -285,8 +289,11 @@ describe('RP-3 — propose_chart (the 9th tool): governed agent-authored charts'
     expect(JSON.stringify(res)).not.toContain('circle'); // the spec is not echoed back
 
     const here = await port.call('viz.whats_here');
-    const charts = get(here, 'charts') as { chartId: string; ledgered: boolean }[];
-    expect(charts).toEqual([{ chartId: 'pr', viewId: 'chart:pr', claim: 'price vs rating', authoredBy: 'agent', ledgered: true, ledgerStep: 1 }]);
+    const charts = get(here, 'charts') as { chartId: string; ledgered: boolean; commitId: string; onPath: boolean }[];
+    expect(charts).toEqual([
+      { chartId: 'pr', viewId: 'chart:pr', claim: 'price vs rating', authoredBy: 'agent', ledgered: true, ledgerStep: 1, commitId: charts[0]!.commitId, onPath: true },
+    ]);
+    expect(charts[0]!.commitId).toMatch(/^s\d+$/); // the moment the claim was made
   });
 
   it('a transform-carrying spec is REFUSED with the typed gap the agent reads back + repairs', async () => {

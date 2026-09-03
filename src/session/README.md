@@ -505,6 +505,17 @@ up as provenance. Same for `why({ kind: 'column' | 'hypothesis' })`, scoped to
 the DECLARING commit's branch — which may legitimately not be the cursor's, per
 `slotForColumn`.
 
+**Dropped, and SAID.** Keeping the drop is right — refusing a basis would block
+a note for a reason its author never chose and cannot repair, which is the
+difference from an authored `refs[]` citation (see *refuse what the author can
+fix, disclose what they cannot*, in [`../agent/README.md`](../agent/README.md)).
+But dropping it silently is not. `why()` names every commit it could not honour
+in `dropped`, each with `off-branch` (this log holds it, elsewhere) or
+`unverified` (nothing found it) — which is why `why()` is handed
+`commitsElsewhere` beside the branch: never to admit one, only so the answer can
+say *"it is on another branch"* rather than the untrue *"the log does not hold
+it"*, the same courtesy `proseWorld` pays at the door.
+
 ### Rebuilding at a cursor must rebuild everything derived from it
 
 `rebuildFold(cursor)` is the whole of the position-derived state. The audit,
@@ -522,7 +533,7 @@ with what a person would see if a row were missing:
 | the effective-encoding memo, the `fits` memo | **not rebuilt — self-invalidating** | correct. Each is keyed by a `JSON.stringify` of exactly what it depends on (`activeEncodings`, `activeLinks`, the facets). `rebuildFold` replaces those, the key changes, the memo recomputes. Clearing them too would be belt-and-braces on a key that is already the belt. |
 | the FDR ledger (`_ledger`) | **not rebuilt, on purpose** | a session-local record of what THIS walker asked for. Alpha is spent when a test is run, not when its commit is in front of you; the ledger counts every test including those on archived paths, which is the whole point of an online-FDR budget. Rebuilding it per cursor would refund alpha by walking away — the one thing the procedure must never do. Already stated under Law 3 as a legitimate walk/replay difference. |
 | the gap ledger (`gapLedger`) | **not rebuilt, on purpose** | likewise session-local: a record of what this walker asked for and did not get, including asks that landed nothing at all and so have no position. Already stated under Law 3. |
-| the chart register (`_charts`) | **not rebuilt, on purpose — a third session-local record** | a proposal spends ledger budget the moment it is made, so a chart carries `ledgered: true` and a `ledgerStep`. If `charts()` hid a chart when you walked to another path, the ledger would still be charging you for a claim you could no longer see. It belongs on the same side of the line as `_ledger`, and it is named here because it is the one row of this table that could plausibly have gone either way. Its `view.commitId` names the moment the claim was made, for anyone who wants to check. `adoptPath` skips a chart commit for the matching reason: a proposal is re-proposed, never replayed. |
+| the chart register (`_charts`) | **not rebuilt, on purpose — a third session-local record** | a proposal spends ledger budget the moment it is made, so a chart carries `ledgered: true` and a `ledgerStep`. If `charts()` hid a chart when you walked to another path, the ledger would still be charging you for a claim you could no longer see. It belongs on the same side of the line as `_ledger`, and it is named here because it is the one row of this table that could plausibly have gone either way. Its `view.commitId` names the moment the claim was made — and `overview().charts` now CARRIES that moment (`commitId`) plus `onPath`, whether it is on the branch you are standing on, so a reader can tell a claim about now from one made somewhere this position never saw. Listed, never hidden; disclosed, never concealed. `adoptPath` skips a chart commit for the matching reason: a proposal is re-proposed, never replayed. |
 | the `why` provenance maps (`whyByColumn`, `whyByAnalysisId`) | **not rebuilt — resolved, like the derived registry** | keyed by SLOT and by analysis id, and read through `slotForColumn` / `provenanceForAnalysis`, which resolve at a position. `whyByAnalysisId` used to be a last-wins slot, which is the bug this law names: run `correlation` on two branches and both branches answered with whichever ran last, ledger row and all. It is a list now, and the resolver applies the law `slotForColumn` already stated — the run on your branch, else the only run there has ever been, else no answer. |
 | `_head` | **not rebuilt, on purpose** | HEAD is where the walker stands, not what the fold says. `seek` is navigation, not mutation. |
 | `refs` / `BranchRefs` | **not rebuilt, on purpose** | refs live beside the log; `seek` detaches HEAD rather than moving a ref. |

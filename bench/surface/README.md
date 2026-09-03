@@ -104,12 +104,17 @@ so here is exactly what was counted:
 - **floor (strict)** = the default table, the dispatch verbs, and per view its
   `viewId`, `canProbe`, `selectionKinds` and the field names it carries. That
   is enough to name a view, name a column on it, and choose a verb. It repeats
-  the field list per view, exactly as the answer does today.
+  the field list per view — which is what the answer USED to do.
 - **floor (shared column list)** = the same facts with the column names stated
-  **once**. Every view currently reads the session's single default table, so
-  `views[].columns` is redundancy rather than information (`ViewInfo.columns`
-  says so itself: it "mirrors `Overview.columns[defaultTable]`"). This is not
-  what ships; it is what could.
+  **once**. A view has no table of its own, so `views[].columns` was redundancy
+  rather than information — it was the same ARRAY as `Overview.columns[defaultTable]`,
+  written at one site with no per-view branch. **This is now what ships**: the
+  answer states the columns once, and `views[].accepts` answers the per-view
+  question (which of them FIT this channel) properly. `strict` is kept beside it
+  as the price that used to be paid; the gap between the two columns is what
+  cutting the copy was worth. That cut is most of why the whole answer fell from
+  65,609 to 45,707 bytes at the realistic shape and from 306,670 to 190,428 at
+  the large one.
 - **verbs alone** is broken out because a host already has the verb list in the
   menu's `dispatch` schema enum. An answer that omitted the verbs would lose
   nothing — subtract that column if you think the floor should not pay for

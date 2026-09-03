@@ -58,8 +58,10 @@ export interface VizToolsOptions {
 // ── authored-constant descriptions (never interpolate runtime data — Q8) ───────
 
 const WHATS_HERE_DESCRIPTION =
-  'Describe the current analytical position: the declared views, their current channel->field visual ' +
-  'encodings and the columns available to put on them, the active selections in DATA space, the ' +
+  'Describe the current analytical position: the declared views and their current channel->field visual ' +
+  'encodings, the columns you may name (`columns`, keyed by table — every view reads ' +
+  '`columns[defaultTable]`, so that is the list a select, a filter or a rebind must come from), ' +
+  'the active selections in DATA space, the ' +
   'declared analyses with their readiness, the online-FDR ledger, the count of unmet requests ' +
   '(gaps), the encoding plane (per view, `accepts`: the column names that FIT each channel right now — an empty list on a ' +
   'channel the view FOLLOWS through an encoding edge (see `effective.followed`: change the edge, not the channel); ' +
@@ -216,7 +218,7 @@ const DISPATCH_SCHEMA = {
       description: 'link only: what the target does with it — filter drops rows, highlight dims them, navigate moves the viewport, mirror outlines the value, none turns the link off; null un-declares the edit (back to the def\'s rule).',
     },
     mapping: { type: 'array', description: 'link only, optional: [{ from, to }] field renames when the source field is not the target\'s column.' },
-    offerId: { type: 'string', description: 'select/filter, optional: the offer from whats_here.offers this act answers (offers[].viewId + kind name the node). A stale offer is refused by naming the current one; a session may require one.' },
+    offerId: { type: 'string', description: 'select/filter, optional: whats_here.offerId, copied verbatim — the position the offers you read were good at (whats_here.offers lists the view + kind you may act on). A stale offer (the position moved) is refused by naming the current one; a session may require one.' },
     onClear: { type: 'string', enum: ['leave', 'showAll', 'excludeAll'], description: 'link only, optional: what the target does when the source CLEARS — showAll drops the clause (default), leave keeps the last emission in force, excludeAll keeps nothing.' },
     fold: { type: 'string', description: 'link only: how the emission folds down to the target\'s rows, in words — required when the edge crosses grains (the source emits over an aggregate the target does not show); whats_here.links.views[].grain says each view\'s.' },
     note: { type: 'string', description: 'The inert annotation text (annotate).' },
@@ -606,6 +608,27 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     }
   }
 
+  /**
+   * The `DispatchResult` as the agent reads it. Everything the session DECIDED
+   * rides — the four that used to be dropped are the ones the agent cannot
+   * learn any other way:
+   *
+   *  - `coerced` — the binding did not fit as asked and a named coercer took
+   *    it. Without it a re-encode reads as "done" when the surface is showing
+   *    something else.
+   *  - `linked` — the edge as it now stands after an edit (or the base edge an
+   *    un-declare fell back to), which is not what was asked for.
+   *  - `described` — the slot as it now stands, including whether it is already
+   *    STALE against what is on screen.
+   *  - `proposed` — the proposal as it now stands, carrying the PROPOSING
+   *    COMMIT's id. An accept names a proposal that landed earlier, so this is
+   *    the only place that id is served; without it an agent cannot cite the
+   *    words it just put on the table.
+   *
+   * `described` is deliberately spread with an `undefined` check rather than a
+   * truthiness one: a describe that goes back to the def's own words answers
+   * `described: null`, and `null` is the answer, not an absence.
+   */
   function projectDispatch(result: DispatchResult): VizToolResult {
     if (!result.ok) {
       return { ok: false, verb: result.verb, intent: result.intent, gap: result.rejection };
@@ -620,6 +643,10 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
       ...(result.annotated ? { annotated: result.annotated } : {}),
       ...(result.navigatedTo ? { navigatedTo: result.navigatedTo } : {}),
       ...(result.reencoded ? { reencoded: result.reencoded } : {}),
+      ...(result.coerced ? { coerced: result.coerced } : {}),
+      ...(result.linked ? { linked: result.linked } : {}),
+      ...(result.described !== undefined ? { described: result.described } : {}),
+      ...(result.proposed ? { proposed: result.proposed } : {}),
     };
   }
 
@@ -652,6 +679,13 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
    * honest untested-hypothesis marker, never the spec echoed back (the agent
    * already sent it; whats_here later lists the chart, the host renders it).
    * A gate refusal comes back as the typed gap the agent reads and repairs.
+   *
+   * `commitId`, not the commit: the spec-registration commit's VALUE is the
+   * spec payload, so handing the record back would echo the spec after all.
+   * The id alone is what a reader needs — it is the MOMENT the claim was made,
+   * the same one `whats_here.charts[].commitId` carries, and the anchor a reply
+   * cites or a person seeks to. Without it a proposal was the one act on this
+   * surface that landed a commit and told nobody which.
    */
   async function callProposeChart(args: Record<string, unknown>): Promise<VizToolResult> {
     if (typeof args['id'] !== 'string') {
@@ -670,6 +704,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
       ok: true,
       chartId: result.chartId,
       viewId: result.view.viewId,
+      commitId: result.commit.id,
       claim: result.view.claim,
       authoredBy: result.view.authoredBy,
       ledgered: true,

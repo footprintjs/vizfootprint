@@ -13,6 +13,7 @@ import { isMiss, resolveAgentTier, resolveKernelTier, resolveVizTier } from './r
 import type {
   CrossTierMiss,
   CrossTierSlice,
+  DroppedRef,
   TierCommit,
   WhyResult,
   WhySources,
@@ -35,11 +36,23 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
 
   const commits: TierCommit[] = [{ tier: 'viz', id: viz.commitId, kind: 'declaring' }];
   const misses: CrossTierMiss[] = [];
-  // a MINIMAL set: one row per viz commit, the first role it was named in wins
+  // A commit the target named that this answer may not report as provenance is
+  // DROPPED — that law stands (see DroppedRef) — but it is no longer dropped
+  // SILENTLY: it is named here, with the most it can honestly be told apart as.
+  const dropped: DroppedRef[] = [];
+  const elsewhere = new Set(sources.commitsElsewhere ?? []); // never admitted; read only to tell 'another branch' from 'not found'
+  // a MINIMAL set, on BOTH lists: one row per viz commit, the first role it was
+  // named in wins — a commit named twice is one commit, whether it was honoured
+  // or dropped, so `seen` records the DECISION about an id, not just an entry.
   const seen = new Set<string>([viz.commitId]);
   const addViz = (id: string, kind: TierCommit['kind']): void => {
-    if (seen.has(id) || !sources.vizRecords.some((r) => r.id === id)) return; // validated against the log so a stale id never enters
+    if (seen.has(id)) return; // already decided under an earlier role — not a second loss
     seen.add(id);
+    if (!sources.vizRecords.some((r) => r.id === id)) {
+      // validated against the target's own branch so a stale id never enters — and said so
+      dropped.push({ id, kind, reason: elsewhere.has(id) ? 'off-branch' : 'unverified' });
+      return;
+    }
     commits.push({ tier: 'viz', id, kind });
   };
 
@@ -91,6 +104,7 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
     kernel,
     commits,
     misses,
+    ...(dropped.length > 0 ? { dropped } : {}),
     flags: { kernelRunIdAvailable: kernel?.runId != null },
     ...(sources.fdrStep ? { fdr: { step: sources.fdrStep.step, reject: sources.fdrStep.reject } } : {}),
   };

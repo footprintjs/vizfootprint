@@ -743,34 +743,50 @@ class InteractionSessionImpl implements InteractionSession {
    */
   /**
    * Layer 4, the OFFER (ruling 8): every (view, emission kind) of this
-   * dashboard — a view's voice is declared, it does not move — each stamped
-   * with the CURRENT POSITION (the cursor), so an id minted by an earlier
-   * `whats_here` goes stale when the position moves and the act door can say
-   * so, naming the current one. The tool list stays byte-stable: the offer is
-   * data in the answer, never a new tool. The view's `does` sentence rides once,
-   * on `views[]`, not per offer.
+   * dashboard — a view's voice is declared, it does not move. The tool list
+   * stays byte-stable: the offer is data in the answer, never a new tool. The
+   * view's `does` sentence rides once, on `views[]`, not per offer.
+   *
+   * This list does NOT move with the cursor. The POSITION rides once, beside
+   * it, as {@link offerStamp} — see the note there for why.
    */
   private offersNow(): Offer[] {
-    const position = this._cursor ?? 'root';
     const out: Offer[] = [];
     for (const view of this.runtime.links.views) {
       for (const kind of view.voice) {
         if (kind === ENCODING_KIND) continue; // a binding is followed through an edge, never acted on as an emission
-        out.push({ offerId: `o-${fnv1a(`${position}|${view.viewId}|${kind}`)}`, viewId: view.viewId, kind });
+        out.push({ viewId: view.viewId, kind });
       }
     }
     return out;
   }
 
-  /** The act door's half of the offer: a named offer must be the current one for that node; a session may require one. */
+  /**
+   * The one id every offer in an answer is good at: the CURRENT POSITION,
+   * hashed. An `offerId` minted by an earlier `whats_here` goes stale the
+   * moment the position moves, and the act door says so.
+   *
+   * It used to be stamped onto every offer — N copies of one fact, and the
+   * single largest churning item in an answer, because a select moves all N
+   * while their content is identical. The check is unchanged: what an offer
+   * proves is that the agent read a CURRENT answer, and the act it rides on
+   * already names its own view and kind, so the node never needed restating in
+   * the id. One stamp says exactly what N said.
+   */
+  private offerStamp(): string {
+    return `o-${fnv1a(this._cursor ?? 'root')}`;
+  }
+
+  /** The act door's half of the offer: the named offer must be current, and its node must have that voice; a session may require one. */
   private offerGuard(verb: DispatchVerb, viewId: string, kind: EmissionKind, offerId: string | undefined, intent: DispatchResult['intent']): DispatchResult | null {
     if (offerId === undefined && !this.requireOffer) return null;
-    const current = this.offersNow().find((o) => o.viewId === viewId && o.kind === kind);
+    const voiced = this.offersNow().some((o) => o.viewId === viewId && o.kind === kind);
+    const current = this.offerStamp();
     if (offerId === undefined) {
-      return this.reject(verb, intent, this.gapLedger.file('stale-offer', verb, `this session requires an offerId from whats_here${current !== undefined ? ` — the current offer for view "${viewId}" ${kind} is ${current.offerId}` : ` — and view "${viewId}" has no ${kind} voice`}`, viewId));
+      return this.reject(verb, intent, this.gapLedger.file('stale-offer', verb, `this session requires an offerId from whats_here${voiced ? ` — the current offer is ${current}` : ` — and view "${viewId}" has no ${kind} voice`}`, viewId));
     }
-    if (current === undefined) return this.reject(verb, intent, this.gapLedger.file('stale-offer', verb, `offer ${offerId} names view "${viewId}" ${kind} — view "${viewId}" has no ${kind} voice`, viewId));
-    if (current.offerId !== offerId) return this.reject(verb, intent, this.gapLedger.file('stale-offer', verb, `offer ${offerId} is not current for view "${viewId}" ${kind} — the position moved; the current offer is ${current.offerId}`, viewId));
+    if (!voiced) return this.reject(verb, intent, this.gapLedger.file('stale-offer', verb, `offer ${offerId} names view "${viewId}" ${kind} — view "${viewId}" has no ${kind} voice`, viewId));
+    if (offerId !== current) return this.reject(verb, intent, this.gapLedger.file('stale-offer', verb, `offer ${offerId} is not current for view "${viewId}" ${kind} — the position moved; the current offer is ${current}`, viewId));
     return null;
   }
 
@@ -1199,11 +1215,11 @@ class InteractionSessionImpl implements InteractionSession {
     // no such voice under THIS definition is refused in its own words (undo never called whats_here).
     let stamped: DispatchAction = action;
     if (this.requireOffer && (action.verb === 'select' || action.verb === 'filter')) {
-      const stamp = this.offersNow().find((o) => o.viewId === action.viewId && o.kind === kindOfAct(action));
-      if (stamp === undefined) {
+      const voiced = this.offersNow().some((o) => o.viewId === action.viewId && o.kind === kindOfAct(action));
+      if (!voiced) {
         return { ok: false, gap: this.gapLedger.file('stale-offer', op, `this step selects on view "${action.viewId}" ${kindOfAct(action)}, which that view has no voice for — the definition changed since the step was landed`, action.viewId) };
       }
-      stamped = { ...action, offerId: stamp.offerId };
+      stamped = { ...action, offerId: this.offerStamp() };
     }
     const result = await this.dispatch(stamped, { as: actor });
     if (!result.ok) return { ok: false, gap: result.rejection };
@@ -3282,6 +3298,7 @@ class InteractionSessionImpl implements InteractionSession {
       ? this.whyByColumn.get(this.slotForColumn(target.column) ?? target.column)
       : this.provenanceForAnalysis(target.analysisId, this._cursor);
     if (!prov) return { ok: false, missing: 'no-such-target', target };
+    const declaringPath = this.branchPath(prov.declaringCommitId);
     return why(target, {
       // The records this answer may name are the DECLARING COMMIT's own
       // ancestry — the target's position, not the reader's. `why()` validates
@@ -3291,7 +3308,9 @@ class InteractionSessionImpl implements InteractionSession {
       // for an act that never saw it. It costs no honest answer: an act's input
       // selections are, by construction, on the act's own path. Note the anchor
       // may legitimately be off the CURSOR's branch — see `slotForColumn`.
-      vizRecords: this.branchPath(prov.declaringCommitId),
+      vizRecords: declaringPath,
+      // never admitted — only so a dropped id can say "another branch" instead of the untrue "the log does not hold it"
+      commitsElsewhere: this.commitsElsewhereThan(declaringPath),
       declaringCommitId: prov.declaringCommitId,
       inputSelectionCommitIds: prov.inputSelectionCommitIds,
       ...(prov.snapshot ? { kernelSnapshot: prov.snapshot } : {}),
@@ -3300,6 +3319,18 @@ class InteractionSessionImpl implements InteractionSession {
       ...(opts.agentEventLog ? { agentEventLog: opts.agentEventLog } : {}),
       ...(prov.fdrStep ? { fdrStep: prov.fdrStep } : {}),
     });
+  }
+
+  /**
+   * Every commit id this log holds that is NOT on the given branch. Handed to
+   * `why()` for ONE purpose: so a citation it had to drop can be told apart —
+   * a commit on another branch, or one nothing in this history holds. Not one
+   * of these ids may enter the answer's commit set; it is the same courtesy
+   * `proseWorld` pays at the describe door (README, law 5).
+   */
+  private commitsElsewhereThan(path: readonly CommitRecord[]): string[] {
+    const onPath = new Set(path.map((r) => r.id));
+    return this.log.records.filter((r) => !onPath.has(r.id)).map((r) => r.id);
   }
 
   /**
@@ -3337,6 +3368,8 @@ class InteractionSessionImpl implements InteractionSession {
     const quoted = record.basis?.analysisId !== undefined ? this.provenanceForAnalysis(record.basis.analysisId, landing.id) : undefined;
     return why(target, {
       vizRecords: path,
+      // never admitted — only so a dropped id can say "another branch" instead of the untrue "the log does not hold it"
+      commitsElsewhere: this.commitsElsewhereThan(path),
       declaringCommitId: landing.id,
       inputSelectionCommitIds,
       relatedCommits: related,
@@ -3407,10 +3440,6 @@ class InteractionSessionImpl implements InteractionSession {
         // The `reencode` fold (SPEC Q6 8th verb), branch-scoped at the cursor —
         // empty for a view with no declared encoding surface.
         encodings: this.viewEncodings(view.viewId),
-        // Every view currently reads the session's single default table (D14
-        // token-lean discipline: names+types only, so a chat agent can answer
-        // "what can I put on x?" from this one entry).
-        columns: columns[this.defaultTable] ?? [],
         // The encoding plane: per channel, every column judged as if bound
         // there now, with the sentence for each refusal (the picker greys with
         // it; the agent's whats_here projects it to the names that fit).
@@ -3430,6 +3459,7 @@ class InteractionSessionImpl implements InteractionSession {
 
     const activeSelections = [...this.activeFilters.entries()].map(([viewId, clause]) => selectionInfoOf(viewId, clause, this.activeFilterCommits.get(viewId)));
     const offers = this.offersNow();
+    const offerId = this.offerStamp();
     // layer 4 `onClear`: what each cleared view LAST selected, for the edges whose policy keeps it in force
     const clearedSelections = [...this.clearedFilters.entries()].map(([viewId, { clause, clearedBy }]) => ({ ...selectionInfoOf(viewId, clause), clearedBy }));
 
@@ -3491,6 +3521,12 @@ class InteractionSessionImpl implements InteractionSession {
 
     // RP-3: the agent-authored charts + ledger status (token-lean — the SPEC
     // itself never rides whats_here; the host reads it via `session.charts()`).
+    // Each carries the MOMENT it was proposed at, and whether that moment is on
+    // the path you are standing on. `charts` is session-local on purpose (a
+    // proposal spends ledger budget when it is made, so hiding it while the
+    // ledger goes on charging would be the worse lie — README law 5), which is
+    // exactly why it must SAY when it is not a claim about now.
+    const onCursorPath = new Set(cursorPath.map((r) => r.id));
     const charts: ChartInfo[] = this.charts().map((c) => ({
       chartId: c.chartId,
       viewId: c.viewId,
@@ -3498,6 +3534,8 @@ class InteractionSessionImpl implements InteractionSession {
       authoredBy: c.authoredBy,
       ledgered: true,
       ledgerStep: c.ledgerStep,
+      commitId: c.commitId,
+      onPath: onCursorPath.has(c.commitId),
     }));
 
     return {
@@ -3517,6 +3555,7 @@ class InteractionSessionImpl implements InteractionSession {
       filters: this.filtersNow(),
       clearedSelections,
       offers,
+      offerId,
       // the one runtime record that MOVES (a refresh replaces a table's entry):
       // a frozen COPY, so a reader never holds the object the dashboard is
       // still writing. `keys`, `engines` and the link graph beside it are

@@ -13,8 +13,8 @@
  * UI-0 CONTRACT (landed, fe6e5b5): `reencode(viewId, channel, field)` rides
  * `dispatch({ verb: 'reencode', … })` — the 8th verb; there is deliberately NO
  * `session.reencode()` method. `Overview.encodings[viewId]` (a channel→field
- * convenience projection) and `views[].encodings`/`views[].columns` feed the
- * state's `encodings` map and per-view columns; the old point/interval sense
+ * convenience projection) and `views[].encodings` feeds the
+ * state's `encodings` map; the old point/interval sense
  * of `ViewInfo.encodings` is now `selectionKinds`.
  */
 
@@ -461,8 +461,6 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       selectionKinds?: readonly ('point' | 'interval')[];
       /** UI-0: the channel→field visual-encoding fold. */
       encodings?: Readonly<Record<string, string>>;
-      /** UI-0: branch-scoped columns available to encode onto. */
-      columns?: readonly { field: string; type: string; role?: string }[];
       /** The encoding plane's verdicts per channel (`views[].fits` serialized). */
       fits?: unknown;
       /** Encoding links: `views[].effective` serialized. */
@@ -482,7 +480,6 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       canProbe: o.canProbe ?? true,
       mounted: o.mounted ?? true,
       encoding: o.encodings ?? {},
-      columns: (o.columns ?? []).map((c) => ({ field: c.field, type: String(c.type), ...(c.role !== undefined ? { role: String(c.role) } : {}) })),
       ...(o.fits !== undefined ? { fits: mapFits(o.fits) } : {}),
       ...(o.effective !== undefined ? { effective: mapEffective(o.effective) } : {}),
       ...(o.prose !== undefined ? { prose: mapProse(o.prose) } : {}),

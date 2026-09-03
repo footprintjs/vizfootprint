@@ -71,6 +71,7 @@ export type {
   CorrelationEnvelope,
   CrossTierMiss,
   CrossTierSlice,
+  DroppedRef,
   Tier,
   TierCommit,
   TierCommitKind,

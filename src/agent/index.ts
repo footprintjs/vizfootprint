@@ -69,6 +69,7 @@ export type {
   WhyResult,
   CrossTierSlice,
   CrossTierMiss,
+  DroppedRef,
   WhyTargetMiss,
   TierCommit,
   AgentEventFrame,

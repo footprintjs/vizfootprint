@@ -522,6 +522,21 @@ export interface ChartInfo {
   readonly ledgered: true;
   /** Its FDR-ledger row position. */
   readonly ledgerStep: number;
+  /**
+   * The MOMENT the claim was made: the spec-registration commit's id. `charts`
+   * is session-local and deliberately not branch-scoped (a proposal spends
+   * ledger budget when it is made, so hiding it while the ledger goes on
+   * charging for it would be the worse lie — see README.md, law 5). This is
+   * what lets a reader tell a claim about NOW from one made somewhere else.
+   */
+  readonly commitId: string;
+  /**
+   * Is `commitId` on the branch path at the cursor? `false` means the chart was
+   * proposed on a path you have since left — it is still listed, still
+   * ledgered, and still costing alpha, but it is not a claim about what is on
+   * screen. Disclose rather than conceal.
+   */
+  readonly onPath: boolean;
 }
 
 export type ProposeChartResult =
@@ -627,14 +642,21 @@ export interface ViewInfo {
    * encoding surface. Seeking the cursor back in time restores the OLD map.
    */
   readonly encodings: Readonly<Record<string, string>>;
-  /**
-   * The columns available to encode onto, branch-scoped at the cursor (D14
-   * token-lean discipline: names + types only, never values — Q8). Currently
-   * every view reads the session's single default table, so this mirrors
-   * `Overview.columns[defaultTable]`; surfaced per-view so a chat agent can
-   * answer "what can I put on x?" from one `whats_here` entry.
+  /*
+   * There is deliberately no per-view `columns` list here. It used to carry the
+   * columns available to encode onto — and it was the same ARRAY REFERENCE as
+   * `Overview.columns[defaultTable]`, written once at a single site with no
+   * per-view branch, because a view has no table of its own (`ViewDecl`
+   * declares none). Repeated across N views it was the largest single item in
+   * the answer — half of `views`, ~38% of the whole payload on a large
+   * dashboard — restating one fact the same answer already carries at a
+   * twentieth of the cost. Two surfaces answer "what can I put on x?" better:
+   * `Overview.columns[defaultTable]` (what exists) and this view's own
+   * `accepts` (what actually FITS each channel, judged, with the sentence for
+   * every refusal). If a view ever gains a table of its own, or a per-view
+   * subset, the list becomes information rather than repetition and belongs
+   * back here — carrying the DIFFERENCE from the table's list, not a copy.
    */
-  readonly columns: readonly ColumnFacet[];
   /**
    * The encoding plane (src/encoding): per channel, every column judged as if
    * bound there now — fitting ones first, refused ones with their sentence.
@@ -678,9 +700,13 @@ export interface SelectionInfo {
   readonly commitId?: string;
 }
 
-/** Layer 4, the OFFER: one (view, emission kind) an act can reach from the current position, with the id the act door checks. */
+/**
+ * Layer 4, the OFFER: one (view, emission kind) an act can reach. A voice is
+ * DECLARED, so this list does not move with the cursor — the position it is
+ * good at rides once, on `Overview.offerId`, and that is the id the act door
+ * checks.
+ */
 export interface Offer {
-  readonly offerId: string;
   readonly viewId: string;
   readonly kind: 'point' | 'interval' | 'cell' | 'match';
 }
@@ -857,8 +883,17 @@ export interface Overview {
   readonly filters: Readonly<Record<string, unknown>>;
   /** Layer 4 `onClear`: views whose selection was cleared and what it was, so an edge that says `leave` or `excludeAll` can act. */
   readonly clearedSelections: readonly ClearedSelectionInfo[];
-  /** Layer 4 offers: every (view, kind) of the dashboard, each stamped with the current position — the id a select/filter may name (a stale one is refused by naming the current one). */
+  /** Layer 4 offers: every (view, kind) of the dashboard — declared voices, so this list does not move with the cursor. */
   readonly offers: readonly Offer[];
+  /**
+   * Layer 4 offers: the POSITION every offer above is good at, stated ONCE —
+   * the id a select/filter passes back as `offerId`. A stale one (the position
+   * moved since this answer) is refused by naming the current one. It is one
+   * field rather than a stamp on each offer because the act already names its
+   * own view and kind: repeating the node in N ids said nothing extra and made
+   * `offers` the largest churning item in the answer.
+   */
+  readonly offerId: string;
   /** Provenance: what each declared source vouched for when it was read (version, retrieval time, row count) — absent for a table declared inline as rows/csv. */
   readonly sources: Readonly<Record<string, SourceInfo>>;
   /** How many rows of the default table the live selection keeps — counted by the engine in one query, no row materialised; `null` when the engine could not answer (never a fake 0). */

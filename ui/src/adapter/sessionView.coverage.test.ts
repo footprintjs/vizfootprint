@@ -76,7 +76,7 @@ describe('mapPollState — edge branches the happy-path fixture never exercises'
     expect(bare.canProbe).toBe(true);
     expect(bare.mounted).toBe(true);
     expect(bare.encoding).toEqual({});
-    expect(bare.columns).toEqual([]);
+    expect('columns' in bare).toBe(false); // no per-view copy of the table's column list
   });
 
   it('encodingsFromViews lists only views with a NONEMPTY encoding fold', () => {

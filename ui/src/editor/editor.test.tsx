@@ -19,7 +19,6 @@ const view: ViewView = {
   canProbe: true,
   mounted: true,
   encoding: { x: 't', y: 'cases' },
-  columns: [{ field: 't', type: 'date' }, { field: 'cases', type: 'number' }, { field: 'kind', type: 'string' }],
   fits: {
     x: [{ field: 't', ok: true }, { field: 'cases', ok: true }, { field: 'kind', ok: false, because: '"kind" is string; the x channel of a line needs a number or a date' }],
     y: [{ field: 'cases', ok: true }, { field: 'kind', ok: false, because: 'no' }],
@@ -111,7 +110,7 @@ describe('ChartEditor', () => {
     expect(screen.getAllByText(/Trend/).length).toBeGreaterThan(0);
   });
   it('read-only, no handlers, no surface: everything reads and nothing acts', () => {
-    const bare: ViewView = { viewId: 'table', actor: 'user', selectionKinds: ['point'], canProbe: true, mounted: true, encoding: {}, columns: [] };
+    const bare: ViewView = { viewId: 'table', actor: 'user', selectionKinds: ['point'], canProbe: true, mounted: true, encoding: {} };
     render(<ChartEditor view={bare} readOnly />);
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
@@ -166,7 +165,7 @@ describe('the editor\'s remaining looks', () => {
 
 describe('unbound channels', () => {
   it('an unbound channel with verdicts offers (unbound) first; one with no verdicts and no binding lists nothing', () => {
-    const v: ViewView = { viewId: 'v', actor: 'user', selectionKinds: [], canProbe: true, mounted: true, encoding: {}, columns: [], fits: { x: [{ field: 'a', ok: true }], y: [] } };
+    const v: ViewView = { viewId: 'v', actor: 'user', selectionKinds: [], canProbe: true, mounted: true, encoding: {}, fits: { x: [{ field: 'a', ok: true }], y: [] } };
     render(<ChartEditor view={v} onReencode={vi.fn()} />);
     const x = screen.getByRole('combobox', { name: 'x channel' }) as HTMLSelectElement;
     expect([...x.options].map((o) => o.value)).toEqual(['', 'a']);

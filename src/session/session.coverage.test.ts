@@ -177,11 +177,11 @@ describe('allRows / columnsOf / selectedRows — no provider at all for a table'
     expect(renc.ok).toBe(false);
     if (!renc.ok) expect(renc.rejection.code).toBe('needs-backend-data');
 
-    // overview()'s per-view `columns` fallback + the defaultCols fallback both
-    // fire because 'ghost-table' never appears in `runtime.tables`.
+    // the defaultCols fallback fires because 'ghost-table' never appears in
+    // `runtime.tables` — the answer is honestly empty, never a thrown error.
     const ov = await s.overview();
-    const bar = ov.views.find((v) => v.viewId === 'bar')!;
-    expect(bar.columns).toEqual([]);
+    expect(ov.columns[ov.defaultTable]).toBeUndefined();
+    expect(ov.views.find((v) => v.viewId === 'bar')).toBeDefined();
   });
 });
 

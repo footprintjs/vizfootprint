@@ -175,7 +175,6 @@ interface ViewRow {
   readonly viewId: string;
   readonly canProbe: boolean;
   readonly selectionKinds: readonly string[];
-  readonly columns: readonly { field: string }[];
 }
 
 /**
@@ -185,29 +184,36 @@ interface ViewRow {
  *  `strict`  — the view ids, each view's fields, its emission kinds and whether
  *              it can be probed at all, plus the dispatch verbs and the default
  *              table. Enough to name a view, name a column on it, and choose a
- *              verb. It repeats the field list per view, exactly as the answer
- *              does today.
- *  `shared`  — the same facts with the column list stated ONCE. Every view
- *              currently reads the session's single default table, so the
- *              per-view repetition is redundancy, not information. Not what
- *              ships; what could ship.
+ *              verb. It REPEATS the field list per view — which is what the
+ *              answer used to do, and no longer does.
+ *  `shared`  — the same facts with the column list stated ONCE. A view has no
+ *              table of its own, so the per-view repetition was redundancy
+ *              rather than information. This is now what SHIPS (the answer
+ *              states the columns once, under `columns[defaultTable]`); `strict`
+ *              is kept beside it as the price that used to be paid.
  *  `verbs`   — the verb list's own bytes, broken out, because a host already
  *              has them in the tool menu's `verb` enum: an answer that omitted
  *              them would lose nothing.
+ *
+ * The field names come from the answer's own `columns[defaultTable]` — the one
+ * place they live now. Reading them off `views[]` is no longer possible, which
+ * is the point.
  */
 function floorOf(answer: Record<string, unknown>): { strict: number; shared: number; verbs: number; strictPct: number; sharedPct: number } {
   const total = B(answer);
   const views = (answer['views'] ?? []) as readonly ViewRow[];
+  const byTable = (answer['columns'] ?? {}) as Readonly<Record<string, readonly { field: string }[]>>;
+  const fields = (byTable[answer['defaultTable'] as string] ?? []).map((c) => c.field);
   const verbs = [...DISPATCH_VERBS];
   const strict = {
     defaultTable: answer['defaultTable'],
     verbs,
-    views: views.map((v) => ({ viewId: v.viewId, canProbe: v.canProbe, selectionKinds: v.selectionKinds, fields: v.columns.map((c) => c.field) })),
+    views: views.map((v) => ({ viewId: v.viewId, canProbe: v.canProbe, selectionKinds: v.selectionKinds, fields })),
   };
   const shared = {
     defaultTable: answer['defaultTable'],
     verbs,
-    fields: views[0]?.columns.map((c) => c.field) ?? [],
+    fields,
     views: views.map((v) => ({ viewId: v.viewId, canProbe: v.canProbe, selectionKinds: v.selectionKinds })),
   };
   return { strict: B(strict), shared: B(shared), verbs: B(verbs), strictPct: pct(B(strict), total), sharedPct: pct(B(shared), total) };

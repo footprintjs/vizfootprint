@@ -110,6 +110,31 @@ export interface WhyFlags {
   readonly kernelRunIdAvailable: boolean;
 }
 
+/**
+ * One commit the target NAMED that this answer could not honour, so the reader
+ * learns it was named. The law it discloses (`src/session/README.md`, law 5)
+ * is *refuse what the author can fix, disclose what they cannot*: an authored
+ * `refs[]` citation to another branch is REFUSED at the describe door, where
+ * the writer can seek and repair it — but `basis.atCommit` is inert data that
+ * door does not judge, so an off-branch one lands, and a log restored from the
+ * wire can carry either. Those are dropped from the commit set (never faked as
+ * provenance) and named here instead of vanishing.
+ */
+export interface DroppedRef {
+  /** The commit id the target named. */
+  readonly id: string;
+  /** The role it was named in — the same tag it would have carried in `commits`. */
+  readonly kind: TierCommitKind;
+  /**
+   * Why it could not be honoured. `off-branch`: the log holds this commit, but
+   * on another branch — the words stand at a moment that never saw it, so the
+   * fix is to seek there (or bring the step over) and write them again.
+   * `unverified`: this answer could not find the commit at all — a ghost id, or
+   * a caller that supplied only the branch and not the rest of the log.
+   */
+  readonly reason: 'off-branch' | 'unverified';
+}
+
 /** Per-tier honest miss — an unthreaded/unresolvable tier, typed, never dropped. */
 export interface CrossTierMiss {
   readonly tier: Tier;
@@ -151,6 +176,12 @@ export interface CrossTierSlice {
   readonly commits: readonly TierCommit[];
   /** Every tier that could not be threaded, typed (A4). */
   readonly misses: readonly CrossTierMiss[];
+  /**
+   * Commits the target named that this answer could not honour — absent when
+   * none was (so an answer with nothing to disclose costs nothing to say so).
+   * Dropping them is the law and stays; being SILENT about them was the defect.
+   */
+  readonly dropped?: readonly DroppedRef[];
   readonly flags: WhyFlags;
   /** kind:'hypothesis' only — the online-FDR ledger row for the test (machine context). */
   readonly fdr?: { readonly step: number; readonly reject: boolean };
@@ -194,6 +225,16 @@ export interface WhySources {
   readonly fdrStep?: FdrStep;
   /** kind:'prose' — the commits the words point at (accepted from, written at, cited), each validated against the log before it enters the set. */
   readonly relatedCommits?: readonly { readonly id: string; readonly kind: 'proposal' | 'basis' | 'ref' }[];
+  /**
+   * The commit ids this log holds that are NOT in {@link vizRecords} — every
+   * other branch. Supplied ONLY so a dropped citation can say *"it is on
+   * another branch"* rather than the untrue *"the log does not hold it"*; not
+   * one of these may ever enter the commit set. It is the same courtesy
+   * `proseWorld` pays at the describe door (`src/session/README.md`, law 5).
+   * Absent, a drop is honestly reported as `unverified` — all a caller that
+   * offered only the branch has said.
+   */
+  readonly commitsElsewhere?: readonly string[];
 }
 
 export type { RuntimeSnapshot };

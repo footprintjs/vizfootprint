@@ -49,8 +49,9 @@ export const STATE_A = {
     { id: 'c2', parent: 'c1', viewId: 'bar', kind: 'point', field: 'category', value: 'Casual', cause: { requestedBy: 'agent', intent: 'select casual' } },
   ],
   views: [
-    { viewId: 'scatter', actor: 'user', encodings: { x: 'rating', y: 'price' }, columns: COLS },
-    { viewId: 'bar', actor: 'user', encodings: { category: 'category' }, columns: COLS },
+    // no per-view column copy: the columns ride ONCE, on the top-level `columns` below
+    { viewId: 'scatter', actor: 'user', encodings: { x: 'rating', y: 'price' } },
+    { viewId: 'bar', actor: 'user', encodings: { category: 'category' } },
   ],
   activeSelections: [
     { viewId: 'scatter', field: 'price', kind: 'interval', value: [40, 250] },
