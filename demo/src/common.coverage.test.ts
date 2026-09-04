@@ -28,7 +28,7 @@ import {
   specFromRecord,
   type DemoRow,
 } from './common.js';
-import type { CommitRecord } from '../../src/log/index.js';
+import type { CommitRecord } from 'vizfootprint/log';
 
 afterEach(() => {
   vi.unstubAllGlobals();

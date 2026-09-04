@@ -103,3 +103,14 @@ export type {
 export { SOURCE_FORMATS, SOURCE_VIAS, SOURCE_REFUSALS, CAPABILITY_REFUSALS, SourceRefusal, isSourceRefusal, isUnchanged, deltaByKey, decodeRows, inlineSource, inlineVersion, openSource } from '../source/index.js';
 export type { SourceFormat, SourceVia, SourceRefusalReason, SourceUnchanged, RefreshDelta, SourceDecl, SourceCapabilities, SnapshotOptions, SourceSnapshot, SourceHandle, SourceAdapter, SourceInfo, SourceRejection } from '../source/index.js';
 export type { RestorableSaved, RestorableBookmark, RestoreResult, SavedClause, SavedSelection, SavedStore, Bookmark, BookmarkStore, CommitIdStore } from './types.js';
+
+// The builtin online-FDR stepper (owned by `../fdr`, which is a barrel and not a
+// door). It belongs HERE because this is the DECLARING half: `FdrDecl` above is
+// the declaration, `FdrStepper` is the contract it names, and this is the
+// implementation that satisfies it — you choose a stepper when you declare a
+// dashboard. Observing what it produced (`FdrStep`) is `../session`'s half. See
+// PACKAGING.md, Law 1.
+//
+// Its sibling `createAlphaInvesting` and the option/state types stay unexported:
+// Law 2 — a symbol earns a barrel when an importer asks, and none has.
+export { createLordPlusPlus } from '../fdr/index.js';

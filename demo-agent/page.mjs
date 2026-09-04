@@ -66,6 +66,9 @@ body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, san
 .activity-step .tool { font-weight: 700; color: var(--agent); white-space: nowrap; }
 .activity-step .args { color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; word-break: break-all; min-width: 0; }
 .activity-step .result { overflow-wrap: anywhere; word-break: break-all; min-width: 0; }
+/* the disclosure line: its OWN line under the row (flex-basis 100% wraps it), quiet — it names what an
+   answer could not honour and offers nothing, so it must not read as an error */
+.activity-step .dropped { flex-basis: 100%; color: var(--muted); opacity: .85; overflow-wrap: anywhere; min-width: 0; }
 .working { color: var(--agent); font-size: 12px; font-style: italic; min-height: 16px; margin-top: 6px; flex: 0 0 auto; }
 /* pinned below the composer; wraps, and past ~2 rows scrolls internally so
    all 8 chips stay reachable without stealing the transcript's height */

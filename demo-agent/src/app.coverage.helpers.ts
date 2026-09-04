@@ -112,7 +112,101 @@ export const STATE_A = {
       args: { verb: 'analyze', analysisId: 'x'.repeat(40) },
       result: { verb: 'analyze', analysis: { analysisId: 'x'.repeat(40), kind: 'stat' } },
     },
-    { tool: 'why', args: { target: 'cluster_id', extraFlag: true, noneVal: null }, result: { tiers: ['a', 'b'], slice: {} } },
+    // Every `why` row below is the shape the door ACTUALLY answers with — the
+    // composed cross-tier slice (`src/why/types.ts`). The old row here was
+    // `{ tiers, slice }`, a shape no answer carries, written to reach a branch
+    // that has since been deleted along with it.
+    //
+    // 1 · threaded, nothing missing — and DISCLOSING what it named and could not
+    //     honour: both reasons at once (they must stay told apart), a reason this
+    //     page cannot read (named, with no claim about where it is), and two
+    //     unreadable rows (never invented into a disclosure)
+    {
+      tool: 'why',
+      args: { target: 'cluster_id', extraFlag: true, noneVal: null },
+      result: {
+        ok: true,
+        targetKind: 'column',
+        key: 'cluster_id',
+        threaded: true,
+        viz: { commitId: 's4' },
+        agent: { toolCallId: 't1', runtimeStageId: 'call#0', runId: 'r1' },
+        kernel: { writerId: 'w1', commitIds: ['k1', 'k2'], stageIds: ['s1', 's2'], runId: 'r1' },
+        commits: [{ tier: 'viz', id: 's4' }, { tier: 'agent', id: 't1' }, { tier: 'kernel', id: 'k1' }],
+        misses: [],
+        dropped: [
+          { id: 'c12', kind: 'basis', reason: 'off-branch' },
+          { id: 'c13', kind: 'ref', reason: 'off-branch' },
+          { id: 'ghost', kind: 'basis', reason: 'unverified' },
+          { id: 'c9', kind: 'basis', reason: 'something-new' },
+          { id: 7 },
+          null,
+        ],
+        flags: { kernelRunIdAvailable: true },
+      },
+    },
+    // 2 · an honestly PARTIAL answer — the tiers it could not thread are named,
+    //     never a join reported as though it landed; ONE commit on another
+    //     branch, so the singular reads as a sentence
+    {
+      tool: 'why',
+      args: { target: 'risk' },
+      result: {
+        ok: true,
+        targetKind: 'hypothesis',
+        key: 'risk',
+        threaded: false,
+        viz: { commitId: 's9' },
+        agent: null,
+        kernel: null,
+        commits: [{ tier: 'viz', id: 's9' }],
+        misses: [
+          { tier: 'agent', missing: 'no-agent-tier' },
+          { tier: 'kernel', missing: 'no-kernel-snapshot' },
+        ],
+        dropped: [{ id: 'c12', kind: 'basis', reason: 'off-branch' }],
+        flags: { kernelRunIdAvailable: false },
+      },
+    },
+    // 3 · the OTHER fact on its own — a reader sent somewhere else entirely
+    {
+      tool: 'why',
+      args: { target: 'risk' },
+      result: {
+        ok: true,
+        targetKind: 'prose',
+        key: 'scatter.caption',
+        threaded: true,
+        viz: { commitId: 's9' },
+        agent: null,
+        kernel: null,
+        commits: [{ tier: 'viz', id: 's9' }],
+        misses: [],
+        dropped: [{ id: 'ghost', kind: 'ref', reason: 'unverified' }],
+        flags: { kernelRunIdAvailable: false },
+      },
+    },
+    // 4 · nothing readable to disclose — an answer that discloses nothing costs
+    //     the reader nothing to be told
+    {
+      tool: 'why',
+      args: { target: 'risk' },
+      result: {
+        ok: true,
+        targetKind: 'column',
+        key: 'risk',
+        threaded: true,
+        viz: { commitId: 's9' },
+        agent: null,
+        kernel: null,
+        commits: [],
+        misses: [],
+        dropped: 'not a list',
+        flags: { kernelRunIdAvailable: false },
+      },
+    },
+    // 5 · no provenance to walk at all — WHICH miss it was, never a bare ok=false
+    { tool: 'why', args: { target: 'nope' }, result: { ok: false, missing: 'no-such-target', target: { kind: 'column', column: 'nope' } } },
     { tool: 'fork', args: { label: 'branch2' }, result: {} },
   ],
   turnActive: false,

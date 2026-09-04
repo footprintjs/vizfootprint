@@ -23,68 +23,71 @@
  * `matchesClause` all along, and the parity test below imports it through that
  * very door. Nothing about the seam was ever in the way.
  *
- * TWO things actually are, and only the first was ever named:
+ * TWO things actually were, and only the first was ever named:
  *
- * 1. THE SHAPE. `matchesClause` reads a `PredicateClause` — a typed union where
- *    a match carries `values`/`exclude` as SIBLING fields and a cell carries
- *    only `fields`. This tier reads the WIRE triple a commit carries:
- *    `{kind, field, value}` (+ `fields`), where a match's list rides INSIDE
- *    `value` as a `MatchValueBody` and a cell's `field` is the display label.
- *    Sharing needs one total function from the wire triple to a clause — and by
- *    `adapter/README.md`'s Law 3 that function belongs in the LIBRARY, beside
- *    the shape it converts, not here: the rule for reading a commit's value is
- *    the library's rule, and a copy of it in a consumer is the helper in the
- *    wrong repository. The door would be `clauseFromWire` in `src/data`, and
- *    then this file's whole evaluator is `matchesClause(row, clauseFromWire(c))`.
+ * 1. THE SHAPE — **now settled, and in the library.** `matchesClause` reads a
+ *    `PredicateClause` — a typed union where a match carries `values`/`exclude`
+ *    as SIBLING fields and a cell carries only `fields`. This tier reads the
+ *    WIRE triple a commit carries: `{kind, field, value}` (+ `fields`), where a
+ *    match's list rides INSIDE `value` as a `MatchValueBody` and a cell's
+ *    `field` is the display label. That gap is one total function, and by
+ *    `adapter/README.md`'s Law 3 it belonged in the LIBRARY, beside the shape
+ *    it converts: the rule for reading a commit's value is the library's rule,
+ *    and a copy of it in a consumer is the helper in the wrong repository. It
+ *    is `clauseFromWire` in `src/data`, it comes through the
+ *    `vizfootprint/data` door, and {@link clausePredicate} below CALLS it.
+ *    There is one reading of a wire triple now, and it is not this file's.
  *
- * 2. THE STRATEGY, which no note has said out loud before. These are not the
- *    same algorithm with two spellings. `clausePredicate` COMPILES a clause
- *    once — `selectionForView` calls it per clause, and `intervalPredicate`
- *    picks its string/number arm and closes over `lo`/`hi` before a single row
- *    is seen. `matchesClause` INTERPRETS, re-branching on kind and re-sniffing
- *    the bounds for every row. The folded predicate runs per row per frame over
- *    a 90k-row table, so swapping the compiler for the interpreter would put a
- *    switch in the hottest loop the cockpit has. Sharing without a regression
- *    means the library owning the COMPILER too, not just the matcher — which is
- *    a design decision about `src/data`'s surface, and is deliberately NOT taken
- *    here.
+ * 2. THE STRATEGY, which is why this file still exists. These are not the same
+ *    algorithm with two spellings. `clausePredicate` COMPILES a clause once —
+ *    `selectionForView` calls it per clause, and `intervalPredicate` picks its
+ *    string/number arm and closes over `lo`/`hi` before a single row is seen.
+ *    `matchesClause` INTERPRETS, re-branching on kind and re-sniffing the
+ *    bounds for every row. The folded predicate runs per row per frame over a
+ *    90k-row table, so swapping the compiler for the interpreter would put a
+ *    switch in the hottest loop the cockpit has. Two evaluators over ONE agreed
+ *    clause can differ only in SPEED — which is the safe half, and is the half
+ *    deliberately left as two. The dangerous half was two translations, and
+ *    that one is closed.
  *
- * So: possible, and still not free. Until both are settled the parity test —
- * not this comment — is what holds the two together:
+ * So what is left here is a compiler over the library's own clause, and the
+ * test below is a DELEGATION check rather than a parity pin: it asserts that
+ * `clausePredicate(...)` agrees with `matchesClause(row, clauseFromWire(...))`
+ * — the same translation, evaluated the other way. The semantics it compiles
+ * are therefore the clause's, stated once in `src/data`:
  *   - point: `undefined` = CLEARED (keep all) — which never reaches this
  *     tier since SET-1 drops a cleared point from the fold; `null` = IS NULL
- *     (`row[field] == null`), exactly the src tier. (Before SET-1 the
- *     overview collapsed a cleared point to null, so null had to mean
- *     "cleared" here and an IS-NULL point was unrepresentable — that
- *     collapse is gone, and so is the divergence.) Anything else = strict
- *     equality.
+ *     (`row[field] == null`). (Before SET-1 the overview collapsed a cleared
+ *     point to null, so null had to mean "cleared" here and an IS-NULL point
+ *     was unrepresentable — that collapse is gone, and so is the divergence.)
+ *     Anything else = strict equality.
  *   - interval: `null` value = cleared (keep all); string bounds (ISO-8601
  *     dates, lexicographic == chronological) only ever match string cells;
  *     numeric bounds only numeric non-NaN cells; a `null` bound is half-open
- *     (only the present side is tested). Exact `matchesClause` parity.
+ *     (only the present side is tested).
  *   - match (SET-1): `null` value = cleared (keep all); otherwise strict
  *     equality against the list — `exclude` keeps everything NOT in it. An
  *     empty keep-list matches nothing, an empty exclude-list keeps all.
- *     Exact `matchesClause` parity.
+ *   - cell (D30): the AND of both sides, each side lifted by the library's own
+ *     `cellSideClause` — an array side is an interval, anything else a point.
+ *     A cell whose `fields` never arrived, and any value the wire's declared
+ *     shape does not cover, is CLEARED — `clauseFromWire`'s one fallback, so
+ *     "keep-all is the only honest fallback" is now stated in one place too.
  */
 
+import { cellSideClause, clauseFromWire } from 'vizfootprint/data';
+import type { IntervalBounds, PredicateClause } from 'vizfootprint/data';
 import type { ClearedSelectionView, LinkGraphView, SelectionView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection, SelectionClauseView, EmissionKind } from './types.js';
 
-/** An interval clause's wire value — the session's own `FilterRange` shape (see header). */
-type IntervalValue =
-  | readonly [number | null, number | null]
-  | readonly [string | null, string | null]
-  | null;
+/** An interval clause's bounds as the clause carries them (the session's own `FilterRange` shape). */
+type IntervalValue = IntervalBounds<number> | IntervalBounds<string>;
 
-/** One cell side on the wire: a plain value (equality; null = IS NULL) or a [lo, hi] interval. */
-type CellSideValue = number | string | boolean | null | IntervalValue;
-
-/** A match clause's wire value — the session's own `MatchValue` shape (values + polarity, or null). */
-type MatchWire = { readonly values: readonly unknown[]; readonly exclude?: boolean } | null;
+/** Keeps every row — the compiled form of "no filter", the one thing a cleared clause means. */
+const KEEP_ALL = (): boolean => true;
 
 /** The interval evaluator, shared by the plain interval arm and a cell's interval side. */
-function intervalPredicate(field: string, iv: Exclude<IntervalValue, null>): (row: RenderRow) => boolean {
+function intervalPredicate(field: string, iv: IntervalValue): (row: RenderRow) => boolean {
   const [lo, hi] = iv;
   if (typeof lo === 'string' || typeof hi === 'string') {
     return (row) => {
@@ -105,23 +108,48 @@ function intervalPredicate(field: string, iv: Exclude<IntervalValue, null>): (ro
 }
 
 /**
- * One CELL side's predicate (D30): an array side is an interval (the shared
- * evaluator above, half-open included); anything else is a point with STRICT
- * equality — and here `null` means IS NULL (`row[field] == null`), NOT
- * "cleared": inside a cell tuple the whole-value `null` is the only cleared
- * spelling, so a null side is unambiguous at the adapter tier (unlike the
- * top-level point arm's documented nullish-cleared collapse).
+ * COMPILE one clause into a row predicate — the whole of this tier's own work.
+ * Every branch here is a shape of `PredicateClause`, never a shape of the wire:
+ * what a triple MEANT was decided by `clauseFromWire` before this ran, and a
+ * cell's two sides are lifted by the library's own `cellSideClause`, so the
+ * compiler cannot form an opinion about a value the interpreter would read
+ * differently. What it does instead is decide once — the string-or-number arm,
+ * the bounds, the values list — and close over the answer, so the hot loop
+ * carries no switch.
  */
-function cellSidePredicate(field: string, side: CellSideValue): (row: RenderRow) => boolean {
-  if (Array.isArray(side)) return intervalPredicate(field, side as Exclude<IntervalValue, null>);
-  if (side === null) return (row) => row[field] == null;
-  return (row) => row[field] === side;
+function compileClause(clause: PredicateClause | null): (row: RenderRow) => boolean {
+  if (clause === null) return KEEP_ALL; // no filter
+  switch (clause.kind) {
+    case 'point': {
+      const { field, value } = clause;
+      if (value === undefined) return KEEP_ALL; // cleared
+      if (value === null) return (row) => row[field] == null; // IS NULL
+      return (row) => row[field] === value;
+    }
+    case 'interval': {
+      const iv = clause.value;
+      return iv === null ? KEEP_ALL : intervalPredicate(clause.field, iv);
+    }
+    case 'match': {
+      const { field, values } = clause;
+      const hit = (row: RenderRow): boolean => values.some((candidate) => candidate === row[field]);
+      return clause.exclude === true ? (row) => !hit(row) : hit;
+    }
+    case 'cell': {
+      const pair = clause.value;
+      if (pair === null) return KEEP_ALL; // the whole cell cleared
+      const px = compileClause(cellSideClause(clause.fields[0], pair[0]));
+      const py = compileClause(cellSideClause(clause.fields[1], pair[1]));
+      return (row) => px(row) && py(row);
+    }
+  }
 }
 
 /**
- * Build the row predicate for one clause. Mirrors `matchesClause` exactly
- * (see the file header for the parity contract). `fields` rides only with
- * kind:'cell' (the D30 compound) — the AND of both sides.
+ * Build the row predicate for one clause on the wire. The reading is the
+ * library's (`clauseFromWire`); only the COMPILATION is this tier's. `fields`
+ * rides with kind:'cell' (the D30 compound) and is what makes its pair
+ * authoritative — `field` there is a display label, never a column.
  */
 export function clausePredicate(
   kind: EmissionKind,
@@ -129,35 +157,7 @@ export function clausePredicate(
   value: unknown,
   fields?: readonly [string, string],
 ): (row: RenderRow) => boolean {
-  if (kind === 'cell') {
-    const pair = value as readonly [CellSideValue, CellSideValue] | null;
-    // cleared (null) — or a malformed wire row that lost its pair: keep-all is
-    // the only honest fallback (never guess a field split from the label)
-    if (pair == null || fields === undefined) return () => true;
-    const px = cellSidePredicate(fields[0], pair[0]);
-    const py = cellSidePredicate(fields[1], pair[1]);
-    return (row) => px(row) && py(row);
-  }
-  if (kind === 'match') {
-    // SET-1: cleared (null) keeps all; keep = in the list; exclude = not in it —
-    // strict equality per value, exactly `matchesClause`'s match arm
-    const body = value as MatchWire;
-    if (body == null) return () => true;
-    const values = body.values;
-    const hit = (row: RenderRow): boolean => values.some((candidate) => candidate === row[field]);
-    return body.exclude === true ? (row) => !hit(row) : hit;
-  }
-  if (kind === 'point') {
-    // the three-way point split, exactly `matchesClause`: undefined = cleared (keep all), null = IS NULL, else strict equality
-    if (value === undefined) return () => true;
-    if (value === null) return (row) => row[field] == null;
-    return (row) => row[field] === value;
-  }
-  // interval — the wire only ever carries the session's FilterRange; this is
-  // the same single narrowing both consumers used to make locally, now in ONE place
-  const iv = value as IntervalValue;
-  if (iv == null) return () => true; // cleared — no filter
-  return intervalPredicate(field, iv);
+  return compileClause(clauseFromWire(kind, field, value, fields));
 }
 
 /** An empty, render-safe selection (before any clause lands). */
@@ -344,7 +344,7 @@ export function selfSelectedSet(selection: RenderSelection): SelfSelectedSet {
 function setOf(clause: SelectionClauseView): SelfSelectedSet | null {
   if (clause.kind === 'point') return { values: [clause.value], exclude: false }; // a null point is a live IS-NULL selection
   if (clause.kind !== 'match' || clause.value === null) return null;
-  const body = clause.value as Exclude<MatchWire, null>;
+  const body = clause.value as { readonly values: readonly unknown[]; readonly exclude?: boolean };
   return { values: body.values, exclude: body.exclude === true };
 }
 

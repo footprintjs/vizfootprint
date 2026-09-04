@@ -105,6 +105,11 @@ function summarizeResult(result: Record<string, unknown> | undefined): string {
   if (result['ok'] === false) {
     const gap = result['gap'] as { code?: string; detail?: string } | undefined;
     if (gap) return `gap=${gap.code}`;
+    // a `why` with no provenance to walk says WHICH miss it was: `no-such-target`
+    // (the target is not in the session) and `declared-in-def` (it exists, but no
+    // commit landed it) are different facts, and a reader must not read the first
+    // into the second — src/why/types.ts says so on the type itself
+    if (typeof result['missing'] === 'string') return `ok=false missing=${result['missing']}`;
     return `ok=false${result['reason'] ? ` reason=${String(result['reason'])}` : ''}`;
   }
   if ('views' in result && 'activeSelections' in result) {
@@ -124,8 +129,81 @@ function summarizeResult(result: Record<string, unknown> | undefined): string {
     if (reencoded) bits.push(`reencoded=${reencoded.viewId}.${reencoded.channel}→${reencoded.field}`);
     return bits.join(' ');
   }
-  if ('tiers' in result || 'slice' in result) return 'why → cross-tier slice';
+  // The composed cross-tier answer, in the shape it ACTUALLY arrives in.
+  //
+  // What stood here was `'tiers' in result || 'slice' in result` → "why →
+  // cross-tier slice", and a real `why` answer carries neither key: it is
+  // `{ok, targetKind, key, threaded, viz, agent, kernel, commits, misses,
+  // dropped?, flags}`. So every live answer fell past it to the bare `ok=true`,
+  // and the only thing that ever reached the arm was a fixture in
+  // `app.coverage.helpers.ts` shaped to reach it. A test that exists to make a
+  // branch reachable is evidence the branch should not be there; both are gone.
+  //
+  // `targetKind` is the discriminant — no other tool result carries it.
+  if ('targetKind' in result) {
+    const commits = result['commits'] as unknown[];
+    const misses = result['misses'] as { tier: string; missing: string }[];
+    return [
+      `why=${String(result['key'])}`,
+      `kind=${String(result['targetKind'])}`,
+      `commits=${commits.length}`,
+      // an honestly PARTIAL answer names the tiers it could not thread, rather
+      // than reporting a join that did not land as though it had
+      misses.length > 0 ? `missing=${misses.map((m) => `${m.tier}:${m.missing}`).join(',')}` : `threaded=${String(result['threaded'])}`,
+    ].join(' ');
+  }
   return 'ok=true';
+}
+
+/** One row of a `why` answer's disclosure (`CrossTierSlice.dropped`), off the wire. */
+interface DroppedRow {
+  readonly id: string;
+  readonly reason: string;
+}
+
+/** The disclosure rows a result carries, or none — read off untrusted JSON, never invented. */
+function droppedOf(result: Record<string, unknown> | undefined): readonly DroppedRow[] {
+  const rows = result?.['dropped'];
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((r) => {
+    const row = r as { id?: unknown; reason?: unknown } | null;
+    return row !== null && typeof row === 'object' && typeof row.id === 'string' && typeof row.reason === 'string' ? [{ id: row.id, reason: row.reason }] : [];
+  });
+}
+
+/**
+ * The one quiet line under an act: **what the answer NAMED and could not
+ * honour** (`CrossTierSlice.dropped`). Dropping those commits is the library's
+ * law and stays — an off-branch basis is not provenance — but being SILENT
+ * about them was the defect: it reached the wire and no reader.
+ *
+ * The two reasons are DIFFERENT facts and are said differently, because a
+ * reader who confuses them goes looking in the wrong place: *on another branch*
+ * means the log really holds that commit and these words stand at a moment that
+ * never saw it; *this log does not hold it* means the answer could not find it
+ * at all.
+ *
+ * A reason NEITHER of those covers gets a third clause that says the commit was
+ * named, says the reason is one these words cannot read, and STOPS. It must not
+ * be readable as a claim about where the commit is — guessing at the reason is
+ * the failure this whole disclosure exists to prevent, and a malformed row is
+ * exactly where that guess would be cheapest to make.
+ *
+ * The line offers no repair and links no commit — the library refuses that
+ * citation deliberately.
+ */
+function summarizeDropped(result: Record<string, unknown> | undefined): string | undefined {
+  const dropped = droppedOf(result);
+  if (dropped.length === 0) return undefined;
+  const ids = (keep: (reason: string) => boolean): string[] => dropped.filter((d) => keep(d.reason)).map((d) => d.id);
+  const offBranch = ids((reason) => reason === 'off-branch');
+  const unverified = ids((reason) => reason === 'unverified');
+  const unsaid = ids((reason) => reason !== 'off-branch' && reason !== 'unverified');
+  const said: string[] = [];
+  if (offBranch.length > 0) said.push(`${offBranch.join(', ')} ${offBranch.length === 1 ? 'is' : 'are'} on another branch`);
+  if (unverified.length > 0) said.push(`this log does not hold ${unverified.join(', ')}`);
+  if (unsaid.length > 0) said.push(`${unsaid.join(', ')}, for a reason these words cannot read`);
+  return `named and not honoured — ${said.join('; ')}`;
 }
 
 const SUGGESTIONS = [
@@ -638,13 +716,18 @@ function wireChatAndDebugger(view: SessionView): void {
     else working.textContent = '';
     replaceChildren(
       activityGroup,
-      ...state.activity.map((s) =>
-        el('div', { class: 'activity-step', dataset: { tool: s.tool } }, [
+      ...state.activity.map((s) => {
+        // one quiet line under the row when the answer disclosed something it
+        // could not honour — read off the RESULT, so any answer that carries a
+        // disclosure says so, whichever tool produced it
+        const dropped = summarizeDropped(s.result);
+        return el('div', { class: 'activity-step', dataset: { tool: s.tool } }, [
           el('span', { class: 'tool', text: s.tool }),
           el('span', { class: 'args', text: summarizeArgs(s.args) }),
           el('span', { class: 'result', text: summarizeResult(s.result) }),
-        ]),
-      ),
+          dropped === undefined ? null : el('span', { class: 'dropped', text: dropped, title: 'commits this answer named and could not honour — dropped from its provenance, never faked' }),
+        ]);
+      }),
     );
     // mid-turn the newest tool row is the live signal — keep it in view (the
     // rows now grow INSIDE the transcript's scroll region, not a pinned strip)

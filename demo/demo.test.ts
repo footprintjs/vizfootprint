@@ -18,16 +18,18 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-import { CauseSelectionSession, serializeLog, replayLog } from '../src/log/index.js';
-import { parseCSVTyped } from '../src/data/csv.js';
-import { memoryProvider } from '../src/data/memoryProvider.js';
+import { CauseSelectionSession, serializeLog, replayLog } from 'vizfootprint/log';
+import { memoryProvider, parseCSVTyped } from 'vizfootprint/data';
 import {
   correlationAnalysis,
   clusteringAnalysis,
   regressionAnalysis,
   groupByAnalysis,
-} from '../src/analysis/index.js';
-import { createLordPlusPlus, type FdrStep } from '../src/fdr/index.js';
+} from 'vizfootprint/analysis';
+// FDR arrives through TWO doors, by role: the builtin stepper you DECLARE is on
+// `/def`, the row it produces as the session walks is on `/session`.
+import { createLordPlusPlus } from 'vizfootprint/def';
+import type { FdrStep } from 'vizfootprint/session';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rows = parseCSVTyped(readFileSync(path.join(__dirname, 'data', 'dresses.csv'), 'utf8')).rows as Array<

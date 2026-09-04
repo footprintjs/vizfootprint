@@ -13,10 +13,9 @@
  */
 
 // The REAL landed CSV parser (src/data) — not duplicated here.
-import { parseCSVTyped } from '../../src/data/csv.js';
-import type { ChartEmission } from '../../src/mosaic/index.js';
-import type { CommitRecord } from '../../src/log/index.js';
-import type { PredicateClause } from '../../src/data/index.js';
+import { parseCSVTyped, type PredicateClause } from 'vizfootprint/data';
+import type { ChartEmission } from 'vizfootprint/mosaic';
+import type { CommitRecord } from 'vizfootprint/log';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 

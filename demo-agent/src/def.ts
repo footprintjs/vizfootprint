@@ -16,17 +16,15 @@
  * ledger to read back honestly. Data values never appear in any authored
  * string — only in the `rows` DATA field (Q8 two-string discipline).
  */
-import { buildDashboard, vizAsTools } from '../../src/agent/index.js';
-import type { InteractionSession, VizToolsPort } from '../../src/agent/index.js';
-import type { DashboardDef } from '../../src/agent/index.js';
-import type { ActorMeta } from '../../src/mosaic/index.js';
+import { buildDashboard, vizAsTools, type DashboardDef, type InteractionSession, type VizToolsPort } from 'vizfootprint/agent';
+import type { ActorMeta } from 'vizfootprint/mosaic';
 import {
   correlationAnalysis,
   clusteringAnalysis,
   regressionAnalysis,
   groupByAnalysis,
-} from '../../src/analysis/index.js';
-import { parseCSVTyped } from '../../src/data/csv.js';
+} from 'vizfootprint/analysis';
+import { parseCSVTyped } from 'vizfootprint/data';
 
 const ALPHA = 0.05;
 const CLUSTER_K = 4;

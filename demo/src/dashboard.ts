@@ -52,13 +52,11 @@ import {
   specFromRecord,
   type DemoRow,
 } from './common.js';
-import { replayLog, serializeLog, type CommitRecord } from '../../src/log/index.js';
-import { causeClauseFromEmission, type ActorMeta, type RegisteredSource } from '../../src/mosaic/index.js';
-import type { Cause } from '../../src/cause/index.js';
-import { matchesClause } from '../../src/data/predicate.js';
-import type { PredicateClause } from '../../src/data/types.js';
-import { buildDashboard, vizAsTools } from '../../src/agent/index.js';
-import type { DashboardDef } from '../../src/agent/index.js';
+import { replayLog, serializeLog, type CommitRecord } from 'vizfootprint/log';
+import { causeClauseFromEmission, type ActorMeta, type RegisteredSource } from 'vizfootprint/mosaic';
+import type { Cause } from 'vizfootprint/cause';
+import { matchesClause, type PredicateClause } from 'vizfootprint/data';
+import { buildDashboard, vizAsTools, type DashboardDef } from 'vizfootprint/agent';
 
 const SCATTER: ActorMeta = { actor: 'user', label: 'Price brush' };
 const BAR: ActorMeta = { actor: 'user', label: 'Category' };

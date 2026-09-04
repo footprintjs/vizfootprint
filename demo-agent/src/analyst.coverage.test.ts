@@ -21,7 +21,7 @@ import { pauseHere } from 'agentfootprint';
 import { mock, type LLMRequest } from 'agentfootprint/providers';
 import { createAssistant, scriptedCleanupMock } from './analyst.js';
 import { buildAnalystSurface } from './def.js';
-import type { VizToolResult, VizToolsPort } from '../../src/agent/index.js';
+import type { VizToolResult, VizToolsPort } from 'vizfootprint/agent';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // demo-agent's own seeded copy (id/category/price/rating + date/region — see gen-data.mjs)

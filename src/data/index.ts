@@ -28,6 +28,11 @@ export { cellFieldLabel, clauseFields, isRejection, reject } from './types.js';
 
 export { literalToSQL, matchesClause, resolvePredicateSQL, isClearedSQL } from './predicate.js';
 
+// The wire triple a commit carries, read as the clause it means — the one
+// translation, so a consumer holding a commit never writes the rules again.
+export { cellSideClause, clauseFromWire } from './clauseFromWire.js';
+export type { WireClauseKind } from './clauseFromWire.js';
+
 export { equalWidthBins, recountBins } from './bins.js';
 export type { Bin, Bins, EqualWidthBinsOptions } from './bins.js';
 

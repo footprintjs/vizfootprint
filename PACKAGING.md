@@ -57,6 +57,32 @@ encoding and links planes are reachable through `/def`, which re-exports them
 beside the def that declares them). They are not closed on principle — they are
 closed because Law 2 says a door is opened by an importer, and none has asked.
 
+### Why there is no `/fdr` door
+
+Because FDR is not one surface. It is two halves of two surfaces that already
+exist, and the split is a line this library draws everywhere else:
+
+| you are… | the symbol | the door |
+|---|---|---|
+| DECLARING the correction | `FdrDecl`, `FdrStepper`, `createLordPlusPlus` | `vizfootprint/def` |
+| OBSERVING what it produced | `FdrSummary`, `FdrStep` | `vizfootprint/session` |
+
+You choose a stepper when you declare a dashboard, so the builtin ships beside
+the declaration that names it and the interface it satisfies. You read the rows
+while the session walks, so the row ships beside the summary it rows up to —
+`FdrSummary.ledger` is `readonly FdrStep[]`, which is the tell: the two were
+already reachable from one place and nameable from two, and a consumer holding
+the summary should not have to go somewhere else for its own element type.
+
+A `/fdr` door would cut across that line rather than along it, and would offer
+one surface where the library has two. So `src/fdr` stays a barrel: it is the
+implementation of a rule, not a surface anybody consumes as a unit. Both
+widenings went on barrels that already existed, which is Law 2's first answer
+and the one to reach for.
+
+`createAlphaInvesting` and the option/state types are deliberately still
+unexported — Law 2 again: no importer has asked.
+
 ---
 
 ## Law 2 — a symbol earns a BARREL first, a subpath second, and a door last
@@ -148,12 +174,55 @@ Two consequences worth stating plainly:
   point into it, and reading the code beside a `.d.ts` is worth the bytes), but
   shipping a file and exporting it are unrelated. Everything under `src/` is
   present and unreachable, and that is the intended state.
-- **A relative path is not governed by any of this.** `demo/`, `demo-agent/`,
-  `bench/` and `spikes/` live inside the package and import `../../src/...`
-  directly. They are not consumers, they are parts, and nothing here asks them
-  to change. The moment code moves OUT of this package it stops being able to do
-  that, and the eleven paths in the demo repo are what that transition looked
+- **A relative path is not governed by any of this** — which is precisely why
+  the demos stopped taking one. `demo/`, `demo-agent/`, `bench/` and `spikes/`
+  live inside the package, so `../../src/...` resolves for them and the exports
+  map never gets a vote. That was read for a while as "nothing asks them to
+  change". It is the opposite: a place where the map has no vote is a place
+  where **an open door and a closed one look identical**, and the whole finding
+  this file was written on is that a relative path makes those two
+  indistinguishable. So the demos import the package BY NAME — a package with an
+  `exports` map can self-reference, and `demo/` and `demo-agent/` now do, which
+  makes them the first readers of the surface rather than the last people
+  exempt from it. See "The demos walk through the doors" below. The moment code
+  moves OUT of this package it stops being able to take the relative path at
+  all, and the eleven paths in the demo repo are what that transition looked
   like.
+
+---
+
+## The demos walk through the doors
+
+`demo/` and `demo-agent/` import `vizfootprint/log`, `vizfootprint/data`,
+`vizfootprint/agent` and the rest, exactly as an outside consumer would. Nothing
+about them changed except which spelling they use, and that is the point: **they
+are the in-repo witness that the doors are the surface.** A symbol that is
+reachable only by a deep path now fails to compile in a demo the same way it
+fails to resolve in `vizfootprint-demo`, instead of quietly working here and
+breaking there.
+
+Three consequences to know:
+
+- **The demos need `npm run build` first**, like every other door-resolver. The
+  browser bundles (`demo/build.mjs`, `demo-agent/build.mjs`) run esbuild
+  directly, so they resolve doors through the exports map to `dist/` — no vitest
+  alias reaches them. Under vitest the same files are aliased back to `src/` by
+  `vitest.alias.mjs`, which is the split the "Two resolutions, one list" section
+  already describes.
+- **A demo may NOT open a door.** If a demo needs something no door serves, that
+  is a finding about the public surface, and it goes to whoever owns the surface
+  — never resolved by minting a subpath so a demo compiles. Moving the demos
+  produced exactly one such finding, and it is worth reading as the worked
+  example of this rule: `demo/src/analyst.ts` wanted `FdrStep` and
+  `demo/demo.test.ts` wanted `createLordPlusPlus`, and neither was on any
+  barrel. The answer was NOT a `/fdr` door — it was Law 2's first answer, twice,
+  split by role: `FdrStep` onto `/session` beside `FdrSummary`, and
+  `createLordPlusPlus` onto `/def` beside `FdrDecl` and `FdrStepper`. See "Why
+  there is no `/fdr` door" under Law 1. **There is no relative import left in
+  `demo/` or `demo-agent/`**, which is what makes this section a law rather than
+  an aspiration: the next one to appear is a finding, not a habit.
+- **A test may still take the relative path** (Law 2, answer 3) — the demo tests
+  simply have no reason to any more, so they walk the doors too.
 
 ---
 

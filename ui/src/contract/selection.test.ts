@@ -1,15 +1,26 @@
 // @vitest-environment jsdom
 /**
- * The clause-addressable selection derivation — including the PARITY PIN:
- * `clausePredicate` must agree with `src/data`'s real `matchesClause` on
- * every point/interval shape the wire can carry. `matchesClause` arrives
- * through the `vizfootprint/data` door — the same door selection.ts's header
- * says was never what stood in the way of sharing it.
+ * The clause-addressable selection derivation — including the DELEGATION
+ * CHECK that replaced the old parity pin.
+ *
+ * The pin used to assert that this tier's hand-written mirror AGREED with
+ * `src/data`'s `matchesClause` on every shape the wire can carry. It agreed —
+ * and the reason it did was that someone kept two translations in step by
+ * hand. There is one translation now (`clauseFromWire`, through the
+ * `vizfootprint/data` door) and `clausePredicate` calls it, so the question
+ * changed: not "do the two readings agree?" but "is this still the same
+ * reading, only compiled?".
+ *
+ * That is what {@link sameAsInterpreted} asks, on every case below:
+ * `clausePredicate(triple)` must select exactly the rows
+ * `matchesClause(row, clauseFromWire(triple))` selects. A regression here is a
+ * compiler that lost a case, never two opinions about what a commit means —
+ * the wire is read once, in the library.
  */
 import { describe, it, expect } from 'vitest';
 import { selfSelectedSet, brightPredicate, navigateDomain } from './selection.js';
 import type { LinkGraphView } from '../adapter/types.js';
-import { matchesClause, type PredicateClause } from 'vizfootprint/data';
+import { clauseFromWire, matchesClause } from 'vizfootprint/data';
 import {
   clausePredicate,
   emptySelection,
@@ -28,14 +39,33 @@ const ROWS = [
   { id: 'r4', price: Number.NaN, rating: 4, category: 'Work', date: '2026-05-20', note: 'y' },
 ];
 
-describe('clausePredicate ↔ matchesClause parity (the pinned mirror)', () => {
-  // every wire shape: cleared point, value point, cleared interval, numeric
-  // closed/half-open intervals, string (ISO date) intervals. `null` point is
-  // NOT here — it is the one pinned DIVERGENCE, tested separately below.
-  const CASES: { kind: 'point' | 'interval'; field: string; value: unknown }[] = [
+/**
+ * The delegation check itself: this tier COMPILES what the library READS, so
+ * the compiled predicate must answer exactly what the library's interpreter
+ * answers over the very same translation.
+ */
+function sameAsInterpreted(
+  kind: 'point' | 'interval' | 'match' | 'cell',
+  field: string,
+  value: unknown,
+  fields?: readonly [string, string],
+): void {
+  const compiled = clausePredicate(kind, field, value, fields);
+  const clause = clauseFromWire(kind, field, value, fields);
+  for (const row of ROWS) {
+    expect(compiled(row), `${kind} ${field} ${JSON.stringify(value)} on ${row.id}`).toBe(matchesClause(row, clause));
+  }
+}
+
+describe('clausePredicate = clauseFromWire, compiled (the delegation check)', () => {
+  // every wire shape: cleared point, value point, IS-NULL point, cleared
+  // interval, numeric closed/half-open intervals, string (ISO date) intervals,
+  // the match body and its polarity, and the D30 cell.
+  const CASES: { kind: 'point' | 'interval' | 'match' | 'cell'; field: string; value: unknown; fields?: readonly [string, string] }[] = [
     { kind: 'point', field: 'category', value: undefined },
     { kind: 'point', field: 'category', value: 'Formal' },
     { kind: 'point', field: 'price', value: 160 },
+    { kind: 'point', field: 'note', value: null },
     { kind: 'interval', field: 'price', value: null },
     { kind: 'interval', field: 'price', value: [50, 200] },
     { kind: 'interval', field: 'price', value: [150, null] },
@@ -45,24 +75,31 @@ describe('clausePredicate ↔ matchesClause parity (the pinned mirror)', () => {
     { kind: 'interval', field: 'date', value: [null, '2026-05-31'] },
     { kind: 'interval', field: 'price', value: ['2026-01-01', '2026-12-31'] }, // string bounds over numeric cells
     { kind: 'interval', field: 'date', value: [0, 100] }, // numeric bounds over string cells
+    { kind: 'match', field: 'category', value: null },
+    { kind: 'match', field: 'category', value: { values: ['Formal', 'Party'] } },
+    { kind: 'match', field: 'category', value: { values: ['Formal'], exclude: true } },
+    { kind: 'match', field: 'category', value: { values: [] } },
+    { kind: 'match', field: 'category', value: { values: [], exclude: true } },
+    { kind: 'cell', field: 'price × category', value: [[50, 200], 'Formal'], fields: ['price', 'category'] },
+    { kind: 'cell', field: 'price × category', value: null, fields: ['price', 'category'] },
+    { kind: 'cell', field: 'price × note', value: [[0, 300], null], fields: ['price', 'note'] },
+    { kind: 'cell', field: 'price × category', value: [[50, 200], 'Formal'] }, // the pair never arrived
   ];
 
-  it('agrees with the real src/data evaluator on every case × every row', () => {
-    for (const c of CASES) {
-      const mirrored = clausePredicate(c.kind, c.field, c.value);
-      const real = (row: Record<string, unknown>): boolean =>
-        matchesClause(row, { kind: c.kind, field: c.field, value: c.value } as PredicateClause);
-      for (const row of ROWS) {
-        expect(mirrored(row), `${c.kind} ${c.field} ${JSON.stringify(c.value)} on ${row.id}`).toBe(real(row));
-      }
+  it('answers what the library answers, on every case × every row', () => {
+    for (const c of CASES) sameAsInterpreted(c.kind, c.field, c.value, c.fields);
+  });
+
+  it('a value the wire\'s shape does not cover is CLEARED at both ends, and neither throws', () => {
+    for (const bad of [5, 'ohno', [10], {}, true]) {
+      sameAsInterpreted('interval', 'price', bad);
+      sameAsInterpreted('match', 'category', bad);
+      sameAsInterpreted('cell', 'price × category', bad, ['price', 'category']);
     }
   });
 
-  it('a null point is IS NULL at BOTH tiers (SET-1 removed the old adapter-tier divergence: a cleared point never reaches the wire)', () => {
-    const mirrored = clausePredicate('point', 'note', null);
-    const real = ROWS.map((r) => matchesClause(r, { kind: 'point', field: 'note', value: null }));
-    expect(ROWS.map((r) => mirrored(r))).toEqual(real);
-    expect(real).toEqual([true, false, true, false]); // note: null / present / undefined / present
+  it('a null point is IS NULL, and an absent one is cleared — the clause\'s own three-way split', () => {
+    expect(ROWS.map((r) => clausePredicate('point', 'note', null)(r))).toEqual([true, false, true, false]); // null / present / undefined / present
     expect(ROWS.every((r) => clausePredicate('point', 'note', undefined)(r))).toBe(true); // undefined = cleared, keep all
   });
 });
@@ -177,18 +214,8 @@ describe('D30 — the cell arm of clausePredicate (parity with the real evaluato
     { fields: ['price', 'category'], value: null }, // cleared cell
   ];
 
-  it('agrees with src/data matchesClause on every cell case × every row', () => {
-    for (const c of CELL_CASES) {
-      const real: PredicateClause = {
-        kind: 'cell',
-        fields: c.fields,
-        value: c.value as Extract<PredicateClause, { kind: 'cell' }>['value'],
-      };
-      const mirror = clausePredicate('cell', `${c.fields[0]} × ${c.fields[1]}`, c.value, c.fields);
-      for (const row of ROWS) {
-        expect(mirror(row), `cell ${JSON.stringify(c)} on ${row.id}`).toBe(matchesClause(row, real));
-      }
-    }
+  it('compiles what the library reads, on every cell case × every row', () => {
+    for (const c of CELL_CASES) sameAsInterpreted('cell', `${c.fields[0]} × ${c.fields[1]}`, c.value, c.fields);
   });
 
   it('a cell wire row that lost its pair keeps ALL rows (honest fallback, never a guessed split)', () => {
@@ -232,7 +259,7 @@ describe('selfSelectedCell (the cell sibling — the heatmap’s own-cell deriva
   });
 });
 
-describe('SET-1 — the match arm mirrors matchesClause; selfSelectedSet is the view\'s own set', () => {
+describe('SET-1 — the match arm through the one translation; selfSelectedSet is the view\'s own set', () => {
   const rows = [{ category: 'A' }, { category: 'B' }, { category: 'C' }];
   const sel = (value: unknown) => selectionForView([{ viewId: 'bar', field: 'category', kind: 'match', value }], null);
   it('keep: in the list; exclude: not in it; an empty keep-list matches nothing; an empty exclude-list keeps all; null is cleared', () => {

@@ -17,7 +17,7 @@
 import { Agent, defineTool, isPaused } from 'agentfootprint';
 import { browserAnthropic, mock, type LLMProvider, type LLMRequest, type LLMResponse } from 'agentfootprint/providers';
 import { agentThinkingTrace, type AttTrace } from 'agentfootprint/observe';
-import type { VizToolResult, VizToolsPort } from '../../src/agent/index.js';
+import type { VizToolResult, VizToolsPort } from 'vizfootprint/agent';
 
 const MODEL = process.env['ANTHROPIC_MODEL'] ?? 'claude-opus-4-8';
 const MAX_TOKENS = 2048;

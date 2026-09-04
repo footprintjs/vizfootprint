@@ -180,6 +180,18 @@ export interface CrossTierSlice {
    * Commits the target named that this answer could not honour — absent when
    * none was (so an answer with nothing to disclose costs nothing to say so).
    * Dropping them is the law and stays; being SILENT about them was the defect.
+   *
+   * **What a surface owes this field.** A disclosure that reaches the wire and
+   * no reader is not a disclosure, so a surface that shows a `why` answer says
+   * what was named — quietly, once — and it keeps the two {@link DroppedRef}
+   * reasons APART, because they send a reader to different places: *on another
+   * branch* means the log really holds that commit and these words stand at a
+   * moment that never saw it; *unverified* means the answer could not find it
+   * at all. It offers no repair and links no commit — this answer declined to
+   * vouch for that citation, and a link would hand it back.
+   *
+   * The words themselves stay out of here: this composed answer is
+   * machine-shaped and carries no prose (A2), so each surface writes its own.
    */
   readonly dropped?: readonly DroppedRef[];
   readonly flags: WhyFlags;

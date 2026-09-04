@@ -80,5 +80,12 @@ export type {
   WhyTarget,
   WhyTargetMiss,
 } from '../why/index.js';
+// The online-FDR row a session produces as it walks (owned by `../fdr`, which is
+// a barrel and not a door). It belongs HERE because `FdrSummary` above already
+// is a list of them — `FdrSummary.ledger: readonly FdrStep[]` — so the fold and
+// its row were reachable from one place and nameable from two. Observing FDR is
+// this barrel's half; DECLARING it (`FdrDecl`, `FdrStepper`, and the builtin
+// stepper `createLordPlusPlus`) is `../def`'s. See PACKAGING.md, Law 1.
+export type { FdrStep } from '../fdr/index.js';
 export { VIEW_QUERY_DEFAULT_LIMIT } from './session.js';
 export type { RestorableSaved, RestorableBookmark, RestoreResult, SavedClause, SavedSelection, SavedStore, Bookmark, BookmarkStore } from '../def/types.js';

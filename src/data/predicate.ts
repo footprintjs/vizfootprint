@@ -39,6 +39,8 @@
  */
 
 import type { CellClause, CellSide, IntervalBounds, IntervalClause, MatchClause, PointClause, PredicateClause, Row } from './types.js';
+// the ONE owner of "an array side is an interval" — the same lift the wire translation exports
+import { cellSideClause } from './clauseFromWire.js';
 
 /** The JS string Mosaic itself produces for a cleared/inactive clause: `String(null)`. */
 const CLEARED_SQL = 'null';
@@ -128,28 +130,16 @@ function resolveMatchSQL(clause: MatchClause): string {
   return `(${quoteIdent(clause.field)} ${op} (${clause.values.map(literalToSQL).join(', ')}))`;
 }
 
-/**
- * Lift ONE cell side into the clause the existing arms already handle
- * (single-sourced semantics — the D30 cell reuses the exact numeric/string
- * interval discipline, half-open included, and the point three-way split): an
- * array side is an interval, anything else is a point (see `CellSide`). A
- * side is never `undefined` (per the type), so the point arm's
- * cleared-by-undefined branch is out of reach for a cell by construction.
+/*
+ * A cell side is lifted into the clause the existing arms already handle by
+ * `cellSideClause` (imported above, `clauseFromWire.ts`): an array side is an
+ * interval, anything else is a point — so the D30 cell reuses the exact
+ * numeric/string interval discipline, half-open included, and the point
+ * three-way split. A side is never `undefined` (per the type), so the point
+ * arm's cleared-by-undefined branch is out of reach for a cell by
+ * construction. It lives beside the wire translation because that is the same
+ * rule: which of the two shapes a side IS.
  */
-function cellSideClause(field: string, side: CellSide): PointClause | IntervalClause {
-  return isIntervalSide(side)
-    ? { kind: 'interval', field, value: side }
-    : { kind: 'point', field, value: side };
-}
-
-/**
- * The shape split `CellSide` documents: an array side IS the interval side.
- * (A typed wrapper over Array.isArray — the built-in's `any[]` predicate
- * cannot narrow a union that contains `string` cleanly.)
- */
-function isIntervalSide(side: CellSide): side is IntervalBounds<number> | IntervalBounds<string> {
-  return Array.isArray(side);
-}
 
 /** Render ONE cell side by delegating to the existing point/interval arms. */
 function resolveCellSideSQL(field: string, side: CellSide): string {

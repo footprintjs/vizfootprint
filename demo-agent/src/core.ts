@@ -15,8 +15,8 @@ import { buildAnalystSurface } from './def.js';
 import { createAssistant, scriptedAnalystMock, type ActivityStep } from './analyst.js';
 import type { LLMProvider } from 'agentfootprint/providers';
 import type { AttTrace } from 'agentfootprint/observe';
-import type { Cause } from '../../src/cause/index.js';
-import type { DispatchAction, DispatchResult, FilterRange } from '../../src/agent/index.js';
+import type { Cause } from 'vizfootprint/cause';
+import type { DispatchAction, DispatchResult, FilterRange } from 'vizfootprint/agent';
 // BR-3: the named-paths result/state types are owned by `src/session` — the
 // `src/agent` barrel re-exports the tool port but never re-exported these
 // BR-1 types (src/ is frozen; nothing to fix here), so read them from the
@@ -33,7 +33,7 @@ import type {
   RestorePathResult,
   DiscardResult,
   AdoptPathResult,
-} from '../../src/session/index.js';
+} from 'vizfootprint/session';
 
 export interface CreateAnalystOptions {
   /** The seeded dataset as CSV text (the server reads it once and passes it in). */

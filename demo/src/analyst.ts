@@ -60,16 +60,13 @@ import {
   specFromRecord,
   type DemoRow,
 } from './common.js';
-import { causeClauseFromEmission } from '../../src/mosaic/index.js';
-import type { ActorMeta, ChartEmission, RegisteredSource } from '../../src/mosaic/index.js';
-import type { Cause } from '../../src/cause/index.js';
-import { matchesClause } from '../../src/data/predicate.js';
-import type { PredicateClause } from '../../src/data/types.js';
-import { correlationAnalysis, clusteringAnalysis, regressionAnalysis, groupByAnalysis } from '../../src/analysis/index.js';
-import type { FdrStep } from '../../src/fdr/index.js';
-import type { CommitRecord } from '../../src/log/index.js';
-import { buildDashboard, vizAsTools } from '../../src/agent/index.js';
-import type { AnalysisCommit, DashboardDef, FdrSummary, GapRow, VizToolResult } from '../../src/agent/index.js';
+import { causeClauseFromEmission, type ActorMeta, type ChartEmission, type RegisteredSource } from 'vizfootprint/mosaic';
+import type { Cause } from 'vizfootprint/cause';
+import { matchesClause, type PredicateClause } from 'vizfootprint/data';
+import { correlationAnalysis, clusteringAnalysis, regressionAnalysis, groupByAnalysis } from 'vizfootprint/analysis';
+import type { FdrStep } from 'vizfootprint/session';
+import type { CommitRecord } from 'vizfootprint/log';
+import { buildDashboard, vizAsTools, type AnalysisCommit, type DashboardDef, type FdrSummary, type GapRow, type VizToolResult } from 'vizfootprint/agent';
 
 const ALPHA = 0.05;
 const CLUSTER_K = 4;

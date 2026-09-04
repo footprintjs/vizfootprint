@@ -2,6 +2,29 @@
 
 The query port (`DataProvider`: tables, columns, `evaluate(table, clause | clause[] | null)`, `materializeColumn`) is OUR shape; the memory engine answers it today, and the wasm and server engines are typed stubs that render the same SQL descriptor. A clause list is its AND, so the whole live selection is one question.
 
+## Reading a commit: ONE translation, two evaluators
+
+A `PredicateClause` is the shape this folder EVALUATES. It is not the shape a commit CARRIES. A commit carries a flat wire triple — `{kind, field, value}` (plus `fields` for a cell) — and the two disagree in three places: a `match`'s list and polarity ride INSIDE `value`, where the clause keeps `values`/`exclude` as siblings; a `cell`'s `field` is a display label (`"price × category"`), never a column, and the authoritative pair rides `fields`; and "cleared" has four spellings on the wire against exactly one here (`clause === null`, no filter).
+
+So reading a triple is a real translation with real rules, and the library used to keep it to itself — which meant every consumer holding a commit wrote the rules again. `clauseFromWire(kind, field, value, fields?)` is that reading, exported through `vizfootprint/data`, and `cellSideClause(field, side)` is its other half (an array side is an interval, anything else a point) for a consumer that needs the two sides apart:
+
+```ts
+import { clauseFromWire, matchesClause } from 'vizfootprint/data';
+
+const c = session.log.records.at(-1)!;                        // a landed commit
+rows.filter((row) => matchesClause(row, clauseFromWire(c.kind, c.field, c.value, c.fields)));
+```
+
+It is **total**, and CLEARED is its only fallback: nothing throws, and a value the wire's declared shape does not cover (a match body with no list, an interval or cell value that is not a two-element pair, a cell whose `fields` never arrived) keeps every row rather than narrowing on a value nobody can interpret.
+
+**Two evaluators are fine; two translations are not.** `matchesClause` interprets a clause per row. `ui/src/contract/selection.ts` COMPILES the same clause once and closes over the answer, because its predicate runs per row per frame over a 90k-row table. Those can only differ in speed — but two readings of a triple can differ about what a commit MEANS, silently, and the answer on screen would be the one nobody tested. The compiler therefore calls `clauseFromWire` and its test is a *delegation check*, not a parity pin: compiled must equal interpreted over the same translation.
+
+**Did the two readings agree before they were merged?** Measured, not assumed: the old ui mirror and today's `clauseFromWire` were run against each other over every kind × field × value × field-pair × row — 9,730 comparisons inside the wire's declared shape, and **zero disagreements**. There was no live bug to find; what there was, was a rule kept in step by hand.
+
+Outside that shape the two differ in exactly four ways, all on values no commit can carry, and in every one the old answer was a throw or a guess: an interval whose value was not iterable (a bare number) THREW; an interval whose value was a string was destructured into two characters and read as lexicographic bounds; a match whose body was not an object THREW on `.values`; a cell whose value was not a pair was indexed into for its sides. All four now read as CLEARED, and the function never throws.
+
+One duplicate is still open and is named rather than hidden: `probeClause` in `src/session/session.ts` is the library's own internal twin of this reading (point/interval/match), and the three `rec.kind === 'cell' ? {…} : probeClause(…)` ternaries beside it restate the cell lift. They are unchanged, and folding them into `clauseFromWire` is a session-side decision, not a data-side one.
+
 ## One pass, many recorders
 
 Every question a table is asked is a **recorder** that watches one walk over the rows and collects as it goes — the footprintjs law, collect during traversal, never post-process:

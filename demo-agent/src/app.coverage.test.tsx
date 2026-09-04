@@ -228,7 +228,7 @@ describe('boot — activity strip: every summarizeValue/summarizeArgs/summarizeR
   });
 
   it('renders one .activity-step per activity entry, in order', () => {
-    expect(activitySteps()).toHaveLength(12);
+    expect(activitySteps()).toHaveLength(16);
   });
 
   it('step 1: no result (undefined) -> empty result text, empty args -> "(no args)"', () => {
@@ -288,14 +288,55 @@ describe('boot — activity strip: every summarizeValue/summarizeArgs/summarizeR
     expect(s.querySelector('.result')!.textContent).toBe(`verb=analyze analysis=${'x'.repeat(40)} kind=stat`);
   });
 
-  it('step 11: a boolean + a null arg value, and the tiers/slice fallback text', () => {
+  it('step 11: a boolean + a null arg value, and the composed answer in the shape it ACTUALLY arrives in', () => {
     const s = activitySteps()[10]!;
     expect(s.querySelector('.args')!.textContent).toBe('target="cluster_id" extraFlag=true noneVal=null');
-    expect(s.querySelector('.result')!.textContent).toBe('why → cross-tier slice');
+    // the old assertion here read 'why → cross-tier slice' — a shape no answer
+    // carries, reachable only from a fixture written to reach it. Both are gone.
+    expect(s.querySelector('.result')!.textContent).toBe('why=cluster_id kind=column commits=3 threaded=true');
   });
 
-  it('step 12: the final "ok=true" fallback when nothing else matches', () => {
+  it('step 11: the same answer DISCLOSES what it named and could not honour — once, quietly', () => {
+    const dropped = activitySteps()[10]!.querySelector('.dropped')!;
+    // the two known reasons stay TOLD APART — "on another branch" and "the log
+    // does not hold it" send a reader to different places — and a reason these
+    // words cannot read names the commit while claiming NOTHING about where it is
+    expect(dropped.textContent).toBe(
+      'named and not honoured — c12, c13 are on another branch; this log does not hold ghost; c9, for a reason these words cannot read',
+    );
+    // it offers no repair and links nothing: the library refuses that citation on purpose
+    expect(dropped.querySelector('a')).toBeNull();
+    expect(dropped.textContent).not.toMatch(/seek|bring over|fix|click/i);
+  });
+
+  it('step 12: an honestly PARTIAL answer names the tiers it could not thread, never a join reported as landed', () => {
     const s = activitySteps()[11]!;
+    expect(s.querySelector('.result')!.textContent).toBe('why=risk kind=hypothesis commits=1 missing=agent:no-agent-tier,kernel:no-kernel-snapshot');
+    // ONE commit on another branch reads as a sentence, and the other reason is not mentioned at all
+    expect(s.querySelector('.dropped')!.textContent).toBe('named and not honoured — c12 is on another branch');
+  });
+
+  it('step 13: the other fact on its own — a reader sent somewhere else entirely', () => {
+    const s = activitySteps()[12]!;
+    expect(s.querySelector('.result')!.textContent).toBe('why=scatter.caption kind=prose commits=1 threaded=true');
+    expect(s.querySelector('.dropped')!.textContent).toBe('named and not honoured — this log does not hold ghost');
+  });
+
+  it('step 14: an answer with nothing readable to disclose adds no line at all', () => {
+    const s = activitySteps()[13]!;
+    expect(s.querySelector('.result')!.textContent).toBe('why=risk kind=column commits=0 threaded=true');
+    expect(s.querySelector('.dropped')).toBeNull();
+  });
+
+  it('step 15: no provenance to walk says WHICH miss it was — never a bare ok=false', () => {
+    const s = activitySteps()[14]!;
+    // 'no-such-target' and 'declared-in-def' are different facts (src/why/types.ts)
+    expect(s.querySelector('.result')!.textContent).toBe('ok=false missing=no-such-target');
+    expect(s.querySelector('.dropped')).toBeNull();
+  });
+
+  it('step 16: the final "ok=true" fallback when nothing else matches', () => {
+    const s = activitySteps()[15]!;
     expect(s.querySelector('.result')!.textContent).toBe('ok=true');
   });
 });
@@ -795,14 +836,14 @@ describe('popup structure — ONE internal scroll region (the transcript), pinne
     const groups = document.querySelectorAll('.activity');
     expect(groups.length).toBeGreaterThan(0);
     for (const group of groups) expect(transcript.contains(group)).toBe(true);
-    expect(transcript.querySelectorAll('.activity-step')).toHaveLength(12); // all of STATE_A's rows, in the scroll region
-    expect(document.querySelectorAll('.activity-step')).toHaveLength(12); // …and nowhere else
+    expect(transcript.querySelectorAll('.activity-step')).toHaveLength(16); // all of STATE_A's rows, in the scroll region
+    expect(document.querySelectorAll('.activity-step')).toHaveLength(16); // …and nowhere else
   });
 
   it('a turn flows in order inside the transcript: you-bubble → its OWN activity group → reply → 🐛; the boot group stays frozen before it', async () => {
     const transcript = document.querySelector<HTMLElement>('.transcript')!;
     const bootGroup = transcript.querySelector('.activity')!;
-    expect(bootGroup.querySelectorAll('.activity-step')).toHaveLength(12);
+    expect(bootGroup.querySelectorAll('.activity-step')).toHaveLength(16);
 
     const chat = deferred<{ text?: string }>();
     api.chatQueue.push(chat.promise);
@@ -819,7 +860,7 @@ describe('popup structure — ONE internal scroll region (the transcript), pinne
     const groups = transcript.querySelectorAll('.activity');
     expect(groups).toHaveLength(2);
     expect(groups[1]!.querySelectorAll('.activity-step')).toHaveLength(2);
-    expect(bootGroup.querySelectorAll('.activity-step')).toHaveLength(12);
+    expect(bootGroup.querySelectorAll('.activity-step')).toHaveLength(16);
 
     chat.resolve({ text: 'turn reply' });
     await tick();
@@ -836,12 +877,12 @@ describe('popup structure — ONE internal scroll region (the transcript), pinne
 
   it('reset points the poll at a FRESH group inside the cleared transcript — never the detached old one', async () => {
     const transcript = document.querySelector('.transcript')!;
-    expect(transcript.querySelectorAll('.activity-step')).toHaveLength(12);
+    expect(transcript.querySelectorAll('.activity-step')).toHaveLength(16);
     await click(document.getElementById('chatreset'));
     expect(transcript.querySelectorAll('.activity-step')).toHaveLength(0); // cleared with the transcript
     await advance(2000); // the idle poll renders the server buffer into the NEW group
-    expect(transcript.querySelectorAll('.activity-step')).toHaveLength(12);
-    expect(document.querySelectorAll('.activity-step')).toHaveLength(12); // nothing rendered into the detached group
+    expect(transcript.querySelectorAll('.activity-step')).toHaveLength(16);
+    expect(document.querySelectorAll('.activity-step')).toHaveLength(16); // nothing rendered into the detached group
   });
 });
 
@@ -1107,8 +1148,8 @@ describe('idle poll (2000ms): turnActive/activity-length branches + getChatState
 
 describe('sendMessage\'s finally block: the SECOND of its two /api/state calls (getChatState) can fail independently of the first (view.refresh())', () => {
   it('a failed final getChatState() leaves the activity strip on its last good snapshot (no crash)', async () => {
-    await boot(STATE_A); // boots with the 12-entry STATE_A.activity strip
-    expect(activitySteps()).toHaveLength(12);
+    await boot(STATE_A); // boots with the 16-entry STATE_A.activity strip
+    expect(activitySteps()).toHaveLength(16);
 
     const chat = deferred<{ text?: string; error?: string }>();
     api.chatQueue.push(chat.promise);
@@ -1130,7 +1171,7 @@ describe('sendMessage\'s finally block: the SECOND of its two /api/state calls (
     await tick();
 
     expect(screen.getByText('done')).toBeTruthy(); // the try block completed fine
-    expect(activitySteps()).toHaveLength(12); // untouched — the final getChatState() returned null
+    expect(activitySteps()).toHaveLength(16); // untouched — the final getChatState() returned null
   });
 });
 

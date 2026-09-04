@@ -6,7 +6,7 @@
  * plus `date`/`region`) and parses it with `src/data`'s REAL CSV parser, never
  * a duplicate hand-rolled one.
  */
-import { parseCSVTyped } from '../../src/data/csv.js';
+import { parseCSVTyped } from 'vizfootprint/data';
 
 /** One demo-agent row: the original four fields plus the date/region VizLine/VizMap need. */
 export interface DemoRow {
