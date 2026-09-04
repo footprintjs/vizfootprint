@@ -4,6 +4,44 @@ One session = one person's (or agent's) walk through a dashboard: a commit log o
 
 Five laws govern this folder, and the sections below are them in order: **1** an act either fully happens or it does not happen at all; **2** a fold result is detached; **3** folding as you walk equals folding a replay; **4** commit identity is per dashboard; **5** a read at a cursor answers about that cursor. The sections in between (the view-query port, saved selections, bookmarks) describe doors rather than laws.
 
+## Where the code lives
+
+`session.ts` is the SESSION: one class that owns the state and every door onto
+it. That is deliberate and it is not going to change — the doors move the log,
+the cursor, the head, the folds, the memos and the stores, often several of
+them in one act, and law 1 below is a claim about the ORDER those moves happen
+in. A door split across two objects is a door whose order you have to
+reconstruct by reading both.
+
+What has been lifted out is everything beside it that is a RULE rather than a
+piece of state. Each of these is a plain function over its arguments — nothing
+here can reach the session, which is the property that makes them safe to hold
+apart, and each file's own header carries the reasoning:
+
+| file | what it owns |
+|---|---|
+| `wire.ts` | the translations between a clause, a commit's flat triple, a saved condition and the act that lands one. The reason walk-equals-replay (law 3) holds: `doProbe` writes through one of these and `rebuildFold` reads back through another |
+| `branchPath.ts` | the parent chain, read three ways — law 5's substrate. Each takes the whole log first and the position second, so a caller has to name the position it means |
+| `clausesReaching.ts` | which gestures reach a view through the link graph, and what a mapping renamed them to — the engine-side twin of the renderer's crossfilter law |
+| `effectiveEncodings.ts` | what a view SHOWS once the encoding edges are read through, and the ONE-HOP law that keeps two views pointing at each other from becoming a solver |
+| `offers.ts` | the offers list and the position stamp — and the line between them, which is why `offers` stopped churning on every act |
+| `namespaces.ts` | the names a session-authored commit lands under: the reserved fields and the synthetic `encoding:` / `link:` / `chart:` / `layout:` identities |
+| `stampCause.ts` | the cause a commit carries, validated and R1-forced rather than believed |
+| `tablesInfo.ts` | the Sources rows — the one part of `overview()` that projects the MAP and not the trace |
+| `gapLedger.ts` | the R14 ledger, and `messageOf`, which turns whatever third-party code threw into a sentence a gap can carry |
+
+The memos stayed behind with everything else that is state: a cache key is
+session state, so `effectiveEncodings` and `fitsOfView` still hold theirs and
+call out to the computation. **The rule for the next cut is the one that
+produced these:** move the thing that only reads its arguments, and leave the
+thing that owns a field. A judge and its apply phase are one act, and moving
+half of one across a file boundary is how law 1 breaks without a test noticing.
+
+Nothing here changed what `rebuildFold` can do, so the expiry condition stated
+at the end of law 1 still stands exactly as written: `probeClause` moved to
+`wire.ts` and is as total as it was, and every operation the fold performs over
+a record is still a string or `Map` write.
+
 ## Law 1 — the all-or-nothing law: an act either fully happens, or it does not happen at all
 
 Everything on screen is derived from the TRACE. That is the whole claim of this
@@ -436,35 +474,42 @@ the one step that was missing.
 
 ### The full classification
 
+**A citation here names a file and a symbol, never a line.** This table used to
+carry line numbers and they were stale before anyone noticed, which is the
+failure this whole folder has laws about: a claim that was true when it was
+written and is not checked when it is read. A symbol survives every move that a
+line number does not, and if a symbol is gone the reader learns something true
+rather than landing in the middle of something else.
+
 | read (`session.ts`) | side | why |
 |---|---|---|
-| `seek` — commit exists (:727) | whole | you seek TO other branches; that is navigation |
-| `branchPath` — the id map (:785) | whole | the substrate the scoping is computed FROM; a parent chain crosses no branch |
-| `rebuildFold` (:825) | scoped | the fold IS the position |
-| `branches()` (:877, :887) | whole | listing the branches of the tree |
-| `paths()` (:896, :901) | whole | listing named refs and their lengths; each `branchPath` is scoped to ITS tip on purpose |
-| `newPathAt` — commit exists (:933) | whole | you may start a path at any commit |
-| `pathToRewind` (:979, :986) | scoped, to the named path | "is `at` on the path I would rewind" — deliberately not the cursor's |
-| `discardFromHere` (:999, :1007, :1016) | whole for existence, scoped for the step count | two different questions, two different reads |
-| `stepsSinceAncestor` (:1027–1028) | both, deliberately | it exists to compare two branches |
-| `adoptPath` → `planBringOver` (:1064) | whole | planning a bring-over between branches |
-| `rowsAtTip` → `foldStateAt(records, tip)` (:1125) | scoped by `tip` | `foldStateAt` walks the chain itself; the whole log is only its index |
-| `compare` → `foldDiff` (:1142) | whole | comparing two branches |
-| `bringOver` / `undo` plans (:1161, :1169) | whole | both are planned AGAINST the cursor, which the planner is given |
-| `derivedAt` (:1305) | scoped | which `risk` is in front of you — see [`../data/README.md`](../data/README.md) |
-| `bookmark` — commit exists (:1594) | whole | a bookmark names a moment anywhere; the store is dashboard-wide |
-| `restoreBookmarks` — the id set (:1640) | whole | validating restored records against the history |
-| `applySaved` correlation id (:1776) | whole | `records.length` is used as a counter, never as a claim |
-| **`proseWorld` — `commits` (:2360)** | **scoped (was whole)** | the mention world; the decision is below |
-| `doFork` — commit exists (:2810) | whole | you may fork from any commit |
-| **`provenanceForAnalysis` (:3087)** | **scoped (new)** | which run of `clustering` you are asking about |
-| **`why()` — `vizRecords` (:3293)** | **scoped to the TARGET's branch (was whole)** | the answer may only name commits the declaring act could have seen |
-| `whyProse` — the entry at the cursor (:3313) | scoped | which words are on screen |
-| `whyProse` — the landing record (:3321) | whole | an id-to-record lookup for a commit the fold already named |
-| **`whyProse` — `vizRecords` (:3328)** | **scoped to the WORDS' branch (was whole)** | same reason as above, at the words' own position |
-| `whyProse` — input selections (:3330) | scoped by `landing.id` | the selections live when the words landed |
-| `bookmarkViews` — positions (:3368) | whole | a bookmark may name a moment on any branch; `ts: -1` when the log does not hold it |
-| `overview` — `cursorTests` (:3465) | scoped | the two-truths surface: tests on YOUR path vs the session's whole ledger |
+| `seek` — commit exists | whole | you seek TO other branches; that is navigation |
+| `branchPath` — the id map | whole | the substrate the scoping is computed FROM; a parent chain crosses no branch |
+| `rebuildFold` | scoped | the fold IS the position |
+| `branches()` | whole | listing the branches of the tree |
+| `paths()` | whole | listing named refs and their lengths; each `branchPath` is scoped to ITS tip on purpose |
+| `newPathAt` — commit exists | whole | you may start a path at any commit |
+| `pathToRewind` | scoped, to the named path | "is `at` on the path I would rewind" — deliberately not the cursor's |
+| `discardFromHere` | whole for existence, scoped for the step count | two different questions, two different reads |
+| `stepsSinceAncestor` | both, deliberately | it exists to compare two branches |
+| `adoptPath` → `planBringOver` | whole | planning a bring-over between branches |
+| `rowsAtTip` → `foldStateAt(records, tip)` | scoped by `tip` | `foldStateAt` walks the chain itself; the whole log is only its index |
+| `compare` → `foldDiff` | whole | comparing two branches |
+| `bringOver` / `undo` plans | whole | both are planned AGAINST the cursor, which the planner is given |
+| `derivedAt` | scoped | which `risk` is in front of you — see [`../data/README.md`](../data/README.md) |
+| `bookmark` — commit exists | whole | a bookmark names a moment anywhere; the store is dashboard-wide |
+| `restoreBookmarks` — the id set | whole | validating restored records against the history |
+| `applySaved` correlation id | whole | `records.length` is used as a counter, never as a claim |
+| **`proseWorld` — `commits`** | **scoped (was whole)** | the mention world; the decision is below |
+| `doFork` — commit exists | whole | you may fork from any commit |
+| **`provenanceForAnalysis`** | **scoped (new)** | which run of `clustering` you are asking about |
+| **`why()` — `vizRecords`** | **scoped to the TARGET's branch (was whole)** | the answer may only name commits the declaring act could have seen |
+| `whyProse` — the entry at the cursor | scoped | which words are on screen |
+| `whyProse` — the landing record | whole | an id-to-record lookup for a commit the fold already named |
+| **`whyProse` — `vizRecords`** | **scoped to the WORDS' branch (was whole)** | same reason as above, at the words' own position |
+| `whyProse` — input selections | scoped by `landing.id` | the selections live when the words landed |
+| `bookmarkViews` — positions | whole | a bookmark may name a moment on any branch; `ts: -1` when the log does not hold it |
+| `overview` — `cursorTests` | scoped | the two-truths surface: tests on YOUR path vs the session's whole ledger |
 
 Four were on the wrong side. Every other row was already right, and several
 were right in a way worth noticing: `foldStateAt`, `planBringOver`, `planUndo`

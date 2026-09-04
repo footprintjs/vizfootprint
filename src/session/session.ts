@@ -20,12 +20,18 @@
  *  - R11 an analysis output re-enters the data space with ZERO new verbs
  *        (a materialized `cluster_id` filters through an ordinary `select`).
  *  - R14 every unhonorable request is a TYPED gap (D14 taxonomy), never dropped.
+ *
+ * This file is the STATE and the doors onto it. The rules that only read their
+ * arguments live in the small modules beside it — the wire translations, the
+ * branch-path reads, the reaching clauses, the encoding read-through, the
+ * offers, the reserved names, the cause stamp, the Sources rows. `./README.md`
+ * has the table and the rule for the next cut.
  */
 
 import { restoreSavedInto, restoreBookmarksInto } from '../def/buildDashboard.js';
 import { COMMIT_ID_PREFIX, PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, mintRecordId } from '../def/recordIds.js';
 import type { FoldEntry } from '../branches/index.js';
-import type { EmissionKind, LinkEdge } from '../links/index.js';
+import type { EmissionKind } from '../links/index.js';
 import { voiceOf } from '../links/index.js';
 import type { Actor, Cause } from '../cause/index.js';
 import { validateCause } from '../cause/index.js';
@@ -37,26 +43,25 @@ import { cellFieldLabel, derivedColumnName, isRejection, renameClauseFields, ren
 import { isClearedSelection } from '../branches/fold.js';
 import { applyLinkOverrides, edgeId, impliedKinds, validateLinks, type LinkDecl } from '../links/index.js';
 
-/** The predicate clause a landed point/interval/match probe folds to — ONE spelling for the live path and the replay fold. */
-function probeClause(kind: 'point' | 'interval' | 'match', field: string, value: unknown): PredicateClause {
-  if (kind === 'point') return { kind, field, value };
-  if (kind === 'match') {
-    const body = value as Exclude<MatchValue, null>;
-    return { kind, field, values: body.values, ...(body.exclude === true ? { exclude: true } : {}) };
-  }
-  return { kind, field, value: value as FilterRange };
-}
 import type { CauseClause } from '../mosaic/index.js';
 import { registerAnalysisSlot } from '../def/register.js';
 import { copyValue, deepFreeze } from '../detach/index.js';
 import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RestorableSaved, RestorableBookmark, RestoreResult, ViewEncodingDecl, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
-import { describeRules, fitsFor, refuses, validateBindings } from '../encoding/index.js';
-import { ENCODING_KIND, edgesInto } from '../links/index.js';
+import { describeRules, refuses, validateBindings } from '../encoding/index.js';
+import { ENCODING_KIND } from '../links/index.js';
 import { DASHBOARD_PROSE_ID, NOTE_PROSE_PREFIX, isNoteSubject, PROPOSAL_LANE, PROSE_SLOTS, fillProse, PROSE_SENTENCES, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
 import type { ProseProposal, ProseRecord, ProseSlot, ProseStatus, ProposalStatus, ProseWorld } from '../prose/index.js';
 import type { LinkGraph } from '../links/index.js';
 import type { Bindings, EncodingProblem, Fit } from '../encoding/index.js';
-import { GapLedger } from './gapLedger.js';
+import { GapLedger, messageOf } from './gapLedger.js';
+import { clausesReaching, mappingsInto } from './clausesReaching.js';
+import { tablesInfoOf } from './tablesInfo.js';
+import { stampCause } from './stampCause.js';
+import { computeEffectiveEncodings, fitsWithFollows, followSentence } from './effectiveEncodings.js';
+import { offerStampOf, offersOf } from './offers.js';
+import { branchPathOf, commitsElsewhereThan, stepsSinceAncestor } from './branchPath.js';
+import { clauseOfLive, clearAction, copyClause, kindOfAct, probeClause, selectionAction, selectionInfoOf } from './wire.js';
+import { ANALYSIS_FIELD, ANNOTATION_FIELD, CHART_FIELD, DASHBOARD_ACTOR_META, LAYOUT_SOURCE_META, LAYOUT_VALUE_MAX, NOTE_ACTOR_META, RESERVED_PROBE_FIELDS, chartViewId, encodingViewId, linkViewId } from './namespaces.js';
 import { why } from '../why/index.js';
 import type { RuntimeSnapshot } from 'footprintjs';
 import type { AgentEventFrame, WhyResult, WhyTarget } from '../why/index.js';
@@ -77,7 +82,6 @@ import {
 import type { PlanRecipe } from '../branches/index.js';
 import type {
   Offer,
-  SelectionInfo,
   AdoptPathResult,
   AdoptStep,
   AnalysisCommit,
@@ -114,7 +118,6 @@ import type {
   TimeState,
   ViewAdapter,
   EffectiveEncoding,
-  TableInfo,
   NoteInfo,
   ReachingClause,
   ViewQuery,
@@ -147,82 +150,9 @@ interface WhyProvenance {
   readonly fdrStep?: FdrStep;
 }
 
-/** Reserved log fields the session lands non-filter commits under (never real data columns). */
-const ANALYSIS_FIELD = '__analysis__';
-const ANNOTATION_FIELD = '__annotation__';
-/**
- * The field a bookmark commit carried its label under. The session lands NO
- * bookmark commits any more (a bookmark lives beside the log, not in it), but
- * the field stays reserved from probes: the UI's log reader still labels a
- * `__bookmark__` commit "bookmark", so a data column of that name would read as
- * a bookmark that never was.
- */
-const BOOKMARK_FIELD = '__bookmark__';
 /** How many journal records the overview carries (the latest) — a poll must not grow without bound; `dashboard.journal()` holds them all. Placeholder until measured. */
 const JOURNAL_TAIL = 50;
-/** The dashboard subject's registry meta: its words are the system's, its label the cockpit's. */
-const DASHBOARD_ACTOR_META = { actor: 'system', label: 'the dashboard' } as const;
-/** A note's registry meta: words a person (or an accepted reply) put on the dashboard. */
-const NOTE_ACTOR_META = { actor: 'user', label: 'a note' } as const;
-/** RP-3: the field an agent-authored chart's spec-registration commit lands under. */
-const CHART_FIELD = '__chart__';
 
-/**
- * The `reencode` verb's commit-landing namespace (mirrors the `annotation:`/
- * `analysis:` synthetic-viewId pattern doAnnotate/declareAnalysis already use
- * — see `doAnnotate` above and `declareAnalysis` below): a reencode commit's
- * `viewId` is `encoding:${targetViewId}`, so it is structurally distinct from
- * a real probe on that view (`runtime.views.has()` is false for it) and
- * `rebuildFold` can recognize + fold it without touching `src/log`'s wire
- * union (CommitRecord stays `kind:'point'|'interval'`; `field` carries the
- * CHANNEL, `value` carries the target field — both plain strings, same shape
- * every other commit already uses).
- *
- * The prefix constants themselves are SINGLE-SOURCED from `src/branches/fold`
- * (BR-1): the branches layer folds the same wire from the log alone, so the
- * two layers share the literal bytes and cannot drift.
- */
-const encodingViewId = (viewId: string): string => `${ENCODING_VIEW_PREFIX}${viewId}`;
-const linkViewId = (id: string): string => `${LINK_VIEW_PREFIX}${id}`;
-
-/**
- * The `chart:${id}` synthetic identity an agent-authored chart's commits land
- * under (RP-3). Single-sourced from `src/branches/fold` like the other
- * prefixes, so the branches fold and the session cannot drift on the wire.
- * A chart commit is INERT in the fold (`keyOf` returns null for it) — a chart
- * registration is not crossfilter state; it renders as its own view.
- */
-const chartViewId = (id: string): string => `${CHART_VIEW_PREFIX}${id}`;
-
-/**
- * LY-1: the cockpit-layout commit-landing namespace — a layout note lands under
- * `layout:${scope}` (e.g. `layout:dashboard`), following the `encoding:` /
- * `annotation:` / `chart:` synthetic-viewId precedent above. `field` carries
- * the arrangement PROP (`preset` / `order` / `focus`), `value` its plain-string
- * value. Recorded through the `navigate` verb (deliberately NON-filtering —
- * the same honesty ruling as pan/zoom: an arrangement is never a data claim)
- * and folded by `rebuildFold` like `activeEncodings`, so seek / switchPath /
- * fork each restore their own arrangement. Prefix single-sourced from
- * `src/branches/fold` (where it is INERT — layout never enters row counts,
- * foldDiff, or conflicts).
- *
- * The registry meta for a layout source is CONSTANT (`{ actor: 'system',
- * label: 'layout' }`): `layout:${scope}` is ONE shared source across actors,
- * and the registry rejects a meta that varies (the doReencode BR-1 lesson
- * above) — WHO acted lives in the cause (`requestedBy`).
- */
-const LAYOUT_SOURCE_META = { actor: 'system', label: 'layout' } as const;
-/** A layout value is inert display state — cap it like a bookmark label (order lists fit easily). */
-const LAYOUT_VALUE_MAX = 500;
-
-/**
- * Fields a `select`/`filter` may NOT target — a clause on one of these would
- * collide with a session-authored commit. `pValue` (`TEST_ANALOG_FIELD`) is the
- * load-bearing one: an unguarded point select on a data column literally named
- * `pValue` carrying a value in [0,1] would be miscounted as a declared test by
- * `hypothesisRecordsFromLog` on log replay (R6). Reject it as a typed gap.
- */
-const RESERVED_PROBE_FIELDS = new Set<string>([TEST_ANALOG_FIELD, ANALYSIS_FIELD, ANNOTATION_FIELD, CHART_FIELD, BOOKMARK_FIELD]);
 
 /** The public session surface (family-symmetric with hcifootprint's Session). */
 export interface InteractionSession {
@@ -497,96 +427,6 @@ export interface InteractionSession {
   overview(): Promise<Overview>;
 }
 
-/** The emission kind a select/filter act names: the cell form, the match form, the point, or the interval. */
-function kindOfAct(action: Extract<DispatchAction, { verb: 'select' | 'filter' }>): EmissionKind {
-  if (action.verb === 'filter') return 'interval';
-  return 'fields' in action ? 'cell' : 'values' in action ? 'match' : 'point';
-}
-
-/**
- * What a thrown thing SAYS, for a gap's inert `detail`. Third-party code may
- * throw anything at all (an adapter that throws a string, a provider that
- * rejects with an object), and a gap must still read as a sentence.
- */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-/** FNV-1a over a string — a short, stable id for an offer minted at a position. */
-function fnv1a(text: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(16).padStart(8, '0');
-}
-
-/** One live (or last) clause as the wire's `SelectionInfo` — the same projection for active and cleared selections. */
-function selectionInfoOf(viewId: string, clause: PredicateClause, commitId?: string): SelectionInfo {
-  const info: SelectionInfo = (
-      clause.kind === 'cell'
-        ? {
-            viewId,
-            field: cellFieldLabel(clause.fields), // display-only joint label (D30)
-            kind: 'cell' as const,
-            value: clause.value,
-            fields: clause.fields,
-          }
-        : clause.kind === 'match'
-          ? {
-              viewId,
-              field: clause.field,
-              kind: 'match' as const,
-              // the wire carries the IN-list and its polarity as ONE value (a `MatchValue`) — key order {values, exclude?}
-              // matches the commit's own value, which a consumer may compare as JSON (the saved-selection panel does)
-              value: { values: clause.values, ...(clause.exclude === true ? { exclude: true } : {}) },
-            }
-          : {
-              viewId,
-              field: clause.field,
-              kind: clause.kind as 'point' | 'interval',
-              value: (clause as { value: unknown }).value, // never a cleared point: one clearing rule drops it from the fold (SET-1)
-            }  );
-  return commitId === undefined ? info : { ...info, commitId };
-}
-
-/** A view's live clause as a saved condition. */
-function clauseOfLive(viewId: string, clause: PredicateClause): SavedClause {
-  if (clause.kind === 'cell') return { viewId, kind: 'cell', field: cellFieldLabel(clause.fields), fields: [clause.fields[0], clause.fields[1]], value: copyValue(clause.value) };
-  if (clause.kind === 'match') return { viewId, kind: 'match', field: clause.field, value: { values: copyValue(clause.values), ...(clause.exclude === true ? { exclude: true } : {}) } };
-  return { viewId, kind: clause.kind, field: clause.field, value: copyValue(clause.value) };
-}
-
-/** The ordinary act a saved condition lands as — the same mapping a bring-over uses for a selection recipe. */
-function selectionAction(c: SavedClause, cause: Cause): Extract<DispatchAction, { verb: 'select' | 'filter' }> {
-  if (c.kind === 'cell') return { verb: 'select', viewId: c.viewId, fields: c.fields!, values: c.value as CellValues, cause }; // a cell condition always carries its pair
-  if (c.kind === 'match') {
-    const body = c.value as Exclude<MatchValue, null>;
-    return { verb: 'select', viewId: c.viewId, field: c.field, values: body.values, ...(body.exclude === true ? { exclude: true } : {}), cause };
-  }
-  if (c.kind === 'point') return { verb: 'select', viewId: c.viewId, field: c.field, value: c.value, cause };
-  return { verb: 'filter', viewId: c.viewId, field: c.field, range: c.value as FilterRange, cause };
-}
-
-/** The kind-faithful clear of a live clause (the same shapes a bring-over's clear-selection recipe lands). */
-function clearAction(viewId: string, clause: PredicateClause, cause: Cause): Extract<DispatchAction, { verb: 'select' | 'filter' }> {
-  if (clause.kind === 'cell') return { verb: 'select', viewId, fields: [clause.fields[0], clause.fields[1]], values: null, cause };
-  if (clause.kind === 'match') return { verb: 'select', viewId, field: clause.field, values: null, cause };
-  if (clause.kind === 'point') return { verb: 'select', viewId, field: clause.field, value: undefined, cause };
-  return { verb: 'filter', viewId, field: clause.field, range: null, cause };
-}
-
-/** A consumer's own copy of a clause — never the session's live object. A clause is JSON-shaped through every door; one that is not is handed over as a shallow copy rather than thrown on. */
-function copyClause(clause: PredicateClause): PredicateClause {
-  try {
-    return structuredClone(clause);
-  } catch {
-    /* v8 ignore next -- unreachable through the JSON-shaped agent and UI doors: only a hand-built clause with a function or symbol value refuses to clone */
-    return { ...clause };
-  }
-}
-
 /** A window's default size (placeholder): a page a grid can hold without holding the table. */
 export const VIEW_QUERY_DEFAULT_LIMIT = 200;
 
@@ -766,46 +606,14 @@ class InteractionSessionImpl implements InteractionSession {
     return { ok: true, cursor: commitId };
   }
 
-  /**
-   * The root→`cursorId` ancestor chain (the branch path). Walks parent pointers
-   * up to the root and reverses. `null` (no commits yet, or a root-before-any-act
-   * cursor) yields the empty path. Cycle-guarded defensively (the append-only log
-   * cannot form one, but a fold must never loop).
-   */
-  /**
-   * Layer 4, the OFFER (ruling 8): every (view, emission kind) of this
-   * dashboard — a view's voice is declared, it does not move. The tool list
-   * stays byte-stable: the offer is data in the answer, never a new tool. The
-   * view's `does` sentence rides once, on `views[]`, not per offer.
-   *
-   * This list does NOT move with the cursor. The POSITION rides once, beside
-   * it, as {@link offerStamp} — see the note there for why.
-   */
+  /** Every (view, emission kind) this dashboard can be acted on with — see `./offers.ts`. */
   private offersNow(): Offer[] {
-    const out: Offer[] = [];
-    for (const view of this.runtime.links.views) {
-      for (const kind of view.voice) {
-        if (kind === ENCODING_KIND) continue; // a binding is followed through an edge, never acted on as an emission
-        out.push({ viewId: view.viewId, kind });
-      }
-    }
-    return out;
+    return offersOf(this.runtime.links.views);
   }
 
-  /**
-   * The one id every offer in an answer is good at: the CURRENT POSITION,
-   * hashed. An `asOf` minted by an earlier `whats_here` goes stale the
-   * moment the position moves, and the act door says so.
-   *
-   * It used to be stamped onto every offer — N copies of one fact, and the
-   * single largest churning item in an answer, because a select moves all N
-   * while their content is identical. The check is unchanged: what an offer
-   * proves is that the agent read a CURRENT answer, and the act it rides on
-   * already names its own view and kind, so the node never needed restating in
-   * the id. One stamp says exactly what N said.
-   */
+  /** The position, hashed — the one id every offer in an answer is good at. See `./offers.ts`. */
   private offerStamp(): string {
-    return `o-${fnv1a(this._cursor ?? 'root')}`;
+    return offerStampOf(this._cursor);
   }
 
   /** The act door's half of the offer: the named offer must be current, and its node must have that voice; a session may require one. */
@@ -827,21 +635,9 @@ class InteractionSessionImpl implements InteractionSession {
     if (prev !== undefined) this.clearedFilters.set(viewId, { clause: prev, clearedBy });
   }
 
+  /** This position's own lineage, root→cursor — the read law 5 is about. See `./branchPath.ts`. */
   private branchPath(cursorId: string | null): CommitRecord[] {
-    if (cursorId === null) return [];
-    const byId = new Map(this.log.records.map((r) => [r.id, r]));
-    const chain: CommitRecord[] = [];
-    const seen = new Set<string>();
-    let cur: string | null = cursorId;
-    while (cur !== null && !seen.has(cur)) {
-      seen.add(cur);
-      const rec = byId.get(cur);
-      if (!rec) break;
-      chain.push(rec);
-      cur = rec.parent;
-    }
-    chain.reverse();
-    return chain;
+    return branchPathOf(this.log.records, cursorId);
   }
 
   /**
@@ -1064,31 +860,13 @@ class InteractionSessionImpl implements InteractionSession {
     return { ok: true, path: target.name, at, kept: res.kept, keptTip: res.from, steps };
   }
 
-  /**
-   * The source path's steps SINCE the common ancestor, oldest→newest, plus that
-   * ancestor. Both chains are root-anchored linear ancestries, so their shared
-   * commits are a PREFIX of the source chain — the last shared one IS the LCA
-   * (null when the two share no root, or when nothing has landed here yet).
-   */
-  private stepsSinceAncestor(sourceTip: string): { ancestor: string | null; steps: CommitRecord[] } {
-    const sourceChain = this.branchPath(sourceTip); // root→tip
-    const onTarget = new Set(this.branchPath(this._cursor).map((r) => r.id));
-    const firstNew = sourceChain.findIndex((r) => !onTarget.has(r.id));
-    const ancestorIdx = firstNew === -1 ? sourceChain.length - 1 : firstNew - 1;
-    return {
-      /* v8 ignore next -- a session-authored log has exactly ONE root (only the first commit has parent null; every later one parents from a non-null cursor), so both chains always share it and `ancestorIdx` is never -1. The `null` mirrors compare()'s honest disjoint-roots case, which only a hand-carried multi-root log could produce. */
-      ancestor: ancestorIdx >= 0 ? (sourceChain[ancestorIdx] as CommitRecord).id : null,
-      steps: firstNew === -1 ? [] : sourceChain.slice(firstNew),
-    };
-  }
-
   async adoptPath(name: string, opts: { as?: Actor } = {}): Promise<AdoptPathResult> {
     const sourceTip = this.refs.tipOf(name); // archived paths answer too — adopting from one is fair
     if (sourceTip === undefined) return this.lifecycleGap('adoptPath', `no path named "${name}"`, name);
     if (name === this.refs.currentBranch()) {
       return this.lifecycleGap('adoptPath', `"${name}" is the path you are on — there is nothing to adopt`, name);
     }
-    const { ancestor, steps } = this.stepsSinceAncestor(sourceTip);
+    const { ancestor, steps } = stepsSinceAncestor(this.log.records, sourceTip, this._cursor);
     // Every plan is measured against where the adopt STARTED, so a conflict
     // means "your own path already touched this since the fork" — never "an
     // earlier step of this same replay touched it".
@@ -1371,23 +1149,6 @@ class InteractionSessionImpl implements InteractionSession {
     return `${COMMIT_ID_PREFIX}${++this.runtime.commitIds.minted}`;
   }
 
-  // ── cause stamping (R1 / R12) ────────────────────────────────────────────────
-  private stampCause(cause: Cause, verb: DispatchVerb, as: Actor | undefined): Cause {
-    const validated = validateCause(cause); // R12 gate — never trusts caller shape
-    const requestedBy: Actor = as ?? validated.requestedBy;
-    // R1: an analysis is computedBy:'system' BY CONSTRUCTION — never caller-supplied.
-    const computedBy: Actor = verb === 'analyze' ? 'system' : (as ?? validated.computedBy);
-    const out: Cause = { requestedBy, computedBy };
-    if (validated.intent !== undefined) out.intent = validated.intent;
-    // BR-1 provenance tags ride the stamp untouched (validated inert data):
-    // a bring-over/undo is an ORDINARY commit — its cause carries the story.
-    if (validated.replayedFrom !== undefined) out.replayedFrom = validated.replayedFrom;
-    if (validated.revertOf !== undefined) out.revertOf = validated.revertOf;
-    if (validated.replacedBy !== undefined) out.replacedBy = validated.replacedBy; // a clear that makes room for a saved picture says so
-    if (validated.conflicts !== undefined) out.conflicts = validated.conflicts;
-    return out;
-  }
-
   // ── data reads ───────────────────────────────────────────────────────────────
   // Both readers surface a provider REJECTION as a typed `{ rejected }` (never a
   // misleading empty array) so a REQUEST-boundary caller (doProbe / declareAnalysis)
@@ -1524,40 +1285,7 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   clausesFor(viewId: string): readonly ReachingClause[] {
-    // one lookup per (source, kind) INTO this consumer — the same law the renderer contract applies (ui/src/contract/selection.ts)
-    const into = new Map<string, LinkEdge>();
-    for (const e of this.currentGraph().edges) if (e.target === viewId) into.set(`${e.source}|${e.kind}`, e);
-    const reaches = (from: string, kind: string): LinkEdge | undefined => {
-      if (from === viewId) return undefined; // never its own clause
-      const edge = into.get(`${from}|${kind}`);
-      // an encoding edge never matches a clause's kind, so `follow` cannot reach here; the guard keeps the type honest
-      return edge === undefined || edge.response === 'none' || edge.response === 'follow' ? undefined : edge;
-    };
-    // the consumer gets its own copy: a clause handed out is never the session's live object
-    const mapped = (edge: LinkEdge, clause: PredicateClause): PredicateClause => {
-      const own = copyClause(clause);
-      if (edge.mapping === undefined) return own;
-      const to = (f: string): string => edge.mapping!.find((m) => m.from === f)?.to ?? f;
-      return own.kind === 'cell' ? { ...own, fields: [to(own.fields[0]), to(own.fields[1])] } : { ...own, field: to(own.field) };
-    };
-    const out: ReachingClause[] = [];
-    // a source that CLEARED still reaches a consumer whose edge says so: `leave` keeps the last clause, `excludeAll` keeps nothing, `showAll` (the default) = gone
-    for (const [from, rec] of this.clearedFilters) {
-      /* v8 ignore next -- every select door drops the view's cleared record when a live clause lands, so the two maps are disjoint; the guard enforces here what the doors maintain */
-      if (this.activeFilters.has(from)) continue; // it is selecting again — the live clause speaks, and it is listed once
-      const edge = reaches(from, rec.clause.kind);
-      if (edge === undefined) continue;
-      const policy = edge.onClear ?? 'showAll';
-      if (policy === 'showAll') continue;
-      const clause = mapped(edge, rec.clause);
-      out.push({ from, response: edge.response, clause: policy === 'leave' ? clause : { kind: 'match', field: clause.kind === 'cell' ? clause.fields[0] : clause.field, values: [] } });
-    }
-    for (const [from, clause] of this.activeFilters) {
-      const edge = reaches(from, clause.kind);
-      if (edge === undefined) continue;
-      out.push({ from, response: edge.response, clause: mapped(edge, clause) });
-    }
-    return out;
+    return clausesReaching({ viewId, graph: this.currentGraph(), live: this.activeFilters, cleared: this.clearedFilters });
   }
 
   async viewQuery(query: ViewQuery = {}): Promise<ViewQueryResult> {
@@ -1602,7 +1330,7 @@ class InteractionSessionImpl implements InteractionSession {
         const spelling = this.runtime.derived.logicalByPhysical(table);
         /* v8 ignore next -- the engine just named a column it lacks, so it can list the ones it has; the rejected arm keeps the type honest */
         const has = new Set('rejected' in own ? [] : own.map((c) => spelling.get(c.name) ?? c.name));
-        const invented = this.mappingsInto(query.viewId).filter((m) => !has.has(m.to));
+        const invented = mappingsInto(this.currentGraph(), query.viewId).filter((m) => !has.has(m.to));
         if (invented.length > 0) rejected += ` — ${invented.map((m) => `the link from ${m.from} maps ${m.field} → ${m.to}`).join('; ')}`;
       }
       return { ok: false, reason: 'engine', engineReason: res.reason, rejected };
@@ -1882,17 +1610,6 @@ class InteractionSessionImpl implements InteractionSession {
    * Newest wins per commit and per name.
    */
 
-  /** The field mappings on the edges INTO a view (none for the whole-dashboard truth): which names a link invented for this consumer. */
-  private mappingsInto(viewId: string | undefined): readonly { readonly from: string; readonly field: string; readonly to: string }[] {
-    if (viewId === undefined) return [];
-    const out: { from: string; field: string; to: string }[] = [];
-    for (const e of this.currentGraph().edges) {
-      if (e.target !== viewId || e.mapping === undefined) continue;
-      for (const m of e.mapping) out.push({ from: e.source, field: m.from, to: m.to }); // an identity pair names a real column and is never picked as invented
-    }
-    return out;
-  }
-
   /** How many rows the live selection keeps — the engine counts; no row is materialised. */
   private async selectedCount(table: string, clauses: readonly PredicateClause[]): Promise<number | null> {
     const provider = this.runtime.providerFor(table);
@@ -1950,7 +1667,7 @@ class InteractionSessionImpl implements InteractionSession {
       return this.reject('link', intent, this.gapLedger.file('guard-failed', 'link', problems.map((p) => p.replace(/^links\[0\]/, `link ${id}`)).join('; '), id));
     }
     const value: LinkDecl | null = response === null ? null : probe;
-    const stamped = this.stampCause(cause, 'link', as);
+    const stamped = stampCause(cause, 'link', as);
     const { record } = this.log.commit({
       id: this.nextId(),
       parent: this._cursor,
@@ -2080,7 +1797,7 @@ class InteractionSessionImpl implements InteractionSession {
     }
     // 4. land the cause-tagged clause commit (commit-on-intent) + update the active filter set.
     //    Parent is the CURSOR: a probe from a past cursor branches (R8 branch-on-act).
-    const stamped = this.stampCause(cause, verb, as);
+    const stamped = stampCause(cause, verb, as);
     const { record, clause } = this.log.commit({
       id: this.nextId(),
       parent: this._cursor,
@@ -2161,7 +1878,7 @@ class InteractionSessionImpl implements InteractionSession {
     }
     // 4. land ONE cause-tagged compound commit (commit-on-intent). Parent is
     //    the CURSOR: a cell select from a past cursor branches (R8), like doProbe.
-    const stamped = this.stampCause(cause, verb, as);
+    const stamped = stampCause(cause, verb, as);
     const { record, clause } = this.log.commit({
       id: this.nextId(),
       parent: this._cursor,
@@ -2245,14 +1962,14 @@ class InteractionSessionImpl implements InteractionSession {
     const followed = this.effectiveEncodings(this.runtime.encoding.facetsOf(this.defaultTable, cols)).get(viewId)!.followed; // the view has a surface (step 2)
     for (const [channel] of pairs) {
       const f = followed[channel];
-      if (f !== undefined) return { gap: this.gapLedger.file('guard-failed', 'reencode', this.followSentence(viewId, channel, f), channel) };
+      if (f !== undefined) return { gap: this.gapLedger.file('guard-failed', 'reencode', followSentence(viewId, channel, f), channel) };
     }
     return { cols };
   }
 
   /** Land one `encoding:` commit (single channel, or the `*`-marked binding set) and fold it live. */
   private landEncoding(viewId: string, field: string, value: unknown, next: Bindings, cause: Cause, as: Actor | undefined, correlationId: string | undefined): CommitRecord {
-    const stamped = this.stampCause(cause, 'reencode', as);
+    const stamped = stampCause(cause, 'reencode', as);
     const { record } = this.log.commit({
       id: this.nextId(),
       parent: this._cursor, // R8 branch-on-act: a reencode from a past cursor branches, exactly like doProbe
@@ -2424,7 +2141,7 @@ class InteractionSessionImpl implements InteractionSession {
 
   /** Land one prose-lane commit (a slot's words, or its proposal lane) and fold it live. */
   private landProse(viewId: string, field: string, value: unknown, cause: Cause, as: Actor | undefined, correlationId: string | undefined): CommitRecord {
-    const stamped = this.stampCause(cause, 'describe', as);
+    const stamped = stampCause(cause, 'describe', as);
     const { record: commit } = this.log.commit({
       id: this.nextId(),
       parent: this._cursor,
@@ -2449,7 +2166,7 @@ class InteractionSessionImpl implements InteractionSession {
     if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
     const problems = validateProseRecord(viewId, slot, record, this.proseWorld(cols, 'proposal'));
     if (proseRefuses(problems)) return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', problems.map((p) => p.sentence).join('; '), slot));
-    const by = this.stampCause(cause, 'describe', as).requestedBy;
+    const by = stampCause(cause, 'describe', as).requestedBy;
     const value: ProseProposal = { record, status: 'open', by };
     const commit = this.landProse(viewId, `${slot}${PROPOSAL_LANE}`, value, cause, as, correlationId);
     this.foldProposal(viewId, slot, value, commit.id);
@@ -2465,7 +2182,7 @@ class InteractionSessionImpl implements InteractionSession {
     if (open === undefined || open.proposal !== proposalId || derived !== 'open') {
       return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', fillProse(PROSE_SENTENCES.noProposal, { view: viewId, slot, proposal: proposalId }), slot));
     }
-    const acceptedBy = this.stampCause(cause, 'describe', as).requestedBy;
+    const acceptedBy = stampCause(cause, 'describe', as).requestedBy;
     const record: ProseRecord = { ...open.record, author: { ...open.record.author, acceptedFrom: proposalId, acceptedBy } };
     const cols = await this.effectiveColumnsOf(this.defaultTable);
     /* v8 ignore next 2 -- an open proposal exists only where the columns could be listed when it was proposed; a provider that answered then and refuses now is a mid-session engine failure this door cannot exercise */
@@ -2488,7 +2205,7 @@ class InteractionSessionImpl implements InteractionSession {
     if (typeof decline.reason !== 'string' || decline.reason.trim().length === 0) {
       return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', fillProse(PROSE_SENTENCES.declineReason, { view: viewId, slot }), slot));
     }
-    const by = this.stampCause(cause, 'describe', as).requestedBy;
+    const by = stampCause(cause, 'describe', as).requestedBy;
     const value: ProseProposal = { record: open.record, status: 'declined', proposal: decline.proposal, by, reason: decline.reason };
     const commit = this.landProse(viewId, `${slot}${PROPOSAL_LANE}`, value, cause, as, correlationId);
     this.foldProposal(viewId, slot, value, commit.id);
@@ -2529,29 +2246,6 @@ class InteractionSessionImpl implements InteractionSession {
       out.push({ id: subject.slice(NOTE_PROSE_PREFIX.length), prose, proposals: this.proposalsOf(subject) });
     }
     return out;
-  }
-
-  /** Every declared table as the def states it — read off the def and the runtime, never inferred from the rows. */
-  private tablesInfo(): TableInfo[] {
-    return this.runtime.tables.map((name) => {
-      const decl = this.runtime.def.data[name]!; // every runtime table is a def table
-      const read = this.runtime.sources[name];
-      const source: TableInfo['source'] =
-        decl.source !== undefined && read !== undefined
-          ? { format: read.format, via: read.via, ...(read.at !== undefined ? { at: read.at } : {}) }
-          : decl.csv !== undefined
-            ? { inline: 'csv' }
-            : { inline: 'rows', rows: decl.rows!.length }; // the def door admits a table only with rows, csv or a source
-      return {
-        name,
-        source,
-        engine: this.runtime.engines[name]!, // every runtime table resolved an engine at build
-        ...(this.runtime.keys[name] !== undefined ? { key: this.runtime.keys[name]! } : {}),
-        ...(decl.grain !== undefined ? { grain: decl.grain } : {}),
-        ...(decl.absence !== undefined ? { absence: { field: decl.absence.field, states: [...decl.absence.states] } } : {}),
-        declaredColumns: Object.keys(decl.columns ?? {}).length,
-      };
-    });
   }
 
   /** What a prose subject SHOWS at the cursor: a surfaced view's effective bindings, an unsurfaced view's own, the dashboard's nothing. */
@@ -2633,57 +2327,17 @@ class InteractionSessionImpl implements InteractionSession {
   private effectiveEncodings(facets: readonly ColumnFacet[]): ReadonlyMap<string, EffectiveEncoding> {
     const key = JSON.stringify([[...this.activeEncodings.entries()], [...this.activeLinks.entries()], facets.map((f) => [f.field, f.type, f.role, f.scale])]);
     if (this.effectiveMemo?.key === key) return this.effectiveMemo.value;
-    const graph = this.currentGraph();
-    type Candidate = { readonly field: string; readonly edge: string; readonly from: string; readonly sourceChannel: string };
-    const raw = new Map<string, { readonly own: Bindings; readonly byChannel: ReadonlyMap<string, Candidate> }>();
-    for (const [viewId, view] of this.runtime.views) {
-      if (view.encoding === undefined) continue;
-      const byChannel = new Map<string, Candidate>();
-      for (const edge of edgesInto(graph, viewId)) {
-        if (edge.kind !== ENCODING_KIND || edge.response !== 'follow') continue;
-        const sourceOwn = this.viewEncodings(edge.source); // one hop: the source's OWN fold
-        for (const pair of edge.channels!) { // an encoding edge is always written out with its pairs (materialize)
-          const field = sourceOwn[pair.from];
-          if (field !== undefined) byChannel.set(pair.to, { field, edge: edge.id, from: edge.source, sourceChannel: pair.from });
-        }
-      }
-      raw.set(viewId, { own: this.viewEncodings(viewId), byChannel });
-    }
-    // The other views a follow is judged against are their RAW effective bindings (own + every candidate,
-    // refused ones included), not their judged ones: judging B against judged C against judged B would be the
-    // fixed point the one-hop law exists to avoid. The dispatch door (`bindingsOfOthers`) reads the judged map.
-    const rawAll = new Map([...raw].map(([id, r]) => [id, { ...r.own, ...Object.fromEntries([...r.byChannel].map(([ch, c]) => [ch, c.field])) } as Bindings] as const));
     const { rules, ports } = this.runtime.encoding;
-    const out = new Map<string, EffectiveEncoding>();
-    for (const [viewId, r] of raw) {
-      const others: Record<string, Bindings> = {};
-      for (const [id, b] of rawAll) if (id !== viewId) others[id] = b;
-      const bindings: Record<string, string> = { ...r.own };
-      const followed: Record<string, { edge: string; from: string; sourceChannel: string }> = {};
-      const refused: Record<string, { edge: string; field: string; sentence: string }> = {};
-      for (const [channel, c] of r.byChannel) {
-        const problems = validateBindings({ view: this.runtime.views.get(viewId)!.encoding!, bindings: { ...bindings, [channel]: c.field }, facets, others, rules, ports, changed: [channel] });
-        // a follow is a READING, not an act: it is never coerced — a follow that would need a coercer is refused with the sentence
-        if (problems.length > 0) {
-          refused[channel] = { edge: c.edge, field: c.field, sentence: problems.map((p) => p.explained ?? p.sentence).join('; ') };
-        } else {
-          bindings[channel] = c.field;
-          followed[channel] = { edge: c.edge, from: c.from, sourceChannel: c.sourceChannel };
-        }
-      }
-      // each entry is handed out through `overview().views[].effective`, so it
-      // is frozen where it is BUILT: a memo is a cached object, and a cached
-      // object handed to a reader is exactly the leak this sweep is about. It
-      // is rebuilt whole whenever the memo key changes, never written into.
-      out.set(viewId, deepFreeze({ bindings, followed, refused }));
-    }
+    const out = computeEffectiveEncodings({
+      views: this.runtime.views,
+      graph: this.currentGraph(),
+      facets,
+      ownBindings: (viewId) => this.viewEncodings(viewId),
+      rules,
+      ports,
+    });
     this.effectiveMemo = { key, value: out };
     return out;
-  }
-
-  /** The sentence a view's own rebind of a FOLLOWED channel is refused with — the edge owns the channel. */
-  private followSentence(viewId: string, channel: string, f: { readonly edge: string; readonly from: string }): string {
-    return `view "${viewId}"'s ${channel} follows "${f.from}" (edge ${f.edge}) — change the edge, or set it to none`;
   }
 
   /** The last verdicts per view, keyed by what they depend on — a poll between acts costs nothing. */
@@ -2697,16 +2351,8 @@ class InteractionSessionImpl implements InteractionSession {
     const key = JSON.stringify([bindings, others, [...this.activeLinks.entries()], facets.map((f) => [f.field, f.type, f.role, f.scale])]);
     const hit = this.fitsMemo.get(viewId);
     if (hit !== undefined && hit.key === key) return hit.fits;
-    const judged = fitsFor({ view: surface, bindings, facets, others, rules: this.runtime.encoding.rules, ports: this.runtime.encoding.ports });
-    // a followed channel is the edge's to change: every column is refused with the sentence that names it
-    const fits: Record<string, readonly Fit[]> = { ...judged };
-    for (const [channel, f] of Object.entries(effective.followed)) {
-      // a followed channel is one the view declares (the pair was validated), so it has verdicts to overwrite
-      fits[channel] = judged[channel]!.map((fit) => ({ field: fit.field, ok: false, because: this.followSentence(viewId, channel, f) }));
-    }
-    // same law as the effective memo above: `overview().views[].fits` hands
-    // this cached object to a reader, so it is frozen where it is built
-    deepFreeze(fits);
+    const { rules, ports } = this.runtime.encoding;
+    const fits = fitsWithFollows({ viewId, view: surface, bindings, facets, others, rules, ports, followed: effective.followed });
     this.fitsMemo.set(viewId, { key, fits });
     return fits;
   }
@@ -2744,7 +2390,7 @@ class InteractionSessionImpl implements InteractionSession {
     // An annotation is an INERT note (R12): stored as commit data, never parsed.
     // Its `field` names WHAT it annotates (a commit id, a view, a column) — so a
     // note on a selection commit is a SAVED SELECTION the log can find again.
-    const stamped = this.stampCause(cause, 'annotate', as);
+    const stamped = stampCause(cause, 'annotate', as);
     const viewId = `${ANNOTATION_VIEW_PREFIX}${stamped.requestedBy}`; // single-sourced wire prefix (BR-1)
     const { record } = this.log.commit({
       id: this.nextId(),
@@ -2815,7 +2461,7 @@ class InteractionSessionImpl implements InteractionSession {
     if (value.length > LAYOUT_VALUE_MAX) {
       return this.reject('navigate', intent, this.gapLedger.file('guard-failed', 'navigate', `layout value too long (max ${LAYOUT_VALUE_MAX} chars)`, field));
     }
-    const stamped = this.stampCause(cause, 'navigate', as);
+    const stamped = stampCause(cause, 'navigate', as);
     const { record } = this.log.commit({
       id: this.nextId(),
       parent: this._cursor, // R8 branch-on-act: a layout set from a past cursor branches too
@@ -2893,7 +2539,7 @@ class InteractionSessionImpl implements InteractionSession {
     // commit and starts no branch (before this it landed a `bookmark:` commit,
     // which put a step on the rail and forked the path when named from the
     // past). The cause still says who named it.
-    const stamped = this.stampCause(cause, 'bookmark', as);
+    const stamped = stampCause(cause, 'bookmark', as);
     const made = this.bookmark(label, undefined, stamped.requestedBy);
     if (!made.ok) return this.reject('bookmark', intent, this.gapLedger.file('guard-failed', 'bookmark', made.rejected, label.slice(0, 40)));
     const bookmark = this.bookmarkViews().find((c) => c.id === made.bookmark.id) as BookmarkView;
@@ -2944,7 +2590,7 @@ class InteractionSessionImpl implements InteractionSession {
     }
 
     const baseCause: Cause = opts.cause ?? { requestedBy: opts.as ?? this.defaultActor, computedBy: 'system' };
-    const stamped = this.stampCause(baseCause, 'analyze', opts.as); // computedBy FORCED to 'system' (R1)
+    const stamped = stampCause(baseCause, 'analyze', opts.as); // computedBy FORCED to 'system' (R1)
 
     let hypothesis: AnalysisCommit['hypothesis'];
     let fdrStep: FdrStep | undefined;
@@ -3341,7 +2987,7 @@ class InteractionSessionImpl implements InteractionSession {
       // may legitimately be off the CURSOR's branch — see `slotForColumn`.
       vizRecords: declaringPath,
       // never admitted — only so a dropped id can say "another branch" instead of the untrue "the log does not hold it"
-      commitsElsewhere: this.commitsElsewhereThan(declaringPath),
+      commitsElsewhere: commitsElsewhereThan(this.log.records, declaringPath),
       declaringCommitId: prov.declaringCommitId,
       inputSelectionCommitIds: prov.inputSelectionCommitIds,
       ...(prov.snapshot ? { kernelSnapshot: prov.snapshot } : {}),
@@ -3350,18 +2996,6 @@ class InteractionSessionImpl implements InteractionSession {
       ...(opts.agentEventLog ? { agentEventLog: opts.agentEventLog } : {}),
       ...(prov.fdrStep ? { fdrStep: prov.fdrStep } : {}),
     });
-  }
-
-  /**
-   * Every commit id this log holds that is NOT on the given branch. Handed to
-   * `why()` for ONE purpose: so a citation it had to drop can be told apart —
-   * a commit on another branch, or one nothing in this history holds. Not one
-   * of these ids may enter the answer's commit set; it is the same courtesy
-   * `proseWorld` pays at the describe door (README, law 5).
-   */
-  private commitsElsewhereThan(path: readonly CommitRecord[]): string[] {
-    const onPath = new Set(path.map((r) => r.id));
-    return this.log.records.filter((r) => !onPath.has(r.id)).map((r) => r.id);
   }
 
   /**
@@ -3400,7 +3034,7 @@ class InteractionSessionImpl implements InteractionSession {
     return why(target, {
       vizRecords: path,
       // never admitted — only so a dropped id can say "another branch" instead of the untrue "the log does not hold it"
-      commitsElsewhere: this.commitsElsewhereThan(path),
+      commitsElsewhere: commitsElsewhereThan(this.log.records, path),
       declaringCommitId: landing.id,
       inputSelectionCommitIds,
       relatedCommits: related,
@@ -3599,7 +3233,7 @@ class InteractionSessionImpl implements InteractionSession {
       sources: deepFreeze({ ...this.runtime.sources }),
       keys: this.runtime.keys,
       // the Sources tab's rows: every declared table as the def states it, and the data journal beside the log
-      tables: this.tablesInfo(),
+      tables: tablesInfoOf(this.runtime),
       journal: Object.freeze(this.runtime.journal.slice(-JOURNAL_TAIL)), // fresh list; each entry was frozen when it was written
       journalTotal: this.runtime.journal.length,
       selectedRowCount: selCount,

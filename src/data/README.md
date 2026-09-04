@@ -23,7 +23,7 @@ It is **total**, and CLEARED is its only fallback: nothing throws, and a value t
 
 Outside that shape the two differ in exactly four ways, all on values no commit can carry, and in every one the old answer was a throw or a guess: an interval whose value was not iterable (a bare number) THREW; an interval whose value was a string was destructured into two characters and read as lexicographic bounds; a match whose body was not an object THREW on `.values`; a cell whose value was not a pair was indexed into for its sides. All four now read as CLEARED, and the function never throws.
 
-One duplicate is still open and is named rather than hidden: `probeClause` in `src/session/session.ts` is the library's own internal twin of this reading (point/interval/match), and the three `rec.kind === 'cell' ? {…} : probeClause(…)` ternaries beside it restate the cell lift. They are unchanged, and folding them into `clauseFromWire` is a session-side decision, not a data-side one.
+One duplicate is still open and is named rather than hidden: `probeClause` in `src/session/wire.ts` is the library's own internal twin of this reading (point/interval/match), and the `rec.kind === 'cell' ? {…} : probeClause(…)` ternaries in `src/session/session.ts` restate the cell lift. They are unchanged, and folding them into `clauseFromWire` is a session-side decision, not a data-side one.
 
 ## One pass, many recorders
 

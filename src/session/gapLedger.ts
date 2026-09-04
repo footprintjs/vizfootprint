@@ -10,6 +10,20 @@
 import { GAP_CODES } from './types.js';
 import type { GapCode, GapOp, GapRow } from './types.js';
 
+/**
+ * What a thrown thing SAYS, for a gap's inert `detail`. Third-party code may
+ * throw anything at all (an adapter that throws a string, a provider that
+ * rejects with an object), and a gap must still read as a sentence.
+ *
+ * It lives beside the ledger rather than beside its callers because every one
+ * of them is filing an `effect-failed` gap — the OUTBOUND half of the
+ * all-or-nothing law (`README.md`, rule 3), where the act has already landed
+ * and the only thing left to get right is the sentence.
+ */
+export function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export class GapLedger {
   private readonly _rows: GapRow[] = [];
   private clock = 0;
