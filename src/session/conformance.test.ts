@@ -46,17 +46,19 @@
  *    They live on the DASHBOARD, not in the log, which is the whole reason they
  *    have their own persistence doors (`restoreSaved` / `restoreBookmarks`).
  *  - MATERIALIZED COLUMNS, and therefore `columns` and the per-channel `fits`
- *    that are computed from them. Re-running an analysis means running
- *    third-party code again; a replay of a log deliberately does not, which is
- *    exactly why `adoptPath` exists as a separate verb that does. The analysis
- *    in the sequence below produces a STATISTIC, not columns, so it lands in
- *    the log and folds identically on both sides.
+ *    computed from them — on the L1 replay (`replayLog`), which rebuilds a log
+ *    into a LOG and runs nobody's code. `session.replay`, the door this test
+ *    walks through, DOES re-perform the acts that wrote a column, so on that
+ *    door a column-producing analysis folds identically too and the honest
+ *    difference shrinks to the acts it could not re-perform — each one a gap,
+ *    never a silence. The analysis in the sequence below produces a STATISTIC,
+ *    not columns, so it lands in the log and folds identically either way.
  */
 import { describe, expect, it } from 'vitest';
 import { buildDashboard } from '../def/index.js';
 import { makeDashboardDef } from './dashboard.fixture.js';
 import { deserializeLog, serializeLog, type CommitRecord } from '../log/index.js';
-import { markReplayed, type Cause } from '../cause/index.js';
+import { type Cause } from '../cause/index.js';
 import type { DashboardDef } from '../def/index.js';
 import type { InteractionSession } from './session.js';
 import type { Overview } from './types.js';
@@ -97,29 +99,17 @@ function foldOf(ov: Overview, cursor: string | null): unknown {
 }
 
 /**
- * Replay a serialized log into a fresh session: re-commit every record through
- * the log's one write door (which is what `replayLog` does at L1), then SEEK,
- * which is the session's own "fold this log from scratch". The session has no
- * public replay door of its own today — worth adding, and noted as such.
+ * Replay a serialized log into a fresh session, THROUGH THE DOOR.
+ *
+ * This used to re-commit every record through `session.log` by hand and then
+ * seek — the session had no public "replay this log into me" of its own, and
+ * the workaround was the evidence that it needed one. `session.replay` is that
+ * door now, and this test is its first consumer: what the law asserts is
+ * unchanged, and the fifteen lines that used to stand in for the door are gone.
  */
-function replayInto(session: InteractionSession, records: readonly CommitRecord[], cursor: string | null): void {
-  for (const rec of records) {
-    session.log.commit({
-      id: rec.id,
-      parent: rec.parent,
-      ...(rec.correlationId !== undefined && { correlationId: rec.correlationId }),
-      viewId: rec.viewId,
-      actorMeta: rec.actorMeta,
-      kind: rec.kind,
-      field: rec.field,
-      value: rec.value,
-      ...(rec.fields !== undefined && { fields: rec.fields }),
-      ...(rec.data !== undefined && { data: rec.data }),
-      clientViewIds: rec.clientViewIds,
-      cause: markReplayed(rec.cause), // R2: the one additive difference
-      ts: rec.ts,
-    });
-  }
+async function replayInto(session: InteractionSession, records: readonly CommitRecord[], cursor: string | null): Promise<void> {
+  const res = await session.replay(records);
+  expect(res.ok).toBe(true);
   if (cursor !== null) expect(session.seek(cursor).ok).toBe(true);
 }
 
@@ -201,7 +191,7 @@ describe('conformance: folding as you walk equals folding a replay', () => {
     const records = deserializeLog(wire); // re-judged on the way back in
 
     const replayed = buildDashboard(conformanceDef()).createSession();
-    replayInto(replayed, records, tip.cursor);
+    await replayInto(replayed, records, tip.cursor);
 
     expect(foldOf(await replayed.overview(), replayed.cursor())).toEqual(tip.fold);
   });
@@ -212,7 +202,7 @@ describe('conformance: folding as you walk equals folding a replay', () => {
     expect(moments.length).toBe(12);
 
     const replayed = buildDashboard(conformanceDef()).createSession();
-    replayInto(replayed, deserializeLog(serializeLog(walked.log.records)), null);
+    await replayInto(replayed, deserializeLog(serializeLog(walked.log.records)), null);
 
     for (const [index, moment] of moments.entries()) {
       expect(replayed.seek(moment.cursor!).ok).toBe(true);
@@ -225,7 +215,7 @@ describe('conformance: folding as you walk equals folding a replay', () => {
     const walked = buildDashboard(conformanceDef()).createSession();
     await walk(walked);
     const replayed = buildDashboard(conformanceDef()).createSession();
-    replayInto(replayed, deserializeLog(serializeLog(walked.log.records)), null);
+    await replayInto(replayed, deserializeLog(serializeLog(walked.log.records)), null);
 
     expect(replayed.log.records.map((r) => r.id)).toEqual(walked.log.records.map((r) => r.id));
     expect(replayed.log.records.every((r) => r.cause.replayed === true)).toBe(true);

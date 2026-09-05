@@ -82,6 +82,13 @@ export type GapOp =
   | 'discardFromHere'
   | 'adoptPath'
   /**
+   * Replaying a whole log into a session ({@link InteractionSession.replay}).
+   * A replay files gaps for the acts it could not re-perform — an analysis the
+   * session does not declare, one that threw, one whose fit is degenerate on
+   * this data — never for the records, which either all land or none do.
+   */
+  | 'replay'
+  /**
    * Landing a commit itself, as opposed to any one verb: the op an
    * `effect-failed` gap carries when the live selection's own update threw
    * after the record was already on the trace. The verb is not known at that
@@ -271,6 +278,35 @@ export interface TimeState {
 /** The result of a `seek(commitId)` navigation — read-only, never a mutation. */
 export type SeekResult =
   | { readonly ok: true; readonly cursor: string }
+  | { readonly ok: false; readonly gap: GapRow };
+
+/**
+ * What {@link InteractionSession.replay} did: the whole log landed, the acts
+ * that could be re-performed re-performed, and the fold at the tip.
+ *
+ * All-or-nothing on the RECORDS (a refusal lands none of them, and the session
+ * is exactly as it was); honest per ACT about what a re-performance could not
+ * rebuild. The counts are the short version of that; the gap ledger has the
+ * sentences.
+ */
+export type ReplayResult =
+  | {
+      readonly ok: true;
+      /** How many records landed. Every record handed in, or the call refused. */
+      readonly landed: number;
+      /**
+       * How many analyses were RE-PERFORMED so their columns exist again. The
+       * log records that an analysis ran; the column values it wrote live in
+       * the provider store, which no log carries. An analysis that produced no
+       * column — a statistic, a fit, a summary table — is never re-run: nothing
+       * of it lives outside the log.
+       */
+      readonly reran: number;
+      /** How many gaps this replay filed — one per act it could not re-perform. */
+      readonly filed: number;
+      /** The fold at the tip the replayed log ends on — detached, like every fold this library hands out. */
+      readonly overview: Overview;
+    }
   | { readonly ok: false; readonly gap: GapRow };
 
 // ── Named paths (BR-1: git-style refs + HEAD, beside the log). ─────────────────

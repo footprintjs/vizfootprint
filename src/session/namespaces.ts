@@ -41,6 +41,46 @@ export const BOOKMARK_FIELD = '__bookmark__';
 export const CHART_FIELD = '__chart__';
 
 /**
+ * WHAT AN `__analysis__` COMMIT'S VALUE CARRIES — the act, in enough detail to
+ * perform it again.
+ *
+ * It used to carry the analysis id alone, which was redundant: the id is
+ * already in the `viewId` (`analysis:<id>`), so the slot said nothing the
+ * record did not already say. What the record did NOT say was the TABLE the
+ * analysis read — `declareAnalysis(id, { table })` takes one and the commit
+ * forgot it. That is a record of an act that cannot be performed again, and a
+ * replay reading it had to assume the default table: on a multi-table
+ * dashboard it re-ran the act over the wrong rows and landed wrong numbers
+ * under the right provenance, silently. The table lives here now, beside the
+ * identity, because the identity is what the slot was already for.
+ *
+ * The `pValue` lane (a `kind:'test'` analysis, `TEST_ANALOG_FIELD`) cannot
+ * carry this: its value slot IS the p-value, by the L1↔L4 convention
+ * `src/fdr/fromLog.ts` documents and `isTestAnalogCommit` enforces. So a test
+ * analysis that also writes COLUMNS records no table — and a replay refuses
+ * such a log at judge time rather than guessing. See `./README.md`, law 6.
+ */
+export interface AnalysisAct {
+  /** The declared analysis this commit ran. Also in the `viewId`; kept here so the value is the whole act. */
+  readonly id: string;
+  /** The table it READ. Not the table its output landed in — that is the analysis's own declared data. */
+  readonly table: string;
+}
+
+/**
+ * The act an `__analysis__` commit records, or `undefined` when its value does
+ * not carry one — a foreign log, a hand-built record, or the `pValue` lane,
+ * whose slot is spoken for. Total: it never throws and never guesses.
+ */
+export function analysisActOf(value: unknown): AnalysisAct | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const { id, table } = value as { id?: unknown; table?: unknown };
+  if (typeof id !== 'string' || id.length === 0) return undefined;
+  if (typeof table !== 'string' || table.length === 0) return undefined;
+  return { id, table };
+}
+
+/**
  * Fields a `select`/`filter` may NOT target — a clause on one of these would
  * collide with a session-authored commit. `pValue` (`TEST_ANALOG_FIELD`) is the
  * load-bearing one: an unguarded point select on a data column literally named

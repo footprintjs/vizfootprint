@@ -29,14 +29,19 @@
  */
 
 import { restoreSavedInto, restoreBookmarksInto } from '../def/buildDashboard.js';
-import { COMMIT_ID_PREFIX, PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, mintRecordId } from '../def/recordIds.js';
+import { COMMIT_ID_PREFIX, PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, mintRecordId, raiseMinted } from '../def/recordIds.js';
 import type { FoldEntry } from '../branches/index.js';
 import type { EmissionKind } from '../links/index.js';
 import { voiceOf } from '../links/index.js';
 import type { Actor, Cause } from '../cause/index.js';
 import { validateCause } from '../cause/index.js';
-import { CauseSelectionSession } from '../log/index.js';
-import type { CommitRecord } from '../log/index.js';
+import { CauseSelectionSession, parseCommitLog } from '../log/index.js';
+import type { CommitInput, CommitRecord } from '../log/index.js';
+// The record → re-landing input translation, one owner for both replays (the
+// L1 `replayLog` and this session's own `replay`). Not on the `/log` barrel:
+// no importer outside this package has asked for it — PACKAGING.md, Law 2.
+import { replayInput } from '../log/log.js';
+import type { ColumnsOutput } from '../analysis/index.js';
 import { TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
 import { cellFieldLabel, derivedColumnName, isRejection, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchValue, type PredicateClause, type Row } from '../data/index.js';
@@ -61,7 +66,7 @@ import { computeEffectiveEncodings, fitsWithFollows, followSentence } from './ef
 import { offerStampOf, offersOf } from './offers.js';
 import { branchPathOf, commitsElsewhereThan, stepsSinceAncestor } from './branchPath.js';
 import { clauseOfLive, clearAction, copyClause, kindOfAct, probeClause, selectionAction, selectionInfoOf } from './wire.js';
-import { ANALYSIS_FIELD, ANNOTATION_FIELD, CHART_FIELD, DASHBOARD_ACTOR_META, LAYOUT_SOURCE_META, LAYOUT_VALUE_MAX, NOTE_ACTOR_META, RESERVED_PROBE_FIELDS, chartViewId, encodingViewId, linkViewId } from './namespaces.js';
+import { ANALYSIS_FIELD, ANNOTATION_FIELD, CHART_FIELD, DASHBOARD_ACTOR_META, LAYOUT_SOURCE_META, LAYOUT_VALUE_MAX, NOTE_ACTOR_META, RESERVED_PROBE_FIELDS, analysisActOf, chartViewId, encodingViewId, linkViewId, type AnalysisAct } from './namespaces.js';
 import { why } from '../why/index.js';
 import type { RuntimeSnapshot } from 'footprintjs';
 import type { AgentEventFrame, WhyResult, WhyTarget } from '../why/index.js';
@@ -111,6 +116,7 @@ import type {
   ProposeChartInput,
   ProposeChartResult,
   RenamePathResult,
+  ReplayResult,
   RestorePathResult,
   SeekResult,
   SessionOptions,
@@ -173,6 +179,27 @@ export interface InteractionSession {
 
   /** The current read-only cursor position (the parent the next act commits from). */
   cursor(): string | null;
+
+  /**
+   * REPLAY A WHOLE LOG INTO THIS SESSION — the door a static export walks
+   * through. Accepts the records, or the JSON string `serializeLog` produced.
+   *
+   * A replay is a BEGINNING, not a merge: a session that already holds commits
+   * refuses, because merging two histories is unsafe here (ids collide, parent
+   * chains cross) and stays that way. Everything else is judged first too — the
+   * shape, the duplicate ids, the dangling parents, the cycles — and a refusal
+   * moves nothing at all.
+   *
+   * Then every record lands VERBATIM, ids kept, so a bookmark, a saved picture
+   * or a prose ref that names a commit id still resolves; the dashboard's
+   * commit-id counter is raised past every id landed so none can be minted
+   * twice; the fold, the refs and the cursor come back as the walk left them;
+   * and every analysis this session declares that WROTE A COLUMN is
+   * re-performed at its own position, because a log records that an act
+   * happened and never the values it wrote. What could not be re-performed is a
+   * gap, never a silence. See `./README.md`, law 6.
+   */
+  replay(log: readonly CommitRecord[] | string): Promise<ReplayResult>;
 
   /**
    * The divergent lineages in the append-only branch DAG (R8), one per leaf
@@ -434,6 +461,8 @@ export const VIEW_QUERY_DEFAULT_LIMIT = 200;
 const EMPTY_BINDINGS: Readonly<Record<string, string>> = Object.freeze({});
 /** No derived column on this table — the shared empty answer {@link Session.derivedAt} hands back. */
 const EMPTY_DERIVED: ReadonlyMap<string, DerivedColumn> = new Map();
+/** No column landed — the shared empty slot map an analysis that wrote nothing carries. */
+const EMPTY_SLOTS: ReadonlyMap<string, string> = new Map();
 
 /** The subject-independent half of a prose record's staleness world at the cursor. */
 interface ProseWorldNow {
@@ -604,6 +633,201 @@ class InteractionSessionImpl implements InteractionSession {
     // Journaled as a ref-event; `switchPath` is the travel-by-NAME that attaches.
     this.refs.detach(commitId);
     return { ok: true, cursor: commitId };
+  }
+
+  /** One refusal shape for every arm of {@link replay}'s judge — filed, then handed back. */
+  private replayRefusal(detail: string): { ok: false; gap: GapRow } {
+    return { ok: false, gap: this.gapLedger.file('guard-failed', 'replay', detail) };
+  }
+
+  /**
+   * What a {@link replay} must RE-PERFORM for one record, judged before
+   * anything moves: the table its act read, or the sentence saying why the act
+   * cannot be performed again. `undefined` when there is nothing to
+   * re-perform, which is almost every record.
+   *
+   * **A commit records enough of an act to perform it again, or it is not a
+   * record of the act.** Only one kind of act needs re-performing — an analysis
+   * that WRITES A COLUMN, because a column's values are the one thing no log
+   * carries (`../data/README.md`) — and the one thing such a re-performance
+   * needs is the table the analysis read. So that is what the record carries
+   * ({@link AnalysisAct}) and what this reads back.
+   *
+   * An analysis this session does not declare is NOT unperformable, and that
+   * distinction is the whole line: nothing will be re-performed wrongly,
+   * because nothing will be attempted at all. The replay lands the record and
+   * files a gap, and the honest consequence — `needs-column` on a later read —
+   * is visible. An act that WOULD be attempted, over rows nobody can name, is
+   * the opposite: it would land real numbers under real provenance and look
+   * exactly like a correct answer.
+   */
+  private actToReperform(record: CommitRecord): { readonly table: string } | { readonly unperformable: string } | undefined {
+    if (!record.viewId.startsWith(ANALYSIS_VIEW_PREFIX)) return undefined;
+    const analysisId = record.viewId.slice(ANALYSIS_VIEW_PREFIX.length);
+    const analysis = this.analysis(analysisId);
+    if (analysis === undefined || analysis.def.produces !== 'columns') return undefined;
+    const act = analysisActOf(record.value);
+    if (act === undefined) {
+      // The `pValue` lane reaches this honestly: its value slot is the
+      // p-value, so a `kind:'test'` analysis that also writes columns records
+      // no table and cannot be replayed. Refusing says so; guessing would not.
+      return { unperformable: `analysis "${analysisId}" writes columns, and the record does not say which table it read` };
+    }
+    if (!this.runtime.tables.includes(act.table)) {
+      return { unperformable: `analysis "${analysisId}" read table "${act.table}", which this dashboard does not declare — the tables are ${this.runtime.tables.join(', ')}` };
+    }
+    return { table: act.table };
+  }
+
+  async replay(log: readonly CommitRecord[] | string): Promise<ReplayResult> {
+    // ── JUDGE — all of it, while nothing has moved ────────────────────────────
+    // This session's own state first: it is the one refusal that does not
+    // depend on the payload at all, so a caller replaying into a used session
+    // reads why rather than reading about their log.
+    if (this.log.records.length > 0) {
+      return this.replayRefusal(
+        `this session already holds ${this.log.records.length} commit${this.log.records.length === 1 ? '' : 's'} — a replay is a beginning, not a merge; open a fresh session and replay into that`,
+      );
+    }
+    let payload: unknown = log;
+    if (typeof log === 'string') {
+      try {
+        payload = JSON.parse(log);
+      } catch (error) {
+        return this.replayRefusal(`the log is not JSON: ${messageOf(error)}`);
+      }
+    }
+    // The door back in (`../log/README.md`, Law 1 ③): shape, duplicate ids,
+    // every parent present, no cycles — stopping at the FIRST bad record, so
+    // the sentence names one commit rather than a wall of text.
+    const parsed = parseCommitLog(payload);
+    if (!parsed.ok) return this.replayRefusal(parsed.problems.join('; '));
+    const records = parsed.records;
+
+    // A DRY RUN is the rest of the judge. Landing a record can still throw for
+    // reasons no parser judges — a `clientViewIds` naming a view no earlier
+    // commit registered, two commits claiming one viewId with different actor
+    // metadata, a value the Mosaic clause factory cannot read — and the apply
+    // phase MAY NOT FAIL PARTWAY (`./README.md`, law 1) with no rollback
+    // anywhere. So every clause is built once against a scratch log that starts
+    // exactly as empty as ours, and only then for real. It costs a second pass;
+    // enumerating those throws instead would cost a copy of L1's rules that
+    // drifts the day one of them changes.
+    const inputs = records.map(replayInput);
+    const scratch = new CauseSelectionSession();
+    /** commit id → the table its act read, for exactly the acts this replay must re-perform. */
+    const acts = new Map<string, string>();
+    for (const [index, rec] of records.entries()) {
+      const input = inputs[index]!;
+      try {
+        scratch.commit(input);
+      } catch (error) {
+        return this.replayRefusal(`commit #${index} "${input.id}" cannot be landed: ${messageOf(error)}`);
+      }
+      // AND every act this replay will have to RE-PERFORM must be performable,
+      // judged here with the rest of the judge and never after landing. A gap
+      // would be too late: the session would be left holding an act it could
+      // not do — which is the shape of defect this door exists to remove.
+      const act = this.actToReperform(rec);
+      if (act === undefined) continue;
+      if ('unperformable' in act) {
+        return this.replayRefusal(`commit #${index} "${rec.id}" cannot be re-performed: ${act.unperformable}`);
+      }
+      acts.set(rec.id, act.table);
+    }
+    const gapsBefore = this.gapLedger.size;
+
+    // ── APPLY — assignment only; the dry run proved none of it can throw ──────
+    // A number a landed record already names is spent, exactly as it is for a
+    // restored bookmark (`../log/README.md`, Law 2): without this a fresh
+    // dashboard would happily mint `s3` again and the replayed `s3` would start
+    // meaning two acts.
+    raiseMinted(COMMIT_ID_PREFIX, records.map((r) => r.id), this.runtime.commitIds);
+    // A replay STAMPS NOTHING. `stampData` says which data version an act was
+    // true of at the moment it happened; a record that carries one replays it
+    // verbatim, and a record that carries none never made that claim — writing
+    // today's version onto it would be the replay inventing provenance.
+    const stamp = this.log.stampData;
+    this.log.stampData = undefined;
+    try {
+      for (const input of inputs) this.landed(this.log.commit(input).record);
+    } finally {
+      this.log.stampData = stamp;
+    }
+    // Where `landed` left both pointers — the same place a walk of these acts
+    // would have ended, and where the fold is rebuilt once the acts below have
+    // been re-performed at their own positions.
+    const tip = this._head;
+
+    // ── OUTBOUND — re-performing an act reaches code this library does not own ─
+    // The log is the record of ACTS. A derived column's VALUES are not on it —
+    // they live in the provider store (`../data/README.md`) — so a replay
+    // re-performs the acts it can and says so about the ones it cannot.
+    let reran = 0;
+    for (const rec of records) {
+      if (!rec.viewId.startsWith(ANALYSIS_VIEW_PREFIX)) continue;
+      const analysisId = rec.viewId.slice(ANALYSIS_VIEW_PREFIX.length);
+      const analysis = this.analysis(analysisId);
+      if (analysis === undefined) {
+        // Honest, not silent: a column this act made is simply not here, so a
+        // later read answers `needs-column` — and this line is why.
+        this.gapLedger.file('needs-analysis-kind', 'replay', `commit ${rec.id} ran analysis "${analysisId}", which this session does not declare — any column it wrote could not be rebuilt; declare it and replay again`, analysisId);
+        continue;
+      }
+      // `acts` holds exactly the records the judge accepted as re-performable,
+      // with the table each one read — so the rule for "does anything of this
+      // act live outside the log?" is asked once, in `actToReperform`, and
+      // never restated here. Every other channel — a statistic, a fit, a
+      // summary table — leaves nothing outside the log, so it is not in the map
+      // and is not re-run. (No `sink` is passed either: the FDR ledger records
+      // what THIS walker asked for, and law 3 names it a legitimate walk/replay
+      // difference. A replay must never re-spend alpha.)
+      const table = acts.get(rec.id);
+      if (table === undefined) continue;
+      // The act is re-performed AT ITS OWN POSITION: which `risk` an analysis
+      // could read is a question about the cursor (law 5), and running them all
+      // at the tip would answer it with columns the act never saw.
+      this.seekTo(rec.id);
+      // …and over THE TABLE IT READ, off the record itself, never assumed.
+      const input = await this.resolveAnalysisInput(true, table);
+      if ('rejected' in input) {
+        this.gapLedger.file('needs-backend-data', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but its input could not be read back: ${input.rejected}`, analysisId);
+        continue;
+      }
+      let run: Awaited<ReturnType<typeof analysis.run>>;
+      try {
+        run = await analysis.run(input);
+      } catch (error) {
+        this.gapLedger.file('effect-failed', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but re-running it threw: ${messageOf(error)}`, analysisId);
+        continue;
+      }
+      const out = run.result.ok && run.result.output.as === 'columns' ? run.result.output : undefined;
+      if (out === undefined) {
+        this.gapLedger.file('guard-failed', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but re-running it produced no columns on this data — the column it wrote could not be rebuilt`, analysisId);
+        continue;
+      }
+      const written = await this.writeColumns(analysisId, out, run.snapshot, rec.id, 'replay');
+      // `why({kind:'column'})` answers about the act, and the act is the
+      // replayed commit — so the provenance is rebuilt beside the values.
+      // A columns transform reads the whole table, never the selection, so its
+      // input-selection set is empty, exactly as `declareAnalysis` records it.
+      this.noteColumnProvenance(written.slots, {
+        analysisId,
+        declaringCommitId: rec.id,
+        inputSelectionCommitIds: [],
+        ...(run.snapshot ? { snapshot: run.snapshot } : {}),
+        ...(rec.correlationId !== undefined ? { correlationId: rec.correlationId } : {}),
+      });
+      reran += 1;
+    }
+    // The fold, rebuilt from the tip — the one place this door leaves the
+    // cursor, whether or not an act above moved it.
+    if (tip !== null) this.seekTo(tip);
+
+    // Counted BEFORE the fold is read: `filed` is what the REPLAY could not do,
+    // and `overview()` is an ordinary read the caller could have made itself.
+    const filed = this.gapLedger.size - gapsBefore;
+    return { ok: true, landed: records.length, reran, filed, overview: await this.overview() };
   }
 
   /** Every (view, emission kind) this dashboard can be acted on with — see `./offers.ts`. */
@@ -2563,6 +2787,110 @@ class InteractionSessionImpl implements InteractionSession {
     return this.localAnalyses.get(id) ?? this.runtime.analyses.get(id);
   }
 
+  /**
+   * THE ONE OWNER of the derived-column write: judge which names this table's
+   * MAP already holds, then land one slot per column under the act that made
+   * it. R11 — a columns-channel output re-enters the data space as ordinary,
+   * filterable columns.
+   *
+   * Two callers, one rule. `declareAnalysis` performs an act for the first
+   * time; `replay` re-performs one the log already records (the log carries
+   * that an analysis ran, never the values it wrote — see `../data/README.md`).
+   * They differ only in the `op` a gap carries, which is why the rule lives
+   * here rather than twice: a second copy would agree until the day the judge
+   * changed, and then a replayed dashboard would be governed by the older one.
+   *
+   * `commitId` is the act, and it is the whole point: the slot is
+   * `<name>@<commitId>`, so two branches computing `risk` are two arrays and a
+   * replay — which keeps every id — rebuilds each into the slot it had.
+   */
+  private async writeColumns(
+    analysisId: string,
+    out: ColumnsOutput,
+    snapshot: RuntimeSnapshot | undefined,
+    commitId: string,
+    op: 'declareAnalysis' | 'replay',
+  ): Promise<{ materialized: string[]; slots: ReadonlyMap<string, string>; gap?: GapRow }> {
+    const materialized: string[] = [];
+    const slots = new Map<string, string>();
+    let gap: GapRow | undefined;
+    const provider = this.runtime.providerFor(out.table);
+    // JUDGE FIRST (src/session/README.md): which names on this table are the
+    // MAP's — declared source data — decides, before a single value moves,
+    // which of this analysis's columns are allowed to land at all. A store
+    // column the derived registry does not know is declared.
+    const declared = await this.declaredColumnsOf(out.table);
+    if (!provider) {
+      gap = this.gapLedger.file('needs-view', op, `no provider for table "${out.table}"`, out.table);
+    } else if ('rejected' in declared) {
+      // the engine could not say which columns are the map's, so nothing may
+      // be written over them — refusing is the only honest direction
+      gap = this.gapLedger.file('needs-backend-data', op, `analysis "${analysisId}" produced columns, but table "${out.table}" could not say which columns are its own: ${declared.rejected}`, out.table);
+    } else {
+      for (const name of Object.keys(out.columns)) {
+        const values = snapshot?.sharedState[name];
+        if (!Array.isArray(values)) {
+          gap = this.gapLedger.file('guard-failed', op, `analysis "${analysisId}" produced no values for column "${name}"`, name);
+          continue;
+        }
+        // A DERIVED column may never take a DECLARED column's name. Source
+        // data is the map: it is not the trace's to edit, and overwriting it
+        // would destroy real values for every branch and every session on this
+        // dashboard, with no commit recording the destruction. A refusal, not
+        // a merge — and judged here, before anything is written.
+        const slot = derivedColumnName(name, commitId);
+        const collision = declared.has(name) ? name : declared.has(slot) ? slot : undefined;
+        if (collision !== undefined) {
+          gap = this.gapLedger.file('guard-failed', op, `analysis "${analysisId}" would write column "${name}" over the declared source column "${collision}" of table "${out.table}" — a computed column may not take a source column's name`, name);
+          continue;
+        }
+        // OUTBOUND, and after the declaring commit already landed: writing a
+        // column back into the data space reaches a provider (a wasm engine,
+        // an HTTP backend), which may reject — handled below — or THROW. A
+        // throw used to escape `declareAnalysis` entirely, leaving the commit
+        // on the trace, the head moved, the FDR alpha spent, and the caller
+        // holding an exception for an analysis that had really happened. It
+        // is a typed gap now, and the run's other columns still get their
+        // turn: the answer says exactly which column did not land.
+        let landed: Awaited<ReturnType<typeof provider.materializeColumn>>;
+        try {
+          landed = await provider.materializeColumn(out.table, slot, values);
+        } catch (error) {
+          gap = this.gapLedger.file('effect-failed', op, `analysis "${analysisId}" ran, but writing column "${name}" back into table "${out.table}" threw: ${messageOf(error)}`, name);
+          continue;
+        }
+        if (isRejection(landed)) {
+          const code = landed.reason === 'not-implemented' || landed.reason === 'no-backend-connection' ? 'needs-backend-data' : 'guard-failed';
+          /* v8 ignore next -- every provider's materializeColumn() rejection (memory/wasm/server, src/data/*Provider.ts) always supplies a `detail`; the `landed.reason` fallback is unreachable via the public API */
+          gap = this.gapLedger.file(code, op, landed.detail ?? landed.reason, name);
+        } else {
+          // the slot is the act's; the NAME is what everything else speaks
+          this.runtime.derived.record({ table: out.table, name, physical: slot, commitId });
+          slots.set(name, slot);
+          materialized.push(name);
+        }
+      }
+    }
+    return { materialized, slots, ...(gap ? { gap } : {}) };
+  }
+
+  /**
+   * Index one act's landed columns for `why({kind:'column'})`.
+   *
+   * Keyed by the SLOT, not the name: two branches computing `risk` are two
+   * acts, and each must answer `why` with its own. The kernel key stays the
+   * logical NAME — that is the key the analysis kernel wrote into committed
+   * state. The twin of {@link noteAnalysisProvenance}, for the columns channel.
+   */
+  private noteColumnProvenance(slots: ReadonlyMap<string, string>, prov: WhyProvenance): void {
+    for (const [name, slot] of slots) {
+      this.whyByColumn.set(slot, { ...prov, kernelKey: name });
+      const made = this.whyColumnSlots.get(name);
+      if (made) made.push(slot);
+      else this.whyColumnSlots.set(name, [slot]);
+    }
+  }
+
   async declareAnalysis(id: string, opts: DeclareAnalysisOptions = {}): Promise<AnalysisCommit> {
     if (opts.def) this.registerAnalysis(id, opts.def);
     const analysis = this.analysis(id);
@@ -2615,7 +2943,11 @@ class InteractionSessionImpl implements InteractionSession {
     // Land ONE cause-tagged provenance commit for the invocation.
     const analysisViewId = `${ANALYSIS_VIEW_PREFIX}${id}`; // single-sourced wire prefix (BR-1)
     let landField = ANALYSIS_FIELD;
-    let landValue: unknown = id;
+    // THE ACT, in enough detail to perform it again: the id and the TABLE IT
+    // READ. The slot used to carry the id alone, which the `viewId` already
+    // said — so the one thing a re-performance actually needs was the one thing
+    // the record did not carry. See {@link AnalysisAct}.
+    let landValue: unknown = { id, table } satisfies AnalysisAct;
     if (analysis.kind === 'test' && hypothesis) {
       // The L1-native test emission: a point commit on the reserved 'pValue'
       // field (fromLog re-derives it; R6 holds — brushes never land here).
@@ -2639,68 +2971,13 @@ class InteractionSessionImpl implements InteractionSession {
     // re-enters as ordinary, filterable columns.
     let materialized: string[] | undefined;
     /** logical name → the store slot this act landed it in, for the provenance keys below. */
-    const slots = new Map<string, string>();
+    let slots: ReadonlyMap<string, string> = EMPTY_SLOTS;
     let gap: AnalysisCommit['gap'];
     if (run.result.output.as === 'columns') {
-      const out = run.result.output;
-      const provider = this.runtime.providerFor(out.table);
-      materialized = [];
-      // JUDGE FIRST (src/session/README.md): which names on this table are the
-      // MAP's — declared source data — decides, before a single value moves,
-      // which of this analysis's columns are allowed to land at all. A store
-      // column the derived registry does not know is declared.
-      const declared = await this.declaredColumnsOf(out.table);
-      if (!provider) {
-        gap = this.gapLedger.file('needs-view', 'declareAnalysis', `no provider for table "${out.table}"`, out.table);
-      } else if ('rejected' in declared) {
-        // the engine could not say which columns are the map's, so nothing may
-        // be written over them — refusing is the only honest direction
-        gap = this.gapLedger.file('needs-backend-data', 'declareAnalysis', `analysis "${id}" produced columns, but table "${out.table}" could not say which columns are its own: ${declared.rejected}`, out.table);
-      } else {
-        for (const name of Object.keys(out.columns)) {
-          const values = run.snapshot?.sharedState[name];
-          if (!Array.isArray(values)) {
-            gap = this.gapLedger.file('guard-failed', 'declareAnalysis', `analysis "${id}" produced no values for column "${name}"`, name);
-            continue;
-          }
-          // A DERIVED column may never take a DECLARED column's name. Source
-          // data is the map: it is not the trace's to edit, and overwriting it
-          // would destroy real values for every branch and every session on this
-          // dashboard, with no commit recording the destruction. A refusal, not
-          // a merge — and judged here, before anything is written.
-          const slot = derivedColumnName(name, record.id);
-          const collision = declared.has(name) ? name : declared.has(slot) ? slot : undefined;
-          if (collision !== undefined) {
-            gap = this.gapLedger.file('guard-failed', 'declareAnalysis', `analysis "${id}" would write column "${name}" over the declared source column "${collision}" of table "${out.table}" — a computed column may not take a source column's name`, name);
-            continue;
-          }
-          // OUTBOUND, and after the declaring commit already landed: writing a
-          // column back into the data space reaches a provider (a wasm engine,
-          // an HTTP backend), which may reject — handled below — or THROW. A
-          // throw used to escape `declareAnalysis` entirely, leaving the commit
-          // on the trace, the head moved, the FDR alpha spent, and the caller
-          // holding an exception for an analysis that had really happened. It
-          // is a typed gap now, and the run's other columns still get their
-          // turn: the answer says exactly which column did not land.
-          let landed: Awaited<ReturnType<typeof provider.materializeColumn>>;
-          try {
-            landed = await provider.materializeColumn(out.table, slot, values);
-          } catch (error) {
-            gap = this.gapLedger.file('effect-failed', 'declareAnalysis', `analysis "${id}" ran, but writing column "${name}" back into table "${out.table}" threw: ${messageOf(error)}`, name);
-            continue;
-          }
-          if (isRejection(landed)) {
-            const code = landed.reason === 'not-implemented' || landed.reason === 'no-backend-connection' ? 'needs-backend-data' : 'guard-failed';
-            /* v8 ignore next -- every provider's materializeColumn() rejection (memory/wasm/server, src/data/*Provider.ts) always supplies a `detail`; the `landed.reason` fallback is unreachable via the public API */
-            gap = this.gapLedger.file(code, 'declareAnalysis', landed.detail ?? landed.reason, name);
-          } else {
-            // the slot is the act's; the NAME is what everything else speaks
-            this.runtime.derived.record({ table: out.table, name, physical: slot, commitId: record.id });
-            slots.set(name, slot);
-            materialized.push(name);
-          }
-        }
-      }
+      const written = await this.writeColumns(id, run.result.output, run.snapshot, record.id, 'declareAnalysis');
+      materialized = written.materialized;
+      slots = written.slots;
+      gap = written.gap;
     }
 
     // ── L6 provenance capture (collect during the run, never post-process) ──────
@@ -2723,16 +3000,7 @@ class InteractionSessionImpl implements InteractionSession {
     };
     const output = run.result.output;
     if (output.as === 'columns') {
-      // Keyed by the SLOT, not the name: two branches computing `risk` are two
-      // acts, and each must answer `why` with its own. The kernel key stays the
-      // logical NAME — that is the key the analysis kernel wrote into committed
-      // state (`sharedState[name]` above).
-      for (const [name, slot] of slots) {
-        this.whyByColumn.set(slot, { ...baseProv, kernelKey: name });
-        const made = this.whyColumnSlots.get(name);
-        if (made) made.push(slot);
-        else this.whyColumnSlots.set(name, [slot]);
-      }
+      this.noteColumnProvenance(slots, baseProv);
     } else if (output.as === 'scalar') {
       // The scalar's kernel key is the (unique) committed state key holding its
       // value; unresolved (ambiguous/absent) → `why()` reports a kernel miss.

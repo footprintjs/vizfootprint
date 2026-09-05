@@ -529,10 +529,56 @@ export function deserializeLog(json: string): CommitRecord[] {
 }
 
 /**
+ * THE ONE TRANSLATION from a landed record back to the input that re-lands it.
+ *
+ * Every field rides verbatim and the id is kept, so a bookmark, a saved
+ * picture or a prose ref that names a commit id still resolves after the
+ * replay. The single difference is R2's additive marker on the cause.
+ *
+ * It is a function rather than a shape written out at each call site because
+ * there are two call sites — {@link replayLog}, which rebuilds a log into a
+ * FRESH selection, and the session's own `replay`, which rebuilds one into a
+ * whole session (fold, refs, stores, derived columns). Two hand-kept copies of
+ * "how a record re-lands" is exactly the drift this folder has laws about:
+ * they would agree until a field was added to {@link CommitRecord}, and then
+ * one of the two replays would silently drop it.
+ *
+ * Not on the barrel: no importer outside this package has asked for it
+ * (PACKAGING.md, Law 2). The session takes the intra-package path.
+ */
+export function replayInput(rec: CommitRecord): CommitInput {
+  return {
+    id: rec.id,
+    parent: rec.parent,
+    // Preserve the cross-tier join key verbatim — a replayed commit still
+    // answers to the same correlationId (no markReplayed analog: the key
+    // is an ADDRESS, not provenance).
+    ...(rec.correlationId !== undefined && { correlationId: rec.correlationId }),
+    viewId: rec.viewId,
+    actorMeta: rec.actorMeta,
+    kind: rec.kind,
+    field: rec.field,
+    value: rec.value,
+    // D30: a cell record's authoritative field pair replays verbatim.
+    ...(rec.fields !== undefined && { fields: rec.fields }),
+    // the data a commit was true of is provenance: it replays verbatim (commit() prefers an explicit `data` over the hook)
+    ...(rec.data !== undefined && { data: rec.data }),
+    clientViewIds: rec.clientViewIds,
+    cause: markReplayed(rec.cause), // R2: additive replay marker
+    ts: rec.ts,
+  };
+}
+
+/**
  * Replay a serialized (or in-memory) log into a FRESH selection + FRESH
  * registry. Every re-emitted commit gets `replayed:true` added to its cause
  * (R2: the two slots are untouched). Returns the rebuilt session; its
  * `records` are the post-replay log.
+ *
+ * This is the L1 replay: a log rebuilt into a LOG. Replaying one into a
+ * SESSION — the fold, the refs, the dashboard's id counters, the derived
+ * columns an analysis wrote — is `InteractionSession.replay`, which lands the
+ * records through this same translation and then re-performs the acts it can.
  *
  * @param log  serialized JSON string OR an array of records
  * @param order optional commit-id path to walk (branch selection). Defaults to
@@ -550,26 +596,7 @@ export function replayLog(
   for (const id of path) {
     const rec = byId.get(id);
     if (!rec) throw new Error(`replay path references unknown commit "${id}"`);
-    session.commit({
-      id: rec.id,
-      parent: rec.parent,
-      // Preserve the cross-tier join key verbatim — a replayed commit still
-      // answers to the same correlationId (no markReplayed analog: the key
-      // is an ADDRESS, not provenance).
-      ...(rec.correlationId !== undefined && { correlationId: rec.correlationId }),
-      viewId: rec.viewId,
-      actorMeta: rec.actorMeta,
-      kind: rec.kind,
-      field: rec.field,
-      value: rec.value,
-      // D30: a cell record's authoritative field pair replays verbatim.
-      ...(rec.fields !== undefined && { fields: rec.fields }),
-      // the data a commit was true of is provenance: it replays verbatim (commit() prefers an explicit `data` over the hook)
-      ...(rec.data !== undefined && { data: rec.data }),
-      clientViewIds: rec.clientViewIds,
-      cause: markReplayed(rec.cause), // R2: additive replay marker
-      ts: rec.ts,
-    });
+    session.commit(replayInput(rec));
   }
   return session;
 }

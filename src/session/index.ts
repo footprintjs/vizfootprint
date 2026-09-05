@@ -17,6 +17,7 @@ export type {
   BranchInfo,
   TimeState,
   SeekResult,
+  ReplayResult,
   GapRow,
   GapCode,
   GapOp,

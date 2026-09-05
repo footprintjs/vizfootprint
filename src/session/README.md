@@ -2,7 +2,7 @@
 
 One session = one person's (or agent's) walk through a dashboard: a commit log of acts (select, filter, describe, link, …), a cursor into it, branches, bookmarks, and the fold that turns the log into what is on screen. Every act lands as a commit with a cause; reads never land anything.
 
-Five laws govern this folder, and the sections below are them in order: **1** an act either fully happens or it does not happen at all; **2** a fold result is detached; **3** folding as you walk equals folding a replay; **4** commit identity is per dashboard; **5** a read at a cursor answers about that cursor. The sections in between (the view-query port, saved selections, bookmarks) describe doors rather than laws.
+Six laws govern this folder, and the sections below are them in order: **1** an act either fully happens or it does not happen at all; **2** a fold result is detached; **3** folding as you walk equals folding a replay; **4** commit identity is per dashboard; **5** a read at a cursor answers about that cursor; **6** a session can replay a log into itself. The sections in between (the view-query port, saved selections, bookmarks) describe doors rather than laws.
 
 ## Where the code lives
 
@@ -36,6 +36,17 @@ call out to the computation. **The rule for the next cut is the one that
 produced these:** move the thing that only reads its arguments, and leave the
 thing that owns a field. A judge and its apply phase are one act, and moving
 half of one across a file boundary is how law 1 breaks without a test noticing.
+
+Law 6's `replay` is the rule applied twice in one change, in both directions.
+The door itself stayed in `session.ts` and adds no row above: it moves the log,
+the cursor, the head, the refs, the derived registry, the dashboard's id
+counter and every fold, in an order law 1 is a claim about. What went the other
+way is the one piece of it that only reads its argument — the translation from
+a landed record back to the input that re-lands it — and it did not go to a
+file beside this one. It went to `../log/log.ts`, beside `replayLog`, which was
+already spelling that translation out. Two hand-kept copies of "how a record
+re-lands" would agree until a field was added to `CommitRecord`, and then one
+of the two replays would silently drop it.
 
 Nothing here changed what `rebuildFold` can do, so the expiry condition stated
 at the end of law 1 still stands exactly as written: `probeClause` moved to
@@ -350,12 +361,17 @@ prose and open proposals — at the same cursor.
 stamps (a replay happens later, by definition); `cause.replayed`, which a
 replay ADDS and is the honest marker of the second run; HEAD, which is where
 the walker is standing rather than what the fold says; the FDR and gap ledgers,
-which are session-local records of what this walker asked for; the stores
+which are session-local records of what this walker asked for; and the stores
 beside the log (saved pictures, bookmarks, the data journal), which live on the
-dashboard and have their own persistence doors; and materialized columns —
-re-running an analysis means running third-party code again, which a log replay
-deliberately does not do and `adoptPath` deliberately does. (A materialized
-column that IS present is branch-scoped, and that scoping is one mechanism, not
+dashboard and have their own persistence doors.
+
+Materialized columns used to be on that list too, and no longer are on the
+door this test walks through. `replayLog` rebuilds a log into a LOG and runs
+nobody's code, so a column it never wrote is honestly absent. `session.replay`
+(law 6) re-performs the acts that WROTE a column, at their own positions, so a
+column-producing analysis folds identically on both sides — and what it could
+not re-perform is a gap rather than a silence. (A materialized column that is
+present is branch-scoped either way, and that scoping is one mechanism, not
 two: see [`../data/README.md`](../data/README.md).)
 
 One caveat, stated because it matters: a fold read after a `seek` is ALREADY a
@@ -365,9 +381,11 @@ act landed. It was checked against five deliberate fold bugs (dropping the
 layout fold, the cleared-selection memory, the link-edit fold, the encoding
 fold and the prose fold) and catches all five.
 
-The session has no public "replay this log into me" door today; the test
-re-commits each record through `session.log` and then seeks, which is what
-`replayLog` does at L1. That seam is worth adding.
+The test used to have no door to walk through: it re-committed every record
+through `session.log` by hand — fifteen lines of record fields — and then
+sought, which is what `replayLog` does at L1. That workaround was the evidence
+the seam was missing. It is `session.replay` now (law 6), and this test is its
+first consumer; what the law asserts did not change.
 
 ## Law 4 — commit identity is per DASHBOARD, not per session
 
@@ -620,3 +638,266 @@ of step the assignment it replaced was. If a door is ever added that lands a
 record `rebuildFold` has to *interpret*, that expiry fires exactly as written.
 
 Pinned by `branchScoped.test.ts`.
+
+## Law 6 — a session can replay a log into itself
+
+A log is the portable, tamper-evident record of everything that happened. Until
+this door existed, nothing could turn one back into a SESSION. `replayLog` (L1)
+rebuilds a log into a fresh Selection and a fresh registry, which is a **log**
+rebuilt — not the fold, not the refs, not the dashboard's id counters, not the
+columns an analysis wrote.
+
+The evidence that the seam was missing is law 3 above. To prove it,
+`conformance.test.ts` had to re-commit every record through `session.log` by
+hand — thirteen record fields spelled out in the test, kept in step with
+`CommitRecord` by nobody — and then seek. **A test standing in for a door is a
+door that is missing.**
+
+```ts
+session.replay(records)                     // the records
+session.replay(serializeLog(records))       // or the JSON they serialize to
+```
+
+It is the foundation of an export: a static page carrying a serialized log and
+no server rebuilds the whole session from it. The answer is the fold a walk
+would have produced, plus the short version of what happened:
+
+```ts
+{ ok: true, landed: 12, reran: 1, filed: 0, overview: {…} }   // or
+{ ok: false, gap: { code: 'guard-failed', op: 'replay', detail: '…' } }
+```
+
+### A replay is a BEGINNING, not a merge
+
+A session that already holds commits is refused, and stays refused. Merging two
+logs is unsafe here and is meant to be: ids are minted per dashboard and would
+collide, parent chains from two histories would cross, and the fold would be
+built out of a lineage that never existed. The refusal says so and says what to
+do instead:
+
+```ts
+await used.replay(wire);
+// { ok: false, gap: { code: 'guard-failed', op: 'replay', detail:
+//   'this session already holds 3 commits — a replay is a beginning, not a
+//    merge; open a fresh session and replay into that' } }
+```
+
+### It judges EVERYTHING, and a refusal moves nothing at all
+
+Law 1 governs this door like every other: the whole judge runs while nothing has
+moved, and the apply phase is assignment. Three things are judged, in this
+order, and every one of them refuses with the session exactly as it was —
+no record landed, no counter raised, no cursor moved:
+
+1. **this session's own state** — the refusal above. It is judged first because
+   it is the one refusal that does not depend on the payload at all, so a
+   caller replaying into a used session reads *why* rather than reading about
+   their log;
+2. **the payload** — `parseCommitLog`, the door back in
+   ([`../log/README.md`](../log/README.md), Law 1 ③): shape, duplicate ids,
+   every parent present, no cycles, stopping at the FIRST bad record so the
+   sentence names one commit rather than a wall of text (a string payload is
+   `JSON.parse`d first, and *"the log is not JSON"* is its own refusal);
+3. **a DRY RUN of the landing.** This is the one worth explaining. A record can
+   parse and still not be landable, for reasons no parser has the world to
+   judge: a `clientViewIds` naming a cross-filter client no earlier commit ever
+   registered, two commits claiming one `viewId` with different actor metadata,
+   a `value` the Mosaic clause factory cannot read (`value` is inert data —
+   the parser deliberately accepts any type in that slot). So every clause is
+   built once against a scratch log that starts exactly as empty as ours, and
+   only then for real;
+4. **every act the replay will have to RE-PERFORM**, in the same pass — the
+   next section is what that means and why it is a refusal rather than a gap.
+
+```ts
+const wire = JSON.parse(serializeLog(source.log.records));
+wire[1].clientViewIds = ['scatter', 'ghost'];      // parses; cannot land
+
+await fresh.replay(JSON.stringify(wire));
+// { ok: false, gap: { … detail: 'commit #1 "s2" cannot be landed:
+//                     no source registered for viewId "ghost"' } }
+fresh.log.records.length;   // 0 — commit #0 was landable and did not land either
+```
+
+**A dry run costs a second pass**, and that is the price of an apply phase that
+cannot fail partway. There is no rollback anywhere in this library, on purpose
+(rule 2 of law 1). The alternative — enumerating the ways `log.commit` can
+throw — would be a copy of L1's rules living in this file, and it would be
+wrong the day one of them changed. The dry run is the same code, so it cannot
+drift from it.
+
+### Then every record lands VERBATIM, and the ids it names stay spent
+
+Ids are preserved, which is the whole point: a bookmark, a saved picture or a
+prose `#s3` ref that names a commit id still resolves after the replay. And a
+number a landed record already names is **spent** — the dashboard's commit-id
+counter is raised past every one of them, exactly as restoring a bookmark
+already did ([`../log/README.md`](../log/README.md), Law 2). Without that, a
+fresh dashboard whose counter starts at 0 would cheerfully mint `s3` again and
+the replayed `s3` would start meaning two acts.
+
+**A replay stamps nothing.** `stampData` records which data version an act was
+true of *at the moment it happened*; a record that carries one replays it
+verbatim, and a record that carries none never made that claim. Writing today's
+version onto it would be the replay inventing provenance, so the hook is
+suppressed for the landing and put back after it.
+
+The cursor, the head and the named paths come back where the walk left them:
+each record is routed through the refs as it lands, so a fork in the log
+becomes a second lineage here, and the fold is rebuilt from the tip.
+
+### It RE-PERFORMS the acts it can, and says which it could not
+
+Here is the thing a log genuinely does not carry. **The log is the record of
+ACTS.** An analysis commit records that `clustering` ran; the column values it
+wrote live in the provider store, and no log has ever carried them
+([`../data/README.md`](../data/README.md) — "a derived column belongs to the act
+that made it"). So a replay re-performs the acts it can:
+
+- an analysis this session declares that **produces columns** is re-run, **at
+  its own position** and **over the table it read**. The position matters
+  because which `risk` an analysis could read is a question about the cursor
+  (law 5), and running them all at the tip would answer it with columns the act
+  never saw; the table matters for the reason the section below this one is
+  about. Its output lands in the slot the act's own commit id names
+  (`risk@s2`), which is the same slot the original run used, because the replay
+  kept the id. Two branches keep their own numbers, exactly as they did on the
+  walk;
+- an analysis on **any other channel** — a statistic, a fit, a summary table —
+  is never re-run. Nothing of it lives outside the log, so re-running it would
+  buy nothing and cost real time. No hypothesis sink is passed either: alpha is
+  spent when a test is run, and a replay must never re-spend it;
+- everything it **could not** re-perform is a gap (R14), never a silence:
+
+| what happened | the gap |
+|---|---|
+| the analysis is not declared on this session | `needs-analysis-kind` — *"commit s1 ran analysis `byPrice`, which this session does not declare — any column it wrote could not be rebuilt; declare it and replay again"* |
+| its input could not be read back | `needs-backend-data` |
+| re-running it threw | `effect-failed` — an outbound effect of an act that already landed |
+| re-running it produced no columns on this data | `guard-failed` |
+
+The first is the one to understand, because its consequence is what makes the
+whole thing honest. The record still lands — the act really did happen — and
+the column simply is not here. So a later read says `needs-column`, which is
+true, rather than showing nothing and letting a reader believe there was
+nothing to show:
+
+```ts
+const res = await s.replay(source.log.records);   // a def without the module
+// { ok: true, landed: 1, reran: 0, filed: 1, overview: … }
+
+s.gaps().at(-1);
+// { code: 'needs-analysis-kind', op: 'replay', target: 'byPrice', detail: '…' }
+
+(await s.dispatch({ verb: 'select', viewId: 'scatter', field: 'risk', value: 1, cause }));
+// { ok: false, rejection: { code: 'needs-column', … } }
+```
+
+### A commit records enough of an act to perform it again, or it is not a record of the act
+
+That is the principle, and this door is what turned it into a requirement —
+because until there was a door that re-performs an act, nothing ever asked a
+commit to be sufficient for one. The first version of this law did not hold it,
+and the way it failed is worth keeping on the record.
+
+`declareAnalysis(id, { table })` takes the table the analysis reads. The commit
+**forgot it**: the value slot carried the analysis id alone, which the `viewId`
+(`analysis:<id>`) already said. So the slot said nothing the record did not
+already say, and the one thing a re-performance actually needs was the one
+thing the record did not carry. A replay had no choice but to assume the
+default table:
+
+```ts
+// a dashboard with two tables — same row count, prices running the other way
+await s.declareAnalysis('onOther', { table: 'other' });
+await s.viewQuery({ table: 'other', columns: ['id', 'risk'] });
+// risk: [3, 3, 3, 3, 3, 3, 3, 3, …]   the top quantile, because `other` runs high-to-low
+
+// replayed, over the DEFAULT table, because the record did not say otherwise:
+await replayed.viewQuery({ table: 'other', columns: ['id', 'risk'] });
+// risk: [0, 0, 0, 0, 0, 0, 0, 0, …]   ← `data`'s bins, wearing this act's own commit id
+```
+
+**Wrong numbers under the right provenance, silently** — which is the one
+failure this library is built to make impossible, arriving through the door
+meant to guarantee the opposite. So the value slot carries the ACT:
+
+```ts
+made.commit.value;   // { id: 'byPrice', table: 'data' }
+```
+
+There is no alias and no fallback for the old spelling. A slot whose whole
+content was already elsewhere on the record is not worth staying compatible
+with, and a fallback to "the default table" is exactly the guess this section
+exists to remove.
+
+**A record that cannot answer is refused at JUDGE time.** Not gapped after
+landing — the session must never be left holding an act it could not do:
+
+```ts
+await s.replay(wire);
+// { ok: false, gap: { … detail: 'commit #1 "s2" cannot be re-performed:
+//   analysis "onOther" read table "other", which this dashboard does not
+//   declare — the tables are data' } }
+s.log.records.length;   // 0 — commit #0 was landable and did not land either
+```
+
+**The line between a refusal and a gap** is whether the act would be
+*attempted*. An analysis this session does not declare is a gap, because
+nothing will be re-performed wrongly: nothing is re-performed at all, and the
+honest consequence — `needs-column` on a later read — is right there to see. An
+act that WOULD be attempted, over rows nobody can name, is the opposite: it
+lands real numbers under real provenance and looks exactly like a correct
+answer. That one has to stop before anything moves.
+
+**One lane genuinely cannot carry the act, and it is refused for saying so.** A
+`kind: 'test'` analysis lands on the reserved `pValue` field, whose value slot
+IS the p-value — the L1↔L4 convention `src/fdr/fromLog.ts` documents and
+`isTestAnalogCommit` enforces. A test analysis that ALSO writes columns
+therefore records no table, and a log holding one is refused at judge time
+(*"analysis "tested" writes columns, and the record does not say which table it
+read"*) rather than replayed over a guess. The refusal is the honest reading of
+this section's own title: that record is not a record of its act.
+
+### The worked example
+
+Serialize a session. Open a fresh one on the same def. Replay. The fold is the
+same fold, and the bookmark still names the same act:
+
+```ts
+const walked = buildDashboard(def).createSession();
+const pick = await walked.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause });
+await walked.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [60, 120], cause });
+await walked.declareAnalysis('byPrice');            // writes the column `risk`
+walked.bookmark('the Formal pick', pick.commit.id);
+
+const wire = serializeLog(walked.log.records);      // the trace, and nothing else
+const saved = walked.bookmarks();                   // the store beside it
+
+// ── somewhere else entirely: a fresh dashboard, no server ──
+const dash = buildDashboard(def);
+dash.restoreBookmarks(saved);
+const replayed = dash.createSession();
+
+const res = await replayed.replay(wire);
+res;                                       // { ok: true, landed: 3, reran: 1, filed: 0, overview: … }
+
+// the FOLD is the same fold
+res.overview.activeSelections;             // [{ viewId: 'bar', value: 'Formal', … }, { viewId: 'scatter', … }]
+res.overview.selectedRowCount;             // the same count the walk was showing
+await replayed.viewQuery({ columns: ['id', 'risk'] });
+                                           // the same numbers — the act was re-performed
+
+// the BOOKMARK still names the same act
+const back = replayed.bookmarks()[0];
+back.commitId;                             // 's1' — the id it always had
+replayed.seek(back.commitId).ok;           // true
+(await replayed.overview()).activeSelections.map((s) => s.value);   // ['Formal']
+
+// and the next act cannot be given a number the replay already spent
+(await replayed.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Work', cause }))
+  .commit.id;                              // 's4' — never s1…s3 again
+```
+
+Pinned by `replay.test.ts`, and by `conformance.test.ts`, which is this door's
+first consumer: law 3 is now stated through law 6's door rather than around it.
