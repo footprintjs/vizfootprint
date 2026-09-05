@@ -13,7 +13,12 @@ import { vizfootprintAliases } from '../vitest.alias.mjs';
 // `jsx: automatic` in build.mjs) so component source needs no `import React`;
 // the UMD build shims `react/jsx-runtime` from `window.React`.
 export default defineConfig({
-  resolve: { alias: vizfootprintAliases },
+  // `dedupe`: storydeck is a LINKED package (file:../../storydeck) and keeps its own React in its
+  // own node_modules for its own suite. Without this, its components would render with a second
+  // React while the stage around them uses ours — "Cannot read properties of null (reading
+  // 'useState')", the classic two-copies failure. React is a peer of both packages; one copy is
+  // the contract, and this is where a linked checkout has to be told so.
+  resolve: { alias: vizfootprintAliases, dedupe: ['react', 'react-dom'] },
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}', 'gallery/**/*.test.ts'],

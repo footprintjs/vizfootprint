@@ -96,6 +96,19 @@ await esbuild.build({
   external: [...REACT, ...LIBRARY],
 });
 
+// The STAGE — the scroll lens over a live session — is its own entry and not part of
+// `./story` on purpose: `./story` is pure data, and the stage is React plus storydeck.
+// Folding it in would make every host that exports a post pay for both. storydeck is an
+// OPTIONAL peer, so it is external here for the same reason the library is: the app
+// resolves one copy, and a host that never mounts the stage never installs it.
+await esbuild.build({
+  ...base,
+  entryPoints: ['src/story/stage/index.ts'],
+  format: 'esm',
+  outfile: 'dist/story-stage.js',
+  external: [...REACT, ...LIBRARY, 'storydeck'],
+});
+
 // The UMD build is the ONE that still inlines the library, and deliberately: a
 // <script> tag has no module resolver, so a self-contained file is the whole
 // point of this artifact. It takes React from window and everything else from

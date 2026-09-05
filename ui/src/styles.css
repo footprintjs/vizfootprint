@@ -2483,3 +2483,42 @@
 :where(.vzf) .vzf-workbook-tab-on { color: var(--vzf-ink); background: var(--vzf-surface); border-color: var(--vzf-line); }
 :where(.vzf) .vzf-workbook-panel { flex: 1; min-height: 0; overflow: auto; }
 :where(.vzf) .vzf-workbook-panel:focus-visible { outline: none; box-shadow: inset var(--vzf-focus); }
+
+/* ── the STORY STAGE: the scroll lens over a live session ──
+   storydeck owns the scroll mechanics (`.scrolly*`, from `storydeck/storydeck.css`) and reads a
+   CSS-variable token contract rather than hard-coding colours, so the bridge below is the whole
+   theming job: OUR tokens, under THEIR names, scoped to the stage. Nothing leaks either way. */
+:where(.vzf) .vzf-story-stage {
+  --bg: var(--vzf-paper);
+  --bg-elev: var(--vzf-surface);
+  --fg: var(--vzf-ink);
+  --fg-muted: var(--vzf-ink-soft);
+  --fg-faint: var(--vzf-ink-faint);
+  --line: var(--vzf-line);
+  --line2: var(--vzf-line-soft);
+  --yellow: var(--vzf-brand);
+  --accent-ink: var(--vzf-brand-deep);
+  --sans: var(--vzf-font-body);
+  --mono: var(--vzf-font-mono);
+  color: var(--vzf-ink);
+}
+:where(.vzf) .vzf-story-empty { margin: 0; font-size: 13px; color: var(--vzf-ink-soft); }
+:where(.vzf) .vzf-story-figure { margin: 0; display: flex; flex-direction: column; gap: var(--vzf-space-2); }
+/* the live charts: their own surface, and INERT — the pause is in the code (capture-phase), this
+   only says so on screen. No dimming: this is the figure, not a paused control panel. */
+:where(.vzf) .vzf-story-charts { min-width: 0; border: 1px solid var(--vzf-line); border-radius: var(--vzf-r-md); background: var(--vzf-surface); overflow: hidden; }
+:where(.vzf) .vzf-story-caption { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; line-height: 1.45; color: var(--vzf-ink-soft); }
+/* the CITATION STRIP — what this beat's words rest on, never the words themselves (they are in
+   the flow, once). Each cite is numbered and named; the ones the story landed are anchors. */
+:where(.vzf) .vzf-story-cites { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+:where(.vzf) .vzf-story-cites-lead { font-size: 11px; color: var(--vzf-ink-faint); }
+:where(.vzf) .vzf-story-cite { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: 11.5px; line-height: 1.2; padding: 2px 8px 2px 3px; border-radius: 999px; border: 1px solid var(--vzf-line); background: var(--vzf-surface); color: var(--vzf-ink-soft); }
+:where(.vzf) .vzf-story-cite-n { display: inline-flex; align-items: center; justify-content: center; min-width: 15px; height: 15px; font-size: 9.5px; font-family: var(--vzf-font-mono); border-radius: 999px; background: var(--vzf-surface-2); color: var(--vzf-ink-faint); }
+/* an anchor GOES somewhere; a cite that stands at no moment on the spine does not, and says so by looking inert */
+:where(.vzf) .vzf-story-anchor { cursor: pointer; border-color: var(--vzf-brand); color: var(--vzf-brand-deep); }
+:where(.vzf) .vzf-story-anchor .vzf-story-cite-n { background: var(--vzf-brand-tint); color: var(--vzf-brand-deep); }
+:where(.vzf) .vzf-story-anchor:hover { background: var(--vzf-brand-tint); }
+:where(.vzf) .vzf-story-anchor:focus-visible { outline: none; box-shadow: var(--vzf-focus); }
+:where(.vzf) .vzf-story-cite-nowhere { border-style: dashed; }
+:where(.vzf) .vzf-story-dropped { font-size: 11px; color: var(--vzf-ink-faint); }
+:where(.vzf) .vzf-story-refusal { font-size: 11.5px; color: var(--vzf-clay); }

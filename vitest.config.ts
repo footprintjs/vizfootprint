@@ -4,7 +4,10 @@ import { defineConfig } from 'vitest/config';
 import { vizfootprintAliases } from './vitest.alias.mjs';
 
 export default defineConfig({
-  resolve: { alias: vizfootprintAliases },
+  // `dedupe`: this run globs the ui suite too, and the story stage renders storydeck — a LINKED
+  // package that keeps its own React for its own tests. One copy of React or the hooks break; see
+  // the same line in ui/vitest.config.ts.
+  resolve: { alias: vizfootprintAliases, dedupe: ['react', 'react-dom'] },
   test: {
     // Q11 (docs/RESEARCH_STATE.md): the 10k-seeded-sim FDR tests
     // (spikes/x2-fdr/a2-batch-bh-wrong.test.ts) sit close enough to the 5s

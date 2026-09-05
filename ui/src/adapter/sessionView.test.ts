@@ -142,6 +142,26 @@ describe('createSessionView — poll source with injected fetch', () => {
     view.dispose();
   });
 
+  it('seek answers with what the door said — a typed GAP\'s sentence is a refusal like any other', async () => {
+    const answers: unknown[] = [];
+    const impl = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (!init || init.method !== 'POST') return { ok: true, json: async () => RAW } as unknown as Response;
+      const next = answers.shift();
+      if (next instanceof Error) throw next;
+      return next as Response;
+    });
+    const view = createSessionView(pollingSource({ fetchImpl: impl as unknown as typeof fetch }));
+    await view.refresh();
+    answers.push({ ok: true, status: 200, json: async () => ({ ok: true, cursor: 'c1' }) });
+    expect(await view.seek('c1')).toEqual({ ok: true });
+    // the navigation doors refuse with a typed gap, not a `rejection` — one reader knows both shapes
+    answers.push({ ok: true, status: 200, json: async () => ({ ok: false, gap: { code: 'guard-failed', op: 'seek', detail: 'no commit "c9" to seek to' } }) });
+    expect(await view.seek('c9')).toEqual({ ok: false, sentence: 'no commit "c9" to seek to' });
+    answers.push(new Error('offline'));
+    expect(await view.seek('c1')).toEqual({ ok: false, sentence: 'could not reach the session' });
+    view.dispose();
+  });
+
   it('refreshes on construction and notifies subscribers', async () => {
     const { impl } = fakeFetch();
     const view = createSessionView(pollingSource({ fetchImpl: impl }));
@@ -696,6 +716,19 @@ describe('createSessionView — REAL InteractionSession (UI-0 reencode end-to-en
     // seek to before the reencode → the initial map is restored
     await view.seek(firstCommit);
     expect(view.getState().encodings['scatter']!['x']).toBe('price');
+    view.dispose();
+  });
+
+  it('a seek the session refuses comes back as the SESSION\'s sentence, with nothing moved', async () => {
+    const view = await liveView();
+    await view.refresh();
+    await view.emit('scatter', { rawValue: [10, 100], encoding: { kind: 'interval', field: 'price' } }, 'brush');
+    const landed = view.getState().commits[0]!.id;
+    expect(await view.seek(landed)).toEqual({ ok: true });
+    const cursor = view.getState().cursor;
+    // the session judges first and moves nothing (session README, law 1) — the adapter carries its words out
+    expect(await view.seek('no-such-commit')).toEqual({ ok: false, sentence: 'no commit "no-such-commit" to seek to' });
+    expect(view.getState().cursor).toBe(cursor);
     view.dispose();
   });
 

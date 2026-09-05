@@ -33,6 +33,11 @@
       "types": "./types/story/index.d.ts",
       "import": "./dist/story.js",
       "default": "./dist/story.js"
+    },
+    "./story/stage": {
+      "types": "./types/story/stage/index.d.ts",
+      "import": "./dist/story-stage.js",
+      "default": "./dist/story-stage.js"
     }
   },
   "files": [
@@ -56,7 +61,13 @@
   "peerDependencies": {
     "react": ">=18",
     "react-dom": ">=18",
+    "storydeck": "*",
     "vizfootprint": "*"
+  },
+  "peerDependenciesMeta": {
+    "storydeck": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.0",
@@ -68,6 +79,7 @@
     "playwright-core": "^1.58.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "storydeck": "file:../../storydeck",
     "typescript": "^5.5.0",
     "vega-lite": "6.4.3",
     "vitest": "^4.0.0",

@@ -1081,7 +1081,12 @@ export interface LinkEdit {
   readonly fold?: string;
 }
 
-/** What a gesture came back with: landed, or refused with the session's sentence. */
+/**
+ * What a gesture came back with: landed, or refused with the session's own
+ * sentence. The SHARED answer shape — `describe`, the saved-picture doors and
+ * `seek` all speak it, because "did it land, and what did it say" is one
+ * question and a second type for it would be a second thing to keep in step.
+ */
 export type DescribeOutcome = { readonly ok: true } | { readonly ok: false; readonly sentence: string };
 
 /**
@@ -1157,7 +1162,15 @@ export interface SessionView {
    */
   setLayout(change: LayoutChange): Promise<void>;
   analyze(analysisId: string, intent?: string): Promise<void>;
-  seek(commitId: string): Promise<void>;
+  /**
+   * Move the read-only cursor to a commit, and say what the SESSION said: it
+   * landed, or it was refused — judged before anything moved — with the
+   * session's own sentence, never one written here. The answer is the shared
+   * gesture shape ({@link DescribeOutcome}); the cursor itself is not on it,
+   * because the next snapshot already serves it and a second copy is a second
+   * thing to keep in step (README, law 1).
+   */
+  seek(commitId: string): Promise<DescribeOutcome>;
   stepBack(): Promise<void>;
   stepForward(): Promise<void>;
   bookmark(label: string): Promise<void>;
@@ -1284,13 +1297,21 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
     if (refreshOnAction) await refresh();
   }
 
-  /** POST a gesture and read whether it landed — a refusal's sentence comes back, an unreachable door answers honestly. */
+  /**
+   * POST a gesture and read whether it landed — a refusal's sentence comes back, an unreachable
+   * door answers honestly.
+   *
+   * The library refuses in TWO shapes across its own doors: a dispatch answers with a `rejection`
+   * and a navigation with a typed `gap` ({@link SeekResult}). Both are read here, in one place, so
+   * a consumer never has to know which door it went through — two readers would be two chances to
+   * drop one of them.
+   */
   async function postForOutcome(url: string, body: unknown): Promise<DescribeOutcome> {
     try {
       const res = await doFetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-      const raw = (await res.json()) as { ok?: boolean; error?: string; rejection?: { detail?: string } };
+      const raw = (await res.json()) as { ok?: boolean; error?: string; rejection?: { detail?: string }; gap?: { detail?: string } };
       if (raw.ok === true) return { ok: true };
-      return { ok: false, sentence: raw.rejection?.detail ?? raw.error ?? `the session answered ${res.status}` };
+      return { ok: false, sentence: raw.rejection?.detail ?? raw.gap?.detail ?? raw.error ?? `the session answered ${res.status}` };
     } catch {
       return { ok: false, sentence: 'could not reach the session' };
     }
@@ -1502,9 +1523,16 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
     },
 
     async seek(commitId) {
-      if (source.kind === 'session') source.session.seek(commitId);
-      else await postJson(endpoints.seek, { commitId });
+      // The session JUDGES a seek and moves nothing when it refuses (session README, law 1). That
+      // answer used to be dropped on the floor here, so every consumer that wanted to know whether
+      // a position was reachable re-derived it from `state.commits` — a second implementation of a
+      // rule the library already owns (README, law 3). It is carried now, over both sources.
+      const outcome: DescribeOutcome =
+        source.kind === 'session'
+          ? ((answer) => (answer.ok ? { ok: true } : { ok: false, sentence: answer.gap.detail }))(source.session.seek(commitId))
+          : await postForOutcome(endpoints.seek, { commitId });
       await afterAction();
+      return outcome;
     },
 
     async stepBack() {

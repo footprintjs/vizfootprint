@@ -54,6 +54,10 @@ post.sections[1].dropped;
 post.bookmarks[1].words.caption; // 'Oklahoma leads, as it did in the spike week.'
 ```
 
+`storyDroppedNote(section.dropped)` is the one quiet line that says it, and it ships here, beside the rows it reads — see `droppedNote.ts`. It was written in a consumer first; the second surface that needed it is what turned a helper into a door.
+
 ## Not here, on purpose
 
-No story-editing UI, no auto-segmentation, no storydeck rendering — storydeck owns Read / Scroll / Watch; this module owns the honest export. No notes: the story tells the DASHBOARD's words, so a note's refs stay with the note. And no ref-drawing: the post says where every citation lands and the page draws the anchors, the way `<ProseText>` draws a slot's.
+No story-editing UI, no auto-segmentation, and no rendering — this module is pure data, and it stays that way so a host can export a post anywhere without paying for a renderer. No notes either: the story tells the DASHBOARD's words, so a note's refs stay with the note.
+
+The rendering has a door of its own. [`stage/`](./stage/README.md) — `vizfootprint-ui/story/stage` — mounts this post as storydeck's SCROLL lens over the live session, with the real charts in place of the HTML figures and the reader's scroll moving the session from beat to beat. It is where the ref-drawing lives too: the post says where every citation lands, and the page draws it — as a strip under the figure, since in that lens the words themselves are already in the flow.

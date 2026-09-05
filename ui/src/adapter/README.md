@@ -209,6 +209,16 @@ pattern is what you are meant to recognise, not the individual fix:
 | the demo's `landedBy` / `actLabel`, walking four result shapes for "what id did this act land" — **twice, and the two disagreed about a refusal** | `VizToolResult` is `Record<string, unknown>`, so there was nothing to read a field off | `whatLanded(result)`, plus real types for the act results (`vizfootprint/agent`) |
 | three demo reads of `session.log.records`, and `readonly log: { records }` baked into `SessionLike` itself | the session served the raw trace and no scoped list | `session.commits('path' \| 'anywhere')` — the scope is REQUIRED, so the signature says which question was asked |
 | the demo's `filtersHere`, restating which link response NARROWS a view | `keepPredicate` folded by that rule and never exported it | `filtersHere` (`contract/selection.ts`), which `keepPredicate` now calls |
+| the demo's `storyDroppedNote`, turning a section's `dropped` rows into the one quiet line a reader sees | `toStory` carried the rows and named no sentence for them, so the first surface to show them wrote one | `storyDroppedNote` (`vizfootprint-ui/story`), beside the rows it reads — moved the day a SECOND surface (the story stage) needed the same words, which is the moment a helper stops being a local convenience |
+| a story stage about to ask `state.commits` "does this session hold that commit?" before every seek | `SessionView.seek` returned `Promise<void>`: the session's own `SeekResult` — judged before anything moved, with its sentence — was read and dropped on the floor here | `seek` ANSWERS now, over both sources, with the same `{ ok } \| { ok, sentence }` every other gesture speaks. The consumer stopped judging and started printing what the session said |
+
+The last row is worth reading as the general shape, because the helper had not
+been written yet: the consumer was about to re-derive *reachability* from the
+commit list, and the library already knew the answer and was throwing it away.
+**A door that discards its own answer is a door that has not been finished** —
+the next consumer will compute that answer again, less well, somewhere the
+library's tests cannot see it. The fix is never a check on the consumer's side;
+it is the door saying what it did.
 
 **How to tell you are about to break this law.** You are in a consumer, about
 to write a function whose body encodes a rule the library states in prose — a
