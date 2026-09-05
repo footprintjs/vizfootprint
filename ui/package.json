@@ -38,6 +38,16 @@
       "types": "./types/story/stage/index.d.ts",
       "import": "./dist/story-stage.js",
       "default": "./dist/story-stage.js"
+    },
+    "./story/page": {
+      "types": "./types/story/page/index.d.ts",
+      "import": "./dist/story-page.js",
+      "default": "./dist/story-page.js"
+    },
+    "./story/payload": {
+      "types": "./types/story/page/payload.d.ts",
+      "import": "./dist/story-payload.js",
+      "default": "./dist/story-payload.js"
     }
   },
   "files": [

@@ -410,3 +410,50 @@ describe('StoryStage — a story with no beats', () => {
     expect(screen.getByRole('status').textContent).toBe('name a bookmark first');
   });
 });
+
+describe('StoryStage — the door on a beat', () => {
+  it('draws the host\'s door for the beat the reader is on, OUTSIDE the read-only guard', async () => {
+    const gesture = vi.fn();
+    const opened = vi.fn();
+    const session = fakeSession();
+    const { container } = render(
+      <StoryStage post={postOf()} session={session} beatDoor={(bookmark) => <button type="button" data-testid="door" onClick={() => opened(bookmark.label)}>explore from {bookmark.label}</button>}>
+        <svg data-testid="chart" onClick={gesture} />
+      </StoryStage>,
+    );
+    await settle();
+    expect(screen.getByTestId('door').textContent).toBe('explore from Start');
+    await goBeat(1);
+    expect(screen.getByTestId('door').textContent).toBe('explore from Formal');
+    // the guard is on the CHARTS; a door is not a gesture on the charts, so it lands
+    fireEvent.click(screen.getByTestId('chart'));
+    fireEvent.click(screen.getByTestId('door'));
+    expect(gesture).not.toHaveBeenCalled();
+    expect(opened).toHaveBeenCalledWith('Formal');
+  });
+
+  it('offers NO door on a beat whose bookmark this story does not carry — never a broken one', async () => {
+    const post = postOf();
+    const short: StoryPost = { ...post, bookmarks: post.bookmarks.slice(0, 1) };
+    const { container } = render(
+      <StoryStage post={short} session={fakeSession()} beatDoor={() => <button type="button" data-testid="door" />}>
+        {charts}
+      </StoryStage>,
+    );
+    await settle();
+    expect(screen.getAllByTestId('door')).toHaveLength(1); // the first beat has its bookmark
+    await goBeat(1);
+    expect(screen.queryByTestId('door')).toBeNull();
+    expect(container.querySelector('.vzf-story-refusal')?.textContent).toContain('the story does not tell');
+  });
+
+  it('shows no strip at all when there is nothing to say and no door to offer', async () => {
+    const { container } = render(
+      <StoryStage post={postOf([])} session={fakeSession()}>
+        {charts}
+      </StoryStage>,
+    );
+    await settle();
+    expect(container.querySelector('.vzf-story-caption')).toBeNull();
+  });
+});

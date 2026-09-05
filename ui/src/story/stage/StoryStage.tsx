@@ -42,7 +42,7 @@ import { ScrollyView, assemblePost } from 'storydeck';
 import type { ScrollyBeat, Section } from 'storydeck';
 import type { DescribeOutcome } from '../../adapter/sessionView.js';
 import { storyDroppedNote } from '../droppedNote.js';
-import type { StoryPost, StoryRef, StoryRefAt, StorySection } from '../toStory.js';
+import type { StoryBookmark, StoryPost, StoryRef, StoryRefAt, StorySection } from '../toStory.js';
 import { firstBeatIndexes, landRef, refName, refusalOf, replayPath, sectionIndexOf } from './spine.js';
 
 /** Enter and Space are the only keys that ACT; Tab, the arrows and Escape must keep working or the stage is a keyboard trap. */
@@ -91,12 +91,24 @@ export interface StoryStageProps {
   readonly children: ReactNode;
   /** The dwell between the intermediate commits of a forward step, in ms (default 420). `0` lands on the beat with no replay. */
   readonly dwellMs?: number;
+  /**
+   * A DOOR on every beat — the host's own way out of the story at that moment
+   * ("explore from here"), drawn in the strip under the figure.
+   *
+   * It sits OUTSIDE the read-only guard on purpose, and the two are not in
+   * tension: the guard swallows gestures on the CHARTS, because a brush there
+   * would author the story a reader came to read. A door is not a gesture on
+   * the charts — it is the reader saying they would like to stop reading, and
+   * where that leads is the host's to decide. A beat whose bookmark this story
+   * does not carry gets no door rather than a broken one.
+   */
+  readonly beatDoor?: (bookmark: StoryBookmark) => ReactNode;
   /** What the stage says when a story has no bookmarks yet. */
   readonly emptyNote?: ReactNode;
   readonly className?: string;
 }
 
-export function StoryStage({ post, session, children, dwellMs = DEFAULT_DWELL_MS, emptyNote, className }: StoryStageProps): JSX.Element {
+export function StoryStage({ post, session, children, dwellMs = DEFAULT_DWELL_MS, beatDoor, emptyNote, className }: StoryStageProps): JSX.Element {
   // The assembled post: storydeck turns the body Markdown into per-section prose and joins the
   // slides by key. Rebuilt only when the post itself changes — a 1 Hz poll re-renders the host,
   // and re-rendering Markdown every second would be a new story every second.
@@ -207,17 +219,26 @@ export function StoryStage({ post, session, children, dwellMs = DEFAULT_DWELL_MS
     [play, scrollToBeat],
   );
 
+  /** The door for one section's beats, when the host offers one AND this story carries that bookmark. */
+  const doorFor = useCallback(
+    (index: number): ReactNode => {
+      const bookmark = post.bookmarks[index];
+      return beatDoor === undefined || bookmark === undefined ? null : beatDoor(bookmark);
+    },
+    [beatDoor, post],
+  );
+
   const sections: Section[] = useMemo(
     () =>
       assembled.sections.map((section, index) => ({
         ...section,
         figure: (beat: ScrollyBeat) => (
-          <StageBeat beat={beat} section={post.sections[index]!} refusal={refusal} onArrive={arrive} onGoToRef={goToRef}>
+          <StageBeat beat={beat} section={post.sections[index]!} door={doorFor(index)} refusal={refusal} onArrive={arrive} onGoToRef={goToRef}>
             {children}
           </StageBeat>
         ),
       })),
-    [assembled, post, refusal, arrive, goToRef, children],
+    [assembled, post, refusal, arrive, goToRef, children, doorFor],
   );
 
   if (sections.length === 0) {
@@ -239,6 +260,8 @@ export function StoryStage({ post, session, children, dwellMs = DEFAULT_DWELL_MS
 interface StageBeatProps {
   readonly beat: ScrollyBeat;
   readonly section: StorySection;
+  /** The host's way out of the story at this beat, already drawn — `null` when there is none. */
+  readonly door: ReactNode;
   readonly refusal: string | null;
   readonly onArrive: (beatIndex: number, sectionKey: string) => void;
   readonly onGoToRef: (ref: StoryRef, at: StoryRefAt) => void;
@@ -260,7 +283,7 @@ interface StageBeatProps {
  * visible, and it costs the reader no repetition. A beat that cites nothing
  * shows nothing.
  */
-function StageBeat({ beat, section, refusal, onArrive, onGoToRef, children }: StageBeatProps): JSX.Element {
+function StageBeat({ beat, section, door, refusal, onArrive, onGoToRef, children }: StageBeatProps): JSX.Element {
   useEffect(() => {
     onArrive(beat.index, beat.sectionKey);
   }, [beat.index, beat.sectionKey, onArrive]);
@@ -276,7 +299,7 @@ function StageBeat({ beat, section, refusal, onArrive, onGoToRef, children }: St
   };
   const cites = section.refs ?? [];
   const dropped = storyDroppedNote(section.dropped);
-  const said = [cites.length > 0, dropped !== undefined, refusal !== null].some(Boolean);
+  const said = [cites.length > 0, dropped !== undefined, refusal !== null, door !== null].some(Boolean);
   return (
     <figure className="vzf-story-figure" data-vzf="story-figure" data-beat={beat.index}>
       <div
@@ -308,6 +331,11 @@ function StageBeat({ beat, section, refusal, onArrive, onGoToRef, children }: St
           {refusal === null ? null : (
             <span className="vzf-story-refusal" role="status">
               {refusal}
+            </span>
+          )}
+          {door === null ? null : (
+            <span className="vzf-story-door" data-vzf="story-door">
+              {door}
             </span>
           )}
         </figcaption>

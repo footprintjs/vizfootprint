@@ -2522,3 +2522,29 @@
 :where(.vzf) .vzf-story-cite-nowhere { border-style: dashed; }
 :where(.vzf) .vzf-story-dropped { font-size: 11px; color: var(--vzf-ink-faint); }
 :where(.vzf) .vzf-story-refusal { font-size: 11.5px; color: var(--vzf-clay); }
+
+/* ── the STORY PAGE: one file, two lenses ──
+   The front matter is the page's own honesty strip (where its data came from, what it cost, how
+   many acts replayed) and the lens toggle; the door under each figure is the way out of the story
+   into a path of the reader's own. Nothing here dims or disables — the read-only guarantee is in
+   the code (`story/stage/README.md`), and a stylesheet that implied it would be the wrong place. */
+:where(.vzf) .vzf-story-page { display: flex; flex-direction: column; min-height: 100%; color: var(--vzf-ink); background: var(--vzf-paper); }
+:where(.vzf) .vzf-story-page-status,
+:where(.vzf) .vzf-story-page-refusal { margin: 0; padding: var(--vzf-space-4); font-size: 13.5px; line-height: 1.5; }
+:where(.vzf) .vzf-story-page-refusal { color: var(--vzf-clay); }
+:where(.vzf) .vzf-story-page-explore { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+:where(.vzf) .vzf-story-front { padding: var(--vzf-space-3) var(--vzf-space-4); border-bottom: 1px solid var(--vzf-line); background: var(--vzf-surface); }
+:where(.vzf) .vzf-story-front-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--vzf-space-2); }
+:where(.vzf) .vzf-story-front-title { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+:where(.vzf) .vzf-story-front-line { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: var(--vzf-ink-soft); }
+:where(.vzf) .vzf-story-front-note { margin: 4px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--vzf-ink-faint); }
+:where(.vzf) .vzf-story-front-refused { margin: 4px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--vzf-clay); }
+:where(.vzf) .vzf-story-lenses { display: inline-flex; gap: 4px; }
+:where(.vzf) .vzf-story-lens { font: inherit; font-size: 12.5px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--vzf-line); background: var(--vzf-surface); color: var(--vzf-ink-soft); cursor: pointer; }
+:where(.vzf) .vzf-story-lens[aria-pressed='true'] { background: var(--vzf-brand-tint); border-color: var(--vzf-brand); color: var(--vzf-brand-deep); }
+:where(.vzf) .vzf-story-lens:focus-visible { outline: none; box-shadow: var(--vzf-focus); }
+/* the DOOR on a beat — outside the charts' guard, because it is not a gesture on the charts */
+:where(.vzf) .vzf-story-door { display: inline-flex; }
+:where(.vzf) .vzf-story-explore { font: inherit; font-size: 11.5px; line-height: 1.2; padding: 3px 10px; border-radius: 999px; border: 1px dashed var(--vzf-brand); background: transparent; color: var(--vzf-brand-deep); cursor: pointer; }
+:where(.vzf) .vzf-story-explore:hover { background: var(--vzf-brand-tint); }
+:where(.vzf) .vzf-story-explore:focus-visible { outline: none; box-shadow: var(--vzf-focus); }

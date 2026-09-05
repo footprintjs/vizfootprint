@@ -109,6 +109,30 @@ await esbuild.build({
   external: [...REACT, ...LIBRARY, 'storydeck'],
 });
 
+// The PAGE — the whole dashboard, its story and its data as one HTML file — is its
+// own entry for the same reason again: it carries a boot sequence and a payload
+// codec that a host mounting the stage inside a running cockpit never needs.
+await esbuild.build({
+  ...base,
+  entryPoints: ['src/story/page/index.ts'],
+  format: 'esm',
+  outfile: 'dist/story-page.js',
+  external: [...REACT, ...LIBRARY, 'storydeck'],
+});
+
+// The PAYLOAD CODEC on its own — the door a BUILD walks through. It is split off
+// the page for the reason `source/file` is split off the library's source barrel:
+// the page entry above pulls React and storydeck, and a Vite config runs in plain
+// Node, where storydeck's bundler-only ESM does not resolve at all. A build tool
+// must be able to write what the page reads without loading a renderer.
+await esbuild.build({
+  ...base,
+  entryPoints: ['src/story/page/payload.ts'],
+  format: 'esm',
+  outfile: 'dist/story-payload.js',
+  external: [...REACT, ...LIBRARY],
+});
+
 // The UMD build is the ONE that still inlines the library, and deliberately: a
 // <script> tag has no module resolver, so a self-contained file is the whole
 // point of this artifact. It takes React from window and everything else from

@@ -120,6 +120,19 @@ beat 1 seeks its position once. Under the charts the reader sees `this beat cite
 to the beat that tells it, and that beat's own arrival does not re-seek on top of it (the citation
 already settled it).
 
+## The door on a beat
+
+`beatDoor` is the host's own way OUT of the story at the beat the reader is standing on — the
+single-file page ([`../page/README.md`](../page/README.md)) draws **explore from here** with it, and
+forks a path of the reader's own at that moment.
+
+It sits in the strip, beside the citations, and **outside the read-only guard**. The two are not in
+tension: the guard swallows gestures on the CHARTS, because a brush there would author the story a
+reader came to read. A door is not a gesture on the charts — it is the reader saying they would like
+to stop reading, and where that leads is the host's to decide. A beat whose bookmark this story does
+not carry gets no door rather than a broken one, the same restraint the strip already keeps for a
+citation that landed nowhere.
+
 ## Not here, on purpose
 
 No story editing, no bookmark authoring, and no charts. The stage draws the strip and the refusal;
