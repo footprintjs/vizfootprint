@@ -3,4 +3,4 @@
  * a storydeck post (Read / Scroll / Watch from one export). See ./README.md.
  */
 export { toStory } from './toStory.js';
-export type { StoryPost, StoryOptions, StoryBookmark, StoryStep, StoryWords, StorySection, StorySlide, StoryMeta } from './toStory.js';
+export type { StoryPost, StoryOptions, StoryBookmark, StoryStep, StoryWords, StorySection, StorySlide, StoryMeta, StoryRef, StoryRefAt, StoryDroppedRef, StoryDroppedReason } from './toStory.js';

@@ -21,7 +21,8 @@
  * ── One answer to "which commit does this bookmark name" ────────────────────
  * `bookmarkTarget` is that answer for a RECORD and `bookmarkRefTarget` for a
  * REF (the id a note's `@[bookmark]` link carries, or — for words written
- * before bookmarks had ids — its label). They are one function called two
+ * before bookmarks had ids — its label; `bookmarkByRef` is the same lookup
+ * stopping at the record). They are one function called two
  * ways on purpose: a consumer that has a ref and reads `.commitId` off the
  * record it found has quietly written a second, different resolver, and for a
  * legacy `bookmark:` commit the two land on different commits — `commitId` is
@@ -49,8 +50,20 @@ export function bookmarkTarget(c: BookmarkView): string | null {
  * a seek somewhere arbitrary.
  */
 export function bookmarkRefTarget(bookmarks: readonly BookmarkView[], ref: string): string | null {
-  const found = bookmarks.find((c) => c.id === ref) ?? bookmarks.find((c) => c.label === ref);
+  const found = bookmarkByRef(bookmarks, ref);
   return found === undefined ? null : bookmarkTarget(found);
+}
+
+/**
+ * The bookmark a REF names — the RECORD, where {@link bookmarkRefTarget} gives
+ * the commit. One lookup, two answers: id first, then label, exactly as above,
+ * because a consumer that needs the record (which section of a story tells it,
+ * say) and writes its own `find` has quietly forked the fallback ORDER — and a
+ * label that two bookmarks share would then resolve one way for a seek and
+ * another way for everything else. `undefined` when nothing matches.
+ */
+export function bookmarkByRef(bookmarks: readonly BookmarkView[], ref: string): BookmarkView | undefined {
+  return bookmarks.find((c) => c.id === ref) ?? bookmarks.find((c) => c.label === ref);
 }
 
 /**

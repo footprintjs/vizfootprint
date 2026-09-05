@@ -10,6 +10,15 @@
  * Watch all come from this ONE export: storydeck's `assemblePost` takes it
  * as-is ({ meta, sections, bodyMd, deckSlides }).
  *
+ * THE REFS TRAVEL WITH THE WORDS. A caption's `refs` — the spans that cite a
+ * commit, a bookmark or a saved picture — ride the same `describe` record the
+ * words do, so the fold carries them and every section says what the words it
+ * shows point at, LANDED ON THE SPINE: a cited commit as the section and step
+ * that tell it, a cited bookmark as its section. Landing is a projection, not a
+ * second door — the session judged these refs when the words were described
+ * (`src/prose/README.md`) and this re-judges nothing. What the story cannot
+ * honour is carried as `dropped` with a reason rather than vanishing.
+ *
  * The library renders nothing: the host brings `figure(bookmark)` — the HTML of
  * what the dashboard showed at that bookmark — and every slide carries an audit
  * envelope (`data-vzf-*`: the commit the bookmark names, the path, the data
@@ -18,17 +27,28 @@
  * and text in the slides, and storydeck's own `<!--section:…-->` marker in
  * the Markdown body, so no caption can re-split the post; the figure is the
  * host's own markup, inserted verbatim (escape at the seam is the host's
- * duty for its own HTML). Pure: the state in, a plain JSON-safe post out.
+ * duty for its own HTML). A ref is DATA and is never written into the body or
+ * a slide, so no ref — label, span or id — can re-split or mark up anything.
+ * Pure: the state in, a plain JSON-safe post out.
  */
 import { BOOKMARK_VIEW_PREFIX, PROSE_VIEW_PREFIX } from 'vizfootprint/branches';
 import { DASHBOARD_PROSE_ID, PROSE_SLOTS } from 'vizfootprint/prose';
 import type { ProseSlot } from 'vizfootprint/prose';
-import type { BookmarkView, CommitView, SessionViewState } from '../adapter/types.js';
+import type { BookmarkView, CommitView, ProseRefView, SessionViewState } from '../adapter/types.js';
+import { mapProseRefs } from '../adapter/proseRefs.js';
 import { pathToRoot } from '../adapter/stepNav.js';
-import { bookmarkTarget, orderedBookmarks } from '../time/presentBookmark.js';
+import { bookmarkByRef, bookmarkTarget, orderedBookmarks } from '../time/presentBookmark.js';
 
 /** The dashboard's words at one bookmark — the slots a `describe` on `'dashboard'` may set, as plain text. */
 export type StoryWords = Readonly<Partial<Record<ProseSlot, string>>>;
+
+/**
+ * THE SLOTS A SECTION SHOWS, in the order it shows them — the one owner of that
+ * fact: {@link sectionMd} prints these words, and the refs a section carries are
+ * exactly theirs. A slot the story never prints has no span in anything a reader
+ * sees, so its refs are not the story's to carry.
+ */
+const SHOWN_SLOTS: readonly ProseSlot[] = ['caption', 'howToRead'];
 
 /** One commit between two bookmarks, as a sentence: the person's intent when the cause carried one, else the ledger's label. */
 export interface StoryStep {
@@ -62,7 +82,7 @@ export interface StoryOptions {
   readonly path?: string;
   /** The figure of one bookmark: the host's HTML of what the dashboard showed at `bookmark.at` (inserted verbatim). Default: no figure. */
   readonly figure?: (bookmark: StoryBookmark) => string;
-  /** The words a bookmark falls back to when no `describe` reached it on the lineage — the def's DECLARED dashboard prose, never the live words (those would misdate every earlier bookmark). */
+  /** The words a bookmark falls back to when no `describe` reached it on the lineage — the def's DECLARED dashboard prose, never the live words (those would misdate every earlier bookmark). Words only: the declaration stands at no commit, so it cites none. */
   readonly declared?: StoryWords;
   /** The post's title; default = the tip's dashboard title, else "Untitled story". */
   readonly title?: string;
@@ -76,6 +96,73 @@ export interface StoryOptions {
   readonly description?: string;
 }
 
+/**
+ * Where a ref lands on the story's spine — what a page seeks to when a reader
+ * clicks the claim. Told in the post's own coordinates (a section key, a step
+ * within it), never a raw cursor: the page has the post, not the session.
+ */
+export interface StoryRefAt {
+  /** The section that tells it — a `StorySection.key`, the same key the slides join by. */
+  readonly section: string;
+  /** Which of that section's `steps` it is. Absent when the ref lands on the section itself: a bookmark, or the act of naming one. */
+  readonly step?: number;
+}
+
+/** What every ref carries whether or not the story could honour it: the words it marks, and the one thing it names. */
+interface StoryRefBase {
+  /** The slot whose words the span counts in — `words[slot]` of the bookmark this section was built from. */
+  readonly slot: ProseSlot;
+  /** Character span `[start, end)` in those words, counted exactly as the writer wrote them (the story never re-judges it; the page draws what it can, as `<ProseText>` does). */
+  readonly span: readonly [number, number];
+  /** A commit by its id. */
+  readonly commit?: string;
+  /** A bookmark by its ID (`b1`, …), never its name. */
+  readonly bookmark?: string;
+  /** A saved picture by its ID (`p1`, …). */
+  readonly saved?: string;
+  /** The words the anchor shows — the name as it read when the link was made. */
+  readonly label?: string;
+}
+
+/**
+ * One ref of the words a section shows, landed on the spine. The page does the
+ * drawing: it has the span, the words (`bookmarks[i].words[slot]`) and the
+ * place to go.
+ */
+export interface StoryRef extends StoryRefBase {
+  /**
+   * Where it lands. Absent for a saved picture: a picture is dashboard-wide
+   * LOGIC and stands at no moment on the spine, so the anchor names it and the
+   * story sends a reader nowhere rather than somewhere arbitrary.
+   */
+  readonly at?: StoryRefAt;
+}
+
+/**
+ * Why a ref could not be landed. The three are kept APART because they send a
+ * reader to different places — the same restraint `CrossTierSlice.dropped`
+ * keeps (`src/why/types.ts`).
+ *
+ * `off-path`: the session holds it, but not on the lineage this story tells —
+ * another path (or, for a bookmark from a wire that predates bookmark ids, a
+ * bookmark that names no position at all). A story tells ONE lineage; the fix
+ * is to tell the other one.
+ * `untold`: on this lineage, but past the last bookmark — no section of this
+ * story reaches it. Name a bookmark there and it becomes a beat.
+ * `not-held`: the session does not hold it at all — a forgotten bookmark, a
+ * picture that is gone, an id from a log this post was not built from.
+ */
+export type StoryDroppedReason = 'off-path' | 'untold' | 'not-held';
+
+/**
+ * One ref the story could not honour, carried so a reader learns it was NAMED
+ * rather than watching it vanish. It offers no repair and names no position —
+ * this post declined to vouch for the citation, and a link would hand it back.
+ */
+export interface StoryDroppedRef extends StoryRefBase {
+  readonly reason: StoryDroppedReason;
+}
+
 export interface StorySection {
   readonly key: string;
   /** storydeck's eyebrow above the heading: `Bookmark <n>`. */
@@ -84,6 +171,10 @@ export interface StorySection {
   readonly heading: string;
   /** The deck slides this section plays — by KEY, storydeck's join key (labels may repeat; keys never do). */
   readonly slides: readonly string[];
+  /** The refs of the words this section shows, landed on the spine. Absent when the words cite nothing this story can honour. */
+  readonly refs?: readonly StoryRef[];
+  /** The refs of those same words that this story could not honour, each with its reason. Absent when there are none. */
+  readonly dropped?: readonly StoryDroppedRef[];
 }
 
 export interface StorySlide {
@@ -118,6 +209,31 @@ export interface StoryPost {
 
 const DASHBOARD_PROSE_VIEW = `${PROSE_VIEW_PREFIX}${DASHBOARD_PROSE_ID}`;
 
+/** The refs the fold carries per slot — the ones declared by the record that set those words. */
+type SlotRefs = Readonly<Partial<Record<ProseSlot, readonly ProseRefView[]>>>;
+
+/** The dashboard's prose at one position: the words, and the refs the records that set them carried. */
+interface FoldedProse {
+  readonly words: StoryWords;
+  readonly refs: SlotRefs;
+}
+
+/** Everything a ref is landed against — the story's own spine, and what the session still holds. */
+interface Spine {
+  /** A commit id → the section (and step) that tells it: every commit of a section's stretch, and the act of naming each bookmark. The tail past the last bookmark is told by no section, so it is absent. */
+  readonly spot: ReadonlyMap<string, StoryRefAt>;
+  /** Every commit id on the lineage told, the tail past the last bookmark included. */
+  readonly lineage: ReadonlySet<string>;
+  /** Every commit id the session holds, on any path. */
+  readonly held: ReadonlySet<string>;
+  /** The session's bookmarks, for the one ref→record lookup (`bookmarkByRef`). */
+  readonly bookmarks: readonly BookmarkView[];
+  /** The bookmark records on this spine → the section key each became. */
+  readonly section: ReadonlyMap<BookmarkView, string>;
+  /** The ids of the saved pictures the session still holds. */
+  readonly saved: ReadonlySet<string>;
+}
+
 export function toStory(state: SessionViewState, options: StoryOptions = {}): StoryPost {
   const tip = spineTip(state, options.path);
   const lineage = pathToRoot(state.commits, tip); // root-first
@@ -125,27 +241,42 @@ export function toStory(state: SessionViewState, options: StoryOptions = {}): St
   const bookmarks = tip === null ? [] : orderedBookmarks(state.bookmarks, state.commits, tip);
   const declared = options.declared ?? {};
   const storyBookmarks: StoryBookmark[] = [];
+  const shown: SlotRefs[] = []; // parallel to storyBookmarks: the refs of the words each section shows
+  const spot = new Map<string, StoryRefAt>();
+  const section = new Map<BookmarkView, string>();
   let since = 0; // the first lineage index not yet told
-  let words: StoryWords = declared; // the fold carried forward — a bookmark's words are the prefix's, never re-walked
+  let prose: FoldedProse = { words: declared, refs: {} }; // the fold carried forward — a bookmark's prose is the prefix's, never re-walked
   bookmarks.forEach((bookmark, index) => {
     const at = bookmarkTarget(bookmark) as string; // ordered bookmarks all name a position on the lineage
     const end = position.get(at)! + 1;
     const span = lineage.slice(since, end);
-    words = foldWords(words, span, declared);
+    prose = foldProse(prose, span, declared);
     const named = lineage[end - 1]!;
+    const key = sectionKey(index, bookmark);
+    const steps = span.filter((c) => !c.viewId.startsWith(BOOKMARK_VIEW_PREFIX)).map((c) => ({ commitId: c.id, sentence: c.intent ?? c.label, actor: c.actor, viewId: c.viewId }));
+    // every commit of the span lands in this section; the ones that are STEPS land on their beat
+    for (const c of span) spot.set(c.id, { section: key });
+    steps.forEach((s, step) => spot.set(s.commitId, { section: key, step }));
+    section.set(bookmark, key);
     storyBookmarks.push({
       index,
-      key: sectionKey(index, bookmark),
+      key,
       label: bookmark.label,
       commitId: bookmark.commitId,
       at,
-      steps: span.filter((c) => !c.viewId.startsWith(BOOKMARK_VIEW_PREFIX)).map((c) => ({ commitId: c.id, sentence: c.intent ?? c.label, actor: c.actor, viewId: c.viewId })),
-      words,
+      steps,
+      words: prose.words,
       ...(named.data !== undefined ? { data: named.data } : {}),
     });
+    shown.push(prose.refs);
     since = end;
   });
-  const atTip = foldWords(words, lineage.slice(since), declared);
+  // The ACT of naming a bookmark belongs to the bookmark it named — a second pass, because the moment named
+  // ENDS a section, so the naming commit itself falls in the NEXT section's stretch (or past the last bookmark
+  // entirely) and would send a reader who clicked the name somewhere that has nothing to do with it.
+  for (const [bookmark, key] of section) if (bookmark.commitId !== null) spot.set(bookmark.commitId, { section: key });
+  const spine: Spine = { spot, lineage: new Set(position.keys()), held: new Set(state.commits.map((c) => c.id)), bookmarks: state.bookmarks, section, saved: new Set(state.saved.map((s) => s.id)) };
+  const atTip = foldProse(prose, lineage.slice(since), declared).words;
   const title = options.title ?? atTip.title ?? 'Untitled story';
   const description = options.description ?? atTip.caption;
   const pathName = options.path ?? null;
@@ -162,7 +293,7 @@ export function toStory(state: SessionViewState, options: StoryOptions = {}): St
       bookmarkCount: storyBookmarks.length,
     },
     // storydeck prints `label` as an eyebrow above `heading` — the bookmark's name heads the section, its number is the eyebrow
-    sections: storyBookmarks.map((b) => ({ key: b.key, label: `Bookmark ${b.index + 1}`, heading: b.label, slides: [b.key] })),
+    sections: storyBookmarks.map((b) => ({ key: b.key, label: `Bookmark ${b.index + 1}`, heading: b.label, slides: [b.key], ...sectionRefs(shown[b.index]!, spine) })),
     bodyMd: storyBookmarks.map(sectionMd).join('\n'),
     deckSlides: storyBookmarks.map((b) => ({ label: b.key, html: slideHtml(b, pathName, options.figure) })),
     bookmarks: storyBookmarks,
@@ -178,9 +309,17 @@ function spineTip(state: SessionViewState, path: string | undefined): string | n
   return named.tip;
 }
 
-/** The dashboard's words after folding a span of `describe` commits on the dashboard subject onto `before`: last wins per slot, null = back to the declared words. */
-function foldWords(before: StoryWords, span: readonly CommitView[], declared: StoryWords): StoryWords {
-  const words: Partial<Record<ProseSlot, string>> = { ...before };
+/**
+ * The dashboard's prose after folding a span of `describe` commits on the
+ * dashboard subject onto `before`: last wins per slot, null = back to the
+ * declared words. The refs move with the words they belong to — a record that
+ * sets words sets its refs too (none, when it declared none), and a fold back to
+ * the declaration carries none at all, because the declaration stands at no
+ * commit and so cites nothing.
+ */
+function foldProse(before: FoldedProse, span: readonly CommitView[], declared: StoryWords): FoldedProse {
+  const words: Partial<Record<ProseSlot, string>> = { ...before.words };
+  const refs: Partial<Record<ProseSlot, readonly ProseRefView[]>> = { ...before.refs };
   for (const c of span) {
     if (c.viewId !== DASHBOARD_PROSE_VIEW || !(PROSE_SLOTS as readonly string[]).includes(c.field)) continue; // a proposal-lane field is not a slot
     const slot = c.field as ProseSlot;
@@ -188,9 +327,56 @@ function foldWords(before: StoryWords, span: readonly CommitView[], declared: St
     if (c.value === null) {
       if (declared[slot] !== undefined) words[slot] = declared[slot];
       else delete words[slot];
-    } else if (text !== undefined) words[slot] = text;
+      delete refs[slot];
+    } else if (text !== undefined) {
+      words[slot] = text;
+      const carried = mapProseRefs((c.value as { refs?: unknown }).refs);
+      if (carried.length > 0) refs[slot] = carried;
+      else delete refs[slot];
+    }
   }
-  return words;
+  return { words, refs };
+}
+
+/** What a ref landed on: a place on the spine (absent for a saved picture, which stands at none), or the reason it could not be landed. */
+type Landing = { readonly at?: StoryRefAt } | { readonly reason: StoryDroppedReason };
+
+/**
+ * Land ONE ref on the spine. A projection, never a second door: the session
+ * judged this ref against the branch the words were written on when they were
+ * described, and nothing here re-validates it — this only asks where, in a post
+ * that tells one lineage, the thing it names now stands.
+ */
+function land(ref: ProseRefView, spine: Spine): Landing {
+  if (ref.commit !== undefined) {
+    const at = spine.spot.get(ref.commit);
+    if (at !== undefined) return { at };
+    if (spine.lineage.has(ref.commit)) return { reason: 'untold' }; // on the spine, past the last bookmark
+    return { reason: spine.held.has(ref.commit) ? 'off-path' : 'not-held' };
+  }
+  if (ref.bookmark !== undefined) {
+    const found = bookmarkByRef(spine.bookmarks, ref.bookmark); // the ONE ref→record lookup (id first, then label)
+    if (found === undefined) return { reason: 'not-held' };
+    const key = spine.section.get(found);
+    return key === undefined ? { reason: 'off-path' } : { at: { section: key } };
+  }
+  // a saved picture — a ref carries exactly one target, so this one names a picture.
+  // It is dashboard-wide LOGIC and stands at no moment on the spine: carried without a position, or dropped once it is gone.
+  return spine.saved.has(ref.saved as string) ? {} : { reason: 'not-held' };
+}
+
+/** The refs of the words one section shows, landed: the ones it can honour, and the ones it names as dropped. Both absent when empty. */
+function sectionRefs(carried: SlotRefs, spine: Spine): { readonly refs?: readonly StoryRef[]; readonly dropped?: readonly StoryDroppedRef[] } {
+  const refs: StoryRef[] = [];
+  const dropped: StoryDroppedRef[] = [];
+  for (const slot of SHOWN_SLOTS) {
+    for (const ref of carried[slot] ?? []) {
+      const landing = land(ref, spine);
+      if ('reason' in landing) dropped.push({ slot, ...ref, reason: landing.reason });
+      else refs.push({ slot, ...ref, ...landing });
+    }
+  }
+  return { ...(refs.length > 0 ? { refs } : {}), ...(dropped.length > 0 ? { dropped } : {}) };
 }
 
 function sectionKey(index: number, bookmark: BookmarkView): string {
@@ -210,11 +396,13 @@ function slideHtml(bookmark: StoryBookmark, path: string | null, figure: StoryOp
   return `<section class="vzf-slide" ${attrs.join(' ')}>\n<figure class="vzf-figure">${figure?.(bookmark) ?? ''}<figcaption class="vzf-caption">${escapeHtml(caption)}</figcaption></figure>\n</section>`;
 }
 
-/** One section's Markdown: the caption, then the steps since the previous bookmark — under storydeck's `<!--section:key-->` marker, which no words may forge. */
+/** One section's Markdown: the words it shows, then the steps since the previous bookmark — under storydeck's `<!--section:key-->` marker, which no words may forge. */
 function sectionMd(bookmark: StoryBookmark): string {
   const lines = [`<!--section:${bookmark.key}-->`];
-  if (bookmark.words.caption !== undefined) lines.push(noMarkers(bookmark.words.caption), '');
-  if (bookmark.words.howToRead !== undefined) lines.push(noMarkers(bookmark.words.howToRead), '');
+  for (const slot of SHOWN_SLOTS) {
+    const words = bookmark.words[slot];
+    if (words !== undefined) lines.push(noMarkers(words), '');
+  }
   if (bookmark.steps.length > 0) {
     lines.push(bookmark.index === 0 ? 'How we got here:' : 'Since the previous bookmark:', '');
     for (const s of bookmark.steps) lines.push(`- ${noMarkers(s.sentence)}${s.actor === 'user' ? '' : ` (${noMarkers(s.actor)})`}`);

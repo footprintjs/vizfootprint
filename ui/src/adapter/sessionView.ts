@@ -68,8 +68,9 @@ import {
   type ChartCellView,
   type LayoutChange,
   type LayoutView,
-  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProseRefView, type ProposalView, type SavedSelectionView, type SavedClauseView, type SourceInfoView, type DashboardWordsView, type NoteView, type TableView, type RefreshRecordView, type RefreshOutcomeView, type RefreshDeltaView, type LayoutPreset } from './types.js';
+  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProposalView, type SavedSelectionView, type SavedClauseView, type SourceInfoView, type DashboardWordsView, type NoteView, type TableView, type RefreshRecordView, type RefreshOutcomeView, type RefreshDeltaView, type LayoutPreset } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
+import { mapProseRefs } from './proseRefs.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
 import type { NavigateViewState } from '../contract/types.js';
 
@@ -554,7 +555,7 @@ function mapProse(raw: unknown): readonly ProseStatusView[] {
         author: { kind: kind as ProseStatusView['author']['kind'], ...(typeof a.by === 'string' ? { by: a.by } : {}), ...(typeof a.model === 'string' ? { model: a.model } : {}), ...(typeof a.at === 'string' ? { at: a.at } : {}) },
         levels: Array.isArray(x.record!.levels) ? x.record!.levels.filter((l): l is string => typeof l === 'string') : [],
         ...(typeof x.record!.basis === 'object' && x.record!.basis !== null && !Array.isArray(x.record!.basis) ? { basis: x.record!.basis as Record<string, unknown> } : {}),
-        ...(mapRefs(x.refs).length > 0 ? { refs: mapRefs(x.refs) } : {}),
+        ...(mapProseRefs(x.refs).length > 0 ? { refs: mapProseRefs(x.refs) } : {}),
       },
     ];
   });
@@ -663,19 +664,6 @@ function mapProposals(raw: unknown): ProposalView[] {
         ...(typeof x.reason === 'string' ? { reason: x.reason } : {}),
       },
     ];
-  });
-}
-/** A slot's refs — a span plus exactly one target; anything else is dropped, never invented. */
-function mapRefs(raw: unknown): ProseRefView[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.flatMap((r) => {
-    const x = r as { span?: unknown; commit?: unknown; bookmark?: unknown; saved?: unknown; label?: unknown } | null;
-    if (typeof x !== 'object' || x === null || !Array.isArray(x.span) || x.span.length !== 2 || !x.span.every((n) => typeof n === 'number')) return [];
-    const commit = typeof x.commit === 'string' ? x.commit : undefined;
-    const bookmark = typeof x.bookmark === 'string' ? x.bookmark : undefined;
-    const saved = typeof x.saved === 'string' ? x.saved : undefined; // a saved selection by its id: a click applies its logic, never seeks
-    if (Number(commit !== undefined) + Number(bookmark !== undefined) + Number(saved !== undefined) !== 1) return [];
-    return [{ span: [x.span[0] as number, x.span[1] as number] as const, ...(commit !== undefined ? { commit } : {}), ...(bookmark !== undefined ? { bookmark } : {}), ...(saved !== undefined ? { saved } : {}), ...(typeof x.label === 'string' ? { label: x.label } : {}) }];
   });
 }
 /** The rules as sentences, when the wire carries them. */
