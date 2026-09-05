@@ -328,7 +328,8 @@ export function selfSelectedSet(selection: RenderSelection): SelfSelectedSet {
   const none: SelfSelectedSet = { values: [], exclude: false };
   if (selection.selfClauseId === null) return none;
   const own = selection.clauses.get(selection.selfClauseId);
-  if (own !== undefined && own.value !== undefined) return setOf(own) ?? none;
+  // a live clause of its own — cleared has ONE spelling, `null`, for every kind (src/session/README.md, beside law 6)
+  if (own !== undefined && own.value !== null) return setOf(own) ?? none;
   // Layer 4 `mirror`: with no clause of its own, the view outlines the values a
   // mirror edge brings in — the union of every mirrored point/match keep-set.
   const mirrored: unknown[] = [];
@@ -342,7 +343,8 @@ export function selfSelectedSet(selection: RenderSelection): SelfSelectedSet {
 
 /** A point's one value or a match's list, as a set; null for any other clause or a cleared one. */
 function setOf(clause: SelectionClauseView): SelfSelectedSet | null {
-  if (clause.kind === 'point') return { values: [clause.value], exclude: false }; // a null point is a live IS-NULL selection
+  // a point's one value. A cleared point cannot reach here: the fold never lists one, and the own-clause guard above drops a `null`.
+  if (clause.kind === 'point') return { values: [clause.value], exclude: false };
   if (clause.kind !== 'match' || clause.value === null) return null;
   const body = clause.value as { readonly values: readonly unknown[]; readonly exclude?: boolean };
   return { values: body.values, exclude: body.exclude === true };

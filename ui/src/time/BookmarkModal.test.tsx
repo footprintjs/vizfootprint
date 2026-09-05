@@ -87,7 +87,7 @@ const RAW: RawPollState = {
     { id: 'r', parent: null, viewId: 'scatter', kind: 'interval', field: 'price', value: [0, 100], cause: { requestedBy: 'user' } },
     { id: 'b', parent: 'r', viewId: 'scatter', kind: 'interval', field: 'price', value: [40, 60], cause: { requestedBy: 'user' } },
   ],
-  bookmarks: [{ label: 'start', commitId: 'r', ts: 10 }],
+  bookmarks: [{ label: 'start', commitId: 'r', ts: 10, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }],
   branches: [{ tip: 'b', length: 2, actor: 'user', active: true }],
   cursor: 'b',
   head: 'b',

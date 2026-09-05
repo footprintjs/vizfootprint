@@ -10,9 +10,10 @@
  *     fields of its own;
  *   - a `cell`'s `field` is a DISPLAY label (`"price × category"`), never a
  *     column; the authoritative pair rides `fields`;
- *   - "cleared" has four spellings on the wire (an absent point value, a null
- *     interval, a null match body, a null cell pair) and exactly one at the
- *     evaluate() level: `clause === null`, "no filter".
+ *   - "cleared" is ONE spelling on the wire — `null`, for every kind — and it
+ *     is not the clause tier's, which keeps Mosaic's own three-way point split
+ *     (`undefined` clears, `null` is a real IS NULL). This function is where
+ *     the two meet, and {@link pointValueFromWire} is that one line.
  *
  * Reading a triple is therefore a real translation with real rules, and until
  * now the library kept it to itself — so every consumer that held a commit and
@@ -96,6 +97,27 @@ export function cellSideClause(field: string, side: CellSide): PointClause | Int
 }
 
 /**
+ * A point's WIRE value, as the clause tier reads it — the one line where the
+ * two spellings of "cleared" meet.
+ *
+ * The wire has one: `null`, whatever the kind (`../branches/fold.ts`'s
+ * `isClearedSelection`, and `../session/README.md` beside law 6 for why —
+ * `undefined` does not survive JSON, so a log that meant it came back meaning
+ * something else). The clause tier has Mosaic's own: `undefined` clears a
+ * point, `null` is a real IS NULL. A `null` inside a COMPOUND — a cell side, a
+ * value in a match list — never passes through here, because there the null is
+ * a value in a clause and not the clause itself.
+ *
+ * Both readers of a point triple call this: {@link clauseFromWire} below, and
+ * `causeClause` in `../mosaic`, which builds the live Mosaic clause the same
+ * commit lands on. Two translations of one rule would be two answers, and the
+ * two doors of a single act would disagree about whether it cleared.
+ */
+export function pointValueFromWire(value: unknown): unknown {
+  return value === null ? undefined : value;
+}
+
+/**
  * Read a commit's wire triple as the clause it means, or `null` when it means
  * "no filter" (see the header: cleared is the one fallback, and the only shape
  * `PredicateClause` has no room for).
@@ -111,8 +133,9 @@ export function clauseFromWire(
 ): PredicateClause | null {
   switch (kind) {
     case 'point':
-      // the three-way split is the clause's own: `undefined` = cleared, `null` = IS NULL, else equality
-      return { kind: 'point', field, value };
+      // the wire's `null` is CLEARED (one spelling, every kind); the clause tier's own three-way
+      // split — `undefined` cleared, `null` a real IS NULL, else equality — is what it reads as
+      return { kind: 'point', field, value: pointValueFromWire(value) };
     case 'interval':
       // a pair is the bounds verbatim (half-open and ISO-string bounds included); anything else is cleared
       return { kind: 'interval', field, value: isPair(value) ? (value as IntervalBounds<number> | IntervalBounds<string>) : null };

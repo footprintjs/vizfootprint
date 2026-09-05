@@ -247,7 +247,7 @@ Persistence: a host reads `session.saved()` and puts the pictures back whole wit
 
 ## Bookmarks are names on moments (`bookmarks`, `bookmark`, `describeBookmark`, `renameBookmark`, `forgetBookmark`, `restoreBookmarks`)
 
-A bookmark is a name (and a description) on a commit, plus who made it and when — kept beside the log, never in it. Bookmarking lands no commit, starts no branch and saves no state; several bookmarks may sit on one commit; a name points at one moment. The `bookmark` dispatch verb is the same act. `bookmarkViews()` is the wire's view of the same bookmarks — the bookmark's `id`, its `label`, the bookmarked `commitId` (also `at`), and the commit's position `ts` (`-1` when the bookmark names a moment this log does not hold); `whats_here` carries the records as `Overview.bookmarks`. Every bookmark carries its own short id (`b1`, `b2`, …), minted by the store — which never mints a number twice, for the reason a picture's never is — and that is what a note's `@[bookmark]` ref links: renaming is FREE, even under a link. `by`/`at` are the CREATION stamp and never move; a rename and `describeBookmark` (which is how a bookmark's words change) record `editedBy`/`editedAt` beside them, so the list never reorders. Forgetting IS still refused while words on screen link the bookmark — that link really would break. `restoreBookmarks` puts bookmarks back whole for a host's persistence, keeping a free id and naming any record it had to re-id (`reidentified`), and refusing a commit the session's log does not hold — `dashboard.restoreBookmarks` has no log to check against, so a host's own record is taken as it stands.
+A bookmark is a name (and a description) on a commit, plus who made it and when — kept beside the log, never in it. Bookmarking lands no commit, starts no branch and saves no state; several bookmarks may sit on one commit; a name points at one moment. The `bookmark` dispatch verb is the same act. `bookmarkViews()` is the wire's view of the same bookmarks — the bookmark's `id`, its `label`, the bookmarked `commitId` (also `at`), the commit's position `ts` (`-1` when the bookmark names a moment this log does not hold), and the CREATION stamp: `by`, and the time under the name `madeAt`, because this view already spends `at` on the moment a bookmark NAMES (a place in the history) and the store spends it on a time on the clock. The stamp is there because `restoreBookmarks` requires it: a projection that drops a fact the store holds and a restore needs leaves its consumer stamping a provenance it cannot vouch for, which is a door discarding its own answer one field over ([`../../ui/src/adapter/README.md`](../../ui/src/adapter/README.md), law 3). `whats_here` carries the records as `Overview.bookmarks`. Every bookmark carries its own short id (`b1`, `b2`, …), minted by the store — which never mints a number twice, for the reason a picture's never is — and that is what a note's `@[bookmark]` ref links: renaming is FREE, even under a link. `by`/`at` are the CREATION stamp and never move; a rename and `describeBookmark` (which is how a bookmark's words change) record `editedBy`/`editedAt` beside them, so the list never reorders. Forgetting IS still refused while words on screen link the bookmark — that link really would break. `restoreBookmarks` puts bookmarks back whole for a host's persistence, keeping a free id and naming any record it had to re-id (`reidentified`), and refusing a commit the session's log does not hold — `dashboard.restoreBookmarks` has no log to check against, so a host's own record is taken as it stands.
 
 ## Law 2 — a fold result is DETACHED (`overview`, `viewEncodings`, `ledger`, `gaps`, `links`)
 
@@ -858,6 +858,72 @@ therefore records no table, and a log holding one is refused at judge time
 (*"analysis "tested" writes columns, and the record does not say which table it
 read"*) rather than replayed over a guess. The refusal is the honest reading of
 this section's own title: that record is not a record of its act.
+
+### A commit may only mean what JSON can carry — so cleared is spelled `null`, once
+
+The law above says a log must fold to the same thing on the second reading as
+on the first. That puts a requirement on the SHAPES a commit may carry, not
+just on the door: **anything a record means has to survive the round trip, or
+the replay is reading a different record from the one that was written.**
+
+"Cleared" used to have two spellings. A point cleared with `undefined`, because
+the clause tier mirrors Mosaic's own three-way point split (`undefined` clears,
+`null` is a real IS NULL, anything else is equality). Every other kind cleared
+with `null`. Both were true statements about the CLAUSE tier, and one of them
+was smuggled onto the wire, where it does not exist: `serializeLog` drops an
+`undefined` value, JSON has no way to write one, and the record came back with
+the key simply absent. It read as `undefined` again and folded correctly — by
+accident, off a property of the encoding nobody had chosen and no test named.
+
+It broke the first time the spelling had to travel through anything else. On
+the live desk an act called *"let the whole country back in"* landed
+`map · point · jurisdiction · null` — a person, and then a model, writing the
+one spelling of "nothing" that a wire can carry. The fold did not recognise it
+as a clear, so it stood as a live clause matching no cell, and the trend and the
+week line were empty from that commit on. Nothing failed; the dashboard just
+quietly stopped being about anything.
+
+**So there is ONE spelling of cleared on the wire, `null`, for every kind**, and
+`isClearedSelection` (`../branches/fold.ts`) is the one line that says so:
+
+```ts
+export function isClearedSelection(rec: Pick<CommitRecord, 'kind' | 'value'>): boolean {
+  return rec.value === null;
+}
+```
+
+Three consequences, each deliberate:
+
+- **A missing value is REFUSED, not read as a clear.** A point's slot is typed
+  `unknown` — every other kind says `| null` in its own type — so the door is
+  where it gets said: *"select.value is missing — a point names the value it
+  selects, or `null` to clear it"*. Judged before anything moves, like every
+  other refusal (law 1). Treating an absent value as a clear would have been the
+  other honest option; it was not taken, because it is a fallback, and a
+  fallback here is exactly the guess that let the two spellings live side by
+  side unexamined. Refusing means no log this library writes can ever carry the
+  spelling that does not survive JSON — enforced, not promised.
+- **`null` INSIDE a compound is untouched, and still means IS NULL.** A cell
+  side, a value in a match list. The rule is about the TOP of the value slot,
+  where a `null` is the whole clause and there is nothing left for it to be a
+  value of. A standalone IS-NULL point is therefore not reachable through
+  `select` any more, and is reachable through a cell or a match — stated here
+  rather than discovered later.
+- **The clause tier keeps Mosaic's split, and one line translates.**
+  `pointValueFromWire` (`../data/clauseFromWire.ts`) is that line, and BOTH
+  readers of a point triple call it: `clauseFromWire`, which reads a commit as
+  the clause it means, and `causeClause` (`../mosaic`), which builds the live
+  Mosaic clause the same commit lands on. Two translations would be two answers,
+  and the two doors of one act would disagree about whether it cleared — the
+  live selection standing on IS NULL while the fold said the view was clear.
+
+There is no alias and no fallback for the old spelling, for the reason the
+section above this one gives: a shape whose only reader is a mistake is not a
+shape worth staying compatible with.
+
+Pinned by `replay.test.ts` — "a cleared point means the same thing on both sides
+of the wire": a clear landed through `dispatch`, serialized, replayed into a
+fresh session, and read back, is a clear on both sides.
 
 ### The worked example
 

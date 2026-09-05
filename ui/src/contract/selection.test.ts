@@ -58,14 +58,15 @@ function sameAsInterpreted(
 }
 
 describe('clausePredicate = clauseFromWire, compiled (the delegation check)', () => {
-  // every wire shape: cleared point, value point, IS-NULL point, cleared
-  // interval, numeric closed/half-open intervals, string (ISO date) intervals,
-  // the match body and its polarity, and the D30 cell.
+  // every wire shape: cleared point (`null`, the one spelling), value points, a
+  // point value the wire cannot carry, cleared interval, numeric closed/half-open
+  // intervals, string (ISO date) intervals, the match body and its polarity, and
+  // the D30 cell (whose null SIDE is still a real IS NULL).
   const CASES: { kind: 'point' | 'interval' | 'match' | 'cell'; field: string; value: unknown; fields?: readonly [string, string] }[] = [
-    { kind: 'point', field: 'category', value: undefined },
+    { kind: 'point', field: 'category', value: null },
     { kind: 'point', field: 'category', value: 'Formal' },
     { kind: 'point', field: 'price', value: 160 },
-    { kind: 'point', field: 'note', value: null },
+    { kind: 'point', field: 'note', value: undefined },
     { kind: 'interval', field: 'price', value: null },
     { kind: 'interval', field: 'price', value: [50, 200] },
     { kind: 'interval', field: 'price', value: [150, null] },
@@ -98,9 +99,9 @@ describe('clausePredicate = clauseFromWire, compiled (the delegation check)', ()
     }
   });
 
-  it('a null point is IS NULL, and an absent one is cleared — the clause\'s own three-way split', () => {
-    expect(ROWS.map((r) => clausePredicate('point', 'note', null)(r))).toEqual([true, false, true, false]); // null / present / undefined / present
-    expect(ROWS.every((r) => clausePredicate('point', 'note', undefined)(r))).toBe(true); // undefined = cleared, keep all
+  it('a null point on the WIRE is CLEARED — one spelling, every kind; IS NULL survives inside a cell side', () => {
+    expect(ROWS.every((r) => clausePredicate('point', 'note', null)(r))).toBe(true); // cleared, keep all
+    expect(ROWS.map((r) => clausePredicate('cell', 'price × note', [[0, 300], null], ['price', 'note'])(r))).toEqual([true, false, true, false]);
   });
 });
 
@@ -275,8 +276,8 @@ describe('SET-1 — the match arm through the one translation; selfSelectedSet i
     expect(selfSelectedSet(point)).toEqual({ values: ['A'], exclude: false });
     const match = selectionForView([{ viewId: 'bar', field: 'category', kind: 'match', value: { values: ['A', 7], exclude: true } }], 'bar');
     expect(selfSelectedSet(match)).toEqual({ values: ['A', 7], exclude: true }); // typed — never widened to strings
-    const nullPoint = selectionForView([{ viewId: 'bar', field: 'category', kind: 'point', value: null }], 'bar');
-    expect(selfSelectedSet(nullPoint)).toEqual({ values: [null], exclude: false }); // a live IS-NULL point
+    const clearedPoint = selectionForView([{ viewId: 'bar', field: 'category', kind: 'point', value: null }], 'bar');
+    expect(selfSelectedSet(clearedPoint)).toEqual({ values: [], exclude: false }); // `null` is CLEARED, whatever the kind
     const interval = selectionForView([{ viewId: 'bar', field: 'price', kind: 'interval', value: [1, 2] }], 'bar');
     expect(selfSelectedSet(interval)).toEqual({ values: [], exclude: false });
     const cleared = selectionForView([{ viewId: 'bar', field: 'category', kind: 'match', value: null }], 'bar');

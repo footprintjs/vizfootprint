@@ -1,14 +1,15 @@
 /**
  * The POINT-SELECT primitive — the click→point-emission semantics VizBar,
  * VizMap, and VizTable share, extracted so a consumer-built chart speaks the
- * same three-way point language the engine evaluates (src/data/types.ts):
+ * same point language the engine evaluates (src/data/types.ts):
  *
  *   - `pointEmission` — the plain R3 point shape `{ rawValue, encoding }`; the
  *     chart never builds a clause;
  *   - `togglePointEmission` — click-again-clears: selecting the already
- *     selected value emits the CLEARED point (`rawValue: undefined` — the
- *     "no filter" arm; `null` would mean "match SQL NULL", a different
- *     filter), releasing it;
+ *     selected value emits the CLEARED point (`rawValue: null` — the one
+ *     spelling of cleared, shared with the interval, the cell and the match,
+ *     and the only one that survives JSON: src/session/README.md, beside law
+ *     6), releasing it;
  *   - `matchEmission` / `toggleInSetEmission` (SET-1) — the many-values
  *     language: shift-click toggles a value in the view's own SET (a point
  *     promotes to a one-value set; removing the last value emits the CLEARED
@@ -26,11 +27,11 @@ export function pointEmission(field: string, value: unknown): ChartEmission {
 
 /**
  * Click-again-clears: emitting the currently selected value yields the
- * CLEARED point (`rawValue: undefined`); anything else selects it.
+ * CLEARED point (`rawValue: null`); anything else selects it.
  */
 export function togglePointEmission(field: string, value: string, selected: string | null): ChartEmission {
   return selected === value
-    ? { rawValue: undefined, encoding: { kind: 'point', field } }
+    ? { rawValue: null, encoding: { kind: 'point', field } }
     : { rawValue: value, encoding: { kind: 'point', field } };
 }
 

@@ -1288,11 +1288,12 @@ class InteractionSessionImpl implements InteractionSession {
         // Clearing is KIND-FAITHFUL: a cleared cell commit for a cell (D30 — the
         // recipe's `field` is the joint label, not a column), a cleared match
         // for a match, a cleared point for a point, a cleared interval otherwise.
+        // Every one of them spells cleared `null` — the one spelling (README, law 6).
         if (recipe.fields !== undefined) {
           return { verb: 'select', viewId: recipe.viewId, fields: recipe.fields, values: null, cause };
         }
         if (recipe.kind === 'match') return { verb: 'select', viewId: recipe.viewId, field: recipe.field, values: null, cause };
-        if (recipe.kind === 'point') return { verb: 'select', viewId: recipe.viewId, field: recipe.field, value: undefined, cause };
+        if (recipe.kind === 'point') return { verb: 'select', viewId: recipe.viewId, field: recipe.field, value: null, cause };
         return { verb: 'filter', viewId: recipe.viewId, field: recipe.field, range: null, cause };
       case 'encoding':
         return { verb: 'reencode', viewId: recipe.viewId, channel: recipe.channel, field: recipe.field, cause };
@@ -1710,7 +1711,9 @@ class InteractionSessionImpl implements InteractionSession {
       } else if (typeof c.field !== 'string' || c.field.length === 0) {
         return { rejected: `a ${c.kind} condition on "${c.viewId}" needs a field` };
       }
-      if (c.value === undefined) return { rejected: `the condition on "${c.viewId}" needs a value — an interval its bounds, a match its values, a point its value` };
+      // a picture is what was SELECTED, so a condition carries a value — and `null` is the one spelling of
+      // CLEARED (README, beside law 6), which is the opposite of a picture rather than a value in one
+      if (c.value === undefined || c.value === null) return { rejected: `the condition on "${c.viewId}" needs a value — an interval its bounds, a match its values, a point its value; null is a CLEAR, and a picture is what was selected` };
       conditions.push({
         viewId: c.viewId,
         kind: c.kind,
@@ -1941,6 +1944,15 @@ class InteractionSessionImpl implements InteractionSession {
           }
           const value: MatchValue = action.values === null ? null : { values: action.values, ...(action.exclude === true ? { exclude: true } : {}) };
           return this.doProbe(action.viewId, action.field, value, 'match', action.cause, as, intent, action.correlationId);
+        }
+        // The POINT form. Cleared is `null` — the one spelling every kind uses,
+        // because it is the only one that survives JSON (README, law 6). Every
+        // other kind says so IN ITS TYPE (`range`, `values` are `… | null`); a
+        // point's slot is `unknown`, so the door is where it gets said. A
+        // missing value is refused rather than read as a clear: a point must
+        // name what it selects, or say `null`.
+        if (action.value === undefined) {
+          return this.reject('select', intent, this.gapLedger.file('guard-failed', 'select', 'select.value is missing — a point names the value it selects, or `null` to clear it (the one spelling of cleared; `undefined` does not survive JSON)', action.field));
         }
         return this.doProbe(action.viewId, action.field, action.value, 'point', action.cause, as, intent, action.correlationId);
       }
@@ -3338,7 +3350,14 @@ class InteractionSessionImpl implements InteractionSession {
   /** The wire's view of the bookmarks: `id` = the bookmark's own id (what a note links, and what a badge keys on), `label` = the name, `commitId` and `at` = the bookmarked moment, `ts` = that commit's position in the log — one truth, the bookmark store. */
   bookmarkViews(): readonly BookmarkView[] {
     const position = new Map(this.log.records.map((r, i) => [r.id, i] as const));
-    return this.bookmarks().map((t) => Object.freeze({ id: t.id, label: t.name, commitId: t.commitId, at: t.commitId, ts: position.get(t.commitId) ?? -1 }));
+    // The store's record, projected — including the CREATION stamp (`by`, and `at` under the name
+    // `madeAt`, which the view already spends on the commit a bookmark names). `restoreBookmarks`
+    // requires both, so a wire that dropped them left every consumer of this projection to stamp a
+    // provenance it could not vouch for: a projection that discards a fact the store holds and a
+    // consumer needs is a door discarding its own answer (`../../ui/src/adapter/README.md`, law 3).
+    return this.bookmarks().map((t) =>
+      Object.freeze({ id: t.id, label: t.name, commitId: t.commitId, at: t.commitId, ts: position.get(t.commitId) ?? -1, by: t.by, madeAt: t.at }),
+    );
   }
 
   // ── the whats_here projection ────────────────────────────────────────────────

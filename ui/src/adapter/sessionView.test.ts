@@ -28,7 +28,7 @@ const RAW: RawPollState = {
   columns: { data: [{ field: 'price', type: 'number', role: 'measure' }, { field: 'category', type: 'string' }] },
   gaps: [{ code: 'needs-column', op: 'analyze', detail: 'cluster_id not present', target: 'cluster_id' }],
   branches: [{ tip: '2', length: 2, actor: 'agent', active: false }, { tip: '3', length: 2, actor: 'user', active: true }],
-  bookmarks: [{ label: 'before-cluster', commitId: '1', ts: 100 }],
+  bookmarks: [{ label: 'before-cluster', commitId: '1', ts: 100, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }],
   cursor: '1',
   head: '3',
   cursorTests: 0,
@@ -800,7 +800,9 @@ describe('SET-1 — emit(match), clear, clearAll, setPolarity', () => {
       { viewId: 'scatter', field: 'price', kind: 'interval', value: [40, 60] },
       { viewId: 'heatmap', field: 'price × category', kind: 'cell', value: [[100, 150], 'Formal'], fields: ['price', 'category'] },
       { viewId: 'map', field: 'region', kind: 'match', value: { values: ['North', 'South'], exclude: true } },
-      { viewId: 'line', field: 'date', kind: 'point', value: null },
+      { viewId: 'line', field: 'date', kind: 'point', value: '2026-05-01' },
+      // a cleared clause never reaches the fold — it is here so the doors can prove they skip one, and
+      // `null` is its ONE spelling now, whatever the kind (src/session/README.md, beside law 6)
       { viewId: 'cleared', field: 'region', kind: 'match', value: null },
     ],
   };
@@ -835,12 +837,13 @@ describe('SET-1 — emit(match), clear, clearAll, setPolarity', () => {
     await view.clear('map');
     await view.clear('nowhere');
     expect(posts).toEqual([
-      { verb: 'select', viewId: 'bar', field: 'category', intent: 'clear bar' },
+      { verb: 'select', viewId: 'bar', field: 'category', value: null, intent: 'clear bar' },
       { verb: 'filter', viewId: 'scatter', field: 'price', range: null, intent: 'let go of the brush' },
       { verb: 'select', viewId: 'heatmap', fields: ['price', 'category'], values: null, intent: 'clear heatmap' },
       { verb: 'select', viewId: 'map', field: 'region', values: null, intent: 'clear map' },
     ]);
-    expect('value' in posts[0]!).toBe(false); // the cleared point carries NO value key — undefined, never null (IS NULL)
+    // the cleared point says `null` ON THE WIRE — one spelling for every kind, and the only one a
+    // JSON body carries at all (an `undefined` would be dropped and arrive as a missing key)
     view.dispose();
   });
   it('clearAll clears every live selection, one commit each', async () => {
@@ -852,7 +855,7 @@ describe('SET-1 — emit(match), clear, clearAll, setPolarity', () => {
     expect(posts.every((p) => p['intent'] === 'clear all')).toBe(true);
     view.dispose();
   });
-  it('setPolarity flips a point (as a one-value set — a null point is a live IS-NULL one) or a match; an interval, a cell, an unknown view are no-ops', async () => {
+  it('setPolarity flips a point (as a one-value set) or a match; an interval, a cell, a CLEARED clause and an unknown view are no-ops', async () => {
     const { impl, posts } = fetchOf(STATE);
     const view = createSessionView(pollingSource({ fetchImpl: impl }));
     await view.refresh();
@@ -868,7 +871,7 @@ describe('SET-1 — emit(match), clear, clearAll, setPolarity', () => {
       { verb: 'select', viewId: 'bar', field: 'category', values: ['Formal'], exclude: true, intent: 'exclude category' },
       { verb: 'select', viewId: 'map', field: 'region', values: ['North', 'South'], intent: 'keep region' },
       { verb: 'select', viewId: 'map', field: 'region', values: ['North', 'South'], intent: 'keep the north and south' },
-      { verb: 'select', viewId: 'line', field: 'date', values: [null], exclude: true, intent: 'exclude date' }, // IS NULL → everything but the empties
+      { verb: 'select', viewId: 'line', field: 'date', values: ['2026-05-01'], exclude: true, intent: 'exclude date' },
     ]);
     view.dispose();
   });

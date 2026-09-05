@@ -138,11 +138,11 @@ describe('VizBar', () => {
 
 describe('SET-1 — deselect, shift-click sets, drag runs (VizBar)', () => {
   const sel = (value: unknown, kind: 'point' | 'match' = 'match') => selectionForView([{ viewId: 'bar', field: 'category', kind, value }], 'bar');
-  it('clicking the selected bar again CLEARS (rawValue undefined); clicking another bar selects it as a point', () => {
+  it('clicking the selected bar again CLEARS (rawValue null); clicking another bar selects it as a point', () => {
     const onEmit = vi.fn();
     render(<VizBar viewId="bar" data={data} field="category" selection={sel('Casual', 'point')} onEmit={onEmit} />);
     fireEvent.click(screen.getByRole('button', { name: /select Casual/ }));
-    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: undefined, encoding: { kind: 'point', field: 'category' } });
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: null, encoding: { kind: 'point', field: 'category' } });
     fireEvent.click(screen.getByRole('button', { name: /select Formal/ }));
     expect(onEmit).toHaveBeenLastCalledWith({ rawValue: 'Formal', encoding: { kind: 'point', field: 'category' } });
   });

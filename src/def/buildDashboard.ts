@@ -466,7 +466,8 @@ export function restoreSavedInto(store: SavedStore, list: readonly RestorableSav
       seen.add(c.viewId);
       if (!['point', 'interval', 'match', 'cell'].includes(c.kind as string)) { bad = `"${String(c.kind)}" is not a condition kind`; break; }
       if (c.kind === 'cell' ? !Array.isArray(c.fields) || c.fields.length !== 2 : typeof c.field !== 'string' || c.field.length === 0) { bad = c.kind === 'cell' ? `a cell condition on "${c.viewId}" needs its two fields` : `a ${c.kind} condition on "${c.viewId}" needs a field`; break; }
-      if (c.value === undefined) { bad = `the condition on "${c.viewId}" needs a value`; break; }
+      // `null` is the one spelling of CLEARED (src/session/README.md, beside law 6) — never a value a picture holds
+      if (c.value === undefined || c.value === null) { bad = `the condition on "${c.viewId}" needs a value`; break; }
     }
     if (bad !== undefined) { say(bad); continue; }
     const named = restoredRecordId(PICTURE_ID_PREFIX, r.id, store);

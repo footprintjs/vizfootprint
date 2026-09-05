@@ -56,7 +56,9 @@ describe('saved selections — saved logic beside the log', () => {
     expect(s.saveSelection('x', { conditions: [{ viewId: 'ghost', kind: 'point', field: 'category', value: 'Formal' }] })).toMatchObject({ ok: false, rejected: expect.stringContaining('no declared view "ghost"') });
     expect(s.saveSelection('c', { conditions: [{ viewId: 'scatter', kind: 'cell', field: '', value: [[1, 2], [3, 4]] }] })).toEqual({ ok: false, rejected: 'a cell condition on "scatter" needs its two fields' });
     expect(s.saveSelection('p', { conditions: [{ viewId: 'bar', kind: 'point', field: '', value: 'Formal' }] })).toEqual({ ok: false, rejected: 'a point condition on "bar" needs a field' });
-    expect(s.saveSelection('v', { conditions: [{ viewId: 'bar', kind: 'point', field: 'category', value: undefined }] })).toEqual({ ok: false, rejected: 'the condition on "bar" needs a value — an interval its bounds, a match its values, a point its value' });
+    expect(s.saveSelection('v', { conditions: [{ viewId: 'bar', kind: 'point', field: 'category', value: undefined }] })).toEqual({ ok: false, rejected: 'the condition on "bar" needs a value — an interval its bounds, a match its values, a point its value; null is a CLEAR, and a picture is what was selected' });
+    // `null` is the one spelling of CLEARED, so it is not a value a picture can hold either
+    expect(s.saveSelection('v', { conditions: [{ viewId: 'bar', kind: 'point', field: 'category', value: null }] })).toEqual({ ok: false, rejected: 'the condition on "bar" needs a value — an interval its bounds, a match its values, a point its value; null is a CLEAR, and a picture is what was selected' });
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
     expect(s.saveSelection('one', { live: 'all' }).ok).toBe(true);
     expect(s.saveSelection(' one ', { live: 'all' })).toEqual({ ok: false, rejected: '"one" is already saved — rename or forget it first' });
@@ -75,7 +77,7 @@ describe('saved selections — saved logic beside the log', () => {
     await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [60, 100], cause: userCause() });
     expect(s.saveSelection('coastal', { live: 'all' }).ok).toBe(true);
     // a different picture is live now: the bar cleared, a cell on the scatter, a match on the bar
-    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: undefined, cause: userCause('clear') });
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: null, cause: userCause('clear') });
     await s.dispatch({ verb: 'select', viewId: 'scatter', fields: ['price', 'rating'], values: [[50, 60], [1, 2]], cause: userCause() });
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', values: ['Party'], cause: userCause() });
     expect(s.saveSelection('other', { live: 'all' }).ok).toBe(true);
@@ -96,7 +98,7 @@ describe('saved selections — saved logic beside the log', () => {
     // replace clears a view the picture does not name — kind-faithfully — under the same correlation id
     await s.dispatch({ verb: 'select', viewId: 'cluster', field: 'category', value: 'Work', cause: userCause('a third view') });
     const again = await s.applySaved('coastal', userCause('bring it back'));
-    expect(again.ok && again.cleared.map((c) => [c.viewId, c.value])).toEqual([['cluster', undefined]]);
+    expect(again.ok && again.cleared.map((c) => [c.viewId, c.value])).toEqual([['cluster', null]]); // cleared is `null`, whatever the kind
     expect(again.ok && again.cleared[0]!.correlationId).toBe(again.ok ? again.correlationId : 'never');
     expect(again.ok && again.applied[0]!.cause.intent).toBe('bring it back — applied saved selection coastal'); // the name always rides the cause
     expect((await s.overview()).activeSelections.map((a) => a.viewId).sort()).toEqual(['bar', 'scatter']);
@@ -149,7 +151,7 @@ describe('saved selections — saved logic beside the log', () => {
     expect((await s.overview()).clearedSelections ?? []).toEqual([]);
     // a person's own clear on the same edge IS remembered — the rule is about who cleared, not the edge
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Party', cause: userCause() });
-    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: undefined, cause: userCause('a real clear') });
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: null, cause: userCause('a real clear') });
     expect(s.clausesFor('scatter')).toMatchObject([{ from: 'bar', clause: { value: 'Party' } }]);
   });
 
@@ -190,6 +192,7 @@ describe('saved selections — saved logic beside the log', () => {
       { ...older, name: 'no field', conditions: [{ viewId: 'bar', kind: 'point', field: '', value: 1 }] },
       { ...older, name: 'no pair', conditions: [{ viewId: 'bar', kind: 'cell', field: 'x', value: 1 }] },
       { ...older, name: 'no value', conditions: [{ viewId: 'bar', kind: 'point', field: 'category', value: undefined }] },
+      { ...older, name: 'a clear, not a picture', conditions: [{ viewId: 'bar', kind: 'point', field: 'category', value: null }] },
       { ...older, name: 5 as unknown as string },
       { ...older, name: 'one of a pair', conditions: [{ viewId: 'bar', kind: 'cell', field: 'x', fields: ['price'] as unknown as [string, string], value: 1 }] },
       { ...older, name: 'view is a number', conditions: [{ viewId: 7 as unknown as string, kind: 'point', field: 'category', value: 1 }] },
@@ -207,6 +210,7 @@ describe('saved selections — saved logic beside the log', () => {
       { name: 'no field', rejected: 'a point condition on "bar" needs a field' },
       { name: 'no pair', rejected: 'a cell condition on "bar" needs its two fields' },
       { name: 'no value', rejected: 'the condition on "bar" needs a value' },
+      { name: 'a clear, not a picture', rejected: 'the condition on "bar" needs a value' },
       { name: '(unnamed)', rejected: 'a saved selection needs a name' },
       { name: 'one of a pair', rejected: 'a cell condition on "bar" needs its two fields' },
       { name: 'view is a number', rejected: 'no declared view "7"' },

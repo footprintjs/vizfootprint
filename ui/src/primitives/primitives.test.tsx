@@ -147,7 +147,7 @@ describe('BrushOverlay', () => {
   });
 });
 
-describe('pointSelect — the three-way point language', () => {
+describe('pointSelect — the point language', () => {
   it('pointEmission is the plain R3 point shape', () => {
     expect(pointEmission('category', 'Formal')).toEqual({
       rawValue: 'Formal',
@@ -155,14 +155,13 @@ describe('pointSelect — the three-way point language', () => {
     });
   });
 
-  it('togglePointEmission: a new value selects; the selected value CLEARS (rawValue undefined, never null)', () => {
+  it('togglePointEmission: a new value selects; the selected value CLEARS (rawValue null — the one spelling)', () => {
     expect(togglePointEmission('region', 'North', null)).toEqual({
       rawValue: 'North',
       encoding: { kind: 'point', field: 'region' },
     });
     const cleared = togglePointEmission('region', 'North', 'North');
-    expect(cleared.rawValue).toBeUndefined();
-    expect('rawValue' in cleared).toBe(true); // undefined = the cleared arm, not a missing key
+    expect(cleared.rawValue).toBeNull(); // `null` clears every kind — the only spelling that survives JSON
     expect(cleared.encoding).toEqual({ kind: 'point', field: 'region' });
   });
 

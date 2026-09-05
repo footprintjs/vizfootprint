@@ -60,7 +60,10 @@ describe('bookmarks — names on moments beside the log', () => {
     expect(cp.ok).toBe(true);
     if (!cp.ok) return;
     expect(cp.commit).toBeUndefined();
-    expect(cp.bookmark).toEqual({ id: 'b1', label: 'start', commitId: aId, at: aId, ts: 0 });
+    // the wire's view carries the store's CREATION stamp too — `by`, and its `at` under the name
+    // `madeAt`, which the view already spends on the commit the bookmark NAMES
+    expect(cp.bookmark).toMatchObject({ id: 'b1', label: 'start', commitId: aId, at: aId, ts: 0, by: 'agent' });
+    expect(cp.bookmark?.madeAt).toBe(s.bookmarks()[0]!.at);
     expect(s.bookmarks()[0]).toMatchObject({ name: 'start', commitId: aId, by: 'agent' });
     expect(s.log.records).toHaveLength(1);
   });
@@ -159,7 +162,7 @@ describe('bookmarks — names on moments beside the log', () => {
     const hostOnly = { name: 'host only', commitId: 'unknown-commit', by: 'user' as const, at: '2021-06-01T00:00:00.000Z' };
     expect(dash.restoreBookmarks([hostOnly]).restored).toEqual(['host only']);
     expect(s.bookmarks().find((t) => t.name === 'host only')).toEqual({ ...hostOnly, id: 'b4' }); // no description property invented
-    expect(s.bookmarkViews().find((c) => c.label === 'host only')).toEqual({ id: 'b4', label: 'host only', commitId: 'unknown-commit', at: 'unknown-commit', ts: -1 });
+    expect(s.bookmarkViews().find((c) => c.label === 'host only')).toEqual({ id: 'b4', label: 'host only', commitId: 'unknown-commit', at: 'unknown-commit', ts: -1, by: 'user', madeAt: '2021-06-01T00:00:00.000Z' });
     (dash.bookmarks()[0] as { name: string }).name = 'hacked';
     expect(dash.bookmarks()[0]!.name).toBe('older');
   });
@@ -184,5 +187,33 @@ describe('bookmarks — names on moments beside the log', () => {
       { name: 'worse id', rejected: "a bookmark's id, when it carries one, is a short name" },
       { name: 'bad edit', rejected: 'a bookmark that was edited carries who edited it and when' },
     ]);
+  });
+});
+
+/**
+ * A wire view has to be ENOUGH to put a bookmark back, or the consumer that
+ * carries one has to stamp what the store already held — and then a page shows
+ * a provenance nobody recorded. `bookmarkViews()` carried the id, the words and
+ * the moment, and dropped the creator and the creation time, which are exactly
+ * the two fields `restoreBookmarks` requires.
+ */
+describe('the wire view is enough to put a bookmark back', () => {
+  it('a bookmarkViews() row restores whole — creator, creation time and id survive the round trip, with nothing stamped', async () => {
+    const s = fresh().createSession();
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause() });
+    expect(s.bookmark('the formal pick', undefined, 'agent').ok).toBe(true);
+
+    const wire = JSON.parse(JSON.stringify(s.bookmarkViews())) as readonly {
+      id: string; label: string; commitId: string | null; at: string | null; ts: number; by: 'user' | 'agent'; madeAt: string;
+    }[];
+
+    // a host puts it back with NOTHING of its own — no `by: 'user'`, no `new Date()`
+    const back = fresh();
+    expect(back.restoreBookmarks(wire.map((b) => ({ id: b.id, name: b.label, commitId: b.at ?? b.commitId!, by: b.by, at: b.madeAt })))).toEqual({
+      restored: ['the formal pick'],
+      refused: [],
+      reidentified: [],
+    });
+    expect(back.bookmarks()[0]).toEqual(s.bookmarks()[0]); // the same record, not a re-stamped one
   });
 });

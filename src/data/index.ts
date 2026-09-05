@@ -30,7 +30,7 @@ export { literalToSQL, matchesClause, resolvePredicateSQL, isClearedSQL } from '
 
 // The wire triple a commit carries, read as the clause it means — the one
 // translation, so a consumer holding a commit never writes the rules again.
-export { cellSideClause, clauseFromWire } from './clauseFromWire.js';
+export { cellSideClause, clauseFromWire, pointValueFromWire } from './clauseFromWire.js';
 export type { WireClauseKind } from './clauseFromWire.js';
 
 export { equalWidthBins, recountBins } from './bins.js';

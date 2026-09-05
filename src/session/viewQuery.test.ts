@@ -139,7 +139,7 @@ describe('clausesFor — what reaches a view', () => {
     const leave = fresh();
     await leave.dispatch({ verb: 'link', source: 'bar', kind: 'point', target: 'scatter', response: 'filter', onClear: 'leave', cause: userCause('leave it') });
     await leave.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick') });
-    await leave.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: undefined, cause: userCause('clear') });
+    await leave.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: null, cause: userCause('clear') });
     expect(leave.clausesFor('scatter')).toMatchObject([{ from: 'bar', response: 'filter', clause: { kind: 'point', field: 'category', value: 'Formal' } }]);
     expect(leave.clausesFor('bar')).toEqual([]);
     const kept = await leave.viewQuery({ viewId: 'scatter' });
@@ -150,14 +150,14 @@ describe('clausesFor — what reaches a view', () => {
     const exclude = fresh();
     await exclude.dispatch({ verb: 'link', source: 'bar', kind: 'point', target: 'scatter', response: 'filter', onClear: 'excludeAll', mapping: [{ from: 'category', to: 'category' }], cause: userCause('nothing on clear') });
     await exclude.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick') });
-    await exclude.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: undefined, cause: userCause('clear') });
+    await exclude.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: null, cause: userCause('clear') });
     expect(exclude.clausesFor('scatter')).toEqual([{ from: 'bar', response: 'filter', clause: { kind: 'match', field: 'category', values: [] } }]);
     const none = await exclude.viewQuery({ viewId: 'scatter' });
     expect(none.ok && [none.count, none.rows.length]).toEqual([0, 0]);
 
     const forget = fresh(); // the default edge: showAll
     await forget.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick') });
-    await forget.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: undefined, cause: userCause('clear') });
+    await forget.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: null, cause: userCause('clear') });
     expect(forget.clausesFor('scatter')).toEqual([]);
   });
 

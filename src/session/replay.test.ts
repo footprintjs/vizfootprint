@@ -612,3 +612,52 @@ describe('analysisActOf — the reader of the act slot, on everything it can be 
     expect(analysisActOf({ id: 'byPrice', table: '' })).toBeUndefined();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The case that found the rule. On the live desk an act called "let the whole
+ * country back in" landed `map · point · jurisdiction · null`, meaning a clear
+ * — and the fold did not recognise it, so a clause matching no cell stood as a
+ * live selection and every chart downstream of it went empty.
+ *
+ * The fix is one spelling of cleared for every kind, and the REASON is this
+ * law: `undefined` does not survive `serializeLog`, so a point clear only ever
+ * round-tripped because JSON drops the key and an absent key reads back as
+ * `undefined`. A replayed log must MEAN what the walk meant, not happen to.
+ */
+describe('a cleared point means the same thing on both sides of the wire', () => {
+  it('lands as null, serializes as null, replays as a clear — and the two folds agree', async () => {
+    const walked = buildDashboard(makeDashboardDef()).createSession();
+    await walked.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause });
+    const cleared = await walked.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: null, cause: { ...cause, intent: 'let the whole country back in' } });
+    expect(cleared.ok).toBe(true);
+
+    // the WALK: a clear, not a clause that matches nothing
+    const before = await walked.overview();
+    expect(before.activeSelections).toEqual([]);
+    expect(before.clearedSelections.map((c) => [c.viewId, c.kind])).toEqual([['bar', 'point']]);
+    expect(before.selectedRowCount).toBe(SAMPLE_ROWS.length);
+
+    // the WIRE: the value really is on the record, spelled the one way
+    const wire = serializeLog(walked.log.records);
+    expect(JSON.parse(wire)[1]).toMatchObject({ kind: 'point', field: 'category', value: null });
+    expect(walked.log.records[1]!.predicateSQL).toBe('null'); // the live clause cleared too — both doors of one act
+
+    // the REPLAY: the same fold, from nothing but the log
+    const replayed = buildDashboard(makeDashboardDef()).createSession();
+    const res = await replayed.replay(wire);
+    expect(res.ok).toBe(true);
+    const after = await replayed.overview();
+    expect(after.activeSelections).toEqual(before.activeSelections);
+    expect(after.clearedSelections.map((c) => [c.viewId, c.kind])).toEqual([['bar', 'point']]);
+    expect(after.selectedRowCount).toBe(before.selectedRowCount);
+  });
+
+  it('a MISSING value is refused at the door, so no log can carry the spelling that does not survive JSON', async () => {
+    const s = buildDashboard(makeDashboardDef()).createSession();
+    const res = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: undefined, cause });
+    expect(res).toMatchObject({ ok: false, rejection: { code: 'guard-failed', op: 'select' } });
+    expect(s.log.records).toHaveLength(0);
+  });
+});

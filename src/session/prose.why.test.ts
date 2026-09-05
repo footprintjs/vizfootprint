@@ -131,7 +131,7 @@ describe('a person edits an agent\'s words', () => {
     expect(twice.record.basis?.editedFrom?.editedFrom).toBeUndefined();
     expect(after.record.basis?.atCommit).toBe(res.ok && res.commit ? res.commit.parent : null);
     // and it goes stale on its own terms when the screen moves again
-    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: undefined, cause: userCause('clear') });
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: null, cause: userCause('clear') });
     expect((await s.overview()).views.find((v) => v.viewId === 'scatter')!.prose.find((p) => p.slot === 'caption')!.status).toBe('stale');
     // a human edit with no basis is left alone
     const plain = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { text: 'Plain words.', author: { kind: 'humanEdited', model: 'm' } }, cause: userCause('edit') });

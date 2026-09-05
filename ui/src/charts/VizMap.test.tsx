@@ -221,7 +221,7 @@ describe('VizMap — gesture, selection, keyboard', () => {
     expect(onEmit).toHaveBeenCalledWith({ rawValue: 'North', encoding: { kind: 'point', field: 'region' } });
   });
 
-  it('clicking the ALREADY-selected region emits the CLEARED point (rawValue undefined, not null)', () => {
+  it('clicking the ALREADY-selected region emits the CLEARED point (rawValue null)', () => {
     const onEmit = vi.fn();
     render(<VizMap geo={GEO} regionField="region" data={DATA} selected="North" onEmit={onEmit} />);
     fireEvent.click(screen.getByRole('button', { name: 'North · 12 rows' }));
@@ -229,7 +229,7 @@ describe('VizMap — gesture, selection, keyboard', () => {
     const emission = onEmit.mock.calls[0]![0];
     expect(emission.encoding).toEqual({ kind: 'point', field: 'region' });
     expect('rawValue' in emission).toBe(true);
-    expect(emission.rawValue).toBeUndefined();
+    expect(emission.rawValue).toBeNull();
     // the tooltip is honest about what the click will do
     const { container } = render(<VizMap geo={GEO} regionField="region" data={DATA} selected="North" />);
     expect(container.querySelector('[data-region="North"] title')!.textContent).toContain('click to clear');

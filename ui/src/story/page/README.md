@@ -212,10 +212,14 @@ The demo (`vizfootprint-demo`) is the recipe's test. `npm run story:capture` rea
   bar there lands the 33rd commit, and switching back shows the same six beats and the same two
   citations.
 
-Its front matter also carries a note the demo's capture had to write, which is the shape of the
-honesty this module is for: the desk's `/api/state` serves the cockpit's *view* of a bookmark, which
-carries no author and no time, so the capture stamped both and **says so on the page** rather than
-letting a reader take a stamped provenance for a recorded one.
+Its front matter carries no note, and that is the point of `StoryFront.notes`: the slot is for what a
+page cannot vouch for, and this one vouches for everything it carries. It did carry one — the desk's
+`/api/state` served the cockpit's *view* of a bookmark, which had no author and no time, so the
+capture stamped both and said so on the page rather than letting a reader take a stamped provenance
+for a recorded one. Honest, and the wrong repair: `bookmarkViews()` carries the store's creation stamp
+now (`by`, and the time as `madeAt`), the capture reads it, and the note is gone. A consumer writing a
+fact the library already holds is the door's bug, not the consumer's
+([`../../adapter/README.md`](../../adapter/README.md), law 3).
 
 ## Not here, on purpose
 

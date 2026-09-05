@@ -121,7 +121,8 @@ const WHATS_HERE_DESCRIPTION =
   'Call this first, then act with dispatch.';
 
 const DISPATCH_DESCRIPTION =
-  'Perform ONE semantic interaction. verb is one of: select (a point value on a field — OR MANY values: pass ' +
+  'Perform ONE semantic interaction. verb is one of: select (a point value on a field, or value: null to ' +
+  'clear that view\'s selection — OR MANY values: pass ' +
   'field + values (an array) to keep exactly those, add exclude: true to keep everything BUT them; ' +
   'values: null clears — OR a CELL: ' +
   'pass fields + values instead of field/value to select on TWO fields with one gesture, e.g. a ' +
@@ -224,8 +225,10 @@ const DISPATCH_SCHEMA = {
     },
     value: {
       description:
-        'The selected DATA-space point value (select), or — for a navigate on "layout:<scope>" — the ' +
-        'plain-string new value of the arrangement prop named by field.',
+        'The selected DATA-space point value (select) — or null to CLEAR that view\'s point selection, ' +
+        'the same way values: null clears a match and range: null clears a filter. Never omit it on a ' +
+        'select: a point either names the value it selects or says null. For a navigate on ' +
+        '"layout:<scope>" it is the plain-string new value of the arrangement prop named by field.',
     },
     values: {
       type: ['array', 'null'],

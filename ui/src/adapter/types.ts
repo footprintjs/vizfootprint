@@ -394,9 +394,13 @@ export interface BookmarkView {
   readonly label: string;
   /** The bookmark commit (the act of naming). */
   readonly commitId: string | null;
-  /** The position it names (the bookmark's parent); absent on older wires ⇒ the bookmark itself. */
+  /** The position it names (the bookmark's parent); absent on older wires ⇒ the bookmark itself. A place in the HISTORY, never a time. */
   readonly at?: string | null;
   readonly ts: number;
+  /** Who made it — the store's CREATOR stamp, projected rather than guessed at. */
+  readonly by: Actor;
+  /** When it was made, ISO — the store's CREATION stamp, under a name that cannot be read as {@link BookmarkView.at}, the moment it NAMES. */
+  readonly madeAt: string;
 }
 
 /** One online-FDR ledger row. */

@@ -290,13 +290,27 @@ describe('doProbe — the correlationId spread + an explicit undefined point val
     if (res.ok) expect(res.commit!.correlationId).toBe('sel-xyz');
   });
 
-  it('an explicit undefined value still lands — as a CLEAR: the commit is real, the view has no active selection (SET-1: one clearing rule for every kind)', async () => {
+  it('a null value lands as a CLEAR: the commit is real, the view has no active selection (one clearing rule, ONE spelling, for every kind)', async () => {
     const s = freshSession();
-    const res = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: undefined, cause: userCause() });
+    const res = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: null, cause: userCause() });
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.commit?.kind).toBe('point');
     const ov = await s.overview();
     expect(ov.activeSelections.find((a) => a.viewId === 'bar')).toBeUndefined();
+  });
+
+  it('a MISSING value is refused before anything moves — a point names what it selects, or says null', async () => {
+    const s = freshSession();
+    const res = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: undefined, cause: userCause() });
+    expect(res).toMatchObject({
+      ok: false,
+      rejection: {
+        code: 'guard-failed',
+        op: 'select',
+        detail: 'select.value is missing — a point names the value it selects, or `null` to clear it (the one spelling of cleared; `undefined` does not survive JSON)',
+      },
+    });
+    expect(s.log.records).toHaveLength(0); // judged first: nothing landed
   });
 });
 

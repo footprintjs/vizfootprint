@@ -19,7 +19,7 @@ describe('the cleared ledger', () => {
     const s = buildDashboard(def()).createSession();
     expect((await s.overview()).clearedSelections).toEqual([]);
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick') });
-    const cleared = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: undefined, cause: userCause('clear') });
+    const cleared = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: null, cause: userCause('clear') });
     expect(cleared.ok).toBe(true);
     const o = await s.overview();
     expect(o.activeSelections).toMatchObject([]);
@@ -28,7 +28,7 @@ describe('the cleared ledger', () => {
     expect((await s.overview()).clearedSelections).toEqual([]);
     // clearing a view that holds nothing notes nothing
     const t = buildDashboard(def()).createSession();
-    await t.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: undefined, cause: userCause('clear nothing') });
+    await t.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: null, cause: userCause('clear nothing') });
     expect((await t.overview()).clearedSelections).toEqual([]);
   });
   it('seek and undo rebuild the ledger from the log — the clear is a fact of the branch, and a match keeps its polarity', async () => {

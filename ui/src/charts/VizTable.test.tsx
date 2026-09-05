@@ -85,11 +85,11 @@ describe('VizTable — row selection (point emission, click-again-clears)', () =
     expect(onEmit).toHaveBeenCalledWith({ rawValue: 'd02', encoding: { kind: 'point', field: 'id' } });
   });
 
-  it('clicking the ALREADY-selected row clears it (rawValue undefined)', () => {
+  it('clicking the ALREADY-selected row clears it (rawValue null)', () => {
     const onEmit = vi.fn();
     render(<VizTable data={ROWS} columns={COLUMNS} selected="d02" onEmit={onEmit} />);
     fireEvent.click(screen.getByRole('row', { name: /row d02 selected/ }));
-    expect(onEmit).toHaveBeenCalledWith({ rawValue: undefined, encoding: { kind: 'point', field: 'id' } });
+    expect(onEmit).toHaveBeenCalledWith({ rawValue: null, encoding: { kind: 'point', field: 'id' } });
   });
 
   it('a selected row carries aria-selected and the selection class', () => {

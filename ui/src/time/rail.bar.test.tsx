@@ -14,8 +14,8 @@ afterEach(cleanup);
 const commit = (id: string, parent: string | null): CommitView => ({ id, parent, viewId: 'bar', kind: 'point', field: 'category', value: id, actor: 'user', label: `select ${id}`, onBranch: true, isCursor: false, isHead: false });
 const MANY: CommitView[] = Array.from({ length: 40 }, (_, i) => commit(`c${i}`, i === 0 ? null : `c${i - 1}`));
 const BOOKMARKS: BookmarkView[] = [
-  { label: 'Start', commitId: 'c5', at: 'c4', ts: 5 },
-  { label: 'Middle', commitId: 'c20', at: 'c19', ts: 20 },
+  { label: 'Start', commitId: 'c5', at: 'c4', ts: 5, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
+  { label: 'Middle', commitId: 'c20', at: 'c19', ts: 20, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
 ];
 
 describe('the rail in the bar', () => {
@@ -112,7 +112,7 @@ describe('the rail under pressure', () => {
       expect(full.querySelector('[data-vzf="past-mark"]')).toBeNull();
       const present = render(<TimeTravelBar compact mode="present" commits={MANY} cursor="c39" head="c39" bookmarks={BOOKMARKS} />).container;
       expect(present.querySelector('[data-vzf="bookmark-rail"]')!.getAttribute('data-dense')).toBe(null); // two bookmarks fit even a narrow rail
-      const manyBookmarks: BookmarkView[] = MANY.slice(1).map((c, i) => ({ label: `bookmark ${i}`, commitId: c.id, at: MANY[i]!.id, ts: i }));
+      const manyBookmarks: BookmarkView[] = MANY.slice(1).map((c, i) => ({ label: `bookmark ${i}`, commitId: c.id, at: MANY[i]!.id, ts: i, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }));
       const crowded = render(<TimeTravelBar compact mode="present" commits={MANY} cursor="c39" head="c39" bookmarks={manyBookmarks} />).container;
       expect(crowded.querySelector('[data-vzf="bookmark-rail"]')!.getAttribute('data-dense')).toBe('true'); // thirty-nine bookmarks on a narrow rail: labels hide, flags stay
       expect(crowded.querySelectorAll('[data-vzf="bookmark-rail"] .vzf-tl-cid')).toHaveLength(0);

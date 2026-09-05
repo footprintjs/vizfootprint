@@ -94,11 +94,16 @@ export function selectionAction(c: SavedClause, cause: Cause): Extract<DispatchA
   return { verb: 'filter', viewId: c.viewId, field: c.field, range: c.value as FilterRange, cause };
 }
 
-/** The kind-faithful clear of a live clause (the same shapes a bring-over's clear-selection recipe lands). */
+/**
+ * The kind-faithful clear of a live clause (the same shapes a bring-over's
+ * clear-selection recipe lands). Every kind clears with `null` — the one
+ * spelling, because it is the only one that survives JSON (`./README.md`,
+ * beside law 6).
+ */
 export function clearAction(viewId: string, clause: PredicateClause, cause: Cause): Extract<DispatchAction, { verb: 'select' | 'filter' }> {
   if (clause.kind === 'cell') return { verb: 'select', viewId, fields: [clause.fields[0], clause.fields[1]], values: null, cause };
   if (clause.kind === 'match') return { verb: 'select', viewId, field: clause.field, values: null, cause };
-  if (clause.kind === 'point') return { verb: 'select', viewId, field: clause.field, value: undefined, cause };
+  if (clause.kind === 'point') return { verb: 'select', viewId, field: clause.field, value: null, cause };
   return { verb: 'filter', viewId, field: clause.field, range: null, cause };
 }
 

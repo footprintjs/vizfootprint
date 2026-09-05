@@ -144,12 +144,18 @@ export function keysOf(record: CommitRecord): string[] {
  * ids upstream where absence must be an honest miss (`foldDiff` does).
  */
 /**
- * Is this selection commit a CLEAR? A point clears with `undefined` (the
- * three-way point split: `null` is a real IS NULL); every other kind clears
- * with `null` (the cleared-interval rule, shared by cell and match).
+ * Is this selection commit a CLEAR? ONE spelling, for every kind: `null`.
+ *
+ * It used to be two — a point cleared with `undefined`, everything else with
+ * `null` — and the second spelling is the only one that survives JSON. A
+ * replayed log must mean what the walk meant (`../session/README.md`, law 6),
+ * so the wire says cleared exactly one way. `null` INSIDE a compound is
+ * untouched and still means IS NULL: a cell side, a value in a match list.
+ * The rule is about the TOP of a commit's value slot, where a `null` is the
+ * whole clause and there is nothing left for it to be a value of.
  */
 export function isClearedSelection(rec: Pick<CommitRecord, 'kind' | 'value'>): boolean {
-  return rec.kind === 'point' ? rec.value === undefined : rec.value === null;
+  return rec.value === null;
 }
 
 export function foldStateAt(records: readonly CommitRecord[], tipId: string | null): FoldState {

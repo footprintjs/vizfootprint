@@ -39,9 +39,9 @@ const RAW = (refs: readonly unknown[]): RawPollState => ({
     rec('20', '1', 'bar', 'category', 'Sport', 'elsewhere'),
   ],
   bookmarks: [
-    { id: 'b1', label: 'Start', commitId: '3', at: '2', ts: 1 },
-    { id: 'b2', label: 'Formal', commitId: '7', at: '6', ts: 6 },
-    { id: 'b3', label: 'End', commitId: '9', at: '8', ts: 8 },
+    { id: 'b1', label: 'Start', commitId: '3', at: '2', ts: 1, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'b2', label: 'Formal', commitId: '7', at: '6', ts: 6, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'b3', label: 'End', commitId: '9', at: '8', ts: 8, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
   ],
   saved: [{ id: 'p1', name: 'coastal', conditions: [], by: 'user', at: '2026-09-01T00:00:00Z' } as never],
   head: '9',

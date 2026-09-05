@@ -130,6 +130,14 @@ export type FilterRange = IntervalClause['value'];
 export type CellValues = CellClause['value'];
 
 export type DispatchAction =
+  /**
+   * The POINT form of `select`: one value on one field. `value: null` CLEARS
+   * it — the one spelling of cleared, shared with `range: null`,
+   * `values: null` and a cell's `values: null`, because it is the only one
+   * that survives JSON (`./README.md`, beside law 6). Every other kind says so
+   * in its type; a point's slot is `unknown`, so the door says it instead — a
+   * MISSING value is refused (`guard-failed`), never read as a clear.
+   */
   | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly value: unknown; readonly cause: Cause; readonly correlationId?: string; readonly asOf?: string }
   /**
    * The MATCH form of `select` (SET-1): one field, MANY values — the plural of
@@ -225,10 +233,25 @@ export interface BookmarkView {
   readonly label: string;
   /** The bookmarked commit (a legacy `bookmark:` commit: itself). */
   readonly commitId: string | null;
-  /** The moment the bookmark names — the bookmarked commit (a legacy `bookmark:` commit: its parent). */
+  /**
+   * The moment the bookmark names — the bookmarked commit (a legacy `bookmark:`
+   * commit: its parent). A place in the HISTORY: a commit id, never a time.
+   * The clock time is {@link BookmarkView.madeAt}, and the two are named apart
+   * on purpose, because the store spells this one `commitId` and calls the
+   * clock time `at`.
+   */
   readonly at: string | null;
   /** The named commit's index in the log (ordering). */
   readonly ts: number;
+  /** Who made the bookmark — the CREATOR, exactly as the store holds it (a rename records `editedBy` instead, and never moves this). */
+  readonly by: Actor;
+  /**
+   * When it was made, ISO — the store's own creation stamp (`Bookmark.at`),
+   * carried under a name that cannot be read as the moment it NAMES. A rename
+   * records `editedAt` beside it and never moves this, which is why a list
+   * ordered by it does not reorder under a rename.
+   */
+  readonly madeAt: string;
 }
 
 /**

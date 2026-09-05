@@ -59,8 +59,8 @@ export function keptClauses(cleared: readonly ClearedSelectionView[], links: Lin
 }
 
 export function SelectionChips({ selections, cleared = [], links, labels = {}, onClear, onClearAll, onSetPolarity, onSave, readOnly = false, className }: SelectionChipsProps): JSX.Element {
-  // a cleared clause is not a chip: a cleared point never reaches the wire (dropped from the fold), a cleared interval/cell/match arrives as null
-  const live = selections.filter((s) => s.value !== undefined && (s.kind === 'point' || s.value !== null));
+  // a cleared clause is not a chip, and cleared has ONE spelling for every kind: `null` (src/session/README.md, beside law 6)
+  const live = selections.filter((s) => s.value !== null);
   // … unless an edge KEEPS it in force after the clear — then a person must see why a target is still filtered
   const kept = keptClauses(cleared, links, live);
   return (

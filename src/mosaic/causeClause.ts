@@ -20,6 +20,7 @@ import { and, literal, not, or } from '@uwdata/mosaic-sql';
 import type { ExprNode } from '@uwdata/mosaic-sql';
 import { validateCause, type Cause } from '../cause/index.js';
 import type { RegisteredSource } from './SourceRegistry.js';
+import { pointValueFromWire } from '../data/index.js';
 import type { CellSide, MatchValue } from '../data/index.js';
 
 /** ClauseMetadata + the two-slot cause. A strict superset of Mosaic's type. */
@@ -39,6 +40,14 @@ export type CauseClauseSpec =
       kind: 'point';
       source: RegisteredSource;
       field: string;
+      /**
+       * The WIRE's point value — the same slot a commit carries, because a
+       * commit and this clause are the two doors of ONE act and are built from
+       * one value. `null` CLEARS it (the one spelling every kind shares; see
+       * `pointValueFromWire`, which this arm reads it through), anything else
+       * is equality. IS NULL survives where a `null` is a value inside a
+       * compound rather than the whole clause: a cell side, a match list entry.
+       */
       value: unknown;
       cause: Cause;
       /** Cross-filter self-exclusion set. Defaults to [source]. */
@@ -91,8 +100,9 @@ export type CauseClauseSpec =
       /**
        * The SET-1 MATCH: one field, MANY values (IN) — or everything but them
        * (`exclude`, NOT IN). Each value's predicate comes from the REAL
-       * `clausePoint` (a `null` value is a real IS NULL, exactly the point
-       * rule), the list is the real `or`, the polarity the real `not`.
+       * `clausePoint` (a `null` IN THE LIST is a real IS NULL — a value inside
+       * a compound, never the whole clause, so it is not the wire's clear),
+       * the list is the real `or`, the polarity the real `not`.
        * `value: null` clears the match (the cleared-interval rule).
        */
       kind: 'match';
@@ -179,7 +189,9 @@ export function causeClause(spec: CauseClauseSpec): CauseClause {
 
   let clause: SelectionClause;
   if (spec.kind === 'point') {
-    clause = clausePoint(spec.field, spec.value, { source, clients });
+    // the wire's `null` clears — read through the ONE translation, so the live
+    // clause and the record this act also lands cannot disagree about that
+    clause = clausePoint(spec.field, pointValueFromWire(spec.value), { source, clients });
   } else if (spec.kind === 'cell') {
     // D30: the compound cell — the two side predicates come from the REAL
     // factories (cellSidePredicate above) and the REAL `and` composes them;

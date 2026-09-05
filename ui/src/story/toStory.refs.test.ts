@@ -41,9 +41,9 @@ const RAW: RawPollState = {
     rec('10', '9', 'bookmark:2', '__bookmark__', 'Elsewhere'),
   ],
   bookmarks: [
-    { id: 'b1', label: 'Start', commitId: '3', at: '2', ts: 1 },
-    { id: 'b2', label: 'Formal', commitId: '7', at: '6', ts: 6 },
-    { id: 'b3', label: 'Elsewhere', commitId: '10', at: '9', ts: 9 },
+    { id: 'b1', label: 'Start', commitId: '3', at: '2', ts: 1, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'b2', label: 'Formal', commitId: '7', at: '6', ts: 6, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'b3', label: 'Elsewhere', commitId: '10', at: '9', ts: 9, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
   ],
   saved: [savedPicture('p1', 'coastal')],
   head: '8',
@@ -149,7 +149,7 @@ describe('toStory — the refs travel with the story', () => {
         rec('17', '16', 'prose:dashboard', 'caption', null), // back to the declaration
         rec('18', '17', 'bookmark:6', '__bookmark__', 'Declared'),
       ],
-      bookmarks: [...RAW.bookmarks!, { id: 'b4', label: 'Map', commitId: '12', at: '11', ts: 11 }, { id: 'b5', label: 'Bare', commitId: '14', at: '13', ts: 13 }, { id: 'b6', label: 'Unchanged', commitId: '16', at: '15', ts: 15 }, { id: 'b7', label: 'Declared', commitId: '18', at: '17', ts: 17 }],
+      bookmarks: [...RAW.bookmarks!, { id: 'b4', label: 'Map', commitId: '12', at: '11', ts: 11, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }, { id: 'b5', label: 'Bare', commitId: '14', at: '13', ts: 13, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }, { id: 'b6', label: 'Unchanged', commitId: '16', at: '15', ts: 15, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }, { id: 'b7', label: 'Declared', commitId: '18', at: '17', ts: 17, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }],
       head: '18',
     };
     const post = toStory(mapPollState(later), { declared: { caption: 'Every category.' } });

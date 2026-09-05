@@ -114,7 +114,7 @@ describe('createSessionView — in-process session edge branches', () => {
         }) as unknown as ReturnType<SessionLike['overview']>,
       gaps: () => [],
       branches: () => [],
-      bookmarkViews: () => [{ id: 'b1', label: 'start', commitId: 'r1', at: null, ts: 1 }], // exercises the bookmarks.map body
+      bookmarkViews: () => [{ id: 'b1', label: 'start', commitId: 'r1', at: null, ts: 1, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }], // exercises the bookmarks.map body
       // a session holding no pictures: the WRITE doors exist and refuse in words (never a silent empty).
       // Reading is not here: `overview.saved` serves the store (adapter README, Law 1).
       saveSelection: (name: string) => ({ ok: false as const, rejected: `nothing is selected to save as "${name}"` }),
@@ -421,13 +421,13 @@ describe('P0 — a bookmark names its parent: the `at` position rides the wire w
       records: [],
       defaultTable: 'data',
       bookmarks: [
-        { label: 'named', commitId: 'b1', at: 'c1', ts: 1 },
-        { label: 'old-wire', commitId: 'b0', ts: 0 },
+        { label: 'named', commitId: 'b1', at: 'c1', ts: 1, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
+        { label: 'old-wire', commitId: 'b0', ts: 0, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
       ],
     } as unknown as Parameters<typeof mapPollState>[0];
     const cps = mapPollState(raw).bookmarks;
-    expect(cps[0]).toEqual({ label: 'named', commitId: 'b1', at: 'c1', ts: 1 });
-    expect(cps[1]).toEqual({ label: 'old-wire', commitId: 'b0', ts: 0 });
+    expect(cps[0]).toEqual({ label: 'named', commitId: 'b1', at: 'c1', ts: 1, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' });
+    expect(cps[1]).toEqual({ label: 'old-wire', commitId: 'b0', ts: 0, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' });
   });
 });
 

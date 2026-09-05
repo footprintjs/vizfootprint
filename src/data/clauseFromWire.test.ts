@@ -12,7 +12,7 @@
  * consumer buys by calling this instead of writing the rules again.
  */
 import { describe, it, expect } from 'vitest';
-import { cellSideClause, clauseFromWire } from './clauseFromWire.js';
+import { cellSideClause, clauseFromWire, pointValueFromWire } from './clauseFromWire.js';
 import { matchesClause } from './predicate.js';
 import type { Row } from './types.js';
 
@@ -29,14 +29,20 @@ const kept = (kind: Parameters<typeof clauseFromWire>[0], field: string, value: 
 
 const ALL = ['r1', 'r2', 'r3', 'r4'];
 
-describe('point — the three-way split is the clause\'s own', () => {
-  it('undefined is cleared, null is IS NULL, anything else is strict equality', () => {
-    expect(clauseFromWire('point', 'category', undefined)).toEqual({ kind: 'point', field: 'category', value: undefined });
-    expect(kept('point', 'category', undefined)).toEqual(ALL); // cleared
-    expect(kept('point', 'note', null)).toEqual(['r1', 'r3']); // null AND undefined — SQL NULL knows no difference
+describe('point — the WIRE clears with null; the clause tier keeps its own three-way split', () => {
+  it('null is cleared (one spelling, every kind), anything else is strict equality', () => {
+    // `pointValueFromWire` is the one line where the two spellings meet: the wire's `null`
+    // becomes the clause tier's `undefined`, which is Mosaic's own "no predicate" arm.
+    expect(pointValueFromWire(null)).toBeUndefined();
+    expect(pointValueFromWire('Formal')).toBe('Formal');
+    expect(clauseFromWire('point', 'category', null)).toEqual({ kind: 'point', field: 'category', value: undefined });
+    expect(kept('point', 'category', null)).toEqual(ALL); // cleared
     expect(kept('point', 'category', 'Formal')).toEqual(['r2']);
     expect(kept('point', 'price', 160)).toEqual(['r2']);
     expect(kept('point', 'price', '160')).toEqual([]); // strict — no SQL-style coercion
+    // IS NULL survives where a null is a value INSIDE a compound rather than the whole clause
+    expect(kept('cell', 'category × note', ['Formal', null], ['category', 'note'])).toEqual([]);
+    expect(kept('cell', 'category × note', ['Casual', null], ['category', 'note'])).toEqual(['r1']);
   });
 });
 

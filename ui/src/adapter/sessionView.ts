@@ -194,7 +194,7 @@ export interface RawPollState {
   readonly branches?: readonly { tip: string; length: number; actor: Actor; active: boolean }[];
   /** BR-2: the named-paths surface (`overview().paths` serialized as-is). */
   readonly paths?: RawPollPaths;
-  readonly bookmarks?: readonly { id?: string; label: string; commitId: string | null; at?: string | null; ts: number }[];
+  readonly bookmarks?: readonly { id?: string; label: string; commitId: string | null; at?: string | null; ts: number; by: Actor; madeAt: string }[];
   /** The saved pictures the dashboard's store holds — a server serializes `overview.saved` (or `session.saved()`) here, verbatim. */
   readonly saved?: readonly unknown[];
   readonly cursor?: string | null;
@@ -1038,7 +1038,9 @@ export function mapPollState(raw: RawPollState, defaultLayout?: LayoutPreset): S
     encodingPolicy: mapPolicy(raw.encodingPolicy),
     branches: (raw.branches ?? []).map((b) => ({ tip: b.tip, length: b.length, actor: b.actor, active: b.active })),
     paths: mapPaths(raw.paths),
-    bookmarks: (raw.bookmarks ?? []).map((c) => ({ ...(c.id !== undefined ? { id: c.id } : {}), label: c.label, commitId: c.commitId, ...(c.at !== undefined ? { at: c.at } : {}), ts: c.ts })),
+    // the CREATION stamp travels: `by` and `madeAt` are what `restoreBookmarks` needs, and a
+    // consumer that had to stamp them itself would be inventing a provenance the store already held
+    bookmarks: (raw.bookmarks ?? []).map((c) => ({ ...(c.id !== undefined ? { id: c.id } : {}), label: c.label, commitId: c.commitId, ...(c.at !== undefined ? { at: c.at } : {}), ts: c.ts, by: c.by, madeAt: c.madeAt })),
     saved: mapSaved(raw.saved),
     cursor: raw.cursor ?? null,
     head: raw.head ?? null,
@@ -1408,8 +1410,9 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       } else if (own.kind === 'match') {
         await dispatch({ verb: 'select', viewId, field: own.field, values: null, cause: cause(label) }, { verb: 'select', viewId, field: own.field, values: null, intent: label });
       } else {
-        // a point clears with an ABSENT value (the three-way split: null would mean IS NULL) — the wire body carries no value
-        await dispatch({ verb: 'select', viewId, field: own.field, value: undefined, cause: cause(label) }, { verb: 'select', viewId, field: own.field, intent: label });
+        // a point clears with `null`, exactly like every other kind — one spelling, and the only one
+        // that survives the wire this same call serializes over (src/session/README.md, beside law 6)
+        await dispatch({ verb: 'select', viewId, field: own.field, value: null, cause: cause(label) }, { verb: 'select', viewId, field: own.field, value: null, intent: label });
       }
     },
 
@@ -1435,9 +1438,9 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
 
     async setPolarity(viewId, exclude, intent) {
       const own = state.selections.find((s) => s.viewId === viewId);
-      // no live point or match on that view → nothing to flip (an interval, a cell, a cleared clause, an unknown view)
-      if (own === undefined || own.value === undefined || (own.kind !== 'point' && own.kind !== 'match')) return;
-      if (own.kind === 'match' && own.value === null) return; // a cleared match has no polarity
+      // no live point or match on that view → nothing to flip (an interval, a cell, an unknown view, or a
+      // cleared clause — which is `null` whatever the kind: one spelling, src/session/README.md beside law 6)
+      if (own === undefined || own.value === null || (own.kind !== 'point' && own.kind !== 'match')) return;
       const values: readonly unknown[] = own.kind === 'point' ? [own.value] : (own.value as { readonly values: readonly unknown[] }).values;
       const label = intent ?? `${exclude ? 'exclude' : 'keep'} ${own.field}`;
       const polarity = exclude ? { exclude: true } : {};

@@ -17,8 +17,8 @@ const RAW: RawPollState = {
     { id: 'c', parent: 'a', viewId: 'scatter', kind: 'interval', field: 'price', value: [70, 90], cause: { requestedBy: 'agent' } },
   ],
   bookmarks: [
-    { label: 'start', commitId: 'r', ts: 10 },
-    { label: 'mid', commitId: 'b', ts: 20 },
+    { label: 'start', commitId: 'r', ts: 10, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
+    { label: 'mid', commitId: 'b', ts: 20, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
   ],
   branches: [{ tip: 'b', length: 3, actor: 'user', active: true }, { tip: 'c', length: 3, actor: 'agent', active: false }],
   cursor: 'b',
@@ -138,7 +138,7 @@ describe('TimeTravelBar — present mode edges', () => {
 
   it('a bookmark whose commitId is on no lineage (an empty string) is not a dot at all — bookmarks are ordered by lineage, never by arrival', () => {
     const onSeek = vi.fn();
-    const withGhost = [...S.bookmarks, { label: 'ghost', commitId: '', ts: 30 }];
+    const withGhost = [...S.bookmarks, { label: 'ghost', commitId: '', ts: 30, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }];
     const { container } = render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head="b" bookmarks={withGhost} onSeek={onSeek} />);
     const dots = container.querySelectorAll('[data-bookmark-dot]');
     expect(dots).toHaveLength(2); // start, mid — the ghost names nothing on this lineage

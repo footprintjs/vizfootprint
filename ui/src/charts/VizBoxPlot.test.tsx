@@ -171,7 +171,7 @@ describe('the point gesture — category select, click-again clears', () => {
     const box = container.querySelectorAll('rect.vzf-box')[0]!;
     expect(box.getAttribute('class') ?? '').toContain('vzf-selected');
     fireEvent.click(hit);
-    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: undefined, encoding: { kind: 'point', field: 'category' } });
+    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: null, encoding: { kind: 'point', field: 'category' } });
   });
 
   it('clicking a DIFFERENT category while one is selected selects the new one (last-wins, no clear)', () => {

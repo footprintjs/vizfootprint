@@ -17,8 +17,8 @@ const RAW: RawPollState = {
     { id: 'c', parent: 'a', viewId: 'scatter', kind: 'interval', field: 'price', value: [70, 90], cause: { requestedBy: 'agent' } },
   ],
   bookmarks: [
-    { label: 'start', commitId: 'r', ts: 10 },
-    { label: 'mid', commitId: 'b', ts: 20 },
+    { label: 'start', commitId: 'r', ts: 10, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
+    { label: 'mid', commitId: 'b', ts: 20, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
   ],
   branches: [{ tip: 'b', length: 3, actor: 'user', active: true }, { tip: 'c', length: 3, actor: 'agent', active: false }],
   cursor: 'b',
@@ -28,7 +28,7 @@ const S = mapPollState(RAW);
 
 describe('presentBookmark pure logic', () => {
   it('orders bookmarks by ts and drops null commitIds', () => {
-    const ck = orderedBookmarks([...S.bookmarks, { label: 'floating', commitId: null, ts: 5 }]);
+    const ck = orderedBookmarks([...S.bookmarks, { label: 'floating', commitId: null, ts: 5, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }]);
     expect(ck.map((c) => c.label)).toEqual(['start', 'mid']);
   });
   it('finds the exact bookmark, else the nearest ancestor bookmark, else -1', () => {

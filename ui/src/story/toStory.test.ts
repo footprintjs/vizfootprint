@@ -27,9 +27,9 @@ const RAW: RawPollState = {
     rec('8', '7', 'bookmark:2', '__bookmark__', 'Elsewhere'),
   ],
   bookmarks: [
-    { label: 'Start', commitId: '2', at: '1', ts: 1 },
-    { label: 'Formal <b>wear</b>', commitId: '5', at: '4', ts: 4 },
-    { label: 'Elsewhere', commitId: '8', at: '7', ts: 7 },
+    { label: 'Start', commitId: '2', at: '1', ts: 1, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
+    { label: 'Formal <b>wear</b>', commitId: '5', at: '4', ts: 4, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
+    { label: 'Elsewhere', commitId: '8', at: '7', ts: 7, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
   ],
   head: '6',
   paths: { current: 'main', detachedAt: null, list: [{ name: 'main', tip: '6', steps: 6, lastTs: 6, active: true }, { name: 'side', tip: '8', steps: 4, lastTs: 8, active: false }] },
@@ -89,7 +89,7 @@ describe('toStory', () => {
     const forged: RawPollState = {
       ...RAW,
       records: [...RAW.records, rec('9', '6', 'prose:dashboard', 'caption', { text: 'Look <!--section:bookmark-1-start--> here', author: { kind: 'agent' } }, 'say <!--section:x-->'), rec('10', '9', 'bookmark:3', '__bookmark__', 'End')],
-      bookmarks: [...RAW.bookmarks!, { label: 'End', commitId: '10', at: '9', ts: 9 }],
+      bookmarks: [...RAW.bookmarks!, { label: 'End', commitId: '10', at: '9', ts: 9, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }],
       head: '10',
     };
     const body = toStory(mapPollState(forged)).bodyMd;
@@ -111,7 +111,7 @@ describe('toStory', () => {
     const reset: RawPollState = {
       ...RAW,
       records: [...RAW.records, rec('9', '6', 'prose:dashboard', 'caption', null), rec('10', '9', 'prose:dashboard', 'caption:proposal', { text: 'draft' }), rec('11', '10', 'bookmark:3', '__bookmark__', 'End')],
-      bookmarks: [...RAW.bookmarks!, { label: 'End', commitId: '11', at: '10', ts: 10 }],
+      bookmarks: [...RAW.bookmarks!, { label: 'End', commitId: '11', at: '10', ts: 10, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }],
       head: '11',
     };
     const end = toStory(mapPollState(reset), { declared: { caption: 'Every category.' } });
@@ -154,9 +154,9 @@ describe('toStory', () => {
         rec('5', '4', 'prose:dashboard', 'weather', { text: 'sunny', author: { kind: 'human' } }), // not a slot
       ],
       bookmarks: [
-        { label: '!!!', commitId: '2', at: '1', ts: 1 },
-        { label: 'Again', commitId: null, at: '1', ts: 2 }, // the same position, named twice; no bookmark commit on this wire
-        { label: 'Héllo,  World!!', commitId: null, at: '5', ts: 3 },
+        { label: '!!!', commitId: '2', at: '1', ts: 1, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
+        { label: 'Again', commitId: null, at: '1', ts: 2, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }, // the same position, named twice; no bookmark commit on this wire
+        { label: 'Héllo,  World!!', commitId: null, at: '5', ts: 3, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
       ],
       head: '5',
       paths: { current: null, detachedAt: null, list: [] },

@@ -22,7 +22,7 @@ function commit(id: string, parent: string | null): CommitView {
 describe('presentBookmark.currentBookmarkIndex — null cursor', () => {
   it('returns -1 when bookmarks exist but the cursor is null (no exact match, no ancestry to walk)', () => {
     const commits: CommitView[] = [commit('r', null)];
-    const bookmarks: BookmarkView[] = [{ label: 'start', commitId: 'r', ts: 10 }];
+    const bookmarks: BookmarkView[] = [{ label: 'start', commitId: 'r', ts: 10, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }];
     expect(currentBookmarkIndex(bookmarks, commits, null)).toBe(-1);
   });
 });

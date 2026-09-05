@@ -27,8 +27,8 @@ const RAW: RawPollState = {
     { viewId: 'scatter', field: 'price', kind: 'interval', value: [1, 2] }, // a live selection with no commit id cannot be linked
   ],
   bookmarks: [
-    { id: 'b1', label: 'Start', commitId: 's3', at: 's2', ts: 3 },
-    { id: 'b2', label: 'Older', commitId: null, at: 's1', ts: 1 }, // an older wire's bookmark: no commit of its own
+    { id: 'b1', label: 'Start', commitId: 's3', at: 's2', ts: 3, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'b2', label: 'Older', commitId: null, at: 's1', ts: 1, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }, // an older wire's bookmark: no commit of its own
   ],
   head: 's3',
   cursor: 's3',
@@ -371,10 +371,10 @@ describe('NoteCell', () => {
       ],
       bookmarks: [
         ...(RAW.bookmarks ?? []),
-        { id: 'b3', label: 'Bad]label', commitId: 's3', at: 's3', ts: 4 },
-        { id: 'b4', label: 'Also]bad', commitId: null, at: 's3', ts: 5 },
-        { label: 'No bookmark id', commitId: 's2', at: 's2', ts: 2 }, // a wire that predates bookmark ids: nothing to link by name
-        { label: 'No bookmark id at all', commitId: null, at: 's2', ts: 2 }, // …and no commit either: not offered
+        { id: 'b3', label: 'Bad]label', commitId: 's3', at: 's3', ts: 4, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'b4', label: 'Also]bad', commitId: null, at: 's3', ts: 5, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' },
+        { label: 'No bookmark id', commitId: 's2', at: 's2', ts: 2, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }, // a wire that predates bookmark ids: nothing to link by name
+        { label: 'No bookmark id at all', commitId: null, at: 's2', ts: 2, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }, // …and no commit either: not offered
       ],
       head: 's4',
       cursor: 's4',
