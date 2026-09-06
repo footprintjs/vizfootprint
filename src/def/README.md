@@ -85,6 +85,61 @@ It **calls** the validator; it never restates it, so the two cannot disagree. `b
 
 `whatFits` (the encoding plane's door, re-exported here beside `fitsFor`) answers "which column may sit on which channel" without building anything. `whatFits.def.test.ts` pins it against this door's own lint, column by column and channel by channel. See [`../encoding/README.md`](../encoding/README.md).
 
-## Files
+## Relations — the edges between tables
 
-`types.ts` the schema · `validate.ts` the firewall + the parse door · `builtinAnalyses.ts` an analysis as data (the five records, their options, and the extra judge one of them carries) · `register.ts` the one registry boundary · `buildDashboard.ts` the build · `series.ts` the long-form series contract · `recordIds.ts` the id counters
+A def declares its tables as `data: Record<string, DataSourceDef>`, and each table may name its row identity (`key`). `relations` is the one place two tables are joined: an edge from a column of one table to the **key** of another. Relations are data on the MAP — the overview echoes them (`overview().relations`, the `relations` part of `whats_here`), and nothing in a session acts on them yet: a view over a related table and the neighbourhood selection kind come later, and both will read this list rather than infer a join from the rows.
+
+```ts
+data: {
+  nodes: { source: …, key: 'disease', columns: { disease: { role: 'identifier' }, cases_total: { role: 'measure' } } },
+  edges: { source: …, columns: { source: { role: 'dimension' }, target: { role: 'dimension' }, weight: { role: 'measure' } } },
+},
+relations: [
+  { from: { table: 'edges', column: 'source' }, to: { table: 'nodes', column: 'disease' } },
+  { from: { table: 'edges', column: 'target' }, to: { table: 'nodes', column: 'disease' }, label: 'the other end' },
+],
+```
+
+Five laws. The door does not judge them in this order: per end it first asks that the table is declared (law 3) and only then judges the column on it (law 2) or the key it points at (law 1); self-join and repeat (law 3) and `kind` / `label` (law 4) come last; law 5 is a runtime fact, not a door law.
+
+1. **A relation points at an identity.** `to.column` must be the declared `data[to.table].key`. A table with no key has no identity to point at, and the sentence says what to declare first:
+   ```
+   relations[0].to "cells.disease" — declare data["cells"].key first; a relation points at an identity
+   relations[0].to.column "cases_total" is not the key of "nodes" — the key is "disease"; a relation points at an identity
+   ```
+2. **The source column is judged where it can be.** When `data[from.table].columns` is declared, `from.column` must be one of them — the same conditional as `key`. A table that declares no columns is judged post-build by `dashboard.lintData()`, against the columns the engine lists, exactly as a key is:
+   ```
+   relations[0].from.column "ghost" is not a declared column of "edges"          ← the door
+   relations[1].from.column "ghost" names no column of "cells" — the columns are disease, jurisdiction, cases   ← lintData
+   ```
+3. **Both tables are declared; no self-join in this version; an edge is declared once.** The edge is spelled `from.table.column → to.table.column` (`relationEdgeId`):
+   ```
+   relations[0].from.table "ghost" is not a declared data table — the tables are cells, nodes, edges
+   relations[0] joins "nodes" to itself — not in this version
+   relations[1] repeats the edge edges.source → nodes.disease
+   ```
+4. **`kind` is declared, never inferred, and defaults to `many-to-one`**; `label` is prose, inert. The runtime writes the default out (the materialized-links precedent) and types the result as `RelationEdge` (`kind` required), so a reader never re-derives it:
+   ```ts
+   (await session.overview()).relations[0].kind;   // 'many-to-one' — the def left it out
+   ```
+   ```
+   relations[0].kind must be one of many-to-one|one-to-one
+   relations[0].label must be a string
+   ```
+5. **Relations are data on the map.** `DashboardRuntime.relations` is frozen at build (`[]` when none); the overview and `whats_here` echo that object; the revision moves when an edge is added, because an edge is part of the declaration. Nothing in the session walks them yet.
+
+The shape sentences, for completeness: `relations, if present, must be an array of { from, to }` · `relations[i] must be an object { from, to, kind?, label? }` · `relations[i]: unknown key "x"` · `relations[i].from must be { table, column } with non-empty strings` · `relations[i].from: unknown key "x"` (an end is exactly those two keys, and an extra one is named, the way a relation's is). A table refused on its own line (`data["bad"] must be an object …`) is not refused again through a relation at either end; the empty table map is refused on its own line and no relation is judged against it.
+
+## Where the code lives
+
+| file | one job |
+|---|---|
+| `types.ts` | the schema — `DashboardDef`, `DataSourceDef`, `RelationDecl` / `RelationEdge`, `DashboardRuntime` |
+| `validate.ts` | the firewall + the parse door |
+| `relations.ts` | the relation laws as refusals, `relationEdgeId`, the default kind |
+| `builtinAnalyses.ts` | an analysis as data (the five records, their options, and the extra judge one of them carries) |
+| `register.ts` | the one registry boundary |
+| `buildDashboard.ts` | the build — resolves engines, keys and relations onto the runtime; `lintData` judges keys and relations against the engine |
+| `revision.ts` | the definition's revision, digested once at build |
+| `series.ts` | the long-form series contract |
+| `recordIds.ts` | the id counters |

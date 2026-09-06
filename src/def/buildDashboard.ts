@@ -37,6 +37,7 @@ import {
   type FdrStepper,
   type IntentClass,
   type RegisteredAnalysis,
+  type RelationEdge,
   type ViewDecl,
   type ViewEncodingDecl,
   type RestorableSaved,
@@ -59,6 +60,7 @@ import type { EncodingPorts, EncodingProblem } from '../encoding/index.js';
 import { validateProseRecord } from '../prose/index.js';
 import type { ProseProblem } from '../prose/index.js';
 import { isRejection } from '../data/index.js';
+import { DEFAULT_RELATION_KIND } from './relations.js';
 import { decodeRows, deltaByKey, inlineVersion, isSourceRefusal, isUnchanged, openSource, SourceRefusal } from '../source/index.js';
 import type { RefreshDelta, SourceAdapter, SourceDecl, SourceInfo, SourceRefusalReason, SourceSnapshot } from '../source/index.js';
 import type { ColumnFacet } from '../data/index.js';
@@ -99,7 +101,7 @@ export interface Dashboard {
   bookmarks(): readonly Bookmark[];
   /** Put bookmarks back whole (a host's persistence) — judged (a name, a commit id, who, when), never re-stamped; refused entries named, and so is any record the store had to give a new id. A session's `restoreBookmarks` also checks the commit is in its log. */
   restoreBookmarks(list: readonly RestorableBookmark[]): RestoreResult;
-  /** Judge the data declarations against the real data: today, that a declared row key names a column the engine lists. Sentences, never thrown. */
+  /** Judge the data declarations against the real data: that a declared row key, and every relation's source column, names a column the engine lists. Sentences, never thrown. */
   lintData(): Promise<readonly string[]>;
   /** Open a fresh session: one selection port (the built-in unless `opts.selection` hands one in) + commit log + FDR ledger. */
   createSession(opts?: SessionOptions): InteractionSession;
@@ -665,6 +667,9 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
   const revision = defRevision(def);
   const tables = [...providers.keys()];
   const keys: Record<string, string> = Object.fromEntries(Object.entries(def.data).flatMap(([t, d]) => (d.key !== undefined ? [[t, d.key]] : [])));
+  // WHY: the materialized-links precedent — the default `kind` is written onto the runtime, not back into the def,
+  // so a reader never re-derives it and the def stays byte-identical to what was declared
+  const relations: RelationEdge[] = (def.relations ?? []).map((r) => ({ from: { ...r.from }, to: { ...r.to }, kind: r.kind ?? DEFAULT_RELATION_KIND, ...(r.label !== undefined ? { label: r.label } : {}) }));
   const defaultTable = def.defaultTable ?? tables[0]!;
 
   // ── promote declared analyses (L3) ──
@@ -728,6 +733,7 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     sources,
     notes,
     keys,
+    relations,
     journal,
     saved,
     bookmarks,
@@ -742,6 +748,7 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
   // the other build-time constants, on the same reasoning as the def
   deepFreeze(engines);
   deepFreeze(keys);
+  deepFreeze(relations);
   deepFreeze(notes);
 
   return {
@@ -798,6 +805,16 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
           continue;
         }
         if (!cols.some((c) => c.name === key)) out.push(`data["${table}"].key "${key}" names no column of the table — the columns are ${cols.map((c) => c.name).join(', ')}`);
+      }
+      // law 2's other half: a source column the def door could not judge (its table declares no `columns`) is judged here, against the engine — every relation, the way every key is
+      for (const [i, { from }] of relations.entries()) {
+        const cols = await providers.get(from.table)!.columns(from.table);
+        if (isRejection(cols)) {
+          /* v8 ignore next -- every provider's reject() supplies a `detail`; the `reason` fallback is unreachable via the public API (the key lint's precedent) */
+          out.push(`relations[${i}].from.column "${from.column}": the engine cannot list this table's columns — ${cols.detail ?? cols.reason}`);
+          continue;
+        }
+        if (!cols.some((c) => c.name === from.column)) out.push(`relations[${i}].from.column "${from.column}" names no column of "${from.table}" — the columns are ${cols.map((c) => c.name).join(', ')}`);
       }
       return out;
     },

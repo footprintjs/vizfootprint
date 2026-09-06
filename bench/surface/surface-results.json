@@ -1,7 +1,7 @@
 {
  "node": "v22.16.0",
  "platform": "darwin arm64",
- "generatedAt": "2026-09-06T15:28:05.840Z",
+ "generatedAt": "2026-09-06T21:23:22.081Z",
  "unit": "UTF-8 bytes of the JSON serialization (Buffer.byteLength). Tokens only ever come from the optional --tokens pass.",
  "menu": {
   "bytes": 19243,
@@ -91,78 +91,78 @@
    "materializedEdges": 12,
    "tableColumns": 8,
    "declaredAnalyses": 2,
-   "whatsHereBytes": 9836,
+   "whatsHereBytes": 9935,
    "composition": [
     {
      "key": "parts",
-     "bytes": 2746,
-     "share": 27.92,
-     "count": 33
+     "bytes": 2830,
+     "share": 28.49,
+     "count": 34
     },
     {
      "key": "views",
      "bytes": 2420,
-     "share": 24.6,
+     "share": 24.36,
      "count": 3
     },
     {
      "key": "links",
      "bytes": 2069,
-     "share": 21.03,
+     "share": 20.83,
      "count": 3
     },
     {
      "key": "columns",
      "bytes": 597,
-     "share": 6.07,
+     "share": 6.01,
      "count": 1
     },
     {
      "key": "rules",
      "bytes": 279,
-     "share": 2.84,
+     "share": 2.81,
      "count": 1
     },
     {
      "key": "offers",
      "bytes": 233,
-     "share": 2.37,
+     "share": 2.35,
      "count": 6
     },
     {
      "key": "analyses",
      "bytes": 213,
-     "share": 2.17,
+     "share": 2.14,
      "count": 2
     },
     {
      "key": "effectiveEncodings",
      "bytes": 191,
-     "share": 1.94,
+     "share": 1.92,
      "count": 3
     },
     {
      "key": "encodings",
      "bytes": 182,
-     "share": 1.85,
+     "share": 1.83,
      "count": 3
     },
     {
      "key": "tables",
      "bytes": 117,
-     "share": 1.19,
+     "share": 1.18,
      "count": 1
     },
     {
      "key": "time",
      "bytes": 97,
-     "share": 0.99,
+     "share": 0.98,
      "count": 6
     },
     {
      "key": "fdr",
      "bytes": 94,
-     "share": 0.96,
+     "share": 0.95,
      "count": 6
     },
     {
@@ -180,13 +180,13 @@
     {
      "key": "encodingPolicy",
      "bytes": 63,
-     "share": 0.64,
+     "share": 0.63,
      "count": 2
     },
     {
      "key": "dashboard",
      "bytes": 39,
-     "share": 0.4,
+     "share": 0.39,
      "count": 2
     },
     {
@@ -240,6 +240,12 @@
     },
     {
      "key": "bookmarks",
+     "bytes": 14,
+     "share": 0.14,
+     "count": 0
+    },
+    {
+     "key": "relations",
      "bytes": 14,
      "share": 0.14,
      "count": 0
@@ -395,8 +401,8 @@
     "strict": 587,
     "shared": 437,
     "verbs": 98,
-    "strictPct": 5.97,
-    "sharedPct": 4.44
+    "strictPct": 5.91,
+    "sharedPct": 4.4
    }
   },
   {
@@ -415,30 +421,30 @@
    "materializedEdges": 132,
    "tableColumns": 30,
    "declaredAnalyses": 6,
-   "whatsHereBytes": 48533,
+   "whatsHereBytes": 48632,
    "composition": [
     {
      "key": "links",
      "bytes": 20384,
-     "share": 42,
+     "share": 41.91,
      "count": 3
     },
     {
      "key": "views",
      "bytes": 19270,
-     "share": 39.7,
+     "share": 39.62,
      "count": 9
     },
     {
      "key": "parts",
-     "bytes": 2746,
-     "share": 5.66,
-     "count": 33
+     "bytes": 2830,
+     "share": 5.82,
+     "count": 34
     },
     {
      "key": "columns",
      "bytes": 2181,
-     "share": 4.49,
+     "share": 4.48,
      "count": 1
     },
     {
@@ -462,13 +468,13 @@
     {
      "key": "effectiveEncodings",
      "bytes": 483,
-     "share": 1,
+     "share": 0.99,
      "count": 9
     },
     {
      "key": "encodings",
      "bytes": 474,
-     "share": 0.98,
+     "share": 0.97,
      "count": 9
     },
     {
@@ -564,6 +570,12 @@
     },
     {
      "key": "bookmarks",
+     "bytes": 14,
+     "share": 0.03,
+     "count": 0
+    },
+    {
+     "key": "relations",
      "bytes": 14,
      "share": 0.03,
      "count": 0
@@ -719,8 +731,8 @@
     "strict": 3056,
     "shared": 1048,
     "verbs": 98,
-    "strictPct": 6.3,
-    "sharedPct": 2.16
+    "strictPct": 6.28,
+    "sharedPct": 2.15
    }
   },
   {
@@ -739,18 +751,18 @@
    "materializedEdges": 674,
    "tableColumns": 80,
    "declaredAnalyses": 12,
-   "whatsHereBytes": 193254,
+   "whatsHereBytes": 193353,
    "composition": [
     {
      "key": "links",
      "bytes": 100499,
-     "share": 52,
+     "share": 51.98,
      "count": 3
     },
     {
      "key": "views",
      "bytes": 77898,
-     "share": 40.31,
+     "share": 40.29,
      "count": 20
     },
     {
@@ -761,9 +773,9 @@
     },
     {
      "key": "parts",
-     "bytes": 2746,
-     "share": 1.42,
-     "count": 33
+     "bytes": 2830,
+     "share": 1.46,
+     "count": 34
     },
     {
      "key": "offers",
@@ -888,6 +900,12 @@
     },
     {
      "key": "bookmarks",
+     "bytes": 14,
+     "share": 0.01,
+     "count": 0
+    },
+    {
+     "key": "relations",
      "bytes": 14,
      "share": 0.01,
      "count": 0
@@ -1043,7 +1061,7 @@
     "strict": 14620,
     "shared": 2251,
     "verbs": 98,
-    "strictPct": 7.57,
+    "strictPct": 7.56,
     "sharedPct": 1.16
    }
   }
@@ -1052,12 +1070,12 @@
   {
    "shape": "small",
    "act": "select (point value on a bar)",
-   "beforeBytes": 9836,
-   "afterBytes": 10103,
-   "topLevelStableBytes": 9256,
-   "topLevelStablePct": 94.1,
-   "deepStableBytes": 9581,
-   "deepStablePct": 97.41,
+   "beforeBytes": 9935,
+   "afterBytes": 10202,
+   "topLevelStableBytes": 9354,
+   "topLevelStablePct": 94.15,
+   "deepStableBytes": 9679,
+   "deepStablePct": 97.42,
    "changedKeys": [
     {
      "key": "analyses",
@@ -1100,21 +1118,21 @@
      "afterBytes": 74
     }
    ],
-   "sinceBytes": 2113,
-   "sincePct": 20.91,
+   "sinceBytes": 2161,
+   "sincePct": 21.18,
    "sinceServed": "delta",
-   "sinceOmitted": 26,
-   "partCount": 33
+   "sinceOmitted": 27,
+   "partCount": 34
   },
   {
    "shape": "small",
    "act": "filter (interval on a scatter)",
-   "beforeBytes": 9836,
-   "afterBytes": 10101,
-   "topLevelStableBytes": 9256,
-   "topLevelStablePct": 94.1,
-   "deepStableBytes": 9581,
-   "deepStablePct": 97.41,
+   "beforeBytes": 9935,
+   "afterBytes": 10200,
+   "topLevelStableBytes": 9354,
+   "topLevelStablePct": 94.15,
+   "deepStableBytes": 9679,
+   "deepStablePct": 97.42,
    "changedKeys": [
     {
      "key": "analyses",
@@ -1157,21 +1175,21 @@
      "afterBytes": 73
     }
    ],
-   "sinceBytes": 2111,
-   "sincePct": 20.9,
+   "sinceBytes": 2159,
+   "sincePct": 21.17,
    "sinceServed": "delta",
-   "sinceOmitted": 26,
-   "partCount": 33
+   "sinceOmitted": 27,
+   "partCount": 34
   },
   {
    "shape": "small",
    "act": "reencode (rebind one channel)",
-   "beforeBytes": 9836,
-   "afterBytes": 9966,
-   "topLevelStableBytes": 6731,
-   "topLevelStablePct": 68.43,
-   "deepStableBytes": 9579,
-   "deepStablePct": 97.39,
+   "beforeBytes": 9935,
+   "afterBytes": 10065,
+   "topLevelStableBytes": 6829,
+   "topLevelStablePct": 68.74,
+   "deepStableBytes": 9677,
+   "deepStablePct": 97.4,
    "changedKeys": [
     {
      "key": "views",
@@ -1209,20 +1227,20 @@
      "afterBytes": 19
     }
    ],
-   "sinceBytes": 3093,
-   "sincePct": 31.04,
+   "sinceBytes": 3141,
+   "sincePct": 31.21,
    "sinceServed": "delta",
-   "sinceOmitted": 27,
-   "partCount": 33
+   "sinceOmitted": 28,
+   "partCount": 34
   },
   {
    "shape": "realistic",
    "act": "select (point value on a bar)",
-   "beforeBytes": 48533,
-   "afterBytes": 48796,
-   "topLevelStableBytes": 47567,
+   "beforeBytes": 48632,
+   "afterBytes": 48895,
+   "topLevelStableBytes": 47665,
    "topLevelStablePct": 98.01,
-   "deepStableBytes": 48177,
+   "deepStableBytes": 48275,
    "deepStablePct": 99.27,
    "changedKeys": [
     {
@@ -1266,20 +1284,20 @@
      "afterBytes": 74
     }
    ],
-   "sinceBytes": 2495,
-   "sincePct": 5.11,
+   "sinceBytes": 2543,
+   "sincePct": 5.2,
    "sinceServed": "delta",
-   "sinceOmitted": 26,
-   "partCount": 33
+   "sinceOmitted": 27,
+   "partCount": 34
   },
   {
    "shape": "realistic",
    "act": "filter (interval on a scatter)",
-   "beforeBytes": 48533,
-   "afterBytes": 48794,
-   "topLevelStableBytes": 47567,
+   "beforeBytes": 48632,
+   "afterBytes": 48893,
+   "topLevelStableBytes": 47665,
    "topLevelStablePct": 98.01,
-   "deepStableBytes": 48177,
+   "deepStableBytes": 48275,
    "deepStablePct": 99.27,
    "changedKeys": [
     {
@@ -1323,21 +1341,21 @@
      "afterBytes": 73
     }
    ],
-   "sinceBytes": 2493,
-   "sincePct": 5.11,
+   "sinceBytes": 2541,
+   "sincePct": 5.2,
    "sinceServed": "delta",
-   "sinceOmitted": 26,
-   "partCount": 33
+   "sinceOmitted": 27,
+   "partCount": 34
   },
   {
    "shape": "realistic",
    "act": "reencode (rebind one channel)",
-   "beforeBytes": 48533,
-   "afterBytes": 48654,
-   "topLevelStableBytes": 27994,
-   "topLevelStablePct": 57.68,
-   "deepStableBytes": 48288,
-   "deepStablePct": 99.5,
+   "beforeBytes": 48632,
+   "afterBytes": 48753,
+   "topLevelStableBytes": 28092,
+   "topLevelStablePct": 57.76,
+   "deepStableBytes": 48386,
+   "deepStablePct": 99.49,
    "changedKeys": [
     {
      "key": "views",
@@ -1375,20 +1393,20 @@
      "afterBytes": 19
     }
    ],
-   "sinceBytes": 5059,
-   "sincePct": 10.4,
+   "sinceBytes": 5107,
+   "sincePct": 10.48,
    "sinceServed": "delta",
-   "sinceOmitted": 27,
-   "partCount": 33
+   "sinceOmitted": 28,
+   "partCount": 34
   },
   {
    "shape": "large",
    "act": "select (point value on a bar)",
-   "beforeBytes": 193254,
-   "afterBytes": 193511,
-   "topLevelStableBytes": 191704,
+   "beforeBytes": 193353,
+   "afterBytes": 193610,
+   "topLevelStableBytes": 191802,
    "topLevelStablePct": 99.2,
-   "deepStableBytes": 192734,
+   "deepStableBytes": 192832,
    "deepStablePct": 99.73,
    "changedKeys": [
     {
@@ -1432,20 +1450,20 @@
      "afterBytes": 74
     }
    ],
-   "sinceBytes": 3073,
-   "sincePct": 1.59,
+   "sinceBytes": 3121,
+   "sincePct": 1.61,
    "sinceServed": "delta",
-   "sinceOmitted": 26,
-   "partCount": 33
+   "sinceOmitted": 27,
+   "partCount": 34
   },
   {
    "shape": "large",
    "act": "filter (interval on a scatter)",
-   "beforeBytes": 193254,
-   "afterBytes": 193496,
-   "topLevelStableBytes": 191704,
+   "beforeBytes": 193353,
+   "afterBytes": 193595,
+   "topLevelStableBytes": 191802,
    "topLevelStablePct": 99.2,
-   "deepStableBytes": 192734,
+   "deepStableBytes": 192832,
    "deepStablePct": 99.73,
    "changedKeys": [
     {
@@ -1489,20 +1507,20 @@
      "afterBytes": 73
     }
    ],
-   "sinceBytes": 3058,
-   "sincePct": 1.58,
+   "sinceBytes": 3106,
+   "sincePct": 1.6,
    "sinceServed": "delta",
-   "sinceOmitted": 26,
-   "partCount": 33
+   "sinceOmitted": 27,
+   "partCount": 34
   },
   {
    "shape": "large",
    "act": "reencode (rebind one channel)",
-   "beforeBytes": 193254,
-   "afterBytes": 193420,
-   "topLevelStableBytes": 113021,
-   "topLevelStablePct": 58.48,
-   "deepStableBytes": 192794,
+   "beforeBytes": 193353,
+   "afterBytes": 193519,
+   "topLevelStableBytes": 113119,
+   "topLevelStablePct": 58.5,
+   "deepStableBytes": 192892,
    "deepStablePct": 99.76,
    "changedKeys": [
     {
@@ -1541,11 +1559,11 @@
      "afterBytes": 19
     }
    ],
-   "sinceBytes": 8621,
-   "sincePct": 4.46,
+   "sinceBytes": 8669,
+   "sincePct": 4.48,
    "sinceServed": "delta",
-   "sinceOmitted": 27,
-   "partCount": 33
+   "sinceOmitted": 28,
+   "partCount": 34
   }
  ],
  "tokens": {

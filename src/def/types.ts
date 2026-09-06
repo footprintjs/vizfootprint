@@ -333,6 +333,13 @@ export interface DashboardDef {
   readonly links?: readonly LinkDecl[];
   /** The rule the link graph starts from: `crossfilter` (every view filters every other, self excluded — the default) or `none`. */
   readonly linkDefault?: LinkDefault;
+  /**
+   * The RELATIONS between tables: a column of one table points at the declared
+   * `key` of another (see {@link RelationDecl} and src/def/README.md,
+   * "Relations"). Data on the map — the overview echoes them; nothing in a
+   * session acts on them yet.
+   */
+  readonly relations?: readonly RelationDecl[];
   /** The encoding plane's rule set as data: channel requirements per chart kind, business rules, and the policy (see src/encoding/README.md). */
   readonly encodingRules?: EncodingRules;
   /** The prose plane: a view's words — title, caption, alt text, how to read it — as records with an author, a level of claim and a basis (see src/prose/README.md). */
@@ -364,6 +371,40 @@ export interface RegisteredAnalysis {
 export interface GrainDecl {
   readonly viewId: string;
   readonly keys: readonly string[];
+}
+
+// ── Relations: edges between TABLES (the link graph is edges between VIEWS). ──
+
+/** The two cardinalities a relation may declare. Declared, never inferred from the rows. */
+export const RELATION_KINDS = ['many-to-one', 'one-to-one'] as const;
+export type RelationKind = (typeof RELATION_KINDS)[number];
+
+/** One end of a relation: a column of a declared table. */
+export interface RelationEnd {
+  readonly table: string;
+  readonly column: string;
+}
+
+/**
+ * A relation points at an IDENTITY: `to.column` must be the declared
+ * `data[to.table].key`, and `from.column` a column of `from.table`. `kind`
+ * defaults to `many-to-one`; `label` is prose, inert. Validated by
+ * `./relations.ts`; the laws with an example each are in `./README.md`.
+ */
+export interface RelationDecl {
+  readonly from: RelationEnd;
+  readonly to: RelationEnd;
+  readonly kind?: RelationKind;
+  readonly label?: string;
+}
+
+/**
+ * A relation as the RUNTIME holds it: the declaration with its `kind` written
+ * out (the `LinkDecl` → `LinkEdge` precedent), so a reader of the runtime or
+ * the overview never re-derives the default the def left unsaid.
+ */
+export interface RelationEdge extends RelationDecl {
+  readonly kind: RelationKind;
 }
 
 export interface ViewDecl {
@@ -544,6 +585,8 @@ export interface DashboardRuntime {
   readonly notes: readonly string[];
   /** The declared row key per table (absent = positional rows, no delta). */
   readonly keys: Readonly<Record<string, string>>;
+  /** The declared relations between tables, each with its `kind` written out — frozen at build, `[]` when none. */
+  readonly relations: readonly RelationEdge[];
   makeFdrStepper(): FdrStepper;
   readonly fdrProcedure: 'LORD++' | 'alpha-investing';
   readonly fdrAlpha: number;

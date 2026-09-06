@@ -20,7 +20,7 @@ import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
 import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause, PredicateClause, Row, SortSpec } from '../data/index.js';
 import type { EncodingProblem, Fit, RuleLine, RuleScope } from '../encoding/index.js';
 import type { ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
-import type { DispatchVerb, IntentClass, SeriesGrain, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
+import type { DispatchVerb, IntentClass, SeriesGrain, SavedClause, SavedSelection, Bookmark, RelationEdge } from '../def/types.js';
 import type { RefreshRecord } from '../def/buildDashboard.js';
 import type { DiffChange, DiffOnly, PlanRecipe, RefEvent } from '../branches/index.js';
 
@@ -993,6 +993,8 @@ export interface Overview {
    * Provenance (version, retrieved at, rows read) rides `sources` for the tables that declared a source.
    */
   readonly tables: readonly TableInfo[];
+  /** The declared relations between tables (a column → another table's key), as the runtime resolved them — the MAP's edges, echoed and never re-derived; `[]` when none. */
+  readonly relations: readonly RelationEdge[];
   /** The data journal's latest records (the newest 50, oldest first — a dashboard-level record, never a commit); `dashboard.journal()` holds every one. */
   readonly journal: readonly RefreshRecord[];
   /** How many records the journal holds in all — when it exceeds `journal.length`, an answer may lie beyond the tail. */

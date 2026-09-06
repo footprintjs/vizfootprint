@@ -3662,6 +3662,9 @@ class InteractionSessionImpl implements InteractionSession {
       keys: this.runtime.keys,
       // the Sources tab's rows: every declared table as the def states it, and the data journal beside the log
       tables: tablesInfoOf(this.runtime),
+      // WHY: the `keys` precedent — the MAP's edges between tables were resolved and frozen once at build,
+      // so they are handed back by reference: projected, never re-derived
+      relations: this.runtime.relations,
       journal: Object.freeze(this.runtime.journal.slice(-JOURNAL_TAIL)), // fresh list; each entry was frozen when it was written
       journalTotal: this.runtime.journal.length,
       selectedRowCount: selCount,

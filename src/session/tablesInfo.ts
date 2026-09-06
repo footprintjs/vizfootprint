@@ -1,6 +1,7 @@
 /**
- * The Sources rows — the one part of `overview()` that is a projection of the
- * MAP rather than of the trace.
+ * The Sources rows — one of the two parts of `overview()` that are a projection
+ * of the MAP rather than of the trace (the other is `overview().relations`, the
+ * map's edges between tables, echoed from the runtime by reference).
  *
  * Everything else `whats_here` answers is derived from where the walker is
  * standing: the live selections, the words on screen, the columns visible on

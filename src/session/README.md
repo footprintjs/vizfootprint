@@ -27,7 +27,7 @@ apart, and each file's own header carries the reasoning:
 | `offers.ts` | the offers list and the position stamp — and the line between them, which is why `offers` stopped churning on every act |
 | `namespaces.ts` | the names a session-authored commit lands under: the reserved fields and the synthetic `encoding:` / `link:` / `chart:` / `layout:` identities |
 | `stampCause.ts` | the cause a commit carries, validated and R1-forced rather than believed |
-| `tablesInfo.ts` | the Sources rows — the one part of `overview()` that projects the MAP and not the trace |
+| `tablesInfo.ts` | the Sources rows — one of the two parts of `overview()` that project the MAP and not the trace; the other is `overview().relations` (`runtime.relations` echoed by reference, resolved once at build — [`../def/README.md`](../def/README.md), "Relations") |
 | `gapLedger.ts` | the R14 ledger, and `messageOf`, which turns whatever third-party code threw into a sentence a gap can carry |
 
 The memos stayed behind with everything else that is state: a cache key is

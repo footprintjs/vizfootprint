@@ -125,6 +125,8 @@ export const SURFACE_PARTS: readonly SurfacePart[] = Object.freeze([
   row('sources', 'global', 'versioned'),
   row('keys', 'global', 'immutable'),
   row('tables', 'global', 'immutable'),
+  // WHY: the same policy as `tables` — the edges between tables are declared beside them and resolved once, at build
+  row('relations', 'global', 'immutable'),
   // a refresh may land at any moment and journals even when nothing moved — there is no version to compare
   row('journal', 'global', 'volatile'),
   row('journalTotal', 'global', 'volatile'),

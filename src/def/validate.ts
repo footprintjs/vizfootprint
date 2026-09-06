@@ -12,6 +12,7 @@
 
 import { validateAnalysisDef } from '../analysis/index.js';
 import { isBuiltinRecord, validateBuiltinAnalysis } from './builtinAnalyses.js';
+import { validateRelations } from './relations.js';
 import { validateLinks, voiceOf, type EmissionKind } from '../links/index.js';
 import { ENCODING_SET_FIELD,
   ANALYSIS_VIEW_PREFIX,
@@ -62,6 +63,7 @@ const DEF_KEYS = new Set([
   'grains',
   'links',
   'linkDefault',
+  'relations',
   'encodingRules',
   'prose',
 ]);
@@ -317,7 +319,8 @@ export function validateDashboardDef(def: unknown): string[] {
       }
       if (src.key !== undefined) {
         if (typeof src.key !== 'string' || src.key.length === 0) problems.push(`data["${table}"].key must be a column name`);
-        else if (isObject(src.columns) && !(src.key in src.columns)) problems.push(`data["${table}"].key "${src.key}" is not a declared column`);
+        // WHY: own keys only — `in` would let "toString" or "constructor" through the door as a declared column
+        else if (isObject(src.columns) && !Object.prototype.hasOwnProperty.call(src.columns, src.key)) problems.push(`data["${table}"].key "${src.key}" is not a declared column`);
       }
       if (hasRows && !Array.isArray(src.rows)) problems.push(`data["${table}"].rows must be an array`);
       if (hasCsv && typeof src.csv !== 'string') problems.push(`data["${table}"].csv must be a string`);
@@ -432,6 +435,10 @@ export function validateDashboardDef(def: unknown): string[] {
     });
     validateLinks(def.links, def.linkDefault, linkViews, problems);
   }
+
+  // ── relations (optional) — the edges between TABLES: a column pointing at another table's key (src/def/relations.ts) ──
+  // WHY: judged only against a well-formed, non-empty table map — a malformed or empty `data` was refused above, and every table sentence would otherwise name no tables
+  if (isObject(def.data) && Object.keys(def.data).length > 0) validateRelations(def.relations, def.data, problems);
 
   // ── encodings (optional) — the `reencode` verb's per-view validation surface ──
   if (def.encodings !== undefined) {

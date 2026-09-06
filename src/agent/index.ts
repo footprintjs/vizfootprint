@@ -46,6 +46,10 @@ export type {
   BuildDashboardOptions,
   DashboardDef,
   DataSourceDef,
+  // the edges between tables — a column pointing at another table's declared key; `RelationEdge` is one as the runtime holds it, `kind` written out
+  RelationDecl,
+  RelationEdge,
+  RelationEnd,
   CapabilityDecl,
   // the emission kinds a view may declare — the ONE spelling behind both `CapabilityDecl.encodings` and `AdapterCapabilities.encodings`
   EmissionKind,

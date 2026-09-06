@@ -18,7 +18,10 @@ export {
   ABSENCE_STATES,
   ABSENCE_UNKNOWN,
   MAGNITUDE_CHANNELS,
+  RELATION_KINDS,
 } from './types.js';
+// Relations between tables — validated in `./relations.ts`, laws in ./README.md ("Relations").
+export { validateRelations, relationEdgeId } from './relations.js';
 // The long-form series contract (F3): `{t, entity, metric, value}` in, rows +
 // declared encodings out — no bespoke chart API. See `./series.ts`.
 export {
@@ -49,6 +52,7 @@ export type {
   EncodingRuntime,
   RegisteredAnalysis,
   ViewDecl, GrainDecl,
+  RelationEnd, RelationDecl, RelationEdge, RelationKind,
   FdrStepper,
 } from './types.js';
 

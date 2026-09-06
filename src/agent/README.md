@@ -373,7 +373,7 @@ policy is served rather than documented:
 
 | part | scope | stability | cacheClass |
 |---|---|---|---|
-| `rules`, `encodingPolicy`, `engines`, `keys`, `tables`, `defaultTable`, `offers`, `parts` | global | immutable | stable |
+| `rules`, `encodingPolicy`, `engines`, `keys`, `tables`, `relations`, `defaultTable`, `offers`, `parts` | global | immutable | stable |
 | `sources` | global | versioned | stable |
 | `journal`, `journalTotal`, `saved`, `bookmarks` | global | volatile | volatile |
 | `fdr`, `gaps`, `paths`, `charts` | session | volatile | volatile |
@@ -394,10 +394,10 @@ static and is not — it is branch-scoped, so a column an analysis materialised 
 hidden off its branch, and keeping it across a seek would show a column that is
 not there.
 
-The table costs **2,746 byte-stable bytes** on every answer, and that is worth
+The table costs **2,830 byte-stable bytes** on every answer, and that is worth
 saying out loud because clause 4 is next door. It is the `encodings` case, not
 the `views[].columns` case: a FIXED entry whose share falls as the dashboard
-grows (28% of the answer at the small shape, 5.7% at the realistic one, 1.4% at
+grows (28.5% of the answer at the small shape, 5.8% at the realistic one, 1.5% at
 the large one), not a duplicate that scales with the product of two dimensions.
 And it is the thing that makes the other 95% cacheable at all — under `since` a
 reader pays it once.
@@ -414,7 +414,7 @@ delta.views;    // { delta: 'by-id', by: 'viewId',
                 //   order: ['scatter', 'bar', 'cluster', 'display'],   ← every view, in the order they come
                 //   changed: [ { viewId: 'scatter', … } ] }            ← only the one that moved
 delta.omitted;  // [{ part: 'defaultTable', reason: 'unchanged-since' },
-                //  { part: 'links', reason: 'unchanged-since' }, … 27 of the 33 parts ]
+                //  { part: 'links', reason: 'unchanged-since' }, … 28 of the 34 parts ]
 ```
 
 **Why `views` narrows per view and `rules` does not.** The churn arm of
