@@ -3,7 +3,8 @@
  * engine routing.
  */
 import { describe, it, expect } from 'vitest';
-import { buildDashboard, validateDashboardDef, DashboardDefError } from './index.js';
+import { buildDashboard, buildDashboardAsync, validateDashboardDef, DashboardDefError } from './index.js';
+import { memoryProvider, type DataProvider, type Row } from '../data/index.js';
 import { makeDashboardDef, SAMPLE_ROWS } from '../session/dashboard.fixture.js';
 import { correlationAnalysis } from '../analysis/index.js';
 import type { DashboardDef } from './index.js';
@@ -111,5 +112,79 @@ describe('buildDashboard (D24 engine routing + promotion)', () => {
   it('routes an explicit server/wasm engine to its typed stub (widened availability)', () => {
     const dash = buildDashboard(makeDashboardDef({ engine: 'server' }), { availableEngines: ['memory', 'wasm', 'server'] });
     expect(dash.engines.data).toBe('server');
+  });
+});
+
+/**
+ * THE ENGINE SEAM. `providers` lets a host name the {@link DataProvider} a table
+ * runs on — so a failing engine can be tested through a door rather than through
+ * a cast into `session.runtime`, and so a host can bring its own engine without
+ * forking the resolver. It is judged with the def, before a table is built.
+ */
+describe('buildDashboard — the providers seam', () => {
+  /** A provider that answers the port and nothing else — the smallest honest host engine. */
+  const hostProvider = (rows: readonly Row[] = SAMPLE_ROWS) => memoryProvider(rows, { tableName: 'data' });
+
+  it('a host-supplied provider is the one the session queries, and the notes say the engine was not built', async () => {
+    const rows = SAMPLE_ROWS.slice(0, 3);
+    const dash = buildDashboard(makeDashboardDef(), { providers: { data: hostProvider(rows) } });
+    expect(dash.notes).toEqual(['data["data"]: the host supplied its own "memory" provider — the declared engine "memory" was not built']);
+    // the AUDIT reports the engine the PROVIDER names itself — never a claim that the def's routing was built
+    expect(dash.engines).toEqual({ data: 'memory' });
+    const ov = await dash.createSession().overview();
+    expect(ov.selectedRowCount).toBe(3); // the host's rows, not the def's
+  });
+
+  it('with the option absent nothing changes — no note, and the def’s own rows', async () => {
+    const dash = buildDashboard(makeDashboardDef());
+    expect(dash.notes).toEqual([]);
+    expect((await dash.createSession().overview()).selectedRowCount).toBe(SAMPLE_ROWS.length);
+  });
+
+  it('an unknown key is a BUILD refusal in a sentence, not a runtime surprise', () => {
+    expect(() => buildDashboard(makeDashboardDef(), { providers: { nope: hostProvider() } })).toThrow(
+      /providers\["nope"\] names no declared table — the tables are data/,
+    );
+  });
+
+  it('a value that does not answer the port is a build refusal naming what it is missing', () => {
+    const half = { engine: 'memory', capabilities: {}, tables: () => [], columns: () => [] };
+    expect(() => buildDashboard(makeDashboardDef(), { providers: { data: half as unknown as DataProvider } })).toThrow(
+      /providers\["data"\] does not answer the DataProvider port — it is missing evaluate, materializeColumn/,
+    );
+    expect(() => buildDashboard(makeDashboardDef(), { providers: { data: null as unknown as DataProvider } })).toThrow(
+      /providers\["data"\] is not a DataProvider/,
+    );
+  });
+
+  it('a provider that will not name its engine is refused — the audit reads that field back', () => {
+    const nameless = { ...memoryProvider(SAMPLE_ROWS, { tableName: 'data' }), engine: 'duckdb' };
+    expect(() => buildDashboard(makeDashboardDef(), { providers: { data: nameless as unknown as DataProvider } })).toThrow(
+      /providers\["data"\]\.engine is "duckdb" — a DataProvider names which engine it is, one of memory, wasm, server/,
+    );
+  });
+
+  it('a host engine that is NOT memory is what the D24 audit reports', () => {
+    const remote = { ...memoryProvider(SAMPLE_ROWS, { tableName: 'data' }), engine: 'server' as const };
+    const dash = buildDashboard(makeDashboardDef(), { providers: { data: remote } });
+    expect(dash.engines).toEqual({ data: 'server' });
+    expect(dash.notes).toEqual(['data["data"]: the host supplied its own "server" provider — the declared engine "memory" was not built']);
+  });
+
+  it('a table that also declares a source is refused — a table’s rows come from one place', () => {
+    const base = makeDashboardDef();
+    const def: DashboardDef = { ...base, data: { data: { source: { format: 'json', via: 'inline', at: SAMPLE_ROWS } } } };
+    expect(() => buildDashboard(def, { providers: { data: hostProvider() } })).toThrow(
+      /providers\["data"\] brings its own rows, and data\["data"\] declares a source/,
+    );
+  });
+
+  it('the async builder honours the same seam, judged the same way, and never opens the source', async () => {
+    const dash = await buildDashboardAsync(makeDashboardDef(), { providers: { data: hostProvider(SAMPLE_ROWS.slice(0, 2)) } });
+    expect(dash.notes).toEqual(['data["data"]: the host supplied its own "memory" provider — the declared engine "memory" was not built']);
+    expect((await dash.createSession().overview()).selectedRowCount).toBe(2);
+    await expect(buildDashboardAsync(makeDashboardDef(), { providers: { nope: hostProvider() } })).rejects.toThrow(
+      /providers\["nope"\] names no declared table/,
+    );
   });
 });

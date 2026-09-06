@@ -155,7 +155,87 @@ export interface BuildDashboardOptions {
   readonly availableEngines?: readonly ResolvedEngine[];
   /** The encoding plane's PORTS — explainer, coercers, recommender (code, so never on the def; see src/encoding/README.md). */
   readonly encoding?: EncodingPorts;
+  /**
+   * THE ENGINE SEAM: the {@link DataProvider} a named table runs on, brought by
+   * the host instead of built from the def. One entry per table; a table not
+   * named here is built exactly as it always was, so the default behaviour with
+   * this option absent is unchanged.
+   *
+   * It exists for two reasons, and they are the same reason twice.
+   *
+   * **A failing engine has to be testable through a door.** `DataProvider` is a
+   * port, and a real one behind it — a wasm build, an HTTP backend — can throw
+   * where the memory engine never does. The session's answer to that is a typed
+   * `effect-failed` gap and an act that still stands
+   * (`src/session/README.md`, law 1, rule 3), which is a real behaviour with a
+   * real test. That test used to reach `session.runtime.providerFor('data')`
+   * through a cast, because there was no seam: it asserted a public behaviour
+   * by going around the public surface, and nothing would have told it if the
+   * shape it reached through had moved.
+   *
+   * **A host may bring its own engine.** A DuckDB connection, a warehouse
+   * client, a fixture — anything that answers the port — without forking the
+   * resolver or declaring a fictional `engine` on the def.
+   *
+   * Judged at BUILD time like every other declaration, never at first query: a
+   * key naming no declared table, a value that does not answer the port, or a
+   * table that also declares a `source` (two answers to where its rows come
+   * from) is a {@link DashboardDefError} in a sentence. `dashboard.engines`
+   * reports the engine the PROVIDER names itself (that is the D24 audit's
+   * question — what answers this table — and the port already carries the
+   * answer), and `dashboard.notes` carries the sentence saying the def's own
+   * routing was never built, so the audit never claims an engine was built
+   * that was not.
+   */
+  readonly providers?: Readonly<Record<string, DataProvider>>;
 }
+
+/** The port's four methods — a provider that misses one cannot answer a query. */
+const PROVIDER_METHODS = ['tables', 'columns', 'evaluate', 'materializeColumn'] as const;
+/** …and the one data field the audit reads back: which engine the host's provider IS. */
+const RESOLVED_ENGINES: readonly ResolvedEngine[] = ['memory', 'wasm', 'server'];
+
+/**
+ * Judge {@link BuildDashboardOptions.providers} against the def, before a
+ * single table is built. Returns the sentences, in the order the keys were
+ * given — never throws, so both builders raise them the one way they raise
+ * every other def problem.
+ */
+function judgeProviders(def: DashboardDef, supplied: BuildDashboardOptions['providers']): string[] {
+  if (supplied === undefined) return [];
+  const problems: string[] = [];
+  const declared = Object.keys(def.data);
+  for (const [table, provider] of Object.entries(supplied)) {
+    if (!Object.prototype.hasOwnProperty.call(def.data, table)) {
+      problems.push(`providers["${table}"] names no declared table — the tables are ${declared.join(', ')}`);
+      continue;
+    }
+    if (provider === null || typeof provider !== 'object') {
+      problems.push(`providers["${table}"] is not a DataProvider — it must be an object with ${PROVIDER_METHODS.join(', ')}`);
+      continue;
+    }
+    const missing = PROVIDER_METHODS.filter((m) => typeof (provider as unknown as Record<string, unknown>)[m] !== 'function');
+    if (missing.length > 0) {
+      problems.push(`providers["${table}"] does not answer the DataProvider port — it is missing ${missing.join(', ')}`);
+      continue;
+    }
+    // `engine` is not decoration: it is what `dashboard.engines` reports for
+    // this table, so a provider that will not name itself leaves the audit
+    // saying something nobody wrote.
+    if (!RESOLVED_ENGINES.includes(provider.engine)) {
+      problems.push(`providers["${table}"].engine is "${String(provider.engine)}" — a DataProvider names which engine it is, one of ${RESOLVED_ENGINES.join(', ')}`);
+      continue;
+    }
+    if (def.data[table]!.source !== undefined) {
+      problems.push(`providers["${table}"] brings its own rows, and data["${table}"] declares a source — a table's rows come from one place; drop one of them`);
+    }
+  }
+  return problems;
+}
+
+/** The note a host-supplied table owes the audit: the def routed it somewhere nothing was built. */
+const hostProviderNote = (table: string, host: ResolvedEngine, declared: Engine): string =>
+  `data["${table}"]: the host supplied its own "${host}" provider — the declared engine "${declared}" was not built`;
 
 const DEFAULT_AVAILABLE: readonly ResolvedEngine[] = ['memory'];
 
@@ -239,6 +319,9 @@ function makeFdrStepperFactory(def: DashboardDef): () => FdrStepper {
 export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions = {}): Dashboard {
   const problems = validateDashboardDef(def);
   if (problems.length) throw new DashboardDefError(problems);
+  // the host's own engines, judged with the def and before a table is built
+  const hostProblems = judgeProviders(def, options.providers);
+  if (hostProblems.length) throw new DashboardDefError(hostProblems);
   // a table whose rows must be fetched cannot be built synchronously — say so rather than pretend
   const remote = Object.entries(def.data).filter(([, src]) => src.source !== undefined && src.source.via !== 'inline').map(([t, src]) => `data["${t}"] declares a source via ${src.source!.via} — build it with buildDashboardAsync`);
   if (remote.length) throw new DashboardDefError(remote);
@@ -252,6 +335,16 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
   const providers = new Map<string, DataProvider>();
   const engines: Record<string, Engine> = {};
   for (const [table, source] of Object.entries(def.data)) {
+    const host = options.providers?.[table];
+    if (host !== undefined) {
+      // the host brought this table's engine, so the audit reports the engine
+      // the PROVIDER says it is (judged above) and the note says the def's own
+      // routing was never built
+      engines[table] = host.engine;
+      providers.set(table, host);
+      notes.push(hostProviderNote(table, host.engine, source.engine ?? 'memory'));
+      continue;
+    }
     if (source.source !== undefined) {
       // an inline source: decoded here, the same rows `rows:` would have carried
       const rows = decodeRows(source.source.format, source.source.at, source.source.options);
@@ -277,6 +370,8 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
 export async function buildDashboardAsync(def: DashboardDef, options: BuildDashboardAsyncOptions = {}): Promise<Dashboard> {
   const problems = validateDashboardDef(def);
   if (problems.length) throw new DashboardDefError(problems);
+  const hostProblems = judgeProviders(def, options.providers);
+  if (hostProblems.length) throw new DashboardDefError(hostProblems);
   const available = options.availableEngines ?? DEFAULT_AVAILABLE;
   const notes: string[] = [];
   const sources: Record<string, SourceInfo> = {};
@@ -284,6 +379,16 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
   const providers = new Map<string, DataProvider>();
   const engines: Record<string, Engine> = {};
   for (const [table, source] of Object.entries(def.data)) {
+    const host = options.providers?.[table];
+    if (host !== undefined) {
+      // the same seam here, and the source is never opened for it: the judge
+      // above refuses a host provider on a table that declares one, so there is
+      // nothing to fetch and nothing to discard
+      engines[table] = host.engine;
+      providers.set(table, host);
+      notes.push(hostProviderNote(table, host.engine, source.engine ?? 'memory'));
+      continue;
+    }
     if (source.source !== undefined) {
       // the carrier's refusal is the def's problem, in the same shape the sync door raises it
       const snap = await readSource(source.source, table, options.sources ?? []);

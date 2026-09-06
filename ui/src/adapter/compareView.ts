@@ -121,9 +121,14 @@ export function entryDetail(e: RawFoldEntry): string {
     const l = e.link;
     return l ? `${l.source} ${l.kind} → ${l.target}: ${l.response}` : 'a link edit';
   }
-  // analysis: a declared-test entry lands under the pValue analog — surface p when
-  // numeric, rounded to 2 significant digits (plain words, not a float dump)
-  if (e.field === 'pValue' && typeof e.value === 'number') return `test ran (p = ${Number(e.value.toPrecision(2))})`;
+  // analysis: a declared-test entry lands under the pValue analog, whose value
+  // is the ACT — `{ id, table, pValue }` — so a replay can re-perform it. Surface
+  // the p when it is there, rounded to 2 significant digits (plain words, not a
+  // float dump); the id and the table are the entry's own label already.
+  if (e.field === 'pValue') {
+    const p = (e.value as { pValue?: unknown } | null | undefined)?.pValue;
+    if (typeof p === 'number') return `test ran (p = ${Number(p.toPrecision(2))})`;
+  }
   return 'ran';
 }
 

@@ -34,7 +34,14 @@ export {
   normalizingConstant,
 } from './gamma.js';
 
-export { hypothesisRecordsFromLog, branchIdFromLog, TEST_ANALOG_FIELD } from './fromLog.js';
+export {
+  hypothesisRecordsFromLog,
+  branchIdFromLog,
+  isTestAnalogCommit,
+  testActOf,
+  TEST_ANALOG_FIELD,
+  type TestAct,
+} from './fromLog.js';
 
 export {
   lordPlusPlus,

@@ -21,7 +21,7 @@ describe('branchIdFromLog — a dangling ancestor reference (parent id absent fr
       actorMeta: { actor: 'system' },
       kind: 'point',
       field: 'pValue',
-      value: 0.5,
+      value: { id: 'corr', table: 'data', pValue: 0.5 }, // the test lane's ACT
       cause: { requestedBy: 'agent', computedBy: 'system' },
       ts: 1,
     });

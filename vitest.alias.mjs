@@ -24,8 +24,16 @@ import { fileURLToPath } from 'node:url';
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'src');
 
-/** Door → the source module the exports map's `dist/` twin is built from. */
-const DOORS = {
+/**
+ * Door → the source module the exports map's `dist/` twin is built from.
+ *
+ * EXPORTED so the two resolutions can be compared rather than trusted:
+ * `packaging.test.mjs` reads this list and the `exports` map and fails if they
+ * name different doors. The key is the subpath after `vizfootprint/` (`'.'` for
+ * the root); the value is the path under `src/` the exports map's
+ * `dist/<same>.js` is built from.
+ */
+export const DOORS = {
   '.': 'agent/index.ts',
   agent: 'agent/index.ts',
   session: 'session/index.ts',

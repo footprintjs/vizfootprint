@@ -11,7 +11,8 @@ const SEL_POINT = { kind: 'selection', viewId: 'bar', clause: { kind: 'point', f
 const SEL_RANGE = { kind: 'selection', viewId: 'scatter', clause: { kind: 'interval', field: 'price', value: [30, 210] }, commitId: 'c2' } as const;
 const SEL_CLEAR = { kind: 'selection', viewId: 'scatter', clause: { kind: 'interval', field: 'price', value: null }, commitId: 'c3' } as const;
 const ENC = { kind: 'encoding', viewId: 'scatter', channel: 'x', field: 'x', value: 'price', commitId: 'c4' } as const;
-const TEST = { kind: 'analysis', analysisId: 'correlation', field: 'pValue', value: 0.004, commitId: 'c5' } as const;
+// the test lane's value is the ACT — `{ id, table, pValue }` — so a replay can re-perform it
+const TEST = { kind: 'analysis', analysisId: 'correlation', field: 'pValue', value: { id: 'correlation', table: 'data', pValue: 0.004 }, commitId: 'c5' } as const;
 const TRANSFORM = { kind: 'analysis', analysisId: 'cluster', field: '__analysis__', value: 'done', commitId: 'c6' } as const;
 
 describe('entryLabel / entryDetail — plain language for each fold-entry kind', () => {
@@ -31,7 +32,10 @@ describe('entryLabel / entryDetail — plain language for each fold-entry kind',
   });
 
   it('a tiny p rounds to 2 significant digits — plain words, never a float dump', () => {
-    expect(entryDetail({ kind: 'analysis', analysisId: 'corr', field: 'pValue', value: 0.00001855381883775209 })).toBe('test ran (p = 0.000019)');
+    expect(entryDetail({ kind: 'analysis', analysisId: 'corr', field: 'pValue', value: { id: 'corr', table: 'data', pValue: 0.00001855381883775209 } })).toBe('test ran (p = 0.000019)');
+    // the shape before this law — a bare number on the lane — is not read as a p any more
+    expect(entryDetail({ kind: 'analysis', analysisId: 'corr', field: 'pValue', value: 0.004 })).toBe('ran');
+    expect(entryDetail({ kind: 'analysis', analysisId: 'corr', field: 'pValue', value: null })).toBe('ran');
   });
 
   it('defensive wire arms: missing viewId/analysisId/clause/channel and non-scalar values stay safe words', () => {

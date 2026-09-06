@@ -42,7 +42,7 @@ import type { CommitInput, CommitRecord } from '../log/index.js';
 // no importer outside this package has asked for it — PACKAGING.md, Law 2.
 import { replayInput } from '../log/log.js';
 import type { ColumnsOutput } from '../analysis/index.js';
-import { TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord } from '../fdr/index.js';
+import { isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
 import { cellFieldLabel, derivedColumnName, isRejection, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchValue, type PredicateClause, type Row } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
@@ -651,7 +651,9 @@ class InteractionSessionImpl implements InteractionSession {
    * that WRITES A COLUMN, because a column's values are the one thing no log
    * carries (`../data/README.md`) — and the one thing such a re-performance
    * needs is the table the analysis read. So that is what the record carries
-   * ({@link AnalysisAct}) and what this reads back.
+   * ({@link AnalysisAct}) and what this reads back — on BOTH lanes, since a
+   * `kind:'test'` analysis's `pValue` slot carries the same act plus its p
+   * (`TestAct`). One question, asked once, of every record that has an answer.
    *
    * An analysis this session does not declare is NOT unperformable, and that
    * distinction is the whole line: nothing will be re-performed wrongly,
@@ -668,9 +670,10 @@ class InteractionSessionImpl implements InteractionSession {
     if (analysis === undefined || analysis.def.produces !== 'columns') return undefined;
     const act = analysisActOf(record.value);
     if (act === undefined) {
-      // The `pValue` lane reaches this honestly: its value slot is the
-      // p-value, so a `kind:'test'` analysis that also writes columns records
-      // no table and cannot be replayed. Refusing says so; guessing would not.
+      // Both lanes carry the act now — the `__analysis__` one and the `pValue`
+      // one — so this is reached only by a record this library did not write:
+      // a foreign log, or a hand-built one. Refusing says so; guessing would
+      // land real numbers under real provenance and look correct.
       return { unperformable: `analysis "${analysisId}" writes columns, and the record does not say which table it read` };
     }
     if (!this.runtime.tables.includes(act.table)) {
@@ -811,13 +814,20 @@ class InteractionSessionImpl implements InteractionSession {
       // replayed commit — so the provenance is rebuilt beside the values.
       // A columns transform reads the whole table, never the selection, so its
       // input-selection set is empty, exactly as `declareAnalysis` records it.
-      this.noteColumnProvenance(written.slots, {
+      const prov: WhyProvenance = {
         analysisId,
         declaringCommitId: rec.id,
         inputSelectionCommitIds: [],
         ...(run.snapshot ? { snapshot: run.snapshot } : {}),
         ...(rec.correlationId !== undefined ? { correlationId: rec.correlationId } : {}),
-      });
+      };
+      this.noteColumnProvenance(written.slots, prov);
+      // …and the hypothesis channel beside it, on the same rule the walk uses:
+      // a declared test is answerable by `why({kind:'hypothesis'})` whichever
+      // channel it produced on. It carries NO `fdrStep`, and that is the law
+      // rather than an omission — a replay never re-spends alpha, so the
+      // ledger row belongs to the walker who ran the test, not to the log.
+      if (analysis.kind === 'test') this.noteAnalysisProvenance(analysisId, prov);
       reran += 1;
     }
     // The fold, rebuilt from the tip — the one place this door leaves the
@@ -2962,9 +2972,12 @@ class InteractionSessionImpl implements InteractionSession {
     let landValue: unknown = { id, table } satisfies AnalysisAct;
     if (analysis.kind === 'test' && hypothesis) {
       // The L1-native test emission: a point commit on the reserved 'pValue'
-      // field (fromLog re-derives it; R6 holds — brushes never land here).
+      // field (fromLog re-derives it; R6 holds — brushes never land here). The
+      // slot carries the ACT and the p-value together: this lane's value used
+      // to be the bare number, which named neither the analysis nor the table
+      // it read — so a test that ALSO writes columns could not be replayed.
       landField = TEST_ANALOG_FIELD;
-      landValue = hypothesis.pValue;
+      landValue = { id, table, pValue: hypothesis.pValue } satisfies TestAct;
     }
     const { record } = this.log.commit({
       id: this.nextId(),
@@ -3013,6 +3026,11 @@ class InteractionSessionImpl implements InteractionSession {
     const output = run.result.output;
     if (output.as === 'columns') {
       this.noteColumnProvenance(slots, baseProv);
+      // A `kind:'test'` analysis is a HYPOTHESIS whichever channel it produced
+      // on. `why({kind:'hypothesis'})` names it by its analysis id, and the
+      // columns channel must not be the reason that question has no answer —
+      // the test really ran, and its ledger row is right there in `baseProv`.
+      if (analysis.kind === 'test') this.noteAnalysisProvenance(id, baseProv);
     } else if (output.as === 'scalar') {
       // The scalar's kernel key is the (unique) committed state key holding its
       // value; unresolved (ambiguous/absent) → `why()` reports a kernel miss.
@@ -3188,7 +3206,10 @@ class InteractionSessionImpl implements InteractionSession {
       actorMeta: { actor: computedBy },
       kind: 'point',
       field: TEST_ANALOG_FIELD,
-      value: 1,
+      // ONE shape on this lane, for every writer of it: the act, and the
+      // p-value it entered at. A chart's act is the chart, read over the table
+      // its claim was judged against just above.
+      value: { id, table: this.defaultTable, pValue: 1 } satisfies TestAct,
       cause: stamped,
     });
     this.landed(hypothesisCommit);
@@ -3451,9 +3472,7 @@ class InteractionSessionImpl implements InteractionSession {
 
     // ── the two-truths inputs (Phase A): cursor-local vs global (below in `fdr`) ──
     const cursorPath = this.branchPath(this._cursor);
-    const cursorTests = cursorPath.filter(
-      (r) => r.kind === 'point' && r.field === TEST_ANALOG_FIELD && typeof r.value === 'number',
-    ).length;
+    const cursorTests = cursorPath.filter(isTestAnalogCommit).length;
     const time: TimeState = {
       cursor: this._cursor,
       head: this._head,

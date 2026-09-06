@@ -12,14 +12,25 @@
  * the Mosaic clause kind (`src/log/log.ts:61`) — NOT an FDR concept, and this
  * packet does not touch `src/log`. A commit is read as a DECLARED-ANALYSIS
  * TEST EMISSION iff it is a point commit on the reserved field `'pValue'`
- * carrying a finite number in [0,1] — the L1-native way to say "this commit's
- * value IS a test's p-value". This mirrors how L3's `defineAnalysis` already
- * treats `kind:'test'` as the sole thing that arms the FDR gate
+ * whose value is a {@link TestAct}: the act that ran, and the p-value it
+ * produced. This mirrors how L3's `defineAnalysis` already treats
+ * `kind:'test'` as the sole thing that arms the FDR gate
  * (`src/analysis/defineAnalysis.ts:171-181`): everything else (ordinary
  * point/interval brushes) passes through the log untouched and is simply not
  * a hypothesis. That IS invariant R6 (a brush is not a test) enforced at the
  * L1 rail — the ordinary-brush skip is proven in `fromLog.test.ts`, the L1
  * analog of the L3 proof at `src/analysis/builtins.test.ts:158-182`.
+ *
+ * The value slot used to be the BARE p-value, and that was the last lane on
+ * the wire that did not obey the law a commit is written to: *a commit records
+ * enough of an act to perform it again, or it is not a record of the act*
+ * (`src/session/README.md`, law 6). A number names neither the analysis nor
+ * the table it read, so a `kind:'test'` analysis that ALSO writes columns was
+ * a capability the library permitted and could not replay — it was refused at
+ * judge time for saying so honestly. The slot carries the ACT now, and the
+ * p-value rides beside it. There is no alias and no fallback for the bare
+ * number: a shape whose only reader is a mistake is not a shape worth staying
+ * compatible with.
  *
  * ---- field mapping ----------------------------------------------------------
  * `hypothesisId` <- `correlationId` when present (L1's first-class cross-tier
@@ -39,19 +50,43 @@
 import type { CommitRecord } from '../log/index.js';
 import type { HypothesisRecord } from './types.js';
 
-/** The reserved field name a declared-analysis test emission commits its p-value under. */
+/** The reserved field name a declared-analysis test emission commits its act under. */
 export const TEST_ANALOG_FIELD = 'pValue';
 
-/** A commit is a declared-analysis test emission iff it is a point commit on the reserved 'pValue' field carrying a valid p-value. */
-function isTestAnalogCommit(r: CommitRecord): boolean {
-  return (
-    r.kind === 'point' &&
-    r.field === TEST_ANALOG_FIELD &&
-    typeof r.value === 'number' &&
-    Number.isFinite(r.value) &&
-    r.value >= 0 &&
-    r.value <= 1
-  );
+/**
+ * WHAT A `pValue` COMMIT'S VALUE CARRIES — the act, and the p-value it made.
+ *
+ * `id` and `table` are the SAME pair the `__analysis__` lane carries
+ * (`AnalysisAct`, `src/session/namespaces.ts`), deliberately: the question a
+ * replay asks of either lane is "which analysis, over which table?", and one
+ * reader answers it for both. This file adds only the half FDR needs.
+ */
+export interface TestAct {
+  /** The declared analysis (or agent-authored chart) this commit ran. Also in the `viewId`; kept here so the value is the whole act. */
+  readonly id: string;
+  /** The table it READ. Not the table its output landed in — that is the analysis's own declared data. */
+  readonly table: string;
+  /** The p-value the test produced. A finite number in [0,1]; an untested visual claim enters at 1. */
+  readonly pValue: number;
+}
+
+/**
+ * The act a `pValue` commit records, or `undefined` when its value does not
+ * carry one — a foreign log, a hand-built record, or the bare number this lane
+ * used to carry. Total: it never throws and never guesses.
+ */
+export function testActOf(value: unknown): TestAct | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const { id, table, pValue } = value as { id?: unknown; table?: unknown; pValue?: unknown };
+  if (typeof id !== 'string' || id.length === 0) return undefined;
+  if (typeof table !== 'string' || table.length === 0) return undefined;
+  if (typeof pValue !== 'number' || !Number.isFinite(pValue) || pValue < 0 || pValue > 1) return undefined;
+  return { id, table, pValue };
+}
+
+/** A commit is a declared-analysis test emission iff it is a point commit on the reserved 'pValue' field carrying a {@link TestAct}. */
+export function isTestAnalogCommit(r: Pick<CommitRecord, 'kind' | 'field' | 'value'>): boolean {
+  return r.kind === 'point' && r.field === TEST_ANALOG_FIELD && testActOf(r.value) !== undefined;
 }
 
 /**
@@ -120,10 +155,13 @@ export function hypothesisRecordsFromLog(
   const out: HypothesisRecord[] = [];
   for (const r of records) {
     if (!isTestAnalogCommit(r)) continue;
+    // The predicate above IS `testActOf` over the same value — one owner of the
+    // shape, read twice rather than spelled twice.
+    const act = testActOf(r.value) as TestAct;
     const branchId = branchOf.get(r.id);
     out.push({
       hypothesisId: r.correlationId ?? r.id,
-      pValue: r.value as number,
+      pValue: act.pValue,
       timestamp: r.ts,
       ...(branchId !== undefined ? { branchId } : {}),
     });

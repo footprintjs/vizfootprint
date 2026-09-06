@@ -21,6 +21,7 @@ import { foldOnce, numbers } from '../data/fold.js';
 import { quantileBins } from '../analysis/stats.js';
 import { reject, type DataProvider } from '../data/index.js';
 import { serializeLog, type CommitRecord } from '../log/index.js';
+import { hypothesisRecordsFromLog } from '../fdr/index.js';
 import { analysisActOf } from './namespaces.js';
 import type { Cause } from '../cause/index.js';
 import type { DashboardDef } from '../def/index.js';
@@ -61,12 +62,32 @@ function columnAnalysis(opts: { id: string; from: string; k: number; out: string
   });
 }
 
+/**
+ * The same columns-channel analysis, declared as a TEST — it writes a column
+ * AND emits a p-value. The lane it lands on (`pValue`) used to carry the bare
+ * number, so this exact combination was the one act the library permitted and
+ * could not replay.
+ */
+function testColumnAnalysis(opts: { id: string; from: string; k: number; out: string; table?: string; p: number }): AnalysisModule<readonly DataRow[], ColumnsOutput> {
+  const plain = columnAnalysis(opts);
+  return defineAnalysis<readonly DataRow[], ColumnsOutput>({
+    ...plain.def,
+    kind: 'test',
+    test: { statistic: 'made-up', pValue: () => opts.p },
+  });
+}
+
 function defWith(analyses: DashboardDef['analyses']): DashboardDef {
   const base = makeDashboardDef();
   return { ...base, analyses: { ...base.analyses, ...analyses } };
 }
 
-/** Reached the way the sibling suites reach it — there is no provider-injection seam. */
+/**
+ * A provider that is already BUILT, made to fail mid-replay. `buildDashboard`'s
+ * `providers` seam is the door for bringing a failing engine (and
+ * `atomicity.test.ts` uses it); these two want the failure to start after the
+ * session exists, so they reach the built one directly.
+ */
 const providerOf = (s: unknown): DataProvider =>
   (s as { runtime: { providerFor(t: string): DataProvider } }).runtime.providerFor('data');
 
@@ -552,29 +573,19 @@ describe('a record whose act cannot be performed again is refused at judge time'
     expect(s.cursor()).toBeNull();
   });
 
-  it('a columns analysis whose record names no table is refused — the pValue lane cannot carry one', async () => {
-    // a kind:'test' analysis that ALSO writes columns: its value slot is the
-    // p-value (the L1↔L4 convention), so the act records no table at all
-    const testWithColumns = defineAnalysis<readonly DataRow[], ColumnsOutput>({
-      id: 'tested', kind: 'test', produces: 'columns', inputs: [{ column: 'price', role: 'value' }],
-      build: () => flowChart<Record<string, unknown>>('load', (scope) => {
-          scope.$setValue('vals', scope.$getArgs<{ values: number[] }>().values);
-        }, 'load').addFunction('bin', (scope) => {
-          scope.$setValue('risk', quantileBins(scope.$getValue('vals') as number[], 2));
-        }, 'cluster').build(),
-      toRunInput: (rows) => ({ values: foldOnce(rows, { v: numbers('price') }).v.values }),
-      readOutput: () => ({ ok: true, output: { as: 'columns', table: 'data', columns: { risk: { type: 'int' } } } }),
-      test: { statistic: 'made-up', pValue: () => 0.01 },
-    });
-    const def = defWith({ tested: testWithColumns });
+  it('a record whose value carries no act at all is refused — a foreign or hand-built log', async () => {
+    // Both lanes carry the act now, so the only way here is a record this
+    // library did not write. The value slot is inert data: the parser accepts
+    // any type in it, and the judge is where "this cannot be re-performed" is
+    // said — before anything moves.
+    const def = defWith({ byPrice: columnAnalysis({ id: 'byPrice', from: 'price', k: 4, out: 'risk' }) });
     const source = buildDashboard(def).createSession();
-    const made = await source.declareAnalysis('tested');
-    expect(made.commit!.field).toBe('pValue');        // the lane that is spoken for
-    expect(made.commit!.value).toBe(0.01);
-    expect(made.materialized).toEqual(['risk']);      // it really did write a column
+    await source.declareAnalysis('byPrice');
+    const wire = JSON.parse(serializeLog(source.log.records)) as { value: unknown }[];
+    wire[0]!.value = 'byPrice'; // the shape before the law: the id alone
 
     const s = buildDashboard(def).createSession();
-    const res = await s.replay(source.log.records);
+    const res = await s.replay(JSON.stringify(wire));
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.gap.detail).toContain('cannot be re-performed');
@@ -600,9 +611,13 @@ describe('a record whose act cannot be performed again is refused at judge time'
 describe('analysisActOf — the reader of the act slot, on everything it can be handed', () => {
   it('reads an act, and refuses everything that is not one', () => {
     expect(analysisActOf({ id: 'byPrice', table: 'data' })).toEqual({ id: 'byPrice', table: 'data' });
+    // a TEST act reads as an act here too — its extra `pValue` is not this
+    // reader's business, and that is what lets a replay ask ONE question of
+    // both lanes rather than special-casing one of them
+    expect(analysisActOf({ id: 'tested', table: 'other', pValue: 0.01 })).toEqual({ id: 'tested', table: 'other' });
     // a foreign or hand-built log can put anything in an inert value slot
     expect(analysisActOf(null)).toBeUndefined();
-    expect(analysisActOf(0.03)).toBeUndefined();          // the pValue lane
+    expect(analysisActOf(0.03)).toBeUndefined();          // the shape the pValue lane used to carry
     expect(analysisActOf('byPrice')).toBeUndefined();     // the shape before this law
     expect(analysisActOf(['byPrice', 'data'])).toBeUndefined();
     expect(analysisActOf({ table: 'data' })).toBeUndefined();
@@ -610,6 +625,83 @@ describe('analysisActOf — the reader of the act slot, on everything it can be 
     expect(analysisActOf({ id: 'byPrice' })).toBeUndefined();
     expect(analysisActOf({ id: 'byPrice', table: 7 })).toBeUndefined();
     expect(analysisActOf({ id: 'byPrice', table: '' })).toBeUndefined();
+  });
+});
+
+/**
+ * THE LAST LANE THAT DID NOT OBEY THE LAW.
+ *
+ * "A commit records enough of an act to perform it again, or it is not a record
+ * of the act." The `__analysis__` lane learned that rule first; the `pValue`
+ * lane did not, because its whole value slot was the p-value. So a `kind:'test'`
+ * analysis that ALSO writes columns recorded neither the analysis nor the table
+ * it read, and a log holding one was refused at judge time — a capability the
+ * library permitted and could not replay.
+ *
+ * The slot carries the act now (`{ id, table, pValue }`), and this is the pin
+ * that it reaches all the way through: declared, run, serialized, replayed into
+ * a fresh session, and the three things that could disagree do not.
+ */
+describe('a test analysis that also writes columns is replayed like any other act', () => {
+  it('the ledger rebuild, the hypothesis answer and the column all agree on both sides', async () => {
+    // `other` runs prices the other way, so a replay over the DEFAULT table
+    // would land visibly different numbers under this act's own commit id
+    const def = twoTableDef({ tested: testColumnAnalysis({ id: 'tested', from: 'price', k: 4, out: 'risk', table: 'other', p: 0.01 }) });
+    const source = buildDashboard(def).createSession();
+    const made = await source.declareAnalysis('tested', { table: 'other' });
+
+    // the RECORD: the act, and the p it made — on the lane that used to carry only the p
+    expect(made.commit!.field).toBe('pValue');
+    expect(made.commit!.value).toEqual({ id: 'tested', table: 'other', pValue: 0.01 });
+    expect(made.materialized).toEqual(['risk']);   // it really did write a column
+    expect(made.fdrStep!.step).toBe(1);            // and really did spend a ledger step
+
+    const walkedColumn = await columnAt(source, 'risk', 'other');
+    const walkedStream = hypothesisRecordsFromLog(source.log.records);
+    const walkedWhy = source.why({ kind: 'hypothesis', analysisId: 'tested' });
+    expect(walkedStream).toEqual([{ hypothesisId: made.commit!.id, pValue: 0.01, timestamp: made.commit!.ts }]);
+
+    // ── somewhere else entirely: a fresh session, and nothing but the log ──
+    const replayed = buildDashboard(def).createSession();
+    const res = await replayed.replay(serializeLog(source.log.records));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect({ landed: res.landed, reran: res.reran, filed: res.filed }).toEqual({ landed: 1, reran: 1, filed: 0 });
+
+    // ① the FDR LEDGER REBUILD — the same arrival stream, off the log alone
+    expect(hypothesisRecordsFromLog(replayed.log.records)).toEqual(walkedStream);
+
+    // ② the HYPOTHESIS answer — the same target, anchored at the same commit
+    const replayedWhy = replayed.why({ kind: 'hypothesis', analysisId: 'tested' });
+    expect(walkedWhy.ok).toBe(true);
+    expect(replayedWhy.ok).toBe(true);
+    if (!walkedWhy.ok || !replayedWhy.ok) return;
+    expect(replayedWhy.key).toBe(walkedWhy.key);
+    expect(replayedWhy.viz).toEqual(walkedWhy.viz);
+    expect(replayedWhy.viz.commitId).toBe(made.commit!.id);   // the id survived the replay
+    expect(replayedWhy.commits.filter((c) => c.tier === 'viz')).toEqual(walkedWhy.commits.filter((c) => c.tier === 'viz'));
+    // …and the ONE thing that deliberately does NOT come back: the ledger row.
+    // A replay never re-spends alpha (law 6), so the step belongs to the walker
+    // who ran the test, not to the log.
+    expect(walkedWhy.fdr).toEqual({ step: 1, reject: made.fdrStep!.reject });
+    expect(replayedWhy.fdr).toBeUndefined();
+
+    // ③ the COLUMN — re-performed over THE TABLE THE RECORD NAMED
+    expect(await columnAt(replayed, 'risk', 'other')).toEqual(walkedColumn);
+    expect(walkedColumn.some((v) => v !== walkedColumn[0])).toBe(true); // not a column of one repeated value
+  });
+
+  it('a record naming a table this dashboard does not declare is still refused at judge time', async () => {
+    // the widened lane does not soften the judge: it makes the judge POSSIBLE
+    const def = twoTableDef({ tested: testColumnAnalysis({ id: 'tested', from: 'price', k: 4, out: 'risk', table: 'other', p: 0.01 }) });
+    const source = buildDashboard(def).createSession();
+    await source.declareAnalysis('tested', { table: 'other' });
+
+    const narrower = defWith({ tested: testColumnAnalysis({ id: 'tested', from: 'price', k: 4, out: 'risk', table: 'other', p: 0.01 }) });
+    const res = await buildDashboard(narrower).createSession().replay(source.log.records);
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.gap.detail).toContain('read table "other", which this dashboard does not declare');
   });
 });
 

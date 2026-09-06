@@ -117,7 +117,10 @@ export function buildBrushStream(opts: BrushStreamOptions): {
       actorMeta: { actor: 'agent' },
       kind: 'point',
       field: 'pValue',
-      value: pValues[i]!,
+      // the test lane's ACT — `{ id, table, pValue }`: the record has to name
+      // the analysis and the table it read, or it is not a record of the act
+      // (`src/fdr/fromLog.ts`, the test-analog convention)
+      value: { id: 'brush-noise', table: 'data', pValue: pValues[i]! },
       cause: { requestedBy: 'agent', computedBy: 'system' },
       ts: i + 1,
     });

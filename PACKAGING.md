@@ -266,6 +266,11 @@ the library rather than in the resolution.
 to one and not the other is the drift to watch for**, and it shows up as a test
 that passes while the demo cannot resolve the import, or the reverse.
 
+**`packaging.test.mjs` (beside this file) reads both lists and fails if they
+name different doors** — or different modules behind the same door — with a
+sentence naming the side the door is missing from. It is the one thing here that
+is enforced rather than remembered.
+
 ---
 
 ## Consumers
@@ -300,7 +305,8 @@ somewhere.
    deciding this will read the barrel, not this file.
 4. **Add it in BOTH places**: the `exports` map in `package.json` and the `DOORS`
    list in `vitest.alias.mjs`. One without the other is the drift Law 4's last
-   section describes.
+   section describes — and `packaging.test.mjs` fails the suite until both name
+   it.
 5. **Add the row to Law 1's table.** A door nobody can find is a door nobody
    uses, and the next reader will reach for a relative path instead.
 6. **Prove it resolves**, from the demo and not from here: `import.meta.resolve`

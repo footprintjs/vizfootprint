@@ -22,10 +22,10 @@
 import { describe, it, expect } from 'vitest';
 import { buildDashboard } from '../def/index.js';
 import type { DashboardDef } from '../def/index.js';
-import { makeDashboardDef } from './dashboard.fixture.js';
+import { makeDashboardDef, SAMPLE_ROWS } from './dashboard.fixture.js';
 import type { Cause } from '../cause/index.js';
 import type { CauseClause } from '../mosaic/index.js';
-import type { DataProvider } from '../data/index.js';
+import { memoryProvider } from '../data/index.js';
 import type { InteractionSession } from './session.js';
 
 const userCause = (intent?: string): Cause => ({ requestedBy: 'user', computedBy: 'user', ...(intent ? { intent } : {}) });
@@ -230,15 +230,17 @@ describe("the live selection's own listeners cannot un-land a commit either", ()
 
 describe('a provider that throws while writing a column back does not lose the analysis', () => {
   it('the declaring commit stands, the throw is a typed gap, and the column is honestly not materialized', async () => {
-    const s = freshSession();
-    // The only way to make a REAL provider throw is to reach the one this
-    // dashboard built — there is no injection seam, and the window is real
-    // (a wasm engine or an HTTP backend can throw where the memory one cannot).
-    // The rest of the test drives the public surface.
-    const provider = (s as unknown as { runtime: { providerFor(t: string): DataProvider } }).runtime.providerFor('data');
-    provider.materializeColumn = async () => {
+    // The window is real — a wasm engine or an HTTP backend can throw where the
+    // memory one cannot — and it is reached through the DOOR: `buildDashboard`'s
+    // `providers` seam lets a host bring the engine a table runs on, so a
+    // failing one is a declaration rather than a cast into `session.runtime`.
+    const failing = memoryProvider(SAMPLE_ROWS, { tableName: 'data' });
+    failing.materializeColumn = async () => {
       throw new Error('the column store is read-only');
     };
+    const dash = buildDashboard(heatmapDef(), { providers: { data: failing } });
+    expect(dash.notes).toContain('data["data"]: the host supplied its own "memory" provider — the declared engine "memory" was not built');
+    const s = dash.createSession();
 
     const before = s.log.records.length;
     const res = await s.declareAnalysis('clustering');

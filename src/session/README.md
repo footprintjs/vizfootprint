@@ -850,14 +850,61 @@ act that WOULD be attempted, over rows nobody can name, is the opposite: it
 lands real numbers under real provenance and looks exactly like a correct
 answer. That one has to stop before anything moves.
 
-**One lane genuinely cannot carry the act, and it is refused for saying so.** A
-`kind: 'test'` analysis lands on the reserved `pValue` field, whose value slot
-IS the p-value — the L1↔L4 convention `src/fdr/fromLog.ts` documents and
-`isTestAnalogCommit` enforces. A test analysis that ALSO writes columns
-therefore records no table, and a log holding one is refused at judge time
+**And then the last lane obeyed it too.** The rule above was stated for the
+`__analysis__` lane, and one lane was left outside it. A `kind: 'test'`
+analysis lands on the reserved `pValue` field, and that field's value slot WAS
+the p-value — a bare number, by the L1↔L4 convention `src/fdr/fromLog.ts`
+documents and `isTestAnalogCommit` enforces. A number names neither the
+analysis nor the table it read, so a test analysis that ALSO writes columns
+recorded no table, and a log holding one was refused at judge time
 (*"analysis "tested" writes columns, and the record does not say which table it
-read"*) rather than replayed over a guess. The refusal is the honest reading of
-this section's own title: that record is not a record of its act.
+read"*). That refusal was honest — that record really was not a record of its
+act — but what it described was a capability this library PERMITS and could not
+replay. The honest refusal was the symptom; the incomplete record was the
+defect.
+
+So the lane carries the act, exactly as the other one does, with the p-value
+beside it:
+
+```ts
+made.commit.field;   // 'pValue'
+made.commit.value;   // { id: 'tested', table: 'other', pValue: 0.01 }
+```
+
+`TestAct` (`src/fdr/fromLog.ts`) is `AnalysisAct` widened by one number, and
+that is the point: `analysisActOf` reads the act half off EITHER lane, so
+`actToReperform` asks one question of both and the special case disappeared
+rather than being handled. `isTestAnalogCommit` and every reader of the lane —
+the FDR ledger rebuild (`hypothesisRecordsFromLog`),
+`overview().time.cursorTests`, the compare view's words — read the widened shape
+and nothing else. **There is no alias and no fallback for the bare number**, for
+the reason this whole section gives: a shape whose only reader is a mistake is
+not a shape worth staying compatible with.
+
+Two consequences, both deliberate:
+
+- **A declared TEST is answerable by `why({kind:'hypothesis'})` whichever
+  channel it produced on.** It used to be indexed by analysis id only when it
+  produced a scalar, a table or a fit; a columns output sent it to the column
+  index alone, so the one question you ask a test — *why this hypothesis?* — had
+  no answer for a test that also wrote a column. It is indexed on both channels
+  now, on the walk and on the replay.
+- **The ledger row does not come back, and that is law rather than omission.**
+  A replay never re-spends alpha, so `why(...).fdr` is present on the walk and
+  absent on the replay. The arrival STREAM does come back —
+  `hypothesisRecordsFromLog` re-derives the same hypothesis and the same p from
+  the log alone — which is the difference between rebuilding the ledger and
+  re-charging for it.
+
+**The judge did not soften — it became possible.** A record naming a table this
+dashboard does not declare is still refused before anything moves, on either
+lane. What is left of the old refusal is the case it was really for: a record
+this library did not write, whose value slot carries no act at all.
+
+Pinned by `replay.test.ts` — "a test analysis that also writes columns is
+replayed like any other act": declared, run, serialized, replayed into a fresh
+session, and the ledger rebuild, the hypothesis answer and the column all agree
+on both sides.
 
 ### A commit may only mean what JSON can carry — so cleared is spelled `null`, once
 

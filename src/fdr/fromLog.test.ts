@@ -7,7 +7,10 @@
 
 import { describe, it, expect } from 'vitest';
 import { CauseSelectionSession } from '../log/index.js';
-import { hypothesisRecordsFromLog, branchIdFromLog } from './fromLog.js';
+import { hypothesisRecordsFromLog, branchIdFromLog, testActOf } from './fromLog.js';
+
+/** The test lane's value: the ACT (which analysis, over which table) and the p it made. */
+const act = (pValue: unknown, over = 'data'): unknown => ({ id: 'corr', table: over, pValue });
 
 describe('hypothesisRecordsFromLog — L1 CommitRecord -> HypothesisRecord', () => {
   it('R6 analog: ordinary brushes (point/interval, not field "pValue") emit ZERO hypotheses', () => {
@@ -46,7 +49,7 @@ describe('hypothesisRecordsFromLog — L1 CommitRecord -> HypothesisRecord', () 
       actorMeta: { actor: 'system' },
       kind: 'point',
       field: 'pValue',
-      value: 0.0123,
+      value: act(0.0123),
       cause: { requestedBy: 'agent', computedBy: 'system' },
       ts: 7,
     });
@@ -66,7 +69,7 @@ describe('hypothesisRecordsFromLog — L1 CommitRecord -> HypothesisRecord', () 
       actorMeta: { actor: 'system' },
       kind: 'point',
       field: 'pValue',
-      value: 0.4,
+      value: act(0.4),
       cause: { requestedBy: 'agent', computedBy: 'system' },
       ts: 1,
     });
@@ -83,7 +86,7 @@ describe('hypothesisRecordsFromLog — L1 CommitRecord -> HypothesisRecord', () 
       actorMeta: { actor: 'system' },
       kind: 'point',
       field: 'pValue',
-      value: 1.5, // out of [0,1]
+      value: act(1.5), // out of [0,1]
       cause: { requestedBy: 'agent', computedBy: 'system' },
     });
     expect(hypothesisRecordsFromLog(session.records)).toEqual([]);
@@ -101,7 +104,7 @@ describe('hypothesisRecordsFromLog — L1 CommitRecord -> HypothesisRecord', () 
         actorMeta: { actor: 'system' },
         kind: 'point',
         field: 'pValue',
-        value: 0.5,
+        value: act(0.5),
         cause: { requestedBy: 'agent', computedBy: 'system' },
         ts: i + 1,
       });
@@ -138,7 +141,7 @@ describe('hypothesisRecordsFromLog — L1 CommitRecord -> HypothesisRecord', () 
         actorMeta: { actor: 'system' },
         kind: 'point',
         field: 'pValue',
-        value: 0.5,
+        value: act(0.5),
         cause: { requestedBy: 'agent', computedBy: 'system' },
       });
     }
@@ -164,19 +167,42 @@ describe('hypothesisRecordsFromLog — L1 CommitRecord -> HypothesisRecord', () 
     // Author interleaved: main, abandoned, main, abandoned — arrival order.
     session.commit({
       id: 'main-1', parent: 'root', viewId: 'v', actorMeta: { actor: 'system' },
-      kind: 'point', field: 'pValue', value: 0.1, cause: { requestedBy: 'agent', computedBy: 'system' }, ts: 1,
+      kind: 'point', field: 'pValue', value: act(0.1), cause: { requestedBy: 'agent', computedBy: 'system' }, ts: 1,
     });
     session.commit({
       id: 'abandoned-1', parent: 'root', viewId: 'v', actorMeta: { actor: 'system' },
-      kind: 'point', field: 'pValue', value: 0.2, cause: { requestedBy: 'agent', computedBy: 'system' }, ts: 2,
+      kind: 'point', field: 'pValue', value: act(0.2), cause: { requestedBy: 'agent', computedBy: 'system' }, ts: 2,
     });
     session.commit({
       id: 'main-2', parent: 'main-1', viewId: 'v', actorMeta: { actor: 'system' },
-      kind: 'point', field: 'pValue', value: 0.3, cause: { requestedBy: 'agent', computedBy: 'system' }, ts: 3,
+      kind: 'point', field: 'pValue', value: act(0.3), cause: { requestedBy: 'agent', computedBy: 'system' }, ts: 3,
     });
 
     const stream = hypothesisRecordsFromLog(session.records);
     expect(stream.map((h) => h.pValue)).toEqual([0.1, 0.2, 0.3]);
     expect(stream.map((h) => h.timestamp)).toEqual([1, 2, 3]);
+  });
+});
+
+describe('testActOf — the reader of the test lane, on everything it can be handed', () => {
+  it('reads the act and its p, and refuses everything that is not one', () => {
+    expect(testActOf({ id: 'corr', table: 'data', pValue: 0.01 })).toEqual({ id: 'corr', table: 'data', pValue: 0.01 });
+    expect(testActOf({ id: 'corr', table: 'data', pValue: 0 })).toEqual({ id: 'corr', table: 'data', pValue: 0 });
+    expect(testActOf({ id: 'corr', table: 'data', pValue: 1 })).toEqual({ id: 'corr', table: 'data', pValue: 1 });
+    // the shape before this law: a bare number names neither the analysis nor
+    // the table, so it is not a record of the act — no alias, no fallback
+    expect(testActOf(0.01)).toBeUndefined();
+    expect(testActOf(null)).toBeUndefined();
+    expect(testActOf(['corr', 'data', 0.01])).toBeUndefined();
+    expect(testActOf({ table: 'data', pValue: 0.01 })).toBeUndefined();
+    expect(testActOf({ id: '', table: 'data', pValue: 0.01 })).toBeUndefined();
+    expect(testActOf({ id: 'corr', pValue: 0.01 })).toBeUndefined();
+    expect(testActOf({ id: 'corr', table: 7, pValue: 0.01 })).toBeUndefined();
+    expect(testActOf({ id: 'corr', table: '', pValue: 0.01 })).toBeUndefined();
+    expect(testActOf({ id: 'corr', table: 'data' })).toBeUndefined();
+    expect(testActOf({ id: 'corr', table: 'data', pValue: '0.01' })).toBeUndefined();
+    expect(testActOf({ id: 'corr', table: 'data', pValue: Number.NaN })).toBeUndefined();
+    expect(testActOf({ id: 'corr', table: 'data', pValue: -0.1 })).toBeUndefined();
+    expect(testActOf({ id: 'corr', table: 'data', pValue: 1.5 })).toBeUndefined();
   });
 });

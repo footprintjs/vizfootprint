@@ -54,11 +54,14 @@ export const CHART_FIELD = '__chart__';
  * under the right provenance, silently. The table lives here now, beside the
  * identity, because the identity is what the slot was already for.
  *
- * The `pValue` lane (a `kind:'test'` analysis, `TEST_ANALOG_FIELD`) cannot
- * carry this: its value slot IS the p-value, by the L1↔L4 convention
- * `src/fdr/fromLog.ts` documents and `isTestAnalogCommit` enforces. So a test
- * analysis that also writes COLUMNS records no table — and a replay refuses
- * such a log at judge time rather than guessing. See `./README.md`, law 6.
+ * The `pValue` lane (a `kind:'test'` analysis, `TEST_ANALOG_FIELD`) carries the
+ * SAME two fields, plus the p-value: `TestAct` (`src/fdr/fromLog.ts`) is this
+ * shape widened by one number. It used to carry the bare p-value and nothing
+ * else, which made a test analysis that ALSO writes columns a capability the
+ * library permitted and could not replay — refused at judge time for saying so
+ * honestly. One reader ({@link analysisActOf}) now answers "which analysis,
+ * over which table?" for both lanes, which is why the refusal is gone rather
+ * than special-cased. See `./README.md`, law 6.
  */
 export interface AnalysisAct {
   /** The declared analysis this commit ran. Also in the `viewId`; kept here so the value is the whole act. */
@@ -68,9 +71,11 @@ export interface AnalysisAct {
 }
 
 /**
- * The act an `__analysis__` commit records, or `undefined` when its value does
- * not carry one — a foreign log, a hand-built record, or the `pValue` lane,
- * whose slot is spoken for. Total: it never throws and never guesses.
+ * The act an analysis commit records — on EITHER lane — or `undefined` when its
+ * value does not carry one: a foreign log, or a hand-built record. Total: it
+ * never throws and never guesses. A `TestAct` reads as an act here (its extra
+ * `pValue` is simply not this reader's business), which is what lets a replay
+ * ask one question of both lanes.
  */
 export function analysisActOf(value: unknown): AnalysisAct | undefined {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
