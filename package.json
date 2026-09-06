@@ -80,6 +80,7 @@
   "sideEffects": false,
   "workspaces": [
     "ui",
+    "studio",
     "bridges/vega-lite"
   ],
   "scripts": {

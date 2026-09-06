@@ -1,7 +1,22 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 // The doors resolve to SOURCE in a test run and to dist everywhere else —
 // vitest.alias.mjs says why, and is the one list all three configs share.
 import { vizfootprintAliases } from './vitest.alias.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+/**
+ * A coverage include, ANCHORED at this file's directory.
+ *
+ * A relative pattern here is matched loosely: `'src/**'` also matches
+ * `<any workspace>/src/**`, so a NEW workspace joined the 100% gate the day it
+ * appeared, without ever being named in the list below — measured, not assumed
+ * (`studio/` did exactly that). Each workspace's coverage is its own gate, the
+ * way `ui/` and the vega-lite bridge already have their own configs; this list
+ * is the LIBRARY's, and anchoring is what keeps it to the five trees it names.
+ */
+const own = (...globs: readonly string[]): string[] => globs.map((g) => path.join(HERE, g));
 
 export default defineConfig({
   // `dedupe`: this run globs the ui suite too, and the story stage renders storydeck — a LINKED
@@ -19,7 +34,7 @@ export default defineConfig({
     // unreachable defensive arms carry documented `/* v8 ignore */` comments
     // at the site.
     coverage: {
-      include: ['src/**', 'ui/src/**', 'demo/src/**', 'demo-agent/src/**', 'bridges/vega-lite/src/**'],
+      include: own('src/**', 'ui/src/**', 'demo/src/**', 'demo-agent/src/**', 'bridges/vega-lite/src/**'),
       // `include: ['src/**']` sweeps in the READMEs that sit beside the code
       // (this repo keeps a small one per feature folder). The v8 provider then
       // tries to parse each as JavaScript when it accounts for uncovered files
