@@ -49,6 +49,28 @@ A **business rule** is a fact no chart kind can know: `never-on`, `never-togethe
 
 The **built-in law** every def inherits: the absence column never binds to a magnitude channel.
 
+## What fits, before a build
+
+`fitsFor` answers per channel for a view that already exists — it takes FACETS, which a dashboard resolves from a provider's columns and a def's declarations. An authoring wizard has neither: it has a described table, whatever the person has declared on it so far, and a chart kind it is considering. Asking it to build a dashboard to find out whether `cases` can go on `y` is asking it to commit before it may look.
+
+`whatFits` is the same answer one step earlier:
+
+```ts
+const described = describeTable(csv);                     // vizfootprint/data
+const columns = described.columns.map((c) => ({ name: c.name, type: c.type, ...declaredBy(person, c.name) }));
+
+whatFits({ columns, absence: { field: 'report_state', states: [...] }, chartKind: 'line', channels: ['x', 'y'] })['y'];
+// [ { field: 'cases', ok: true }, { field: 'ytd', ok: true },
+//   { field: 't', ok: false, because: '"t" is date; the y channel of a line needs a number' },
+//   { field: 'report_state', ok: false, because: '"report_state" is the declared absence column — it cannot bind to the magnitude channel "y"; absence is a category, never a magnitude' } ]
+```
+
+One `FitColumn` is a name plus a `ColumnDecl`, and the `type` slot is one slot on purpose: `describeTable` puts the sniffed type there and the person overwrites it — which is exactly what a def's declared type does to a provider's.
+
+It adds **no rule of its own**. It calls `resolveFacets` then `fitsFor`, the same two calls in the same order the build door's own lint makes, so the answer here and the answer after the build cannot differ. `src/def/whatFits.def.test.ts` pins that over an NNDSS-shaped fixture: every column on every channel, the same verdict and the same sentence, and then end to end against `dashboard.lint()`.
+
+Two boundaries worth knowing. The evidence differs from the BUILD door's (not from lint's): a def is judged with what the def alone can prove, where column types are the provider's, so `whatFits` — holding real types — refuses things the build door had no evidence for. And a per-channel question is judged with the rest of the view held still, so a `never-together` pair reports on the channel you asked about, where lint judges the whole set at once and names the pair once.
+
 ## Policy: strategies with a default
 
 | Ruling | Port | Default | Where the choice lives |
@@ -72,4 +94,4 @@ Two things are shapes, not strategies: a facet is declared on the column (a per-
 
 ## Files
 
-`types.ts` the vocabulary · `requirements.ts` built-in channel requirements + merge · `sentences.ts` templates · `facets.ts` column → facet · `validate.ts` the validator · `shape.ts` def-door shape checks · `fits.ts` what fits where · `lint.ts` the lint door · `describe.ts` rules as sentences · `coercers.ts` the built-in adapter
+`types.ts` the vocabulary · `requirements.ts` built-in channel requirements + merge · `sentences.ts` templates · `facets.ts` column → facet · `validate.ts` the validator · `shape.ts` def-door shape checks · `fits.ts` what fits where · `whatFits.ts` the same, before a build · `lint.ts` the lint door · `describe.ts` rules as sentences · `coercers.ts` the built-in adapter

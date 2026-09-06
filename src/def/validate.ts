@@ -11,6 +11,7 @@
  */
 
 import { validateAnalysisDef } from '../analysis/index.js';
+import { isBuiltinRecord, validateBuiltinAnalysis } from './builtinAnalyses.js';
 import { validateLinks, voiceOf, type EmissionKind } from '../links/index.js';
 import { ENCODING_SET_FIELD,
   ANALYSIS_VIEW_PREFIX,
@@ -22,7 +23,7 @@ import { ENCODING_SET_FIELD,
   LINK_VIEW_PREFIX,
   PROSE_VIEW_PREFIX,
 } from '../branches/index.js';
-import { ABSENCE_UNKNOWN, DISPATCH_VERBS, type DispatchVerb } from './types.js';
+import { ABSENCE_UNKNOWN, DISPATCH_VERBS, type DashboardDef, type DispatchVerb } from './types.js';
 import { lintEncodings, resolveFacets, validateColumnDecls, validateEncodingRulesShape } from '../encoding/index.js';
 import type { EncodingRules, EncodingSurface, FacetSource } from '../encoding/index.js';
 import type { ColumnInfo } from '../data/index.js';
@@ -355,11 +356,26 @@ export function validateDashboardDef(def: unknown): string[] {
   // ── analyses (optional) ──
   if (def.analyses !== undefined) {
     if (!isObject(def.analyses)) {
-      problems.push('analyses, if present, must be an object mapping id -> AnalysisDef | AnalysisModule');
+      problems.push('analyses, if present, must be an object mapping id -> AnalysisDef | AnalysisModule | a builtin record { builtin, ...options }');
     } else {
       for (const [id, slot] of Object.entries(def.analyses)) {
+        // The KEY first, before any slot is looked at. An analysis id is the
+        // name a person will look for in `why`, in the FDR ledger and in a
+        // citation, and the empty string is not a name — for a module, a raw
+        // def or a builtin record alike, so one sentence covers all three (and
+        // the registry's key-as-id injection never sees an empty key).
+        if (id.length === 0) {
+          problems.push('analyses[""]: an analysis id must be a non-empty string');
+          continue;
+        }
+        // Three forms, discriminated on shape: `run` is a module, `builtin` is
+        // a record, `build` is a def — and anything else falls to L3's own
+        // refusal, which names every missing piece.
         if (isAnalysisModule(slot)) continue; // built by defineAnalysis already — trusted
-        // Otherwise it must be a raw AnalysisDef — re-firewall through L3.
+        if (isBuiltinRecord(slot)) {
+          validateBuiltinAnalysis(slot, `analyses["${id}"]`, problems);
+          continue;
+        }
         const sub = validateAnalysisDef(slot);
         for (const p of sub) problems.push(`analyses["${id}"]: ${p}`);
       }
@@ -536,6 +552,29 @@ export function validateDashboardDef(def: unknown): string[] {
   }
 
   return problems;
+}
+
+/** What the parse door answers: a typed def, or the sentences that refuse it. */
+export type ParsedDashboardDef =
+  | { readonly ok: true; readonly def: DashboardDef }
+  | { readonly ok: false; readonly problems: readonly string[] };
+
+/**
+ * `parseDashboardDef(value)` — the door that NARROWS. `validateDashboardDef`
+ * already does the judging and returns the sentences, but it hands back a
+ * `string[]` and leaves the caller holding an `unknown`; a caller that parsed
+ * JSON then had to assert the type by hand, which is exactly the moment the
+ * firewall stops meaning anything.
+ *
+ * This is that same judgement with the narrowing attached — it calls the
+ * validator, it never restates it, so the two can never disagree.
+ * `buildDashboard(JSON.parse(text))` remains the direct path; this is for a
+ * caller that wants to HOLD a typed definition before building one (an
+ * authoring wizard checking a draft, a server validating a posted def).
+ */
+export function parseDashboardDef(value: unknown): ParsedDashboardDef {
+  const problems = validateDashboardDef(value);
+  return problems.length === 0 ? { ok: true, def: value as DashboardDef } : { ok: false, problems };
 }
 
 /** The verbs, exported for tool-surface enumeration. */

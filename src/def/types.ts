@@ -38,6 +38,7 @@ import type {
   AnalysisRunResult,
   RunAnalysisOptions,
 } from '../analysis/index.js';
+import type { BuiltinAnalysisDecl } from './builtinAnalyses.js';
 import type { FdrStep, GammaSequence, HypothesisRecord } from '../fdr/index.js';
 import type { ColumnFacet, ColumnInfo, DataProvider, DerivedColumnStore, Engine, Row } from '../data/index.js';
 
@@ -272,16 +273,31 @@ export interface AgentDecl {
 }
 
 /**
- * A declared analysis in a def is either a raw {@link AnalysisDef} (promoted via
- * `defineAnalysis` at build time, re-firewalled by L3's `validateAnalysisDef`)
- * or an already-built {@link AnalysisModule} (e.g. the L3 built-ins
- * `clusteringAnalysis(...)` / `correlationAnalysis(...)`, validated at their own
- * construction). SPEC §7's `analyses?: Record<id, AnalysisDef>` is widened to
- * accept both (flagged §7 refinement) — the built-ins are the common case.
+ * A declared analysis in a def is one of THREE forms, discriminated on shape,
+ * never guessed at:
+ *
+ *   - a `run` function  ⇒ an already-built {@link AnalysisModule} (e.g. the L3
+ *     built-ins `clusteringAnalysis(...)`), validated at its own construction;
+ *   - a `build` function ⇒ a raw {@link AnalysisDef}, promoted via
+ *     `defineAnalysis` at build time and re-firewalled by `validateAnalysisDef`;
+ *   - a `builtin` name  ⇒ a {@link BuiltinAnalysisDecl} — the factory's own
+ *     options AS DATA (`{ builtin: 'groupBy', by: 'disease', measure: 'cases' }`),
+ *     resolved to the factory at registration.
+ *
+ * Anything else is refused in a sentence. SPEC §7's
+ * `analyses?: Record<id, AnalysisDef>` is widened to accept all three (flagged
+ * §7 refinement).
+ *
+ * The third form is what makes a def SERIALISABLE: every other key of a
+ * `DashboardDef` is already data, so a definition whose analyses are all
+ * builtin records — and which declares no `fdr.gamma` — survives
+ * `JSON.parse(JSON.stringify(def))` intact, and can be authored by something
+ * that cannot write TypeScript. See src/def/README.md.
  */
 export type AnalysisSlot =
   | AnalysisDef<unknown, AnalysisOutput>
-  | AnalysisModule<any, AnalysisOutput>; // eslint-disable-line @typescript-eslint/no-explicit-any -- heterogeneous registry; input variance erased at the boundary
+  | AnalysisModule<any, AnalysisOutput> // eslint-disable-line @typescript-eslint/no-explicit-any -- heterogeneous registry; input variance erased at the boundary
+  | BuiltinAnalysisDecl;
 
 /**
  * The declarative dashboard definition — a Mosaic-spec superset (see file

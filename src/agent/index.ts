@@ -30,7 +30,7 @@ export { whatLanded } from './landed.js';
 export type { VizLanded } from './landed.js';
 
 // Re-export the declare + connect halves so `vizfootprint/agent` is the one L5 entry.
-export { buildDashboard, validateDashboardDef, DashboardDefError, DISPATCH_VERBS, DEFAULT_INTENTS, dispatchVerbs } from '../def/index.js';
+export { buildDashboard, validateDashboardDef, parseDashboardDef, DashboardDefError, DISPATCH_VERBS, DEFAULT_INTENTS, dispatchVerbs } from '../def/index.js';
 export type {
   Dashboard,
   BuildDashboardOptions,
@@ -45,6 +45,9 @@ export type {
   IntentDecl,
   IntentClass,
   AnalysisSlot,
+  // an analysis named as data — what lets a whole def be JSON
+  BuiltinAnalysisDecl,
+  ParsedDashboardDef,
   DispatchVerb,
 } from '../def/index.js';
 

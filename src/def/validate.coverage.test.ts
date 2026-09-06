@@ -130,7 +130,7 @@ describe('validateDashboardDef — actors shape', () => {
 describe('validateDashboardDef — analyses shape', () => {
   it('rejects analyses that is not an object (an array included)', () => {
     expect(validateDashboardDef(baseDef({ analyses: ['nope'] }))).toContain(
-      'analyses, if present, must be an object mapping id -> AnalysisDef | AnalysisModule',
+      'analyses, if present, must be an object mapping id -> AnalysisDef | AnalysisModule | a builtin record { builtin, ...options }',
     );
   });
 });

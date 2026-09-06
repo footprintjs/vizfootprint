@@ -6,7 +6,12 @@
 
 export { buildDashboard, buildDashboardAsync } from './buildDashboard.js';
 export type { Dashboard, BuildDashboardOptions, BuildDashboardAsyncOptions, RefreshOutcome, RefreshResult, RefreshRecord } from './buildDashboard.js';
-export { validateDashboardDef, DashboardDefError, dispatchVerbs } from './validate.js';
+export { validateDashboardDef, parseDashboardDef, DashboardDefError, dispatchVerbs } from './validate.js';
+export type { ParsedDashboardDef } from './validate.js';
+// An analysis named as DATA — the third form of `AnalysisSlot`, and the key
+// that makes a whole def JSON-serialisable. See ./README.md.
+export { BUILTIN_ANALYSES, BuiltinAnalysisError, isBuiltinRecord, validateBuiltinAnalysis, buildBuiltinAnalysis } from './builtinAnalyses.js';
+export type { BuiltinAnalysisDecl, BuiltinAnalysisName, GroupByDecl, CorrelationDecl, RegressionDecl, ClusteringDecl } from './builtinAnalyses.js';
 export {
   DISPATCH_VERBS,
   DEFAULT_INTENTS,
@@ -69,6 +74,7 @@ export {
   validateBindings,
   refuses,
   fitsFor,
+  whatFits,
   acceptsOf,
   lintEncodings,
   formatProblem,
@@ -96,6 +102,8 @@ export type {
   EncodingSurface,
   Bindings,
   ColumnDecl,
+  FitColumn,
+  WhatFitsInput,
   RuleLine,
 } from '../encoding/index.js';
 

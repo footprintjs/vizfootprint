@@ -35,6 +35,25 @@ const { n, price, byKey } = foldOnce(rows, { n: rowCount(), price: extent('price
 
 Bring the questions you need, like d3's modules, though not with d3's names where the meaning differs: `rowCount` (every row), `total` (a column's finite numbers, with how many rows were skipped), `extent`, `distinct` (by value identity), `groupCount` (by `String(value)`), `numbers` (a column as the analyses' input, with how many rows were not numbers), `columnar` (the column layout), `columnTypes` (the named columns' types by the one `TypeTally` rule the engine also runs; no names = discover every column), `keyedIndex` (the delta's index, by `String(key)`). A recorder is a fresh instance per fold — one instance under two keys is refused, since it would step twice — and `result()` is pure over what it saw and may be read again. A recorder that throws aborts the fold: an answer built on a walk that broke is not an answer (a fold fails fast, unlike a footprintjs observer, which never aborts a run). The engine builds a store and its types in one walk, the refresh's delta indexes each side in one, and every analysis takes its columns from one.
 
+## Describe a table before there is a dashboard
+
+The only way to learn what a column IS — its type, what it holds, how many different things it holds — used to be to build a dashboard and ask the provider. That is a strange price for a question that comes BEFORE a dashboard exists: an authoring wizard's first step is *here is a file, tell me what is in it*, and it has nothing to declare yet.
+
+`describeTable(input, options?)` is that step's raw material, and nothing more — pure, no dashboard, no session, one walk:
+
+```ts
+describeTable('disease,cases\nLyme,12\nZika,3\n');
+// { rows: 2, columns: [
+//   { name: 'disease', type: 'string', sample: ['Lyme', 'Zika'], distinct: 2, distinctCapped: false },
+//   { name: 'cases',   type: 'number', sample: [12, 3], distinct: 2, distinctCapped: false, extent: [3, 12] } ] }
+```
+
+It takes CSV text or rows and **composes what is already here**: `parseCSVTyped` turns text into typed rows, and `columnTypes`, `distinct` and `extent` answer every column's question in one `foldOnce` — a fourth recorder, local to this door, spans a date column, since `extent` reads numbers. The type is the `TypeTally` rule, which is **the same rule the memory engine runs** (`inferType`): a column described as a number is a column the built dashboard will also call a number. There is no second sniffer.
+
+Four things it says plainly rather than guessing at: the column set is the CSV's header, or the first row's keys (the engine's own homogeneous-rows rule); `sample` is the first few DISTINCT values, so a column of one repeated value does not look like five; `distinct` counts null and undefined together as one absence, the fold's rule; and the count is **capped** (`distinctCap`, default 1000) with `distinctCapped` saying so, because "1000" that might mean 90,000 is a number nobody should read as the truth. `extent` is present for a `number` or `date` column that carried one — a column of nothing but `NaN` is still a number column, and honestly has no span.
+
+What a person does with the answer is DECLARE on top of it — `{ type, role, scale, label }`, which is the def's own `ColumnDecl`. Nothing here guesses a role: a description is what the data says, a declaration is what the person says, and this library never lets the first stand in for the second. `whatFits` (src/encoding) takes both together.
+
 Not a recorder: bins — `bins.ts` recounts NEW values into fixed edges, one walk of its own — and the group-by chart's count-and-sum, likewise one walk.
 
 ## The sheet's window (`sort`, `offset`, `indices`)

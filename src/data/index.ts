@@ -42,6 +42,10 @@ export type { BoxSummary, BoxSummaryOptions } from './boxSummary.js';
 export { parseCSV, parseCSVTyped } from './csv.js';
 export type { ParsedCSV, SniffedCSV } from './csv.js';
 
+// What is in this table — one walk, no dashboard, no session.
+export { describeTable, DESCRIBE_DISTINCT_CAP, DESCRIBE_SAMPLE } from './describeTable.js';
+export type { ColumnDescription, DescribeTableOptions, TableDescription } from './describeTable.js';
+
 // Derived columns — the trace's columns, versioned by the act that made them.
 export { DerivedColumnStore, derivedColumnName, renameClauseFields, renameRowSlots, resolveDerived } from './derivedColumns.js';
 export type { DerivedColumn } from './derivedColumns.js';

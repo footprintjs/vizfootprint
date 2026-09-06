@@ -42,6 +42,9 @@ export type { ValidateInput } from './validate.js';
 export { validateColumnDecls, validateEncodingRulesShape } from './shape.js';
 export { fitsFor, acceptsOf } from './fits.js';
 export type { FitsInput } from './fits.js';
+// The same answer one step earlier — before a dashboard exists to ask.
+export { whatFits, WHAT_FITS_VIEW_ID } from './whatFits.js';
+export type { FitColumn, WhatFitsInput } from './whatFits.js';
 export { lintEncodings, formatProblem } from './lint.js';
 export type { LintInput } from './lint.js';
 export { describeRules, describeRule } from './describe.js';
