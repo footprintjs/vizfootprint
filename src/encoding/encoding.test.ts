@@ -293,7 +293,7 @@ describe('shape checks (the def door)', () => {
     validateEncodingRulesShape({ bogus: 1, onInvalid: '', ruleScope: 'page', channels: 'x', rules: 'y' }, 'e', problems);
     validateEncodingRulesShape(
       {
-        channels: { line: 'x', bar: [1, { channel: '', accepts: ['int'], scale: 'log', roles: ['boss'], notRoles: 'x', sentence: 1, extra: 1 }, { channel: '*' }] },
+        channels: { line: 'x', bar: [1, { channel: '', accepts: ['int'], scale: 'log', roles: ['boss'], notRoles: 'x', optional: 'yes', sentence: 1, extra: 1 }, { channel: '*' }] },
         rules: [
           1,
           { rule: 'sometimes' },
@@ -325,6 +325,7 @@ describe('shape checks (the def door)', () => {
       'e.channels["bar"][1].scale must be one of discrete, continuous',
       'e.channels["bar"][1].roles must be an array of roles (identifier, dimension, measure, absence)',
       'e.channels["bar"][1].notRoles must be an array of roles (identifier, dimension, measure, absence)',
+      'e.channels["bar"][1].optional must be true or false',
       'e.channels["bar"][1].sentence must be a string',
       'e.channels["bar"][2].channel may not be "*" — it is reserved for a binding set',
       'e.rules[0] must be an object',

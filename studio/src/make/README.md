@@ -26,7 +26,7 @@ declarations and the charts, and everything else is the library's.
 |---|---|---|
 | 1 · Bring data | paste a CSV or choose a file, and see what arrived | `describeTable` (`vizfootprint/data`) |
 | 2 · Check and describe | declare each column — `{ type, role, scale, label }` — and name the absence vocabulary | `ColumnDecl` + the def's own validator |
-| 3 · Visualize | pick a kind, bind its channels, choose an analysis, write the words | `whatFits` (`vizfootprint/def`) |
+| 3 · Visualize | take one of the charts offered, or pick a kind and bind its channels; choose an analysis, write the words | `proposeCharts` + `whatFits` (`vizfootprint/def`) |
 | 4 · Open, and publish | the desk, and the file | `parseDashboardDef` → `buildDashboard` → `Desk` |
 
 Nothing here is a new idea about dashboards. It is the shortest path through the
@@ -50,6 +50,36 @@ The absence column is the exception, and it is the exception because the library
 says so: its role is DERIVED from the vocabulary, so the wizard does not ask,
 and it leaves that column out of `data[t].columns` entirely — declaring a role
 there is a refusal the def door already owns.
+
+**Step three OFFERS before it asks.** A person who has just declared six columns
+knows what those columns mean and does not yet know what they can draw — and the
+encoding plane knows the second thing. So the first thing on step three is a
+list of charts this table can carry, best first, each with the reason it is
+offered:
+
+> `a line — x = quarter · y = sales`
+> *the x of a line takes a number or a date; "quarter" is a date and x is an
+> ordered axis — time is the thing an axis reads best*
+> *the y of a line takes a number; "sales" is a declared measure, and y carries
+> a magnitude*
+
+Four things about that offer, and none of them are this package's ideas:
+
+- **`proposeCharts` makes it**, composing `whatFits` with the encoding plane's
+  ranking policy. Every reason a person reads is the plane's own sentence, the
+  same way every refusal under the picker is. This package contributes the two
+  facts only the wizard knows: which kinds it can DRAW (`MAKE_PROPOSAL_KINDS` —
+  a made bar binds `category` and counts rows, where the library's binds `x` and
+  `y`, so a proposal it cannot draw is never asked for) and how many offers are
+  worth reading (`MAKE_PROPOSALS`).
+- **Nothing is chosen.** No offer is selected, pre-taken or defaulted; pressing
+  Next with none taken is the ordinary *this dashboard has no charts yet*.
+- **Taking one is the same act as building one.** `viewFromProposal` produces
+  exactly what the ＋ buttons produce, into the same draft, so there is ONE path
+  through `judgeStep` and a taken chart can be renamed, rebound or removed like
+  any other.
+- **The picker stays beneath it.** An offer is an offer; a person who wants a
+  chart nobody proposed builds it the way they always did.
 
 **A misfit is refused in a sentence, and the sentence is the encoding plane's.**
 `whatFits` greys the option and prints the reason under the picker:
@@ -120,7 +150,7 @@ instead of handing someone a file that opens blank on another machine.
 | file | one job |
 |---|---|
 | `types.ts` | THE CONTRACT — `MakeDraft` and what the four steps collect. Read it first. |
-| `steps.ts` | the pure logic: the ceiling, `readTable`, the judge, `whatFits` per channel, and the assembler. No React, no DOM. |
+| `steps.ts` | the pure logic: the ceiling, `readTable`, the judge, the offer (`proposalsFor`), `whatFits` per channel, and the assembler. No React, no DOM. |
 | `open.ts` | the door out: parse, build, open a session — and what a thrown refusal says. |
 | `cells.tsx` | the charts a definition implies, drawn once for both surfaces. |
 | `publish.ts` | is this page one file, what the copy of it looks like, and what it carries. |
@@ -135,14 +165,16 @@ flow that can only be driven by a screen is a flow nobody can test, script or
 hand to an agent:
 
 ```ts
-import { assembleDef, emptyDraft, judgeStep, openDesk, readTable } from 'vizfootprint-studio/make';
+import { assembleDef, emptyDraft, judgeStep, openDesk, proposalsFor, readTable, viewFromProposal } from 'vizfootprint-studio/make';
 
 const read = readTable(csv);                       // step 1's own door
 if (!read.ok) return refuse(read.refusals);
 const draft = { ...emptyDraft(), csv, columns: declaredByHand, views: [bar] };
 const step2 = judgeStep('columns', draft, read.reading);
 if (!step2.ok) return refuse(step2.refusals);
-const opened = openDesk(assembleDef(draft));       // parse, build, open
+const offered = proposalsFor(draft).proposals;     // step 3 offers before it asks
+const withOne = { ...draft, views: [viewFromProposal(offered[0], 1)] };
+const opened = openDesk(assembleDef(withOne));     // parse, build, open
 ```
 
 Step three judges what only the WIZARD knows — a chart exists, it is named, its

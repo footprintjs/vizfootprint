@@ -214,6 +214,42 @@ describe('step 3 — visualize', () => {
   });
 });
 
+describe('step 3 — the offer, before the ask', () => {
+  it('offers charts these columns can carry, with the plane\'s own reasons, and chooses none of them', () => {
+    throughTheDeclarations();
+    const cards = [...document.querySelectorAll('[data-vzf="make-proposal"]')];
+    expect(cards.map((card) => card.querySelector('strong')?.textContent)).toEqual(['a bar', 'a line', 'a bar']);
+    expect(cards[1]!.textContent).toContain('is a date and x is an ordered axis');
+    expect(cards[1]!.textContent).toContain('"sales" is a declared measure');
+    // the picker is still there, underneath, for anybody who wants something else
+    expect(screen.getByRole('button', { name: /a table —/ })).toBeTruthy();
+    // and nothing was taken for the person: the step refuses to move on
+    next();
+    expect(refusals()[0]).toContain('no charts yet');
+  });
+
+  it('takes one with a click, into the same draft the picker fills, and opens the desk on it', () => {
+    throughTheDeclarations();
+    fireEvent.click(screen.getByLabelText('take the line of x = quarter · y = sales'));
+    // it is an ORDINARY chart now — named, bound, editable, removable
+    expect((screen.getByLabelText('x of line1') as HTMLSelectElement).value).toBe('quarter');
+    expect((screen.getByLabelText('y of line1') as HTMLSelectElement).value).toBe('sales');
+    fireEvent.change(screen.getByLabelText('the title of chart 1'), { target: { value: 'Sales by quarter' } });
+    next();
+    expect(screen.getByRole('button', { name: 'Dashboard menu' })).toBeTruthy();
+  });
+
+  it('a taken chart and a hand-bound one land in one draft, through one judge', () => {
+    throughTheDeclarations();
+    fireEvent.click(screen.getByLabelText('take the bar of category = region'));
+    fireEvent.click(screen.getByRole('button', { name: /a line —/ }));
+    pick('x of line2', 'quarter');
+    pick('y of line2', 'sales');
+    next();
+    expect(screen.getByRole('button', { name: 'Dashboard menu' })).toBeTruthy();
+  });
+});
+
 describe('step 4 — the desk, and the file', () => {
   it('opens a whole desk with no shell code of its own, and a click lands the first commit', async () => {
     throughTheCharts();

@@ -28,6 +28,7 @@
 import { useState, type ReactNode } from 'react';
 import { readStoryPayloadText, encodeStoryPayload, formatBytes } from 'vizfootprint-ui/story/payload';
 import type { CockpitMenuItem } from 'vizfootprint-ui';
+import type { ChartProposal } from 'vizfootprint/def';
 import { Desk } from '../desk/Desk.js';
 import { T, type DeskTokens } from '../desk/tokens.js';
 import { useMadeCells } from './cells.js';
@@ -35,7 +36,7 @@ import { MadePage } from './MadePage.js';
 import { openDesk, type MadeDesk } from './open.js';
 import { ColumnsStep, DataStep, ViewsStep } from './panels.js';
 import { MADE_FILENAME, downloadHtml, madePayload, publishRefusal, publishedHtml } from './publish.js';
-import { MAKE_STEPS, absenceOf, analysisOf, assembleDef, declaredColumn, emptyDraft, judgeStep, newView, readTable, seedColumns, sniffedTypes } from './steps.js';
+import { MAKE_STEPS, absenceOf, analysisOf, assembleDef, declaredColumn, emptyDraft, judgeStep, newView, readTable, seedColumns, sniffedTypes, viewFromProposal } from './steps.js';
 import type { MakeChartKind, MakeColumn, MakeDraft, MakeReading, MakeStepId, MakeView } from './types.js';
 
 export interface MakeProps {
@@ -122,6 +123,9 @@ function Wizard({ tokens, className, mountId = 'root', ceiling }: MakeProps): Re
   // ── step 3 ──
   const patchView = (index: number, patch: Partial<MakeView>): void => setDraft((d) => ({ ...d, views: d.views.map((v, i) => (i === index ? { ...v, ...patch } : v)) }));
   const addView = (kind: MakeChartKind): void => setDraft((d) => ({ ...d, views: [...d.views, newView(kind, d.views.length + 1)] }));
+  // Taking an OFFER lands in the same place a ＋ button does: one path through
+  // the judge, and a taken chart is an ordinary chart the moment it arrives.
+  const takeProposal = (proposal: ChartProposal): void => setDraft((d) => ({ ...d, views: [...d.views, viewFromProposal(proposal, d.views.length + 1)] }));
   const removeView = (index: number): void => setDraft((d) => ({ ...d, views: d.views.filter((_, i) => i !== index) }));
   const setAnalysis = (kind: string, options: Readonly<Record<string, string>>): void => {
     setAnalysisKind(kind);
@@ -189,7 +193,17 @@ function Wizard({ tokens, className, mountId = 'root', ceiling }: MakeProps): Re
       {step === 'data' ? <DataStep draft={draft} reading={reading} onCsv={setCsv} onRead={read} /> : null}
       {step === 'columns' ? <ColumnsStep draft={draft} sniffed={sniffedTypes(reading)} absenceField={absenceField} absenceStates={absenceStates} onColumn={patchColumn} onAbsence={setAbsence} /> : null}
       {step === 'views' ? (
-        <ViewsStep draft={draft} analysisKind={analysisKind} analysisOptions={analysisOptions} onView={patchView} onAdd={addView} onRemove={removeView} onAnalysis={setAnalysis} onWords={setWords} />
+        <ViewsStep
+          draft={draft}
+          analysisKind={analysisKind}
+          analysisOptions={analysisOptions}
+          onView={patchView}
+          onAdd={addView}
+          onRemove={removeView}
+          onAnalysis={setAnalysis}
+          onWords={setWords}
+          onTake={takeProposal}
+        />
       ) : null}
 
       {refusals.length === 0 ? null : (

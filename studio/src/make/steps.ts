@@ -26,7 +26,7 @@
  * That split is why `assembleDef` is called by the judge itself: the honest way
  * to ask "would this be refused" is to make the thing and ask.
  */
-import { parseDashboardDef, whatFits, type BuiltinAnalysisDecl, type DashboardDef, type Fit, type FitColumn } from 'vizfootprint/def';
+import { parseDashboardDef, proposeCharts, whatFits, type BuiltinAnalysisDecl, type ChartProposal, type ChartProposals, type DashboardDef, type Fit, type FitColumn, type ProposalKind } from 'vizfootprint/def';
 import { describeTable } from 'vizfootprint/data';
 import type { MakeAbsence, MakeAnalysis, MakeChartKind, MakeColumn, MakeDraft, MakeReading, MakeStepId, MakeView, StepVerdict } from './types.js';
 
@@ -273,6 +273,55 @@ export function misfit(draft: MakeDraft, view: MakeView, channel: string, field:
   // `ok` is false"), so there is no second sentence to write here — a fallback
   // would be this file inventing one the plane never needed.
   return found.because!;
+}
+
+// ── what to offer, before anything is asked ─────────────────────────────────
+
+/** How many charts the wizard offers before it asks a person to build one. */
+export const MAKE_PROPOSALS = 6;
+
+/**
+ * The kinds this wizard can DRAW, in the shape the library's proposal door
+ * wants them.
+ *
+ * It is passed rather than defaulted for one reason: the library proposes over
+ * the requirement tables, where a `bar` binds `x` and `y`, and a made bar binds
+ * `category` and counts the rows in view. A proposal this wizard cannot draw is
+ * a proposal it must not offer, so it says which kinds it has and what each of
+ * them binds. `table` binds nothing and drops out here — there is nothing to
+ * propose about the rows themselves.
+ */
+export const MAKE_PROPOSAL_KINDS: readonly ProposalKind[] = MAKE_CHART_KIND_NAMES.map((chartKind) => ({ chartKind, channels: MAKE_CHART_KINDS[chartKind].channels })).filter(
+  (kind) => kind.channels.length > 0,
+);
+
+/**
+ * THE OFFER — charts this table can carry, worked out from what the person has
+ * declared, best first, each carrying the reason it is offered.
+ *
+ * It states no preference of its own: the ordering is the encoding plane's
+ * shipped policy and the sentences are its, exactly as the refusals under the
+ * picker are. What this file contributes is the two facts only the wizard knows
+ * — which kinds it can draw, and how many offers are worth reading.
+ */
+export function proposalsFor(draft: MakeDraft): ChartProposals {
+  return proposeCharts({
+    columns: fitColumns(draft),
+    ...(draft.absence === null ? {} : { absence: { field: draft.absence.field, states: [...draft.absence.states] } }),
+    kinds: MAKE_PROPOSAL_KINDS,
+    limit: MAKE_PROPOSALS,
+  });
+}
+
+/**
+ * A taken proposal as a chart in the draft — the SAME shape the ＋ buttons
+ * produce, so there is one path through `judgeStep` and not two.
+ *
+ * The cast is safe by construction: the only kinds asked for are
+ * {@link MAKE_PROPOSAL_KINDS}, which are this wizard's own.
+ */
+export function viewFromProposal(proposal: ChartProposal, index: number): MakeView {
+  return { ...newView(proposal.chartKind as MakeChartKind, index), bindings: { ...proposal.channels } };
 }
 
 // ── the judge ───────────────────────────────────────────────────────────────

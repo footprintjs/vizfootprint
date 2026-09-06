@@ -13,6 +13,8 @@ import { buildDashboard, parseDashboardDef } from 'vizfootprint/def';
 import {
   MAKE_CEILING_SENTENCE,
   MAKE_CHART_KINDS,
+  MAKE_PROPOSALS,
+  MAKE_PROPOSAL_KINDS,
   MAKE_STEPS,
   MAKE_TABLE,
   MEASURED_BREAKS_ROWS,
@@ -29,9 +31,11 @@ import {
   misfit,
   newView,
   parseStates,
+  proposalsFor,
   readTable,
   seedColumns,
   sniffedTypes,
+  viewFromProposal,
 } from './steps.js';
 import { BARS, LINE, SALES_CSV, salesDraft } from './make.fixture.js';
 import type { MakeReading } from './types.js';
@@ -307,5 +311,58 @@ describe('a reading a host built itself', () => {
     const reading: MakeReading = { rows: 2, columns: [{ name: 'a', type: 'number', sample: [1, 2], distinct: 2, distinctCapped: false }] };
     expect(judgeStep('data', { ...emptyDraft(), csv: 'a\n1\n2\n' }, reading)).toEqual({ ok: true });
     expect(sniffedTypes(reading)).toEqual({ a: 'number' });
+  });
+});
+
+describe('the offer — step three proposes before it asks', () => {
+  it('asks the library only about the kinds this wizard can DRAW, with the channels it draws them from', () => {
+    expect(MAKE_PROPOSAL_KINDS).toEqual([
+      { chartKind: 'bar', channels: ['category'] },
+      { chartKind: 'line', channels: ['x', 'y'] },
+    ]);
+    // `table` binds nothing, so there is nothing to propose about it
+    expect(MAKE_PROPOSAL_KINDS.some((kind) => kind.chartKind === 'table')).toBe(false);
+    expect(MAKE_PROPOSALS).toBe(6);
+  });
+
+  it('offers charts these columns can carry, best first, each with the plane\'s own reason', () => {
+    const { proposals, notEnumerated } = proposalsFor({ ...salesDraft(), views: [] });
+    expect(proposals.map((p) => [p.chartKind, p.channels])).toEqual([
+      ['bar', { category: 'region' }],
+      ['line', { x: 'quarter', y: 'sales' }],
+      ['bar', { category: 'report_state' }],
+    ]);
+    expect(proposals[1]!.reasons).toEqual({
+      x: 'the x of a line takes a number or a date; "quarter" is a date and x is an ordered axis — time is the thing an axis reads best',
+      y: 'the y of a line takes a number; "sales" is a declared measure, and y carries a magnitude',
+    });
+    expect(notEnumerated).toEqual([]);
+  });
+
+  it('offers nothing rather than something wrong when nothing this wizard draws fits', () => {
+    const draft = { ...emptyDraft(), columns: [{ name: 'n', type: 'number' as const, role: 'measure' as const }] };
+    expect(proposalsFor(draft).proposals).toEqual([]);
+  });
+
+  it('reads the absence vocabulary when there is one — and an ordinary string column when there is not', () => {
+    const declared = proposalsFor({ ...salesDraft(), views: [] }).proposals;
+    const without = proposalsFor({ ...salesDraft(), views: [], absence: null }).proposals;
+    // the absence column is a category either way; what changes is that the
+    // declared one may never carry a magnitude, which is the plane's own law
+    expect(declared.map((p) => p.chartKind)).toEqual(without.map((p) => p.chartKind));
+    expect(without.some((p) => Object.values(p.channels).includes('report_state'))).toBe(true);
+  });
+
+  it('a taken chart is an ordinary chart — the same shape the ＋ button makes, judged by the same judge', () => {
+    const offered = proposalsFor({ ...salesDraft(), views: [] }).proposals;
+    const views = offered.slice(0, 2).map((proposal, i) => viewFromProposal(proposal, i + 1));
+    expect(views[0]).toEqual({ id: 'bar1', label: '', chartKind: 'bar', bindings: { category: 'region' } });
+    expect(views[1]).toEqual({ id: 'line2', label: '', chartKind: 'line', bindings: { x: 'quarter', y: 'sales' } });
+
+    // one path through the judge: a draft built only of taken offers passes step three
+    const draft = { ...salesDraft(), views };
+    expect(judgeStep('views', draft, null)).toEqual({ ok: true });
+    // and every binding an offer carries is one the picker beside it also accepts
+    for (const view of views) for (const channel of MAKE_CHART_KINDS[view.chartKind].channels) expect(misfit(draft, view, channel, view.bindings[channel]!)).toBeNull();
   });
 });

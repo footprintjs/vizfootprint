@@ -12,9 +12,9 @@
  */
 import { useId, type ReactNode } from 'react';
 import type { ColumnDescription, ColumnRole, ColumnScale, ColumnType } from 'vizfootprint/data';
-import { BUILTIN_ANALYSES, type BuiltinAnalysisName } from 'vizfootprint/def';
+import { BUILTIN_ANALYSES, type BuiltinAnalysisName, type ChartProposal } from 'vizfootprint/def';
 import { T } from '../desk/tokens.js';
-import { MAKE_CEILING_SENTENCE, MAKE_CHART_KINDS, MAKE_CHART_KIND_NAMES, ceilingVerdict, fitsForView } from './steps.js';
+import { MAKE_CEILING_SENTENCE, MAKE_CHART_KINDS, MAKE_CHART_KIND_NAMES, ceilingVerdict, fitsForView, proposalsFor } from './steps.js';
 import type { MakeChartKind, MakeColumn, MakeDraft, MakeReading, MakeView } from './types.js';
 
 /** The type a person may DECLARE, over the sniff. `''` is "I have not said". */
@@ -241,13 +241,25 @@ export interface ViewsStepProps {
   readonly onRemove: (index: number) => void;
   readonly onAnalysis: (kind: string, options: Readonly<Record<string, string>>) => void;
   readonly onWords: (patch: { readonly title?: string; readonly caption?: string }) => void;
+  /** A person took one of the offered charts. It becomes an ordinary chart in the draft — nothing else happens. */
+  readonly onTake: (proposal: ChartProposal) => void;
 }
 
-/** VISUALIZE — pick a kind, bind its channels, and say what the dashboard is about. */
-export function ViewsStep({ draft, analysisKind, analysisOptions, onView, onAdd, onRemove, onAnalysis, onWords }: ViewsStepProps): ReactNode {
+/**
+ * VISUALIZE — what this table can carry, offered first; then pick a kind, bind
+ * its channels, and say what the dashboard is about.
+ *
+ * The offer is above the picker because a person who has just declared six
+ * columns knows what they MEAN and not yet what they can draw, and the plane
+ * knows the second. Nothing is chosen for them: taking one is a click, and the
+ * picker underneath is untouched for anybody who wants something else.
+ */
+export function ViewsStep({ draft, analysisKind, analysisOptions, onView, onAdd, onRemove, onAnalysis, onWords, onTake }: ViewsStepProps): ReactNode {
   const names = draft.columns.map((c) => c.name);
   return (
     <section data-vzf="make-step-views">
+      <Offers draft={draft} onTake={onTake} />
+
       <div style={card}>
         <label style={field}>
           What is this dashboard called?{' '}
@@ -295,6 +307,60 @@ export function ViewsStep({ draft, analysisKind, analysisOptions, onView, onAdd,
         )}
       </div>
     </section>
+  );
+}
+
+/** `x = week · y = cases`, the bindings of a proposal as one line. */
+function bindingLine(proposal: ChartProposal): string {
+  return Object.entries(proposal.channels)
+    .map(([channel, field]) => `${channel} = ${field}`)
+    .join(' · ');
+}
+
+/**
+ * THE OFFER — charts this table can carry, before a person is asked to build
+ * one, each with the reason it is offered.
+ *
+ * Every sentence here came from the library: `proposeCharts` composes
+ * `whatFits` with the encoding plane's ranking policy, so the reason a person
+ * reads under an offer is the same reason the plane would give an agent. This
+ * component decides nothing — not even which offers to show, which is
+ * `proposalsFor`'s limit — and it selects nothing: the person still chooses.
+ */
+function Offers({ draft, onTake }: { readonly draft: MakeDraft; readonly onTake: (proposal: ChartProposal) => void }): ReactNode {
+  const { proposals, notEnumerated } = proposalsFor(draft);
+  return (
+    <div style={card} data-vzf="make-proposals">
+      <p style={{ ...note, margin: 0 }}>
+        Charts these columns can carry, worked out from what you declared — best first, and nothing is chosen for you. Take one and it becomes an ordinary chart below, which you can then rename, rebind or remove.
+      </p>
+      {proposals.length === 0 ? (
+        <p style={note} data-vzf="make-no-proposals">
+          nothing this wizard can draw fits these columns yet — bind a chart yourself below, or go back and declare more.
+        </p>
+      ) : null}
+      {proposals.map((proposal) => (
+        <div key={`${proposal.chartKind}:${bindingLine(proposal)}`} style={{ ...card, marginBottom: T.gapSm }} data-vzf="make-proposal">
+          <div style={{ display: 'flex', gap: T.gap, alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: T.textLg }}>a {proposal.chartKind}</strong>
+            <span style={{ fontSize: T.textMd }}>{bindingLine(proposal)}</span>
+            <button type="button" style={{ ...box, cursor: 'pointer' }} aria-label={`take the ${proposal.chartKind} of ${bindingLine(proposal)}`} onClick={() => onTake(proposal)}>
+              Take this {proposal.chartKind}
+            </button>
+          </div>
+          <ul style={{ ...note, margin: `${T.gapSm} 0 0`, paddingLeft: 18 }}>
+            {Object.entries(proposal.reasons).map(([channel, sentence]) => (
+              <li key={channel}>{sentence}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {notEnumerated.map((sentence) => (
+        <p key={sentence} style={{ ...note, margin: `${T.gapSm} 0 0` }} data-vzf="make-not-enumerated">
+          {sentence}
+        </p>
+      ))}
+    </div>
   );
 }
 

@@ -37,7 +37,11 @@ export const CHART_REQUIREMENTS: ChannelRequirements = Object.freeze({
   line: [
     { channel: 'x', ...POSITION, scale: 'continuous' },
     { channel: 'y', ...QUANTITY },
-    { channel: 'color', scale: 'discrete' },
+    // A line draws without a colour — the colour SPLITS it into series. A
+    // heatmap's colour, one entry down, is the value itself, so it is not
+    // optional. That difference is a fact about the chart kinds and belongs
+    // here rather than in whoever enumerates them.
+    { channel: 'color', scale: 'discrete', optional: true },
   ],
   scatter: [
     { channel: 'x', ...POSITION },
@@ -76,4 +80,28 @@ export function requirementFor(chartKind: string, channel: string, overrides?: C
   const fromKind = CHART_REQUIREMENTS[chartKind]?.find((r) => r.channel === channel);
   if (fromKind !== undefined) return fromKind;
   return DEFAULT_CHANNEL_REQUIREMENTS.find((r) => r.channel === channel);
+}
+
+/**
+ * The chart kinds the requirement tables KNOW: the built-ins, in the order this
+ * file lists them, plus any kind a def declared requirements of its own for.
+ */
+export function chartKindsOf(overrides?: ChannelRequirements): readonly string[] {
+  return [...new Set([...Object.keys(CHART_REQUIREMENTS), ...Object.keys(overrides ?? {})])];
+}
+
+/**
+ * The channels a chart kind BINDS — every channel some layer names for the kind
+ * (a def's own first, then the built-in list), minus the ones the requirement
+ * in force calls `optional`.
+ *
+ * The by-NAME defaults are deliberately not consulted: they say what `x` means
+ * wherever it appears, not that a chart kind has an `x`. A kind no layer names
+ * a channel for binds nothing — `table` is the built-in example, and it is why
+ * `proposeCharts` has nothing to propose for one.
+ */
+export function channelsOf(chartKind: string, overrides?: ChannelRequirements): readonly string[] {
+  const merged = new Map<string, ChannelRequirement>();
+  for (const req of [...(overrides?.[chartKind] ?? []), ...(CHART_REQUIREMENTS[chartKind] ?? [])]) if (!merged.has(req.channel)) merged.set(req.channel, req);
+  return [...merged.values()].filter((req) => req.optional !== true).map((req) => req.channel);
 }

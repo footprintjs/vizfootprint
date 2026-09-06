@@ -14,8 +14,9 @@
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { ColumnsStep, DataStep } from './panels.js';
-import { MEASURED_BREAKS_ROWS, MEASURED_FINE_ROWS, emptyDraft } from './steps.js';
+import { ColumnsStep, DataStep, ViewsStep } from './panels.js';
+import { MAKE_PROPOSALS, MEASURED_BREAKS_ROWS, MEASURED_FINE_ROWS, emptyDraft } from './steps.js';
+import type { MakeColumn, MakeDraft } from './types.js';
 import type { MakeReading } from './types.js';
 
 afterEach(cleanup);
@@ -69,5 +70,44 @@ describe('taking a declaration back', () => {
       { name: 'when', patch: { type: undefined } },
       { name: 'when', patch: { scale: undefined } },
     ]);
+  });
+});
+
+/** The step-three panel with nothing but drawing to do — every callback a no-op. */
+function views(draft: MakeDraft): void {
+  render(
+    <ViewsStep
+      draft={draft}
+      analysisKind=""
+      analysisOptions={{}}
+      onView={() => undefined}
+      onAdd={() => undefined}
+      onRemove={() => undefined}
+      onAnalysis={() => undefined}
+      onWords={() => undefined}
+      onTake={() => undefined}
+    />,
+  );
+}
+
+describe('the offer, over a table a host handed in', () => {
+  it('says plainly when nothing this wizard can draw fits the columns yet', () => {
+    views({ ...emptyDraft(), columns: [{ name: 'n', type: 'number', role: 'measure' }] });
+    expect(document.querySelectorAll('[data-vzf="make-proposal"]')).toHaveLength(0);
+    expect(document.querySelector('[data-vzf="make-no-proposals"]')?.textContent).toContain('nothing this wizard can draw fits these columns yet');
+  });
+
+  it('offers a few and says what it did not offer — the candidates it capped, and the ones past the limit', () => {
+    const columns: MakeColumn[] = [
+      ...['a', 'b', 'c', 'd', 'e'].map((name) => ({ name, type: 'string' as const, role: 'dimension' as const })),
+      ...['n1', 'n2'].map((name) => ({ name, type: 'number' as const, role: 'measure' as const })),
+      { name: 'when', type: 'date' as const, role: 'dimension' as const },
+    ];
+    views({ ...emptyDraft(), columns });
+    expect(document.querySelectorAll('[data-vzf="make-proposal"]')).toHaveLength(MAKE_PROPOSALS);
+    const said = [...document.querySelectorAll('[data-vzf="make-not-enumerated"]')].map((p) => p.textContent ?? '');
+    expect(said).toHaveLength(2);
+    expect(said[0]).toContain('the category of a bar had 5 columns that fit, and only the first 4');
+    expect(said[1]).toContain('proposals were found and the first 6 came back');
   });
 });

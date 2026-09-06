@@ -57,6 +57,21 @@ export interface ChannelRequirement {
   readonly roles?: readonly ColumnRole[];
   /** Roles the channel refuses (only checked when the column declared a role). */
   readonly notRoles?: readonly ColumnRole[];
+  /**
+   * True when the chart kind DRAWS without this channel bound — a line draws
+   * without its colour, and a heatmap does not. Absent means the channel is
+   * one the kind needs.
+   *
+   * ONE reader today, named so nobody has to discover it: `channelsOf`, on
+   * behalf of `proposeCharts`, which will not propose a chart missing a
+   * channel the kind needs. **The validator does not read it** — a requirement
+   * judges a binding that EXISTS, and an unbound channel is not a binding — so
+   * this is advisory rather than enforced. Making the build door refuse a
+   * declared view that leaves a required channel unbound would give it a
+   * second reader and make it enforced; that is queued in ./README.md, not
+   * done, because it may refuse definitions that build today.
+   */
+  readonly optional?: boolean;
   /** A sentence template overriding the built-in one. Slots: {column} {channel} {view} {type} {scale} {role} {chart}. */
   readonly sentence?: string;
 }
@@ -162,6 +177,13 @@ export interface Fit {
   readonly ok: boolean;
   /** The sentence when `ok` is false. */
   readonly because?: string;
+  /**
+   * Why this column is offered WHERE it is — the ranking policy's sentence,
+   * present only when a recommender ranked it. Its twin `because` is the
+   * refusal; a fit never carries both, because a recommender never sees a
+   * refused column. A rank without a reason is an opinion wearing a number.
+   */
+  readonly reason?: string;
 }
 
 /** Ranks the columns that FIT a channel (soft preferences). Never sees the refused ones. */

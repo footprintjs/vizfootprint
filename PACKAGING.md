@@ -32,7 +32,7 @@ Fifteen subpaths, and nothing else:
 |---|---|
 | `vizfootprint` | the same module as `/agent`. The L5 entry declares itself "the one L5 entry" and re-exports the declare + connect halves, so the root is that barrel rather than a second list that could drift from it |
 | `vizfootprint/agent` | L5 — `buildDashboard` → `createSession` → `vizAsTools` |
-| `vizfootprint/def` | the `DashboardDef` schema, its validator and the typed parse door (`parseDashboardDef`), the builtin-analysis record that lets a def be JSON, and `whatFits` beside `fitsFor`; re-exports the links and encoding planes and the source layer beside the def that declares them |
+| `vizfootprint/def` | the `DashboardDef` schema, its validator and the typed parse door (`parseDashboardDef`), the builtin-analysis record that lets a def be JSON, and `whatFits` beside `fitsFor` (with `policyRecommender` and `proposeCharts` beside both); re-exports the links and encoding planes and the source layer beside the def that declares them |
 | `vizfootprint/session` | the interaction session: dispatch, cursor, branches, folds |
 | `vizfootprint/analysis` | the declared analyses |
 | `vizfootprint/source` | the data-source layer: formats, vias, the adapter port, the inline carrier |

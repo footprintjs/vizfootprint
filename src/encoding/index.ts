@@ -33,7 +33,7 @@ export type {
   Bindings,
   ColumnDecl,
 } from './types.js';
-export { DEFAULT_CHANNEL_REQUIREMENTS, CHART_REQUIREMENTS, requirementFor } from './requirements.js';
+export { DEFAULT_CHANNEL_REQUIREMENTS, CHART_REQUIREMENTS, requirementFor, chartKindsOf, channelsOf } from './requirements.js';
 export { SENTENCES, fill, listOf } from './sentences.js';
 export { resolveFacets, resolveFacet, scaleOfType } from './facets.js';
 export type { FacetSource } from './facets.js';
@@ -45,6 +45,12 @@ export type { FitsInput } from './fits.js';
 // The same answer one step earlier — before a dashboard exists to ask.
 export { whatFits, WHAT_FITS_VIEW_ID } from './whatFits.js';
 export type { FitColumn, WhatFitsInput } from './whatFits.js';
+// The default recommender: preferences as DATA, ordering what `whatFits` admitted.
+export { RANKING_POLICY, CHANNEL_NAMES, DEFAULT_RANKING_REASON, placeIn, policyRecommender } from './recommend.js';
+export type { RankingRule, Placement } from './recommend.js';
+// Whole charts, proposed — `whatFits` and the recommender, composed.
+export { proposeCharts, proposableKinds, OFFER_SENTENCES, PROPOSAL_LIMIT, PROPOSAL_CANDIDATES, PROPOSAL_BINDINGS } from './propose.js';
+export type { ChartProposal, ChartProposals, ProposalKind, ProposeChartsInput } from './propose.js';
 export { lintEncodings, formatProblem } from './lint.js';
 export type { LintInput } from './lint.js';
 export { describeRules, describeRule } from './describe.js';

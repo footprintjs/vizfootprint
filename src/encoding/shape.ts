@@ -11,7 +11,7 @@ function isObject(v: unknown): v is Record<string, unknown> {
 const isName = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 const isNameList = (v: unknown): v is readonly string[] => Array.isArray(v) && v.length > 0 && v.every(isName);
 const COLUMN_TYPES = new Set(['number', 'string', 'boolean', 'date', 'unknown']);
-const REQUIREMENT_KEYS = new Set(['channel', 'accepts', 'scale', 'roles', 'notRoles', 'sentence']);
+const REQUIREMENT_KEYS = new Set(['channel', 'accepts', 'scale', 'roles', 'notRoles', 'optional', 'sentence']);
 const RULES_KEYS = new Set(['channels', 'rules', 'onInvalid', 'ruleScope']);
 const COLUMN_DECL_KEYS = new Set(['type', 'role', 'scale', 'label']);
 
@@ -82,6 +82,7 @@ function validateRequirement(raw: unknown, at: string, problems: string[]): void
       problems.push(`${at}.${key} must be an array of roles (${COLUMN_ROLES.join(', ')})`);
     }
   }
+  if (raw.optional !== undefined && typeof raw.optional !== 'boolean') problems.push(`${at}.optional must be true or false`);
   if (raw.sentence !== undefined && typeof raw.sentence !== 'string') problems.push(`${at}.sentence must be a string`);
 }
 

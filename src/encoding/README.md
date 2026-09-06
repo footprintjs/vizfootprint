@@ -78,7 +78,7 @@ Two boundaries worth knowing. The evidence differs from the BUILD door's (not fr
 | refuse or coerce | `Coercer` | refuse | `encodingRules.onInvalid` names a coercer passed in `buildDashboard(def, { encoding: { coercers } })` |
 | reach of never-together | rule field | dashboard | `rule.scope`, or `encodingRules.ruleScope` |
 | refusal sentences | `Explainer` | the template | `buildDashboard(def, { encoding: { explainer } })` adds prose as `explained`; the template stays on `sentence` |
-| preferences | `Recommender` | none | `buildDashboard(def, { encoding: { recommender } })` ranks the columns that fit; it never sees the refused ones |
+| preferences | `Recommender` | none — nothing ranks unless a port is passed | `buildDashboard(def, { encoding: { recommender } })` ranks the columns that fit; it never sees the refused ones. `policyRecommender()` is the one this plane ships — see *Preferences, as data* |
 
 Two things are shapes, not strategies: a facet is declared on the column (a per-binding override is a later step), and a swap is a `reencode` with a binding set, not a verb of its own.
 
@@ -86,12 +86,72 @@ Two things are shapes, not strategies: a facet is declared on the column (a per-
 
 `discreteCoercer` reads a continuous column as discrete when a channel needs discrete. Nothing turns a category into a magnitude. A coerced act lands and reports the coercion on the dispatch result (`coerced`); the commit carries the field name only — carrying the coerced scale in the log is a known next step.
 
+## Preferences, as data
+
+`whatFits` decides WHO may sit on a channel. It says nothing about who should be offered first, and with no recommender passed the answer came back in whatever order the CSV happened to list its columns — which is not neutral, it is the CSV author's opinion presented as no opinion at all.
+
+`policyRecommender()` is the other kind of answer. A policy is an ordered list of rules, each of them three things a person can read — where it speaks, which column it names, and the sentence saying why:
+
+| # | rule | speaks about | names | and says |
+|---|---|---|---|---|
+| 1 | `date-on-an-axis` | `x`, `y` | a `date` column | *"week" is a date and x is an ordered axis — time is the thing an axis reads best* |
+| 2 | `measure-on-a-magnitude` | any magnitude channel | role `measure` | *"cases" is a declared measure, and y carries a magnitude* |
+| 3 | `named-for-the-channel` | every channel | a name in the channel's own vocabulary (`CHANNEL_NAMES`) | *"jurisdiction" is named for the region channel — somebody called it that…* |
+| 4 | `dimension-on-a-category` | any category channel | role `dimension` | *"disease" is a declared dimension, and color carries a category* |
+| — | *the default* | — | everything else | *no rule in this policy names "report_state" for color — it is offered among the columns no rule names, in the order the table lists them* |
+| 5 | `an-identifier-last` | every channel | role `identifier` | *"jurisdiction" is a declared identifier, and one mark per row is a list rather than a chart…* |
+
+**First match wins, and a rule either PREFERS a column or DEMOTES it** — both stated against the same middle, the columns no rule named at all. That is why the default sits between rules 4 and 5 in the table above: a rule's POSITION says who speaks first, and `place` says which side of the unnamed columns it speaks from. `placeIn(facet, channel)` returns the band as a number (negative preferred, `0` the default, positive demoted) beside the rule's id and its sentence.
+
+Two consequences worth knowing. **Rule 3 reads a name, and where it sits took an argument**: below what the data and the declarations say about a column's type and its measure role, above "a dimension on a category", because nearly every discrete column is a dimension and `jurisdiction` is the more specific evidence about a map's geography. Order it the other way and an NNDSS map is offered `disease` for its region. And **a preference always beats a demotion**, which is what lets `jurisdiction` be a map's region while still being offered last on a hue.
+
+Over an NNDSS-shaped table — `jurisdiction` (identifier), `disease` (dimension), `week` (date), `cases` and `ytd` (measures), `report_state` (the absence column):
+
+```ts
+whatFits({ columns, absence, chartKind: 'line', channels: ['x', 'color'], ports: { recommender: policyRecommender() } });
+// x:     week, cases, ytd                    (a date, then the two measures)
+// color: disease, report_state, jurisdiction (a dimension, then the unnamed, then the identifier)
+```
+
+**It changes the order and never the membership.** The columns that fit and the sentences refusing the ones that do not are identical with and without it — `recommend.test.ts` pins that channel by channel, because one rule for fit is the plane's law and a recommender is not it. The policy is exported as data: read `RANKING_POLICY`, replace it (`policyRecommender(mine)`), or extend it by slicing a new list — all three are the same act.
+
+## Proposing a whole chart
+
+A person at an authoring wizard has a harder question than *may this column sit here*: **given this table, what chart should I make?** `proposeCharts` answers it by composing the two things above and adding no rule of its own.
+
+```ts
+const { proposals, notEnumerated } = proposeCharts({ columns, absence });
+proposals[0];
+// { chartKind: 'line',
+//   channels: { x: 'week', y: 'cases' },
+//   reasons: {
+//     x: 'the x of a line takes a number or a date; "week" is a date and x is an ordered axis — …',
+//     y: 'the y of a line takes a number; "cases" is a declared measure, and y carries a magnitude' },
+//   cost: 0 }
+```
+
+For each chart kind the requirement tables know it enumerates the bindings that fit every channel of the kind, ranks them with the recommender, verifies each WHOLE binding with `whatFits` again, and returns the best few. **Every proposal carries its reasons** — what the channel takes, read off the requirement in force, and why that column was offered for it, in the ranking policy's own words. A recommender is a rewrite by this project's cut line: it changes what a person is offered, so a rank without a reason is an opinion wearing a number.
+
+Four things it states because they are not the plane's:
+
+- **the verification is the pin.** Every binding in a proposal is one `whatFits` accepts, and a binding it refuses never appears. The second pass matters: a rule about two columns (`never-together`, `only-with`) cannot fire while each column is judged alone, so the combination is judged as a whole before it is offered.
+- **one column never sits on two channels of one chart.** The plane would allow `x = cases, y = cases`; it is still not a chart anybody meant to be offered. That is enumeration, not law.
+- **a kind that binds nothing is not proposed.** `table` names no channel — nothing to bind, nothing to rank, nothing to give a reason for. `channelsOf(kind)` is the list, and a channel a requirement marks `optional` is not in it: a line draws without its colour, and a heatmap does not.
+
+  `ChannelRequirement.optional` has exactly ONE reader today, and it is worth naming rather than leaving to be discovered: **`channelsOf`, on behalf of the enumerator**, which will not propose a chart missing a channel the kind needs. **The validator does not read it** — a requirement judges a binding that exists, and an unbound channel is not a binding — so the field is ADVISORY, not enforced. Giving it a second reader (the build door refusing a declared view that leaves a required channel unbound) is queued below rather than done here, because it may refuse definitions that build today.
+- **the caps say when they bit.** `PROPOSAL_CANDIDATES` (4 per channel), `PROPOSAL_BINDINGS` (64 per kind) and the caller's `limit` (8) each come back as a sentence in `notEnumerated` naming what was left out. The first bites on any ordinary table — five columns fitting one channel is nothing unusual — and the second cannot bite on a built-in kind at all, because four candidates on at most three channels is sixty-four.
+
+`cost` is the sum of each channel's offer index: `0` means every channel took the recommender's first choice, and the list is sorted by it, lowest first. It is a **cost** and not a score because lower is better here, and a name that fights its own semantics is a bug waiting for a consumer — it measures how far a binding sat from the policy's first choices, and nothing else.
+
+**A proposal only ever comes from the kinds a host says it can draw**: pass `kinds` (a `chartKind` and the channels it binds) and nothing outside that list is enumerated; pass none and the default is every kind the requirement tables know. The studio wizard's `bar` binds `category` and counts rows where this library's binds `x` and `y`, and a proposal a host cannot draw is a proposal it must not be offered.
+
 ## Not yet
 
+- **the build door refusing a view that leaves a REQUIRED channel unbound** — the second reader that would make `ChannelRequirement.optional` enforced rather than advisory. Queued deliberately and not built here: it may refuse definitions that build today, so it is its own packet
 - `requires-aggregate` rules (the library has no aggregate binding yet)
 - a per-binding facet override recorded as its own commit
 - the coerced scale on the commit
 
 ## Files
 
-`types.ts` the vocabulary · `requirements.ts` built-in channel requirements + merge · `sentences.ts` templates · `facets.ts` column → facet · `validate.ts` the validator · `shape.ts` def-door shape checks · `fits.ts` what fits where · `whatFits.ts` the same, before a build · `lint.ts` the lint door · `describe.ts` rules as sentences · `coercers.ts` the built-in adapter
+`types.ts` the vocabulary · `requirements.ts` built-in channel requirements + merge, and which channels a kind binds · `sentences.ts` templates · `facets.ts` column → facet · `validate.ts` the validator · `shape.ts` def-door shape checks · `fits.ts` what fits where · `whatFits.ts` the same, before a build · `recommend.ts` the preference policy · `propose.ts` whole charts, offered · `lint.ts` the lint door · `describe.ts` rules as sentences · `coercers.ts` the built-in adapter
