@@ -7,8 +7,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { clauseInterval, clausePoint } from '@uwdata/mosaic-core';
-import { and } from '@uwdata/mosaic-sql';
-import { isClearedSQL, literalToSQL, matchesClause, resolvePredicateSQL } from './predicate.js';
+import { and, literal, not, or } from '@uwdata/mosaic-sql';
+import { isClearedSQL, literalToSQL, matchesClause, mosaicDescriptorSQL, resolvePredicateSQL } from './predicate.js';
 import type { CellClause, IntervalClause, MatchClause, PointClause, Row } from './types.js';
 
 /** The exact SQL string a real Mosaic clause resolves to — the ground truth. */
@@ -261,7 +261,8 @@ describe('the D30 compound cell — SQL descriptor + in-process evaluation', () 
   it('resolvePredicateSQL: interval × point renders the AND of both sides, byte-identical to the REAL composed clause', () => {
     const clause: CellClause = { kind: 'cell', fields: ['price', 'category'], value: [[100, 150], 'Formal'] };
     // ground truth: the two real Mosaic factories composed with the real `and`
-    // — exactly what src/mosaic/causeClause.ts builds and L1 records
+    // — exactly what the Mosaic adapter (src/mosaic/mosaicSelection.ts) builds
+    // for a `CauseClauseSpec` (src/selection/types.ts) and L1 records
     const real = String(
       and(
         clauseInterval('price', [100, 150], { source: {} }).predicate!,
@@ -339,5 +340,140 @@ describe('match — exclude flips the IN-list to NOT IN (SET-1)', () => {
     expect(resolvePredicateSQL({ kind: 'match', field: 'category', values: ['Data', 'Ops'], exclude: true })).toBe(`("category" NOT IN ('Data', 'Ops'))`);
     expect(resolvePredicateSQL({ kind: 'match', field: 'category', values: [], exclude: true })).toBe('(TRUE)');
     expect(resolvePredicateSQL({ kind: 'match', field: 'category', values: [] })).toBe('(FALSE)');
+  });
+});
+
+// ── mosaicDescriptorSQL — PARITY with the real factories, every kind × shape a CauseClauseSpec carries ──
+//
+// The builtin selection port renders `CommitRecord.predicateSQL` through this
+// function; the Mosaic adapter renders it as `String(clause.predicate)` of the
+// REAL clause. The two logs must be byte-identical, so every shape below is
+// built BOTH ways and compared — the real side composed exactly as the adapter
+// composes it (the factories, then `and` / `or` / `not` / `literal(false)`).
+describe('mosaicDescriptorSQL — byte-identical to the real Mosaic clause for every kind × shape', () => {
+  const src = { source: {} };
+  const realPoint = (field: string, value: unknown) => String(clausePoint(field, value, src).predicate);
+  const realInterval = (field: string, value: unknown) => String(clauseInterval(field, value as never, src).predicate);
+  const realSide = (field: string, side: unknown) =>
+    (Array.isArray(side) ? clauseInterval(field, side as never, src) : clausePoint(field, side, src)).predicate!;
+  const realCell = (fields: readonly [string, string], value: readonly [unknown, unknown] | null) =>
+    value === null ? String(null) : String(and(realSide(fields[0], value[0]), realSide(fields[1], value[1])));
+  const realMatch = (field: string, value: { values: unknown[]; exclude?: boolean } | null) => {
+    if (value === null) return String(null);
+    const arms = value.values.map((v) => clausePoint(field, v, src).predicate!);
+    const inList = arms.length === 0 ? literal(false) : arms.length === 1 ? arms[0]! : or(...arms);
+    return String(value.exclude === true ? not(inList) : inList);
+  };
+
+  it('point: string / quoted string / number / both booleans / null (IS NULL) / undefined (cleared) / Date / timestamp / NaN / quoted and dotted identifiers / the coerced literals', () => {
+    const shapes: Array<[string, unknown]> = [
+      ['category', 'Data'],
+      ['name', "O'Brien"],
+      ['n', 5],
+      ['b', true],
+      ['b', false],
+      ['x', null],
+      ['x', undefined],
+      ['d', new Date(Date.UTC(2026, 3, 1))],
+      ['d', new Date(Date.UTC(2026, 3, 1, 5))],
+      ['d', new Date(Number.NaN)],
+      ['n', Number.NaN],
+      ['weird"field', 1],
+      ['a.b', 1],
+      // Mosaic's string-coercion fallback — the byte the analysis / chart lanes have always persisted
+      ['pValue', { id: 'a1', table: 'data', pValue: 0.03 }],
+      ['x', [1, 2]],
+      ['x', 10n],
+      ['x', /a+/],
+      ['x', new Map([[1, 2]])],
+    ];
+    for (const [field, value] of shapes) {
+      expect(mosaicDescriptorSQL('point', field, value), `point ${field} = ${String(value)}`).toBe(realPoint(field, value));
+    }
+    expect(mosaicDescriptorSQL('point', 'pValue', { id: 'a1' })).toBe('("pValue" IN ([object Object]))');
+  });
+
+  it('interval: closed / half-open both ways / string / half-open string both ways / Date / cleared by null AND by undefined', () => {
+    const shapes: Array<[string, unknown]> = [
+      ['amount', [10, 20]],
+      ['amount', [150, null]],
+      ['amount', [null, 150]],
+      ['date', ['2026-04-01', '2026-04-30']],
+      ['date', ['2026-04-01', null]],
+      ['date', [null, '2026-04-30']],
+      ['d', [new Date(Date.UTC(2026, 3, 1)), new Date(Date.UTC(2026, 3, 30))]],
+      ['amount', null],
+      ['amount', undefined],
+    ];
+    for (const [field, value] of shapes) {
+      expect(mosaicDescriptorSQL('interval', field, value), `interval ${field} = ${JSON.stringify(value)}`).toBe(realInterval(field, value));
+    }
+  });
+
+  it('the odd renderings are ALSO pinned by value, so a Mosaic upgrade that changes them fails here by name', () => {
+    expect(mosaicDescriptorSQL('interval', 'amount', [150, null])).toBe('("amount" BETWEEN 150 AND NULL)');
+    expect(mosaicDescriptorSQL('interval', 'amount', [null, 150])).toBe('("amount" BETWEEN NULL AND 150)');
+    expect(mosaicDescriptorSQL('interval', 'date', ['2026-04-01', '2026-04-30'])).toBe('("date" BETWEEN "2026-04-01" AND "2026-04-30")');
+    expect(mosaicDescriptorSQL('interval', 'date', ['2026-04-01', null])).toBe('("date" BETWEEN "2026-04-01" AND NULL)');
+  });
+
+  it('cell: interval × point / point × point / interval × interval / half-open side / string-interval side / null point side / boolean side / cleared', () => {
+    const shapes: Array<[readonly [string, string], readonly [unknown, unknown] | null]> = [
+      [['price', 'category'], [[100, 150], 'Formal']],
+      [['a', 'b'], ['x', 7]],
+      [['u', 'v'], [[1, 2], [3, 4]]],
+      [['price', 'category'], [[150, null], 'Formal']],
+      [['date', 'category'], [['2026-05-01', '2026-05-31'], 'Casual']],
+      [['price', 'region'], [[10, 20], null]],
+      [['flag', 'n'], [true, 1]],
+      [['price', 'category'], null],
+    ];
+    for (const [fields, value] of shapes) {
+      expect(mosaicDescriptorSQL('cell', fields, value), `cell ${fields.join('×')} = ${JSON.stringify(value)}`).toBe(realCell(fields, value));
+    }
+  });
+
+  it('match: one / two / three values, a null entry (IS NULL), NaN, empty keep, empty exclude, exclude one / two, cleared', () => {
+    const shapes: Array<{ values: unknown[]; exclude?: boolean } | null> = [
+      { values: ['Formal'] },
+      { values: ['Formal', 'Party'] },
+      { values: ['Formal', 'Party', 'Casual'] },
+      { values: ['Formal', null] },
+      { values: [Number.NaN] },
+      { values: [] },
+      { values: [], exclude: true },
+      { values: ['Formal'], exclude: true },
+      { values: ['Formal', 'Party'], exclude: true },
+      null,
+    ];
+    for (const value of shapes) {
+      expect(mosaicDescriptorSQL('match', 'category', value), `match ${JSON.stringify(value)}`).toBe(realMatch('category', value));
+    }
+  });
+
+  it('a cleared clause of any kind is the one "null" descriptor isClearedSQL recognises', () => {
+    expect(isClearedSQL(mosaicDescriptorSQL('point', 'x', undefined))).toBe(true);
+    expect(isClearedSQL(mosaicDescriptorSQL('interval', 'x', null))).toBe(true);
+    expect(isClearedSQL(mosaicDescriptorSQL('cell', ['x', 'y'], null))).toBe(true);
+    expect(isClearedSQL(mosaicDescriptorSQL('match', 'x', null))).toBe(true);
+  });
+
+  it('refuses with a TypeError the shapes the real builders refuse — never a fabricated byte', () => {
+    // a value INSIDE a compound that would render "cleared" — the builders refuse a half-empty AND / OR
+    expect(() => mosaicDescriptorSQL('cell', ['price', 'category'], [[10, 20], undefined])).toThrow(/cell side must be concrete/);
+    expect(() => mosaicDescriptorSQL('match', 'category', { values: [undefined] })).toThrow(/match value must be concrete/);
+    // not a pair: the real `isBetween` would call `.map` on a number and the cell composer would index into a string
+    expect(() => mosaicDescriptorSQL('interval', 'amount', 42)).toThrow(TypeError);
+    expect(() => mosaicDescriptorSQL('interval', 'amount', [1, 2, 3])).toThrow(/must be a \[lo, hi\] pair/);
+    expect(() => mosaicDescriptorSQL('cell', ['x', 'y'], 'not-a-pair')).toThrow(/\[x side, y side\] pair/);
+    expect(() => mosaicDescriptorSQL('cell', ['x', 'y'], [1, 2, 3])).toThrow(TypeError);
+    // a match body without a list, and a body that is not an object at all
+    expect(() => mosaicDescriptorSQL('match', 'category', {})).toThrow(/\{ values, exclude\? \}/);
+    expect(() => mosaicDescriptorSQL('match', 'category', 'Formal')).toThrow(TypeError);
+    // a value string coercion refuses — the real factory throws the same TypeError, so the refusal is Mosaic's own
+    expect(() => realPoint('x', Symbol('s'))).toThrow(TypeError);
+    expect(() => mosaicDescriptorSQL('point', 'x', Symbol('s'))).toThrow(TypeError);
+    // and an interval bound goes through the same coercion (asNode → literal), objects included
+    expect(mosaicDescriptorSQL('interval', 'x', [{ lo: 1 }, 2])).toBe(realInterval('x', [{ lo: 1 }, 2]));
   });
 });

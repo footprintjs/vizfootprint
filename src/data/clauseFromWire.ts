@@ -109,9 +109,11 @@ export function cellSideClause(field: string, side: CellSide): PointClause | Int
  * a value in a clause and not the clause itself.
  *
  * Both readers of a point triple call this: {@link clauseFromWire} below, and
- * `causeClause` in `../mosaic`, which builds the live Mosaic clause the same
- * commit lands on. Two translations of one rule would be two answers, and the
- * two doors of a single act would disagree about whether it cleared.
+ * every selection port's `clause()` — the shared judge in
+ * `src/selection/judge.ts` and the Mosaic adapter's `nativeOf` — which mint
+ * the live clause the same commit lands on. Two translations of one rule
+ * would be two answers, and the two doors of a single act would disagree
+ * about whether it cleared.
  */
 export function pointValueFromWire(value: unknown): unknown {
   return value === null ? undefined : value;

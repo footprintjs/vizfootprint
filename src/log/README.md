@@ -109,8 +109,8 @@ which is the exact thing this folder exists to make impossible.
 (the cause gate, the registry lookups, the clause, the data stamp,
 `predicateSQL`, the deep freeze) happens while nothing has moved; then the
 record is pushed. The selection update comes LAST, because it is the one
-OUTBOUND step — it relays to downstream selections and emits to every listener a
-host attached, which is third-party code running after the commit is already
+OUTBOUND step — it emits to every listener a host attached (and an engine may
+relay it further), which is third-party code running after the commit is already
 history. It cannot un-land that commit: a session installs
 `onSelectionUpdateFailed` and files the failure as a gap; with no hook installed
 the error is rethrown, never swallowed. The full law, and why the two halves are
@@ -231,8 +231,11 @@ start.
 
 ## Law 3 — replay is a mode, not a rewrite
 
-`replayLog` rebuilds a log into a FRESH selection and a FRESH registry. It adds
-`cause.replayed = true` and touches nothing else: `requestedBy` and `computedBy`
+`replayLog(log, order?, port?)` rebuilds a log onto a FRESH selection port and a
+FRESH registry — the built-in unless a host hands in its own
+(`replayLog(records, undefined, mosaicSelection())` puts the replayed clauses on
+a live Mosaic `Selection`). It adds `cause.replayed = true` and touches nothing
+else: `requestedBy` and `computedBy`
 survive verbatim, and so does `correlationId` (an address, not provenance). This
 is R2, and `causeHistogram` exists to prove it — it counts
 `requestedBy>computedBy` pairs and deliberately ignores `replayed` and `intent`,

@@ -25,6 +25,21 @@ Outside that shape the two differ in exactly four ways, all on values no commit 
 
 One duplicate is still open and is named rather than hidden: `probeClause` in `src/session/wire.ts` is the library's own internal twin of this reading (point/interval/match), and the `rec.kind === 'cell' ? {…} : probeClause(…)` ternaries in `src/session/session.ts` restate the cell lift. They are unchanged, and folding them into `clauseFromWire` is a session-side decision, not a data-side one.
 
+## Two descriptors, two jobs: the honest SQL and the engine's byte
+
+`resolvePredicateSQL` is the SQL an engine could execute, and on two shapes — a half-open pair and a string pair — it deliberately says something Mosaic does not (`("amount" >= 150)` where Mosaic says `("amount" BETWEEN 150 AND NULL)`). `mosaicDescriptorSQL(kind, field, value)` beside it is the other job: the exact `String(clause.predicate)` real Mosaic renders, oddities included, measured on `@uwdata/mosaic-core@0.28.1` and pinned in `predicate.test.ts` against the real factories for every kind × shape. It exists because `CommitRecord.predicateSQL` is the one persisted engine-derived byte, and the built-in selection port (`src/selection`) must write the same byte the Mosaic adapter writes. Neither renderer may drift toward the other; `engineInvariant.test.ts` carries both shapes and asserts both answers by name.
+
+```ts
+import { mosaicDescriptorSQL, resolvePredicateSQL } from 'vizfootprint/data';
+
+mosaicDescriptorSQL('interval', 'amount', [150, null]);                                  // '("amount" BETWEEN 150 AND NULL)'  — the log's byte
+resolvePredicateSQL({ kind: 'interval', field: 'amount', value: [150, null] });           // '("amount" >= 150)'                — the SQL an engine runs
+mosaicDescriptorSQL('cell', ['price', 'category'], [[10, 20], undefined as never]);     // throws TypeError — a shape the real builders refuse
+mosaicDescriptorSQL('point', 'pValue', { id: 'a1', table: 'data' });                    // '("pValue" IN ([object Object]))' — Mosaic's coercion, kept; resolvePredicateSQL refuses the same object
+```
+
+Values are clause-tier (a point's `undefined` clears, its `null` is IS NULL — apply `pointValueFromWire` first); a cleared clause renders the same `"null"` `isClearedSQL` recognises.
+
 ## One pass, many recorders
 
 Every question a table is asked is a **recorder** that watches one walk over the rows and collects as it goes — the footprintjs law, collect during traversal, never post-process:

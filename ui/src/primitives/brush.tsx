@@ -23,7 +23,7 @@
  */
 import { useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import type { ChartEmission } from 'vizfootprint/mosaic';
+import type { ChartEmission } from 'vizfootprint/selection';
 
 /** The live drag rectangle, in viewBox units. */
 export interface BrushGeometry {

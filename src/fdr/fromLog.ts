@@ -8,9 +8,9 @@
  * L1 replaces it wholesale").
  *
  * ---- the "test-analog" commit convention ----------------------------------
- * `CommitRecord.kind` is L1's real, closed union — `'point' | 'interval'`,
- * the Mosaic clause kind (`src/log/log.ts:61`) — NOT an FDR concept, and this
- * packet does not touch `src/log`. A commit is read as a DECLARED-ANALYSIS
+ * `CommitRecord.kind` is L1's closed union — the selection port's
+ * `CauseClauseKind` (`src/selection/types.ts`: point, interval, cell, match)
+ * — NOT an FDR concept, and this packet does not touch `src/log`. A commit is read as a DECLARED-ANALYSIS
  * TEST EMISSION iff it is a point commit on the reserved field `'pValue'`
  * whose value is a {@link TestAct}: the act that ran, and the p-value it
  * produced. This mirrors how L3's `defineAnalysis` already treats

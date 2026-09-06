@@ -2,7 +2,7 @@
   "name": "vizfootprint",
   "version": "0.1.0",
   "private": true,
-  "description": "Causal/agent provenance layer for coordinated interactive visualization \u2014 cause-tagged clauses over Mosaic, append-only branching provenance, declared analyses with online FDR. Part of the footprintjs family.",
+  "description": "Causal/agent provenance layer for coordinated interactive visualization \u2014 cause-tagged clauses on a selection port (built-in, or Mosaic behind an optional adapter), append-only branching provenance, declared analyses with online FDR. Part of the footprintjs family.",
   "type": "module",
   "license": "MIT",
   "types": "./dist/agent/index.d.ts",
@@ -44,6 +44,10 @@
     "./cause": {
       "types": "./dist/cause/index.d.ts",
       "default": "./dist/cause/index.js"
+    },
+    "./selection": {
+      "types": "./dist/selection/index.d.ts",
+      "default": "./dist/selection/index.js"
     },
     "./mosaic": {
       "types": "./dist/mosaic/index.d.ts",
@@ -107,7 +111,9 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@trrack/core": "^1.6.1",
     "@types/node": "^22.0.0",
+    "@uwdata/mosaic-core": "^0.28.1",
     "@uwdata/mosaic-spec": "^0.28.1",
+    "@uwdata/mosaic-sql": "^0.28.1",
     "@vitest/coverage-v8": "^4.1.10",
     "agentfootprint": "^9.82.0",
     "agentthinkingui": "^0.23.0",
@@ -119,16 +125,22 @@
     "vitest": "^4.0.0"
   },
   "dependencies": {
-    "@uwdata/mosaic-core": "^0.28.1",
-    "@uwdata/mosaic-sql": "^0.28.1",
     "footprintjs": "^9.11.0"
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": ">=1.0.0",
+    "@uwdata/mosaic-core": ">=0.28.0",
+    "@uwdata/mosaic-sql": ">=0.28.0",
     "agentfootprint": ">=9.0.0"
   },
   "peerDependenciesMeta": {
     "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
+    "@uwdata/mosaic-core": {
+      "optional": true
+    },
+    "@uwdata/mosaic-sql": {
       "optional": true
     },
     "agentfootprint": {

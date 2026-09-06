@@ -17,7 +17,7 @@
  * string — only in the `rows` DATA field (Q8 two-string discipline).
  */
 import { buildDashboard, vizAsTools, type DashboardDef, type InteractionSession, type VizToolsPort } from 'vizfootprint/agent';
-import type { ActorMeta } from 'vizfootprint/mosaic';
+import type { ActorMeta } from 'vizfootprint/selection';
 import {
   correlationAnalysis,
   clusteringAnalysis,

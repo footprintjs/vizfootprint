@@ -1,28 +1,31 @@
 /**
  * URL 1 — /dashboard: the coordination + provenance story.
  *
- * Two hand-rolled SVG charts (scatter + bar) linked through a REAL
- * @uwdata/mosaic-core `Selection.crossfilter()`, now driven through the L5
- * agent surface (`buildDashboard(def).createSession()`, `src/agent`) rather
- * than a hand-rolled `CauseSelectionSession`:
+ * Two hand-rolled SVG charts (scatter + bar) linked through the session's
+ * selection PORT (`session.log.port` — the built-in crossfilter, `src/selection`;
+ * hand `mosaicSelection()` to a log to put the same clauses on a live Mosaic
+ * `Selection`), driven through the L5 agent surface
+ * (`buildDashboard(def).createSession()`, `src/agent`) rather than a
+ * hand-rolled `CauseSelectionSession`:
  *   - Every COMMIT-WORTHY gesture (a scatter brush release, a bar click, the
  *     agent's probe) rides `session.dispatch(...)` — R4's single semantic
  *     entry point. The scatter's live drag PREVIEW deliberately stays a
- *     transient `session.log.selection.update(...)` push (no log entry) —
+ *     transient `session.log.port.update(...)` push (no log entry) —
  *     `dispatch` always lands a commit, and turning every pointermove into a
  *     log row would flood the history strip and violate the demo's own
  *     "commit-on-intent" story. `session.log` is itself part of the L5
  *     session (InteractionSession wires L1's CauseSelectionSession, not a
  *     replacement for it), so this is still "driven by buildDashboard +
  *     session," just at the sub-layer L5 exposes for exactly this composition.
- *   - src/mosaic  — charts emit inert `{rawValue, encoding}`; only
+ *   - src/selection — charts emit inert `{rawValue, encoding}`; only
  *     `causeClauseFromEmission` turns an emission + cause + registered source
- *     into a real cross-filter clause (self-exclusion visible: brushing the
- *     scatter filters the bar but NOT itself — via the Selection's own skip()).
+ *     into a cross-filter clause, minted on the port that stands it
+ *     (self-exclusion visible: brushing the scatter filters the bar but NOT
+ *     itself — via the port's own skip()).
  *   - src/data    — predicate evaluation (matchesClause) over the in-memory
  *     rows for the chart highlight/self-exclusion story (L5's own
  *     `selectedRows()` has no self-exclusion variant, so this reads the
- *     underlying `session.log.selection` directly — see the file-level note
+ *     underlying `session.log.port` directly — see the file-level note
  *     above).
  *
  * "Simulate agent brush" now drives the REAL Mode-B tool surface
@@ -53,7 +56,7 @@ import {
   type DemoRow,
 } from './common.js';
 import { replayLog, serializeLog, type CommitRecord } from 'vizfootprint/log';
-import { causeClauseFromEmission, type ActorMeta, type RegisteredSource } from 'vizfootprint/mosaic';
+import { causeClauseFromEmission, isRejection, type ActorMeta, type RegisteredSource } from 'vizfootprint/selection';
 import type { Cause } from 'vizfootprint/cause';
 import { matchesClause, type PredicateClause } from 'vizfootprint/data';
 import { buildDashboard, vizAsTools, type DashboardDef } from 'vizfootprint/agent';
@@ -86,11 +89,14 @@ export async function mountDashboard(root: HTMLElement): Promise<void> {
 
   const src = (viewId: string, meta: ActorMeta) => session.log.registry.register(viewId, meta);
 
-  /** Build the predicate closure a given client sees (REAL crossfilter self-exclusion). */
+  const port = session.log.port;
+
+  /** Build the predicate closure a given client sees (crossfilter self-exclusion, by identity). */
   function predicateFor(client: RegisteredSource): (row: DemoRow) => boolean {
-    const specs = session.log.selection.clauses
-      .filter((clause) => !session.log.selection.skip(client, clause)) // Mosaic's own skip()
-      .map((clause) => specBySource.get(clause.source as object))
+    const specs = port
+      .clauses()
+      .filter((clause) => !port.skip(client, clause)) // the port's own skip()
+      .map((clause) => specBySource.get(clause.source))
       .filter((s): s is PredicateClause => s !== undefined);
     return (row) => specs.every((s) => matchesClause(row, s));
   }
@@ -131,14 +137,14 @@ export async function mountDashboard(root: HTMLElement): Promise<void> {
     return { requestedBy: 'user', computedBy: 'user', intent };
   }
 
-  /** Push a TRANSIENT clause (lives on the Selection, never logged). */
+  /** Push a TRANSIENT clause (lives on the port, never logged). */
   function applyTransient(viewId: string, meta: ActorMeta, iv: [number, number] | null): void {
     const source = src(viewId, meta);
-    const clause = causeClauseFromEmission(Scatter.brushEmission('price', iv), {
-      source,
-      cause: causeUser('transient brush'),
-    });
-    session.log.selection.update(clause);
+    const clause = causeClauseFromEmission(Scatter.brushEmission('price', iv), { source, cause: causeUser('transient brush') }, port);
+    /* v8 ignore next -- a brush interval is a [lo, hi] pair the built-in port always mints; the
+     * rejection arm exists because the port's answer is a union, not because this shape can reach it. */
+    if (isRejection(clause)) return;
+    port.update(clause);
     /* v8 ignore next -- `applyTransient` has exactly one call site (this file's `onBrushMove:
      * (iv) => applyTransient('scatter', SCATTER, iv)`), and Scatter's `onBrushMove` (common.ts)
      * always calls back with a real `toInterval(...)` tuple, never `null` — the `null`-clear arm
@@ -310,14 +316,11 @@ export async function mountDashboard(root: HTMLElement): Promise<void> {
     actionButton('agent', 'Simulate agent brush', () => void simulateAgentBrush()),
     actionButton('reset', 'Reset view', () => {
       // Transient clear of every active source (a view reset — not a logged intent).
-      for (const clause of [...session.log.selection.clauses]) {
-        const source = clause.source as unknown as RegisteredSource;
-        session.log.selection.update(
-          causeClauseFromEmission({ rawValue: null, encoding: { kind: 'interval', field: 'price' } }, {
-            source,
-            cause: causeUser('reset'),
-          }),
-        );
+      for (const clause of port.clauses()) {
+        const cleared = causeClauseFromEmission({ rawValue: null, encoding: { kind: 'interval', field: 'price' } }, { source: clause.source, cause: causeUser('reset') }, port);
+        /* v8 ignore next -- a cleared interval is a shape every port mints; see applyTransient. */
+        if (isRejection(cleared)) continue;
+        port.update(cleared);
       }
       specBySource.clear();
       render();

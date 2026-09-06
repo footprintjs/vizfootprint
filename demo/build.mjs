@@ -1,13 +1,14 @@
 /**
  * Demo bundler — reuses the bench/x4 esbuild + DuckDB-stub trick (bench/x4/
- * runner.mjs:35-63). The demo runs the REAL landed layers (src/log, src/mosaic,
- * src/cause, src/analysis, src/fdr) INSIDE the browser over a real
- * @uwdata/mosaic-core Selection. That barrel statically imports the DuckDB-WASM
- * connector, which the demo never touches (it uses in-memory data, exactly the
- * D24 "memory" engine the bench proved works with the connector stubbed) — so
- * we alias @duckdb/duckdb-wasm to an empty module to keep the bundle lean and
- * browser-clean. footprintjs itself is pure ESM with no node builtins in its
- * runtime, so it bundles for the browser as-is.
+ * runner.mjs:35-63). The demo runs the REAL landed layers (src/log,
+ * src/selection, src/cause, src/analysis, src/fdr) INSIDE the browser on the
+ * built-in selection port — no Mosaic in the bundle. The @duckdb/duckdb-wasm
+ * alias below is kept for the day a page hands `mosaicSelection()` to the log:
+ * that adapter's barrel statically imports the DuckDB-WASM connector, which the
+ * demo never touches (it uses in-memory data, exactly the D24 "memory" engine
+ * the bench proved works with the connector stubbed), so the alias keeps the
+ * bundle lean and browser-clean. footprintjs itself is pure ESM with no node
+ * builtins in its runtime, so it bundles for the browser as-is.
  *
  * No framework, no watch — one esbuild call per page entry, bundled to an IIFE
  * on `globalThis` (VizDemoDashboard / VizDemoAnalyst).

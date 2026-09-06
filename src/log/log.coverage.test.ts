@@ -39,8 +39,8 @@ describe('commit() — explicit clientViewIds naming a DIFFERENT view than the c
     expect(record.clientViewIds).toEqual(['B']);
     const b = s.registry.require('B');
     // the live clause's `clients` set holds B's identity (resolved via require, not `source`).
-    expect((clause.clients as unknown as Set<object>).has(b)).toBe(true);
-    expect((clause.clients as unknown as Set<object>).has(s.registry.require('A'))).toBe(false);
+    expect(clause.clients.has(b)).toBe(true);
+    expect(clause.clients.has(s.registry.require('A'))).toBe(false);
   });
 
   it('a client list mixing the committing view AND another view resolves each correctly', () => {
@@ -58,7 +58,7 @@ describe('commit() — explicit clientViewIds naming a DIFFERENT view than the c
       clientViewIds: ['A', 'B'],
     });
     expect(record.clientViewIds).toEqual(['A', 'B']);
-    const clients = clause.clients as unknown as Set<object>;
+    const clients = clause.clients;
     expect(clients.has(s.registry.require('A'))).toBe(true);
     expect(clients.has(s.registry.require('B'))).toBe(true);
     expect(clients.size).toBe(2);

@@ -20,7 +20,7 @@
  * endpoint) — the emitted strings are actual column values, so the string
  * interval predicate (src/data, lexicographic == chronological for ISO-8601)
  * compares formats that always agree. A sub-4px drag clears (null interval),
- * matching {@link VizScatter}. `src/mosaic`'s `ChartEmission` types the
+ * matching {@link VizScatter}. `src/selection/emission.ts`'s `ChartEmission` types the
  * interval tuple numerically (it predates date intervals); the ISO pair rides
  * the same rail via one documented cast — the src/data seam (`IntervalClause`)
  * types and evaluates `[string, string]` correctly.
@@ -29,7 +29,7 @@
  * columns, y only numeric ones — disabled-with-reason via {@link lineCompat}.
  */
 import { useMemo } from 'react';
-import type { ChartEmission } from 'vizfootprint/mosaic';
+import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import { linearScale, extent, ticks, epochOf, dayOf } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
@@ -247,7 +247,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
       const hi = snapToDate(x.invert(hiPx));
       // no dated rows at all — nothing to snap to; never fabricate an interval
       if (lo === null || hi === null) return null;
-      // ISO strings on the interval rail: src/mosaic's ChartEmission tuple is
+      // ISO strings on the interval rail: src/selection/emission.ts's ChartEmission tuple is
       // typed numerically (predates date intervals); src/data's IntervalClause
       // types + evaluates [string, string] — the documented cast, nowhere else.
       return [lo.date, hi.date] as unknown as [number, number];

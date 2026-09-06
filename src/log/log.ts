@@ -1,7 +1,8 @@
 /**
  * L1 — the append-only, branch-capable commit log that carries cause-tagged
- * Mosaic clauses AND can rebuild them into a fresh Selection with fresh
- * source identity.
+ * clauses AND can rebuild them onto a fresh selection port with fresh source
+ * identity. The port is `SelectionPort` (src/selection): the built-in by
+ * default, or the Mosaic adapter when a host hands one in.
  *
  * Promoted verbatim from spikes/x1-replay/log.ts (D17: the proven wire
  * shape). This is the "L0 wire shape" every later layer consumes. It is a
@@ -32,16 +33,35 @@
  *        on (proven out-of-hot-path at bench/x4).
  */
 
-import { Selection } from '@uwdata/mosaic-core';
-import type { SelectionClause } from '@uwdata/mosaic-core';
 import { ACTORS, isActor, markReplayed, parseCause, validateCause, type Cause } from '../cause/index.js';
 import { copyValue, deepFreeze } from '../detach/index.js';
 import {
   SourceRegistry,
-  causeClause,
+  builtinSelection,
+  isRejection,
   type ActorMeta,
+  type CauseClause,
   type CauseClauseSpec,
-} from '../mosaic/index.js';
+  type SelectionPort,
+  type SelectionRejection,
+} from '../selection/index.js';
+
+/**
+ * Thrown by `commit()` in its JUDGE phase when the selection port cannot mint
+ * the clause — a shape the engine refuses, or a source it does not know.
+ * Carries the port's typed rejection. No record and no clause has moved when
+ * it is thrown; the commit's SOURCE, though, is already registered (the
+ * registry lookup precedes the mint, so the port can be handed a registry
+ * identity to judge) — only the cell-`fields` refusal precedes registration.
+ */
+export class ClauseRejectedError extends Error {
+  readonly rejection: SelectionRejection;
+  constructor(rejection: SelectionRejection) {
+    super(`vizfootprint log: the ${rejection.engine} selection port refused the clause (${rejection.reason})${rejection.detail === undefined ? '' : `: ${rejection.detail}`}`);
+    this.name = 'ClauseRejectedError';
+    this.rejection = rejection;
+  }
+}
 
 /** The serializable commit — one interaction's worth of clause + provenance. */
 export interface CommitRecord {
@@ -129,12 +149,13 @@ export interface CommitInput {
 }
 
 /**
- * A live authoring/replay session: a Mosaic Selection, the registry that owns
+ * A live authoring/replay session: a selection port, the registry that owns
  * its source identities, and the growing commit log. Live authoring and replay
  * both drive `commit()`, so their behavior is identical by construction.
  */
 export class CauseSelectionSession {
-  readonly selection: Selection;
+  /** The selection every commit's clause is stood on. Built-in unless a host handed one in (`mosaicSelection()`). */
+  readonly port: SelectionPort;
   readonly registry: SourceRegistry;
   /**
    * THE TRACE. Private, and truly private (`#`, not `private`): a caller
@@ -150,12 +171,12 @@ export class CauseSelectionSession {
   /** Set by the session: the data versions to stamp on every commit that names none (table → version). */
   stampData?: () => Readonly<Record<string, string>> | undefined;
   /**
-   * Set by the session: what to do when pushing the clause onto the live
-   * `Selection` throws — see {@link commit}'s APPLY phase.
+   * Set by the session: what to do when pushing the clause onto the selection
+   * port throws — see {@link commit}'s APPLY phase.
    *
-   * The selection update is the one OUTBOUND step of a commit: it relays to
-   * downstream selections and emits to every listener a host attached (the
-   * demo's charts are exactly that). Third-party code, in other words, and it
+   * The port update is the one OUTBOUND step of a commit: it emits to every
+   * listener a host attached (the demo's charts are exactly that), and an
+   * engine may relay it further. Third-party code, in other words, and it
    * runs AFTER the record is already on the trace — so a throw from it must
    * never un-land the commit, and must never be swallowed either.
    *
@@ -166,8 +187,8 @@ export class CauseSelectionSession {
    */
   onSelectionUpdateFailed?: (error: unknown, record: CommitRecord) => void;
 
-  constructor(selection = Selection.crossfilter(), registry = new SourceRegistry()) {
-    this.selection = selection;
+  constructor(port: SelectionPort = builtinSelection(), registry = new SourceRegistry()) {
+    this.port = port;
     this.registry = registry;
   }
 
@@ -203,12 +224,15 @@ export class CauseSelectionSession {
    * ALL-OR-NOTHING, in two phases (the session law — src/session/README.md,
    * "a dispatch either fully happens or does not happen at all"):
    *
-   *  - **JUDGE** — everything that can throw happens here, and NOTHING
-   *    observable has moved yet: the cause gate, the registry lookups, the
-   *    value copy, the cell's field-pair refusal, building the clause, asking
-   *    the session for the data stamp, rendering `predicateSQL` and the deep
-   *    freeze. Any of these throwing leaves the log and the selection exactly
-   *    as they were, so the act simply did not happen.
+   *  - **JUDGE** — everything that can throw happens here, and no record and
+   *    no clause has moved yet: the cell's field-pair refusal, the cause gate,
+   *    the registry registration + client lookups, the value copy, minting the
+   *    clause on the port (a rejection becomes a {@link ClauseRejectedError}
+   *    here), asking the session for the data stamp, rendering `predicateSQL`
+   *    and the deep freeze. Any of these throwing leaves the log and the
+   *    selection exactly as they were, so the act simply did not happen. The
+   *    one thing a refusal past the field-pair check leaves behind is the
+   *    registered source — an identity, not an act.
    *  - **APPLY** — pure assignment: push the record, drop the cached snapshot.
    *
    * This ORDER is the fix for a real window. The selection used to be updated
@@ -219,7 +243,7 @@ export class CauseSelectionSession {
    * [`src/detach/README.md`](../detach/README.md) says must be impossible: what
    * is on screen would no longer be derived from the trace.
    */
-  commit(input: CommitInput): { record: CommitRecord; clause: SelectionClause } {
+  commit(input: CommitInput): { record: CommitRecord; clause: CauseClause } {
     // ── JUDGE ────────────────────────────────────────────────────────────────
     // D30: a cell commit carries its authoritative field PAIR; refusing an
     // absent pair here (not downstream) keeps every replica of the wire
@@ -249,7 +273,10 @@ export class CauseSelectionSession {
         // union, so the compiler cannot carry that proof down here.
         ? { kind: 'cell', source, fields: input.fields!, value: value as never, cause, clients }
         : { kind: input.kind, source, field: input.field, value: value as never, cause, clients };
-    const clause = causeClause(spec);
+    const clause = this.port.clause(spec);
+    // WHY throw here and not in the port: a port never throws for a shape (its answer is a union); the
+    // log's JUDGE phase is where a refused clause becomes an act that did not happen
+    if (isRejection(clause)) throw new ClauseRejectedError(clause);
 
     const data = input.data ?? this.stampData?.();
     const record: CommitRecord = {
@@ -269,7 +296,9 @@ export class CauseSelectionSession {
       value,
       ...(input.fields !== undefined && { fields: [input.fields[0], input.fields[1]] as [string, string] }),
       clientViewIds: [...clientViewIds],
-      predicateSQL: String(clause.predicate),
+      // WHY String(): a cleared clause carries predicateSQL `null` (what a Mosaic clause carries as its
+      // predicate), and the wire has always spelled that `"null"` — the byte every replay pin compares
+      predicateSQL: String(clause.predicateSQL),
       cause,
       ts: input.ts ?? this.#records.length,
       ...(data !== undefined && Object.keys(data).length > 0 && { data: { ...data } }),
@@ -295,13 +324,12 @@ export class CauseSelectionSession {
     this.#view = undefined; // the log moved: the next `records` read rebuilds the snapshot
 
     // ── OUTBOUND (not part of the act) ───────────────────────────────────────
-    // Pushing the clause onto the live Selection relays to downstream
-    // selections and emits to every listener a host attached — third-party code
-    // running after the commit is already history. It must not be able to
-    // un-land the commit, and it must not be swallowed either: see
-    // {@link onSelectionUpdateFailed}.
+    // Pushing the clause onto the port emits to every listener a host attached
+    // (and an engine may relay it on) — third-party code running after the
+    // commit is already history. It must not be able to un-land the commit,
+    // and it must not be swallowed either: see {@link onSelectionUpdateFailed}.
     try {
-      this.selection.update(clause);
+      this.port.update(clause);
     } catch (error) {
       if (this.onSelectionUpdateFailed === undefined) throw error;
       this.onSelectionUpdateFailed(error, record);
@@ -570,10 +598,12 @@ export function replayInput(rec: CommitRecord): CommitInput {
 }
 
 /**
- * Replay a serialized (or in-memory) log into a FRESH selection + FRESH
- * registry. Every re-emitted commit gets `replayed:true` added to its cause
- * (R2: the two slots are untouched). Returns the rebuilt session; its
- * `records` are the post-replay log.
+ * Replay a serialized (or in-memory) log onto a FRESH selection port + FRESH
+ * registry — the built-in unless a host hands in its own (`mosaicSelection()`
+ * puts the replayed clauses on a live Mosaic `Selection`). Every re-emitted
+ * commit gets `replayed:true` added to its cause (R2: the two slots are
+ * untouched). Returns the rebuilt session; its `records` are the post-replay
+ * log.
  *
  * This is the L1 replay: a log rebuilt into a LOG. Replaying one into a
  * SESSION — the fold, the refs, the dashboard's id counters, the derived
@@ -583,16 +613,18 @@ export function replayInput(rec: CommitRecord): CommitInput {
  * @param log  serialized JSON string OR an array of records
  * @param order optional commit-id path to walk (branch selection). Defaults to
  *              the log's own order (the linear main line).
+ * @param port  the selection port to rebuild onto; a fresh built-in by default.
  */
 export function replayLog(
   log: string | readonly CommitRecord[],
   order?: readonly string[],
+  port: SelectionPort = builtinSelection(),
 ): CauseSelectionSession {
   const source = typeof log === 'string' ? deserializeLog(log) : log;
   const byId = new Map(source.map((r) => [r.id, r]));
   const path = order ?? source.map((r) => r.id);
 
-  const session = new CauseSelectionSession();
+  const session = new CauseSelectionSession(port);
   for (const id of path) {
     const rec = byId.get(id);
     if (!rec) throw new Error(`replay path references unknown commit "${id}"`);

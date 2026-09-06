@@ -1,5 +1,6 @@
 export {
   CauseSelectionSession,
+  ClauseRejectedError,
   CommitLogParseError,
   causeHistogram,
   deserializeLog,

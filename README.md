@@ -3,10 +3,10 @@
 ## Importing it
 
 The library is `private` and always will be, but it is importable by name.
-`npm run build` emits `dist/`, and fifteen doors are declared in `package.json`'s
+`npm run build` emits `dist/`, and sixteen doors are declared in `package.json`'s
 `exports` map — `vizfootprint` (the L5 entry) plus `/agent`, `/def`, `/session`,
-`/analysis`, `/source`, `/source/file`, `/data`, `/cause`, `/mosaic`, `/prose`,
-`/log`, `/branches`, `/renderer` and `/mcp`.
+`/analysis`, `/source`, `/source/file`, `/data`, `/cause`, `/selection`, `/mosaic`,
+`/prose`, `/log`, `/branches`, `/renderer` and `/mcp`.
 
 ```ts
 import { buildDashboard, vizAsTools } from 'vizfootprint';

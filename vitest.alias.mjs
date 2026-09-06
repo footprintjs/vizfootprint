@@ -43,6 +43,7 @@ export const DOORS = {
   'source/file': 'source/file.ts',
   data: 'data/index.ts',
   cause: 'cause/index.ts',
+  selection: 'selection/index.ts',
   mosaic: 'mosaic/index.ts',
   prose: 'prose/index.ts',
   log: 'log/index.ts',

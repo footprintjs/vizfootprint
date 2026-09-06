@@ -16,8 +16,10 @@
 ### What
 
 vizfootprint is a **causal / agent-provenance layer for coordinated interactive
-visualization**. It sits *beside* [Mosaic](https://idl.uw.edu/mosaic/) (its sole runtime
-dependency, `@uwdata/mosaic-core`) and gives every state-changing interaction a **two-slot
+visualization**. It sits *beside* [Mosaic](https://idl.uw.edu/mosaic/) — an optional peer
+(`@uwdata/mosaic-core` / `@uwdata/mosaic-sql`) imported only behind the `vizfootprint/mosaic`
+adapter door; the selection port itself (`src/selection`) is engine-free — and gives every
+state-changing interaction a **two-slot
 cause** — *who requested it* and *who computed it*, each ∈ `{user, agent, system}` — then
 records those causes into an **append-only, branch-capable log** that can be **replayed**
 into a fresh Mosaic `Selection` with byte-identical behavior. On top of that log it adds:
@@ -59,9 +61,10 @@ Mosaic's 60 Hz interaction hot path. x4 proves it — a real headless-Chromium 3
 - **No coordination layer.** Mosaic owns cross-filtering, query optimization, and the
   `Selection`/`Client` protocol. vizfootprint tags and logs clauses; it does not re-implement
   coordination.
-- **No clause engine.** We build *real* Mosaic clauses via `clausePoint`/`clauseInterval`
-  (`src/mosaic/causeClause.ts:14`) and ride a `cause` field on the clause metadata superset. We
-  do not parse, evaluate, or rewrite predicates.
+- **No clause engine.** On the Mosaic adapter we build *real* Mosaic clauses via
+  `clausePoint`/`clauseInterval` (`src/mosaic/mosaicSelection.ts`) and ride a `cause` field on the
+  clause metadata superset; the built-in port renders the same byte through
+  `mosaicDescriptorSQL` (`src/data/predicate.ts`). We do not parse, evaluate, or rewrite predicates.
 - **No replay-graph / no time-travel debugger UI.** Replay is a deterministic re-application of
   the log into a fresh selection; visualization of the branch tree is a downstream concern
   (explainable-ui family), not this package.
@@ -90,7 +93,7 @@ Mosaic's 60 Hz interaction hot path. x4 proves it — a real headless-Chromium 3
 
 ```
 buildDashboard(def)            →  Dashboard          // L5 · declarative, offline, no API key
-  .createSession(opts?)        →  InteractionSession // L2+L1 · one live Mosaic Selection + log
+  .createSession(opts?)        →  InteractionSession // L2+L1 · one selection port (opts.selection) + log
     .mountView(viewId, client)                       // register a Mosaic client under an actor identity
     .dispatch(action)          →  DispatchResult     // L5 · R4 semantic dispatch, zero synthetic input
     .declareAnalysis(id, def)  →  AnalysisHandle      // L3 · R6 declared, R7 online-FDR gated
@@ -167,8 +170,8 @@ throwaway — `spikes/x2-fdr/commit-log-stub.ts:1-9`).
 ### Public API (from `src/log/log.ts` — promoted P3.1, commit `a24dc50`)
 
 ```ts
-class CauseSelectionSession {                             // src/log/log.ts:98
-  readonly selection: Selection;                          // a real Mosaic Selection
+class CauseSelectionSession {                             // src/log/log.ts
+  readonly port: SelectionPort;                           // src/selection — the built-in, or mosaicSelection()
   readonly registry: SourceRegistry;                      // owns source identities (L2)
   readonly records: CommitRecord[];
   constructor(selection?: Selection, registry?: SourceRegistry);
@@ -196,7 +199,7 @@ cause-tagged clause, applies it to the `Selection`, and appends the record.
   fresh selection (`src/log/log.test.ts:187-194`; `src/log/branch.test.ts:27-35`). *(Viewport/library
   independence is asserted via SQL determinism, not yet across two rendering libraries — see Q4.
   P3-L2 strengthens the DATA-space-in half explicitly — see `src/log/viewport-replay.test.ts` and
-  `src/mosaic/emission.test.ts`'s R5 block — but does not close Q4's cross-library claim.)*
+  `src/selection/emission.test.ts`'s R5 block — but does not close Q4's cross-library claim.)*
 - **R8** append-only branching — `parent: string | null` chains commits; siblings branch off one
   parent; each branch replays into its own fresh selection (`src/log/branching.fixture.ts:24-91`;
   `src/log/branch.test.ts:12-41`).
@@ -222,7 +225,7 @@ cause-tagged clause, applies it to the `Selection`, and appends the record.
 ### Consumes
 - L0 `validateCause`, `markReplayed`, `Cause` (`src/log/log.ts:31`).
 - L2 `SourceRegistry`, `causeClause`, `ActorMeta`, `CauseClauseSpec` (`src/log/log.ts:32-37`).
-- `@uwdata/mosaic-core` `Selection`, `SelectionClause` (`src/log/log.ts:29-30`).
+- L2 `SelectionPort`, `builtinSelection` (`src/log/log.ts`); no `@uwdata` import anywhere in L1.
 
 ### Non-goals
 - **Not** a general event bus — it logs *state-changing clause commits*, not every UI event.
@@ -295,21 +298,21 @@ citing installed `PreAggregator.js:192-206`).
   carrying origin* — **built here, not deferred to L5** (was SPEC §10 Q3): a chart emits an inert
   `ChartEmission` and ONLY `causeClauseFromEmission` turns it into a cause-tagged clause; the clause
   factories are never re-exported, so "the chart never builds a clause" is enforced by construction,
-  not convention (`src/mosaic/emission.ts:13-19,85`; `src/mosaic/emission.test.ts`).
-- **R12** malformed causes never enter the clause stream — `causeClause` calls `validateCause`
-  before building anything (`causeClause.ts:67`).
+  not convention (`src/selection/emission.ts`; `src/selection/emission.test.ts`).
+- **R12** malformed causes never enter the clause stream — the shared judge calls `validateCause`
+  before building anything (`src/selection/judge.ts`).
 
 ### Acceptance tests
-- `src/mosaic/SourceRegistry.test.ts` and `src/mosaic/causeClause.test.ts` (shipped); plus the L1
-  end-to-end A1/A2 which exercise identity across replay.
-- To add on promotion: `causeClause` cross-filter — a two-view registry where `clients` excludes
-  only self (already exercised via A1), and a `causeOf(round-trip)` equality.
+- `src/selection/types.test.ts`, `src/selection/builtinSelection.test.ts` and
+  `src/mosaic/mosaicSelection.test.ts` (shipped; the last against the real package); plus the L1
+  end-to-end A1/A2 which exercise identity across replay, on both ports.
 
 ### Consumes
-- L0 `validateCause`, `Cause`, `Actor` (`causeClause.ts:16`; `SourceRegistry.ts:21`).
+- L0 `validateCause`, `Cause`, `Actor` (`src/selection/judge.ts`; `src/selection/types.ts`).
 - `@uwdata/mosaic-core` `clausePoint`, `clauseInterval`, `SelectionClause`, `ClauseMetadata`,
-  `MosaicClient` (`causeClause.ts:14-15`). **This is the package's sole runtime dependency**
-  (`package.json:23-25`).
+  `MosaicClient` and `@uwdata/mosaic-sql` `and`/`or`/`not`/`literal` — ONLY in
+  `src/mosaic/mosaicSelection.ts`. **These are optional peers**, not runtime dependencies
+  (`package.json` `peerDependencies` + `peerDependenciesMeta`; PACKAGING.md Law 3).
 
 ### Non-goals / resolved seam
 - **Q9 (RESOLVED — e3ce924; canonical `docs/RESEARCH_STATE.md`)**: `clients` is typed

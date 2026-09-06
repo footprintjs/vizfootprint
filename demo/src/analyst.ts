@@ -20,7 +20,7 @@
  * FIXED Mode-B tool port an LLM agent would actually call — so the activity
  * strip and the gap panel are produced by the real tool surface, not a
  * simulation of it. `viz.dispatch.range`/`.value` are plain DATA-space bounds;
- * only `session.log.selection` (the crossfilter self-exclusion machinery
+ * only `session.log.port` (the crossfilter self-exclusion machinery
  * `selectedRows()` doesn't expose a per-client variant of) is read directly —
  * everything ANALYTICAL (selection resolution, materialize, the ledger, gaps)
  * flows through the session.
@@ -60,7 +60,7 @@ import {
   specFromRecord,
   type DemoRow,
 } from './common.js';
-import { causeClauseFromEmission, type ActorMeta, type ChartEmission, type RegisteredSource } from 'vizfootprint/mosaic';
+import { causeClauseFromEmission, isRejection, type ActorMeta, type ChartEmission, type RegisteredSource } from 'vizfootprint/selection';
 import type { Cause } from 'vizfootprint/cause';
 import { matchesClause, type PredicateClause } from 'vizfootprint/data';
 import { correlationAnalysis, clusteringAnalysis, regressionAnalysis, groupByAnalysis } from 'vizfootprint/analysis';
@@ -99,6 +99,7 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
   const agentPort = vizAsTools(session, { as: 'agent' }); // serve (fixed Mode B tools)
 
   const specBySource = new Map<object, PredicateClause>();
+  const port = session.log.port;
   const src = (viewId: string, meta: ActorMeta) => session.log.registry.register(viewId, meta);
 
   function causeUser(intent: string): Cause {
@@ -107,8 +108,11 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
 
   function applyTransient(viewId: string, meta: ActorMeta, emission: ChartEmission, spec: PredicateClause | null): void {
     const source = src(viewId, meta);
-    const clause = causeClauseFromEmission(emission, { source, cause: causeUser('transient') });
-    session.log.selection.update(clause);
+    const clause = causeClauseFromEmission(emission, { source, cause: causeUser('transient') }, port);
+    /* v8 ignore next -- the scatter's brush emission is a [lo, hi] pair the built-in port always
+     * mints; the rejection arm exists because the port's answer is a union, not because it is reachable here. */
+    if (isRejection(clause)) return;
+    port.update(clause);
     /* v8 ignore next -- `applyTransient` has exactly one call site (the scatter's `onBrushMove`
      * below), which only ever passes a null `spec` when its own `iv` is falsy — but Scatter's
      * `onBrushMove` (common.ts) always calls back with a real, non-empty `toInterval(...)` tuple,
@@ -146,9 +150,10 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
   }
 
   function predicateFor(client: RegisteredSource): (r: DemoRow) => boolean {
-    const specs = session.log.selection.clauses
-      .filter((c) => !session.log.selection.skip(client, c))
-      .map((c) => specBySource.get(c.source as object))
+    const specs = port
+      .clauses()
+      .filter((c) => !port.skip(client, c))
+      .map((c) => specBySource.get(c.source))
       .filter((s): s is PredicateClause => s !== undefined);
     return (r) => specs.every((s) => matchesClause(r, s));
   }

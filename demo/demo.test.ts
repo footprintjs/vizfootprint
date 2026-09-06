@@ -82,7 +82,7 @@ describe('log → replay round-trip (dashboard H4 / R2)', () => {
     expect(before.every((r) => r.replayed === undefined)).toBe(true);
     expect(after.every((r) => r.replayed === true)).toBe(true);
     // the fresh selection ends with the same active clauses (one per source)
-    expect(replayed.selection.clauses.length).toBe(3);
+    expect(replayed.port.clauses().length).toBe(3);
   });
 });
 

@@ -7,9 +7,10 @@
  *
  * Unlike the wasm engine, the server engine needs NO new dependency at all:
  * `Coordinator`/`socketConnector`/`restConnector` already live in
- * `@uwdata/mosaic-core`, this package's one existing runtime dependency
- * (`SPEC.md §4`: "This is the package's sole runtime dependency"). What was
- * read to shape this stub:
+ * `@uwdata/mosaic-core` — an OPTIONAL peer since the selection port landed,
+ * imported only behind `vizfootprint/mosaic` (PACKAGING.md), so a real
+ * implementation here would live behind that door too. What was read to
+ * shape this stub:
  *   - `node_modules/@uwdata/mosaic-core/dist/src/Coordinator.js` — the class
  *     doc comment: "manages all database communication for clients and
  *     handles selection updates ... query caching, consolidation, and

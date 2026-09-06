@@ -13,7 +13,7 @@ import { buildDashboard } from '../def/index.js';
 import type { DashboardDef } from '../def/index.js';
 import { makeDashboardDef, SAMPLE_ROWS } from './dashboard.fixture.js';
 import type { Cause } from '../cause/index.js';
-import type { CauseClause } from '../mosaic/index.js';
+import type { CauseClause } from '../selection/index.js';
 import type { DataRow } from '../analysis/index.js';
 
 const userCause = (intent?: string): Cause => ({ requestedBy: 'user', computedBy: 'user', ...(intent ? { intent } : {}) });
@@ -123,7 +123,7 @@ describe('D30 — one cell gesture lands ONE compound commit', () => {
     });
     await s.dispatch({ verb: 'select', viewId: 'heatmap', fields: [...CELL_FIELDS], values: [...CELL_VALUES], cause: userCause() });
     expect(seen).toHaveLength(1);
-    expect(String(seen[0]!.predicate)).toBe(`(("price" BETWEEN 100 AND 150) AND ("category" IN ('Formal')))`);
+    expect(seen[0]!.predicateSQL).toBe(`(("price" BETWEEN 100 AND 150) AND ("category" IN ('Formal')))`);
   });
 });
 

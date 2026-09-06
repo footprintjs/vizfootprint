@@ -7,6 +7,8 @@
 export { createInteractionSession } from './session.js';
 export type { InteractionSession } from './session.js';
 export { GapLedger } from './gapLedger.js';
+// the type a host needs to fill `SessionOptions.selection` without opening `/selection`
+export type { SelectionPort } from '../selection/index.js';
 export type {
   DispatchAction,
   DispatchResult,

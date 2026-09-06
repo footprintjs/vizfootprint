@@ -26,7 +26,7 @@ towards publishing.
 
 ## Law 1 — the doors are a list, and the list is the whole surface
 
-Fifteen subpaths, and nothing else:
+Sixteen subpaths, and nothing else:
 
 | door | what it is |
 |---|---|
@@ -39,7 +39,8 @@ Fifteen subpaths, and nothing else:
 | `vizfootprint/source/file` | **the one non-barrel door** — see Law 3 |
 | `vizfootprint/data` | the query port, the clause predicate, the one-pass recorders, CSV, and `describeTable` (what is in a table, before there is a dashboard) |
 | `vizfootprint/cause` | `Cause`, `Actor`, and the cause gate |
-| `vizfootprint/mosaic` | the Mosaic seam: `ChartEmission`, `ActorMeta`, the source registry |
+| `vizfootprint/selection` | the selection PORT, dependency-free: `SelectionPort`, `CauseClause`, `RegisteredSource` + the source registry, `builtinSelection()`, and the chart emission contract (`ChartEmission`, `ActorMeta`) |
+| `vizfootprint/mosaic` | the Mosaic ADAPTER: `mosaicSelection()` answers the selection port with a live Mosaic `Selection` — the ONLY importer of the optional `@uwdata/mosaic-core` / `@uwdata/mosaic-sql` peers. The adapter alone; the port's own names come from `/selection` |
 | `vizfootprint/prose` | mentions, refs, prose slots |
 | `vizfootprint/log` | the TRACE: `CommitRecord`, the append-only log, the parser |
 | `vizfootprint/branches` | git-style named branching over the log |
@@ -50,6 +51,16 @@ Fifteen subpaths, and nothing else:
 `vizfootprint/mcp` is the one door nothing imports yet. It is open anyway, and
 on purpose: it is where the optional `@modelcontextprotocol/sdk` peer lives, and
 keeping it a door is what keeps that peer out of every other entry.
+
+`vizfootprint/mosaic` is the same rule for the second pair of optional peers.
+`@uwdata/mosaic-core` and `@uwdata/mosaic-sql` were once the package's one
+runtime dependency; since the selection port landed they are optional
+`peerDependencies` (`>=0.28.0`, `peerDependenciesMeta.optional`), kept in
+`devDependencies` so the adapter tests run against the real package. The log
+defaults to the engine-free `builtinSelection()`; a host that already runs
+Mosaic hands `mosaicSelection()` to the log and gets its clauses on a live
+`Selection`. `src/mosaic/mosaicSelection.ts` is the only module under `src/`
+that imports either peer — pinned by a test — so no other door loads them.
 
 **`src/detach`, `src/encoding`, `src/fdr`, `src/links` and `src/why` have
 barrels and are not doors.** Nothing outside this package imports them (the
@@ -153,7 +164,8 @@ The rule generalizes: **a subpath is for a symbol whose PRESENCE on the barrel
 would change what the barrel costs to load.** Not for a symbol that feels
 internal, not for one that feels heavy — for one that pulls a runtime, a peer,
 or a dependency the barrel promises not to need. `vizfootprint/mcp` is the same
-rule at folder scale (the optional MCP SDK).
+rule at folder scale (the optional MCP SDK), and so is `vizfootprint/mosaic`
+(the optional Mosaic peers).
 
 ---
 
@@ -234,7 +246,7 @@ Three consequences to know:
 **Why tsc and not esbuild**, given the ui package bundles with esbuild: because
 the two packages ship different things. `vizfootprint-ui` is a component library
 whose consumers want a bundle and a UMD file for a `<script>` tag; this is a
-plain ESM module graph with fifteen entry points, and bundling it would either
+plain ESM module graph with sixteen entry points, and bundling it would either
 duplicate shared code across every entry or force a chunking scheme to avoid it.
 Transpiling the graph in place keeps `source/file` from pulling `node:fs` into
 anything that did not ask for it, which is Law 3's whole point. And tsc emits
@@ -287,10 +299,12 @@ with **no alias**. It carries `"vizfootprint": "file:../vizfootprint"` as a real
 dependency and resolves every door through the exports map to `dist/`, which is
 the point: it is the clean room where the built entry points either work or do
 not. The family's standing warning applies — a `file:` link plus `npm link` will
-happily mask a resolution bug that a real install would catch — so the demo's
-doors are checked by resolving and importing all fifteen and reading the
-resolved path back, not by trusting that the old relative paths still point
-somewhere.
+happily mask a resolution bug that a real install would catch. What is enforced
+today: `packaging.test.mjs` keeps the `exports` map and the `DOORS` list
+identical and every entry under `dist/`, and the demo's own typecheck, tests and
+`web:build` resolve the doors it imports through the exports map. No check yet
+resolves ALL sixteen from the demo and reads the path back — the checklist's
+step 6 is done by hand when a door is added.
 
 ---
 

@@ -1,10 +1,17 @@
 /**
- * predicate — pure, engine-independent clause resolution.
- *
- * `resolvePredicateSQL` hand-replicates the EXACT text real Mosaic clause
- * factories produce, verified empirically against the installed package
- * (`@uwdata/mosaic-core@0.28.1`, which re-exports `@uwdata/mosaic-sql`'s
- * literal/operator AST toString()):
+ * predicate — pure, engine-independent clause resolution. TWO renderers with
+ * two jobs, and neither may drift toward the other:
+ *   - `mosaicDescriptorSQL` (the last section) is the ENGINE's byte — the
+ *     exact text the real Mosaic factories produce, oddities kept (a half-open
+ *     pair as `BETWEEN 150 AND NULL`, a string bound as a double-quoted column
+ *     reference). It is what a selection port mints and what
+ *     `CommitRecord.predicateSQL` persists.
+ *   - `resolvePredicateSQL` is the HONEST, executable SQL the data engines
+ *     run, and deliberately diverges on exactly those two shapes (the comment
+ *     on `resolveIntervalSQL`).
+ * Both replicate Mosaic's literal formatting, verified empirically against
+ * the installed package (`@uwdata/mosaic-core@0.28.1`, which re-exports
+ * `@uwdata/mosaic-sql`'s literal/operator AST toString()):
  *
  *   node -e "const c=require('@uwdata/mosaic-core');
  *     console.log(String(c.clausePoint('category','Data',{source:{}}).predicate))"
@@ -27,7 +34,8 @@
  *   `clausePoint`/`clauseInterval` — `value === undefined` (point) /
  *   `value == null` (interval) produce a `null` predicate node, not a SQL
  *   fragment; `CommitRecord.predicateSQL` then literally reads `String(null)`
- *   (`"null"`) at the L1 boundary (`src/log/log.ts:143`). This module mirrors
+ *   (`"null"`) at the L1 boundary (`src/log/log.ts`, `commit()`'s
+ *   `String(clause.predicateSQL)`). This module mirrors
  *   that exact string so a `DataProvider`'s `sql` field stays byte-identical
  *   to what L1 already recorded for the same commit.
  *
@@ -195,6 +203,146 @@ export function isClearedSQL(sql: string): boolean {
   return sql === CLEARED_SQL;
 }
 
+// ── mosaicDescriptorSQL — the byte the ENGINE's own rules render ────────────
+//
+// `resolvePredicateSQL` above is the honest SQL and deliberately diverges from
+// Mosaic on two shapes (the comment on `resolveIntervalSQL`). This section
+// deliberately does NOT: it renders the SAME string real Mosaic renders for
+// every kind × shape a `CauseClauseSpec` carries, measured on
+// `@uwdata/mosaic-core@0.28.1` and pinned in predicate.test.ts against the real
+// factories. WHY two renderers: `CommitRecord.predicateSQL` is the one
+// persisted engine-derived byte, and a log written by the built-in selection
+// port and by the Mosaic adapter must be byte-identical — so the built-in
+// renders Mosaic's rules, oddities included: a half-open pair as
+// `BETWEEN 150 AND NULL`, a string bound as a double-quoted COLUMN reference
+// (`asNode`, ast.js:16-17: `isString(value) ? column(value) : asLiteral(value)`),
+// a cleared clause as `String(null)`.
+
+/**
+ * Mosaic's `literalToSQL` (ast/literal.js) VERBATIM — including the two arms
+ * the data seam's `literalToSQL` above honestly refuses: a RegExp renders its
+ * source, and anything else falls through to string coercion (`${value}`), so
+ * a plain object is `[object Object]`, an array is its joined elements, a
+ * bigint its digits, and a Symbol throws the TypeError coercion throws. WHY
+ * the fallback is kept rather than refused: the log has always carried
+ * object-valued point commits (an analysis declaration, a chart's act on the
+ * `pValue` lane), and the byte Mosaic persisted for them is the coercion's.
+ */
+function mosaicLiteralSQL(value: unknown): string {
+  if (value instanceof RegExp) return `'${value.source}'`;
+  if (value !== null && typeof value === 'object' && !(value instanceof Date)) return `${value as object}`;
+  if (typeof value === 'bigint' || typeof value === 'symbol' || typeof value === 'function') return `${value as bigint}`;
+  return literalToSQL(value);
+}
+
+/** Mosaic's `asNode` over one interval extent: a string is a column reference, anything else a literal. */
+function mosaicBoundSQL(bound: unknown): string {
+  return typeof bound === 'string' ? quoteIdent(bound) : mosaicLiteralSQL(bound);
+}
+
+/** `clausePoint`: `undefined` → no predicate; `null` → the `isInDistinct` IS NULL fallback; anything else → IN (literal). */
+function mosaicPointSQL(field: string, value: unknown): string {
+  if (value === undefined) return CLEARED_SQL;
+  if (value === null) return `(${quoteIdent(field)} IS NULL)`;
+  return `(${quoteIdent(field)} IN (${mosaicLiteralSQL(value)}))`;
+}
+
+/** `clauseInterval`: `value != null ? isBetween(field, value) : null` — always BETWEEN, both extents through `asNode`. */
+function mosaicIntervalSQL(field: string, value: unknown): string {
+  if (value == null) return CLEARED_SQL;
+  if (!Array.isArray(value) || value.length !== 2) {
+    throw new TypeError(
+      `mosaicDescriptorSQL: an interval value must be a [lo, hi] pair — "${field}" got ${Object.prototype.toString.call(value)}`,
+    );
+  }
+  return `(${quoteIdent(field)} BETWEEN ${mosaicBoundSQL(value[0])} AND ${mosaicBoundSQL(value[1])})`;
+}
+
+/**
+ * A value INSIDE a compound (a cell side, a match entry) must render a
+ * predicate: `undefined` there is a point's "cleared", not a value, and the
+ * real builders refuse it rather than landing a half-empty AND/OR.
+ */
+function concrete(sql: string, field: string, where: string): string {
+  if (sql === CLEARED_SQL) {
+    throw new TypeError(
+      `mosaicDescriptorSQL: a ${where} must be concrete — "${field}" got undefined; clear the WHOLE clause with value: null instead`,
+    );
+  }
+  return sql;
+}
+
+/** One cell side through the real factory for its shape: an array side is `clauseInterval`, anything else `clausePoint`. */
+function mosaicCellSideSQL(field: string, side: unknown): string {
+  return concrete(Array.isArray(side) ? mosaicIntervalSQL(field, side) : mosaicPointSQL(field, side), field, 'cell side');
+}
+
+/** The D30 cell: the real `and` of both sides — `((x) AND (y))`; `null` clears the whole cell. */
+function mosaicCellSQL(fields: readonly [string, string], value: unknown): string {
+  if (value === null) return CLEARED_SQL;
+  if (!Array.isArray(value) || value.length !== 2) {
+    throw new TypeError(
+      `mosaicDescriptorSQL: a cell value must be a [x side, y side] pair — got ${Object.prototype.toString.call(value)}`,
+    );
+  }
+  return `(${mosaicCellSideSQL(fields[0], value[0])} AND ${mosaicCellSideSQL(fields[1], value[1])})`;
+}
+
+/**
+ * The SET-1 match: every entry through `clausePoint`, the arms through the
+ * real `or` (`((a) OR (b))`), the polarity through the real `not`
+ * (`(NOT …)`); an empty keep-list is `literal(false)` — `FALSE`, unwrapped.
+ */
+function mosaicMatchSQL(field: string, value: unknown): string {
+  if (value === null) return CLEARED_SQL;
+  const body = value as { values?: unknown; exclude?: unknown } | undefined;
+  if (typeof body !== 'object' || !Array.isArray(body.values)) {
+    throw new TypeError(
+      `mosaicDescriptorSQL: a match value must be { values, exclude? } — "${field}" got ${Object.prototype.toString.call(value)}`,
+    );
+  }
+  const arms = body.values.map((v: unknown) => concrete(mosaicPointSQL(field, v), field, 'match value'));
+  const inList = arms.length === 0 ? 'FALSE' : arms.length === 1 ? arms[0]! : `(${arms.join(' OR ')})`;
+  return body.exclude === true ? `(NOT ${inList})` : inList;
+}
+
+/**
+ * The exact `String(clause.predicate)` real Mosaic renders for a clause of this
+ * kind over this value — the byte `CommitRecord.predicateSQL` persists.
+ *
+ * Values are CLAUSE-tier: a point's `undefined` clears and its `null` is a
+ * real IS NULL (the caller applies `pointValueFromWire` first, as every clause
+ * builder does); an interval's/cell's/match's `null` clears. A cleared clause
+ * renders `String(null)`, the same `"null"` `isClearedSQL` recognises.
+ *
+ * A shape the real factories would refuse or never see — an undefined cell
+ * side or match entry, an interval or cell that is not a pair, a match body
+ * without a list, a value string coercion refuses (a Symbol) — THROWS a
+ * TypeError rather than fabricating a byte; a selection port catches it once
+ * at its door and answers `unsupported-shape`. A plain object is NOT refused:
+ * Mosaic coerces it to `[object Object]`, and so does this (see
+ * `mosaicLiteralSQL`).
+ */
+export function mosaicDescriptorSQL(kind: 'cell', fields: readonly [string, string], value: unknown): string;
+export function mosaicDescriptorSQL(kind: 'point' | 'interval' | 'match', field: string, value: unknown): string;
+export function mosaicDescriptorSQL(
+  kind: 'point' | 'interval' | 'cell' | 'match',
+  field: string | readonly [string, string],
+  value: unknown,
+): string {
+  // the overloads above pair each kind with its field shape; the casts below only restate that pairing
+  switch (kind) {
+    case 'point':
+      return mosaicPointSQL(field as string, value);
+    case 'interval':
+      return mosaicIntervalSQL(field as string, value);
+    case 'match':
+      return mosaicMatchSQL(field as string, value);
+    case 'cell':
+      return mosaicCellSQL(field as readonly [string, string], value);
+  }
+}
+
 /**
  * An interval's (non-null) bounds are either all numbers or all strings (see
  * `IntervalClause` in types.ts — the two never mix), and at least one side is
@@ -213,8 +361,8 @@ function isStringBounds(
 
 /**
  * Evaluate a clause against one row IN-PROCESS (the memory engine's actual
- * filter — `resolvePredicateSQL` above is the DESCRIPTOR, this is the real
- * work). Semantics mirror the resolved SQL exactly:
+ * filter — `resolvePredicateSQL` above is the honest SQL text, this is the
+ * real work). Semantics mirror the resolved SQL exactly:
  *   - cleared (`clause === null`, or a point/interval clause whose own value
  *     clears it) matches every row;
  *   - point `IS NULL` matches `row[field] == null` (null OR undefined —

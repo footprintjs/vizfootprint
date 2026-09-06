@@ -98,7 +98,7 @@ Two windows were open and are now closed, both of them the same mistake — a
 fallible step standing between two halves of one act:
 
 - **`log.commit()` used to move the live selection before the record existed.**
-  `causeClause(spec)` → `selection.update(clause)` → *then* ask the session for
+  `port.clause(spec)` → `port.update(clause)` → *then* ask the session for
   the data stamp, render `predicateSQL`, build the record, deep-freeze it, push
   it. Four fallible steps after the screen had already moved. A throwing
   `stampData`, or a predicate whose `toString` threw, left the live selection
@@ -129,8 +129,9 @@ refusal is now the first thing `commit()` judges, before it registers a source.
 
 Some steps genuinely can fail and are genuinely not the act: they reach outside
 the session, into code this library does not own. A mounted adapter re-rendering
-(`ViewAdapter.applyClause`, R3 inbound). The live Mosaic `Selection` relaying to
-whatever listeners a host attached. A provider writing an analysis column back
+(`ViewAdapter.applyClause`, R3 inbound). The selection port (`../selection`; the
+Mosaic adapter when a host hands one in through `createSession({ selection })`)
+relaying to whatever listeners a host attached. A provider writing an analysis column back
 into the data space.
 
 Those are moved OUT of the transaction, and their failure is a typed
@@ -702,7 +703,7 @@ no record landed, no counter raised, no cursor moved:
    parse and still not be landable, for reasons no parser has the world to
    judge: a `clientViewIds` naming a cross-filter client no earlier commit ever
    registered, two commits claiming one `viewId` with different actor metadata,
-   a `value` the Mosaic clause factory cannot read (`value` is inert data —
+   a `value` the selection port refuses to mint (`value` is inert data —
    the parser deliberately accepts any type in that slot). So every clause is
    built once against a scratch log that starts exactly as empty as ours, and
    only then for real;
@@ -1015,8 +1016,9 @@ Three consequences, each deliberate:
 - **The clause tier keeps Mosaic's split, and one line translates.**
   `pointValueFromWire` (`../data/clauseFromWire.ts`) is that line, and BOTH
   readers of a point triple call it: `clauseFromWire`, which reads a commit as
-  the clause it means, and `causeClause` (`../mosaic`), which builds the live
-  Mosaic clause the same commit lands on. Two translations would be two answers,
+  the clause it means, and every selection port's `clause()` (`../selection`,
+  `../mosaic`), which mints the live clause the same commit lands on. Two
+  translations would be two answers,
   and the two doors of one act would disagree about whether it cleared — the
   live selection standing on IS NULL while the fold said the view was clear.
 

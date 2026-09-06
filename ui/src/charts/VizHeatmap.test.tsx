@@ -13,7 +13,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent, cleanup } from '@testing-library/react';
 import { VizHeatmap, type HeatmapCellDatum } from './VizHeatmap.js';
 import { selectionForView } from '../contract/selection.js';
-import type { ChartEmission } from 'vizfootprint/mosaic';
+import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, SelectionView } from '../adapter/types.js';
 
 afterEach(cleanup);

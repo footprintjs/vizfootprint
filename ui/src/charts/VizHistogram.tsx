@@ -42,7 +42,7 @@
  * and emitted through the one documented numeric-tuple cast.
  */
 import { useMemo } from 'react';
-import type { ChartEmission } from 'vizfootprint/mosaic';
+import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedInterval } from '../contract/selection.js';
@@ -168,7 +168,7 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
       onEmit?.(clearedEmission());
       return;
     }
-    // date edges on the interval rail: src/mosaic's ChartEmission tuple is
+    // date edges on the interval rail: src/selection/emission.ts's ChartEmission tuple is
     // typed numerically (predates date intervals); src/data's IntervalClause
     // types + evaluates [string, string] — the same documented cast VizLine carries.
     onEmit?.({ rawValue: [g.x0, g.x1] as unknown as [number, number], encoding: { kind: 'interval', field } });

@@ -101,7 +101,7 @@ export interface Dashboard {
   restoreBookmarks(list: readonly RestorableBookmark[]): RestoreResult;
   /** Judge the data declarations against the real data: today, that a declared row key names a column the engine lists. Sentences, never thrown. */
   lintData(): Promise<readonly string[]>;
-  /** Open a fresh session: one live Mosaic Selection + commit log + FDR ledger. */
+  /** Open a fresh session: one selection port (the built-in unless `opts.selection` hands one in) + commit log + FDR ledger. */
   createSession(opts?: SessionOptions): InteractionSession;
   /**
    * The LINT door of the encoding plane: every declared initial binding judged

@@ -2,8 +2,8 @@
  * Branching-log fixture + runnable narrative (promoted from
  * spikes/x1-replay/replay.spike.ts).
  *
- * Authors a BRANCHING cause-log over two coordinated Mosaic views, serializes
- * it, then replays two different branch paths into fresh Selections + fresh
+ * Authors a BRANCHING cause-log over two coordinated views, serializes it,
+ * then replays two different branch paths onto fresh selection ports + fresh
  * registries — proving (H4) that identity-dependent behavior survives replay
  * and (R8) that the append-only log supports branching timelines.
  *
@@ -11,7 +11,6 @@
  * branch.test.ts which calls runBranchingReplay(); or import it from anywhere.
  */
 
-import type { RegisteredSource } from '../mosaic/index.js';
 import {
   CauseSelectionSession,
   causeHistogram,
@@ -55,8 +54,9 @@ export const BRANCHING_LOG: CommitInput[] = [
 ];
 
 const clauseSummary = (session: CauseSelectionSession) =>
-  session.selection.clauses
-    .map((c) => `${(c.source as RegisteredSource).viewId}:${String(c.predicate)}`)
+  session.port
+    .clauses()
+    .map((c) => `${c.source.viewId}:${String(c.predicateSQL)}`)
     .sort();
 
 export interface BranchingReplayResult {

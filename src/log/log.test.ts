@@ -3,17 +3,20 @@
  * spikes/x1-replay/replay.test.ts (the existential spike for H4), plus
  * strengthened R8 coverage added on promotion.
  *
- * H4: can cause-tagged Mosaic clauses be (a) serialized to an append-only log
- * and (b) replayed into a FRESH Selection such that identity-dependent behavior
- * (cross-filter self-exclusion; remove(source)) is preserved, via a source
- * REGISTRY mapping stable ids -> live source objects?
+ * H4: can cause-tagged clauses be (a) serialized to an append-only log and
+ * (b) replayed onto a FRESH selection port such that identity-dependent
+ * behavior (cross-filter self-exclusion; clearing one source's clause) is
+ * preserved, via a source REGISTRY mapping stable ids -> live source objects?
+ * The same law against the REAL Mosaic `Selection` (remove(source) included)
+ * is in src/mosaic/mosaicSelection.test.ts.
  */
 
 import { describe, it, expect } from 'vitest';
-import { Selection } from '@uwdata/mosaic-core';
-import type { RegisteredSource } from '../mosaic/index.js';
+import { reject } from '../selection/index.js';
+import type { RegisteredSource, SelectionPort } from '../selection/index.js';
 import {
   CauseSelectionSession,
+  ClauseRejectedError,
   causeHistogram,
   replayLog,
   serializeLog,
@@ -66,23 +69,20 @@ function authorMainLine(): CauseSelectionSession {
 }
 
 /**
- * The set of predicate SQL strings VISIBLE to a given view's client, using
- * Mosaic's own inspection API `Selection.predicate(client, noSkip=true)`
- * (node_modules/@uwdata/mosaic-core/dist/src/Selection.js:224-228). `noSkip`
- * isolates the per-clause cross-filter self-exclusion (SelectionResolver.skip,
- * Selection.js:278-283) from the transient "active source" skip.
+ * The set of predicate SQL strings VISIBLE to a given view's client: every
+ * standing clause the port does not `skip` for it — the per-clause cross-filter
+ * self-exclusion, by identity (the built-in transcribes Mosaic's
+ * SelectionResolver.skip, Selection.js:278-283).
  */
-function visibleSQL(sel: Selection, client: RegisteredSource): string[] {
-  // Q9 (resolved, src/mosaic/SourceRegistry.ts): RegisteredSource genuinely
-  // extends MosaicClient, so `client` IS a MosaicClient — no cast needed.
-  const pred = sel.predicate(client, true);
-  if (pred == null) return [];
-  const arr = Array.isArray(pred) ? pred : [pred];
-  return arr.map((p) => String(p)).sort();
+function visibleSQL(port: SelectionPort, client: RegisteredSource): string[] {
+  return port
+    .clauses()
+    .filter((c) => !port.skip(client, c))
+    .map((c) => String(c.predicateSQL))
+    .sort();
 }
 
-const liveClauseViewIds = (sel: Selection): string[] =>
-  sel.clauses.map((c) => (c.source as RegisteredSource).viewId).sort();
+const liveClauseViewIds = (port: SelectionPort): string[] => port.clauses().map((c) => c.source.viewId).sort();
 
 describe('A1 — self-exclusion is identical pre- and post-replay', () => {
   it('view A never sees its own clause but does see B, before AND after replay', () => {
@@ -95,15 +95,15 @@ describe('A1 — self-exclusion is identical pre- and post-replay', () => {
     const aOwnSQL = live.records.find((r) => r.id === 'c3')!.predicateSQL;
     const bOwnSQL = live.records.find((r) => r.id === 'c2')!.predicateSQL;
 
-    const preA = visibleSQL(live.selection, aLive);
-    const preB = visibleSQL(live.selection, bLive);
+    const preA = visibleSQL(live.port, aLive);
+    const preB = visibleSQL(live.port, bLive);
 
     expect(preA).not.toContain(aOwnSQL); // A excludes itself
     expect(preA).toContain(bOwnSQL); //     but sees B
     expect(preB).not.toContain(bOwnSQL); // B excludes itself
     expect(preB).toContain(aOwnSQL); //     but sees A
 
-    // --- serialize -> replay into a FRESH Selection + FRESH registry ---
+    // --- serialize -> replay onto a FRESH port + FRESH registry ---
     const json = serializeLog(live.records);
     const replayed = replayLog(json);
     const aReplay = replayed.registry.require('A');
@@ -113,8 +113,8 @@ describe('A1 — self-exclusion is identical pre- and post-replay', () => {
     expect(aReplay).not.toBe(aLive);
     expect(bReplay).not.toBe(bLive);
 
-    const postA = visibleSQL(replayed.selection, aReplay);
-    const postB = visibleSQL(replayed.selection, bReplay);
+    const postA = visibleSQL(replayed.port, aReplay);
+    const postB = visibleSQL(replayed.port, bReplay);
 
     // identity-dependent behavior is preserved — byte-identical predicate sets.
     expect(postA).toEqual(preA);
@@ -124,38 +124,36 @@ describe('A1 — self-exclusion is identical pre- and post-replay', () => {
   });
 });
 
-describe('A2 — remove(source) after replay removes exactly A’s clause', () => {
-  it('removing the replayed source-for-A leaves only B', () => {
+describe('A2 — clearing A after replay removes exactly A’s clause (resolve by identity)', () => {
+  it('a cleared commit for the replayed source-for-A leaves only B standing', () => {
     const live = authorMainLine();
     const json = serializeLog(live.records);
     const replayed = replayLog(json);
 
-    expect(liveClauseViewIds(replayed.selection)).toEqual(['A', 'B']);
+    expect(liveClauseViewIds(replayed.port)).toEqual(['A', 'B']);
 
-    const aReplay = replayed.registry.require('A');
-    const afterRemove = replayed.selection.remove(aReplay);
+    // the port drops the clause whose `source` IS the replayed A object — a fresh identity
+    // the fresh registry minted, matched by reference and never by id string
+    replayed.commit({ ...MAIN_LINE[2]!, id: 'c4', parent: 'c3', value: null });
 
     // exactly A removed, B untouched
-    expect(liveClauseViewIds(afterRemove)).toEqual(['B']);
-    // and the original selection is unchanged (remove returns a clone)
-    expect(liveClauseViewIds(replayed.selection)).toEqual(['A', 'B']);
+    expect(liveClauseViewIds(replayed.port)).toEqual(['B']);
   });
 
-  it('R8: removing a clause from the live selection does not shrink the commit log', () => {
-    // Selection.remove() operates on the LIVE VIEW (which clauses currently
-    // filter). The append-only commit log is a different thing entirely: it
-    // is the audit trail of every commit ever authored, and has no delete
-    // API at all. This pins that distinction — the two must never be
-    // confused, or a UI "clear filter" action could be mistaken for erasing
-    // history.
+  it('R8: clearing a clause on the live selection does not shrink the commit log', () => {
+    // A cleared commit changes the LIVE VIEW (which clauses currently filter).
+    // The append-only commit log is a different thing entirely: it is the
+    // audit trail of every commit ever authored, and has no delete API at
+    // all. This pins that distinction — the two must never be confused, or a
+    // UI "clear filter" action could be mistaken for erasing history.
     const live = authorMainLine();
     const before = live.records.length;
-    const aLive = live.registry.require('A');
 
-    live.selection.remove(aLive); // returns a clone; does not touch live.records
+    live.commit({ ...MAIN_LINE[2]!, id: 'c4', parent: 'c3', value: null }); // A's clause leaves the selection
 
-    expect(live.records.length).toBe(before);
-    expect(live.records.map((r) => r.id)).toEqual(['c1', 'c2', 'c3']);
+    expect(liveClauseViewIds(live.port)).toEqual(['B']);
+    expect(live.records.length).toBe(before + 1); // the clear is itself a commit; nothing was removed
+    expect(live.records.map((r) => r.id)).toEqual(['c1', 'c2', 'c3', 'c4']);
   });
 });
 
@@ -334,8 +332,8 @@ describe('D30 — cell commits: wire shape, JSON round-trip, replay', () => {
     expect(record.fields).toEqual(['price', 'category']);
     expect(record.value).toEqual([[100, 150], 'Formal']);
     expect(record.predicateSQL).toBe(`(("price" BETWEEN 100 AND 150) AND ("category" IN ('Formal')))`);
-    expect(s.selection.clauses.length).toBe(1); // one clause in the live crossfilter too
-    expect(String(clause.predicate)).toBe(record.predicateSQL);
+    expect(s.port.clauses().length).toBe(1); // one clause in the live crossfilter too
+    expect(clause.predicateSQL).toBe(record.predicateSQL);
   });
 
   it('refuses a cell commit without its field pair (the wire replicas may trust `fields`)', () => {
@@ -379,7 +377,7 @@ describe('D30 — cell commits: wire shape, JSON round-trip, replay', () => {
  *
  * `commit()` runs everything that can throw in a JUDGE phase, while nothing has
  * moved; the APPLY phase is the push. The one OUTBOUND step (pushing the clause
- * onto the live Selection, which emits to whatever a host attached) runs LAST
+ * onto the selection port, which emits to whatever a host attached) runs LAST
  * and cannot un-land a commit that is already history.
  *
  * The session's half of this law — the gap an outbound failure files, and the
@@ -406,8 +404,32 @@ describe('commit() — judge everything first, then apply', () => {
     expect(() => s.commit({ ...POINT, id: 'x2', parent: 'x1', value: 'Ops' })).toThrow('no version to be had');
     // it used to update the selection first: one clause, no commit behind it
     expect(s.records.length).toBe(1);
-    expect(s.selection.clauses.length).toBe(1);
-    expect(s.selection.clauses[0]!.value).toBe('Data');
+    expect(s.port.clauses().length).toBe(1);
+    expect(s.port.clauses()[0]!.value).toBe('Data');
+  });
+
+  it('a clause the port refuses is a ClauseRejectedError out of the JUDGE — typed, carrying the rejection, nothing landed', () => {
+    const s = new CauseSelectionSession();
+    s.commit(POINT);
+    // a cell with an undefined side is a shape every engine refuses (the byte law's one honest refusal)
+    let caught: unknown;
+    try {
+      s.commit({ ...POINT, id: 'x2', parent: 'x1', kind: 'cell', field: 'price × category', fields: ['price', 'category'], value: [[10, 20], undefined] });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ClauseRejectedError);
+    const rejected = caught as ClauseRejectedError;
+    expect(rejected.name).toBe('ClauseRejectedError');
+    expect(rejected.rejection).toMatchObject({ ok: false, engine: 'builtin', operation: 'clause', reason: 'unsupported-shape' });
+    expect(rejected.message).toMatch(/^vizfootprint log: the builtin selection port refused the clause \(unsupported-shape\): /);
+    // the act did not happen: no record, and the live selection still stands on the first commit alone
+    expect(s.records.map((r) => r.id)).toEqual(['x1']);
+    expect(s.port.clauses().length).toBe(1);
+    // a rejection without detail reads as the bare reason
+    expect(new ClauseRejectedError(reject('mosaic', 'clause', 'unknown-source')).message).toBe(
+      'vizfootprint log: the mosaic selection port refused the clause (unknown-source)',
+    );
   });
 
   it('a cell refused for its missing pair registers NO source — the refusal is the first thing judged', () => {
@@ -416,12 +438,12 @@ describe('commit() — judge everything first, then apply', () => {
     expect(() => s.commit(cell)).toThrow(/needs `fields`/);
     expect(() => s.registry.require('never-seen')).toThrow(); // nothing was registered on the way out
     expect(s.records.length).toBe(0);
-    expect(s.selection.clauses.length).toBe(0);
+    expect(s.port.clauses().length).toBe(0);
   });
 
   it('a listener that throws does NOT un-land the commit; with no hook installed the error is rethrown, never swallowed', () => {
     const s = new CauseSelectionSession();
-    s.selection.addEventListener('value', () => {
+    s.port.listen(() => {
       throw new Error('a chart blew up');
     });
     expect(() => s.commit(POINT)).toThrow('a chart blew up');
@@ -435,7 +457,7 @@ describe('commit() — judge everything first, then apply', () => {
     s.onSelectionUpdateFailed = (error, record) => {
       reported.push(`${record.id}: ${(error as Error).message}`);
     };
-    s.selection.addEventListener('value', () => {
+    s.port.listen(() => {
       throw new Error('a chart blew up');
     });
     const { record } = s.commit(POINT);

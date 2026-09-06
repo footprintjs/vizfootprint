@@ -11,7 +11,7 @@
  * carries no viewport at all, and assert byte-identical resolved state.
  *
  * This is only possible because of this packet's R3 emission contract
- * (`../mosaic/index.js` ChartEmission/causeClauseFromEmission, R3): a
+ * (`../selection/index.js` ChartEmission/causeClauseFromEmission, R3): a
  * viewport can only ever produce a `rawValue` (already DATA space) before
  * crossing into vizfootprint — the viewport itself is never serialized, so
  * it cannot leak into replay.
@@ -108,6 +108,6 @@ describe('R5 strengthened — commit + replay are independent of the authoring v
     // has no viewport-shaped field to reinterpret.
     const wide = makeViewport(800, [0, 100]);
     void wide; // present only to make explicit: nothing below consults it
-    expect(replayed.selection.clauses[0]!.value).toEqual([10, 20]);
+    expect(replayed.port.clauses()[0]!.value).toEqual([10, 20]);
   });
 });

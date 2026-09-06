@@ -1,28 +1,26 @@
 /**
- * emission — the layer's OUTBOUND contract with charts (R3, the half SPEC.md
- * §4/§10 Q3 flagged unresolved: "the mandatory outbound typed emit carrying
- * origin"; docs/RESEARCH_STATE.md's canonical Q-index does not renumber this
- * — it stays SPEC.md's Q3/R3, not to be confused with canonical Q9).
+ * EMISSION — THE LAYER'S OUTBOUND CONTRACT WITH CHARTS (R3).
  *
- * A chart/component NEVER builds a Mosaic clause. It emits a plain, inert
+ * The law: a chart NEVER builds a clause. It emits a plain, inert
  * `ChartEmission`: a `rawValue` already resolved to DATA space by the chart's
  * OWN scale (R5 — never pixels, never a viewport/zoom/scale object) plus an
  * `encoding` naming which field and clause kind it maps to. Only this layer
- * turns an emission + a cause + a registered source into a real clause.
+ * turns an emission + a cause + a registered source into a spec, and only a
+ * `SelectionPort` turns the spec into a clause.
  *
- * "Chart never builds clauses" is enforced by construction, not convention:
- * `clausePoint`/`clauseInterval` (and `causeClause` itself) are never
- * re-exported from `vizfootprint/mosaic` (see index.ts) — a caller holding
- * only a `ChartEmission` has no path to a `SelectionClause` other than
- * `causeClauseFromEmission`, and a `ChartEmission` cannot itself carry a
- * `source`/`predicate`/`meta` (excess-property checks on the literal reject
- * it at the type level — see `emission.test.ts`).
+ * Enforced by construction, not convention: no barrel in this package exports
+ * a raw clause factory — a caller holding only a `ChartEmission` has no path
+ * to a clause but `causeClauseFromEmission`, and a `ChartEmission` cannot
+ * itself carry a `source`/`predicate`/`meta` (excess-property checks on the
+ * literal reject it at the type level — see `emission.test.ts`).
+ *
+ * First customers: the ui charts (they emit), the demo dashboards (they mint
+ * through the session's port), the session's dispatch.
  */
 
-import { causeClause, type CauseClause } from './causeClause.js';
-import type { RegisteredSource } from './SourceRegistry.js';
 import type { Cause } from '../cause/index.js';
 import type { CellSide, MatchValue } from '../data/index.js';
+import type { CauseClause, CauseClauseSpec, RegisteredSource, SelectionPort, SelectionRejection } from './types.js';
 
 /** A point selection: one field, one DATA-space value. */
 export interface PointEncoding {
@@ -119,52 +117,68 @@ export interface EmissionContext {
 }
 
 /**
- * Build a cause-tagged clause from a chart's emission. This is the ONLY
- * function that turns a `ChartEmission` into a `SelectionClause` — a chart
- * component calls only this (or a thin per-widget wrapper around it), never
- * `clausePoint`/`clauseInterval` directly (R3: the layer builds the clause,
- * the chart never does).
+ * Read a chart's emission as the spec a port mints from — the ONE translation
+ * from `{rawValue, encoding}` to `CauseClauseSpec`. Pure: no port, no engine,
+ * nothing built.
  */
-export function causeClauseFromEmission(
-  emission: ChartEmission,
-  ctx: EmissionContext,
-): CauseClause {
+export function causeClauseSpecFromEmission(emission: ChartEmission, ctx: EmissionContext): CauseClauseSpec {
   if (isCellEmission(emission)) {
-    return causeClause({
+    return {
       kind: 'cell',
       source: ctx.source,
       fields: emission.encoding.fields,
       value: emission.rawValue,
       cause: ctx.cause,
       clients: ctx.clients,
-    });
+    };
   }
   if (isMatchEmission(emission)) {
-    return causeClause({
+    return {
       kind: 'match',
       source: ctx.source,
       field: emission.encoding.field,
       value: emission.rawValue,
       cause: ctx.cause,
       clients: ctx.clients,
-    });
+    };
   }
   if (isIntervalEmission(emission)) {
-    return causeClause({
+    return {
       kind: 'interval',
       source: ctx.source,
       field: emission.encoding.field,
       value: emission.rawValue,
       cause: ctx.cause,
       clients: ctx.clients,
-    });
+    };
   }
-  return causeClause({
+  return {
     kind: 'point',
     source: ctx.source,
     field: emission.encoding.field,
     value: emission.rawValue,
     cause: ctx.cause,
     clients: ctx.clients,
-  });
+  };
+}
+
+/**
+ * Build a cause-tagged clause from a chart's emission, on the port that will
+ * hold it. This is the ONLY function that turns a `ChartEmission` into a
+ * clause — a chart component calls only this (or a thin per-widget wrapper
+ * around it), never a factory (R3: the layer builds the clause, the chart
+ * never does).
+ *
+ * WHY the port is a parameter and never defaulted: a clause is minted BY the
+ * engine that will stand it (an adapter keeps its engine's native clause
+ * beside ours), so a clause minted on a fresh built-in and pushed onto the
+ * session's Mosaic port would be a clause its engine never saw. Hand in
+ * `session.log.port`.
+ */
+export function causeClauseFromEmission(
+  emission: ChartEmission,
+  ctx: EmissionContext,
+  port: SelectionPort,
+): CauseClause | SelectionRejection {
+  return port.clause(causeClauseSpecFromEmission(emission, ctx));
 }

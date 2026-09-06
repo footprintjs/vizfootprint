@@ -2,8 +2,9 @@
  * L5 — session (`vizfootprint/agent`, the live half) · shared types.
  *
  * An {@link InteractionSession} is the container that wires ALL layers together:
- * one live Mosaic `Selection` + branch-capable commit log (L1), the source
- * registry + cause-clauses (L2), the data providers (D24), the declared
+ * one selection port (`src/selection`; the built-in unless
+ * `SessionOptions.selection` hands in `mosaicSelection()`) + branch-capable
+ * commit log (L1), the source registry + cause-clauses (L2), the data providers (D24), the declared
  * analyses (L3), and the online-FDR stepper (L4). `dispatch(action, {as})` is
  * THE single semantic entry point (R4) — the agent never synthesizes a raw
  * input event; there is no such path.
@@ -13,7 +14,7 @@ import type { SourceInfo } from '../source/types.js';
 import type { Actor, Cause } from '../cause/index.js';
 import type { EmissionKind, FieldMapping, LinkEdge, LinkGraph, LinkOnClear, LinkResponse, LinkKind, ChannelPair } from '../links/types.js';
 import type { CommitRecord } from '../log/index.js';
-import type { CauseClause } from '../mosaic/index.js';
+import type { CauseClause, SelectionPort } from '../selection/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
 import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
 import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause, PredicateClause, Row, SortSpec } from '../data/index.js';
@@ -694,6 +695,13 @@ export interface ViewAdapter {
 export interface SessionOptions {
   /** Default acting principal for dispatches / the tool port. Default `'agent'`. */
   readonly as?: Actor;
+  /**
+   * The selection port every commit's clause is stood on — chosen by the host
+   * that runs the engine, once, at session birth. Default: the built-in
+   * (`builtinSelection()`); a Mosaic host hands in `mosaicSelection()` from
+   * `vizfootprint/mosaic` and its live `Selection` sees every dispatched clause.
+   */
+  readonly selection?: SelectionPort;
   /** Layer 4 offers: require every select/filter to name a current asOf from whats_here (default false: an offer is accepted, not yet enforced). */
   readonly requireOffer?: boolean;
   /** Override the runtime default table. Must be a declared table. */

@@ -5,9 +5,9 @@
  *
  * This is the strongest form of that claim this packet can prove without a
  * real wasm/server backend (both are still typed stubs — `wasmProvider.ts`,
- * `serverProvider.ts`): it drives a REAL L1 (`src/log`) + L2 (`src/mosaic`)
+ * `serverProvider.ts`): it drives a REAL L1 (`src/log`) + L2 (`src/selection`)
  * cause-tagged commit session — the exact machinery a real dashboard uses —
- * serializes it, replays it into a fresh Selection/registry, and then feeds
+ * serializes it, replays it onto a fresh port/registry, and then feeds
  * the (replayed) commit stream into THREE differently-shaped `memoryProvider`
  * instances (row-major array, column-major array, and CSV text — three
  * genuinely different internal representations, not a cosmetic flag) and
@@ -16,16 +16,19 @@
  *
  * The strongest cross-check available today: the provider's resolved
  * `sql` is compared not just provider-to-provider, but against
- * `CommitRecord.predicateSQL` itself — the string L1 already recorded from a
- * REAL Mosaic clause object (`src/log/log.ts:143`, `String(clause.predicate)`).
- * That ties the data seam's SQL resolution to the actual upstream Mosaic
- * clause factories, not just to this package's own replica.
+ * `CommitRecord.predicateSQL` itself — the string L1 recorded from the port's
+ * clause (`src/log/log.ts`, `String(clause.predicateSQL)`), which is
+ * `mosaicDescriptorSQL`'s byte and, pinned in predicate.test.ts, the REAL
+ * Mosaic factories' byte. That ties the data seam's SQL resolution to the
+ * actual upstream clause factories, not just to this package's own replica.
  */
 import { describe, it, expect } from 'vitest';
-import { CauseSelectionSession, causeHistogram, replayLog, serializeLog, type CommitInput } from '../log/index.js';
+import { CauseSelectionSession, causeHistogram, replayLog, serializeLog, type CommitInput, type CommitRecord } from '../log/index.js';
 import { memoryProvider } from './memoryProvider.js';
+import { mosaicDescriptorSQL } from './predicate.js';
+import { pointValueFromWire } from './clauseFromWire.js';
 import { isRejection } from './types.js';
-import type { CellClause, DataProvider, PredicateClause, Row } from './types.js';
+import type { CellClause, DataProvider, IntervalClause, PredicateClause, Row } from './types.js';
 
 // ── A realistic small cause-tagged session (mirrors src/log/log.test.ts's MAIN_LINE). ──
 const SESSION_LOG: CommitInput[] = [
@@ -86,17 +89,62 @@ const SESSION_LOG: CommitInput[] = [
     value: [[10, 30], 'Data'],
     cause: { requestedBy: 'user', computedBy: 'user', intent: 'click the 10–30 × Data cell' },
   },
+  {
+    // A HALF-OPEN interval ("20 or more"): the shape on which the data seam's
+    // honest SQL and the engine's persisted byte DIVERGE (predicate.ts,
+    // resolveIntervalSQL) — so the byte the log persists is pinned here
+    // against mosaicDescriptorSQL, not against the provider's sql.
+    id: 'c6',
+    parent: 'c5',
+    viewId: 'B',
+    actorMeta: { actor: 'agent', label: 'Amount brush' },
+    kind: 'interval',
+    field: 'amount',
+    value: [20, null],
+    cause: { requestedBy: 'user', computedBy: 'agent', intent: 'agent brushes 20 or more' },
+  },
+  {
+    // A STRING (ISO-8601 date) interval — the other divergent shape: Mosaic
+    // renders a string extent as a double-quoted column reference.
+    id: 'c7',
+    parent: 'c6',
+    viewId: 'D',
+    actorMeta: { actor: 'user', label: 'Date brush' },
+    kind: 'interval',
+    field: 'date',
+    value: ['2026-04-01', '2026-04-30'],
+    cause: { requestedBy: 'user', computedBy: 'user', intent: 'brush April' },
+  },
 ];
+
+/**
+ * The DATA SEAM's honest SQL, per commit, where it differs from the engine's
+ * persisted byte — exactly the two documented divergences (predicate.ts,
+ * resolveIntervalSQL: a half-open pair and a string pair). Named per id so the
+ * divergence is ASSERTED on both sides, never skipped; every other commit's
+ * seam SQL is the persisted byte itself.
+ */
+const DATA_SEAM_SQL: Readonly<Record<string, string>> = {
+  c6: '("amount" >= 20)',
+  c7: `("date" BETWEEN '2026-04-01' AND '2026-04-30')`,
+};
+const seamSQLOf = (record: CommitRecord): string => DATA_SEAM_SQL[record.id] ?? record.predicateSQL;
+
+/** The byte the builtin selection port renders for this commit — what the log must persist under every engine. */
+const engineSQLOf = (record: CommitRecord): string =>
+  record.kind === 'cell'
+    ? mosaicDescriptorSQL('cell', record.fields!, record.value)
+    : mosaicDescriptorSQL(record.kind, record.field, record.kind === 'point' ? pointValueFromWire(record.value) : record.value);
 
 // The dataset the commits above filter, expressed THREE structurally
 // different ways — none derived from the others at the byte level.
 const OBJECT_ROWS: Row[] = [
-  { category: 'Data', amount: 15 },
-  { category: 'Analytics', amount: 25 },
-  { category: 'Data', amount: 5 },
-  { category: 'Other', amount: 30 },
+  { category: 'Data', amount: 15, date: '2026-04-05' },
+  { category: 'Analytics', amount: 25, date: '2026-04-20' },
+  { category: 'Data', amount: 5, date: '2026-05-02' },
+  { category: 'Other', amount: 30, date: '2026-03-30' },
 ];
-const CSV_TEXT = 'category,amount\nData,15\nAnalytics,25\nData,5\nOther,30\n';
+const CSV_TEXT = 'category,amount,date\nData,15,2026-04-05\nAnalytics,25,2026-04-20\nData,5,2026-05-02\nOther,30,2026-03-30\n';
 
 function clauseFromCommit(record: {
   kind: 'point' | 'interval' | 'cell' | 'match';
@@ -110,7 +158,7 @@ function clauseFromCommit(record: {
   }
   return record.kind === 'point'
     ? { kind: 'point', field: record.field, value: record.value }
-    : { kind: 'interval', field: record.field, value: record.value as readonly [number, number] | null };
+    : { kind: 'interval', field: record.field, value: record.value as IntervalClause['value'] };
 }
 
 describe('D24 invariant — replayed log resolves to byte-identical predicate SQL across THREE differently-laid-out memory providers', () => {
@@ -123,6 +171,22 @@ describe('D24 invariant — replayed log resolves to byte-identical predicate SQ
     expect(replayed.records.map((r) => r.predicateSQL)).toEqual(live.records.map((r) => r.predicateSQL));
     expect(JSON.stringify(causeHistogram(replayed.records))).toBe(JSON.stringify(causeHistogram(live.records)));
     expect(replayed.records.every((r) => r.cause.replayed === true)).toBe(true);
+  });
+
+  it('Pin #0: every persisted predicateSQL — written from the REAL Mosaic clause — is the byte mosaicDescriptorSQL renders, half-open and string intervals included', () => {
+    // WHY this pin: the builtin selection port renders the persisted byte through
+    // mosaicDescriptorSQL and the Mosaic adapter through String(clause.predicate);
+    // a log written by either must be byte-identical, and the fixture carries
+    // the two shapes (c6, c7) on which the data seam's honest SQL differs.
+    const live = new CauseSelectionSession();
+    for (const c of SESSION_LOG) live.commit(c);
+    const replayed = replayLog(serializeLog(live.records));
+    for (const record of [...live.records, ...replayed.records]) {
+      expect(record.predicateSQL, `commit ${record.id}`).toBe(engineSQLOf(record));
+    }
+    // and the divergent shapes really are the odd Mosaic renderings, by value
+    expect(live.records.find((r) => r.id === 'c6')!.predicateSQL).toBe('("amount" BETWEEN 20 AND NULL)');
+    expect(live.records.find((r) => r.id === 'c7')!.predicateSQL).toBe('("date" BETWEEN "2026-04-01" AND "2026-04-30")');
   });
 
   it('three structurally different memoryProvider instances agree on sql/count/rows for every replayed commit, AND match L1\'s own predicateSQL', async () => {
@@ -151,8 +215,10 @@ describe('D24 invariant — replayed log resolves to byte-identical predicate SQ
       const [, first] = results[0]!;
       // Pin #1: the DATA SEAM's own resolved SQL matches what L1 already
       // recorded from a REAL Mosaic clause object — the data layer did not
-      // invent its own, divergent notion of "this commit's predicate".
-      expect(first.sql).toBe(record.predicateSQL);
+      // invent its own, divergent notion of "this commit's predicate" — except
+      // on the two shapes where it deliberately does (DATA_SEAM_SQL), and
+      // there the honest SQL is asserted by name.
+      expect(first.sql).toBe(seamSQLOf(record));
 
       // Pin #2: every differently-laid-out provider instance agrees with
       // every other one, byte-for-byte, on sql/count/rows.
@@ -176,7 +242,7 @@ describe('D24 invariant — replayed log resolves to byte-identical predicate SQ
       const a = await rowMajor.evaluate('data', clause);
       const b = await columnMajor.evaluate('data', clause);
       if (isRejection(a) || isRejection(b)) throw new Error('unreachable');
-      expect(a.sql).toBe(record.predicateSQL);
+      expect(a.sql).toBe(seamSQLOf(record));
       expect(a).toEqual(b);
     }
   });

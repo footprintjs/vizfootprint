@@ -14,7 +14,7 @@
 
 // The REAL landed CSV parser (src/data) — not duplicated here.
 import { parseCSVTyped, type PredicateClause } from 'vizfootprint/data';
-import type { ChartEmission } from 'vizfootprint/mosaic';
+import type { ChartEmission } from 'vizfootprint/selection';
 import type { CommitRecord } from 'vizfootprint/log';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -387,8 +387,8 @@ export function actionButton(id: string, label: string, onClick: () => void): HT
 /**
  * Recover the in-JS `PredicateClause` a landed `CommitRecord` represents — the
  * same recipe `src/log`'s `replayLog` uses to rebuild a clause, just kept as a
- * `{kind,field,value}` triple for `matchesClause` rather than a live Mosaic
- * clause. `null` means "this commit clears its field" (an interval commit with
+ * `{kind,field,value}` triple for `matchesClause` rather than the port's live
+ * `CauseClause`. `null` means "this commit clears its field" (an interval commit with
  * `value: null`).
  */
 export function specFromRecord(rec: CommitRecord): PredicateClause | null {

@@ -10,16 +10,15 @@
  * `PredicateClause` is deliberately shaped to match what L1/L2 actually
  * produce, so a `CommitRecord` can be evaluated against a `DataProvider`
  * with a plain field-rename, not a translation layer:
- *   - `src/log/log.ts:60-65` — `CommitRecord.kind: 'point' | 'interval'`,
+ *   - `src/log/log.ts` `CommitRecord.kind` — `'point' | 'interval' | 'cell' | 'match'`,
  *     `field: string`, `value: unknown`.
- *   - `src/mosaic/causeClause.ts:31-48` — `CauseClauseSpec` carries the same
- *     two kinds; L2 does not emit anything else today. `'match'` below is an
- *     ADDITIONAL trivial clause kind this layer offers (a plain IN-list) —
- *     it is NOT Mosaic's own `clauseMatch` (text search: contains / prefix /
- *     regex, `node_modules/@uwdata/mosaic-core/dist/src/SelectionClause.js:121-140`)
- *     and nothing in L2 emits it; it exists because the packet asked for
- *     "match if trivial" and an IN-list is a genuinely trivial predicate to
- *     add without pretending to implement Mosaic's fuzzy-match semantics.
+ *   - `src/selection/types.ts` `CauseClauseSpec` — carries the same FOUR
+ *     kinds, each with a registry-backed source. `'match'` below is the
+ *     SET-1 IN-list (with `exclude` for NOT IN) that the port mints — it is
+ *     NOT Mosaic's own `clauseMatch` (text search: contains / prefix /
+ *     regex, `node_modules/@uwdata/mosaic-core/dist/src/SelectionClause.js:121-140`);
+ *     an IN-list is a genuinely trivial predicate to add without pretending
+ *     to implement Mosaic's fuzzy-match semantics.
  *
  * R14 (honest capability declaration + typed rejection, never a silent
  * no-op — the family's "honest absence" pattern, mirrored from
@@ -323,7 +322,16 @@ export function reject(
     : { ok: false, engine, operation, reason };
 }
 
-export function isRejection(value: unknown): value is DataProviderRejection {
+/**
+ * THE package's one `{ ok: false }` guard — `src/selection` re-exports it
+ * rather than redefining it. WHY a structural predicate and not
+ * `value is DataProviderRejection`: TS narrows a union by filtering its members
+ * against the predicate, so `EvaluateResult | DataProviderRejection` still
+ * narrows to `DataProviderRejection` and `CauseClause | SelectionRejection` to
+ * `SelectionRejection`; a nominal predicate here would let a caller with both
+ * doors open narrow a port answer to the WRONG reason vocabulary, silently.
+ */
+export function isRejection(value: unknown): value is { readonly ok: false } {
   return typeof value === 'object' && value !== null && (value as { ok?: unknown }).ok === false;
 }
 

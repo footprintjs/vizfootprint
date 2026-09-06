@@ -18,11 +18,21 @@ import {
   type DataRow,
 } from './index.js';
 import {
-  causeClauseFromEmission,
-  causeOf,
   SourceRegistry,
+  builtinSelection,
+  causeClauseFromEmission,
+  isRejection,
+  type CauseClause,
   type ChartEmission,
-} from '../mosaic/index.js';
+  type EmissionContext,
+} from '../selection/index.js';
+
+/** Mint on a fresh built-in port and insist — every emission here is a point the port accepts. */
+function minted(emission: ChartEmission, ctx: EmissionContext): CauseClause {
+  const clause = causeClauseFromEmission(emission, ctx, builtinSelection());
+  if (isRejection(clause)) throw new Error(`unexpected rejection: ${clause.reason}`);
+  return clause;
+}
 import { CauseSelectionSession } from '../log/index.js';
 import { createLordPlusPlus } from '../fdr/index.js';
 import type { HypothesisRecord } from '../fdr/index.js';
@@ -69,19 +79,19 @@ describe('COLUMN channel — cluster_id materializes, slices minimally (R9), re-
     const registry = new SourceRegistry();
     const agentSrc = registry.register('scatter', { actor: 'agent' });
     const userSrc = registry.register('barchart', { actor: 'user' });
-    const analysisClause = causeClauseFromEmission(
-      { rawValue: 2, encoding: { kind: 'point', field: 'cluster_id' } } as ChartEmission,
+    const analysisClause = minted(
+      { rawValue: 2, encoding: { kind: 'point', field: 'cluster_id' } },
       { source: agentSrc, cause: { requestedBy: 'agent', computedBy: 'agent' } },
     );
-    const barClickClause = causeClauseFromEmission(
-      { rawValue: 'Ops', encoding: { kind: 'point', field: 'category' } } as ChartEmission,
+    const barClickClause = minted(
+      { rawValue: 'Ops', encoding: { kind: 'point', field: 'category' } },
       { source: userSrc, cause: { requestedBy: 'user', computedBy: 'user' } },
     );
     // Indistinguishable in KIND from a human bar-click on a raw column.
     expect(analysisClause.meta.type).toBe('point');
     expect(analysisClause.meta.type).toBe(barClickClause.meta.type);
     expect(Object.keys(analysisClause).sort()).toEqual(Object.keys(barClickClause).sort());
-    expect(causeOf(analysisClause)).toBeDefined();
+    expect(analysisClause.meta.cause).toBeDefined();
   });
 });
 
@@ -145,12 +155,12 @@ describe('TABLE channel — groupby summary as a new queryable relation', () => 
   it('the new table is itself filterable by an ORDINARY predicate (no new verb)', () => {
     const registry = new SourceRegistry();
     const src = registry.register('summaryTable', { actor: 'agent' });
-    const clause = causeClauseFromEmission(
-      { rawValue: 'Ops', encoding: { kind: 'point', field: 'category' } } as ChartEmission,
+    const clause = minted(
+      { rawValue: 'Ops', encoding: { kind: 'point', field: 'category' } },
       { source: src, cause: { requestedBy: 'agent', computedBy: 'agent' } },
     );
     expect(clause.meta.type).toBe('point');
-    expect(causeOf(clause)).toBeDefined();
+    expect(clause.meta.cause).toBeDefined();
   });
 });
 

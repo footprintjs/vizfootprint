@@ -4,8 +4,9 @@
  *
  * Layer wiring:
  *  - L1 (log)      : one `CauseSelectionSession` — the append-only branch-capable
- *                    commit log + live Mosaic `Selection` + source registry.
- *  - L2 (mosaic)   : cause-tagged clauses, built by `log.commit` (never here).
+ *                    commit log + selection port (the built-in unless
+ *                    `SessionOptions.selection` hands one in) + source registry.
+ *  - L2 (selection): cause-tagged clauses, minted on the port by `log.commit` (never here).
  *  - data (D24)    : one `DataProvider` per table; predicate evaluation +
  *                    `materializeColumn` (R11's landing spot).
  *  - L3 (analysis) : declared analyses, run via `defineAnalysis`.
@@ -48,7 +49,7 @@ import { cellFieldLabel, derivedColumnName, isRejection, renameClauseFields, ren
 import { isClearedSelection } from '../branches/fold.js';
 import { applyLinkOverrides, edgeId, impliedKinds, validateLinks, type LinkDecl } from '../links/index.js';
 
-import type { CauseClause } from '../mosaic/index.js';
+import type { CauseClause } from '../selection/index.js';
 import { registerAnalysisSlot } from '../def/register.js';
 import { copyValue, deepFreeze } from '../detach/index.js';
 import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RestorableSaved, RestorableBookmark, RestoreResult, ViewEncodingDecl, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
@@ -488,7 +489,7 @@ interface ProseWorldNow {
 }
 
 class InteractionSessionImpl implements InteractionSession {
-  readonly log = new CauseSelectionSession();
+  readonly log: CauseSelectionSession;
   readonly id: string;
   readonly revision: string;
   readonly defaultTable: string;
@@ -551,6 +552,9 @@ class InteractionSessionImpl implements InteractionSession {
   private _currentView: string | null = null;
 
   constructor(runtime: DashboardRuntime, opts: SessionOptions = {}) {
+    // WHY here and not a field initializer: the port is chosen by the host that runs the engine,
+    // once, at session birth — a Mosaic host hands in `mosaicSelection()`, everyone else gets the built-in
+    this.log = new CauseSelectionSession(opts.selection);
     this.requireOffer = opts.requireOffer === true;
     this.runtime = runtime;
     // minted from the DASHBOARD's counter, like a commit id: `sess1`, `sess2`, …
@@ -566,8 +570,8 @@ class InteractionSessionImpl implements InteractionSession {
       const info = this.runtime.sources[this.defaultTable];
       return info === undefined ? undefined : { [this.defaultTable]: info.version };
     };
-    // The commit's one OUTBOUND step — pushing the clause onto the live
-    // Selection, which emits to whatever a host attached — must not be able to
+    // The commit's one OUTBOUND step — pushing the clause onto the selection
+    // port, which emits to whatever a host attached — must not be able to
     // fail an act that already landed. The log rethrows when nobody is
     // listening; the session listens, and files the honest gap instead (R14).
     this.log.onSelectionUpdateFailed = (error, record) => {
@@ -749,13 +753,16 @@ class InteractionSessionImpl implements InteractionSession {
     // A DRY RUN is the rest of the judge. Landing a record can still throw for
     // reasons no parser judges — a `clientViewIds` naming a view no earlier
     // commit registered, two commits claiming one viewId with different actor
-    // metadata, a value the Mosaic clause factory cannot read — and the apply
+    // metadata, a value the selection port refuses to mint — and the apply
     // phase MAY NOT FAIL PARTWAY (`./README.md`, law 1) with no rollback
     // anywhere. So every clause is built once against a scratch log that starts
     // exactly as empty as ours, and only then for real. It costs a second pass;
     // enumerating those throws instead would cost a copy of L1's rules that
     // drifts the day one of them changes.
     const inputs = records.map(replayInput);
+    // WHY the scratch stays on the built-in whatever port the session holds: both ports give one
+    // verdict per spec (the shared judge, pinned by the adapter's parity tests), and a dry run
+    // must never touch the live engine
     const scratch = new CauseSelectionSession();
     /** commit id → the table its act read, for exactly the acts this replay must re-perform. */
     const acts = new Map<string, string>();
@@ -2143,7 +2150,7 @@ class InteractionSessionImpl implements InteractionSession {
     }
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
     // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
-    this.notifyAdapter(viewId, clause as CauseClause, verb, record.id);
+    this.notifyAdapter(viewId, clause, verb, record.id);
     return { ok: true, verb, intent, commit: record };
   }
 
@@ -2226,7 +2233,7 @@ class InteractionSessionImpl implements InteractionSession {
     }
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
     // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
-    this.notifyAdapter(viewId, clause as CauseClause, verb, record.id);
+    this.notifyAdapter(viewId, clause, verb, record.id);
     return { ok: true, verb, intent, commit: record };
   }
 

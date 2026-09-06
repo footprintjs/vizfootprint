@@ -43,7 +43,7 @@ import type {
 } from 'vizfootprint/session';
 import type { SavedSelection } from 'vizfootprint/def';
 import type { Cause } from 'vizfootprint/cause';
-import type { ChartEmission } from 'vizfootprint/mosaic';
+import type { ChartEmission } from 'vizfootprint/selection';
 import {
   ClearedSelectionView, LinkGraphView,
   HONESTY_LINE,

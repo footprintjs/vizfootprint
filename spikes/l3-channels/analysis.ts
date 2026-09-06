@@ -12,7 +12,7 @@
  * What is DEMONSTRATED here, not asserted in prose:
  *   - column   → a deterministic clustering flowchart materializes `cluster_id`;
  *                the test then filters it through the ORDINARY L2 predicate path
- *                (`causeClauseFromEmission`, src/mosaic) → a clause indistinguishable
+ *                (`causeClauseFromEmission`, src/selection) → a clause indistinguishable
  *                in KIND from a human bar-click.
  *   - scalar   → a correlation flowchart yields {r,n} + a caller-supplied p-value,
  *                emitted as a `HypothesisRecord` (the L4 stream contract, imported

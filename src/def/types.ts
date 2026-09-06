@@ -29,7 +29,7 @@ import type { EmissionKind, LinkDecl, LinkDefault, LinkGraph } from '../links/ty
 import type { ColumnDecl, EncodingPorts, EncodingRules } from '../encoding/types.js';
 import type { ProseDecl } from '../prose/types.js';
 import type { SourceDecl, SourceInfo } from '../source/types.js';
-import type { ActorMeta } from '../mosaic/index.js';
+import type { ActorMeta } from '../selection/index.js';
 import type {
   AnalysisDef,
   AnalysisKind,
@@ -218,7 +218,7 @@ export { MAGNITUDE_CHANNELS } from '../encoding/types.js';
 /**
  * One view's declared VISUAL-ENCODING surface (the `reencode` verb's
  * validation + fold seed; D10 VL vocab). NOT to be confused with
- * `CapabilityDecl.encodings` / `ChartEncoding` (`mosaic/emission.ts`) — those
+ * `CapabilityDecl.encodings` / `ChartEncoding` (`selection/emission.ts`) — those
  * name the point/interval SELECTION kind a view emits. This names which
  * plot CHANNEL (x/y/color/…) a data field is bound to.
  *

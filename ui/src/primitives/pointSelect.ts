@@ -18,7 +18,7 @@
  *     clickable marks (`role="button"` + `tabIndex` stay the chart's job).
  */
 import type { KeyboardEvent } from 'react';
-import type { ChartEmission } from 'vizfootprint/mosaic';
+import type { ChartEmission } from 'vizfootprint/selection';
 
 /** The R3 point emission for a DATA value on a field. */
 export function pointEmission(field: string, value: unknown): ChartEmission {

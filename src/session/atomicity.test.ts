@@ -24,7 +24,7 @@ import { buildDashboard } from '../def/index.js';
 import type { DashboardDef } from '../def/index.js';
 import { makeDashboardDef, SAMPLE_ROWS } from './dashboard.fixture.js';
 import type { Cause } from '../cause/index.js';
-import type { CauseClause } from '../mosaic/index.js';
+import type { CauseClause } from '../selection/index.js';
 import { memoryProvider } from '../data/index.js';
 import type { InteractionSession } from './session.js';
 
@@ -54,7 +54,7 @@ async function snapshotOf(s: InteractionSession) {
     commits: s.log.records.length,
     head: s.head,
     cursor: s.cursor(),
-    clauses: s.log.selection.clauses.length,
+    clauses: s.log.port.clauses().length,
     selections: ov.activeSelections.map((sel) => `${sel.viewId}:${JSON.stringify(sel.value)}@${sel.commitId ?? ''}`),
     rows: ov.selectedRowCount,
   };
@@ -208,10 +208,10 @@ describe('an adapter that throws does not lose a commit that really happened', (
 describe("the live selection's own listeners cannot un-land a commit either", () => {
   it('a listener that throws leaves the commit landed, the fold agreeing, and a gap naming the commit', async () => {
     const s = freshSession();
-    // A host attaches to the Mosaic Selection (the demo's charts do exactly
-    // this). `selection.update` is the commit's one outbound step, and it runs
+    // A host listens on the selection port (the demo's charts do exactly
+    // this). `port.update` is the commit's one outbound step, and it runs
     // after the record is already history.
-    s.log.selection.addEventListener('value', () => {
+    s.log.port.listen(() => {
       throw new Error('a chart listener blew up');
     });
 

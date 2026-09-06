@@ -279,7 +279,7 @@ describe('scatter brush → commitFilter (ok:true) and the live transient previe
     svg.dispatchEvent(ptr('pointerdown', 60));
     svg.dispatchEvent(ptr('pointermove', 300));
     await flush();
-    // `applyTransient` pushes straight onto `session.log.selection` (bypassing
+    // `applyTransient` pushes straight onto `session.log.port` (bypassing
     // `InteractionSession`'s own `activeFilters` fold) — so the readout, which
     // reads `session.selectedRows()`, is UNCHANGED mid-drag. Only the
     // scatter's own highlighting (via `predicateFor`/`specBySource`) is live.

@@ -23,7 +23,7 @@
 import { useMemo, type ReactNode } from 'react';
 import { VizBar, VizLine, VizTable, keepPredicate, type BarDatum, type LinePoint } from 'vizfootprint-ui';
 import { parseCSVTyped, type Row } from 'vizfootprint/data';
-import type { ChartEmission } from 'vizfootprint/mosaic';
+import type { ChartEmission } from 'vizfootprint/selection';
 import type { EmissionKind } from 'vizfootprint/def';
 import type { DashboardDef } from 'vizfootprint/def';
 import type { DeskChart, DeskProjection } from '../desk/types.js';

@@ -32,14 +32,23 @@ import {
 import { DATASET, DEGENERATE_DATASET } from './dataset.js';
 import { normalApproxPValue } from './stats.js';
 import {
-  causeClauseFromEmission,
-  causeOf,
   SourceRegistry,
+  builtinSelection,
+  causeClauseFromEmission,
+  isRejection,
+  type CauseClause,
   type ChartEmission,
-} from '../../src/mosaic/index.js';
+  type EmissionContext,
+} from '../../src/selection/index.js';
 import { CauseSelectionSession } from '../../src/log/index.js';
 import { createLordPlusPlus } from '../../src/fdr/index.js';
-import type { CauseClause } from '../../src/mosaic/index.js';
+
+/** Mint on the built-in port and insist — every emission in this spike is a shape the port accepts. */
+function minted(emission: ChartEmission, ctx: EmissionContext): CauseClause {
+  const clause = causeClauseFromEmission(emission, ctx, builtinSelection());
+  if (isRejection(clause)) throw new Error(`unexpected rejection: ${clause.reason}`);
+  return clause;
+}
 
 // Every clause produced anywhere in the spike is collected here; the R11
 // overarching assertion checks NONE introduced a third clause kind.
@@ -99,7 +108,7 @@ describe('Channel 1 — COLUMN: clustering materializes cluster_id, filters as a
       rawValue: 2,
       encoding: { kind: 'point', field: 'cluster_id' },
     };
-    const analysisClause = causeClauseFromEmission(analysisEmission, {
+    const analysisClause = minted(analysisEmission, {
       source: agentSrc,
       cause: { requestedBy: 'agent', computedBy: 'agent' },
     });
@@ -109,7 +118,7 @@ describe('Channel 1 — COLUMN: clustering materializes cluster_id, filters as a
       rawValue: 'Ops',
       encoding: { kind: 'point', field: 'category' },
     };
-    const barClickClause = causeClauseFromEmission(barClickEmission, {
+    const barClickClause = minted(barClickEmission, {
       source: userSrc,
       cause: { requestedBy: 'user', computedBy: 'user' },
     });
@@ -124,8 +133,8 @@ describe('Channel 1 — COLUMN: clustering materializes cluster_id, filters as a
     expect(analysisClause.meta.type).toBe(barClickClause.meta.type);
     expect(Object.keys(analysisClause).sort()).toEqual(Object.keys(barClickClause).sort());
     expect(Object.keys(analysisClause.meta).sort()).toEqual(Object.keys(barClickClause.meta).sort());
-    expect(causeOf(analysisClause)).toBeDefined();
-    expect(causeOf(barClickClause)).toBeDefined();
+    expect(analysisClause.meta.cause).toBeDefined();
+    expect(barClickClause.meta.cause).toBeDefined();
   });
 });
 
@@ -278,13 +287,13 @@ describe('Channel 4 — TABLE: a groupby summary as a new queryable table', () =
     const registry = new SourceRegistry();
     const src = registry.register('summaryTable', { actor: 'agent' });
     const emission: ChartEmission = { rawValue: 'Ops', encoding: { kind: 'point', field: 'category' } };
-    const clause = causeClauseFromEmission(emission, {
+    const clause = minted(emission, {
       source: src,
       cause: { requestedBy: 'agent', computedBy: 'agent' },
     });
     allClauses.push(clause);
     expect(clause.meta.type).toBe('point'); // identical KIND to a raw-column selection
-    expect(causeOf(clause)).toBeDefined();
+    expect(clause.meta.cause).toBeDefined();
   });
 });
 
@@ -306,7 +315,7 @@ describe('R6 cross-channel — a brush is NOT a test', () => {
         encoding: { kind: 'interval', field: 'amount' },
       };
       brushClauses.push(
-        causeClauseFromEmission(emission, {
+        minted(emission, {
           source: brushSrc,
           cause: { requestedBy: 'user', computedBy: 'user' },
         }),

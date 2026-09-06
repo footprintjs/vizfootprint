@@ -7,8 +7,11 @@
  * seeded synthetic rows (the stand-in for the client-side reaction Mosaic
  * views would perform). COMMIT ONLY ON GESTURE END (commit-on-intent):
  *
- *   mode 'log'   — a real CauseSelectionSession (src/log/log.ts, L1) is
- *                  attached; the gesture ends with exactly ONE session.commit.
+ *   mode 'log'   — a real CauseSelectionSession (src/log/log.ts, L1) stands
+ *                  on the Mosaic adapter (`mosaicSelection()`, src/mosaic) so
+ *                  the log's clause lands on the SAME live Selection the
+ *                  transient updates hit; the gesture ends with exactly ONE
+ *                  session.commit.
  *   mode 'nolog' — no session exists anywhere; raw Mosaic only.
  *
  * Both modes drive the byte-identical hot path: same seeded Float64Array,
@@ -22,8 +25,8 @@
 import { Selection, clauseInterval } from '@uwdata/mosaic-core';
 import type { MosaicClient } from '@uwdata/mosaic-core';
 import { CauseSelectionSession } from '../../src/log/index.js';
-import { causeOf } from '../../src/mosaic/index.js';
-import type { RegisteredSource, ActorMeta } from '../../src/mosaic/index.js';
+import { causeOf, mosaicSelection } from '../../src/mosaic/index.js';
+import type { RegisteredSource, ActorMeta } from '../../src/selection/index.js';
 import type { Cause } from '../../src/cause/index.js';
 
 export interface BenchConfig {
@@ -111,16 +114,20 @@ export async function runBench(cfg: BenchConfig): Promise<BenchResult> {
   let selection: Selection;
   let session: CauseSelectionSession | null = null;
   let source: RegisteredSource | { viewId: string };
+  let clients: Set<MosaicClient>;
   if (cfg.mode === 'log') {
-    session = new CauseSelectionSession(); // Selection.crossfilter() inside
-    selection = session.selection;
-    source = session.registry.register('brush', ACTOR_META);
+    const port = mosaicSelection(); // Selection.crossfilter() inside the adapter
+    session = new CauseSelectionSession(port);
+    selection = port.native().selection;
+    const registered = session.registry.register('brush', ACTOR_META);
+    source = registered;
+    clients = new Set([port.client(registered)]); // the ONE MosaicClient wrapper the adapter's own clauses carry
   } else {
     selection = Selection.crossfilter();
     source = { viewId: 'brush' }; // plain identity, no registry, no log
+    // Mosaic types clients as Set<MosaicClient>; runtime use is Set.has only.
+    clients = new Set([source]) as unknown as Set<MosaicClient>;
   }
-  // Mosaic types clients as Set<MosaicClient>; runtime use is Set.has only.
-  const clients = new Set([source]) as unknown as Set<MosaicClient>;
 
   // --- long-task instrumentation ---------------------------------------
   const longTaskDurations: number[] = [];
