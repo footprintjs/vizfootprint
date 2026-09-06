@@ -76,7 +76,10 @@ const R = 8;
 
 /** The honest reason a step cannot be undone, or null when it can. */
 export function undoBlockReason(commit: CommitView): string | null {
-  if (commit.label === 'analysis' || commit.label === 'test') {
+  // the LANE, not the label: the label is words for a person (it names WHICH
+  // analysis), and a rule that reads it is a rule that changes when the wording
+  // does. The field is what the log lands the two analysis lanes under.
+  if (commit.field === '__analysis__' || commit.field === 'pValue') {
     return 'an analysis cannot be un-run — the FDR ledger never refunds alpha';
   }
   if (commit.label === 'note') return 'a note is inert — there is no earlier state to restore';

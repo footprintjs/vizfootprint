@@ -138,6 +138,18 @@ for (const c of json.churn) {
 }
 out.push('');
 
+out.push('#### 4b · since — the same position, asked for as a delta');
+out.push('');
+out.push('| shape | act | full answer | `since` answer | share of the full | parts omitted (unchanged) | served |');
+out.push('|---|---|---:|---:|---:|---:|---|');
+for (const c of json.churn) {
+  const s = shapeOf(c.shape);
+  out.push(
+    `| ${c.shape} (${s.declaredViews}v/${s.tableColumns}c/${s.materializedEdges}e) | ${c.act} | ${n(c.afterBytes)} | ${n(c.sinceBytes)} | ${c.sincePct}% | ${c.sinceOmitted} of ${c.partCount} | ${c.sinceServed} |`,
+  );
+}
+out.push('');
+
 out.push('### 5 · floor — the smallest answer that still supports a first correct act');
 out.push('');
 out.push('| shape | full answer | floor (strict) | floor share | floor (shared column list) | shared share | verbs alone |');

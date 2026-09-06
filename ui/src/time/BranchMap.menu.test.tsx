@@ -40,8 +40,9 @@ const PATHS: readonly PathView[] = [
 describe('undoBlockReason — the honest not-undoable rules (mirrors src/branches planUndo)', () => {
   const base = S.commits.find((c) => c.id === 'r')!;
   it('an analysis or test cannot be un-run; a note has no prior state; a probe can be undone', () => {
-    expect(undoBlockReason({ ...base, label: 'analysis' })).toContain('never refunds alpha');
-    expect(undoBlockReason({ ...base, label: 'test' })).toContain('never refunds alpha');
+    // the two analysis LANES are read off the field the log lands them under, never off the display label
+    expect(undoBlockReason({ ...base, field: '__analysis__', label: 'analysis rate' })).toContain('never refunds alpha');
+    expect(undoBlockReason({ ...base, field: 'pValue', label: 'test corr' })).toContain('never refunds alpha');
     expect(undoBlockReason({ ...base, label: 'note' })).toContain('no earlier state');
     expect(undoBlockReason({ ...base, label: 'price' })).toBeNull();
   });

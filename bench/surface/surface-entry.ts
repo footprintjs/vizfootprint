@@ -15,6 +15,8 @@
  *   4 churn       — serialize, do ONE ordinary act, serialize again: what
  *                   fraction of the answer is unchanged. The number that says
  *                   whether deltas or a rules-plus-exceptions restatement pay.
+ *                   The SINCE arm sits beside it: the same question asked as a
+ *                   delta (`whats_here { since }`), measured, not modelled.
  *   5 floor       — the smallest subset that still supports a first correct act.
  *
  * UNITS. Every number here is a UTF-8 BYTE count (`Buffer.byteLength`, not
@@ -26,7 +28,7 @@
  * it says so in one line and the bench carries on with bytes.
  */
 
-import { DISPATCH_VERBS, vizAsTools } from '../../src/agent/index.js';
+import { DISPATCH_VERBS, SURFACE_PARTS, vizAsTools } from '../../src/agent/index.js';
 import type { VizToolResult, VizToolsPort } from '../../src/agent/index.js';
 import type { InteractionSession } from '../../src/session/index.js';
 import { LARGE, REALISTIC, SHAPES, SMALL, makeDashboard, planColumns, planViews, shapeLabel, type ShapeSpec } from './shapes.js';
@@ -143,9 +145,23 @@ interface ChurnRow {
   readonly deepStablePct: number;
   /** Top-level keys that changed, biggest first, with the bytes they cost. */
   readonly changedKeys: readonly { key: string; beforeBytes: number; afterBytes: number }[];
+  /**
+   * THE SINCE ARM — the same question asked as a delta: bytes of
+   * `whats_here { since: <the asOf of `before`> }`, beside the full answer it
+   * stands for. Not a model of what a delta would cost: the real answer the
+   * port serves, byte-counted the same way as everything else here.
+   */
+  readonly sinceBytes: number;
+  /** The delta as a share of the full answer it replaces. */
+  readonly sincePct: number;
+  /** `delta` or `full` — a bench that quoted a fallback as a delta would be quoting the wrong thing. */
+  readonly sinceServed: string;
+  /** How many top-level parts the delta left out as unchanged, of how many there are. */
+  readonly sinceOmitted: number;
+  readonly partCount: number;
 }
 
-function churnOf(shape: string, act: string, before: Record<string, unknown>, after: Record<string, unknown>): ChurnRow {
+function churnOf(shape: string, act: string, before: Record<string, unknown>, after: Record<string, unknown>, sinceAnswer: Record<string, unknown>): ChurnRow {
   const beforeBytes = B(before);
   let topLevelStableBytes = 0;
   const changedKeys: { key: string; beforeBytes: number; afterBytes: number }[] = [];
@@ -156,16 +172,24 @@ function churnOf(shape: string, act: string, before: Record<string, unknown>, af
   }
   changedKeys.sort((a, b) => b.beforeBytes - a.beforeBytes);
   const deepStableBytes = stableBytes(before, after);
+  const afterBytes = B(after);
+  const sinceBytes = B(sinceAnswer);
+  const served = (sinceAnswer['since'] as { served?: string } | undefined)?.served ?? 'none';
   return {
     shape,
     act,
     beforeBytes,
-    afterBytes: B(after),
+    afterBytes,
     topLevelStableBytes,
     topLevelStablePct: pct(topLevelStableBytes, beforeBytes),
     deepStableBytes,
     deepStablePct: pct(deepStableBytes, beforeBytes),
     changedKeys,
+    sinceBytes,
+    sincePct: pct(sinceBytes, afterBytes),
+    sinceServed: served,
+    sinceOmitted: ((sinceAnswer['omitted'] ?? []) as readonly unknown[]).length,
+    partCount: (SURFACE_PARTS as readonly unknown[]).length,
   };
 }
 
@@ -397,9 +421,13 @@ async function main(): Promise<void> {
       const res = await port.call('viz.dispatch', act.args);
       if (res['ok'] !== true) throw new Error(`bench act failed on ${spec.name} (${act.name}): ${JSON.stringify(res)}`);
       const after = await here(port);
-      const row = churnOf(spec.name, act.name, before, after);
+      // the SINCE arm: the same position, asked for as a delta from the one the
+      // `before` answer was made at — the real served answer, never a model of one
+      const sinceAnswer = (await port.call('viz.whats_here', { since: before['asOf'] })) as Record<string, unknown>;
+      const row = churnOf(spec.name, act.name, before, after, sinceAnswer);
+      if (row.sinceServed !== 'delta') throw new Error(`bench since arm on ${spec.name} (${act.name}) was served ${row.sinceServed}, not a delta: ${JSON.stringify(sinceAnswer['since'])}`);
       churn.push(row);
-      log(`${spec.name.padEnd(10)} churn ${act.name.padEnd(32)} unchanged ${String(row.deepStablePct).padStart(6)}% deep / ${String(row.topLevelStablePct).padStart(6)}% top-level`);
+      log(`${spec.name.padEnd(10)} churn ${act.name.padEnd(32)} unchanged ${String(row.deepStablePct).padStart(6)}% deep / ${String(row.topLevelStablePct).padStart(6)}% top-level · since ${String(row.sincePct).padStart(6)}% of the full answer`);
     }
   }
 

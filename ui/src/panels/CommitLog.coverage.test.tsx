@@ -22,6 +22,35 @@ describe('CommitLog edges', () => {
   });
 });
 
+describe('CommitLog — the two analysis lanes read the ACT, never the record in the value slot', () => {
+  const base = {
+    parent: null,
+    kind: 'point' as const,
+    value: { id: 'rate', table: 'data', def: { builtin: 'formula', expression: 'cases / 1000', name: 'rate', id: 'rate' } },
+    actor: 'user' as const,
+    onBranch: true,
+    isCursor: false,
+    isHead: false,
+  };
+
+  it('an `__analysis__` row reads its label, not `[object Object]`, and the cause’s intent stands beside it', () => {
+    const { container } = render(
+      <CommitLog
+        commits={[
+          { ...base, id: 'c1', viewId: 'analysis:rate', field: '__analysis__', label: 'analysis rate', intent: 'add column rate = cases / 1000' },
+          { ...base, id: 'c2', viewId: 'analysis:corr', field: 'pValue', value: { id: 'corr', table: 'data', pValue: 0.01 }, label: 'test corr' },
+        ]}
+      />,
+    );
+    const body = (id: string): string => container.querySelector(`[data-commit="${id}"] .vzf-chip-body`)!.textContent!;
+    expect(body('c1')).toBe('analysis rate');
+    expect(body('c2')).toBe('test corr');
+    expect(container.querySelector('[data-commit="c1"]')!.textContent).toContain('add column rate = cases / 1000');
+    // the defect this closes: the act's record rendered as a value
+    expect(container.textContent).not.toContain('[object Object]');
+  });
+});
+
 describe('CommitLog — BR-1 provenance tags (bring-over / undo / conflicts)', () => {
   const base = {
     parent: null,

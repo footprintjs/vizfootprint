@@ -50,6 +50,7 @@ import {
   type CommitIdStore,
 } from './types.js';
 import { COMMIT_ID_PREFIX, PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, raiseMinted, restoredRecordId } from './recordIds.js';
+import { defRevision } from './revision.js';
 import { createInteractionSession, type InteractionSession } from '../session/session.js';
 import type { SessionOptions } from '../session/types.js';
 import { materializeLinks, voiceOf } from '../links/index.js';
@@ -67,6 +68,13 @@ import { deepFreeze } from '../detach/index.js';
 export interface Dashboard {
   /** The (frozen) validated def. */
   readonly def: DashboardDef;
+  /**
+   * WHICH definition this dashboard was built from — digested once, here, and
+   * frozen with the def. A served answer carries it as `basis.revision`, and a
+   * reader compares it before trusting a part it cached from an earlier build.
+   * See `./revision.ts` for what a digest can and cannot cover.
+   */
+  readonly revision: string;
   /** The resolved engine each table routed to (D24 audit). */
   readonly engines: Readonly<Record<string, Engine>>;
   /** What each declared source vouched for when it was read — the table's provenance. */
@@ -649,6 +657,12 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
   // the commit-id counter: beside those two stores because those two stores POINT AT commit ids
   // across sessions — an id must therefore be unique per dashboard, not per session
   const commitIds: CommitIdStore = { minted: 0 };
+  // the session-id counter, on the same reasoning one line up: a session id
+  // names a session ACROSS the dashboard (a served answer's `basis.session`
+  // says which one folded it), so it is minted per dashboard, never per session
+  const sessionIds = { minted: 0 };
+  // ONCE, over the validated def, beside the freeze that makes it safe to do so
+  const revision = defRevision(def);
   const tables = [...providers.keys()];
   const keys: Record<string, string> = Object.fromEntries(Object.entries(def.data).flatMap(([t, d]) => (d.key !== undefined ? [[t, d.key]] : [])));
   const defaultTable = def.defaultTable ?? tables[0]!;
@@ -696,6 +710,8 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
 
   const runtime: DashboardRuntime = {
     def,
+    revision,
+    sessionIds,
     defaultTable,
     tables,
     providerFor: (table) => providers.get(table),
@@ -730,6 +746,7 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
 
   return {
     def,
+    revision,
     engines,
     // `sources` is the one build-time record that MOVES — `refresh()` replaces
     // a table's entry — so a reader gets a frozen COPY, not the live object.

@@ -12,7 +12,7 @@ simply missing the thing that would have changed what the model did next.
 
 **The trace is tamper-evident** ([`../log`](../log/README.md)), **the fold is
 detached** ([`../session`](../session/README.md)), and this folder is the third
-leg: **the served answer is honest and lean.** One law, four clauses. Each is a
+leg: **the served answer is honest and lean.** One law, five clauses. Each is a
 defect that was live and is now closed, so each has a worked example of the
 thing that used to go wrong.
 
@@ -295,7 +295,187 @@ worth keeping.
 
 ---
 
-## Two-string discipline (unchanged, and it constrains all four clauses)
+## Clause 5 — the answer owes the reader control over how much of it they get, and a list of what they did not
+
+Clause 4 is the library deciding what a reader does not need. This one is the
+reader deciding — and it needs both halves, because a surface that lets you ask
+for less and does not say what it withheld has not made you leaner, it has made
+you wrong. A **Lens** serves what *this* reader needs now: bounded, stating its
+omissions, carrying its basis.
+
+Two laws, both the family's, and everything below is one of them:
+
+> **A Lens may omit, but it may not deny.** An omission is listed, never
+> silent, and never dressed as absence.
+>
+> **Position narrows attention, never capability.** What is left out stays
+> reachable, and the answer says how.
+
+The difference is the whole clause. An answer that quietly drops `links`
+because the reader asked for `views` is indistinguishable, to a model, from a
+dashboard with no links in it — and the model will write the sentence *"nothing
+is linked here"* with complete confidence. `omitted` is what makes those two
+different.
+
+### `of` — the parts this reader wants
+
+```ts
+const a = await port.call('viz.whats_here', { of: ['views', 'columns'] });
+
+Object.keys(a);   // ['ok', 'views', 'columns', 'basis', 'omitted']
+a.omitted;        // [{ part: 'defaultTable', reason: 'not-asked' },
+                  //  { part: 'links', reason: 'not-asked' },
+                  //  { part: 'rules', reason: 'not-asked' }, … every other part, in the
+                  //  answer's own key order ]
+```
+
+Every part not carried is on the list. An unknown name is REFUSED rather than
+ignored — the reader can fix it, so this is the refuse half of clause 3's line,
+and the sentence names the parts that exist, which is also the answer to the
+question they were really asking:
+
+```ts
+await port.call('viz.whats_here', { of: ['viewz'] });
+// { ok: false, reason: 'PAYLOAD_INVALID', detail:
+//   'whats_here `of` names "viewz", which is not a part of this answer — the parts are
+//    defaultTable, links, rules, encodingPolicy, views, …' }
+```
+
+**With no arguments the answer is byte-identical to what it always was.** That
+is pinned (`lens.test.ts`), and it is why the narrowing runs through one path
+rather than being special-cased away: a law with a bypass around it is a law
+that holds until someone takes the bypass.
+
+### `basis` — what the answer was true as of
+
+Narrowing is exactly when a reader needs the thing it compares against, so
+`basis` rides on every answer, whole, and is never omitted:
+
+```ts
+a.basis;
+// { asOf: 'o-1f3a…',        // the POSITION — already the id an act copies back
+//   revision: 'r-9c22a41e', // the DEFINITION, digested once at build
+//   data: { cases: 'v-7' },  // what each declared source vouched for when it was read
+//   session: 'sess1' }       // WHICH session folded it
+```
+
+Four values because the answer rests on four independent things, and a reader
+holding a cached part needs to check all four. `data` names only the tables
+that DECLARED a source: a table declared inline as rows has no version anybody
+vouched for, and its rows are part of the definition, so `revision` already
+covers them — inventing a version there would be the answer making a claim its
+sources never made.
+
+### `parts` — volatility, as data
+
+The reader cannot decide what to keep without knowing what is keepable, so the
+policy is served rather than documented:
+
+| part | scope | stability | cacheClass |
+|---|---|---|---|
+| `rules`, `encodingPolicy`, `engines`, `keys`, `tables`, `defaultTable`, `offers`, `parts` | global | immutable | stable |
+| `sources` | global | versioned | stable |
+| `journal`, `journalTotal`, `saved`, `bookmarks` | global | volatile | volatile |
+| `fdr`, `gaps`, `paths`, `charts` | session | volatile | volatile |
+| `views`, `links`, `columns`, `activeSelections`, `filters`, `asOf`, `time`, … | turn | volatile / versioned | volatile |
+
+**Two axes, not one**, because scope and rate of change are different facts and
+one number cannot say both: `sources` changes rarely but is a claim about the
+DASHBOARD, so two sessions may share it; `paths` changes on every act but is a
+claim about ONE session, so it may never be shared even if it were still.
+`cacheClass` is derived from the pair by one exported function, so the
+derivation is stated once and cannot drift row to row.
+
+Every row was decided from the code that produces the part. `offers` looks like
+it should move with the cursor and does not — a view's voice is DECLARED
+(`../session/offers.ts`), which is the whole reason the position rides beside
+the list as one stamp rather than on each offer (clause 4a). `columns` looks
+static and is not — it is branch-scoped, so a column an analysis materialised is
+hidden off its branch, and keeping it across a seek would show a column that is
+not there.
+
+The table costs **2,746 byte-stable bytes** on every answer, and that is worth
+saying out loud because clause 4 is next door. It is the `encodings` case, not
+the `views[].columns` case: a FIXED entry whose share falls as the dashboard
+grows (28% of the answer at the small shape, 5.7% at the realistic one, 1.4% at
+the large one), not a duplicate that scales with the product of two dimensions.
+And it is the thing that makes the other 95% cacheable at all — under `since` a
+reader pays it once.
+
+### `since` — only what moved, at the granularity the bench said pays
+
+```ts
+const first = await port.call('viz.whats_here');
+await port.call('viz.dispatch', { verb: 'reencode', viewId: 'scatter', channel: 'color', field: 'category' });
+
+const delta = await port.call('viz.whats_here', { since: first.asOf });
+delta.since;    // { requested: 'o-1f3a…', served: 'delta' }
+delta.views;    // { delta: 'by-id', by: 'viewId',
+                //   order: ['scatter', 'bar', 'cluster', 'display'],   ← every view, in the order they come
+                //   changed: [ { viewId: 'scatter', … } ] }            ← only the one that moved
+delta.omitted;  // [{ part: 'defaultTable', reason: 'unchanged-since' },
+                //  { part: 'links', reason: 'unchanged-since' }, … 27 of the 33 parts ]
+```
+
+**Why `views` narrows per view and `rules` does not.** The churn arm of
+[`bench/surface`](../../bench/surface/README.md) measured it: one rebind leaves
+99.5% of a realistic answer unchanged at any depth and only 57.7% unchanged at
+top-level KEY granularity — because the moved bytes are inside `views`, and
+`views` is 39.7% of the answer. A key-level delta after a rebind therefore saves
+almost nothing. So the two containers that carry the answer narrow one level
+further (`views` per view, `links.edges` per edge) and everything else is
+served per key, where a key-level delta already saves nearly all of it. The
+measured result: a `since` answer is **5.1%** of the full answer after a select
+at the realistic shape and **1.6%** at the large one.
+
+`order` is what makes an overlay exact rather than approximate. It names every
+entry's id, so a removal is an absence from it, an insertion lands where it
+actually goes, and a reorder is expressible — none of which a bare list of
+changed entries can say. It is also what stops a reader from silently believing
+a partial list is whole: the ids are all there, so a gap is visible.
+
+**The conformance law, and why there is a door for it.**
+
+> The previous full answer, with the `since` answer applied over it, IS the
+> current full answer.
+
+A delta is a claim about an answer nobody sent; if it cannot be proven equal to
+the answer it stands for, it is a lie that reads exactly like the truth.
+`sinceConformance.test.ts` walks the same twelve acts the fold conformance test
+walks — a point select, an interval filter, a match select, a cell select, a
+clear, a re-encode, a link edit, an analysis, prose, a layout move, a fork with
+a sibling, and a travel back — and asserts that law at every one of them, BYTE
+for byte rather than merely deep-equal, because the reader hands its copy on to
+a model that reads bytes.
+
+The applying is a door (`applySurfaceDelta`, exported from `/agent`) rather
+than a helper inside that test, for the reason law 6 of
+[`../session/README.md`](../session/README.md) gives: **a test standing in for a
+door is a door that is missing.** A reader handed a delta has to put it back
+together, and the rule for doing that must be the library's, not each reader's
+own.
+
+**And when a delta cannot be proven, it is not guessed.** The port remembers
+the full answer at the last four positions it answered at. A `since` naming any
+other position is served in FULL, and says so:
+
+```ts
+delta.since;
+// { requested: 'o-deadbeef', served: 'full', reason: 'not-held', detail:
+//   'no answer served at position o-deadbeef is still held — this port remembers the
+//    last 4 positions it answered at, so what follows is the whole answer' }
+```
+
+The second not-held case is subtler and is the one worth knowing about. `asOf`
+is minted from the CURSOR, so a bookmark, a refresh, or anything else that
+moves the answer without moving the cursor makes one position name two
+different answers. The port marks that position ambiguous, for good: a reader
+holds one of the two and nothing here can tell which, so a delta from it is
+refused rather than computed against a coin flip.
+
+---
+
+## Two-string discipline (unchanged, and it constrains all five clauses)
 
 Every text field in a tool DESCRIPTOR is an authored constant. Runtime app
 content — a column value, a category label, a `cause.intent`, an analysis id —
@@ -308,5 +488,6 @@ adds DATA to a result, never text to an instruction. A `coerced` sentence, a
 gap's `detail`, a dropped ref's id — all of them are inert, and none of them may
 be parsed or dispatched on.
 
-Pinned by `servedAnswer.test.ts` (the four clauses, one describe block each) and
-by the menu-stability row in `bench/surface`.
+Pinned by `servedAnswer.test.ts` (the first four clauses, one describe block
+each), by `lens.test.ts` and `sinceConformance.test.ts` (the fifth), and by the
+menu-stability row in `bench/surface`.

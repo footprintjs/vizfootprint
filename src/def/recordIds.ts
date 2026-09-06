@@ -36,6 +36,13 @@ export const PICTURE_ID_PREFIX = 'p';
 /** The prefix a bookmark's id carries. */
 export const BOOKMARK_ID_PREFIX = 'b';
 
+/**
+ * The prefix a SESSION's id carries (`sess1`, `sess2`, …). Deliberately longer
+ * than one letter: a session id turns up beside commit ids in a served
+ * answer's `basis`, and `s1` already means a commit there.
+ */
+export const SESSION_ID_PREFIX = 'sess';
+
 /** What minting needs of a store: the records it holds, and `minted` — the highest number it has ever handed out. */
 export interface RecordStore {
   readonly list: readonly { readonly id: string }[];

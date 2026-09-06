@@ -66,7 +66,10 @@ reads BROKEN, that is a defect worth knowing about — a shape-dependent or
 act-dependent tool list breaks every prompt cache downstream.
 
 **2 · whats_here** — `JSON.stringify(await call('viz.whats_here'))` at each
-shape, and its ratio to the menu.
+shape, and its ratio to the menu. Called with NO arguments, deliberately: that
+is the whole answer, and the law the narrowings hang off is that no argument
+changes nothing. The narrowed answers are measured in 4b, against the same
+positions.
 
 **3 · composition** — where those bytes go. The byte share of every top-level
 key, computed by **serializing each subtree**, never by guessing: an entry's
@@ -96,6 +99,25 @@ The reencode row is where the two diverge, and that divergence is the finding:
 a rebind moves a handful of bytes inside `views`, but `views` is the majority
 of the answer, so a key-level delta saves almost nothing while a structural one
 saves nearly everything.
+
+**4b · since — the same position, asked for as a delta.** Section 4 measures
+what a delta COULD save; this arm measures what one actually costs. After each
+of the same three acts it calls `whats_here { since: <the asOf the `before`
+answer carried> }` and byte-counts the answer the port really served, beside
+the full answer it stands for. Nothing here is modelled: the delta is the
+library's own, produced by the same code a host gets.
+
+It reports the delta's bytes, its share of the full answer, how many of the
+answer's parts came back as `unchanged-since`, and — the row to check first —
+whether the port served a **delta** or fell back to the whole answer. A bench
+that quoted a fallback as a delta would be quoting the wrong number, so the arm
+throws rather than printing one.
+
+Read 4 and 4b together. Section 4 says a key-level delta after a rebind saves
+almost nothing (58% unchanged) while a structural one saves nearly everything
+(99.5%); 4b is what the library does about that — `views` narrows per view and
+`links.edges` per edge, everything else per top-level key — and what it is
+worth. The select rows are the everyday case, the reencode rows the hard one.
 
 **5 · floor** — the smallest subset of the answer that still supports a first
 correct act. **This is a judgement, and the reader must be able to disagree**,

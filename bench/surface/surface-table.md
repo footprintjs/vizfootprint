@@ -1,15 +1,15 @@
-node v22.16.0 · darwin arm64 · 2026-09-03T22:30:22.579Z
+node v22.16.0 · darwin arm64 · 2026-09-06T15:28:05.840Z
 
 **Unit: UTF-8 bytes.** Tokens NOT counted (not requested — run with --tokens to count real tokens).
 
 ### 1 · menu — the fixed cost paid every turn
 
-Whole menu: **17,565 bytes**, 9 tools. Byte-stability: **HOLDS** — byte-identical across all three shapes and across a session that acted — the documented claim holds
+Whole menu: **19,243 bytes**, 9 tools. Byte-stability: **HOLDS** — byte-identical across all three shapes and across a session that acted — the documented claim holds
 
 | tool | shape | bytes | of which description | of which schema |
 |---|---|---:|---:|---:|
-| `viz.whats_here` | any (shape-independent) | 1,086 | 969 | 62 |
-| `viz.dispatch` | any (shape-independent) | 9,917 | 2,526 | 7,338 |
+| `viz.whats_here` | any (shape-independent) | 2,516 | 1,483 | 978 |
+| `viz.dispatch` | any (shape-independent) | 10,165 | 2,573 | 7,539 |
 | `viz.declare_analysis` | any (shape-independent) | 645 | 312 | 272 |
 | `viz.why` | any (shape-independent) | 599 | 354 | 197 |
 | `viz.fork` | any (shape-independent) | 799 | 469 | 281 |
@@ -17,54 +17,56 @@ Whole menu: **17,565 bytes**, 9 tools. Byte-stability: **HOLDS** — byte-identi
 | `viz.paths` | any (shape-independent) | 1,926 | 1,038 | 838 |
 | `viz.compare` | any (shape-independent) | 612 | 320 | 240 |
 | `viz.propose_chart` | any (shape-independent) | 1,453 | 857 | 538 |
-| **total** | any (shape-independent) | **17,565** | | |
+| **total** | any (shape-independent) | **19,243** | | |
 
 ### 2 · whats_here — the per-call answer
 
 | shape | views | table cols | link edges | analyses | prose slots | whats_here bytes | × the menu |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| small | 3 | 8 | 12 | 2 | 1 | 7,007 | 0.40× |
-| realistic | 9 | 30 | 132 | 6 | 3 | 45,704 | 2.60× |
-| large | 20 | 80 | 674 | 12 | 5 | 190,425 | 10.84× |
+| small | 3 | 8 | 12 | 2 | 1 | 9,836 | 0.51× |
+| realistic | 9 | 30 | 132 | 6 | 3 | 48,533 | 2.52× |
+| large | 20 | 80 | 674 | 12 | 5 | 193,254 | 10.04× |
 
 ### 3 · composition — where the answer's bytes go
 
 | key | small bytes (share) | realistic bytes (share) | large bytes (share) |
 |---|---:|---:|---:|
-| `links` | 2,069 (29.53%) | 20,384 (44.6%) | 100,499 (52.78%) |
-| `views` | 2,420 (34.54%) | 19,270 (42.16%) | 77,898 (40.91%) |
-| `columns` | 597 (8.52%) | 2,181 (4.77%) | 5,781 (3.04%) |
-| `dashboard` | 39 (0.56%) | 633 (1.38%) | 633 (0.33%) |
-| `offers` | 233 (3.33%) | 616 (1.35%) | 1,343 (0.71%) |
-| `analyses` | 213 (3.04%) | 599 (1.31%) | 1,182 (0.62%) |
-| `effectiveEncodings` | 191 (2.73%) | 483 (1.06%) | 1,016 (0.53%) |
-| `encodings` | 182 (2.6%) | 474 (1.04%) | 1,007 (0.53%) |
-| `rules` | 279 (3.98%) | 279 (0.61%) | 279 (0.15%) |
-| `tables` | 117 (1.67%) | 118 (0.26%) | 119 (0.06%) |
-| `time` | 97 (1.38%) | 97 (0.21%) | 97 (0.05%) |
-| `fdr` | 94 (1.34%) | 94 (0.21%) | 94 (0.05%) |
-| `paths` | 79 (1.13%) | 79 (0.17%) | 79 (0.04%) |
-| `encodingPolicy` | 63 (0.9%) | 63 (0.14%) | 63 (0.03%) |
-| `engines` | 27 (0.39%) | 27 (0.06%) | 27 (0.01%) |
-| `keys` | 24 (0.34%) | 24 (0.05%) | 24 (0.01%) |
-| `clearedSelections` | 22 (0.31%) | 22 (0.05%) | 22 (0.01%) |
-| `selectedRowCount` | 22 (0.31%) | 22 (0.05%) | 23 (0.01%) |
-| `defaultTable` | 21 (0.3%) | 21 (0.05%) | 21 (0.01%) |
-| `activeSelections` | 21 (0.3%) | 21 (0.05%) | 21 (0.01%) |
-| `asOf` | 19 (0.27%) | 19 (0.04%) | 19 (0.01%) |
-| `currentView` | 18 (0.26%) | 18 (0.04%) | 18 (0.01%) |
-| `journalTotal` | 16 (0.23%) | 16 (0.04%) | 16 (0.01%) |
-| `bookmarks` | 14 (0.2%) | 14 (0.03%) | 14 (0.01%) |
-| `filters` | 12 (0.17%) | 12 (0.03%) | 12 (0.01%) |
-| `sources` | 12 (0.17%) | 12 (0.03%) | 12 (0.01%) |
-| `journal` | 12 (0.17%) | 12 (0.03%) | 12 (0.01%) |
-| `layouts` | 12 (0.17%) | 12 (0.03%) | 12 (0.01%) |
-| `charts` | 11 (0.16%) | 11 (0.02%) | 11 (0.01%) |
-| `notes` | 10 (0.14%) | 10 (0.02%) | 10 (0.01%) |
-| `saved` | 10 (0.14%) | 10 (0.02%) | 10 (0.01%) |
-| `ok` | 9 (0.13%) | 9 (0.02%) | 9 (0%) |
-| `gaps` | 8 (0.11%) | 8 (0.02%) | 8 (0%) |
-| **total** | **7,007** | **45,704** | **190,425** |
+| `links` | 2,069 (21.03%) | 20,384 (42%) | 100,499 (52%) |
+| `views` | 2,420 (24.6%) | 19,270 (39.7%) | 77,898 (40.31%) |
+| `parts` | 2,746 (27.92%) | 2,746 (5.66%) | 2,746 (1.42%) |
+| `columns` | 597 (6.07%) | 2,181 (4.49%) | 5,781 (2.99%) |
+| `dashboard` | 39 (0.4%) | 633 (1.3%) | 633 (0.33%) |
+| `offers` | 233 (2.37%) | 616 (1.27%) | 1,343 (0.69%) |
+| `analyses` | 213 (2.17%) | 599 (1.23%) | 1,182 (0.61%) |
+| `effectiveEncodings` | 191 (1.94%) | 483 (1%) | 1,016 (0.53%) |
+| `encodings` | 182 (1.85%) | 474 (0.98%) | 1,007 (0.52%) |
+| `rules` | 279 (2.84%) | 279 (0.57%) | 279 (0.14%) |
+| `tables` | 117 (1.19%) | 118 (0.24%) | 119 (0.06%) |
+| `time` | 97 (0.99%) | 97 (0.2%) | 97 (0.05%) |
+| `fdr` | 94 (0.96%) | 94 (0.19%) | 94 (0.05%) |
+| `basis` | 81 (0.82%) | 81 (0.17%) | 81 (0.04%) |
+| `paths` | 79 (0.8%) | 79 (0.16%) | 79 (0.04%) |
+| `encodingPolicy` | 63 (0.64%) | 63 (0.13%) | 63 (0.03%) |
+| `engines` | 27 (0.27%) | 27 (0.06%) | 27 (0.01%) |
+| `keys` | 24 (0.24%) | 24 (0.05%) | 24 (0.01%) |
+| `clearedSelections` | 22 (0.22%) | 22 (0.05%) | 22 (0.01%) |
+| `selectedRowCount` | 22 (0.22%) | 22 (0.05%) | 23 (0.01%) |
+| `defaultTable` | 21 (0.21%) | 21 (0.04%) | 21 (0.01%) |
+| `activeSelections` | 21 (0.21%) | 21 (0.04%) | 21 (0.01%) |
+| `asOf` | 19 (0.19%) | 19 (0.04%) | 19 (0.01%) |
+| `currentView` | 18 (0.18%) | 18 (0.04%) | 18 (0.01%) |
+| `journalTotal` | 16 (0.16%) | 16 (0.03%) | 16 (0.01%) |
+| `bookmarks` | 14 (0.14%) | 14 (0.03%) | 14 (0.01%) |
+| `filters` | 12 (0.12%) | 12 (0.02%) | 12 (0.01%) |
+| `sources` | 12 (0.12%) | 12 (0.02%) | 12 (0.01%) |
+| `journal` | 12 (0.12%) | 12 (0.02%) | 12 (0.01%) |
+| `layouts` | 12 (0.12%) | 12 (0.02%) | 12 (0.01%) |
+| `charts` | 11 (0.11%) | 11 (0.02%) | 11 (0.01%) |
+| `notes` | 10 (0.1%) | 10 (0.02%) | 10 (0.01%) |
+| `saved` | 10 (0.1%) | 10 (0.02%) | 10 (0.01%) |
+| `ok` | 9 (0.09%) | 9 (0.02%) | 9 (0%) |
+| `gaps` | 8 (0.08%) | 8 (0.02%) | 8 (0%) |
+| **total** | **9,836** | **48,533** | **193,254** |
 
 Split checks out: unattributed residual (braces + commas beyond what the split counts) = small 0, realistic 0, large 0.
 
@@ -92,23 +94,37 @@ Split checks out: unattributed residual (braces + commas beyond what the split c
 
 | shape | act | before bytes | after bytes | unchanged (deep) | unchanged (top-level keys) | biggest changed key |
 |---|---|---:|---:|---:|---:|---|
-| small (3v/8c/12e) | select (point value on a bar) | 7,007 | 7,274 | 96.73% | 92.91% | `analyses` (213 B) |
-| small (3v/8c/12e) | filter (interval on a scatter) | 7,007 | 7,272 | 96.73% | 92.91% | `analyses` (213 B) |
-| small (3v/8c/12e) | reencode (rebind one channel) | 7,007 | 7,137 | 96.7% | 56.87% | `views` (2,420 B) |
-| realistic (9v/30c/132e) | select (point value on a bar) | 45,704 | 45,967 | 99.28% | 98.07% | `analyses` (599 B) |
-| realistic (9v/30c/132e) | filter (interval on a scatter) | 45,704 | 45,965 | 99.28% | 98.07% | `analyses` (599 B) |
-| realistic (9v/30c/132e) | reencode (rebind one channel) | 45,704 | 45,825 | 99.52% | 55.24% | `views` (19,270 B) |
-| large (20v/80c/674e) | select (point value on a bar) | 190,425 | 190,682 | 99.74% | 99.23% | `analyses` (1,182 B) |
-| large (20v/80c/674e) | filter (interval on a scatter) | 190,425 | 190,667 | 99.74% | 99.23% | `analyses` (1,182 B) |
-| large (20v/80c/674e) | reencode (rebind one channel) | 190,425 | 190,591 | 99.77% | 57.91% | `views` (77,898 B) |
+| small (3v/8c/12e) | select (point value on a bar) | 9,836 | 10,103 | 97.41% | 94.1% | `analyses` (213 B) |
+| small (3v/8c/12e) | filter (interval on a scatter) | 9,836 | 10,101 | 97.41% | 94.1% | `analyses` (213 B) |
+| small (3v/8c/12e) | reencode (rebind one channel) | 9,836 | 9,966 | 97.39% | 68.43% | `views` (2,420 B) |
+| realistic (9v/30c/132e) | select (point value on a bar) | 48,533 | 48,796 | 99.27% | 98.01% | `analyses` (599 B) |
+| realistic (9v/30c/132e) | filter (interval on a scatter) | 48,533 | 48,794 | 99.27% | 98.01% | `analyses` (599 B) |
+| realistic (9v/30c/132e) | reencode (rebind one channel) | 48,533 | 48,654 | 99.5% | 57.68% | `views` (19,270 B) |
+| large (20v/80c/674e) | select (point value on a bar) | 193,254 | 193,511 | 99.73% | 99.2% | `analyses` (1,182 B) |
+| large (20v/80c/674e) | filter (interval on a scatter) | 193,254 | 193,496 | 99.73% | 99.2% | `analyses` (1,182 B) |
+| large (20v/80c/674e) | reencode (rebind one channel) | 193,254 | 193,420 | 99.76% | 58.48% | `views` (77,898 B) |
+
+#### 4b · since — the same position, asked for as a delta
+
+| shape | act | full answer | `since` answer | share of the full | parts omitted (unchanged) | served |
+|---|---|---:|---:|---:|---:|---|
+| small (3v/8c/12e) | select (point value on a bar) | 10,103 | 2,113 | 20.91% | 26 of 33 | delta |
+| small (3v/8c/12e) | filter (interval on a scatter) | 10,101 | 2,111 | 20.9% | 26 of 33 | delta |
+| small (3v/8c/12e) | reencode (rebind one channel) | 9,966 | 3,093 | 31.04% | 27 of 33 | delta |
+| realistic (9v/30c/132e) | select (point value on a bar) | 48,796 | 2,495 | 5.11% | 26 of 33 | delta |
+| realistic (9v/30c/132e) | filter (interval on a scatter) | 48,794 | 2,493 | 5.11% | 26 of 33 | delta |
+| realistic (9v/30c/132e) | reencode (rebind one channel) | 48,654 | 5,059 | 10.4% | 27 of 33 | delta |
+| large (20v/80c/674e) | select (point value on a bar) | 193,511 | 3,073 | 1.59% | 26 of 33 | delta |
+| large (20v/80c/674e) | filter (interval on a scatter) | 193,496 | 3,058 | 1.58% | 26 of 33 | delta |
+| large (20v/80c/674e) | reencode (rebind one channel) | 193,420 | 8,621 | 4.46% | 27 of 33 | delta |
 
 ### 5 · floor — the smallest answer that still supports a first correct act
 
 | shape | full answer | floor (strict) | floor share | floor (shared column list) | shared share | verbs alone |
 |---|---:|---:|---:|---:|---:|---:|
-| small (3 views · 8 cols · 12 edges · 2 analyses · 1 prose slots) | 7,007 | 587 | 8.38% | 437 | 6.24% | 98 |
-| realistic (9 views · 30 cols · 132 edges · 6 analyses · 3 prose slots) | 45,704 | 3,056 | 6.69% | 1,048 | 2.29% | 98 |
-| large (20 views · 80 cols · 674 edges · 12 analyses · 5 prose slots) | 190,425 | 14,620 | 7.68% | 2,251 | 1.18% | 98 |
+| small (3 views · 8 cols · 12 edges · 2 analyses · 1 prose slots) | 9,836 | 587 | 5.97% | 437 | 4.44% | 98 |
+| realistic (9 views · 30 cols · 132 edges · 6 analyses · 3 prose slots) | 48,533 | 3,056 | 6.3% | 1,048 | 2.16% | 98 |
+| large (20 views · 80 cols · 674 edges · 12 analyses · 5 prose slots) | 193,254 | 14,620 | 7.57% | 2,251 | 1.16% | 98 |
 
 ### 6 · tokens
 

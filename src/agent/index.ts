@@ -29,6 +29,16 @@ export type {
 export { whatLanded } from './landed.js';
 export type { VizLanded } from './landed.js';
 
+// ── clause 5: the reader's control over how much of the answer they get ────────
+// The parts table is POLICY AS DATA (a host may read or replace it); the two
+// reason vocabularies and the apply door are what make a narrowed answer
+// readable and a delta checkable rather than trusted.
+export { SURFACE_PARTS, SURFACE_PART_NAMES, PART_SCOPES, PART_STABILITIES, CACHE_CLASSES, cacheClassOf } from './surfaceParts.js';
+export type { SurfacePart, PartScope, PartStability, CacheClass } from './surfaceParts.js';
+export { applySurfaceDelta, isListDelta, ENVELOPE_KEYS } from './narrow.js';
+export type { Omission, OmissionReason, SinceDisclosure, ListDelta, ApplyResult } from './narrow.js';
+export type { AnswerBasis } from './basis.js';
+
 // Re-export the declare + connect halves so `vizfootprint/agent` is the one L5 entry.
 export { buildDashboard, validateDashboardDef, parseDashboardDef, DashboardDefError, DISPATCH_VERBS, DEFAULT_INTENTS, dispatchVerbs } from '../def/index.js';
 export type {

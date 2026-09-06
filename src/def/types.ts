@@ -506,6 +506,10 @@ export interface RestoreResult {
  */
 export interface DashboardRuntime {
   readonly def: DashboardDef;
+  /** The definition's REVISION — digested once at build, frozen with the def (see `./revision.ts`). What a served answer states it was true of. */
+  readonly revision: string;
+  /** The session-id counter — one per dashboard, so two sessions on one dashboard can never carry the same id (the {@link CommitIdStore} pattern). */
+  readonly sessionIds: { minted: number };
   readonly defaultTable: string;
   readonly tables: readonly string[];
   providerFor(table: string): DataProvider | undefined;

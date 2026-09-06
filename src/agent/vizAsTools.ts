@@ -30,6 +30,10 @@ import { DISPATCH_VERBS } from '../def/index.js';
 import { acceptsOf } from '../encoding/index.js';
 import type { InteractionSession } from '../session/index.js';
 import type { CellValues, DispatchAction, DispatchResult, AnalysisCommit, FilterRange, ProposeChartResult, WhyTarget } from '../session/index.js';
+import { SURFACE_PARTS, SURFACE_PART_NAMES } from './surfaceParts.js';
+import { basisOf } from './basis.js';
+import { narrowParts } from './narrow.js';
+import type { Omission, SinceDisclosure } from './narrow.js';
 
 /** One tool descriptor (shape-compatible with footprintjs `MCPToolDescription` / the MCP SDK `Tool`). */
 export interface VizTool {
@@ -118,7 +122,12 @@ const WHATS_HERE_DESCRIPTION =
   '`rules`: the house laws as sentences; `encodingPolicy`: whether a misfit is refused or coerced), ' +
   'and the NAMED PATHS of the history (which path you are on, every path with its tip, and ' +
   'how many paths are ARCHIVED — hidden from the list but never erased; the paths tool lists them). ' +
-  'Call this first, then act with dispatch.';
+  'Call this first, then act with dispatch. ' +
+  'You may ask for LESS: `of` serves only the parts you name, `since` (an `asOf` you already hold) serves only ' +
+  'the parts that moved since then. Nothing is ever dropped silently — every part left out is listed on ' +
+  '`omitted` with its reason, and asking again without them gets it back. `basis` always rides (the position, ' +
+  'the definition\'s revision, each source\'s data version, the session) and `parts` says which parts you may ' +
+  'keep and for how long. With no arguments the answer is the whole thing, exactly as before.';
 
 const DISPATCH_DESCRIPTION =
   'Perform ONE semantic interaction. verb is one of: select (a point value on a field, or value: null to ' +
@@ -403,7 +412,35 @@ const PROPOSE_CHART_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const NO_PARAMS = { type: 'object', properties: {}, additionalProperties: false } as const;
+/**
+ * `whats_here`'s two optional narrowings. Both are authored constants (Q8) and
+ * both are LOSSLESS: what they leave out is named on `omitted`, and asking
+ * again without them gets it back.
+ */
+const WHATS_HERE_SCHEMA = {
+  type: 'object',
+  properties: {
+    of: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'Optional: the top-level parts you want, e.g. ["views", "columns"] — read `parts` for every name. ' +
+        'Everything else is left out and listed on `omitted` with reason "not-asked". A name that is not a ' +
+        'part is refused in a sentence naming the ones that are. Omit for the whole answer.',
+    },
+    since: {
+      type: 'string',
+      description:
+        'Optional: an `asOf` from an earlier whats_here — the answer then carries only the parts that MOVED ' +
+        'since that position, and lists the rest on `omitted` with reason "unchanged-since". `views` and ' +
+        'links.edges come back narrowed to the entries that changed, as { delta: "by-id", by, order, changed }: ' +
+        'take what you hold, replace the entries in `changed` by their id, and emit them in `order`. If this ' +
+        'port cannot prove a delta from that position it serves the WHOLE answer and says so on `since` — it ' +
+        'never guesses one.',
+    },
+  },
+  additionalProperties: false,
+} as const;
 
 /**
  * TL-1 — the one honesty line every hiding action carries back, verbatim (an
@@ -415,6 +452,62 @@ export const HIDDEN_NOT_ERASED = 'Hidden, not erased — the statistics remember
 
 function sanitize(name: string): string {
   return name.replace(/[^A-Za-z0-9_.-]/g, '_');
+}
+
+/**
+ * How many recent POSITIONS a port remembers the full answer at, so a `since`
+ * from one of them can be proven rather than guessed.
+ *
+ * Small on purpose. A reader's loop is *ask in full once, then `since` every
+ * turn*, and each of those answers is itself remembered at its own position —
+ * so four covers that loop with room for a reader that skipped a turn or two,
+ * and a reader who has fallen further behind is told so (`not-held`) and
+ * served in full. Remembering more would mean holding more copies of the
+ * largest thing this library serves in order to help a case the honest answer
+ * already handles.
+ */
+export const LENS_MEMO_DEPTH = 4;
+
+/** One position this port answered at, and the FULL answer it served there. */
+interface RememberedAnswer {
+  readonly full: Record<string, unknown>;
+  readonly serialized: string;
+  /**
+   * Two DIFFERENT full answers were served at this position — the data
+   * refreshed, or a record beside the log moved, without the cursor moving. A
+   * reader holds one of them and this port cannot tell which, so a delta from
+   * here cannot be proven and is refused rather than guessed.
+   */
+  readonly ambiguous: boolean;
+}
+
+/** What the reader asked for: the parts, and the position they already hold. */
+type LensArgs = { readonly of?: ReadonlySet<string>; readonly since?: string } | { readonly error: string };
+
+/** The parts, named, for a refusal sentence — authored constants, in the table's own order. */
+const PART_LIST = SURFACE_PARTS.map((p) => p.part).join(', ');
+
+/**
+ * Read `of` and `since` off the wire (Mode B fire-time validation). An unknown
+ * part name is REFUSED — the reader can fix it, and the sentence names the
+ * parts that exist, so the refusal is also the answer to the question they
+ * were really asking.
+ */
+export function readLensArgs(args: Record<string, unknown>): LensArgs {
+  const of = args['of'];
+  const since = args['since'];
+  if (since !== undefined && typeof since !== 'string') {
+    return { error: 'whats_here `since` must be a string: an `asOf` from an earlier whats_here answer' };
+  }
+  if (of === undefined) return since === undefined ? {} : { since };
+  if (!Array.isArray(of) || !of.every((name) => typeof name === 'string')) {
+    return { error: `whats_here \`of\` must be an array of part names — the parts are ${PART_LIST}` };
+  }
+  const unknown = of.find((name) => !SURFACE_PART_NAMES.has(name as string));
+  if (unknown !== undefined) {
+    return { error: `whats_here \`of\` names "${String(unknown)}", which is not a part of this answer — the parts are ${PART_LIST}` };
+  }
+  return { of: new Set(of as string[]), ...(since === undefined ? {} : { since }) };
 }
 
 /** One bound of a `filter` range as it arrives off the wire: a concrete value, or `null` (open-ended). */
@@ -481,7 +574,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
   };
 
   const staticTools: VizTool[] = [
-    { name: NAMES.whatsHere, description: WHATS_HERE_DESCRIPTION, inputSchema: structuredClone(NO_PARAMS) },
+    { name: NAMES.whatsHere, description: WHATS_HERE_DESCRIPTION, inputSchema: structuredClone(WHATS_HERE_SCHEMA) },
     { name: NAMES.dispatch, description: DISPATCH_DESCRIPTION, inputSchema: structuredClone(DISPATCH_SCHEMA) },
     { name: NAMES.declare, description: DECLARE_ANALYSIS_DESCRIPTION, inputSchema: structuredClone(DECLARE_ANALYSIS_SCHEMA) },
     { name: NAMES.why, description: WHY_DESCRIPTION, inputSchema: structuredClone(WHY_SCHEMA) },
@@ -843,27 +936,122 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     }
   }
 
+  /**
+   * The last few positions this port answered at, so a `since` from one of
+   * them is PROVEN against the answer that was actually served rather than
+   * recomputed from a fold that may have moved for another reason. Keyed by
+   * `asOf`, which is what a reader hands back. See {@link LENS_MEMO_DEPTH}.
+   */
+  const memo = new Map<string, RememberedAnswer>();
+
+  /**
+   * Remember the FULL answer at this position — on every call, narrowed or
+   * not, because after applying a delta a reader HOLDS the full answer at the
+   * position it was made at, and that is exactly what the next `since` names.
+   *
+   * Two different answers at one position mark it ambiguous, for good: a
+   * reader holds one of them and nothing here can say which.
+   */
+  function remember(asOf: string, full: Record<string, unknown>): void {
+    const serialized = JSON.stringify(full);
+    const held = memo.get(asOf);
+    if (held !== undefined) {
+      if (held.serialized !== serialized) memo.set(asOf, { full, serialized, ambiguous: true });
+      return;
+    }
+    memo.set(asOf, { full, serialized, ambiguous: false });
+    // oldest position first out — a Map keeps insertion order, and re-serving at a
+    // position it already holds does not move that position back to the front
+    for (const oldest of memo.keys()) {
+      if (memo.size <= LENS_MEMO_DEPTH) break;
+      memo.delete(oldest);
+    }
+  }
+
+  /** The WHOLE answer, before any narrowing: what the session decided, plus the answer's own stamp. */
+  async function fullAnswer(): Promise<Record<string, unknown>> {
+    // Token-lean projection of the encoding plane: the NAMES that fit each
+    // channel (`accepts`) instead of every column's verdict — a refusal's
+    // sentence arrives with the refusal, when the agent asks.
+    const o = await session.overview();
+    // `effective.bindings` already rides as `effectiveEncodings`; per view only what FOLLOWS and what was REFUSED stay
+    return {
+      ok: true,
+      ...o,
+      views: o.views.map(({ fits, effective, ...view }) => ({
+        ...view,
+        ...(fits === undefined ? {} : { accepts: acceptsOf(fits) }),
+        ...(effective === undefined ? {} : { effective: { followed: effective.followed, refused: effective.refused } }),
+      })),
+      // policy as data: what a reader may keep, and for how long (byte-stable, so a delta pays nothing for it)
+      parts: SURFACE_PARTS,
+      // and what all of it was true as of — never omitted, because narrowing is when it matters most
+      basis: basisOf({ asOf: o.asOf, revision: session.revision, session: session.id, sources: o.sources }),
+    };
+  }
+
+  /**
+   * Serve `whats_here`, narrowed to what this reader asked for.
+   *
+   * With no `of` and no `since` the answer is the whole thing, byte for byte —
+   * that is the law the rest of this hangs off, and it is why the narrowing
+   * runs through one path rather than being special-cased away.
+   */
+  async function callWhatsHere(args: Record<string, unknown>): Promise<VizToolResult> {
+    const asked = readLensArgs(args);
+    if ('error' in asked) return { ok: false, reason: 'PAYLOAD_INVALID', detail: asked.error };
+    const full = await fullAnswer();
+    const asOf = full['asOf'] as string;
+    // look the reader's position up BEFORE remembering this one: a `since` naming
+    // the CURRENT position must mean the answer served there last, not this one
+    const held = asked.since === undefined ? undefined : memo.get(asked.since);
+    remember(asOf, full);
+
+    let previous: Record<string, unknown> | undefined;
+    let since: SinceDisclosure | undefined;
+    if (asked.since !== undefined) {
+      if (held === undefined) {
+        since = {
+          requested: asked.since,
+          served: 'full',
+          reason: 'not-held',
+          detail: `no answer served at position ${asked.since} is still held — this port remembers the last ${LENS_MEMO_DEPTH} positions it answered at, so what follows is the whole answer`,
+        };
+      } else if (held.ambiguous) {
+        since = {
+          requested: asked.since,
+          served: 'full',
+          reason: 'not-held',
+          detail: `position ${asked.since} named more than one answer in this session — the data or a record beside the log moved while the cursor did not — so a delta from it cannot be proven; what follows is the whole answer`,
+        };
+      } else {
+        previous = held.full;
+        since = { requested: asked.since, served: 'delta' };
+      }
+    }
+
+    const narrowed = narrowParts(full, {
+      ...(asked.of === undefined ? {} : { wanted: asked.of }),
+      ...(previous === undefined ? {} : { previous }),
+    });
+    const omitted: readonly Omission[] = narrowed.omitted;
+    return {
+      ok: true,
+      ...narrowed.parts,
+      basis: full['basis'],
+      ...(since === undefined ? {} : { since }),
+      // absent when nothing was left out, so the whole answer is byte-identical to what it always was
+      ...(omitted.length === 0 ? {} : { omitted }),
+    };
+  }
+
   return {
     tools: () => structuredClone(staticTools),
     async call(name: string, rawArgs?: unknown): Promise<VizToolResult> {
       const args = (rawArgs ?? {}) as Record<string, unknown>;
       switch (name) {
-        case NAMES.whatsHere: {
-          // Token-lean projection of the encoding plane: the NAMES that fit each
-          // channel (`accepts`) instead of every column's verdict — a refusal's
-          // sentence arrives with the refusal, when the agent asks.
-          const o = await session.overview();
-          // `effective.bindings` already rides as `effectiveEncodings`; per view only what FOLLOWS and what was REFUSED stay
-          return {
-            ok: true,
-            ...o,
-            views: o.views.map(({ fits, effective, ...view }) => ({
-              ...view,
-              ...(fits === undefined ? {} : { accepts: acceptsOf(fits) }),
-              ...(effective === undefined ? {} : { effective: { followed: effective.followed, refused: effective.refused } }),
-            })),
-          };
-        }
+        case NAMES.whatsHere:
+          return callWhatsHere(args);
         case NAMES.dispatch:
           return callDispatch(args);
         case NAMES.declare: {

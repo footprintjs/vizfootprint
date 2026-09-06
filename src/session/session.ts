@@ -29,7 +29,7 @@
  */
 
 import { restoreSavedInto, restoreBookmarksInto } from '../def/buildDashboard.js';
-import { COMMIT_ID_PREFIX, PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, mintRecordId, raiseMinted } from '../def/recordIds.js';
+import { COMMIT_ID_PREFIX, PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, SESSION_ID_PREFIX, mintRecordId, raiseMinted } from '../def/recordIds.js';
 import type { FoldEntry } from '../branches/index.js';
 import type { EmissionKind } from '../links/index.js';
 import { voiceOf } from '../links/index.js';
@@ -163,6 +163,22 @@ const JOURNAL_TAIL = 50;
 /** The public session surface (family-symmetric with hcifootprint's Session). */
 export interface InteractionSession {
   readonly log: CauseSelectionSession;
+  /**
+   * WHICH session this is — `sess1`, `sess2`, … minted from a counter on the
+   * DASHBOARD, so two sessions on one dashboard can never carry the same id
+   * (the commit-id counter's reasoning, one door along). A served answer
+   * carries it as `basis.session`: two sessions fold the same log at two
+   * cursors and hold two of their own ledgers, so a part cached from one is
+   * not a part of the other's answer.
+   */
+  readonly id: string;
+  /**
+   * The DEFINITION this session's dashboard was built from, digested once at
+   * build (`Dashboard.revision`). A served answer carries it as
+   * `basis.revision` — what a reader compares before trusting a part it
+   * cached across a rebuild.
+   */
+  readonly revision: string;
   readonly defaultTable: string;
   readonly defaultActor: Actor;
   /** The ACTIVE branch head — the tip of the lineage linear commits extend (moves only when an act lands a commit). */
@@ -473,6 +489,8 @@ interface ProseWorldNow {
 
 class InteractionSessionImpl implements InteractionSession {
   readonly log = new CauseSelectionSession();
+  readonly id: string;
+  readonly revision: string;
   readonly defaultTable: string;
   readonly defaultActor: Actor;
   readonly gapLedger = new GapLedger();
@@ -535,6 +553,10 @@ class InteractionSessionImpl implements InteractionSession {
   constructor(runtime: DashboardRuntime, opts: SessionOptions = {}) {
     this.requireOffer = opts.requireOffer === true;
     this.runtime = runtime;
+    // minted from the DASHBOARD's counter, like a commit id: `sess1`, `sess2`, …
+    runtime.sessionIds.minted += 1;
+    this.id = `${SESSION_ID_PREFIX}${runtime.sessionIds.minted}`;
+    this.revision = runtime.revision;
     this.defaultActor = opts.as ?? 'agent';
     this.defaultTable = opts.defaultTable ?? runtime.defaultTable;
     // every commit says which data it was true of: the version the default table's source vouched for at that

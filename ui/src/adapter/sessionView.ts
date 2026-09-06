@@ -20,7 +20,7 @@
 
 import type { Actor } from 'vizfootprint/cause';
 import type { CommitRecord } from 'vizfootprint/log';
-import { familyOf } from 'vizfootprint/branches';
+import { familyOf, ANALYSIS_VIEW_PREFIX } from 'vizfootprint/branches';
 import { PROPOSAL_LANE } from 'vizfootprint/prose';
 import type {
   Overview,
@@ -344,6 +344,11 @@ interface RawCommit {
   conflicts?: readonly string[];
 }
 
+/** `analysis`/`test`, named by the analysis the viewId carries — bare when the viewId is not one of ours (a foreign log). */
+function analysisLane(lane: string, viewId: string): string {
+  return viewId.startsWith(ANALYSIS_VIEW_PREFIX) ? `${lane} ${viewId.slice(ANALYSIS_VIEW_PREFIX.length)}` : lane;
+}
+
 /** A short, safe label for a chip/dot — never a raw value dump. */
 function commitLabel(field: string, viewId: string): string {
   if (viewId.startsWith('prose:')) {
@@ -355,8 +360,14 @@ function commitLabel(field: string, viewId: string): string {
   if (viewId.startsWith('encoding:') && field === '*') return `reencode ${viewId.slice('encoding:'.length)} (several channels)`;
   if (viewId.startsWith('layout:')) return 'layout'; // LY-1: an arrangement note ('preset'/'order'/'focus' rides field)
   if (viewId.startsWith('link:')) return 'link'; // layer 4: an edited edge (the LinkDecl rides value)
-  if (field === '__analysis__') return 'analysis';
-  if (field === 'pValue') return 'test';
+  // The two ANALYSIS lanes. Their value slot is the ACT — `{ id, table, def? }`
+  // (`AnalysisAct`) — which is the record the log needs to perform the act again
+  // and is not a value anyone can read: rendered as one it says `[object Object]`.
+  // So the label names WHICH analysis, from the id the viewId already carries,
+  // and the row reads the act. The words of the act itself are the cause's own
+  // intent ("add column rate = cases / 1000"), which the row shows beside this.
+  if (field === '__analysis__') return analysisLane('analysis', viewId);
+  if (field === 'pValue') return analysisLane('test', viewId);
   if (field === '__annotation__') return 'note';
   if (viewId.startsWith('annotation:')) return `note on ${field}`;
   if (field === '__bookmark__') return 'bookmark'; // a legacy `bookmark:` commit from an older log

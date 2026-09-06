@@ -1,22 +1,22 @@
 {
  "node": "v22.16.0",
  "platform": "darwin arm64",
- "generatedAt": "2026-09-03T22:30:22.579Z",
+ "generatedAt": "2026-09-06T15:28:05.840Z",
  "unit": "UTF-8 bytes of the JSON serialization (Buffer.byteLength). Tokens only ever come from the optional --tokens pass.",
  "menu": {
-  "bytes": 17565,
+  "bytes": 19243,
   "tools": [
    {
     "name": "viz.whats_here",
-    "bytes": 1086,
-    "descriptionBytes": 969,
-    "schemaBytes": 62
+    "bytes": 2516,
+    "descriptionBytes": 1483,
+    "schemaBytes": 978
    },
    {
     "name": "viz.dispatch",
-    "bytes": 9917,
-    "descriptionBytes": 2526,
-    "schemaBytes": 7338
+    "bytes": 10165,
+    "descriptionBytes": 2573,
+    "schemaBytes": 7539
    },
    {
     "name": "viz.declare_analysis",
@@ -68,9 +68,9 @@
    "ok": true,
    "note": "byte-identical across all three shapes and across a session that acted — the documented claim holds",
    "perShapeBytes": {
-    "small": 17565,
-    "realistic": 17565,
-    "large": 17565
+    "small": 19243,
+    "realistic": 19243,
+    "large": 19243
    }
   }
  },
@@ -91,198 +91,210 @@
    "materializedEdges": 12,
    "tableColumns": 8,
    "declaredAnalyses": 2,
-   "whatsHereBytes": 7007,
+   "whatsHereBytes": 9836,
    "composition": [
+    {
+     "key": "parts",
+     "bytes": 2746,
+     "share": 27.92,
+     "count": 33
+    },
     {
      "key": "views",
      "bytes": 2420,
-     "share": 34.54,
+     "share": 24.6,
      "count": 3
     },
     {
      "key": "links",
      "bytes": 2069,
-     "share": 29.53,
+     "share": 21.03,
      "count": 3
     },
     {
      "key": "columns",
      "bytes": 597,
-     "share": 8.52,
+     "share": 6.07,
      "count": 1
     },
     {
      "key": "rules",
      "bytes": 279,
-     "share": 3.98,
+     "share": 2.84,
      "count": 1
     },
     {
      "key": "offers",
      "bytes": 233,
-     "share": 3.33,
+     "share": 2.37,
      "count": 6
     },
     {
      "key": "analyses",
      "bytes": 213,
-     "share": 3.04,
+     "share": 2.17,
      "count": 2
     },
     {
      "key": "effectiveEncodings",
      "bytes": 191,
-     "share": 2.73,
+     "share": 1.94,
      "count": 3
     },
     {
      "key": "encodings",
      "bytes": 182,
-     "share": 2.6,
+     "share": 1.85,
      "count": 3
     },
     {
      "key": "tables",
      "bytes": 117,
-     "share": 1.67,
+     "share": 1.19,
      "count": 1
     },
     {
      "key": "time",
      "bytes": 97,
-     "share": 1.38,
+     "share": 0.99,
      "count": 6
     },
     {
      "key": "fdr",
      "bytes": 94,
-     "share": 1.34,
+     "share": 0.96,
      "count": 6
+    },
+    {
+     "key": "basis",
+     "bytes": 81,
+     "share": 0.82,
+     "count": 4
     },
     {
      "key": "paths",
      "bytes": 79,
-     "share": 1.13,
+     "share": 0.8,
      "count": 5
     },
     {
      "key": "encodingPolicy",
      "bytes": 63,
-     "share": 0.9,
+     "share": 0.64,
      "count": 2
     },
     {
      "key": "dashboard",
      "bytes": 39,
-     "share": 0.56,
+     "share": 0.4,
      "count": 2
     },
     {
      "key": "engines",
      "bytes": 27,
-     "share": 0.39,
+     "share": 0.27,
      "count": 1
     },
     {
      "key": "keys",
      "bytes": 24,
-     "share": 0.34,
+     "share": 0.24,
      "count": 1
     },
     {
      "key": "clearedSelections",
      "bytes": 22,
-     "share": 0.31,
+     "share": 0.22,
      "count": 0
     },
     {
      "key": "selectedRowCount",
      "bytes": 22,
-     "share": 0.31
+     "share": 0.22
     },
     {
      "key": "defaultTable",
      "bytes": 21,
-     "share": 0.3
+     "share": 0.21
     },
     {
      "key": "activeSelections",
      "bytes": 21,
-     "share": 0.3,
+     "share": 0.21,
      "count": 0
     },
     {
      "key": "asOf",
      "bytes": 19,
-     "share": 0.27
+     "share": 0.19
     },
     {
      "key": "currentView",
      "bytes": 18,
-     "share": 0.26
+     "share": 0.18
     },
     {
      "key": "journalTotal",
      "bytes": 16,
-     "share": 0.23
+     "share": 0.16
     },
     {
      "key": "bookmarks",
      "bytes": 14,
-     "share": 0.2,
+     "share": 0.14,
      "count": 0
     },
     {
      "key": "filters",
      "bytes": 12,
-     "share": 0.17,
+     "share": 0.12,
      "count": 0
     },
     {
      "key": "sources",
      "bytes": 12,
-     "share": 0.17,
+     "share": 0.12,
      "count": 0
     },
     {
      "key": "journal",
      "bytes": 12,
-     "share": 0.17,
+     "share": 0.12,
      "count": 0
     },
     {
      "key": "layouts",
      "bytes": 12,
-     "share": 0.17,
+     "share": 0.12,
      "count": 0
     },
     {
      "key": "charts",
      "bytes": 11,
-     "share": 0.16,
+     "share": 0.11,
      "count": 0
     },
     {
      "key": "notes",
      "bytes": 10,
-     "share": 0.14,
+     "share": 0.1,
      "count": 0
     },
     {
      "key": "saved",
      "bytes": 10,
-     "share": 0.14,
+     "share": 0.1,
      "count": 0
     },
     {
      "key": "ok",
      "bytes": 9,
-     "share": 0.13
+     "share": 0.09
     },
     {
      "key": "gaps",
      "bytes": 8,
-     "share": 0.11
+     "share": 0.08
     }
    ],
    "compositionResidual": 0,
@@ -383,8 +395,8 @@
     "strict": 587,
     "shared": 437,
     "verbs": 98,
-    "strictPct": 8.38,
-    "sharedPct": 6.24
+    "strictPct": 5.97,
+    "sharedPct": 4.44
    }
   },
   {
@@ -403,90 +415,102 @@
    "materializedEdges": 132,
    "tableColumns": 30,
    "declaredAnalyses": 6,
-   "whatsHereBytes": 45704,
+   "whatsHereBytes": 48533,
    "composition": [
     {
      "key": "links",
      "bytes": 20384,
-     "share": 44.6,
+     "share": 42,
      "count": 3
     },
     {
      "key": "views",
      "bytes": 19270,
-     "share": 42.16,
+     "share": 39.7,
      "count": 9
+    },
+    {
+     "key": "parts",
+     "bytes": 2746,
+     "share": 5.66,
+     "count": 33
     },
     {
      "key": "columns",
      "bytes": 2181,
-     "share": 4.77,
+     "share": 4.49,
      "count": 1
     },
     {
      "key": "dashboard",
      "bytes": 633,
-     "share": 1.38,
+     "share": 1.3,
      "count": 2
     },
     {
      "key": "offers",
      "bytes": 616,
-     "share": 1.35,
+     "share": 1.27,
      "count": 16
     },
     {
      "key": "analyses",
      "bytes": 599,
-     "share": 1.31,
+     "share": 1.23,
      "count": 6
     },
     {
      "key": "effectiveEncodings",
      "bytes": 483,
-     "share": 1.06,
+     "share": 1,
      "count": 9
     },
     {
      "key": "encodings",
      "bytes": 474,
-     "share": 1.04,
+     "share": 0.98,
      "count": 9
     },
     {
      "key": "rules",
      "bytes": 279,
-     "share": 0.61,
+     "share": 0.57,
      "count": 1
     },
     {
      "key": "tables",
      "bytes": 118,
-     "share": 0.26,
+     "share": 0.24,
      "count": 1
     },
     {
      "key": "time",
      "bytes": 97,
-     "share": 0.21,
+     "share": 0.2,
      "count": 6
     },
     {
      "key": "fdr",
      "bytes": 94,
-     "share": 0.21,
+     "share": 0.19,
      "count": 6
+    },
+    {
+     "key": "basis",
+     "bytes": 81,
+     "share": 0.17,
+     "count": 4
     },
     {
      "key": "paths",
      "bytes": 79,
-     "share": 0.17,
+     "share": 0.16,
      "count": 5
     },
     {
      "key": "encodingPolicy",
      "bytes": 63,
-     "share": 0.14,
+     "share": 0.13,
      "count": 2
     },
     {
@@ -515,12 +539,12 @@
     {
      "key": "defaultTable",
      "bytes": 21,
-     "share": 0.05
+     "share": 0.04
     },
     {
      "key": "activeSelections",
      "bytes": 21,
-     "share": 0.05,
+     "share": 0.04,
      "count": 0
     },
     {
@@ -536,7 +560,7 @@
     {
      "key": "journalTotal",
      "bytes": 16,
-     "share": 0.04
+     "share": 0.03
     },
     {
      "key": "bookmarks",
@@ -547,25 +571,25 @@
     {
      "key": "filters",
      "bytes": 12,
-     "share": 0.03,
+     "share": 0.02,
      "count": 0
     },
     {
      "key": "sources",
      "bytes": 12,
-     "share": 0.03,
+     "share": 0.02,
      "count": 0
     },
     {
      "key": "journal",
      "bytes": 12,
-     "share": 0.03,
+     "share": 0.02,
      "count": 0
     },
     {
      "key": "layouts",
      "bytes": 12,
-     "share": 0.03,
+     "share": 0.02,
      "count": 0
     },
     {
@@ -695,8 +719,8 @@
     "strict": 3056,
     "shared": 1048,
     "verbs": 98,
-    "strictPct": 6.69,
-    "sharedPct": 2.29
+    "strictPct": 6.3,
+    "sharedPct": 2.16
    }
   },
   {
@@ -715,36 +739,42 @@
    "materializedEdges": 674,
    "tableColumns": 80,
    "declaredAnalyses": 12,
-   "whatsHereBytes": 190425,
+   "whatsHereBytes": 193254,
    "composition": [
     {
      "key": "links",
      "bytes": 100499,
-     "share": 52.78,
+     "share": 52,
      "count": 3
     },
     {
      "key": "views",
      "bytes": 77898,
-     "share": 40.91,
+     "share": 40.31,
      "count": 20
     },
     {
      "key": "columns",
      "bytes": 5781,
-     "share": 3.04,
+     "share": 2.99,
      "count": 1
+    },
+    {
+     "key": "parts",
+     "bytes": 2746,
+     "share": 1.42,
+     "count": 33
     },
     {
      "key": "offers",
      "bytes": 1343,
-     "share": 0.71,
+     "share": 0.69,
      "count": 35
     },
     {
      "key": "analyses",
      "bytes": 1182,
-     "share": 0.62,
+     "share": 0.61,
      "count": 12
     },
     {
@@ -756,7 +786,7 @@
     {
      "key": "encodings",
      "bytes": 1007,
-     "share": 0.53,
+     "share": 0.52,
      "count": 20
     },
     {
@@ -768,7 +798,7 @@
     {
      "key": "rules",
      "bytes": 279,
-     "share": 0.15,
+     "share": 0.14,
      "count": 1
     },
     {
@@ -788,6 +818,12 @@
      "bytes": 94,
      "share": 0.05,
      "count": 6
+    },
+    {
+     "key": "basis",
+     "bytes": 81,
+     "share": 0.04,
+     "count": 4
     },
     {
      "key": "paths",
@@ -1007,8 +1043,8 @@
     "strict": 14620,
     "shared": 2251,
     "verbs": 98,
-    "strictPct": 7.68,
-    "sharedPct": 1.18
+    "strictPct": 7.57,
+    "sharedPct": 1.16
    }
   }
  ],
@@ -1016,12 +1052,12 @@
   {
    "shape": "small",
    "act": "select (point value on a bar)",
-   "beforeBytes": 7007,
-   "afterBytes": 7274,
-   "topLevelStableBytes": 6510,
-   "topLevelStablePct": 92.91,
-   "deepStableBytes": 6778,
-   "deepStablePct": 96.73,
+   "beforeBytes": 9836,
+   "afterBytes": 10103,
+   "topLevelStableBytes": 9256,
+   "topLevelStablePct": 94.1,
+   "deepStableBytes": 9581,
+   "deepStablePct": 97.41,
    "changedKeys": [
     {
      "key": "analyses",
@@ -1032,6 +1068,11 @@
      "key": "time",
      "beforeBytes": 97,
      "afterBytes": 97
+    },
+    {
+     "key": "basis",
+     "beforeBytes": 81,
+     "afterBytes": 81
     },
     {
      "key": "paths",
@@ -1058,17 +1099,22 @@
      "beforeBytes": 12,
      "afterBytes": 74
     }
-   ]
+   ],
+   "sinceBytes": 2113,
+   "sincePct": 20.91,
+   "sinceServed": "delta",
+   "sinceOmitted": 26,
+   "partCount": 33
   },
   {
    "shape": "small",
    "act": "filter (interval on a scatter)",
-   "beforeBytes": 7007,
-   "afterBytes": 7272,
-   "topLevelStableBytes": 6510,
-   "topLevelStablePct": 92.91,
-   "deepStableBytes": 6778,
-   "deepStablePct": 96.73,
+   "beforeBytes": 9836,
+   "afterBytes": 10101,
+   "topLevelStableBytes": 9256,
+   "topLevelStablePct": 94.1,
+   "deepStableBytes": 9581,
+   "deepStablePct": 97.41,
    "changedKeys": [
     {
      "key": "analyses",
@@ -1079,6 +1125,11 @@
      "key": "time",
      "beforeBytes": 97,
      "afterBytes": 97
+    },
+    {
+     "key": "basis",
+     "beforeBytes": 81,
+     "afterBytes": 81
     },
     {
      "key": "paths",
@@ -1105,17 +1156,22 @@
      "beforeBytes": 12,
      "afterBytes": 73
     }
-   ]
+   ],
+   "sinceBytes": 2111,
+   "sincePct": 20.9,
+   "sinceServed": "delta",
+   "sinceOmitted": 26,
+   "partCount": 33
   },
   {
    "shape": "small",
    "act": "reencode (rebind one channel)",
-   "beforeBytes": 7007,
-   "afterBytes": 7137,
-   "topLevelStableBytes": 3985,
-   "topLevelStablePct": 56.87,
-   "deepStableBytes": 6776,
-   "deepStablePct": 96.7,
+   "beforeBytes": 9836,
+   "afterBytes": 9966,
+   "topLevelStableBytes": 6731,
+   "topLevelStablePct": 68.43,
+   "deepStableBytes": 9579,
+   "deepStablePct": 97.39,
    "changedKeys": [
     {
      "key": "views",
@@ -1138,6 +1194,11 @@
      "afterBytes": 97
     },
     {
+     "key": "basis",
+     "beforeBytes": 81,
+     "afterBytes": 81
+    },
+    {
      "key": "paths",
      "beforeBytes": 79,
      "afterBytes": 200
@@ -1147,17 +1208,22 @@
      "beforeBytes": 19,
      "afterBytes": 19
     }
-   ]
+   ],
+   "sinceBytes": 3093,
+   "sincePct": 31.04,
+   "sinceServed": "delta",
+   "sinceOmitted": 27,
+   "partCount": 33
   },
   {
    "shape": "realistic",
    "act": "select (point value on a bar)",
-   "beforeBytes": 45704,
-   "afterBytes": 45967,
-   "topLevelStableBytes": 44821,
-   "topLevelStablePct": 98.07,
-   "deepStableBytes": 45374,
-   "deepStablePct": 99.28,
+   "beforeBytes": 48533,
+   "afterBytes": 48796,
+   "topLevelStableBytes": 47567,
+   "topLevelStablePct": 98.01,
+   "deepStableBytes": 48177,
+   "deepStablePct": 99.27,
    "changedKeys": [
     {
      "key": "analyses",
@@ -1168,6 +1234,11 @@
      "key": "time",
      "beforeBytes": 97,
      "afterBytes": 97
+    },
+    {
+     "key": "basis",
+     "beforeBytes": 81,
+     "afterBytes": 81
     },
     {
      "key": "paths",
@@ -1194,17 +1265,22 @@
      "beforeBytes": 12,
      "afterBytes": 74
     }
-   ]
+   ],
+   "sinceBytes": 2495,
+   "sincePct": 5.11,
+   "sinceServed": "delta",
+   "sinceOmitted": 26,
+   "partCount": 33
   },
   {
    "shape": "realistic",
    "act": "filter (interval on a scatter)",
-   "beforeBytes": 45704,
-   "afterBytes": 45965,
-   "topLevelStableBytes": 44821,
-   "topLevelStablePct": 98.07,
-   "deepStableBytes": 45374,
-   "deepStablePct": 99.28,
+   "beforeBytes": 48533,
+   "afterBytes": 48794,
+   "topLevelStableBytes": 47567,
+   "topLevelStablePct": 98.01,
+   "deepStableBytes": 48177,
+   "deepStablePct": 99.27,
    "changedKeys": [
     {
      "key": "analyses",
@@ -1215,6 +1291,11 @@
      "key": "time",
      "beforeBytes": 97,
      "afterBytes": 97
+    },
+    {
+     "key": "basis",
+     "beforeBytes": 81,
+     "afterBytes": 81
     },
     {
      "key": "paths",
@@ -1241,17 +1322,22 @@
      "beforeBytes": 12,
      "afterBytes": 73
     }
-   ]
+   ],
+   "sinceBytes": 2493,
+   "sincePct": 5.11,
+   "sinceServed": "delta",
+   "sinceOmitted": 26,
+   "partCount": 33
   },
   {
    "shape": "realistic",
    "act": "reencode (rebind one channel)",
-   "beforeBytes": 45704,
-   "afterBytes": 45825,
-   "topLevelStableBytes": 25248,
-   "topLevelStablePct": 55.24,
-   "deepStableBytes": 45485,
-   "deepStablePct": 99.52,
+   "beforeBytes": 48533,
+   "afterBytes": 48654,
+   "topLevelStableBytes": 27994,
+   "topLevelStablePct": 57.68,
+   "deepStableBytes": 48288,
+   "deepStablePct": 99.5,
    "changedKeys": [
     {
      "key": "views",
@@ -1274,6 +1360,11 @@
      "afterBytes": 97
     },
     {
+     "key": "basis",
+     "beforeBytes": 81,
+     "afterBytes": 81
+    },
+    {
      "key": "paths",
      "beforeBytes": 79,
      "afterBytes": 200
@@ -1283,17 +1374,22 @@
      "beforeBytes": 19,
      "afterBytes": 19
     }
-   ]
+   ],
+   "sinceBytes": 5059,
+   "sincePct": 10.4,
+   "sinceServed": "delta",
+   "sinceOmitted": 27,
+   "partCount": 33
   },
   {
    "shape": "large",
    "act": "select (point value on a bar)",
-   "beforeBytes": 190425,
-   "afterBytes": 190682,
-   "topLevelStableBytes": 188958,
-   "topLevelStablePct": 99.23,
-   "deepStableBytes": 189931,
-   "deepStablePct": 99.74,
+   "beforeBytes": 193254,
+   "afterBytes": 193511,
+   "topLevelStableBytes": 191704,
+   "topLevelStablePct": 99.2,
+   "deepStableBytes": 192734,
+   "deepStablePct": 99.73,
    "changedKeys": [
     {
      "key": "analyses",
@@ -1304,6 +1400,11 @@
      "key": "time",
      "beforeBytes": 97,
      "afterBytes": 97
+    },
+    {
+     "key": "basis",
+     "beforeBytes": 81,
+     "afterBytes": 81
     },
     {
      "key": "paths",
@@ -1330,17 +1431,22 @@
      "beforeBytes": 12,
      "afterBytes": 74
     }
-   ]
+   ],
+   "sinceBytes": 3073,
+   "sincePct": 1.59,
+   "sinceServed": "delta",
+   "sinceOmitted": 26,
+   "partCount": 33
   },
   {
    "shape": "large",
    "act": "filter (interval on a scatter)",
-   "beforeBytes": 190425,
-   "afterBytes": 190667,
-   "topLevelStableBytes": 188958,
-   "topLevelStablePct": 99.23,
-   "deepStableBytes": 189931,
-   "deepStablePct": 99.74,
+   "beforeBytes": 193254,
+   "afterBytes": 193496,
+   "topLevelStableBytes": 191704,
+   "topLevelStablePct": 99.2,
+   "deepStableBytes": 192734,
+   "deepStablePct": 99.73,
    "changedKeys": [
     {
      "key": "analyses",
@@ -1351,6 +1457,11 @@
      "key": "time",
      "beforeBytes": 97,
      "afterBytes": 97
+    },
+    {
+     "key": "basis",
+     "beforeBytes": 81,
+     "afterBytes": 81
     },
     {
      "key": "paths",
@@ -1377,17 +1488,22 @@
      "beforeBytes": 12,
      "afterBytes": 73
     }
-   ]
+   ],
+   "sinceBytes": 3058,
+   "sincePct": 1.58,
+   "sinceServed": "delta",
+   "sinceOmitted": 26,
+   "partCount": 33
   },
   {
    "shape": "large",
    "act": "reencode (rebind one channel)",
-   "beforeBytes": 190425,
-   "afterBytes": 190591,
-   "topLevelStableBytes": 110275,
-   "topLevelStablePct": 57.91,
-   "deepStableBytes": 189991,
-   "deepStablePct": 99.77,
+   "beforeBytes": 193254,
+   "afterBytes": 193420,
+   "topLevelStableBytes": 113021,
+   "topLevelStablePct": 58.48,
+   "deepStableBytes": 192794,
+   "deepStablePct": 99.76,
    "changedKeys": [
     {
      "key": "views",
@@ -1410,6 +1526,11 @@
      "afterBytes": 97
     },
     {
+     "key": "basis",
+     "beforeBytes": 81,
+     "afterBytes": 81
+    },
+    {
      "key": "paths",
      "beforeBytes": 79,
      "afterBytes": 200
@@ -1419,7 +1540,12 @@
      "beforeBytes": 19,
      "afterBytes": 19
     }
-   ]
+   ],
+   "sinceBytes": 8621,
+   "sincePct": 4.46,
+   "sinceServed": "delta",
+   "sinceOmitted": 27,
+   "partCount": 33
   }
  ],
  "tokens": {
