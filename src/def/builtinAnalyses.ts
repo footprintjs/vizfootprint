@@ -23,7 +23,9 @@
 import {
   clusteringAnalysis,
   correlationAnalysis,
+  formulaAnalysis,
   groupByAnalysis,
+  parseFormula,
   regressionAnalysis,
   type AnalysisModule,
   type AnalysisOutput,
@@ -31,7 +33,7 @@ import {
 } from '../analysis/index.js';
 
 /** The builtin analyses a def may name. */
-export const BUILTIN_ANALYSES = ['groupBy', 'correlation', 'regression', 'clustering'] as const;
+export const BUILTIN_ANALYSES = ['groupBy', 'correlation', 'regression', 'clustering', 'formula'] as const;
 export type BuiltinAnalysisName = (typeof BUILTIN_ANALYSES)[number];
 
 /** A group-by summary as a new queryable table (`groupByAnalysis`). */
@@ -92,8 +94,32 @@ export interface ClusteringDecl {
   readonly id?: string;
 }
 
+/**
+ * An arithmetic expression over this table's number columns, as a new column
+ * (`formulaAnalysis`).
+ *
+ * The only builtin whose whole content is a sentence a PERSON typed, which is
+ * why `expression` is judged twice and both times before anything moves: the
+ * grammar judges it here, at declaration (a token outside the grammar is a
+ * sentence naming it and its position), and the session judges the columns it
+ * names against the table it will read. See `../analysis/README.md`.
+ */
+export interface FormulaDecl {
+  readonly builtin: 'formula';
+  /** `cases / population * 1000` — arithmetic, column names, and abs/log/max/min/round. Nothing else. */
+  readonly expression: string;
+  /** The column it writes. */
+  readonly name: string;
+  /** The table the column is written into. Default `data`. */
+  readonly table?: string;
+  /** What the column is declared as — `int` or `float`. Default `float`. */
+  readonly type?: 'int' | 'float';
+  /** Default `formula:<name>`. */
+  readonly id?: string;
+}
+
 /** An analysis named as data — the third form of {@link import('./types.js').AnalysisSlot}. */
-export type BuiltinAnalysisDecl = GroupByDecl | CorrelationDecl | RegressionDecl | ClusteringDecl;
+export type BuiltinAnalysisDecl = GroupByDecl | CorrelationDecl | RegressionDecl | ClusteringDecl | FormulaDecl;
 
 /** Thrown when a builtin record is malformed. Carries every problem at once. */
 export class BuiltinAnalysisError extends Error {
@@ -105,12 +131,22 @@ export class BuiltinAnalysisError extends Error {
   }
 }
 
-/** What an option must be. Three kinds is all four builtins need. */
-type OptionType = 'string' | 'count' | 'whole';
+/** What an option must be. Four kinds is all five builtins need. */
+type OptionType = 'string' | 'count' | 'whole' | 'columnType';
+
+/** The values a `columnType` option may take — the columns channel's own vocabulary, narrowed to what arithmetic produces. */
+const COLUMN_TYPES = new Set(['int', 'float']);
 
 interface BuiltinSpec {
   readonly required: Readonly<Record<string, OptionType>>;
   readonly optional: Readonly<Record<string, OptionType>>;
+  /**
+   * Anything about this builtin the type table cannot say. One builtin has
+   * such a thing: a formula's `expression` must PARSE, and refusing it here —
+   * with the same sentence the grammar would give — is what keeps a mistyped
+   * formula a sentence rather than a throw from a factory.
+   */
+  readonly judge?: (decl: Record<string, unknown>, where: string, problems: string[]) => void;
 }
 
 /**
@@ -123,6 +159,18 @@ const SPECS: Readonly<Record<BuiltinAnalysisName, BuiltinSpec>> = Object.freeze(
   correlation: { required: { x: 'string', y: 'string' }, optional: { id: 'string', branchId: 'string' } },
   regression: { required: { x: 'string', y: 'string' }, optional: { layer: 'string', minPoints: 'count', id: 'string' } },
   clustering: { required: { column: 'string', k: 'whole' }, optional: { table: 'string', outColumn: 'string', id: 'string' } },
+  formula: {
+    required: { expression: 'string', name: 'string' },
+    optional: { table: 'string', type: 'columnType', id: 'string' },
+    judge: (decl, where, problems) => {
+      // Only when it IS a string: a missing or empty `expression` is already a
+      // sentence from the table above, and a second one about the same field
+      // would be noise.
+      if (typeof decl['expression'] !== 'string' || decl['expression'].length === 0) return;
+      const parsed = parseFormula(decl['expression']);
+      if (!parsed.ok) problems.push(`${where}.expression is not a formula: ${parsed.problem}`);
+    },
+  },
 });
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -137,6 +185,8 @@ function holds(value: unknown, type: OptionType): boolean {
       return typeof value === 'number' && Number.isFinite(value) && value >= 0;
     case 'whole':
       return typeof value === 'number' && Number.isInteger(value) && value >= 1;
+    case 'columnType':
+      return typeof value === 'string' && COLUMN_TYPES.has(value);
   }
 }
 
@@ -148,6 +198,8 @@ function mustBe(type: OptionType): string {
       return 'must be a non-negative finite number';
     case 'whole':
       return 'must be a whole number of at least 1';
+    case 'columnType':
+      return 'must be "int" or "float"';
   }
 }
 
@@ -203,6 +255,7 @@ export function validateBuiltinAnalysis(decl: unknown, where: string, problems: 
   for (const [key, type] of Object.entries(spec.optional)) {
     if (decl[key] !== undefined && !holds(decl[key], type)) problems.push(`${where}.${key}, if present, ${mustBe(type)}`);
   }
+  spec.judge?.(decl, where, problems);
 }
 
 /**
@@ -226,5 +279,7 @@ export function buildBuiltinAnalysis(decl: BuiltinAnalysisDecl): AnalysisModule<
       return regressionAnalysis(optionsOf(decl));
     case 'clustering':
       return clusteringAnalysis(optionsOf(decl));
+    case 'formula':
+      return formulaAnalysis(optionsOf(decl));
   }
 }

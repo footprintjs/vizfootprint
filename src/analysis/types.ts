@@ -16,6 +16,7 @@
  */
 
 import type { RuntimeSnapshot } from 'footprintjs';
+import type { ColumnInfo } from '../data/types.js';
 import type { HypothesisRecord } from '../fdr/index.js';
 
 /** `'test'` arms L4's online-FDR stepper (R6/R7); `'transform'` is FDR-exempt. */
@@ -138,6 +139,25 @@ export interface AnalysisDef<I = unknown, O extends AnalysisOutput = AnalysisOut
   readOutput(ctx: ReadContext<I>): AnalysisResult<O>;
   /** Pre-run honesty gate (R14): short-circuits BEFORE the chart runs on degenerate input. */
   precheck?(input: I): DegenerateResult | undefined;
+  /**
+   * Judge this analysis against the TABLE it is about to read, before a row
+   * moves — one sentence per problem, an empty list for "nothing to say", and
+   * never a throw.
+   *
+   * `precheck` is the other pre-run gate and answers a different question: it
+   * sees the ROWS and reports a degenerate FIT (R14 honesty), which lands
+   * nothing and says nothing beyond the flag. This one sees only the table's
+   * COLUMNS — their names and the types the engine settled on — and reports
+   * that the analysis was declared over something this table does not have. A
+   * refusal, in words, before the act exists; the session files it as an
+   * ordinary `guard-failed` gap and lands no commit.
+   *
+   * Optional, and almost every analysis wants nothing here: an analysis a
+   * developer wrote names its columns in TypeScript and is judged when the
+   * dashboard is built. The one that needs it is the one whose read-set was
+   * typed in by a person (`formulaAnalysis`).
+   */
+  judgeTable?(table: string, columns: readonly ColumnInfo[]): readonly string[];
   /** Required iff kind==='test' (validated): statistic + caller-supplied p-value (R6). */
   readonly test?: TestDecl<I>;
   /** Optional honesty declaration (R14). */

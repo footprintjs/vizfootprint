@@ -43,6 +43,8 @@ export * from './notes/index.js';
 // `./sheet/index.js` for a host that builds its own renderer over the port.
 export { Sheet } from './sheet/Sheet.js';
 export type { SheetProps } from './sheet/Sheet.js';
+export { AddColumn } from './sheet/AddColumn.js';
+export type { AddColumnOutcome, AddColumnProps } from './sheet/AddColumn.js';
 export { sessionSheetData } from './sheet/sessionSheetData.js';
 export type { SessionSheetOptions, SheetSessionLike } from './sheet/sessionSheetData.js';
 export { httpSheetData } from './sheet/httpSheetData.js';

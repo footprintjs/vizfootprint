@@ -35,13 +35,13 @@ describe('the builtin analysis record — what it refuses', () => {
 
   it('refuses a record whose `builtin` is not a name', () => {
     expect(problemsOf({ builtin: 7 })).toEqual([
-      'analyses["a"].builtin must name a builtin analysis — one of groupBy | correlation | regression | clustering',
+      'analyses["a"].builtin must name a builtin analysis — one of groupBy | correlation | regression | clustering | formula',
     ]);
   });
 
   it('refuses an unknown builtin name, and says which names there are', () => {
     expect(problemsOf({ builtin: 'kmeans', column: 'cases' })).toEqual([
-      'analyses["a"].builtin "kmeans" is not a builtin analysis — one of groupBy | correlation | regression | clustering',
+      'analyses["a"].builtin "kmeans" is not a builtin analysis — one of groupBy | correlation | regression | clustering | formula',
     ]);
   });
 
@@ -83,11 +83,29 @@ describe('the builtin analysis record — what it refuses', () => {
   });
 
   it('accepts every builtin at its plainest', () => {
-    expect(BUILTIN_ANALYSES).toEqual(['groupBy', 'correlation', 'regression', 'clustering']);
+    expect(BUILTIN_ANALYSES).toEqual(['groupBy', 'correlation', 'regression', 'clustering', 'formula']);
     expect(problemsOf({ builtin: 'groupBy', by: 'disease', measure: 'cases' })).toEqual([]);
     expect(problemsOf({ builtin: 'correlation', x: 'cases', y: 'ytd' })).toEqual([]);
     expect(problemsOf({ builtin: 'regression', x: 'cases', y: 'ytd' })).toEqual([]);
     expect(problemsOf({ builtin: 'clustering', column: 'cases', k: 4 })).toEqual([]);
+    expect(problemsOf({ builtin: 'formula', expression: 'cases / 1000', name: 'rate' })).toEqual([]);
+  });
+
+  it('refuses a formula the grammar has no rule for, in the grammar\'s own sentence', () => {
+    expect(problemsOf({ builtin: 'formula', expression: 'cases % 2', name: 'rate' })).toEqual([
+      'analyses["a"].expression is not a formula: the formula has no rule for "%" at position 7',
+    ]);
+    // a MISSING expression is one sentence, not two: the grammar is not asked about a field that is not there
+    expect(problemsOf({ builtin: 'formula', name: 'rate' })).toEqual([
+      'analyses["a"].expression must be a non-empty string (the "formula" analysis needs it)',
+    ]);
+    expect(problemsOf({ builtin: 'formula', expression: 'cases', name: '' })).toEqual([
+      'analyses["a"].name must be a non-empty string (the "formula" analysis needs it)',
+    ]);
+    expect(problemsOf({ builtin: 'formula', expression: 'cases', name: 'rate', type: 'number' })).toEqual([
+      'analyses["a"].type, if present, must be "int" or "float"',
+    ]);
+    expect(problemsOf({ builtin: 'formula', expression: 'cases', name: 'rate', type: 'int', table: 'other', id: 'f' })).toEqual([]);
   });
 });
 

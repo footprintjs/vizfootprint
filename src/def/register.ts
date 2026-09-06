@@ -12,7 +12,7 @@
  */
 
 import { defineAnalysis, type AnalysisOutput } from '../analysis/index.js';
-import { buildBuiltinAnalysis, isBuiltinRecord } from './builtinAnalyses.js';
+import { buildBuiltinAnalysis, isBuiltinRecord, type BuiltinAnalysisDecl } from './builtinAnalyses.js';
 import type { AnalysisSlot, RegisteredAnalysis } from './types.js';
 
 function isAnalysisModule(slot: AnalysisSlot): slot is Extract<AnalysisSlot, { run: unknown }> {
@@ -36,16 +36,24 @@ export function registerAnalysisSlot(id: string, slot: AnalysisSlot): Registered
   // factory spelling (`groupby:disease:cases`) leaking into provenance would be
   // an implementation detail wearing a person's name badge. An explicit `id` on
   // a record still wins; modules are untouched.
+  //
+  // A RECORD is kept beside the module it built, because a record is DATA and a
+  // module is not: an act declared from one can carry its own declaration onto
+  // the trace, and a replay can then rebuild it from bytes alone (law 6). The
+  // record kept is the one that was actually built — id injected — so what
+  // replays is what ran, not what was typed.
+  const record = isAnalysisModule(slot) || !isBuiltinRecord(slot) ? undefined : ({ ...slot, id: slot.id ?? id } as BuiltinAnalysisDecl);
   const mod = isAnalysisModule(slot)
     ? slot
-    : isBuiltinRecord(slot)
-      ? buildBuiltinAnalysis({ ...slot, id: slot.id ?? id })
+    : record !== undefined
+      ? buildBuiltinAnalysis(record)
       : defineAnalysis(slot as Parameters<typeof defineAnalysis>[0]);
   return {
     id,
     kind: mod.kind,
     def: mod.def as RegisteredAnalysis['def'],
     run: (input, opts) => mod.run(input as never, opts),
+    ...(record !== undefined ? { record } : {}),
   };
 }
 

@@ -144,6 +144,43 @@ describe('the data workbook', () => {
     const body = await openReport('Data');
     expect(body.textContent).toContain('books');
   });
+
+  it('offers a column over the NUMBER columns the session knows, and lands one as an act', async () => {
+    const { view, session } = openLibrary();
+    await view.refresh();
+    const { container } = render(<DataPanel data={{ table: 'books', sheet: sheet as never }} state={view.getState()} view={view} readOnly={false} />);
+
+    // the offer is the session's schema, projected — `shelf` and `binding` are text and are not on it
+    expect(container.querySelector('[data-vzf="add-column-columns"]')?.textContent).toBe('the numbers it may read: year, pages');
+
+    fireEvent.change(container.querySelector('.vzf-addcol-name') as HTMLInputElement, { target: { value: 'per_year' } });
+    fireEvent.change(container.querySelector('.vzf-addcol-formula') as HTMLInputElement, { target: { value: 'pages / 10' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add this column' }));
+
+    await waitFor(() => expect((container.querySelector('.vzf-addcol-said') as HTMLElement).textContent).toBe('per_year is on the sheet'));
+    // an ACT: a commit with a cause, on the analysis's own view id
+    const commit = session.log.records.at(-1)!;
+    expect(commit.viewId).toBe('analysis:per_year');
+    expect(commit.cause.intent).toBe('add column per_year = pages / 10');
+    const rows = await session.viewQuery({ columns: ['id', 'per_year'], limit: 10 });
+    expect(rows.ok && rows.rows.map((r) => r['per_year'])).toEqual([12, 9.6, 40, 21]);
+  });
+
+  it('shows the SESSION’s refusal and lands nothing', async () => {
+    const { view, session } = openLibrary();
+    await view.refresh();
+    const { container } = render(<DataPanel data={{ table: 'books', sheet: sheet as never }} state={view.getState()} view={view} readOnly={false} />);
+    fireEvent.change(container.querySelector('.vzf-addcol-name') as HTMLInputElement, { target: { value: 'odd' } });
+    fireEvent.change(container.querySelector('.vzf-addcol-formula') as HTMLInputElement, { target: { value: 'pages / shelf' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add this column' }));
+
+    await waitFor(() =>
+      expect((container.querySelector('.vzf-addcol-said') as HTMLElement).textContent).toBe(
+        'the formula "pages / shelf" reads "shelf", which table "books" holds as string — a formula reads numbers',
+      ),
+    );
+    expect(session.log.records).toHaveLength(0);
+  });
 });
 
 describe('the story tab', () => {

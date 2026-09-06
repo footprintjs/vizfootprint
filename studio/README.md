@@ -276,8 +276,9 @@ import { Make } from 'vizfootprint-studio/make';
    demoted silently: a column with no role stops the step, by name.
 3. **Visualize** — a chart kind and a column per channel, with `whatFits`
    greying what does not fit and printing the plane's own sentence for why.
-   Optionally one of the four builtin analyses, declared as a record; anything
-   beyond them is a developer's, and the step says so.
+   Optionally one of the five builtin analyses, declared as a record — including
+   a `formula`, an arithmetic expression over the number columns that becomes a
+   new one; anything beyond them is a developer's, and the step says so.
 4. **Open, and publish** — `parseDashboardDef` → `buildDashboard` → this
    package's own `Desk`. Publishing hands over ONE HTML file that opens with no
    server, carrying the log, the bookmarks, the pictures and — because a made

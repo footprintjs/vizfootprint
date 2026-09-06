@@ -52,6 +52,7 @@ const DEF_KEYS = new Set([
   'toRunInput',
   'readOutput',
   'precheck',
+  'judgeTable',
   'test',
   'honesty',
 ]);
@@ -107,6 +108,7 @@ export function validateAnalysisDef(def: unknown): string[] {
   if (!isFn(d.toRunInput)) problems.push('toRunInput must be a function');
   if (!isFn(d.readOutput)) problems.push('readOutput must be a function');
   if (d.precheck !== undefined && !isFn(d.precheck)) problems.push('precheck, if present, must be a function');
+  if (d.judgeTable !== undefined && !isFn(d.judgeTable)) problems.push('judgeTable, if present, must be a function');
 
   // R6: a declared test MUST carry its statistic + a caller-supplied p-value.
   if (d.kind === 'test') {

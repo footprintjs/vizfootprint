@@ -94,11 +94,17 @@ measured at (comfortable at ninety thousand rows, past the fifty-millisecond
 line at a million); `ceilingVerdict(rows)` places the file against it. It is a
 statement and never a refusal: the person's file is the person's.
 
-**Custom analyses are a developer's, and the wizard says so.** The four builtins
+**Custom analyses are a developer's, and the wizard says so.** The five builtins
 are the ones a definition can NAME, because the record form (`{ builtin,
 ...options }`) is data. Anything else is a function with a `run()`, written in
 TypeScript and passed to the build, and no wizard can write one for you — which
 is printed on the step rather than left to be discovered.
+
+`formula` is the one whose options are WORDS rather than a pick: an expression
+the person writes and the name of the column it becomes, with the columns it may
+read listed beside it. The picker judges none of it — the library reads the
+expression and refuses a token it has no rule for by naming it and its position,
+and that sentence appears in the step's refusals like every other.
 
 **The page says what it carries.** A published file's front matter is measured
 off the file itself: what the data is, what it unpacks to, what the payload

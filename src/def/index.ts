@@ -11,7 +11,7 @@ export type { ParsedDashboardDef } from './validate.js';
 // An analysis named as DATA — the third form of `AnalysisSlot`, and the key
 // that makes a whole def JSON-serialisable. See ./README.md.
 export { BUILTIN_ANALYSES, BuiltinAnalysisError, isBuiltinRecord, validateBuiltinAnalysis, buildBuiltinAnalysis } from './builtinAnalyses.js';
-export type { BuiltinAnalysisDecl, BuiltinAnalysisName, GroupByDecl, CorrelationDecl, RegressionDecl, ClusteringDecl } from './builtinAnalyses.js';
+export type { BuiltinAnalysisDecl, BuiltinAnalysisName, GroupByDecl, CorrelationDecl, RegressionDecl, ClusteringDecl, FormulaDecl } from './builtinAnalyses.js';
 export {
   DISPATCH_VERBS,
   DEFAULT_INTENTS,

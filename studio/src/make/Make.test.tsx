@@ -185,7 +185,33 @@ describe('step 3 — visualize', () => {
     expect(screen.getByRole('button', { name: 'Dashboard menu' })).toBeTruthy();
   });
 
-  it('says plainly that anything beyond the four builtins is a developer\'s, and carries the one it is given', () => {
+  it('offers the formula, with its own words and the columns it may read, and carries it into the def', () => {
+    throughTheDeclarations();
+    type("the dashboard's summary", 'What each region sold.');
+    pick('Run an analysis', 'formula');
+    // the picker's other four ask a person to CHOOSE a column; this one asks them to write
+    expect(document.querySelector('[data-vzf="make-formula-columns"]')?.textContent).toContain('The columns it may read: region, quarter, sales, report_state.');
+    type('working out', 'sales / 10');
+    type('into a column called', 'tenths');
+    fireEvent.click(screen.getByRole('button', { name: /a bar —/ }));
+    pick('category of bar1', 'region');
+    next();
+    // it opened: the record was well formed, so the library built it
+    expect(screen.getByRole('button', { name: 'Dashboard menu' })).toBeTruthy();
+  });
+
+  it('refuses a formula the grammar has no rule for, in the library\'s own sentence', () => {
+    throughTheDeclarations();
+    pick('Run an analysis', 'formula');
+    type('working out', 'sales %');
+    type('into a column called', 'odd');
+    fireEvent.click(screen.getByRole('button', { name: /a bar —/ }));
+    pick('category of bar1', 'region');
+    next();
+    expect(refusals().join('\n')).toContain('the formula has no rule for "%" at position 7');
+  });
+
+  it('says plainly that anything beyond the five builtins is a developer\'s, and carries the one it is given', () => {
     throughTheCharts();
     // the desk opened, so go back and add the analysis
     fireEvent.click(screen.getByRole('button', { name: 'Dashboard menu' }));

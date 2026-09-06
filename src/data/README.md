@@ -145,6 +145,19 @@ The cost, measured on the real provider rather than estimated (100k rows, ten ve
 
 So on a 100k-row table, re-running one int-producing analysis ten times costs about **9 MB**, and the registry itself is four small strings per version. That is the price of being able to seek to any of those ten moments and read what it actually held. At a row count where it stops being the right trade — a million rows and a habit of re-running — the fix is a retention policy with a commit behind it (an act that drops versions and says so), not a silent collector; nothing here should start discarding evidence on its own.
 
+### The rows an analysis is handed are a COPY
+
+One paragraph, and it belongs here because it is the same law from the other side. A derived column is written INTO the store; the rows an analysis reads come OUT of it, and both directions are governed by [`../detach/README.md`](../detach/README.md): **a reader never holds the object the system is still using.**
+
+An analysis is a reader whose input does not stay in its hands. It goes on to footprintjs as a run input, and footprintjs COMMITS what it is given — which freezes it. So handing an analysis the provider's own row objects froze the table, and the next act that materialized a column into a row-layout store found the rows unextensible:
+
+```
+analysis "f" ran, but writing column "twice" back into table "data" threw:
+  Cannot add property twice@s2, object is not extensible
+```
+
+A group-by, then any analysis that writes a column, and the column was gone under an `effect-failed` gap. The copy is therefore taken at `resolveAnalysisInput` — **the one place rows leave the engine for an analysis** — and not inside the analysis that happened to expose it. A fix in `groupByAnalysis` would have made one analysis safe and left the door open for the next one somebody writes; here, every analysis is safe by construction, including one that does not exist yet, and none of them has to know. The copy is one fresh row object per row, shallow: the failure was a write to the row itself, and the CELLS stay borrowed values the analyses only read.
+
 ### What the port owes
 
 **Nothing new.** `DataProvider` is unchanged: `materializeColumn(table, name, values)` still lands one column under the name it is given. The versioning is entirely the session's business — it passes a name that happens to be unique per act — so the memory engine stayed dumb and the wasm and server stubs owe no new behaviour. That is deliberate: the port is the MAP's surface, and which columns belong to the trace is not something a query engine should have to know.

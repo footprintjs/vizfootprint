@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildDashboard, vizAsTools } from './index.js';
-import { makeDashboardDef } from '../session/dashboard.fixture.js';
+import { makeDashboardDef, SAMPLE_ROWS } from '../session/dashboard.fixture.js';
 import type { VizToolResult } from './index.js';
 
 function get(result: VizToolResult, key: string): unknown {
@@ -333,18 +333,43 @@ describe('viz.declare_analysis — the invalid-id guard and the intent pass-thro
 });
 
 describe('viz.declare_analysis — projectAnalysis omits absent commit/gap fields, includes present ones', () => {
-  it('a backend rejection (the wasm stub always rejects evaluate) lands a gap and NO commit key', async () => {
+  it('a backend rejection (the wasm stub always rejects evaluate) is REFUSED, with the gap as the sentence', async () => {
     const session = buildDashboard(makeDashboardDef({ engine: 'wasm' })).createSession();
     const port = vizAsTools(session);
     const res = await port.call('viz.declare_analysis', { analysisId: 'correlation' });
+    // Nothing landed — no commit, no fold moved — so the answer says so. An `ok`
+    // here would tell the agent the opposite of the truth (session README, law 1).
+    expect(get(res, 'ok')).toBe(false);
+    expect(get(res, 'gap')).toMatchObject({ code: 'needs-backend-data', op: 'declareAnalysis' });
+    // and it is on the ledger exactly once, filed where the refusal happened
+    expect(session.gaps().at(-1)).toMatchObject({ code: 'needs-backend-data', op: 'declareAnalysis' });
+  });
+
+  it('a DEGENERATE fit lands nothing and files nothing — no commit key, no gap key', async () => {
+    // three rows is under the regression's honesty floor: the pre-run gate
+    // short-circuits, so there is no commit and nothing to file either
+    const session = buildDashboard(makeDashboardDef({ rows: SAMPLE_ROWS.slice(0, 3) })).createSession();
+    const res = await vizAsTools(session).call('viz.declare_analysis', { analysisId: 'regression' });
     expect(get(res, 'ok')).toBe(true);
     const analysis = get(res, 'analysis') as VizToolResult;
-    // R14: a backend-rejected input degrades to an honest degenerate flag, never a fabricated result.
-    expect(get(analysis, 'result')).toEqual({ ok: false, reason: 'degenerate-fit', n: 0, fitDegenerate: true });
-    // The rejection is filed as a typed gap (never silently dropped) — projected on the result.
-    expect(get(analysis, 'gap')).toMatchObject({ code: 'needs-backend-data', op: 'declareAnalysis' });
-    // No commit ever landed for a backend-rejected input — the key itself is absent, not null.
+    expect(get(analysis, 'result')).toEqual({ ok: false, reason: 'degenerate-fit', n: 3, fitDegenerate: true });
     expect('commit' in analysis).toBe(false);
+    expect('gap' in analysis).toBe(false);
+  });
+
+  it('an analysis that RAN and could not write its column carries BOTH the commit and the gap', async () => {
+    // the source-column law: the act happened, the write did not
+    const base = makeDashboardDef();
+    const session = buildDashboard({
+      ...base,
+      analyses: { ...base.analyses, overPrice: { builtin: 'formula', expression: 'price * 2', name: 'price' } },
+    }).createSession();
+    const res = await vizAsTools(session).call('viz.declare_analysis', { analysisId: 'overPrice' });
+    expect(get(res, 'ok')).toBe(true);
+    const analysis = get(res, 'analysis') as VizToolResult;
+    expect('commit' in analysis).toBe(true);
+    expect(get(analysis, 'materialized')).toEqual([]);
+    expect(get(analysis, 'gap')).toMatchObject({ code: 'guard-failed', target: 'price' });
   });
 });
 

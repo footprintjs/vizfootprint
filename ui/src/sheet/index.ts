@@ -7,6 +7,8 @@
  */
 export { Sheet, canvasMetrics, cellText, nextSort, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_BORDERS, SHEET_CANVAS_MAX, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './Sheet.js';
 export type { SheetMetrics, SheetProps } from './Sheet.js';
+export { AddColumn, ADD_COLUMN_HINT, ADD_COLUMN_NO_NUMBERS, ADD_COLUMN_PRESENTING } from './AddColumn.js';
+export type { AddColumnOutcome, AddColumnProps } from './AddColumn.js';
 export { sessionSheetData, threwSentence } from './sessionSheetData.js';
 export type { SessionSheetOptions, SheetSessionLike } from './sessionSheetData.js';
 export { httpSheetData, isViewQueryResult, windowQuery } from './httpSheetData.js';

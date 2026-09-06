@@ -663,10 +663,27 @@ class InteractionSessionImpl implements InteractionSession {
    * the opposite: it would land real numbers under real provenance and look
    * exactly like a correct answer.
    */
-  private actToReperform(record: CommitRecord): { readonly table: string } | { readonly unperformable: string } | undefined {
+  private actToReperform(record: CommitRecord): { readonly table: string; readonly module?: RegisteredAnalysis } | { readonly unperformable: string } | undefined {
     if (!record.viewId.startsWith(ANALYSIS_VIEW_PREFIX)) return undefined;
     const analysisId = record.viewId.slice(ANALYSIS_VIEW_PREFIX.length);
-    const analysis = this.analysis(analysisId);
+    const carried = analysisActOf(record.value)?.def;
+    // AN ACT MAY BRING ITS OWN DECLARATION. A builtin record is data, so it
+    // rides on the commit and the analysis can be rebuilt from the log alone —
+    // which is what makes a formula somebody typed into the desk, or a whole
+    // dashboard a person made in the wizard, replayable with nothing registered
+    // on this session first. Built here, in the judge, and REGISTERED only in
+    // the apply phase: `registerAnalysisSlot` returns a value and touches
+    // nothing, so a record that cannot be built refuses the replay with the
+    // library's own sentence and the session exactly as it was.
+    let module: RegisteredAnalysis | undefined;
+    if (carried !== undefined) {
+      try {
+        module = registerAnalysisSlot(analysisId, carried);
+      } catch (error) {
+        return { unperformable: `analysis "${analysisId}" carries a declaration this library cannot build: ${messageOf(error)}` };
+      }
+    }
+    const analysis = module ?? this.analysis(analysisId);
     if (analysis === undefined || analysis.def.produces !== 'columns') return undefined;
     const act = analysisActOf(record.value);
     if (act === undefined) {
@@ -679,7 +696,7 @@ class InteractionSessionImpl implements InteractionSession {
     if (!this.runtime.tables.includes(act.table)) {
       return { unperformable: `analysis "${analysisId}" read table "${act.table}", which this dashboard does not declare — the tables are ${this.runtime.tables.join(', ')}` };
     }
-    return { table: act.table };
+    return { table: act.table, ...(module !== undefined ? { module } : {}) };
   }
 
   async replay(log: readonly CommitRecord[] | string): Promise<ReplayResult> {
@@ -720,6 +737,8 @@ class InteractionSessionImpl implements InteractionSession {
     const scratch = new CauseSelectionSession();
     /** commit id → the table its act read, for exactly the acts this replay must re-perform. */
     const acts = new Map<string, string>();
+    /** analysis id → the module its own commit declared, for the acts that brought one. */
+    const declared = new Map<string, RegisteredAnalysis>();
     for (const [index, rec] of records.entries()) {
       const input = inputs[index]!;
       try {
@@ -737,6 +756,10 @@ class InteractionSessionImpl implements InteractionSession {
         return this.replayRefusal(`commit #${index} "${rec.id}" cannot be re-performed: ${act.unperformable}`);
       }
       acts.set(rec.id, act.table);
+      // A later act declaring the same id supersedes an earlier one, exactly as
+      // a re-registration does on a walk — the log is read in order, so the
+      // last word is the last word here too.
+      if (act.module !== undefined) declared.set(act.module.id, act.module);
     }
     const gapsBefore = this.gapLedger.size;
 
@@ -757,6 +780,12 @@ class InteractionSessionImpl implements InteractionSession {
     } finally {
       this.log.stampData = stamp;
     }
+    // Every analysis a record declared FOR ITSELF, registered before anything is
+    // re-performed — assignment only, over modules the judge already built. A
+    // log holding record-declared analyses therefore needs nothing registered
+    // on this session first; one holding module-declared ones still does, and
+    // says so in the gap below.
+    for (const [analysisId, module] of declared) this.localAnalyses.set(analysisId, module);
     // Where `landed` left both pointers — the same place a walk of these acts
     // would have ended, and where the fold is rebuilt once the acts below have
     // been re-performed at their own positions.
@@ -1855,14 +1884,39 @@ class InteractionSessionImpl implements InteractionSession {
     return isRejection(res) ? null : res.count;
   }
 
-  /** Resolve a declared analysis's input rows, surfacing a backend rejection (R14). */
+  /**
+   * Resolve a declared analysis's input rows, surfacing a backend rejection
+   * (R14) — and DETACHING them, which is the part that matters.
+   *
+   * This is the one place rows leave the engine for an analysis, so it is the
+   * one place the detach law (`../detach/README.md`) has to be kept: **a reader
+   * never holds the object the system is still using.** An analysis is a
+   * reader, and the object it is handed does not stay in its hands — it goes to
+   * footprintjs as a run input, and footprintjs COMMITS what it is given, which
+   * freezes it. Handing over the provider's own row objects therefore froze the
+   * table, and the next analysis to materialize a column into a row-layout
+   * store found the rows unextensible:
+   *
+   *     analysis "f" ran, but writing column "twice" back into table "data"
+   *     threw: Cannot add property twice@s2, object is not extensible
+   *
+   * The copy is here rather than in any one analysis, because a fix inside
+   * `groupByAnalysis` would make that analysis safe and leave the door open for
+   * the next one somebody writes. Every analysis is safe by construction now —
+   * including one that does not exist yet — and none of them has to know.
+   *
+   * One row object per row, shallow: the failure was a write to the row itself,
+   * and the CELLS are borrowed values the analyses only read (the reads-are-
+   * borrowed-references rule, unchanged).
+   */
   private async resolveAnalysisInput(
     producesColumns: boolean,
     table: string,
   ): Promise<readonly Row[] | { rejected: string }> {
     // Columns-channel analyses run over the FULL table (materialized values must
     // align to the row order); every other channel runs over the selection — one query either way.
-    return this.allRows(table, producesColumns ? [] : [...this.activeFilters.values()]);
+    const rows = await this.allRows(table, producesColumns ? [] : [...this.activeFilters.values()]);
+    return 'rejected' in rows ? rows : rows.map((row) => ({ ...row }));
   }
 
   // ── capability resolution (R14 / R3) ─────────────────────────────────────────
@@ -1992,7 +2046,7 @@ class InteractionSessionImpl implements InteractionSession {
       case 'navigate':
         return this.doNavigate(action.viewId, action.field, action.value, action.cause, as, intent, action.correlationId);
       case 'analyze':
-        return this.doAnalyze(action.analysisId, action.input, action.cause, as, intent, action.correlationId);
+        return this.doAnalyze(action, as, intent);
       case 'fork':
         return this.doFork(action.fromCommitId, intent);
       case 'bookmark':
@@ -2726,22 +2780,41 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   private async doAnalyze(
-    analysisId: string,
-    input: readonly Row[] | undefined,
-    cause: Cause,
+    action: Extract<DispatchAction, { verb: 'analyze' }>,
     as: Actor | undefined,
     intent: DispatchResult['intent'],
-    correlationId: string | undefined,
   ): Promise<DispatchResult> {
+    const { analysisId, input, def, table, cause, correlationId } = action;
+    // An act may bring its own declaration — `declareAnalysis(id, def)` as a
+    // dispatch, which is what lets a person add a formula column from a screen.
+    // Registering is the FIRST thing and it is all-or-nothing: the map is
+    // written only once the slot has been built and judged, so a malformed
+    // record leaves this session exactly as it was and reads as a sentence.
+    if (def !== undefined) {
+      try {
+        this.registerAnalysis(analysisId, def);
+      } catch (error) {
+        return this.reject('analyze', intent, this.gapLedger.file('guard-failed', 'analyze', `analysis "${analysisId}" could not be declared: ${messageOf(error)}`, analysisId));
+      }
+    }
     if (!this.hasAnalysis(analysisId)) {
       return this.reject('analyze', intent, this.gapLedger.file('needs-analysis-kind', 'analyze', `no declared analysis "${analysisId}"`, analysisId));
     }
     const analysis = await this.declareAnalysis(analysisId, {
       ...(input !== undefined ? { input } : {}),
+      ...(def !== undefined ? { def } : {}),
+      ...(table !== undefined ? { table } : {}),
       cause,
       ...(as !== undefined ? { as } : {}),
       ...(correlationId !== undefined ? { correlationId } : {}),
     });
+    // An act that landed NO commit and filed a gap did not happen, and a
+    // dispatch that answered `ok` for it would tell the caller the opposite of
+    // the truth — the one thing law 1 is about. The gap is already on the
+    // ledger; this carries its sentence back out of the door the caller used.
+    if (analysis.commit === undefined && analysis.gap !== undefined) {
+      return this.reject('analyze', intent, analysis.gap);
+    }
     return { ok: true, verb: 'analyze', intent, analysis };
   }
 
@@ -2919,6 +2992,29 @@ class InteractionSessionImpl implements InteractionSession {
     if (!analysis) throw new Error(`vizfootprint: unknown analysis "${id}" — declare it in the def or pass { def }`);
 
     const table = opts.table ?? this.defaultTable;
+    /** Nothing happened, and here is the sentence — the shape every refusal below answers with. */
+    const refused = (gap: GapRow): AnalysisCommit => ({
+      analysisId: id,
+      kind: analysis.kind,
+      result: { ok: false, reason: 'degenerate-fit', n: 0, fitDegenerate: true },
+      gap,
+    });
+    // JUDGE FIRST (./README.md, law 1). An analysis that wants to be judged
+    // against the table it reads is asked here, before a row is touched and
+    // before a commit exists: the columns visible AT THE CURSOR, so a formula
+    // over a column an earlier act derived is judged against what that act
+    // actually left there (law 5). Almost every analysis declines this hook
+    // and pays nothing for it.
+    if (analysis.def.judgeTable) {
+      const columns = await this.effectiveColumnsOf(table);
+      if ('rejected' in columns) {
+        return refused(this.gapLedger.file('needs-backend-data', 'declareAnalysis', `analysis "${id}" could not be judged against table "${table}": ${columns.rejected}`, id));
+      }
+      const problems = analysis.def.judgeTable(table, columns);
+      if (problems.length > 0) {
+        return refused(this.gapLedger.file('guard-failed', 'declareAnalysis', problems.join('; '), id));
+      }
+    }
     // Resolve input (R11 / the demo's own split: columns-channel over the full
     // table, everything else over the selection). A backend rejection is filed
     // as a typed gap and short-circuits — never silently masked as empty (R14).
@@ -2927,15 +3023,7 @@ class InteractionSessionImpl implements InteractionSession {
       input = opts.input;
     } else {
       const resolved = await this.resolveAnalysisInput(analysis.def.produces === 'columns', table);
-      if ('rejected' in resolved) {
-        const gap = this.gapLedger.file('needs-backend-data', 'declareAnalysis', resolved.rejected, id);
-        return {
-          analysisId: id,
-          kind: analysis.kind,
-          result: { ok: false, reason: 'degenerate-fit', n: 0, fitDegenerate: true },
-          gap,
-        };
-      }
+      if ('rejected' in resolved) return refused(this.gapLedger.file('needs-backend-data', 'declareAnalysis', resolved.rejected, id));
       input = resolved;
     }
 
@@ -2965,11 +3053,16 @@ class InteractionSessionImpl implements InteractionSession {
     // Land ONE cause-tagged provenance commit for the invocation.
     const analysisViewId = `${ANALYSIS_VIEW_PREFIX}${id}`; // single-sourced wire prefix (BR-1)
     let landField = ANALYSIS_FIELD;
-    // THE ACT, in enough detail to perform it again: the id and the TABLE IT
-    // READ. The slot used to carry the id alone, which the `viewId` already
-    // said — so the one thing a re-performance actually needs was the one thing
-    // the record did not carry. See {@link AnalysisAct}.
-    let landValue: unknown = { id, table } satisfies AnalysisAct;
+    // THE ACT, in enough detail to perform it again: the id, the TABLE IT READ,
+    // and — when the analysis is one that CAN be written down — its own
+    // declaration. The slot used to carry the id alone, which the `viewId`
+    // already said; then the table, without which a replay had to guess which
+    // rows an act ran over. The declaration is the last piece: an analysis
+    // built from a builtin record is data all the way down, so a log holding
+    // one is enough to perform it again with nothing registered first. A module
+    // carries none, because a function cannot ride. See {@link AnalysisAct}.
+    const declaration = analysis.record !== undefined ? { def: analysis.record } : {};
+    let landValue: unknown = { id, table, ...declaration } satisfies AnalysisAct;
     if (analysis.kind === 'test' && hypothesis) {
       // The L1-native test emission: a point commit on the reserved 'pValue'
       // field (fromLog re-derives it; R6 holds — brushes never land here). The
@@ -2977,7 +3070,7 @@ class InteractionSessionImpl implements InteractionSession {
       // to be the bare number, which named neither the analysis nor the table
       // it read — so a test that ALSO writes columns could not be replayed.
       landField = TEST_ANALOG_FIELD;
-      landValue = { id, table, pValue: hypothesis.pValue } satisfies TestAct;
+      landValue = { id, table, ...declaration, pValue: hypothesis.pValue } satisfies TestAct;
     }
     const { record } = this.log.commit({
       id: this.nextId(),

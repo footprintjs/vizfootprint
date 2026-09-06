@@ -207,7 +207,23 @@ export type DispatchAction =
    *     through seek / switchPath / fork (time-travel restores the layout).
    */
   | { readonly verb: 'navigate'; readonly viewId: string; readonly field?: string; readonly value?: string; readonly cause: Cause; readonly correlationId?: string }
-  | { readonly verb: 'analyze'; readonly analysisId: string; readonly input?: readonly Record<string, unknown>[]; readonly cause: Cause; readonly correlationId?: string }
+  | {
+      readonly verb: 'analyze';
+      readonly analysisId: string;
+      readonly input?: readonly Record<string, unknown>[];
+      /**
+       * Declare the analysis as part of the act, under `analysisId` — the
+       * `declareAnalysis(id, def)` door as a dispatch. A record naming a
+       * builtin is DATA, which is what lets a person add a formula column from
+       * a screen without anybody writing TypeScript; a malformed one is
+       * refused in the library's own sentence and lands nothing.
+       */
+      readonly def?: import('../def/types.js').AnalysisSlot;
+      /** Which table to read / write into. Default: the session default table. */
+      readonly table?: string;
+      readonly cause: Cause;
+      readonly correlationId?: string;
+    }
   | { readonly verb: 'fork'; readonly fromCommitId: string; readonly cause: Cause }
   | { readonly verb: 'bookmark'; readonly label: string; readonly cause: Cause }
   /**

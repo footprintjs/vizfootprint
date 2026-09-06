@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import { flowChart } from 'footprintjs';
 import { buildDashboard, buildDashboardAsync } from '../def/index.js';
-import { clusteringAnalysis, defineAnalysis } from '../analysis/index.js';
+import { clusteringAnalysis, defineAnalysis, groupByAnalysis } from '../analysis/index.js';
 import type { AnalysisModule, ColumnsOutput, DataRow } from '../analysis/index.js';
 import { foldOnce, numbers } from '../data/fold.js';
 import { reject, type DataProvider } from '../data/index.js';
@@ -400,5 +400,49 @@ describe('an engine that lists its columns but cannot write one back', () => {
     expect(out.materialized).toEqual([]);
     expect(out.gap).toMatchObject({ code: 'guard-failed', op: 'declareAnalysis', target: 'risk' });
     expect(out.gap!.detail).toContain('39 values');
+  });
+});
+
+describe('the rows an analysis is handed are a COPY of the engine’s', () => {
+  /**
+   * The detach law at the one door rows leave the engine through
+   * (`../detach/README.md`): a reader never holds the object the system is
+   * still using. An analysis's input does not stay in the analysis's hands — it
+   * goes on to footprintjs as a run input, and footprintjs COMMITS what it is
+   * given, which freezes it. Handing over the store's own row objects froze the
+   * table itself, and the very next column write found the rows unextensible.
+   *
+   * Read from the outside, that defect was: run a group-by, then run anything
+   * that writes a column, and the column is gone with an `effect-failed` gap.
+   */
+  it('a group-by does not freeze the table under the next analysis that writes a column', async () => {
+    const s = buildDashboard(
+      defWith({
+        summary: groupByAnalysis({ by: 'category', measure: 'price' }),
+        mk: columnAnalysis({ id: 'mk', from: 'price', k: 2, out: 'risk' }),
+      }),
+    ).createSession();
+
+    const summary = await s.declareAnalysis('summary'); // hands the WHOLE table to the engine
+    expect(summary.result.ok).toBe(true);
+
+    const made = await s.declareAnalysis('mk');
+    expect(made.gap).toBeUndefined(); // was: 'Cannot add property risk@s2, object is not extensible'
+    expect(made.materialized).toEqual(['risk']);
+    expect(await riskOn(s)).toHaveLength(40);
+  });
+
+  it('and the order does not matter — a column written first survives a group-by after it', async () => {
+    const s = buildDashboard(
+      defWith({
+        summary: groupByAnalysis({ by: 'category', measure: 'price' }),
+        mk: columnAnalysis({ id: 'mk', from: 'price', k: 2, out: 'risk' }),
+        mk2: columnAnalysis({ id: 'mk2', from: 'rating', k: 3, out: 'tier' }),
+      }),
+    ).createSession();
+    await s.declareAnalysis('mk');
+    await s.declareAnalysis('summary');
+    const second = await s.declareAnalysis('mk2');
+    expect(second.materialized).toEqual(['tier']);
   });
 });

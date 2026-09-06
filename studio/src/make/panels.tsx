@@ -23,8 +23,8 @@ const TYPES: readonly (ColumnType | '')[] = ['', 'string', 'number', 'boolean', 
 const ROLES: readonly (ColumnRole | '')[] = ['', 'identifier', 'dimension', 'measure'];
 const SCALES: readonly (ColumnScale | '')[] = ['', 'discrete', 'continuous'];
 
-/** What each builtin analysis asks for, so the picker is one loop rather than four. */
-const ANALYSIS_OPTIONS: Readonly<Record<BuiltinAnalysisName, readonly { readonly key: string; readonly of: 'column' | 'number'; readonly says: string }[]>> = {
+/** What each builtin analysis asks for, so the picker is one loop rather than five. */
+const ANALYSIS_OPTIONS: Readonly<Record<BuiltinAnalysisName, readonly { readonly key: string; readonly of: 'column' | 'number' | 'text'; readonly says: string }[]>> = {
   groupBy: [
     { key: 'by', of: 'column', says: 'grouped by' },
     { key: 'measure', of: 'column', says: 'averaging' },
@@ -41,6 +41,14 @@ const ANALYSIS_OPTIONS: Readonly<Record<BuiltinAnalysisName, readonly { readonly
   clustering: [
     { key: 'column', of: 'column', says: 'binning' },
     { key: 'k', of: 'number', says: 'into this many bins' },
+  ],
+  // the one whose options are WORDS rather than a pick: an expression the
+  // person writes, and the name of the column it becomes. The library reads the
+  // expression and refuses a token it has no rule for, naming it and where it
+  // sits; nothing here judges it.
+  formula: [
+    { key: 'expression', of: 'text', says: 'working out' },
+    { key: 'name', of: 'text', says: 'into a column called' },
   ],
 };
 
@@ -287,7 +295,7 @@ export function ViewsStep({ draft, analysisKind, analysisOptions, onView, onAdd,
       <div style={card} data-vzf="make-analysis">
         <Choice label="Run an analysis" value={analysisKind} options={['', ...BUILTIN_ANALYSES]} said="— none —" onChange={(v) => onAnalysis(v, analysisOptions)} />
         <p style={{ ...note, margin: 0 }}>
-          These four are the ones a definition can NAME, because they are data. Anything else is a developer’s: an analysis with code in it is written in TypeScript and passed to the build, and no wizard can write one for you.
+          These five are the ones a definition can NAME, because they are data. Anything else is a developer’s: an analysis with code in it is written in TypeScript and passed to the build, and no wizard can write one for you.
         </p>
         {(ANALYSIS_OPTIONS[analysisKind as BuiltinAnalysisName] ?? []).map((option) =>
           option.of === 'column' ? (
@@ -296,8 +304,8 @@ export function ViewsStep({ draft, analysisKind, analysisOptions, onView, onAdd,
             <label key={option.key} style={field}>
               {option.says}{' '}
               <input
-                style={box}
-                type="number"
+                style={option.of === 'text' ? { ...box, width: '60%', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' } : box}
+                {...(option.of === 'number' ? { type: 'number' } : {})}
                 value={analysisOptions[option.key] ?? ''}
                 aria-label={option.says}
                 onChange={(e) => onAnalysis(analysisKind, { ...analysisOptions, [option.key]: e.target.value })}
@@ -305,6 +313,11 @@ export function ViewsStep({ draft, analysisKind, analysisOptions, onView, onAdd,
             </label>
           ),
         )}
+        {analysisKind === 'formula' ? (
+          <p style={{ ...note, margin: 0 }} data-vzf="make-formula-columns">
+            {names.length === 0 ? 'this table has no columns yet' : `Arithmetic (+ − × ÷), parentheses, and abs, log, max, min, round. The columns it may read: ${names.join(', ')}.`}
+          </p>
+        ) : null}
       </div>
     </section>
   );

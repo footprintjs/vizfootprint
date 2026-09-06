@@ -74,11 +74,11 @@ describe('taking a declaration back', () => {
 });
 
 /** The step-three panel with nothing but drawing to do — every callback a no-op. */
-function views(draft: MakeDraft): void {
+function views(draft: MakeDraft, analysisKind = ''): void {
   render(
     <ViewsStep
       draft={draft}
-      analysisKind=""
+      analysisKind={analysisKind}
       analysisOptions={{}}
       onView={() => undefined}
       onAdd={() => undefined}
@@ -89,6 +89,18 @@ function views(draft: MakeDraft): void {
     />,
   );
 }
+
+describe('the formula picker, over a table a host handed in', () => {
+  it('names the columns a formula may read, and says so when the host handed in none', () => {
+    views({ ...emptyDraft(), columns: [{ name: 'n', type: 'number', role: 'measure' }] }, 'formula');
+    expect(document.querySelector('[data-vzf="make-formula-columns"]')?.textContent).toContain('The columns it may read: n.');
+    cleanup();
+    // a draft with no columns at all: not reachable by pasting a CSV, reachable
+    // by a host building its own draft — so it is drawn, and drawn honestly
+    views(emptyDraft(), 'formula');
+    expect(document.querySelector('[data-vzf="make-formula-columns"]')?.textContent).toBe('this table has no columns yet');
+  });
+});
 
 describe('the offer, over a table a host handed in', () => {
   it('says plainly when nothing this wizard can draw fits the columns yet', () => {

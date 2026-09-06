@@ -64,6 +64,19 @@ describe('validateAnalysisDef — a non-function precheck', () => {
   });
 });
 
+describe('validateAnalysisDef — a non-function judgeTable', () => {
+  it('a judgeTable that is present but not a function is rejected', () => {
+    const problems = validateAnalysisDef(
+      minimalDef({ judgeTable: 'every column is fine' as unknown as AnalysisDef['judgeTable'] }),
+    );
+    expect(problems).toContain('judgeTable, if present, must be a function');
+  });
+
+  it('an omitted judgeTable (undefined) is fine — almost every analysis wants none', () => {
+    expect(validateAnalysisDef(minimalDef({ judgeTable: undefined }))).toEqual([]);
+  });
+});
+
 describe('validateAnalysisDef — a non-object honesty declaration', () => {
   it('a string honesty is rejected as "must be an object"', () => {
     const problems = validateAnalysisDef(

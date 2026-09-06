@@ -1165,6 +1165,24 @@ export interface SessionView {
   setLayout(change: LayoutChange): Promise<void>;
   analyze(analysisId: string, intent?: string): Promise<void>;
   /**
+   * ADD A DERIVED COLUMN: a formula over the columns this table already has,
+   * landed as an ACT — never an edit of the rows.
+   *
+   * It rides the `analyze` verb with its own declaration attached (the library's
+   * `declareAnalysis(id, def)` door): the record is a builtin `formula`, which
+   * is DATA, so it crosses the wire to a polled session exactly as it reaches an
+   * in-process one, and the same library judges it either way. Nothing is judged
+   * here — the grammar, the columns and the name are the session's to answer,
+   * and its own sentence comes back on the refused arm.
+   *
+   * The analysis is registered under the COLUMN'S NAME, which is the name a
+   * person will look for in `why` and in the log. Adding the same name again
+   * supersedes the rule, exactly as re-running an analysis does; the columns
+   * earlier acts landed keep their own numbers, because a derived column
+   * belongs to the act that made it.
+   */
+  addColumn(name: string, expression: string, opts?: { readonly table?: string }): Promise<DescribeOutcome>;
+  /**
    * Move the read-only cursor to a commit, and say what the SESSION said: it
    * landed, or it was refused — judged before anything moved — with the
    * session's own sentence, never one written here. The answer is the shared
@@ -1523,6 +1541,16 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
 
     async analyze(analysisId, intent) {
       await dispatch({ verb: 'analyze', analysisId, cause: cause(intent ?? `analyze ${analysisId}`) }, { verb: 'analyze', analysisId, intent: intent ?? `analyze ${analysisId}` });
+    },
+
+    async addColumn(name, expression, opts) {
+      const column = name.trim();
+      const formula = expression.trim();
+      const intent = `add column ${column} = ${formula}`;
+      const table = opts?.table;
+      const def = { builtin: 'formula' as const, expression: formula, name: column, ...(table !== undefined ? { table } : {}) };
+      const body = { verb: 'analyze' as const, analysisId: column, def, ...(table !== undefined ? { table } : {}) };
+      return dispatch({ ...body, cause: cause(intent) }, { ...body, intent });
     },
 
     async seek(commitId) {

@@ -8,6 +8,18 @@
 
 export { defineAnalysis, validateAnalysisDef, AnalysisDefError } from './defineAnalysis.js';
 export {
+  formulaAnalysis,
+  parseFormula,
+  evaluateFormula,
+  formulaColumnProblems,
+  FormulaError,
+  FORMULA_FUNCTIONS,
+  type FormulaNode,
+  type FormulaParse,
+  type FormulaOptions,
+  type FormulaColumnType,
+} from './formula.js';
+export {
   clusteringAnalysis,
   correlationAnalysis,
   regressionAnalysis,

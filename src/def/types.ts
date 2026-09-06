@@ -347,6 +347,16 @@ export interface RegisteredAnalysis {
   readonly kind: AnalysisKind;
   readonly def: AnalysisDef<unknown, AnalysisOutput>;
   run(input: readonly Row[], opts?: RunAnalysisOptions): Promise<AnalysisRunResult<AnalysisOutput>>;
+  /**
+   * The builtin RECORD this analysis was built from, when it was built from one
+   * — and absent for the other two forms, which are code.
+   *
+   * It is here so an act can carry its own declaration onto the trace: a record
+   * is data, so a commit can hold it and a replay can rebuild the analysis from
+   * bytes alone (`../session/README.md`, law 6). A module or a raw def cannot
+   * ride, which is not a policy but a fact about functions.
+   */
+  readonly record?: BuiltinAnalysisDecl;
 }
 
 /** One declared view: its actor identity + resolved capability envelope. */

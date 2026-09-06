@@ -771,7 +771,7 @@ that made it"). So a replay re-performs the acts it can:
 
 | what happened | the gap |
 |---|---|
-| the analysis is not declared on this session | `needs-analysis-kind` — *"commit s1 ran analysis `byPrice`, which this session does not declare — any column it wrote could not be rebuilt; declare it and replay again"* |
+| the analysis is not declared on this session, and its commit carries no declaration of its own | `needs-analysis-kind` — *"commit s1 ran analysis `byPrice`, which this session does not declare — any column it wrote could not be rebuilt; declare it and replay again"* |
 | its input could not be read back | `needs-backend-data` |
 | re-running it threw | `effect-failed` — an outbound effect of an act that already landed |
 | re-running it produced no columns on this data | `guard-failed` |
@@ -831,6 +831,57 @@ content was already elsewhere on the record is not worth staying compatible
 with, and a fallback to "the default table" is exactly the guess this section
 exists to remove.
 
+### And when the analysis IS data, the record carries that too
+
+The rule above is a claim about sufficiency, and it was still short by one
+thing. "Which analysis, over which table" is enough to perform an act again
+*only if the analysis is already here*. For an analysis a developer wrote that
+is unavoidable — a module is code, and code cannot ride on a log. For an
+analysis declared as a **builtin record** it was pure caution: the record is
+data, every other key of it is already JSON, and refusing to carry it made the
+commit an incomplete record of its own act for no reason.
+
+So `AnalysisAct` carries an optional `def`, and it is the record the analysis
+was actually built from:
+
+```ts
+made.commit.value;
+// { id: 'rate', table: 'data',
+//   def: { builtin: 'formula', expression: 'cases / people', name: 'rate', id: 'rate' } }
+```
+
+Present for a record, absent for a module or a raw def — an asymmetry that is
+not a policy but a fact about functions. `registerAnalysisSlot` keeps the record
+beside the module it built (`RegisteredAnalysis.record`), so there is one place
+that knows, and `declareAnalysis` reads it off there rather than looking at what
+it was passed.
+
+What it buys is the whole of this law for an analysis nobody wrote in
+TypeScript. A formula somebody typed into the desk's *add a column*, or a
+dashboard a person made in the wizard, **replays from the log alone**:
+
+```ts
+const fresh = buildDashboard(defWithNoAnalysesAtAll).createSession();
+await fresh.replay(JSON.stringify(source.log.records));
+// { ok: true, landed: 2, reran: 2, filed: 0 }   — and both branches' numbers are there
+```
+
+The replay builds each carried declaration during the DRY RUN, where nothing has
+moved, and registers the built modules in the apply phase — `registerAnalysisSlot`
+returns a value and touches nothing, so a record this library cannot build
+refuses the whole replay with the library's own sentence rather than leaving the
+session holding half a history:
+
+```ts
+// commit s1 "cannot be re-performed: analysis "byPeople" carries a declaration
+//   this library cannot build: invalid builtin analysis: builtin analysis.expression
+//   is not a formula: the formula has no rule for "%" at position 7"
+```
+
+A later commit declaring the same id supersedes an earlier one, exactly as a
+re-registration does on a walk: the log is read in order, so the last word is
+the last word here too.
+
 **A record that cannot answer is refused at JUDGE time.** Not gapped after
 landing — the session must never be left holding an act it could not do:
 
@@ -843,12 +894,16 @@ s.log.records.length;   // 0 — commit #0 was landable and did not land either
 ```
 
 **The line between a refusal and a gap** is whether the act would be
-*attempted*. An analysis this session does not declare is a gap, because
-nothing will be re-performed wrongly: nothing is re-performed at all, and the
-honest consequence — `needs-column` on a later read — is right there to see. An
-act that WOULD be attempted, over rows nobody can name, is the opposite: it
-lands real numbers under real provenance and looks exactly like a correct
-answer. That one has to stop before anything moves.
+*attempted*. An analysis this session does not declare, and whose commit brings
+no declaration of its own, is a gap, because nothing will be re-performed
+wrongly: nothing is re-performed at all, and the honest consequence —
+`needs-column` on a later read — is right there to see. An act that WOULD be
+attempted, over rows nobody can name, is the opposite: it lands real numbers
+under real provenance and looks exactly like a correct answer. That one has to
+stop before anything moves. A commit that carries a declaration this library
+cannot build sits on the refusal side for the same reason the missing table
+does: the record claims to be sufficient for its own act, and it is not — which
+is a broken record, not a missing capability.
 
 **And then the last lane obeyed it too.** The rule above was stated for the
 `__analysis__` lane, and one lane was left outside it. A `kind: 'test'`
@@ -869,6 +924,7 @@ beside it:
 ```ts
 made.commit.field;   // 'pValue'
 made.commit.value;   // { id: 'tested', table: 'other', pValue: 0.01 }
+//                   // …and `def`, when the analysis was declared as a record
 ```
 
 `TestAct` (`src/fdr/fromLog.ts`) is `AnalysisAct` widened by one number, and

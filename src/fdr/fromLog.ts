@@ -66,6 +66,16 @@ export interface TestAct {
   readonly id: string;
   /** The table it READ. Not the table its output landed in — that is the analysis's own declared data. */
   readonly table: string;
+  /**
+   * The analysis's own declaration, when it is data — the `AnalysisAct` field
+   * of the same name, typed by the reader that actually uses it
+   * (`analysisActOf`, `src/session/namespaces.ts`). It is `unknown` HERE and
+   * that is the honest type: FDR does not look at it, and a second declaration
+   * of its shape in this file would be a second thing to keep in step. It is
+   * carried because this lane carries the WHOLE act, and half an act is what
+   * this lane used to carry.
+   */
+  readonly def?: unknown;
   /** The p-value the test produced. A finite number in [0,1]; an untested visual claim enters at 1. */
   readonly pValue: number;
 }

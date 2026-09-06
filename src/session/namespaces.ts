@@ -24,6 +24,9 @@
  * hazard this file exists to keep in one place.
  */
 import { TEST_ANALOG_FIELD } from '../fdr/index.js';
+// TYPE only: the act's declaration is the def layer's shape, and naming it here
+// adds no value edge between the two layers (see `../def/register.ts`).
+import type { BuiltinAnalysisDecl } from '../def/builtinAnalyses.js';
 import { CHART_VIEW_PREFIX, ENCODING_VIEW_PREFIX, LINK_VIEW_PREFIX } from '../branches/index.js';
 
 /** Reserved log fields the session lands non-filter commits under (never real data columns). */
@@ -68,6 +71,21 @@ export interface AnalysisAct {
   readonly id: string;
   /** The table it READ. Not the table its output landed in — that is the analysis's own declared data. */
   readonly table: string;
+  /**
+   * The analysis's OWN DECLARATION, when it has one that is data: the builtin
+   * record it was built from.
+   *
+   * Present for a record-declared analysis and absent for a module or a raw
+   * def, and the asymmetry is not a policy — a record is data and a function is
+   * not, so only the first can ride on a commit. What it buys is the whole of
+   * law 6 for an analysis nobody wrote in TypeScript: a formula somebody typed
+   * into the desk, or a dashboard a person made in the wizard, replays from the
+   * log alone, with nothing registered on the replaying session first.
+   *
+   * Inert (R12): stored and echoed verbatim, judged by the same validator that
+   * judged it at declaration, never interpreted here.
+   */
+  readonly def?: BuiltinAnalysisDecl;
 }
 
 /**
@@ -79,10 +97,14 @@ export interface AnalysisAct {
  */
 export function analysisActOf(value: unknown): AnalysisAct | undefined {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const { id, table } = value as { id?: unknown; table?: unknown };
+  const { id, table, def } = value as { id?: unknown; table?: unknown; def?: unknown };
   if (typeof id !== 'string' || id.length === 0) return undefined;
   if (typeof table !== 'string' || table.length === 0) return undefined;
-  return { id, table };
+  // The declaration is read back as SHAPE only — an object, or nothing. What it
+  // declares is judged where it is used, by the validator that judged it when
+  // it was written; a reader that guessed here would be a second judge.
+  const declared = def !== null && typeof def === 'object' && !Array.isArray(def);
+  return { id, table, ...(declared ? { def: def as BuiltinAnalysisDecl } : {}) };
 }
 
 /**
