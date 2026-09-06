@@ -66,4 +66,8 @@ export type {
   Actor,
   SavedSelectionView,
   SavedClauseView,
-  LinkGraphView, LinkEdgeView, FitView, RuleLineView, EffectiveEncodingView, ProseStatusView, ProseRefView, ProposalView } from './types.js';
+  LinkGraphView, LinkEdgeView, FitView, RuleLineView, EffectiveEncodingView, ProseStatusView, ProseRefView, ProposalView,
+  // The two RECORDS that hold the prose views above: the dashboard's own words and one note's.
+  // A consumer drawing either had `ProseStatusView` and no name for the thing carrying it, and
+  // reached around the barrel for it (PACKAGING.md, Law 2 — widen the barrel the symbol belongs to).
+  DashboardWordsView, NoteView } from './types.js';

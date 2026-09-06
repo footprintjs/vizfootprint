@@ -18,13 +18,24 @@
 export { StoryPage } from './StoryPage.js';
 export type { StoryPageProps, StoryLens, StoryLensName } from './StoryPage.js';
 
+// The DASHBOARD-shaped entry beside the story-shaped one: the same payload, the
+// same boot, the same three states — one lens instead of two, and no
+// requirement that anybody has named a moment yet. An authoring wizard
+// publishes through this one (`vizfootprint-studio/make`).
+export { DashboardPage } from './DashboardPage.js';
+export type { DashboardPageProps } from './DashboardPage.js';
+
+// The front matter's own sentence, so a host drawing its own header prints the
+// page's measured facts rather than restating them.
+export { frontMatterLine } from './front.js';
+
 // The boot, and the port it drives — exported because a host that wants the
 // session and the story WITHOUT this page's chrome (a print view, a test, a
 // second lens of its own) needs the same sequence, and a second spelling of
 // "restore the pictures, replay, restore the bookmarks" is a second answer to
 // what order a page opens in.
-export { bootStory } from './boot.js';
-export type { StoryBoot, StoryBootOptions, StoryFront, StoryPageOpen, StoryPageSession } from './boot.js';
+export { bootStory, bootSession } from './boot.js';
+export type { PageLens, SessionBoot, SessionBootOptions, StoryBoot, StoryBootOptions, StoryFront, StoryPageOpen, StoryPageSession } from './boot.js';
 
 // The payload's TYPES, because they are in this door's own signatures — a host
 // holding a `StoryPageOpen` is handed a `StoryPayload` and needs to name it.

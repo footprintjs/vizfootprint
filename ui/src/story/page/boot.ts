@@ -1,6 +1,16 @@
 /**
  * THE BOOT — a payload becomes a session, or nothing at all.
  *
+ * TWO pages are booted here and there is ONE sequence, which is the whole
+ * reason this file is shaped the way it is. {@link bootSession} is the
+ * sequence — restore the pictures, replay the log, restore the bookmarks,
+ * measure the front matter — and {@link bootStory} is that plus the post a
+ * story lens scrolls. A page that carries a DASHBOARD rather than a story
+ * (`DashboardPage`) walks the first and stops there: same order, same
+ * all-or-nothing, same three honest states, one lens instead of two, and
+ * possibly no bookmarks at all. A second spelling of "pictures, then the log,
+ * then the bookmarks" would be a second answer to what order a page opens in.
+ *
  * A story page opens with no server behind it. Everything the dashboard was is
  * in the file, so the page has to put it back together in the right order and
  * in front of the reader: restore the saved pictures, replay the log, restore
@@ -55,6 +65,16 @@ export interface StoryPageSession extends SessionLike {
 
 /** What the page says about itself above the story — every number of it measured, none written down. */
 export interface StoryFront {
+  /**
+   * The page's own title, as the payload STATES it (`meta.title`) — absent
+   * when the host stated none.
+   *
+   * A story page does not print this: it titles itself with the dashboard's
+   * own words, which the post already carries. A dashboard page has no post,
+   * so the only honest title it can show is the one the file was published
+   * with, and it must be able to say when there is none.
+   */
+  readonly title?: string;
   /** Where the data came from, as the payload states it. */
   readonly data: StoryDataNote;
   /** What the payload's data unpacks to, in a person's units — absent when the page carries none. */
@@ -73,6 +93,24 @@ export interface StoryFront {
   readonly builtAt: string;
 }
 
+/**
+ * The live session as a page hands it to a renderer: the store every component
+ * reads, and the session itself for the acts a page's own doors land.
+ *
+ * `StoryLens` is this plus the named path the reader is standing on — a fact a
+ * story page prints because it has a door that forks one. A dashboard page has
+ * no such door, so it has nothing to add.
+ */
+export interface PageLens {
+  readonly view: SessionView;
+  readonly session: StoryPageSession;
+}
+
+/** The sequence's answer: a live session and what the page may say about itself, or a sentence and nothing. */
+export type SessionBoot =
+  | { readonly ok: true; readonly session: StoryPageSession; readonly view: SessionView; readonly front: StoryFront }
+  | { readonly ok: false; readonly sentence: string };
+
 /** The boot's answer: a session and a story, or a sentence and nothing. */
 export type StoryBoot =
   | { readonly ok: true; readonly session: StoryPageSession; readonly view: SessionView; readonly post: StoryPost; readonly front: StoryFront }
@@ -81,8 +119,8 @@ export type StoryBoot =
 /** How a host turns its payload's data into a live session — its def is code, so only it can. */
 export type StoryPageOpen<Data> = (payload: StoryPayload<Data>) => StoryPageSession | Promise<StoryPageSession>;
 
-/** What the boot needs beyond the payload and the door: how to tell the story, and what the page already measured about itself. */
-export interface StoryBootOptions {
+/** What the sequence needs beyond the payload and the door — what the page already measured about itself. */
+export interface SessionBootOptions {
   /**
    * The payload's own byte count where it was read from — what this story costs
    * in the file.
@@ -93,6 +131,10 @@ export interface StoryBootOptions {
    * it is asked for rather than guessed at.
    */
   readonly payloadBytes: number;
+}
+
+/** What a STORY page needs on top of that: how to tell the story. */
+export interface StoryBootOptions extends SessionBootOptions {
   /** Passed to `toStory` — the DECLARED words, the author, the date, a named path. */
   readonly story?: StoryOptions;
 }
@@ -102,13 +144,14 @@ const refusalLines = (what: string, result: RestoreResult): readonly string[] =>
   result.refused.map((r) => `${what} “${r.name}” did not come back: ${r.rejected}`);
 
 /**
- * Open the payload into a live session and tell its story.
+ * Open the payload into a live session — THE SEQUENCE, and the only copy of it.
  *
  * The session is the host's to build (its def carries analysis modules, which
  * are code); everything after that is this function, in the one order that
- * works.
+ * works. What a page does with the result — tell a story, or just draw the
+ * desk — is the page's.
  */
-export async function bootStory<Data>(payload: StoryPayload<Data>, open: StoryPageOpen<Data>, options: StoryBootOptions): Promise<StoryBoot> {
+export async function bootSession<Data>(payload: StoryPayload<Data>, open: StoryPageOpen<Data>, options: SessionBootOptions): Promise<SessionBoot> {
   let session: StoryPageSession;
   try {
     session = await open(payload);
@@ -122,7 +165,7 @@ export async function bootStory<Data>(payload: StoryPayload<Data>, open: StoryPa
   const replayed = await session.replay([...payload.log]);
   if (!replayed.ok) {
     // nothing is mounted: the session this boot opened is dropped here, unreferenced
-    return { ok: false, sentence: `this page's story could not be replayed — ${replayed.gap.detail ?? replayed.gap.code}` };
+    return { ok: false, sentence: `this page's acts could not be replayed — ${replayed.gap.detail ?? replayed.gap.code}` };
   }
 
   // the bookmarks last: each names a commit, and the log now holds them
@@ -130,14 +173,13 @@ export async function bootStory<Data>(payload: StoryPayload<Data>, open: StoryPa
 
   const view = createSessionView(sessionSource(session), { as: 'user' });
   await view.refresh();
-  const post = toStory(view.getState(), options.story ?? {});
 
   return {
     ok: true,
     session,
     view,
-    post,
     front: {
+      ...(payload.meta.title === undefined ? {} : { title: payload.meta.title }),
       data: payload.meta.data,
       ...(payload.data === undefined ? {} : { size: formatBytes(new TextEncoder().encode(JSON.stringify(payload.data)).length) }),
       payload: formatBytes(options.payloadBytes),
@@ -148,4 +190,14 @@ export async function bootStory<Data>(payload: StoryPayload<Data>, open: StoryPa
       builtAt: payload.meta.builtAt,
     },
   };
+}
+
+/**
+ * Open the payload into a live session and tell its story — {@link bootSession}
+ * plus the post, and nothing else. The order lives there, once.
+ */
+export async function bootStory<Data>(payload: StoryPayload<Data>, open: StoryPageOpen<Data>, options: StoryBootOptions): Promise<StoryBoot> {
+  const booted = await bootSession(payload, open, options);
+  if (!booted.ok) return booted;
+  return { ...booted, post: toStory(booted.view.getState(), options.story ?? {}) };
 }

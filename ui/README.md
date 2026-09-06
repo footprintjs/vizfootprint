@@ -710,6 +710,8 @@ plumbing beyond the primitives tier.
 | `panels/` | `<CommitLog>` (cause badges, click-to-seek, off-branch dimming), `<FdrLedger>` (two truths + the verbatim honesty line), `<GapsPanel>`, `<ReadinessPanel>` — cockpit hosts these inside report modals, unchanged |
 | `story/` | `vizfootprint-ui/story` — `toStory(state)`, one lineage of a session as a [storydeck](https://github.com/footprintjs/storydeck) post, plus `storyDroppedNote` (what a section cited and the story could not show). Pure data, no React |
 | `story/stage/` | `vizfootprint-ui/story/stage` — `<StoryStage>`, that post as a SCROLL LENS over the live session (see below). React + storydeck, which is why it is a door of its own |
+| `story/page/` | `vizfootprint-ui/story/page` — a whole desk, its data and its trace as ONE HTML file that opens from `file://`. `<StoryPage>` is the story-shaped entry (two lenses, a door on every beat); `<DashboardPage>` is the dashboard-shaped one (one lens, and no requirement that anybody has named a moment yet — an authoring wizard publishes through it). Both walk `bootSession`, the one ordered boot, and print the same measured front matter (`frontMatterLine`) |
+| `story/payload/` | `vizfootprint-ui/story/payload` — the codec the BUILD and the PAGE share: `encodeStoryPayload` / `decodeStoryPayload` / `storyPayloadScript` / `readStoryPayload`, gzip then base64, with the ten-megabyte ceiling that REFUSES rather than emitting a file nobody can open. Its own door because a build tool must write what the page reads without loading a renderer |
 
 ## Quick start
 

@@ -40,19 +40,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useSessionView } from '../../adapter/useSessionView.js';
-import type { SessionView } from '../../adapter/sessionView.js';
 import type { StoryOptions, StoryBookmark } from '../toStory.js';
 import { StoryStage } from '../stage/StoryStage.js';
-import { bootStory, type StoryBoot, type StoryFront, type StoryPageOpen, type StoryPageSession } from './boot.js';
+import { bootStory, type PageLens, type StoryBoot, type StoryFront, type StoryPageOpen } from './boot.js';
+import { frontMatterLine } from './front.js';
 import { readStoryPayload } from './payload.js';
 
 /** Which lens the reader is looking through. */
 export type StoryLensName = 'story' | 'explore';
 
-/** What a host's renderer is handed: the live session, and the store every component reads. */
-export interface StoryLens {
-  readonly view: SessionView;
-  readonly session: StoryPageSession;
+/**
+ * What a host's renderer is handed: the live session, the store every component
+ * reads — and, this page's own addition, which named path the reader stands on.
+ *
+ * The first two are {@link PageLens}, shared with the dashboard page. The path
+ * is here and not there because it is only ever interesting where there is a
+ * door that forks one, and a dashboard page has none.
+ */
+export interface StoryLens extends PageLens {
   /** Which named path the reader is standing on — `null` before any act, and the author's until they open a door. */
   readonly path: string | null;
 }
@@ -199,7 +204,6 @@ interface StoryFrontMatterProps {
  * who wants to know whether the page is self-contained can read it off the page.
  */
 function StoryFrontMatter({ front, title, lens, onLens, path, refusal }: StoryFrontMatterProps): JSX.Element {
-  const inline = front.data.via === 'inline';
   return (
     <header className="vzf-story-front" data-vzf="story-front">
       <div className="vzf-story-front-row">
@@ -213,10 +217,7 @@ function StoryFrontMatter({ front, title, lens, onLens, path, refusal }: StoryFr
         </div>
       </div>
       <p className="vzf-story-front-line" data-vzf="story-front-data">
-        {inline ? 'This page carries its data' : `This page fetches its data from ${front.data.at ?? 'where the definition says'}`}
-        {front.data.label === undefined ? '' : ` — ${front.data.label}`}
-        {front.size === undefined ? '' : `, ${front.size} unpacked`}. Its payload is {front.payload} of this file. {String(front.landed)} acts replayed, {String(front.bookmarks)} beats
-        named. Built {front.builtAt}.
+        {frontMatterLine(front, 'beats')}
       </p>
       {/* WHOSE lineage the reader's next act extends — printed only in the lens where a reader can
           act, because in the story lens the answer is always the same and always the author's. */}

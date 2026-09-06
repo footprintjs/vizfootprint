@@ -2,6 +2,8 @@
  * Builds dist/ from the TypeScript source — one bundle per DOOR, plus the
  * .d.ts types (the `ui/build.mjs` pattern, one step smaller):
  *   dist/desk.js       ESM, React + `vizfootprint` + `vizfootprint-ui` externalized  → bundler users
+ *   dist/make.js       the wizard, the same way — its own door because a host
+ *                      that only mounts a desk should not bundle an authoring flow
  *   types/**.d.ts      declarations, flat and OURS ONLY (tsc -p tsconfig.build.json)
  * Run:  npm run build
  *
@@ -34,13 +36,15 @@ const OPTIONAL = ['storydeck'];
 
 const base = { bundle: true, jsx: 'automatic', jsxDev: false, minify: true, sourcemap: true, logLevel: 'info' };
 
-await esbuild.build({
-  ...base,
-  entryPoints: ['src/desk/index.ts'],
-  format: 'esm',
-  outfile: 'dist/desk.js',
-  external: [...REACT, ...LIBRARY, ...OPTIONAL],
-});
+for (const door of ['desk', 'make']) {
+  await esbuild.build({
+    ...base,
+    entryPoints: [`src/${door}/index.ts`],
+    format: 'esm',
+    outfile: `dist/${door}.js`,
+    external: [...REACT, ...LIBRARY, ...OPTIONAL],
+  });
+}
 
 // .d.ts (emit-only; its own tsconfig so the workspace's `tsc --noEmit` is
 // unaffected). `rootDir` resolves to src/ because every non-relative import is

@@ -38,10 +38,10 @@ whose definition had been guessed at.
 ```
 readStoryPayload(document)   the block the build wrote
   → open(payload)            the HOST's: its def is code, so only it can build a session
-  → restoreSaved(…)          the PICTURES first
-  → replay(log)              the trace, verbatim
-  → restoreBookmarks(…)      the BEATS last
-  → toStory(state)           the post
+  → restoreSaved(…)          the PICTURES first          ┐
+  → replay(log)              the trace, verbatim         ├ bootSession — both pages walk this
+  → restoreBookmarks(…)      the BEATS last              ┘
+  → toStory(state)           the post                      bootStory — the story page only
 ```
 
 **The order is not a preference.**
@@ -111,11 +111,46 @@ with the sizes measured off the file itself rather than written down:
 > 8.58 MB unpacked. Its payload is 1.28 MB of this file. 32 acts replayed, 6 beats named.
 > Built 2026-09-05.
 
+## The other page: a DASHBOARD, with no story on it
+
+`StoryPage` is for something a reader walks through. `DashboardPage` is its sibling for
+something a person was simply *sent*: the desk, in one file, with whatever acts were on it when it
+was published. An authoring wizard publishes through this one — `vizfootprint-studio/make` writes a
+definition, opens a desk, and hands the file to whoever asked for it — and so does any host that
+wants the desk without the narrative.
+
+```tsx
+import { DashboardPage } from 'vizfootprint-ui/story/page';
+
+<DashboardPage
+  open={(payload) => buildDashboard(myDef(payload.data)).createSession()}
+  desk={(lens) => <Desk view={lens.view} charts={myCells} />}
+/>
+```
+
+**The boot is the same boot.** `bootSession` is the sequence — restore the pictures, replay the log,
+restore the bookmarks, measure the front matter — and `bootStory` is that plus `toStory`. Both pages
+have the same three honest states (replaying / ready / refused), the same all-or-nothing, and print
+the same front-matter line from the same function (`frontMatterLine`). A second spelling of "pictures,
+then the log, then the bookmarks" would be a second answer to what order a page opens in.
+
+Two things differ, and only two:
+
+| | story page | dashboard page |
+|---|---|---|
+| lenses | two — the scroll lens and the cockpit, with **explore from here** between them | one: the desk |
+| named moments | the beats ARE the story; a page with none is a story with nothing in it | there may be **none yet** — a wizard publishes the moment the desk exists, and the front matter says `0 bookmarks named` rather than treating it as a fault |
+| its title | the dashboard's own words, off the post | `meta.title`, the one it was PUBLISHED with — there is no post to take one from, and inventing a headline would be the page naming somebody else's dashboard |
+
+There is no path line on a dashboard page, because there is no door that forks one: `StoryLens` is
+`PageLens` (the view and the session) plus the path, and the path is the half only a story page has
+anything to say about.
+
 ## Two doors, and why the codec is on its own
 
 | door | what it is | who loads it |
 |---|---|---|
-| `vizfootprint-ui/story/page` | `StoryPage`, `bootStory`, and the ports they drive | the browser |
+| `vizfootprint-ui/story/page` | `StoryPage`, `DashboardPage`, `bootStory` / `bootSession`, and the ports they drive | the browser |
 | `vizfootprint-ui/story/payload` | the codec: `encodeStoryPayload` / `decodeStoryPayload` / `storyPayloadScript` / `readStoryPayload` | the BUILD, in plain Node — and the page |
 
 The build writes what the page reads, so both need the codec and only one of them can load a

@@ -15,7 +15,7 @@ are about what a dashboard IS when everything on it is recorded.
 This package is those lines, once.
 
 ```
-npm run build          # dist/desk.js + types/
+npm run build          # dist/desk.js + dist/make.js + types/
 npm test               # vitest (jsdom, over a second definition)
 npm run test:coverage  # the same, at 100% on all four axes
 ```
@@ -95,6 +95,7 @@ Two things follow that are easy to miss:
 | door | what it is |
 |---|---|
 | `vizfootprint-studio/desk` | `Desk`, `DeskFigure`, the contract types, the tokens |
+| `vizfootprint-studio/make` | `Make`, the wizard — and the pure step logic under it |
 | `vizfootprint-studio/package.json` | the convention |
 
 **There is no `.` root export, on purpose.** A root would have to be one of the
@@ -102,12 +103,11 @@ two halves wearing the package's name, or a barrel that carries both — and the
 second half is a different program with a different dependency footprint. Two
 names, each saying what it is.
 
-`make` — the wizard that helps a person WRITE a definition rather than drive one —
-is designed and not built. It is reserved in writing in
-[`src/make/README.md`](src/make/README.md), and deliberately **not** in the
-`exports` map: `../PACKAGING.md`'s law 4 is that a subpath in the map which
-resolves to nothing is not a promise, it is a runtime error for whoever believes
-the map.
+**The two doors are two programs.** `desk` drives a definition somebody has
+already written; `make` helps a person write one. A host that only mounts a desk
+should not bundle an authoring flow, and a host that only mounts the wizard
+should not have to know what a `DeskProjection` is — so they are two entries,
+two bundles, two names.
 
 ## What the desk owns, and what it asks you for
 
@@ -252,3 +252,42 @@ what the extraction was measured against: 1,112 lines before, and after it, the
 NNDSS definition's own derivation, its parameter list, two host extensions and
 one `<Desk …/>`. Its `web/src/cells.tsx` is the reference for what a `charts`
 callback looks like when the table is 90,300 rows and the memos matter.
+
+---
+
+## The other half: `make`
+
+A desk needs a definition, and until now somebody had to write one in
+TypeScript. `vizfootprint-studio/make` is the four steps that get a person from
+a spreadsheet to a definition — Datawrapper's steps, each mapped onto a door
+this library already had:
+
+```tsx
+import { Make } from 'vizfootprint-studio/make';
+<Make />;
+```
+
+1. **Bring data** — paste or upload a CSV; `describeTable` says what arrived,
+   and the ceiling (ninety thousand rows comfortable, a million past the
+   fifty-millisecond line) is stated before a file is chosen rather than after
+   one is loaded.
+2. **Check and describe** — the person declares each column (`{ type, role,
+   scale, label }`, the def's own `ColumnDecl`) over the sniff. Nothing is
+   demoted silently: a column with no role stops the step, by name.
+3. **Visualize** — a chart kind and a column per channel, with `whatFits`
+   greying what does not fit and printing the plane's own sentence for why.
+   Optionally one of the four builtin analyses, declared as a record; anything
+   beyond them is a developer's, and the step says so.
+4. **Open, and publish** — `parseDashboardDef` → `buildDashboard` → this
+   package's own `Desk`. Publishing hands over ONE HTML file that opens with no
+   server, carrying the log, the bookmarks, the pictures and — because a made
+   definition is entirely JSON — its own definition.
+
+**Authoring is before the walk.** `make` never edits a dashboard that already
+has a log: the menu's *Change the charts* goes back to step three and builds a
+new desk, and says out loud that the acts on the old one are discarded.
+
+The whole flow is also a set of plain functions (`judgeStep`, `assembleDef`,
+`openDesk`, `ceilingVerdict`, `readTable`), so a host — or a test, or an agent —
+can drive it with no screen at all. The argument, the laws and the file map are
+in [`src/make/README.md`](src/make/README.md).

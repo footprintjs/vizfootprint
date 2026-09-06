@@ -2,7 +2,7 @@
   "name": "vizfootprint-studio",
   "version": "0.0.0",
   "private": true,
-  "description": "The installable cockpit for vizfootprint — `desk`, a whole provenance dashboard (time strip, charts band, editor, notes, panels, story) driven by one session view and parameterised by a definition. Part of the footprintjs family.",
+  "description": "The installable cockpit for vizfootprint \u2014 `desk`, a whole provenance dashboard (time strip, charts band, editor, notes, panels, story) driven by one session view and parameterised by a definition. Part of the footprintjs family.",
   "type": "module",
   "license": "MIT",
   "exports": {
@@ -10,6 +10,11 @@
       "types": "./types/desk/index.d.ts",
       "import": "./dist/desk.js",
       "default": "./dist/desk.js"
+    },
+    "./make": {
+      "types": "./types/make/index.d.ts",
+      "import": "./dist/make.js",
+      "default": "./dist/make.js"
     },
     "./package.json": "./package.json"
   },
