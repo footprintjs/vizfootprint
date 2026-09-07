@@ -28,6 +28,7 @@ import { TEST_ANALOG_FIELD } from '../fdr/index.js';
 // adds no value edge between the two layers (see `../def/register.ts`).
 import type { BuiltinAnalysisDecl } from '../def/builtinAnalyses.js';
 import { CHART_VIEW_PREFIX, ENCODING_VIEW_PREFIX, LINK_VIEW_PREFIX } from '../branches/index.js';
+import { LAYER_MARKER } from '../def/layerAddress.js';
 
 /** Reserved log fields the session lands non-filter commits under (never real data columns). */
 export const ANALYSIS_FIELD = '__analysis__';
@@ -115,6 +116,17 @@ export function analysisActOf(value: unknown): AnalysisAct | undefined {
  * `hypothesisRecordsFromLog` on log replay (R6). Reject it as a typed gap.
  */
 export const RESERVED_PROBE_FIELDS = new Set<string>([TEST_ANALOG_FIELD, ANALYSIS_FIELD, ANNOTATION_FIELD, CHART_FIELD, BOOKMARK_FIELD]);
+
+/**
+ * The one character no viewId, layerId or table name may contain: a layer of
+ * a view lands its commits under the address `viewId~layerId`, and the session
+ * reads the table off the address by splitting at the marker
+ * (`./layers.ts`). Reserved beside the fields above so a reader asking "can an
+ * id be called this?" finds the whole answer here — but OWNED by
+ * `../def/layerAddress.ts` (the def door refuses it in every id), and named
+ * here by import, never respelled.
+ */
+export const RESERVED_ID_MARKER = LAYER_MARKER;
 
 /**
  * The `reencode` verb's commit-landing namespace (mirrors the `annotation:`/

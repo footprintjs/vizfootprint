@@ -21,10 +21,17 @@
  *                             and must land exactly ONE compound cell commit
  *                             (both fields, addressable clause); a renderer
  *                             not declaring it skips the arm honestly
- *   9. navigate             — a canPanZoom renderer's navigate is recorded and
+ *   9. layers               — protocol 1.2: a renderer DECLARING `canLayer`
+ *                             receives the plan's two-layer frame, draws it,
+ *                             and a gesture on the SECOND layer speaks through
+ *                             THAT layer's callback bundle and lands exactly
+ *                             ONE commit whose viewId is the layer address
+ *                             (`viewId~layerId`); a renderer not declaring it
+ *                             skips the arm honestly
+ *  10. navigate             — a canPanZoom renderer's navigate is recorded and
  *                             NON-FILTERING; a non-capable one lands the typed
  *                             `navigate-unsupported` gap and records nothing
- *  10. unmount              — the mount is left clean
+ *  11. unmount              — the mount is left clean
  *
  * Steps run in order and STOP at the first failure (later steps depend on
  * earlier ones); the report carries every step's outcome in plain words.
@@ -33,6 +40,7 @@
  * asserted.
  */
 
+import { layerAddress } from 'vizfootprint/def';
 import { bindRenderer, type BoundRenderer } from './bind.js';
 import { selectionForView } from './selection.js';
 import {
@@ -58,6 +66,7 @@ export type ConformanceStepName =
   | 'crossfilter-returns'
   | 'cell'
   | 'match'
+  | 'layers'
   | 'navigate'
   | 'unmount';
 
@@ -79,6 +88,21 @@ export interface ConformanceReport {
   readonly reencodeRequests: readonly string[];
   /** Every hover the renderer surfaced (ephemeral — never committed). */
   readonly hovers: readonly (readonly string[] | null)[];
+}
+
+/**
+ * Protocol 1.2: what the layers arm needs from the host. REQUIRED when the
+ * renderer declares `canLayer`; ignored otherwise. `buildState` must then
+ * carry `layers` — at least TWO, so the arm can prove a gesture on the second
+ * lands under the second's address and not the first's, or the view's.
+ */
+export interface ConformanceLayersPlan {
+  /** The layer ids, in the order `buildState` lays them; the kit gestures on the SECOND. */
+  readonly layerIds: readonly string[];
+  /** Drive a SELECTING gesture on the second layer's marks. */
+  gesture(el: HTMLElement): void | Promise<void>;
+  /** Prove both layers are on screen. Default: the mount is not empty after the layered frame. */
+  verify?(el: HTMLElement): boolean;
 }
 
 export interface ConformancePlan {
@@ -107,6 +131,8 @@ export interface ConformancePlan {
   matchGesture?(el: HTMLElement): void | Promise<void>;
   /** Prove the post-crossfilter re-render is visible. Default: the mount's DOM changed since before the gesture. */
   verifyUpdate?(el: HTMLElement): boolean;
+  /** Protocol 1.2: the layers arm. REQUIRED when the renderer declares `canLayer`; ignored otherwise. */
+  readonly layers?: ConformanceLayersPlan;
   /** The view state for the navigate step. Default `{ x: [0, 1] }`. */
   readonly navigateState?: NavigateViewState;
   /** The actor expected on the landed commit's cause. Default `'user'` (the store's default principal). */
@@ -138,11 +164,15 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
   const hovers: (readonly string[] | null)[] = [];
   const navigations: NavigateViewState[] = [];
   const pending: Promise<void>[] = [];
+  /** 1.2: which ADDRESS each layer emission was spoken through — the bundle that spoke is the proof of which layer gestured. */
+  const layerEmissions: { readonly address: string; readonly emission: ChartEmission }[] = [];
 
-  const callbacks: RendererCallbacks = {
+  /** The four verbs wired to ONE address — the view's, or a layer's (the same wiring, so a layer is a view to the session). */
+  const callbacksFor = (address: string): RendererCallbacks => ({
     emit: (emission) => {
       emissions.push(emission);
-      pending.push(view.emit(viewId, emission, originIntent));
+      if (address !== viewId) layerEmissions.push({ address, emission });
+      pending.push(view.emit(address, emission, `conformance: ${address} gesture`));
     },
     hover: (keys) => {
       hovers.push(keys);
@@ -152,9 +182,13 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
     },
     navigate: (viewState) => {
       navigations.push(viewState);
-      pending.push(view.navigate(viewId, viewState));
+      pending.push(view.navigate(address, viewState));
     },
-  };
+  });
+  const callbacks = callbacksFor(viewId);
+  // bound at the handshake whenever the plan names layers — a renderer that
+  // declares canLayer must be handed its bundles at mount, not after
+  const layerBindings = plan.layers === undefined ? {} : { layers: { layerIds: plan.layers.layerIds, callbacksFor } };
   const settle = async (): Promise<void> => {
     await Promise.all(pending);
     // drain the renderer's own scheduler too: a framework may flush gesture
@@ -213,7 +247,7 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
     {
       name: 'handshake',
       run() {
-        const res = bindRenderer(renderer, el, { viewId, callbacks, onGap: (g) => gaps.push(g) });
+        const res = bindRenderer(renderer, el, { viewId, callbacks, onGap: (g) => gaps.push(g), ...layerBindings });
         if (!res.ok) throw new StepFailed(`the bind was refused: ${res.gap.detail}`);
         bound = res.view;
         const caps = bound.capabilities;
@@ -381,6 +415,54 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
           descriptor === 'match-kind · many-values · self-addressable',
           `the match gesture landed ONE match commit over ${String(body?.values?.length ?? 0)} values and its clause is addressable`,
           `the match arm misbehaved: ${descriptor}`,
+        );
+      },
+    },
+    {
+      name: 'layers',
+      async run() {
+        // protocol 1.2: the one-frame-many-tables arm — exercised only by
+        // renderers that DECLARE canLayer; everyone else skips honestly
+        if (bound!.capabilities.canLayer !== true) {
+          return 'the renderer declares no canLayer — the layers arm is honestly skipped';
+        }
+        const layersPlan = plan.layers;
+        if (!layersPlan) {
+          throw new StepFailed('the renderer declares canLayer but the plan provides no layers to push');
+        }
+        const frame = plan.buildState(view.getState());
+        const pushed = frame.layers ?? [];
+        if (pushed.length < 2 || layersPlan.layerIds.length < 2) {
+          throw new StepFailed(`the layers arm needs TWO layers on the frame and in the plan — got ${pushed.length} on the frame, ${layersPlan.layerIds.length} in the plan`);
+        }
+        bound!.update(frame); // never refused here: the arm runs only under canLayer, the guard's own condition
+        const drawn = layersPlan.verify ? layersPlan.verify(el) : el.childElementCount > 0;
+        if (!drawn) throw new StepFailed('the layered frame left nothing of both layers on screen');
+        // the SECOND layer: a commit under its address proves the gesture went
+        // through ITS bundle and not the first's, nor the view's
+        const second = layerAddress(viewId, layersPlan.layerIds[1]!);
+        const emissionsBefore = layerEmissions.length;
+        const commitsBeforeLayers = view.getState().commits.length;
+        await layersPlan.gesture(el);
+        await settle();
+        const spoke = layerEmissions.slice(emissionsBefore);
+        if (spoke.length === 0) {
+          throw new StepFailed('the layer gesture spoke through no layer bundle (a layer gesture through the view\'s own callbacks lands under the view)');
+        }
+        const st = view.getState();
+        const landedCount = st.commits.length - commitsBeforeLayers;
+        if (landedCount !== 1) {
+          throw new StepFailed(`the layer gesture landed ${landedCount} commit(s) — one gesture on one layer is exactly ONE`);
+        }
+        const landed = st.commits[st.commits.length - 1]!;
+        const descriptor = [
+          flag(spoke.every((e) => e.address === second), 'second-bundle', `bundle:${spoke.map((e) => e.address).join(',')}`),
+          flag(landed.viewId === second, 'layer-address', `viewId:${landed.viewId}`),
+        ].join(' · ');
+        return check(
+          descriptor === 'second-bundle · layer-address',
+          `both layers drawn; the gesture on "${layersPlan.layerIds[1]}" spoke through its bundle and landed ONE commit under ${second}`,
+          `the layers arm misbehaved: ${descriptor}`,
         );
       },
     },

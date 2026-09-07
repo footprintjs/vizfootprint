@@ -234,6 +234,30 @@ export interface ViewEncodingDecl {
   readonly channels: readonly string[];
   /** The channel→field mapping this view starts with — the session fold's ROOT, before any `reencode` commit. */
   readonly initial?: Readonly<Record<string, string>>;
+  /**
+   * The view's layers, when it draws more than one table on one frame (a
+   * node-link: edges under nodes). Each layer names ITS table; an act on a
+   * layer lands under the address `viewId~layerId` (`./layerAddress.ts`).
+   * A view with no layers is exactly what it was before layers existed.
+   */
+  readonly layers?: readonly LayerDecl[];
+}
+
+/**
+ * One layer of a view — the same encoding surface a view declares, plus the
+ * table it reads. `table` is required: a layer exists to name one. Its
+ * `channels` and `initial` are judged by the encoding rules against THAT
+ * table's columns, never the default table's. `label` is prose for the
+ * layer's actor meta; `layerId` may not wear the layer marker.
+ */
+export interface LayerDecl {
+  readonly layerId: string;
+  readonly table: string;
+  /** Informational mark name, echoed verbatim (the view-level `chartKind` precedent). */
+  readonly chartKind: string;
+  readonly channels: readonly string[];
+  readonly initial?: Readonly<Record<string, string>>;
+  readonly label?: string;
 }
 
 /** R14 honest capability envelope for a view (its adapter may narrow this further at mount). */
@@ -415,6 +439,12 @@ export interface ViewDecl {
   readonly grain?: readonly string[];
   /** This view's declared encoding surface (chart kind + valid channels + initial mapping), if any. */
   readonly encoding?: ViewEncodingDecl;
+  /**
+   * The view's layers, resolved and frozen at build (the list and each
+   * declaration) — present only when the def declared them, so a view with
+   * none is byte-identical to a view built before layers existed.
+   */
+  readonly layers?: readonly LayerDecl[];
 }
 
 /** The minimal online-FDR stepper contract a session drives (uniform over both procedures). */

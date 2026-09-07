@@ -28,6 +28,10 @@ export type { RawCompareResult } from './compareView.js';
 
 export { useSessionView } from './useSessionView.js';
 
+// Layers (protocol 1.2): the ONE door for a layer's rows — a host never hand-rolls the query
+export { layerRowsFor } from './layerRows.js';
+export type { LayerRowsSessionLike, LayerRowsWindow } from './layerRows.js';
+
 export {
   pathToRoot,
   activePath,
@@ -43,6 +47,7 @@ export type {
   SessionViewState,
   CommitView,
   ViewView,
+  LayerView,
   ColumnView,
   SelectionView,
   BranchView,

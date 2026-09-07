@@ -12,6 +12,7 @@
 import { ENCODING_KIND, edgeId, type ChannelPair, type LinkDecl, type LinkDefault, type LinkEdge, type LinkGraph, type LinkView } from './types.js';
 import { DEFAULT_FOLD, crossesGrain } from './grain.js';
 import { deepFreeze } from '../detach/index.js';
+import { splitLayerAddress } from '../def/layerAddress.js';
 
 /** The channel pairs an encoding edge follows when the author states none: every channel both ends declare, by the same name. */
 export function defaultChannelPairs(source: LinkView | undefined, target: LinkView | undefined): readonly ChannelPair[] {
@@ -26,6 +27,18 @@ function writtenOut(decl: LinkDecl, views: readonly LinkView[]): LinkDecl {
   return { ...decl, channels: defaultChannelPairs(byId.get(decl.source), byId.get(decl.target)) };
 }
 
+/**
+ * Two addresses on one FRAME: the same node (self), or a view and its layers,
+ * or two layers of one view. WHY no default edge between them: the layers of
+ * a node-link already share a canvas — a select on the nodes cannot filter
+ * the edges by a nodes column, and the ruling is that nothing crosses between
+ * siblings unless declared (../def/README.md, "Layers"). A plain viewId is its
+ * own frame, so a graph with no layers is written exactly as before.
+ */
+function sharesFrame(a: string, b: string): boolean {
+  return splitLayerAddress(a).viewId === splitLayerAddress(b).viewId;
+}
+
 export function materializeLinks(views: readonly LinkView[], declared: readonly LinkDecl[] = [], defaultRule: LinkDefault = 'crossfilter'): LinkGraph {
   const edges: LinkEdge[] = [];
   if (defaultRule === 'crossfilter') {
@@ -33,7 +46,7 @@ export function materializeLinks(views: readonly LinkView[], declared: readonly 
       for (const kind of source.voice) {
         if (kind === ENCODING_KIND) continue; // no default encoding edge: absent is a silence (law 1, amended)
         for (const target of views) {
-          if (target.viewId === source.viewId) continue; // self excluded — the one cycle-breaker
+          if (sharesFrame(source.viewId, target.viewId)) continue; // self excluded — the one cycle-breaker; and a frame's layers, which are one place
           edges.push({
             id: edgeId(source.viewId, kind, target.viewId),
             source: source.viewId,

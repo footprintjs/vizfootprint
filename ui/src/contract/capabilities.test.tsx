@@ -24,7 +24,8 @@ import {
   scatterRenderer,
   tableRenderer,
 } from './renderers.js';
-import { emptySelection, selfSelectedSet } from './index.js';
+import { emptySelection, selfSelectedSet, bindRenderer, LAYER_MARKER, layerAddress, splitLayerAddress, holdsLayerMarker } from './index.js';
+import { layeredRenderer } from './layered.fixture.js';
 import { selectedSet, inSet, markClass, useBrightPredicate, matchEmission, toggleInSetEmission, clickEmission } from '../primitives/index.js';
 import {
   RENDERER_PROTOCOL_VERSION,
@@ -122,6 +123,83 @@ describe('canHighlight is a promise about the BOUND renderer (the bar)', () => {
     m.update(state([{ id: 'a', region: 'North' }, { id: 'b', region: 'South' }], highlightFromOther()));
     expect(el.querySelectorAll('tr.vzf-dim')).toHaveLength(1); // the row the clause excludes, dimmed not hidden
     m.unmount();
+  });
+});
+
+// ── canLayer (protocol 1.2) — one frame, several tables, and the frame is whole or refused ──
+
+describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => {
+  const LAYERS = [
+    { layerId: 'edges', table: 'edges', rows: [{ source: 'flu', target: 'cold', weight: 5 }], encodings: { size: 'weight' } },
+    { layerId: 'nodes', table: 'nodes', rows: [{ id: 'flu', group: 'viral' }, { id: 'cold', group: 'viral' }], encodings: { color: 'group' } },
+  ] as const;
+
+  it('the protocol this build speaks is 1.2 — the layers minor', () => {
+    expect(RENDERER_PROTOCOL_VERSION).toBe('1.2');
+  });
+
+  it('declares TRUE — and a layered frame pushed through the bind draws BOTH layers, each under its own table', () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const cbs = callbacks();
+    const res = bindRenderer(layeredRenderer(), el, { viewId: 'net', callbacks: cbs }); // no layers bound — no bundles
+    if (!res.ok) throw new Error('bind failed');
+    expect(res.view.capabilities.canLayer).toBe(true);
+    // a plain frame draws no layer at all
+    expect(res.view.update(state([{ id: 'flu' }]))).toEqual({ ok: true });
+    expect(el.querySelectorAll('div.layer')).toHaveLength(0);
+    expect(res.view.update({ ...state([{ id: 'flu' }]), layers: LAYERS })).toEqual({ ok: true });
+    const drawn = [...el.querySelectorAll('div.layer')].map((d) => `${(d as HTMLElement).dataset['layer']}:${(d as HTMLElement).dataset['table']}`);
+    expect(drawn).toEqual(['edges:edges', 'nodes:nodes']);
+    expect(el.querySelectorAll('button[data-layer="nodes"]')).toHaveLength(2);
+    // a layer mark with no bundle bound speaks to nobody — never through the view's own callbacks
+    fireEvent.click(el.querySelector('button[data-layer="nodes"]')!);
+    expect(cbs.emit).not.toHaveBeenCalled();
+    res.view.unmount();
+  });
+
+  it('none of the eight first-party renderers declares canLayer — and a layered frame at each is refused whole, the mount untouched', () => {
+    const factories: readonly (readonly [string, Renderer])[] = [
+      ['scatter', scatterRenderer()],
+      ['line', lineRenderer()],
+      ['bar', barRenderer()],
+      ['map', mapRenderer({ geo: { type: 'FeatureCollection', features: [] } })],
+      ['table', tableRenderer({ columns: ['id'] })],
+      ['histogram', histogramRenderer()],
+      ['heatmap', heatmapRenderer()],
+      ['boxplot', boxPlotRenderer()],
+    ];
+    for (const [name, renderer] of factories) {
+      const el = document.createElement('div');
+      document.body.appendChild(el);
+      const res = bindRenderer(renderer, el, { viewId: name, callbacks: callbacks() });
+      if (!res.ok) throw new Error(`${name}: bind failed`);
+      expect(`${name}: ${String('canLayer' in res.view.capabilities)}`).toBe(`${name}: false`);
+      const outcome = res.view.update({ ...state([{ id: 'a', x: 1, y: 2 }]), layers: LAYERS });
+      expect(`${name}: ${outcome.ok ? 'drawn' : outcome.gap.code}`).toBe(`${name}: layers-unsupported`);
+      expect(`${name}: ${el.childElementCount}`).toBe(`${name}: 0`); // whole or nothing — never one table drawn as if it were two
+      res.view.unmount();
+    }
+  });
+
+  it('a renderer that DRAWS layers but declares nothing is refused too — the flag is the promise, not the ability', () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const res = bindRenderer(layeredRenderer({ canLayer: false }), el, { viewId: 'net', callbacks: callbacks() });
+    if (!res.ok) throw new Error('bind failed');
+    expect('canLayer' in res.view.capabilities).toBe(false);
+    const outcome = res.view.update({ ...state([{ id: 'flu' }]), layers: LAYERS });
+    expect(outcome.ok).toBe(false);
+    expect(el.childElementCount).toBe(0);
+    res.view.unmount();
+  });
+
+  it('the address helpers ship from the contract barrel, re-exported from the library and never respelled', () => {
+    expect(LAYER_MARKER).toBe('~');
+    expect(layerAddress('net', 'edges')).toBe(`net${LAYER_MARKER}edges`);
+    expect(splitLayerAddress(layerAddress('net', 'edges'))).toEqual({ viewId: 'net', layerId: 'edges' });
+    expect(splitLayerAddress('net')).toEqual({ viewId: 'net' });
+    expect([holdsLayerMarker('net'), holdsLayerMarker(layerAddress('net', 'edges'))]).toEqual([false, true]);
   });
 });
 

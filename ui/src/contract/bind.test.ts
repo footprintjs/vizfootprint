@@ -180,6 +180,77 @@ describe('bindRenderer', () => {
     expect(gaps).toEqual([outcome.gap]);
   });
 
+  // ── protocol 1.2: layer bundles on the handshake, and the layers-unsupported guard ──
+
+  it('a plain bind carries NO layers key on the handshake, and a plain update answers ok (byte-identical to 1.1)', () => {
+    const { renderer, handshake } = fakeRenderer();
+    const res = bindRenderer(renderer, document.createElement('div'), { viewId: 'v', callbacks: callbacks() });
+    if (!res.ok) throw new Error('bind failed');
+    expect('layers' in handshake()!).toBe(false);
+    expect(Object.keys(handshake()!)).toEqual(['protocolVersion', 'viewId', 'callbacks']);
+    expect(res.view.update(state())).toEqual({ ok: true });
+  });
+
+  it('bound layers become ONE callback bundle per layerId, each wired by the host to the MINTED address', () => {
+    const { renderer, handshake } = fakeRenderer({ capabilities: { ...CAPS, canLayer: true } });
+    const wired: string[] = [];
+    const emitted: string[] = [];
+    const res = bindRenderer(renderer, document.createElement('div'), {
+      viewId: 'net',
+      callbacks: callbacks(),
+      layers: {
+        layerIds: ['edges', 'nodes'],
+        callbacksFor: (address) => {
+          wired.push(address);
+          return { ...callbacks(), emit: () => emitted.push(address) };
+        },
+      },
+    });
+    expect(res.ok).toBe(true);
+    expect(wired).toEqual(['net~edges', 'net~nodes']); // minted by bind, through the library's one owner of the marker
+    const layers = handshake()!.layers!;
+    expect(Object.keys(layers)).toEqual(['edges', 'nodes']);
+    layers['nodes']!.emit({ rawValue: 'flu', encoding: { kind: 'point', field: 'id' } });
+    expect(emitted).toEqual(['net~nodes']); // which bundle spoke IS which layer spoke
+  });
+
+  it('a layered frame pushed at a renderer without canLayer is REFUSED: typed layers-unsupported gap, onGap notified, nothing drawn', () => {
+    const { renderer, log } = fakeRenderer(); // CAPS declares no canLayer
+    const gaps: ContractGap[] = [];
+    const el = document.createElement('div');
+    const res = bindRenderer(renderer, el, { viewId: 'net', callbacks: callbacks(), onGap: (g) => gaps.push(g) });
+    if (!res.ok) throw new Error('bind failed');
+    const layered: RenderState = { ...state(), layers: [{ layerId: 'edges', table: 'edges', rows: [], encodings: {} }, { layerId: 'nodes', table: 'nodes', rows: [], encodings: {} }] };
+    const outcome = res.view.update(layered);
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error('unreachable');
+    expect(outcome.gap).toEqual({
+      code: 'layers-unsupported',
+      op: 'update',
+      detail: 'view "net" declares no canLayer — the frame carried 2 layer(s) and was not drawn',
+      target: 'net',
+    });
+    expect(gaps).toEqual([outcome.gap]);
+    expect(log).toEqual(['mount']); // update never reached the renderer — no half-drawn frame
+    expect(el.textContent).toBe('');
+  });
+
+  it('an EMPTY layers list carries nothing to refuse — it is forwarded like a plain frame', () => {
+    const { renderer, log } = fakeRenderer();
+    const res = bindRenderer(renderer, document.createElement('div'), { viewId: 'v', callbacks: callbacks() });
+    if (!res.ok) throw new Error('bind failed');
+    expect(res.view.update({ ...state(), layers: [] })).toEqual({ ok: true });
+    expect(log).toEqual(['mount', 'update']);
+  });
+
+  it('a canLayer renderer receives the layered frame whole', () => {
+    const { renderer, log } = fakeRenderer({ capabilities: { ...CAPS, canLayer: true } });
+    const res = bindRenderer(renderer, document.createElement('div'), { viewId: 'v', callbacks: callbacks() });
+    if (!res.ok) throw new Error('bind failed');
+    expect(res.view.update({ ...state(), layers: [{ layerId: 'a', table: 't', rows: [], encodings: {} }] })).toEqual({ ok: true });
+    expect(log).toEqual(['mount', 'update']);
+  });
+
   it('a custom hostProtocolVersion drives the handshake (the conformance kit uses this)', () => {
     const { renderer, handshake } = fakeRenderer();
     const res = bindRenderer(renderer, document.createElement('div'), {

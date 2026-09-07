@@ -42,7 +42,7 @@ the edge's policy — one rule for a chart; an analysis input stays the live set
 |---|---|
 | `types.ts` | the vocabulary and the `LinkGraph` shape; `edgeId` |
 | `voice.ts` | `voiceOf(capability, { hasEncodingSurface })` / `impliedKinds` — the ONE owner of "what can this view emit" (selection kinds from the capability; the `encoding` voice from having a surface) |
-| `materialize.ts` | default rule → edges; declared edges override in place; `edgesInto` / `edgesFrom` |
+| `materialize.ts` | default rule → edges (none within a frame: a view and its layers — `sharesFrame`); declared edges override in place; `edgesInto` / `edgesFrom` |
 | `validate.ts` | the refusals, as sentences, for `validateDashboardDef` |
 | `mermaid.ts` | `linksToMermaid(graph)` — declared === drawn |
 
@@ -58,6 +58,31 @@ linkDefault: 'crossfilter', // the default; 'none' starts from silence
 ```
 
 Read back through `session.overview().links` (and the agent's `whats_here`).
+
+**A frame's layers are one place — nothing crosses between them unless
+declared.** A view over more than one table has layers (`encodings[i].layers`,
+[`../def/README.md`](../def/README.md) "Layers"), and each layer is its own
+node of the graph under its address `viewId~layerId`, speaking its view's
+voice. The default rule writes NO edge between two nodes that share a frame —
+a view and its layers, or two layers of one view — for the reason it writes
+none from a view to itself: the layers of a node-link already share a canvas,
+and a select on the nodes cannot filter the edges by a nodes column. Every
+other pair follows the rule as before, and a declared edge may name a layer
+address on either end:
+
+```ts
+encodings: [{ viewId: 'net', chartKind: 'network', channels: ['x', 'y'], layers: [
+  { layerId: 'nodes', table: 'nodes', chartKind: 'point', channels: ['x', 'y', 'size'] },
+  { layerId: 'edges', table: 'edges', chartKind: 'line',  channels: ['x', 'y'] },
+]}],
+links: [{ source: 'net~nodes', kind: 'point', target: 'net~edges', response: 'highlight' }],
+// materialized: the one declared edge, and no default edge among net, net~nodes, net~edges
+// links[0].source "net~ghost" is not a declared view              ← an undeclared layer
+// links[0]: view "net~nodes" declares no encoding surface — …     ← an encoding edge: a layer's bindings are declared on the layer
+```
+
+A graph with no layers is written exactly as before: a plain viewId is its own
+frame, so "shares a frame" is "is the same node".
 
 **Edited at run time — the `link` verb.** A person (the matrix) or the agent
 (`dispatch` with `verb: 'link'`) lands one edge as a commit: `{ source, kind,

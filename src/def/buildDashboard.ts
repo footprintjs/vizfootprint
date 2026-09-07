@@ -52,6 +52,7 @@ import {
 } from './types.js';
 import { COMMIT_ID_PREFIX, PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, raiseMinted, restoredRecordId } from './recordIds.js';
 import { defRevision } from './revision.js';
+import { layerLinkViewOf, layerSurfaceOf } from './layers.js';
 import { createInteractionSession, type InteractionSession } from '../session/session.js';
 import type { SessionOptions } from '../session/types.js';
 import { materializeLinks, voiceOf } from '../links/index.js';
@@ -692,6 +693,8 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
       ...(capabilityByView.has(viewId) ? { capability: capabilityByView.get(viewId)! } : {}),
       ...(grainByView.has(viewId) ? { grain: grainByView.get(viewId)! } : {}),
       ...(encodingByView.has(viewId) ? { encoding: encodingByView.get(viewId)! } : {}),
+      // WHY: the def is deep-frozen at build, so the declared list IS the frozen resolved list; the key is absent on a view that declared none (byte-identical to a view built before layers existed)
+      ...(encodingByView.get(viewId)?.layers !== undefined ? { layers: encodingByView.get(viewId)!.layers! } : {}),
     });
   }
 
@@ -702,16 +705,15 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
   const makeFdrStepper = makeFdrStepperFactory(def);
 
   // ── layer 4: the link graph, materialized once (the default rule written out; declared edges override in place) ──
-  const links = materializeLinks(
-    [...views.values()].map((v) => ({
-      viewId: v.viewId,
-      voice: voiceOf(v.capability, { hasEncodingSurface: v.encoding !== undefined }),
-      ...(v.encoding !== undefined ? { channels: v.encoding.channels } : {}),
-      ...(v.grain !== undefined ? { grain: v.grain } : {}),
-    })),
-    def.links ?? [],
-    def.linkDefault ?? 'crossfilter',
-  );
+  // the views first, then every layer as its own node under its address (the default rule writes no edge within a frame — src/links/materialize.ts)
+  const linkViews = [...views.values()].map((v) => ({
+    viewId: v.viewId,
+    voice: voiceOf(v.capability, { hasEncodingSurface: v.encoding !== undefined }),
+    ...(v.encoding !== undefined ? { channels: v.encoding.channels } : {}),
+    ...(v.grain !== undefined ? { grain: v.grain } : {}),
+  }));
+  const layerViews = [...views.values()].flatMap((v) => (v.layers ?? []).map((layer) => layerLinkViewOf(v.viewId, layer, linkViews.find((lv) => lv.viewId === v.viewId)!.voice)));
+  const links = materializeLinks([...linkViews, ...layerViews], def.links ?? [], def.linkDefault ?? 'crossfilter');
 
   const runtime: DashboardRuntime = {
     def,
@@ -845,12 +847,33 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
           }
         }
       }
-      return lintEncodings({
+      const viewProblems = lintEncodings({
         views: surfaces,
         facets: [...runtime.encoding.facetsOf(defaultTable, cols), ...extra],
         rules: runtime.encoding.rules,
         ports: runtime.encoding.ports,
       });
+      // a layer is judged against ITS table's real columns — the `unknown` fudge above is for a view with no layers,
+      // whose reads of another table the single default table cannot name (src/def/layers.ts)
+      return [...viewProblems, ...(await lintLayers(views, providers, runtime))];
     },
   };
+}
+
+/**
+ * Every layer of every view, linted one at a time against the columns its own
+ * table's provider lists — under the layer ADDRESS, so a problem names the layer.
+ * WHY one call per layer: a dashboard-scope rule reads the other views' bindings
+ * as fields of one table; a layer's fields belong to its table, so its siblings are not "others".
+ */
+async function lintLayers(views: ReadonlyMap<string, ViewDecl>, providers: ReadonlyMap<string, DataProvider>, runtime: DashboardRuntime): Promise<EncodingProblem[]> {
+  const out: EncodingProblem[] = [];
+  for (const view of views.values()) {
+    for (const layer of view.layers ?? []) {
+      const cols = await providers.get(layer.table)!.columns(layer.table);
+      if (isRejection(cols)) throw new Error(`lint: the "${layer.table}" provider cannot list its columns — ${cols.reason}`);
+      out.push(...lintEncodings({ views: [layerSurfaceOf(view.viewId, layer)], facets: runtime.encoding.facetsOf(layer.table, cols), rules: runtime.encoding.rules, ports: runtime.encoding.ports }));
+    }
+  }
+  return out;
 }

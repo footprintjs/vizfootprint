@@ -13,6 +13,8 @@
 import { validateAnalysisDef } from '../analysis/index.js';
 import { isBuiltinRecord, validateBuiltinAnalysis } from './builtinAnalyses.js';
 import { validateRelations } from './relations.js';
+import { layerLinkViewsOf, layerSurfacesOf, markerRefusal, validateLayers } from './layers.js';
+import { holdsLayerMarker } from './layerAddress.js';
 import { validateLinks, voiceOf, type EmissionKind } from '../links/index.js';
 import { ENCODING_SET_FIELD,
   ANALYSIS_VIEW_PREFIX,
@@ -303,6 +305,8 @@ export function validateDashboardDef(def: unknown): string[] {
     problems.push('data must declare at least one table');
   } else {
     for (const [table, src] of Object.entries(def.data)) {
+      // a reserved marker: a layer address `viewId~layerId` names the layer's table through the split, so no table may wear it
+      if (holdsLayerMarker(table)) problems.push(`data["${table}"]: ${markerRefusal('a table name', table)}`);
       if (!isObject(src)) {
         problems.push(`data["${table}"] must be an object { rows | csv, engine? }`);
         continue;
@@ -346,6 +350,8 @@ export function validateDashboardDef(def: unknown): string[] {
         problems.push(`actors["${viewId}"]: "${DASHBOARD_PROSE_ID}" is the prose plane's name for the cockpit itself (describe with viewId "dashboard" sets the dashboard's own words) — a view may not take it`);
         continue;
       }
+      // a reserved marker: `viewId~layerId` splits at the first one, so a view id wearing it would be read as a layer of another view
+      if (holdsLayerMarker(viewId)) problems.push(`actors["${viewId}"]: ${markerRefusal('a view id', viewId)}`);
       const reserved = reservedPrefix(viewId);
       if (reserved !== undefined) {
         problems.push(
@@ -433,7 +439,9 @@ export function validateDashboardDef(def: unknown): string[] {
       const grain = grainByView.get(viewId);
       return { viewId, voice: voiceOf(capabilityByView.get(viewId), { hasEncodingSurface: surface !== undefined }), ...(surface !== undefined ? { channels: surface.channels } : {}), ...(grain !== undefined ? { grain } : {}) };
     });
-    validateLinks(def.links, def.linkDefault, linkViews, problems);
+    // a layer is a node of the graph under its address, so a declared edge may name one (src/def/layers.ts)
+    const layerViews = Array.isArray(def.encodings) ? layerLinkViewsOf(def.encodings, (viewId) => linkViews.find((v) => v.viewId === viewId)?.voice) : [];
+    validateLinks(def.links, def.linkDefault, [...linkViews, ...layerViews], problems);
   }
 
   // ── relations (optional) — the edges between TABLES: a column pointing at another table's key (src/def/relations.ts) ──
@@ -469,6 +477,8 @@ export function validateDashboardDef(def: unknown): string[] {
         if (enc.initial !== undefined && (!isObject(enc.initial) || Object.values(enc.initial).some((v) => typeof v !== 'string'))) {
           problems.push(`encodings[${i}].initial, if present, must be an object mapping channel -> field (strings)`);
         }
+        // layers — a view over more than one table (src/def/layers.ts); absent on every view built before layers existed
+        validateLayers(enc.layers, `encodings[${i}]`, typeof enc.viewId === 'string' ? enc.viewId : String(enc.viewId), def.data, problems);
       });
     }
   }
@@ -498,6 +508,16 @@ export function validateDashboardDef(def: unknown): string[] {
     const indexOf = new Map(surfaces.map((s) => [s.surface.viewId, s.index] as const));
     for (const p of lintEncodings({ views: surfaces.map((s) => s.surface), facets, ...(def.encodingRules !== undefined ? { rules: def.encodingRules as EncodingRules } : {}) })) {
       problems.push(`encodings[${indexOf.get(p.viewId)}].initial.${p.channel}: ${p.sentence}`);
+    }
+    // ── the same door once per LAYER, against the layer's own table — never the default table.
+    //    WHY one call per layer: a dashboard-scope rule reads the other views' bindings as
+    //    fields of ONE table; a layer's fields belong to its table, so its siblings are not "others".
+    for (const { index, at, table: layerTable, surface } of layerSurfacesOf(def.encodings, def.data)) {
+      const layerSrc = isObject(def.data[layerTable]) ? (def.data[layerTable] as Record<string, unknown>) : undefined;
+      const layerFacets = resolveFacets(defColumns(layerSrc, [{ surface }]), facetSourceOf(layerSrc));
+      for (const p of lintEncodings({ views: [surface], facets: layerFacets, ...(def.encodingRules !== undefined ? { rules: def.encodingRules as EncodingRules } : {}) })) {
+        problems.push(`encodings[${index}].layers[${at}].initial.${p.channel}: ${p.sentence}`);
+      }
     }
   }
 

@@ -761,6 +761,24 @@ export interface ViewInfo {
   readonly prose: readonly ProseStatus[];
   /** The prose plane: the proposals on the table for this view at the cursor, one per slot (the latest), with their derived status. */
   readonly proposals: readonly ProposalStatus[];
+  /**
+   * The view's layers, when it draws more than one table on one frame (a
+   * node-link: edges under nodes). Projected from the MAP — the declared
+   * facts, nothing judged; an act on a layer names it by the address
+   * `viewId~layerId` (`vizfootprint/def`'s `layerAddress`), and is gated on
+   * the layer's table. Absent on a view that declares none.
+   */
+  readonly layers?: readonly LayerInfo[];
+}
+
+/** One layer of a view as the overview projects it: its address parts, its table and its encoding surface. */
+export interface LayerInfo {
+  readonly layerId: string;
+  /** The table the layer reads — what a select on `viewId~layerId` is judged against. */
+  readonly table: string;
+  readonly chartKind: string;
+  readonly channels: readonly string[];
+  readonly label?: string;
 }
 
 /** A view's effective bindings under the link graph (see src/links/README.md, the encoding kind). */

@@ -16,6 +16,9 @@
  *                                        selection + hover + theme + size
  *   (outbound, exactly FOUR verbs) ◀─── emit · hover · reencodeRequest ·
  *                                        navigate
+ *   handshake.layers (1.2)          ───▶ one callback BUNDLE per layer, each
+ *                                        bound to the layer ADDRESS — the same
+ *                                        four verbs, never a fifth
  *
  * The four outbound callbacks are the ONLY way a renderer talks back. A
  * renderer never builds a clause (R3 — `emit` carries a plain DATA-space
@@ -46,9 +49,13 @@ import type { ChartEmission } from 'vizfootprint/selection';
  * optional `'cell'` emission kind (D30 — a compound two-field selection, one
  * gesture = one commit) and the conformance kit's optional cell arm; a 1.0
  * renderer never declares or emits cells, so the minor stays compatible
- * (same-major binds; minors only add).
+ * (same-major binds; minors only add). 1.2 ADDED layers: `RenderState.layers`
+ * (one frame over more than one table), the `canLayer` capability, and the
+ * per-layer callback bundles on the handshake — every one optional, so a 1.1
+ * renderer binds byte-identically and a host that pushes no layers changes
+ * nothing.
  */
-export const RENDERER_PROTOCOL_VERSION = '1.1';
+export const RENDERER_PROTOCOL_VERSION = '1.2';
 
 export type { ChartEmission };
 
@@ -108,6 +115,18 @@ export interface RendererCapabilities {
   // guards read version, transforms and emissionKinds — never this).
   /** Which R3 emission kinds this renderer produces. */
   readonly emissionKinds: readonly EmissionKind[];
+  /**
+   * Protocol 1.2: can draw `RenderState.layers` — several tables on ONE frame,
+   * each layer's gesture spoken through ITS callback bundle
+   * (`HostHandshake.layers[layerId]`) so the commit lands under the layer
+   * address. Optional so a 1.1 hello stays valid; absent reads as `false`.
+   * Guarded at `bindRenderer`'s `update`: a host pushing layers at a renderer
+   * without this flag files a typed `layers-unsupported` gap and the frame is
+   * not drawn — the one place Law 2 applies to an inbound push, because a
+   * renderer that draws only `rows` from a layered frame would show ONE
+   * table and let the viewer believe it was two.
+   */
+  readonly canLayer?: boolean;
 }
 
 /**
@@ -155,6 +174,19 @@ export interface HostHandshake {
   readonly protocolVersion: string;
   readonly viewId: string;
   readonly callbacks: RendererCallbacks;
+  /**
+   * Protocol 1.2: one callback BUNDLE per layer, keyed by `layerId`, each the
+   * same four verbs bound to the layer ADDRESS (`viewId~layerId`) — so a
+   * gesture on the edges layer is `handshake.layers['edges'].emit(...)` and
+   * lands ONE commit whose viewId is that address. Absent when the host bound
+   * no layers (a plain view's handshake is byte-identical to 1.1).
+   *
+   * WHY bundles and not a third emission key: the renderer's voice stays
+   * exactly four verbs (the stated law); which layer spoke is carried by WHICH
+   * bundle spoke, and the address is minted by `bindRenderer`, never spelled
+   * by a renderer — the marker has one owner (`vizfootprint/def`'s `layerAddress`).
+   */
+  readonly layers?: Readonly<Record<string, RendererCallbacks>>;
 }
 
 /**
@@ -213,17 +245,38 @@ export interface RenderSelection {
   readonly selfClauseId: string | null;
 }
 
+/** The channel→field fold at the cursor, as a renderer receives it (`x: 'price'`). */
+export type RenderEncodings = Readonly<Record<string, string>>;
+
+/**
+ * Protocol 1.2: one layer of a frame — its own table's rows (host-prepared,
+ * exactly like `RenderState.rows`) under its own encodings. The layer's
+ * gesture goes through `HostHandshake.layers[layerId]`, never the view's
+ * `callbacks`; its selection is the frame's `RenderState.selection`, whose
+ * clauses are keyed by source address, so a layer finds its own under
+ * `viewId~layerId`.
+ */
+export interface RenderLayer {
+  readonly layerId: string;
+  /** The table the rows came from — what a gesture on this layer is judged against. */
+  readonly table: string;
+  readonly rows: readonly RenderRow[];
+  readonly encodings: RenderEncodings;
+}
+
 /**
  * Everything a renderer needs to draw one frame — pushed by the host via
  * `update()`. `rows` arrive already crossfiltered/decimated/aggregated by
  * the host (the transform-ownership rule); `encodings` is the channel→field
  * fold at the cursor; `selection` is clause-addressable (above); `hover` is
  * ephemeral; `theme` is a resolved `--vzf-*` token map; `size` is the
- * measured box the renderer must fill.
+ * measured box the renderer must fill. `layers` (1.2) carries the OTHER
+ * tables a node-link draws on the same frame — edges under nodes — and is
+ * absent on every plain view.
  */
 export interface RenderState {
   readonly rows: readonly RenderRow[];
-  readonly encodings: Readonly<Record<string, string>>;
+  readonly encodings: RenderEncodings;
   readonly selection: RenderSelection;
   /**
    * The host's coordinated hover (row ids), or null. Transient by nature: it
@@ -235,6 +288,13 @@ export interface RenderState {
   readonly hover: readonly string[] | null;
   readonly theme: Readonly<Record<string, string>>;
   readonly size: { readonly width: number; readonly height: number };
+  /**
+   * Protocol 1.2: the frame's layers, in draw order (first = bottom — a
+   * node-link pushes edges then nodes). Only a `canLayer` renderer receives
+   * them; `bindRenderer` refuses the frame at any other with a typed
+   * `layers-unsupported` gap. Absent = a plain view, byte-identical to 1.1.
+   */
+  readonly layers?: readonly RenderLayer[];
 }
 
 /** The mounted half a renderer returns: its hello plus the two lifecycle verbs. */
@@ -257,7 +317,9 @@ export interface Renderer {
 export type ContractGapKind =
   | 'protocol-version-mismatch'
   | 'transforms-not-owned'
-  | 'navigate-unsupported';
+  | 'navigate-unsupported'
+  /** 1.2: a host pushed `RenderState.layers` at a renderer that declares no `canLayer` — the frame was not drawn. */
+  | 'layers-unsupported';
 
 /**
  * One unmet contract request. Shape-compatible with the adapter's `GapView`
@@ -266,7 +328,7 @@ export type ContractGapKind =
  */
 export interface ContractGap {
   readonly code: ContractGapKind;
-  readonly op: 'bind' | 'navigate';
+  readonly op: 'bind' | 'navigate' | 'update';
   /** Human-facing detail. INERT — never parsed, never dispatched on. */
   readonly detail: string;
   /** The viewId the request named. */

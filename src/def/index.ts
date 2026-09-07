@@ -22,6 +22,12 @@ export {
 } from './types.js';
 // Relations between tables — validated in `./relations.ts`, laws in ./README.md ("Relations").
 export { validateRelations, relationEdgeId } from './relations.js';
+// Layers — a view over more than one table; `viewId~layerId` is the address an act on a layer lands under,
+// and `./layerAddress.ts` is the ONE owner of the marker (laws in ./README.md "Layers").
+export { LAYER_MARKER, layerAddress, splitLayerAddress, holdsLayerMarker } from './layerAddress.js';
+export type { LayerAddressParts } from './layerAddress.js';
+export { validateLayers, layerSurfaceOf, layerSurfacesOf } from './layers.js';
+export type { LayerSurface } from './layers.js';
 // The long-form series contract (F3): `{t, entity, metric, value}` in, rows +
 // declared encodings out — no bespoke chart API. See `./series.ts`.
 export {
@@ -42,6 +48,7 @@ export type {
   AbsenceDecl,
   CapabilityDecl,
   ViewEncodingDecl,
+  LayerDecl,
   FdrDecl,
   AgentDecl,
   IntentDecl,

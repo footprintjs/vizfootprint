@@ -69,11 +69,27 @@ export interface ColumnView {
   readonly absence?: readonly string[];
 }
 
+/**
+ * One layer of a view, as the overview projects it (`ViewInfo.layers[]`): the
+ * declared facts — its id, ITS table, chart kind and channels. A gesture on it
+ * dispatches under the address `viewId~layerId` (join it with `layerAddress`
+ * from the contract barrel, never by hand) and is judged against `table`.
+ */
+export interface LayerView {
+  readonly layerId: string;
+  readonly table: string;
+  readonly chartKind: string;
+  readonly channels: readonly string[];
+  readonly label?: string;
+}
+
 /** A view (chart) the session exposes, with its clause-kind capabilities. */
 export interface ViewView {
   readonly viewId: string;
   readonly actor: Actor;
   readonly label?: string;
+  /** The view's layers when it declares any (a node-link: edges under nodes, each its own table). Absent on a plain view and on an older wire. */
+  readonly layers?: readonly LayerView[];
   /** Which point/interval/cell/match SELECTION kinds this view can emit (R3 capability). */
   readonly selectionKinds: readonly ('point' | 'interval' | 'cell' | 'match')[];
   readonly canProbe: boolean;

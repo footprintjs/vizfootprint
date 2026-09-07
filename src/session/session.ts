@@ -49,7 +49,7 @@ import { cellFieldLabel, derivedColumnName, isRejection, renameClauseFields, ren
 import { isClearedSelection } from '../branches/fold.js';
 import { applyLinkOverrides, edgeId, impliedKinds, validateLinks, type LinkDecl } from '../links/index.js';
 
-import type { CauseClause } from '../selection/index.js';
+import type { ActorMeta, CauseClause } from '../selection/index.js';
 import { registerAnalysisSlot } from '../def/register.js';
 import { copyValue, deepFreeze } from '../detach/index.js';
 import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RestorableSaved, RestorableBookmark, RestoreResult, ViewEncodingDecl, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
@@ -63,6 +63,7 @@ import { GapLedger, messageOf } from './gapLedger.js';
 import { clausesReaching, mappingsInto } from './clausesReaching.js';
 import { tablesInfoOf } from './tablesInfo.js';
 import { stampCause } from './stampCause.js';
+import { layerInfosOf, metaOf, placeOf, tableOf, type Place } from './layers.js';
 import { computeEffectiveEncodings, fitsWithFollows, followSentence } from './effectiveEncodings.js';
 import { offerStampOf, offersOf } from './offers.js';
 import { branchPathOf, commitsElsewhereThan, stepsSinceAncestor } from './branchPath.js';
@@ -987,7 +988,7 @@ class InteractionSessionImpl implements InteractionSession {
         this.activeLayouts.set(scope, Object.freeze({ ...current, [rec.field]: String(rec.value) }));
         continue;
       }
-      if (!this.runtime.views.has(rec.viewId)) continue; // skip annotation:/analysis: commits
+      if (!this.holdsView(rec.viewId)) continue; // skip annotation:/analysis: commits (a layer address is a view's place, and folds)
       if (RESERVED_PROBE_FIELDS.has(rec.field)) continue;
       if (isClearedSelection(rec)) {
         // a cleared interval, cell, match — or point — drops the filter (ONE rule, shared with the branch fold);
@@ -1241,6 +1242,7 @@ class InteractionSessionImpl implements InteractionSession {
     const clauses: PredicateClause[] = [];
     for (const entry of foldStateAt(this.log.records, tip).values()) {
       if (entry.kind !== 'selection') continue;
+      if (this.placeOf(entry.viewId)?.layer !== undefined && this.tableFor(entry.viewId) !== this.defaultTable) continue; // a layer's clause on another table is that table's (clausesOn)
       clauses.push(
         entry.clause.kind === 'cell'
           ? // a cell fold entry always carries its pair (fold.ts sets it from the record)
@@ -1566,6 +1568,45 @@ class InteractionSessionImpl implements InteractionSession {
     return this.activeEncodings.get(viewId) ?? EMPTY_BINDINGS;
   }
 
+  // ── layers: an address resolved against the map (./layers.ts) ───────────────
+  /** The place an address names: its view, and its layer when it is a layer address; undefined for an unknown view or layer. */
+  private placeOf(address: string): Place | undefined {
+    return placeOf(this.runtime.views, address);
+  }
+
+  /** True iff the address names a declared view, or a declared layer of one — the guard every `runtime.views.has(viewId)` on an act became. */
+  private holdsView(address: string): boolean {
+    return this.placeOf(address) !== undefined;
+  }
+
+  /**
+   * The table an act at this address is gated on. WHY: a view declares no
+   * table, so its acts are judged against the session's default table as they
+   * always were; a layer declares one, and its acts are judged against that —
+   * the whole point of a layer (../def/README.md, "Layers"). An unknown
+   * address answers the default so the door that follows can refuse it by name.
+   */
+  private tableFor(address: string): string {
+    const place = this.placeOf(address);
+    return place === undefined ? this.defaultTable : tableOf(place, this.defaultTable);
+  }
+
+  /** The registry meta a commit at this address lands with — the view's, or the layer's own (a layer is its own source under its address). */
+  private metaFor(address: string): ActorMeta {
+    return metaOf(this.placeOf(address)!); // every door judged the address before landing
+  }
+
+  /**
+   * The live clauses a count or a window over `table` may apply. WHY: a view
+   * declares no table, so its clause was always applied to whichever table was
+   * asked (the single-default-table limit, kept byte-for-byte); a layer's
+   * clause names ITS table's columns — applied to another it would be an
+   * unknown column, not a filter.
+   */
+  private clausesOn(table: string): PredicateClause[] {
+    return [...this.activeFilters].filter(([from]) => this.placeOf(from)?.layer === undefined || this.tableFor(from) === table).map(([, clause]) => clause);
+  }
+
   /**
    * Rows under the current selection (across all views). A pure best-effort
    * PROJECTION: a rejecting backend yields `[]` (the authoritative
@@ -1573,7 +1614,7 @@ class InteractionSessionImpl implements InteractionSession {
    * projection called by `overview()` must not spam the ledger).
    */
   async selectedRows(table = this.defaultTable): Promise<readonly Row[]> {
-    const rows = await this.allRows(table, [...this.activeFilters.values()]);
+    const rows = await this.allRows(table, this.clausesOn(table));
     return 'rejected' in rows ? [] : rows;
   }
 
@@ -1582,9 +1623,10 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   async viewQuery(query: ViewQuery = {}): Promise<ViewQueryResult> {
-    const table = query.table ?? this.defaultTable;
+    // a layer address defaults to the layer's own table — the window a layer draws is a window on what it reads
+    const table = query.table ?? (query.viewId === undefined ? this.defaultTable : this.tableFor(query.viewId));
     if (!this.runtime.tables.includes(table)) return { ok: false, reason: 'unknown-table', rejected: `no table "${table}" is declared — the tables are ${this.runtime.tables.join(', ')}` };
-    if (query.viewId !== undefined && !this.runtime.views.has(query.viewId)) return { ok: false, reason: 'unknown-view', rejected: `no declared view "${query.viewId}" — the views are ${[...this.runtime.views.keys()].join(', ')}` };
+    if (query.viewId !== undefined && !this.holdsView(query.viewId)) return { ok: false, reason: 'unknown-view', rejected: `no declared view "${query.viewId}" — the views are ${[...this.runtime.views.keys()].join(', ')}` };
     const provider = this.runtime.providerFor(table);
     // the version is read in the SAME instant as the provider, and checked again after the rows: a refresh landing anywhere in between is a moved version, never a misdated window
     const version = this.runtime.sources[table]?.version ?? null;
@@ -1593,7 +1635,7 @@ class InteractionSessionImpl implements InteractionSession {
     const sorted = query.sort !== undefined && query.sort.length > 0;
     if (sorted && provider.capabilities.canSort !== true) return { ok: false, reason: 'unsupported-sort', rejected: `the ${provider.engine} engine cannot sort. Ask for this window without a sort` };
     // whose eyes: a view sees what reaches it; no view = the whole-dashboard truth, every live clause filtering (what selectedRowCount counts)
-    const clauses: ReachingClause[] = query.viewId === undefined ? [...this.activeFilters].map(([from, clause]) => ({ from, clause: copyClause(clause), response: 'filter' as const })) : [...this.clausesFor(query.viewId)];
+    const clauses: ReachingClause[] = query.viewId === undefined ? [...this.activeFilters].filter(([from]) => this.clausesOn(table).includes(this.activeFilters.get(from)!)).map(([from, clause]) => ({ from, clause: copyClause(clause), response: 'filter' as const })) : [...this.clausesFor(query.viewId)];
     const filters = clauses.filter((c) => c.response === 'filter').map((c) => c.clause);
     const key = this.runtime.def.data[table]!.key; // the table is declared: its def row exists
     let columns = query.columns;
@@ -1760,7 +1802,7 @@ class InteractionSessionImpl implements InteractionSession {
       return { conditions, from };
     }
     if ('viewId' in source) {
-      if (!this.runtime.views.has(source.viewId)) return { rejected: `no declared view "${source.viewId}" — the views are ${[...this.runtime.views.keys()].join(', ')}` };
+      if (!this.holdsView(source.viewId)) return { rejected: `no declared view "${source.viewId}" — the views are ${[...this.runtime.views.keys()].join(', ')}` };
       const live = this.activeFilters.get(source.viewId);
       if (live === undefined) return { rejected: `"${source.viewId}" has nothing selected to save` };
       const commit = this.activeFilterCommits.get(source.viewId);
@@ -1771,7 +1813,7 @@ class InteractionSessionImpl implements InteractionSession {
     const conditions: SavedClause[] = [];
     const seen = new Set<string>();
     for (const c of source.conditions) {
-      if (!this.runtime.views.has(c.viewId)) return { rejected: `no declared view "${c.viewId}" — the views are ${[...this.runtime.views.keys()].join(', ')}` };
+      if (!this.holdsView(c.viewId)) return { rejected: `no declared view "${c.viewId}" — the views are ${[...this.runtime.views.keys()].join(', ')}` };
       if (seen.has(c.viewId)) return { rejected: `the picture already has a condition on "${c.viewId}" — one condition per view` };
       seen.add(c.viewId);
       if (c.kind === 'cell') {
@@ -1820,19 +1862,26 @@ class InteractionSessionImpl implements InteractionSession {
     const saved = this.saved().find((c) => c.name === name);
     if (saved === undefined) return { ok: false, rejected: `no saved selection "${name}" — the saved ones are ${this.savedNames()}` };
     // JUDGE FIRST, CLEAR SECOND: a condition on a view no longer here, or on a field the table no longer has, is refused before anything is touched — an apply that could land nothing clears nothing
-    const cols = await this.effectiveColumnsOf(this.defaultTable);
-    if ('rejected' in cols) return { ok: false, rejected: `"${name}" cannot be applied here — ${cols.rejected}` }; // the select door would refuse every condition without the columns: say so before clearing anything
-    const has = new Set(cols.map((c) => c.name));
+    // the columns of each table a condition is gated on (a layer's own; the default for a view), asked once per table
+    const hasByTable = new Map<string, ReadonlySet<string>>();
     const refused: { viewId: string; rejected: string }[] = [];
     const landable: SavedClause[] = [];
     for (const c of saved.conditions) {
-      if (!this.runtime.views.has(c.viewId)) {
+      if (!this.holdsView(c.viewId)) {
         refused.push({ viewId: c.viewId, rejected: `"${c.viewId}" is no longer on the dashboard` });
         continue;
       }
-      const missing = (c.kind === 'cell' ? [...c.fields!] : [c.field]).find((f) => !has.has(f));
+      const table = this.tableFor(c.viewId);
+      let has = hasByTable.get(table);
+      if (has === undefined) {
+        const cols = await this.effectiveColumnsOf(table);
+        if ('rejected' in cols) return { ok: false, rejected: `"${name}" cannot be applied here — ${cols.rejected}` }; // the select door would refuse every condition without the columns: say so before clearing anything
+        has = new Set(cols.map((col) => col.name));
+        hasByTable.set(table, has);
+      }
+      const missing = (c.kind === 'cell' ? [...c.fields!] : [c.field]).find((f) => !has!.has(f));
       if (missing !== undefined) {
-        refused.push({ viewId: c.viewId, rejected: `table "${this.defaultTable}" no longer has the column "${missing}"` });
+        refused.push({ viewId: c.viewId, rejected: `table "${table}" no longer has the column "${missing}"` });
         continue;
       }
       const cannot = this.probeGuard(c.viewId, c.kind);
@@ -1954,7 +2003,7 @@ class InteractionSessionImpl implements InteractionSession {
   ): { canProbe: boolean; encodings?: readonly ('point' | 'interval' | 'cell' | 'match')[] } | undefined {
     const adapter = this.adapters.get(viewId);
     if (adapter) return adapter.capabilities;
-    const view = this.runtime.views.get(viewId);
+    const view = this.placeOf(viewId)?.view; // a layer answers with its view's capability — the frame's voice is the layers' voice
     if (view?.capability) {
       return {
         canProbe: view.capability.canProbe,
@@ -1993,7 +2042,7 @@ class InteractionSessionImpl implements InteractionSession {
       parent: this._cursor,
       ...(correlationId !== undefined ? { correlationId } : {}),
       viewId: linkViewId(id),
-      actorMeta: this.runtime.views.get(source)!.meta,
+      actorMeta: this.metaFor(source),
       kind: 'point',
       field: 'response',
       value,
@@ -2008,7 +2057,7 @@ class InteractionSessionImpl implements InteractionSession {
 
   // ── mountView (R3) ───────────────────────────────────────────────────────────
   mountView(viewId: string, adapter: ViewAdapter): { ok: true } | { ok: false; gap: GapRow } {
-    if (!this.runtime.views.has(viewId)) {
+    if (!this.holdsView(viewId)) {
       return { ok: false, gap: this.gapLedger.file('needs-view', 'mountView', `no declared view "${viewId}"`, viewId) };
     }
     this.adapters.set(viewId, adapter);
@@ -2102,8 +2151,8 @@ class InteractionSessionImpl implements InteractionSession {
     correlationId: string | undefined,
   ): Promise<DispatchResult> {
     const verb: DispatchVerb = kind === 'interval' ? 'filter' : 'select';
-    // 1. the view must be declared (R14: needs-view).
-    if (!this.runtime.views.has(viewId)) {
+    // 1. the view must be declared (R14: needs-view) — a layer address names a declared layer of one.
+    if (!this.holdsView(viewId)) {
       return this.reject(verb, intent, this.gapLedger.file('needs-view', verb, `no declared view "${viewId}"`, viewId));
     }
     // 2. the view's capability guard (R14: guard-failed).
@@ -2117,12 +2166,13 @@ class InteractionSessionImpl implements InteractionSession {
     // 3. the field must be a column VISIBLE on this branch (R14: needs-column /
     //    needs-backend-data). A materialized column absent from the cursor's
     //    branch fold is honestly `needs-column` here — branch isolation.
-    const cols = await this.effectiveColumnsOf(this.defaultTable);
+    const table = this.tableFor(viewId); // a layer's own table; the default for a view
+    const cols = await this.effectiveColumnsOf(table);
     if ('rejected' in cols) {
       return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, cols.rejected, field));
     }
     if (!cols.some((c) => c.name === field)) {
-      return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${field}" in table "${this.defaultTable}"`, field));
+      return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${field}" in table "${table}"`, field));
     }
     // 4. land the cause-tagged clause commit (commit-on-intent) + update the active filter set.
     //    Parent is the CURSOR: a probe from a past cursor branches (R8 branch-on-act).
@@ -2132,7 +2182,7 @@ class InteractionSessionImpl implements InteractionSession {
       parent: this._cursor,
       ...(correlationId !== undefined ? { correlationId } : {}),
       viewId,
-      actorMeta: this.runtime.views.get(viewId)!.meta,
+      actorMeta: this.metaFor(viewId), // a layer lands as its own source under its address
       kind,
       field,
       value,
@@ -2174,8 +2224,8 @@ class InteractionSessionImpl implements InteractionSession {
     correlationId: string | undefined,
   ): Promise<DispatchResult> {
     const verb: DispatchVerb = 'select';
-    // 1. the view must be declared (R14: needs-view).
-    if (!this.runtime.views.has(viewId)) {
+    // 1. the view must be declared (R14: needs-view) — a layer address names a declared layer of one.
+    if (!this.holdsView(viewId)) {
       return this.reject(verb, intent, this.gapLedger.file('needs-view', verb, `no declared view "${viewId}"`, viewId));
     }
     // 2. the view's capability guard (R14: guard-failed) — a cell must be a
@@ -2196,13 +2246,14 @@ class InteractionSessionImpl implements InteractionSession {
     }
     // 3. BOTH fields must be columns VISIBLE on this branch (R14: needs-column
     //    / needs-backend-data) — the doProbe guard, applied to each side.
-    const cols = await this.effectiveColumnsOf(this.defaultTable);
+    const table = this.tableFor(viewId); // a layer's own table; the default for a view
+    const cols = await this.effectiveColumnsOf(table);
     if ('rejected' in cols) {
       return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, cols.rejected, fields[0]));
     }
     for (const field of fields) {
       if (!cols.some((c) => c.name === field)) {
-        return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${field}" in table "${this.defaultTable}"`, field));
+        return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${field}" in table "${table}"`, field));
       }
     }
     // 4. land ONE cause-tagged compound commit (commit-on-intent). Parent is
@@ -2213,7 +2264,7 @@ class InteractionSessionImpl implements InteractionSession {
       parent: this._cursor,
       ...(correlationId !== undefined ? { correlationId } : {}),
       viewId,
-      actorMeta: this.runtime.views.get(viewId)!.meta,
+      actorMeta: this.metaFor(viewId), // a layer lands as its own source under its address
       kind: 'cell',
       field: cellFieldLabel(fields), // display-only joint label; the pair is authoritative
       fields: [fields[0], fields[1]],
@@ -2255,8 +2306,14 @@ class InteractionSessionImpl implements InteractionSession {
    */
   private async reencodeGuards(viewId: string, pairs: readonly (readonly [string, string])[]): Promise<{ readonly cols: readonly ColumnInfo[] } | { readonly gap: GapRow }> {
     // 1. the view must be declared (R14: needs-view).
-    if (!this.runtime.views.has(viewId)) {
+    if (!this.holdsView(viewId)) {
       return { gap: this.gapLedger.file('needs-view', 'reencode', `no declared view "${viewId}"`, viewId) };
+    }
+    // 1b. a LAYER's bindings are declared on the layer and stay so in this version: the encoding fold
+    //     (initial seeds, fits, effective, follows) is per VIEW, and a frame with shared scales is the
+    //     packet that makes a layer's rebind meaningful (../def/README.md, "Layers", not-in-this-version)
+    if (this.placeOf(viewId)!.layer !== undefined) {
+      return { gap: this.gapLedger.file('guard-failed', 'reencode', `"${viewId}" is a layer — its bindings are declared on the layer and cannot be re-encoded; reencode names the view`, viewId) };
     }
     // 2. the view must declare an encoding surface at all (R14: guard-failed —
     //    never guess a channel vocabulary for an undeclared chart kind).
@@ -2411,7 +2468,7 @@ class InteractionSessionImpl implements InteractionSession {
 
   /** The guards a propose / accept / decline share: a declared view and a real slot. */
   private proseGuards(viewId: string, slot: ProseSlot, op: 'describe'): GapRow | null {
-    if (viewId !== DASHBOARD_PROSE_ID && !isNoteSubject(viewId) && !this.runtime.views.has(viewId)) return this.gapLedger.file('needs-view', op, `no declared view "${viewId}" — the prose subjects are a declared view, "dashboard", or a note ("note:<id>")`, viewId);
+    if (viewId !== DASHBOARD_PROSE_ID && !isNoteSubject(viewId) && !this.holdsView(viewId)) return this.gapLedger.file('needs-view', op, `no declared view "${viewId}" — the prose subjects are a declared view, "dashboard", or a note ("note:<id>")`, viewId);
     if (!(PROSE_SLOTS as readonly string[]).includes(slot)) return this.gapLedger.file('guard-failed', op, `"${String(slot)}" is not a prose slot — the slots are ${PROSE_SLOTS.join(', ')}`, String(slot));
     if (isNoteSubject(viewId) && slot !== 'title' && slot !== 'caption') return this.gapLedger.file('guard-failed', op, `a note carries a title and a caption — "${slot}" is not a note slot`, slot);
     return null;
@@ -2476,7 +2533,7 @@ class InteractionSessionImpl implements InteractionSession {
       parent: this._cursor,
       ...(correlationId !== undefined ? { correlationId } : {}),
       viewId: `${PROSE_VIEW_PREFIX}${viewId}`,
-      actorMeta: this.runtime.views.get(viewId)?.meta ?? (isNoteSubject(viewId) ? NOTE_ACTOR_META : DASHBOARD_ACTOR_META),
+      actorMeta: this.holdsView(viewId) ? this.metaFor(viewId) : isNoteSubject(viewId) ? NOTE_ACTOR_META : DASHBOARD_ACTOR_META,
       kind: 'point',
       field,
       value,
@@ -2491,7 +2548,7 @@ class InteractionSessionImpl implements InteractionSession {
     const gap = this.proseGuards(viewId, slot, 'describe');
     if (gap !== null) return this.reject('describe', intent, gap);
     if (record === null) return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', `a proposal for "${viewId}".${slot} needs a record — null is not a proposal`, slot));
-    const cols = await this.effectiveColumnsOf(this.defaultTable);
+    const cols = await this.effectiveColumnsOf(this.tableFor(viewId)); // a layer's words are judged against the columns it reads
     if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
     const problems = validateProseRecord(viewId, slot, record, this.proseWorld(cols, 'proposal'));
     if (proseRefuses(problems)) return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', problems.map((p) => p.sentence).join('; '), slot));
@@ -2603,12 +2660,13 @@ class InteractionSessionImpl implements InteractionSession {
   ): Promise<DispatchResult> {
     const gap = this.proseGuards(viewId, slot, 'describe');
     if (gap !== null) return this.reject('describe', intent, gap);
-    const cols = await this.effectiveColumnsOf(this.defaultTable);
+    const table = this.tableFor(viewId); // a layer's words are judged against the columns it reads
+    const cols = await this.effectiveColumnsOf(table);
     if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
     if (record !== null && record.author.kind === 'humanEdited' && record.basis !== undefined) {
       // a person edited an agent's words looking at THIS screen: the basis keeps the keys the agent stated,
       // re-stamped to what is on screen now — so the edit is judged fresh, and goes stale on its own terms
-      const effective = this.proseEncodingsNow(viewId, this.runtime.encoding.facetsOf(this.defaultTable, cols));
+      const effective = this.proseEncodingsNow(viewId, this.runtime.encoding.facetsOf(table, cols));
       const { editedFrom: prior, ...stated } = record.basis; // the agent's ORIGINAL evidence survives every edit, kept once — never nested
       record = {
         ...record,
@@ -2629,7 +2687,7 @@ class InteractionSessionImpl implements InteractionSession {
     }
     const commit = this.landProse(viewId, slot, record, cause, as, correlationId);
     this.foldProse(viewId, slot, record);
-    const described = this.proseOf(viewId, this.runtime.encoding.facetsOf(this.defaultTable, cols)).find((p) => p.slot === slot) ?? null;
+    const described = this.proseOf(viewId, this.runtime.encoding.facetsOf(table, cols)).find((p) => p.slot === slot) ?? null;
     return { ok: true, verb: 'describe', intent, commit, described };
   }
 
@@ -2749,7 +2807,7 @@ class InteractionSessionImpl implements InteractionSession {
     if (viewId.startsWith(LAYOUT_VIEW_PREFIX)) {
       return this.doLayoutNote(viewId, field, value, cause, as, intent, correlationId);
     }
-    if (!this.runtime.views.has(viewId)) {
+    if (!this.holdsView(viewId)) {
       return this.reject('navigate', intent, this.gapLedger.file('needs-view', 'navigate', `no declared view "${viewId}"`, viewId));
     }
     // A declared-view navigate (pan/zoom) is the RP-1 contract: recorded as the
@@ -3505,7 +3563,7 @@ class InteractionSessionImpl implements InteractionSession {
 
   // ── the whats_here projection ────────────────────────────────────────────────
   async overview(): Promise<Overview> {
-    const selCount = await this.selectedCount(this.defaultTable, [...this.activeFilters.values()]);
+    const selCount = await this.selectedCount(this.defaultTable, this.clausesOn(this.defaultTable)); // a layer's clause on another table is that table's, not this count's
 
     // columns per table (schema only — VALUES never ride here; Q8).
     const columns: Record<string, ColumnFacet[]> = {};
@@ -3553,6 +3611,8 @@ class InteractionSessionImpl implements InteractionSession {
         // the prose plane: every slot at the cursor, its staleness judged against what is on screen
         prose: this.proseOf(view.viewId, columns[this.defaultTable] ?? []),
         proposals: this.proposalsOf(view.viewId),
+        // the layers, projected from the MAP: absent on a view that declares none (byte-identical to before layers existed)
+        ...(view.layers !== undefined ? { layers: layerInfosOf(view) } : {}),
       };
     });
     const encodingPolicy = { onInvalid: this.runtime.encoding.rules.onInvalid ?? 'refuse', ruleScope: this.runtime.encoding.rules.ruleScope ?? ('dashboard' as const) };

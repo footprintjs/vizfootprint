@@ -60,6 +60,8 @@ import {
   type RenderState,
 } from './types.js';
 import type { GeoFeatureCollection } from '../charts/VizMap.js';
+import { buildNetworkFixture } from '../adapter/network.fixture.js';
+import { layeredRenderer, networkState, networkLayers, clickMark, type LayeredRendererOptions } from './layered.fixture.js';
 
 // ── the scripted fixture ────────────────────────────────────────────────────────
 
@@ -230,9 +232,11 @@ describe('conformance — all eight first-party charts pass (the reference claim
       },
     });
     expect(report.ok, explain(report)).toBe(true);
-    expect(report.steps).toHaveLength(11);
+    expect(report.steps).toHaveLength(12);
     // a renderer with no cell declaration skips the D30 arm honestly
     expect(report.steps.find((s) => s.step === 'cell')!.detail).toContain('honestly skipped');
+    // …and one with no canLayer skips the 1.2 layers arm the same way
+    expect(report.steps.find((s) => s.step === 'layers')!.detail).toBe('the renderer declares no canLayer — the layers arm is honestly skipped');
     expect(report.emissions[0]!.encoding.kind).toBe('interval');
     expect(report.reencodeRequests).toEqual(['y']); // the host owns the picker — the request was surfaced, not swallowed
     // the five are canPanZoom:false — the ONLY contract gap is the navigate one, typed
@@ -548,7 +552,7 @@ describe('conformance — hostile renderers are caught at the exact step', () =>
       gesture: clickProbe,
     });
     await expectFailAt(report, 'unmount', 'left');
-    expect(report.steps.filter((s) => s.ok)).toHaveLength(10); // everything else passed (incl. the honest cell + match skips)
+    expect(report.steps.filter((s) => s.ok)).toHaveLength(11); // everything else passed (incl. the honest cell + match + layers skips)
   });
 
   it('a renderer DECLARING the cell kind but given no cellGesture fails the cell arm honestly', async () => {
@@ -652,6 +656,115 @@ describe('conformance — hostile renderers are caught at the exact step', () =>
       { gesture: clickProbe, verifyUpdate: () => true, cellGesture: clickCellProbe },
     );
     await expectFailAt(report, 'cell', 'kind:point · fields-missing · self-missing');
+  });
+});
+
+// ── protocol 1.2: the layers arm on a REAL two-table session ───────────────────
+
+describe('conformance — the layers arm (one frame, two tables, a gesture on the second layer)', () => {
+  const clickProbeButton = (el: HTMLElement): void => {
+    fireEvent.click(el.querySelector('button.probe')!);
+  };
+
+  async function runNet(options: LayeredRendererOptions, extras: Partial<ConformancePlan> = {}): Promise<ConformanceReport> {
+    const { view } = await buildNetworkFixture();
+    return runConformance({
+      renderer: layeredRenderer(options),
+      viewId: 'net',
+      el: mountEl(),
+      view,
+      buildState: (st) => networkState(st),
+      gesture: clickProbeButton,
+      verifyUpdate: () => true,
+      layers: { layerIds: ['edges', 'nodes'], gesture: clickMark('nodes') },
+      ...extras,
+    });
+  }
+
+  it('a canLayer renderer passes: both layers drawn, the nodes gesture spoke through the nodes bundle and landed ONE commit under net~nodes', async () => {
+    const report = await runNet({});
+    expect(report.ok, explain(report)).toBe(true);
+    expect(report.steps).toHaveLength(12);
+    const layers = report.steps.find((s) => s.step === 'layers')!;
+    expect(layers.detail).toBe('both layers drawn; the gesture on "nodes" spoke through its bundle and landed ONE commit under net~nodes');
+    // the view's own gesture (step 5) then the layer's — the second through the nodes bundle
+    expect(report.emissions).toEqual([
+      { rawValue: 12, encoding: { kind: 'point', field: 'size' } },
+      { rawValue: 'viral', encoding: { kind: 'point', field: 'group' } },
+    ]);
+  });
+
+  it('the layer commit lands with the layer as its own source — the address as viewId, the layer label as its name', async () => {
+    const { view } = await buildNetworkFixture();
+    const report = await runConformance({
+      renderer: layeredRenderer(),
+      viewId: 'net',
+      el: mountEl(),
+      view,
+      buildState: (st) => networkState(st),
+      gesture: clickProbeButton,
+      verifyUpdate: () => true,
+      layers: { layerIds: ['edges', 'nodes'], gesture: clickMark('nodes') },
+    });
+    expect(report.ok, explain(report)).toBe(true);
+    const commits = view.getState().commits;
+    expect(commits.map((c) => [c.viewId, c.field, c.value])).toEqual([
+      ['net', 'size', 12],
+      ['net~nodes', 'group', 'viral'],
+    ]);
+    // the fold keys the layer's clause under its address — a layer finds its own by the address, never by the viewId
+    const sel = selectionForView(view.getState().selections, 'net~nodes');
+    expect(sel.clauses.get('net~nodes')?.value).toBe('viral');
+    expect(view.getState().views[0]!.layers!.map((l) => l.layerId)).toEqual(['nodes', 'edges']);
+  });
+
+  it('a renderer declaring canLayer but given no layers plan fails the arm honestly', async () => {
+    const report = await runNet({}, { layers: undefined });
+    const last = report.steps[report.steps.length - 1]!;
+    expect([last.step, last.ok, last.detail]).toEqual(['layers', false, 'the renderer declares canLayer but the plan provides no layers to push']);
+  });
+
+  it('a frame carrying ONE layer fails the arm — two are needed to tell the second from the first', async () => {
+    const report = await runNet({}, { buildState: (st) => networkState(st, networkLayers().slice(0, 1)) });
+    const last = report.steps[report.steps.length - 1]!;
+    expect([last.step, last.detail]).toEqual(['layers', 'the layers arm needs TWO layers on the frame and in the plan — got 1 on the frame, 2 in the plan']);
+  });
+
+  it('a frame with no layers key at all counts as zero on the frame', async () => {
+    const report = await runNet({}, { buildState: (st) => { const { layers, ...plain } = networkState(st); void layers; return plain; } });
+    const last = report.steps[report.steps.length - 1]!;
+    expect([last.step, last.detail]).toEqual(['layers', 'the layers arm needs TWO layers on the frame and in the plan — got 0 on the frame, 2 in the plan']);
+  });
+
+  it('a plan naming ONE layer id fails the arm the same way', async () => {
+    const report = await runNet({}, { layers: { layerIds: ['edges'], gesture: clickMark('edges') } });
+    const last = report.steps[report.steps.length - 1]!;
+    expect([last.step, last.detail]).toEqual(['layers', 'the layers arm needs TWO layers on the frame and in the plan — got 2 on the frame, 1 in the plan']);
+  });
+
+  it('a renderer that accepts the layered frame but draws no layer fails the arm (the plan\'s verify)', async () => {
+    const report = await runNet({ drawLayers: false }, { layers: { layerIds: ['edges', 'nodes'], gesture: clickMark('nodes'), verify: (el) => el.querySelectorAll('div.layer').length === 2 } });
+    const last = report.steps[report.steps.length - 1]!;
+    expect([last.step, last.detail]).toEqual(['layers', 'the layered frame left nothing of both layers on screen']);
+  });
+
+  it('a layer gesture spoken through the VIEW\'s callbacks is caught — it landed under the view, not the layer', async () => {
+    const report = await runNet({ speakThrough: 'view' });
+    const last = report.steps[report.steps.length - 1]!;
+    expect(last.step).toBe('layers');
+    expect(last.detail).toContain('spoke through no layer bundle');
+  });
+
+  it('a plan whose gesture touches the FIRST layer is caught by the descriptor — the commit landed, under the wrong address', async () => {
+    const report = await runNet({}, { layers: { layerIds: ['edges', 'nodes'], gesture: clickMark('edges') } });
+    const last = report.steps[report.steps.length - 1]!;
+    expect([last.step, last.detail]).toEqual(['layers', 'the layers arm misbehaved: bundle:net~edges · viewId:net~edges']);
+  });
+
+  it('a layer gesture on a column of the OTHER table is refused by the session — zero commits, the arm says so', async () => {
+    const report = await runNet({ emitField: { nodes: 'weight' } }); // weight is an edges column; the nodes layer is judged against nodes
+    const last = report.steps[report.steps.length - 1]!;
+    expect([last.step, last.detail]).toEqual(['layers', 'the layer gesture landed 0 commit(s) — one gesture on one layer is exactly ONE']);
   });
 });
 

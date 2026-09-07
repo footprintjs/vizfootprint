@@ -38,6 +38,7 @@ export type {
   ApplySavedResult,
   BookmarkResult,
   ViewInfo,
+  LayerInfo,
   EffectiveEncoding,
   SelectionInfo,
   Offer,

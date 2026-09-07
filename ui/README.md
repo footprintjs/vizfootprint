@@ -463,7 +463,7 @@ await view.reencodeSet('scatter', { x: 'rating', y: 'price' }, 'swap axes');
 Any charting stack — the five first-party charts, a canvas renderer, a
 wrapped external library — can join the coordinated, cause-tagged dashboard
 by implementing ONE small surface. The protocol is framework-agnostic and
-versioned (`RENDERER_PROTOCOL_VERSION`, currently `1.1`). The laws it is
+versioned (`RENDERER_PROTOCOL_VERSION`, currently `1.2`). The laws it is
 reviewed against — what a capability flag may claim, and why — are written up
 in `src/contract/README.md`.
 
@@ -491,6 +491,24 @@ silent no-op:
 crossfiltered/decimated/aggregated by the host), `encodings` (the
 channel→field fold at the cursor), the **clause-addressable `selection`**,
 ephemeral `hover` keys, `theme` tokens, and the measured `size`.
+
+**Layers (protocol 1.2).** One frame may hold several tables — a node-link
+draws edges under nodes, each its own table. A view declares `layers` in the
+def, and each is addressed as `viewId~layerId` (join it with `layerAddress`
+from this package — the marker has one owner, in `vizfootprint/def`). The
+frame carries them as `RenderState.layers` (draw order, first = bottom), a
+renderer that draws them declares `canLayer`, and the handshake hands it
+**one callback bundle per layer** — the same four verbs, bound to the layer
+address — so a gesture on the edges layer lands ONE commit whose viewId is
+`net~edges`, judged against the edges table. All three are optional: a 1.1
+renderer binds byte-identically, and a host that pushes no layers changes
+nothing. A layered frame pushed at a renderer without `canLayer` is refused
+whole with a typed `layers-unsupported` gap — never one table drawn as if it
+were two. The adapter projects `ViewView.layers` from the overview and ships
+`layerRowsFor(session, address)` as the one door for a layer's rows; the
+conformance kit's `layers` arm proves the loop on a real two-table session.
+No first-party chart declares `canLayer` yet — the network view is the next
+packet.
 
 The selection is the load-bearing piece: `{ clauses, resolve, selfClauseId }`,
 where `clauses` maps each SOURCE viewId to its live clause (kind, field,
@@ -701,8 +719,8 @@ plumbing beyond the primitives tier.
 | module | job |
 |---|---|
 | `tokens/` | design tokens + theme engine — scoped CSS variables on the `.vzf` root (never `:root`), light+dark via `prefers-color-scheme` with a `data-theme` override that wins both ways |
-| `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods incl. `navigate`) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView` |
-| `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION` (1.1 — adds the `cell` kind), `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`brightPredicate`/`selfSelectedValue`/`selfSelectedInterval`/`selfSelectedSet`/`selfSelectedCell`, the eight reference renderers, `runConformance` (now with the cell arm), and the capability-honesty law in `src/contract/README.md` |
+| `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods incl. `navigate`) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView`; `ViewView.layers` projected from the overview and `layerRowsFor(session, address)` — the one door for a layer's rows (1.2) |
+| `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION` (1.2 — 1.1 added the `cell` kind, 1.2 added layers: `RenderState.layers`, `canLayer`, per-layer callback bundles, the `layers-unsupported` gap, and the address helpers re-exported from `vizfootprint/def`), `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`brightPredicate`/`selfSelectedValue`/`selfSelectedInterval`/`selfSelectedSet`/`selfSelectedCell`, the eight reference renderers, `runConformance` (the cell and layers arms), and the capability-honesty law in `src/contract/README.md` |
 | `primitives/` | the chart-building tier (see above): `<ChartFrame>`, scales + date handling, `<AxisLabel>`/`useReencodePicker`/`defaultCompat`, `useHorizontalBrush`/`<BrushOverlay>`, `pointEmission`/`togglePointEmission`/`keyActivates`, `useKeepPredicate`/`selectedValue`/`dimClass` — compose a chart from these and it is born contract-conformant |
 | `layout/` | `<VizCockpit>` (the flagship — and only — single-screen shell) + `<VizModal>` (the one modal system) + `<VizPanel>`/`<VizCard>` |
 | `charts/` | `<VizScatter>`, `<VizBar>` (category ticks slant and clip to their band when they would collide; values that would collide are omitted — the full label rides a `<title>`), `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click; `coordinates="planar"` for shapes already projected to a screen plane, e.g. us-atlas), `<VizTable>` (sortable rows, click-to-select), `<VizHistogram>` (host-computed buckets, edge-snapped brush), `<VizHeatmap>` (host-computed 2-D cells, one-click compound cell selection — D30), `<VizBoxPlot>` (host-summarized quartiles/whiskers/outliers, click-to-select a category) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |

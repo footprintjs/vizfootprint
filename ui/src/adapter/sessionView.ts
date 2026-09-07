@@ -53,6 +53,7 @@ import {
   type SessionViewState,
   type CommitView,
   type ViewView,
+  type LayerView,
   type ColumnView,
   type SelectionView,
   type BranchView,
@@ -494,6 +495,8 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       prose?: unknown;
       /** The prose plane: `views[].proposals` serialized. */
       proposals?: unknown;
+      /** Layers (1.2): `views[].layers` serialized — the key is absent on a plain view, and stays absent here. */
+      layers?: unknown;
       canProbe?: boolean;
       mounted?: boolean;
     };
@@ -501,6 +504,7 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       viewId: o.viewId,
       actor: o.actor,
       label: o.label,
+      ...(o.layers !== undefined ? { layers: mapLayers(o.layers) } : {}),
       selectionKinds: o.selectionKinds ?? [],
       canProbe: o.canProbe ?? true,
       mounted: o.mounted ?? true,
@@ -510,6 +514,22 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       ...(o.prose !== undefined ? { prose: mapProse(o.prose) } : {}),
       ...(o.proposals !== undefined ? { proposals: mapProposals(o.proposals) } : {}),
     };
+  });
+}
+/** A view's layers as the wire serves them — a row is kept only with its four declared facts (id, table, kind, channels); anything malformed is dropped, never invented. */
+function mapLayers(raw: unknown): readonly LayerView[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((l) => {
+    if (typeof l !== 'object' || l === null) return [];
+    const x = l as { layerId?: unknown; table?: unknown; chartKind?: unknown; channels?: unknown; label?: unknown };
+    if (typeof x.layerId !== 'string' || typeof x.table !== 'string' || typeof x.chartKind !== 'string' || !Array.isArray(x.channels)) return [];
+    return [{
+      layerId: x.layerId,
+      table: x.table,
+      chartKind: x.chartKind,
+      channels: x.channels.filter((c): c is string => typeof c === 'string'),
+      ...(typeof x.label === 'string' ? { label: x.label } : {}),
+    }];
   });
 }
 /** Per channel, the column verdicts src/encoding serves — anything malformed is dropped, never invented. */

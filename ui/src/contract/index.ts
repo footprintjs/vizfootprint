@@ -8,6 +8,9 @@ export type {
   HostHandshake,
   RendererHello,
   RenderRow,
+  RenderEncodings,
+  // protocol 1.2: one layer of a frame — exported in the SAME change as the field that carries it
+  RenderLayer,
   SelectionClauseView,
   RenderSelection,
   RenderState,
@@ -16,6 +19,15 @@ export type {
   ContractGapKind,
   ContractGap,
 } from './types.js';
+
+// The layer ADDRESS (`viewId~layerId`) is minted by the library, and the marker has
+// exactly one owner there (`vizfootprint/def`'s layerAddress.ts). A host that
+// keys `HostHandshake.layers`, reads a commit's viewId, or finds a layer's own
+// clause in `RenderSelection.clauses` needs the split and the join — so they
+// ship from this barrel too, re-exported, never respelled (README, "the
+// derivation helpers ship in a set").
+export { LAYER_MARKER, layerAddress, splitLayerAddress, holdsLayerMarker } from 'vizfootprint/def';
+export type { LayerAddressParts } from 'vizfootprint/def';
 
 export {
   clausePredicate,
@@ -35,7 +47,7 @@ export {
 export type { SelfSelectedCell, SelfSelectedSet } from './selection.js';
 
 export { bindRenderer } from './bind.js';
-export type { BindOptions, BindResult, BoundRenderer, NavigateOutcome } from './bind.js';
+export type { BindOptions, BindResult, BoundRenderer, NavigateOutcome, UpdateOutcome, LayerBindings } from './bind.js';
 
 export {
   reactRenderer,
@@ -61,4 +73,4 @@ export type {
 } from './renderers.js';
 
 export { runConformance } from './conformance.js';
-export type { ConformancePlan, ConformanceReport, ConformanceStep, ConformanceStepName } from './conformance.js';
+export type { ConformancePlan, ConformanceLayersPlan, ConformanceReport, ConformanceStep, ConformanceStepName } from './conformance.js';

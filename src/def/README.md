@@ -130,16 +130,66 @@ Five laws. The door does not judge them in this order: per end it first asks tha
 
 The shape sentences, for completeness: `relations, if present, must be an array of { from, to }` · `relations[i] must be an object { from, to, kind?, label? }` · `relations[i]: unknown key "x"` · `relations[i].from must be { table, column } with non-empty strings` · `relations[i].from: unknown key "x"` (an end is exactly those two keys, and an extra one is named, the way a relation's is). A table refused on its own line (`data["bad"] must be an object …`) is not refused again through a relation at either end; the empty table map is refused on its own line and no relation is judged against it.
 
+## Layers — a view over more than one table
+
+A view has no table of its own: the session gates every act on its single default table. A node-link is two marks on one frame — edges under nodes — and each reads a **different** table. `layers` on a view's encoding declares that: each layer names its table, its own encoding surface, and an act on a layer lands under the address `viewId~layerId`. A view that declares no layers is byte-identical to a view built before layers existed — no key appears anywhere.
+
+```ts
+data: {
+  nodes: { rows: …, key: 'id', columns: { id: { role: 'identifier' }, size: { role: 'measure' }, group: { role: 'dimension' } } },
+  edges: { rows: …, columns: { source: { role: 'dimension' }, target: { role: 'dimension' }, weight: { role: 'measure' } } },
+},
+actors: { net: { actor: 'user', label: 'Disease network' } },
+encodings: [{
+  viewId: 'net', chartKind: 'network', channels: ['x', 'y'],
+  layers: [
+    { layerId: 'nodes', table: 'nodes', chartKind: 'point', channels: ['x', 'y', 'size', 'color'], initial: { size: 'size', color: 'group' }, label: 'Diseases' },
+    { layerId: 'edges', table: 'edges', chartKind: 'line',  channels: ['x', 'y', 'size'], initial: { size: 'weight' } },
+  ],
+}],
+defaultTable: 'nodes',
+```
+
+Six laws.
+
+1. **The address is `viewId~layerId`, and `~` has one owner.** `layerAddress('net', 'edges')` → `'net~edges'`; `splitLayerAddress('net~edges')` → `{ viewId: 'net', layerId: 'edges' }`; a plain viewId splits to `{ viewId }` alone. The marker is spelled in `layerAddress.ts` and nowhere else — a test greps `src/` and `ui/src` for the literal and fails on any other file. The address reads as a viewId everywhere a viewId is accepted (the log, the fold, the tools); only the session's table guard and the overview split it.
+2. **A marker in any id is refused.** The split is at the first marker, so a viewId, a layerId or a table name carrying one would name something it did not declare:
+   ```
+   actors["net~nodes"]: a view id "net~nodes" may not contain "~" — it is the layer marker
+   data["a~b"]: a table name "a~b" may not contain "~" — it is the layer marker
+   encodings[0].layers[0].layerId "a~b" may not contain "~" — it is the layer marker
+   ```
+3. **A layer names its table, and the table is declared.** `table` is required — a layer exists to name one — and unlike a view's default table it is never inferred:
+   ```
+   encodings[0].layers[0].table must be a non-empty string — a layer exists to name its table
+   encodings[0].layers[0].table "ghost" is not a declared data table — the tables are nodes, edges
+   ```
+4. **A layerId is declared once within its view.** Two views may each have a `nodes` layer (`a~nodes`, `b~nodes` are different addresses); one view may not:
+   ```
+   encodings[0].layers[1].layerId "nodes" repeats within view "net"
+   ```
+5. **A layer's bindings are judged against ITS table.** The build door runs the encoding validator once per layer with the layer's table's declared columns — a role declared on the nodes table refuses on the nodes layer and says nothing on the edges layer, where the def declares no such column; `dashboard.lint()` then judges each layer against the columns its own table's provider lists, under the layer address. The view-level `initial` is judged against the default table exactly as before:
+   ```
+   encodings[0].layers[0].initial.size: "id" is identifier — it cannot be the size of a point     ← the door
+   { viewId: 'net~nodes', channel: 'size', field: 'weight', sentence: '"weight" is not a column of the table' }   ← lint()
+   lint: the "edges" provider cannot list its columns — …                                          ← a layer's table that cannot answer
+   ```
+6. **The resolved layers are data on the view.** `ViewDecl.layers` is the declared list, frozen at build, present only when the def declared it; the session's `tableFor(address)` reads the layer's table off it, and the overview projects `views[].layers`.
+
+The shape sentences, for completeness: `encodings[i].layers, if present, must be an array of { layerId, table, chartKind, channels }` · `encodings[i].layers[j] must be an object { layerId, table, chartKind, channels, initial?, label? }` · `encodings[i].layers[j]: unknown key "x"` · `…layerId must be a non-empty string` · `…chartKind must be a non-empty string` · `…channels must be a non-empty array of non-empty strings` · `…initial, if present, must be an object mapping channel -> field (strings)` · `…label, if present, must be a string`. A table refused on its own line is not refused again through a layer, and a layer on it is not judged at the build door. Not in this version: a frame with shared scales, per-layer opacity/visibility dials, annotation layers, an implicit crossfilter between sibling layers (only a declared link routes between them).
+
 ## Where the code lives
 
 | file | one job |
 |---|---|
-| `types.ts` | the schema — `DashboardDef`, `DataSourceDef`, `RelationDecl` / `RelationEdge`, `DashboardRuntime` |
-| `validate.ts` | the firewall + the parse door |
+| `types.ts` | the schema — `DashboardDef`, `DataSourceDef`, `RelationDecl` / `RelationEdge`, `LayerDecl`, `DashboardRuntime` |
+| `validate.ts` | the firewall + the parse door; runs the build door once per layer against the layer's table |
 | `relations.ts` | the relation laws as refusals, `relationEdgeId`, the default kind |
+| `layerAddress.ts` | THE one owner of the layer marker — `LAYER_MARKER`, `layerAddress`, `splitLayerAddress`, `holdsLayerMarker` |
+| `layers.ts` | the layer laws as refusals; `layerSurfaceOf` / `layerSurfacesOf`, the surfaces the build door and `lint()` judge |
 | `builtinAnalyses.ts` | an analysis as data (the five records, their options, and the extra judge one of them carries) |
 | `register.ts` | the one registry boundary |
-| `buildDashboard.ts` | the build — resolves engines, keys and relations onto the runtime; `lintData` judges keys and relations against the engine |
+| `buildDashboard.ts` | the build — resolves engines, keys, relations and each view's layers onto the runtime; `lintData` judges keys and relations against the engine; `lint()` judges every layer against its own table's columns |
 | `revision.ts` | the definition's revision, digested once at build |
 | `series.ts` | the long-form series contract |
 | `recordIds.ts` | the id counters |

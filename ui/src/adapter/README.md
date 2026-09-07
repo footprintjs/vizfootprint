@@ -228,6 +228,30 @@ the library could hand you the answer. If it could and does not, describe the
 door and let the library grow it; the helper you were about to write IS the
 door, in the wrong repository.
 
+### The door in the same change: a layer's rows
+
+Layers (protocol 1.2) are the first feature written to this law from the start.
+A node-link host has two layers on one frame, each over its own table, and the
+rows of each are one `viewQuery` away — but WHICH table an address names is the
+session's rule (`tableFor`), not the host's to restate. So the adapter projects
+the declaration (`ViewView.layers`, straight off `overview.views[].layers` — the
+key is absent where the wire carries none) and ships one door for the rows,
+asked by ADDRESS and nothing else:
+
+```ts
+import { layerRowsFor, layerAddress } from 'vizfootprint-ui';
+
+const edges = await layerRowsFor(session, layerAddress('net', 'edges'), { limit: 500 });
+// { ok: true, columns: ['source', 'target', 'weight'], rows: [...], count: 2, clauses: [] }
+// — the session resolved the table from the address; a layer the map does not
+//   declare comes back as its own refusal: { ok: false, reason: 'unknown-view', ... }
+```
+
+`table` is deliberately not a parameter: passing it would be a second resolver
+of the address, and the second one is the copy nobody tests when the rule moves.
+The door is in-process, like `sessionSheetData`; a polled host needs its own
+endpoint for it (Law 2).
+
 ---
 
 ## Adding a field to `SessionViewState` — the checklist

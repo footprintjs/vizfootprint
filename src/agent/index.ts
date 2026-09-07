@@ -54,6 +54,8 @@ export type {
   // the emission kinds a view may declare — the ONE spelling behind both `CapabilityDecl.encodings` and `AdapterCapabilities.encodings`
   EmissionKind,
   ViewEncodingDecl,
+  // one layer of a view over more than one table — `table` required; an act on it lands under `viewId~layerId`
+  LayerDecl,
   FdrDecl,
   AgentDecl,
   IntentDecl,
@@ -85,6 +87,7 @@ export type {
   DeclareAnalysisOptions,
   Overview,
   ViewInfo,
+  LayerInfo,
   SelectionInfo,
   AnalysisReadiness,
   FdrSummary,

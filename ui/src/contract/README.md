@@ -144,6 +144,77 @@ declared transforms and `emissionKinds`, and nothing else. A version bump
 signals a change in what the protocol *does*; this changed only what it
 claimed.
 
+## Law 4 — one frame may hold several tables, and a layer speaks through its own bundle (protocol 1.2)
+
+A node-link is two tables on one picture: edges drawn under nodes. A view has
+no table of its own — every act on a plain view is judged against the
+dashboard's default table — so the library gives a view **layers**, each with
+ITS table, and names a layer by an ADDRESS, `viewId~layerId`. The address reads
+as a viewId everywhere a viewId is accepted: the log, the fold, the tools and
+the session's guards never split it; only the session's table guard does, and
+the marker has exactly one owner (`vizfootprint/def`'s `layerAddress.ts`, pinned
+by a grep over this folder too). This barrel re-exports `layerAddress`,
+`splitLayerAddress`, `holdsLayerMarker` and `LAYER_MARKER` so a host never
+spells it.
+
+The contract carries layers as three optional additions — which is why 1.2 is a
+MINOR, and why a 1.1 renderer binds byte-identically:
+
+- `RenderState.layers?` — the frame's layers in draw order (first = bottom),
+  each `{ layerId, table, rows, encodings }`, rows host-prepared exactly like
+  `rows`;
+- `RendererCapabilities.canLayer?` — the honest declaration that `update()`
+  draws them;
+- `HostHandshake.layers?` — one callback BUNDLE per layerId, the same four
+  verbs bound to the layer address. Not a fifth verb, not a third emission key:
+  which layer spoke is carried by **which bundle spoke**.
+
+```ts
+// the host binds the view's layers once; bind mints each address and wires a bundle
+const res = bindRenderer(networkRenderer(), el, {
+  viewId: 'net',
+  callbacks: callbacksFor('net'),
+  layers: { layerIds: ['edges', 'nodes'], callbacksFor },   // → handshake.layers.edges / .nodes
+});
+
+// the renderer, on a click on an edge mark — through the EDGES bundle, never the view's callbacks
+handshake.layers!['edges']!.emit({ rawValue: 5, encoding: { kind: 'point', field: 'weight' } });
+// → ONE commit, viewId 'net~edges', judged against the edges table; the fold keys its clause under that address
+```
+
+Two halves of the law, pinned together in `capabilities.test.tsx` the way the
+bar's `canHighlight` is. **The flag is the promise, not the ability.** The
+fixture renderer that draws layers but declares nothing is refused exactly like
+the eight first-party charts, none of which declares `canLayer`. And **a frame
+is whole or refused**: `bindRenderer`'s `update` files a typed
+`layers-unsupported` gap when a host pushes layers at a renderer without the
+flag, and forwards NOTHING of that frame —
+
+```ts
+bound.view.update({ ...frame, layers });
+// { ok: false, gap: { code: 'layers-unsupported', op: 'update',
+//   detail: 'view "net" declares no canLayer — the frame carried 2 layer(s) and was not drawn' } }
+```
+
+This is Law 2 applied to an inbound push, and the reason it earns a guard: a
+renderer that drew only `rows` from a layered frame would show ONE table under a
+picture that looks complete — absence that is not visible, which is the one
+kind Law 2 says must be refused out loud. An empty `layers: []` carries nothing
+to refuse and is forwarded like a plain frame.
+
+The conformance kit's `layers` arm (gated on `canLayer`, skipped honestly
+otherwise) pushes the plan's two-layer frame, requires both drawn, then drives
+a gesture on the SECOND layer and requires exactly one commit whose viewId is
+that layer's address — a gesture spoken through the view's callbacks, or
+through the first layer's bundle, fails the arm in plain words. It runs on a
+real two-table session (`adapter/network.fixture.ts`) against a pure-DOM
+`canLayer` renderer (`layered.fixture.ts`).
+
+Not in this version: shared scales across layers, per-layer opacity/visible
+dials, annotation layers, and any first-party layered chart — the network view
+is the next packet. Sibling layers get **no implicit crossfilter**: a select on
+`net~nodes` reaches `net~edges` only through a declared link.
+
 ---
 
 ## Adding a capability — the checklist
@@ -158,7 +229,9 @@ claimed.
 4. **Pin both halves in `capabilities.test.tsx`**, in one test: the declaration
    and the observable behaviour, failing together.
 5. **Version it.** A new optional field on the hello is a MINOR bump
-   (`RENDERER_PROTOCOL_VERSION`); a new outbound verb is a MAJOR one.
+   (`RENDERER_PROTOCOL_VERSION`); a new outbound verb is a MAJOR one. 1.1
+   added the `cell` kind; 1.2 added layers (`RenderState.layers`, `canLayer`,
+   the handshake's bundles) — all optional, so both stayed minors.
 
 ## One more habit: the derivation helpers ship in a set
 
