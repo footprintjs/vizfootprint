@@ -253,6 +253,49 @@ Six laws.
 
 The shape sentences, for completeness: `encodings[i].layers, if present, must be an array of { layerId, table, chartKind, channels }` · `encodings[i].layers[j] must be an object { layerId, table, chartKind, channels, initial?, label? }` · `encodings[i].layers[j]: unknown key "x"` · `…layerId must be a non-empty string` · `…chartKind must be a non-empty string` · `…channels must be a non-empty array of non-empty strings` · `…initial, if present, must be an object mapping channel -> field (strings)` · `…label, if present, must be a string`. A table refused on its own line is not refused again through a layer, and a layer on it is not judged at the build door. Not in this version: a frame with shared scales, per-layer opacity/visibility dials, annotation layers, an implicit crossfilter between sibling layers (only a declared link routes between them).
 
+## The card a demo cannot get wrong
+
+A demo should be able to say which of the library's features it covers, and a gallery should be able to filter on that. Written by hand, that list is a second source of truth beside the def, and it goes stale the first time somebody adds a view and forgets it. So it is **read off the build**: `defFeatures(dashboard)` projects, as data, what this dashboard can do.
+
+```ts
+const card = defFeatures(buildDashboard(nndssDef(tables, graph)));
+card.views.find((v) => v.viewId === 'net')?.layers?.length;  // 2
+card.selectionKinds.includes('neighbourhood');               // true — a node can be walked from
+card.analyses.map((a) => a.builtin);                         // [..., 'layout', 'bringOver']
+```
+
+**It takes the BUILT dashboard, not a `DashboardDef`.** Three of its answers are resolved at build and cannot be read off a definition: `revision` (digested once, over the validated def), `engines` (the engine each table actually ROUTED to — a table declaring `auto` reports `memory`, not `auto`) and `sources` (what each source vouched for when it was read). A reader taking a def would have to re-derive all three, which is the drift this reader exists to avoid.
+
+Every other field is a projection with no judgement of its own. A view's VOICE is `voiceOf`'s answer and nobody else's — the same call the link graph and the probe guard make — so a card can never advertise a gesture the guard refuses.
+
+### Law — a card reports what a build HOLDS or a def DECLARES, and never restates a default owned elsewhere
+
+`buildDashboard` applies a fallback when a def declares no link rule and no FDR settings. The card does **not** repeat it: those fields read `null`, meaning "the author declared none, and the build's own default applies". A card that copied the fallback would be a second copy of a value it does not own — and "the author declared no link rule" is a fact worth having on a card anyway.
+
+```ts
+defFeatures(buildDashboard(minimalDef)).links.linkDefault;  // null, not 'crossfilter'
+defFeatures(buildDashboard(minimalDef)).fdr;                // null, not { procedure: 'LORD++', alpha: 0.05 }
+```
+
+### Law — ONE DEMO IS NOT ONE DASHBOARD: a card is per SURFACE
+
+The same demo can build more than one definition. The CDC demo's desk builds its def WITH the co-occurrence graph; its story page builds the same demo WITHOUT it — and the two answer differently, exactly where the graph is:
+
+```ts
+defFeatures(buildDashboard(nndssDef(tables, graph)));  // 5 tables · 10 views (one layered) · 8 analyses · 2 relations
+defFeatures(buildDashboard(nndssDef(tables)));         // 3 tables ·  9 views (none layered) · 6 analyses · 0 relations
+// desk-only: the `net` view, its two layers, the `network` chart kind,
+// the `neighbourhood` selection kind, the `nodes` / `edges` tables — and a different `revision`
+```
+
+So a card belongs to a SURFACE, and every fact on it carries the surface it came from. A card that merged the two would claim capabilities the page a reader opens does not have.
+
+### What this card is NOT
+
+It says what a build CAN do, never what anybody DID: for that, its twin is [`../branches`](../branches/README.md)'s `logFeatures` (law 5), which reads a captured trace and is honest about the three verbs a log cannot see.
+
+And two things stay hand-written, because no declaration holds them: **which gesture produces which verb**, and **which verbs a particular build leaves unwired**. A def declares the vocabulary; only the host knows which of it got a mouse. A demo that wants that table writes it by hand and labels it as hand-written.
+
 ## Where the code lives
 
 | file | one job |
@@ -266,5 +309,6 @@ The shape sentences, for completeness: `encodings[i].layers, if present, must be
 | `register.ts` | the one registry boundary |
 | `buildDashboard.ts` | the build — resolves engines (and notes, in the engine's own words, a table routed to one this version does not run), keys, relations and each view's layers onto the runtime; `lintData` judges keys and relations against the engine; `lint()` judges every layer against its own table's columns |
 | `revision.ts` | the definition's revision, digested once at build |
+| `features.ts` | `defFeatures` — the feature card of a BUILT dashboard, read off the build so a demo's tags cannot drift |
 | `series.ts` | the long-form series contract |
 | `recordIds.ts` | the id counters |

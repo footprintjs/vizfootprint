@@ -4,6 +4,8 @@
  *   dist/desk.js       ESM, React + `vizfootprint` + `vizfootprint-ui` externalized  → bundler users
  *   dist/make.js       the wizard, the same way — its own door because a host
  *                      that only mounts a desk should not bundle an authoring flow
+ *   dist/cards.js      the demo card and its filter — a gallery's program, and
+ *                      neither a desk nor an authoring flow
  *   types/**.d.ts      declarations, flat and OURS ONLY (tsc -p tsconfig.build.json)
  * Run:  npm run build
  *
@@ -36,7 +38,7 @@ const OPTIONAL = ['storydeck'];
 
 const base = { bundle: true, jsx: 'automatic', jsxDev: false, minify: true, sourcemap: true, logLevel: 'info' };
 
-for (const door of ['desk', 'make']) {
+for (const door of ['desk', 'make', 'cards']) {
   await esbuild.build({
     ...base,
     entryPoints: [`src/${door}/index.ts`],

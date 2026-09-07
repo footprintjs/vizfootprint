@@ -7,6 +7,10 @@
 export { buildDashboard, buildDashboardAsync } from './buildDashboard.js';
 export type { Dashboard, BuildDashboardOptions, BuildDashboardAsyncOptions, RefreshOutcome, RefreshResult, RefreshRecord } from './buildDashboard.js';
 export { validateDashboardDef, parseDashboardDef, DashboardDefError, dispatchVerbs } from './validate.js';
+// WHAT THIS BUILD CAN DO, read off the build — the feature card a gallery filters
+// on, so a demo's tags can never drift from the demo. See ./README.md.
+export { defFeatures } from './features.js';
+export type { DashboardFeatures, TableFeature, ViewFeature, LayerFeature, LinkFeature, RelationFeature, AnalysisFeature, EncodingRulesFeature, FdrFeature } from './features.js';
 export type { ParsedDashboardDef } from './validate.js';
 // An analysis named as DATA — the third form of `AnalysisSlot`, and the key
 // that makes a whole def JSON-serialisable. See ./README.md.

@@ -44,6 +44,11 @@ export {
   BOOKMARK_VIEW_PREFIX,
 } from './fold.js';
 export { planBringOver, planUndo } from './plans.js';
+// WHAT SOMEBODY ACTUALLY DID, read off the trace — the feature card a gallery
+// filters on, beside the def's. It never claims more than the log holds; see
+// ./README.md, law 5.
+export { logFeatures, verbOf, UNSEEN_VERBS } from './features.js';
+export type { LogFeatures, LogFeaturesInput, VerbEvidence, LogVerb, UnseenVerb } from './features.js';
 export { slugForCommit, slugify, uniqueSlug } from './slug.js';
 export type {
   AncestorResult,

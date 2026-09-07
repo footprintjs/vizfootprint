@@ -96,18 +96,20 @@ Two things follow that are easy to miss:
 |---|---|
 | `vizfootprint-studio/desk` | `Desk`, `DeskFigure`, the contract types, the tokens |
 | `vizfootprint-studio/make` | `Make`, the wizard — and the pure step logic under it |
+| `vizfootprint-studio/cards` | `DemoGallery`, `DemoCard` — what a demo covers, read off the demo |
 | `vizfootprint-studio/package.json` | the convention |
 
 **There is no `.` root export, on purpose.** A root would have to be one of the
-two halves wearing the package's name, or a barrel that carries both — and the
-second half is a different program with a different dependency footprint. Two
-names, each saying what it is.
+three programs wearing the package's name, or a barrel that carries all of them —
+and each has a different dependency footprint. Three names, each saying what it
+is.
 
-**The two doors are two programs.** `desk` drives a definition somebody has
-already written; `make` helps a person write one. A host that only mounts a desk
-should not bundle an authoring flow, and a host that only mounts the wizard
-should not have to know what a `DeskProjection` is — so they are two entries,
-two bundles, two names.
+**The three doors are three programs.** `desk` drives a definition somebody has
+already written; `make` helps a person write one; `cards` says what one covers,
+for a gallery that lists several. A host that only mounts a desk should not
+bundle an authoring flow, and a host that only lists demos should not have to
+know what a `DeskProjection` is — so they are three entries, three bundles,
+three names.
 
 ## What the desk owns, and what it asks you for
 
@@ -292,3 +294,36 @@ The whole flow is also a set of plain functions (`judgeStep`, `assembleDef`,
 `openDesk`, `ceilingVerdict`, `readTable`), so a host — or a test, or an agent —
 can drive it with no screen at all. The argument, the laws and the file map are
 in [`src/make/README.md`](src/make/README.md).
+
+---
+
+## The third: `cards`
+
+A gallery of demos has to say what each one covers, and every such list ever
+written by hand has gone stale. `vizfootprint-studio/cards` reads the tags off
+the demo instead — chips grouped by which reader vouched for them:
+
+```tsx
+import { DemoGallery } from 'vizfootprint-studio/cards';
+
+<DemoGallery
+  heading="What the demos cover"
+  surfaces={[
+    { demo: 'CDC NNDSS', surface: 'desk',       declares: defFeatures(buildDashboard(nndssDef(tables, graph))), byHand: GESTURES },
+    { demo: 'CDC NNDSS', surface: 'story page', declares: defFeatures(buildDashboard(nndssDef(tables))), walked: logFeatures(payload.log, payload) },
+  ]}
+/>
+```
+
+- **declares** — `defFeatures(dashboard)`: the build holds it, whether or not
+  anybody used it.
+- **walked** — `logFeatures(records)`: a commit proves somebody did it.
+- **by hand** — which gesture produces which verb, and which verbs a build leaves
+  unwired. Neither is in a definition or a log, and both are drawn under a
+  heading that says so.
+
+**A card is per SURFACE.** One demo is not one dashboard: the CDC desk builds its
+definition with the co-occurrence graph and its story page builds the same demo
+without it, so they are two cards with two revisions, and the filter narrows to
+surfaces rather than demos. The five laws, with an example each, are in
+[`src/cards/README.md`](src/cards/README.md).

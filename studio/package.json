@@ -16,6 +16,11 @@
       "import": "./dist/make.js",
       "default": "./dist/make.js"
     },
+    "./cards": {
+      "types": "./types/cards/index.d.ts",
+      "import": "./dist/cards.js",
+      "default": "./dist/cards.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
