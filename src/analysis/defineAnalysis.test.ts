@@ -64,6 +64,10 @@ describe('validateAnalysisDef — rejects malformed', () => {
     ['test without pValue', { ...minimalDef(), kind: 'test', test: { statistic: 'r' } }],
     ['transform WITH test', { ...minimalDef(), test: { statistic: 'r', pValue: () => 0 } }],
     ['bad honesty.minPoints', { ...minimalDef(), honesty: { minPoints: -3 } }],
+    // NaN is a number and `NaN < 0` is false, so the loose check let it through
+    // and the R14 floor stopped existing — `rows.length < NaN` is never true.
+    ['NaN honesty.minPoints', { ...minimalDef(), honesty: { minPoints: Number.NaN } }],
+    ['infinite honesty.minPoints', { ...minimalDef(), honesty: { minPoints: Number.POSITIVE_INFINITY } }],
     ['unknown key', { ...minimalDef(), evil: 'rm -rf /' }],
   ];
 
@@ -74,9 +78,46 @@ describe('validateAnalysisDef — rejects malformed', () => {
     });
   }
 
+  it('a misspelled kind is told what is wrong with IT, not what a transform may not carry', () => {
+    // The `else` used to catch every kind that is not 'test', so a def whose
+    // kind is neither was told it was a transform carrying a stray test — a
+    // sentence that is not true of it.
+    const problems = validateAnalysisDef({ ...minimalDef(), kind: 'tset', test: { statistic: 'pearson-r', pValue: () => 0.1 } });
+    expect(problems).toEqual(['kind must be "test" | "transform"']);
+  });
+
+  it('accepts the identity role — a node key is not a group', () => {
+    expect(validateAnalysisDef({ ...minimalDef(), inputs: [{ column: 'id', role: 'identifier' }] })).toEqual([]);
+  });
+
   it('reports every problem at once', () => {
     const problems = validateAnalysisDef({ id: '', kind: 'nope', produces: 'rows', inputs: {} });
     expect(problems.length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('defineAnalysis — the judge is judged', () => {
+  // WHY: `test.pValue` is the CALLER's function, and the record it feeds is what
+  // L4's stepper spends wealth on. A NaN never rejects and still burns budget,
+  // and the frozen audit row would carry a number that was never a p-value.
+  for (const [label, value] of [
+    ['NaN', Number.NaN],
+    ['above 1', 1.5],
+    ['below 0', -0.001],
+    ['not a number', 'small' as unknown as number],
+  ] as Array<[string, number]>) {
+    it(`refuses a p-value that is ${label}, and spends no step`, async () => {
+      const spent: HypothesisRecord[] = [];
+      const mod = defineAnalysis(minimalDef({ kind: 'test', test: { statistic: 'pearson-r', pValue: () => value } }));
+      await expect(mod.run(undefined, { sink: (h) => spent.push(h) })).rejects.toThrow(/a p-value is a finite number in \[0,1\]/);
+      expect(spent).toEqual([]); // the sink is downstream of the refusal
+    });
+  }
+
+  it('mints the record when the judge answers in range', async () => {
+    const mod = defineAnalysis(minimalDef({ kind: 'test', test: { statistic: 'pearson-r', pValue: () => 0 } }));
+    const { hypothesis } = await mod.run(undefined);
+    expect(hypothesis?.pValue).toBe(0);
   });
 });
 
@@ -155,5 +196,29 @@ describe('defineAnalysis — run seam', () => {
     expect(snapshot).toBeUndefined();
     expect(hypothesis).toBeUndefined();
     expect(captured).toHaveLength(0); // the sink was never called — no fabricated test
+  });
+});
+
+describe('reads — the tables an analysis wants BESIDE its own', () => {
+  it('accepts a list of table names, and accepts a def that names none', () => {
+    expect(validateAnalysisDef(minimalDef({ reads: ['edges'] }))).toEqual([]);
+    expect(validateAnalysisDef(minimalDef({ reads: [] }))).toEqual([]);
+    expect(validateAnalysisDef(minimalDef())).toEqual([]);
+  });
+
+  it('refuses a shape that is not a list of names — the PERMISSION is judged at the door, the shape here', () => {
+    expect(validateAnalysisDef(minimalDef({ reads: 'edges' as unknown as string[] }))).toEqual(['reads, if present, must be an array of table names']);
+    expect(validateAnalysisDef(minimalDef({ reads: [''] }))).toEqual(['reads[0] must be a non-empty table name']);
+    expect(validateAnalysisDef(minimalDef({ reads: [7 as unknown as string] }))).toEqual(['reads[0] must be a non-empty table name']);
+    expect(validateAnalysisDef(minimalDef({ reads: ['edges', 'edges'] }))).toEqual(['reads[1] repeats table "edges"']);
+    expect(() => defineAnalysis(minimalDef({ reads: 'edges' as unknown as string[] }))).toThrow(AnalysisDefError);
+  });
+
+  it('the related rows reach toRunInput, and an analysis that is handed none sees an empty record', async () => {
+    const seen: unknown[] = [];
+    const mod = defineAnalysis(minimalDef({ toRunInput: (_input, related) => { seen.push(related); return {}; } }));
+    await mod.run(undefined, { related: { edges: [{ source: 'flu' }] } });
+    await mod.run(undefined);
+    expect(seen).toEqual([{ edges: [{ source: 'flu' }] }, {}]);
   });
 });

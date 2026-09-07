@@ -1,8 +1,8 @@
 # analysis — declared analyses, and the one a person writes
 
-An analysis is DECLARED and executed as a footprintjs flowchart, and its output re-enters the data space through one of four existing rails (`columns`, `geometry`, `scalar`, `table`) — never a row-id list, never a new dispatch verb. `defineAnalysis` is the door; `builtins.ts` holds the four a developer gets for free; `stats.ts` holds the arithmetic they share.
+An analysis is DECLARED and executed as a footprintjs flowchart, and its output re-enters the data space through one of four existing rails (`columns`, `geometry`, `scalar`, `table`) — never a row-id list, never a new dispatch verb. `defineAnalysis` is the door; `builtins.ts` holds the four a developer gets for free, `formula.ts` the one a person writes, and `layout.ts` and `bringOver.ts` the two that read a second table; `stats.ts` holds the arithmetic they share.
 
-Four of the five are code a DEVELOPER wrote. The fifth is a sentence a PERSON typed, and that difference is what the rest of this file is about.
+Six of the seven are code a DEVELOPER wrote. The seventh is a sentence a PERSON typed, and that difference is what the next section is about.
 
 ## The formula: a derived column, as data
 
@@ -98,3 +98,136 @@ await fresh.replay(JSON.stringify(source.log.records));   // { ok: true, reran: 
 ```
 
 A MODULE cannot ride — a function is not data — so an analysis a developer wrote still has to be declared on the replaying session, and a log holding one files the ordinary `needs-analysis-kind` gap with the column honestly absent. That line is not about the formula; it is about what can be written down. See [`../session/README.md`](../session/README.md), law 6.
+
+## An analysis may read a RELATED table
+
+Some analyses cannot be computed from one table. A stress layout on `nodes` needs the `edges`; a pull per node is the weight of the ties touching it, and the weights are on the other table. `reads` names those tables, and the rest follows one law:
+
+**A declared relation is the permission, and there is no other way across.**
+
+```ts
+defineAnalysis<readonly Row[], ColumnsOutput>({
+  id: 'pull',
+  kind: 'transform',
+  produces: 'columns',
+  inputs: [{ column: 'id', role: 'group' }],
+  reads: ['edges'],                                    // ← the table BESIDE the one it runs over
+  build: …,
+  toRunInput: (rows, related) => ({                    // ← the rows arrive here, keyed by table name
+    ids: rows.map((r) => String(r['id'])),
+    ties: related['edges']!.map((e) => ({ s: String(e['source']), t: String(e['target']), w: Number(e['weight']) })),
+  }),
+  readOutput: () => ({ ok: true, output: { as: 'columns', table: 'nodes', columns: { pull: { type: 'int' } } } }),
+});
+```
+
+```ts
+await session.declareAnalysis('pull');                 // relations: edges.source → nodes.id, edges.target → nodes.id
+// pull = [5, 6, 1] — a column `nodes` alone could not have produced
+```
+
+Without that relation the act does not happen, and the sentence says what to declare:
+
+```
+analysis "pull" reads table "edges", which no declared relation joins to "nodes" — declare the relation first
+analysis "pull" reads table "ghost", which is not a declared data table — the tables are nodes, edges
+```
+
+Four things about the rows that arrive, all of them the same rules the OWN table has been read under all along — the two tables go through one path (`resolveAnalysisInput`), which is why the replay arm needed nothing new:
+
+- **At the cursor.** A column an earlier act derived on the related table is there, under its logical name — so an analysis reading `weight2` reads what the act that made it actually left there, on this branch.
+- **Under that table's own clauses.** A brush on the edges layer changes what a layout over them sees, and `why()` names that brush as an `input-selection` of the column it produced — a related table read under a selection really is a causal input, and the provenance would lie if it did not say so. The own table is still read WHOLE for a columns analysis (its values must align to the row order), so a brush on IT is still not an input.
+- **Detached.** The rows are copies, because they go to footprintjs as a run input and footprintjs freezes what it is given.
+- **All or nothing.** A backend that refuses a related table stops the act with a `needs-backend-data` gap (`related table "edges": the edge store is offline`). Half an input is not an input.
+
+`readOutput` is unchanged, and so is everything downstream: an analysis still writes ONE table's columns, still at its own slot, still replayable. Reading is where a second table enters; writing is not.
+
+## The layout: a position is data
+
+```ts
+analyses: { map: { builtin: 'layout', algo: 'stress', table: 'nodes', edges: 'edges' } }
+```
+
+```ts
+await session.declareAnalysis('map');   // relations: edges.source → nodes.id, edges.target → nodes.id
+// x = [ -1.87, 0.42, … ]  y = [ 0.11, -2.03, … ]  — two derived columns on `nodes`, at this act's slot
+```
+
+`layoutAnalysis` (`layout.ts`) is `produces: 'columns'` and `reads: ['edges']`. It writes `x` and `y` back through the same derived-column path a formula uses, which means every word of [`../data/README.md`](../data/README.md) about a derived column is true of a position: the per-act slot, the branch resolution, the refusal to take a source column's name.
+
+**The law: a position not on the trace is a position a replay cannot promise.** That is the whole reason the layout is an analysis instead of a step inside a renderer. A renderer that computed positions would draw a picture no log could reproduce, and every later act — a brush over a region of the picture, a second layout that starts from this one — would rest on numbers nobody wrote down.
+
+### What it computes
+
+Seeded SGD stress majorization (Zheng, Pawar & Goodman 2019), over exact unweighted hop distances, in three phases the bench measures separately:
+
+1. **`adjacencyOf`** joins the two tables by key. Every edge row is USED or DROPPED and both are counted — an endpoint naming no node, or a self-loop, is a fact about the data, never a silent omission.
+2. **`distancesOf`** runs a BFS from every node. A pair with no path between them takes `maxFinite + 1` — one hop beyond the graph's own diameter, so components sit apart without being flung to infinity.
+3. **`place`** runs the seeded iterations: each pass walks every pair in an order the seed shuffles, with a learning rate decaying from the loosest pair's step to the tightest's. 30 passes unless the record says otherwise.
+
+`makeRng` (`../fdr/rng.ts`) is the only randomness, and the seed is on the record: **the same seed and the same rows give byte-identical positions**, pinned by a test that runs the whole act twice and compares.
+
+### The mental map
+
+A re-layout that moves everything destroys the reader's map of the picture (Misue et al. 1995). So a node that already has a finite `x` and `y` **keeps them exactly**, and only a new node is placed — at the centroid of the neighbours that already have a position, or on the seeded ring when it has none.
+
+A second layout act needs nothing new for this: the first act's `x` and `y` are ordinary derived columns, visible at the cursor under their logical names, so they arrive as columns of the rows the second act reads.
+
+### What it refuses
+
+Exact all-pairs is one `n × n` matrix, so there is a ceiling — `LAYOUT_NODE_CAP`, judged from the node count alone before a cell is allocated:
+
+```
+a stress layout needs exact all-pairs distances, which is one 5001 × 5001 matrix: this graph has 5001 nodes and the ceiling is 5000 — filter the nodes down, or lay the graph out in pieces
+```
+
+Fewer than two nodes is a degenerate fit (`precheck`, R14): the act lands nothing and says so, rather than fabricating a position for a graph that has no distances to fit.
+
+What the cap costs, and what quality the iterations buy, are measured by [`../../bench/layout/`](../../bench/layout/) — whose acceptance was written before this file existed and holds it to the seam, the seed, the cap sentence and the anchoring. No number for either belongs on this page unless that bench generated it; the two below are quoted from [`../../bench/layout/layout-table.md`](../../bench/layout/layout-table.md) and move when it is re-run.
+
+**Why 5,000 and not 10,000.** At 1,000 nodes the matrix is 1.9 MiB and the whole act — flowchart, commit and column write included — takes 200.318 ms; at 10,000 the matrix is 190.7 MiB and `place` alone takes 24,087.936 ms. Ten times the nodes cost a hundred times the memory and roughly a hundred and thirty times the placement, which is what a quadratic looks like from the outside, and 24 seconds is past anything a person waits through for one act. 5,000 sits between them at a 47.7 MiB matrix, which is why the refusal quotes it. Above the cap the honest move is to filter the nodes down, or lay the graph out in pieces — which is what the sentence says.
+
+The matrix is a `Uint16Array`, so those bytes are array-buffer memory and not JS heap: at 10,000 nodes the bench reads 381.6 MiB of array buffers against 26.4 MiB of heap. A page that quoted the heap figure would be saying the matrix is nearly free.
+
+## Bring a related table's columns over
+
+```ts
+relations: [
+  { from: { table: 'edges', column: 'source' }, to: { table: 'nodes', column: 'id' } },
+  { from: { table: 'edges', column: 'target' }, to: { table: 'nodes', column: 'id' } },
+],
+analyses: { ends: { builtin: 'bringOver', table: 'edges', from: 'nodes', columns: ['x', 'y'] } }
+```
+
+```ts
+await session.declareAnalysis('map',  { table: 'nodes' });   // the layout writes x and y onto the nodes
+await session.declareAnalysis('ends', { table: 'edges' });   // this carries them across BOTH ties
+// edges now hold source_x, source_y, target_x, target_y — an edge mark reads its own row and looks nothing up
+```
+
+`bringOverAnalysis` (`bringOver.ts`) is `produces: 'columns'` and `reads: [from]`. It writes one derived column per **join × fetched name**, spelled `<relationColumn>_<column>`, onto the table that holds the pointing columns.
+
+**The law: the relation is the permission AND the join.** Which columns this produces is never typed in — the record names the two tables and WHAT to fetch, and the ties are read off the DECLARED relations pointing from `table` at `from` (`../def/README.md`, law 6). `edges.source → nodes.id` is what makes `source_x` exist. A record that could name its own join could name one nobody declared, and the relation would stop being the permission.
+
+This is a **general door**, not a network feature: a sales table brings its customer's `region` over the same way, and nothing in the file knows what a node is.
+
+### What it refuses
+
+| the problem | the sentence |
+|---|---|
+| nothing points that way | `analysis "ends" brings x, y over from "nodes", but no declared relation points from "edges" at "nodes" — declare the relation first` |
+| declared on another table | `analysis "ends" writes onto table "edges", but this act reads table "cells" — declare it on "edges"` |
+| a tie on a column this table lacks | `analysis "ends" follows column "target", which table "edges" does not have — the columns are source, weight` |
+| the fetched column is not over there | `analysis "ends" brings y over from "nodes", which has no such column — compute it there first` |
+
+The first three are `judgeTable`, so nothing moves and the session files an ordinary `guard-failed` gap. The last is raised at run time — no hook this library has can see the related table's columns — and still before the commit, so the act does not happen either way. A produced name landing on a DECLARED source column is judged where that law already lives, in the session's `writeColumns`: it is the only judge that can tell a declared column from one an earlier act derived, which is what lets this analysis be re-run over its own output.
+
+### The counters
+
+A row whose endpoint names nothing in the related table gets `null` — and is COUNTED. The counters ride the analysis's own committed state, one entry per join column, in [`../data/fold.ts`](../data/fold.ts)'s shape:
+
+```ts
+{ source: { total: 2, counted: 2, skipped: 0 }, target: { total: 2, counted: 1, skipped: 1 } }
+```
+
+A silent null is a lie about how many rows the answer really covers. An EMPTY related table is not a refusal but honest emptiness: every row skipped, nothing invented. A repeated key names no row twice — the FIRST wins, so the answer never depends on the order a backend happened to return.

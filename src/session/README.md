@@ -966,6 +966,33 @@ replayed like any other act": declared, run, serialized, replayed into a fresh
 session, and the ledger rebuild, the hypothesis answer and the column all agree
 on both sides.
 
+### The tables an act read BESIDE its own
+
+An analysis may declare `reads: ['edges']` — the tables it needs beside the one
+it runs over — and a declared relation between the two is the permission for it
+(`../def/README.md`, law 6). That adds nothing to the commit: the record still
+carries `{ id, table }`, because the def already says which tables it reads and
+a def is not a thing the log has to repeat.
+
+What it does add is a second table to the INPUT, and the input is not on the log
+either — it never was. Both tables therefore come back the one way rows have
+always come back for an act: `resolveAnalysisInput`, at the act's own position,
+each table under its own clauses, derived columns visible under their logical
+names. The replay arm calls it with the same arguments the door did, which is
+the whole of why re-performing a two-table act needed no new machinery:
+
+```ts
+await source.declareAnalysis('pull');        // nodes, reading edges
+await fresh.replay(JSON.stringify(source.log.records));   // { ok: true, reran: 1, filed: 0 }
+// pull is the same column on both sides — the same rows, read the same way
+```
+
+The permission is NOT re-judged on the way through. A replay re-performs an act;
+it does not re-decide it. And because a related table is read under its own
+selection, the brush that shaped it is recorded as an input of the column on
+both sides — `why({ kind: 'column' })` names it, and would be lying if it did
+not (pinned by `relatedReads.test.ts`).
+
 ### A commit may only mean what JSON can carry — so cleared is spelled `null`, once
 
 The law above says a log must fold to the same thing on the second reading as

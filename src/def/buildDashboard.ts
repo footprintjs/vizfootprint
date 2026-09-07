@@ -676,7 +676,8 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
   // ── promote declared analyses (L3) ──
   const analyses = new Map<string, RegisteredAnalysis>();
   for (const [id, slot] of Object.entries(def.analyses ?? {})) {
-    analyses.set(id, registerAnalysisSlot(id, slot));
+    // the def's relations ride along: a `bringOver` record reads its joins off them (law 6)
+    analyses.set(id, registerAnalysisSlot(id, slot, { relations }));
   }
 
   // ── declared views + capability envelope + encoding surface ──

@@ -1,14 +1,14 @@
 /**
- * Relations on the dashboard def — the edges between TABLES. Five laws
+ * Relations on the dashboard def — the edges between TABLES. Six laws
  * (src/def/README.md, "Relations"), each pinned here: every refusal sentence
  * the door speaks, the identity law, the conditional column check (declared
  * columns at the door, the engine's columns post-build), the frozen runtime,
  * the overview echo, the surface part, and the revision moving when an edge
- * is added.
+ * is added — and law 6, the permission an analysis reads another table under.
  */
 import { describe, expect, it } from 'vitest';
-import { buildDashboard, validateDashboardDef, relationEdgeId, RELATION_KINDS } from './index.js';
-import type { DashboardDef, RelationDecl, RelationKind } from './index.js';
+import { buildDashboard, validateDashboardDef, relationEdgeId, joinsTables, relationsFrom, judgeAnalysisReads, RELATION_KINDS } from './index.js';
+import type { DashboardDef, RelationDecl, RelationEdge, RelationKind } from './index.js';
 import { defRevision } from './revision.js';
 import { vizAsTools, SURFACE_PARTS, cacheClassOf } from '../agent/index.js';
 
@@ -168,5 +168,69 @@ describe('relations on the agent surface', () => {
     expect(a['relations']).toEqual((await session.overview()).relations);
     expect((a['omitted'] as { part: string }[]).some((o) => o.part === 'tables')).toBe(true);
     expect('tables' in a).toBe(false);
+  });
+});
+
+describe('law 6 — a relation is a PERMISSION to read across', () => {
+  /** The two edges as the runtime carries them (`kind` written out) — the shape `judgeAnalysisReads` is handed. */
+  const edges = (): readonly RelationEdge[] => [{ ...SOURCE, kind: 'many-to-one' }, { ...TARGET, kind: 'one-to-one' }];
+  const tables = ['cells', 'nodes', 'edges'];
+
+  it('a join is a join in either direction — the arrow points at an identity, not at a reader', () => {
+    expect(joinsTables(edges(), 'nodes', 'edges')).toBe(true);
+    expect(joinsTables(edges(), 'edges', 'nodes')).toBe(true);
+    expect(joinsTables(edges(), 'cells', 'nodes')).toBe(false);
+  });
+
+  it('FOLLOWING one, though, runs one way: the edges hold the columns, the nodes hold the key', () => {
+    // the join `bringOver` walks — from the table that POINTS at the table pointed AT
+    expect(relationsFrom(edges(), 'edges', 'nodes').map((r) => [r.from.column, r.to.column])).toEqual([
+      ['source', 'disease'],
+      ['target', 'disease'],
+    ]);
+    // …and nothing comes back the other way without an aggregate nobody asked for
+    expect(relationsFrom(edges(), 'nodes', 'edges')).toEqual([]);
+    expect(relationsFrom(edges(), 'cells', 'nodes')).toEqual([]);
+  });
+
+  it('a permitted read says nothing, from either end, and reading nothing is permitted', () => {
+    expect(judgeAnalysisReads('layout', 'nodes', ['edges'], tables, edges())).toEqual([]);
+    expect(judgeAnalysisReads('bringOver', 'edges', ['nodes'], tables, edges())).toEqual([]);
+    expect(judgeAnalysisReads('plain', 'cells', [], tables, edges())).toEqual([]);
+  });
+
+  it('an undeclared table is refused by name, and a declared one no relation joins is refused with the advice', () => {
+    expect(judgeAnalysisReads('layout', 'nodes', ['ghost'], tables, edges())).toEqual([
+      'analysis "layout" reads table "ghost", which is not a declared data table — the tables are cells, nodes, edges',
+    ]);
+    expect(judgeAnalysisReads('layout', 'nodes', ['cells'], tables, edges())).toEqual([
+      'analysis "layout" reads table "cells", which no declared relation joins to "nodes" — declare the relation first',
+    ]);
+  });
+
+  it('a read of its OWN table is named as that, not sent to declare a self-join the relation door refuses (law 3)', () => {
+    expect(judgeAnalysisReads('layout', 'nodes', ['nodes'], tables, edges())).toEqual([
+      'analysis "layout" reads table "nodes", which is the table it already runs over — `reads` names the tables BESIDE it',
+    ]);
+    // and the advice the OTHER sentence gives — "declare the relation first" —
+    // really would be refused for this pair
+    expect(validateDashboardDef(withRelations([{ from: { table: 'nodes', column: 'cases_total' }, to: SOURCE.to }]))).toEqual([
+      'relations[0] joins "nodes" to itself — not in this version',
+    ]);
+  });
+
+  it('the table the analysis RUNS OVER is judged first, and alone — a typo there is not the read\u2019s fault', () => {
+    // Blaming the read would quote "edges", a perfectly good table, and ask for
+    // a relation to "ndoes" that the def door would itself refuse.
+    expect(judgeAnalysisReads('layout', 'ndoes', ['edges'], tables, edges())).toEqual([
+      'analysis "layout" runs over table "ndoes", which is not a declared data table — the tables are cells, nodes, edges',
+    ]);
+    // an analysis that reads nothing beside its own table is unchanged by that judge
+    expect(judgeAnalysisReads('layout', 'ndoes', [], tables, edges())).toEqual([]);
+  });
+
+  it('every problem at once, one sentence each — the judge never throws and never stops at the first', () => {
+    expect(judgeAnalysisReads('layout', 'nodes', ['ghost', 'cells', 'edges'], tables, edges())).toHaveLength(2);
+    expect(judgeAnalysisReads('layout', 'nodes', ['edges'], tables, [])).toHaveLength(1); // a dashboard that declares no relation permits no read
   });
 });

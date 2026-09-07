@@ -42,7 +42,12 @@ import type { CommitInput, CommitRecord } from '../log/index.js';
 // L1 `replayLog` and this session's own `replay`). Not on the `/log` barrel:
 // no importer outside this package has asked for it — PACKAGING.md, Law 2.
 import { replayInput } from '../log/log.js';
-import type { ColumnsOutput } from '../analysis/index.js';
+import { NO_RELATED_ROWS, type AnalysisRunInput, type ColumnsOutput, type RelatedRows } from '../analysis/index.js';
+// The read-across permission: an analysis may read a table beside its own only
+// where a declared relation joins the two (`../def/README.md`, "Relations").
+// Imported from the module that OWNS relations, not the def barrel — the same
+// rule `registerAnalysisSlot` follows, so no layer edge is added by a judge.
+import { judgeAnalysisReads } from '../def/relations.js';
 import { isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
 import { cellFieldLabel, derivedColumnName, isRejection, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchValue, type PredicateClause, type Row } from '../data/index.js';
@@ -705,7 +710,10 @@ class InteractionSessionImpl implements InteractionSession {
     let module: RegisteredAnalysis | undefined;
     if (carried !== undefined) {
       try {
-        module = registerAnalysisSlot(analysisId, carried);
+        // THIS dashboard's relations, never the log's: a relation is declared,
+        // not recorded, so a replayed `bringOver` follows the joins the session
+        // it is landing in permits — and follows none where none are declared.
+        module = registerAnalysisSlot(analysisId, carried, { relations: this.runtime.relations });
       } catch (error) {
         return { unperformable: `analysis "${analysisId}" carries a declaration this library cannot build: ${messageOf(error)}` };
       }
@@ -851,14 +859,18 @@ class InteractionSessionImpl implements InteractionSession {
       // at the tip would answer it with columns the act never saw.
       this.seekTo(rec.id);
       // …and over THE TABLE IT READ, off the record itself, never assumed.
-      const input = await this.resolveAnalysisInput(true, table);
+      // …with the tables it reads BESIDE that one, read the same way at the same
+      // position: the ONE input path serves both doors, so a replayed act sees
+      // the rows its original saw. No permission is re-judged here — the act
+      // already happened, and a replay re-performs it rather than re-deciding it.
+      const input = await this.resolveAnalysisInput(true, table, analysis.def.reads ?? []);
       if ('rejected' in input) {
         this.gapLedger.file('needs-backend-data', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but its input could not be read back: ${input.rejected}`, analysisId);
         continue;
       }
       let run: Awaited<ReturnType<typeof analysis.run>>;
       try {
-        run = await analysis.run(input);
+        run = await analysis.run(input.rows, { related: input.related });
       } catch (error) {
         this.gapLedger.file('effect-failed', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but re-running it threw: ${messageOf(error)}`, analysisId);
         continue;
@@ -872,11 +884,12 @@ class InteractionSessionImpl implements InteractionSession {
       // `why({kind:'column'})` answers about the act, and the act is the
       // replayed commit — so the provenance is rebuilt beside the values.
       // A columns transform reads the whole table, never the selection, so its
-      // input-selection set is empty, exactly as `declareAnalysis` records it.
+      // input-selection set holds only what shaped a RELATED table — empty for
+      // the one-table acts, exactly as `declareAnalysis` records it.
       const prov: WhyProvenance = {
         analysisId,
         declaringCommitId: rec.id,
-        inputSelectionCommitIds: [],
+        inputSelectionCommitIds: this.relatedSelectionCommitIds(input.related),
         ...(run.snapshot ? { snapshot: run.snapshot } : {}),
         ...(rec.correlationId !== undefined ? { correlationId: rec.correlationId } : {}),
       };
@@ -1604,7 +1617,30 @@ class InteractionSessionImpl implements InteractionSession {
    * unknown column, not a filter.
    */
   private clausesOn(table: string): PredicateClause[] {
-    return [...this.activeFilters].filter(([from]) => this.placeOf(from)?.layer === undefined || this.tableFor(from) === table).map(([, clause]) => clause);
+    return [...this.activeFilters].filter(([from]) => this.clauseReaches(from, table)).map(([, clause]) => clause);
+  }
+
+  /** THE per-table rule itself, named once: a view's clause reaches every table; a LAYER's reaches only its own. */
+  private clauseReaches(viewId: string, table: string): boolean {
+    return this.placeOf(viewId)?.layer === undefined || this.tableFor(viewId) === table;
+  }
+
+  /**
+   * The commits that landed the clauses `clausesOn` gives that table — the same
+   * rule, answering in commit ids instead of clauses.
+   *
+   * WHY: a related table is read under ITS OWN clauses, so the provenance of an
+   * act that read it must name those commits and no others. Asking
+   * `activeFilterCommits` for everything would credit a brush on a third table
+   * the analysis never saw.
+   */
+  private filterCommitsOn(table: string): string[] {
+    return [...this.activeFilterCommits].filter(([from]) => this.clauseReaches(from, table)).map(([, commit]) => commit);
+  }
+
+  /** The selection commits that shaped the RELATED tables an act read — deduped, in table order. Both doors (`declareAnalysis`, `replay`) ask it. */
+  private relatedSelectionCommitIds(related: RelatedRows): string[] {
+    return [...new Set(Object.keys(related).flatMap((table) => this.filterCommitsOn(table)))];
   }
 
   /**
@@ -1990,11 +2026,43 @@ class InteractionSessionImpl implements InteractionSession {
   private async resolveAnalysisInput(
     producesColumns: boolean,
     table: string,
-  ): Promise<readonly Row[] | { rejected: string }> {
+    reads: readonly string[] = [],
+  ): Promise<AnalysisRunInput | { rejected: string }> {
     // Columns-channel analyses run over the FULL table (materialized values must
     // align to the row order); every other channel runs over the selection — one query either way.
     const rows = await this.allRows(table, producesColumns ? [] : [...this.activeFilters.values()]);
-    return 'rejected' in rows ? rows : rows.map((row) => ({ ...row }));
+    if ('rejected' in rows) return rows;
+    const beside = await this.resolveRelatedRows(reads);
+    if ('rejected' in beside) return beside;
+    return { rows: rows.map((row) => ({ ...row })), related: beside.related };
+  }
+
+  /**
+   * The rows of the tables an analysis declared it READS beside its own — one
+   * query each, at the cursor, under that table's own clauses.
+   *
+   * The permission was granted at the door; this is the reading, and it holds
+   * the own table's rules where they are the same rules: the query goes through
+   * `ask`, so a derived column an earlier act landed is visible and wears its
+   * logical name, and the rows are DETACHED, because they go to footprintjs as
+   * a run input and footprintjs freezes what it is given. The clauses are the
+   * one thing that cannot be borrowed: a related table is read under the
+   * clauses that reach THAT table (`clausesOn`), never another table's — the
+   * own table's "whole table for a columns analysis" rule is about the rows
+   * being WRITTEN back, and nothing is written back here.
+   *
+   * A backend that refuses one stops the whole act — the analysis asked for
+   * those rows, and half an input is not an input (R14).
+   */
+  private async resolveRelatedRows(reads: readonly string[]): Promise<{ related: RelatedRows } | { rejected: string }> {
+    if (reads.length === 0) return { related: NO_RELATED_ROWS };
+    const related: Record<string, readonly Row[]> = {};
+    for (const table of reads) {
+      const rows = await this.allRows(table, this.clausesOn(table));
+      if ('rejected' in rows) return { rejected: `related table "${table}": ${rows.rejected}` };
+      related[table] = rows.map((row) => ({ ...row }));
+    }
+    return { related };
   }
 
   // ── capability resolution (R14 / R3) ─────────────────────────────────────────
@@ -2954,7 +3022,7 @@ class InteractionSessionImpl implements InteractionSession {
 
   // ── declareAnalysis (the L3 flags' landing spot) ─────────────────────────────
   registerAnalysis(id: string, slot: AnalysisSlot): void {
-    this.localAnalyses.set(id, registerAnalysisSlot(id, slot));
+    this.localAnalyses.set(id, registerAnalysisSlot(id, slot, { relations: this.runtime.relations }));
   }
 
   hasAnalysis(id: string): boolean {
@@ -3086,7 +3154,17 @@ class InteractionSessionImpl implements InteractionSession {
       result: { ok: false, reason: 'degenerate-fit', n: 0, fitDegenerate: true },
       gap,
     });
-    // JUDGE FIRST (./README.md, law 1). An analysis that wants to be judged
+    // THE PERMISSION, FIRST OF ALL (./README.md, law 1; ../def/README.md law 6).
+    // An analysis that reads a table BESIDE the one it runs over may do so only
+    // where a declared relation joins the two. This is the cheapest judge on the
+    // door — declaration against declaration, no row and no backend — so it is
+    // asked before the columns are even fetched.
+    const reads = analysis.def.reads ?? [];
+    const notPermitted = judgeAnalysisReads(id, table, reads, this.runtime.tables, this.runtime.relations);
+    if (notPermitted.length > 0) {
+      return refused(this.gapLedger.file('guard-failed', 'declareAnalysis', notPermitted.join('; '), id));
+    }
+    // JUDGE NEXT (./README.md, law 1). An analysis that wants to be judged
     // against the table it reads is asked here, before a row is touched and
     // before a commit exists: the columns visible AT THE CURSOR, so a formula
     // over a column an earlier act derived is judged against what that act
@@ -3106,12 +3184,22 @@ class InteractionSessionImpl implements InteractionSession {
     // table, everything else over the selection). A backend rejection is filed
     // as a typed gap and short-circuits — never silently masked as empty (R14).
     let input: readonly Row[];
+    let related: RelatedRows = NO_RELATED_ROWS;
     if (opts.input !== undefined) {
       input = opts.input;
+      // WHY the related tables are still read: `reads` is a promise about the
+      // ACT, not about where the own rows came from. A caller that brings its
+      // own rows has not said the edges do not exist — and an analysis handed
+      // `{}` for a table it declared would lay out an edgeless graph and call
+      // it a success. Half an input is not an input (R14).
+      const beside = await this.resolveRelatedRows(reads);
+      if ('rejected' in beside) return refused(this.gapLedger.file('needs-backend-data', 'declareAnalysis', beside.rejected, id));
+      related = beside.related;
     } else {
-      const resolved = await this.resolveAnalysisInput(analysis.def.produces === 'columns', table);
+      const resolved = await this.resolveAnalysisInput(analysis.def.produces === 'columns', table, reads);
       if ('rejected' in resolved) return refused(this.gapLedger.file('needs-backend-data', 'declareAnalysis', resolved.rejected, id));
-      input = resolved;
+      input = resolved.rows;
+      related = resolved.related;
     }
 
     const baseCause: Cause = opts.cause ?? { requestedBy: opts.as ?? this.defaultActor, computedBy: 'system' };
@@ -3120,6 +3208,7 @@ class InteractionSessionImpl implements InteractionSession {
     let hypothesis: AnalysisCommit['hypothesis'];
     let fdrStep: FdrStep | undefined;
     const run = await analysis.run(input, {
+      related,
       timestamp: ++this.testClock,
       sink: (h) => {
         hypothesis = h;
@@ -3191,10 +3280,16 @@ class InteractionSessionImpl implements InteractionSession {
     // so `why()` honestly excludes an active-but-unused filter (minimality). Any
     // other channel ran over the selection, so the active filter commits ARE the
     // causal input.
+    //
+    // A RELATED table is the exception, and it is not an exception to the rule
+    // but the rule applied honestly: the own table was read whole, but a table
+    // read BESIDE it was read under its own clauses, so the brush that shaped
+    // it really is a causal input — and `why()` must say so or it lies.
+    const relatedCommitIds = this.relatedSelectionCommitIds(related);
     const inputSelectionCommitIds =
       analysis.def.produces === 'columns' && opts.input === undefined
-        ? []
-        : [...this.activeFilterCommits.values()];
+        ? relatedCommitIds
+        : [...new Set([...this.activeFilterCommits.values(), ...relatedCommitIds])];
     const baseProv: WhyProvenance = {
       analysisId: id,
       declaringCommitId: record.id,

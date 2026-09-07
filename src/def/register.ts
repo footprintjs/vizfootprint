@@ -12,14 +12,14 @@
  */
 
 import { defineAnalysis, type AnalysisOutput } from '../analysis/index.js';
-import { buildBuiltinAnalysis, isBuiltinRecord, type BuiltinAnalysisDecl } from './builtinAnalyses.js';
+import { buildBuiltinAnalysis, isBuiltinRecord, type BuiltinAnalysisContext, type BuiltinAnalysisDecl } from './builtinAnalyses.js';
 import type { AnalysisSlot, RegisteredAnalysis } from './types.js';
 
 function isAnalysisModule(slot: AnalysisSlot): slot is Extract<AnalysisSlot, { run: unknown }> {
   return typeof (slot as { run?: unknown }).run === 'function';
 }
 
-export function registerAnalysisSlot(id: string, slot: AnalysisSlot): RegisteredAnalysis {
+export function registerAnalysisSlot(id: string, slot: AnalysisSlot, context: BuiltinAnalysisContext = {}): RegisteredAnalysis {
   // A pre-built module (an L3 built-in), a builtin record resolved to its
   // factory, or a raw def promoted via defineAnalysis — routed on SHAPE by the
   // same two predicates the def door validates with, so what validates is what
@@ -42,11 +42,16 @@ export function registerAnalysisSlot(id: string, slot: AnalysisSlot): Registered
   // the trace, and a replay can then rebuild it from bytes alone (law 6). The
   // record kept is the one that was actually built — id injected — so what
   // replays is what ran, not what was typed.
+  //
+  // `context` is what the DASHBOARD knows and the record does not say — its
+  // relations. It rides beside the record rather than into it for the same
+  // reason: a relation is the def's to declare, so a log that carried one could
+  // replay a join this dashboard never permitted.
   const record = isAnalysisModule(slot) || !isBuiltinRecord(slot) ? undefined : ({ ...slot, id: slot.id ?? id } as BuiltinAnalysisDecl);
   const mod = isAnalysisModule(slot)
     ? slot
     : record !== undefined
-      ? buildBuiltinAnalysis(record)
+      ? buildBuiltinAnalysis(record, context)
       : defineAnalysis(slot as Parameters<typeof defineAnalysis>[0]);
   return {
     id,

@@ -5,17 +5,20 @@
  * until this file nothing said how two of them join. A relation is one edge:
  * a column of one table pointing at ANOTHER table's declared `key` — an
  * identity, never a loose column, so the row a value names is addressable
- * (the no-row-key law behind `DataSourceDef.key`). Five laws, each with an
- * example, in ./README.md ("Relations").
+ * (the no-row-key law behind `DataSourceDef.key`). Six laws, each with an
+ * example, in ./README.md ("Relations") — the sixth is the one at the bottom of
+ * this file: a relation is also a PERMISSION to read across.
  *
- * This is the def door's half: what the declaration alone can prove. A
- * `from.column` on a table that declares no `columns` is judged post-build
+ * The door BELOW is the def door's half: what the declaration alone can prove.
+ * A `from.column` on a table that declares no `columns` is judged post-build
  * against the engine's real columns by `Dashboard.lintData`, exactly as a key
  * is. First customers: `validateDashboardDef` (the door), `buildDashboard`
  * (writes each relation's `kind` out onto the runtime), the overview (echoes
- * them), and the neighbourhood selection kind that will walk them.
+ * them), the neighbourhood selection kind that will walk them, and — for the
+ * sixth law at the bottom — `session.declareAnalysis` (which asks the
+ * permission) and the `bringOver` builtin (which follows the edge).
  */
-import { RELATION_KINDS, type RelationEnd, type RelationKind } from './types.js';
+import { RELATION_KINDS, type RelationEdge, type RelationEnd, type RelationKind } from './types.js';
 
 // ── the vocabulary ────────────────────────────────────────────────────────────
 
@@ -126,4 +129,79 @@ export function validateRelations(raw: unknown, data: Record<string, unknown>, p
     if (r.kind !== undefined && !(RELATION_KINDS as readonly unknown[]).includes(r.kind)) problems.push(`${where}.kind must be one of ${RELATION_KINDS.join('|')}`);
     if (r.label !== undefined && typeof r.label !== 'string') problems.push(`${where}.label must be a string`);
   });
+}
+
+// ── law 6: the permission to read across an edge, and the edge a bringOver follows ──
+
+/** Does a declared relation join these two tables — in EITHER direction? An edge is a join, not an arrow, to anything asking to READ across it. */
+export function joinsTables(relations: readonly RelationEdge[], a: string, b: string): boolean {
+  return relations.some((r) => (r.from.table === a && r.to.table === b) || (r.from.table === b && r.to.table === a));
+}
+
+/**
+ * The declared edges POINTING from one table at another — `from` holds the
+ * column, `to` holds the key it names.
+ *
+ * WHY directional where {@link joinsTables} is not: a permission to READ across
+ * an edge runs both ways, but following one does not. `edges.source → nodes.id`
+ * gives every edge row exactly one node, so a value can be carried back along
+ * it; the other way round a node row names many edges, and there is nothing to
+ * carry back without an aggregate this library has not been asked for. First
+ * customer: the `bringOver` builtin, whose produced column names are PREFIXED
+ * by these edges' `from.column`s (`source` + `x` → `source_x`, spelled once in
+ * `broughtColumnName`).
+ *
+ * Named `…From` and not `…Between` because "between" names an undirected pair
+ * in every graph vocabulary a reader brings — and in {@link joinsTables} eight
+ * lines up, which really is either-direction.
+ */
+export function relationsFrom(relations: readonly RelationEdge[], from: string, to: string): RelationEdge[] {
+  return relations.filter((r) => r.from.table === from && r.to.table === to);
+}
+
+/**
+ * Law 6: an analysis may read a table BESIDE the one it runs over only where a
+ * declared relation joins the two — **the relation is the permission**. One
+ * sentence per problem, an empty list for "nothing to say", never a throw: the
+ * shape `judgeTable` answers in, so `declareAnalysis` files either the same way.
+ *
+ * WHY here and not at the def door: which table an analysis runs over is chosen
+ * when the act is performed (`declareAnalysis(id, { table })`), so the pair
+ * whose join is in question does not exist until then. The def carries the
+ * NAMES; this judges the pair.
+ */
+export function judgeAnalysisReads(
+  id: string,
+  table: string,
+  reads: readonly string[],
+  tables: readonly string[],
+  relations: readonly RelationEdge[],
+): string[] {
+  // WHY the analysis's own table is judged FIRST, and alone: the pair is
+  // (table, name), and a pair whose LEFT side is not a table has no relation to
+  // declare. Blaming the read would quote a table that is perfectly good and
+  // send the reader to declare a relation the def door would itself refuse.
+  if (reads.length > 0 && !tables.includes(table)) {
+    return [`analysis "${id}" runs over table "${table}", which is not a declared data table — the tables are ${tables.join(', ')}`];
+  }
+  const problems: string[] = [];
+  for (const name of reads) {
+    // The own table, named as a read: `reads` names the tables BESIDE it, and no
+    // relation may ever join a table to itself (law 3), so "declare the
+    // relation first" would be advice the relation door refuses.
+    if (name === table) {
+      problems.push(`analysis "${id}" reads table "${name}", which is the table it already runs over — \`reads\` names the tables BESIDE it`);
+      continue;
+    }
+    if (!tables.includes(name)) {
+      problems.push(`analysis "${id}" reads table "${name}", which is not a declared data table — the tables are ${tables.join(', ')}`);
+      continue;
+    }
+    // WHY: a table joined to nothing is not a neighbour, and a read of one is a
+    // join this library never saw declared.
+    if (!joinsTables(relations, table, name)) {
+      problems.push(`analysis "${id}" reads table "${name}", which no declared relation joins to "${table}" — declare the relation first`);
+    }
+  }
+  return problems;
 }

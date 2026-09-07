@@ -23,8 +23,16 @@ const TYPES: readonly (ColumnType | '')[] = ['', 'string', 'number', 'boolean', 
 const ROLES: readonly (ColumnRole | '')[] = ['', 'identifier', 'dimension', 'measure'];
 const SCALES: readonly (ColumnScale | '')[] = ['', 'discrete', 'continuous'];
 
-/** What each builtin analysis asks for, so the picker is one loop rather than five. */
-const ANALYSIS_OPTIONS: Readonly<Record<BuiltinAnalysisName, readonly { readonly key: string; readonly of: 'column' | 'number' | 'text'; readonly says: string }[]>> = {
+/**
+ * What each builtin analysis asks for, so the picker is one loop rather than one
+ * branch per analysis.
+ *
+ * `null` means "not offered by THIS wizard", and the map is exhaustive over
+ * `BuiltinAnalysisName` so a builtin added to the library has to be answered for
+ * here rather than silently appearing in the picker with nothing to fill in.
+ */
+type AnalysisOption = { readonly key: string; readonly of: 'column' | 'number' | 'text'; readonly says: string };
+const ANALYSIS_OPTIONS: Readonly<Record<BuiltinAnalysisName, readonly AnalysisOption[] | null>> = {
   groupBy: [
     { key: 'by', of: 'column', says: 'grouped by' },
     { key: 'measure', of: 'column', says: 'averaging' },
@@ -50,7 +58,16 @@ const ANALYSIS_OPTIONS: Readonly<Record<BuiltinAnalysisName, readonly { readonly
     { key: 'expression', of: 'text', says: 'working out' },
     { key: 'name', of: 'text', says: 'into a column called' },
   ],
+  // The two that read a SECOND table across a DECLARED RELATION. This wizard
+  // brings one table — the file the person dropped — so there is no second
+  // table to relate it to and no relation to grant the read. Offering them
+  // would be offering an act that could only ever be refused.
+  layout: null,
+  bringOver: null,
 };
+
+/** The analyses this wizard can honestly offer: the ones a one-table draft can fill in. */
+const MAKE_ANALYSES: readonly BuiltinAnalysisName[] = BUILTIN_ANALYSES.filter((name) => ANALYSIS_OPTIONS[name] !== null);
 
 const field: React.CSSProperties = { display: 'block', fontSize: T.textMd, marginBottom: T.gapSm };
 const box: React.CSSProperties = { font: 'inherit', fontSize: T.textLg, padding: '4px 6px', border: `1px solid ${T.rule}`, borderRadius: T.radius, background: T.paper };
@@ -293,9 +310,9 @@ export function ViewsStep({ draft, analysisKind, analysisOptions, onView, onAdd,
       </div>
 
       <div style={card} data-vzf="make-analysis">
-        <Choice label="Run an analysis" value={analysisKind} options={['', ...BUILTIN_ANALYSES]} said="— none —" onChange={(v) => onAnalysis(v, analysisOptions)} />
+        <Choice label="Run an analysis" value={analysisKind} options={['', ...MAKE_ANALYSES]} said="— none —" onChange={(v) => onAnalysis(v, analysisOptions)} />
         <p style={{ ...note, margin: 0 }}>
-          These five are the ones a definition can NAME, because they are data. Anything else is a developer’s: an analysis with code in it is written in TypeScript and passed to the build, and no wizard can write one for you.
+          These are the ones a definition can NAME over ONE table, because they are data. Anything else is a developer’s: an analysis with code in it is written in TypeScript and passed to the build, and no wizard can write one for you. The two that read a second table (a layout, and bringing a related table’s columns over) need a declared relation, and a wizard that brought one file has nothing to relate it to.
         </p>
         {(ANALYSIS_OPTIONS[analysisKind as BuiltinAnalysisName] ?? []).map((option) =>
           option.of === 'column' ? (

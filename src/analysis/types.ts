@@ -16,11 +16,19 @@
  */
 
 import type { RuntimeSnapshot } from 'footprintjs';
-import type { ColumnInfo } from '../data/types.js';
+import type { ColumnInfo, Row } from '../data/types.js';
 import type { HypothesisRecord } from '../fdr/index.js';
 
-/** `'test'` arms L4's online-FDR stepper (R6/R7); `'transform'` is FDR-exempt. */
-export type AnalysisKind = 'test' | 'transform';
+/**
+ * `'test'` arms L4's online-FDR stepper (R6/R7); `'transform'` is FDR-exempt.
+ *
+ * The array is the source, and the type is derived from it — the same shape
+ * `OUTPUT_CHANNELS` has, and for the same reason: a hand-copied `Set` of
+ * literals in the validator has no relationship to the union, so a name added
+ * to one and not the other type-checks clean and then refuses at runtime.
+ */
+export const ANALYSIS_KINDS = ['test', 'transform'] as const;
+export type AnalysisKind = (typeof ANALYSIS_KINDS)[number];
 
 // ── The R11 output vocabulary. NEVER a row-id list (R11 forbids it). ──────────
 
@@ -30,7 +38,12 @@ export interface ColumnsOutput {
   readonly table: string;
   readonly columns: Record<string, { readonly type: 'int' | 'float' | 'string' }>;
 }
-/** A geometry layer (regression line / hull / contour). Selects NO rows — no clause. */
+/**
+ * A fitted LINE layer — today's only geometry: slope + intercept over a domain.
+ * Selects NO rows — no clause. When a second shape lands (a hull, a contour),
+ * `features` becomes a discriminated union and this sentence grows with it; a
+ * doc naming shapes the type refuses is a promise nobody can keep.
+ */
 export interface GeometryOutput {
   readonly as: 'geometry';
   readonly layer: string;
@@ -83,12 +96,60 @@ export interface HonestyDecl {
 
 // ── The declarative read-set (feeds sliceForKey + docs). ──────────────────────
 
+/**
+ * The inert role labels, as a value so the validator cannot drift from the type.
+ *
+ * `'identifier'` names the column rows are IDENTIFIED by — a node key, an edge
+ * endpoint — and is the data layer's own word (`ColumnRole`, `../data/types.ts`).
+ * It is NOT `'group'`: a graph reader reads "group" as a clustered layout keyed
+ * by that column, and a node key groups nothing.
+ */
+export const INPUT_ROLES = ['x', 'y', 'group', 'measure', 'value', 'param', 'identifier'] as const;
+export type InputRole = (typeof INPUT_ROLES)[number];
+
 export interface InputBinding {
   /** The data-space column / param the analysis reads. */
   readonly column: string;
   /** Inert role label. */
-  readonly role?: 'x' | 'y' | 'group' | 'measure' | 'value' | 'param';
+  readonly role?: InputRole;
 }
+
+// ── The tables an analysis reads BESIDE its own. ──────────────────────────────
+
+/**
+ * The rows of every table a def `reads`, keyed by table name — read at the
+ * cursor, one entry per name. A table the def did not name is not in here.
+ *
+ * A table it DID name is here whenever the session resolved the rows — that
+ * holds on both of `declareAnalysis`'s paths, the one that queries the data
+ * space and the one where the caller brought its own `input` — because a
+ * backend that refused a related table stops the whole act, so there is no
+ * empty stand-in for a table that could not be read. The one caller that gets
+ * nothing is one that calls `AnalysisModule.run(input)` directly without
+ * `related`: it read no table at all, and a def that names `reads` sees `{}`.
+ */
+export type RelatedRows = Readonly<Record<string, readonly Row[]>>;
+
+/**
+ * The rows one invocation of an analysis runs over: its OWN table's rows, and
+ * the related tables it declared. The session resolves this — one query per
+ * table, at the cursor, with derived columns visible under their logical names
+ * — and hands the two halves on: `rows` to `run`, `related` beside it.
+ *
+ * The two halves are NOT read under the same clauses. A columns-channel
+ * analysis reads its own table WHOLE, because the values it materializes have
+ * to align to the row order the table already has; a related table is read
+ * under the clauses that reach IT (`clausesOn`), never the own table's. So
+ * filtering the nodes view can turn brought-over values into misses while the
+ * edge rows stay complete — that is the rule, not a bug.
+ */
+export interface AnalysisRunInput {
+  readonly rows: readonly Row[];
+  readonly related: RelatedRows;
+}
+
+/** Nothing was read beside the own table. The shared empty — frozen, so no caller can grow one. */
+export const NO_RELATED_ROWS: RelatedRows = Object.freeze({});
 
 // ── The test declaration (required iff kind==='test'). ────────────────────────
 
@@ -127,14 +188,35 @@ export interface AnalysisDef<I = unknown, O extends AnalysisOutput = AnalysisOut
   /** Stable id — also the emitted HypothesisRecord.hypothesisId. Inert string. */
   readonly id: string;
   readonly kind: AnalysisKind;
-  /** Which columns/params the analysis reads (docs + slice read-set hint). */
+  /**
+   * Which columns/params the analysis reads ON THE TABLE IT RUNS OVER (docs +
+   * slice read-set hint). The columns of a `reads` table are NOT declared here
+   * — only that table's NAME is, in `reads`, and the session's provenance
+   * carries its selection commits.
+   */
   readonly inputs: readonly InputBinding[];
+  /**
+   * The tables this analysis reads BESIDE the one it runs over — a layout on
+   * `nodes` that needs `edges`, an analysis on `edges` that needs `nodes`.
+   *
+   * Declarative and inert here; the permission is asked for at the door. A
+   * table named here must be a declared table AND joined to the analysis's own
+   * table by a declared relation, in either direction — the relation IS the
+   * permission (`../def/README.md`, "Relations"), and `declareAnalysis` refuses
+   * in a sentence when there is none. Absent means what it always meant: the
+   * analysis reads one table.
+   */
+  readonly reads?: readonly string[];
   /** The output CHANNEL this analysis re-enters through (R11 discriminant). */
   readonly produces: O['as'];
   /** Build the footprintjs flowchart. Developer function — NOT a model code string. */
   build(): import('footprintjs').FlowChart;
-  /** Map the caller's input to the flowchart run payload. */
-  toRunInput(input: I): unknown;
+  /**
+   * Map the caller's input to the flowchart run payload. `related` carries the
+   * rows of every table `reads` names — `{}` for the analyses that name none,
+   * which is why the parameter can simply be ignored by all of them.
+   */
+  toRunInput(input: I, related: RelatedRows): unknown;
   /** Extract the typed, value-bearing output from the finished run's snapshot. */
   readOutput(ctx: ReadContext<I>): AnalysisResult<O>;
   /** Pre-run honesty gate (R14): short-circuits BEFORE the chart runs on degenerate input. */
@@ -172,6 +254,12 @@ export interface RunAnalysisOptions {
   readonly sink?: HypothesisSink;
   /** Logical arrival time stamped on the HypothesisRecord (monotone within a run). */
   readonly timestamp?: number;
+  /**
+   * The rows of the tables the def `reads`, resolved by the caller that has a
+   * data space to read them from (the session). Absent means none were read —
+   * `toRunInput` sees `{}`, which is what every one-table analysis already has.
+   */
+  readonly related?: RelatedRows;
 }
 
 export interface AnalysisRunResult<O extends AnalysisOutput = AnalysisOutput> {

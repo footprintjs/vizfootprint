@@ -11,7 +11,7 @@ export type { ParsedDashboardDef } from './validate.js';
 // An analysis named as DATA — the third form of `AnalysisSlot`, and the key
 // that makes a whole def JSON-serialisable. See ./README.md.
 export { BUILTIN_ANALYSES, BuiltinAnalysisError, isBuiltinRecord, validateBuiltinAnalysis, buildBuiltinAnalysis } from './builtinAnalyses.js';
-export type { BuiltinAnalysisDecl, BuiltinAnalysisName, GroupByDecl, CorrelationDecl, RegressionDecl, ClusteringDecl, FormulaDecl } from './builtinAnalyses.js';
+export type { BuiltinAnalysisDecl, BuiltinAnalysisName, GroupByDecl, CorrelationDecl, RegressionDecl, ClusteringDecl, FormulaDecl, LayoutDecl, BringOverDecl, BuiltinAnalysisContext } from './builtinAnalyses.js';
 export {
   DISPATCH_VERBS,
   DEFAULT_INTENTS,
@@ -21,7 +21,7 @@ export {
   RELATION_KINDS,
 } from './types.js';
 // Relations between tables — validated in `./relations.ts`, laws in ./README.md ("Relations").
-export { validateRelations, relationEdgeId } from './relations.js';
+export { validateRelations, relationEdgeId, joinsTables, relationsFrom, judgeAnalysisReads } from './relations.js';
 // Layers — a view over more than one table; `viewId~layerId` is the address an act on a layer lands under,
 // and `./layerAddress.ts` is the ONE owner of the marker (laws in ./README.md "Layers").
 export { LAYER_MARKER, layerAddress, splitLayerAddress, holdsLayerMarker } from './layerAddress.js';

@@ -35,13 +35,13 @@ describe('the builtin analysis record — what it refuses', () => {
 
   it('refuses a record whose `builtin` is not a name', () => {
     expect(problemsOf({ builtin: 7 })).toEqual([
-      'analyses["a"].builtin must name a builtin analysis — one of groupBy | correlation | regression | clustering | formula',
+      'analyses["a"].builtin must name a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver',
     ]);
   });
 
   it('refuses an unknown builtin name, and says which names there are', () => {
     expect(problemsOf({ builtin: 'kmeans', column: 'cases' })).toEqual([
-      'analyses["a"].builtin "kmeans" is not a builtin analysis — one of groupBy | correlation | regression | clustering | formula',
+      'analyses["a"].builtin "kmeans" is not a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver',
     ]);
   });
 
@@ -83,12 +83,37 @@ describe('the builtin analysis record — what it refuses', () => {
   });
 
   it('accepts every builtin at its plainest', () => {
-    expect(BUILTIN_ANALYSES).toEqual(['groupBy', 'correlation', 'regression', 'clustering', 'formula']);
+    expect(BUILTIN_ANALYSES).toEqual(['groupBy', 'correlation', 'regression', 'clustering', 'formula', 'layout', 'bringOver']);
     expect(problemsOf({ builtin: 'groupBy', by: 'disease', measure: 'cases' })).toEqual([]);
     expect(problemsOf({ builtin: 'correlation', x: 'cases', y: 'ytd' })).toEqual([]);
     expect(problemsOf({ builtin: 'regression', x: 'cases', y: 'ytd' })).toEqual([]);
     expect(problemsOf({ builtin: 'clustering', column: 'cases', k: 4 })).toEqual([]);
     expect(problemsOf({ builtin: 'formula', expression: 'cases / 1000', name: 'rate' })).toEqual([]);
+    expect(problemsOf({ builtin: 'layout', algo: 'stress' })).toEqual([]);
+    expect(problemsOf({ builtin: 'bringOver', table: 'edges', from: 'nodes', columns: ['x', 'y'] })).toEqual([]);
+  });
+
+  it('refuses an algorithm the layout does not have, and names the one it does', () => {
+    expect(problemsOf({ builtin: 'layout', algo: 'spring' })).toEqual([
+      'analyses["a"].algo must name a layout algorithm — "stress" (the "layout" analysis needs it)',
+    ]);
+    // the algorithm is REQUIRED: an act must say what it did
+    expect(problemsOf({ builtin: 'layout' })).toEqual([
+      'analyses["a"].algo must name a layout algorithm — "stress" (the "layout" analysis needs it)',
+    ]);
+    // every other option is optional, and each is judged by its own kind
+    expect(problemsOf({ builtin: 'layout', algo: 'stress', iterations: 2.5 })).toEqual([
+      'analyses["a"].iterations, if present, must be a whole number of at least 1',
+    ]);
+    expect(problemsOf({ builtin: 'layout', algo: 'stress', seed: -1 })).toEqual([
+      'analyses["a"].seed, if present, must be a non-negative finite number',
+    ]);
+    expect(problemsOf({ builtin: 'layout', algo: 'stress', nodes: 'net' })).toEqual([
+      'analyses["a"].nodes is not an option of the "layout" analysis — it takes algo, table, edges, key, from, to, seed, iterations, xColumn, yColumn, id',
+    ]);
+    expect(
+      problemsOf({ builtin: 'layout', algo: 'stress', table: 'nodes', edges: 'edges', key: 'id', from: 'source', to: 'target', seed: 7, iterations: 4, xColumn: 'px', yColumn: 'py', id: 'map' }),
+    ).toEqual([]);
   });
 
   it('refuses a formula the grammar has no rule for, in the grammar\'s own sentence', () => {
@@ -121,7 +146,7 @@ describe('the three forms are told apart by SHAPE', () => {
 });
 
 describe('a builtin record resolves to its factory', () => {
-  it('builds each of the four, with the factory defaults the record left unsaid', () => {
+  it('builds each of them, with the factory defaults the record left unsaid', () => {
     const g = buildBuiltinAnalysis({ builtin: 'groupBy', by: 'disease', measure: 'cases' });
     expect([g.id, g.kind, g.def.produces]).toEqual(['groupby:disease:cases', 'transform', 'table']);
     const c = buildBuiltinAnalysis({ builtin: 'correlation', x: 'cases', y: 'ytd', branchId: 'b1' });
@@ -132,6 +157,52 @@ describe('a builtin record resolves to its factory', () => {
     expect(r.def.honesty?.minPoints).toBe(4);
     const k = buildBuiltinAnalysis({ builtin: 'clustering', column: 'cases', k: 4, id: 'bins' });
     expect([k.id, k.kind, k.def.produces]).toEqual(['bins', 'transform', 'columns']);
+    const l = buildBuiltinAnalysis({ builtin: 'layout', algo: 'stress' });
+    expect([l.id, l.kind, l.def.produces]).toEqual(['layout:stress:nodes', 'transform', 'columns']);
+    // the ONE builtin that reads a second table — and it says so on the def
+    expect(l.def.reads).toEqual(['edges']);
+    const b = buildBuiltinAnalysis({ builtin: 'bringOver', table: 'edges', from: 'nodes', columns: ['x', 'y'] });
+    expect([b.id, b.kind, b.def.produces]).toEqual(['bring:edges:nodes', 'transform', 'columns']);
+    expect(b.def.reads).toEqual(['nodes']);
+  });
+
+  it('a bringOver record reads its JOINS off the def’s relations, never off itself', () => {
+    const record = { builtin: 'bringOver', table: 'edges', from: 'nodes', columns: ['x'] } as const;
+    const relations = [
+      { from: { table: 'edges', column: 'source' }, to: { table: 'nodes', column: 'id' }, kind: 'many-to-one' as const },
+      { from: { table: 'edges', column: 'target' }, to: { table: 'nodes', column: 'id' }, kind: 'many-to-one' as const },
+      // pointing the other way, and at another table: neither is a join for this act
+      { from: { table: 'nodes', column: 'group' }, to: { table: 'groups', column: 'id' }, kind: 'many-to-one' as const },
+    ];
+    const joined = buildBuiltinAnalysis(record, { relations });
+    expect(joined.def.inputs).toEqual([
+      { column: 'source', role: 'identifier' },
+      { column: 'target', role: 'identifier' },
+    ]);
+    // with no relations declared it builds, and refuses the moment it is judged against a table
+    const alone = buildBuiltinAnalysis(record);
+    expect(alone.def.inputs).toEqual([]);
+    expect(alone.def.judgeTable!('edges', [{ name: 'source', type: 'string' }])).toEqual([
+      'analysis "bring:edges:nodes" brings x over from "nodes", but no declared relation points from "edges" at "nodes" — declare the relation first',
+    ]);
+  });
+
+  it('refuses a bringOver record whose columns are not a list of distinct names', () => {
+    expect(problemsOf({ builtin: 'bringOver', table: 'edges', from: 'nodes', columns: 'x' })).toEqual([
+      'analyses["a"].columns must be a non-empty array of distinct, non-empty column names (the "bringOver" analysis needs it)',
+    ]);
+    expect(problemsOf({ builtin: 'bringOver', table: 'edges', from: 'nodes', columns: [] })).toHaveLength(1);
+    expect(problemsOf({ builtin: 'bringOver', table: 'edges', from: 'nodes', columns: ['x', ''] })).toHaveLength(1);
+    expect(problemsOf({ builtin: 'bringOver', table: 'edges', from: 'nodes', columns: ['x', 'x'] })).toHaveLength(1);
+    expect(problemsOf({ builtin: 'bringOver', table: 'edges', from: 'nodes', columns: [1, 2] })).toHaveLength(1);
+    // both tables are required, and a join may never be typed in
+    expect(problemsOf({ builtin: 'bringOver', columns: ['x'] })).toEqual([
+      'analyses["a"].table must be a non-empty string (the "bringOver" analysis needs it)',
+      'analyses["a"].from must be a non-empty string (the "bringOver" analysis needs it)',
+    ]);
+    expect(problemsOf({ builtin: 'bringOver', table: 'edges', from: 'nodes', columns: ['x'], joins: [] })).toEqual([
+      'analyses["a"].joins is not an option of the "bringOver" analysis — it takes table, from, columns, id',
+    ]);
   });
 
   it('throws with every problem when the record is malformed', () => {

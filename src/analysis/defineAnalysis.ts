@@ -3,11 +3,14 @@
  * executed as a footprintjs flowchart.
  *
  * R12 firewall (mirrors L0's `parseCause`): the DECLARATIVE metadata of a def
- * (`id`, `kind`, `produces`, `inputs`, `test.statistic`, `honesty`) is validated
- * against a strict allowlist and treated as inert data — a hostile string in any
- * of those fields is stored/echoed verbatim and NEVER interpreted. The
- * executable parts (`build`/`toRunInput`/`readOutput`/`precheck`/`test.pValue`)
- * are developer-authored functions, never a model-supplied code string.
+ * (`id`, `kind`, `produces`, `inputs`, `reads`, `test.statistic`, `honesty`) is
+ * validated against a strict allowlist and treated as inert data — a hostile
+ * string in any of those fields is stored/echoed verbatim and NEVER interpreted.
+ * `reads` is the clearest case: the table names come out of a dashboard record,
+ * are stored as written and are echoed back word for word in the door's
+ * refusals. The executable parts
+ * (`build`/`toRunInput`/`readOutput`/`precheck`/`judgeTable`/`test.pValue`) are
+ * developer-authored functions, never a model-supplied code string.
  *
  * Cited footprintjs APIs (installed 9.10.1, paths under
  * `node_modules/footprintjs/dist/esm/lib/`):
@@ -24,6 +27,9 @@ import { FlowChartExecutor } from 'footprintjs';
 import type { FlowChart } from 'footprintjs';
 import type { HypothesisRecord } from '../fdr/index.js';
 import {
+  ANALYSIS_KINDS,
+  INPUT_ROLES,
+  NO_RELATED_ROWS,
   OUTPUT_CHANNELS,
   type AnalysisDef,
   type AnalysisModule,
@@ -47,6 +53,7 @@ const DEF_KEYS = new Set([
   'id',
   'kind',
   'inputs',
+  'reads',
   'produces',
   'build',
   'toRunInput',
@@ -57,9 +64,9 @@ const DEF_KEYS = new Set([
   'honesty',
 ]);
 
-const KINDS = new Set(['test', 'transform']);
+const KINDS = new Set<string>(ANALYSIS_KINDS);
 const CHANNELS = new Set<string>(OUTPUT_CHANNELS);
-const ROLES = new Set(['x', 'y', 'group', 'measure', 'value', 'param']);
+const ROLES = new Set<string>(INPUT_ROLES);
 
 function isFn(v: unknown): v is (...args: never[]) => unknown {
   return typeof v === 'function';
@@ -104,6 +111,22 @@ export function validateAnalysisDef(def: unknown): string[] {
     });
   }
 
+  // The tables read BESIDE the own one: names only, judged as SHAPE here. Whether
+  // a relation permits each read is a question about the def AND the table the act
+  // runs over, so it is asked at the door (`declareAnalysis`), not here.
+  if (d.reads !== undefined) {
+    if (!Array.isArray(d.reads)) {
+      problems.push('reads, if present, must be an array of table names');
+    } else {
+      const seen = new Set<string>();
+      d.reads.forEach((name, i) => {
+        if (typeof name !== 'string' || name.length === 0) problems.push(`reads[${i}] must be a non-empty table name`);
+        else if (seen.has(name)) problems.push(`reads[${i}] repeats table "${name}"`);
+        else seen.add(name);
+      });
+    }
+  }
+
   if (!isFn(d.build)) problems.push('build must be a function');
   if (!isFn(d.toRunInput)) problems.push('toRunInput must be a function');
   if (!isFn(d.readOutput)) problems.push('readOutput must be a function');
@@ -121,8 +144,10 @@ export function validateAnalysisDef(def: unknown): string[] {
       }
       if (!isFn(t.pValue)) problems.push('test.pValue must be a function (the caller-supplied judge)');
     }
-  } else if (d.test !== undefined) {
-    // A transform is FDR-exempt; a stray test decl is a category error.
+  } else if (d.kind === 'transform' && d.test !== undefined) {
+    // A transform is FDR-exempt; a stray test decl is a category error. Narrowed
+    // to the kind it NAMES: a def whose kind is misspelled is neither, and a
+    // refusal may not tell it that it is a transform.
     problems.push('kind:transform must not carry a test declaration');
   }
 
@@ -131,8 +156,12 @@ export function validateAnalysisDef(def: unknown): string[] {
       problems.push('honesty, if present, must be an object');
     } else {
       const h = d.honesty as Record<string, unknown>;
-      if (h.minPoints !== undefined && (typeof h.minPoints !== 'number' || h.minPoints < 0)) {
-        problems.push('honesty.minPoints, if present, must be a non-negative number');
+      // `Number.isFinite` and not just `typeof`: NaN is a number, `NaN < 0` is
+      // false, and a NaN floor makes `rows.length < minPoints` false for every
+      // row count — the R14 gate silently stops existing. Worded as its twin
+      // words it (`../def/builtinAnalyses.ts`).
+      if (h.minPoints !== undefined && (typeof h.minPoints !== 'number' || !Number.isFinite(h.minPoints) || h.minPoints < 0)) {
+        problems.push('honesty.minPoints, if present, must be a non-negative finite number');
       }
     }
   }
@@ -166,13 +195,24 @@ export function defineAnalysis<I = unknown, O extends AnalysisOutput = AnalysisO
       if (gate) return { result: gate };
 
       const executor = new FlowChartExecutor(getChart());
-      await executor.run({ input: def.toRunInput(input) });
+      // WHY: the related rows are the CALLER's to resolve — only the session has a
+      // data space and a cursor — so they arrive per invocation, never on the def.
+      await executor.run({ input: def.toRunInput(input, opts.related ?? NO_RELATED_ROWS) });
       const snapshot = executor.getSnapshot();
       const result = def.readOutput({ snapshot, input });
 
       let hypothesis: HypothesisRecord | undefined;
       if (def.kind === 'test' && result.ok && def.test) {
         const pValue = def.test.pValue({ snapshot, input, output: result.output });
+        // WHY the judge's answer is judged: `pValue` is caller-supplied, and the
+        // record it is stamped onto is what L4's stepper SPENDS wealth on. A NaN
+        // never rejects and still burns the budget, and the frozen audit row
+        // then carries a number that was never a p-value. The other door into
+        // this record type (`../fdr/fromLog.ts`) already applies this rule; a
+        // refused act does not happen, so no step is spent.
+        if (typeof pValue !== 'number' || !Number.isFinite(pValue) || pValue < 0 || pValue > 1) {
+          throw new Error(`vizfootprint: analysis "${def.id}" judged "${def.test.statistic}" with ${String(pValue)} — a p-value is a finite number in [0,1]`);
+        }
         hypothesis = {
           hypothesisId: def.id,
           pValue,

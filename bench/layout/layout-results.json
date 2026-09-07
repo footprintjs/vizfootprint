@@ -1,0 +1,190 @@
+{
+ "node": "v22.16.0",
+ "platform": "darwin arm64",
+ "generatedAt": "2026-09-07T07:48:26.376Z",
+ "plan": [
+  {
+   "nodes": 1000,
+   "reps": 3,
+   "iterations": 30
+  },
+  {
+   "nodes": 10000,
+   "reps": 1,
+   "iterations": 30
+  }
+ ],
+ "seed": 42,
+ "stressSources": 64,
+ "warmupDiscarded": 1,
+ "units": {
+  "time": "milliseconds (performance.now wall clock)",
+  "memory": "bytes (process.memoryUsage; heapUsed EXCLUDES typed-array backing stores, which land in arrayBuffers)",
+  "stress": "dimensionless weighted mean squared residual at the optimal scale, normalized by the counted pairs (0 is exact, 1 is every node on one point)"
+ },
+ "declaredCap": 5000,
+ "controls": {
+  "clock": {
+   "askedMs": 40,
+   "readMs": 40.016,
+   "live": true
+  },
+  "metric": {
+   "graph": "12x12 grid (BFS distance == Manhattan distance, so the grid coordinates are a known-good embedding)",
+   "truthMeanStress": 0.01533,
+   "scrambledMeanStress": 0.568866,
+   "counted": 4576,
+   "ratio": 37.11,
+   "live": true
+  },
+  "live": true,
+  "note": "live:false voids every number in this file — a dead instrument reports \"no cost\" in the same voice as a fast one."
+ },
+ "sizes": [
+  {
+   "nodes": 1000,
+   "reps": 3,
+   "iterations": 30,
+   "graph": {
+    "seed": 42,
+    "nodeCount": 1000,
+    "edgeCount": 2919,
+    "giantCount": 970,
+    "fringeCount": 30,
+    "avgDegree": 5.838,
+    "edgeRows": 2919,
+    "buildMs": 1.127
+   },
+   "adjacency": {
+    "medianMs": 0.355,
+    "p95Ms": 0.495,
+    "samples": 3,
+    "total": 2919,
+    "used": 2919,
+    "dropped": 0,
+    "agreesWithBench": true,
+    "benchUsed": 2919,
+    "benchDropped": 0,
+    "degree": 5838,
+    "benchDegree": 5838,
+    "benchDuplicateKeys": 0,
+    "benchKeylessNodes": 0
+   },
+   "allPairs": {
+    "benchMedianMs": 18.499,
+    "benchP95Ms": 18.546,
+    "samples": 3,
+    "real": {
+     "measured": true,
+     "medianMs": 18.494,
+     "p95Ms": 18.598,
+     "agreesWithBench": true,
+     "cellsSampled": 1000
+    },
+    "matrixBytes": 2000000,
+    "maxFinite": 7,
+    "disconnectedPairs": 59052
+   },
+   "place": {
+    "medianMs": 163.989,
+    "p95Ms": 170.461,
+    "samples": 3,
+    "msPerIteration": 5.466
+   },
+   "stress": {
+    "sources": 64,
+    "placedMeanStress": 0.185541,
+    "scrambledMeanStress": 0.264836,
+    "ratio": 1.43,
+    "counted": 59111,
+    "skipped": 4825
+   },
+   "memory": {
+    "runsPerPhase": 4,
+    "afterGraphRss": 62996480,
+    "afterAdjacencyRss": 63799296,
+    "afterAllPairsRss": 79921152,
+    "afterPlaceRss": 80166912,
+    "maxSampledRss": 80166912,
+    "maxSampledHeapUsed": 12447024,
+    "maxSampledArrayBuffers": 14034515,
+    "maxSampledExternal": 15541612
+   }
+  },
+  {
+   "nodes": 10000,
+   "reps": 1,
+   "iterations": 30,
+   "graph": {
+    "seed": 42,
+    "nodeCount": 10000,
+    "edgeCount": 29195,
+    "giantCount": 9700,
+    "fringeCount": 300,
+    "avgDegree": 5.839,
+    "edgeRows": 29195,
+    "buildMs": 5.04
+   },
+   "adjacency": {
+    "medianMs": 2.135,
+    "p95Ms": 2.135,
+    "samples": 1,
+    "total": 29195,
+    "used": 29195,
+    "dropped": 0,
+    "agreesWithBench": true,
+    "benchUsed": 29195,
+    "benchDropped": 0,
+    "degree": 58390,
+    "benchDegree": 58390,
+    "benchDuplicateKeys": 0,
+    "benchKeylessNodes": 0
+   },
+   "allPairs": {
+    "benchMedianMs": 2272.814,
+    "benchP95Ms": 2272.814,
+    "samples": 1,
+    "real": {
+     "measured": false,
+     "refused": "a stress layout needs exact all-pairs distances, which is one 10000 × 10000 matrix: this graph has 10000 nodes and the ceiling is 5000 — filter the nodes down, or lay the graph out in pieces"
+    },
+    "matrixBytes": 200000000,
+    "maxFinite": 9,
+    "disconnectedPairs": 5909510
+   },
+   "place": {
+    "medianMs": 23049.576,
+    "p95Ms": 23049.576,
+    "samples": 1,
+    "msPerIteration": 768.319
+   },
+   "stress": {
+    "sources": 64,
+    "placedMeanStress": 0.185585,
+    "scrambledMeanStress": 0.223866,
+    "ratio": 1.21,
+    "counted": 611038,
+    "skipped": 28898
+   },
+   "memory": {
+    "runsPerPhase": 2,
+    "afterGraphRss": 85983232,
+    "afterAdjacencyRss": 94453760,
+    "afterAllPairsRss": 499236864,
+    "afterPlaceRss": 517308416,
+    "maxSampledRss": 517308416,
+    "maxSampledHeapUsed": 34691720,
+    "maxSampledArrayBuffers": 400430475,
+    "maxSampledExternal": 401937572
+   }
+  }
+ ],
+ "analysis": {
+  "measured": true,
+  "nodes": 1000,
+  "edgeRows": 2919,
+  "warmup": 0,
+  "samples": 1,
+  "ms": 205.256
+ }
+}

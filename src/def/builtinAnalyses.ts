@@ -3,8 +3,8 @@
  *
  * `AnalysisDef` and `AnalysisModule` are both CODE: the first requires
  * `build`/`toRunInput`/`readOutput` functions, the second is detected by its
- * `run` function. So until this file existed, a def that wanted the four
- * built-in analyses had to be written in TypeScript — nothing resolved a NAME
+ * `run` function. So until this file existed, a def that wanted the built-in
+ * analyses had to be written in TypeScript — nothing resolved a NAME
  * to a factory, and `JSON.parse(text)` could never produce an analysis.
  *
  * A builtin record closes that: `{ builtin: 'groupBy', by: 'disease',
@@ -21,19 +21,25 @@
  */
 
 import {
+  bringOverAnalysis,
   clusteringAnalysis,
   correlationAnalysis,
   formulaAnalysis,
   groupByAnalysis,
+  layoutAnalysis,
   parseFormula,
   regressionAnalysis,
+  LAYOUT_ALGORITHMS,
   type AnalysisModule,
   type AnalysisOutput,
+  type BringOverJoin,
   type DataRow,
 } from '../analysis/index.js';
+import { relationsFrom } from './relations.js';
+import type { RelationEdge } from './types.js';
 
 /** The builtin analyses a def may name. */
-export const BUILTIN_ANALYSES = ['groupBy', 'correlation', 'regression', 'clustering', 'formula'] as const;
+export const BUILTIN_ANALYSES = ['groupBy', 'correlation', 'regression', 'clustering', 'formula', 'layout', 'bringOver'] as const;
 export type BuiltinAnalysisName = (typeof BUILTIN_ANALYSES)[number];
 
 /** A group-by summary as a new queryable table (`groupByAnalysis`). */
@@ -118,8 +124,70 @@ export interface FormulaDecl {
   readonly id?: string;
 }
 
+/**
+ * A seeded stress layout, as two derived columns on the nodes table
+ * (`layoutAnalysis`).
+ *
+ * The only builtin that READS A SECOND TABLE: the ties live on the edges
+ * table, and a declared relation between the two is the permission to read
+ * them (`./README.md`, law 6). `algo` is required although there is one
+ * algorithm today — the act must say what it did, not leave a reader to infer
+ * it from the version of the library that happened to run.
+ */
+export interface LayoutDecl {
+  readonly builtin: 'layout';
+  /** Which algorithm. `stress` — seeded SGD stress majorization. */
+  readonly algo: 'stress';
+  /** The nodes table: read whole, and written back onto. Default `nodes`. */
+  readonly table?: string;
+  /** The related table holding the ties. Default `edges`. */
+  readonly edges?: string;
+  /** The nodes table's key column. Default `id`. */
+  readonly key?: string;
+  /** The edges table's endpoint columns. Default `source` / `target`. */
+  readonly from?: string;
+  readonly to?: string;
+  /** The seed the positions come out of. Default 1. */
+  readonly seed?: number;
+  /** How many SGD passes. Default 30. */
+  readonly iterations?: number;
+  /** The columns written. Default `x` / `y`. */
+  readonly xColumn?: string;
+  readonly yColumn?: string;
+  /** Default `layout:<algo>:<table>`. */
+  readonly id?: string;
+}
+
+/**
+ * Columns fetched from a related table, as new derived columns on this one
+ * (`bringOverAnalysis`).
+ *
+ * The record names the two tables and WHAT to fetch — never HOW to join them.
+ * That is read off the declared relations pointing from `table` at `from`, so
+ * `edges.source → nodes.id` is what makes `source_x` exist and a record cannot
+ * quietly invent a join nobody declared. See `./README.md` law 6.
+ */
+export interface BringOverDecl {
+  readonly builtin: 'bringOver';
+  /** The table WRITTEN — the one holding the pointing columns (e.g. `edges`). */
+  readonly table: string;
+  /** The related table READ (e.g. `nodes`). */
+  readonly from: string;
+  /** The columns fetched from it — one produced column per join × name, spelled `<relationColumn>_<column>`. */
+  readonly columns: readonly string[];
+  /** Default `bring:<table>:<from>`. */
+  readonly id?: string;
+}
+
 /** An analysis named as data — the third form of {@link import('./types.js').AnalysisSlot}. */
-export type BuiltinAnalysisDecl = GroupByDecl | CorrelationDecl | RegressionDecl | ClusteringDecl | FormulaDecl;
+export type BuiltinAnalysisDecl =
+  | GroupByDecl
+  | CorrelationDecl
+  | RegressionDecl
+  | ClusteringDecl
+  | FormulaDecl
+  | LayoutDecl
+  | BringOverDecl;
 
 /** Thrown when a builtin record is malformed. Carries every problem at once. */
 export class BuiltinAnalysisError extends Error {
@@ -131,11 +199,14 @@ export class BuiltinAnalysisError extends Error {
   }
 }
 
-/** What an option must be. Four kinds is all five builtins need. */
-type OptionType = 'string' | 'count' | 'whole' | 'columnType';
+/** What an option must be. Six kinds is all seven builtins need. */
+type OptionType = 'string' | 'count' | 'whole' | 'columnType' | 'algorithm' | 'names';
 
 /** The values a `columnType` option may take — the columns channel's own vocabulary, narrowed to what arithmetic produces. */
 const COLUMN_TYPES = new Set(['int', 'float']);
+
+/** The values an `algorithm` option may take — read from the layout itself, so there is one list. */
+const ALGORITHMS = new Set<string>(LAYOUT_ALGORITHMS);
 
 interface BuiltinSpec {
   readonly required: Readonly<Record<string, OptionType>>;
@@ -171,6 +242,28 @@ const SPECS: Readonly<Record<BuiltinAnalysisName, BuiltinSpec>> = Object.freeze(
       if (!parsed.ok) problems.push(`${where}.expression is not a formula: ${parsed.problem}`);
     },
   },
+  layout: {
+    required: { algo: 'algorithm' },
+    optional: {
+      table: 'string',
+      edges: 'string',
+      key: 'string',
+      from: 'string',
+      to: 'string',
+      seed: 'count',
+      iterations: 'whole',
+      xColumn: 'string',
+      yColumn: 'string',
+      id: 'string',
+    },
+  },
+  bringOver: {
+    required: { table: 'string', from: 'string', columns: 'names' },
+    // No `joins` option: which ties are followed is read off the declared
+    // relations, never typed in. A record that could name its own join could
+    // name one nobody declared, and the relation would stop being the permission.
+    optional: { id: 'string' },
+  },
 });
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -187,6 +280,13 @@ function holds(value: unknown, type: OptionType): boolean {
       return typeof value === 'number' && Number.isInteger(value) && value >= 1;
     case 'columnType':
       return typeof value === 'string' && COLUMN_TYPES.has(value);
+    case 'algorithm':
+      return typeof value === 'string' && ALGORITHMS.has(value);
+    case 'names':
+      // A LIST of column names: non-empty (an empty one asks for nothing and
+      // would land nothing), every entry a real name, and no repeat — a repeated
+      // name would produce the same column twice and say nothing new.
+      return Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === 'string' && v.length > 0) && new Set(value).size === value.length;
   }
 }
 
@@ -200,6 +300,10 @@ function mustBe(type: OptionType): string {
       return 'must be a whole number of at least 1';
     case 'columnType':
       return 'must be "int" or "float"';
+    case 'algorithm':
+      return `must name a layout algorithm — ${[...ALGORITHMS].map((a) => `"${a}"`).join(' | ')}`;
+    case 'names':
+      return 'must be a non-empty array of distinct, non-empty column names';
   }
 }
 
@@ -259,12 +363,35 @@ export function validateBuiltinAnalysis(decl: unknown, where: string, problems: 
 }
 
 /**
+ * What the DASHBOARD knows that a record does not say — everything a builtin
+ * needs which is declared elsewhere in the def.
+ *
+ * One builtin needs such a thing today: `bringOver` follows the declared
+ * relations, and a record may not name a join of its own (that is what keeps
+ * the relation the permission). Absent means "none declared", which every
+ * builtin but that one is indifferent to, and which that one refuses in a
+ * sentence at the door.
+ */
+export interface BuiltinAnalysisContext {
+  readonly relations?: readonly RelationEdge[];
+}
+
+/** The ties a `bringOver` record follows: one per declared relation pointing from its table at the related one. */
+function joinsFor(decl: BringOverDecl, relations: readonly RelationEdge[]): BringOverJoin[] {
+  return relationsFrom(relations, decl.table, decl.from).map((r) => ({ column: r.from.column, key: r.to.column }));
+}
+
+/**
  * Resolve a builtin record to its factory. Judged first — a malformed record
  * throws {@link BuiltinAnalysisError} with every problem, rather than reaching
  * a factory that would throw something less specific (or nothing at all until
  * the analysis ran).
+ *
+ * `context` carries what the record cannot say (the def's relations). It is
+ * optional because most builtins never look at it, and because a caller
+ * building one analysis by hand has no dashboard to take it from.
  */
-export function buildBuiltinAnalysis(decl: BuiltinAnalysisDecl): AnalysisModule<readonly DataRow[], AnalysisOutput> {
+export function buildBuiltinAnalysis(decl: BuiltinAnalysisDecl, context: BuiltinAnalysisContext = {}): AnalysisModule<readonly DataRow[], AnalysisOutput> {
   const problems: string[] = [];
   validateBuiltinAnalysis(decl, 'builtin analysis', problems);
   if (problems.length > 0) throw new BuiltinAnalysisError(problems);
@@ -281,5 +408,12 @@ export function buildBuiltinAnalysis(decl: BuiltinAnalysisDecl): AnalysisModule<
       return clusteringAnalysis(optionsOf(decl));
     case 'formula':
       return formulaAnalysis(optionsOf(decl));
+    case 'layout':
+      return layoutAnalysis(optionsOf(decl));
+    // The one builtin whose options are NOT the record alone: the joins come
+    // from the def's relations, and an empty list is a refusal the analysis
+    // itself makes, in a sentence, when the act is declared.
+    case 'bringOver':
+      return bringOverAnalysis({ ...optionsOf(decl), joins: joinsFor(decl, context.relations ?? []) });
   }
 }

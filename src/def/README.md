@@ -15,6 +15,8 @@ analyses: {
   trend:     { builtin: 'regression',  x: 'cases', y: 'ytd', minPoints: 12 },
   bins:      { builtin: 'clustering',  column: 'cases', k: 4 },
   rate:      { builtin: 'formula',     expression: 'cases / population * 1000', name: 'rate' },
+  map:       { builtin: 'layout',      algo: 'stress', table: 'nodes', edges: 'edges' },
+  ends:      { builtin: 'bringOver',   table: 'edges', from: 'nodes', columns: ['x', 'y'] },
 }
 ```
 
@@ -27,6 +29,8 @@ The record's keys **are** the factory's own options, so there is one vocabulary 
 | `regression` | an OLS line as a geometry layer | `x`, `y` |
 | `clustering` | quantile bins as a new int column | `column`, `k` |
 | `formula` | **an arithmetic expression over this table's number columns, as a new column** | `expression`, `name` |
+| `layout` | **a seeded stress layout, as `x` and `y` columns on the nodes table** | `algo` |
+| `bringOver` | **a related table's columns, fetched across the declared relations** | `table`, `from`, `columns` |
 
 `formula` is the one whose content is a sentence a PERSON typed rather than options a developer chose, so it is the one this door judges twice: the grammar reads `expression` here, at validation, and refuses a token it has no rule for by naming it and its position (`analyses["rate"].expression is not a formula: the formula has no rule for "%" at position 7`); the SESSION then judges the columns it names against the table it will read, before the act exists. The grammar, the five functions it knows and every refusal either judge makes are in [`../analysis/README.md`](../analysis/README.md).
 
@@ -63,11 +67,17 @@ Every refusal is a sentence naming the analysis and the problem:
 ```
 analyses["bins"].k must be a whole number of at least 1 (the "clustering" analysis needs it)
 analyses["a"].pValue is not an option of the "correlation" analysis — it takes x, y, id, branchId
-analyses["a"].builtin "kmeans" is not a builtin analysis — one of groupBy | correlation | regression | clustering | formula
+analyses["a"].builtin "kmeans" is not a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver
 analyses["rate"].expression is not a formula: the formula has no rule for "%" at position 7
+analyses["map"].algo must name a layout algorithm — "stress" (the "layout" analysis needs it)
+analyses["ends"].columns must be a non-empty array of distinct, non-empty column names (the "bringOver" analysis needs it)
 ```
 
 `k: 0` is the one worth pointing at: `quantileBins` throws on it. Refusing it at declaration is the difference between a sentence and a stack trace.
+
+`layout` and `bringOver` are the two that read a SECOND table. `layout` is `algo` and nothing else that it must be given — the table names, the key and endpoint columns, the seed, the passes and the two columns written all have defaults (`nodes` / `edges`, `id` / `source` / `target`, seed 1, 30 passes, `x` / `y`). `algo` is required although there is one algorithm today, because the act has to say what it did rather than leave a reader to infer it from whichever version of the library happened to run. The permission to read the edges is law 6 below: a declared relation between the two tables, or the act does not happen. What the layout computes, and why a position is data at all, is in [`../analysis/README.md`](../analysis/README.md).
+
+`bringOver` is the one whose OUTPUT the relations decide. The record names the two tables and WHAT to fetch; which columns it produces is read off the declared relations pointing from `table` at `from` — `edges.source → nodes.id` and `edges.target → nodes.id` give `source_x`, `source_y`, `target_x`, `target_y`. There is deliberately no `joins` option: a record that could name its own join could name one nobody declared, and the relation would stop being the permission. Declare none and the act does not happen (`analysis "ends" brings x, y over from "nodes", but no declared relation points from "edges" at "nodes" — declare the relation first`). It is a general door, not a network feature: a sales table brings its customer's `region` over the same way. The counters it keeps, and the rest of its refusals, are in [`../analysis/README.md`](../analysis/README.md).
 
 ## The parse door
 
@@ -87,7 +97,7 @@ It **calls** the validator; it never restates it, so the two cannot disagree. `b
 
 ## Relations — the edges between tables
 
-A def declares its tables as `data: Record<string, DataSourceDef>`, and each table may name its row identity (`key`). `relations` is the one place two tables are joined: an edge from a column of one table to the **key** of another. Relations are data on the MAP — the overview echoes them (`overview().relations`, the `relations` part of `whats_here`), and nothing in a session acts on them yet: a view over a related table and the neighbourhood selection kind come later, and both will read this list rather than infer a join from the rows.
+A def declares its tables as `data: Record<string, DataSourceDef>`, and each table may name its row identity (`key`). `relations` is the one place two tables are joined: an edge from a column of one table to the **key** of another. Relations are data on the MAP — the overview echoes them (`overview().relations`, the `relations` part of `whats_here`), and one thing in the session acts on them: an analysis may read across a declared edge and no other way (law 6). The neighbourhood selection kind comes later, and it too will read this list rather than infer a join from the rows.
 
 ```ts
 data: {
@@ -100,7 +110,7 @@ relations: [
 ],
 ```
 
-Five laws. The door does not judge them in this order: per end it first asks that the table is declared (law 3) and only then judges the column on it (law 2) or the key it points at (law 1); self-join and repeat (law 3) and `kind` / `label` (law 4) come last; law 5 is a runtime fact, not a door law.
+Six laws. The door does not judge them in this order: per end it first asks that the table is declared (law 3) and only then judges the column on it (law 2) or the key it points at (law 1); self-join and repeat (law 3) and `kind` / `label` (law 4) come last; law 5 is a runtime fact, not a door law.
 
 1. **A relation points at an identity.** `to.column` must be the declared `data[to.table].key`. A table with no key has no identity to point at, and the sentence says what to declare first:
    ```
@@ -126,7 +136,20 @@ Five laws. The door does not judge them in this order: per end it first asks tha
    relations[0].kind must be one of many-to-one|one-to-one
    relations[0].label must be a string
    ```
-5. **Relations are data on the map.** `DashboardRuntime.relations` is frozen at build (`[]` when none); the overview and `whats_here` echo that object; the revision moves when an edge is added, because an edge is part of the declaration. Nothing in the session walks them yet.
+5. **Relations are data on the map.** `DashboardRuntime.relations` is frozen at build (`[]` when none); the overview and `whats_here` echo that object; the revision moves when an edge is added, because an edge is part of the declaration.
+6. **A relation is a PERMISSION to read across.** An analysis may name tables it reads BESIDE the one it runs over (`AnalysisDef.reads`) — a layout on `nodes` needs `edges` — and `declareAnalysis` grants it only where a declared relation joins the two, in either direction. There is no other way to reach a second table, and the refusal is a sentence, filed as an ordinary `guard-failed` gap with nothing landed:
+   ```ts
+   defineAnalysis({ id: 'layout', kind: 'transform', produces: 'columns', inputs: [], reads: ['edges'], /* … */ });
+   await session.declareAnalysis('layout', { table: 'nodes' });   // permitted by `edges.source → nodes.disease`
+   ```
+   ```
+   analysis "layout" reads table "edges", which no declared relation joins to "nodes" — declare the relation first
+   analysis "layout" reads table "ghost", which is not a declared data table — the tables are cells, nodes, edges
+   analysis "layout" reads table "nodes", which is the table it already runs over — `reads` names the tables BESIDE it
+   analysis "layout" runs over table "ndoes", which is not a declared data table — the tables are cells, nodes, edges
+   ```
+   The last two are the pair's own halves. A read of the analysis's OWN table gets its own sentence, because no relation may ever join a table to itself (law 3) and "declare the relation first" would be advice this door refuses; and the table the analysis RUNS OVER is judged first and alone, because a pair whose left side is not a table has no relation to declare, and blaming the read would quote a table that is perfectly good.
+   The judge is `judgeAnalysisReads` (`./relations.ts`) — the pair is not known until the act names its table, which is why this law is enforced at the session door and not at this one. What the analysis then SEES is the session's to say: the related rows are read at the cursor, under that table's own clauses (`../session/README.md`).
 
 The shape sentences, for completeness: `relations, if present, must be an array of { from, to }` · `relations[i] must be an object { from, to, kind?, label? }` · `relations[i]: unknown key "x"` · `relations[i].from must be { table, column } with non-empty strings` · `relations[i].from: unknown key "x"` (an end is exactly those two keys, and an extra one is named, the way a relation's is). A table refused on its own line (`data["bad"] must be an object …`) is not refused again through a relation at either end; the empty table map is refused on its own line and no relation is judged against it.
 
@@ -184,10 +207,10 @@ The shape sentences, for completeness: `encodings[i].layers, if present, must be
 |---|---|
 | `types.ts` | the schema — `DashboardDef`, `DataSourceDef`, `RelationDecl` / `RelationEdge`, `LayerDecl`, `DashboardRuntime` |
 | `validate.ts` | the firewall + the parse door; runs the build door once per layer against the layer's table |
-| `relations.ts` | the relation laws as refusals, `relationEdgeId`, the default kind |
+| `relations.ts` | the relation laws as refusals, `relationEdgeId`, the default kind, and the read-across permission (`joinsTables`, `judgeAnalysisReads`) and the join a `bringOver` follows (`relationsFrom`) |
 | `layerAddress.ts` | THE one owner of the layer marker — `LAYER_MARKER`, `layerAddress`, `splitLayerAddress`, `holdsLayerMarker` |
 | `layers.ts` | the layer laws as refusals; `layerSurfaceOf` / `layerSurfacesOf`, the surfaces the build door and `lint()` judge |
-| `builtinAnalyses.ts` | an analysis as data (the five records, their options, and the extra judge one of them carries) |
+| `builtinAnalyses.ts` | an analysis as data (the seven records, their options, the extra judge one carries, and the def context another needs) |
 | `register.ts` | the one registry boundary |
 | `buildDashboard.ts` | the build — resolves engines, keys, relations and each view's layers onto the runtime; `lintData` judges keys and relations against the engine; `lint()` judges every layer against its own table's columns |
 | `revision.ts` | the definition's revision, digested once at build |
