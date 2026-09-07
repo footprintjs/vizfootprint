@@ -124,9 +124,12 @@ export interface InputBinding {
  * holds on both of `declareAnalysis`'s paths, the one that queries the data
  * space and the one where the caller brought its own `input` — because a
  * backend that refused a related table stops the whole act, so there is no
- * empty stand-in for a table that could not be read. The one caller that gets
- * nothing is one that calls `AnalysisModule.run(input)` directly without
- * `related`: it read no table at all, and a def that names `reads` sees `{}`.
+ * empty stand-in for a table that could not be read.
+ *
+ * The direct caller keeps the same promise or is refused: `run` narrows what it
+ * is handed to the names the def declared, and REFUSES in a sentence when one of
+ * them arrived with no rows — `{}` reaching a def that named `reads` would be an
+ * edgeless graph laid out as a success, and half an input is not an input (R14).
  */
 export type RelatedRows = Readonly<Record<string, readonly Row[]>>;
 
@@ -142,6 +145,10 @@ export type RelatedRows = Readonly<Record<string, readonly Row[]>>;
  * under the clauses that reach IT (`clausesOn`), never the own table's. So
  * filtering the nodes view can turn brought-over values into misses while the
  * edge rows stay complete — that is the rule, not a bug.
+ *
+ * NOT `toRunInput`'s payload, despite the neighbouring name: this is the shape a
+ * session RESOLVES and then takes apart into `run(rows, { related })`. No def
+ * ever receives one whole.
  */
 export interface AnalysisRunInput {
   readonly rows: readonly Row[];
@@ -213,8 +220,11 @@ export interface AnalysisDef<I = unknown, O extends AnalysisOutput = AnalysisOut
   build(): import('footprintjs').FlowChart;
   /**
    * Map the caller's input to the flowchart run payload. `related` carries the
-   * rows of every table `reads` names — `{}` for the analyses that name none,
-   * which is why the parameter can simply be ignored by all of them.
+   * rows of every table `reads` names and of no other — `{}` for the analyses
+   * that name none, which is why the parameter can simply be ignored by all of
+   * them. A declared name is always present here: `run` refuses the invocation
+   * that did not bring it, so `related[name] ?? []` reads an EMPTY table, never
+   * a missing one.
    */
   toRunInput(input: I, related: RelatedRows): unknown;
   /** Extract the typed, value-bearing output from the finished run's snapshot. */
@@ -256,8 +266,11 @@ export interface RunAnalysisOptions {
   readonly timestamp?: number;
   /**
    * The rows of the tables the def `reads`, resolved by the caller that has a
-   * data space to read them from (the session). Absent means none were read —
-   * `toRunInput` sees `{}`, which is what every one-table analysis already has.
+   * data space to read them from (the session). Absent is the one-table case —
+   * `toRunInput` sees `{}`, which is what every one-table analysis already has;
+   * absent for a def that DID name a table is a refusal, not an empty table
+   * (`run` names the table it was handed no rows for). A name the def did not
+   * declare is dropped: the door's permission was for the declared ones.
    */
   readonly related?: RelatedRows;
 }

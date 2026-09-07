@@ -35,6 +35,7 @@ import {
   type AnalysisModule,
   type AnalysisRunResult,
   type AnalysisOutput,
+  type RelatedRows,
   type RunAnalysisOptions,
 } from './types.js';
 
@@ -170,6 +171,31 @@ export function validateAnalysisDef(def: unknown): string[] {
 }
 
 /**
+ * The related rows one invocation may read: exactly the tables `reads` names,
+ * taken from what the caller resolved.
+ *
+ * WHY the caller's map is judged and then narrowed, and WHY here: `run` is the
+ * ONE place holding both halves — the def's declaration and the rows a caller
+ * with a data space went and read. A declared table nobody handed over refuses
+ * in a sentence naming it, because half an input is not an input (R14): an
+ * analysis handed `{}` for a table it declared would lay out an edgeless graph
+ * and call it a success. A table the def never named is dropped rather than
+ * forwarded, because the permission the door granted was for the DECLARED names
+ * — which is what `RelatedRows` says it holds.
+ */
+function relatedFor(id: string, reads: readonly string[] | undefined, supplied: RelatedRows): RelatedRows {
+  const declared = reads ?? [];
+  if (declared.length === 0) return NO_RELATED_ROWS;
+  const missing = declared.filter((name) => !Object.prototype.hasOwnProperty.call(supplied, name));
+  if (missing.length > 0) {
+    throw new Error(
+      `vizfootprint: analysis "${id}" reads ${missing.map((name) => `"${name}"`).join(', ')} beside its own table, and this run was handed no rows to read there — "reads" is a promise the caller resolves`,
+    );
+  }
+  return Object.freeze(Object.fromEntries(declared.map((name) => [name, supplied[name]!])));
+}
+
+/**
  * Promote a validated def into a runnable module. Throws `AnalysisDefError` on a
  * malformed def (the R12 gate). The flowchart is built ONCE (immutable,
  * re-runnable — SPEC §5 / the x3 kernel pattern) and a fresh `FlowChartExecutor`
@@ -189,15 +215,20 @@ export function defineAnalysis<I = unknown, O extends AnalysisOutput = AnalysisO
     kind: def.kind,
     def,
     async run(input: I, opts: RunAnalysisOptions = {}): Promise<AnalysisRunResult<O>> {
+      // The related rows are the CALLER's to resolve — only the session has a
+      // data space and a cursor — so they arrive per invocation, never on the
+      // def, and this is where the promise `reads` made is kept or refused.
+      // FIRST, before the honesty gate below: a run missing half its input is
+      // not a run whose rows can be judged degenerate or whole.
+      const related = relatedFor(def.id, def.reads, opts.related ?? NO_RELATED_ROWS);
+
       // R14: the honesty floor gates BEFORE the chart runs — a degenerate input
       // never produces a (fabricated) fit or a HypothesisRecord.
       const gate = def.precheck?.(input);
       if (gate) return { result: gate };
 
       const executor = new FlowChartExecutor(getChart());
-      // WHY: the related rows are the CALLER's to resolve — only the session has a
-      // data space and a cursor — so they arrive per invocation, never on the def.
-      await executor.run({ input: def.toRunInput(input, opts.related ?? NO_RELATED_ROWS) });
+      await executor.run({ input: def.toRunInput(input, related) });
       const snapshot = executor.getSnapshot();
       const result = def.readOutput({ snapshot, input });
 

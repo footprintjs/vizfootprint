@@ -313,6 +313,22 @@ describe('layoutAnalysis — the layout as a declared act', () => {
     ]);
   });
 
+  // WHY this calls `toRunInput` directly: `run` refuses an invocation that
+  // brought no rows for a declared table, so the `?? []` arm is reachable only
+  // by a caller holding the def itself — and a def is public, so the arm is a
+  // real path and gets a real test rather than a coverage escape.
+  it('a def called with no rows for its edges table lays out an edgeless graph, not a crash', () => {
+    const mod = layoutAnalysis();
+    const payload = mod.def.toRunInput(
+      // a first run has no positions yet: the columns are simply absent
+      g.nodes.map((n) => ({ id: String(n.id) })),
+      {},
+    ) as Record<string, { nodes: readonly unknown[]; edges: readonly unknown[] }>;
+    const arg = Object.values(payload)[0]!;
+    expect(arg.nodes).toHaveLength(g.nodes.length);
+    expect(arg.edges).toEqual([]);
+  });
+
   it('takes every name from the record when the record gives one', () => {
     const mod = layoutAnalysis({
       algo: 'stress',
@@ -394,11 +410,17 @@ describe('layoutAnalysis — the layout as a declared act', () => {
     expect(run.snapshot).toBeUndefined();
   });
 
-  it('rows handed over with no edges are laid out as the edgeless graph they are', async () => {
-    const run = await layoutAnalysis({ iterations: 2 }).run(g.nodes);
+  it('an EMPTY edges table is laid out as the edgeless graph it is', async () => {
+    const run = await layoutAnalysis({ iterations: 2 }).run(g.nodes, { related: { edges: [] } });
     const x = run.snapshot?.sharedState['x'] as number[];
     expect(x).toHaveLength(16);
     expect(x.every((v) => Number.isFinite(v))).toBe(true);
+  });
+
+  it('a run handed NO edges table at all is refused — an edgeless layout is not the answer to a missing one', async () => {
+    await expect(layoutAnalysis({ iterations: 2 }).run(g.nodes)).rejects.toThrow(
+      'analysis "layout:stress:nodes" reads "edges" beside its own table, and this run was handed no rows to read there',
+    );
   });
 
   it('a row with no key, and a position that is not a number, are read as what they are', async () => {

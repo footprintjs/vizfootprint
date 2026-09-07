@@ -214,11 +214,36 @@ describe('reads — the tables an analysis wants BESIDE its own', () => {
     expect(() => defineAnalysis(minimalDef({ reads: 'edges' as unknown as string[] }))).toThrow(AnalysisDefError);
   });
 
-  it('the related rows reach toRunInput, and an analysis that is handed none sees an empty record', async () => {
+  it('the rows of a DECLARED table reach toRunInput, and a one-table analysis sees an empty record', async () => {
     const seen: unknown[] = [];
-    const mod = defineAnalysis(minimalDef({ toRunInput: (_input, related) => { seen.push(related); return {}; } }));
-    await mod.run(undefined, { related: { edges: [{ source: 'flu' }] } });
-    await mod.run(undefined);
+    const watch = (over: Partial<AnalysisDef<void, ScalarOutput>>) =>
+      defineAnalysis(minimalDef({ toRunInput: (_input, related) => { seen.push(related); return {}; }, ...over }));
+    await watch({ reads: ['edges'] }).run(undefined, { related: { edges: [{ source: 'flu' }] } });
+    await watch({}).run(undefined);
     expect(seen).toEqual([{ edges: [{ source: 'flu' }] }, {}]);
+  });
+
+  it('a table the def did not declare is NOT forwarded — the permission was for the declared names', async () => {
+    const seen: unknown[] = [];
+    const mod = defineAnalysis(minimalDef({ reads: ['edges'], toRunInput: (_input, related) => { seen.push(related); return {}; } }));
+    await mod.run(undefined, { related: { edges: [], nodes: [{ id: 'flu' }] } });
+    expect(seen).toEqual([{ edges: [] }]);
+  });
+
+  it('a declared table nobody handed rows for REFUSES by name — never an empty stand-in', async () => {
+    const ran: unknown[] = [];
+    const mod = defineAnalysis(minimalDef({ reads: ['edges', 'nodes'], toRunInput: (_input, related) => { ran.push(related); return {}; } }));
+    await expect(mod.run(undefined, { related: { edges: [] } })).rejects.toThrow(
+      'vizfootprint: analysis "min" reads "nodes" beside its own table, and this run was handed no rows to read there — "reads" is a promise the caller resolves',
+    );
+    await expect(mod.run(undefined)).rejects.toThrow('reads "edges", "nodes" beside its own table');
+    expect(ran).toEqual([]); // a refused act does not happen: the chart never ran
+  });
+
+  it('the refusal comes before the honesty gate — half an input is not rows a precheck can judge', async () => {
+    const mod = defineAnalysis(
+      minimalDef({ reads: ['edges'], precheck: () => ({ ok: false, reason: 'degenerate-fit', n: 0, fitDegenerate: true }) }),
+    );
+    await expect(mod.run(undefined)).rejects.toThrow('reads "edges" beside its own table');
   });
 });

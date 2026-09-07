@@ -618,10 +618,10 @@ export function layoutAnalysis(opts: LayoutOptions = {}): AnalysisModule<readonl
         x: coordinateOf(row[xColumn]),
         y: coordinateOf(row[yColumn]),
       }));
-      // WHY `?? []`: the session guarantees the key is here (that is what
-      // `reads` is), and an edges table it read as empty arrives as an empty
-      // array anyway — so an edgeless graph is one case, not two, and the
-      // adjacency's counters are where it shows.
+      // WHY `?? []`: the key is here — `run` refuses an invocation that brought
+      // no rows for a table this def declared (that is what `reads` is), and an
+      // edges table read as empty arrives as an empty array anyway — so an
+      // edgeless graph is one case, not two, and the counters are where it shows.
       const ties = related[edgeTable] ?? [];
       const edges: ChartEdge[] = ties.map((tie) => ({
         from: String(tie[cols.from] ?? ''),

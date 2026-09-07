@@ -208,10 +208,22 @@ describe('the analysis', () => {
     expect((run.snapshot!.sharedState as Record<string, unknown>)['source_x']).toEqual([null]);
   });
 
-  it('a run handed no related rows at all reads the same as one handed an empty table', async () => {
+  it('a run handed NO related rows at all is refused: that is not the same as an empty table', async () => {
     const mod = bringOverAnalysis({ joins: ENDS });
-    const run = await mod.run(EDGES as never);
-    expect((run.snapshot!.sharedState as Record<string, unknown>)['target_y']).toEqual([null]);
+    await expect(mod.run(EDGES as never)).rejects.toThrow(
+      'analysis "bring:edges:nodes" reads "nodes" beside its own table, and this run was handed no rows to read there',
+    );
+  });
+
+  // WHY this calls `toRunInput` directly: `run` refuses an invocation that
+  // brought no rows for a declared table, so the `?? []` arm is reachable only
+  // by a caller holding the def itself — a public shape, so it gets a real test
+  // rather than a coverage escape. Nothing over there means every row skipped.
+  it('a def called with no rows for its related table brings nothing over, and says so in the counters', () => {
+    const mod = bringOverAnalysis({ joins: ENDS });
+    const payload = mod.def.toRunInput([{ source: 'a', target: 'b' }], {}) as Record<string, { related: readonly unknown[] }>;
+    const work = Object.values(payload)[0]!;
+    expect(work.related).toEqual([]);
   });
 
   it('judges the table it is about to write, through the def’s own hook', () => {

@@ -372,9 +372,10 @@ export function bringOverAnalysis(opts: BringOverOptions = {}): AnalysisModule<r
     judgeTable: (readTable, tableColumns) => bringOverProblems(id, table, from, joins, columns, readTable, tableColumns),
     build: () => buildBringOverChart(produced),
     toRunInput: (rows, related: RelatedRows) => {
-      // WHY `?? []`: the session guarantees the key is here (that is what
-      // `reads` is), and a table it read as empty arrives as an empty array —
-      // so "nothing over there" is one case, and the counters are where it shows.
+      // WHY `?? []`: the key is here — `run` refuses an invocation that brought
+      // no rows for a table this def declared (that is what `reads` is), and a
+      // table read as empty arrives as an empty array — so "nothing over there"
+      // is one case, and the counters are where it shows.
       const source = related[from] ?? [];
       refuseMissingColumns(id, from, columns, source);
       const keys = [...new Set(joins.map((join) => join.key))];

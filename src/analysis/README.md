@@ -110,7 +110,7 @@ defineAnalysis<readonly Row[], ColumnsOutput>({
   id: 'pull',
   kind: 'transform',
   produces: 'columns',
-  inputs: [{ column: 'id', role: 'group' }],
+  inputs: [{ column: 'id', role: 'identifier' }],       // ← the column rows are IDENTIFIED by, not grouped by
   reads: ['edges'],                                    // ← the table BESIDE the one it runs over
   build: …,
   toRunInput: (rows, related) => ({                    // ← the rows arrive here, keyed by table name
@@ -139,6 +139,16 @@ Four things about the rows that arrive, all of them the same rules the OWN table
 - **Under that table's own clauses.** A brush on the edges layer changes what a layout over them sees, and `why()` names that brush as an `input-selection` of the column it produced — a related table read under a selection really is a causal input, and the provenance would lie if it did not say so. The own table is still read WHOLE for a columns analysis (its values must align to the row order), so a brush on IT is still not an input.
 - **Detached.** The rows are copies, because they go to footprintjs as a run input and footprintjs freezes what it is given.
 - **All or nothing.** A backend that refuses a related table stops the act with a `needs-backend-data` gap (`related table "edges": the edge store is offline`). Half an input is not an input.
+
+The last one is a law about the ACT, so it holds one layer down too, where the caller is not a session:
+
+```ts
+await pull.run(nodeRows);                              // no { related } for a def that declared one
+// vizfootprint: analysis "pull" reads "edges" beside its own table, and this run was handed no rows
+// to read there — "reads" is a promise the caller resolves
+```
+
+`run` keeps both halves of that promise. A declared table nobody handed over refuses by name rather than laying out an edgeless graph and calling it a success — which is what makes the `!` in the example above safe, and what lets a builtin write `related['edges'] ?? []` and mean an EMPTY table, never a missing one. A table the def never named is dropped rather than forwarded: the permission the door granted was for the declared names.
 
 `readOutput` is unchanged, and so is everything downstream: an analysis still writes ONE table's columns, still at its own slot, still replayable. Reading is where a second table enters; writing is not.
 
