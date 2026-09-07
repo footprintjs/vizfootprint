@@ -56,8 +56,8 @@ import { layerLinkViewOf, layerSurfaceOf } from './layers.js';
 import { createInteractionSession, type InteractionSession } from '../session/session.js';
 import type { SessionOptions } from '../session/types.js';
 import { materializeLinks, voiceOf } from '../links/index.js';
-import { lintEncodings, resolveFacet, resolveFacets } from '../encoding/index.js';
-import type { EncodingPorts, EncodingProblem } from '../encoding/index.js';
+import { lintEncodings, pageBindings, resolveFacet, resolveFacets } from '../encoding/index.js';
+import type { Bindings, EncodingPorts, EncodingProblem } from '../encoding/index.js';
 import { validateProseRecord } from '../prose/index.js';
 import type { ProseProblem } from '../prose/index.js';
 import { isRejection } from '../data/index.js';
@@ -713,7 +713,8 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     ...(v.encoding !== undefined ? { channels: v.encoding.channels } : {}),
     ...(v.grain !== undefined ? { grain: v.grain } : {}),
   }));
-  const layerViews = [...views.values()].flatMap((v) => (v.layers ?? []).map((layer) => layerLinkViewOf(v.viewId, layer, linkViews.find((lv) => lv.viewId === v.viewId)!.voice)));
+  const voiceByView = new Map(linkViews.map((lv) => [lv.viewId, lv.voice] as const)); // read once per layer: the voice is already computed, never re-derived
+  const layerViews = [...views.values()].flatMap((v) => (v.layers ?? []).map((layer) => layerLinkViewOf(v.viewId, layer, voiceByView.get(v.viewId)!)));
   const links = materializeLinks([...linkViews, ...layerViews], def.links ?? [], def.linkDefault ?? 'crossfilter');
 
   const runtime: DashboardRuntime = {
@@ -848,15 +849,19 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
           }
         }
       }
+      // a `dashboard`-scope rule means anywhere on the page: every view's bindings and every layer's, so a
+      // never-together pair cannot hide across the frame/layer boundary (src/def/README.md, "Layers", law 5)
+      const page = pageBindings([...surfaces, ...[...views.values()].flatMap((v) => (v.layers ?? []).map((l) => layerSurfaceOf(v.viewId, l)))]);
       const viewProblems = lintEncodings({
         views: surfaces,
         facets: [...runtime.encoding.facetsOf(defaultTable, cols), ...extra],
+        page,
         rules: runtime.encoding.rules,
         ports: runtime.encoding.ports,
       });
       // a layer is judged against ITS table's real columns — the `unknown` fudge above is for a view with no layers,
       // whose reads of another table the single default table cannot name (src/def/layers.ts)
-      return [...viewProblems, ...(await lintLayers(views, providers, runtime))];
+      return [...viewProblems, ...(await lintLayers(views, providers, runtime, page))];
     },
   };
 }
@@ -864,16 +869,16 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
 /**
  * Every layer of every view, linted one at a time against the columns its own
  * table's provider lists — under the layer ADDRESS, so a problem names the layer.
- * WHY one call per layer: a dashboard-scope rule reads the other views' bindings
- * as fields of one table; a layer's fields belong to its table, so its siblings are not "others".
+ * WHY one call per layer: the FACETS that judge a binding are its own table's.
+ * `page` is what its dashboard-scope rules read, and that spans every table.
  */
-async function lintLayers(views: ReadonlyMap<string, ViewDecl>, providers: ReadonlyMap<string, DataProvider>, runtime: DashboardRuntime): Promise<EncodingProblem[]> {
+async function lintLayers(views: ReadonlyMap<string, ViewDecl>, providers: ReadonlyMap<string, DataProvider>, runtime: DashboardRuntime, page: Readonly<Record<string, Bindings>>): Promise<EncodingProblem[]> {
   const out: EncodingProblem[] = [];
   for (const view of views.values()) {
     for (const layer of view.layers ?? []) {
       const cols = await providers.get(layer.table)!.columns(layer.table);
       if (isRejection(cols)) throw new Error(`lint: the "${layer.table}" provider cannot list its columns — ${cols.reason}`);
-      out.push(...lintEncodings({ views: [layerSurfaceOf(view.viewId, layer)], facets: runtime.encoding.facetsOf(layer.table, cols), rules: runtime.encoding.rules, ports: runtime.encoding.ports }));
+      out.push(...lintEncodings({ views: [layerSurfaceOf(view.viewId, layer)], facets: runtime.encoding.facetsOf(layer.table, cols), page, rules: runtime.encoding.rules, ports: runtime.encoding.ports }));
     }
   }
   return out;

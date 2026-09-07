@@ -908,7 +908,12 @@ export interface ReachingClause {
  * clause), which columns, in what order, and where the window starts.
  */
 export interface ViewQuery {
-  /** Default: the dashboard's default table. */
+  /**
+   * Default: the dashboard's default table — or, when `viewId` is a LAYER
+   * address, that layer's own table. A `table` that disagrees with the layer's
+   * is refused (`table-mismatch`), never silently served: the address is
+   * resolved in one place, and one place only.
+   */
   readonly table?: string;
   /** The consumer. Absent = every live clause filters (what `Overview.selectedRowCount` counts). */
   readonly viewId?: string;
@@ -922,7 +927,7 @@ export interface ViewQuery {
 }
 
 /** Why a window was refused — a code to branch on beside the sentence. `engine` carries the provider's own reason. */
-export type ViewQueryRefusal = 'unknown-table' | 'unknown-view' | 'unsupported-sort' | 'no-columns' | 'version-moved' | 'engine';
+export type ViewQueryRefusal = 'unknown-table' | 'unknown-view' | 'table-mismatch' | 'unsupported-sort' | 'no-columns' | 'version-moved' | 'engine';
 
 export type ViewQueryResult =
   | {

@@ -68,7 +68,7 @@ import { GapLedger, messageOf } from './gapLedger.js';
 import { clausesReaching, mappingsInto } from './clausesReaching.js';
 import { tablesInfoOf } from './tablesInfo.js';
 import { stampCause } from './stampCause.js';
-import { layerInfosOf, metaOf, placeOf, tableOf, type Place } from './layers.js';
+import { layerBindingsOf, layerInfosOf, metaOf, placeOf, surfaceOf, surfacedAddressesOf, tableOf, type Place } from './layers.js';
 import { computeEffectiveEncodings, fitsWithFollows, followSentence } from './effectiveEncodings.js';
 import { offerStampOf, offersOf } from './offers.js';
 import { branchPathOf, commitsElsewhereThan, stepsSinceAncestor } from './branchPath.js';
@@ -1663,6 +1663,12 @@ class InteractionSessionImpl implements InteractionSession {
     const table = query.table ?? (query.viewId === undefined ? this.defaultTable : this.tableFor(query.viewId));
     if (!this.runtime.tables.includes(table)) return { ok: false, reason: 'unknown-table', rejected: `no table "${table}" is declared — the tables are ${this.runtime.tables.join(', ')}` };
     if (query.viewId !== undefined && !this.holdsView(query.viewId)) return { ok: false, reason: 'unknown-view', rejected: `no declared view "${query.viewId}" — the views are ${[...this.runtime.views.keys()].join(', ')}` };
+    // an address and a table that disagree are two answers to one question: a layer is gated on ITS table (../def/README.md, "Layers"), so serving the
+    // other table's rows under the layer's address would be a second resolver of the address — refused by name instead, saying which two tables disagree
+    const place = query.viewId === undefined ? undefined : this.placeOf(query.viewId);
+    if (place?.layer !== undefined && query.table !== undefined && query.table !== place.layer.table) {
+      return { ok: false, reason: 'table-mismatch', rejected: `layer "${query.viewId}" reads table "${place.layer.table}", not "${query.table}" — ask for its window without a table, or ask table "${query.table}" without the layer` };
+    }
     const provider = this.runtime.providerFor(table);
     // the version is read in the SAME instant as the provider, and checked again after the rows: a refresh landing anywhere in between is a moved version, never a misdated window
     const version = this.runtime.sources[table]?.version ?? null;
@@ -1671,7 +1677,7 @@ class InteractionSessionImpl implements InteractionSession {
     const sorted = query.sort !== undefined && query.sort.length > 0;
     if (sorted && provider.capabilities.canSort !== true) return { ok: false, reason: 'unsupported-sort', rejected: `the ${provider.engine} engine cannot sort. Ask for this window without a sort` };
     // whose eyes: a view sees what reaches it; no view = the whole-dashboard truth, every live clause filtering (what selectedRowCount counts)
-    const clauses: ReachingClause[] = query.viewId === undefined ? [...this.activeFilters].filter(([from]) => this.clausesOn(table).includes(this.activeFilters.get(from)!)).map(([from, clause]) => ({ from, clause: copyClause(clause), response: 'filter' as const })) : [...this.clausesFor(query.viewId)];
+    const clauses: ReachingClause[] = query.viewId === undefined ? [...this.activeFilters].filter(([from]) => this.clauseReaches(from, table)).map(([from, clause]) => ({ from, clause: copyClause(clause), response: 'filter' as const })) : [...this.clausesFor(query.viewId)];
     const filters = clauses.filter((c) => c.response === 'filter').map((c) => c.clause);
     const key = this.runtime.def.data[table]!.key; // the table is declared: its def row exists
     let columns = query.columns;
@@ -2581,7 +2587,8 @@ class InteractionSessionImpl implements InteractionSession {
     return {
       columns: new Set(cols.map((c) => c.name)),
       analyses: new Set(this.runtime.analyses.keys()),
-      surfaced: new Set([...this.runtime.views.values()].filter((v) => v.encoding !== undefined).map((v) => v.viewId)),
+      // every address with a surface, layers included: a layer declares the same chartKind and channels a view does, so it has as much to derive from
+      surfaced: surfacedAddressesOf(this.runtime.views.values()),
       commits,
       commitsElsewhere,
       // a ref links a record's ID, not its name — that is why renaming a bookmark or a picture never breaks a note
@@ -2638,12 +2645,13 @@ class InteractionSessionImpl implements InteractionSession {
     }
     const acceptedBy = stampCause(cause, 'describe', as).requestedBy;
     const record: ProseRecord = { ...open.record, author: { ...open.record.author, acceptedFrom: proposalId, acceptedBy } };
-    const cols = await this.effectiveColumnsOf(this.defaultTable);
+    const table = this.tableFor(viewId); // the same table the propose door judged against — a layer's words are judged against the columns it reads
+    const cols = await this.effectiveColumnsOf(table);
     /* v8 ignore next 2 -- an open proposal exists only where the columns could be listed when it was proposed; a provider that answered then and refuses now is a mid-session engine failure this door cannot exercise */
     if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
     const commit = this.landProse(viewId, slot, record, cause, as, correlationId);
     this.foldProse(viewId, slot, record);
-    const described = this.proseOf(viewId, this.runtime.encoding.facetsOf(this.defaultTable, cols)).find((p) => p.slot === slot)!; // the slot was just set
+    const described = this.proseOf(viewId, this.runtime.encoding.facetsOf(table, cols)).find((p) => p.slot === slot)!; // the slot was just set
     return { ok: true, verb: 'describe', intent, commit, described, proposed: this.proposalsOf(viewId).find((p) => p.slot === slot)! };
   }
 
@@ -2675,11 +2683,12 @@ class InteractionSessionImpl implements InteractionSession {
   private proseOf(viewId: string, facets: readonly ColumnFacet[], shared?: ProseWorldNow): ProseStatus[] {
     const slots = this.activeProse.get(viewId);
     if (slots === undefined || slots.size === 0) return [];
-    const view = this.runtime.views.get(viewId); // undefined for the dashboard subject — it binds nothing and has no surface
+    const place = this.placeOf(viewId); // undefined for the dashboard subject and a note — neither binds anything, and neither has a surface
+    const surface = place === undefined ? undefined : surfaceOf(place, viewId); // a layer's own, never the frame's
     const now = {
       ...(shared ?? this.proseWorldNow(facets)),
       encodings: this.proseEncodingsNow(viewId, facets),
-      ...(view?.encoding !== undefined ? { surface: view.encoding } : {}),
+      ...(surface !== undefined ? { surface } : {}),
     };
     return PROSE_SLOTS.filter((slot) => slots.has(slot)).map((slot) => proseStatus(slot, slots.get(slot)!, now));
   }
@@ -2702,11 +2711,13 @@ class InteractionSessionImpl implements InteractionSession {
     return out;
   }
 
-  /** What a prose subject SHOWS at the cursor: a surfaced view's effective bindings, an unsurfaced view's own, the dashboard's nothing. */
+  /** What a prose subject SHOWS at the cursor: a layer's declared bindings, a surfaced view's effective bindings, an unsurfaced view's own, the dashboard's nothing. */
   private proseEncodingsNow(viewId: string, facets: readonly ColumnFacet[]): Readonly<Record<string, string>> {
-    const view = this.runtime.views.get(viewId);
-    if (view === undefined) return {}; // the dashboard or a note — both bind nothing, so neither has a surface to read (proseGuards admits no other unknown id)
-    return view.encoding !== undefined ? this.effectiveEncodings(facets).get(viewId)!.bindings : this.viewEncodings(viewId);
+    const place = this.placeOf(viewId);
+    if (place === undefined) return {}; // the dashboard or a note — both bind nothing, so neither has a surface to read (proseGuards admits no other unknown id)
+    // a LAYER's bindings are declared on it and never re-encoded: reading the view's fold here would report every layer's words stale the instant they were written
+    if (place.layer !== undefined) return layerBindingsOf(place.layer);
+    return place.view.encoding !== undefined ? this.effectiveEncodings(facets).get(viewId)!.bindings : this.viewEncodings(viewId);
   }
 
   /**

@@ -47,6 +47,8 @@ A **channel requirement** is what a chart kind's channel accepts: types, a scale
 
 A **business rule** is a fact no chart kind can know: `never-on`, `never-together`, `only-with`. Each may carry its own sentence template.
 
+A `dashboard`-scope rule means **anywhere on the page**, and the page is what the caller says it is: `lintEncodings({ views, facets, page })` judges each surface against `page` — every binding on the dashboard, keyed by the address that holds it (a viewId, or a layer's `viewId~layerId`; `pageBindings([...views, ...layers])` builds it). Without `page` the surfaces in `views` are the page, which is the whole page only when one call judges every surface. A layer is judged in a call of its own — its FACETS are its own table's — so its caller passes the page in, and a `never-together` pair cannot hide in the boundary between a frame and its layers. Only field NAMES are compared across the page, so nothing about the two tables has to be unified.
+
 The **built-in law** every def inherits: the absence column never binds to a magnitude channel.
 
 ## What fits, before a build

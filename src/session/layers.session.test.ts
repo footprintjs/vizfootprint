@@ -5,13 +5,15 @@
  * own source, a select on `net~nodes` is judged against the nodes columns, a
  * column of the wrong table is refused in a sentence, sibling layers get no
  * default edge while a declared link routes, `viewQuery` on an address
- * defaults to the layer's table, the overview projects `views[].layers`, and a
- * dashboard with no layers is byte-identical to before layers existed.
+ * defaults to the layer's table (and refuses one that disagrees), a layer's
+ * prose is written and judged against the layer's own surface and table, the
+ * overview projects `views[].layers`, and a dashboard with no layers is
+ * byte-identical to before layers existed.
  */
 import { describe, it, expect } from 'vitest';
 import { buildDashboard, LAYER_MARKER, layerAddress } from '../def/index.js';
 import type { DashboardDef } from '../def/index.js';
-import { EDGES, NODES, makeNetworkDef } from '../def/network.fixture.js';
+import { EDGES, NODES, makeNetworkDef, nodesLayer } from '../def/network.fixture.js';
 import { makeDashboardDef } from './dashboard.fixture.js';
 import { RESERVED_ID_MARKER } from './namespaces.js';
 import type { Cause } from '../cause/index.js';
@@ -96,6 +98,40 @@ describe('layers — an address is a viewId, gated on the layer table', () => {
     expect(whole.ok && [whole.count, whole.clauses.map((c) => c.from)]).toEqual([2, [NODES_ADDRESS]]);
     const wholeEdges = await s.viewQuery({ table: 'edges' });
     expect(wholeEdges.ok && [wholeEdges.count, wholeEdges.clauses.map((c) => c.from)]).toEqual([1, [EDGES_ADDRESS]]);
+  });
+
+  it('an address and a table that disagree are refused by name; the two that agree serve the layer window', async () => {
+    const s = fresh();
+    const clash = await s.viewQuery({ viewId: EDGES_ADDRESS, table: 'nodes' });
+    expect(clash.ok === false && clash.reason).toBe('table-mismatch');
+    expect(clash.ok === false && clash.rejected).toBe(`layer "${EDGES_ADDRESS}" reads table "edges", not "nodes" — ask for its window without a table, or ask table "nodes" without the layer`);
+    const agree = await s.viewQuery({ viewId: EDGES_ADDRESS, table: 'edges' });
+    expect(agree.ok && agree.rows).toEqual(EDGES);
+    // a VIEW declares no table of its own, so an explicit table still names the window it reads — only a layer can disagree
+    const view = await s.viewQuery({ viewId: 'net', table: 'edges' });
+    expect(view.ok && view.count).toBe(EDGES.length);
+  });
+
+  it('a layer carries prose of its own: derived words read the LAYER surface, and stated bindings are current the moment they are written', async () => {
+    const s = fresh();
+    // the library's own construction line, written from the layer's chartKind and channels — never the frame's
+    const derived = await s.dispatch({ verb: 'describe', viewId: NODES_ADDRESS, slot: 'howToRead', record: { author: { kind: 'derived' } }, cause: userCause() });
+    expect(derived.ok && derived.described).toMatchObject({ status: 'derived', text: 'a point with size on size, group on color' });
+    const frame = await s.dispatch({ verb: 'describe', viewId: 'net', slot: 'howToRead', record: { author: { kind: 'derived' } }, cause: userCause() });
+    expect(frame.ok && frame.described).toMatchObject({ status: 'derived', text: 'a network with nothing bound' });
+    // an agent states the layer's own bindings as its basis: the words are current on the commit that wrote them
+    const caption = await s.dispatch({ verb: 'describe', viewId: EDGES_ADDRESS, slot: 'caption', record: { text: 'Ties', author: { kind: 'agent', model: 'm' }, basis: { encodings: { size: 'weight' } } }, cause: userCause() });
+    expect(caption.ok && caption.described).toMatchObject({ status: 'current', changed: [] });
+    // …and an accepted proposal is judged against the columns the LAYER reads, exactly as the proposal was
+    const proposed = await s.dispatch({ verb: 'describe', viewId: EDGES_ADDRESS, slot: 'title', record: { text: 'The ties', author: { kind: 'agent', model: 'm' }, basis: { columns: ['weight'] } }, proposal: true, cause: userCause() });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+    const accepted = await s.dispatch({ verb: 'describe', viewId: EDGES_ADDRESS, slot: 'title', record: null, accept: proposed.proposed!.proposal, cause: userCause() });
+    expect(accepted.ok && accepted.described).toMatchObject({ status: 'current', changed: [], text: 'The ties' });
+    // a layer that declares no bindings says exactly that, in its own voice
+    const bare = buildDashboard(makeNetworkDef([nodesLayer, { layerId: 'edges', table: 'edges', chartKind: 'line', channels: ['x', 'y', 'size'] }])).createSession();
+    const nothing = await bare.dispatch({ verb: 'describe', viewId: EDGES_ADDRESS, slot: 'howToRead', record: { author: { kind: 'derived' } }, cause: userCause() });
+    expect(nothing.ok && nothing.described).toMatchObject({ status: 'derived', text: 'a line with nothing bound' });
   });
 
   it('the overview projects views[].layers from the map; the fold, seek and compare read an address like a viewId', async () => {

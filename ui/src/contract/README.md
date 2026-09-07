@@ -196,6 +196,17 @@ bound.view.update({ ...frame, layers });
 //   detail: 'view "net" declares no canLayer — the frame carried 2 layer(s) and was not drawn' } }
 ```
 
+**What changed for a host, in one line:** `BoundRenderer.update()` now answers
+`UpdateOutcome` where it answered nothing, mirroring the `navigate():
+NavigateOutcome` already beside it — a host that ignores the answer, or reads
+`.ok`, is unaffected, and a host that only listens on `onGap` still hears this
+refusal there. This is a HOST-side type, not the wire: `RENDERER_PROTOCOL_VERSION`
+moved 1.1 → 1.2 for the three optional additions above, and a RENDERER's own
+`update(state): void` (`Renderer` / `MountedRenderer` in `types.ts`) is
+untouched — no renderer, first-party or otherwise, returns anything. The one
+place that must change is a hand-authored object typed as `BoundRenderer` (a
+downstream test double): `update()` there must now return `{ ok: true }`.
+
 This is Law 2 applied to an inbound push, and the reason it earns a guard: a
 renderer that drew only `rows` from a layered frame would show ONE table under a
 picture that looks complete — absence that is not visible, which is the one

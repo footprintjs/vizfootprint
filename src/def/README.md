@@ -197,6 +197,14 @@ Six laws.
    { viewId: 'net~nodes', channel: 'size', field: 'weight', sentence: '"weight" is not a column of the table' }   ← lint()
    lint: the "edges" provider cannot list its columns — …                                          ← a layer's table that cannot answer
    ```
+   The FACETS are the layer's table's; the PAGE is the whole dashboard. A `dashboard`-scope business rule (the default scope for `never-together`) means *anywhere on the page*, so it reads every view's bindings and every layer's, side by side — the boundary between a frame and its layers is not a hiding place. `boundElsewhere` compares field NAMES, so nothing about the two tables has to be unified for this to hold:
+   ```ts
+   encodingRules: { rules: [{ rule: 'never-together', columns: ['size', 'weight'] }] }
+   // size on the nodes layer, weight on the edges layer of the SAME frame:
+   encodings[0].layers[0].initial.size: "size" and "weight" never share the page
+   encodings[0].layers[1].initial.size: "weight" and "size" never share the page
+   ```
+   It cuts both ways: an `only-with` companion bound on a SIBLING layer counts as present under `scope: 'dashboard'` and refuses nothing. A `scope: 'view'` rule still means this surface alone — a sibling layer is not "here".
 6. **The resolved layers are data on the view.** `ViewDecl.layers` is the declared list, frozen at build, present only when the def declared it; the session's `tableFor(address)` reads the layer's table off it, and the overview projects `views[].layers`.
 
 The shape sentences, for completeness: `encodings[i].layers, if present, must be an array of { layerId, table, chartKind, channels }` · `encodings[i].layers[j] must be an object { layerId, table, chartKind, channels, initial?, label? }` · `encodings[i].layers[j]: unknown key "x"` · `…layerId must be a non-empty string` · `…chartKind must be a non-empty string` · `…channels must be a non-empty array of non-empty strings` · `…initial, if present, must be an object mapping channel -> field (strings)` · `…label, if present, must be a string`. A table refused on its own line is not refused again through a layer, and a layer on it is not judged at the build door. Not in this version: a frame with shared scales, per-layer opacity/visibility dials, annotation layers, an implicit crossfilter between sibling layers (only a declared link routes between them).

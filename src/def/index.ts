@@ -101,6 +101,7 @@ export {
   PROPOSAL_CANDIDATES,
   PROPOSAL_BINDINGS,
   lintEncodings,
+  pageBindings,
   formatProblem,
   describeRules,
   discreteCoercer,

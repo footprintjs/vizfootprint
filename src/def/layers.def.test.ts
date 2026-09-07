@@ -88,6 +88,31 @@ describe('layers — the def door', () => {
     expect(viewLevel).toEqual(['encodings[0].initial.size: "id" is identifier — it cannot be the size of a point']);
   });
 
+  it('a dashboard-scope rule reads the whole page — every view and every layer, across the frame boundary', () => {
+    // `size` on the nodes layer and `weight` on the edges layer are two bindings on ONE page: a never-together
+    // pair may not hide in the boundary between two layers of the same frame (each side reports on its own binding)
+    const pair = { encodingRules: { rules: [{ rule: 'never-together', columns: ['size', 'weight'] }] } } as Partial<DashboardDef>;
+    expect(at([nodesLayer, edgesLayer], pair)).toEqual([
+      'encodings[0].layers[0].initial.size: "size" and "weight" never share the page',
+      'encodings[0].layers[1].initial.size: "weight" and "size" never share the page',
+    ]);
+    // …nor in the boundary between a view's OWN binding and one of its layers'
+    const viewAndLayer = validateDashboardDef({ ...makeNetworkDef(undefined, pair), encodings: [{ viewId: 'net', chartKind: 'point', channels: ['x', 'y', 'size'], initial: { size: 'size' }, layers: [edgesLayer] }] } as unknown);
+    expect(viewAndLayer).toEqual([
+      'encodings[0].initial.size: "size" and "weight" never share the page',
+      'encodings[0].layers[0].initial.size: "weight" and "size" never share the page',
+    ]);
+    // a `view`-scope rule still means THIS surface alone — a sibling layer is not "here"
+    expect(at([nodesLayer, edgesLayer], { encodingRules: { rules: [{ rule: 'never-together', columns: ['size', 'weight'], scope: 'view' }] } } as Partial<DashboardDef>)).toEqual([]);
+    // the page cuts both ways: an `only-with` companion bound on a SIBLING layer is on the page…
+    const onlyWith = { encodingRules: { rules: [{ rule: 'only-with', column: 'weight', companion: 'group', scope: 'dashboard' }] } } as Partial<DashboardDef>;
+    expect(at([nodesLayer, edgesLayer], onlyWith)).toEqual([]);
+    // …and refused only where it is nowhere on it
+    expect(at([{ ...nodesLayer, initial: { size: 'size' } }, edgesLayer], onlyWith)).toEqual([
+      'encodings[0].layers[1].initial.size: "weight" is only meaningful while "group" is on the page — bind "group" first',
+    ]);
+  });
+
   it('lint() judges each layer against the columns its own table lists, under the layer address', async () => {
     expect(await buildDashboard(makeNetworkDef()).lint()).toEqual([]);
     const problems = await buildDashboard(makeNetworkDef([{ ...nodesLayer, initial: { size: 'weight' } }, edgesLayer])).lint();

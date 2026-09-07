@@ -16,8 +16,9 @@
  * guard that read `this.defaultTable` or `runtime.views.get(viewId)`), the
  * overview's `views[].layers`.
  */
-import { splitLayerAddress } from '../def/layerAddress.js';
+import { layerAddress, splitLayerAddress } from '../def/layerAddress.js';
 import type { LayerDecl, ViewDecl } from '../def/types.js';
+import type { ProseSurface } from '../prose/index.js';
 import type { ActorMeta } from '../selection/index.js';
 import type { LayerInfo } from './types.js';
 
@@ -58,6 +59,45 @@ export function tableOf(place: Place, defaultTable: string): string {
 export function metaOf(place: Place): ActorMeta {
   if (place.layer === undefined) return place.view.meta;
   return { actor: place.view.meta.actor, label: place.layer.label ?? place.layer.layerId };
+}
+
+/**
+ * The encoding surface at this place, under the address that names it: a
+ * layer's OWN (`chartKind`, `channels` — a layer declares the same surface a
+ * view does), or the view's when the address named no layer. Undefined where
+ * there is no surface at all — a view that declares no encoding.
+ *
+ * WHY the prose plane asks: a `derived` slot is the library's own construction
+ * line, written from the surface it describes. Reading the frame's surface for
+ * a layer would say "a network with nothing bound" over a drawn layer.
+ */
+export function surfaceOf(place: Place, address: string): ProseSurface | undefined {
+  if (place.layer === undefined) return place.view.encoding;
+  return { viewId: address, chartKind: place.layer.chartKind, channels: place.layer.channels };
+}
+
+/**
+ * The bindings shown at this place. A layer's are its declared `initial` and
+ * stay so: `reencode` refuses a layer (its fold is the view's), so the
+ * declaration IS what is on screen — there is no later commit to read.
+ */
+export function layerBindingsOf(layer: LayerDecl): Readonly<Record<string, string>> {
+  return layer.initial ?? {};
+}
+
+/**
+ * Every address on the map that declares an encoding surface — a view with an
+ * `encoding`, and EVERY layer of every view (a layer always declares one).
+ * The set a `derived` author is judged against: prose the library wrote itself
+ * needs something to derive from, and a layer has exactly as much as a view.
+ */
+export function surfacedAddressesOf(views: Iterable<ViewDecl>): Set<string> {
+  const out = new Set<string>();
+  for (const view of views) {
+    if (view.encoding !== undefined) out.add(view.viewId);
+    for (const layer of view.layers ?? []) out.add(layerAddress(view.viewId, layer.layerId));
+  }
+  return out;
 }
 
 /** The overview's projection of a view's layers — the declared facts, nothing judged; undefined when the view declares none (the key stays absent). */

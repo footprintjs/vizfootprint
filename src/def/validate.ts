@@ -27,7 +27,7 @@ import { ENCODING_SET_FIELD,
   PROSE_VIEW_PREFIX,
 } from '../branches/index.js';
 import { ABSENCE_UNKNOWN, DISPATCH_VERBS, type DashboardDef, type DispatchVerb } from './types.js';
-import { lintEncodings, resolveFacets, validateColumnDecls, validateEncodingRulesShape } from '../encoding/index.js';
+import { lintEncodings, pageBindings, resolveFacets, validateColumnDecls, validateEncodingRulesShape } from '../encoding/index.js';
 import type { EncodingRules, EncodingSurface, FacetSource } from '../encoding/index.js';
 import type { ColumnInfo } from '../data/index.js';
 import { DASHBOARD_PROSE_ID, NOTE_PROSE_PREFIX, validateProseDecls } from '../prose/index.js';
@@ -506,16 +506,20 @@ export function validateDashboardDef(def: unknown): string[] {
     const surfaces = wellFormedSurfaces(def.encodings);
     const facets = resolveFacets(defColumns(src, surfaces), facetSourceOf(src));
     const indexOf = new Map(surfaces.map((s) => [s.surface.viewId, s.index] as const));
-    for (const p of lintEncodings({ views: surfaces.map((s) => s.surface), facets, ...(def.encodingRules !== undefined ? { rules: def.encodingRules as EncodingRules } : {}) })) {
+    const layerSurfaces = layerSurfacesOf(def.encodings, def.data);
+    // a `dashboard`-scope rule means ANYWHERE on the page: every view's bindings and every layer's, side by side, so
+    // the boundary between a frame and its layers is not a hole a never-together pair can hide in (../def/README.md, "Layers", law 5)
+    const page = pageBindings([...surfaces.map((s) => s.surface), ...layerSurfaces.map((l) => l.surface)]);
+    for (const p of lintEncodings({ views: surfaces.map((s) => s.surface), facets, page, ...(def.encodingRules !== undefined ? { rules: def.encodingRules as EncodingRules } : {}) })) {
       problems.push(`encodings[${indexOf.get(p.viewId)}].initial.${p.channel}: ${p.sentence}`);
     }
     // ── the same door once per LAYER, against the layer's own table — never the default table.
-    //    WHY one call per layer: a dashboard-scope rule reads the other views' bindings as
-    //    fields of ONE table; a layer's fields belong to its table, so its siblings are not "others".
-    for (const { index, at, table: layerTable, surface } of layerSurfacesOf(def.encodings, def.data)) {
+    //    WHY one call per layer: the FACETS that judge a binding are its table's; the page-wide
+    //    bindings above are what its dashboard-scope rules read, and they span every table.
+    for (const { index, at, table: layerTable, surface } of layerSurfaces) {
       const layerSrc = isObject(def.data[layerTable]) ? (def.data[layerTable] as Record<string, unknown>) : undefined;
       const layerFacets = resolveFacets(defColumns(layerSrc, [{ surface }]), facetSourceOf(layerSrc));
-      for (const p of lintEncodings({ views: [surface], facets: layerFacets, ...(def.encodingRules !== undefined ? { rules: def.encodingRules as EncodingRules } : {}) })) {
+      for (const p of lintEncodings({ views: [surface], facets: layerFacets, page, ...(def.encodingRules !== undefined ? { rules: def.encodingRules as EncodingRules } : {}) })) {
         problems.push(`encodings[${index}].layers[${at}].initial.${p.channel}: ${p.sentence}`);
       }
     }

@@ -98,6 +98,11 @@ export interface BoundRenderer {
    * carrying `layers` reaches only a `canLayer` renderer — at any other it
    * files a typed `layers-unsupported` gap and NOTHING of it is drawn (a
    * half-drawn frame would read as a whole one).
+   *
+   * Answers the outcome (1.2), the way `navigate` beside it always has. HOST
+   * side only: the RENDERER's `update(state): void` is untouched, and the gap
+   * still reaches `onGap`. A hand-authored `BoundRenderer` double must return
+   * `{ ok: true }` — the one source change 1.2 asks of a host.
    */
   update(state: RenderState): UpdateOutcome;
   /**

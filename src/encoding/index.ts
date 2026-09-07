@@ -51,7 +51,7 @@ export type { RankingRule, Placement } from './recommend.js';
 // Whole charts, proposed — `whatFits` and the recommender, composed.
 export { proposeCharts, proposableKinds, OFFER_SENTENCES, PROPOSAL_LIMIT, PROPOSAL_CANDIDATES, PROPOSAL_BINDINGS } from './propose.js';
 export type { ChartProposal, ChartProposals, ProposalKind, ProposeChartsInput } from './propose.js';
-export { lintEncodings, formatProblem } from './lint.js';
+export { lintEncodings, pageBindings, formatProblem } from './lint.js';
 export type { LintInput } from './lint.js';
 export { describeRules, describeRule } from './describe.js';
 export type { RuleLine } from './describe.js';
