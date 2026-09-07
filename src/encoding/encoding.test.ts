@@ -254,10 +254,10 @@ describe('lint + describe', () => {
       { rule: 'only-with', column: 'value', companion: 'entity', scope: 'dashboard', sentence: 'custom {column}/{companion}' },
     ];
     const lines = describeRules({ rules });
-    expect(lines[0]).toEqual({ id: 'absence-never-magnitude', builtIn: true, sentence: '"a column whose role is absence" is the declared absence column — it cannot bind to the magnitude channel "any magnitude channel (x, y, size, r, radius, theta)"; absence is a category, never a magnitude' });
+    expect(lines[0]).toEqual({ id: 'absence-never-magnitude', builtIn: true, sentence: '"a column whose role is absence" is the declared absence column — it cannot bind to the magnitude channel "any magnitude channel (x, y, size, r, radius, theta, sourceX, sourceY, targetX, targetY)"; absence is a category, never a magnitude' });
     expect(lines.slice(1).map((l) => l.sentence)).toEqual([
       '"ytd" never binds to color, size',
-      '"a column whose role is identifier" is identifier — it never binds to any magnitude channel (x, y, size, r, radius, theta)',
+      '"a column whose role is identifier" is identifier — it never binds to any magnitude channel (x, y, size, r, radius, theta, sourceX, sourceY, targetX, targetY)',
       '"cases" and "ytd" never share a chart',
       '"a" and "b" never share the page',
       '"value" is only meaningful with "entity" on the same chart — bind "entity" first',

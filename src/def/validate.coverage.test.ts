@@ -423,7 +423,9 @@ describe('validateDashboardDef — absence (the declared silence vocabulary)', (
     ).toContain(
       'encodings[0].initial.size: "state" is the declared absence column — it cannot bind to the magnitude channel "size"; absence is a category, never a magnitude',
     );
-    expect([...MAGNITUDE_CHANNELS].sort()).toEqual(['r', 'radius', 'size', 'theta', 'x', 'y']);
+    // the four network endpoints are in the class too: `bringOver` writes them
+    // as coordinates in the same space as x and y, so the law reaches them
+    expect([...MAGNITUDE_CHANNELS].sort()).toEqual(['r', 'radius', 'size', 'sourceX', 'sourceY', 'targetX', 'targetY', 'theta', 'x', 'y']);
   });
 
   it('refuses binding the absence column to a numeric channel, and allows it on a categorical one', () => {

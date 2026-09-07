@@ -182,6 +182,14 @@ handshake.layers!['edges']!.emit({ rawValue: 5, encoding: { kind: 'point', field
 // → ONE commit, viewId 'net~edges', judged against the edges table; the fold keys its clause under that address
 ```
 
+**The fold follows the address.** A layer's clause is keyed by the address that
+holds it, so a layered renderer's `RenderState.selection` must be folded for the
+LAYER whose marks it draws — `selectionForView(selections, layerAddress(viewId,
+layerId))` — and not for the view. Folded for the view, that layer's own clause
+reads as FOREIGN: the mark it selected loses its outline, its neighbours dim by
+the chart's own clause, and click-again never clears. `netState` in
+`conformance.test.tsx` is the worked example.
+
 Two halves of the law, pinned together in `capabilities.test.tsx` the way the
 bar's `canHighlight` is. **The flag is the promise, not the ability.** The
 fixture renderer that draws layers but declares nothing is refused exactly like

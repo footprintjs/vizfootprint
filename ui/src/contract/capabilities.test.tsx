@@ -21,10 +21,11 @@ import {
   histogramRenderer,
   lineRenderer,
   mapRenderer,
+  networkRenderer,
   scatterRenderer,
   tableRenderer,
 } from './renderers.js';
-import { emptySelection, selfSelectedSet, bindRenderer, LAYER_MARKER, layerAddress, splitLayerAddress, holdsLayerMarker } from './index.js';
+import { emptySelection, selfSelectedSet, bindRenderer, LAYER_MARKER, layerAddress, splitLayerAddress, holdsLayerMarker, type BoundRenderer } from './index.js';
 import { layeredRenderer } from './layered.fixture.js';
 import { selectedSet, inSet, markClass, useBrightPredicate, matchEmission, toggleInSetEmission, clickEmission } from '../primitives/index.js';
 import {
@@ -203,6 +204,94 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
   });
 });
 
+// ── the network — the FIRST first-party renderer that layers, flag by flag ────
+
+describe('the node-link declares canLayer, and every one of its flags has its other half', () => {
+  const NET_NODES: RenderRow[] = [
+    { id: 'flu', x: 0, y: 0, region: 'North' },
+    { id: 'cold', x: 10, y: 4, region: 'South' },
+  ];
+  const NET_LAYERS = [
+    { layerId: 'edges', table: 'edges', rows: [{ source: 'flu', target: 'cold', source_x: 0, source_y: 0, target_x: 10, target_y: 4 }], encodings: { sourceX: 'source_x', sourceY: 'source_y', targetX: 'target_x', targetY: 'target_y' } },
+    { layerId: 'nodes', table: 'nodes', rows: NET_NODES, encodings: { x: 'x', y: 'y', key: 'id' } },
+  ] as const;
+
+  /** Bind it the way a 1.2 host does: one callback bundle per layer, keyed by the ADDRESS the library mints. */
+  function bound(): { el: HTMLElement; view: BoundRenderer; cbs: RendererCallbacks; perLayer: Map<string, RendererCallbacks> } {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const cbs = callbacks();
+    const perLayer = new Map<string, RendererCallbacks>([
+      [layerAddress('net', 'edges'), callbacks()],
+      [layerAddress('net', 'nodes'), callbacks()],
+    ]);
+    const res = bindRenderer(networkRenderer(), el, {
+      viewId: 'net',
+      callbacks: cbs,
+      layers: { layerIds: ['edges', 'nodes'], callbacksFor: (address) => perLayer.get(address)! },
+    });
+    if (!res.ok) throw new Error('bind failed');
+    return { el, view: res.view, cbs, perLayer };
+  }
+
+  it('canLayer TRUE — a layered frame is accepted whole and BOTH tables are on screen, links under nodes', () => {
+    const { el, view } = bound();
+    expect(view.capabilities.canLayer).toBe(true);
+    expect(view.update({ ...state(NET_NODES), layers: NET_LAYERS })).toEqual({ ok: true });
+    expect([...el.querySelectorAll('svg > g')].map((g) => g.getAttribute('class'))).toEqual(['vzf-net-links', 'vzf-net-nodes']);
+    expect(el.querySelectorAll('g.vzf-net-links line')).toHaveLength(1);
+    expect(el.querySelectorAll('g.vzf-net-nodes circle')).toHaveLength(2);
+    view.unmount();
+  });
+
+  it('canPointSelect TRUE — a node click emits, through the NODES layer\'s bundle and no other', () => {
+    const { el, view, cbs, perLayer } = bound();
+    view.update({ ...state(NET_NODES), layers: NET_LAYERS });
+    fireEvent.click(el.querySelector('circle[data-node="flu"]')!);
+    expect(perLayer.get(layerAddress('net', 'nodes'))!.emit).toHaveBeenCalledWith({ rawValue: 'flu', encoding: { kind: 'point', field: 'id' } });
+    expect(perLayer.get(layerAddress('net', 'edges'))!.emit).not.toHaveBeenCalled();
+    expect(cbs.emit).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it('the match kind is declared AND spoken — a shift-click promotes the point to this view\'s own set', () => {
+    const { el, view, perLayer } = bound();
+    expect(view.capabilities.emissionKinds).toEqual(['point', 'match']);
+    view.update({ ...state(NET_NODES), layers: NET_LAYERS });
+    fireEvent.click(el.querySelector('circle[data-node="cold"]')!, { shiftKey: true });
+    expect(perLayer.get(layerAddress('net', 'nodes'))!.emit).toHaveBeenCalledWith({ rawValue: { values: ['cold'] }, encoding: { kind: 'match', field: 'id' } });
+    view.unmount();
+  });
+
+  it('canHighlight TRUE — under a live clause from another view the failing node dims, and is never hidden', () => {
+    const { el, view } = bound();
+    expect(view.capabilities.canHighlight).toBe(true);
+    view.update({ ...state(NET_NODES, highlightFromOther()), layers: NET_LAYERS });
+    expect([...el.querySelectorAll('circle.vzf-dim')].map((c) => c.getAttribute('data-node'))).toEqual(['cold']);
+    expect(el.querySelectorAll('g.vzf-net-nodes circle')).toHaveLength(2); // dim, never hide
+    view.unmount();
+  });
+
+  it('canBrush FALSE and canReencode FALSE — and the mount grows neither a brush overlay nor an axis affordance', () => {
+    const { el, view } = bound();
+    expect([view.capabilities.canBrush, view.capabilities.canReencode]).toEqual([false, false]);
+    view.update({ ...state(NET_NODES), layers: NET_LAYERS });
+    expect(el.querySelectorAll('rect.vzf-brush')).toHaveLength(0);
+    expect(el.querySelectorAll('g.vzf-axis-group')).toHaveLength(0);
+    view.unmount();
+  });
+
+  it('canPanZoom FALSE — a host-driven navigate files the typed gap instead of pretending it was recorded', () => {
+    const { view } = bound();
+    expect(view.capabilities.canPanZoom).toBe(false);
+    const outcome = view.navigate({ x: [0, 1] });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error('unreachable');
+    expect(outcome.gap.code).toBe('navigate-unsupported');
+    view.unmount();
+  });
+});
+
 // ── the removed canRearrange — a visible act that reaches nothing claims nothing ──
 
 describe('no renderer declares a rearrange capability (the flag nothing honoured)', () => {
@@ -215,9 +304,10 @@ describe('no renderer declares a rearrange capability (the flag nothing honoured
     ['histogram', histogramRenderer()],
     ['heatmap', heatmapRenderer()],
     ['boxplot', boxPlotRenderer()],
+    ['network', networkRenderer()],
   ];
 
-  it('the hello of all eight carries no canRearrange key at all', () => {
+  it('the hello of all nine carries no canRearrange key at all', () => {
     for (const [name, renderer] of factories) {
       const { m } = mounted(renderer);
       expect(`${name}: ${String('canRearrange' in m.hello.capabilities)}`).toBe(`${name}: false`);

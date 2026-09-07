@@ -6,6 +6,7 @@
  * wrapper.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import { fireEvent } from '@testing-library/dom';
 import {
   reactRenderer,
   scatterRenderer,
@@ -16,13 +17,18 @@ import {
   histogramRenderer,
   heatmapRenderer,
   boxPlotRenderer,
+  networkRenderer,
+  NETWORK_EDGE_CEILING,
+  NETWORK_NODE_CEILING,
 } from './renderers.js';
 import { emptySelection } from './selection.js';
 import {
   RENDERER_PROTOCOL_VERSION,
+  type HostHandshake,
   type MountedRenderer,
   type Renderer,
   type RendererCallbacks,
+  type RenderLayer,
   type RenderRow,
   type RenderState,
 } from './types.js';
@@ -285,6 +291,239 @@ describe('tableRenderer', () => {
     expect(el.querySelectorAll('tbody tr')).toHaveLength(2);
     expect(el.querySelector('th[aria-label="sort by Price ($)"]')).not.toBeNull();
     expect(el.querySelector('tbody tr')!.getAttribute('aria-label')).toBe('row k1');
+    m.unmount();
+  });
+});
+
+// ── networkRenderer (protocol 1.2: the layer partition, the voice, the ceiling) ──
+
+/** Three nodes with the layout act's positions, and a group to colour by. */
+const NET_NODES: RenderRow[] = [
+  { disease: 'flu', px: 0, py: 0, grp: 'viral' },
+  { disease: 'cold', px: 10, py: 4, grp: 'viral' },
+  { disease: 'strep', px: 4, py: 10, grp: 'bacterial' },
+];
+/** Two edges, both endpoints carried over by `bringOver`. */
+const NET_EDGES: RenderRow[] = [
+  { src: 'flu', tgt: 'cold', source_x: 0, source_y: 0, target_x: 10, target_y: 4 },
+  { src: 'cold', tgt: 'strep', source_x: 10, source_y: 4, target_x: 4, target_y: 10 },
+];
+
+const NODES_LAYER: RenderLayer = { layerId: 'nodes', table: 'nodes', rows: NET_NODES, encodings: { x: 'px', y: 'py', key: 'disease', color: 'grp' } };
+const EDGES_LAYER: RenderLayer = {
+  layerId: 'edges',
+  table: 'edges',
+  rows: NET_EDGES,
+  encodings: { source: 'src', target: 'tgt', sourceX: 'source_x', sourceY: 'source_y', targetX: 'target_x', targetY: 'target_y' },
+};
+
+function layered(layers: readonly RenderLayer[], rows: readonly RenderRow[] = NET_NODES, encodings: Readonly<Record<string, string>> = {}): RenderState {
+  return { ...state(rows, encodings), layers };
+}
+
+/** Mount with a callback bundle per layer — what `bindRenderer` hands a canLayer renderer. */
+function mountNet(handshake: Partial<HostHandshake> = {}): { el: HTMLElement; m: MountedRenderer; view: RendererCallbacks; bundles: { nodes: RendererCallbacks; edges: RendererCallbacks } } {
+  const el = document.createElement('div');
+  document.body.appendChild(el);
+  const view = callbacks();
+  const bundles = { nodes: callbacks(), edges: callbacks() };
+  const m = networkRenderer().mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'net', callbacks: view, layers: bundles, ...handshake });
+  return { el, m, view, bundles };
+}
+
+describe('networkRenderer — which layer is which', () => {
+  it('the layer binding all four endpoint positions is the EDGES; the other is the NODES', () => {
+    const { el, m } = mountNet();
+    m.update(layered([EDGES_LAYER, NODES_LAYER]));
+    expect(el.querySelectorAll('g.vzf-net-nodes circle')).toHaveLength(3);
+    expect(el.querySelectorAll('g.vzf-net-links line')).toHaveLength(2);
+    // the nodes layer's own bindings positioned them, and its `key` named them
+    expect(el.querySelector('circle[data-node="flu"]')!.getAttribute('aria-label')).toBe('flu · viral · 1 link');
+    expect(el.querySelector('g.vzf-net-links line')!.getAttribute('aria-label')).toBe('flu — cold');
+    m.unmount();
+  });
+
+  it('draw order decides nothing — the CHANNELS do, whichever layer comes first', () => {
+    const { el, m } = mountNet();
+    m.update(layered([NODES_LAYER, EDGES_LAYER]));
+    expect(el.querySelectorAll('g.vzf-net-nodes circle')).toHaveLength(3);
+    expect(el.querySelectorAll('g.vzf-net-links line')).toHaveLength(2);
+    m.unmount();
+  });
+
+  it('a layer binding THREE of the four endpoints draws no links — and is still never mistaken for the NODES', () => {
+    const { el, m } = mountNet();
+    const { targetY, ...three } = EDGES_LAYER.encodings;
+    void targetY;
+    m.update(layered([{ ...EDGES_LAYER, encodings: three }, NODES_LAYER]));
+    expect(el.querySelectorAll('g.vzf-net-links line')).toHaveLength(0);
+    // the nodes layer is chosen POSITIVELY — the layer carrying NO endpoint
+    // column — so a partial carry-over loses the links and never steals the
+    // node circles from the real node table
+    expect(el.querySelectorAll('g.vzf-net-nodes circle')).toHaveLength(3);
+    expect(el.querySelector('circle[data-node="strep"]')).not.toBeNull();
+    m.unmount();
+  });
+
+  it('a SECOND edge layer is an edge table too — a multiplex frame never draws edge rows as nodes', () => {
+    const { el, m } = mountNet();
+    // two relations over one node set: both bind the four, so both are edges
+    m.update(layered([EDGES_LAYER, { ...EDGES_LAYER, layerId: 'transmission' }, NODES_LAYER]));
+    // …and a frame carrying more than the two tables this renderer draws is refused by name
+    expect(el.querySelector('svg')).toBeNull();
+    expect(el.querySelector('p.vzf-chart-refusal')!.textContent).toBe(
+      'this node-link draws two tables — the nodes and the edges — and this frame carried 3: edges, transmission, nodes. Draw the extra layers on a frame of their own.',
+    );
+    m.unmount();
+  });
+
+  it('an endpoint `bringOver` could not follow is an ABSENCE, not a link from the origin', () => {
+    const { el, m } = mountNet();
+    // five rows: one good, and one per end that carries no number — `bringOver`
+    // writes null for an endpoint naming nothing, and a zero would draw a hub
+    // where no node is AND drag the shared frame's extent to it
+    const rows: RenderRow[] = [
+      { src: 'flu', tgt: 'cold', source_x: 0, source_y: 0, target_x: 10, target_y: 4 },
+      { src: 'a', tgt: 'b', source_x: null, source_y: 0, target_x: 10, target_y: 4 },
+      { src: 'c', tgt: 'd', source_x: 0, source_y: null, target_x: 10, target_y: 4 },
+      { src: 'e', tgt: 'f', source_x: 0, source_y: 0, target_x: null, target_y: 4 },
+      { src: 'g', tgt: 'h', source_x: 0, source_y: 0, target_x: 10, target_y: Number.NaN },
+    ];
+    m.update(layered([{ ...EDGES_LAYER, rows }, NODES_LAYER]));
+    expect(el.querySelectorAll('g.vzf-net-links line')).toHaveLength(1);
+    m.unmount();
+  });
+
+  it('refuses a nodes table with no key column rather than minting a node called "undefined"', () => {
+    const { el, m } = mountNet();
+    m.update(layered([EDGES_LAYER, { ...NODES_LAYER, encodings: { x: 'px', y: 'py' } }]));
+    expect(el.querySelector('svg')).toBeNull();
+    expect(el.querySelector('p.vzf-chart-refusal')!.textContent).toBe(
+      'this network keys its nodes by "id", which no row carries — the first row\'s columns are disease, px, py, grp. ' +
+        'Bind the `key` channel on the nodes layer, or name the column with the renderer\u2019s `keyField` option.',
+    );
+    // an EMPTY frame is not a missing key — there is no row to have carried one
+    m.update(layered([EDGES_LAYER, { ...NODES_LAYER, rows: [], encodings: { x: 'px', y: 'py' } }]));
+    expect(el.querySelector('svg')).not.toBeNull();
+    m.unmount();
+  });
+
+  it('a frame with NO layers is a nodes-only network over the view\'s own rows', () => {
+    const { el, m } = mountNet();
+    m.update(state(NET_NODES, { x: 'px', y: 'py', key: 'disease' }));
+    expect(el.querySelectorAll('g.vzf-net-nodes circle')).toHaveLength(3);
+    expect(el.querySelectorAll('g.vzf-net-links line')).toHaveLength(0);
+    expect(el.querySelector('circle[data-node="flu"]')!.getAttribute('aria-label')).toBe('flu · 0 links');
+    m.unmount();
+  });
+
+  it('the edge layer\'s source/target default to `source`/`target` when it binds neither', () => {
+    const { el, m } = mountNet();
+    const plain: RenderLayer = {
+      layerId: 'edges',
+      table: 'edges',
+      rows: [{ source: 'flu', target: 'cold', source_x: 0, source_y: 0, target_x: 10, target_y: 4 }],
+      encodings: { sourceX: 'source_x', sourceY: 'source_y', targetX: 'target_x', targetY: 'target_y' },
+    };
+    m.update(layered([plain, NODES_LAYER]));
+    expect(el.querySelector('g.vzf-net-links line')!.getAttribute('aria-label')).toBe('flu — cold');
+    m.unmount();
+  });
+
+  it('the node key falls back to the option, then to `id`, and the colour channel is optional', () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const m = networkRenderer({ keyField: 'disease' }).mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'net', callbacks: callbacks() });
+    m.update(state(NET_NODES, { x: 'px', y: 'py' })); // no `key` binding, no `color` binding
+    expect(el.querySelector('circle[data-node="flu"]')!.getAttribute('aria-label')).toBe('flu · 0 links'); // no group in the label
+    m.unmount();
+    const bare = document.createElement('div');
+    document.body.appendChild(bare);
+    const m2 = networkRenderer().mount(bare, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'net', callbacks: callbacks() });
+    m2.update(state([{ id: 'n1', x: 1, y: 2 }])); // every default: id, x, y
+    expect(bare.querySelector('circle[data-node="n1"]')).not.toBeNull();
+    m2.unmount();
+  });
+});
+
+describe('networkRenderer — whose voice a node click is', () => {
+  it('a node gesture speaks through the NODES layer\'s bundle, never the view\'s callbacks', () => {
+    const { el, m, view, bundles } = mountNet();
+    m.update(layered([EDGES_LAYER, NODES_LAYER]));
+    fireEvent.click(el.querySelector('circle[data-node="cold"]')!);
+    expect(bundles.nodes.emit).toHaveBeenCalledWith({ rawValue: 'cold', encoding: { kind: 'point', field: 'disease' } });
+    expect(view.emit).not.toHaveBeenCalled();
+    expect(bundles.edges.emit).not.toHaveBeenCalled();
+    m.unmount();
+  });
+
+  it('with no bundle for that layer the view speaks — a 1.1 host loses the address, not the gesture', () => {
+    const { el, m, view } = mountNet({ layers: undefined });
+    m.update(layered([EDGES_LAYER, NODES_LAYER]));
+    fireEvent.click(el.querySelector('circle[data-node="flu"]')!);
+    expect(view.emit).toHaveBeenCalledWith({ rawValue: 'flu', encoding: { kind: 'point', field: 'disease' } });
+    m.unmount();
+  });
+
+  it('an unlayered frame speaks through the view — there is no layer to speak for', () => {
+    const { el, m, view, bundles } = mountNet();
+    m.update(state(NET_NODES, { x: 'px', y: 'py', key: 'disease' }));
+    fireEvent.click(el.querySelector('circle[data-node="strep"]')!);
+    expect(view.emit).toHaveBeenCalledWith({ rawValue: 'strep', encoding: { kind: 'point', field: 'disease' } });
+    expect(bundles.nodes.emit).not.toHaveBeenCalled();
+    m.unmount();
+  });
+});
+
+describe('networkRenderer — the SVG ceiling lives in the wrapper', () => {
+  const manyNodes = (n: number): RenderRow[] => Array.from({ length: n }, (_, i) => ({ id: `n${i}`, x: i, y: i }));
+
+  it('draws a frame exactly AT the ceiling', () => {
+    const { el, m } = mountNet();
+    m.update(state(manyNodes(NETWORK_NODE_CEILING)));
+    expect(el.querySelectorAll('g.vzf-net-nodes circle')).toHaveLength(NETWORK_NODE_CEILING);
+    m.unmount();
+  });
+
+  it('past it, refuses in a sentence naming the count, the ceiling and the reading that still works', () => {
+    const { el, m } = mountNet();
+    m.update(state(manyNodes(NETWORK_NODE_CEILING + 1)));
+    expect(el.querySelector('svg')).toBeNull();
+    expect(el.querySelector('p.vzf-chart-refusal')!.textContent).toBe(
+      'this network has 1001 nodes, past the 1000 one SVG frame draws legibly — read it as a matrix instead (a heatmap of source × target), which stays readable where a node-link is a hairball',
+    );
+    m.unmount();
+  });
+
+  it('the ceiling counts the NODES layer, not the view\'s rows', () => {
+    const { el, m } = mountNet();
+    // 3 rows on the frame, 1001 on the nodes layer: the layer is what is drawn, so the layer is what is judged
+    m.update(layered([EDGES_LAYER, { ...NODES_LAYER, rows: manyNodes(NETWORK_NODE_CEILING + 1) }]));
+    expect(el.querySelector('p.vzf-chart-refusal')!.textContent).toContain('this network has 1001 nodes');
+    m.unmount();
+  });
+
+  it('and the LINKS are judged too — the half that usually bites first', () => {
+    const manyEdges = (n: number): RenderRow[] =>
+      Array.from({ length: n }, (_, i) => ({ src: `a${i}`, tgt: `b${i}`, source_x: 0, source_y: 0, target_x: 1, target_y: 1 }));
+    const { el, m } = mountNet();
+    // three nodes, well under their ceiling, and one link past its own
+    m.update(layered([{ ...EDGES_LAYER, rows: manyEdges(NETWORK_EDGE_CEILING + 1) }, NODES_LAYER]));
+    expect(el.querySelector('svg')).toBeNull();
+    expect(el.querySelector('p.vzf-chart-refusal')!.textContent).toBe(
+      `this network has ${NETWORK_EDGE_CEILING + 1} links, past the ${NETWORK_EDGE_CEILING} one SVG frame draws legibly — ` +
+        'read it as a matrix instead (a heatmap of source × target), which stays readable where a node-link is a hairball',
+    );
+    // and exactly AT the ceiling it draws
+    m.update(layered([{ ...EDGES_LAYER, rows: manyEdges(NETWORK_EDGE_CEILING) }, NODES_LAYER]));
+    expect(el.querySelectorAll('g.vzf-net-links line')).toHaveLength(NETWORK_EDGE_CEILING);
+    m.unmount();
+  });
+
+  it('a refusal is a live region — the frame it replaced carried the only accessible reading', () => {
+    const { el, m } = mountNet();
+    m.update(state(manyNodes(NETWORK_NODE_CEILING + 1)));
+    expect(el.querySelector('p.vzf-chart-refusal')!.getAttribute('role')).toBe('status');
     m.unmount();
   });
 });

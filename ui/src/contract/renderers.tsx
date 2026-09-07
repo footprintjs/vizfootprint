@@ -1,10 +1,16 @@
 /**
  * The FIRST-PARTY REFERENCE IMPLEMENTATIONS of the renderer contract (RP-1):
- * each of the eight charts (scatter · line · bar · map · table · histogram ·
- * heatmap · box plot), wrapped as a framework-agnostic {@link Renderer} via
- * one generic React bridge (`reactRenderer`). They are proof, not assertion —
- * all eight pass the conformance kit (`conformance.test.tsx`) end to end, the
- * heatmap including the D30 cell arm.
+ * each of the nine charts (scatter · line · bar · map · table · histogram ·
+ * heatmap · box plot · network), wrapped as a framework-agnostic
+ * {@link Renderer} via one generic React bridge (`reactRenderer`). They are
+ * proof, not assertion — the first eight pass the conformance kit
+ * (`conformance.test.tsx`) end to end, the heatmap including the D30 cell arm.
+ * The ninth, `networkRenderer`, is the first to declare `canLayer`, and it is
+ * also the first whose every mark belongs to a LAYER rather than to the view:
+ * it passes the kit's arms up to `commit-lands`, where the kit asks for a
+ * view-level gesture a two-table node-link does not have. That stop is pinned,
+ * explained and proven around in `conformance.test.tsx` — read it before
+ * changing either side.
  *
  * What the bridge does — and deliberately does NOT do:
  *   - mount() creates a React root inside the host's element and answers the
@@ -17,7 +23,7 @@
  *   - The four callbacks wire straight through: a brush/click → `emit`; an
  *     axis-label click → `reencodeRequest` (the HOST owns the picker — the
  *     charts' built-in EncodingPicker never opens in contract mode). None of
- *     the eight pans or zooms, and each says so where it counts
+ *     the nine pans or zooms, and each says so where it counts
  *     (`canPanZoom: false` — a host-driven navigate lands a typed gap
  *     instead of silently recording nothing). None of them speaks `hover`
  *     either, and no capability says so BY DESIGN: hover records nothing, so
@@ -46,6 +52,9 @@ import {
   type HostHandshake,
   type Renderer,
   type RendererCapabilities,
+  type RenderEncodings,
+  type RenderLayer,
+  type RenderRow,
   type RenderState,
 } from './types.js';
 import { boundField } from '../charts/binding.js';
@@ -57,6 +66,7 @@ import { VizTable, type TableRow } from '../charts/VizTable.js';
 import { VizHistogram } from '../charts/VizHistogram.js';
 import { VizHeatmap } from '../charts/VizHeatmap.js';
 import { VizBoxPlot } from '../charts/VizBoxPlot.js';
+import { VizNetwork, type NetworkEdge, type NetworkNode } from '../charts/VizNetwork.js';
 
 /** The bridge spec: declared capabilities + a pure state→element function. */
 export interface ReactRendererSpec {
@@ -66,7 +76,7 @@ export interface ReactRendererSpec {
 
 /**
  * Wrap a React element function as a contract {@link Renderer}. Any React
- * chart can join the protocol through this one bridge; the five first-party
+ * chart can join the protocol through this one bridge; the nine first-party
  * factories below are its reference uses.
  */
 export function reactRenderer(spec: ReactRendererSpec): Renderer {
@@ -560,6 +570,225 @@ export function tableRenderer(options: TableRendererOptions): Renderer {
           width={state.size.width}
           height={state.size.height}
           onEmit={handshake.callbacks.emit}
+        />
+      );
+    },
+  });
+}
+
+// ── network (protocol 1.2 — the first first-party renderer that layers) ────────
+
+/**
+ * How many nodes ONE SVG frame draws before this renderer refuses to draw it.
+ * A ceiling, not a capability: capabilities are booleans about BEHAVIOUR, and
+ * "how many circles one DOM carries" is a size judgement about this medium.
+ * The chart underneath knows nothing about it and would happily draw 20,000.
+ */
+export const NETWORK_NODE_CEILING = 1000;
+
+/**
+ * How many LINKS the same frame draws — the other half of the same judgement,
+ * and the half that usually bites first: edges grow as n² in a co-occurrence
+ * graph, and each one is a `<line>` plus a `<title>` exactly as each node is a
+ * `<circle>` plus a `<title>`. Four times the node ceiling: past four links per
+ * node at 1000 nodes the picture is ink rather than structure, which is the
+ * same size the matrix reading is offered for.
+ */
+export const NETWORK_EDGE_CEILING = 4000;
+
+export interface NetworkRendererOptions {
+  /** The nodes layer's key column, when its layer binds no `key` channel. Default `'id'`. */
+  readonly keyField?: string;
+}
+
+/** The four endpoint-position channels an EDGE layer binds — `bringOver`'s columns, named by the `network` requirement row. */
+const ENDPOINT_CHANNELS = ['sourceX', 'sourceY', 'targetX', 'targetY'] as const;
+
+/** The four endpoint fields, NAMED — no positional tuple, so a reorder of `ENDPOINT_CHANNELS` cannot swap a link's geometry. */
+interface EndpointFields {
+  readonly sx: string;
+  readonly sy: string;
+  readonly tx: string;
+  readonly ty: string;
+}
+
+/**
+ * The four endpoint fields this layer binds — or null when it binds fewer,
+ * which is how the renderer tells the EDGE layer from the nodes one.
+ *
+ * WHY the channels and not the chart kind: a `RenderLayer` carries no chartKind —
+ * a renderer receives a layer's table, rows and ENCODINGS, and the encodings are
+ * where the endpoints were named (src/encoding/requirements.ts, the `network`
+ * row's optional channels). A layer binding three of the four cannot be drawn as
+ * links, so it draws none — no half-links, no guessing.
+ */
+function endpointFieldsOf(layer: RenderLayer): EndpointFields | null {
+  const [sx, sy, tx, ty] = ENDPOINT_CHANNELS.map((channel) => layer.encodings[channel]);
+  if (sx === undefined || sy === undefined || tx === undefined || ty === undefined) return null;
+  return { sx, sy, tx, ty };
+}
+
+/**
+ * Does this layer carry ANY endpoint column? A layer that does is an edge table
+ * by construction, and is therefore never the NODES layer — which is the law
+ * the partition is written in. Choosing the nodes layer by exclusion instead
+ * ("whatever is not the one edge layer") makes a layer binding three of four,
+ * or a SECOND edge layer of a multiplex graph, draw its own rows as the node
+ * circles and drop the real node table in silence.
+ */
+function bindsEndpoint(layer: RenderLayer): boolean {
+  return ENDPOINT_CHANNELS.some((channel) => layer.encodings[channel] !== undefined);
+}
+
+/** The edge layer and the fields it binds, found in ONE pass so the four never have to be recovered with a `!`. */
+function edgeLayerOf(layers: readonly RenderLayer[]): { readonly layer: RenderLayer; readonly endpoints: EndpointFields } | null {
+  for (const layer of layers) {
+    const endpoints = endpointFieldsOf(layer);
+    if (endpoints !== null) return { layer, endpoints };
+  }
+  return null;
+}
+
+/** The nodes of one layer's rows, positioned by the columns the layout act wrote. */
+function nodesOf(rows: readonly RenderRow[], encodings: RenderEncodings, keyField: string): NetworkNode[] {
+  const xField = boundField(encodings, 'x', 'x');
+  const yField = boundField(encodings, 'y', 'y');
+  const colorField = encodings['color'];
+  return rows.map((row) => ({
+    id: String(row[keyField]),
+    x: num(row[xField]),
+    y: num(row[yField]),
+    ...(colorField === undefined ? {} : { category: String(row[colorField]) }),
+    row,
+  }));
+}
+
+/**
+ * One endpoint cell as a real coordinate, or null. WHY not `num`: `bringOver`
+ * writes `null` for an endpoint that names nothing in the related table and
+ * COUNTS it, so coercing that to 0 would draw a link from the origin — a hub
+ * where no node is — and drag the shared frame's extent to it. The absence
+ * stays an absence, the way `barRenderer`'s highlight overlay does.
+ */
+function coordinateAt(row: RenderRow, field: string): number | null {
+  const value = row[field];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** The edges of the endpoint layer's rows — both ends already carried over by `bringOver`, and a row missing either end is an absence rather than a link. */
+function edgesOf(layer: RenderLayer, endpoints: EndpointFields): NetworkEdge[] {
+  const sourceField = boundField(layer.encodings, 'source', 'source');
+  const targetField = boundField(layer.encodings, 'target', 'target');
+  const edges: NetworkEdge[] = [];
+  for (const row of layer.rows) {
+    const sx = coordinateAt(row, endpoints.sx);
+    const sy = coordinateAt(row, endpoints.sy);
+    const tx = coordinateAt(row, endpoints.tx);
+    const ty = coordinateAt(row, endpoints.ty);
+    if (sx === null || sy === null || tx === null || ty === null) continue;
+    edges.push({ source: String(row[sourceField]), target: String(row[targetField]), sx, sy, tx, ty });
+  }
+  return edges;
+}
+
+/** The refusal a frame past a ceiling gets — the count, the ceiling, and the reading that survives at this size. */
+function ceilingRefusal(count: number, marks: string, ceiling: number): JSX.Element {
+  return (
+    <p className="vzf-chart-refusal" role="status">
+      {`this network has ${count} ${marks}, past the ${ceiling} one SVG frame draws legibly — ` +
+        'read it as a matrix instead (a heatmap of source × target), which stays readable where a node-link is a hairball'}
+    </p>
+  );
+}
+
+/** The refusal a frame whose nodes have no identity gets — a node id is the emitted value and the edges' join key, so there is nothing to guess with. */
+function keyRefusal(keyField: string, first: RenderRow): JSX.Element {
+  return (
+    <p className="vzf-chart-refusal" role="status">
+      {`this network keys its nodes by "${keyField}", which no row carries — the first row's columns are ${Object.keys(first).join(', ')}. ` +
+        'Bind the `key` channel on the nodes layer, or name the column with the renderer’s `keyField` option.'}
+    </p>
+  );
+}
+
+/** The refusal a frame carrying more than the two tables this renderer draws gets — a dropped layer is never silent. */
+function layersRefusal(layers: readonly RenderLayer[]): JSX.Element {
+  return (
+    <p className="vzf-chart-refusal" role="status">
+      {`this node-link draws two tables — the nodes and the edges — and this frame carried ${layers.length}: ` +
+        `${layers.map((layer) => layer.layerId).join(', ')}. Draw the extra layers on a frame of their own.`}
+    </p>
+  );
+}
+
+/**
+ * The node-link: TWO tables on ONE frame (protocol 1.2). It reads
+ * `state.layers` — the layer binding the four endpoint positions supplies the
+ * edges, the layer carrying NONE of them supplies the nodes — and a node
+ * gesture speaks through THAT layer's callback bundle, so the commit lands
+ * under `viewId~nodes` and the layer finds its own clause by its own address.
+ * A frame carrying no layers is drawn as a nodes-only network over
+ * `state.rows`: honest, and exactly what a host that has laid its nodes out
+ * but carried no edges over has to show.
+ *
+ * WHY THE HOST MUST FOLD FOR THE LAYER: pass `RenderState.selection` as
+ * `selectionForView(selections, layerAddress(viewId, <the nodes layerId>))`.
+ * Folded for the VIEW instead — the way the other eight are wired — the nodes
+ * layer's own clause reads as FOREIGN, so the clicked node loses its outline,
+ * its neighbours dim by this chart's own clause, and click-again never clears
+ * (`netState` in conformance.test.tsx pins the right fold).
+ *
+ * Point select on a node (click-again clears) · shift-click toggles it in this
+ * view's own set (SET-1) · dims under the non-self clauses. No brush, no
+ * pan/zoom and no re-encode affordance: a node-link's x and y are the LAYOUT
+ * act's output rather than a quantity anyone reads off an axis, so there is no
+ * axis to click and the capabilities say so.
+ *
+ * THE SVG CEILING lives here and not in the chart: past
+ * {@link NETWORK_NODE_CEILING} nodes the frame is refused in a sentence naming
+ * the count, the ceiling and the reading that still works at that size.
+ */
+export function networkRenderer(options: NetworkRendererOptions = {}): Renderer {
+  return reactRenderer({
+    capabilities: {
+      canBrush: false,
+      canPointSelect: true,
+      canHighlight: true,
+      canReencode: false,
+      canPanZoom: false,
+      emissionKinds: ['point', 'match'], // SET-1: shift-click adds to the view's own set
+      canLayer: true,
+    },
+    render(state, handshake) {
+      const layers = state.layers ?? [];
+      if (layers.length > 2) return layersRefusal(layers);
+      const edge = edgeLayerOf(layers);
+      // POSITIVELY, not by exclusion: a layer carrying any endpoint column is an edge table
+      const nodeLayer = layers.find((layer) => !bindsEndpoint(layer));
+      const rows = nodeLayer === undefined ? state.rows : nodeLayer.rows;
+      const encodings = nodeLayer === undefined ? state.encodings : nodeLayer.encodings;
+      if (rows.length > NETWORK_NODE_CEILING) return ceilingRefusal(rows.length, 'nodes', NETWORK_NODE_CEILING);
+      if (edge !== null && edge.layer.rows.length > NETWORK_EDGE_CEILING) return ceilingRefusal(edge.layer.rows.length, 'links', NETWORK_EDGE_CEILING);
+      const keyField = boundField(encodings, 'key', options.keyField ?? 'id');
+      const first = rows[0];
+      // a node id is the value a click emits AND the key the edges point at, so
+      // an absent key column is refused rather than minted as "undefined"
+      if (first !== undefined && !rows.some((row) => row[keyField] !== undefined)) return keyRefusal(keyField, first);
+      // the LAYER speaks whenever it has a bundle: a node click lands under
+      // `viewId~<its layer>`. With none — a 1.1 host, or a layerId the bind did
+      // not mint — the view speaks and the ADDRESS is lost, not the gesture
+      // (renderers.test.tsx: 'a 1.1 host loses the address, not the gesture').
+      const voice = (nodeLayer === undefined ? undefined : handshake.layers?.[nodeLayer.layerId]) ?? handshake.callbacks;
+      return (
+        <VizNetwork
+          viewId={handshake.viewId}
+          nodes={nodesOf(rows, encodings, keyField)}
+          edges={edge === null ? [] : edgesOf(edge.layer, edge.endpoints)}
+          keyField={keyField}
+          selection={state.selection}
+          width={state.size.width}
+          height={state.size.height}
+          onEmit={voice.emit}
         />
       );
     },

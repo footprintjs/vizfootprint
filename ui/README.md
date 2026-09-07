@@ -714,16 +714,92 @@ plumbing beyond the primitives tier.
 
 ![the box plot cell](gallery/screenshots/gallery-boxplot.png)
 
+### Two tables on one frame — `VizNetwork` (the first layered chart)
+
+`<VizNetwork>` is the ninth first-party chart, and it is the first that cannot
+be drawn from one table. A node-link needs the NODES (each with a position) and
+the EDGES (each with two positions), and the positions are not the chart's to
+invent: a `layout` act writes `x`/`y` as plain columns on the nodes table at its
+slot, and `bringOver` carries them across the declared relation onto the edges
+table as `source_x`/`source_y`/`target_x`/`target_y`. What is on screen is what
+is in the trace — replay a session and the graph comes back where it was.
+
+The one design rule worth naming: **ONE pair of linear scales, computed over the
+UNION of the node positions and the edge endpoints, shared by both groups, at ONE
+px-per-unit.** That shared pair *is* the frame, and it is why this is one
+component with two props rather than two components stacked — two independently
+scaled charts would put a link's end somewhere its node is not. It is also why an
+endpoint whose node is filtered away still widens the frame instead of running
+off it. The single unit is the other half: the positions come from a stress
+layout whose whole promise is that on-screen distance IS graph distance, so
+stretching the axes independently would render equal graph distances at
+different pixel distances depending on their orientation, and turn a ring into
+an ellipse. The slack is centred, never spent.
+
+```tsx
+<VizNetwork
+  viewId="net"
+  nodes={[{ id: 'flu', x: 0, y: 0, category: 'viral', row }]}
+  edges={[{ source: 'flu', target: 'cold', sx: 0, sy: 0, tx: 10, ty: 4 }]}
+  keyField="disease"
+  selection={selectionForView(state.selections, layerAddress('net', 'nodes'))}
+  onEmit={emit}
+/>
+```
+
+Gestures, in plain language:
+
+1. **Click a node → select it** (`clickEmission`, click-again clears);
+   **shift/⌘/ctrl-click** toggles it in this view's own set (SET-1) — the same
+   two verbs `VizMap` speaks, on the same primitives.
+2. **Hover is local, bright, and unrecorded.** Hovering a node keeps it, the
+   edges touching it and their far ends bright; everything else takes
+   `.vzf-dim`. It emits nothing and needs no capability, because hover is the
+   one verb on the rail that records nothing. Keyboard focus is the same
+   highlight from a second source, and the two keep their own slots: a mouse
+   crossing a mark and leaving cannot clear the neighbourhood a focus ring is
+   still promising. A hovered node the next render no longer carries is not a
+   hover — a removed circle fires no `mouseleave`, and a stale id would dim
+   every surviving mark with nothing under the pointer.
+3. **Dim, never hide.** Another view's clause dims the nodes that fail it, and
+   an edge is only as bright as its two ends. An edge pointing at a node this
+   frame does not carry stays bright — an absent end is not evidence.
+4. **The ceilings live in the WRAPPER.** `networkRenderer` refuses a frame past
+   `NETWORK_NODE_CEILING` (1000) nodes OR `NETWORK_EDGE_CEILING` (4000) links,
+   in a sentence naming the count, the ceiling and the reading that still works
+   at that size (a matrix). Both halves, because a link is two DOM elements
+   exactly as a node is, and edges grow as n². They are not capabilities —
+   capabilities are booleans about behaviour — and the chart underneath knows
+   nothing about them. The wrapper also refuses two frames it cannot draw
+   honestly: a nodes table carrying no key column (a node id is the value a
+   click emits and the key the edges point at, so there is nothing to guess
+   with) and a frame carrying more than the two tables it draws.
+
+`networkRenderer` is the first first-party renderer to declare `canLayer`: it
+reads `RenderState.layers`, takes the layer that binds the four endpoint
+positions as the edges and the layer carrying NONE of them as the nodes
+(positively, never by exclusion — a layer with any endpoint column is an edge
+table by construction), and speaks a node gesture through THAT layer's callback
+bundle, so the commit lands under `net~nodes`. That address is also what the
+host must FOLD for: pass `selection` as
+`selectionForView(selections, layerAddress(viewId, 'nodes'))`, not for the view
+— folded for the view, the nodes layer's own clause reads as foreign, so the
+clicked node loses its outline and click-again never clears.
+That also makes it the first renderer whose every mark belongs to a layer rather
+than to the view — which the conformance kit's view-level gesture step cannot
+yet express. The stop is pinned and explained in `conformance.test.tsx`, beside a
+hand-bound run over a real two-table session that proves the loop closes.
+
 ## The layers (each importable alone)
 
 | module | job |
 |---|---|
 | `tokens/` | design tokens + theme engine — scoped CSS variables on the `.vzf` root (never `:root`), light+dark via `prefers-color-scheme` with a `data-theme` override that wins both ways |
 | `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods incl. `navigate`) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView`; `ViewView.layers` projected from the overview and `layerRowsFor(session, address)` — the one door for a layer's rows (1.2) |
-| `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION` (1.2 — 1.1 added the `cell` kind, 1.2 added layers: `RenderState.layers`, `canLayer`, per-layer callback bundles, the `layers-unsupported` gap, and the address helpers re-exported from `vizfootprint/def`), `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`brightPredicate`/`selfSelectedValue`/`selfSelectedInterval`/`selfSelectedSet`/`selfSelectedCell`, the eight reference renderers, `runConformance` (the cell and layers arms), and the capability-honesty law in `src/contract/README.md` |
+| `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION` (1.2 — 1.1 added the `cell` kind, 1.2 added layers: `RenderState.layers`, `canLayer`, per-layer callback bundles, the `layers-unsupported` gap, and the address helpers re-exported from `vizfootprint/def`), `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`brightPredicate`/`selfSelectedValue`/`selfSelectedInterval`/`selfSelectedSet`/`selfSelectedCell`, the nine reference renderers (`networkRenderer` the first to declare `canLayer`), `runConformance` (the cell and layers arms), and the capability-honesty law in `src/contract/README.md` |
 | `primitives/` | the chart-building tier (see above): `<ChartFrame>`, scales + date handling, `<AxisLabel>`/`useReencodePicker`/`defaultCompat`, `useHorizontalBrush`/`<BrushOverlay>`, `pointEmission`/`togglePointEmission`/`keyActivates`, `useKeepPredicate`/`selectedValue`/`dimClass` — compose a chart from these and it is born contract-conformant |
 | `layout/` | `<VizCockpit>` (the flagship — and only — single-screen shell) + `<VizModal>` (the one modal system) + `<VizPanel>`/`<VizCard>` |
-| `charts/` | `<VizScatter>`, `<VizBar>` (category ticks slant and clip to their band when they would collide; values that would collide are omitted — the full label rides a `<title>`), `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click; `coordinates="planar"` for shapes already projected to a screen plane, e.g. us-atlas), `<VizTable>` (sortable rows, click-to-select), `<VizHistogram>` (host-computed buckets, edge-snapped brush), `<VizHeatmap>` (host-computed 2-D cells, one-click compound cell selection — D30), `<VizBoxPlot>` (host-summarized quartiles/whiskers/outliers, click-to-select a category) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |
+| `charts/` | `<VizScatter>`, `<VizBar>` (category ticks slant and clip to their band when they would collide; values that would collide are omitted — the full label rides a `<title>`), `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click; `coordinates="planar"` for shapes already projected to a screen plane, e.g. us-atlas), `<VizTable>` (sortable rows, click-to-select), `<VizHistogram>` (host-computed buckets, edge-snapped brush), `<VizHeatmap>` (host-computed 2-D cells, one-click compound cell selection — D30), `<VizBoxPlot>` (host-summarized quartiles/whiskers/outliers, click-to-select a category), `<VizNetwork>` (a node-link: TWO tables on one frame — nodes over the layout act's positions, links over `bringOver`'s endpoints — sharing ONE pair of scales computed over the union of both; hover brightens a neighbourhood and records nothing) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |
 | `time/` | `<TimeTravelBar>` with `explore` (full commit timeline + fork-safe ⟵/⟶ step rules, `compact` for the cockpit) and `present` (bookmark-ONLY traversal, acting disabled, `onReadOnlyChange` up to the shell) + `<BookmarkModal>` + `<BranchMap>` |
 | `panels/` | `<CommitLog>` (cause badges, click-to-seek, off-branch dimming), `<FdrLedger>` (two truths + the verbatim honesty line), `<GapsPanel>`, `<ReadinessPanel>` — cockpit hosts these inside report modals, unchanged |
 | `story/` | `vizfootprint-ui/story` — `toStory(state)`, one lineage of a session as a [storydeck](https://github.com/footprintjs/storydeck) post, plus `storyDroppedNote` (what a section cited and the story could not show). Pure data, no React |

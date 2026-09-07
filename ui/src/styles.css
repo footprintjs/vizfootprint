@@ -726,6 +726,43 @@
 :where(.vzf) .vzf-dot.vzf-dim {
   opacity: 0.16;
 }
+/* the node-link: links under nodes, one shared frame (VizNetwork) */
+:where(.vzf) .vzf-net-link {
+  stroke: var(--vzf-line);
+  stroke-width: 1.25;
+  transition: opacity 0.15s ease;
+}
+:where(.vzf) .vzf-net-link.vzf-dim {
+  opacity: 0.12;
+}
+:where(.vzf) .vzf-net-nodes .vzf-dot {
+  cursor: pointer;
+}
+:where(.vzf) .vzf-net-nodes .vzf-dot.vzf-selected {
+  stroke: var(--vzf-ink);
+  stroke-width: 2;
+}
+:where(.vzf) .vzf-net-nodes .vzf-dot.vzf-excluded {
+  stroke: var(--vzf-clay);
+  stroke-width: 2;
+  stroke-dasharray: 2 2;
+}
+/* same UA-outline suppression as .vzf-region — a mouse click focuses a node too */
+:where(.vzf) .vzf-net-nodes .vzf-dot:focus {
+  outline: none;
+}
+:where(.vzf) .vzf-net-nodes .vzf-dot:focus-visible {
+  stroke: var(--vzf-ink);
+  stroke-width: 2;
+}
+/* a chart that refuses a frame says so in words, in the space the chart would have filled */
+:where(.vzf) .vzf-chart-refusal {
+  margin: 0;
+  padding: var(--vzf-space-4);
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--vzf-clay);
+}
 :where(.vzf) .vzf-brush {
   fill: var(--vzf-brand);
   fill-opacity: 0.14;

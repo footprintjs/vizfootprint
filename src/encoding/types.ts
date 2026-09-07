@@ -29,7 +29,24 @@ export type ChannelClass = 'magnitude' | 'category';
  * "unavailable" on an axis renders as a low number and tells the reader the
  * wrong thing with a straight face. One list, read by every door.
  */
-export const MAGNITUDE_CHANNELS: ReadonlySet<string> = new Set(['x', 'y', 'size', 'r', 'radius', 'theta']);
+export const MAGNITUDE_CHANNELS: ReadonlySet<string> = new Set([
+  'x',
+  'y',
+  'size',
+  'r',
+  'radius',
+  'theta',
+  // WHY the four network endpoints belong here: `bringOver` writes them as
+  // coordinates in the SAME space as x and y, and a node-link draws them on
+  // one shared pair of scales. A class that named x but not `sourceX` would
+  // let the absence law — and every def's own `class: 'magnitude'` rule —
+  // refuse a column as a node position and accept it as an edge endpoint,
+  // which is the same pixel.
+  'sourceX',
+  'sourceY',
+  'targetX',
+  'targetY',
+]);
 
 /** The channels that carry a CATEGORY — a hue, a shape, a panel, a row of a table. */
 export const CATEGORY_CHANNELS: ReadonlySet<string> = new Set(['color', 'shape', 'category', 'detail', 'facet', 'column', 'row', 'region']);

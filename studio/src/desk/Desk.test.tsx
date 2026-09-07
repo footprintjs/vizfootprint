@@ -15,6 +15,8 @@ import type { SessionView } from 'vizfootprint-ui';
 import { Desk } from './Desk.js';
 import { DeskFigure } from './figure.js';
 import { DESK_TOKENS, deskTokenVar } from './tokens.js';
+import type { ReactNode } from 'react';
+import type { DeskCharts } from './types.js';
 import { cause, openLibrary, stubObservers, twoCells } from './desk.fixture.js';
 
 stubObservers();
@@ -58,6 +60,23 @@ describe('a second definition, two cells', () => {
     // derived from the session's fold, never from anything the host set
     expect(screen.getByRole('button', { name: 'Clear the shelves selection' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Clear the years selection' })).toBeNull();
+  });
+
+  it('a cell whose marks select under ANOTHER address wears the ✕ there — the clause, not the cell id', async () => {
+    const { session, view } = openLibrary();
+    await session.dispatch({ verb: 'select', viewId: 'shelves', field: 'shelf', value: 'poetry', cause });
+    await view.refresh();
+    // a layered chart's marks belong to a LAYER: the cell is registered under the
+    // frame's id and its clause lands at the layer's address
+    const layered: DeskCharts = () => [{ id: 'frame', clauseId: 'shelves', render: (): ReactNode => <div data-testid="frame-mark" /> }];
+    render(<Desk view={view} charts={layered} />);
+    const clear = screen.getByRole('button', { name: /^Clear the /u });
+    expect(screen.getByTestId('frame-mark')).toBeTruthy();
+    fireEvent.click(clear);
+    await view.refresh();
+    // and it cleared the CLAUSE's address, not the cell id, which holds none
+    const landed = session.commits('anywhere').at(-1)!;
+    expect([landed.viewId, landed.value]).toEqual(['shelves', null]);
   });
 
   it('the projection answers with the SESSION, not with a constant: a re-encode moves the caption', async () => {

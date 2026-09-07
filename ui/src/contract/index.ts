@@ -59,6 +59,13 @@ export {
   histogramRenderer,
   heatmapRenderer,
   boxPlotRenderer,
+  // protocol 1.2: the first first-party renderer that layers — exported in the SAME change as the chart it wraps
+  networkRenderer,
+  // the ceiling THIS RENDERER refuses past — a size judgement about one SVG
+  // frame, not a protocol limit and not the chart's: `<VizNetwork>` draws
+  // whatever it is handed (renderers.tsx, "a ceiling, not a capability")
+  NETWORK_NODE_CEILING,
+  NETWORK_EDGE_CEILING,
 } from './renderers.js';
 export type {
   ReactRendererSpec,
@@ -70,6 +77,7 @@ export type {
   HistogramRendererOptions,
   HeatmapRendererOptions,
   BoxPlotRendererOptions,
+  NetworkRendererOptions,
 } from './renderers.js';
 
 export { runConformance } from './conformance.js';

@@ -33,7 +33,7 @@ export type {
   Bindings,
   ColumnDecl,
 } from './types.js';
-export { DEFAULT_CHANNEL_REQUIREMENTS, CHART_REQUIREMENTS, requirementFor, chartKindsOf, channelsOf } from './requirements.js';
+export { DEFAULT_CHANNEL_REQUIREMENTS, CHART_REQUIREMENTS, KINDS_NOT_PROPOSED, requirementFor, chartKindsOf, channelsOf } from './requirements.js';
 export { SENTENCES, fill, listOf } from './sentences.js';
 export { resolveFacets, resolveFacet, scaleOfType } from './facets.js';
 export type { FacetSource } from './facets.js';

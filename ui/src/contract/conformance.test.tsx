@@ -39,6 +39,7 @@ import type { Cause } from 'vizfootprint/cause';
 import { createSessionView, sessionSource, type SessionView } from '../adapter/sessionView.js';
 import type { SessionViewState } from '../adapter/types.js';
 import { runConformance, type ConformancePlan, type ConformanceReport } from './conformance.js';
+import { layerAddress } from './index.js';
 import { bindRenderer } from './bind.js';
 import { selectionForView, keepPredicate } from './selection.js';
 import {
@@ -50,11 +51,13 @@ import {
   histogramRenderer,
   heatmapRenderer,
   boxPlotRenderer,
+  networkRenderer,
 } from './renderers.js';
 import {
   RENDERER_PROTOCOL_VERSION,
   type ChartEmission,
   type Renderer,
+  type RendererCallbacks,
   type RendererCapabilities,
   type RenderRow,
   type RenderState,
@@ -784,5 +787,158 @@ describe('the React bridge surfaces reencodeRequest through the contract (host o
     expect(el.querySelector('[role="dialog"]')).toBeNull();
     res.view.unmount();
     expect(el.childElementCount).toBe(0);
+  });
+});
+
+// ── the node-link: the ninth first-party renderer, and what the kit can hold ──
+
+/**
+ * A REAL two-table session: nodes carrying the positions a `layout` act would
+ * have written, edges carrying the four `bringOver` columns. The `net` view
+ * declares both as layers, exactly as the CDC demo does.
+ */
+const NET_NODES = [
+  { disease: 'flu', nx: 0, ny: 0, grp: 'viral' },
+  { disease: 'cold', nx: 10, ny: 4, grp: 'viral' },
+  { disease: 'strep', nx: 4, ny: 10, grp: 'bacterial' },
+];
+const NET_EDGES = [
+  { src: 'flu', tgt: 'cold', source_x: 0, source_y: 0, target_x: 10, target_y: 4 },
+  { src: 'cold', tgt: 'strep', source_x: 10, source_y: 4, target_x: 4, target_y: 10 },
+];
+const NET_LAYERS = [
+  { layerId: 'edges', table: 'edges', rows: NET_EDGES, encodings: { source: 'src', target: 'tgt', sourceX: 'source_x', sourceY: 'source_y', targetX: 'target_x', targetY: 'target_y' } },
+  { layerId: 'nodes', table: 'nodes', rows: NET_NODES, encodings: { x: 'nx', y: 'ny', key: 'disease', color: 'grp' } },
+] as const;
+
+async function buildNetSession(): Promise<SessionView> {
+  const dashboard = buildDashboard({
+    meta: { title: 'the disease network' },
+    data: {
+      nodes: { rows: NET_NODES, key: 'disease', columns: { disease: { role: 'identifier' }, nx: { role: 'measure' }, ny: { role: 'measure' }, grp: { role: 'dimension' } } },
+      edges: { rows: NET_EDGES, columns: { src: { role: 'dimension' }, tgt: { role: 'dimension' }, source_x: { role: 'measure' }, source_y: { role: 'measure' }, target_x: { role: 'measure' }, target_y: { role: 'measure' } } },
+    },
+    actors: { net: { actor: 'user', label: 'The disease network' } },
+    encodings: [
+      {
+        viewId: 'net',
+        chartKind: 'network',
+        channels: ['x', 'y'],
+        layers: [
+          { layerId: 'nodes', table: 'nodes', chartKind: 'network', channels: ['x', 'y', 'key'], initial: { x: 'nx', y: 'ny', key: 'disease' }, label: 'Diseases' },
+          { layerId: 'edges', table: 'edges', chartKind: 'network', channels: ['sourceX', 'sourceY', 'targetX', 'targetY'], initial: { sourceX: 'source_x', sourceY: 'source_y', targetX: 'target_x', targetY: 'target_y' }, label: 'Co-occurrences' },
+        ],
+      },
+    ],
+    defaultTable: 'nodes',
+  });
+  const view = createSessionView(sessionSource(dashboard.createSession({ as: 'user' })), { as: 'user' });
+  await view.refresh();
+  return view;
+}
+
+function netState(st: SessionViewState): RenderState {
+  return {
+    rows: NET_NODES,
+    encodings: {},
+    // WHY the fold is for the LAYER and not the view: every mark on this frame
+    // belongs to the nodes layer, so the nodes layer's clause is the SELF one —
+    // the clause a chart must never dim itself by, and the one it outlines
+    // (types.ts, RenderLayer: "a layer finds its own under viewId~layerId").
+    selection: selectionForView(st.selections, layerAddress('net', 'nodes')),
+    hover: null,
+    theme: {},
+    size: { width: 400, height: 300 },
+    layers: NET_LAYERS as unknown as RenderState['layers'],
+  };
+}
+
+const clickNode = (id: string) => (el: HTMLElement): void => {
+  fireEvent.click(el.querySelector(`circle[data-node="${id}"]`)!);
+};
+const shiftClickNode = (id: string) => (el: HTMLElement): void => {
+  fireEvent.click(el.querySelector(`circle[data-node="${id}"]`)!, { shiftKey: true });
+};
+
+describe('conformance — the node-link, and the one thing the kit cannot hold', () => {
+  it('the LAYERS arm is exactly what a node-link is: two tables on one frame, the node gesture under net~nodes', async () => {
+    const view = await buildNetSession();
+    const report = await runConformance({
+      renderer: networkRenderer(),
+      viewId: 'net',
+      el: mountEl(),
+      view,
+      buildState: netState,
+      gesture: clickNode('flu'),
+      matchGesture: shiftClickNode('cold'),
+      layers: { layerIds: ['edges', 'nodes'], gesture: clickNode('strep'), verify: (el) => el.querySelectorAll('g.vzf-net-links line').length === 2 && el.querySelectorAll('g.vzf-net-nodes circle').length === 3 },
+    });
+    // The kit stops at `commit-lands`, and the sentence says precisely why: a
+    // node-link has NO view-level mark. Every circle on the frame belongs to
+    // the nodes LAYER, so every gesture speaks through that layer's bundle and
+    // lands under `net~nodes` — which is the 1.2 law working, not breaking.
+    // The kit's steps 5-8 model a VIEW that also has layers (its synthetic
+    // fixture keeps a view-level probe button beside two layers, three mark
+    // sources in all); a two-table node-link has only two, and both are
+    // layers. Nothing is weakened here to hide that: the run is pinned as it
+    // stands, and the direct proof below covers what those steps would have
+    // proven. Resolving it is a kit decision — either the arm learns that a
+    // renderer may be layers-only, or a node-link's nodes ride the view's own
+    // rows and give up the layer address.
+    expect(report.ok).toBe(false);
+    const last = report.steps[report.steps.length - 1]!;
+    expect([last.step, last.ok]).toEqual(['commit-lands', false]);
+    expect(last.detail).toBe("the landed commit's origin is wrong: net~nodes · user · conformance: net~nodes gesture");
+    // everything up to it passed — version guard, transforms, handshake, first frame, the gesture's emission
+    expect(report.steps.slice(0, -1).every((step) => step.ok)).toBe(true);
+    expect(report.emissions).toEqual([{ rawValue: 'flu', encoding: { kind: 'point', field: 'disease' } }]);
+  });
+
+  it('bound by hand over the same session, the whole loop closes: both tables drawn, ONE commit per gesture, under the LAYER address', async () => {
+    const view = await buildNetSession();
+    const el = mountEl();
+    const bundles = new Map<string, RendererCallbacks>();
+    const callbacksFor = (address: string): RendererCallbacks => ({
+      emit: (emission) => {
+        pending.push(view.emit(address, emission, `a click on ${address}`));
+      },
+      hover: () => undefined,
+      reencodeRequest: () => undefined,
+      navigate: () => undefined,
+    });
+    const pending: Promise<void>[] = [];
+    for (const layerId of ['edges', 'nodes']) bundles.set(layerAddress('net', layerId), callbacksFor(layerAddress('net', layerId)));
+    const res = bindRenderer(networkRenderer(), el, {
+      viewId: 'net',
+      callbacks: callbacksFor('net'),
+      layers: { layerIds: ['edges', 'nodes'], callbacksFor: (address) => bundles.get(address)! },
+    });
+    if (!res.ok) throw new Error('bind failed');
+    expect(res.view.update(netState(view.getState()))).toEqual({ ok: true });
+    // both tables are on the one frame, links under nodes
+    expect(el.querySelectorAll('g.vzf-net-links line')).toHaveLength(2);
+    expect(el.querySelectorAll('g.vzf-net-nodes circle')).toHaveLength(3);
+
+    // a node click → ONE commit, under the nodes LAYER's address, with its own cause
+    fireEvent.click(el.querySelector('circle[data-node="flu"]')!);
+    await Promise.all(pending);
+    await view.refresh();
+    const afterPoint = view.getState();
+    expect(afterPoint.commits.map((c) => [c.viewId, c.field, c.value, c.intent])).toEqual([['net~nodes', 'disease', 'flu', 'a click on net~nodes']]);
+    // the layer finds its own clause by its own address — never by the view's
+    expect(selectionForView(afterPoint.selections, 'net~nodes').clauses.get('net~nodes')?.value).toBe('flu');
+    // …and the loop returns: the re-pushed frame outlines the selected node
+    res.view.update(netState(afterPoint));
+    expect(el.querySelector('circle[data-node="flu"]')!.getAttribute('class')).toBe('vzf-dot vzf-selected');
+
+    // a shift-click promotes it to the view's own SET (SET-1) — still ONE commit
+    fireEvent.click(el.querySelector('circle[data-node="cold"]')!, { shiftKey: true });
+    await Promise.all(pending);
+    await view.refresh();
+    const afterMatch = view.getState();
+    expect(afterMatch.commits).toHaveLength(2);
+    const landed = afterMatch.commits[1]!;
+    expect([landed.viewId, landed.kind, landed.value]).toEqual(['net~nodes', 'match', { values: ['flu', 'cold'] }]);
+    res.view.unmount();
   });
 });

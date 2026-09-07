@@ -109,6 +109,15 @@ export interface DeskProjection {
  */
 export interface DeskChart {
   readonly id: string;
+  /**
+   * The address this cell's marks actually SELECT under, when it is not the
+   * cell's own id — a layered chart's marks belong to a LAYER, so a node-link
+   * registered as `net` lands its clause at `net~nodes`. The desk's ✕ pill and
+   * its clear both follow this address; without it the one cell whose clause is
+   * filtering the whole dashboard is the one cell with no way to clear it.
+   * Default: `id`.
+   */
+  readonly clauseId?: string;
   /** Relative width on the flow band (default 1). */
   readonly weight?: number;
   /** The line under the chart. */

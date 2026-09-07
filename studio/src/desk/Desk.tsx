@@ -110,15 +110,20 @@ function DeskBody(props: DeskProps): ReactNode {
 
   // SET-1: which views hold a LIVE clause (the ✕ pill on the chart). `cleared` is `null`, whatever the kind.
   const liveViews = useMemo(() => new Set(state.selections.filter((s) => s.value !== null).map((s) => s.viewId)), [state.selections]);
-  const chartCells: CockpitChart[] = cells.map((c) => ({
-    id: c.id,
-    ...(c.weight !== undefined ? { weight: c.weight } : {}),
-    ...(c.caption !== undefined ? { caption: c.caption } : {}),
-    render: c.render,
-    active: liveViews.has(c.id),
-    onClear: () => void view.clear(c.id, `clear ${desk.label(c.id)}`),
-    onEdit: () => editChart(c.id),
-  }));
+  const chartCells: CockpitChart[] = cells.map((c) => {
+    // where this cell's clause LIVES — its own id unless it said otherwise, which
+    // a layered chart does: its marks select under `viewId~layerId`
+    const clause = c.clauseId ?? c.id;
+    return {
+      id: c.id,
+      ...(c.weight !== undefined ? { weight: c.weight } : {}),
+      ...(c.caption !== undefined ? { caption: c.caption } : {}),
+      render: c.render,
+      active: liveViews.has(clause),
+      onClear: () => void view.clear(clause, `clear ${desk.label(c.id)}`),
+      onEdit: () => editChart(c.id),
+    };
+  });
 
   // ── the slideshow: the bookmarks are the slides ──
   const bookmarks = orderedBookmarks(state.bookmarks, state.commits, state.head);

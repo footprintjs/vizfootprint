@@ -18,8 +18,12 @@ const NUMERIC_CHANNELS = MAGNITUDE_CHANNELS;
 const NUMERIC_TYPES = new Set(['number', 'date']);
 
 export function defaultCompat(channel: string, column: ColumnView): Compatibility {
+  // WHY both spellings: the class list is CASE-EXACT (`sourceX`, not `sourcex`),
+  // and lowercasing was here so `X` matched `x`. Asking twice keeps the loose
+  // match without dropping the camelCase members — a picker that missed them
+  // would offer a string column for an edge endpoint the validator refuses.
   const ch = channel.toLowerCase();
-  if (NUMERIC_CHANNELS.has(ch)) {
+  if (NUMERIC_CHANNELS.has(channel) || NUMERIC_CHANNELS.has(ch)) {
     if (NUMERIC_TYPES.has(column.type)) return { ok: true };
     return { ok: false, reason: `${channel} needs a numeric or date column — "${column.field}" is ${column.type}` };
   }

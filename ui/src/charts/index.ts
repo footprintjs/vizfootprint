@@ -14,6 +14,8 @@ export { VizHeatmap } from './VizHeatmap.js';
 export type { VizHeatmapProps, HeatmapCellDatum } from './VizHeatmap.js';
 export { VizBoxPlot } from './VizBoxPlot.js';
 export type { VizBoxPlotProps, BoxPlotDatum } from './VizBoxPlot.js';
+export { VizNetwork } from './VizNetwork.js';
+export type { VizNetworkProps, NetworkNode, NetworkEdge } from './VizNetwork.js';
 export { EncodingPicker } from './EncodingPicker.js';
 export type { EncodingPickerProps } from './EncodingPicker.js';
 // THE ONE binding law — "which field does this channel encode": the session's

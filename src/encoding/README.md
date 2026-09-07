@@ -51,6 +51,45 @@ A `dashboard`-scope rule means **anywhere on the page**, and the page is what th
 
 The **built-in law** every def inherits: the absence column never binds to a magnitude channel.
 
+## The kinds the library ships, and their channels
+
+One row per built-in chart kind — what it BINDS (a kind is not proposed while one of these has nothing that fits) and what it also takes when the data has it. `requirementFor(kind, channel)` is the one reader; `channelsOf(kind)` is the left column.
+
+| kind | binds | also takes |
+|---|---|---|
+| `line` | `x` a number or a date, continuous · `y` a number | `color`, discrete — a line draws without one |
+| `scatter`, `point` | `x`, `y` a number or a date | — |
+| `histogram` | `x` a number or a date | — |
+| `bar`, `boxplot` | `x` discrete · `y` a number | — |
+| `heatmap` | `x`, `y` discrete · `color` a number | — |
+| `map` | `region` a string | — |
+| `network` | `x`, `y` a number or a date · `key` any column that could identify a node — not a measure, not the silence | `source`, `target`, `sourceX`, `sourceY`, `targetX`, `targetY` |
+| `table` | nothing — and a kind that binds nothing is never proposed | — |
+
+**A network is the one kind with a `key`, and the reason is a law two rows up.** Its x and y are ordinary positions: the layout act writes them as plain number columns on the nodes table, and nothing about them is a graph. Its KEY is what no other kind has — a node's identity is the thing the edges point at — and the by-name defaults refuse role `identifier` on `x` and `y`, rightly, because one mark per row on an axis is a list rather than a chart. So the kind names a channel of its own for it. A kind's row REPLACES the by-name default whole (`requirementFor` returns the first whole match and never merges field by field), and no by-name default mentions `key` — so this row is what makes the channel exist at all. It refuses only the two roles that are evidence AGAINST an identity: a magnitude is not one, and neither is the silence vocabulary.
+
+`source` and `target` are the edges table's OWN endpoint ids — a relation's `from.column`, which `bringOver` reads and never writes — and they are unconstrained because a node key may be a string or a number. The four endpoint POSITIONS are what `bringOver` writes across the declared relations (`source_x`, `source_y`, `target_x`, `target_y`). All six are **optional**: a nodes-only layer binds none of them and still fits. But the four positions are **all four or none** — a layer binding three is read as a nodes layer and draws no links, so a partial carry-over is a missing picture rather than a partial one. They are members of the `magnitude` class alongside `x` and `y`, because they are coordinates in the same space: the absence law and any def's own `class: 'magnitude'` rule reach an edge endpoint exactly as they reach a node position.
+
+**A node-link is never PROPOSED from one flat table.** `proposeCharts` sees only `FitColumns` — no relations, no table graph, no record of a layout act — so it could not tell a laid-out nodes table from any table with two numbers, and an offer of `{ x: 'week', y: 'cases', key: 'disease' }` under the name of a node-link would be a scatterplot wearing a graph's name. `KINDS_NOT_PROPOSED` keeps the kind out of the default enumeration while leaving its row in the table, where the validator and the renderer both need it. A host that HAS the graph asks for it by name:
+
+```ts
+proposableKinds().some((k) => k.chartKind === 'network'); // false — no relation, no layout, no offer
+proposeCharts({ columns: nodes, kinds: [{ chartKind: 'network', channels: channelsOf('network') }] });
+// every proposal a network, because the caller said so
+```
+
+```ts
+// the nodes table after the layout act wrote x and y
+const nodes = [{ name: 'disease', type: 'string', role: 'identifier' }, { name: 'x', type: 'number' }, { name: 'y', type: 'number' }];
+acceptsOf(whatFits({ columns: nodes, chartKind: 'network', channels: channelsOf('network') }));
+// { x: ['x', 'y'], y: ['x', 'y'], key: ['disease', 'x', 'y'] }
+
+// and on a network that names no `key`, a node's identity has nowhere to go:
+whatFits({ columns: nodes, chartKind: 'network', channels: ['x', 'y'] })['x'];
+// [ …, { field: 'disease', ok: false,
+//        because: '"disease" is string; the x channel of a network needs a number or a date' } ]
+```
+
 ## What fits, before a build
 
 `fitsFor` answers per channel for a view that already exists — it takes FACETS, which a dashboard resolves from a provider's columns and a def's declarations. An authoring wizard has neither: it has a described table, whatever the person has declared on it so far, and a chart kind it is considering. Asking it to build a dashboard to find out whether `cases` can go on `y` is asking it to commit before it may look.

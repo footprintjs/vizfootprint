@@ -66,8 +66,51 @@ export const CHART_REQUIREMENTS: ChannelRequirements = Object.freeze({
     { channel: 'y', ...QUANTITY },
   ],
   map: [{ channel: 'region', accepts: ['string'] }],
+  // A node-link's x and y are ordinary positions — the layout act writes them
+  // as plain number columns on the nodes table, and nothing about them is a
+  // network. Its KEY is the thing no other kind has: a node's identity is what
+  // the edges point at, and the by-name defaults above refuse role
+  // 'identifier' on x and y (rightly — one mark per row on an axis is a list
+  // rather than a chart). WHY the kind names `key` at all: a kind's row
+  // REPLACES the by-name default whole (`requirementFor` takes the first whole
+  // match and never merges field by field), and no by-name default mentions
+  // `key`, `source` or `target` — so this row exists to make those channels
+  // EXIST for `channelsOf` and `whatFits`, and the identifier the axes turn
+  // away has somewhere to go. `key` refuses only what is evidence AGAINST an
+  // identity: a magnitude is not one, and neither is the silence vocabulary.
+  network: [
+    { channel: 'x', ...POSITION },
+    { channel: 'y', ...POSITION },
+    { channel: 'key', notRoles: ['measure', 'absence'] },
+    // WHY these six are optional: they are the EDGE layer's columns, so a
+    // nodes-only layer binds none of them and still fits. `source`/`target`
+    // are the edges table's OWN endpoint ids (a relation's `from.column`),
+    // unconstrained because a node key may be a string or a number;
+    // `bringOver` never writes them. `sourceX` … `targetY` are the POSITIONS
+    // `bringOver` writes across the declared relations (source_x, source_y,
+    // target_x, target_y) — and it is ALL FOUR or none: a layer binding three
+    // is read as a nodes layer and draws no links (ui/src/contract/
+    // renderers.tsx, `endpointFieldsOf`), so a partial carry-over is a missing
+    // picture, not a partial one.
+    { channel: 'source', optional: true },
+    { channel: 'target', optional: true },
+    { channel: 'sourceX', ...POSITION, optional: true },
+    { channel: 'sourceY', ...POSITION, optional: true },
+    { channel: 'targetX', ...POSITION, optional: true },
+    { channel: 'targetY', ...POSITION, optional: true },
+  ],
   table: [],
 });
+
+/**
+ * Kinds a ONE-TABLE proposer may not offer. WHY: a node-link needs a declared
+ * relation and a layout act's output, and `proposeCharts` sees neither — only
+ * FitColumns — so it could never tell a laid-out nodes table from any table
+ * with two numbers. A host that HAS the graph passes `kinds` explicitly, which
+ * is what that input is for. The kind stays in `CHART_REQUIREMENTS` because
+ * the validator and the renderer both need its row.
+ */
+export const KINDS_NOT_PROPOSED: readonly string[] = ['network'];
 
 /**
  * The requirement in force for `channel` on a `chartKind` view: the def's

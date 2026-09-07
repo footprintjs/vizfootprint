@@ -78,6 +78,7 @@ export {
   COLUMN_SCALES,
   DEFAULT_CHANNEL_REQUIREMENTS,
   CHART_REQUIREMENTS,
+  KINDS_NOT_PROPOSED,
   requirementFor,
   chartKindsOf,
   channelsOf,

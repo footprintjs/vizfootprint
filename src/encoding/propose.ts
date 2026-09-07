@@ -44,7 +44,7 @@
  * channels is sixty-four. Both numbers are where a reader can check them.
  */
 import { policyRecommender } from './recommend.js';
-import { channelsOf, chartKindsOf, requirementFor } from './requirements.js';
+import { KINDS_NOT_PROPOSED, channelsOf, chartKindsOf, requirementFor } from './requirements.js';
 import { fill, listOf } from './sentences.js';
 import type { Bindings, ChannelRequirements, EncodingPorts, EncodingRules, Fit } from './types.js';
 import { whatFits, type FitColumn } from './whatFits.js';
@@ -255,6 +255,7 @@ function reasonsOf(chartKind: string, channels: readonly string[], bindings: Bin
 /** The built-in kinds a proposal can be made of, with the channels each binds — what `proposeCharts` enumerates by default. */
 export function proposableKinds(overrides?: ChannelRequirements): readonly ProposalKind[] {
   return chartKindsOf(overrides)
+    .filter((chartKind) => !KINDS_NOT_PROPOSED.includes(chartKind))
     .map((chartKind) => ({ chartKind, channels: channelsOf(chartKind, overrides) }))
     .filter((kind) => kind.channels.length > 0);
 }

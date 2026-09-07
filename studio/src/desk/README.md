@@ -30,3 +30,13 @@ map of the files, for whoever is about to change one.
    `Desk.tsx`**, in the position it should hold by default — the host combinator
    receives that list and may reorder it, so the default order is a real design
    decision and not an accident of insertion.
+4. **A cell's ✕ follows its CLAUSE, not its id.** They are usually the same
+   address and `clauseId` may be left off. They are not the same for a layered
+   chart: its marks belong to a layer, so the clause lands at `viewId~layerId`
+   while the cell is registered under the frame. A cell that does not say so is
+   the one cell on the band whose live selection has no way to be cleared.
+
+   ```tsx
+   // the node-link is registered as the frame and selects under its nodes layer
+   { id: 'net', clauseId: layerAddress('net', 'nodes'), render }
+   ```

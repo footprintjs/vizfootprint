@@ -12,6 +12,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  KINDS_NOT_PROPOSED,
   OFFER_SENTENCES,
   PROPOSAL_BINDINGS,
   PROPOSAL_CANDIDATES,
@@ -189,9 +190,27 @@ describe('the caps, and saying when they bit', () => {
     expect(proposals[0]!.channels).toEqual({ a: 'n1', b: 'n2', c: 's1', d: 's2' });
   });
 
-  it('and stays quiet when neither bit — no built-in kind can reach the per-kind one at all', () => {
+  it('stays quiet when neither bit — no built-in kind can reach either cap on these columns', () => {
     const { notEnumerated } = proposeCharts({ columns: COLUMNS, absence: ABSENCE, limit: 100 });
+    // Neither ceiling is reached: at most four candidates on at most three bound
+    // channels is sixty-four bindings, and no built-in channel has more columns
+    // fitting it than the per-channel cap allows.
     expect(notEnumerated).toEqual([]);
+  });
+
+  it('never offers a node-link from one flat table — the kind is in the table but not in the default enumeration', () => {
+    // `network` is a real chart kind with a real requirement row, so the validator
+    // and the renderer both know it — but `proposeCharts` sees only FitColumns and
+    // could never tell a laid-out nodes table from any table with two numbers.
+    expect(chartKindsOf()).toContain('network');
+    expect(KINDS_NOT_PROPOSED).toEqual(['network']);
+    expect(proposableKinds().map((k) => k.chartKind)).not.toContain('network');
+    const { proposals } = proposeCharts({ columns: COLUMNS, absence: ABSENCE, limit: 100 });
+    expect(proposals.some((p) => p.chartKind === 'network')).toBe(false);
+    // a host that HAS the graph asks for it by name, which is what `kinds` is for
+    const asked = proposeCharts({ columns: COLUMNS, absence: ABSENCE, kinds: [{ chartKind: 'network', channels: channelsOf('network') }], limit: 4 });
+    expect(asked.proposals.every((p) => p.chartKind === 'network')).toBe(true);
+    expect(asked.proposals.length).toBeGreaterThan(0);
   });
 });
 
