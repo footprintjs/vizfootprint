@@ -13,6 +13,13 @@ guessed:
    no cap, no millisecond and no stress value belongs in a README, a commit
    message or a refusal sentence.
 
+It has run. Read off the generated table: at 1,000 nodes adjacency is 0.338 ms,
+exact all-pairs 16.94 ms and 30 SGD passes 157.825 ms; at 10,000 nodes the same
+three read 2 ms, 2,204.541 ms and 22,224.342 ms, and the distance matrix alone
+is 190.7 MiB. The cap sits at **5,000 nodes**, where that matrix is 50 MB
+(47.7 MiB) — and `distancesOf` refuses above it, which is why the 10,000-node
+all-pairs number above is the BENCH's own.
+
 This folder was written **before** `src/analysis/layout.ts` — the acceptance
 first, the harness second, the implementation third. Nothing here writes to
 `src/`, and nothing in `src/` may import from here.
@@ -22,16 +29,18 @@ first, the harness second, the implementation third. Nothing here writes to
 
 ## About the numbers on this page
 
-There are no layout numbers yet, and there will not be until
-`src/analysis/layout.ts` exists and `npm run bench:layout` has run against it.
+`src/analysis/layout.ts` has landed and `npm run bench:layout` has run against
+it, so the layout's cost, its quality and its cap all have measured numbers now.
+They live in the generated `layout-table.md` and `layout-results.json` beside
+this file, and that table is the only place any of them may be quoted from. Every
+figure below is copied from the run those two files record; a rerun that moves a
+number moves it here in the same breath.
 
-The figures quoted below come from a **rehearsal**: the harness driven end to
-end at 200 and 400 nodes against a throwaway stub that lived in a scratchpad and
-was deleted, with its cap deliberately set to 300. They are here for one reason
-— to show what a working instrument reads, including the ratio of **1.00×** the
-bench gave that stub's crude layout. Do not quote them as the layout's cost, its
-quality or its cap. The only numbers that may ever be quoted for those are the
-ones in a generated `layout-table.md`.
+One figure is NOT from that run and says so where it appears: the **1.00×**
+ratio in law 1. It came from a rehearsal — the harness driven end to end at 200
+nodes against a throwaway stub that lived in a scratchpad and was deleted — and
+it is kept because a working layout cannot produce the reading that proves the
+control can fail.
 
 ## The laws, in order
 
@@ -46,13 +55,15 @@ asserts the same two facts:
 - **The stress metric.** On a *k×k* grid the BFS distance IS the Manhattan
   distance, so the grid coordinates are a good embedding — known without any
   layout code. `stressOf(grid coordinates)` must therefore score far below
-  `stressOf(scrambled)`. The rehearsal measured **37×** on a 12×12 grid.
+  `stressOf(scrambled)`. The last run read **37.11×** on a 12×12 grid
+  (0.568866 scrambled against 0.01533 for the grid's own coordinates).
 
 `controls.live: false` in the results voids every number under it, and the
 generated table says so in place of the tables.
 
-Example — the control that would have caught a rubber-stamp. A deliberately
-crude circle layout, run through the whole harness, scored:
+Example — the control that would have caught a rubber-stamp. Not from the
+current run, and the one figure on this page that is not: a deliberately crude
+circle layout, run through the whole harness during the rehearsal, scored:
 
 | nodes | placed mean stress | scrambled mean stress | ratio |
 |---:|---:|---:|---:|
@@ -79,14 +90,19 @@ proves it. So phase 2 is measured **twice** per size: once with `measure.ts`'s
 cap-free `allPairsOf`, once with the real `distancesOf` — which may refuse, and
 the refusal is itself a result.
 
-Example, from the rehearsal (cap deliberately set to 300):
+Example, from the generated table (the cap is 5,000):
 
 | nodes | all-pairs (bench) | all-pairs (`distancesOf`) |
 |---:|---:|---:|
-| 200 | 0.594 ms | 0.686 ms |
-| 400 | 2.318 ms | REFUSED |
+| 1,000 | 16.94 ms | 17.317 ms |
+| 10,000 | 2,204.541 ms | REFUSED |
 
-`- 400 nodes: exact all-pairs is capped at 300 nodes; this graph has 400`
+`- 10,000 nodes: a stress layout needs exact all-pairs distances, which is one
+10000 × 10000 matrix: this graph has 10000 nodes and the ceiling is 5000 —
+filter the nodes down, or lay the graph out in pieces`
+
+The two implementations agree where both ran: the report carries `n`, `maxFinite`,
+`disconnectedPairs` and a seeded 1,000-cell sample of the matrices themselves.
 
 The same trick feeds `place` the bench's distance matrix, so the 10,000-node
 iteration cost is measurable on a day when `distancesOf` refuses there.
@@ -120,14 +136,18 @@ be green today. **Part B** (the layout) is skipped while
 the probe reads the real path through `contract.ts`, so it cannot rot into a
 permanent skip. While it sleeps, one test prints `PENDING: …` naming exactly
 what is missing, because a silent skip is how a bench-first acceptance becomes a
-bench nobody ever armed.
+bench nobody ever armed. It armed itself: the layout has landed, Part B runs,
+and the one test that skips today is the PENDING sentence, which has nothing
+left to report.
 
 Example — what Part B holds the implementation to:
 
 - the same seed and the same rows give **byte-identical** positions, and a
   different seed gives a different layout;
 - the placed layout beats the scrambled baseline by at least **3×** on the
-  bench's own metric;
+  bench's own metric, measured on the 12×12 grid whose good embedding is known
+  (on the synthetic graph the same ratio reads 1.43× at 1,000 nodes — §3 of the
+  generated table, where the baseline is noise rather than a known optimum);
 - `distancesOf` refuses above `LAYOUT_NODE_CAP` in a sentence quoting both the
   cap and the offending size, **before** anything `n × n` is allocated;
 - a node given a finite `x0`/`y0` and `anchored` keeps its exact position (the
@@ -139,7 +159,9 @@ Example — what Part B holds the implementation to:
 ## What is measured, and in what units
 
 **Time** is milliseconds of wall clock from `performance.now()`.
-**Memory** is bytes from `process.memoryUsage()` (`rss` and `heapUsed`).
+**Memory** is bytes from `process.memoryUsage()` — `rss`, `heapUsed`,
+`external` and `arrayBuffers`, all four sampled, because the matrix lives in
+only one of them.
 **Stress** is dimensionless: the weighted mean squared residual
 `Σ w (α·r − d)² / counted` with `w = d⁻²`, `r` the Euclidean distance, `d` the
 graph distance, and `α` the optimal uniform scale — so a layout drawn in a
@@ -151,7 +173,7 @@ box" would beat "get the shape right".
 | 0 · controls | clock read; grid-vs-scramble ratio; `live` |
 | 1 · the phases | adjacency / all-pairs (bench and real) / place, median + p95, and ms per iteration |
 | 2 · what the cap costs | `n × n × 2` bytes for the matrix, max sampled RSS / array buffers / heap, the graph diameter, disconnected pairs (ordered cells) |
-| 3 · quality | placed vs scrambled mean stress, the ratio, pairs counted and skipped (no finite distance OR no finite position) |
+| 3 · quality | placed vs scrambled mean stress, the ratio, pairs counted and skipped (no finite distance OR no finite position) — the finished layout against noise, NOT an iteration ablation: the seeded ring `place` starts on is part of what is scored |
 | 4 · the graph | edge rows, giant component, used and dropped endpoints, whether the two adjacencies agree |
 | 5 · one analysis run | the flowchart + commit + column write on top of the phases — one cold call, judged `ok` before its clock is quoted |
 
@@ -166,7 +188,9 @@ reason: that matrix is the layout's INPUT, not the bench's verdict, and an
 oracle handing `place` a different rule would be timing a different algorithm.
 
 A reading that counted NOTHING reports `NaN`, never 0 — 0 is the score of a
-flawless embedding, and an unmeasured layout must not wear it. The same rule
+flawless embedding, and an unmeasured layout must not wear it. JSON writes that
+`NaN` as `null` and the table renders it as an em dash, the same absence the
+byte columns show. The same rule
 governs the clock: `stats` refuses an empty sample rather than minting a median
 of 0, and a plan that cannot be timed (`reps` 0, a stray comma, a typo) is
 refused by `planOf` before an arm runs.
@@ -193,10 +217,12 @@ export:
 | `LAYOUT_NODE_CAP` | the node ceiling the refusal sentence quotes |
 | `layoutAnalysis(options)` | the builtin factory, for the one end-to-end run |
 
-The phases are required *separately from the analysis* because the cap is a cap
-on all-pairs and the analysis will refuse above it — only cap-free primitives
-can be measured at the size that decides the cap. If packet 3 lands these under
-different names, `contract.ts` is the file that changes, one line per name.
+The phases are required *separately from the analysis* because each has to be
+timed separately, and because the cap is a cap on exactly one of them. The
+cap-free all-pairs that makes 10,000 nodes measurable is the BENCH's own
+(`measure.ts`); `distancesOf` is called beside it at every size so that its
+refusal is recorded as a result rather than as a crash. If packet 3 lands these
+under different names, `contract.ts` is the file that changes, one line per name.
 
 The end-to-end analysis arm calls the contract as declared —
 `run(rows, { related: { edges } })`, the related rows on the SECOND argument —

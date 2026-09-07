@@ -48,6 +48,8 @@ describe('the layout bench table', () => {
     expect(md).toContain('1.9 MiB'); // 2,000,000 bytes at the binary divisor, labelled honestly
     expect(md).toContain('graph diameter');
     expect(md).toContain('pairs skipped (no finite distance or position)');
+    expect(md).toContain('is the placement better than a random scatter?');
+    expect(md).toContain('0.568 vs 0.015 = 37.1×');
     expect(md).toContain('one cold call (no warm-up)');
     expect(md).not.toContain('CONTROL FAILED');
   });
@@ -55,12 +57,23 @@ describe('the layout bench table', () => {
   it('renders the void: dead controls, a refusal, a crash, a missing number and an arm that never ran', () => {
     const dead = {
       ...BASE,
-      controls: { ...BASE.controls, metric: { ...BASE.controls.metric, live: false }, live: false },
+      // a metric that counted nothing reports NaN, and JSON writes NaN as null:
+      // the three stress cells and the ratio all arrive absent
+      controls: {
+        ...BASE.controls,
+        metric: { ...BASE.controls.metric, truthMeanStress: null, scrambledMeanStress: null, counted: 0, ratio: null, live: false },
+        live: false,
+      },
       sizes: [
         { ...ARM, allPairs: { ...ARM.allPairs, real: { measured: false, refused: 'this graph has 10000 nodes and the ceiling is 5000' } } },
         { ...ARM, nodes: 2_000, allPairs: { ...ARM.allPairs, real: { measured: false, crashed: "Cannot read properties of undefined (reading 'n')" } } },
         { ...ARM, nodes: 3_000, allPairs: { ...ARM.allPairs, real: { measured: true, medianMs: 1, p95Ms: 1, agreesWithBench: false, firstDisagreement: 'maxFinite 6 vs 7' } } },
-        { ...ARM, nodes: 4_000, memory: { ...ARM.memory, maxSampledArrayBuffers: null }, stress: { ...ARM.stress, ratio: null } },
+        {
+          ...ARM,
+          nodes: 4_000,
+          memory: { ...ARM.memory, maxSampledArrayBuffers: null },
+          stress: { ...ARM.stress, placedMeanStress: null, scrambledMeanStress: null, ratio: null, counted: 0, skipped: 63_936 },
+        },
         { nodes: 50_000, measured: false, failed: 'Invalid array length' },
       ],
       analysis: { measured: false, nodes: 1_000, refused: 'the analysis refused: degenerate-fit' },
@@ -75,6 +88,11 @@ describe('the layout bench table', () => {
     // a missing byte reading prints as an em dash, never as 0.0 MiB
     expect(md).toContain('| — |');
     expect(md).not.toContain('0.0 MiB');
+    // a stress reading that counted nothing is an absence, not a perfect score
+    // and not the literal `null`
+    expect(md).toContain('scrambled ≫ truth | — vs — = —');
+    expect(md).toContain('| 4,000 | — | — | — | 0 | 63,936 |');
+    expect(md).not.toContain('null');
     // the arm that never ran has no row of its own in the phase table
     expect(md).not.toContain('| 50,000 |');
   });

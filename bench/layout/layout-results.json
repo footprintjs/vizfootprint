@@ -1,7 +1,7 @@
 {
  "node": "v22.16.0",
  "platform": "darwin arm64",
- "generatedAt": "2026-09-07T07:48:26.376Z",
+ "generatedAt": "2026-09-07T08:11:14.440Z",
  "plan": [
   {
    "nodes": 1000,
@@ -26,7 +26,7 @@
  "controls": {
   "clock": {
    "askedMs": 40,
-   "readMs": 40.016,
+   "readMs": 40.013,
    "live": true
   },
   "metric": {
@@ -53,11 +53,11 @@
     "fringeCount": 30,
     "avgDegree": 5.838,
     "edgeRows": 2919,
-    "buildMs": 1.127
+    "buildMs": 1.078
    },
    "adjacency": {
-    "medianMs": 0.355,
-    "p95Ms": 0.495,
+    "medianMs": 0.336,
+    "p95Ms": 0.469,
     "samples": 3,
     "total": 2919,
     "used": 2919,
@@ -71,13 +71,13 @@
     "benchKeylessNodes": 0
    },
    "allPairs": {
-    "benchMedianMs": 18.499,
-    "benchP95Ms": 18.546,
+    "benchMedianMs": 17.985,
+    "benchP95Ms": 18.021,
     "samples": 3,
     "real": {
      "measured": true,
-     "medianMs": 18.494,
-     "p95Ms": 18.598,
+     "medianMs": 18.273,
+     "p95Ms": 18.332,
      "agreesWithBench": true,
      "cellsSampled": 1000
     },
@@ -86,10 +86,10 @@
     "disconnectedPairs": 59052
    },
    "place": {
-    "medianMs": 163.989,
-    "p95Ms": 170.461,
+    "medianMs": 159.37,
+    "p95Ms": 163.724,
     "samples": 3,
-    "msPerIteration": 5.466
+    "msPerIteration": 5.312
    },
    "stress": {
     "sources": 64,
@@ -101,12 +101,12 @@
    },
    "memory": {
     "runsPerPhase": 4,
-    "afterGraphRss": 62996480,
-    "afterAdjacencyRss": 63799296,
-    "afterAllPairsRss": 79921152,
-    "afterPlaceRss": 80166912,
-    "maxSampledRss": 80166912,
-    "maxSampledHeapUsed": 12447024,
+    "afterGraphRss": 63029248,
+    "afterAdjacencyRss": 63815680,
+    "afterAllPairsRss": 80084992,
+    "afterPlaceRss": 80412672,
+    "maxSampledRss": 80412672,
+    "maxSampledHeapUsed": 12027888,
     "maxSampledArrayBuffers": 14034515,
     "maxSampledExternal": 15541612
    }
@@ -123,11 +123,11 @@
     "fringeCount": 300,
     "avgDegree": 5.839,
     "edgeRows": 29195,
-    "buildMs": 5.04
+    "buildMs": 5.146
    },
    "adjacency": {
-    "medianMs": 2.135,
-    "p95Ms": 2.135,
+    "medianMs": 2.107,
+    "p95Ms": 2.107,
     "samples": 1,
     "total": 29195,
     "used": 29195,
@@ -141,8 +141,8 @@
     "benchKeylessNodes": 0
    },
    "allPairs": {
-    "benchMedianMs": 2272.814,
-    "benchP95Ms": 2272.814,
+    "benchMedianMs": 2259.786,
+    "benchP95Ms": 2259.786,
     "samples": 1,
     "real": {
      "measured": false,
@@ -153,10 +153,10 @@
     "disconnectedPairs": 5909510
    },
    "place": {
-    "medianMs": 23049.576,
-    "p95Ms": 23049.576,
+    "medianMs": 23050.568,
+    "p95Ms": 23050.568,
     "samples": 1,
-    "msPerIteration": 768.319
+    "msPerIteration": 768.352
    },
    "stress": {
     "sources": 64,
@@ -168,12 +168,12 @@
    },
    "memory": {
     "runsPerPhase": 2,
-    "afterGraphRss": 85983232,
-    "afterAdjacencyRss": 94453760,
-    "afterAllPairsRss": 499236864,
-    "afterPlaceRss": 517308416,
-    "maxSampledRss": 517308416,
-    "maxSampledHeapUsed": 34691720,
+    "afterGraphRss": 85606400,
+    "afterAdjacencyRss": 94011392,
+    "afterAllPairsRss": 497696768,
+    "afterPlaceRss": 517095424,
+    "maxSampledRss": 517095424,
+    "maxSampledHeapUsed": 34608264,
     "maxSampledArrayBuffers": 400430475,
     "maxSampledExternal": 401937572
    }
@@ -185,6 +185,6 @@
   "edgeRows": 2919,
   "warmup": 0,
   "samples": 1,
-  "ms": 205.256
+  "ms": 195.236
  }
 }

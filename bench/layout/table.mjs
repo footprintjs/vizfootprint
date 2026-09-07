@@ -17,6 +17,14 @@ export function tableOf(json) {
   // the reader the byte formula (`n × n × 2`) to check. A number labelled MB
   // that is 1024-based disagrees with its own arithmetic by 5%.
   const mb = (bytes) => (bytes === null || bytes === undefined ? '—' : `${(bytes / 1_048_576).toFixed(1)} MiB`);
+  // WHY a passthrough beside `n()`: the stress values arrive already rounded to
+  // six places and `n()`'s locale formatting would cut them to three. They are
+  // also the one family of numbers that can arrive ABSENT — a reading that
+  // counted nothing is NaN (`measure.ts`), and JSON writes NaN as null — so
+  // they need the same em dash the byte columns get, never the literal `null`
+  // and never a 0, which is the score of a flawless embedding.
+  const q = (x) => (x === null || x === undefined ? '—' : String(x));
+  const times = (x) => (x === null || x === undefined ? '—' : `${x}×`);
   // An arm that could not be measured is a result about the cap, not a hole.
   const measured = json.sizes.filter((s) => s.measured !== false);
   const failed = json.sizes.filter((s) => s.measured === false);
@@ -34,7 +42,7 @@ export function tableOf(json) {
   out.push('|---|---:|---:|---|');
   out.push(`| clock (a deliberate block) | ${json.controls.clock.askedMs} ms | ${json.controls.clock.readMs} ms | ${json.controls.clock.live ? 'YES' : 'NO'} |`);
   out.push(
-    `| stress metric — ${json.controls.metric.graph} | scrambled ≫ truth | ${json.controls.metric.scrambledMeanStress} vs ${json.controls.metric.truthMeanStress} = ${json.controls.metric.ratio}× | ${json.controls.metric.live ? 'YES' : 'NO'} |`,
+    `| stress metric — ${json.controls.metric.graph} | scrambled ≫ truth | ${q(json.controls.metric.scrambledMeanStress)} vs ${q(json.controls.metric.truthMeanStress)} = ${times(json.controls.metric.ratio)} | ${json.controls.metric.live ? 'YES' : 'NO'} |`,
   );
   out.push('');
   out.push(json.controls.live ? '> Both controls fired. The numbers below are readable.' : `> **CONTROL FAILED — every number below is void.** ${json.controls.note}`);
@@ -52,7 +60,7 @@ export function tableOf(json) {
   }
   out.push('');
   out.push(
-    'Medians; p95 is in `layout-results.json`. `distancesOf` REFUSED means the size is above the implementation’s cap — the bench’s own cap-free all-pairs is what makes that row measurable at all. CRASHED is not a refusal: it is a defect.',
+    'Medians; p95 is in `layout-results.json`. `distancesOf` REFUSED means the size is above the implementation’s cap — the bench’s own cap-free all-pairs is what makes the `place` column measurable on a row the implementation refuses. CRASHED is not a refusal: it is a defect.',
   );
   for (const s of measured) {
     if (!s.allPairs.real.measured) out.push(`- ${n(s.nodes)} nodes: ${s.allPairs.real.refused ?? s.allPairs.real.crashed}`);
@@ -76,17 +84,19 @@ export function tableOf(json) {
   );
   out.push('');
 
-  out.push('### 3 · quality — did the iterations do anything?');
+  out.push('### 3 · quality — is the placement better than a random scatter?');
   out.push('');
   out.push('| nodes | placed mean stress | scrambled mean stress | ratio | pairs counted | pairs skipped (no finite distance or position) |');
   out.push('|---:|---:|---:|---:|---:|---:|');
   for (const s of measured) {
     out.push(
-      `| ${n(s.nodes)} | ${s.stress.placedMeanStress} | ${s.stress.scrambledMeanStress} | ${s.stress.ratio === null ? '—' : `${s.stress.ratio}×`} | ${n(s.stress.counted)} | ${n(s.stress.skipped)} |`,
+      `| ${n(s.nodes)} | ${q(s.stress.placedMeanStress)} | ${q(s.stress.scrambledMeanStress)} | ${times(s.stress.ratio)} | ${n(s.stress.counted)} | ${n(s.stress.skipped)} |`,
     );
   }
   out.push('');
-  out.push('Scored by `bench/layout/measure.ts`, which shares no code with the layout. A ratio at or below 1 means the iterations bought nothing.');
+  out.push(
+    'Scored by `bench/layout/measure.ts`, which shares no code with the layout. A ratio at or below 1 means the placement is no better than noise. It compares the FINISHED layout with a random scatter, so it does not separate the iterations from the seeded ring `place` starts them on — an em dash is a reading that counted no pairs, never a good score.',
+  );
   out.push('');
 
   out.push('### 4 · the graph the layout was handed, and what it made of it');

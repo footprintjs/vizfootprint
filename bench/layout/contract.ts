@@ -53,8 +53,16 @@ export interface LayoutAdjacency {
 /** All-pairs hop distances, row-major, with the disconnected rule already applied. */
 export interface LayoutDistances {
   readonly n: number;
-  /** `n * n` distances. A disconnected pair carries `maxFinite + 1`. */
-  readonly d: ArrayLike<number>;
+  /**
+   * `n * n` distances in 16-BIT cells. A disconnected pair carries `maxFinite + 1`.
+   *
+   * WHY the width is part of the contract and not `ArrayLike<number>`: the cap
+   * this bench exists to justify is arithmetic about cell width — `n × n × 2`
+   * bytes is the column the report prints and the sentence `LAYOUT_NODE_CAP`
+   * quotes. An implementation returning `number[]` would hold four times that
+   * while the bench went on printing its OWN matrix's bytes beside it.
+   */
+  readonly d: Uint16Array;
   /** The longest path that really exists. 0 when nothing is connected to anything. */
   readonly maxFinite: number;
   /** Matrix cells (ordered pairs, diagonal excluded) that no path joins. */
