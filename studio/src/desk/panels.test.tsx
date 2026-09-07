@@ -136,6 +136,36 @@ describe('the data workbook', () => {
     expect(built[0]).toBeGreaterThan(0); // the columns came off the session, not off the host
   });
 
+  /** A grid port that really answers, so the header a sort toggle lives on is actually drawn. */
+  const answering = () => ({
+    capabilities: { sort: true, countKnown: true, edit: false },
+    columns: async () => [{ name: 'shelf', type: 'string' as const }],
+    rows: async () => ({ ok: true as const, columns: ['shelf'], rows: [{ shelf: 'a' }], rowIds: ['a'], positional: false, key: 'shelf', count: 1, start: 0, version: 'v1', cursor: null }),
+  });
+
+  it('sorting the grid LANDS an act — the order belongs to the trace, not to this panel', async () => {
+    const { view, session } = openLibrary();
+    await view.refresh();
+    const port = answering();
+    render(<DataPanel data={{ table: 'books', sheet: (() => port) as never }} state={view.getState()} view={view} readOnly={false} />);
+    fireEvent.click(screen.getByRole('tab', { name: /Sheet/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'sort by shelf' }));
+    // one commit, under the sheet's own layout identity, in the words a person reads
+    await waitFor(() => expect(session.log.records.at(-1)?.viewId).toBe('layout:sheet:sheet'));
+    expect(session.log.records.at(-1)!.cause.intent).toBe('sheet: sorted by shelf ↑');
+    expect(session.log.records.at(-1)!.value).toBe('[{"field":"shelf","dir":"asc"}]');
+  });
+
+  it('present mode reads the rows and never rearranges them', async () => {
+    const { view } = openLibrary();
+    await view.refresh();
+    const port = answering();
+    render(<DataPanel data={{ table: 'books', sheet: (() => port) as never }} state={view.getState()} view={view} readOnly />);
+    fireEvent.click(screen.getByRole('tab', { name: /Sheet/ }));
+    await waitFor(() => expect(document.querySelector('[role="columnheader"]')).toBeTruthy());
+    expect(screen.queryByRole('button', { name: 'sort by shelf' })).toBeNull();
+  });
+
   it('joins the desk as a chip badged with the table count', async () => {
     const { view } = openLibrary();
     await view.refresh();

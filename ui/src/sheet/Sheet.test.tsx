@@ -8,7 +8,11 @@
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { render, fireEvent, cleanup, waitFor } from '@testing-library/react';
-import { Sheet, canvasMetrics, cellText, nextSort, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_BORDERS, SHEET_CANVAS_MAX, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './index.js';
+import { useState } from 'react';
+import type { JSX } from 'react';
+import { Sheet, canvasMetrics, cellText, nextSort, noSortWords, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_BORDERS, SHEET_CANVAS_MAX, SHEET_ENGINE_CANNOT_SORT, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './index.js';
+import type { SheetProps } from './index.js';
+import type { SortSpec } from 'vizfootprint/data';
 import type { SheetColumn, SheetData, SheetWindow, SheetWindowRequest } from './types.js';
 
 afterEach(() => {
@@ -116,6 +120,8 @@ describe('the pure rules', () => {
   it('the sort toggle walks none → ascending → descending → none, one column at a time', () => {
     expect(nextSort(undefined, 'cases')).toEqual([{ field: 'cases', dir: 'asc' }]);
     expect(nextSort([{ field: 'cases', dir: 'asc' }], 'cases')).toEqual([{ field: 'cases', dir: 'desc' }]);
+    // …turning the DIRECTION only: the absence rule the arrangement carries is not quietly moved with it
+    expect(nextSort([{ field: 'cases', dir: 'asc', absent: 'first' }], 'cases')).toEqual([{ field: 'cases', dir: 'desc', absent: 'first' }]);
     expect(nextSort([{ field: 'cases', dir: 'desc' }], 'cases')).toBeUndefined();
     expect(nextSort([{ field: 'cases', dir: 'desc' }], 'jurisdiction')).toEqual([{ field: 'jurisdiction', dir: 'asc' }]);
   });
@@ -368,10 +374,35 @@ describe('<Sheet> — when the data layer breaks', () => {
   });
 });
 
-describe('<Sheet> — sorting', () => {
-  it('the header toggle walks none → ↑ → ↓ → none and each turn is one new window', async () => {
+/**
+ * A HOST standing in for the trace: it takes what the sheet asks for, keeps
+ * it (as a landed layout commit would), and hands it back through `sort`. The
+ * sheet itself remembers no order, so every one of these tests is also a test
+ * that the arrangement made the round trip through somebody else.
+ */
+function Hosted({ data, landed, ...rest }: { readonly data: SheetData; readonly landed: (readonly SortSpec[] | undefined)[] } & Partial<SheetProps>): JSX.Element {
+  const [sort, setSort] = useState<readonly SortSpec[] | undefined>(undefined);
+  return (
+    <Sheet
+      data={data}
+      height={HEIGHT}
+      version="v1"
+      cursor="c1"
+      sort={sort}
+      onSort={(next) => {
+        landed.push(next);
+        setSort(next);
+      }}
+      {...rest}
+    />
+  );
+}
+
+describe('<Sheet> — sorting is an ACT the host lands', () => {
+  it('the header toggle walks none → ↑ → ↓ → none, and every turn is asked of the host, never kept here', async () => {
     const { data, asked } = fakeData({ count: 8 });
-    const { container } = render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" />);
+    const landed: (readonly SortSpec[] | undefined)[] = [];
+    const { container } = render(<Hosted data={data} landed={landed} />);
     await waitFor(() => expect(asked).toHaveLength(1));
     const button = container.querySelector('[data-column="cases"] button')!;
     expect(button.getAttribute('aria-label')).toBe('sort by cases');
@@ -385,18 +416,29 @@ describe('<Sheet> — sorting', () => {
     fireEvent.click(container.querySelector('[data-column="cases"] button')!);
     await waitFor(() => expect(readout(container)).not.toContain('sorted by'));
     expect(container.querySelector('[data-column="cases"]')!.getAttribute('aria-sort')).toBe('none');
+    // the three turns are three acts, and the clear is one of them — never a silent local undo
+    expect(landed).toEqual([[{ field: 'cases', dir: 'asc' }], [{ field: 'cases', dir: 'desc' }], undefined]);
   });
 
-  it('an engine that REFUSES a sort takes the sort back AND is remembered — the explanation never flashes and vanishes', async () => {
+  it('the order the host holds is the order the first window is asked in — nothing waits for a click', async () => {
+    const { data, asked } = fakeData({ count: 8 });
+    render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" sort={[{ field: 'cases', dir: 'desc' }]} onSort={() => undefined} />);
+    await waitFor(() => expect(asked).toHaveLength(1));
+    expect(asked[0]!.sort).toEqual([{ field: 'cases', dir: 'desc' }]);
+  });
+
+  it('an engine that REFUSES a sort hands it BACK to the host — the trace never claims an order the rows are not in', async () => {
     const base = fakeData({ count: 8 });
     // this door serves unsorted windows happily and refuses every sorted one
     const data: SheetData = { ...base.data, rows: (w) => (w.sort === undefined ? base.data.rows(w) : Promise.resolve({ ok: false, reason: 'unsupported-sort', rejected: 'the wasm engine cannot sort. Ask for this window without a sort' })) };
-    const { container } = render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" />);
+    const landed: (readonly SortSpec[] | undefined)[] = [];
+    const { container } = render(<Hosted data={data} landed={landed} />);
     await waitFor(() => expect(rowsIn(container)).toHaveLength(8));
     fireEvent.click(container.querySelector('[data-column="cases"] button')!);
     await waitFor(() => expect(said(container)).toContain('cannot sort'));
-    // the sort is taken back, so the next window is a good one — and the sentence survives it
+    // the clear is handed back, so the next window is a good one — and the sentence survives it
     await waitFor(() => expect(rowsIn(container)).toHaveLength(8));
+    expect(landed).toEqual([[{ field: 'cases', dir: 'asc' }], undefined]);
     expect(said(container)).toContain('the wasm engine cannot sort');
     expect(readout(container)).not.toContain('sorted by');
     expect(container.querySelector('[data-column="cases"]')!.getAttribute('aria-sort')).toBe('none');
@@ -405,22 +447,142 @@ describe('<Sheet> — sorting', () => {
     expect(container.querySelector('.vzf-sheet-cannot')!.textContent).toBe('the wasm engine cannot sort. Ask for this window without a sort');
   });
 
-  it('an engine that cannot sort at all gets no toggle — the header carries its refusal as readable text', async () => {
-    const { data, asked } = fakeData({ count: 4, sort: false });
+  it('an engine refusing a sort a sheet has no door for still SAYS so — there is simply nobody to hand it back to', async () => {
+    const base = fakeData({ count: 8 });
+    const data: SheetData = { ...base.data, rows: () => Promise.resolve({ ok: false, reason: 'unsupported-sort', rejected: 'the wasm engine cannot sort. Ask for this window without a sort' }) };
+    const { container } = render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" sort={[{ field: 'cases', dir: 'asc' }]} />);
+    await waitFor(() => expect(said(container)).toContain('the wasm engine cannot sort'));
+    // there is no door, so the order stays where the host put it and every window is refused: the
+    // sheet shows the sentence and NOTHING it cannot vouch for — never rows in an order nobody got
+    expect(rowsIn(container)).toHaveLength(0);
+    expect(said(container)).toContain('Ask for this window without a sort');
+  });
+
+  it('a sheet given no door has no toggle and says NOTHING — it claims no order, so there is nothing to explain', async () => {
+    const { data, asked } = fakeData({ count: 4 });
     const { container } = render(<Sheet data={data} height={HEIGHT} />);
     await waitFor(() => expect(asked).toHaveLength(1));
     expect(container.querySelector('[role="columnheader"] button')).toBeNull();
+    // no sentence: the engine can sort, so "this engine cannot sort" would be a lie
+    expect(container.querySelector('.vzf-sheet-cannot')).toBeNull();
+    expect(readout(container)).not.toContain('sorted by');
+    // and no second header line: only the ENGINE's sentence is paid for out of the rows
+    expect(bodyOf(container).getAttribute('style')).toContain(`height: ${String(BODY_HEIGHT)}px`);
+  });
+
+  it('present mode reads the order the trace holds: the rows come sorted and no toggle offers to change it', async () => {
+    const { data, asked } = fakeData({ count: 4 });
+    // the door is wired, and present mode closes it anyway: reading never rearranges
+    const { container } = render(<Sheet data={data} height={HEIGHT} readOnly sort={[{ field: 'cases', dir: 'desc' }]} onSort={() => undefined} />);
+    await waitFor(() => expect(asked).toHaveLength(1));
+    expect(asked[0]!.sort).toEqual([{ field: 'cases', dir: 'desc' }]);
+    expect(readout(container)).toContain('sorted by cases ↓');
+    expect(container.querySelector('[role="columnheader"] button')).toBeNull();
+    expect(container.querySelector('.vzf-sheet-cannot')).toBeNull();
+    // the arrow follows the ORDER, not the door: a reader with no toggle still sees which column the rows are in
+    expect(container.querySelector('[data-column="cases"] .vzf-sheet-arrow')!.textContent).toBe(' ↓');
+  });
+
+  it('an engine that cannot sort at all gets no toggle — the header carries its refusal as readable text', async () => {
+    const { data, asked } = fakeData({ count: 4, sort: false });
+    const { container } = render(<Sheet data={data} height={HEIGHT} onSort={() => undefined} />);
+    await waitFor(() => expect(asked).toHaveLength(1));
+    expect(container.querySelector('[role="columnheader"] button')).toBeNull();
     expect(container.querySelector('.vzf-sheet-cannot')!.textContent).toBe('the wasm engine cannot sort');
-    // the header takes a second line for the sentence, out of the sheet's own height
-    expect(bodyOf(container).getAttribute('style')).toContain(`height: ${String(HEIGHT - SHEET_BORDERS - SHEET_ROW_HEIGHT * 2 - SHEET_STATUS_HEIGHT)}px`);
   });
 
   it('a port that says it cannot sort without saying why still says something', async () => {
     const { data } = fakeData({ count: 2 });
     const mute: SheetData = { ...data, capabilities: { sort: false, countKnown: true, edit: false } };
-    const { container } = render(<Sheet data={mute} height={HEIGHT} />);
+    const { container } = render(<Sheet data={mute} height={HEIGHT} onSort={() => undefined} />);
     await waitFor(() => expect(container.querySelectorAll('[role="columnheader"]')).toHaveLength(2));
-    expect(container.querySelector('.vzf-sheet-cannot')!.textContent).toBe('this engine cannot sort');
+    expect(container.querySelector('.vzf-sheet-cannot')!.textContent).toBe(SHEET_ENGINE_CANNOT_SORT);
+  });
+
+  it('noSortWords speaks only for the engine, and only when the engine is the reason', () => {
+    expect(noSortWords(false, 'the wasm engine cannot sort')).toBe('the wasm engine cannot sort');
+    expect(noSortWords(false, undefined)).toBe(SHEET_ENGINE_CANNOT_SORT);
+    expect(noSortWords(false, null)).toBe(SHEET_ENGINE_CANNOT_SORT);
+    // an engine that CAN sort has nothing to say, whatever else is missing
+    expect(noSortWords(true, null)).toBeUndefined();
+    expect(noSortWords(true, undefined)).toBeUndefined();
+  });
+
+  it('the readout names EVERY key of a multi-key arrangement — never one and a count', () => {
+    const win: SheetWindow = { ok: true, columns: ['cases'], rows: [{ cases: 1 }], rowIds: ['a'], positional: false, count: 1, start: 0, version: 'v1', cursor: 'c1' };
+    expect(statusWords(win, [{ field: 'region', dir: 'asc' }, { field: 'cases', dir: 'desc' }])).toContain('sorted by region ↑, cases ↓');
+  });
+
+  it('PRESENT MODE lands nothing: an engine that refuses the arrangement the trace holds writes no act back', async () => {
+    const base = fakeData({ count: 8 });
+    const data: SheetData = { ...base.data, rows: (w) => (w.sort === undefined ? base.data.rows(w) : Promise.resolve({ ok: false, reason: 'unsupported-sort', rejected: 'the wasm engine cannot sort' })) };
+    const landed: (readonly SortSpec[] | undefined)[] = [];
+    const { container, rerender } = render(<Sheet data={data} height={HEIGHT} readOnly onSort={(next) => landed.push(next)} />);
+    await waitFor(() => expect(rowsIn(container)).toHaveLength(8));
+    // the cursor steps onto a landed arrangement this engine cannot serve
+    rerender(<Sheet data={data} height={HEIGHT} readOnly sort={[{ field: 'cases', dir: 'desc' }]} onSort={(next) => landed.push(next)} />);
+    await waitFor(() => expect(said(container)).toContain('cannot sort'));
+    // reading never rearranges, and it never CLEARS either: a person who only opened the story
+    // has written nothing to the trace they are presenting
+    expect(landed).toEqual([]);
+    // …and the sheet stops claiming the order the engine refused: the rows are still the ones it served
+    expect(readout(container)).not.toContain('sorted by');
+    expect(container.querySelector('[data-column="cases"]')!.getAttribute('aria-sort')).toBe('none');
+  });
+
+  it('a refused order is handed back ONCE, even when the host lands the clear asynchronously', async () => {
+    const base = fakeData({ count: 8 });
+    const data: SheetData = { ...base.data, rows: (w) => (w.sort === undefined ? base.data.rows(w) : Promise.resolve({ ok: false, reason: 'unsupported-sort', rejected: 'the wasm engine cannot sort' })) };
+    const landed: (readonly SortSpec[] | undefined)[] = [];
+    /** The README's own wiring: `onSort` awaits a dispatch, so the cleared prop arrives LATER, not in this render. */
+    function AsyncHosted(): JSX.Element {
+      const [sort, setSort] = useState<readonly SortSpec[] | undefined>([{ field: 'cases', dir: 'asc' }]);
+      return (
+        <Sheet
+          data={data}
+          height={HEIGHT}
+          sort={sort}
+          onSort={(next) => {
+            landed.push(next);
+            void Promise.resolve().then(() => Promise.resolve().then(() => { setSort(next); }));
+          }}
+        />
+      );
+    }
+    const { container } = render(<AsyncHosted />);
+    await waitFor(() => expect(rowsIn(container)).toHaveLength(8)); // the cleared order came back and served a window
+    // the refusal shortens the body by a row, which re-asks — the clear must still be ONE act
+    expect(landed).toEqual([undefined]);
+  });
+
+  it('the same order landed AGAIN is handed back again — "already asked" only holds while the refusal does', async () => {
+    const base = fakeData({ count: 8 });
+    const data: SheetData = { ...base.data, rows: (w) => (w.sort === undefined ? base.data.rows(w) : Promise.resolve({ ok: false, reason: 'unsupported-sort', rejected: 'the wasm engine cannot sort' })) };
+    const landed: (readonly SortSpec[] | undefined)[] = [];
+    const asc: readonly SortSpec[] = [{ field: 'cases', dir: 'asc' }];
+    const view = (sort: readonly SortSpec[] | undefined): JSX.Element => <Sheet data={data} height={HEIGHT} sort={sort} onSort={(next) => landed.push(next)} />;
+    const { container, rerender } = render(view(asc));
+    await waitFor(() => expect(landed).toEqual([undefined]));
+    rerender(view(undefined)); // the host landed the clear
+    await waitFor(() => expect(rowsIn(container)).toHaveLength(8));
+    rerender(view(asc)); // …and a seek lands on that arrangement once more
+    await waitFor(() => expect(landed).toEqual([undefined, undefined]));
+  });
+
+  it('a refusal is a fact about ONE engine: a new port is not born already refused', async () => {
+    const base = fakeData({ count: 8 });
+    const refuses: SheetData = { ...base.data, rows: (w) => (w.sort === undefined ? base.data.rows(w) : Promise.resolve({ ok: false, reason: 'unsupported-sort', rejected: 'the wasm engine cannot sort' })) };
+    const { container, rerender } = render(<Sheet data={refuses} height={HEIGHT} onSort={() => undefined} />);
+    await waitFor(() => expect(rowsIn(container)).toHaveLength(8));
+    rerender(<Sheet data={refuses} height={HEIGHT} sort={[{ field: 'cases', dir: 'asc' }]} onSort={() => undefined} />);
+    await waitFor(() => expect(container.querySelector('.vzf-sheet-cannot')).not.toBeNull());
+    // a host swaps the port (the README tells it to rebuild one when the facts behind it move)
+    const fresh = fakeData({ count: 8 });
+    rerender(<Sheet data={fresh.data} height={HEIGHT} sort={[{ field: 'cases', dir: 'asc' }]} onSort={() => undefined} />);
+    // the sentence belonged to the port that said it — the new one has answered nothing yet
+    await waitFor(() => expect(container.querySelector('.vzf-sheet-cannot')).toBeNull());
+    expect(container.querySelector('[data-column="cases"] button')).not.toBeNull();
+    expect(readout(container)).toContain('sorted by cases ↑');
   });
 });
 

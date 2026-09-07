@@ -19,7 +19,8 @@
  * session's schema, and the sentence a refusal shows is the session's own.
  */
 import { useMemo, useRef, type ReactNode } from 'react';
-import { AddColumn, Sheet, Sources, Workbook, type AddColumnOutcome, type SessionView, type SessionViewState, type SheetColumn } from 'vizfootprint-ui';
+import { AddColumn, Sheet, Sources, Workbook, sheetSortOf, type AddColumnOutcome, type SessionView, type SessionViewState, type SheetColumn } from 'vizfootprint-ui';
+import type { SortSpec } from 'vizfootprint/data';
 import { T } from '../tokens.js';
 import type { DeskData } from '../types.js';
 
@@ -54,6 +55,9 @@ export function DataPanel(props: {
   // refresh changed the schema.
   const numbers = useMemo(() => columns.filter((c) => c.type === 'number').map((c) => c.name), [columns]);
   const addColumn = (name: string, expression: string): Promise<AddColumnOutcome> => view.addColumn(name, expression, { table });
+  // sorting the grid is an ACT, not a view preference: it lands under the sheet's
+  // own layout identity, so a reload and a seek both bring the order back
+  const sortBy = (next: readonly SortSpec[] | undefined): void => void view.setSheetSort('sheet', next);
 
   // the table's version at the cursor: the sheet's blocks are keyed by it, so a refresh empties them
   const version = state.sources?.[table]?.version;
@@ -98,6 +102,9 @@ export function DataPanel(props: {
               {...(selectedRowId !== undefined ? { selectedRowId } : {})}
               readOnly={readOnly}
               onSelect={pick}
+              // the order is the TRACE's: read at the cursor, landed as an act
+              sort={sheetSortOf(state.layouts, 'sheet')}
+              onSort={sortBy}
             />
           )
         }

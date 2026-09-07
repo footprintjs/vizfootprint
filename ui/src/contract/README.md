@@ -193,8 +193,9 @@ the chart's own clause, and click-again never clears. `netState` in
 Two halves of the law, pinned together in `capabilities.test.tsx` the way the
 bar's `canHighlight` is. **The flag is the promise, not the ability.** The
 fixture renderer that draws layers but declares nothing is refused exactly like
-the eight first-party charts, none of which declares `canLayer`. And **a frame
-is whole or refused**: `bindRenderer`'s `update` files a typed
+the eight first-party charts that declare none — the ninth, `networkRenderer`,
+declares it and is drawn. And **a frame is whole or refused**: `bindRenderer`'s
+`update` files a typed
 `layers-unsupported` gap when a host pushes layers at a renderer without the
 flag, and forwards NOTHING of that frame —
 
@@ -230,9 +231,17 @@ real two-table session (`adapter/network.fixture.ts`) against a pure-DOM
 `canLayer` renderer (`layered.fixture.ts`).
 
 Not in this version: shared scales across layers, per-layer opacity/visible
-dials, annotation layers, and any first-party layered chart — the network view
-is the next packet. Sibling layers get **no implicit crossfilter**: a select on
-`net~nodes` reaches `net~edges` only through a declared link.
+dials, and annotation layers. Sibling layers get **no implicit crossfilter**: a
+select on `net~nodes` reaches `net~edges` only through a declared link.
+
+**The first-party layered chart has since shipped** (packet 4): `networkRenderer`
+— `<VizNetwork>` behind the bridge — is the ninth reference renderer and the
+first to declare `canLayer`, two tables on one frame with one shared pair of
+scales, and the first whose every mark belongs to a LAYER rather than to the
+view. It passes the conformance kit's arms up to `commit-lands`, where the kit
+asks for a view-level gesture a two-table node-link does not have; that stop is
+pinned and explained in `conformance.test.tsx`. Read `renderers.tsx`'s header
+before changing either side.
 
 ---
 

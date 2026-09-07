@@ -43,6 +43,8 @@ export * from './notes/index.js';
 // `./sheet/index.js` for a host that builds its own renderer over the port.
 export { Sheet } from './sheet/Sheet.js';
 export type { SheetProps } from './sheet/Sheet.js';
+// a sheet's sort is an act: the host lands it and reads it back at the cursor
+export { sheetLayoutViewId, sheetSortOf } from './sheet/arrangement.js';
 export { AddColumn } from './sheet/AddColumn.js';
 export type { AddColumnOutcome, AddColumnProps } from './sheet/AddColumn.js';
 export { sessionSheetData } from './sheet/sessionSheetData.js';

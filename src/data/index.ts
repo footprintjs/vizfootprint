@@ -1,3 +1,20 @@
+/**
+ * THE QUERY PORT IS OUR SHAPE — and one clause list is one question.
+ *
+ * `vizfootprint/data` is the door onto the rows: the `DataProvider` port
+ * (tables, columns, `evaluate(table, clause | clause[] | null)`,
+ * `materializeColumn`) and the three engines behind it, the ONE reading of the
+ * flat wire triple a commit carries, and the folds that walk a table once.
+ *
+ * THE LAW IT FOLLOWS: one translation of a wire triple, never two — a second
+ * reading can differ about what a commit MEANS, silently, and the answer on
+ * screen would be the one nobody tested (see ./README.md).
+ *
+ * FIRST CUSTOMERS: the session's ask (`src/session`), the ui contract tier
+ * (`ui/src/contract`, which COMPILES the clause this folder interprets), and
+ * the analyses. `isRejection`/`reject` here are the DATA port's, not
+ * `vizfootprint/selection`'s same-named pair — that door judges a selection.
+ */
 export type {
   CellClause,
   CellSide,
@@ -11,7 +28,6 @@ export type {
   DataProviderRejection,
   Engine,
   EvaluateOptions,
-  SortSpec,
   EvaluateResult,
   IntervalBounds,
   IntervalClause,
@@ -27,6 +43,7 @@ export type {
   RejectionReason,
   ResolvedEngine,
   Row,
+  SortSpec,
 } from './types.js';
 export { PAIR_CLAUSE_KINDS, cellFieldLabel, clauseFields, isPairClause, isPairKind, isRejection, neighbourhoodFieldLabel, reject } from './types.js';
 
@@ -34,9 +51,13 @@ export { literalToSQL, matchesClause, resolvePredicateSQL, isClearedSQL, mosaicD
 
 // The wire triple a commit carries, read as the clause it means — the one
 // translation, so a consumer holding a commit never writes the rules again.
-// `clauseFromWire` yields the PREDICATE; the two value doors beside it read the
-// slots a predicate drops — a point's cleared/IS NULL split, and the QUESTION a
-// walk recorded (`neighbourhoodValueFromWire`) — so no consumer re-derives them.
+// `clauseFromWire` yields the PREDICATE; `cellSideClause` is its other half (an
+// array side is an interval, anything else a point) for a consumer compiling a
+// cell's two sides apart; `pointValueFromWire` is that same point reading —
+// cleared vs IS NULL — for a door that mints a clause WITHOUT `clauseFromWire`
+// (the selection judge, the Mosaic adapter); and `neighbourhoodValueFromWire`
+// reads the slots the predicate does drop: the seed, derivation and hops a walk
+// recorded.
 export { cellSideClause, clauseFromWire, neighbourhoodValueFromWire, pointValueFromWire } from './clauseFromWire.js';
 export type { WireClauseKind } from './clauseFromWire.js';
 
@@ -57,7 +78,7 @@ export type { ColumnDescription, DescribeTableOptions, TableDescription } from '
 export { DerivedColumnStore, canNameSlot, derivedColumnName, renameClauseFields, renameRowSlots, resolveDerived } from './derivedColumns.js';
 export type { DerivedColumn } from './derivedColumns.js';
 
-export { memoryProvider } from './memoryProvider.js';
+export { memoryProvider, SORT_CACHE_PER_TABLE } from './memoryProvider.js';
 export type { Layout, MemoryProviderOptions, RowsInput } from './memoryProvider.js';
 
 export { wasmProvider } from './wasmProvider.js';
@@ -65,6 +86,12 @@ export type { WasmLoadSource, WasmProviderOptions } from './wasmProvider.js';
 
 export { serverProvider } from './serverProvider.js';
 export type { ServerProviderOptions } from './serverProvider.js';
+
+// The two engines this version names and does not run — and the one sentence the
+// build door (`buildDashboard`/`lint()`) and the read door (the providers' typed
+// rejections) both say so in.
+export { STUB_ENGINES, isStubEngine, stubEngineRefusal, stubEngineRemedy, stubEngineSentence } from './stubEngines.js';
+export type { StubEngine } from './stubEngines.js';
 
 export {
   chooseEngine,

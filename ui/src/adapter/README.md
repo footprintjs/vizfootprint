@@ -32,6 +32,21 @@ There is no third kind. If the library knows a fact, the adapter copies it. If
 the adapter computes a fact the library also computes, one of the two is going
 to drift, and the one on screen will be the one nobody tested.
 
+**And a projection copies the WHOLE fact, not the part today's screen uses.**
+`state.layout` is the parsed `dashboard` scope of the layout fold, and for a
+while it was the only scope that survived the projection — so a sheet's own
+arrangement (`layout:sheet:<viewId>`, landed by `setSheetSort`) reached the
+state and was dropped one field over, leaving a visible order the trace held
+and the UI could not read back. `state.layouts` now carries every scope
+verbatim beside it. Same shape as law 3 below: a door that discards its own
+answer forces its consumer to re-derive or to invent.
+
+```ts
+state.layout;                              // { preset: 'focus', … }  — the cockpit, parsed
+sheetSortOf(state.layouts, 'sheet');       // [{ field: 'cases', dir: 'desc' }] — the sheet's own
+await view.setSheetSort('sheet', undefined);   // and clearing it is an act, with its own words
+```
+
 ### The scar: saved selections, derived from annotations
 
 This law is written down because the adapter broke it, in the most expensive way

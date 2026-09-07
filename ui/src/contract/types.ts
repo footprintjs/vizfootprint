@@ -146,7 +146,13 @@ export interface RendererCapabilities {
   // callback is NOT the shortcut it looks like: its payload is typed as
   // DATA-space domains and the host records it as a viewport move, so a sort
   // would enter the trace under another act's name — a second lie, on the
-  // record this time. Until all four exist, a renderer that reorders says so in
+  // record this time. Requirement (1) now has a WORKED example, though not on
+  // this protocol: the Sheet is not a bound renderer, and its sort lands through
+  // `navigate` on `layout:sheet:<viewId>` — recorded, inert, restored at a
+  // cursor, no new verb (`../sheet/README.md`, "The sort is an ACT"). That
+  // settles what an arrangement commit LOOKS like; (2)-(4), which are about this
+  // protocol's outbound voice, are still the open half.
+  // Until all four exist, a renderer that reorders says so in
   // its own docs (see `tableRenderer`) and claims no capability. The removal
   // did NOT bump `RENDERER_PROTOCOL_VERSION`: no code ever read the flag, and
   // a third-party hello still carrying the key binds byte-identically (the

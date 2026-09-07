@@ -2,6 +2,23 @@
 
 The query port (`DataProvider`: tables, columns, `evaluate(table, clause | clause[] | null)`, `materializeColumn`) is OUR shape; the memory engine answers it today, and the wasm and server engines are typed stubs that render the same SQL descriptor. A clause list is its AND, so the whole live selection is one question.
 
+## The two engines this version does not run
+
+Three engines are named; one answers. `memoryProvider` runs. `wasmProvider` and `serverProvider` are typed stubs — declared so the port's shape is honest before the backends exist — and a stub answers **only its declared table list**: every read of a column or a row is refused. `stubEngines.ts` is the one place that says so, so the build door and the read door say it in the same words instead of each inventing its own:
+
+```ts
+await wasmProvider().columns('cases');
+// { ok: false, engine: 'wasm', operation: 'columns', reason: 'not-implemented',
+//   detail: 'the "wasm" engine answers no query in this version — it is a typed stub: it names
+//            its declared tables and answers nothing else. Declare engine "memory" to run "cases"
+//            in this process, or bring the engine yourself: pass
+//            { providers: { "cases": yourProvider } } to the builder you already call' }
+```
+
+Two laws sit inside that sentence. **A refusal points at what to do instead** — "no DuckDB-WASM connector is wired yet" names our build order, where the person reading it is holding a table that answers nothing. And **one wording, every door**: `buildDashboard` quotes these exact words as a build note the moment a def routes a table here, and `lint()` throws them ([`../def/README.md`](../def/README.md)), so nobody learns the same fact twice, differently. Change the words in `stubEngines.ts` and every door moves together; write them anywhere else and they drift.
+
+`tables()` is the one thing a stub still answers honestly — the DECLARED list is real information, and an empty array would be a lie of a different kind, which is why the sentence itself says so rather than claiming the table is wholly dark. A sorted window keeps its own REASON (`unsupported-sort`, the law every engine keeps) and quotes the same sentence for its detail, because "ask for this window without a sort" pointed a caller at a second refusal. The one refusal here that is *not* the shared sentence is `serverProvider.materializeColumn`: it is refused by the declared capability (`canMaterialize: false`), not by our build order, because a real Coordinator behind that provider would refuse a write-back too — and the remedy never names a builder, because which door an author must call is a fact about the whole def (a remote source forces `buildDashboardAsync`), not about the table being refused.
+
 ## Reading a commit: ONE translation, two evaluators
 
 A `PredicateClause` is the shape this folder EVALUATES. It is not the shape a commit CARRIES. A commit carries a flat wire triple — `{kind, field, value}` (plus `fields` for a cell) — and the two disagree in three places: a `match`'s list and polarity ride INSIDE `value`, where the clause keeps `values`/`exclude` as siblings; a `cell`'s `field` is a display label (`"price × category"`), never a column, and the authoritative pair rides `fields`; and "cleared" has four spellings on the wire against exactly one here (`clause === null`, no filter).

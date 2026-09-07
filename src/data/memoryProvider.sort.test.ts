@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { memoryProvider } from './memoryProvider.js';
 import { wasmProvider } from './wasmProvider.js';
 import { serverProvider } from './serverProvider.js';
+import { stubEngineRefusal } from './stubEngines.js';
 import { isRejection } from './types.js';
 import type { Row, EvaluateResult } from './types.js';
 
@@ -100,7 +101,9 @@ describe.each(['row', 'column'] as const)('memoryProvider.evaluate — sort, off
     for (const stub of [wasmProvider(), serverProvider()]) {
       expect(stub.capabilities.canSort).toBeUndefined();
       const r = await stub.evaluate('data', null, { sort: [{ field: 'x', dir: 'asc' }] });
-      expect(r).toMatchObject({ reason: 'unsupported-sort', detail: `the ${stub.engine} engine cannot sort. Ask for this window without a sort` });
+      // the DETAIL is read from its owner, never re-typed here: a stub that cannot sort also cannot answer
+      // the unsorted window the old remedy sent a caller to, so the whole refusal is the minted one
+      expect(r).toMatchObject({ reason: 'unsupported-sort', detail: stubEngineRefusal(stub.engine as 'wasm' | 'server', 'data') });
       expect((await stub.evaluate('data', null, { sort: [] })) as { reason: string }).not.toMatchObject({ reason: 'unsupported-sort' }); // an empty sort is no sort
     }
   });

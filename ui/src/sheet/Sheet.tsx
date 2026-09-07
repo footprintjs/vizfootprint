@@ -27,11 +27,23 @@
  * or a data layer that threw — the sentence, beside the rows already on screen,
  * which keep the version they were read at.
  *
- * Sort is LOCAL state in this version — see `./README.md`.
+ * SORT IS AN ACT, AND THIS SHEET DOES NOT HOLD ONE. The scroll is a read —
+ * `offset` moves where you stand in one fixed order — but a sort REPLACES the
+ * order, so it changes what row 1 is for every window afterwards. It is
+ * therefore the host's, landed on the trace through the verb it already had
+ * (`navigate` on `layout:sheet:<viewId>`, the library's LY-1 door) and read
+ * back at the cursor, so a reload and a seek both return the order a person
+ * left. The sheet asks (`onSort`) and renders what it is given (`sort`); it
+ * never remembers one. A sheet given no `onSort` — and a sheet in Present mode,
+ * where reading never rearranges — has no toggle at all, the same rule
+ * `onSelect` already follows: a door the host did not wire is a door that is
+ * closed, never one that half-works. See `./arrangement.ts` for the ruling and
+ * `./README.md` for the law.
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FocusEvent as ReactFocusEvent, JSX, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, UIEvent as ReactUIEvent } from 'react';
-import type { ColumnRole, Row, SortSpec } from 'vizfootprint/data';
+import type { Row, SortSpec } from 'vizfootprint/data';
+import { sortArrow, sortedByWords } from './arrangement.js';
 import { createBlockCache, type BlockCache } from './blockCache.js';
 import type { SheetColumn, SheetData, SheetWindow } from './types.js';
 
@@ -45,8 +57,6 @@ export const SHEET_STATUS_HEIGHT = 24;
 export const SHEET_BORDERS = 2;
 /** Rows fetched beyond the visible ones, so a small scroll is served from the block already held. */
 const OVERSCAN = 8;
-/** The roles worth a badge: the ones that change what a column IS. A plain dimension is the unremarkable case. */
-const BADGED_ROLES: readonly ColumnRole[] = ['identifier', 'measure', 'absence'];
 
 /** The refusal a click on a positional table's row earns — said, never swallowed. */
 export const POSITIONAL_REFUSAL = 'this table declares no row key — a row cannot be selected; declare `key` on the table';
@@ -87,8 +97,33 @@ export function scrollForRow(index: number, metrics: SheetMetrics): number {
 export function nextSort(current: readonly SortSpec[] | undefined, field: string): readonly SortSpec[] | undefined {
   const now = current?.[0];
   if (now === undefined || now.field !== field) return [{ field, dir: 'asc' }];
-  if (now.dir === 'asc') return [{ field, dir: 'desc' }];
+  // the KEY is carried over, not rebuilt: the toggle turns the DIRECTION, and rebuilding it
+  // would silently move where absent values land — a second change nothing in the words says
+  if (now.dir === 'asc') return [{ ...now, dir: 'desc' }];
   return undefined;
+}
+
+/** What an engine that declares it cannot sort, and offers no sentence of its own, is saying. */
+export const SHEET_ENGINE_CANNOT_SORT = 'this engine cannot sort';
+
+/**
+ * The sentence under a header with no sort toggle — or NOTHING, when there is
+ * nothing to say.
+ *
+ * The ENGINE is the one reason a reader is owed words for: it refuses
+ * something a person would reasonably try, and the refusal is a fact about the
+ * data layer they cannot otherwise learn. A sheet whose host wired no sort
+ * DOOR is a different case entirely — it claims nothing and hides nothing (no
+ * toggle and no arrow to offer, and, when the host holds no order either,
+ * nothing about one in the readout), so there is no lie to correct, and
+ * printing "nobody wired this" over every column would be scolding a developer
+ * in a reader's face while stealing a row of their table.
+ * That fact belongs in `./README.md`. WHY it matters that this stays the
+ * engine's alone: the header's second line is paid for out of the body's
+ * height, so a sentence here costs a row of data.
+ */
+export function noSortWords(engineCanSort: boolean, engineSaid: string | null | undefined): string | undefined {
+  return engineCanSort ? undefined : (engineSaid ?? SHEET_ENGINE_CANNOT_SORT);
 }
 
 /** A cell as text. An absent value is blank — never the word "null", never a zero. */
@@ -102,8 +137,7 @@ export function statusWords(win: SheetWindow | null, sort: readonly SortSpec[] |
   const last = win.rows.length === 0 ? 0 : Math.min(win.start + win.rows.length, win.count);
   const first = last === 0 ? 0 : Math.min(win.start + 1, last);
   const parts = [`rows ${first.toLocaleString()}–${last.toLocaleString()} of ${win.count.toLocaleString()}`, win.version === null ? 'no data version' : `version ${win.version}`];
-  const key = sort?.[0];
-  if (key !== undefined) parts.push(`sorted by ${key.field} ${key.dir === 'asc' ? '↑' : '↓'}`);
+  if (sort !== undefined && sort.length > 0) parts.push(sortedByWords(sort)); // the rail's own words, so one arrangement never reads two ways
   return parts.join(' · ');
 }
 
@@ -120,6 +154,19 @@ export interface SheetProps {
   readonly readOnly?: boolean;
   /** A row click emits a point on the declared key column — wire it to the session's select. */
   readonly onSelect?: (field: string, value: unknown) => void;
+  /**
+   * The order the rows are in — the arrangement the TRACE holds at this cursor
+   * (`sheetSortOf(state.layouts, viewId)`). The sheet renders it and never
+   * remembers one of its own.
+   */
+  readonly sort?: readonly SortSpec[];
+  /**
+   * A header toggle asks for a new order; the host LANDS it
+   * (`view.setSheetSort(viewId, next)`) and hands the answer back through
+   * `sort`. Leave it out and there is no toggle — Present mode, and any host
+   * that has not wired the act, read the order the trace holds.
+   */
+  readonly onSort?: (next: readonly SortSpec[] | undefined) => void;
   /** The row the session's own clause holds, by its row id — marked, so a person sees which row they picked. */
   readonly selectedRowId?: string;
   readonly rowHeight?: number;
@@ -136,7 +183,7 @@ export interface SheetProps {
 }
 
 export function Sheet(props: SheetProps): JSX.Element {
-  const { data, viewId, table, columns, readOnly = false, onSelect, selectedRowId, version, cursor, className } = props;
+  const { data, viewId, table, columns, readOnly = false, onSelect, selectedRowId, sort, onSort, version, cursor, className } = props;
   const rowHeight = props.rowHeight ?? SHEET_ROW_HEIGHT;
   const canvasMax = props.canvasMax ?? SHEET_CANVAS_MAX;
 
@@ -146,7 +193,6 @@ export function Sheet(props: SheetProps): JSX.Element {
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [cannotSort, setCannotSort] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [sort, setSort] = useState<readonly SortSpec[] | undefined>(undefined);
   const [scrollTop, setScrollTop] = useState(0);
   const [measured, setMeasured] = useState(0);
   const [focus, setFocus] = useState<{ readonly row: number; readonly col: number }>({ row: 0, col: 0 });
@@ -168,6 +214,26 @@ export function Sheet(props: SheetProps): JSX.Element {
   cacheRef.current ??= createBlockCache({ ...(props.blockRows !== undefined ? { blockRows: props.blockRows } : {}), ...(props.maxBlocks !== undefined ? { maxBlocks: props.maxBlocks } : {}) });
   const cache = cacheRef.current;
 
+  // ── the arrangement: the host's act, never this component's memory ──
+  // `askSort` is undefined exactly when the host wired no door, which is what
+  // closes the toggle — the rule `canSelect` already follows one field over.
+  const askSort = onSort === undefined ? undefined : (field: string): void => onSort(nextSort(sort, field));
+  // WHY: the window effect must be able to hand a refused sort BACK to the host
+  // without re-asking for a window every time the host re-renders its callback.
+  // It carries the ACT DOOR, not the raw callback: Present mode closes that door
+  // exactly as it closes the toggle, because handing a sort back LANDS a commit —
+  // a person who only opened a story must not write to the trace they are reading.
+  const onSortRef = useRef<SheetProps['onSort']>(onSort);
+  onSortRef.current = readOnly ? undefined : onSort;
+  /**
+   * The arrangement already handed back as refused. WHY it is remembered: the
+   * refusal grows the header by a line, which shrinks `limit` — a dep of the
+   * window effect — so the effect re-runs and is refused again BEFORE an
+   * asynchronous host has landed the clear. Without this, one refused order
+   * lands two "sort cleared" commits and asks the engine twice.
+   */
+  const handedBack = useRef<string | null>(null);
+
   // ── the box: the host's height, or the one the sheet was actually given ──
   const givenHeight = props.height;
   useEffect(() => {
@@ -186,8 +252,14 @@ export function Sheet(props: SheetProps): JSX.Element {
   const outerHeight = givenHeight ?? measured;
   const count = win?.count ?? 0;
   // an engine that cannot sort says so IN the header, so the header takes a second line for the sentence
-  const canSort = data.capabilities.sort && cannotSort === null;
-  const headHeight = canSort ? rowHeight : rowHeight * 2;
+  const engineCanSort = data.capabilities.sort && cannotSort === null;
+  // the TOGGLE needs three things: an engine that can answer, a door the act can
+  // land through, and a person who is not merely READING — present mode closes
+  // this door exactly as it closes the row-click one, because rearranging is an act
+  const canSort = engineCanSort && !readOnly && askSort !== undefined;
+  // WHY the height follows the ENGINE and not the toggle: only the engine has a
+  // sentence to print, so only the engine costs a row of the table
+  const headHeight = engineCanSort ? rowHeight : rowHeight * 2;
   const bodyHeight = Math.max(rowHeight, outerHeight - SHEET_BORDERS - headHeight - SHEET_STATUS_HEIGHT);
   const metrics = canvasMetrics(count, rowHeight, bodyHeight, canvasMax);
   const { canvasHeight, scrollMax, visibleRows } = metrics;
@@ -197,6 +269,11 @@ export function Sheet(props: SheetProps): JSX.Element {
   // ── the schema: names, types and roles ──
   useEffect(() => {
     let live = true;
+    // a sort refusal is a fact about ONE engine, so a NEW port has not refused
+    // anything yet — the block cache forgets on a new question for the same reason
+    cannotSortRef.current = null;
+    handedBack.current = null;
+    setCannotSort(null);
     void data
       .columns()
       .then((cols) => {
@@ -238,6 +315,7 @@ export function Sheet(props: SheetProps): JSX.Element {
         if (answer.ok) {
           setWin(answer);
           setRefused(cannotSortRef.current); // a remembered sort refusal is not cleared by the next good window
+          handedBack.current = null; // an order that WAS served is not one already handed back: the next refusal is a new one
           return;
         }
         focusPending.current = null; // the rows a keyboard move was waiting for did not come
@@ -246,7 +324,15 @@ export function Sheet(props: SheetProps): JSX.Element {
         if (answer.reason === 'unsupported-sort') {
           cannotSortRef.current = answer.rejected;
           setCannotSort(answer.rejected);
-          setSort(undefined);
+          // The trace must not be left claiming an order the rows are not in, so
+          // the sort is handed BACK to the host to clear — one honest act, not a
+          // quiet local undo the record never hears about. A sheet with no door
+          // (and a sheet in Present mode) has nobody to hand it to and says so in
+          // the header instead. ONCE per refused order: see `handedBack`.
+          if (handedBack.current !== sortKey) {
+            handedBack.current = sortKey;
+            onSortRef.current?.(undefined);
+          }
         }
         setRefused(answer.rejected);
       })
@@ -271,6 +357,11 @@ export function Sheet(props: SheetProps): JSX.Element {
   }, [namesKey, keyField]);
   const facetOf = useCallback((name: string): SheetColumn | undefined => facets.find((f) => f.name === name), [facets]);
   const numeric = useMemo(() => ordered.map((name) => facetOf(name)?.type === 'number'), [ordered, facetOf]);
+
+  // the readout and `aria-sort` speak for the ROWS, never for the ask: an engine
+  // that refused this order left them in the table's own, and saying otherwise
+  // tells a screen reader a column is sorted when it is not
+  const shownSort = engineCanSort ? sort : undefined;
 
   const positional = win?.positional ?? false;
   const canSelect = !readOnly && onSelect !== undefined;
@@ -400,7 +491,16 @@ export function Sheet(props: SheetProps): JSX.Element {
         <div className="vzf-sheet-head" role="rowgroup" ref={headRef}>
           <div className="vzf-sheet-row vzf-sheet-header" role="row" aria-rowindex={1} style={{ height: headHeight }}>
             {ordered.map((name, ci) => (
-              <HeaderCell key={name} name={name} facet={facetOf(name)} index={ci} sort={sort} canSort={canSort} refusal={data.capabilities.refusal ?? cannotSort ?? undefined} onToggle={() => setSort((s) => nextSort(s, name))} />
+              <HeaderCell
+                key={name}
+                name={name}
+                facet={facetOf(name)}
+                index={ci}
+                sort={shownSort}
+                canSort={canSort}
+                refusal={noSortWords(engineCanSort, data.capabilities.refusal ?? cannotSort)}
+                onToggle={askSort === undefined ? undefined : () => askSort(name)}
+              />
             ))}
           </div>
         </div>
@@ -429,7 +529,7 @@ export function Sheet(props: SheetProps): JSX.Element {
       <div className="vzf-sheet-status" style={{ height: SHEET_STATUS_HEIGHT }}>
         {/* the readout changes on every scroll: announcing it would talk over everything else */}
         <span className="vzf-sheet-readout" aria-live="off">
-          {statusWords(win, sort)}
+          {statusWords(win, shownSort)}
         </span>
         <span className="vzf-sheet-said" role="status" aria-live="polite">
           {schemaError !== null && <span className="vzf-sheet-refused"> · {schemaError}</span>}
@@ -447,21 +547,24 @@ interface HeaderCellProps {
   readonly index: number;
   readonly sort: readonly SortSpec[] | undefined;
   readonly canSort: boolean;
+  /** The engine's sentence when the ENGINE is why there is no toggle, already resolved by `noSortWords`; absent when there is nothing to say. */
   readonly refusal: string | undefined;
-  readonly onToggle: () => void;
+  /** Absent exactly when the host wired no sort door, which is one of the reasons there is no toggle. */
+  readonly onToggle: (() => void) | undefined;
 }
 
 /** One column header: the name, the type the facets settled on, a role badge when the role is worth one, and a sort toggle — or the sentence saying why there is none. */
 function HeaderCell({ name, facet, index, sort, canSort, refusal, onToggle }: HeaderCellProps): JSX.Element {
   const key = sort?.[0];
   const dir = key !== undefined && key.field === name ? key.dir : null;
-  const arrow = dir === null ? '' : dir === 'asc' ? ' ↑' : ' ↓';
+  const arrow = dir === null ? '' : ` ${sortArrow(dir)}`;
   const role = facet?.role;
   const words = (
     <>
       <span className="vzf-sheet-colname">{name}</span>
       <span className="vzf-sheet-type">{facet?.type ?? 'unknown'}</span>
-      {role !== undefined && BADGED_ROLES.includes(role) && <span className="vzf-sheet-role">{role}</span>}
+      {/* the badge marks a role that changes what a column IS — stated as the one EXCEPTION, so a role added to the port's vocabulary cannot silently go unbadged */}
+      {role !== undefined && role !== 'dimension' && <span className="vzf-sheet-role">{role}</span>}
     </>
   );
   return (
@@ -474,8 +577,10 @@ function HeaderCell({ name, facet, index, sort, canSort, refusal, onToggle }: He
       ) : (
         <span className="vzf-sheet-sort vzf-sheet-nosort">
           {words}
+          {/* the mark follows the ORDER, not the door: a header with no toggle is still in whatever order the rows are in */}
+          <span className="vzf-sheet-arrow">{arrow}</span>
           {/* the refusal is READ, not hovered for: a tooltip is not an answer */}
-          <span className="vzf-sheet-cannot">{refusal ?? 'this engine cannot sort'}</span>
+          {refusal !== undefined && <span className="vzf-sheet-cannot">{refusal}</span>}
         </span>
       )}
     </div>

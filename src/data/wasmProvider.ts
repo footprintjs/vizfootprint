@@ -16,9 +16,13 @@
  *   - `node_modules/@uwdata/mosaic-sql/dist/src/index.js:34`:
  *       `export { loadCSV, loadJSON, loadObjects, loadParquet, loadSpatial } from './load/load.js';`
  *   - `node_modules/@uwdata/mosaic-core/dist/src/connectors/wasm.js:1,9`:
- *       `wasmConnector(options)` -> `new DuckDBWASMConnector(options)`, which
- *       lazily `import * as duckdb from '@duckdb/duckdb-wasm'` only once a
- *       query actually runs (`getDuckDB()` in that file).
+ *       `wasmConnector(options)` -> `new DuckDBWASMConnector(options)`. What
+ *       that connector defers is only the DATABASE: `getDuckDB()` ->
+ *       `connect()` -> `initDatabase()` selects a JSDelivr bundle and spawns a
+ *       Worker on the first query. The MODULE import at line 1 —
+ *       `import * as duckdb from '@duckdb/duckdb-wasm'` — is STATIC, and
+ *       therefore eager the moment that file loads — which is exactly why the
+ *       `bench/x4` note below matters.
  *   - `node_modules/@uwdata/mosaic-core/dist/src/Coordinator.js` (`exec`,
  *     `query`, `class Coordinator` doc comment): "manages all database
  *     communication for clients ... query caching, consolidation, and
@@ -35,12 +39,17 @@
  *     a `wasmProvider()` today must stay inert (typed rejection only), never
  *     trigger a WASM fetch as a side effect of merely choosing the engine.
  *
- * Capability declaration (R14): `capabilities` describes what the WASM
- * engine WILL support once implemented — used by `chooseEngine`'s policy to
- * route — while every actual call returns a typed `not-implemented`
- * rejection today. Never a silent no-op.
+ * Capability declaration (R14): `capabilities` describes what the WASM engine
+ * WILL support once implemented — read by any caller branching on the port,
+ * which today is the session's pre-flight sort gate (`src/session/session.ts`,
+ * `capabilities.canSort`) and nothing else. NOT `chooseEngine`: it resolves
+ * `auto` from `DatasetStats` plus the engines a host listed, and never receives
+ * a provider at all. Meanwhile every actual call is refused today — a sort by
+ * the reason the contract keeps for it (`unsupported-sort`), every other read
+ * as `not-implemented`. Never a silent no-op.
  */
 
+import { stubEngineRefusal } from './stubEngines.js';
 import {
   reject,
   type ColumnInfo,
@@ -78,18 +87,29 @@ export interface WasmProviderOptions {
 
 const capabilities: DataProviderCapabilities = {
   // Declares what the WASM engine WILL do once implemented — real SQL,
-  // executed by DuckDB-WASM, is the whole point of this engine.
+  // executed by DuckDB-WASM, is the whole point of this engine. No live code
+  // reads either flag today; they declare the plan.
   canEvaluateSQL: true,
   canMaterialize: true,
+  // WHY `canSort` is deliberately ABSENT (= no) while its two neighbours state
+  // the plan: it is the one flag live code reads at CALL time — the session's
+  // sort gate refuses a sorted window before this provider is ever asked — so
+  // it must say what this engine does TODAY, which is nothing. Completing the
+  // block by the comment above it would hand a sort to a stub that refuses
+  // every one, and the sheet would draw a toggle for it.
 };
 
-function notImplemented(operation: DataProviderRejection['operation']): DataProviderRejection {
-  return reject(
-    'wasm',
-    operation,
-    'not-implemented',
-    'wasmProvider is a typed stub (D24 build step 3) — no DuckDB-WASM connector is wired yet',
-  );
+/**
+ * The `not-implemented` rejections this stub files, in the ONE sentence
+ * `stubEngines.ts` mints: which engine, that it answers no query in this
+ * version, and what to do instead. (The sort refusal below keeps its own
+ * REASON and quotes the same sentence.) WHY not "no DuckDB-WASM connector is
+ * wired yet": that is a fact about our build order, and the person reading it
+ * is holding a table that answers nothing — the remedy is the half they can
+ * act on.
+ */
+function notImplemented(operation: DataProviderRejection['operation'], table: string): DataProviderRejection {
+  return reject('wasm', operation, 'not-implemented', stubEngineRefusal('wasm', table));
 }
 
 /**
@@ -112,26 +132,28 @@ export function wasmProvider(options: WasmProviderOptions = {}): DataProvider {
       return declaredTables;
     },
 
-    async columns(_table: string): Promise<readonly ColumnInfo[] | DataProviderRejection> {
-      return notImplemented('columns');
+    async columns(table: string): Promise<readonly ColumnInfo[] | DataProviderRejection> {
+      return notImplemented('columns', table);
     },
 
     async evaluate(
-      _table: string,
+      table: string,
       _clause: PredicateClause | readonly PredicateClause[] | null,
       options?: EvaluateOptions,
     ): Promise<EvaluateResult | DataProviderRejection> {
-      // the one law every engine keeps: a sort it cannot honour is refused, never answered in source order
-      if (options?.sort !== undefined && options.sort.length > 0) return reject('wasm', 'evaluate', 'unsupported-sort', 'the wasm engine cannot sort. Ask for this window without a sort');
-      return notImplemented('evaluate');
+      // the one law every engine keeps: a sort it cannot honour is refused, never answered in source order.
+      // The REASON stays the contract's own; the DETAIL is the minted refusal, because "ask for this window
+      // without a sort" pointed at a second refusal — this stub answers no window, sorted or not.
+      if (options?.sort !== undefined && options.sort.length > 0) return reject('wasm', 'evaluate', 'unsupported-sort', stubEngineRefusal('wasm', table));
+      return notImplemented('evaluate', table);
     },
 
     async materializeColumn(
-      _table: string,
+      table: string,
       _name: string,
       _values: readonly unknown[],
     ): Promise<{ readonly ok: true } | DataProviderRejection> {
-      return notImplemented('materializeColumn');
+      return notImplemented('materializeColumn', table);
     },
   };
 }

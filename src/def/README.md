@@ -91,6 +91,38 @@ buildDashboard(parsed.def);                       // a DashboardDef, narrowed
 
 It **calls** the validator; it never restates it, so the two cannot disagree. `buildDashboard(JSON.parse(text))` is still the direct path — this is for a caller that wants to hold a typed definition before building one.
 
+## The engine a table runs on — and the one this version does not run
+
+`data[t].engine` routes a table to a D24 engine: `memory` (in-JS predicates, always on), `wasm` or `server` (typed stubs — the port's shape with nothing behind it), or `auto`. `auto` resolves to **memory** and only quotes the guess the placeholder thresholds would have made, because a round number must not point a real table at an engine that refuses every query.
+
+**A declared stub engine is honoured, and never silent.** It builds, every read of that table is refused, and the BUILD says at the door exactly what the read will say — the same sentence, minted once in [`../data/stubEngines.ts`](../data/stubEngines.ts) and quoted by both:
+
+```ts
+buildDashboard({ data: { cases: { rows, engine: 'wasm' } }, actors: { … } }).notes;
+// [ 'data["cases"]: the "wasm" engine answers no query in this version — it is a typed stub:
+//    it names its declared tables and answers nothing else. Declare engine "memory" to run
+//    "cases" in this process, or bring the engine yourself: pass
+//    { providers: { "cases": yourProvider } } to the builder you already call' ]
+```
+
+**Why a note and not a `parseDashboardDef` refusal.** Three reasons, and they are all the same reason: the def is not what is wrong.
+
+1. `wasm` and `server` are legal declarations of a real seam. What is missing is an engine in this VERSION — a fact about the build, not about the grammar, and the grammar door is where a def's own shape is judged.
+2. **The same def RUNS when a host brings that engine.** `buildDashboard(def, { providers: { cases: yourProvider } })` answers the table from the host's own `DataProvider`; the validator never sees the options, so a refusal there would refuse a def that works. (That table then owes the *host* note — the def's routing was not built — and never the stub's.)
+3. A stub engine is the one reachable way to exercise what a session does when an engine cannot serve: the typed `needs-backend-data` gap, with the act still standing ([`../session/README.md`](../session/README.md), law 1, rule 3). Refuse the declaration at the grammar door and that behaviour loses its only test path.
+
+What refuses out loud instead, in the same words: `dashboard.notes` at build, `lint()` and `lintProse()` **throw** them (nothing to judge is not "nothing wrong"), and `lintData()` reports them per key and per relation. `availableEngines` bounds one thing only — the guess `auto` quotes — and says so; it has never gated an explicit engine. Naming **no** engine (`[]`) is refused at the door in a sentence, because `[]` is not "unset": it reaches `chooseEngine` with nothing to pick and would abort the whole build with a `RangeError` for a guess that only appears in a note.
+
+**A host provider is judged on the whole port.** `judgeProviders` reads back the two DATA members as well as the four methods: `engine` (what `dashboard.engines` reports) and `capabilities` (what the session reads before every sorted window — a provider that declares none leaves it dereferencing nothing at first query):
+
+```ts
+buildDashboard(def, { providers: { data: { engine: 'memory', tables, columns, evaluate, materializeColumn } } });
+// DashboardDefError: providers["data"] declares no capabilities — a DataProvider says what it can do
+//                    (canEvaluateSQL, canMaterialize, canSort), and the session reads it before every sorted window
+```
+
+And what a host provider ANSWERS is public too: a rejection may carry no `detail` (it is optional), so every lint door falls back to the typed `reason` rather than printing `undefined` where a sentence belongs.
+
 ## What fits, before a build
 
 `whatFits` (the encoding plane's door, re-exported here beside `fitsFor`) answers "which column may sit on which channel" without building anything. `whatFits.def.test.ts` pins it against this door's own lint, column by column and channel by channel. See [`../encoding/README.md`](../encoding/README.md).
@@ -232,7 +264,7 @@ The shape sentences, for completeness: `encodings[i].layers, if present, must be
 | `layers.ts` | the layer laws as refusals; `layerSurfaceOf` / `layerSurfacesOf`, the surfaces the build door and `lint()` judge |
 | `builtinAnalyses.ts` | an analysis as data (the seven records, their options, the extra judge one carries, and the def context another needs) |
 | `register.ts` | the one registry boundary |
-| `buildDashboard.ts` | the build — resolves engines, keys, relations and each view's layers onto the runtime; `lintData` judges keys and relations against the engine; `lint()` judges every layer against its own table's columns |
+| `buildDashboard.ts` | the build — resolves engines (and notes, in the engine's own words, a table routed to one this version does not run), keys, relations and each view's layers onto the runtime; `lintData` judges keys and relations against the engine; `lint()` judges every layer against its own table's columns |
 | `revision.ts` | the definition's revision, digested once at build |
 | `series.ts` | the long-form series contract |
 | `recordIds.ts` | the id counters |

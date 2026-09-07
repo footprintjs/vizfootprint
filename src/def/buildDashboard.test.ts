@@ -109,6 +109,24 @@ describe('buildDashboard (D24 engine routing + promotion)', () => {
     expect(dash.engines.data).toBe('memory');
   });
 
+  it('a CSV table asking for `auto` is COUNTED — and one that declares its engine never pays for the count', () => {
+    // the row estimate a guess is quoted from is a whole extra pass over the bytes, so it is a THUNK:
+    // only `auto` reads it. The counter is the observable half — a declared engine touches the CSV fewer times.
+    const csvSource = (reads: { n: number }, engine: 'auto' | 'memory'): DashboardDef['data'][string] => {
+      const src: Record<string, unknown> = { engine };
+      Object.defineProperty(src, 'csv', { enumerable: true, get: () => { reads.n += 1; return 'id,price\nd0,50\nd1,52\n'; } });
+      return src as DashboardDef['data'][string];
+    };
+    const autoReads = { n: 0 };
+    const auto = buildDashboard({ ...makeDashboardDef(), data: { data: csvSource(autoReads, 'auto') } });
+    // 3 lines minus the header = 2 rows, and the guess the placeholder thresholds would have made is quoted
+    expect(auto.notes[0]).toContain('engine "auto" resolved to memory (the placeholder thresholds would have said "memory"');
+    const declaredReads = { n: 0 };
+    const declared = buildDashboard({ ...makeDashboardDef(), data: { data: csvSource(declaredReads, 'memory') } });
+    expect(declared.notes).toEqual([]);
+    expect(declaredReads.n).toBeLessThan(autoReads.n);
+  });
+
   it('routes an explicit server/wasm engine to its typed stub (widened availability)', () => {
     const dash = buildDashboard(makeDashboardDef({ engine: 'server' }), { availableEngines: ['memory', 'wasm', 'server'] });
     expect(dash.engines.data).toBe('server');

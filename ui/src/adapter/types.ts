@@ -604,6 +604,16 @@ export interface SessionViewState {
   readonly charts: readonly ChartCellView[];
   /** LY-1: the dashboard arrangement at the cursor (the `layout:dashboard` fold) — drives the cockpit. */
   readonly layout: LayoutView;
+  /**
+   * LY-1: EVERY layout scope at the cursor — scope → prop → value, as the fold
+   * holds it. `layout` above is the parsed `dashboard` scope, and it is not the
+   * only one: a sheet's sort lands under `sheet:<viewId>`, and a projection
+   * that dropped it would leave its consumer holding a visible arrangement the
+   * trace could not restore (law 3 of this folder — a door must not discard its
+   * own answer one field over). Absent when the source predates the layout
+   * fold; read it with `sheetSortOf` rather than by hand.
+   */
+  readonly layouts?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /** Optional provider/mode label for a status readout. */
   readonly mode?: string;
   /**

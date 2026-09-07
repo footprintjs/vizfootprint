@@ -7,8 +7,9 @@
  *
  * Engine routing (D24): the def's `data[table].engine` key is routed to the
  * three D24 engines behind the data seam — `memory` (in-JS predicates,
- * always-on), `wasm`/`server` (typed stubs today), and `auto` (resolved via
- * `chooseEngine` over dataset stats). The INVARIANT (engine choice never
+ * always-on), `wasm`/`server` (typed stubs, which answer NO query in this
+ * version and say so in a build note), and `auto` (resolved to memory, quoting
+ * the guess `chooseEngine` would have made). The INVARIANT (engine choice never
  * changes commit semantics) is inherited from `src/data`: the session speaks
  * only typed clauses, which every engine evaluates identically.
  */
@@ -16,14 +17,19 @@
 import {
   chooseEngine,
   DerivedColumnStore,
+  isPairKind,
+  isStubEngine,
   memoryProvider,
   serverProvider,
+  stubEngineRefusal,
+  STUB_ENGINES,
   wasmProvider,
   type DataProvider,
   type DatasetStats,
   type Engine,
   type ResolvedEngine,
   type RowsInput,
+  type StubEngine,
 } from '../data/index.js';
 import { createAlphaInvesting, createLordPlusPlus } from '../fdr/index.js';
 import { DashboardDefError, validateDashboardDef } from './validate.js';
@@ -82,7 +88,13 @@ export interface Dashboard {
   readonly engines: Readonly<Record<string, Engine>>;
   /** What each declared source vouched for when it was read — the table's provenance. */
   readonly sources: Readonly<Record<string, SourceInfo>>;
-  /** Build notes a def should hear (an `auto` engine resolved to memory, and why). */
+  /**
+   * Build notes a def should hear, in the order its tables were read: an `auto`
+   * engine resolved to memory and why; a table routed to an engine this version
+   * does not run, and what that table will say at its first read; a table a host
+   * answered with its own provider. Worth reading — a dashboard that builds
+   * without a problem can still be one that answers nothing.
+   */
   readonly notes: readonly string[];
   /**
    * Re-read every declared source (or the named tables) with the version held:
@@ -117,7 +129,6 @@ export interface Dashboard {
   lintProse(): Promise<ProseProblem[]>;
 }
 
-/** Options controlling engine resolution for `engine: 'auto'` tables. */
 /** One table's answer to a refresh. */
 export type RefreshOutcome =
   | { readonly unchanged: true; readonly version: string }
@@ -156,12 +167,18 @@ export interface BuildDashboardAsyncOptions extends BuildDashboardOptions {
   readonly sources?: readonly SourceAdapter[];
 }
 
+/** What a host brings to a build that the def cannot carry: the engines it has, the encoding plane's ports, and its own providers. */
 export interface BuildDashboardOptions {
   /**
-   * Engines actually available in this environment. It bounds an EXPLICIT
-   * `engine` (a declared `server` needs it listed); `auto` no longer routes on
-   * it — `auto` resolves to memory with a note until a measured bench exists,
-   * and the guess the placeholder thresholds would have made is only quoted.
+   * Engines the host says this environment has. It bounds ONE thing — the guess
+   * `auto` quotes — and it is documented that narrowly because it kept nothing
+   * else: an explicit `engine` is honoured whether or not it is listed here (a
+   * declared `wasm` or `server` routes to that engine's typed stub, and the
+   * build note says what that table will answer), and `auto` resolves to memory
+   * either way, until a measured bench exists.
+   *
+   * Naming NONE (`[]`) is refused at the door, because `[]` is not "unset": it
+   * survives the default and leaves `auto` with nothing to resolve at all.
    */
   readonly availableEngines?: readonly ResolvedEngine[];
   /** The encoding plane's PORTS — explainer, coercers, recommender (code, so never on the def; see src/encoding/README.md). */
@@ -203,8 +220,8 @@ export interface BuildDashboardOptions {
 
 /** The port's four methods — a provider that misses one cannot answer a query. */
 const PROVIDER_METHODS = ['tables', 'columns', 'evaluate', 'materializeColumn'] as const;
-/** …and the one data field the audit reads back: which engine the host's provider IS. */
-const RESOLVED_ENGINES: readonly ResolvedEngine[] = ['memory', 'wasm', 'server'];
+/** …and the one data field the audit reads back: which engine the host's provider IS. The one that answers, then the two `src/data/stubEngines.ts` names — never a second hand-typed list. */
+const RESOLVED_ENGINES: readonly ResolvedEngine[] = ['memory', ...STUB_ENGINES];
 
 /**
  * Judge {@link BuildDashboardOptions.providers} against the def, before a
@@ -237,6 +254,14 @@ function judgeProviders(def: DashboardDef, supplied: BuildDashboardOptions['prov
       problems.push(`providers["${table}"].engine is "${String(provider.engine)}" — a DataProvider names which engine it is, one of ${RESOLVED_ENGINES.join(', ')}`);
       continue;
     }
+    // the port's sixth member, judged on the same WHY as `engine`: the session
+    // reads `capabilities.canSort` before every sorted window, so a provider
+    // that will not declare them leaves it dereferencing nothing at first query
+    const caps = (provider as unknown as Record<string, unknown>).capabilities;
+    if (caps === null || typeof caps !== 'object') {
+      problems.push(`providers["${table}"] declares no capabilities — a DataProvider says what it can do (canEvaluateSQL, canMaterialize, canSort), and the session reads it before every sorted window`);
+      continue;
+    }
     if (def.data[table]!.source !== undefined) {
       problems.push(`providers["${table}"] brings its own rows, and data["${table}"] declares a source — a table's rows come from one place; drop one of them`);
     }
@@ -244,9 +269,25 @@ function judgeProviders(def: DashboardDef, supplied: BuildDashboardOptions['prov
   return problems;
 }
 
+/**
+ * …and the host option that can be EMPTY. `[]` is not `undefined`: it survives
+ * the default, reaches `chooseEngine` with nothing at or above the picked tier,
+ * and aborts the whole build with a `RangeError` from a module the caller never
+ * named — for a guess that is only quoted in a note. Judged here instead, in the
+ * same sentence shape every other bad option gets.
+ */
+function judgeAvailableEngines(available: readonly ResolvedEngine[] | undefined): string[] {
+  return available !== undefined && available.length === 0
+    ? [`availableEngines is [] — name at least one engine (${RESOLVED_ENGINES.join(', ')}), or omit it to mean ${DEFAULT_AVAILABLE.join(', ')}`]
+    : [];
+}
+
 /** The note a host-supplied table owes the audit: the def routed it somewhere nothing was built. */
 const hostProviderNote = (table: string, host: ResolvedEngine, declared: Engine): string =>
   `data["${table}"]: the host supplied its own "${host}" provider — the declared engine "${declared}" was not built`;
+
+/** …and the note a table routed to an engine THIS VERSION DOES NOT RUN owes it: the read-time refusal, word for word, heard at the door instead. */
+const stubEngineNote = (table: string, engine: StubEngine): string => `data["${table}"]: ${stubEngineRefusal(engine, table)}`;
 
 const DEFAULT_AVAILABLE: readonly ResolvedEngine[] = ['memory'];
 
@@ -266,22 +307,39 @@ function statsOf(source: { rows?: readonly unknown[]; csv?: string }): DatasetSt
   return { rowCountEstimate: 0 };
 }
 
-/** The engine a table runs on, and the note owed when `auto` was declared. */
+/**
+ * The engine a table runs on, and the NOTES it owes — one when `auto` was
+ * declared, one when the declaration routed somewhere this version does not run.
+ *
+ * WHY a declared `wasm`/`server` is honoured and NOT refused at the def door:
+ * both name a real seam, both are legal in the def's grammar, and the very same
+ * def RUNS when a host answers that table through `options.providers` — which
+ * the validator never sees. What is missing is an engine in this VERSION, not a
+ * rule the def broke; so the build says it, loudly, in the words the engine
+ * itself will use at the first read (`src/data/stubEngines.ts`).
+ */
 function resolveEngine(
   declared: Engine | undefined,
-  stats: DatasetStats,
+  // a THUNK: only `auto` reads the stats, and counting a 50MB CSV's lines to
+  // quote a guess nobody looks at is a whole extra pass over the bytes
+  stats: () => DatasetStats,
   available: readonly ResolvedEngine[],
   table: string,
   notes: string[],
 ): ResolvedEngine {
   const engine = declared ?? 'memory';
-  if (engine !== 'auto') return engine;
-  // `auto` resolves to the one engine that runs, and says so: the thresholds behind
-  // `chooseEngine` are an unmeasured placeholder (Q12), and a round number must not
-  // route a real table to a stub that refuses every query.
-  const guess = chooseEngine(stats, { availableEngines: available });
-  notes.push(`data["${table}"]: engine "auto" resolved to memory (the placeholder thresholds would have said "${guess}"; they are unmeasured — declare an engine to choose otherwise)`);
-  return 'memory';
+  if (engine === 'auto') {
+    // `auto` resolves to the one engine that runs, and says so: the thresholds behind
+    // `chooseEngine` are an unmeasured placeholder (Q12), and a round number must not
+    // route a real table to a stub that refuses every query.
+    const guess = chooseEngine(stats(), { availableEngines: available });
+    notes.push(`data["${table}"]: engine "auto" resolved to memory (the placeholder thresholds would have said "${guess}"; they are unmeasured — declare an engine to choose otherwise)`);
+    return 'memory';
+  }
+  // the same law one step over: if a round number may not route to a stub silently,
+  // neither may a declaration — the author hears at BUILD what the table says at READ
+  if (isStubEngine(engine)) notes.push(stubEngineNote(table, engine));
+  return engine;
 }
 
 function buildProvider(
@@ -330,8 +388,8 @@ function makeFdrStepperFactory(def: DashboardDef): () => FdrStepper {
 export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions = {}): Dashboard {
   const problems = validateDashboardDef(def);
   if (problems.length) throw new DashboardDefError(problems);
-  // the host's own engines, judged with the def and before a table is built
-  const hostProblems = judgeProviders(def, options.providers);
+  // the host's own options — the providers it brought and the engines it says it has — judged with the def, before a table is built
+  const hostProblems = [...judgeProviders(def, options.providers), ...judgeAvailableEngines(options.availableEngines)];
   if (hostProblems.length) throw new DashboardDefError(hostProblems);
   // a table whose rows must be fetched cannot be built synchronously — say so rather than pretend
   const remote = Object.entries(def.data).filter(([, src]) => src.source !== undefined && src.source.via !== 'inline').map(([t, src]) => `data["${t}"] declares a source via ${src.source!.via} — build it with buildDashboardAsync`);
@@ -365,7 +423,7 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
       sources[table] = { format: source.source.format, via: 'inline', version: inlineVersion(source.source.at), retrievedAt: new Date().toISOString(), rows: rows.length };
       continue;
     }
-    const engine = resolveEngine(source.engine, statsOf(source), available, table, notes);
+    const engine = resolveEngine(source.engine, () => statsOf(source), available, table, notes);
     engines[table] = engine;
     providers.set(table, buildProvider(engine, table, source));
   }
@@ -381,7 +439,7 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
 export async function buildDashboardAsync(def: DashboardDef, options: BuildDashboardAsyncOptions = {}): Promise<Dashboard> {
   const problems = validateDashboardDef(def);
   if (problems.length) throw new DashboardDefError(problems);
-  const hostProblems = judgeProviders(def, options.providers);
+  const hostProblems = [...judgeProviders(def, options.providers), ...judgeAvailableEngines(options.availableEngines)];
   if (hostProblems.length) throw new DashboardDefError(hostProblems);
   const available = options.availableEngines ?? DEFAULT_AVAILABLE;
   const notes: string[] = [];
@@ -416,7 +474,7 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
       };
       continue;
     }
-    const engine = resolveEngine(source.engine, statsOf(source), available, table, notes);
+    const engine = resolveEngine(source.engine, () => statsOf(source), available, table, notes);
     engines[table] = engine;
     providers.set(table, buildProvider(engine, table, source));
   }
@@ -426,10 +484,14 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
   // provider. A refresh replaces a provider, so it drops that table's slots.
   const derived = new DerivedColumnStore();
   const run = async (which?: readonly string[]): Promise<RefreshResult> => {
+    // ONE answer per table asked: a name given twice fetches its carrier twice, and the second
+    // pass reads the FIRST pass's own swap as "unchanged" — overwriting the change it just made
+    const asked = [...new Set(which ?? Object.keys(def.data))];
     const out: Record<string, RefreshOutcome> = {};
-    for (const table of which ?? Object.keys(def.data)) {
-      const decl = def.data[table];
-      const held = sources[table];
+    for (const table of asked) {
+      // own keys only, the way `judgeProviders` reads the same map: `toString` is not a declared table
+      const decl = Object.prototype.hasOwnProperty.call(def.data, table) ? def.data[table] : undefined;
+      const held = Object.prototype.hasOwnProperty.call(sources, table) ? sources[table] : undefined;
       if (decl === undefined) {
         // an unknown name is refused as such — never described as a table with inline rows
         out[table] = { refused: true, reason: 'no-source', message: `no table "${table}" is declared — the tables are ${Object.keys(def.data).join(', ')}` };
@@ -479,7 +541,7 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
         out[table] = { refused: true, reason: isSourceRefusal(e) ? e.reason : 'no-source', message: e instanceof Error ? e.message : String(e) };
       }
     }
-    journal.push(journalRecord([...(which ?? Object.keys(def.data))], out));
+    journal.push(journalRecord(asked, out));
     return { tables: out };
   };
   // refreshes run one after another: two overlapping ones would read each other's swap as a change of their own
@@ -585,7 +647,7 @@ export function restoreSavedInto(store: SavedStore, list: readonly RestorableSav
       seen.add(c.viewId);
       if (!SAVED_CONDITION_KINDS.includes(c.kind as string)) { bad = `"${String(c.kind)}" is not a condition kind`; break; }
       // the two-column kinds are judged on their PAIR (their `field` is a joint label); every other kind on its field
-      const pair = c.kind === 'cell' || c.kind === 'neighbourhood';
+      const pair = isPairKind(c.kind as string);
       if (pair ? !Array.isArray(c.fields) || c.fields.length !== 2 : typeof c.field !== 'string' || c.field.length === 0) { bad = pair ? `a ${c.kind} condition on "${c.viewId}" needs its two fields` : `a ${c.kind} condition on "${c.viewId}" needs a field`; break; }
       // `null` is the one spelling of CLEARED (src/session/README.md, beside law 6) — never a value a picture holds
       if (c.value === undefined || c.value === null) { bad = `the condition on "${c.viewId}" needs a value`; break; }
@@ -773,14 +835,15 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     // a synchronous dashboard holds inline sources only, which never move; a table with no source has nothing to refresh —
     // the answer is still journaled, so the tab can say "asked at 14:02: unchanged" instead of nothing
     refresh: refresh ?? (async (which) => {
-      const asked = [...(which ?? Object.keys(def.data))];
+      const asked = [...new Set(which ?? Object.keys(def.data))];
       const result: RefreshResult = {
         tables: Object.fromEntries(
           asked.map((t) => [
             t,
-            def.data[t] === undefined
+            // own keys only: `toString` is a member of every object, and no table anybody declared
+            !Object.prototype.hasOwnProperty.call(def.data, t)
               ? { refused: true, reason: 'no-source', message: `no table "${t}" is declared — the tables are ${Object.keys(def.data).join(', ')}` }
-              : sources[t] !== undefined
+              : Object.prototype.hasOwnProperty.call(sources, t)
                 ? { unchanged: true, version: sources[t]!.version }
                 : { refused: true, reason: 'no-source', message: `data["${t}"] declares no source — inline rows never move` },
           ]),
@@ -798,7 +861,7 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     createSession: (opts) => createInteractionSession(runtime, opts),
     lintProse: async () => {
       const cols = await providers.get(defaultTable)!.columns(defaultTable);
-      if (isRejection(cols)) throw new Error(`lintProse: the "${defaultTable}" provider cannot list its columns — ${cols.reason}`);
+      if (isRejection(cols)) throw new Error(`lintProse: the "${defaultTable}" provider cannot list its columns — ${cols.detail ?? cols.reason}`);
       const world = { columns: new Set(cols.map((c) => c.name)), analyses: new Set(analyses.keys()), surfaced: new Set([...views.values()].filter((v) => v.encoding !== undefined).map((v) => v.viewId)) };
       const problems: ProseProblem[] = [];
       for (const [viewId, slots] of runtime.prose) for (const [slot, record] of Object.entries(slots)) problems.push(...validateProseRecord(viewId, slot, record, world));
@@ -809,7 +872,6 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
       for (const [table, key] of Object.entries(keys)) {
         const cols = await providers.get(table)!.columns(table);
         if (isRejection(cols)) {
-          /* v8 ignore next -- every provider's reject() supplies a `detail`; the `reason` fallback is unreachable via the public API (the allRows precedent) */
           out.push(`data["${table}"].key "${key}": the engine cannot list this table's columns — ${cols.detail ?? cols.reason}`);
           continue;
         }
@@ -819,7 +881,6 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
       for (const [i, { from }] of relations.entries()) {
         const cols = await providers.get(from.table)!.columns(from.table);
         if (isRejection(cols)) {
-          /* v8 ignore next -- every provider's reject() supplies a `detail`; the `reason` fallback is unreachable via the public API (the key lint's precedent) */
           out.push(`relations[${i}].from.column "${from.column}": the engine cannot list this table's columns — ${cols.detail ?? cols.reason}`);
           continue;
         }
@@ -829,7 +890,7 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     },
     lint: async () => {
       const cols = await providers.get(defaultTable)!.columns(defaultTable);
-      if (isRejection(cols)) throw new Error(`lint: the "${defaultTable}" provider cannot list its columns — ${cols.reason}`);
+      if (isRejection(cols)) throw new Error(`lint: the "${defaultTable}" provider cannot list its columns — ${cols.detail ?? cols.reason}`);
       const surfaces = [...views.values()].flatMap((v) => (v.encoding !== undefined ? [v.encoding] : []));
       // the same union the build door judges: the default table's real columns, plus every
       // field a view binds or another table declares — typed by that table when it declares
@@ -882,7 +943,7 @@ async function lintLayers(views: ReadonlyMap<string, ViewDecl>, providers: Reado
   for (const view of views.values()) {
     for (const layer of view.layers ?? []) {
       const cols = await providers.get(layer.table)!.columns(layer.table);
-      if (isRejection(cols)) throw new Error(`lint: the "${layer.table}" provider cannot list its columns — ${cols.reason}`);
+      if (isRejection(cols)) throw new Error(`lint: the "${layer.table}" provider cannot list its columns — ${cols.detail ?? cols.reason}`);
       out.push(...lintEncodings({ views: [layerSurfaceOf(view.viewId, layer)], facets: runtime.encoding.facetsOf(layer.table, cols), page, rules: runtime.encoding.rules, ports: runtime.encoding.ports }));
     }
   }

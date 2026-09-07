@@ -48,4 +48,6 @@ Every way a source can fail has one name from a closed vocabulary, `SOURCE_REFUS
 
 ## Not yet
 
-the streaming carrier (`snapshot(options)` already takes an abort signal; a conditional read `sinceVersion` and a delta channel gated by `live` arrive with it), the row key and the version stamp on commits, snapshot plus delta, and a package `exports` map (`./source`, `./source/file`) — today the library is consumed by path, so a host imports the file carrier from `src/source/file`.
+The streaming carrier, and only that: `snapshot(options)` already takes an abort signal, and a delta channel gated by `live` arrives with it.
+
+Everything else this list used to name has SHIPPED, and the section above is where each one now lives — the row key and its exact delta (`data[t].key`, `deltaByKey`), the version stamp every commit carries (`CommitRecord.data`, from the log's `stampData` hook), and the package `exports` map: `vizfootprint/source` and `vizfootprint/source/file` are real specifiers in `package.json`, so a host no longer reaches the file carrier by path. A "not yet" that outlives the work is worse than no list at all — it tells a reader to go build what is already under their hand — so `notYet.test.ts` pins this paragraph against the code that proves each one landed.

@@ -74,6 +74,10 @@ import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { mapProseRefs } from './proseRefs.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
 import type { NavigateViewState } from '../contract/types.js';
+// the sheet's arrangement grammar has ONE owner (`../sheet/README.md`); this door
+// spells nothing out for itself, so the act and the read can never disagree
+import { SHEET_SORT_PROP, sheetLayoutViewId, sortToLayoutValue, sortWords } from '../sheet/arrangement.js';
+import type { SortSpec } from 'vizfootprint/data';
 
 // ── the structural session contract (duck-typed; no value import from src) ─────
 
@@ -404,6 +408,7 @@ interface StatePieces {
   readiness: ReadinessView[];
   charts: ChartCellView[];
   layout: LayoutView;
+  layouts?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   mode?: string;
   readonly links?: LinkGraphView;
   /** The encoding plane's rules as sentences + policy, when the wire carries them. */
@@ -471,6 +476,8 @@ function finalize(p: StatePieces): SessionViewState {
     readiness: p.readiness,
     charts: p.charts,
     layout: p.layout,
+    // every scope, not only the dashboard's: a sheet's arrangement is one of them
+    ...(p.layouts !== undefined ? { layouts: p.layouts } : {}),
     mode: p.mode,
   };
 }
@@ -1041,6 +1048,7 @@ async function mapSession(session: SessionLike, defaultLayout?: LayoutPreset): P
     // LY-1: a pre-layout session (no `layouts` on its overview yet — duck-typed
     // sources) parses to the default flow arrangement, hence the `?.`.
     layout: parseLayout(overview.layouts?.['dashboard'], defaultLayout),
+    ...(overview.layouts !== undefined ? { layouts: overview.layouts } : {}),
   });
 }
 
@@ -1082,6 +1090,7 @@ export function mapPollState(raw: RawPollState, defaultLayout?: LayoutPreset): S
     readiness: mapReadiness(raw.analyses),
     charts: mapCharts(raw.charts),
     layout: parseLayout(raw.layouts?.['dashboard'], defaultLayout),
+    ...(raw.layouts !== undefined ? { layouts: raw.layouts } : {}),
     mode: raw.mode,
   });
 }
@@ -1194,6 +1203,22 @@ export interface SessionView {
    * ("layout = focus on scatter"). Works over both sources.
    */
   setLayout(change: LayoutChange): Promise<void>;
+  /**
+   * LY-1, in a SHEET's own scope: land the order a grid is in, under
+   * `layout:sheet:<viewId>`.
+   *
+   * A sort is an ACT, not a read — it replaces the order every later window is
+   * answered in — so it belongs on the trace, and the verb it lands through is
+   * one of the ten this library already has. The commit is inert exactly as the
+   * cockpit's arrangement is: recorded, folded, restored at a cursor, and never
+   * a data claim. `undefined` clears the sort, which is itself an act and says
+   * so in its own words.
+   *
+   * Read it back with `sheetSortOf(state.layouts, viewId)` and hand it to
+   * `<Sheet sort=…>`; nothing here is judged, and a value the session refuses
+   * (too long, say) files its own typed gap in the session's words.
+   */
+  setSheetSort(viewId: string, sort: readonly SortSpec[] | undefined): Promise<void>;
   analyze(analysisId: string, intent?: string): Promise<void>;
   /**
    * ADD A DERIVED COLUMN: a formula over the columns this table already has,
@@ -1588,6 +1613,18 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
           { verb: 'navigate', viewId: LAYOUT_DASHBOARD_VIEW_ID, field: n.field, value: n.value, intent: n.intent },
         );
       }
+    },
+
+    async setSheetSort(viewId, sort) {
+      // ONE commit, whatever the arrangement: the value round-trips exactly and
+      // the plain words a reader sees ride the cause, exactly as setLayout's do.
+      const layoutViewId = sheetLayoutViewId(viewId);
+      const value = sortToLayoutValue(sort);
+      const intent = sortWords(viewId, sort);
+      await dispatch(
+        { verb: 'navigate', viewId: layoutViewId, field: SHEET_SORT_PROP, value, cause: cause(intent) },
+        { verb: 'navigate', viewId: layoutViewId, field: SHEET_SORT_PROP, value, intent },
+      );
     },
 
     async analyze(analysisId, intent) {

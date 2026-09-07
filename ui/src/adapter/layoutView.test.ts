@@ -8,6 +8,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createSessionView, sessionSource, pollingSource, mapPollState, LAYOUT_DASHBOARD_VIEW_ID, type SessionLike, type RawPollState } from './sessionView.js';
 import { parseLayout, defaultLayout, emptyState } from './types.js';
+import { sheetSortOf } from '../sheet/arrangement.js';
 
 const BASE: RawPollState = { records: [] };
 
@@ -44,6 +45,31 @@ describe('mapPollState — the layouts slice', () => {
   });
   it('a pre-LY-1 payload (no layouts) renders the flow default', () => {
     expect(mapPollState(BASE).layout).toEqual(defaultLayout());
+  });
+  it('carries EVERY scope, not only the dashboard — a sheet reads its own arrangement off the same state', () => {
+    const s = mapPollState({ ...BASE, layouts: { dashboard: { preset: 'grid' }, 'sheet:cells': { sort: '[{"field":"cases","dir":"desc"}]' } } });
+    expect(s.layout.preset).toBe('grid');
+    expect(sheetSortOf(s.layouts, 'cells')).toEqual([{ field: 'cases', dir: 'desc' }]);
+    // and a payload that predates the fold has none, rather than an invented empty one
+    expect(mapPollState(BASE).layouts).toBeUndefined();
+  });
+});
+
+describe('setSheetSort — a sheet’s order lands as an act, over the poll source too', () => {
+  it('POSTs ONE navigate dispatch under the sheet’s own layout identity, words and all', async () => {
+    const calls: { url: string; body?: Record<string, unknown> }[] = [];
+    const impl = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined });
+      if (!init || init.method !== 'POST') return { ok: true, json: async () => BASE } as unknown as Response;
+      return { ok: true, json: async () => ({ ok: true }) } as unknown as Response;
+    });
+    const view = createSessionView(pollingSource({ fetchImpl: impl as unknown as typeof fetch }));
+    await view.refresh();
+    await view.setSheetSort('cells', [{ field: 'cases', dir: 'desc' }]);
+    expect(calls.filter((c) => c.url === '/api/dispatch').map((c) => c.body)).toEqual([
+      { verb: 'navigate', viewId: 'layout:sheet:cells', field: 'sort', value: '[{"field":"cases","dir":"desc"}]', intent: 'cells: sorted by cases \u2193' },
+    ]);
+    view.dispose();
   });
 });
 

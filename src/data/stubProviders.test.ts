@@ -58,7 +58,7 @@ describe('serverProvider — typed stub', () => {
     expect(await p.tables()).toEqual(['events', 'sessions']);
   });
 
-  it('columns/evaluate reject with reason "no-backend-connection"', async () => {
+  it('columns/evaluate reject with reason "not-implemented" — the code the union names this engine under', async () => {
     const p = serverProvider();
     const columns = await p.columns('t');
     const evald = await p.evaluate('t', null);
@@ -66,8 +66,23 @@ describe('serverProvider — typed stub', () => {
       expect(isRejection(result)).toBe(true);
       if (!isRejection(result)) throw new Error('unreachable');
       expect(result.engine).toBe('server');
-      expect(result.reason).toBe('no-backend-connection');
+      expect(result.reason).toBe('not-implemented');
     }
+  });
+
+  it('a caller who DID supply a coordinator hears the same code — the refusal never claims a handle was missing', async () => {
+    // `no-backend-connection` means "a handle was required and not supplied"; this stub ignores
+    // `coordinator` entirely, so filing that code would state something it never checked
+    const p = serverProvider({ coordinator: { query: () => undefined }, tables: ['cases'] });
+    const columns = await p.columns('cases');
+    expect(isRejection(columns) && columns.reason).toBe('not-implemented');
+  });
+
+  it('the declared table list is COPIED at construction — a caller\'s later push is not this provider\'s answer', async () => {
+    const asked = ['events'];
+    const p = serverProvider({ tables: asked });
+    asked.push('ghost');
+    expect(await p.tables()).toEqual(['events']);
   });
 
   it('materializeColumn rejects "not-implemented", consistent with canMaterialize:false', async () => {
