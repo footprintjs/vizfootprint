@@ -29,8 +29,13 @@ export type {
   CellEncoding,
   ChartEmission,
   ChartEncoding,
+  // protocol 1.3: the walk's encoding, and the narrower emission the pure
+  // translator takes — exported in the SAME change as the kind, so a consumer
+  // the compiler turns away has the type it must narrow to in the same barrel
+  ClauseEmission,
   EmissionContext,
   IntervalEncoding,
   MatchEncoding,
+  NeighbourhoodEncoding,
   PointEncoding,
 } from './emission.js';

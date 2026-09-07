@@ -23,12 +23,12 @@ import {
   causeClauseFromEmission,
   isRejection,
   type CauseClause,
-  type ChartEmission,
+  type ClauseEmission,
   type EmissionContext,
 } from '../selection/index.js';
 
 /** Mint on a fresh built-in port and insist — every emission here is a point the port accepts. */
-function minted(emission: ChartEmission, ctx: EmissionContext): CauseClause {
+function minted(emission: ClauseEmission, ctx: EmissionContext): CauseClause {
   const clause = causeClauseFromEmission(emission, ctx, builtinSelection());
   if (isRejection(clause)) throw new Error(`unexpected rejection: ${clause.reason}`);
   return clause;

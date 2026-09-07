@@ -68,12 +68,14 @@ function shapes(a: RegisteredSource): CauseClauseSpec[] {
     { kind: 'match', source: a, field: 'category', value: { values: [] }, cause: cause() },
     { kind: 'match', source: a, field: 'category', value: { values: [], exclude: true }, cause: cause() },
     { kind: 'match', source: a, field: 'category', value: { values: [null] }, cause: cause() },
+    { kind: 'neighbourhood', source: a, fields: ['from', 'to'], value: { seed: 'Zika', derivation: 'ego', hops: 1, ids: ['Zika', 'Lyme'] }, cause: cause() },
+    { kind: 'neighbourhood', source: a, fields: ['from', 'to'], value: { seed: 'Zika', derivation: 'ego', hops: 1, ids: [] }, cause: cause() },
   ];
 }
 
 const descriptorOf = (spec: CauseClauseSpec): string =>
-  spec.kind === 'cell'
-    ? mosaicDescriptorSQL('cell', spec.fields, spec.value)
+  spec.kind === 'cell' || spec.kind === 'neighbourhood'
+    ? mosaicDescriptorSQL(spec.kind, spec.fields, spec.value)
     : mosaicDescriptorSQL(spec.kind, spec.field, spec.kind === 'point' ? pointValueFromWire(spec.value) : spec.value);
 
 describe('mosaicSelection — engine, capabilities, native()', () => {
@@ -180,6 +182,20 @@ describe('mosaicSelection.clause — a REAL Mosaic clause beside our projection'
     expect(minted(port, { kind: 'match', source: a, field: 'c', value: { values: [] }, cause: cause() }).predicateSQL).toBe('FALSE');
     expect(minted(port, { kind: 'match', source: a, field: 'c', value: { values: [], exclude: true }, cause: cause() }).predicateSQL).toBe('(NOT FALSE)');
     expect(minted(port, { kind: 'match', source: a, field: 'c', value: { values: [null] }, cause: cause() }).predicateSQL).toBe('("c" IS NULL)');
+    // the neighbourhood: the real `and` of two real `isIn` lists over ONE walked set
+    const hood = (ids: readonly unknown[]): CauseClauseSpec => ({
+      kind: 'neighbourhood',
+      source: a,
+      fields: ['from', 'to'],
+      value: { seed: 'Zika', derivation: 'ego', hops: 1, ids },
+      cause: cause(),
+    });
+    expect(minted(port, hood(['Zika', 'Lyme'])).predicateSQL).toBe(`(("from" IN ('Zika', 'Lyme')) AND ("to" IN ('Zika', 'Lyme')))`);
+    expect(minted(port, hood(['Zika'])).predicateSQL).toBe(`(("from" IN ('Zika')) AND ("to" IN ('Zika')))`);
+    // an empty walked set is the real literal(false) — the same always-false an empty keep-list renders
+    expect(minted(port, hood([])).predicateSQL).toBe('FALSE');
+    // an id is a literal, NOT the point factory's null-safe rewrite: a null id stays the literal NULL
+    expect(minted(port, hood([null])).predicateSQL).toBe(`(("from" IN (NULL)) AND ("to" IN (NULL)))`);
   });
 
   it('a cleared clause of any kind carries predicateSQL null — and a null native predicate', () => {
@@ -189,6 +205,7 @@ describe('mosaicSelection.clause — a REAL Mosaic clause beside our projection'
       { kind: 'interval', source: a, field: 'x', value: null, cause: cause() },
       { kind: 'cell', source: a, fields: ['x', 'y'], value: null, cause: cause() },
       { kind: 'match', source: a, field: 'x', value: null, cause: cause() },
+      { kind: 'neighbourhood', source: a, fields: ['x', 'y'], value: null, cause: cause() },
     ];
     for (const spec of cleared) {
       const clause = minted(port, spec);

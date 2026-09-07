@@ -25,7 +25,7 @@ beforeAll(() => {
 
 import type { ChartEmission } from 'vizfootprint/selection';
 import { useHorizontalBrush, BrushOverlay, type HorizontalBrushOptions } from './brush.js';
-import { pointEmission, togglePointEmission, keyActivates, matchEmission, toggleInSetEmission } from './pointSelect.js';
+import { pointEmission, togglePointEmission, keyActivates, matchEmission, toggleInSetEmission, walkEmission, toggleWalkEmission } from './pointSelect.js';
 import { selectedSet, markClass } from './useSelection.js';
 import { useKeepPredicate, selectedValue, dimClass } from './useSelection.js';
 import { useReencodePicker } from './reencode.js';
@@ -261,6 +261,22 @@ describe('scales — the shared date handling', () => {
 // the emission type stays the single vocabulary — a compile-time pin
 const _pin: ChartEmission = pointEmission('f', 1);
 void _pin;
+
+describe('the walk language (protocol 1.3) — walkEmission, toggleWalkEmission', () => {
+  it('a walk emission is the SEED on an endpoint column — a question, never a set', () => {
+    expect(walkEmission('source', 'flu')).toEqual({ rawValue: 'flu', encoding: { kind: 'neighbourhood', field: 'source' } });
+    expect(walkEmission('source', null)).toEqual({ rawValue: null, encoding: { kind: 'neighbourhood', field: 'source' } });
+  });
+
+  it('asking again for the walk already in force CLEARS it — the point\'s own rule, read against the live seed', () => {
+    expect(toggleWalkEmission('source', 'flu', 'flu')).toEqual(walkEmission('source', null));
+    expect(toggleWalkEmission('source', 'flu', 'cold')).toEqual(walkEmission('source', 'flu'));
+    expect(toggleWalkEmission('source', 'flu', null)).toEqual(walkEmission('source', 'flu'));
+    expect(toggleWalkEmission('source', 'flu', undefined)).toEqual(walkEmission('source', 'flu'));
+    // a seed that is not a string on the wire still compares by its words — an agent may have landed a number
+    expect(toggleWalkEmission('source', '7', 7)).toEqual(walkEmission('source', null));
+  });
+});
 
 describe('SET-1 primitives — matchEmission, toggleInSetEmission, selectedSet, markClass', () => {
   it('matchEmission carries the list and its polarity as one value; null clears', () => {

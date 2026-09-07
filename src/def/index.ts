@@ -21,7 +21,7 @@ export {
   RELATION_KINDS,
 } from './types.js';
 // Relations between tables — validated in `./relations.ts`, laws in ./README.md ("Relations").
-export { validateRelations, relationEdgeId, joinsTables, relationsFrom, judgeAnalysisReads } from './relations.js';
+export { validateRelations, relationEdgeId, joinsTables, relationsFrom, judgeAnalysisReads, neighbourhoodEndpoints } from './relations.js';
 // Layers — a view over more than one table; `viewId~layerId` is the address an act on a layer lands under,
 // and `./layerAddress.ts` is the ONE owner of the marker (laws in ./README.md "Layers").
 export { LAYER_MARKER, layerAddress, splitLayerAddress, holdsLayerMarker } from './layerAddress.js';
@@ -107,6 +107,16 @@ export {
   describeRules,
   discreteCoercer,
   BUILTIN_COERCERS,
+  // the reading rule (matrix or node-link) rides the same door as the offer that
+  // consumes it — a consumer reading `ChartProposals.reading` needs the rules
+  // and the thresholds beside it, or it re-derives them
+  GRAPH_READING_RULES,
+  DEFAULT_GRAPH_READING,
+  CHART_KIND_FOR_READING,
+  DENSE_AT,
+  BIG_AT,
+  densityOf,
+  graphReadingFor,
 } from '../encoding/index.js';
 export type {
   ChannelClass,
@@ -137,6 +147,11 @@ export type {
   ProposalKind,
   ProposeChartsInput,
   RuleLine,
+  GraphFact,
+  GraphQuestion,
+  GraphReading,
+  GraphReadingKind,
+  GraphReadingRule,
 } from '../encoding/index.js';
 
 // The data-source layer (owned by src/source; the file carrier is its own module, src/source/file.ts).

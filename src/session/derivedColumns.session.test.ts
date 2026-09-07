@@ -94,6 +94,54 @@ describe('two branches computing the same column name do not see each other’s 
     expect(await riskOn(s)).toEqual(onB);
   });
 
+  it('the ROWS agree with the columns at the cursor — a sibling branch\'s slot never rides out as a column', async () => {
+    const s = buildDashboard(defWith({
+      byPrice: columnAnalysis({ id: 'byPrice', from: 'price', k: 4, out: 'risk' }),
+      byRating: columnAnalysis({ id: 'byRating', from: 'rating', k: 2, out: 'risk' }),
+    })).createSession();
+
+    const root = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause });
+    const rootId = root.ok ? root.commit!.id : '';
+    const a = await s.declareAnalysis('byPrice');
+    s.seek(rootId);
+    await s.declareAnalysis('byRating');
+
+    // OFF both branches: the columns say `risk` is not here, and the rows must say the same —
+    // a physical slot (`risk@s…`) is this library's own grammar, never a column a consumer sees
+    s.seek(rootId);
+    const declared = (await s.overview()).columns['data']!.map((c) => c.field);
+    expect(declared).not.toContain('risk');
+    const off = await s.selectedRows('data');
+    expect(Object.keys(off[0]!)).toEqual(declared);
+
+    // ON a branch: its own column is there under its logical name, and the SIBLING's is not
+    s.seek(a.commit!.id);
+    const here = await s.selectedRows('data');
+    expect(Object.keys(here[0]!)).toEqual((await s.overview()).columns['data']!.map((c) => c.field));
+    expect(Object.keys(here[0]!)).toContain('risk');
+    expect(Object.keys(here[0]!).filter((k) => k.includes('@'))).toEqual([]);
+  });
+
+  it('a commit id that cannot name a slot files a gap and writes nothing — the replayed-log id no session mints', async () => {
+    const source = buildDashboard(defWith({
+      byPrice: columnAnalysis({ id: 'byPrice', from: 'price', k: 4, out: 'risk' }),
+    })).createSession();
+    const landed = await source.declareAnalysis('byPrice');
+    // a foreign log: `parseCommitLog` judges shape and lineage, never the character set, so an id
+    // carrying the slot grammar's reserved marker reaches `writeColumns` intact
+    const wire = source.log.records.map((r) => (r.id === landed.commit!.id ? { ...r, id: 'a@b' } : r));
+
+    const fresh = buildDashboard(defWith({
+      byPrice: columnAnalysis({ id: 'byPrice', from: 'price', k: 4, out: 'risk' }),
+    })).createSession();
+    const replayed = await fresh.replay(JSON.stringify(wire));
+    expect(replayed.ok).toBe(true);
+    expect(fresh.gaps().at(-1)).toMatchObject({ code: 'guard-failed', target: 'data' });
+    expect(fresh.gaps().at(-1)!.detail).toContain('"a@b"');
+    fresh.seek('a@b');
+    expect((await fresh.overview()).columns['data']!.map((c) => c.field)).not.toContain('risk');
+  });
+
   it('a column computed on another branch is not visible here, and a select on it is an honest gap', async () => {
     const s = buildDashboard(defWith({
       byPrice: columnAnalysis({ id: 'byPrice', from: 'price', k: 4, out: 'risk' }),

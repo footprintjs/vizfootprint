@@ -21,12 +21,12 @@ export interface CommitView {
   readonly id: string;
   readonly parent: string | null;
   readonly viewId: string;
-  readonly kind: 'point' | 'interval' | 'cell' | 'match';
+  readonly kind: 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood';
   /** For kind:'cell' this is the display-only joint label ("price × category"); the pair rides `fields` (D30). */
   readonly field: string;
   /** For kind:'cell': the two-sided pair `[x side, y side]`, or null for a cleared cell. */
   readonly value: unknown;
-  /** kind:'cell' only — the two selected fields, x side then y side. */
+  /** The two-column kinds only — a cell's x/y fields (D30), or a neighbourhood's two edge endpoints. */
   readonly fields?: readonly [string, string];
   /** The principal that authored the commit (`cause.requestedBy`). */
   readonly actor: Actor;
@@ -91,7 +91,7 @@ export interface ViewView {
   /** The view's layers when it declares any (a node-link: edges under nodes, each its own table). Absent on a plain view and on an older wire. */
   readonly layers?: readonly LayerView[];
   /** Which point/interval/cell/match SELECTION kinds this view can emit (R3 capability). */
-  readonly selectionKinds: readonly ('point' | 'interval' | 'cell' | 'match')[];
+  readonly selectionKinds: readonly ('point' | 'interval' | 'cell' | 'match' | 'neighbourhood')[];
   readonly canProbe: boolean;
   readonly mounted: boolean;
   /** The current channel→field visual-encoding map at the cursor (the `reencode` fold; UI-0). */
@@ -192,10 +192,10 @@ export interface SelectionView {
   readonly viewId: string;
   /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D30). */
   readonly field: string;
-  readonly kind: 'point' | 'interval' | 'cell' | 'match';
+  readonly kind: 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood';
   /** For kind:'cell': the two-sided pair `[x side, y side]`; for kind:'match': `{ values, exclude? }` (SET-1) or null. */
   readonly value: unknown;
-  /** kind:'cell' only — the two selected fields, x side then y side. */
+  /** The two-column kinds only — a cell's x/y fields (D30), or a neighbourhood's two edge endpoints. */
   readonly fields?: readonly [string, string];
   /** The commit that landed this live selection — what a note (a saved selection) or a bring-over names. Absent on an older server. */
   readonly commitId?: string;
@@ -245,7 +245,7 @@ export interface RefreshRecordView {
 /** One condition of a saved picture: which chart, which field, which test on the value. Shaped like a {@link SelectionView} on purpose, so the same words render it. */
 export interface SavedClauseView {
   readonly viewId: string;
-  readonly kind: 'point' | 'interval' | 'cell' | 'match';
+  readonly kind: 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood';
   /** The column (a cell's joint label — the pair rides `fields`). */
   readonly field: string;
   readonly fields?: readonly [string, string];
@@ -540,7 +540,7 @@ export interface LinkEdgeView {
   readonly id: string;
   readonly source: string;
   /** An emission kind (a selection), or `encoding` — the source's channel BINDING, which the target may follow. */
-  readonly kind: 'point' | 'interval' | 'cell' | 'match' | 'encoding';
+  readonly kind: 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood' | 'encoding';
   readonly target: string;
   /** `follow` and `none` are the responses of an encoding edge; the rest answer a selection. */
   readonly response: 'filter' | 'highlight' | 'navigate' | 'mirror' | 'none' | 'follow';
@@ -555,7 +555,7 @@ export interface LinkEdgeView {
 /** The materialized link graph (layer 4): what each view's emission does to every other view. */
 export interface LinkGraphView {
   readonly default: 'crossfilter' | 'none';
-  readonly views: readonly { readonly viewId: string; readonly voice: readonly ('point' | 'interval' | 'cell' | 'match' | 'encoding')[]; readonly channels?: readonly string[] }[];
+  readonly views: readonly { readonly viewId: string; readonly voice: readonly ('point' | 'interval' | 'cell' | 'match' | 'neighbourhood' | 'encoding')[]; readonly channels?: readonly string[] }[];
   readonly edges: readonly LinkEdgeView[];
 }
 

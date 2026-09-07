@@ -27,7 +27,9 @@
  */
 import { copyClause } from './wire.js';
 import type { LinkEdge, LinkGraph } from '../links/index.js';
-import type { PredicateClause } from '../data/index.js';
+// the ONE renamer and the ONE column reader — a two-column kind is renamed and
+// read here the day it is added there, never by a second spelling of the rule
+import { clauseFields, renameClauseFields, type PredicateClause } from '../data/index.js';
 import type { ReachingClause } from './types.js';
 
 /** A view whose last selection was CLEARED, with what it was and the clearing commit. */
@@ -63,7 +65,7 @@ export function clausesReaching(input: {
     const own = copyClause(clause);
     if (edge.mapping === undefined) return own;
     const to = (f: string): string => edge.mapping!.find((m) => m.from === f)?.to ?? f;
-    return own.kind === 'cell' ? { ...own, fields: [to(own.fields[0]), to(own.fields[1])] } : { ...own, field: to(own.field) };
+    return renameClauseFields(own, to);
   };
   const out: ReachingClause[] = [];
   // a source that CLEARED still reaches a consumer whose edge says so: `leave` keeps the last clause, `excludeAll` keeps nothing, `showAll` (the default) = gone
@@ -75,7 +77,8 @@ export function clausesReaching(input: {
     const policy = edge.onClear ?? 'showAll';
     if (policy === 'showAll') continue;
     const clause = mapped(edge, rec.clause);
-    out.push({ from, response: edge.response, clause: policy === 'leave' ? clause : { kind: 'match', field: clause.kind === 'cell' ? clause.fields[0] : clause.field, values: [] } });
+    // `excludeAll` keeps nothing: an empty IN-list on the clause's first column — whatever kind it was, asked once (`clauseFields`)
+    out.push({ from, response: edge.response, clause: policy === 'leave' ? clause : { kind: 'match', field: clauseFields(clause)[0]!, values: [] } });
   }
   for (const [from, clause] of live) {
     const edge = reaches(from, clause.kind);

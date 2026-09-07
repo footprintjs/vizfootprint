@@ -149,9 +149,11 @@ describe('the cells, drawn', () => {
   });
 
   it('the verbs a gesture is recorded under cover every emission kind there is', () => {
-    expect(Object.keys(GESTURE_WORDS).sort()).toEqual(['cell', 'interval', 'match', 'point']);
+    expect(Object.keys(GESTURE_WORDS).sort()).toEqual(['cell', 'interval', 'match', 'neighbourhood', 'point']);
     expect(intentFor('the bar', { viewId: 'b', encoding: { kind: 'interval', field: 'x' }, rawValue: null } as never)).toBe('brush the bar');
     expect(intentFor('the bar', { viewId: 'b', encoding: { kind: 'point', field: 'x' }, rawValue: null } as never)).toBe('pick the bar');
+    // protocol 1.3: the walk is asked ON a node, so the word names what was walked out FROM
+    expect(intentFor('the network', { viewId: 'n', encoding: { kind: 'neighbourhood', field: 'source' }, rawValue: 'flu' } as never)).toBe('walk out from a node of the network');
   });
 
   it('a missing value is a SILENCE — never a bar called "null", never a point at zero', async () => {

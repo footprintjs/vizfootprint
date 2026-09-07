@@ -235,10 +235,10 @@ interface RawPollCommit {
   readonly id: string;
   readonly parent: string | null;
   readonly viewId: string;
-  readonly kind: 'point' | 'interval' | 'cell' | 'match';
+  readonly kind: 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood';
   readonly field: string;
   readonly value: unknown;
-  /** kind:'cell' only (D30) — the two selected fields, x side then y side. */
+  /** The two-column kinds only — a cell's x/y fields (D30), or a neighbourhood's two edge endpoints. */
   readonly fields?: readonly [string, string];
   readonly cause?: { requestedBy?: Actor; intent?: string; replayedFrom?: string; revertOf?: string; conflicts?: readonly string[] };
   readonly correlationId?: string;
@@ -332,7 +332,7 @@ interface RawCommit {
   id: string;
   parent: string | null;
   viewId: string;
-  kind: 'point' | 'interval' | 'cell' | 'match';
+  kind: 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood';
   field: string;
   value: unknown;
   /** kind:'cell' only (D30). */
@@ -1418,6 +1418,20 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
         return;
       }
       const label = intent ?? `${emission.encoding.kind} ${emission.encoding.field}`;
+      if (emission.encoding.kind === 'neighbourhood') {
+        // protocol 1.3: the walk rides the SELECT verb's SEED form. The chart
+        // asks — one node id, on one endpoint column — and the SESSION answers:
+        // it walks the edge rows once at the cursor and lands ONE commit
+        // carrying the question beside the ids it found. A chart never walks,
+        // exactly as it never bins.
+        const seed = emission.rawValue;
+        const field = emission.encoding.field;
+        await dispatch(
+          { verb: 'select', viewId, field, seed, cause: cause(label) },
+          { verb: 'select', viewId, field, seed, intent: label },
+        );
+        return;
+      }
       if (emission.encoding.kind === 'match') {
         // SET-1: the match rides the SELECT verb's values form — one gesture, ONE commit; null clears
         const body = emission.rawValue as { readonly values: readonly unknown[]; readonly exclude?: boolean } | null;
@@ -1454,6 +1468,12 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       if (own.kind === 'cell') {
         const fields = own.fields as readonly [string, string];
         await dispatch({ verb: 'select', viewId, fields, values: null, cause: cause(label) }, { verb: 'select', viewId, fields, values: null, intent: label });
+      } else if (own.kind === 'neighbourhood') {
+        // the library's own rule (src/session/wire.ts, `clearAction`): a walk clears by naming
+        // its FIRST endpoint with a null seed — either end re-resolves the same pair, and a
+        // clear reads no rows, so there is nothing to walk
+        const fields = own.fields as readonly [string, string];
+        await dispatch({ verb: 'select', viewId, field: fields[0], seed: null, cause: cause(label) }, { verb: 'select', viewId, field: fields[0], seed: null, intent: label });
       } else if (own.kind === 'interval') {
         await dispatch({ verb: 'filter', viewId, field: own.field, range: null, cause: cause(label) }, { verb: 'filter', viewId, field: own.field, range: null, intent: label });
       } else if (own.kind === 'match') {

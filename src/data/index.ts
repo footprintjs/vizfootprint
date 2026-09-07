@@ -18,19 +18,26 @@ export type {
   MatchClause,
   MatchValue,
   MatchValueBody,
+  NeighbourhoodClause,
+  NeighbourhoodDerivation,
+  NeighbourhoodValue,
+  NeighbourhoodValueBody,
   PointClause,
   PredicateClause,
   RejectionReason,
   ResolvedEngine,
   Row,
 } from './types.js';
-export { cellFieldLabel, clauseFields, isRejection, reject } from './types.js';
+export { PAIR_CLAUSE_KINDS, cellFieldLabel, clauseFields, isPairClause, isPairKind, isRejection, neighbourhoodFieldLabel, reject } from './types.js';
 
 export { literalToSQL, matchesClause, resolvePredicateSQL, isClearedSQL, mosaicDescriptorSQL } from './predicate.js';
 
 // The wire triple a commit carries, read as the clause it means — the one
 // translation, so a consumer holding a commit never writes the rules again.
-export { cellSideClause, clauseFromWire, pointValueFromWire } from './clauseFromWire.js';
+// `clauseFromWire` yields the PREDICATE; the two value doors beside it read the
+// slots a predicate drops — a point's cleared/IS NULL split, and the QUESTION a
+// walk recorded (`neighbourhoodValueFromWire`) — so no consumer re-derives them.
+export { cellSideClause, clauseFromWire, neighbourhoodValueFromWire, pointValueFromWire } from './clauseFromWire.js';
 export type { WireClauseKind } from './clauseFromWire.js';
 
 export { equalWidthBins, recountBins } from './bins.js';
@@ -47,7 +54,7 @@ export { describeTable, DESCRIBE_DISTINCT_CAP, DESCRIBE_SAMPLE } from './describ
 export type { ColumnDescription, DescribeTableOptions, TableDescription } from './describeTable.js';
 
 // Derived columns — the trace's columns, versioned by the act that made them.
-export { DerivedColumnStore, derivedColumnName, renameClauseFields, renameRowSlots, resolveDerived } from './derivedColumns.js';
+export { DerivedColumnStore, canNameSlot, derivedColumnName, renameClauseFields, renameRowSlots, resolveDerived } from './derivedColumns.js';
 export type { DerivedColumn } from './derivedColumns.js';
 
 export { memoryProvider } from './memoryProvider.js';

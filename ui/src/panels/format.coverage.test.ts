@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCommitValue } from './format.js';
+import { formatCommitValue, isSelfDescribing } from './format.js';
 
 describe('formatCommitValue edges', () => {
   it('renders the empty-diamond for null/undefined POINT values (the non-interval null arm)', () => {
@@ -53,5 +53,41 @@ describe('formatCommitValue — a link commit (layer 4)', () => {
     expect(formatCommitValue({ kind: 'point', value: { source: 'map', kind: 'point', target: 'bar', response: 'highlight' } })).toBe('map point → bar: highlight');
     expect(formatCommitValue({ kind: 'point', value: null })).toBe('∅');
     expect(formatCommitValue({ kind: 'point', value: { source: 'map', target: 'bar' } })).toBe('[object Object]'); // not an edge: no response — the honest fallback
+  });
+});
+
+describe('formatCommitValue — neighbourhood (protocol 1.3)', () => {
+  const walk = (over: Record<string, unknown> = {}): string =>
+    formatCommitValue({ kind: 'neighbourhood', fields: ['source', 'target'], value: { seed: 'Salmonellosis', derivation: 'ego', hops: 1, ids: ['Salmonellosis', 'Lyme', 'Zika'], ...over } });
+
+  it('reads as the SEED and how many came with it — the answer, not the question', () => {
+    expect(walk()).toBe('Salmonellosis and its 2 neighbours (ego, 1 hop)');
+    // one neighbour is singular, and a walk that found nobody says zero rather than hiding
+    expect(walk({ ids: ['Salmonellosis', 'Lyme'] })).toBe('Salmonellosis and its 1 neighbour (ego, 1 hop)');
+    expect(walk({ ids: ['Salmonellosis'] })).toBe('Salmonellosis and its 0 neighbours (ego, 1 hop)');
+  });
+
+  it('the QUESTION is quoted as recorded — a derivation or a distance this build does not mint still reads', () => {
+    expect(walk({ derivation: 'two-hop', hops: 2 })).toBe('Salmonellosis and its 2 neighbours (two-hop, 2 hops)');
+    // a body missing either half of the question falls back to what the one derivation this version walks is
+    expect(walk({ derivation: 7, hops: '2' })).toBe('Salmonellosis and its 2 neighbours (ego, 1 hop)');
+  });
+
+  it('a numeric seed rounds like every other value, and an absent one is ∅', () => {
+    expect(walk({ seed: 4.256, ids: [4.256, 9] })).toBe('4.26 and its 1 neighbour (ego, 1 hop)');
+    expect(walk({ seed: null, ids: ['a', 'b'] })).toBe('∅ and its 2 neighbours (ego, 1 hop)');
+  });
+
+  it('a cleared walk — and a body carrying no id list, which is not a walk to report — read as (cleared)', () => {
+    expect(formatCommitValue({ kind: 'neighbourhood', fields: ['source', 'target'], value: null })).toBe('(cleared)');
+    expect(formatCommitValue({ kind: 'neighbourhood', fields: ['source', 'target'], value: undefined })).toBe('(cleared)');
+    expect(formatCommitValue({ kind: 'neighbourhood', fields: ['source', 'target'], value: { seed: 'x' } })).toBe('(cleared)');
+  });
+});
+
+describe('isSelfDescribing — whose words already name their own columns', () => {
+  it('the two-column kinds do; every other kind needs its field said first', () => {
+    expect((['cell', 'neighbourhood'] as const).map(isSelfDescribing)).toEqual([true, true]);
+    expect((['point', 'interval', 'match'] as const).map(isSelfDescribing)).toEqual([false, false, false]);
   });
 });

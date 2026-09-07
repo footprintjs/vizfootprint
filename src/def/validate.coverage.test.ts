@@ -169,13 +169,19 @@ describe('validateDashboardDef — capabilities shape', () => {
   it('rejects capabilities.encodings that is not an array', () => {
     expect(
       validateDashboardDef(baseDef({ capabilities: [{ viewId: 'v', canProbe: true, encodings: 'point' }] })),
-    ).toContain('capabilities[0].encodings must be an array of "point" | "interval" | "cell" | "match"');
+    ).toContain('capabilities[0].encodings must be an array of "point" | "interval" | "cell" | "match" | "neighbourhood"');
   });
 
-  it('rejects capabilities.encodings entries outside point|interval|cell|match', () => {
+  it('rejects capabilities.encodings entries outside the emission kinds', () => {
     expect(
       validateDashboardDef(baseDef({ capabilities: [{ viewId: 'v', canProbe: true, encodings: ['area'] }] })),
-    ).toContain('capabilities[0].encodings must be an array of "point" | "interval" | "cell" | "match"');
+    ).toContain('capabilities[0].encodings must be an array of "point" | "interval" | "cell" | "match" | "neighbourhood"');
+  });
+
+  it('accepts the packet-5 neighbourhood emission kind in capabilities.encodings', () => {
+    expect(
+      validateDashboardDef(baseDef({ capabilities: [{ viewId: 'v', canProbe: true, encodings: ['neighbourhood'] }] })),
+    ).toEqual([]);
   });
 
   it('accepts the D30 cell emission kind in capabilities.encodings', () => {

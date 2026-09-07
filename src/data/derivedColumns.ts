@@ -20,6 +20,7 @@
  * wrote, never by looking for the marker in the string.
  */
 
+import { isPairClause } from './types.js';
 import type { PredicateClause, Row } from './types.js';
 
 /**
@@ -29,8 +30,26 @@ import type { PredicateClause, Row } from './types.js';
  */
 const ACT_MARKER = '@';
 
-/** The store slot one act's output lives in. Never parsed back — see the file header. */
+/** Can this act's id name a slot? False when it carries the reserved marker — the one reader of that rule outside {@link derivedColumnName}, so a caller can file a gap instead of catching a throw. */
+export function canNameSlot(commitId: string): boolean {
+  return !commitId.includes(ACT_MARKER);
+}
+
+/**
+ * The store slot one act's output lives in. Never parsed back — see the file
+ * header — and unique per act BY CONSTRUCTION, which is what the refusal here
+ * keeps true: `(name, commitId)` maps to one slot only while no commit id
+ * carries the marker. A replayed log is free to bring ids this session never
+ * minted (`parseCommitLog` judges shape and lineage, never the character set),
+ * and `x@a` at commit `b` would otherwise land in the same slot as `x` at
+ * commit `a@b` — two acts' columns as one array of bytes.
+ */
 export function derivedColumnName(name: string, commitId: string): string {
+  if (!canNameSlot(commitId)) {
+    throw new Error(
+      `vizfootprint: commit id "${commitId}" contains the reserved marker "${ACT_MARKER}" — a derived column's slot could not be told apart from another act's`,
+    );
+  }
   return `${name}${ACT_MARKER}${commitId}`;
 }
 
@@ -118,17 +137,23 @@ export function resolveDerived(
 }
 
 /**
- * A clause with its column names rewritten — the one place logical becomes
- * physical on the way to an engine. Returns the SAME clause when nothing moved,
+ * A clause with its column names rewritten — the ONE renamer a clause's column
+ * names go through, for its two customers: logical becomes physical on the way
+ * to an engine (`../session/session.ts`'s `ask`), and a link edge's field
+ * `mapping` is applied on the way to a CONSUMER view
+ * (`../session/clausesReaching.ts`). It takes a rename callback and knows
+ * nothing about derived columns, which is why the second customer can share it.
+ * Returns the SAME clause when nothing moved,
  * so the overwhelmingly common case (no derived column in the clause) costs no
- * allocation. Both sides of a `cell` are rewritten; a clause kind that grows a
+ * allocation. Both columns of a two-field kind are rewritten — a `cell`'s two
+ * axes, a `neighbourhood`'s two edge endpoints; a clause kind that grows a
  * new field must be added here.
  */
 export function renameClauseFields(
   clause: PredicateClause,
   rename: (field: string) => string,
 ): PredicateClause {
-  if (clause.kind === 'cell') {
+  if (isPairClause(clause)) {
     const [x, y] = clause.fields;
     const nx = rename(x);
     const ny = rename(y);
@@ -140,22 +165,40 @@ export function renameClauseFields(
 
 /**
  * One answered row wearing the names the caller asked for: every physical slot
- * in `back` renamed to its logical name, everything else untouched.
+ * in `back` renamed to its logical name, every OTHER physical slot dropped,
+ * everything else untouched.
  *
- * Returns the SAME row when it carries no derived slot at all — a window that
+ * `slots` is the table's whole physical set ({@link DerivedColumnStore.physicalNames});
+ * `back` is only the part of it resolved at the cursor. WHY the difference is
+ * dropped and not passed through: a derived column landed on a SIBLING branch
+ * still lives in the shared table store, so a row that carried it out of this
+ * door would wear a physical name (`risk@s2`) as a column — the grammar this
+ * module owns, leaking to a consumer that must then ignore or parse it, with
+ * another branch's values inside. It is the law `effectiveColumnsOf` already
+ * keeps for the COLUMN list (`../session/session.ts`); rows and columns answer
+ * about one cursor or they answer differently.
+ *
+ * Returns the SAME row when it carries no physical slot at all — a window that
  * projected only declared columns pays nothing, even on a branch where a
  * derived column is visible.
  */
-export function renameRowSlots(row: Row, back: ReadonlyMap<string, string>): Row {
+export function renameRowSlots(row: Row, back: ReadonlyMap<string, string>, slots: ReadonlySet<string>): Row {
   let touched = false;
   for (const key of Object.keys(row)) {
-    if (back.has(key)) {
+    if (slots.has(key)) {
       touched = true;
       break;
     }
   }
   if (!touched) return row;
-  const out: Row = {};
-  for (const [key, value] of Object.entries(row)) out[back.get(key) ?? key] = value;
-  return out;
+  // WHY built through `fromEntries` and not assignment: assigning to the key `__proto__` runs
+  // Object.prototype's own setter instead of creating an own property — a column named that
+  // would vanish, or (with an object value) become the row's prototype
+  const kept: (readonly [string, unknown])[] = [];
+  for (const [key, value] of Object.entries(row)) {
+    const logical = back.get(key);
+    if (logical !== undefined) kept.push([logical, value] as const);
+    else if (!slots.has(key)) kept.push([key, value] as const);
+  }
+  return Object.fromEntries(kept);
 }

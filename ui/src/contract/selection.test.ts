@@ -29,6 +29,7 @@ import {
   selfSelectedValue,
   selfSelectedInterval,
   selfSelectedCell,
+  selfSelectedNeighbourhood,
 } from './selection.js';
 import type { SelectionView } from '../adapter/types.js';
 
@@ -45,7 +46,7 @@ const ROWS = [
  * answers over the very same translation.
  */
 function sameAsInterpreted(
-  kind: 'point' | 'interval' | 'match' | 'cell',
+  kind: 'point' | 'interval' | 'match' | 'cell' | 'neighbourhood',
   field: string,
   value: unknown,
   fields?: readonly [string, string],
@@ -351,5 +352,86 @@ describe('layer 4 — responses from the link graph decide what a clause does at
     expect(rows.filter(brightPredicate(nav))).toHaveLength(3);
     expect(navigateDomain(selectionForView(sels, 'table', 'intersect', graph([edge('bar', 'point', 'table', 'navigate')])))).toBeNull(); // a point cannot be a viewport
     expect(navigateDomain(selectionForView([{ viewId: 'line', field: 't', kind: 'interval', value: null }], 'table', 'intersect', graph([edge('line', 'interval', 'table', 'navigate')])))).toBeNull(); // cleared
+  });
+});
+
+// ── protocol 1.3: the walk ────────────────────────────────────────────────────
+
+/** Two edge rows over the same three nodes the walk tests use. */
+const TIES = [
+  { id: 'e1', source: 'flu', target: 'cold' },
+  { id: 'e2', source: 'cold', target: 'strep' },
+  { id: 'e3', source: 'measles', target: 'mumps' },
+];
+
+const walkBody = (over: Record<string, unknown> = {}): unknown => ({ seed: 'flu', derivation: 'ego', hops: 1, ids: ['flu', 'cold'], ...over });
+const walkSel = (value: unknown, fields?: readonly [string, string]): SelectionView[] => [
+  { viewId: 'net~edges', field: 'source ↔ target', kind: 'neighbourhood', value, ...(fields ? { fields } : {}) },
+];
+
+describe('the neighbourhood arm of clausePredicate — the induced ego subgraph on the rail', () => {
+  it('keeps a row only when BOTH endpoints are in the walked set, and agrees with the interpreter', () => {
+    const keep = clausePredicate('neighbourhood', 'source ↔ target', walkBody(), ['source', 'target']);
+    // e2 (cold→strep) leaves the set, exactly as the chart draws it dim; e3 never touches it
+    expect(TIES.filter(keep).map((r) => r.id)).toEqual(['e1']);
+    for (const row of TIES) {
+      expect(keep(row)).toBe(matchesClause(row, clauseFromWire('neighbourhood', 'source ↔ target', walkBody(), ['source', 'target'])));
+    }
+  });
+
+  it('a nullish id is kept by no walk — `IN (NULL)` is not `IS NULL`, the library filter\'s own law', () => {
+    const keep = clausePredicate('neighbourhood', 'source ↔ target', walkBody({ ids: [null, 'flu'] }), ['source', 'target']);
+    expect(TIES.filter(keep)).toEqual([]);
+    expect(keep({ source: null, target: null })).toBe(false);
+  });
+
+  it('an empty walk keeps NOTHING; a cleared one (and a body with no ids, or no pair) keeps everything', () => {
+    expect(TIES.filter(clausePredicate('neighbourhood', 'l', walkBody({ ids: [] }), ['source', 'target']))).toEqual([]);
+    for (const value of [null, walkBody({ ids: undefined }), 'nonsense']) {
+      expect(TIES.filter(clausePredicate('neighbourhood', 'l', value, ['source', 'target']))).toHaveLength(3);
+    }
+    expect(TIES.filter(clausePredicate('neighbourhood', 'l', walkBody()))).toHaveLength(3); // the pair never arrived
+  });
+
+  it('the delegation check runs over the walk too — the same reading, evaluated the other way', () => {
+    sameAsInterpreted('neighbourhood', 'source ↔ target', walkBody(), ['source', 'target']);
+    sameAsInterpreted('neighbourhood', 'source ↔ target', null, ['source', 'target']);
+  });
+});
+
+describe('selfSelectedNeighbourhood — the walk in force on this frame', () => {
+  it('reads the view\'s OWN walk: the endpoint pair, the question and the set it recorded', () => {
+    const sel = selectionForView(walkSel(walkBody(), ['source', 'target']), 'net~edges');
+    expect(selfSelectedNeighbourhood(sel)).toEqual({ fields: ['source', 'target'], seed: 'flu', derivation: 'ego', hops: 1, ids: ['flu', 'cold'] });
+  });
+
+  it('reads a walk that REACHED this view — on a node-link the nodes draw what the edges asked', () => {
+    const sel = selectionForView(walkSel(walkBody(), ['source', 'target']), 'net~nodes');
+    expect(selfSelectedNeighbourhood(sel)?.seed).toBe('flu');
+    // its own clause, when it has one of another kind, does not hide the walk that arrived
+    const both = selectionForView([...walkSel(walkBody(), ['source', 'target']), { viewId: 'net~nodes', field: 'disease', kind: 'point', value: 'flu' }], 'net~nodes');
+    expect(selfSelectedNeighbourhood(both)?.ids).toEqual(['flu', 'cold']);
+  });
+
+  it('a body that names a derivation or a distance this build does not mint still reads by its RECORDED ids', () => {
+    const odd = selectionForView(walkSel(walkBody({ derivation: 7, hops: '2' }), ['source', 'target']), 'net~edges');
+    expect(selfSelectedNeighbourhood(odd)).toMatchObject({ derivation: 'ego', hops: 1, ids: ['flu', 'cold'] });
+    const two = selectionForView(walkSel(walkBody({ derivation: 'two-hop', hops: 2 }), ['source', 'target']), 'net~edges');
+    expect(selfSelectedNeighbourhood(two)).toMatchObject({ derivation: 'two-hop', hops: 2 });
+  });
+
+  it('null when there is no walk at all, when it was cleared, when the pair was lost, or when it carries no set', () => {
+    expect(selfSelectedNeighbourhood(selectionForView([], 'net~nodes'))).toBeNull();
+    expect(selfSelectedNeighbourhood(selectionForView([{ viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' }], 'net~nodes'))).toBeNull();
+    expect(selfSelectedNeighbourhood(selectionForView(walkSel(null, ['source', 'target']), 'net~edges'))).toBeNull();
+    expect(selfSelectedNeighbourhood(selectionForView(walkSel(walkBody()), 'net~edges'))).toBeNull(); // pair lost
+    expect(selfSelectedNeighbourhood(selectionForView(walkSel(walkBody({ ids: undefined }), ['source', 'target']), 'net~edges'))).toBeNull();
+  });
+
+  it('a whole-dashboard fold has no self to exclude, and the walk in it is still the walk in force', () => {
+    // deliberately UNLIKE its point/interval/cell siblings, which answer about
+    // the consuming view's own clause and have nothing to say without one: this
+    // reader answers about the FRAME, and a fold with no self is the whole frame
+    expect(selfSelectedNeighbourhood(selectionForView(walkSel(walkBody(), ['source', 'target']), null))?.seed).toBe('flu');
   });
 });

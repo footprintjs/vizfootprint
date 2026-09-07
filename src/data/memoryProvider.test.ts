@@ -137,6 +137,51 @@ describe('memoryProvider — evaluate()', () => {
   });
 });
 
+describe('memoryProvider — the neighbourhood clause over an edges table (packet 5)', () => {
+  const EDGES: Row[] = [
+    { id: 'e1', from: 'Lyme', to: 'Zika', weight: 4 },
+    { id: 'e2', from: 'Zika', to: 'Mumps', weight: 9 },
+    { id: 'e3', from: 'Mumps', to: 'Rabies', weight: 2 },
+    { id: 'e4', from: 'Ebola', to: 'Rabies', weight: 7 },
+  ];
+
+  it('answers the ties INSIDE the walked set — both endpoints — and resolves the AND of two IN-lists as its sql', async () => {
+    const p = memoryProvider({ edges: EDGES });
+    const result = await p.evaluate('edges', { kind: 'neighbourhood', fields: ['from', 'to'], ids: ['Zika', 'Lyme', 'Mumps'] });
+    if (isRejection(result)) throw new Error('unreachable');
+    // e3 (Mumps→Rabies) leaves the set: a neighbour's tie to a stranger is one hop past the walk
+    expect(result.rows?.map((r) => r['id'])).toEqual(['e1', 'e2']);
+    expect(result.count).toBe(2);
+    expect(result.sql).toBe(`(("from" IN ('Zika', 'Lyme', 'Mumps')) AND ("to" IN ('Zika', 'Lyme', 'Mumps')))`);
+  });
+
+  it('an empty walked set keeps nothing, and says so with an always-false predicate', async () => {
+    const p = memoryProvider({ edges: EDGES });
+    const result = await p.evaluate('edges', { kind: 'neighbourhood', fields: ['from', 'to'], ids: [] });
+    if (isRejection(result)) throw new Error('unreachable');
+    expect(result.count).toBe(0);
+    expect(result.sql).toBe('(FALSE)');
+  });
+
+  it('both endpoint columns must exist — an unknown one is the same typed rejection any clause field gets', async () => {
+    const p = memoryProvider({ edges: EDGES });
+    const result = await p.evaluate('edges', { kind: 'neighbourhood', fields: ['from', 'nope'], ids: ['Lyme'] });
+    expect(isRejection(result)).toBe(true);
+    if (!isRejection(result)) throw new Error('unreachable');
+    expect(result.reason).toBe('unknown-column');
+  });
+
+  it('a clause LIST is its AND: the neighbourhood narrowed by an interval on the same table', async () => {
+    const p = memoryProvider({ edges: EDGES });
+    const result = await p.evaluate('edges', [
+      { kind: 'neighbourhood', fields: ['from', 'to'], ids: ['Zika', 'Lyme', 'Mumps'] },
+      { kind: 'interval', field: 'weight', value: [5, null] },
+    ]);
+    if (isRejection(result)) throw new Error('unreachable');
+    expect(result.rows?.map((r) => r['id'])).toEqual(['e2']);
+  });
+});
+
 describe('memoryProvider — materializeColumn (R11 landing spot)', () => {
   it('lands a new column, which then appears in columns() and is filterable', async () => {
     const p = memoryProvider(SAMPLE);

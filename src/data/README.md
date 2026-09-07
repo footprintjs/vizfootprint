@@ -25,6 +25,31 @@ Outside that shape the two differ in exactly four ways, all on values no commit 
 
 One duplicate is still open and is named rather than hidden: `probeClause` in `src/session/wire.ts` is the library's own internal twin of this reading (point/interval/match), and the `rec.kind === 'cell' ? {…} : probeClause(…)` ternaries in `src/session/session.ts` restate the cell lift. They are unchanged, and folding them into `clauseFromWire` is a session-side decision, not a data-side one.
 
+## One gesture on a node: the `neighbourhood` clause
+
+One gesture on a node selects the ties INSIDE its ego set: a row of the edges table is kept when BOTH endpoint columns name a node in the walked set — the INDUCED ego subgraph, which is the edge set the network chart brightens for that same gesture, and what a depth-1 ego filter returns in Cytoscape, Gephi and Bloom. "Either endpoint" would reach one edge-hop further, keeping a neighbour's tie to a stranger the seed never touches, and a gesture's rows must be the ones its own highlight promised.
+
+It is a kind of its own, with its own arm in every reader, for the reason the `cell` above is one: ONE gesture lands ONE commit, over a value (the walk) recorded whole. Two composed clauses would be two acts and two records of half a question.
+
+```ts
+import { clauseFromWire, matchesClause, resolvePredicateSQL } from 'vizfootprint/data';
+
+const clause = { kind: 'neighbourhood', fields: ['from', 'to'], ids: ['Zika', 'Lyme', 'Mumps'] } as const;
+resolvePredicateSQL(clause);   // `(("from" IN ('Zika', 'Lyme', 'Mumps')) AND ("to" IN ('Zika', 'Lyme', 'Mumps')))`
+edges.filter((row) => matchesClause(row, clause));                    // every tie INSIDE the walked set
+
+// read back off a landed commit — the walked ids ride inside the value, the endpoint pair in `fields`
+clauseFromWire('neighbourhood', 'from ↔ to', record.value, record.fields);
+```
+
+**The answer is recorded with its question.** The wire value is `{ seed, derivation, hops, ids }` (or `null` to clear): the ids are the ANSWER a walk produced, and the seed, the derivation (`'ego'` — one hop out) and the hop count are the QUESTION that produced them. A record carrying only the seed would have to re-walk to be read, and a read at a cursor must answer about THAT cursor — the rows a later act may have changed. The clause tier keeps only the `ids`, exactly as a match keeps only its `values`; the rest is provenance, never predicate. `clauseFields` answers both endpoint columns, `neighbourhoodFieldLabel(['from','to'])` mints the display-only `"from ↔ to"` for the slots that expect one field name (`×` is the cell's; `↔` says "one edge", whose both ends the predicate asks about), and `renameClauseFields` rewrites both columns and never the ids — those are node keys, not column names.
+
+**The question has a door of its own.** `clauseFromWire` yields the PREDICATE (the ids), because that is all a row filter needs; `neighbourhoodValueFromWire(record.value)` yields the recorded QUESTION beside it — `{ seed, derivation, hops, ids }`, or `null` for a body carrying no walked list. Every slot is answered in ONE place: an absent seed reads as `null` (UNNAMED, never a node key), an unreadable derivation as this version's own `'ego'`, an unreadable hop count as `1`; a derivation another build minted rides through verbatim, because a body still selects by its recorded ids. A chip, a commit-log line and a chart that highlights the seed all read it here rather than writing the three defaults again.
+
+**The two-column kinds are data, not a fork.** `PAIR_CLAUSE_KINDS` (`['cell', 'neighbourhood']`) is the one array literal, with `isPairKind(kind)` for the slots that ask about a KIND before a clause exists — a wire triple's arm, a saved condition, a `CommitInput` the log judges — and `isPairClause(clause)` for the narrowed question over a built one. `clauseFields` reads it too, so the third pair kind lands in one place.
+
+**An empty walked set keeps nothing, and says so.** `(FALSE)` in the honest SQL, the real `literal(false)`'s bare `FALSE` in the engine's byte — the same always-false an empty match keep-list already renders, and never "no filter": clearing is `clause === null`, one spelling. The ids go through the real `isIn` and not the point factory's null-safe `isInDistinct`, because a walk MATERIALIZED them — a `null` that reached the list renders as the literal `NULL` the engine itself would render rather than being quietly rewritten into an `IS NULL`. The in-process filter keeps the same law: `IN (NULL)` is never true, so a nullish id is dropped from the membership set and a row with a missing endpoint is kept by no walk — the two readings of one clause answer alike.
+
 ## Two descriptors, two jobs: the honest SQL and the engine's byte
 
 `resolvePredicateSQL` is the SQL an engine could execute, and on two shapes — a half-open pair and a string pair — it deliberately says something Mosaic does not (`("amount" >= 150)` where Mosaic says `("amount" BETWEEN 150 AND NULL)`). `mosaicDescriptorSQL(kind, field, value)` beside it is the other job: the exact `String(clause.predicate)` real Mosaic renders, oddities included, measured on `@uwdata/mosaic-core@0.28.1` and pinned in `predicate.test.ts` against the real factories for every kind × shape. It exists because `CommitRecord.predicateSQL` is the one persisted engine-derived byte, and the built-in selection port (`src/selection`) must write the same byte the Mosaic adapter writes. Neither renderer may drift toward the other; `engineInvariant.test.ts` carries both shapes and asserts both answers by name.
@@ -131,7 +156,7 @@ s.seek(b.commit.id);
 await s.viewQuery({ columns: ['id', 'risk'] });   // [0,0,0,0,1,1,1,1]  — B's own
 ```
 
-`src/data/derivedColumns.ts` is the ONE owner of that spelling. Nothing else may compose a physical name, and — the part that matters — **nothing may ever PARSE one**. A CSV could arrive tomorrow with a column genuinely named `risk@s7`; whether a name is derived is answered by the registry, which knows what it wrote, never by looking for the marker in the string. (A source column that happens to be spelled like a slot is caught by the same judge as rule 1, which checks the slot against the declared set too.)
+`src/data/derivedColumns.ts` is the ONE owner of that spelling. Nothing else may compose a physical name, and — the part that matters — **nothing may ever PARSE one**. A CSV could arrive tomorrow with a column genuinely named `risk@s7`; whether a name is derived is answered by the registry, which knows what it wrote, never by looking for the marker in the string. (A source column that happens to be spelled like a slot is caught by the same judge as rule 1, which checks the slot against the declared set too.) The one thing the grammar DOES refuse is an ACT whose id carries the marker: `derivedColumnName('x', 'a@b')` throws, because `x@a` at commit `b` would otherwise be the same slot as `x` at commit `a@b` — two acts' columns as one array. A session mints `s<n>`, but a replayed log may bring any id, so `writeColumns` asks `canNameSlot(commitId)` first and files a `guard-failed` gap instead of writing.
 
 The registry is **dashboard-scoped**, beside the bookmark, saved-picture and commit-id stores, because the table store is: two sessions on one `buildDashboard` write into one provider. Were it per-session, session B would read session A's `risk@s7` as an ordinary declared column — the same leak one level along.
 
@@ -143,7 +168,9 @@ When one name is computed twice on the SAME path, the later act wins: a re-run *
 
 A store column the registry does not know is declared, and is visible on every branch: the map does not move with the walker. A derived column resolved at the cursor is visible under its logical name. A derived column resolved nowhere on this path is simply absent — so a `select` on it is an honest `needs-column`, and `overview().columns` omits it, for the same reason and by the same code.
 
-`Session.ask` is the one door from a clause to an engine: fields, sort keys and the column projection go in translated, and rows come back wearing the names the caller asked for. A table with no derived column resolved at the cursor takes an untouched path — no map, no rewrite, no per-row allocation — which is every table on every dashboard until an analysis lands a column. The `sql` descriptor deliberately keeps the physical spelling: it records the column the engine actually read, and that name IS the act that produced it.
+And the ROWS answer about the same cursor the columns do. A sibling branch's slot is physically in the shared table store, so a row door that passed through "everything else" would hand a consumer `risk@s2` as a column — this library's own grammar, with another branch's values inside, for a consumer to ignore or parse. `renameRowSlots(row, back, slots)` is given the table's whole physical set: what the cursor resolves is renamed, every other slot is DROPPED, and declared data is untouched.
+
+`Session.ask` is the one door from a clause to an engine: fields, sort keys and the column projection go in translated, and rows come back wearing the names the caller asked for. A table no analysis has ever written a column into takes an untouched path — no map, no rewrite, no per-row allocation — which is every table on every dashboard until an analysis lands one (the fast path asks the table's PHYSICAL set, not the cursor's: a cursor standing off every branch still has slots to drop). The `sql` descriptor deliberately keeps the physical spelling: it records the column the engine actually read, and that name IS the act that produced it.
 
 A **refresh** replaces a table's whole provider, so the slots its derived columns lived in are gone. The registry for that table is dropped with it — otherwise the session would keep resolving a name the store no longer has — and the refresh reports what was lost by the name a person knows (`risk`), never by the slot it lived in (`risk@s7`).
 

@@ -7,6 +7,8 @@
 import { describe, it, expect } from 'vitest';
 import { buildDashboard, vizAsTools } from './index.js';
 import { makeDashboardDef, INJECTION_ROWS, INJECTION_CATEGORY } from '../session/dashboard.fixture.js';
+import { NETWORK_RELATIONS, makeNetworkDef } from '../def/network.fixture.js';
+import { layerAddress } from '../def/index.js';
 import type { VizToolResult, VizToolsPort } from './index.js';
 
 const TOOL_NAMES = [
@@ -314,6 +316,70 @@ describe('RP-3 — propose_chart (the 9th tool): governed agent-authored charts'
     const port = vizAsTools(buildDashboard(makeDashboardDef()).createSession());
     expect(get(await port.call('viz.propose_chart', { spec: chartSpec() }), 'reason')).toBe('PAYLOAD_INVALID');
     expect(get(await port.call('viz.propose_chart', { id: 'x', spec: 'nope' }), 'reason')).toBe('PAYLOAD_INVALID');
+  });
+});
+
+describe('packet 5 — the agent can walk a NEIGHBOURHOOD by naming a seed (one gesture = one commit)', () => {
+  const netSession = () =>
+    buildDashboard(
+      // the walk is a DECLARED voice (src/links/voice.ts) — an undeclared view is never assumed to have an edge to walk
+      makeNetworkDef(undefined, { relations: NETWORK_RELATIONS, capabilities: [{ viewId: 'net', canProbe: true, encodings: ['point', 'neighbourhood'] }] }),
+    ).createSession();
+  const EDGES_ADDRESS = layerAddress('net', 'edges');
+
+  it('the dispatch schema teaches the neighbourhood form: a seed property with an authored-constant description', () => {
+    const dispatchTool = vizAsTools(netSession()).tools().find((t) => t.name === 'viz.dispatch')!;
+    const props = (dispatchTool.inputSchema as { properties: Record<string, { description?: string }> }).properties;
+    expect(props['seed']?.description).toContain('NEIGHBOURHOOD select only');
+    expect(props['seed']?.description).toContain('never guessed');
+    expect(dispatchTool.description).toContain('NEIGHBOURHOOD');
+  });
+
+  it('an agent tool call lands the SAME commit shape a chart gesture lands', async () => {
+    const bySession = netSession();
+    const gesture = await bySession.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'cold', cause: { requestedBy: 'user', computedBy: 'user' } });
+
+    const byTool = netSession();
+    const res = await vizAsTools(byTool).call('viz.dispatch', { verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'cold', intent: 'walk out from cold' });
+    expect(get(res, 'ok')).toBe(true);
+    const commit = get(res, 'commit') as { kind: string; field: string; fields: unknown; value: unknown; predicateSQL: string };
+    expect(byTool.log.records).toHaveLength(1); // ONE commit, the same as the gesture's
+    expect(commit.kind).toBe('neighbourhood');
+    expect(commit.field).toBe('source \u2194 target');
+    expect(commit.fields).toEqual(['source', 'target']);
+    expect(gesture.ok).toBe(true);
+    if (!gesture.ok) return;
+    expect(commit.value).toEqual(gesture.commit!.value);
+    expect(commit.predicateSQL).toBe(gesture.commit!.predicateSQL);
+  });
+
+  it('seed: null clears it through the same tool, and whats_here shows the walk while it stands', async () => {
+    const session = netSession();
+    const port = vizAsTools(session);
+    await port.call('viz.dispatch', { verb: 'select', viewId: EDGES_ADDRESS, field: 'target', seed: 'flu' });
+    const here = await port.call('viz.whats_here');
+    const selections = get(here, 'activeSelections') as { kind: string; fields?: unknown; value?: unknown }[];
+    // the live selection carries the WIRE BODY the commit carries — one triple, one reader (`clauseFromWire`)
+    expect(selections).toEqual([{ viewId: EDGES_ADDRESS, field: 'source \u2194 target', kind: 'neighbourhood', value: { seed: 'flu', derivation: 'ego', hops: 1, ids: ['flu', 'cold'] }, fields: ['source', 'target'], commitId: session.log.records[0]!.id }]);
+    const cleared = await port.call('viz.dispatch', { verb: 'select', viewId: EDGES_ADDRESS, field: 'target', seed: null });
+    expect(get(cleared, 'ok')).toBe(true);
+    expect(get(await port.call('viz.whats_here'), 'activeSelections')).toEqual([]);
+  });
+
+  it('fire-time validation: a seed that is not a plain value is typed PAYLOAD_INVALID, never a session call', async () => {
+    const session = netSession();
+    const res = await vizAsTools(session).call('viz.dispatch', { verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: { deep: true } });
+    expect(res.ok).toBe(false);
+    expect(get(res, 'reason')).toBe('PAYLOAD_INVALID');
+    expect(JSON.stringify(res)).toContain('a neighbourhood select requires seed');
+    expect(session.log.records).toHaveLength(0);
+  });
+
+  it('a column that is not an endpoint comes back as the session own typed guard-failed gap', async () => {
+    const session = netSession();
+    const res = await vizAsTools(session).call('viz.dispatch', { verb: 'select', viewId: EDGES_ADDRESS, field: 'weight', seed: 'cold' });
+    expect(JSON.stringify(res)).toContain('is not an endpoint');
+    expect(session.log.records).toHaveLength(0);
   });
 });
 

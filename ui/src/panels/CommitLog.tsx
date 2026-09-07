@@ -10,7 +10,7 @@
  */
 import { useState } from 'react';
 import type { CommitView } from '../adapter/types.js';
-import { formatCommitValue } from './format.js';
+import { formatCommitValue, isSelfDescribing } from './format.js';
 
 export interface CommitLogProps {
   readonly commits: readonly CommitView[];
@@ -77,13 +77,14 @@ export function CommitLog(props: CommitLogProps): JSX.Element {
               {c.kind}
             </span>
             <span className="vzf-chip-body">
-              {/* D30: a cell's plain words already carry both field names
-                  ("price 100 – 150 and category = Formal") — prefixing the
-                  joint label would say everything twice */}
+              {/* D30 / protocol 1.3: a two-column kind's plain words already carry
+                  their own field names ("price 100 – 150 and category = Formal",
+                  "Salmonellosis and its 12 neighbours") — prefixing the joint
+                  label would say everything twice (`isSelfDescribing`) */}
               {/* the two ANALYSIS lanes carry the ACT in their value slot ({ id, table, def? }),
                   which is a record to replay from and not a value to read: the row reads the
                   adapter's label ("analysis rate"), and the cause's intent stands beside it */}
-              {c.field === '__analysis__' || c.field === 'pValue' ? c.label : c.kind === 'cell' ? formatCommitValue(c) : c.kind === 'match' ? `${c.field} ${formatCommitValue(c)}` : c.viewId.startsWith('link:') ? formatCommitValue(c) : `${c.field} = ${formatCommitValue(c)}`}
+              {c.field === '__analysis__' || c.field === 'pValue' ? c.label : isSelfDescribing(c.kind) ? formatCommitValue(c) : c.kind === 'match' ? `${c.field} ${formatCommitValue(c)}` : c.viewId.startsWith('link:') ? formatCommitValue(c) : `${c.field} = ${formatCommitValue(c)}`}
             </span>
             {c.intent && <span className="vzf-cause">{c.intent}</span>}
             {c.replayedFrom !== undefined && (

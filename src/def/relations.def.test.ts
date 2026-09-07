@@ -7,7 +7,7 @@
  * is added — and law 6, the permission an analysis reads another table under.
  */
 import { describe, expect, it } from 'vitest';
-import { buildDashboard, validateDashboardDef, relationEdgeId, joinsTables, relationsFrom, judgeAnalysisReads, RELATION_KINDS } from './index.js';
+import { buildDashboard, validateDashboardDef, relationEdgeId, joinsTables, relationsFrom, judgeAnalysisReads, neighbourhoodEndpoints, RELATION_KINDS } from './index.js';
 import type { DashboardDef, RelationDecl, RelationEdge, RelationKind } from './index.js';
 import { defRevision } from './revision.js';
 import { vizAsTools, SURFACE_PARTS, cacheClassOf } from '../agent/index.js';
@@ -232,5 +232,50 @@ describe('law 6 — a relation is a PERMISSION to read across', () => {
   it('every problem at once, one sentence each — the judge never throws and never stops at the first', () => {
     expect(judgeAnalysisReads('layout', 'nodes', ['ghost', 'cells', 'edges'], tables, edges())).toHaveLength(2);
     expect(judgeAnalysisReads('layout', 'nodes', ['edges'], tables, [])).toHaveLength(1); // a dashboard that declares no relation permits no read
+  });
+});
+
+describe('law 7 — the walk\u2019s two columns: an edge is two relations at one identity', () => {
+  const TIES: RelationEdge[] = [
+    { from: { table: 'edges', column: 'source' }, to: { table: 'nodes', column: 'disease' }, kind: 'many-to-one' },
+    { from: { table: 'edges', column: 'target' }, to: { table: 'nodes', column: 'disease' }, kind: 'many-to-one' },
+  ];
+
+  it('either end names the SAME pair, in declaration order — so a gesture on either lands the same bytes', () => {
+    expect(neighbourhoodEndpoints(TIES, 'edges', 'source')).toEqual({ fields: ['source', 'target'] });
+    expect(neighbourhoodEndpoints(TIES, 'edges', 'target')).toEqual({ fields: ['source', 'target'] });
+  });
+
+  it('a table that declares no relation at all is refused by name — there is no edge to walk', () => {
+    expect(neighbourhoodEndpoints(TIES, 'cells', 'disease')).toEqual({
+      rejected: 'table "cells" declares no relation, so "disease" is not an endpoint — a neighbourhood is walked over an edge, and an edge is two columns naming one identity',
+    });
+    expect(neighbourhoodEndpoints([], 'edges', 'source')).toEqual({
+      rejected: 'table "edges" declares no relation, so "source" is not an endpoint — a neighbourhood is walked over an edge, and an edge is two columns naming one identity',
+    });
+  });
+
+  it('a column that is not an endpoint is refused, and the endpoints it could have named are quoted', () => {
+    expect(neighbourhoodEndpoints(TIES, 'edges', 'weight')).toEqual({
+      rejected: '"edges.weight" is not an endpoint — the endpoints of "edges" are source, target',
+    });
+  });
+
+  it('one end is no edge, and three ends is not one either — both refusals count the columns', () => {
+    expect(neighbourhoodEndpoints([TIES[0]!], 'edges', 'source')).toEqual({
+      rejected: '"edges" names "nodes.disease" through one column (source) — a neighbourhood walks an edge with exactly two ends',
+    });
+    const three: RelationEdge[] = [...TIES, { from: { table: 'edges', column: 'via' }, to: { table: 'nodes', column: 'disease' }, kind: 'many-to-one' }];
+    expect(neighbourhoodEndpoints(three, 'edges', 'via')).toEqual({
+      rejected: '"edges" names "nodes.disease" through 3 columns (source, target, via) — a neighbourhood walks an edge with exactly two ends',
+    });
+  });
+
+  it('the pair is the ends naming ONE identity — a third relation to another table is not part of the walk', () => {
+    const mixed: RelationEdge[] = [...TIES, { from: { table: 'edges', column: 'week' }, to: { table: 'weeks', column: 'iso' }, kind: 'many-to-one' }];
+    expect(neighbourhoodEndpoints(mixed, 'edges', 'source')).toEqual({ fields: ['source', 'target'] });
+    expect(neighbourhoodEndpoints(mixed, 'edges', 'week')).toEqual({
+      rejected: '"edges" names "weeks.iso" through one column (week) — a neighbourhood walks an edge with exactly two ends',
+    });
   });
 });

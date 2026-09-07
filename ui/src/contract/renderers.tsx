@@ -675,10 +675,19 @@ function coordinateAt(row: RenderRow, field: string): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+/**
+ * The edges layer's endpoint IDENTITY columns — what each link NAMES, as
+ * against the four position columns it is drawn by. One spelling, because two
+ * readers ask for them now: the links (whose ends these are) and the walk
+ * (whose seed is judged against one of them).
+ */
+function endpointKeysOf(layer: RenderLayer): readonly [string, string] {
+  return [boundField(layer.encodings, 'source', 'source'), boundField(layer.encodings, 'target', 'target')];
+}
+
 /** The edges of the endpoint layer's rows — both ends already carried over by `bringOver`, and a row missing either end is an absence rather than a link. */
 function edgesOf(layer: RenderLayer, endpoints: EndpointFields): NetworkEdge[] {
-  const sourceField = boundField(layer.encodings, 'source', 'source');
-  const targetField = boundField(layer.encodings, 'target', 'target');
+  const [sourceField, targetField] = endpointKeysOf(layer);
   const edges: NetworkEdge[] = [];
   for (const row of layer.rows) {
     const sx = coordinateAt(row, endpoints.sx);
@@ -739,8 +748,10 @@ function layersRefusal(layers: readonly RenderLayer[]): JSX.Element {
  * (`netState` in conformance.test.tsx pins the right fold).
  *
  * Point select on a node (click-again clears) · shift-click toggles it in this
- * view's own set (SET-1) · dims under the non-self clauses. No brush, no
- * pan/zoom and no re-encode affordance: a node-link's x and y are the LAYOUT
+ * view's own set (SET-1) · ALT-CLICK asks the WALK (protocol 1.3: the node and
+ * everything it links to, landed as one commit under the EDGES address, since
+ * the clause reads their endpoint columns) · dims under the non-self clauses.
+ * No brush, no pan/zoom and no re-encode affordance: a node-link's x and y are the LAYOUT
  * act's output rather than a quantity anyone reads off an axis, so there is no
  * axis to click and the capabilities say so.
  *
@@ -756,7 +767,12 @@ export function networkRenderer(options: NetworkRendererOptions = {}): Renderer 
       canHighlight: true,
       canReencode: false,
       canPanZoom: false,
-      emissionKinds: ['point', 'match'], // SET-1: shift-click adds to the view's own set
+      // SET-1: shift-click adds to the view's own set. Protocol 1.3: alt-click
+      // ASKS THE WALK — declared here because this renderer really does speak
+      // it through the contract whenever the frame carries an edges layer with
+      // a voice of its own (`walk` below); a frame with no links has nothing to
+      // walk and the modifier stays silent.
+      emissionKinds: ['point', 'match', 'neighbourhood'],
       canLayer: true,
     },
     render(state, handshake) {
@@ -779,6 +795,15 @@ export function networkRenderer(options: NetworkRendererOptions = {}): Renderer 
       // not mint — the view speaks and the ADDRESS is lost, not the gesture
       // (renderers.test.tsx: 'a 1.1 host loses the address, not the gesture').
       const voice = (nodeLayer === undefined ? undefined : handshake.layers?.[nodeLayer.layerId]) ?? handshake.callbacks;
+      // THE WALK IS THE EDGES' ACT (protocol 1.3): its clause reads their two
+      // endpoint columns, so it must land under THEIR address — and unlike a
+      // node click there is no honest fallback to the view's own voice, because
+      // a clause naming edge columns judged against the nodes table selects
+      // nothing and refuses everything after it. No edges layer, or no bundle
+      // for it, means no walk to offer — never a walk spoken from the wrong
+      // address.
+      const edgeVoice = edge === null ? undefined : handshake.layers?.[edge.layer.layerId];
+      const walk = edge === null || edgeVoice === undefined ? undefined : { field: endpointKeysOf(edge.layer)[0], emit: edgeVoice.emit };
       return (
         <VizNetwork
           viewId={handshake.viewId}
@@ -789,6 +814,7 @@ export function networkRenderer(options: NetworkRendererOptions = {}): Renderer 
           width={state.size.width}
           height={state.size.height}
           onEmit={voice.emit}
+          {...(walk === undefined ? {} : { walk })}
         />
       );
     },

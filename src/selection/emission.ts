@@ -59,7 +59,24 @@ export interface MatchEncoding {
   readonly field: string;
 }
 
-export type ChartEncoding = PointEncoding | IntervalEncoding | CellEncoding | MatchEncoding;
+/**
+ * A NEIGHBOURHOOD selection (protocol 1.3): one gesture on a node selects the
+ * ties inside its ego set. `field` is the EDGES table's endpoint column the
+ * gesture named, and the emission's `rawValue` is the SEED — the node id — or
+ * `null` to clear.
+ *
+ * WHY it carries the seed and never the set: the walk reads the edge rows AT
+ * THE CURSOR, and a chart owns no rows (the transform-ownership rule — it never
+ * bins, and it never walks). So this emission is a QUESTION, and it is the one
+ * emission kind that cannot become a clause on its own: only the session can
+ * answer it, and it answers by landing the walked ids beside the question.
+ */
+export interface NeighbourhoodEncoding {
+  readonly kind: 'neighbourhood';
+  readonly field: string;
+}
+
+export type ChartEncoding = PointEncoding | IntervalEncoding | CellEncoding | MatchEncoding | NeighbourhoodEncoding;
 
 /**
  * What a chart emits on interaction. Deliberately only two keys — `rawValue`
@@ -73,7 +90,22 @@ export type ChartEmission =
   | { readonly rawValue: unknown; readonly encoding: PointEncoding }
   | { readonly rawValue: [number, number] | null; readonly encoding: IntervalEncoding }
   | { readonly rawValue: readonly [CellSide, CellSide] | null; readonly encoding: CellEncoding }
-  | { readonly rawValue: MatchValue; readonly encoding: MatchEncoding };
+  | { readonly rawValue: MatchValue; readonly encoding: MatchEncoding }
+  | { readonly rawValue: unknown; readonly encoding: NeighbourhoodEncoding };
+
+/**
+ * The emissions that translate PURELY into a spec: every kind but the walk.
+ *
+ * A neighbourhood emission names a question — a seed on an endpoint column —
+ * and the answer is a set of ids nobody can read off the emission: it takes the
+ * edge ROWS at the cursor, which this module deliberately has no access to.
+ * So {@link causeClauseSpecFromEmission} takes this narrower type and the
+ * COMPILER refuses the walk, rather than a runtime arm inventing an empty set
+ * or throwing where the four other kinds return. A caller holding a plain
+ * `ChartEmission` narrows first; a walk goes to the session's own door
+ * (`select` with a `seed`), which reads the rows and records both halves.
+ */
+export type ClauseEmission = Exclude<ChartEmission, { readonly encoding: NeighbourhoodEncoding }>;
 
 /**
  * Type guard narrowing `ChartEmission` by its nested `encoding.kind`
@@ -84,22 +116,22 @@ export type ChartEmission =
  * fix — no `as`/`as unknown` cast anywhere in this module.
  */
 function isIntervalEmission(
-  e: ChartEmission,
-): e is Extract<ChartEmission, { readonly encoding: IntervalEncoding }> {
+  e: ClauseEmission,
+): e is Extract<ClauseEmission, { readonly encoding: IntervalEncoding }> {
   return e.encoding.kind === 'interval';
 }
 
 /** The match sibling of {@link isIntervalEmission} — same nested-discriminant honesty. */
 function isMatchEmission(
-  e: ChartEmission,
-): e is Extract<ChartEmission, { readonly encoding: MatchEncoding }> {
+  e: ClauseEmission,
+): e is Extract<ClauseEmission, { readonly encoding: MatchEncoding }> {
   return e.encoding.kind === 'match';
 }
 
 /** The cell sibling of {@link isIntervalEmission} — same nested-discriminant honesty. */
 function isCellEmission(
-  e: ChartEmission,
-): e is Extract<ChartEmission, { readonly encoding: CellEncoding }> {
+  e: ClauseEmission,
+): e is Extract<ClauseEmission, { readonly encoding: CellEncoding }> {
   return e.encoding.kind === 'cell';
 }
 
@@ -121,7 +153,7 @@ export interface EmissionContext {
  * from `{rawValue, encoding}` to `CauseClauseSpec`. Pure: no port, no engine,
  * nothing built.
  */
-export function causeClauseSpecFromEmission(emission: ChartEmission, ctx: EmissionContext): CauseClauseSpec {
+export function causeClauseSpecFromEmission(emission: ClauseEmission, ctx: EmissionContext): CauseClauseSpec {
   if (isCellEmission(emission)) {
     return {
       kind: 'cell',
@@ -176,7 +208,7 @@ export function causeClauseSpecFromEmission(emission: ChartEmission, ctx: Emissi
  * `session.log.port`.
  */
 export function causeClauseFromEmission(
-  emission: ChartEmission,
+  emission: ClauseEmission,
   ctx: EmissionContext,
   port: SelectionPort,
 ): CauseClause | SelectionRejection {

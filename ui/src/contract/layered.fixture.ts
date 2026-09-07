@@ -21,6 +21,23 @@ export interface LayeredRendererOptions {
   readonly drawLayers?: boolean;
   /** Override the field a layer emits on (a ghost field the session refuses). */
   readonly emitField?: Readonly<Record<string, string>>;
+  /**
+   * Protocol 1.3: declare and speak the WALK. The button asks on the EDGES
+   * layer's own bundle — where a walk's clause belongs, since it reads that
+   * table's two endpoint columns — and `then` emits a second, ordinary point
+   * right after it, which is how the kit's descriptor arm is reached (a
+   * refused walk shadowed by a commit that did land).
+   */
+  readonly walk?: {
+    readonly field: string;
+    readonly seed: unknown;
+    readonly layerId?: string;
+    /** `'view'` asks through the VIEW's own callbacks — a plain view that walks, where the view IS the table the clause names. */
+    readonly through?: 'view';
+    readonly then?: { readonly field: string; readonly value: unknown };
+  };
+  /** The field the VIEW's own probe emits on. Default `size` — a nodes column, which is what `net` reads by default. */
+  readonly viewField?: string;
 }
 
 /** The field a layer's gesture emits on: the first bound field of its encodings (a fixture layer always binds one), unless overridden. */
@@ -38,7 +55,7 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
     canHighlight: false,
     canReencode: false,
     canPanZoom: false,
-    emissionKinds: ['point'],
+    emissionKinds: options.walk === undefined ? ['point'] : ['point', 'neighbourhood'],
     ...(options.canLayer === false ? {} : { canLayer: true }),
   };
   return {
@@ -53,8 +70,21 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
           const probe = document.createElement('button');
           probe.className = 'probe';
           probe.textContent = `rows ${state.rows.length} · clauses ${state.selection.clauses.size}`;
-          probe.addEventListener('click', () => handshake.callbacks.emit({ rawValue: state.rows[0]![VIEW_FIELD], encoding: { kind: 'point', field: VIEW_FIELD } }));
+          const viewField = options.viewField ?? VIEW_FIELD;
+          probe.addEventListener('click', () => handshake.callbacks.emit({ rawValue: state.rows[0]![viewField], encoding: { kind: 'point', field: viewField } }));
           host.appendChild(probe);
+          const walk = options.walk;
+          if (walk !== undefined) {
+            const ask = document.createElement('button');
+            ask.className = 'walk';
+            ask.textContent = `walk from ${String(walk.seed)}`;
+            ask.addEventListener('click', () => {
+              const voice = walk.through === 'view' ? handshake.callbacks : bundleFor(walk.layerId ?? 'edges');
+              voice?.emit({ rawValue: walk.seed, encoding: { kind: 'neighbourhood', field: walk.field } });
+              if (walk.then !== undefined) voice?.emit({ rawValue: walk.then.value, encoding: { kind: 'point', field: walk.then.field } });
+            });
+            host.appendChild(ask);
+          }
           if (options.drawLayers === false) return;
           for (const layer of state.layers ?? []) {
             const box = document.createElement('div');
@@ -104,6 +134,11 @@ export function networkLayers(): RenderLayer[] {
     { layerId: 'edges', table: 'edges', rows: EDGES, encodings: { size: 'weight' } },
     { layerId: 'nodes', table: 'nodes', rows: NODES, encodings: { color: 'group' } },
   ];
+}
+
+/** Ask the walk (protocol 1.3) — the stub's alt-click. */
+export function clickWalk(el: HTMLElement): void {
+  (el.querySelector('button.walk') as HTMLElement).click();
 }
 
 /** Click a layer's first mark. */

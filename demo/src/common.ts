@@ -14,7 +14,7 @@
 
 // The REAL landed CSV parser (src/data) — not duplicated here.
 import { parseCSVTyped, type PredicateClause } from 'vizfootprint/data';
-import type { ChartEmission } from 'vizfootprint/selection';
+import type { ClauseEmission } from 'vizfootprint/selection';
 import type { CommitRecord } from 'vizfootprint/log';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -254,8 +254,8 @@ export class Scatter {
     this.root.addEventListener('pointercancel', finish);
   }
 
-  /** Build the ChartEmission for the current brush field (R5: DATA space). */
-  static brushEmission(field: string, interval: [number, number] | null): ChartEmission {
+  /** Build the emission for the current brush field (R5: DATA space). A brush is an interval, so it is one of the emissions that MINT a clause purely — `ClauseEmission`, never the walk. */
+  static brushEmission(field: string, interval: [number, number] | null): ClauseEmission {
     return { rawValue: interval, encoding: { kind: 'interval', field } };
   }
 

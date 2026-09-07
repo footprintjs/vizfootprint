@@ -15,7 +15,16 @@
  * WRAPPER's judgement (`networkRenderer`), never a fact about this component.
  *
  * Selection is the contract's clause-addressable fold, read exactly as
- * `<VizScatter>` reads it (dim-not-hide, self-excluded). HOVER is the one
+ * `<VizScatter>` reads it (dim-not-hide, self-excluded) — plus ONE reading no
+ * other chart has: the WALK (protocol 1.3). Alt/option on a node asks for that
+ * node and everything it links to; the SESSION walks the edges and records the
+ * ids, and this chart reads them back to light the ego net. The ask goes out
+ * on the EDGES layer's voice (their columns are what the clause names), the
+ * answer comes back on the frame's fold, and the two ends of one act are
+ * therefore two addresses — which is the whole reason `walk` is a prop of its
+ * own and not another `onEmit`.
+ *
+ * HOVER is the one
  * thing here that is local state and NOT a selection: hovering a node keeps
  * it, the edges touching it and their far endpoints bright and dims the rest —
  * and emits nothing at all, because hover records nothing (contract/README.md,
@@ -32,7 +41,8 @@ import type { ChartEmission } from 'vizfootprint/selection';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
 import { linearScale, extent } from '../primitives/scales.js';
 import { dimClass, useBrightPredicate, selectedSet, inSet, markClass } from '../primitives/useSelection.js';
-import { clickEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
+import { clickEmission, toggleInSetEmission, toggleWalkEmission } from '../primitives/pointSelect.js';
+import { selfSelectedNeighbourhood } from '../contract/selection.js';
 
 /** One node: its key, the position the layout act wrote, and the source row the clauses judge. */
 export interface NetworkNode {
@@ -64,6 +74,25 @@ export interface NetworkEdge {
   readonly ty: number;
 }
 
+/**
+ * The WALK door (protocol 1.3) — what an alt/option click on a node ASKS, and
+ * who it asks.
+ *
+ * Two halves that cannot be separated, so they arrive as one prop: a walk is a
+ * clause over the EDGES table (both endpoints in the walked set), so it is
+ * spoken through the edges layer's own voice and lands under the edges
+ * address — and the column it names must be one of that table's endpoints.
+ * Absent = this frame carries no edges to walk, and the modifier is not a
+ * gesture here (an alt-click then selects the node, exactly as a plain one
+ * does — a chart never files an act it cannot carry).
+ */
+export interface NetworkWalk {
+  /** The EDGES table's endpoint column the seed is judged against. */
+  readonly field: string;
+  /** The edges layer's own voice — a walk narrows the LINKS, so their bundle speaks it. */
+  readonly emit: (emission: ChartEmission) => void;
+}
+
 export interface VizNetworkProps {
   /** The chart's accessible name — the prose plane's `altShort` lands here; absent = the chart names itself. */
   readonly ariaLabel?: string;
@@ -79,6 +108,8 @@ export interface VizNetworkProps {
    */
   readonly selection?: RenderSelection;
   readonly onEmit?: (emission: ChartEmission) => void;
+  /** Protocol 1.3: the walk door. Absent = no edges layer, so no walk to ask for. */
+  readonly walk?: NetworkWalk;
   readonly width?: number;
   readonly height?: number;
   readonly className?: string;
@@ -139,8 +170,13 @@ function frameOf(nodes: readonly NetworkNode[], edges: readonly NetworkEdge[], w
  * The ids that stay bright while `hovered` is under the pointer: the node
  * itself and the far end of every edge touching it. `null` when nothing is
  * hovered — and null means nothing dims, never "dim everything".
+ *
+ * The same SHAPE as the walk's ego set and a different THING: this one is
+ * local, unrecorded and gone when the pointer leaves, while a `neighbourhood`
+ * selection is a commit. The hover is the promise; the walk is the act — which
+ * is exactly why the alt-click needs no preview of its own.
  */
-function neighbourhoodOf(hovered: string | null, edges: readonly NetworkEdge[]): ReadonlySet<string> | null {
+function nearOf(hovered: string | null, edges: readonly NetworkEdge[]): ReadonlySet<string> | null {
   if (hovered === null) return null;
   const near = new Set<string>([hovered]);
   for (const e of edges) {
@@ -148,6 +184,17 @@ function neighbourhoodOf(hovered: string | null, edges: readonly NetworkEdge[]):
     if (e.target === hovered) near.add(e.source);
   }
   return near;
+}
+
+/**
+ * The fold as the NODE rows can honestly be judged by: every clause but the
+ * walk. Returns the SAME object when there is nothing to drop, so the frame's
+ * memos do not churn on the common case.
+ */
+function withoutWalks(selection: RenderSelection | undefined): RenderSelection | undefined {
+  if (selection === undefined) return undefined;
+  const kept = [...selection.clauses].filter(([, clause]) => clause.kind !== 'neighbourhood');
+  return kept.length === selection.clauses.size ? selection : { ...selection, clauses: new Map(kept) };
 }
 
 /** How many edges touch each node — the number a node's label reports, so the links are readable without a mouse. */
@@ -170,7 +217,7 @@ function nodeLabel(node: NetworkNode, degree: number): string {
 }
 
 export function VizNetwork(props: VizNetworkProps): JSX.Element {
-  const { viewId = 'network', nodes, edges, keyField, selection, onEmit, width = 420, height = 340 } = props;
+  const { viewId = 'network', nodes, edges, keyField, selection, onEmit, walk, width = 420, height = 340 } = props;
 
   // HOVER is local and unrecorded: it never leaves the component, so it needs
   // no capability and lands no commit (contract/types.ts, `RendererCallbacks.hover`).
@@ -180,7 +227,19 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
   const [pointed, setPointed] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
 
-  const bright = useBrightPredicate(selection);
+  // THE WALK ALREADY LANDED reads back off the fold: its `ids` are the ANSWER a
+  // gesture recorded, so the ego net on screen is the one that walk found and
+  // not the one today's rows would give (contract/selection.ts,
+  // `selfSelectedNeighbourhood`).
+  const walked = selection === undefined ? null : selfSelectedNeighbourhood(selection);
+  const ego = useMemo(() => (walked === null ? null : new Set(walked.ids.map(String))), [walked]);
+
+  // WHY the walk is taken OUT of the row predicate: it is a clause over the
+  // EDGES table — "both endpoints in the set" — and a node row carries no
+  // endpoint column, so folding it in would judge every node against columns it
+  // does not have and dim the whole frame. The nodes READ the set instead
+  // (`ego` above); the links are narrowed by the host, which owns the rows.
+  const bright = useBrightPredicate(useMemo(() => withoutWalks(selection), [selection]));
   const set = selectedSet(undefined, selection);
 
   // The frame is render-INVARIANT — it depends on the rows and the box, never
@@ -194,11 +253,13 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
    * call per reader: an edge asks about both of its ends, so a hub of degree
    * 500 would have its row folded 501 times for an answer that cannot differ.
    * `?? true` keeps today's law — an endpoint the frame does not carry, or a
-   * node with no row, is no evidence to dim by.
+   * node with no row, is no evidence to dim by. The ego set is folded in HERE
+   * and not at the node mark, so a link is as bright as its two ends by the
+   * same answer the nodes are.
    */
   const brightById = useMemo(
-    () => new Map(nodes.map((n) => [n.id, bright && n.row ? bright(n.row) : true] as const)),
-    [nodes, bright],
+    () => new Map(nodes.map((n) => [n.id, (bright && n.row ? bright(n.row) : true) && (ego === null || ego.has(n.id))] as const)),
+    [nodes, bright, ego],
   );
 
   // WHY the hover is narrowed to the frame: a removed circle fires no
@@ -208,12 +269,18 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
   // own contract forbids. A hover the frame does not carry is not a hover.
   const held = pointed ?? focused;
   const hovered = held !== null && byId.has(held) ? held : null;
-  const near = neighbourhoodOf(hovered, edges);
+  const near = nearOf(hovered, edges);
 
   /** Does this node survive the OTHER views' clauses? No row is no evidence, so it stays bright. */
   const survivesById = (id: string): boolean => brightById.get(id) ?? true;
 
   const nodeIsBright = (node: NetworkNode): boolean => survivesById(node.id) && (near === null || near.has(node.id));
+
+  /** Is this the node the live walk started from? Its own gesture is the one that CLEARS the walk. */
+  // WHY the null guard: `null` is the recorded sentinel for a walk whose seed is UNNAMED (a clause
+  // with no commit behind it — `vizfootprint/data`'s `NeighbourhoodValueBody.seed`), and without it
+  // a node whose key is the STRING "null" would wear that walk's focus
+  const isWalked = (id: string): boolean => walked !== null && walked.seed !== null && String(walked.seed) === id;
   const edgeIsBright = (edge: NetworkEdge): boolean =>
     survivesById(edge.source) && survivesById(edge.target) && (hovered === null || edge.source === hovered || edge.target === hovered);
 
@@ -221,6 +288,19 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
     // the VizMap rule: a plain click selects (and clears on the selected one),
     // shift/⌘/ctrl toggles the node in this view's own SET (SET-1)
     onEmit?.(additive ? toggleInSetEmission(keyField, id, set) : clickEmission(keyField, id, set));
+  };
+
+  /**
+   * ONE reader for both affordances (pointer and keyboard), so a keyboard user
+   * reaches every gesture a mouse does. Alt/option ASKS THE WALK — the node and
+   * everything it links to, one gesture, one commit; alt on the node already
+   * walked clears it (the point's own click-again rule). Without a walk door
+   * the modifier is not a gesture here and the click selects, which is the
+   * honest answer for a frame that carries no links.
+   */
+  const act = (id: string, mod: { readonly altKey: boolean; readonly shiftKey: boolean; readonly metaKey: boolean; readonly ctrlKey: boolean }): void => {
+    if (mod.altKey && walk !== undefined) walk.emit(toggleWalkEmission(walk.field, id, walked?.seed ?? null));
+    else emit(id, mod.shiftKey || mod.metaKey || mod.ctrlKey);
   };
 
   return (
@@ -235,7 +315,7 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
           no assistive technology — the `<desc>` is the only place it can be
           said. The counts are already on the svg's own label, and the
           PROVENANCE is not this chart's to claim: it draws what it is given. */}
-      <desc>{`view ${viewId}: click a node to filter ${keyField}; click it again to clear`}</desc>
+      <desc>{`view ${viewId}: click a node to filter ${keyField}; click it again to clear${walk === undefined ? '' : '; alt-click (or alt+Enter) a node to select it and everything it links to'}`}</desc>
       {/* links UNDER nodes — DOM order is paint order, and the nodes are the marks that take the tab */}
       <g className="vzf-net-links">
         {edges.map((e, i) => {
@@ -282,14 +362,14 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
               onMouseLeave={() => setPointed(null)}
               onFocus={() => setFocused(n.id)}
               onBlur={() => setFocused(null)}
-              onClick={(e) => emit(n.id, e.shiftKey || e.metaKey || e.ctrlKey)}
+              onClick={(e) => act(n.id, e)}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter' && e.key !== ' ') return;
                 e.preventDefault();
-                emit(n.id, e.shiftKey || e.metaKey || e.ctrlKey);
+                act(n.id, e);
               }}
             >
-              <title>{`${label} · click to ${isSel ? 'clear' : 'select'}`}</title>
+              <title>{`${label} · click to ${isSel ? 'clear' : 'select'}${walk === undefined ? '' : isWalked(n.id) ? ' · alt-click to clear its neighbourhood' : ' · alt-click for its neighbourhood'}`}</title>
             </circle>
           );
         })}

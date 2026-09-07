@@ -5,7 +5,9 @@
  * the port in this package's own words and judges every spec ONCE
  * (`judge.ts`); this file takes that verdict and builds the real engine's
  * twin — every clause by Mosaic's own factories (`clausePoint`,
- * `clauseInterval`, composed with the real `and`/`or`/`not`/`literal`), stood
+ * `clauseInterval`, composed with the real `and`/`or`/`not`/`literal`/`isIn`/
+ * `column` — the neighbourhood is the one kind with no clause factory of its
+ * own, so it stands on those SQL primitives alone), stood
  * on a real `Selection`, projected to OUR `CauseClause` beside it. This is the
  * ONLY module in the package that imports `@uwdata/mosaic-core` and
  * `@uwdata/mosaic-sql` (both optional peers): a consumer who never calls
@@ -23,11 +25,11 @@
 
 import { MosaicClient, Selection, clauseInterval, clausePoint } from '@uwdata/mosaic-core';
 import type { ClauseMetadata, SelectionClause } from '@uwdata/mosaic-core';
-import { and, literal, not, or } from '@uwdata/mosaic-sql';
+import { and, column, isIn, literal, not, or } from '@uwdata/mosaic-sql';
 import type { ExprNode } from '@uwdata/mosaic-sql';
 import type { Cause } from '../cause/index.js';
 import { pointValueFromWire } from '../data/index.js';
-import type { CellSide, MatchValue } from '../data/index.js';
+import type { CellSide, MatchValue, NeighbourhoodValue } from '../data/index.js';
 import { judge, rejectionOf } from '../selection/judge.js';
 import {
   SelectionPortError,
@@ -126,10 +128,37 @@ function matchPredicate(field: string, body: Exclude<MatchValue, null>, opts: Fa
 }
 
 /**
+ * The neighbourhood: the AND of two real `isIn` lists over ONE walked id set —
+ * a row is kept when BOTH endpoint columns name a node in it, the induced ego
+ * subgraph the chart draws. The list of literal nodes is built once and handed
+ * to both arms, so the two arms cannot be lists of different things.
+ *
+ * WHY every id through `literal()`: `isIn` maps its arguments through Mosaic's
+ * `asNode`, which reads a bare string as a COLUMN reference — a walked id is a
+ * VALUE, so it is made a literal before the factory sees it.
+ *
+ * WHY `isIn` and not `clausePoint` (which the match arm above uses): a
+ * neighbourhood's ids were MATERIALIZED by a walk, never typed by a person, so
+ * the `IS NULL` fallback is not wanted, and `clausePoint`'s `isInDistinct`
+ * null-handling would quietly rewrite one into an `IS NULL` that keeps every
+ * row with a missing endpoint; a null that does reach the list renders the
+ * literal `NULL`, which keeps no row. An empty set is the real `literal(false)`
+ * — the same always-false an empty match keep-list already renders.
+ */
+function neighbourhoodPredicate(fields: readonly [string, string], body: Exclude<NeighbourhoodValue, null>): ExprNode {
+  if (body.ids.length === 0) return literal(false);
+  const ids = body.ids.map((id) => literal(id));
+  return and(isIn(column(fields[0]), ids), isIn(column(fields[1]), ids));
+}
+
+/**
  * Build the real Mosaic clause for a spec the judge already admitted. Mosaic
- * has no compound point×interval or IN-list factory of its own, so the cell
- * and match clause literals are assembled here from genuine factory output;
- * `meta.type` is an open string, so `'cell'`/`'match'` are legal. The cause
+ * has no compound point×interval or two-column-membership factory of its own,
+ * and its one IN-list factory (`clausePoints`) renders a flat `IN (a, b)` with
+ * no `exclude` polarity — a different byte from the `or`-of-`clausePoint`
+ * spelling `CommitRecord.predicateSQL` is pinned to — so the cell, match and
+ * neighbourhood clause literals are assembled here from genuine factory output; `meta.type` is an open string, so
+ * `'cell'`/`'match'`/`'neighbourhood'` are legal. The cause
  * rides `meta` as a superset of `ClauseMetadata`: Mosaic's pre-aggregation
  * reads a clause's metadata by destructuring KNOWN fields only
  * (PreAggregator.js:192-206) and never enumerates or rejects unknown keys.
@@ -157,6 +186,11 @@ function nativeOf(spec: CauseClauseSpec, cause: Cause, opts: FactoryOptions): Se
     case 'match': {
       const predicate = spec.value === null ? null : matchPredicate(spec.field, spec.value, opts);
       clause = { meta: { type: 'match' }, ...opts, value: spec.value, predicate };
+      break;
+    }
+    case 'neighbourhood': {
+      const predicate = spec.value === null ? null : neighbourhoodPredicate(spec.fields, spec.value);
+      clause = { meta: { type: 'neighbourhood' }, ...opts, value: spec.value, predicate };
       break;
     }
   }

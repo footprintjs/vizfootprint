@@ -14,6 +14,10 @@
  *     language: shift-click toggles a value in the view's own SET (a point
  *     promotes to a one-value set; removing the last value emits the CLEARED
  *     match, never an empty list — an empty keep-list would match nothing);
+ *   - `walkEmission` / `toggleWalkEmission` (protocol 1.3) — the graph
+ *     language: a SEED on an endpoint column, which the SESSION answers by
+ *     walking the edges once at the cursor. Same click-again-clears rule as
+ *     the point, and the same one spelling of cleared;
  *   - `keyActivates` — the shared Enter/Space keyboard affordance for
  *     clickable marks (`role="button"` + `tabIndex` stay the chart's job).
  */
@@ -63,6 +67,26 @@ export function clickEmission(field: string, value: string, current: { readonly 
   if (current.exclude && member) return toggleInSetEmission(field, value, current);
   const single = current.values.length === 1 && !current.exclude && member ? value : null;
   return togglePointEmission(field, value, single);
+}
+
+/**
+ * The R3 neighbourhood emission (protocol 1.3): one SEED on one endpoint
+ * column of the edges table — or `null` to clear the walk.
+ *
+ * It is a QUESTION and not an answer: the ids are the session's to walk (a
+ * chart owns no rows), which is why nothing here takes a set.
+ */
+export function walkEmission(field: string, seed: unknown): ChartEmission {
+  return { rawValue: seed, encoding: { kind: 'neighbourhood', field } };
+}
+
+/**
+ * Walk-again-clears: asking for the neighbourhood already in force emits the
+ * CLEARED walk (`rawValue: null`), releasing it — the point's own rule, read
+ * against the live SEED rather than a selected value.
+ */
+export function toggleWalkEmission(field: string, seed: string, current: unknown): ChartEmission {
+  return walkEmission(field, current != null && String(current) === seed ? null : seed);
 }
 
 /** Enter/Space activates — the shared keyboard handler for clickable marks. */

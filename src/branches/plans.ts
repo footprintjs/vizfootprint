@@ -118,8 +118,9 @@ function bringOverRecipe(rec: CommitRecord): PlanRecipe {
     kind: rec.kind,
     field: rec.field,
     value: rec.value,
-    // D30: a cell commit's authoritative field pair rides the recipe so the
-    // executor re-lands the compound (never a flattened single-field probe).
+    // The two-column kinds' authoritative field pair rides the recipe so the
+    // executor re-lands the compound (never a flattened single-field probe) —
+    // and, for a neighbourhood, knows which endpoint to re-ask the walk from.
     ...(rec.fields !== undefined ? { fields: rec.fields } : {}),
   };
 }

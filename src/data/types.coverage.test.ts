@@ -1,12 +1,13 @@
 /**
- * types.coverage.test.ts — closes the one gap in types.ts: `reject()`'s
- * no-`detail` branch. Every production call site always passes a `detail`
- * string; `reject` is exported directly, so this exercises the omitted-arg
- * path a caller of the public API is free to take.
+ * types.coverage.test.ts — the arms of types.ts no other test reaches:
+ * `reject()`'s no-`detail` branch (every production call site passes one, and
+ * `reject` is exported, so a caller of the public API is free to omit it), and
+ * the two display labels + `clauseFields`, which every consumer reads THROUGH
+ * a provider or a port rather than calling by name.
  */
 
 import { describe, it, expect } from 'vitest';
-import { isRejection, reject } from './types.js';
+import { cellFieldLabel, clauseFields, isRejection, neighbourhoodFieldLabel, reject } from './types.js';
 
 describe('reject() — detail is optional', () => {
   it('omitting detail produces a rejection object with NO detail key at all (not detail: undefined)', () => {
@@ -33,5 +34,22 @@ describe('isRejection', () => {
     expect(isRejection({ ok: true })).toBe(false);
     expect(isRejection(null)).toBe(false);
     expect(isRejection(42)).toBe(false);
+  });
+});
+
+describe('the joint-field labels and the columns a clause reads', () => {
+  it('a cell is spelled with ×, a neighbourhood with ↔ — display-only, and the two never collide', () => {
+    expect(cellFieldLabel(['price', 'category'])).toBe('price × category');
+    // the arrow says "one edge", whose BOTH ends the predicate asks about
+    expect(neighbourhoodFieldLabel(['from', 'to'])).toBe('from ↔ to');
+    expect(neighbourhoodFieldLabel(['from', 'to'])).not.toBe(cellFieldLabel(['from', 'to']));
+  });
+
+  it('clauseFields answers ONE column for the single-field kinds and BOTH for the two-field kinds', () => {
+    expect(clauseFields({ kind: 'point', field: 'price', value: 1 })).toEqual(['price']);
+    expect(clauseFields({ kind: 'interval', field: 'price', value: [1, 2] })).toEqual(['price']);
+    expect(clauseFields({ kind: 'match', field: 'category', values: ['Formal'] })).toEqual(['category']);
+    expect(clauseFields({ kind: 'cell', fields: ['price', 'category'], value: null })).toEqual(['price', 'category']);
+    expect(clauseFields({ kind: 'neighbourhood', fields: ['from', 'to'], ids: ['Lyme'] })).toEqual(['from', 'to']);
   });
 });

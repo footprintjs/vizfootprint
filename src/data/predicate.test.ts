@@ -7,9 +7,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import { clauseInterval, clausePoint } from '@uwdata/mosaic-core';
-import { and, literal, not, or } from '@uwdata/mosaic-sql';
+import { and, column, isIn, literal, not, or } from '@uwdata/mosaic-sql';
 import { isClearedSQL, literalToSQL, matchesClause, mosaicDescriptorSQL, resolvePredicateSQL } from './predicate.js';
-import type { CellClause, IntervalClause, MatchClause, PointClause, Row } from './types.js';
+import type { CellClause, IntervalClause, MatchClause, NeighbourhoodClause, PointClause, Row } from './types.js';
 
 /** The exact SQL string a real Mosaic clause resolves to — the ground truth. */
 function realClauseSQL(kind: 'point' | 'interval', field: string, value: unknown): string {
@@ -350,6 +350,89 @@ describe('match — exclude flips the IN-list to NOT IN (SET-1)', () => {
 // REAL clause. The two logs must be byte-identical, so every shape below is
 // built BOTH ways and compared — the real side composed exactly as the adapter
 // composes it (the factories, then `and` / `or` / `not` / `literal(false)`).
+describe('the neighbourhood — one gesture on a node, the AND of two endpoint columns', () => {
+  // the demo's shape: an edges table whose two columns both name nodes of one node table
+  const edges: Row[] = [
+    { id: 'e1', from: 'Lyme', to: 'Zika' },
+    { id: 'e2', from: 'Zika', to: 'Mumps' },
+    { id: 'e3', from: 'Mumps', to: 'Rabies' },
+    { id: 'e4', from: 'Lyme', to: 'Rabies' },
+  ];
+  // the ego walk from "Zika": the seed and what it touches
+  const zika: NeighbourhoodClause = { kind: 'neighbourhood', fields: ['from', 'to'], ids: ['Zika', 'Lyme', 'Mumps'] };
+
+  it('resolvePredicateSQL renders the AND of two IN-lists, byte-identical to the REAL and(isIn, isIn)', () => {
+    // ground truth: the real factories the Mosaic adapter composes for this kind
+    const ids = zika.ids.map((v) => literal(v));
+    const real = String(and(isIn(column('from'), ids), isIn(column('to'), ids)));
+    expect(resolvePredicateSQL(zika)).toBe(real);
+    expect(resolvePredicateSQL(zika)).toBe(`(("from" IN ('Zika', 'Lyme', 'Mumps')) AND ("to" IN ('Zika', 'Lyme', 'Mumps')))`);
+  });
+
+  it('matchesClause keeps a row only when BOTH endpoints are in the set — the induced ego subgraph', () => {
+    const only_source: Row = { from: 'Zika', to: 'Ebola' };
+    const only_target: Row = { from: 'Ebola', to: 'Mumps' };
+    const both: Row = { from: 'Lyme', to: 'Zika' };
+    const neither: Row = { from: 'Ebola', to: 'Rabies' };
+    expect(matchesClause(only_source, zika)).toBe(false);
+    expect(matchesClause(only_target, zika)).toBe(false);
+    expect(matchesClause(both, zika)).toBe(true);
+    expect(matchesClause(neither, zika)).toBe(false);
+  });
+
+  it('the walked set selects the ties INSIDE it — never a neighbour\'s tie to a stranger one hop further out', () => {
+    // e4 (Lyme→Rabies) and e3 (Mumps→Rabies) leave the set: Rabies is not in it, and the chart draws them dim
+    expect(edges.filter((r) => matchesClause(r, zika)).map((r) => r['id'])).toEqual(['e1', 'e2']);
+    const lymeOnly: NeighbourhoodClause = { kind: 'neighbourhood', fields: ['from', 'to'], ids: ['Lyme'] };
+    expect(edges.filter((r) => matchesClause(r, lymeOnly))).toEqual([]);
+  });
+
+  it('a nullish id keeps NO row — `IN (NULL)` is not `IS NULL`, so the two readings of one clause agree', () => {
+    const withNull: NeighbourhoodClause = { kind: 'neighbourhood', fields: ['from', 'to'], ids: [null] };
+    // SQL: `IN (NULL)` is never TRUE for any row, missing endpoint included
+    expect(resolvePredicateSQL(withNull)).toBe(`(("from" IN (NULL)) AND ("to" IN (NULL)))`);
+    expect(matchesClause({ from: null, to: 'Zika' }, withNull)).toBe(false);
+    expect(matchesClause({ from: null, to: null }, withNull)).toBe(false);
+    expect(matchesClause({ other: 1 }, withNull)).toBe(false); // a row missing both endpoint columns
+    // and a real id beside the null still answers for itself
+    const mixed: NeighbourhoodClause = { kind: 'neighbourhood', fields: ['from', 'to'], ids: ['Lyme', null, undefined, 'Zika'] };
+    expect(matchesClause({ from: 'Lyme', to: 'Zika' }, mixed)).toBe(true);
+    expect(matchesClause({ from: 'Lyme', to: null }, mixed)).toBe(false);
+  });
+
+  it('the id set is built once per ids array and read again — the same clause answers the same rows twice', () => {
+    const first = edges.filter((r) => matchesClause(r, zika)).map((r) => r['id']);
+    const second = edges.filter((r) => matchesClause(r, zika)).map((r) => r['id']);
+    expect(second).toEqual(first);
+    // a SECOND clause over the very same borrowed ids array meets the set the first one built
+    const twin: NeighbourhoodClause = { kind: 'neighbourhood', fields: ['from', 'to'], ids: zika.ids };
+    expect(edges.filter((r) => matchesClause(r, twin)).map((r) => r['id'])).toEqual(first);
+  });
+
+  it('an empty id set keeps NOTHING and says so — an always-false predicate, never "no filter"', () => {
+    const empty: NeighbourhoodClause = { kind: 'neighbourhood', fields: ['from', 'to'], ids: [] };
+    expect(edges.filter((r) => matchesClause(r, empty))).toEqual([]);
+    expect(resolvePredicateSQL(empty)).toBe('(FALSE)');
+    expect(isClearedSQL(resolvePredicateSQL(empty))).toBe(false);
+  });
+
+  it('both endpoints may be ONE column (a self-referencing edge list) — the AND is still rendered twice, as the engine renders it', () => {
+    const oneColumn: NeighbourhoodClause = { kind: 'neighbourhood', fields: ['from', 'from'], ids: ['Lyme'] };
+    expect(resolvePredicateSQL(oneColumn)).toBe(`(("from" IN ('Lyme')) AND ("from" IN ('Lyme')))`);
+    expect(edges.filter((r) => matchesClause(r, oneColumn)).map((r) => r['id'])).toEqual(['e1', 'e4']);
+  });
+
+  it('ids are literals, quoted by the same rules every other clause uses (a quote in an id, a numeric id, a quoted identifier)', () => {
+    const quoted: NeighbourhoodClause = { kind: 'neighbourhood', fields: ['a"b', 'to'], ids: ["O'Brien", 7] };
+    expect(resolvePredicateSQL(quoted)).toBe(`(("a""b" IN ('O''Brien', 7)) AND ("to" IN ('O''Brien', 7)))`);
+  });
+
+  it('a clause LIST is still its AND: a neighbourhood ANDed with a point narrows it further', () => {
+    const sql = resolvePredicateSQL([zika, { kind: 'point', field: 'year', value: 2026 }]);
+    expect(sql).toBe(`((("from" IN ('Zika', 'Lyme', 'Mumps')) AND ("to" IN ('Zika', 'Lyme', 'Mumps')))) AND (("year" IN (2026)))`);
+  });
+});
+
 describe('mosaicDescriptorSQL — byte-identical to the real Mosaic clause for every kind × shape', () => {
   const src = { source: {} };
   const realPoint = (field: string, value: unknown) => String(clausePoint(field, value, src).predicate);
@@ -363,6 +446,13 @@ describe('mosaicDescriptorSQL — byte-identical to the real Mosaic clause for e
     const arms = value.values.map((v) => clausePoint(field, v, src).predicate!);
     const inList = arms.length === 0 ? literal(false) : arms.length === 1 ? arms[0]! : or(...arms);
     return String(value.exclude === true ? not(inList) : inList);
+  };
+
+  const realNeighbourhood = (fields: readonly [string, string], value: { ids: unknown[] } | null) => {
+    if (value === null) return String(null);
+    if (value.ids.length === 0) return String(literal(false));
+    const ids = value.ids.map((v) => literal(v));
+    return String(and(isIn(column(fields[0]), ids), isIn(column(fields[1]), ids)));
   };
 
   it('point: string / quoted string / number / both booleans / null (IS NULL) / undefined (cleared) / Date / timestamp / NaN / quoted and dotted identifiers / the coerced literals', () => {
@@ -451,11 +541,41 @@ describe('mosaicDescriptorSQL — byte-identical to the real Mosaic clause for e
     }
   });
 
+  it('neighbourhood: one id / many / a numeric id / a null id (the literal NULL, never rewritten to IS NULL) / one column twice / empty (FALSE) / cleared', () => {
+    const shapes: Array<[readonly [string, string], { ids: unknown[]; seed?: unknown; derivation?: string; hops?: number } | null]> = [
+      [['from', 'to'], { seed: 'Lyme', derivation: 'ego', hops: 1, ids: ['Lyme'] }],
+      [['from', 'to'], { seed: 'Zika', derivation: 'ego', hops: 1, ids: ['Zika', 'Lyme', 'Mumps'] }],
+      [['from', 'to'], { seed: 7, derivation: 'ego', hops: 1, ids: [7, 8] }],
+      [['from', 'to'], { seed: null, derivation: 'ego', hops: 1, ids: [null, 'Lyme'] }],
+      [['from', 'from'], { seed: 'Lyme', derivation: 'ego', hops: 1, ids: ['Lyme'] }],
+      [['a"b', 'to'], { seed: "O'Brien", derivation: 'ego', hops: 1, ids: ["O'Brien"] }],
+      [['from', 'to'], { seed: 'Lyme', derivation: 'ego', hops: 1, ids: [] }],
+      [['from', 'to'], null],
+    ];
+    for (const [fields, value] of shapes) {
+      expect(mosaicDescriptorSQL('neighbourhood', fields, value), `neighbourhood ${fields.join(' ↔ ')} = ${JSON.stringify(value)}`).toBe(
+        realNeighbourhood(fields, value),
+      );
+    }
+    // pinned by value too, so a Mosaic upgrade that changes the AND's shape fails here by name
+    expect(mosaicDescriptorSQL('neighbourhood', ['from', 'to'], { ids: ['Lyme', 'Zika'] })).toBe(
+      `(("from" IN ('Lyme', 'Zika')) AND ("to" IN ('Lyme', 'Zika')))`,
+    );
+    // every id rides through `literal()`: a bare string would come back through `asNode` as a COLUMN
+    expect(mosaicDescriptorSQL('neighbourhood', ['from', 'to'], { ids: ['Lyme'] })).not.toContain('"Lyme"');
+    // the ONE documented divergence from the honest SQL: an empty set is Mosaic's bare FALSE, `(FALSE)` there
+    expect(mosaicDescriptorSQL('neighbourhood', ['from', 'to'], { ids: [] })).toBe('FALSE');
+    expect(resolvePredicateSQL({ kind: 'neighbourhood', fields: ['from', 'to'], ids: [] })).toBe('(FALSE)');
+    // a null id renders the literal NULL — `isIn`, not the point factory's null-safe `isInDistinct`
+    expect(mosaicDescriptorSQL('neighbourhood', ['from', 'to'], { ids: [null] })).toBe(`(("from" IN (NULL)) AND ("to" IN (NULL)))`);
+  });
+
   it('a cleared clause of any kind is the one "null" descriptor isClearedSQL recognises', () => {
     expect(isClearedSQL(mosaicDescriptorSQL('point', 'x', undefined))).toBe(true);
     expect(isClearedSQL(mosaicDescriptorSQL('interval', 'x', null))).toBe(true);
     expect(isClearedSQL(mosaicDescriptorSQL('cell', ['x', 'y'], null))).toBe(true);
     expect(isClearedSQL(mosaicDescriptorSQL('match', 'x', null))).toBe(true);
+    expect(isClearedSQL(mosaicDescriptorSQL('neighbourhood', ['x', 'y'], null))).toBe(true);
   });
 
   it('refuses with a TypeError the shapes the real builders refuse — never a fabricated byte', () => {
@@ -470,6 +590,13 @@ describe('mosaicDescriptorSQL — byte-identical to the real Mosaic clause for e
     // a match body without a list, and a body that is not an object at all
     expect(() => mosaicDescriptorSQL('match', 'category', {})).toThrow(/\{ values, exclude\? \}/);
     expect(() => mosaicDescriptorSQL('match', 'category', 'Formal')).toThrow(TypeError);
+    // a neighbourhood body carrying no walked set, and one that is not an object at all — the refusal
+    // names the LIST (the one slot it reads) and what arrived there, beside the joint label
+    expect(() => mosaicDescriptorSQL('neighbourhood', ['from', 'to'], { seed: 'Lyme' })).toThrow(/must carry the walked list/);
+    expect(() => mosaicDescriptorSQL('neighbourhood', ['from', 'to'], { seed: 'Lyme' })).toThrow(/ids: \[object Undefined\]/);
+    expect(() => mosaicDescriptorSQL('neighbourhood', ['from', 'to'], { seed: 'Lyme', derivation: 'ego', hops: 1, ids: 'Lyme' })).toThrow(/ids: \[object String\]/);
+    expect(() => mosaicDescriptorSQL('neighbourhood', ['from', 'to'], { seed: 'Lyme' })).toThrow(/"from ↔ to"/);
+    expect(() => mosaicDescriptorSQL('neighbourhood', ['from', 'to'], 'Lyme')).toThrow(TypeError);
     // a value string coercion refuses — the real factory throws the same TypeError, so the refusal is Mosaic's own
     expect(() => realPoint('x', Symbol('s'))).toThrow(TypeError);
     expect(() => mosaicDescriptorSQL('point', 'x', Symbol('s'))).toThrow(TypeError);

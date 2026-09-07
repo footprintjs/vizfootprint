@@ -73,10 +73,16 @@
  *     A cell whose `fields` never arrived, and any value the wire's declared
  *     shape does not cover, is CLEARED — `clauseFromWire`'s one fallback, so
  *     "keep-all is the only honest fallback" is now stated in one place too.
+ *   - neighbourhood (protocol 1.3): the induced ego subgraph — an edge row is
+ *     kept when BOTH endpoint columns hold one of the walked `ids`, which is
+ *     the edge set the network brightens for that gesture. An empty set keeps
+ *     NOTHING (a walk that found nobody found nobody); "no filter" is spelled
+ *     `null`, as it is for a match. The seed, derivation and hops ride beside
+ *     the ids as the QUESTION and are never part of the predicate.
  */
 
-import { cellSideClause, clauseFromWire } from 'vizfootprint/data';
-import type { IntervalBounds, PredicateClause } from 'vizfootprint/data';
+import { cellSideClause, clauseFromWire, neighbourhoodValueFromWire } from 'vizfootprint/data';
+import type { IntervalBounds, NeighbourhoodValueBody, PredicateClause } from 'vizfootprint/data';
 import type { ClearedSelectionView, LinkGraphView, SelectionView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection, SelectionClauseView, EmissionKind } from './types.js';
 
@@ -141,6 +147,18 @@ function compileClause(clause: PredicateClause | null): (row: RenderRow) => bool
       const px = compileClause(cellSideClause(clause.fields[0], pair[0]));
       const py = compileClause(cellSideClause(clause.fields[1], pair[1]));
       return (row) => px(row) && py(row);
+    }
+    case 'neighbourhood': {
+      // The induced ego subgraph: an edge row is kept when BOTH endpoints are in
+      // the walked set. Compiled the way this tier compiles everything — the
+      // Set is built once, before a row is seen, so the hot loop is two lookups
+      // and no membership scan. An empty set keeps NOTHING (the library's rule:
+      // to mean "no filter" a neighbourhood clause is `null`, never an empty set).
+      // A nullish id is dropped from the set, as the library's own filter drops it:
+      // SQL's `IN (NULL)` is never true, so a missing endpoint is kept by no walk.
+      const [source, target] = clause.fields;
+      const ids = new Set<unknown>(clause.ids.filter((id) => id !== null && id !== undefined));
+      return (row) => ids.has(row[source]) && ids.has(row[target]);
     }
   }
 }
@@ -387,4 +405,74 @@ export function selfSelectedCell(selection: RenderSelection): SelfSelectedCell |
   const own = selection.clauses.get(selection.selfClauseId);
   if (!own || own.kind !== 'cell' || own.value == null || own.fields === undefined) return null;
   return { fields: own.fields, values: own.value as readonly [unknown, unknown] };
+}
+
+/** The consuming view's own live NEIGHBOURHOOD: the question it asked and the answer it recorded. */
+export interface SelfSelectedNeighbourhood {
+  /** The edges table's two endpoint columns, source side then target side. */
+  readonly fields: readonly [string, string];
+  /** The node the gesture landed on — what the walk started from. */
+  readonly seed: unknown;
+  /**
+   * How the set was walked, as the commit RECORDED it — the library's own slot
+   * ({@link NeighbourhoodValueBody.derivation}), which is typed open for this
+   * exact reason: a commit older or newer than this ui build can name a
+   * derivation this build does not mint, and it still selects by its recorded
+   * `ids`. A consumer that branches on a derivation it knows must keep an
+   * honest else.
+   */
+  readonly derivation: NeighbourhoodValueBody['derivation'];
+  /** How far the walk went. */
+  readonly hops: number;
+  /** The walked set, the seed included — the answer, recorded with its question. */
+  readonly ids: readonly unknown[];
+}
+
+/**
+ * The WALK in force on this frame: the view's own if it has one, else the one
+ * that REACHED it.
+ *
+ * WHY the second half is not a widening of "self": on a node-link the two
+ * halves of the act sit on two addresses by construction. The gesture is a
+ * node's, but the clause is over the EDGES table (both endpoints in the set),
+ * so it is spoken through the edges layer's bundle and lands under the edges
+ * address — and the layer that must DRAW the answer is the nodes layer. A
+ * reader that only ever looked at its own address would find nothing on the
+ * one frame the kind exists for. Arrival is the permission: `selectionForView`
+ * has already dropped every clause a `none` or absent link edge blocks.
+ */
+function walkClause(selection: RenderSelection): SelectionClauseView | null {
+  const own = selection.selfClauseId === null ? undefined : selection.clauses.get(selection.selfClauseId);
+  if (own !== undefined && own.kind === 'neighbourhood') return own;
+  for (const [viewId, clause] of selection.clauses) if (viewId !== selection.selfClauseId && clause.kind === 'neighbourhood') return clause;
+  return null;
+}
+
+/**
+ * The live NEIGHBOURHOOD selection on this frame (protocol 1.3) — or null when
+ * there is none (no walk, a cleared walk, or a wire row that lost its endpoint
+ * pair or its id list). The graph sibling of {@link selfSelectedValue} /
+ * {@link selfSelectedInterval} / {@link selfSelectedCell}: how a node-link
+ * lights the ego net a gesture just landed — the SEED as the focus and the
+ * walked `ids` as what it touches — from the addressable fold, never from
+ * local state.
+ *
+ * This is why the walked set is carried on the commit at all: the nodes draw
+ * the answer the walk RECORDED, so the picture and the record cannot drift,
+ * and a reader who travels back in time sees the ego net that walk found
+ * rather than the one today's rows would give.
+ *
+ * Unlike its three siblings it answers for a `selfClauseId` of `null` too: they
+ * are about the CONSUMING VIEW's own clause and have nothing to say without
+ * one, while this is about the frame — and a whole-dashboard fold has no self
+ * to exclude, so the walk in it is still the walk in force.
+ */
+export function selfSelectedNeighbourhood(selection: RenderSelection): SelfSelectedNeighbourhood | null {
+  const walk = walkClause(selection);
+  if (walk === null || walk.fields === undefined) return null;
+  // the library's own door reads the recorded question — one place answers an absent seed
+  // (`null`, UNNAMED), an unreadable derivation and an unreadable hop count, for every consumer
+  const body = neighbourhoodValueFromWire(walk.value);
+  if (body === null) return null;
+  return { fields: walk.fields, seed: body.seed, derivation: body.derivation, hops: body.hops, ids: body.ids };
 }

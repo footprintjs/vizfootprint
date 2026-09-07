@@ -3,7 +3,8 @@
  *
  * The law it follows: the two ports must reject one spec identically, and
  * mint one byte for it. A policy that lives in two adapters drifts the day a
- * fifth clause kind or a new refusal arrives (the replica hazard), so the
+ * NEW clause kind or a new refusal arrives (the replica hazard — the
+ * neighbourhood was that day, and it cost this file two arms), so the
  * whole verdict — the cause gate, the identity gate over `source` AND every
  * `clients` entry, the shape verdict and the byte — is decided HERE, once. An
  * engine adapter takes the verdict and builds only its native twin beside it.
@@ -17,7 +18,8 @@
  */
 
 import { validateCause, type Cause } from '../cause/index.js';
-import { isClearedSQL, mosaicDescriptorSQL, pointValueFromWire } from '../data/index.js';
+import { isClearedSQL, mosaicDescriptorSQL, neighbourhoodFieldLabel, pointValueFromWire } from '../data/index.js';
+import type { NeighbourhoodValue, NeighbourhoodValueBody } from '../data/index.js';
 import { RegisteredSource, reject, type CauseClauseSpec, type SelectionEngine, type SelectionRejection, type SelectionRejectionReason } from './types.js';
 
 // ── refusal: module-private, caught ONCE at a port's door ───────────────────
@@ -65,7 +67,10 @@ export interface Verdict {
 
 function identityOf(role: string, candidate: unknown): RegisteredSource {
   if (!(candidate instanceof RegisteredSource)) {
-    refuse('unknown-source', `a clause ${role} must come from a SourceRegistry — got ${Object.prototype.toString.call(candidate)}`);
+    // a primitive is QUOTED (a view id string is exactly what a caller meant to hand `require`);
+    // anything else has no spelling worth printing, so it is named by its type
+    const got = typeof candidate === 'string' ? JSON.stringify(candidate) : Object.prototype.toString.call(candidate);
+    refuse('unknown-source', `a clause ${role} must come from a SourceRegistry — got ${got}`);
   }
   return candidate;
 }
@@ -73,8 +78,37 @@ function identityOf(role: string, candidate: unknown): RegisteredSource {
 /** WHY every entry and not just `source`: `skip()` is `clients.has(client)`, so an unregistered client would silently never be skipped. */
 function sourcesOf(spec: CauseClauseSpec): { source: RegisteredSource; clients: readonly RegisteredSource[] } {
   const source = identityOf('source', spec.source);
-  const clients = spec.clients === undefined ? [source] : spec.clients.map((c) => identityOf('client', c));
+  // the INDEX rides the role: a list of clients refuses over one entry, and the caller needs to know which
+  const clients = spec.clients === undefined ? [source] : spec.clients.map((c, i) => identityOf(`client [${i}]`, c));
   return { source, clients };
+}
+
+/**
+ * A walk's QUESTION, judged beside its answer. The byte is made of the `ids`
+ * alone, so nothing downstream would ever notice a body that records WHICH rows
+ * were selected but not which walk found them — until a bring-over or a saved
+ * picture re-asks it from a seed that was never there, and refuses two hops
+ * away, blaming the act instead of the commit.
+ *
+ * WHY here: judge is the one verdict both ports take, and this is the one kind
+ * whose value is a question and an answer in one object ({@link
+ * NeighbourhoodValueBody}). A cleared walk (`null`) records no question by
+ * definition and is not judged.
+ */
+function judgeWalkQuestion(fields: readonly [string, string], value: NeighbourhoodValue): void {
+  if (value === null) return;
+  const body = value as Partial<NeighbourhoodValueBody>;
+  const missing = [
+    ...('seed' in body ? [] : ['seed']),
+    ...(typeof body.derivation === 'string' ? [] : ['derivation']),
+    ...(typeof body.hops === 'number' ? [] : ['hops']),
+  ];
+  if (missing.length > 0) {
+    refuse(
+      'unsupported-shape',
+      `a neighbourhood value records its question WITH its answer — "${neighbourhoodFieldLabel(fields)}" got a walked list and no ${missing.join(', no ')}`,
+    );
+  }
 }
 
 /** The byte, by the engine's own rules (`mosaicDescriptorSQL`), or a refusal for a shape no engine renders. */
@@ -90,9 +124,19 @@ function descriptorOf(spec: CauseClauseSpec): string {
       return mosaicDescriptorSQL('cell', spec.fields, spec.value);
     case 'match':
       return mosaicDescriptorSQL('match', spec.field, spec.value);
-    default:
-      // reachable only from an untyped caller; a switch that fell off would mint a clause with no byte
-      return refuse('unsupported-shape', `unknown clause kind "${String((spec as { kind?: unknown }).kind)}"`);
+    case 'neighbourhood': {
+      // the ANSWER first (it is what the byte is made of), then the QUESTION beside it
+      const byte = mosaicDescriptorSQL('neighbourhood', spec.fields, spec.value);
+      judgeWalkQuestion(spec.fields, spec.value);
+      return byte;
+    }
+    default: {
+      // reachable only from an untyped caller; a switch that fell off would mint a clause with no byte.
+      // The `never` binding is the compiler's pin: a kind added to the union with no arm above lands
+      // here as something other than `never`, and the build names the one that was forgotten.
+      const unhandled: never = spec;
+      return refuse('unsupported-shape', `unknown clause kind "${String((unhandled as { kind?: unknown }).kind)}"`);
+    }
   }
 }
 

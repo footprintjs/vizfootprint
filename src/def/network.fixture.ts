@@ -5,7 +5,7 @@
  * `nodes` declares a key and three roles; `edges` declares none and three
  * roles of its own — so a column of one table is a refusal on the other.
  */
-import type { DashboardDef, LayerDecl } from './types.js';
+import type { DashboardDef, LayerDecl, RelationDecl } from './types.js';
 
 export const NODES = [
   { id: 'flu', size: 12, group: 'viral' },
@@ -15,6 +15,18 @@ export const NODES = [
 export const EDGES = [
   { source: 'flu', target: 'cold', weight: 5 },
   { source: 'cold', target: 'strep', weight: 1 },
+];
+
+/**
+ * The two relations that make `edges` an EDGE table: each end names the nodes
+ * table's declared key. Two relations, not one — which is what law 7's walk
+ * reads (`./relations.ts`) — and legal because neither joins a table to
+ * itself. Handed in through `extra` so a def that does not ask for them is
+ * byte-identical to the one before they existed.
+ */
+export const NETWORK_RELATIONS: readonly RelationDecl[] = [
+  { from: { table: 'edges', column: 'source' }, to: { table: 'nodes', column: 'id' }, label: 'one end of the tie' },
+  { from: { table: 'edges', column: 'target' }, to: { table: 'nodes', column: 'id' }, label: 'the other end' },
 ];
 
 export const nodesLayer: LayerDecl = { layerId: 'nodes', table: 'nodes', chartKind: 'point', channels: ['x', 'y', 'size', 'color'], initial: { size: 'size', color: 'group' }, label: 'Diseases' };

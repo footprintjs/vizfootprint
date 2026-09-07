@@ -97,7 +97,7 @@ It **calls** the validator; it never restates it, so the two cannot disagree. `b
 
 ## Relations — the edges between tables
 
-A def declares its tables as `data: Record<string, DataSourceDef>`, and each table may name its row identity (`key`). `relations` is the one place two tables are joined: an edge from a column of one table to the **key** of another. Relations are data on the MAP — the overview echoes them (`overview().relations`, the `relations` part of `whats_here`), and one thing in the session acts on them: an analysis may read across a declared edge and no other way (law 6). The neighbourhood selection kind comes later, and it too will read this list rather than infer a join from the rows.
+A def declares its tables as `data: Record<string, DataSourceDef>`, and each table may name its row identity (`key`). `relations` is the one place two tables are joined: an edge from a column of one table to the **key** of another. Relations are data on the MAP — the overview echoes them (`overview().relations`, the `relations` part of `whats_here`), and two things in the session act on them: an analysis may read across a declared edge and no other way (law 6), and the `neighbourhood` selection kind walks a pair of them (law 7) rather than inferring a join from the rows.
 
 ```ts
 data: {
@@ -110,7 +110,7 @@ relations: [
 ],
 ```
 
-Six laws. The door does not judge them in this order: per end it first asks that the table is declared (law 3) and only then judges the column on it (law 2) or the key it points at (law 1); self-join and repeat (law 3) and `kind` / `label` (law 4) come last; law 5 is a runtime fact, not a door law.
+Seven laws. The door does not judge them in this order: per end it first asks that the table is declared (law 3) and only then judges the column on it (law 2) or the key it points at (law 1); self-join and repeat (law 3) and `kind` / `label` (law 4) come last; law 5 is a runtime fact, not a door law.
 
 1. **A relation points at an identity.** `to.column` must be the declared `data[to.table].key`. A table with no key has no identity to point at, and the sentence says what to declare first:
    ```
@@ -150,6 +150,18 @@ Six laws. The door does not judge them in this order: per end it first asks that
    ```
    The last two are the pair's own halves. A read of the analysis's OWN table gets its own sentence, because no relation may ever join a table to itself (law 3) and "declare the relation first" would be advice this door refuses; and the table the analysis RUNS OVER is judged first and alone, because a pair whose left side is not a table has no relation to declare, and blaming the read would quote a table that is perfectly good.
    The judge is `judgeAnalysisReads` (`./relations.ts`) — the pair is not known until the act names its table, which is why this law is enforced at the session door and not at this one. What the analysis then SEES is the session's to say: the related rows are read at the cursor, under that table's own clauses (`../session/README.md`).
+
+7. **Two relations at ONE identity are an EDGE — and that is what a neighbourhood is walked over.** `neighbourhoodEndpoints(relations, table, column)` answers the pair of endpoint columns for the end a gesture named, in DECLARATION order, so a walk from either end lands the same bytes. An edges table pointing twice at one key is two relations, which is legal (neither joins a table to itself); anything else is refused in a sentence that quotes what is known:
+   ```ts
+   neighbourhoodEndpoints(relations, 'edges', 'target');   // { fields: ['source', 'target'] } — the order they were declared in
+   ```
+   ```
+   table "cells" declares no relation, so "disease" is not an endpoint — a neighbourhood is walked over an edge, and an edge is two columns naming one identity
+   "edges.weight" is not an endpoint — the endpoints of "edges" are source, target
+   "edges" names "nodes.disease" through one column (source) — a neighbourhood walks an edge with exactly two ends
+   "edges" names "nodes.disease" through 3 columns (source, target, via) — a neighbourhood walks an edge with exactly two ends
+   ```
+   The reader is directional the way law 6's `joinsTables` is not: a permission to READ across an edge runs both ways, but the two ENDS of one edge are columns of the same table, and only relations pointing at the same `(table, key)` are the same edge. What the walk then does with the pair — read the rows at the cursor, land ONE commit carrying the question and its answer — is the session's to say (`../session/README.md`, "One gesture on a node").
 
 The shape sentences, for completeness: `relations, if present, must be an array of { from, to }` · `relations[i] must be an object { from, to, kind?, label? }` · `relations[i]: unknown key "x"` · `relations[i].from must be { table, column } with non-empty strings` · `relations[i].from: unknown key "x"` (an end is exactly those two keys, and an extra one is named, the way a relation's is). A table refused on its own line (`data["bad"] must be an object …`) is not refused again through a relation at either end; the empty table map is refused on its own line and no relation is judged against it.
 
@@ -215,7 +227,7 @@ The shape sentences, for completeness: `encodings[i].layers, if present, must be
 |---|---|
 | `types.ts` | the schema — `DashboardDef`, `DataSourceDef`, `RelationDecl` / `RelationEdge`, `LayerDecl`, `DashboardRuntime` |
 | `validate.ts` | the firewall + the parse door; runs the build door once per layer against the layer's table |
-| `relations.ts` | the relation laws as refusals, `relationEdgeId`, the default kind, and the read-across permission (`joinsTables`, `judgeAnalysisReads`) and the join a `bringOver` follows (`relationsFrom`) |
+| `relations.ts` | the relation laws as refusals, `relationEdgeId`, the default kind, the read-across permission (`joinsTables`, `judgeAnalysisReads`), the join a `bringOver` follows (`relationsFrom`), and the edge a neighbourhood is walked over (`neighbourhoodEndpoints`) |
 | `layerAddress.ts` | THE one owner of the layer marker — `LAYER_MARKER`, `layerAddress`, `splitLayerAddress`, `holdsLayerMarker` |
 | `layers.ts` | the layer laws as refusals; `layerSurfaceOf` / `layerSurfacesOf`, the surfaces the build door and `lint()` judge |
 | `builtinAnalyses.ts` | an analysis as data (the seven records, their options, the extra judge one carries, and the def context another needs) |

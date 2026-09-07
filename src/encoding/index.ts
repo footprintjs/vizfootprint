@@ -35,6 +35,10 @@ export type {
 } from './types.js';
 export { DEFAULT_CHANNEL_REQUIREMENTS, CHART_REQUIREMENTS, KINDS_NOT_PROPOSED, requirementFor, chartKindsOf, channelsOf } from './requirements.js';
 export { SENTENCES, fill, listOf } from './sentences.js';
+// the reading rule (matrix or node-link) — the rules themselves ship beside the
+// function that reads them, so a consumer can show a person the whole set
+export { GRAPH_READING_RULES, DEFAULT_GRAPH_READING, CHART_KIND_FOR_READING, DENSE_AT, BIG_AT, densityOf, graphReadingFor } from './graphReading.js';
+export type { GraphFact, GraphQuestion, GraphReading, GraphReadingKind, GraphReadingRule } from './graphReading.js';
 export { resolveFacets, resolveFacet, scaleOfType } from './facets.js';
 export type { FacetSource } from './facets.js';
 export { BUILTIN_RULES, validateBindings, requirementFailure, refuses, ruleId } from './validate.js';

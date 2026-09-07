@@ -60,7 +60,7 @@ import {
   specFromRecord,
   type DemoRow,
 } from './common.js';
-import { causeClauseFromEmission, isRejection, type ActorMeta, type ChartEmission, type RegisteredSource } from 'vizfootprint/selection';
+import { causeClauseFromEmission, isRejection, type ActorMeta, type ClauseEmission, type RegisteredSource } from 'vizfootprint/selection';
 import type { Cause } from 'vizfootprint/cause';
 import { matchesClause, type PredicateClause } from 'vizfootprint/data';
 import { correlationAnalysis, clusteringAnalysis, regressionAnalysis, groupByAnalysis } from 'vizfootprint/analysis';
@@ -106,7 +106,7 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
     return { requestedBy: 'user', computedBy: 'user', intent };
   }
 
-  function applyTransient(viewId: string, meta: ActorMeta, emission: ChartEmission, spec: PredicateClause | null): void {
+  function applyTransient(viewId: string, meta: ActorMeta, emission: ClauseEmission, spec: PredicateClause | null): void {
     const source = src(viewId, meta);
     const clause = causeClauseFromEmission(emission, { source, cause: causeUser('transient') }, port);
     /* v8 ignore next -- the scatter's brush emission is a [lo, hi] pair the built-in port always

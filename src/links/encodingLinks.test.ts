@@ -16,13 +16,13 @@ const views: LinkView[] = [
 
 describe('the vocabulary', () => {
   it('encoding sits outside the emission kinds; its responses are follow or none', () => {
-    expect(LINK_KINDS).toEqual(['point', 'interval', 'cell', 'match', 'encoding']);
+    expect(LINK_KINDS).toEqual(['point', 'interval', 'cell', 'match', 'neighbourhood', 'encoding']);
     expect(responsesFor('encoding')).toEqual(['follow', 'none']);
     expect(responsesFor('point')).toEqual(['filter', 'highlight', 'navigate', 'mirror', 'none']);
     expect(edgeId('weeks', 'encoding', 'trend')).toBe('weeks:encoding→trend');
   });
   it('a view gets the encoding voice from its surface, even when nobody can brush it; the selection kinds are untouched', () => {
-    expect(voiceOf(undefined, { hasEncodingSurface: true })).toEqual(['point', 'interval', 'cell', 'match', 'encoding']);
+    expect(voiceOf(undefined, { hasEncodingSurface: true })).toEqual(['point', 'interval', 'cell', 'match', 'encoding']); // the walk is never assumed
     expect(voiceOf({ canProbe: false }, { hasEncodingSurface: true })).toEqual(['encoding']);
     expect(voiceOf({ canProbe: false })).toEqual([]);
     expect(voiceOf({ canProbe: true, encodings: ['point'] }, { hasEncodingSurface: true })).toEqual(['point', 'match', 'encoding']);
@@ -81,7 +81,7 @@ describe('refusals', () => {
     ]);
     expect(run([{ source: 'weeks', kind: 'point', target: 'trend', response: 'filter', channels: [{ from: 'x', to: 'x' }] }])).toEqual(['links[0].channels applies to an encoding edge only']);
     expect(run([{ source: 'weeks', kind: 'point', target: 'trend', response: 'follow' }])).toEqual(['links[0].response must be one of filter|highlight|navigate|mirror|none']);
-    expect(run([{ source: 'weeks', kind: 'binding', target: 'trend', response: 'filter' }])).toEqual(['links[0].kind must be one of point|interval|cell|match|encoding']);
+    expect(run([{ source: 'weeks', kind: 'binding', target: 'trend', response: 'filter' }])).toEqual(['links[0].kind must be one of point|interval|cell|match|neighbourhood|encoding']);
     // channel pairs on an edge whose ends are not even named: the end sentences fire, the pairs are not judged against nothing
     expect(run([{ source: '', kind: 'encoding', target: 'ghost', response: 'follow', channels: [{ from: 'x', to: 'x' }] }])).toEqual([
       'links[0].source must be a declared view id',

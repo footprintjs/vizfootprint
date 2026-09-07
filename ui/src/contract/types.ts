@@ -53,18 +53,56 @@ import type { ChartEmission } from 'vizfootprint/selection';
  * (one frame over more than one table), the `canLayer` capability, and the
  * per-layer callback bundles on the handshake — every one optional, so a 1.1
  * renderer binds byte-identically and a host that pushes no layers changes
- * nothing.
+ * nothing. 1.3 ADDED the optional `'neighbourhood'` emission kind (one gesture
+ * on a node selects that node AND what it touches) and the conformance kit's
+ * optional neighbourhood arm; a 1.2 renderer never declares or emits one, so
+ * the minor stays compatible (same-major binds; minors only add).
  */
-export const RENDERER_PROTOCOL_VERSION = '1.2';
+export const RENDERER_PROTOCOL_VERSION = '1.3';
 
 export type { ChartEmission };
 
 /**
- * The three emission kinds the R3 rail carries. `'cell'` (D30, protocol 1.1)
- * is the compound two-field selection — a heatmap cell ("price 100–150 AND
- * category Formal") emitted as ONE emission and landed as ONE commit.
+ * The emission kinds the R3 rail carries. `'cell'` (D30, protocol 1.1) is the
+ * compound two-field selection — a heatmap cell ("price 100–150 AND category
+ * Formal") emitted as ONE emission and landed as ONE commit.
+ *
+ * `'neighbourhood'` (protocol 1.3) is the graph walk: one gesture on a node
+ * emits that node as the SEED, the host walks the edges ONCE at the cursor,
+ * and one commit lands carrying the question (seed, derivation, hops) beside
+ * the answer (the materialized ids). A renderer emits the seed and nothing
+ * else — it never walks, exactly as it never bins (the transform-ownership
+ * rule, `transforms` on {@link RendererHello}). A renderer that draws the
+ * walked set reads it back off its own clause with `selfSelectedNeighbourhood`.
  */
-export type EmissionKind = 'point' | 'interval' | 'cell' | 'match';
+export type EmissionKind = 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood';
+
+/**
+ * The declared kinds as DATA — a TOTAL Record over {@link EmissionKind}, so a
+ * kind added to the union cannot slip past a guard that reads it: the compiler
+ * refuses the missing key. (An array could not; that is the whole reason this
+ * is a Record.)
+ */
+const EMISSION_KIND_TABLE: Readonly<Record<EmissionKind, true>> = {
+  point: true,
+  interval: true,
+  cell: true,
+  match: true,
+  neighbourhood: true,
+};
+
+/**
+ * Is this string one of the emission kinds the protocol declares?
+ *
+ * A renderer's `hello` is JavaScript that crossed a boundary, so its
+ * `emissionKinds` can carry anything at runtime whatever the types say. The
+ * conformance kit judges a hello with this, and a host validating one by hand
+ * uses the same answer — a list with two spellings would let a renderer be
+ * conformant to one of them.
+ */
+export function isEmissionKind(kind: string): kind is EmissionKind {
+  return EMISSION_KIND_TABLE[kind as EmissionKind] === true;
+}
 
 /**
  * What a renderer can honestly do — declared once at mount, never guessed.
@@ -221,11 +259,11 @@ export interface SelectionClauseView {
    * own clause. A `none` edge or an absent edge never yields a clause at all.
    */
   readonly response?: 'filter' | 'highlight' | 'navigate' | 'mirror';
-  /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D30). */
+  /** For the two-column kinds ('cell', 'neighbourhood') this is the display-only joint label; the pair rides `fields`. */
   readonly field: string;
-  /** For kind:'cell': the two-sided pair `[x side, y side]` (each side a value or [lo, hi]); for kind:'match': `{ values, exclude? }` or null. */
+  /** For kind:'cell': the two-sided pair `[x side, y side]` (each side a value or [lo, hi]); for kind:'match': `{ values, exclude? }` or null; for kind:'neighbourhood': `{ seed, derivation, hops, ids }` or null. */
   readonly value: unknown;
-  /** kind:'cell' only — the two selected fields, x side then y side. */
+  /** The two-column kinds only — a cell's x/y fields, or a neighbourhood's two edge endpoints. */
   readonly fields?: readonly [string, string];
   readonly predicate: (row: RenderRow) => boolean;
 }

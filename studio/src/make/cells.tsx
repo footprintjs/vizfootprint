@@ -121,8 +121,13 @@ function tallest(bars: readonly BarDatum[], cap: number): { readonly shown: read
   return { shown: [...bars].sort((a, b) => b.count - a.count).slice(0, cap), of: bars.length };
 }
 
-/** The verb a gesture is recorded under — one word per emission kind, and the four are all of them. */
-export const GESTURE_WORDS: Readonly<Record<EmissionKind, string>> = { point: 'pick', interval: 'brush', match: 'pick several on', cell: 'pick a cell of' };
+/**
+ * The verb a gesture is recorded under — one word per emission kind, and the
+ * five are all of them. A Record over the union on purpose: a kind added to the
+ * protocol fails to compile here until someone decides what it is CALLED, which
+ * is the one question a log entry cannot be written without.
+ */
+export const GESTURE_WORDS: Readonly<Record<EmissionKind, string>> = { point: 'pick', interval: 'brush', match: 'pick several on', cell: 'pick a cell of', neighbourhood: 'walk out from a node of' };
 
 /** What the log should say a gesture was, in words a person recognises. */
 export function intentFor(label: string, emission: ChartEmission): string {

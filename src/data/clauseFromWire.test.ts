@@ -12,7 +12,8 @@
  * consumer buys by calling this instead of writing the rules again.
  */
 import { describe, it, expect } from 'vitest';
-import { cellSideClause, clauseFromWire, pointValueFromWire } from './clauseFromWire.js';
+import { cellSideClause, clauseFromWire, neighbourhoodValueFromWire, pointValueFromWire } from './clauseFromWire.js';
+import type { WireClauseKind } from './clauseFromWire.js';
 import { matchesClause } from './predicate.js';
 import type { Row } from './types.js';
 
@@ -111,6 +112,61 @@ describe('cell — the pair rides `fields`, and `field` is only a label', () => 
   });
 });
 
+describe('neighbourhood — the walked ids ride INSIDE the value; the clause keeps only them', () => {
+  const pair = ['category', 'note'] as const;
+  const body = (ids: readonly unknown[]) => ({ seed: 'Formal', derivation: 'ego', hops: 1, ids });
+
+  it('reads the body as the clause it means: BOTH endpoint columns in the walked set', () => {
+    expect(clauseFromWire('neighbourhood', 'category ↔ note', body(['Formal', 'x']), pair)).toEqual({
+      kind: 'neighbourhood',
+      fields: pair,
+      ids: ['Formal', 'x'],
+    });
+    // r2 has both its ends in the set; r4 ("Work" ↔ "y") has neither, and a row with only one is not a tie INSIDE it
+    expect(kept('neighbourhood', 'category ↔ note', body(['Formal', 'x']), pair)).toEqual(['r2']);
+    expect(kept('neighbourhood', 'category ↔ note', body(['Formal', 'y']), pair)).toEqual([]);
+  });
+
+  it('the seed, the derivation and the hops are the QUESTION and never the predicate — the recorded set is the answer', () => {
+    // the same ids under a derivation this version does not mint still select by what was WALKED,
+    // because a set recorded with its question does not need re-walking to be read
+    const future = { seed: 'Work', derivation: 'community', hops: 2, ids: ['Work', 'y'] };
+    expect(kept('neighbourhood', 'category ↔ note', future, pair)).toEqual(['r4']);
+  });
+
+  it('the QUESTION has its own door: `neighbourhoodValueFromWire` answers every slot, or null for a body with no list', () => {
+    expect(neighbourhoodValueFromWire(body(['Formal', 'x']))).toEqual({ seed: 'Formal', derivation: 'ego', hops: 1, ids: ['Formal', 'x'] });
+    // a derivation another build minted rides through verbatim — it still selects by its recorded ids
+    expect(neighbourhoodValueFromWire({ derivation: 'community', hops: 2, ids: ['Party'] })).toEqual({
+      seed: null, derivation: 'community', hops: 2, ids: ['Party'],
+    });
+    // every absent or unreadable slot has ONE answer, written here: an UNNAMED seed, this version's walk, one hop
+    expect(neighbourhoodValueFromWire({ seed: undefined, derivation: 7, hops: 'far', ids: [] })).toEqual({
+      seed: null, derivation: 'ego', hops: 1, ids: [],
+    });
+    for (const bad of [null, undefined, 'Formal', 5, {}, { ids: 'Formal' }]) {
+      expect(neighbourhoodValueFromWire(bad), JSON.stringify(bad ?? null)).toBeNull();
+    }
+  });
+
+  it('an empty walked set keeps NOTHING — an empty set is a real answer, not "no filter"', () => {
+    expect(kept('neighbourhood', 'category ↔ note', body([]), pair)).toEqual([]);
+  });
+
+  it('cleared: a null value, a body that is not an object, and a body carrying no id list all keep every row', () => {
+    expect(clauseFromWire('neighbourhood', 'category ↔ note', null, pair)).toBeNull();
+    expect(kept('neighbourhood', 'category ↔ note', null, pair)).toEqual(ALL);
+    expect(kept('neighbourhood', 'category ↔ note', 'Formal', pair)).toEqual(ALL);
+    expect(kept('neighbourhood', 'category ↔ note', { seed: 'Formal', derivation: 'ego', hops: 1 }, pair)).toEqual(ALL);
+    expect(kept('neighbourhood', 'category ↔ note', { ids: 'Formal' }, pair)).toEqual(ALL);
+  });
+
+  it('without its pair a neighbourhood is CLEARED, never split out of its display label — the cell precedent', () => {
+    expect(clauseFromWire('neighbourhood', 'category ↔ note', body(['Formal']))).toBeNull();
+    expect(kept('neighbourhood', 'category ↔ note', body(['Formal']))).toEqual(ALL);
+  });
+});
+
 describe('cellSideClause — the other half of the translation, exported for a consumer that compiles the sides apart', () => {
   it('an array side is an interval; anything else is a point', () => {
     expect(cellSideClause('price', [50, 200])).toEqual({ kind: 'interval', field: 'price', value: [50, 200] });
@@ -130,9 +186,16 @@ describe('cellSideClause — the other half of the translation, exported for a c
 });
 
 describe('TOTAL — nothing in the wire\'s slots can make it throw', () => {
+  it('a kind this version has no reading for is CLEARED, never `undefined`', () => {
+    expect(clauseFromWire('lasso' as WireClauseKind, 'price', { ids: ['x'] }, ['price', 'category'])).toBeNull();
+    expect(kept('lasso' as WireClauseKind, 'price', 1)).toEqual(ALL);
+  });
+
   it('every kind × a hostile value answers with a clause or an honest null', () => {
     const hostile = [undefined, null, 0, '', 'x', true, [], [1], [1, 2], {}, { values: null }, Symbol.iterator];
-    for (const kind of ['point', 'interval', 'match', 'cell'] as const) {
+    // `kind` is the one slot that GROWS: a newer build's log names a kind this reader has never
+    // heard of, and the standing answer is the same keep-all — never a fall off the end
+    for (const kind of ['point', 'interval', 'match', 'cell', 'neighbourhood', 'lasso' as WireClauseKind] as const) {
       for (const value of hostile) {
         expect(() => clauseFromWire(kind, 'price', value, ['price', 'category'])).not.toThrow();
         const clause = clauseFromWire(kind, 'price', value, ['price', 'category']);

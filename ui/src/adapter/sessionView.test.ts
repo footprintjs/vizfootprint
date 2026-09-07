@@ -846,6 +846,29 @@ describe('SET-1 — emit(match), clear, clearAll, setPolarity', () => {
     // JSON body carries at all (an `undefined` would be dropped and arrive as a missing key)
     view.dispose();
   });
+  it('emit(neighbourhood) posts the select verb\'s SEED form, and clear names the first endpoint with a null seed', async () => {
+    const walking: RawPollState = {
+      ...STATE,
+      activeSelections: [
+        ...STATE.activeSelections!,
+        { viewId: 'net~edges', field: 'source ↔ target', kind: 'neighbourhood', value: { seed: 'flu', derivation: 'ego', hops: 1, ids: ['flu', 'cold'] }, fields: ['source', 'target'] },
+      ],
+    };
+    const { impl, posts } = fetchOf(walking);
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    // the chart asks a QUESTION — one seed on one endpoint column; the session walks and answers
+    await view.emit('net~edges', { rawValue: 'flu', encoding: { kind: 'neighbourhood', field: 'source' } });
+    await view.emit('net~edges', { rawValue: null, encoding: { kind: 'neighbourhood', field: 'source' } }, 'let the neighbourhood go');
+    // a walk clears by naming its FIRST endpoint with a null seed (the library's own `clearAction`)
+    await view.clear('net~edges');
+    expect(posts).toEqual([
+      { verb: 'select', viewId: 'net~edges', field: 'source', seed: 'flu', intent: 'neighbourhood source' },
+      { verb: 'select', viewId: 'net~edges', field: 'source', seed: null, intent: 'let the neighbourhood go' },
+      { verb: 'select', viewId: 'net~edges', field: 'source', seed: null, intent: 'clear net~edges' },
+    ]);
+    view.dispose();
+  });
   it('clearAll clears every live selection, one commit each', async () => {
     const { impl, posts } = fetchOf(STATE);
     const view = createSessionView(pollingSource({ fetchImpl: impl }));

@@ -18,6 +18,7 @@ import {
   CauseSelectionSession,
   ClauseRejectedError,
   causeHistogram,
+  deserializeLog,
   replayLog,
   serializeLog,
   type CommitInput,
@@ -394,6 +395,18 @@ describe('commit() — judge everything first, then apply', () => {
     value: 'Data',
     cause: { requestedBy: 'user', computedBy: 'user' },
   };
+
+  it('an id already on the log is refused, and nothing moves — an id names ONE commit', () => {
+    const s = new CauseSelectionSession();
+    s.commit(POINT);
+    expect(() => s.commit({ ...POINT, value: 'Design' })).toThrow(/commit id "x1" is already on this log/);
+    expect(s.records).toHaveLength(1);
+    expect(s.records[0]!.value).toBe('Data');
+    // the law the READER keeps, now kept by the writer: a log this library writes is one it reads back
+    expect(deserializeLog(serializeLog(s.records))).toHaveLength(1);
+    // and the replay door cannot build one either — a path that names an id twice is refused
+    expect(() => replayLog(s.records, ['x1', 'x1'])).toThrow(/already on this log/);
+  });
 
   it('a throwing stampData leaves the log AND the live selection exactly as they were', () => {
     const s = new CauseSelectionSession();

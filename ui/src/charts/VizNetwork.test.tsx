@@ -315,3 +315,92 @@ describe('the clauses — dim, never hide; an edge is only as bright as its ends
     expect(dimmed(container)).toContain('strep'); // outside the hovered neighbourhood
   });
 });
+
+// ── protocol 1.3: the WALK — asked on the edges, drawn on the nodes ───────────
+
+/** The walk door: the endpoint column it asks on, and a spy for the edges layer's voice. */
+function walkDoor() {
+  const emit = vi.fn<(e: ChartEmission) => void>();
+  return { walk: { field: 'source', emit }, emit };
+}
+
+/** A landed walk, folded for the NODES layer — the shape the def's `mirror` edge delivers. */
+function walked(ids: readonly string[], seed = 'flu'): ReturnType<typeof selectionForView> {
+  const rows: SelectionView[] = [
+    { viewId: 'net~edges', field: 'source ↔ target', kind: 'neighbourhood', value: { seed, derivation: 'ego', hops: 1, ids }, fields: ['source', 'target'] },
+  ];
+  return selectionForView(rows, 'net~nodes');
+}
+
+describe('the walk — alt-click asks the edges, and the answer lights the nodes', () => {
+  it('alt-click emits the SEED through the walk door, and the node\'s own voice says nothing', () => {
+    const { walk, emit } = walkDoor();
+    const { onEmit, container } = renderNet({ walk });
+    fireEvent.click(nodeAt(container, 'cold'), { altKey: true });
+    expect(emit).toHaveBeenCalledWith({ rawValue: 'cold', encoding: { kind: 'neighbourhood', field: 'source' } });
+    expect(onEmit).not.toHaveBeenCalled();
+  });
+
+  it('the same modifier on the KEYBOARD asks the same walk — Enter and Space both', () => {
+    const { walk, emit } = walkDoor();
+    const { container } = renderNet({ walk });
+    fireEvent.keyDown(nodeAt(container, 'flu'), { key: 'Enter', altKey: true });
+    fireEvent.keyDown(nodeAt(container, 'strep'), { key: ' ', altKey: true });
+    expect(emit.mock.calls.map(([e]) => e.rawValue)).toEqual(['flu', 'strep']);
+  });
+
+  it('alt-clicking the node the walk STARTED from clears it — the point\'s own rule', () => {
+    const { walk, emit } = walkDoor();
+    const { container } = renderNet({ walk, selection: walked(['flu', 'cold']) });
+    fireEvent.click(nodeAt(container, 'flu'), { altKey: true });
+    expect(emit).toHaveBeenCalledWith({ rawValue: null, encoding: { kind: 'neighbourhood', field: 'source' } });
+  });
+
+  it('an UNNAMED seed marks no node as walked — `null` is the sentinel, never a node key', () => {
+    const { walk, emit } = walkDoor();
+    // a walk projected from a clause with no commit behind it records `seed: null` rather than
+    // inventing one; the node keyed by the string "null" is not the node it started from
+    const { container } = renderNet({ walk, selection: walked(['null', 'flu'], null as unknown as string) });
+    fireEvent.click(nodeAt(container, 'flu'), { altKey: true });
+    expect(emit).toHaveBeenCalledWith({ rawValue: 'flu', encoding: { kind: 'neighbourhood', field: 'source' } });
+  });
+
+  it('with NO walk door the modifier is not a gesture: an alt-click selects, exactly as a plain one does', () => {
+    const { onEmit, container } = renderNet();
+    fireEvent.click(nodeAt(container, 'cold'), { altKey: true });
+    expect(onEmit).toHaveBeenCalledWith({ rawValue: 'cold', encoding: { kind: 'point', field: 'disease' } });
+  });
+
+  it('the EGO NET is lit from the recorded ids: everything outside the walk dims, and an edge only as bright as its ends', () => {
+    const { container } = renderNet({ selection: walked(['flu', 'cold']) });
+    // `flu — ghost` stays bright: its far end is a node this frame does not carry, and an
+    // endpoint that is not here is no evidence to dim by — the chart's standing law, unchanged
+    expect(dimmed(container).sort()).toEqual(['cold — strep', 'lone', 'strep'].sort());
+    expect(container.querySelectorAll('g.vzf-net-nodes circle')).toHaveLength(4); // dim, never hide
+  });
+
+  it('a walk over the WHOLE graph dims nothing, and a cleared one is not a walk at all', () => {
+    expect(dimmed(renderNet({ selection: walked(['flu', 'cold', 'strep', 'lone', 'ghost']) }).container)).toEqual([]);
+    cleanup();
+    const cleared: SelectionView[] = [{ viewId: 'net~edges', field: 'source ↔ target', kind: 'neighbourhood', value: null, fields: ['source', 'target'] }];
+    expect(dimmed(renderNet({ selection: selectionForView(cleared, 'net~nodes') }).container)).toEqual([]);
+  });
+
+  it('the walk is NEVER judged as a row predicate: a node row carries no endpoint column, and it is not dimmed for that', () => {
+    // every node row here has `disease`/`region` and neither `source` nor `target`;
+    // folded into the predicate the clause would dim the entire frame
+    const { container } = renderNet({ selection: walked(['flu', 'cold', 'strep', 'lone', 'ghost']) });
+    expect(container.querySelectorAll('circle.vzf-dim')).toHaveLength(0);
+  });
+
+  it('says the gesture out loud, and only where there is one to make', () => {
+    const { container } = renderNet({ walk: walkDoor().walk, selection: walked(['flu', 'cold']) });
+    expect(container.querySelector('desc')!.textContent).toContain('alt-click (or alt+Enter) a node to select it and everything it links to');
+    expect(nodeAt(container, 'flu').querySelector('title')!.textContent).toContain('alt-click to clear its neighbourhood');
+    expect(nodeAt(container, 'cold').querySelector('title')!.textContent).toContain('alt-click for its neighbourhood');
+    cleanup();
+    const plain = renderNet().container;
+    expect(plain.querySelector('desc')!.textContent).not.toContain('alt-click');
+    expect(nodeAt(plain, 'flu').querySelector('title')!.textContent).not.toContain('alt-click');
+  });
+});

@@ -97,11 +97,11 @@ export type FoldEntry =
       readonly kind: 'selection';
       readonly viewId: string;
       readonly clause: {
-        readonly kind: 'point' | 'interval' | 'cell' | 'match';
-        /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D30). */
+        readonly kind: 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood';
+        /** For the two-column kinds — 'cell' and 'neighbourhood' — this is the display-only joint label; the pair rides `fields`. */
         readonly field: string;
         readonly value: unknown;
-        /** kind:'cell' only — the two selected fields, x side then y side. */
+        /** The two-column kinds only: a cell's axes (D30), a neighbourhood's two endpoint columns (packet 5). */
         readonly fields?: readonly [string, string];
       };
       readonly commitId: string;
@@ -189,19 +189,19 @@ export type PlanRecipe =
   | {
       readonly apply: 'selection';
       readonly viewId: string;
-      readonly kind: 'point' | 'interval' | 'cell' | 'match';
+      readonly kind: 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood';
       readonly field: string;
       readonly value: unknown;
-      /** kind:'cell' only — the two selected fields (D30); the executor re-lands the compound. */
+      /** The two-column kinds only: a cell's pair (D30) — the executor re-lands the compound — or a neighbourhood's endpoints, from which it re-ASKS the walk. */
       readonly fields?: readonly [string, string];
     }
   | {
       readonly apply: 'clear-selection';
       readonly viewId: string;
       readonly field: string;
-      /** The kind of the commit being cleared — the executor clears KIND-FAITHFULLY (a cleared point/match/interval of the same view). */
-      readonly kind?: 'point' | 'interval' | 'cell' | 'match';
-      /** Present when the commit being cleared was a cell — the executor clears kind-faithfully (a cleared CELL commit). */
+      /** The kind of the commit being cleared — the executor clears KIND-FAITHFULLY (a cleared commit of that same kind on the same view). */
+      readonly kind?: 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood';
+      /** Present when the commit being cleared named two columns (a cell, a neighbourhood) — the executor clears kind-faithfully, pair and all. */
       readonly fields?: readonly [string, string];
     }
   | { readonly apply: 'encoding'; readonly viewId: string; readonly channel: string; readonly field: string }

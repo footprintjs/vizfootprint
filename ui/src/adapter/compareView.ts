@@ -20,7 +20,7 @@ interface RawFoldEntry {
   readonly kind: 'selection' | 'encoding' | 'analysis' | 'link' | 'prose';
   readonly viewId?: string;
   readonly clause?: {
-    readonly kind: 'point' | 'interval' | 'cell' | 'match';
+    readonly kind: 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood';
     readonly field: string;
     readonly value: unknown;
     /** kind:'cell' only (D30) — the two selected fields. */

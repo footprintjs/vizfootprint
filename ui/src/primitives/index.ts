@@ -17,7 +17,7 @@
  *   • `useHorizontalBrush`  — drag→interval with the completion discipline
  *                             (sub-4px = clear/tap; snap-to-data or nothing)
  *                             + `<BrushOverlay>`.
- *   • pointSelect           — `pointEmission`/`togglePointEmission`
+ *   • pointSelect           — `pointEmission`/`togglePointEmission`/`walkEmission`
  *                             (click-again-clears) + `keyActivates`.
  *   • useSelection          — `useKeepPredicate` (the self-excluded fold),
  *                             `useBrightPredicate` (what a chart DIMS by once
@@ -53,7 +53,10 @@ export type { BrushGeometry, BrushHandlers, BrushOverlayProps, HorizontalBrush, 
 // whole click language the first-party charts speak. The SET-1 three were
 // added to pointSelect.ts and never re-exported here, so a consumer-built
 // chart could copy the gesture but not the emission it lands.
-export { pointEmission, togglePointEmission, matchEmission, toggleInSetEmission, clickEmission, keyActivates } from './pointSelect.js';
+// the walk (protocol 1.3) ships in the SAME set for the same reason: a
+// consumer-built node-link could otherwise copy the alt-click and have no way
+// to spell what it asks.
+export { pointEmission, togglePointEmission, matchEmission, toggleInSetEmission, clickEmission, walkEmission, toggleWalkEmission, keyActivates } from './pointSelect.js';
 
 export { useKeepPredicate, useBrightPredicate, selectedValue, selectedSet, inSet, markClass, dimClass } from './useSelection.js';
 

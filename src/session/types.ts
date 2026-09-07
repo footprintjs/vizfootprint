@@ -157,6 +157,22 @@ export type DispatchAction =
    * verbs. `values: null` clears the cell (the cleared-interval rule).
    */
   | { readonly verb: 'select'; readonly viewId: string; readonly fields: readonly [string, string]; readonly values: CellValues; readonly cause: Cause; readonly correlationId?: string; readonly asOf?: string }
+  /**
+   * The NEIGHBOURHOOD form of `select` (packet 5): ONE gesture on a node
+   * selects the ties INSIDE its ego set. `field` names one ENDPOINT column
+   * of the act's own table (the edges table — `source`), `seed` is the node
+   * the walk starts from; the session reads the declared relations to find
+   * the other endpoint, walks the edges ONCE at the cursor, and lands ONE
+   * commit carrying the question (seed, derivation, hops) with its answer
+   * (the walked ids). `seed: null` clears it (the cleared-interval rule);
+   * `seed` missing is refused, exactly as a point's missing value is.
+   *
+   * WHY the act names an endpoint and not the node table: a clause names
+   * columns of the table it is judged against, and this clause's predicate is
+   * "both ends are in the set" over the EDGES table. The node table is
+   * reached from there, through the relation the endpoint declares.
+   */
+  | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly seed: unknown; readonly cause: Cause; readonly correlationId?: string; readonly asOf?: string }
   /** Layer 4: `asOf` names the offer (from whats_here.offers) an act answers; a stale one is refused by naming the current one. */
   | { readonly verb: 'filter'; readonly viewId: string; readonly field: string; readonly range: FilterRange; readonly cause: Cause; readonly correlationId?: string; readonly asOf?: string }
   | { readonly verb: 'annotate'; readonly target: string; readonly note: string; readonly cause: Cause }
@@ -715,12 +731,13 @@ export interface ViewInfo {
   /** Layer 4: what acting on this view DOES, in one sentence — the routing text a phrase is matched against (`actors[viewId].does`). */
   readonly does?: string;
   /**
-   * Which point/interval/cell SELECTION kinds this view can emit (R3
-   * capability — renamed from the old `encodings` to free that name for the
-   * visual-channel sense below; nothing shipped ever read the old name off
-   * `Overview`).
+   * Which SELECTION kinds this view can emit (R3 capability — renamed from
+   * the old `encodings` to free that name for the visual-channel sense below;
+   * nothing shipped ever read the old name off `Overview`). Typed from
+   * `EMISSION_KINDS` itself, so a new kind reaches this projection with the
+   * voice that answers it.
    */
-  readonly selectionKinds: readonly ('point' | 'interval' | 'cell' | 'match')[];
+  readonly selectionKinds: readonly EmissionKind[];
   readonly canProbe: boolean;
   readonly mounted: boolean;
   /**
@@ -794,12 +811,17 @@ export interface EffectiveEncoding {
 /** An active DATA-space selection (never pixels; R5). */
 export interface SelectionInfo {
   readonly viewId: string;
-  /** For kind:'cell' this is the display-only joint label; the pair rides `fields` (D30). */
+  /** For the two-column kinds — 'cell' and 'neighbourhood' — this is the display-only joint label; the pair rides `fields`. */
   readonly field: string;
-  readonly kind: 'point' | 'interval' | 'cell' | 'match';
-  /** For kind:'cell': the two-sided pair `[x side, y side]`; for kind:'match': the `MatchValue` (values + polarity). */
+  readonly kind: EmissionKind;
+  /**
+   * For kind:'cell': the two-sided pair `[x side, y side]`; for kind:'match':
+   * the `MatchValue` (values + polarity); for kind:'neighbourhood': the walked
+   * ids — the ANSWER a live clause carries. The QUESTION that produced them
+   * (seed, derivation, hops) rides the COMMIT, which `commitId` names.
+   */
   readonly value: unknown;
-  /** kind:'cell' only — the two selected fields, x side then y side. */
+  /** The two-column kinds only — a cell's x side then y side, a neighbourhood's two endpoint columns. */
   readonly fields?: readonly [string, string];
   /** The commit that landed this selection (a live selection only) — what a note, a bring-over or a saved selection names. */
   readonly commitId?: string;
@@ -813,7 +835,7 @@ export interface SelectionInfo {
  */
 export interface Offer {
   readonly viewId: string;
-  readonly kind: 'point' | 'interval' | 'cell' | 'match';
+  readonly kind: EmissionKind;
 }
 
 /** A view whose last selection was CLEARED, and what it was — read by a target edge's `onClear` policy (layer 4). */

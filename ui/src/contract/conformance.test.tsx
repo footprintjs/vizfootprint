@@ -41,7 +41,7 @@ import type { SessionViewState } from '../adapter/types.js';
 import { runConformance, type ConformancePlan, type ConformanceReport } from './conformance.js';
 import { layerAddress } from './index.js';
 import { bindRenderer } from './bind.js';
-import { selectionForView, keepPredicate } from './selection.js';
+import { selectionForView, keepPredicate, selfSelectedNeighbourhood } from './selection.js';
 import {
   scatterRenderer,
   lineRenderer,
@@ -63,8 +63,8 @@ import {
   type RenderState,
 } from './types.js';
 import type { GeoFeatureCollection } from '../charts/VizMap.js';
-import { buildNetworkFixture } from '../adapter/network.fixture.js';
-import { layeredRenderer, networkState, networkLayers, clickMark, type LayeredRendererOptions } from './layered.fixture.js';
+import { buildNetworkFixture, EDGES, WALKABLE } from '../adapter/network.fixture.js';
+import { layeredRenderer, networkState, networkLayers, clickMark, clickWalk, type LayeredRendererOptions } from './layered.fixture.js';
 
 // ── the scripted fixture ────────────────────────────────────────────────────────
 
@@ -235,9 +235,11 @@ describe('conformance — all eight first-party charts pass (the reference claim
       },
     });
     expect(report.ok, explain(report)).toBe(true);
-    expect(report.steps).toHaveLength(12);
+    expect(report.steps).toHaveLength(13);
     // a renderer with no cell declaration skips the D30 arm honestly
     expect(report.steps.find((s) => s.step === 'cell')!.detail).toContain('honestly skipped');
+    // …and one with no neighbourhood declaration skips the 1.3 walk arm the same way
+    expect(report.steps.find((s) => s.step === 'neighbourhood')!.detail).toBe('the renderer declares no neighbourhood emissions — the walk arm is honestly skipped');
     // …and one with no canLayer skips the 1.2 layers arm the same way
     expect(report.steps.find((s) => s.step === 'layers')!.detail).toBe('the renderer declares no canLayer — the layers arm is honestly skipped');
     expect(report.emissions[0]!.encoding.kind).toBe('interval');
@@ -555,7 +557,7 @@ describe('conformance — hostile renderers are caught at the exact step', () =>
       gesture: clickProbe,
     });
     await expectFailAt(report, 'unmount', 'left');
-    expect(report.steps.filter((s) => s.ok)).toHaveLength(11); // everything else passed (incl. the honest cell + match + layers skips)
+    expect(report.steps.filter((s) => s.ok)).toHaveLength(12); // everything else passed (incl. the honest cell + match + neighbourhood + layers skips)
   });
 
   it('a renderer DECLARING the cell kind but given no cellGesture fails the cell arm honestly', async () => {
@@ -687,7 +689,7 @@ describe('conformance — the layers arm (one frame, two tables, a gesture on th
   it('a canLayer renderer passes: both layers drawn, the nodes gesture spoke through the nodes bundle and landed ONE commit under net~nodes', async () => {
     const report = await runNet({});
     expect(report.ok, explain(report)).toBe(true);
-    expect(report.steps).toHaveLength(12);
+    expect(report.steps).toHaveLength(13);
     const layers = report.steps.find((s) => s.step === 'layers')!;
     expect(layers.detail).toBe('both layers drawn; the gesture on "nodes" spoke through its bundle and landed ONE commit under net~nodes');
     // the view's own gesture (step 5) then the layer's — the second through the nodes bundle
@@ -940,5 +942,137 @@ describe('conformance — the node-link, and the one thing the kit cannot hold',
     const landed = afterMatch.commits[1]!;
     expect([landed.viewId, landed.kind, landed.value]).toEqual(['net~nodes', 'match', { values: ['flu', 'cold'] }]);
     res.view.unmount();
+  });
+});
+
+// ── protocol 1.3: the walk arm on a REAL two-table session ────────────────────
+
+describe('conformance — the walk arm (one gesture on a node, one commit, the ids recorded with the question)', () => {
+  const clickProbeButton = (el: HTMLElement): void => {
+    fireEvent.click(el.querySelector('button.probe')!);
+  };
+
+  /** The bestiary's own reader, in this block's scope: the run stopped HERE, with THIS sentence. */
+  function failsAt(report: ConformanceReport, step: string, detailContains: string): void {
+    const last = report.steps[report.steps.length - 1]!;
+    expect(report.ok).toBe(false);
+    expect(last.step, explain(report)).toBe(step);
+    expect(last.detail).toContain(detailContains);
+  }
+
+  async function runWalk(options: LayeredRendererOptions, extras: Partial<ConformancePlan> = {}): Promise<ConformanceReport> {
+    // WALKABLE, not the plain fixture: a walk needs the two relations that say
+    // `edges` is an edge table AND the capability that declares the voice — a
+    // neighbourhood is never assumed (src/links/voice.ts).
+    const { view } = await buildNetworkFixture(WALKABLE);
+    return runConformance({
+      renderer: layeredRenderer(options),
+      viewId: 'net',
+      el: mountEl(),
+      view,
+      buildState: (st) => networkState(st),
+      gesture: clickProbeButton,
+      verifyUpdate: () => true,
+      neighbourhoodGesture: clickWalk,
+      layers: { layerIds: ['edges', 'nodes'], gesture: clickMark('nodes') },
+      ...extras,
+    });
+  }
+
+  it('a renderer declaring the walk passes: ONE commit under the EDGES address, the seed inside the set it recorded', async () => {
+    const report = await runWalk({ walk: { field: 'source', seed: 'flu' } });
+    expect(report.ok, explain(report)).toBe(true);
+    expect(report.steps).toHaveLength(13);
+    expect(report.steps.find((s) => s.step === 'neighbourhood')!.detail).toBe(
+      'the walk gesture landed ONE commit under net~edges: the seed and the 1 node(s) it touches, and its clause is addressable',
+    );
+    // the emission is the QUESTION — a seed on an endpoint column, never a set
+    expect(report.emissions).toEqual([
+      { rawValue: 12, encoding: { kind: 'point', field: 'size' } },
+      { rawValue: 'flu', encoding: { kind: 'neighbourhood', field: 'source' } },
+      { rawValue: 'viral', encoding: { kind: 'point', field: 'group' } },
+    ]);
+  });
+
+  it('the landed commit carries the answer BESIDE the question, under the edges address', async () => {
+    const { view } = await buildNetworkFixture(WALKABLE);
+    const report = await runConformance({
+      renderer: layeredRenderer({ walk: { field: 'source', seed: 'flu' } }),
+      viewId: 'net',
+      el: mountEl(),
+      view,
+      buildState: (st) => networkState(st),
+      gesture: clickProbeButton,
+      verifyUpdate: () => true,
+      neighbourhoodGesture: clickWalk,
+      layers: { layerIds: ['edges', 'nodes'], gesture: clickMark('nodes') },
+    });
+    expect(report.ok, explain(report)).toBe(true);
+    const walk = view.getState().commits.find((c) => c.kind === 'neighbourhood')!;
+    expect([walk.viewId, walk.field, walk.fields]).toEqual(['net~edges', 'source ↔ target', ['source', 'target']]);
+    expect(walk.value).toEqual({ seed: 'flu', derivation: 'ego', hops: 1, ids: ['flu', 'cold'] });
+    // and the ONE reader a renderer draws the ego net with agrees with the record
+    expect(selfSelectedNeighbourhood(selectionForView(view.getState().selections, 'net~edges'))).toEqual({
+      fields: ['source', 'target'],
+      seed: 'flu',
+      derivation: 'ego',
+      hops: 1,
+      ids: ['flu', 'cold'],
+    });
+  });
+
+  it('a renderer DECLARING the walk but given no neighbourhoodGesture fails the arm honestly', async () => {
+    const report = await runWalk({ walk: { field: 'source', seed: 'flu' } }, { neighbourhoodGesture: undefined });
+    const last = report.steps[report.steps.length - 1]!;
+    expect([last.step, last.ok, last.detail]).toEqual([
+      'neighbourhood',
+      false,
+      'the renderer declares the neighbourhood emission kind but the plan provides no neighbourhoodGesture to drive',
+    ]);
+  });
+
+  it('a walk gesture that emits no walk fails the arm', async () => {
+    const report = await runWalk({ walk: { field: 'source', seed: 'flu' } }, { neighbourhoodGesture: clickProbeButton });
+    failsAt(report, 'neighbourhood', 'the walk gesture produced no neighbourhood emission');
+  });
+
+  it('a walk the session refuses lands NO commit, and the arm says so', async () => {
+    // 'weight' is a real column of the edges table and NOT an endpoint of any
+    // relation — the session refuses in a sentence rather than walking nothing
+    const report = await runWalk({ walk: { field: 'weight', seed: 'flu' } });
+    failsAt(report, 'neighbourhood', 'the walk gesture landed 0 commit(s) — one gesture on one node is exactly ONE');
+  });
+
+  it('a refused walk shadowed by a stray point commit is caught by the descriptor', async () => {
+    const report = await runWalk({ walk: { field: 'weight', seed: 'flu', then: { field: 'weight', value: 5 } } });
+    failsAt(report, 'neighbourhood', 'kind:point · endpoints-missing · seed-not-in-set · asked-address · self-missing');
+  });
+
+  it('a PLAIN VIEW can walk too: with the edges as its own table the ask goes through the view\'s voice and lands there', async () => {
+    // the one shape a layer address is NOT part of: the view's table IS the
+    // edges, so the walk is the VIEW's act and the arm judges it at `net`
+    const { view } = await buildNetworkFixture({ ...WALKABLE, defaultTable: 'edges' });
+    const report = await runConformance({
+      renderer: layeredRenderer({ walk: { field: 'source', seed: 'flu', through: 'view' }, viewField: 'weight' }),
+      viewId: 'net',
+      el: mountEl(),
+      view,
+      // the view's OWN rows are the edges here — it is judged against that table
+      buildState: (st) => ({ ...networkState(st), rows: EDGES }),
+      gesture: clickProbeButton,
+      verifyUpdate: () => true,
+      neighbourhoodGesture: clickWalk,
+      layers: { layerIds: ['edges', 'nodes'], gesture: clickMark('nodes') },
+    });
+    expect(report.ok, explain(report)).toBe(true);
+    expect(report.steps.find((s) => s.step === 'neighbourhood')!.detail).toContain('landed ONE commit under net:');
+  });
+
+  it('a walk spoken through the VIEW instead of the edges bundle is judged at the address that spoke', async () => {
+    // the stub's `speakThrough: 'view'` sends every layer act through the view's
+    // callbacks: the walk then lands under `net`, whose table is the NODES, and
+    // the session refuses a clause naming edge columns there
+    const report = await runWalk({ walk: { field: 'source', seed: 'flu' }, speakThrough: 'view' });
+    failsAt(report, 'neighbourhood', 'the walk gesture landed 0 commit(s) — one gesture on one node is exactly ONE');
   });
 });

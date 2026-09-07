@@ -1,4 +1,4 @@
-export { RENDERER_PROTOCOL_VERSION, protocolMajor, speaksSameMajor } from './types.js';
+export { RENDERER_PROTOCOL_VERSION, protocolMajor, speaksSameMajor, isEmissionKind } from './types.js';
 export type {
   ChartEmission,
   EmissionKind,
@@ -43,8 +43,13 @@ export {
   // multi-select, the one shape SET-1 added
   selfSelectedSet,
   selfSelectedCell,
+  // protocol 1.3: the graph sibling of the readers above — exported in the SAME
+  // change as the kind that carries it, so a renderer can never be handed a
+  // clause the barrel gives it no way to read (README, "the derivation helpers
+  // ship in a set")
+  selfSelectedNeighbourhood,
   brightPredicate, navigateDomain } from './selection.js';
-export type { SelfSelectedCell, SelfSelectedSet } from './selection.js';
+export type { SelfSelectedCell, SelfSelectedSet, SelfSelectedNeighbourhood } from './selection.js';
 
 export { bindRenderer } from './bind.js';
 export type { BindOptions, BindResult, BoundRenderer, NavigateOutcome, UpdateOutcome, LayerBindings } from './bind.js';

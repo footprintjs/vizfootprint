@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SourceRegistry, builtinSelection, causeClauseFromEmission, causeClauseSpecFromEmission, isRejection } from './index.js';
-import type { CauseClause, ChartEmission } from './index.js';
+import type { CauseClause, ChartEmission, ClauseEmission } from './index.js';
 import type { Cause } from '../cause/index.js';
 
 const cause = (over: Partial<Cause> = {}): Cause => ({
@@ -10,7 +10,7 @@ const cause = (over: Partial<Cause> = {}): Cause => ({
 });
 
 /** Mint on a fresh port and insist it minted — every emission below is a shape the port accepts. */
-function minted(emission: ChartEmission, ctx: Parameters<typeof causeClauseFromEmission>[1]): CauseClause {
+function minted(emission: ClauseEmission, ctx: Parameters<typeof causeClauseFromEmission>[1]): CauseClause {
   const clause = causeClauseFromEmission(emission, ctx, builtinSelection());
   if (isRejection(clause)) throw new Error(`unexpected rejection: ${clause.reason}`);
   return clause;
@@ -104,7 +104,7 @@ describe('causeClauseFromEmission — R3 symmetric emit (chart builds no clause)
     // A chart cannot smuggle a `source`/`predicate`/`meta` into an emission —
     // excess-property checking on the object literal rejects it at compile
     // time (tsc --noEmit fails without the @ts-expect-error below).
-    const badEmission: ChartEmission = {
+    const badEmission: ClauseEmission = {
       rawValue: 1,
       encoding: { kind: 'point', field: 'x' },
       // @ts-expect-error emissions may not carry a `source` — only rawValue+encoding

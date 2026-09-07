@@ -15,7 +15,7 @@ import { isBuiltinRecord, validateBuiltinAnalysis } from './builtinAnalyses.js';
 import { validateRelations } from './relations.js';
 import { layerLinkViewsOf, layerSurfacesOf, markerRefusal, validateLayers } from './layers.js';
 import { holdsLayerMarker } from './layerAddress.js';
-import { validateLinks, voiceOf, type EmissionKind } from '../links/index.js';
+import { EMISSION_KINDS, validateLinks, voiceOf, type EmissionKind } from '../links/index.js';
 import { ENCODING_SET_FIELD,
   ANALYSIS_VIEW_PREFIX,
   ANNOTATION_VIEW_PREFIX,
@@ -79,7 +79,10 @@ const GRAIN_STRING_KEYS = ['bucket', 'reducer', 'note'] as const;
 const ACTORS = new Set(['user', 'agent', 'system']);
 const ENGINES = new Set(['memory', 'wasm', 'server', 'auto']);
 const PROCEDURES = new Set(['LORD++', 'alpha-investing']);
-const ENCODINGS = new Set(['point', 'interval', 'cell', 'match']);
+// the ONE array literal of emission kinds (`../links/types.ts`) — projected, never restated, so a new kind is declarable the day it exists
+const ENCODINGS = new Set<string>(EMISSION_KINDS);
+/** The declarable emission kinds as a sentence — `"point" | "interval" | …` — for the refusals below. */
+const ENCODING_WORDS = EMISSION_KINDS.map((k) => `"${k}"`).join(' | ');
 
 /**
  * The synthetic-viewId namespaces the SESSION owns, single-sourced from
@@ -409,7 +412,7 @@ export function validateDashboardDef(def: unknown): string[] {
         }
         if (cap.encodings !== undefined) {
           if (!Array.isArray(cap.encodings) || cap.encodings.some((e) => !ENCODINGS.has(e as string))) {
-            problems.push(`capabilities[${i}].encodings must be an array of "point" | "interval" | "cell" | "match"`);
+            problems.push(`capabilities[${i}].encodings must be an array of ${ENCODING_WORDS}`);
           }
         }
         if (cap.fields !== undefined && (!Array.isArray(cap.fields) || cap.fields.some((f) => typeof f !== 'string'))) {

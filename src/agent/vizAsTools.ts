@@ -136,7 +136,12 @@ const DISPATCH_DESCRIPTION =
   'values: null clears — OR a CELL: ' +
   'pass fields + values instead of field/value to select on TWO fields with one gesture, e.g. a ' +
   'heatmap cell "price 100-150 AND category Formal"; the two constraints land as ONE commit whose ' +
-  'predicate is the AND of both sides, and values: null clears the cell), filter (an ' +
+  'predicate is the AND of both sides, and values: null clears the cell — OR a NEIGHBOURHOOD: pass ' +
+  'field + seed to walk out from a node, e.g. field "source" and seed "Salmonellosis" on the edges ' +
+  'view keeps every edge BETWEEN that disease and its neighbours (the ties inside the walked set; a ' +
+  'neighbour\'s tie to a node outside it is one hop further out); the ' +
+  'walk runs once, over the rows as they are now, and the commit records the ids it found; ' +
+  'seed: null clears), filter (an ' +
   'interval [lo, hi] on a field, or null to clear — see the range parameter for the full shape, ' +
   'including open-ended and date ranges), annotate (an inert note), navigate (move view state — a ' +
   'declared viewId focuses/pans it, field and value are ignored; OR the "layout:<scope>" identity, ' +
@@ -238,6 +243,14 @@ const DISPATCH_SCHEMA = {
         'the same way values: null clears a match and range: null clears a filter. Never omit it on a ' +
         'select: a point either names the value it selects or says null. For a navigate on ' +
         '"layout:<scope>" it is the plain-string new value of the arrangement prop named by field.',
+    },
+    seed: {
+      description:
+        'NEIGHBOURHOOD select only: the DATA-space node value the walk starts from (e.g. a disease name), ' +
+        'or null to clear it. Use with field, which must name one ENDPOINT column of the acting view\'s ' +
+        'table — a column a declared relation points at another table\'s key with; the other end is read ' +
+        'off the relations, never guessed. The act keeps every row whose BOTH ends are the seed or one of ' +
+        'its neighbours, and the commit records the seed, the derivation ("ego"), the hops (1) and the ids.',
     },
     values: {
       type: ['array', 'null'],
@@ -624,6 +637,15 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
         }
         if (typeof args['field'] !== 'string') {
           return { error: 'select requires string viewId and field' };
+        }
+        // packet 5: the NEIGHBOURHOOD form — field (an endpoint) + seed (a node).
+        // Read before the match form: `seed` is the one key no other select carries.
+        if (args['seed'] !== undefined) {
+          const seed = args['seed'];
+          if (seed !== null && !isScalarValue(seed)) {
+            return { error: 'a neighbourhood select requires seed: one plain value naming the node to walk from (a string, number or boolean) — or seed: null to clear it' };
+          }
+          return { verb: 'select', viewId: args['viewId'], field: args['field'], seed, cause };
         }
         // SET-1: the MATCH form — field + values (many), optional exclude.
         if (args['values'] !== undefined) {

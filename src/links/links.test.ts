@@ -10,9 +10,10 @@ const VIEWS: LinkView[] = [
 
 describe('voice — the ONE owner of "what can this view emit"', () => {
   it('nothing declared = every kind; canProbe false = silent; a declared point implies match', () => {
-    expect(voiceOf(undefined)).toEqual(['point', 'interval', 'cell', 'match']);
+    expect(voiceOf(undefined)).toEqual(['point', 'interval', 'cell', 'match']); // the walk is DECLARED, never assumed
     expect(voiceOf({ canProbe: false, encodings: ['point'] })).toEqual([]);
     expect(voiceOf({ canProbe: true })).toEqual(['point', 'interval', 'cell', 'match']);
+    expect(voiceOf({ canProbe: true, encodings: ['neighbourhood'] })).toEqual(['neighbourhood']); // a view that can be walked from says so
     expect(voiceOf({ canProbe: true, encodings: ['point'] })).toEqual(['point', 'match']);
     expect(impliedKinds(['interval'])).toEqual(['interval']);
     expect(impliedKinds(['point', 'match'])).toEqual(['point', 'match']);
@@ -67,7 +68,7 @@ describe('validate — refusals in sentences, at declaration', () => {
       'links[0]: unknown key "extra"',
       'links[0].source must be a declared view id',
       'links[0].target "ghost" is not a declared view',
-      'links[0].kind must be one of point|interval|cell|match|encoding',
+      'links[0].kind must be one of point|interval|cell|match|neighbourhood|encoding',
       'links[0].response must be one of filter|highlight|navigate|mirror|none',
       'links[0].mapping, if present, must be an array of { from, to } field names',
       'links[0].onClear, if present, must be one of leave|showAll|excludeAll',

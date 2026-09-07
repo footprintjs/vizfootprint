@@ -1,6 +1,25 @@
+import { isPairKind, neighbourhoodValueFromWire } from 'vizfootprint/data';
+import type { NeighbourhoodValueBody } from 'vizfootprint/data';
 import type { CommitView } from '../adapter/types.js';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/**
+ * Do this kind's plain words already NAME the columns they speak about?
+ *
+ * True for the two-column kinds: a cell reads "price 100 – 150 and category =
+ * Formal" and a neighbourhood reads "Salmonellosis and its 12 neighbours", so
+ * a chip that prefixed the joint label ("price × category", "source ↔ target")
+ * would say everything twice — or, worse, imply the label is a column. Every
+ * other kind needs its field said first.
+ *
+ * Exported because BOTH panels that render a value ask it — the commit log and
+ * the selection chips — and a rule with two spellings is a rule with two
+ * answers.
+ */
+export function isSelfDescribing(kind: CommitView['kind']): boolean {
+  return isPairKind(kind); // the library's own array of the two-column kinds, never a second spelling of it
+}
 
 /** One interval bound: a number rounds to 2dp, a string (an ISO date) renders verbatim. */
 function formatBound(v: number | string): string {
@@ -12,6 +31,30 @@ function formatIntervalWords(lo: number | string | null, hi: number | string | n
   if (lo === null) return `up to ${formatBound(hi as number | string)}`;
   if (hi === null) return `at least ${formatBound(lo)}`;
   return `${formatBound(lo)} – ${formatBound(hi)}`;
+}
+
+/** One scalar in plain words: `∅` for an absent value, 2dp for a fractional number, the value itself otherwise. */
+function formatScalar(v: unknown): string {
+  if (v === null || v === undefined) return '∅';
+  if (typeof v === 'number') return Number.isInteger(v) ? String(v) : String(round2(v));
+  return String(v);
+}
+
+/**
+ * A neighbourhood's plain words: the SEED, how many nodes the walk found
+ * beside it, and the question that found them — "Salmonellosis and its 12
+ * neighbours (ego, 1 hop)".
+ *
+ * WHY the count is counted and not read off `hops`: `hops` is the question and
+ * `ids` is the answer, and this line reports the answer. The seed itself rides
+ * in the recorded set, so it is dropped from the count — a reader asked about
+ * one node and wants to hear how many OTHERS came with it.
+ */
+function formatNeighbourhoodWords(body: NeighbourhoodValueBody): string {
+  const others = body.ids.filter((id) => id !== body.seed).length;
+  const walk = `${body.derivation}, ${body.hops} hop${body.hops === 1 ? '' : 's'}`;
+  const found = others === 1 ? 'its 1 neighbour' : `its ${others} neighbours`;
+  return `${formatScalar(body.seed)} and ${found} (${walk})`;
 }
 
 /** One cell side in plain words: "price 100 – 150" (interval) / "category = Formal" (point). */
@@ -47,13 +90,18 @@ export function formatCommitValue(c: Pick<CommitView, 'kind' | 'value' | 'fields
     // SET-1: the list in braces, its polarity as a word — "in {A, B}" / "not in {A, B}"
     const v = c.value as { readonly values?: readonly unknown[]; readonly exclude?: boolean } | null | undefined;
     if (v === null || v === undefined) return '(cleared)';
-    const words = (v.values ?? []).map((x) => (x === null || x === undefined ? '∅' : typeof x === 'number' ? (Number.isInteger(x) ? String(x) : String(round2(x))) : String(x)));
-    return `${v.exclude === true ? 'not in' : 'in'} {${words.join(', ')}}`;
+    return `${v.exclude === true ? 'not in' : 'in'} {${(v.values ?? []).map(formatScalar).join(', ')}}`;
   }
-  if (c.value === null || c.value === undefined) return '∅';
-  if (typeof c.value === 'number') return Number.isInteger(c.value) ? String(c.value) : String(round2(c.value));
+  if (c.kind === 'neighbourhood') {
+    // protocol 1.3: the walk reads as its SEED and what came with it, read through the
+    // library's own door — a body carrying no id list is not a walk to report, so it reads
+    // cleared (the library's fallback for a wire value it cannot narrow on), and the seed,
+    // derivation and hop count of a body that came from another build are answered there.
+    const walk = neighbourhoodValueFromWire(c.value);
+    return walk === null ? '(cleared)' : formatNeighbourhoodWords(walk);
+  }
   if (isLinkValue(c.value)) return `${c.value.source} ${c.value.kind} → ${c.value.target}: ${c.value.response}`; // layer 4: an edited edge
-  return String(c.value);
+  return formatScalar(c.value);
 }
 
 /** A `link` commit's value: the edge as a LinkDecl (null = un-declared, rendered as ∅ upstream). */

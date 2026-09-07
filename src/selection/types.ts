@@ -17,7 +17,7 @@
 
 import type { Actor, Cause } from '../cause/index.js';
 import { isRejection } from '../data/index.js';
-import type { CellSide, MatchValue } from '../data/index.js';
+import type { CellSide, MatchValue, NeighbourhoodValue } from '../data/index.js';
 
 // ── the engines ─────────────────────────────────────────────────────────────
 
@@ -71,16 +71,16 @@ const ACTOR_SET = new Set<Actor>(['user', 'agent', 'system']);
 
 function validateActorMeta(meta: ActorMeta): ActorMeta {
   if (meta === null || typeof meta !== 'object') {
-    throw new SourceRegistryError('actorMeta must be an object');
+    throw new SourceRegistryError(`actorMeta must be an object, got ${Object.prototype.toString.call(meta)}`);
   }
   if (!ACTOR_SET.has(meta.actor)) {
     throw new SourceRegistryError(`actorMeta.actor must be one of user|agent|system, got ${String(meta.actor)}`);
   }
   if (meta.label !== undefined && typeof meta.label !== 'string') {
-    throw new SourceRegistryError('actorMeta.label, if present, must be a string');
+    throw new SourceRegistryError(`actorMeta.label, if present, must be a string, got ${String(meta.label)}`);
   }
   if (meta.does !== undefined && typeof meta.does !== 'string') {
-    throw new SourceRegistryError('actorMeta.does, if present, must be a string');
+    throw new SourceRegistryError(`actorMeta.does, if present, must be a string, got ${String(meta.does)}`);
   }
   // data-only rebuild. WHY `does` rides too: the record stamps `source.meta`, and
   // the log's wire parser (`rebuildActorMeta`) accepts `does` back in — a registry
@@ -154,8 +154,8 @@ export class SourceRegistry {
 
 // ── the clause: what a port mints, holds, and hands to listeners ────────────
 
-/** The four clause kinds the engine carries: point, interval, the D30 compound cell, and the SET-1 match. */
-export type CauseClauseKind = 'point' | 'interval' | 'cell' | 'match';
+/** The five clause kinds the engine carries: point, interval, the D30 compound cell, the SET-1 match, and the neighbourhood (packet 5). */
+export type CauseClauseKind = 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood';
 
 /** The clause meta: the kind's name as the engine spells it, plus the two-slot cause. */
 export interface CauseMetadata {
@@ -180,7 +180,7 @@ export interface CauseClause {
   readonly meta: CauseMetadata;
 }
 
-/** The four clause kinds a port mints from, each with its registry-backed source. */
+/** The five clause kinds a port mints from, each with its registry-backed source. */
 export type CauseClauseSpec =
   | {
       kind: 'point';
@@ -244,6 +244,32 @@ export type CauseClauseSpec =
       value: MatchValue;
       cause: Cause;
       clients?: RegisteredSource[];
+    }
+  | {
+      /**
+       * The NEIGHBOURHOOD: one gesture on a node selects the ties INSIDE the
+       * walked set — the induced ego subgraph. `fields` is the edges table's
+       * two endpoint columns (`[sourceColumn, targetColumn]`, NOT this arm's
+       * own `source`, which is the registry-minted view) and the predicate
+       * keeps an edge row when BOTH endpoints are in the walked id set: the
+       * edge set the chart brightens for that gesture, and what a depth-1 ego
+       * filter returns everywhere else (Cytoscape, Gephi, Bloom). "Either
+       * endpoint" would reach one edge-hop further, to a neighbour's tie to a
+       * stranger the seed never touches.
+       *
+       * WHY a kind of its own, given that the predicate is an AND: the same
+       * reason the `cell` above is one — ONE gesture lands ONE commit, over a
+       * value recorded whole. `value` carries the question (the
+       * `seed` the gesture landed on, the `derivation`, the `hops`) beside its
+       * answer (the materialized `ids`); `value: null` clears it (the
+       * cleared-interval rule).
+       */
+      kind: 'neighbourhood';
+      source: RegisteredSource;
+      fields: readonly [string, string];
+      value: NeighbourhoodValue;
+      cause: Cause;
+      clients?: RegisteredSource[];
     };
 
 // ── capabilities + typed rejection (R14: declare honestly, refuse typed) ────
@@ -260,7 +286,7 @@ export type SelectionOperation = 'port' | 'clause' | 'update' | 'skip' | 'native
 
 /** Typed reason codes — every rejection names one; never a bare `false`/`undefined`. */
 export type SelectionRejectionReason =
-  /** The spec carries a value the engine cannot honestly render (an undefined cell side, a non-pair interval, a value string coercion refuses, an unknown kind). */
+  /** The spec carries a value the engine cannot honestly render (an undefined cell side, a non-pair interval, a neighbourhood body carrying no walked list — or naming no walk at all, a value string coercion refuses, an unknown kind). */
   | 'unsupported-shape'
   /** `native()` was asked of a port that has no engine selection behind it. */
   | 'no-live-selection'

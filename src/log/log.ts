@@ -35,6 +35,9 @@
 
 import { ACTORS, isActor, markReplayed, parseCause, validateCause, type Cause } from '../cause/index.js';
 import { copyValue, deepFreeze } from '../detach/index.js';
+// the PAIR-kind fork is `../data`'s, which owns the clause grammar: one owner, so the next
+// two-column kind lands in one place rather than in every replica that asks about a KIND
+import { isPairKind } from '../data/types.js';
 import {
   SourceRegistry,
   builtinSelection,
@@ -52,7 +55,8 @@ import {
  * Carries the port's typed rejection. No record and no clause has moved when
  * it is thrown; the commit's SOURCE, though, is already registered (the
  * registry lookup precedes the mint, so the port can be handed a registry
- * identity to judge) — only the cell-`fields` refusal precedes registration.
+ * identity to judge) — only the PAIR-KIND `fields` refusal (`'cell'`, `'neighbourhood'`) precedes
+ * registration.
  */
 export class ClauseRejectedError extends Error {
   readonly rejection: SelectionRejection;
@@ -94,21 +98,35 @@ export interface CommitRecord {
   readonly viewId: string;
   /** Serializable actor metadata so a fresh registry can rebuild the source. */
   readonly actorMeta: ActorMeta;
-  /** Which clause factory to reconstruct with (`'cell'` = the D30 compound; `'match'` = the SET-1 IN-list, its value a `MatchValue`). */
-  readonly kind: 'point' | 'interval' | 'cell' | 'match';
   /**
-   * Column / expression the clause filters on. For `kind: 'cell'` this slot
-   * carries the DISPLAY-ONLY joint label ("price × category" —
-   * `src/data`'s `cellFieldLabel`); the authoritative pair rides `fields`.
+   * Which clause factory to reconstruct with (`'cell'` = the D30 compound;
+   * `'match'` = the SET-1 IN-list, its value a `MatchValue`;
+   * `'neighbourhood'` = the packet-5 walk, its value a `NeighbourhoodValue`
+   * — the QUESTION (seed, derivation, hops) recorded with its ANSWER (the
+   * walked ids), and its `fields` the edges table's two endpoint columns).
+   */
+  readonly kind: 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood';
+  /**
+   * Column / expression the clause filters on — for the ONE-column kinds. For
+   * the TWO-column kinds (`'cell'`, `'neighbourhood'` — `src/data`'s
+   * `PAIR_CLAUSE_KINDS`) this slot carries the DISPLAY-ONLY joint label:
+   * `cellFieldLabel`'s "price × category", `neighbourhoodFieldLabel`'s
+   * "source ↔ target". The authoritative pair rides `fields`, always.
    */
   readonly field: string;
   /**
    * The selected value (must be JSON-serializable). For `kind: 'cell'` this
    * is the two-sided pair `[x side, y side]` (each side an interval
-   * `[lo, hi]` or a point value), or `null` for a cleared cell.
+   * `[lo, hi]` or a point value), or `null` for a cleared cell. For
+   * `kind: 'neighbourhood'` it is the walk's whole record —
+   * `{ seed, derivation, hops, ids }` — or `null` for a cleared one.
    */
   readonly value: unknown;
-  /** kind:'cell' only — the TWO selected fields, x side then y side (D30). */
+  /**
+   * The TWO-column kinds only — the pair the `field` slot cannot hold: a
+   * cell's x side then y side (D30), a neighbourhood's two endpoint columns
+   * (packet 5). `commit()` refuses either kind without it.
+   */
   readonly fields?: readonly [string, string];
   /** Registry ids whose sources form the cross-filter self-exclusion set. */
   readonly clientViewIds: readonly string[];
@@ -135,10 +153,11 @@ export interface CommitInput {
   correlationId?: string;
   viewId: string;
   actorMeta: ActorMeta;
-  kind: 'point' | 'interval' | 'cell' | 'match';
+  /** The wire's kind vocabulary, owned by {@link CommitRecord.kind} — one union, never a copy of it. */
+  kind: CommitRecord['kind'];
   field: string;
   value: unknown;
-  /** REQUIRED for kind:'cell' (commit() refuses a cell without its pair); ignored otherwise. */
+  /** REQUIRED for the two-column kinds — `'cell'` and `'neighbourhood'` (commit() refuses either without its pair); ignored otherwise. */
   fields?: readonly [string, string];
   cause: Cause;
   /** The data versions this commit is true of; absent = ask the log's `stampData` hook, if any. */
@@ -168,6 +187,16 @@ export class CauseSelectionSession {
    * each commit. Undefined = the log moved since the last read.
    */
   #view: readonly CommitRecord[] | undefined;
+  /**
+   * Every id on the trace. WHY the writer keeps it: `parseCommitLog` refuses a
+   * repeated id when it READS a log ("the parent-pointer chain is only navigable
+   * while an id names one commit"), and until this set the WRITER enforced
+   * nothing — so `replayLog(log, ['c1', 'c1'])` built a log this same code
+   * refuses to read back, and every reader that resolves a commit by id (the
+   * cursor, a bookmark, a ref) took the first match while the cursor meant the
+   * second.
+   */
+  readonly #ids = new Set<string>();
   /** Set by the session: the data versions to stamp on every commit that names none (table → version). */
   stampData?: () => Readonly<Record<string, string>> | undefined;
   /**
@@ -225,7 +254,7 @@ export class CauseSelectionSession {
    * "a dispatch either fully happens or does not happen at all"):
    *
    *  - **JUDGE** — everything that can throw happens here, and no record and
-   *    no clause has moved yet: the cell's field-pair refusal, the cause gate,
+   *    no clause has moved yet: the pair kinds' field-pair refusal, the cause gate,
    *    the registry registration + client lookups, the value copy, minting the
    *    clause on the port (a rejection becomes a {@link ClauseRejectedError}
    *    here), asking the session for the data stamp, rendering `predicateSQL`
@@ -245,12 +274,18 @@ export class CauseSelectionSession {
    */
   commit(input: CommitInput): { record: CommitRecord; clause: CauseClause } {
     // ── JUDGE ────────────────────────────────────────────────────────────────
-    // D30: a cell commit carries its authoritative field PAIR; refusing an
-    // absent pair here (not downstream) keeps every replica of the wire
-    // (fold, replay, adapter) free to trust `fields` on a cell record. It is
-    // the FIRST thing judged so the refusal cannot even register a source.
-    if (input.kind === 'cell' && input.fields === undefined) {
-      throw new Error('vizfootprint log: a cell commit needs `fields` — the two columns selected together');
+    // An id names ONE commit — the law `parseCommitLog` keeps on the way in, kept here on
+    // the way out so a log this library writes is one it can read back.
+    if (this.#ids.has(input.id)) {
+      throw new Error(`vizfootprint log: commit id "${input.id}" is already on this log — an id names one commit`);
+    }
+    // D30, widened by packet 5: a PAIR-KIND commit (a cell's axes, a neighbourhood's
+    // endpoints) carries its authoritative field PAIR; refusing an absent pair here (not
+    // downstream) keeps every replica of the wire (fold, replay, adapter) free to trust
+    // `fields` on any pair-kind record. It is the FIRST thing judged so the refusal
+    // cannot even register a source.
+    if (isPairKind(input.kind) && input.fields === undefined) {
+      throw new Error(`vizfootprint log: a ${input.kind} commit needs \`fields\` — the two columns it names together`);
     }
     const cause = validateCause(input.cause); // R12 gate at the log boundary too
     const source = this.registry.register(input.viewId, input.actorMeta);
@@ -267,11 +302,11 @@ export class CauseSelectionSession {
     const value = copyValue(input.value);
 
     const spec: CauseClauseSpec =
-      input.kind === 'cell'
+      isPairKind(input.kind)
         // `fields!` — the refusal at the top of this method already proved it
         // present; `CommitInput` is one interface rather than a discriminated
         // union, so the compiler cannot carry that proof down here.
-        ? { kind: 'cell', source, fields: input.fields!, value: value as never, cause, clients }
+        ? { kind: input.kind, source, fields: input.fields!, value: value as never, cause, clients }
         : { kind: input.kind, source, field: input.field, value: value as never, cause, clients };
     const clause = this.port.clause(spec);
     // WHY throw here and not in the port: a port never throws for a shape (its answer is a union); the
@@ -321,6 +356,7 @@ export class CauseSelectionSession {
     // Pure assignment. Nothing between these two lines can fail, so there is no
     // moment at which the record exists and the snapshot still says otherwise.
     this.#records.push(record);
+    this.#ids.add(record.id);
     this.#view = undefined; // the log moved: the next `records` read rebuilds the snapshot
 
     // ── OUTBOUND (not part of the act) ───────────────────────────────────────
@@ -357,7 +393,18 @@ const RECORD_KEYS = new Set([
   'value', 'fields', 'clientViewIds', 'predicateSQL', 'cause', 'ts', 'data',
 ]);
 
-const RECORD_KINDS = new Set(['point', 'interval', 'cell', 'match']);
+/**
+ * The kinds a commit's wire may carry, as a total map over
+ * {@link CommitRecord.kind} — so ADDING A KIND TO THAT UNION MEANS ADDING IT
+ * HERE, and the compiler says so. Miss this list and a log written by the new
+ * code is refused by the same code reading it back (`recordProblems`), which is
+ * the RECORD_KEYS hazard one axis along.
+ */
+const KINDS_ON_THE_WIRE: Record<CommitRecord['kind'], true> = {
+  point: true, interval: true, cell: true, match: true, neighbourhood: true,
+};
+
+const RECORD_KINDS: ReadonlySet<string> = new Set(Object.keys(KINDS_ON_THE_WIRE));
 
 /** The result of a non-throwing log parse (mirrors L0 `parseCause`). */
 export type CommitLogParseResult =
@@ -424,7 +471,9 @@ function recordProblems(raw: unknown): string[] {
   if (hasFields && !(Array.isArray(raw.fields) && raw.fields.length === 2 && isStringArray(raw.fields))) {
     problems.push('fields, if present, must be exactly two column names');
   }
-  if (raw.kind === 'cell' && !hasFields) problems.push('a cell commit needs `fields` — the two columns selected together');
+  if (typeof raw.kind === 'string' && isPairKind(raw.kind) && !hasFields) {
+    problems.push(`a ${raw.kind} commit needs \`fields\` — the two columns it names together`);
+  }
 
   if (!isStringArray(raw.clientViewIds)) problems.push('clientViewIds must be an array of view ids');
   if (typeof raw.predicateSQL !== 'string') problems.push('predicateSQL must be a string');
@@ -587,7 +636,8 @@ export function replayInput(rec: CommitRecord): CommitInput {
     kind: rec.kind,
     field: rec.field,
     value: rec.value,
-    // D30: a cell record's authoritative field pair replays verbatim.
+    // D30: a pair-kind record's authoritative field pair — a cell's axes, a
+    // neighbourhood's endpoints — replays verbatim.
     ...(rec.fields !== undefined && { fields: rec.fields }),
     // the data a commit was true of is provenance: it replays verbatim (commit() prefers an explicit `data` over the hook)
     ...(rec.data !== undefined && { data: rec.data }),

@@ -3,13 +3,18 @@
  *
  * A `PredicateClause` is the shape this folder EVALUATES. It is not the shape
  * a commit CARRIES. A commit carries a flat triple — `{kind, field, value}`
- * (plus `fields` for a cell) — and the two disagree in three places:
+ * (plus `fields` for a cell or a neighbourhood) — and the two disagree in
+ * four places:
  *
  *   - a `match`'s list and polarity ride INSIDE `value` as a
  *     {@link MatchValueBody}; the clause carries `values`/`exclude` as sibling
  *     fields of its own;
  *   - a `cell`'s `field` is a DISPLAY label (`"price × category"`), never a
  *     column; the authoritative pair rides `fields`;
+ *   - a `neighbourhood`'s walked `ids` ride INSIDE `value`, beside the seed,
+ *     derivation and hops that produced them — the clause keeps only the
+ *     `ids`, as a match keeps only its `values`, and its `field` is a display
+ *     label too (`"source ↔ target"`);
  *   - "cleared" is ONE spelling on the wire — `null`, for every kind — and it
  *     is not the clause tier's, which keeps Mosaic's own three-way point split
  *     (`undefined` clears, `null` is a real IS NULL). This function is where
@@ -35,7 +40,10 @@
  * TOTAL, and cleared is the only fallback. Every input answers — the function
  * never throws and never returns `undefined`. A value the wire's declared shape
  * does not cover (a match body that is not an object, a cell or interval value
- * that is not a pair, a cell whose `fields` never arrived) reads as CLEARED,
+ * that is not a pair, a neighbourhood body carrying no id list, a cell or
+ * neighbourhood whose `fields` never arrived) — and a KIND this version has no
+ * reading for, the one shape a newer build's log can hand an older reader —
+ * reads as CLEARED,
  * which keeps every row. That is this library's standing answer to a wire it
  * cannot read: keep-all is the only honest fallback, because narrowing on a
  * value nobody can interpret would drop rows for a reason no one could state.
@@ -53,12 +61,13 @@ import type {
   IntervalBounds,
   IntervalClause,
   MatchValueBody,
+  NeighbourhoodValueBody,
   PointClause,
   PredicateClause,
 } from './types.js';
 
-/** The four selection kinds a commit's wire triple can carry. */
-export type WireClauseKind = 'point' | 'interval' | 'match' | 'cell';
+/** The five selection kinds a commit's wire triple can carry. */
+export type WireClauseKind = 'point' | 'interval' | 'match' | 'cell' | 'neighbourhood';
 
 /**
  * The shape split {@link CellSide} documents: an array side IS the interval
@@ -124,8 +133,9 @@ export function pointValueFromWire(value: unknown): unknown {
  * "no filter" (see the header: cleared is the one fallback, and the only shape
  * `PredicateClause` has no room for).
  *
- * `fields` rides only with `kind:'cell'` — it is the authoritative column pair,
- * and without it a cell is cleared rather than guessed at from its label.
+ * `fields` rides with the two-column kinds — `cell` and `neighbourhood` — and
+ * is the authoritative pair; without it either is cleared rather than guessed
+ * at from its display label.
  */
 export function clauseFromWire(
   kind: WireClauseKind,
@@ -143,15 +153,82 @@ export function clauseFromWire(
       return { kind: 'interval', field, value: isPair(value) ? (value as IntervalBounds<number> | IntervalBounds<string>) : null };
     case 'match': {
       // the list and its polarity ride INSIDE the value; a body without a list is not a list to test against
-      if (value === null || typeof value !== 'object') return null;
+      const values = listOnBody(value, 'values');
+      if (values === undefined) return null;
       const body = value as Partial<MatchValueBody>;
-      if (!Array.isArray(body.values)) return null;
-      return { kind: 'match', field, values: body.values as readonly unknown[], ...(body.exclude === true ? { exclude: true } : {}) };
+      return { kind: 'match', field, values, ...(body.exclude === true ? { exclude: true } : {}) };
     }
     case 'cell':
       // `field` here is the display label ("price × category") — never a column, so a cell
       // whose pair never arrived is cleared rather than split out of its own words
       if (fields === undefined) return null;
       return { kind: 'cell', fields, value: isPair(value) ? (value as readonly [CellSide, CellSide]) : null };
+    case 'neighbourhood': {
+      // the endpoint pair is authoritative here too: `field` is the joint label ("source ↔ target")
+      if (fields === undefined) return null;
+      // the WALKED ids are the predicate; the seed, derivation and hops ride beside them as the
+      // question that produced them, and a body carrying no set is not a set to test membership in
+      const ids = listOnBody(value, 'ids');
+      if (ids === undefined) return null;
+      return { kind: 'neighbourhood', fields, ids };
+    }
+    default: {
+      // WHY an arm at all, when the switch above is exhaustive over the declared union: `kind`
+      // is the one slot that GROWS, and a triple written by a newer build reaches this typed
+      // door as a plain JSON string. Keep-all is the header's standing answer to a wire this
+      // version cannot read — never a fall off the end, which would hand back `undefined` and
+      // break the row loop the header's own example shows.
+      // The `never` binding keeps the compiler's pin: a declared kind that loses its arm lands
+      // here as something other than `never` and fails the build.
+      const unreadKind: never = kind;
+      void unreadKind;
+      return null;
+    }
   }
+}
+
+/**
+ * The list a wire body carries under `key`, or `undefined` when the value is
+ * not a body with that list — the ONE shape a match's `values` and a
+ * neighbourhood's `ids` both arrive in, so "what counts as a body" is decided
+ * once rather than once per kind.
+ */
+function listOnBody(value: unknown, key: 'values' | 'ids'): readonly unknown[] | undefined {
+  if (value === null || typeof value !== 'object') return undefined;
+  const list = (value as Record<string, unknown>)[key];
+  return Array.isArray(list) ? (list as readonly unknown[]) : undefined;
+}
+
+/**
+ * The QUESTION a neighbourhood commit recorded, read from its wire value — the
+ * walk's `seed`, `derivation` and `hops` beside the `ids`
+ * ({@link NeighbourhoodValueBody}), or `null` when the value carries no walked
+ * list at all (the same CLEARED fallback {@link clauseFromWire} gives it).
+ *
+ * WHY this door exists beside the clause one: `clauseFromWire` keeps only the
+ * PREDICATE (the ids), because that is all a row filter needs — but a chip, a
+ * commit-log line and a chart that highlights the seed all need the question,
+ * and each of them was writing the same three defaults by hand. This is the
+ * one place they are written.
+ *
+ * Every slot is answered: an absent `seed` reads as `null` (UNNAMED, never a
+ * node key), an unreadable `derivation` as this version's own `'ego'`, an
+ * unreadable `hops` as `1`. A derivation another build minted is passed
+ * through verbatim — it still selects by its recorded ids.
+ *
+ * ```ts
+ * const c = session.log.records.at(-1)!;                  // a landed walk
+ * const walk = neighbourhoodValueFromWire(c.value);       // { seed, derivation, hops, ids } | null
+ * ```
+ */
+export function neighbourhoodValueFromWire(value: unknown): NeighbourhoodValueBody | null {
+  const ids = listOnBody(value, 'ids');
+  if (ids === undefined) return null;
+  const body = value as Partial<NeighbourhoodValueBody>;
+  return {
+    seed: body.seed ?? null,
+    derivation: typeof body.derivation === 'string' ? body.derivation : 'ego',
+    hops: typeof body.hops === 'number' ? body.hops : 1,
+    ids,
+  };
 }

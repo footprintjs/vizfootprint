@@ -10,9 +10,12 @@
  * `PredicateClause` is deliberately shaped to match what L1/L2 actually
  * produce, so a `CommitRecord` can be evaluated against a `DataProvider`
  * with a plain field-rename, not a translation layer:
- *   - `src/log/log.ts` `CommitRecord.kind` — `'point' | 'interval' | 'cell' | 'match'`,
- *     `field: string`, `value: unknown`.
- *   - `src/selection/types.ts` `CauseClauseSpec` — carries the same FOUR
+ *   - `src/log/log.ts` `CommitRecord.kind` — `'point' | 'interval' | 'cell' |
+ *     'match' | 'neighbourhood'`, `field: string`, `value: unknown`. The TWO-column
+ *     kinds ({@link PAIR_CLAUSE_KINDS} — `'cell'`, `'neighbourhood'`) carry their
+ *     columns in `fields`; their `field` slot holds only the display label
+ *     {@link cellFieldLabel} / {@link neighbourhoodFieldLabel} mints.
+ *   - `src/selection/types.ts` `CauseClauseSpec` — carries the same FIVE
  *     kinds, each with a registry-backed source. `'match'` below is the
  *     SET-1 IN-list (with `exclude` for NOT IN) that the port mints — it is
  *     NOT Mosaic's own `clauseMatch` (text search: contains / prefix /
@@ -198,7 +201,89 @@ export interface CellClause {
   readonly value: readonly [CellSide, CellSide] | null;
 }
 
-export type PredicateClause = PointClause | IntervalClause | MatchClause | CellClause;
+/**
+ * How a neighbourhood's id set was WALKED. ONE derivation today: `'ego'` —
+ * the seed plus every node an edge joins it to, one hop out. It is named (and
+ * recorded) rather than assumed because the set alone cannot say which walk
+ * produced it, and a set nobody can re-walk is a number without a question.
+ */
+export type NeighbourhoodDerivation = 'ego';
+
+/**
+ * What a `neighbourhood` commit CARRIES (`CommitRecord.value` for
+ * kind:'neighbourhood'): the QUESTION — the `seed` the gesture landed on, the
+ * `derivation` that walked from it, how many `hops` — and the ANSWER it
+ * produced, the materialized `ids`, in ONE JSON-safe object; or `null` to
+ * clear (the cleared-interval rule, and the match body's own shape).
+ *
+ * WHY the answer is recorded and not only the question: a read at a cursor
+ * answers about THAT cursor, and the walk is over rows a later act may change
+ * (a derived column, a live filter). A record carrying only the seed would
+ * re-walk today's rows and answer a question nobody asked. The question rides
+ * beside the answer so the act stays legible and could be walked again — the
+ * shape every serious tool converges on (Cytoscape collections, Gephi ego
+ * filters, Graphistry expanders).
+ */
+export interface NeighbourhoodValueBody {
+  /**
+   * The node the gesture landed on — the id the walk started from. `null` means
+   * the seed is UNNAMED: a walk projected from a clause with no commit behind it
+   * (`../session/wire.ts`), never a node whose key is `null`.
+   */
+  readonly seed: unknown;
+  /**
+   * The walk this body records. {@link NeighbourhoodDerivation} is what THIS
+   * version MINTS; the slot is typed open because a body read back from a log or
+   * a saved picture written by another build may name a derivation this one does
+   * not — it still selects by its recorded `ids`. A consumer that branches on a
+   * derivation it knows must keep an honest else.
+   */
+  readonly derivation: NeighbourhoodDerivation | (string & {});
+  /**
+   * How far the walk went. `1` is the one distance this version MINTS.
+   * WHY `number` and not the literal `1`: this is the RECORDED shape, and it is
+   * read back from logs another build wrote — the same law `derivation` states
+   * above. A reader renders what arrived; it never re-walks to check it.
+   */
+  readonly hops: number;
+  /** The materialized set, the seed included — the answer, recorded with its question. */
+  readonly ids: readonly unknown[];
+}
+export type NeighbourhoodValue = NeighbourhoodValueBody | null;
+
+/**
+ * The NEIGHBOURHOOD clause: one gesture on a node selects the ties INSIDE the
+ * walked set — the INDUCED ego subgraph. `fields` is the edges table's two
+ * endpoint columns (`[sourceColumn, targetColumn]`) and a row is kept when
+ * BOTH endpoints are in `ids`, which is exactly the edge set the network chart
+ * brightens for that gesture (`ui/src/charts/VizNetwork.tsx`) and what every
+ * named tool returns for a depth-1 ego filter (Cytoscape `neighborhood()`,
+ * Gephi, Neo4j Bloom's expand).
+ *
+ * WHY BOTH and not EITHER: an id set is CLOSED (seed + its neighbours), so
+ * "either endpoint" also keeps a neighbour's tie to a stranger — an edge the
+ * seed does not touch, whose far end is not in the recorded set and is drawn
+ * dim. A gesture's rows must be the ones its own highlight promised.
+ *
+ * WHY a kind of its own, given that the predicate is an AND: for the reason
+ * {@link CellClause} is one — ONE gesture must land ONE commit, over a value
+ * (the walk) that is recorded whole. Two composed clauses would be two acts
+ * and two records of half a question.
+ *
+ * `ids` is the clause tier's own sibling field, exactly as a match's
+ * `values` is: the seed, derivation and hops the wire carries
+ * ({@link NeighbourhoodValueBody}) are the act's provenance, not part of the
+ * predicate. An empty `ids` keeps nothing (a real always-false predicate,
+ * never "everything") — to mean "no filter", the clause is `null`, the same
+ * rule the match kind follows.
+ */
+export interface NeighbourhoodClause {
+  readonly kind: 'neighbourhood';
+  readonly fields: readonly [string, string];
+  readonly ids: readonly unknown[];
+}
+
+export type PredicateClause = PointClause | IntervalClause | MatchClause | CellClause | NeighbourhoodClause;
 
 /**
  * The ONE display spelling of a cell's joint field ("price × category") —
@@ -211,12 +296,51 @@ export function cellFieldLabel(fields: readonly [string, string]): string {
 }
 
 /**
+ * The ONE display spelling of a neighbourhood's joint field
+ * ("source ↔ target") — the same slot, and the same display-only law, as
+ * {@link cellFieldLabel}: carried where a single field name is expected
+ * (`CommitRecord.field`, a commit-log chip), NEVER parsed. The authoritative
+ * pair always rides `fields`. The arrow is `↔` and not `×` because the two
+ * columns are the two ENDS of one edge, not two axes of a grid — a reader who
+ * sees the label should read "one edge", and the predicate keeps the edges
+ * whose BOTH ends are inside the walked set.
+ */
+export function neighbourhoodFieldLabel(fields: readonly [string, string]): string {
+  return `${fields[0]} ↔ ${fields[1]}`;
+}
+
+/**
+ * The TWO-COLUMN kinds — THE one array literal. A kind here carries its
+ * authoritative column pair in `fields` and only a display label in the
+ * single-field slots (`CommitRecord.field`, a chip).
+ *
+ * WHY it is data and exported: the fork is asked about a KIND long before a
+ * clause exists — a wire triple's arm, a saved condition, a `CommitInput` the
+ * log judges (`../log/log.ts`), a saved-selection rebuild (`../session`) — and
+ * {@link clauseFields} can only answer it for an already-built clause. Two
+ * spellings of one rule are two chances to disagree; the third pair kind lands
+ * here, once.
+ */
+export const PAIR_CLAUSE_KINDS = ['cell', 'neighbourhood'] as const;
+
+/** Whether a clause KIND carries its columns as a `fields` pair ({@link PAIR_CLAUSE_KINDS}). */
+export function isPairKind(kind: string): kind is (typeof PAIR_CLAUSE_KINDS)[number] {
+  return (PAIR_CLAUSE_KINDS as readonly string[]).includes(kind);
+}
+
+/**
  * Every column a clause reads — ONE field for point/interval/match, BOTH for
- * a cell (D30). The single place an engine asks "which columns must exist for
- * this clause?" so no consumer ever forks on `kind` for it.
+ * a cell (D30) and for a neighbourhood (its two edge endpoints). The single
+ * place an engine asks "which columns must exist for this clause?" so no
+ * consumer ever forks on `kind` for it.
  */
 export function clauseFields(clause: PredicateClause): readonly string[] {
-  return clause.kind === 'cell' ? clause.fields : [clause.field];
+  return isPairClause(clause) ? clause.fields : [clause.field];
+}
+
+/** {@link isPairKind} over a BUILT clause — the narrowing the union needs, still reading the one array. */
+export function isPairClause(clause: PredicateClause): clause is CellClause | NeighbourhoodClause {
+  return isPairKind(clause.kind);
 }
 
 // ── evaluate() surface: "rows or count surface" (D24 build step 1). ───────

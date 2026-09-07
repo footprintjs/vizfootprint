@@ -47,10 +47,13 @@ import { NO_RELATED_ROWS, type AnalysisRunInput, type ColumnsOutput, type Relate
 // where a declared relation joins the two (`../def/README.md`, "Relations").
 // Imported from the module that OWNS relations, not the def barrel — the same
 // rule `registerAnalysisSlot` follows, so no layer edge is added by a judge.
-import { judgeAnalysisReads } from '../def/relations.js';
+import { judgeAnalysisReads, neighbourhoodEndpoints } from '../def/relations.js';
+// The walk itself — rows in, ids out (`./neighbourhood.ts`), so the door below
+// judges and lands while the closure stays a function anybody can read.
+import { egoIds } from './neighbourhood.js';
 import { isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
-import { cellFieldLabel, derivedColumnName, isRejection, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchValue, type PredicateClause, type Row } from '../data/index.js';
+import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchValue, type NeighbourhoodValue, type NeighbourhoodValueBody, type PredicateClause, type Row } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
 import { applyLinkOverrides, edgeId, impliedKinds, validateLinks, type LinkDecl } from '../links/index.js';
 
@@ -936,6 +939,25 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** A clear remembers what it cleared (only a live clause can be cleared; clearing nothing notes nothing). */
+  /**
+   * The QUESTION a view's live clause was landed with — its commit's own value.
+   *
+   * WHY it is READ and not held: a neighbourhood's clause carries the walked
+   * ids (the answer) and not the seed it walked from (the question), and the
+   * question is already on the record. A second copy beside the fold would be
+   * one more thing to keep in step; the commit id is already there, so the
+   * session projects rather than re-derives. Undefined for every other kind —
+   * their clause IS their whole question.
+   */
+  private liveQuestionOf(viewId: string): unknown {
+    if (this.activeFilters.get(viewId)?.kind !== 'neighbourhood') return undefined;
+    const at = this.activeFilterCommits.get(viewId);
+    const rec = this.log.records.find((r) => r.id === at);
+    /* v8 ignore next -- every live clause was landed by a door that records its commit beside it (the law `gatherConditions` states in its own arms); the guard keeps the type honest */
+    if (rec === undefined) return undefined;
+    return rec.value;
+  }
+
   private noteCleared(viewId: string, clearedBy: string): void {
     const prev = this.activeFilters.get(viewId);
     if (prev !== undefined) this.clearedFilters.set(viewId, { clause: prev, clearedBy });
@@ -1015,7 +1037,10 @@ class InteractionSessionImpl implements InteractionSession {
           rec.kind === 'cell'
             ? // the log's commit() guarantees `fields` on every cell record
               { kind: 'cell', fields: rec.fields!, value: rec.value as CellClause['value'] }
-            : probeClause(rec.kind, rec.field, rec.value);
+            : rec.kind === 'neighbourhood'
+              ? // and on every neighbourhood record: the walk's two endpoint columns (its `field` is their joint label)
+                probeClause('neighbourhood', rec.field, rec.value, rec.fields!)
+              : probeClause(rec.kind, rec.field, rec.value);
         this.activeFilters.set(rec.viewId, clause);
         this.activeFilterCommits.set(rec.viewId, rec.id);
       }
@@ -1260,8 +1285,11 @@ class InteractionSessionImpl implements InteractionSession {
         entry.clause.kind === 'cell'
           ? // a cell fold entry always carries its pair (fold.ts sets it from the record)
             { kind: 'cell', fields: entry.clause.fields!, value: entry.clause.value as CellClause['value'] }
-          : // point, interval, match — the same builder the live path uses, so a match keeps its kind
-            probeClause(entry.clause.kind, entry.clause.field, entry.clause.value),
+          : entry.clause.kind === 'neighbourhood'
+            ? // a neighbourhood entry carries its endpoint pair the same way — the walked ids are the predicate
+              probeClause('neighbourhood', entry.clause.field, entry.clause.value, entry.clause.fields!)
+            : // point, interval, match — the same builder the live path uses, so a match keeps its kind
+              probeClause(entry.clause.kind, entry.clause.field, entry.clause.value),
       );
     }
     return this.selectedCount(this.defaultTable, clauses);
@@ -1356,6 +1384,11 @@ class InteractionSessionImpl implements InteractionSession {
   private actionForRecipe(recipe: PlanRecipe, cause: Cause, op: 'bringOver' | 'undo' | 'adoptPath'): DispatchAction | { gap: GapRow } {
     switch (recipe.apply) {
       case 'selection':
+        // packet 5: a neighbourhood recipe re-ASKS the walk from its recorded
+        // seed (the answer it carries was true of the rows at that cursor).
+        if (recipe.kind === 'neighbourhood') {
+          return { verb: 'select', viewId: recipe.viewId, field: recipe.fields![0], seed: (recipe.value as NeighbourhoodValueBody).seed, cause };
+        }
         // D30: a cell recipe re-lands the COMPOUND (its pair rides the recipe).
         if (recipe.kind === 'cell') {
           return { verb: 'select', viewId: recipe.viewId, fields: recipe.fields!, values: recipe.value as CellValues, cause };
@@ -1372,6 +1405,7 @@ class InteractionSessionImpl implements InteractionSession {
         // recipe's `field` is the joint label, not a column), a cleared match
         // for a match, a cleared point for a point, a cleared interval otherwise.
         // Every one of them spells cleared `null` — the one spelling (README, law 6).
+        if (recipe.kind === 'neighbourhood') return { verb: 'select', viewId: recipe.viewId, field: recipe.fields![0], seed: null, cause };
         if (recipe.fields !== undefined) {
           return { verb: 'select', viewId: recipe.viewId, fields: recipe.fields, values: null, cause };
         }
@@ -1493,8 +1527,11 @@ class InteractionSessionImpl implements InteractionSession {
     clauses: readonly PredicateClause[],
     options: EvaluateOptions,
   ): Promise<EvaluateResult | DataProviderRejection> {
+    // the WHOLE physical set, not just this cursor's: a slot another branch's act landed is in
+    // the shared store too, and the row door must drop it rather than hand it out as a column
+    const slots = this.runtime.derived.physicalNames(table);
+    if (slots.size === 0) return provider.evaluate(table, clauses.length === 0 ? null : clauses, options);
     const here = this.derivedAt(table);
-    if (here.size === 0) return provider.evaluate(table, clauses.length === 0 ? null : clauses, options);
     const slot = (field: string): string => here.get(field)?.physical ?? field;
     const asked: EvaluateOptions = {
       ...options,
@@ -1505,7 +1542,7 @@ class InteractionSessionImpl implements InteractionSession {
     const res = await provider.evaluate(table, mapped.length === 0 ? null : mapped, asked);
     if (isRejection(res) || res.rows === undefined) return res;
     const back = new Map([...here.values()].map((d) => [d.physical, d.name] as const));
-    return { ...res, rows: res.rows.map((r) => renameRowSlots(r, back)) };
+    return { ...res, rows: res.rows.map((r) => renameRowSlots(r, back, slots)) };
   }
 
   private async columnsOf(table: string): Promise<readonly ColumnInfo[] | { rejected: string }> {
@@ -1836,7 +1873,7 @@ class InteractionSessionImpl implements InteractionSession {
       const conditions: SavedClause[] = [];
       const from: string[] = [];
       for (const [viewId, clause] of this.activeFilters) {
-        conditions.push(clauseOfLive(viewId, clause));
+        conditions.push(clauseOfLive(viewId, clause, this.liveQuestionOf(viewId)));
         const commit = this.activeFilterCommits.get(viewId);
         /* v8 ignore next -- every live clause was landed by a door that records its commit beside it; the arm keeps the type honest */
         if (commit !== undefined) from.push(commit);
@@ -1849,7 +1886,7 @@ class InteractionSessionImpl implements InteractionSession {
       if (live === undefined) return { rejected: `"${source.viewId}" has nothing selected to save` };
       const commit = this.activeFilterCommits.get(source.viewId);
       /* v8 ignore next -- every live clause was landed by a door that records its commit beside it; the arm keeps the type honest */
-      return { conditions: [clauseOfLive(source.viewId, live)], from: commit !== undefined ? [commit] : [] };
+      return { conditions: [clauseOfLive(source.viewId, live, this.liveQuestionOf(source.viewId))], from: commit !== undefined ? [commit] : [] };
     }
     if (!Array.isArray(source.conditions) || source.conditions.length === 0) return { rejected: 'a saved selection needs at least one condition' };
     const conditions: SavedClause[] = [];
@@ -1858,8 +1895,8 @@ class InteractionSessionImpl implements InteractionSession {
       if (!this.holdsView(c.viewId)) return { rejected: `no declared view "${c.viewId}" — the views are ${[...this.runtime.views.keys()].join(', ')}` };
       if (seen.has(c.viewId)) return { rejected: `the picture already has a condition on "${c.viewId}" — one condition per view` };
       seen.add(c.viewId);
-      if (c.kind === 'cell') {
-        if (c.fields === undefined) return { rejected: `a cell condition on "${c.viewId}" needs its two fields` };
+      if (isPairKind(c.kind)) {
+        if (c.fields === undefined) return { rejected: `a ${c.kind} condition on "${c.viewId}" needs its two fields` };
       } else if (typeof c.field !== 'string' || c.field.length === 0) {
         return { rejected: `a ${c.kind} condition on "${c.viewId}" needs a field` };
       }
@@ -1869,8 +1906,10 @@ class InteractionSessionImpl implements InteractionSession {
       conditions.push({
         viewId: c.viewId,
         kind: c.kind,
-        field: c.kind === 'cell' ? cellFieldLabel(c.fields!) : c.field,
-        ...(c.kind === 'cell' ? { fields: [c.fields![0], c.fields![1]] as const } : {}),
+        // the PAIR kinds carry their columns in `fields` and only a display label in `field` —
+        // dropping the pair here would leave `applySaved`'s column gate reading the label as a column
+        field: c.kind === 'cell' ? cellFieldLabel(c.fields!) : c.kind === 'neighbourhood' ? neighbourhoodFieldLabel(c.fields!) : c.field,
+        ...(isPairKind(c.kind) ? { fields: [c.fields![0], c.fields![1]] as const } : {}),
         value: copyValue(c.value),
       });
     }
@@ -1921,7 +1960,8 @@ class InteractionSessionImpl implements InteractionSession {
         has = new Set(cols.map((col) => col.name));
         hasByTable.set(table, has);
       }
-      const missing = (c.kind === 'cell' ? [...c.fields!] : [c.field]).find((f) => !has!.has(f));
+      // a two-column condition is gated on BOTH its columns; a one-column condition on its own (`field` is a joint LABEL for the pair kinds, never a column)
+      const missing = (c.fields !== undefined ? [...c.fields] : [c.field]).find((f) => !has!.has(f));
       if (missing !== undefined) {
         refused.push({ viewId: c.viewId, rejected: `table "${table}" no longer has the column "${missing}"` });
         continue;
@@ -2074,7 +2114,7 @@ class InteractionSessionImpl implements InteractionSession {
   // ── capability resolution (R14 / R3) ─────────────────────────────────────────
   private probeCapability(
     viewId: string,
-  ): { canProbe: boolean; encodings?: readonly ('point' | 'interval' | 'cell' | 'match')[] } | undefined {
+  ): { canProbe: boolean; encodings?: readonly EmissionKind[] } | undefined {
     const adapter = this.adapters.get(viewId);
     if (adapter) return adapter.capabilities;
     const view = this.placeOf(viewId)?.view; // a layer answers with its view's capability — the frame's voice is the layers' voice
@@ -2088,9 +2128,16 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** Returns a `guard-failed` detail string if the view cannot accept this probe, else null. */
-  private probeGuard(viewId: string, kind: 'point' | 'interval' | 'cell' | 'match'): string | null {
+  private probeGuard(viewId: string, kind: EmissionKind): string | null {
     const cap = this.probeCapability(viewId);
-    if (!cap) return null; // no capability declared → default allow
+    if (!cap) {
+      // No capability declared → the ASSUMED voice, read from the one helper
+      // that answers "what can this view emit" everywhere else (`voiceOf`), so
+      // the act door and the offers can never say different things. Every kind
+      // but the walk is assumed, exactly as before; a walk is declared, because
+      // nothing about an undeclared view says it has an edge to walk.
+      return voiceOf(undefined).includes(kind) ? null : `view "${viewId}" declares no capability, and a ${kind} selection is never assumed — declare encodings: ["${kind}"] on it`;
+    }
     if (!cap.canProbe) return `view "${viewId}" declares no-probe capability`;
     if (cap.encodings !== undefined && !impliedKinds(cap.encodings).includes(kind)) {
       return `view "${viewId}" does not encode a ${kind} selection`;
@@ -2149,6 +2196,16 @@ class InteractionSessionImpl implements InteractionSession {
         if (stale !== null) return stale;
         // D30: the cell form of `select` (fields+values) is the compound-cell
         // gesture — one gesture, ONE commit; the plain form stays the point probe.
+        // packet 5: the NEIGHBOURHOOD form — one gesture on a node selects that
+        // node AND what it touches. Read FIRST: `seed` is the one key no other
+        // select form carries, and a walk names a field the way a point does.
+        if ('seed' in action) {
+          // the point form's law, and for the same reason: a walk must name the node it starts from, or say `null`
+          if (action.seed === undefined) {
+            return this.reject('select', intent, this.gapLedger.file('guard-failed', 'select', 'select.seed is missing — a neighbourhood names the node it walks from, or `null` to clear it (the one spelling of cleared; `undefined` does not survive JSON)', action.field));
+          }
+          return this.doNeighbourhoodProbe(action.viewId, action.field, action.seed, action.cause, as, intent, action.correlationId);
+        }
         if ('fields' in action) {
           return this.doCellProbe(action.viewId, action.fields, action.values, action.cause, as, intent, action.correlationId);
         }
@@ -2354,6 +2411,125 @@ class InteractionSessionImpl implements InteractionSession {
       this.clearedFilters.delete(viewId); // a live cell speaks for itself: nothing cleared is remembered beside it
       const cell: CellClause = { kind: 'cell', fields: [fields[0], fields[1]], value: values };
       this.activeFilters.set(viewId, cell);
+      this.activeFilterCommits.set(viewId, record.id);
+    }
+    // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
+    // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
+    this.notifyAdapter(viewId, clause, verb, record.id);
+    return { ok: true, verb, intent, commit: record };
+  }
+
+  /**
+   * The NEIGHBOURHOOD probe (packet 5): ONE gesture on a node selects the ties
+   * INSIDE its ego set — the induced subgraph — and lands ONE commit.
+   *
+   * The act is judged against the table its address names — the EDGES table,
+   * because the predicate this walk lands is "both ends are in the set" over
+   * the edges, and a clause names columns of the table it is judged against.
+   * `field` names one endpoint; the OTHER end is read off the declared
+   * relations (`../def/relations.ts`, law 7), never guessed from the rows.
+   *
+   * The walk runs ONCE, here, over `allRows` at the cursor — so derived
+   * columns and the live clauses of the OTHER views on that table are honoured
+   * (its own is not: a view is never filtered by itself) — and the answer
+   * is recorded WITH its question (`{ seed, derivation, hops, ids }`), because
+   * a read at a cursor answers about that cursor and the rows may move. Rides
+   * the `select` verb, the same fold key (`selection:${viewId}`, last-wins per
+   * view) and the same clearing rule (`seed: null`), so branching, compare and
+   * time travel are untouched by construction.
+   */
+  private async doNeighbourhoodProbe(
+    viewId: string,
+    field: string,
+    seed: unknown,
+    cause: Cause,
+    as: Actor | undefined,
+    intent: DispatchResult['intent'],
+    correlationId: string | undefined,
+  ): Promise<DispatchResult> {
+    const verb: DispatchVerb = 'select';
+    // 1. the view must be declared (R14: needs-view) — a layer address names a declared layer of one.
+    if (!this.holdsView(viewId)) {
+      return this.reject(verb, intent, this.gapLedger.file('needs-view', verb, `no declared view "${viewId}"`, viewId));
+    }
+    // 2. the view's capability guard (R14: guard-failed) — a walk is a DECLARED
+    //    emission kind, implied by nothing (`../links/voice.ts`).
+    const guard = this.probeGuard(viewId, 'neighbourhood');
+    if (guard) return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, guard, viewId));
+    // 2b. a walk may not start from a reserved session field (R6), like every other probe.
+    if (RESERVED_PROBE_FIELDS.has(field)) {
+      return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `field "${field}" is reserved by the session and cannot be selected on`, field));
+    }
+    // 3. the EDGE: two declared relations at one identity (law 7). Read off the
+    //    MAP, in declaration order, so either end names the same walk.
+    const table = this.tableFor(viewId); // a layer's own table; the default for a view
+    const ends = neighbourhoodEndpoints(this.runtime.relations, table, field);
+    if ('rejected' in ends) {
+      return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, ends.rejected, field));
+    }
+    const fields = ends.fields;
+    // 4. BOTH endpoint columns must be VISIBLE on this branch (R14: needs-column
+    //    / needs-backend-data) — the doProbe guard, applied to the pair the map named.
+    const cols = await this.effectiveColumnsOf(table);
+    if ('rejected' in cols) {
+      return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, cols.rejected, field));
+    }
+    for (const end of fields) {
+      if (!cols.some((c) => c.name === end)) {
+        return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${end}" in table "${table}"`, end));
+      }
+    }
+    // 5. the WALK — once, now, at the cursor. A clear reads no rows: there is no
+    //    question to answer, and asking would be an engine call for a null.
+    let value: NeighbourhoodValue = null;
+    if (seed !== null) {
+      // WHY the acting view's OWN clause is left out: a view is never filtered by
+      // its own selection (the crossfilter law this package keeps everywhere else
+      // — `clausesReaching`, `clientViewIds`). The gesture was made on the graph
+      // as this view DRAWS it, so the walk answers about that graph; reading
+      // under the last walk would answer about the ego net it left behind, which
+      // is not what anybody clicked on.
+      const own = this.activeFilters.get(viewId);
+      // WHY the clauses are narrowed to the JUDGEABLE ones: a clause reaching
+      // this table may name a column another table carries (a view's clause
+      // reaches EVERY table — `clauseReaches`), and an engine asked to judge
+      // `disease = "Measles"` against an edges table with no such column
+      // refuses the whole read — so one selection anywhere else on the
+      // dashboard would make every walk impossible. A sentence about a column
+      // these rows do not have is not a claim about these rows. `cols` is the
+      // same reading of the table the endpoint check above was made against,
+      // so the guard and the walk never disagree about what this table has.
+      const names = new Set(cols.map((c) => c.name));
+      const here = this.clausesOn(table).filter((c) => c !== own && clauseFields(c).every((f) => names.has(f)));
+      const rows = await this.allRows(table, here);
+      if ('rejected' in rows) {
+        return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, rows.rejected, field));
+      }
+      value = { seed, derivation: 'ego', hops: 1, ids: egoIds(rows, fields, seed) };
+    }
+    // 6. land ONE cause-tagged commit (commit-on-intent), parented at the CURSOR
+    //    (R8 branch-on-act) — the question and its answer in one value.
+    const stamped = stampCause(cause, verb, as);
+    const { record, clause } = this.log.commit({
+      id: this.nextId(),
+      parent: this._cursor,
+      ...(correlationId !== undefined ? { correlationId } : {}),
+      viewId,
+      actorMeta: this.metaFor(viewId), // a layer lands as its own source under its address
+      kind: 'neighbourhood',
+      field: neighbourhoodFieldLabel(fields), // display-only joint label; the pair is authoritative
+      fields: [fields[0], fields[1]],
+      value,
+      cause: stamped,
+    });
+    this.landed(record);
+    if (value === null) {
+      if (record.cause.revertOf === undefined && record.cause.replacedBy === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it — the same rule as the point door
+      this.activeFilters.delete(viewId);
+      this.activeFilterCommits.delete(viewId);
+    } else {
+      this.clearedFilters.delete(viewId);
+      this.activeFilters.set(viewId, probeClause('neighbourhood', record.field, value, fields));
       this.activeFilterCommits.set(viewId, record.id);
     }
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
@@ -3083,6 +3259,10 @@ class InteractionSessionImpl implements InteractionSession {
     const declared = await this.declaredColumnsOf(out.table);
     if (!provider) {
       gap = this.gapLedger.file('needs-view', op, `no provider for table "${out.table}"`, out.table);
+    } else if (!canNameSlot(commitId)) {
+      // an id a replayed log brought in, carrying the slot grammar's own reserved marker: two
+      // acts could not be told apart in the store, so nothing is written (`../data/derivedColumns.ts`)
+      gap = this.gapLedger.file('guard-failed', op, `analysis "${analysisId}" ran at commit "${commitId}", whose id cannot name a column slot — its columns were not written`, out.table);
     } else if ('rejected' in declared) {
       // the engine could not say which columns are the map's, so nothing may
       // be written over them — refusing is the only honest direction
@@ -3723,7 +3903,7 @@ class InteractionSessionImpl implements InteractionSession {
     });
     const encodingPolicy = { onInvalid: this.runtime.encoding.rules.onInvalid ?? 'refuse', ruleScope: this.runtime.encoding.rules.ruleScope ?? ('dashboard' as const) };
 
-    const activeSelections = [...this.activeFilters.entries()].map(([viewId, clause]) => selectionInfoOf(viewId, clause, this.activeFilterCommits.get(viewId)));
+    const activeSelections = [...this.activeFilters.entries()].map(([viewId, clause]) => selectionInfoOf(viewId, clause, this.activeFilterCommits.get(viewId), this.liveQuestionOf(viewId)));
     const offers = this.offersNow();
     const asOf = this.offerStamp();
     // layer 4 `onClear`: what each cleared view LAST selected, for the edges whose policy keeps it in force

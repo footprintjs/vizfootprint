@@ -46,7 +46,9 @@
  * the resolved SQL text (the D24 invariant), even before those engines ship.
  */
 
-import type { CellClause, CellSide, IntervalBounds, IntervalClause, MatchClause, PointClause, PredicateClause, Row } from './types.js';
+import type { CellClause, CellSide, IntervalBounds, IntervalClause, MatchClause, NeighbourhoodClause, PointClause, PredicateClause, Row } from './types.js';
+// the ONE display spelling of a neighbourhood's joint field — quoted in this module's refusals, never parsed
+import { neighbourhoodFieldLabel } from './types.js';
 // the ONE owner of "an array side is an interval" — the same lift the wire translation exports
 import { cellSideClause } from './clauseFromWire.js';
 
@@ -171,6 +173,24 @@ function resolveCellSQL(clause: CellClause): string {
 }
 
 /**
+ * The NEIGHBOURHOOD (packet 5): the AND of two IN-lists over one id set — a
+ * row is kept when BOTH endpoint columns name a node in the set, which is the
+ * INDUCED ego subgraph the chart draws for the same gesture. "Either endpoint"
+ * would also keep a neighbour's tie to a stranger outside the recorded set.
+ *
+ * The id list is rendered ONCE and read twice: the two arms test the same set,
+ * so a second render would only be a second chance to disagree with the first.
+ * An empty set is a real always-false predicate (`(FALSE)`) — the exact rule
+ * an empty keep-list follows above, and never "everything".
+ */
+function resolveNeighbourhoodSQL(clause: NeighbourhoodClause): string {
+  if (clause.ids.length === 0) return '(FALSE)';
+  const ids = clause.ids.map(literalToSQL).join(', ');
+  const [source, target] = clause.fields;
+  return `((${quoteIdent(source)} IN (${ids})) AND (${quoteIdent(target)} IN (${ids})))`;
+}
+
+/**
  * Resolve a clause to its predicate SQL text. `clause === null` means "no
  * filter" at the `evaluate()` level (distinct from a point/interval clause
  * whose OWN value clears it) and resolves to the same `"null"` descriptor
@@ -195,6 +215,8 @@ export function resolvePredicateSQL(clause: PredicateClause | readonly Predicate
       return resolveMatchSQL(one);
     case 'cell':
       return resolveCellSQL(one);
+    case 'neighbourhood':
+      return resolveNeighbourhoodSQL(one);
   }
 }
 
@@ -307,6 +329,42 @@ function mosaicMatchSQL(field: string, value: unknown): string {
 }
 
 /**
+ * The neighbourhood as the ENGINE renders it:
+ * `and(isIn(column(source), ids.map(literal)), isIn(column(target), ids.map(literal)))`
+ * — the call predicate.test.ts pins against the real factories. The real `and`
+ * wraps the whole and parenthesises each arm, and the real `isIn` renders
+ * `("field" IN (a, b))`, both measured on `@uwdata/mosaic-sql@0.28.1`.
+ *
+ * WHY every id rides through `literal()`: `isIn` maps its arguments through
+ * Mosaic's `asNode`, which reads a bare STRING as a COLUMN reference — an
+ * interval's extents keep that oddity (see {@link mosaicBoundSQL}), but a
+ * walked id is a VALUE, so it is made a literal before the factory sees it.
+ *
+ * WHY `isIn` and not the point factory's `isInDistinct` (which the match arm
+ * above reaches through `clausePoint`): a neighbourhood's ids are node keys a
+ * walk MATERIALIZED, never a value a person typed, so the `IS NULL` fallback
+ * is not wanted; a `null` that does reach the list renders as the literal
+ * `NULL`, which keeps no row, rather than being quietly rewritten into an
+ * `IS NULL` that would keep every row missing an endpoint.
+ *
+ * The empty-set `FALSE` is THIS layer's rule (the empty match keep-list
+ * precedent), not a byte the two-arm chain renders — over an empty list that
+ * chain renders `IN ()`.
+ */
+function mosaicNeighbourhoodSQL(fields: readonly [string, string], value: unknown): string {
+  if (value === null) return CLEARED_SQL;
+  const body = value as { ids?: unknown } | undefined;
+  if (typeof body !== 'object' || !Array.isArray(body.ids)) {
+    throw new TypeError(
+      `mosaicDescriptorSQL: a neighbourhood value must carry the walked list — "${neighbourhoodFieldLabel(fields)}" got ids: ${Object.prototype.toString.call(body?.ids)} (seed, derivation and hops ride beside it and are not read here)`,
+    );
+  }
+  if (body.ids.length === 0) return 'FALSE';
+  const ids = (body.ids as readonly unknown[]).map(mosaicLiteralSQL).join(', ');
+  return `((${quoteIdent(fields[0])} IN (${ids})) AND (${quoteIdent(fields[1])} IN (${ids})))`;
+}
+
+/**
  * The exact `String(clause.predicate)` real Mosaic renders for a clause of this
  * kind over this value — the byte `CommitRecord.predicateSQL` persists.
  *
@@ -323,10 +381,10 @@ function mosaicMatchSQL(field: string, value: unknown): string {
  * Mosaic coerces it to `[object Object]`, and so does this (see
  * `mosaicLiteralSQL`).
  */
-export function mosaicDescriptorSQL(kind: 'cell', fields: readonly [string, string], value: unknown): string;
+export function mosaicDescriptorSQL(kind: 'cell' | 'neighbourhood', fields: readonly [string, string], value: unknown): string;
 export function mosaicDescriptorSQL(kind: 'point' | 'interval' | 'match', field: string, value: unknown): string;
 export function mosaicDescriptorSQL(
-  kind: 'point' | 'interval' | 'cell' | 'match',
+  kind: 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood',
   field: string | readonly [string, string],
   value: unknown,
 ): string {
@@ -340,6 +398,8 @@ export function mosaicDescriptorSQL(
       return mosaicMatchSQL(field as string, value);
     case 'cell':
       return mosaicCellSQL(field as readonly [string, string], value);
+    case 'neighbourhood':
+      return mosaicNeighbourhoodSQL(field as readonly [string, string], value);
   }
 }
 
@@ -360,6 +420,39 @@ function isStringBounds(
 }
 
 /**
+ * The id set of ONE neighbourhood clause, built once and kept for as long as
+ * the clause's own `ids` array is alive. `matchesClause` is asked per ROW, and
+ * a neighbourhood asks the same membership question twice per row (once per
+ * endpoint), so building the set inside the call would rebuild it 2n times for
+ * an n-row table — the clause is the question, and the question does not
+ * change between rows.
+ *
+ * Keyed by the `ids` ARRAY and not the clause object: the two doors that build
+ * a clause from one commit (`clauseFromWire`, and a session's own live clause)
+ * hand back different clause objects over the SAME borrowed ids array, and
+ * both should meet the set the first of them built.
+ *
+ * THE BORROW LAW this rests on: an `ids` array is the recorded ANSWER of a
+ * walk, minted once and never mutated — the log deep-freezes its records, and
+ * a hand-built clause must build a NEW array rather than push into a live one.
+ * The set is read ONCE per array; a later push would be seen by
+ * `resolvePredicateSQL` (which re-reads the array) and not by this filter, and
+ * one clause would have two readings.
+ */
+const idSets = new WeakMap<readonly unknown[], ReadonlySet<unknown>>();
+
+function idSetOf(ids: readonly unknown[]): ReadonlySet<unknown> {
+  const known = idSets.get(ids);
+  if (known !== undefined) return known;
+  // WHY nullish ids are dropped: SQL's `IN (NULL)` is never TRUE, so the renderers keep no row
+  // for one — a Set carrying `null` would instead keep every row whose endpoint is missing,
+  // which is the very hazard `../session/neighbourhood.ts`'s walk refuses at the producer.
+  const built: ReadonlySet<unknown> = new Set<unknown>(ids.filter((id) => id !== null && id !== undefined));
+  idSets.set(ids, built);
+  return built;
+}
+
+/**
  * Evaluate a clause against one row IN-PROCESS (the memory engine's actual
  * filter — `resolvePredicateSQL` above is the honest SQL text, this is the
  * real work). Semantics mirror the resolved SQL exactly:
@@ -372,6 +465,12 @@ function isStringBounds(
  *     SQL-style implicit type coercion between e.g. `"5"` and `5`. A string
  *     interval (ISO-8601 date bounds) therefore only ever matches STRING row
  *     values, and a numeric interval only numeric ones — never across.
+ *   - a NEIGHBOURHOOD keeps a row when BOTH endpoint columns hold one of the
+ *     walked ids (the AND its SQL renders — the induced ego subgraph); an
+ *     empty id set keeps nothing, and "no filter" is the absent clause, never
+ *     an empty set. A nullish endpoint is kept by NO neighbourhood, even one
+ *     whose recorded set carries a null: `IN (NULL)` is not `IS NULL`. Its
+ *     `ids` array is read ONCE per array (see the borrow law at `idSets`);
  *   - a HALF-OPEN interval (one bound `null`) only tests the side that is
  *     present — `[150, null]` matches every row `>= 150`, `[null, hi]` every
  *     row `<= hi` — never a fabricated opposite bound.
@@ -419,6 +518,14 @@ export function matchesClause(row: Row, clause: PredicateClause | null): boolean
         matchesClause(row, cellSideClause(clause.fields[0], vx)) &&
         matchesClause(row, cellSideClause(clause.fields[1], vy))
       );
+    }
+    case 'neighbourhood': {
+      // BOTH endpoints in the set — the AND the SQL renders, over the prebuilt set (which
+      // carries no nullish id, so a missing endpoint is kept by no walk, exactly as
+      // `IN (NULL)` keeps no row). Membership is the Set's SameValueZero, which parts from
+      // the match arm's `===` on exactly one value, NaN, and no node table keys its rows by one.
+      const ids = idSetOf(clause.ids);
+      return ids.has(row[clause.fields[0]]) && ids.has(row[clause.fields[1]]);
     }
   }
 }

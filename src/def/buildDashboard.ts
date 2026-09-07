@@ -55,7 +55,7 @@ import { defRevision } from './revision.js';
 import { layerLinkViewOf, layerSurfaceOf } from './layers.js';
 import { createInteractionSession, type InteractionSession } from '../session/session.js';
 import type { SessionOptions } from '../session/types.js';
-import { materializeLinks, voiceOf } from '../links/index.js';
+import { EMISSION_KINDS, materializeLinks, voiceOf } from '../links/index.js';
 import { lintEncodings, pageBindings, resolveFacet, resolveFacets } from '../encoding/index.js';
 import type { Bindings, EncodingPorts, EncodingProblem } from '../encoding/index.js';
 import { validateProseRecord } from '../prose/index.js';
@@ -560,6 +560,9 @@ async function readSource(decl: SourceDecl, table: string, adapters: readonly So
   }
 }
 
+/** The kinds a saved condition may name — the emission kinds themselves, projected (`../links/types.ts`), never a second list to keep in step. */
+const SAVED_CONDITION_KINDS: readonly string[] = EMISSION_KINDS;
+
 /** Restore saved selections into the store: a whole record each, judged (a name, at least one condition on a declared view with a field or pair and a value, an author, a time), never re-stamped, refused in words. A record keeps the id it arrives with when no other record holds it; otherwise the store names it and says so in `reidentified`. */
 export function restoreSavedInto(store: SavedStore, list: readonly RestorableSaved[], views: ReadonlySet<string>, commitIds: CommitIdStore): RestoreResult {
   const restored: string[] = [];
@@ -580,8 +583,10 @@ export function restoreSavedInto(store: SavedStore, list: readonly RestorableSav
       if (typeof c?.viewId !== 'string' || !views.has(c.viewId)) { bad = `no declared view "${String(c?.viewId)}"`; break; }
       if (seen.has(c.viewId)) { bad = `the picture already has a condition on "${c.viewId}" — one condition per view`; break; }
       seen.add(c.viewId);
-      if (!['point', 'interval', 'match', 'cell'].includes(c.kind as string)) { bad = `"${String(c.kind)}" is not a condition kind`; break; }
-      if (c.kind === 'cell' ? !Array.isArray(c.fields) || c.fields.length !== 2 : typeof c.field !== 'string' || c.field.length === 0) { bad = c.kind === 'cell' ? `a cell condition on "${c.viewId}" needs its two fields` : `a ${c.kind} condition on "${c.viewId}" needs a field`; break; }
+      if (!SAVED_CONDITION_KINDS.includes(c.kind as string)) { bad = `"${String(c.kind)}" is not a condition kind`; break; }
+      // the two-column kinds are judged on their PAIR (their `field` is a joint label); every other kind on its field
+      const pair = c.kind === 'cell' || c.kind === 'neighbourhood';
+      if (pair ? !Array.isArray(c.fields) || c.fields.length !== 2 : typeof c.field !== 'string' || c.field.length === 0) { bad = pair ? `a ${c.kind} condition on "${c.viewId}" needs its two fields` : `a ${c.kind} condition on "${c.viewId}" needs a field`; break; }
       // `null` is the one spelling of CLEARED (src/session/README.md, beside law 6) — never a value a picture holds
       if (c.value === undefined || c.value === null) { bad = `the condition on "${c.viewId}" needs a value`; break; }
     }

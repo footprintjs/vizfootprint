@@ -1,20 +1,31 @@
 # links — the edge layer of the interaction grammar
 
 A **view** has a **voice**: the emission kinds it can produce (`point`,
-`interval`, `cell`, `match`; a declared `point` implies `match`). An **edge**
+`interval`, `cell`, `match`, `neighbourhood`; a declared `point` implies
+`match`, and `neighbourhood` is implied by nothing — see the third law). An **edge**
 says what one view's emission does to another: `filter` drops rows there,
 `highlight` dims them and keeps them, `navigate` moves the target's viewport
 and claims nothing about data, `mirror` outlines the same value there, `none`
 says the link is deliberately off. A **graph** is the edges plus a default
 rule.
 
-Three laws, stated once here:
+Four laws, stated once here:
 
 - **Nothing implicit.** The default rule (`crossfilter`: every view filters
   every other, self excluded — today's behaviour) is *materialized* into
   explicit edges at declaration. A declared edge replaces the default edge with
   the same `(source, kind, target)` in place. An absent edge under default
   `none` is a silence; a declared `none` is a fact. The matrix shows both.
+- **Assumed, except the walk.** A view that declares no capability is assumed
+  to speak every kind but `neighbourhood`, and `voiceOf` is the ONE place that
+  says so — the session's act door, the overview's `selectionKinds`, the offers
+  and this graph all read it, so an agent is never told something the guard
+  would refuse. The walk is the exception because it cannot exist without a
+  declared relation to walk over (`../def/README.md`, law 7): assuming it would
+  offer every chart in the cockpit a gesture none of them could answer, and
+  write a default crossfilter edge out of every view for a voice almost none of
+  them have. A view that can be walked from says so:
+  `capabilities: [{ viewId: 'net', canProbe: true, encodings: ['point', 'neighbourhood'] }]`.
 - **Refused at declaration.** An edge whose kind is not in its source's voice,
   whose ends are not declared views, that links a view to itself, or that
   repeats another edge is refused with a sentence before any session exists.

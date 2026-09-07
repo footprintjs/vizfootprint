@@ -5,17 +5,18 @@
  * until this file nothing said how two of them join. A relation is one edge:
  * a column of one table pointing at ANOTHER table's declared `key` — an
  * identity, never a loose column, so the row a value names is addressable
- * (the no-row-key law behind `DataSourceDef.key`). Six laws, each with an
- * example, in ./README.md ("Relations") — the sixth is the one at the bottom of
- * this file: a relation is also a PERMISSION to read across.
+ * (the no-row-key law behind `DataSourceDef.key`). Seven laws, each with an
+ * example, in ./README.md ("Relations") — the last two are the ones at the
+ * bottom of this file: a relation is also a PERMISSION to read across, and TWO
+ * relations at one identity are the EDGE a neighbourhood is walked over.
  *
  * The door BELOW is the def door's half: what the declaration alone can prove.
  * A `from.column` on a table that declares no `columns` is judged post-build
  * against the engine's real columns by `Dashboard.lintData`, exactly as a key
  * is. First customers: `validateDashboardDef` (the door), `buildDashboard`
  * (writes each relation's `kind` out onto the runtime), the overview (echoes
- * them), the neighbourhood selection kind that will walk them, and — for the
- * sixth law at the bottom — `session.declareAnalysis` (which asks the
+ * them), the session's `doNeighbourhoodProbe` (law 7: it walks them), and —
+ * for the sixth law at the bottom — `session.declareAnalysis` (which asks the
  * permission) and the `bringOver` builtin (which follows the edge).
  */
 import { RELATION_KINDS, type RelationEdge, type RelationEnd, type RelationKind } from './types.js';
@@ -157,6 +158,54 @@ export function joinsTables(relations: readonly RelationEdge[], a: string, b: st
  */
 export function relationsFrom(relations: readonly RelationEdge[], from: string, to: string): RelationEdge[] {
   return relations.filter((r) => r.from.table === from && r.to.table === to);
+}
+
+/**
+ * LAW 7 — THE WALK'S TWO COLUMNS: a neighbourhood is walked over an EDGE, and
+ * an edge is TWO relations from one table pointing at ONE identity
+ * (`edges.source → nodes.disease` and `edges.target → nodes.disease` — legal,
+ * and exactly the shape a node-link declares; a self-join stays refused by law
+ * 3). Answer the pair in DECLARATION order, so a gesture on either end names
+ * the same walk and lands the same bytes.
+ *
+ * `column` is the endpoint the gesture named. WHY the act names an endpoint
+ * rather than the node table: a clause names columns of the table it is judged
+ * against, and a neighbourhood's predicate is "both ends are in the set" over
+ * the EDGES table — the node table is reached FROM there, through the relation
+ * the endpoint declares.
+ *
+ * A refusal quotes what is known, in the voice of every other door here: the
+ * endpoints the table does declare, or how many columns name that identity.
+ *
+ * ```ts
+ * neighbourhoodEndpoints(relations, 'edges', 'target'); // → { fields: ['source', 'target'] }
+ * ```
+ */
+export function neighbourhoodEndpoints(
+  relations: readonly RelationEdge[],
+  table: string,
+  column: string,
+): { readonly fields: readonly [string, string] } | { readonly rejected: string } {
+  const fromHere = relations.filter((r) => r.from.table === table);
+  const named = fromHere.find((r) => r.from.column === column);
+  if (named === undefined) {
+    const ends = fromHere.map((r) => r.from.column);
+    return {
+      rejected:
+        ends.length === 0
+          ? `table "${table}" declares no relation, so "${column}" is not an endpoint — a neighbourhood is walked over an edge, and an edge is two columns naming one identity`
+          : `"${table}.${column}" is not an endpoint — the endpoints of "${table}" are ${ends.join(', ')}`,
+    };
+  }
+  // ONE identity, both ends: the pair is every column of this table naming the same (table, key) the gesture's own end names
+  const pair = fromHere.filter((r) => r.to.table === named.to.table && r.to.column === named.to.column);
+  if (pair.length !== 2) {
+    const cols = pair.map((r) => r.from.column).join(', ');
+    return {
+      rejected: `"${table}" names "${named.to.table}.${named.to.column}" through ${pair.length === 1 ? 'one column' : `${pair.length} columns`} (${cols}) — a neighbourhood walks an edge with exactly two ends`,
+    };
+  }
+  return { fields: [pair[0]!.from.column, pair[1]!.from.column] };
 }
 
 /**

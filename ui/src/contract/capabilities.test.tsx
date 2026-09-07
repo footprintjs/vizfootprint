@@ -135,8 +135,8 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
     { layerId: 'nodes', table: 'nodes', rows: [{ id: 'flu', group: 'viral' }, { id: 'cold', group: 'viral' }], encodings: { color: 'group' } },
   ] as const;
 
-  it('the protocol this build speaks is 1.2 — the layers minor', () => {
-    expect(RENDERER_PROTOCOL_VERSION).toBe('1.2');
+  it('the protocol this build speaks is 1.3 — the walk minor', () => {
+    expect(RENDERER_PROTOCOL_VERSION).toBe('1.3');
   });
 
   it('declares TRUE — and a layered frame pushed through the bind draws BOTH layers, each under its own table', () => {
@@ -256,10 +256,41 @@ describe('the node-link declares canLayer, and every one of its flags has its ot
 
   it('the match kind is declared AND spoken — a shift-click promotes the point to this view\'s own set', () => {
     const { el, view, perLayer } = bound();
-    expect(view.capabilities.emissionKinds).toEqual(['point', 'match']);
+    expect(view.capabilities.emissionKinds).toEqual(['point', 'match', 'neighbourhood']);
     view.update({ ...state(NET_NODES), layers: NET_LAYERS });
     fireEvent.click(el.querySelector('circle[data-node="cold"]')!, { shiftKey: true });
     expect(perLayer.get(layerAddress('net', 'nodes'))!.emit).toHaveBeenCalledWith({ rawValue: { values: ['cold'] }, encoding: { kind: 'match', field: 'id' } });
+    view.unmount();
+  });
+
+  it('the neighbourhood kind is declared AND spoken — an alt-click asks the WALK, through the EDGES layer\'s bundle and no other', () => {
+    const { el, view, cbs, perLayer } = bound();
+    expect(view.capabilities.emissionKinds).toContain('neighbourhood');
+    view.update({ ...state(NET_NODES), layers: NET_LAYERS });
+    fireEvent.click(el.querySelector('circle[data-node="flu"]')!, { altKey: true });
+    // the ASK is the seed on an endpoint column of the EDGES table — never a set, and never the nodes' key
+    expect(perLayer.get(layerAddress('net', 'edges'))!.emit).toHaveBeenCalledWith({ rawValue: 'flu', encoding: { kind: 'neighbourhood', field: 'source' } });
+    expect(perLayer.get(layerAddress('net', 'nodes'))!.emit).not.toHaveBeenCalled();
+    expect(cbs.emit).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it('the same modifier on the KEYBOARD asks the same walk — one gesture, two affordances', () => {
+    const { el, view, perLayer } = bound();
+    view.update({ ...state(NET_NODES), layers: NET_LAYERS });
+    fireEvent.keyDown(el.querySelector('circle[data-node="cold"]')!, { key: 'Enter', altKey: true });
+    expect(perLayer.get(layerAddress('net', 'edges'))!.emit).toHaveBeenCalledWith({ rawValue: 'cold', encoding: { kind: 'neighbourhood', field: 'source' } });
+    view.unmount();
+  });
+
+  it('a frame with NO edges layer has no walk to offer, and the modifier is not a gesture: the alt-click selects', () => {
+    const { el, view, cbs, perLayer } = bound();
+    // nodes only — nothing to walk, so the node's own voice speaks a plain point
+    view.update({ ...state(NET_NODES), layers: [NET_LAYERS[1]] });
+    fireEvent.click(el.querySelector('circle[data-node="flu"]')!, { altKey: true });
+    expect(perLayer.get(layerAddress('net', 'nodes'))!.emit).toHaveBeenCalledWith({ rawValue: 'flu', encoding: { kind: 'point', field: 'id' } });
+    expect(perLayer.get(layerAddress('net', 'edges'))!.emit).not.toHaveBeenCalled();
+    expect(cbs.emit).not.toHaveBeenCalled();
     view.unmount();
   });
 

@@ -186,6 +186,35 @@ Four things it states because they are not the plane's:
 
 **A proposal only ever comes from the kinds a host says it can draw**: pass `kinds` (a `chartKind` and the channels it binds) and nothing outside that list is enumerated; pass none and the default is every kind the requirement tables know. The studio wizard's `bar` binds `category` and counts rows where this library's binds `x` and `y`, and a proposal a host cannot draw is a proposal it must not be offered.
 
+## Matrix or node-link: the reading rule, as data
+
+A graph has two honest pictures — the **node-link** (circles and lines) and the **matrix** (source by target, shaded, which is the heatmap this library already draws) — and which one a reader should be given is not a matter of taste. It is a property of the GRAPH and the QUESTION, and it has been measured. So it is stated as data: `GRAPH_READING_RULES` is a frozen, ordered array, each rule carrying the fact it fires on and the REASON it fires for, and `graphReadingFor` is nothing but *the first rule that fires*.
+
+```ts
+graphReadingFor({ nodes: 15, edges: 105 });
+// { prefer: 'matrix', rule: 'dense',
+//   reason: 'at a density of 0.2 or more the lines cross more than they connect: Ghoniem, Fekete and
+//            Castagliola (2004) found the matrix beat the node-link on every task but path-finding …' }
+
+proposeCharts({ columns, kinds, graph: { nodes: 15, edges: 105 } }).reading;   // the same ruling, on the offer
+```
+
+The rules, in the order they are read:
+
+| rule | fires when | prefers |
+|---|---|---|
+| `dense` | density ≥ `DENSE_AT` (0.2), stated or derived from `nodes`/`edges` | matrix |
+| `matrix-question` | the question is adjacency, common neighbours or counting clusters | matrix |
+| `big-and-static` | more than `BIG_AT` (50) nodes and no interaction | matrix |
+| `sparse-path` | a path or topology question, on a graph a reader can explore | node-link |
+| *(default)* | nothing said the graph was dense or the question adjacency | node-link |
+
+Three things it states because they are easy to get wrong:
+
+- **the order is part of the rule set.** Density is read first: a path through a hairball is still a hairball. The node-link rule is last because it asks for three things at once — a sparse graph, a path or topology question, and a reader who can hover.
+- **a ruling is never a refusal.** `proposeCharts` still offers both pictures when both fit; the reading only decides which comes FIRST, and it never touches `cost` (which measures one thing: how far a binding sat from the recommender's first choices). Every other kind keeps its cost order — a reading has no opinion about a bar chart.
+- **the reason travels with the ruling.** The two studies are named in the value, not in a comment: Ghoniem, Fekete and Castagliola (2004), who found the matrix ahead on every task but path-finding as size and density grew, and Okoe, Jianu and Kobourov (2018), who found the node-link recovering on topology and paths WHEN a reader could explore, while the matrix stayed ahead on adjacency, common neighbours and clusters. A ruling nobody can check is an opinion with a citation stapled to it.
+
 ## Not yet
 
 - **the build door refusing a view that leaves a REQUIRED channel unbound** — the second reader that would make `ChannelRequirement.optional` enforced rather than advisory. Queued deliberately and not built here: it may refuse definitions that build today, so it is its own packet
@@ -195,4 +224,4 @@ Four things it states because they are not the plane's:
 
 ## Files
 
-`types.ts` the vocabulary · `requirements.ts` built-in channel requirements + merge, and which channels a kind binds · `sentences.ts` templates · `facets.ts` column → facet · `validate.ts` the validator · `shape.ts` def-door shape checks · `fits.ts` what fits where · `whatFits.ts` the same, before a build · `recommend.ts` the preference policy · `propose.ts` whole charts, offered · `lint.ts` the lint door · `describe.ts` rules as sentences · `coercers.ts` the built-in adapter
+`types.ts` the vocabulary · `requirements.ts` built-in channel requirements + merge, and which channels a kind binds · `sentences.ts` templates · `facets.ts` column → facet · `validate.ts` the validator · `shape.ts` def-door shape checks · `fits.ts` what fits where · `whatFits.ts` the same, before a build · `recommend.ts` the preference policy · `propose.ts` whole charts, offered · `graphReading.ts` matrix or node-link, the rule as data · `lint.ts` the lint door · `describe.ts` rules as sentences · `coercers.ts` the built-in adapter

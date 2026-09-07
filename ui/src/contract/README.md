@@ -236,6 +236,63 @@ is the next packet. Sibling layers get **no implicit crossfilter**: a select on
 
 ---
 
+## Law 5 — one gesture on a node selects the ties inside its ego set, and the ANSWER is recorded with the question (protocol 1.3)
+
+A `neighbourhood` emission is the one kind on the rail that a renderer cannot
+answer. It carries a **seed** — one node id, on one endpoint column of the
+edges table — and nothing else, because the walk reads the edge ROWS at the
+cursor and a renderer owns no rows (the transform-ownership rule: it never
+bins, and it never walks). The session walks once, and lands ONE commit
+carrying the question (`seed`, `derivation`, `hops`) beside the answer (the
+materialized `ids`).
+
+```ts
+// the ASK, from the chart — a question, never a set
+callbacks.emit({ rawValue: 'Salmonellosis', encoding: { kind: 'neighbourhood', field: 'source' } });
+
+// the ANSWER, read back off the fold — how a node-link lights its ego net
+const walk = selfSelectedNeighbourhood(state.selection);
+// { fields: ['source', 'target'], seed: 'Salmonellosis', derivation: 'ego', hops: 1, ids: [...] }
+```
+
+Three things this law is made of, and every one of them is a consequence of
+the clause being over the EDGES table:
+
+- **the ask and the answer sit at two addresses.** The clause names the edges'
+  two endpoint columns, so it is spoken through `handshake.layers['edges']` and
+  lands under `viewId~edges` — while the layer that must DRAW it is the nodes.
+  So `networkRenderer` hands `<VizNetwork>` a `walk` door (the endpoint column
+  + the edges layer's `emit`) and offers no walk at all when the frame carries
+  no edges layer or that layer has no bundle: there is no honest fallback to
+  the view's own voice, because a clause naming edge columns judged against the
+  nodes table selects nothing and refuses everything after it.
+- **the rows are the ones the highlight promised.** The clause keeps an edge
+  row when BOTH endpoints are in the walked set — the induced ego subgraph,
+  which is exactly the edge set `<VizNetwork>` brightens. "Either endpoint"
+  would keep a neighbour's tie to a stranger outside the set, drawn dim: one
+  commit would then read as one edge in the picture and two in the data.
+- **the walked set is never a row predicate for the nodes.** A node row carries
+  no endpoint column, so folding the walk into the node predicate would dim the
+  whole frame. `<VizNetwork>` takes it out of the predicate and READS it
+  instead — which is what `selfSelectedNeighbourhood` is for. It answers about
+  the FRAME rather than one address: the view's own walk if it has one, else
+  the one that reached it (arrival is the permission — `selectionForView` has
+  already dropped what a `none` or absent link edge blocks).
+- **the answer is recorded because a read at a cursor answers about that
+  cursor.** The walk is over rows a later act may change, so a commit carrying
+  only the seed would re-walk today's rows and answer a question nobody asked.
+  Time travel shows the ego net that walk found.
+
+The conformance kit's `neighbourhood` arm is gated on the renderer declaring
+the kind (the `match` arm's own model): it drives `plan.neighbourhoodGesture`
+and requires exactly ONE commit — both endpoint columns, the seed INSIDE the
+recorded set, and an addressable clause at whichever address spoke.
+
+Not in this version: k-hop beyond one, shortest paths, connected components,
+community detection.
+
+---
+
 ## Adding a capability — the checklist
 
 1. **Name the act.** Who performs it: the user (it rides `emit`), or the host
@@ -250,12 +307,13 @@ is the next packet. Sibling layers get **no implicit crossfilter**: a select on
 5. **Version it.** A new optional field on the hello is a MINOR bump
    (`RENDERER_PROTOCOL_VERSION`); a new outbound verb is a MAJOR one. 1.1
    added the `cell` kind; 1.2 added layers (`RenderState.layers`, `canLayer`,
-   the handshake's bundles) — all optional, so both stayed minors.
+   the handshake's bundles); 1.3 added the `neighbourhood` kind and the walk
+   arm — all optional, so every one of them stayed a minor.
 
 ## One more habit: the derivation helpers ship in a set
 
 `selfSelectedValue` / `selfSelectedInterval` / `selfSelectedCell` /
-`selfSelectedSet` are how a host-built chart reads its own live selection out
+`selfSelectedSet` / `selfSelectedNeighbourhood` are how a host-built chart reads its own live selection out
 of the addressable fold instead of keeping private state. SET-1 added the
 fourth and the barrel was never updated, so for a while a consumer could
 outline a point, an interval and a cell but not a multi-select — the shape the

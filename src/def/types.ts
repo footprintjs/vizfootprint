@@ -455,11 +455,18 @@ export interface FdrStepper {
 /** One condition of a saved selection: which chart, which field, which test on the value. One per view — a picture names a view once. */
 export interface SavedClause {
   readonly viewId: string;
-  readonly kind: 'point' | 'interval' | 'match' | 'cell';
-  /** The column (a cell's joint label — the pair rides `fields`). */
+  readonly kind: 'point' | 'interval' | 'match' | 'cell' | 'neighbourhood';
+  /** The column (a two-column kind's joint label — the pair rides `fields`). */
   readonly field: string;
+  /** The two-column kinds only: a cell's axes, a neighbourhood's two endpoint columns. */
   readonly fields?: readonly [string, string];
-  /** JSON-safe: a point's value, an interval's bounds, a match body `{ values, exclude? }`, a cell's two sides. */
+  /**
+   * JSON-safe: a point's value, an interval's bounds, a match body
+   * `{ values, exclude? }`, a cell's two sides, a neighbourhood's whole walk
+   * `{ seed, derivation, hops, ids }` — which is what lets applying the
+   * picture RE-ASK the walk over today's rows rather than replay yesterday's
+   * answer.
+   */
   readonly value: unknown;
 }
 

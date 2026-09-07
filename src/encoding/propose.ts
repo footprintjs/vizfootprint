@@ -43,6 +43,7 @@
  * bite on a built-in kind at all, because four candidates on at most three
  * channels is sixty-four. Both numbers are where a reader can check them.
  */
+import { CHART_KIND_FOR_READING, graphReadingFor, type GraphFact, type GraphReading, type GraphReadingKind } from './graphReading.js';
 import { policyRecommender } from './recommend.js';
 import { KINDS_NOT_PROPOSED, channelsOf, chartKindsOf, requirementFor } from './requirements.js';
 import { fill, listOf } from './sentences.js';
@@ -105,6 +106,13 @@ export interface ChartProposals {
   readonly proposals: readonly ChartProposal[];
   /** A sentence per cap that bit. Empty when everything was enumerated. */
   readonly notEnumerated: readonly string[];
+  /**
+   * The graph reading in force, when the caller stated a `graph` fact: which of
+   * the two pictures of a graph reads better here, and WHY, with its study
+   * named (`./graphReading.ts`). It is a ruling, never a refusal — the offer
+   * still carries both pictures if both fit, with the preferred one first.
+   */
+  readonly reading?: GraphReading;
 }
 
 export interface ProposeChartsInput {
@@ -118,6 +126,15 @@ export interface ProposeChartsInput {
   readonly ports?: EncodingPorts;
   /** How many proposals to return. Default {@link PROPOSAL_LIMIT}. */
   readonly limit?: number;
+  /**
+   * What is known about the GRAPH these columns describe, when they describe
+   * one: how many nodes, how many edges (or the density outright), what the
+   * reader is asking, and whether they can explore it. Stating it turns on the
+   * reading rule — the offer comes back with a `reading` naming which of the
+   * two pictures of a graph reads better here and why, and the two are ordered
+   * by it. Absent = no ruling, no reordering; nothing else changes.
+   */
+  readonly graph?: GraphFact;
   /**
    * The kinds to propose, and the channels each must bind. Default: every kind
    * the requirement tables know, with its own non-optional channels.
@@ -163,6 +180,41 @@ interface Combination {
  * Best first, by {@link ChartProposal.cost}, and kinds that tie keep the order
  * the requirement tables list them in.
  */
+/** Which picture of a graph this chart kind IS, or null for a chart that is not one. */
+function readingOf(chartKind: string): GraphReadingKind | null {
+  const found = Object.entries(CHART_KIND_FOR_READING).find(([, kind]) => kind === chartKind);
+  return found === undefined ? null : (found[0] as GraphReadingKind);
+}
+
+/**
+ * The reading's ONE effect on the offer: between the two pictures of a graph,
+ * the preferred one comes first.
+ *
+ * WHY as a re-fill of the positions the graph proposals already occupy, and not
+ * as a comparator: cost orders everything else, and a comparator that mixed the
+ * two rules would not be transitive (a bar could sit between two pictures that
+ * the reading orders the other way round), which is a sort with no defined
+ * answer. A reading is a judgement about which PICTURE of a graph reads better;
+ * it has no opinion about a bar chart, and this keeps it that way.
+ */
+function readFirst(proposals: readonly ChartProposal[], reading: GraphReading): ChartProposal[] {
+  const out = [...proposals];
+  const slots: number[] = [];
+  const pictures: ChartProposal[] = [];
+  out.forEach((proposal, at) => {
+    if (readingOf(proposal.chartKind) !== null) {
+      slots.push(at);
+      pictures.push(proposal);
+    }
+  });
+  const first = pictures.filter((p) => readingOf(p.chartKind) === reading.prefer);
+  const rest = pictures.filter((p) => readingOf(p.chartKind) !== reading.prefer);
+  [...first, ...rest].forEach((proposal, i) => {
+    out[slots[i]!] = proposal;
+  });
+  return out;
+}
+
 export function proposeCharts(input: ProposeChartsInput): ChartProposals {
   const limit = input.limit ?? PROPOSAL_LIMIT;
   const overrides = input.rules?.channels;
@@ -174,9 +226,14 @@ export function proposeCharts(input: ProposeChartsInput): ChartProposals {
     // a kind that binds nothing has nothing to propose — `table` is the one built-in
     if (kind.channels.length > 0) found.push(...proposeKind(input, kind, ports, limit, notEnumerated));
   }
-  const best = found.sort((a, b) => a.cost - b.cost);
+  const byCost = found.sort((a, b) => a.cost - b.cost);
+  // the ruling is made on the FACTS, before anything is cut: a caller that
+  // asked with a graph fact is told which picture reads better even when only
+  // one of the two was proposable here
+  const reading = input.graph === undefined ? undefined : graphReadingFor(input.graph);
+  const best = reading === undefined ? byCost : readFirst(byCost, reading);
   if (best.length > limit) notEnumerated.push(fill(OFFER_SENTENCES.limited, { n: String(best.length), limit: String(limit) }));
-  return { proposals: best.slice(0, limit), notEnumerated };
+  return { proposals: best.slice(0, limit), notEnumerated, ...(reading === undefined ? {} : { reading }) };
 }
 
 /** Every proposal of ONE chart kind, best first, capped — and each of them verified by `whatFits`. */

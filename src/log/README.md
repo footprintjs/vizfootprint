@@ -128,7 +128,10 @@ rather than a wall of text:
 1. **shape** — every required field present and correctly typed, no key we do
    not know, and the `cause` validated through the existing `parseCause`;
 2. **no duplicate ids** — a parent chain is only navigable while an id names one
-   commit;
+   commit. The WRITER keeps the same law: `commit()` refuses an id already on
+   the log in its JUDGE phase, so a log this library writes is always one it can
+   read back (`replayLog(log, ['c1','c1'])` is refused rather than building a
+   history whose cursor and whose readers mean two different commits);
 3. **every parent present** — a dangling parent is a history with a hole in it,
    and the fold would silently stop there;
 4. **no cycles** — a parent chain must terminate at a root;

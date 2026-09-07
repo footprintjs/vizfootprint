@@ -80,11 +80,13 @@ describe('builtinSelection.clause — mints our shape, carrying the byte law', (
       { kind: 'match', source: a, field: 'category', value: { values: ['Formal'], exclude: true }, cause: cause() },
       { kind: 'match', source: a, field: 'category', value: { values: [] }, cause: cause() },
       { kind: 'match', source: a, field: 'category', value: { values: [], exclude: true }, cause: cause() },
+      { kind: 'neighbourhood', source: a, fields: ['from', 'to'], value: { seed: 'Zika', derivation: 'ego', hops: 1, ids: ['Zika', 'Lyme'] }, cause: cause() },
+      { kind: 'neighbourhood', source: a, fields: ['from', 'to'], value: { seed: 'Zika', derivation: 'ego', hops: 1, ids: [] }, cause: cause() },
     ];
     for (const spec of specs) {
       const expected =
-        spec.kind === 'cell'
-          ? mosaicDescriptorSQL('cell', spec.fields, spec.value)
+        spec.kind === 'cell' || spec.kind === 'neighbourhood'
+          ? mosaicDescriptorSQL(spec.kind, spec.fields, spec.value)
           : mosaicDescriptorSQL(spec.kind, spec.field, spec.kind === 'point' ? pointValueFromWire(spec.value) : spec.value);
       expect(minted(port, spec).predicateSQL, JSON.stringify(spec.value)).toBe(expected);
     }
@@ -95,6 +97,9 @@ describe('builtinSelection.clause — mints our shape, carrying the byte law', (
     expect(minted(port, specs[6]!).predicateSQL).toBe('("date" BETWEEN "2026-04-01" AND "2026-04-30")');
     expect(minted(port, specs[11]!).predicateSQL).toBe('FALSE');
     expect(minted(port, specs[12]!).predicateSQL).toBe('(NOT FALSE)');
+    // the neighbourhood's AND of two endpoint IN-lists, and an empty walked set as the same always-false
+    expect(minted(port, specs[13]!).predicateSQL).toBe(`(("from" IN ('Zika', 'Lyme')) AND ("to" IN ('Zika', 'Lyme')))`);
+    expect(minted(port, specs[14]!).predicateSQL).toBe('FALSE');
   });
 
   it('a cleared clause of any kind carries predicateSQL null — what a cleared Mosaic clause carries as its predicate', () => {
@@ -103,6 +108,7 @@ describe('builtinSelection.clause — mints our shape, carrying the byte law', (
     expect(minted(port, { kind: 'interval', source: a, field: 'x', value: null, cause: cause() }).predicateSQL).toBeNull();
     expect(minted(port, { kind: 'cell', source: a, fields: ['x', 'y'], value: null, cause: cause() }).predicateSQL).toBeNull();
     expect(minted(port, { kind: 'match', source: a, field: 'x', value: null, cause: cause() }).predicateSQL).toBeNull();
+    expect(minted(port, { kind: 'neighbourhood', source: a, fields: ['x', 'y'], value: null, cause: cause() }).predicateSQL).toBeNull();
     // a null INSIDE a compound is a value (IS NULL), never the clause's clear
     expect(minted(port, { kind: 'match', source: a, field: 'x', value: { values: [null] }, cause: cause() }).predicateSQL).toBe('("x" IS NULL)');
   });
@@ -114,6 +120,8 @@ describe('builtinSelection.clause — mints our shape, carrying the byte law', (
       { kind: 'match', source: a, field: 'category', value: { values: [undefined] }, cause: cause() },
       { kind: 'interval', source: a, field: 'amount', value: 42 as unknown as null, cause: cause() },
       { kind: 'point', source: a, field: 'x', value: Symbol('s'), cause: cause() },
+      // a neighbourhood body carrying no walked set: the ids ARE the predicate, so there is nothing to render
+      { kind: 'neighbourhood', source: a, fields: ['from', 'to'], value: { seed: 'Zika' } as unknown as null, cause: cause() },
     ];
     for (const spec of shapes) {
       const answer = port.clause(spec);
@@ -124,13 +132,34 @@ describe('builtinSelection.clause — mints our shape, carrying the byte law', (
     expect(port.clauses()).toEqual([]); // nothing minted, nothing standing
   });
 
+  it('rejects a walk that records an ANSWER with no question — the seed, the derivation and the hop count', () => {
+    const { port, a } = two();
+    const walk = (value: unknown) => port.clause({ kind: 'neighbourhood', source: a, fields: ['from', 'to'], value: value as never, cause: cause() });
+    // the byte is made of the ids alone, so nothing downstream would notice — until a bring-over
+    // or a saved picture re-asks the walk from a seed that was never recorded
+    for (const [body, slot] of [
+      [{ derivation: 'ego', hops: 1, ids: ['Zika'] }, 'seed'],
+      [{ seed: 'Zika', hops: 1, ids: ['Zika'] }, 'derivation'],
+      [{ seed: 'Zika', derivation: 'ego', ids: ['Zika'] }, 'hops'],
+    ] as const) {
+      expect(walk(body), slot).toMatchObject({ ok: false, reason: 'unsupported-shape', detail: expect.stringContaining(`no ${slot}`) });
+    }
+    // all three missing are named in one sentence, and a cleared walk records no question at all
+    expect(walk({ ids: [] })).toMatchObject({ detail: expect.stringContaining('no seed, no derivation, no hops') });
+    expect(isRejection(walk(null))).toBe(false);
+    expect(port.clauses()).toEqual([]);
+  });
+
   it('rejects unknown-source when the source — or ANY clients entry — is not a registry-minted RegisteredSource', () => {
     const { port, a } = two();
     const answer = port.clause({ kind: 'point', source: { viewId: 'fake', meta: { actor: 'user' } } as unknown as RegisteredSource, field: 'x', value: 1, cause: cause() });
     expect(answer).toMatchObject({ ok: false, engine: 'builtin', operation: 'clause', reason: 'unknown-source', detail: expect.stringContaining('source') });
     // a string client would never be skipped for anyone — silently; the gate is the same one the source passes
-    const client = port.clause({ kind: 'point', source: a, field: 'x', value: 1, cause: cause(), clients: ['bar' as unknown as RegisteredSource] });
+    const client = port.clause({ kind: 'point', source: a, field: 'x', value: 1, cause: cause(), clients: [a, 'bar' as unknown as RegisteredSource] });
     expect(client).toMatchObject({ ok: false, engine: 'builtin', operation: 'clause', reason: 'unknown-source', detail: expect.stringContaining('client') });
+    // WHICH entry, and the value itself — a view id string is exactly what the caller meant to hand `require`
+    expect(isRejection(client) && client.detail).toContain('client [1]');
+    expect(isRejection(client) && client.detail).toContain('"bar"');
     expect(port.clauses()).toEqual([]);
   });
 

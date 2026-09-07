@@ -7,7 +7,7 @@
  * (the same spelling the commit log uses), never a second vocabulary.
  */
 import type { ClearedSelectionView, LinkGraphView, SelectionView } from '../adapter/types.js';
-import { formatCommitValue } from './format.js';
+import { formatCommitValue, isSelfDescribing } from './format.js';
 
 export interface SelectionChipsProps {
   readonly selections: readonly SelectionView[];
@@ -30,9 +30,9 @@ export interface SelectionChipsProps {
   readonly className?: string;
 }
 
-/** One chip's words: "<view>: <field> = A" / "<field> in {A, B}" / "<field> 100 – 150" / the cell's two sides. */
+/** One chip's words: "<view>: <field> = A" / "<field> in {A, B}" / "<field> 100 – 150" / the cell's two sides / the walk's seed and its neighbours. */
 export function chipWords(s: SelectionView): string {
-  if (s.kind === 'cell') return formatCommitValue(s);
+  if (isSelfDescribing(s.kind)) return formatCommitValue(s);
   if (s.kind === 'match') return `${s.field} ${formatCommitValue(s)}`;
   if (s.kind === 'interval') return `${s.field} ${formatCommitValue(s)}`;
   return `${s.field} = ${formatCommitValue(s)}`;

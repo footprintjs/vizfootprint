@@ -21,17 +21,25 @@
  *                             and must land exactly ONE compound cell commit
  *                             (both fields, addressable clause); a renderer
  *                             not declaring it skips the arm honestly
- *   9. layers               — protocol 1.2: a renderer DECLARING `canLayer`
+ *   9. neighbourhood        — protocol 1.3: a renderer DECLARING the
+ *                             neighbourhood emission kind drives the plan's
+ *                             neighbourhoodGesture and must land exactly ONE
+ *                             walk commit — both endpoint columns, the seed
+ *                             INSIDE the walked set, and an addressable clause
+ *                             at whichever address spoke (a node-link asks on
+ *                             its EDGES layer); a renderer not declaring it
+ *                             skips the arm honestly
+ *  10. layers               — protocol 1.2: a renderer DECLARING `canLayer`
  *                             receives the plan's two-layer frame, draws it,
  *                             and a gesture on the SECOND layer speaks through
  *                             THAT layer's callback bundle and lands exactly
  *                             ONE commit whose viewId is the layer address
  *                             (`viewId~layerId`); a renderer not declaring it
  *                             skips the arm honestly
- *  10. navigate             — a canPanZoom renderer's navigate is recorded and
+ *  11. navigate             — a canPanZoom renderer's navigate is recorded and
  *                             NON-FILTERING; a non-capable one lands the typed
  *                             `navigate-unsupported` gap and records nothing
- *  11. unmount              — the mount is left clean
+ *  12. unmount              — the mount is left clean
  *
  * Steps run in order and STOP at the first failure (later steps depend on
  * earlier ones); the report carries every step's outcome in plain words.
@@ -42,9 +50,10 @@
 
 import { layerAddress } from 'vizfootprint/def';
 import { bindRenderer, type BoundRenderer } from './bind.js';
-import { selectionForView } from './selection.js';
+import { selectionForView, selfSelectedNeighbourhood } from './selection.js';
 import {
   RENDERER_PROTOCOL_VERSION,
+  isEmissionKind,
   protocolMajor,
   type ChartEmission,
   type ContractGap,
@@ -66,6 +75,7 @@ export type ConformanceStepName =
   | 'crossfilter-returns'
   | 'cell'
   | 'match'
+  | 'neighbourhood'
   | 'layers'
   | 'navigate'
   | 'unmount';
@@ -129,6 +139,13 @@ export interface ConformancePlan {
    * declares the 'match' emission kind; ignored otherwise.
    */
   matchGesture?(el: HTMLElement): void | Promise<void>;
+  /**
+   * Protocol 1.3: drive a WALK gesture (a node's alt-click). REQUIRED when the
+   * renderer declares the 'neighbourhood' emission kind; ignored otherwise.
+   * Drive it on a node no earlier step walked — asking for the walk already in
+   * force CLEARS it, and a cleared walk lands no set to check.
+   */
+  neighbourhoodGesture?(el: HTMLElement): void | Promise<void>;
   /** Prove the post-crossfilter re-render is visible. Default: the mount's DOM changed since before the gesture. */
   verifyUpdate?(el: HTMLElement): boolean;
   /** Protocol 1.2: the layers arm. REQUIRED when the renderer declares `canLayer`; ignored otherwise. */
@@ -251,7 +268,7 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
         if (!res.ok) throw new StepFailed(`the bind was refused: ${res.gap.detail}`);
         bound = res.view;
         const caps = bound.capabilities;
-        const invalid = caps.emissionKinds.filter((k) => k !== 'point' && k !== 'interval' && k !== 'cell' && k !== 'match');
+        const invalid = caps.emissionKinds.filter((k) => !isEmissionKind(k));
         const kinds = flag(
           caps.emissionKinds.length === 0,
           'none declared',
@@ -415,6 +432,59 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
           descriptor === 'match-kind · many-values · self-addressable',
           `the match gesture landed ONE match commit over ${String(body?.values?.length ?? 0)} values and its clause is addressable`,
           `the match arm misbehaved: ${descriptor}`,
+        );
+      },
+    },
+    {
+      name: 'neighbourhood',
+      async run() {
+        // protocol 1.3: the WALK arm — exercised only by renderers that DECLARE
+        // the neighbourhood emission kind; everyone else skips honestly (the
+        // declared-capability rule, not a silent pass).
+        if (!bound!.capabilities.emissionKinds.includes('neighbourhood')) {
+          return 'the renderer declares no neighbourhood emissions — the walk arm is honestly skipped';
+        }
+        if (!plan.neighbourhoodGesture) {
+          throw new StepFailed('the renderer declares the neighbourhood emission kind but the plan provides no neighbourhoodGesture to drive');
+        }
+        const emissionsBefore = emissions.length;
+        const spokenBefore = layerEmissions.length;
+        const commitsBeforeWalk = view.getState().commits.length;
+        await plan.neighbourhoodGesture(el);
+        await settle();
+        const walks = emissions.slice(emissionsBefore).filter((e) => e.encoding.kind === 'neighbourhood');
+        if (walks.length === 0) {
+          throw new StepFailed('the walk gesture produced no neighbourhood emission');
+        }
+        const st = view.getState();
+        const landedCount = st.commits.length - commitsBeforeWalk;
+        if (landedCount !== 1) {
+          throw new StepFailed(`the walk gesture landed ${landedCount} commit(s) — one gesture on one node is exactly ONE`);
+        }
+        const landed = st.commits[st.commits.length - 1]!;
+        // WHICH ADDRESS asked: a node-link's walk is a clause over the EDGES
+        // table, so it is spoken through that layer's bundle and lands under
+        // that layer's address — a plain view speaks through its own.
+        const spoke = layerEmissions.slice(spokenBefore).filter((e) => e.emission.encoding.kind === 'neighbourhood');
+        const address = spoke.length === 0 ? viewId : spoke[spoke.length - 1]!.address;
+        const sel = selectionForView(st.selections, address);
+        const own = sel.clauses.get(address);
+        // read back through the contract's OWN reader, so the arm proves the
+        // door a renderer draws the ego net with — not a second reading of the
+        // same bytes that could agree with the commit while the door does not
+        const walked = selfSelectedNeighbourhood(sel);
+        const found = walked === null ? 0 : walked.ids.length - 1; // the recorded set includes the seed
+        const descriptor = [
+          flag(landed.kind === 'neighbourhood', 'walk-kind', `kind:${landed.kind}`),
+          flag((landed.fields?.length ?? 0) === 2, 'both-endpoints', 'endpoints-missing'),
+          flag(walked !== null && walked.ids.includes(walked.seed), 'seed-in-set', 'seed-not-in-set'),
+          flag(landed.viewId === address, 'asked-address', `viewId:${landed.viewId}`),
+          flag(own?.kind === 'neighbourhood', 'self-addressable', 'self-missing'),
+        ].join(' · ');
+        return check(
+          descriptor === 'walk-kind · both-endpoints · seed-in-set · asked-address · self-addressable',
+          `the walk gesture landed ONE commit under ${address}: the seed and the ${found} node(s) it touches, and its clause is addressable`,
+          `the walk arm misbehaved: ${descriptor}`,
         );
       },
     },

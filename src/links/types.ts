@@ -14,8 +14,13 @@
  * reads it. Charts never see edges; the host applies them.
  */
 
-/** The emission kinds a view can produce — its voice. */
-export const EMISSION_KINDS = ['point', 'interval', 'cell', 'match'] as const;
+/**
+ * The emission kinds a view can produce — its voice. THE one array literal:
+ * every switch over a kind in this package reads its members from here, so a
+ * new kind is added once (packet 5 added `neighbourhood`, the one-gesture walk
+ * from a node over a declared relation).
+ */
+export const EMISSION_KINDS = ['point', 'interval', 'cell', 'match', 'neighbourhood'] as const;
 export type EmissionKind = (typeof EMISSION_KINDS)[number];
 
 /** What a target does with a source's emission. */

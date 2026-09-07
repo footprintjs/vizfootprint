@@ -8,13 +8,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   DerivedColumnStore,
+  canNameSlot,
   derivedColumnName,
   renameClauseFields,
   renameRowSlots,
   resolveDerived,
   type DerivedColumn,
 } from './derivedColumns.js';
-import type { CellClause, IntervalClause, MatchClause, PointClause } from './types.js';
+import type { CellClause, IntervalClause, MatchClause, NeighbourhoodClause, PointClause } from './types.js';
 
 const col = (name: string, commitId: string, table = 'data'): DerivedColumn => ({
   table,
@@ -36,6 +37,15 @@ describe('derivedColumnName — one slot per act, never one per name', () => {
     // nothing PARSES a physical name, so a logical name carrying `@` is not a
     // problem to be refused — it is simply data
     expect(derivedColumnName('risk@2024', 's7')).toBe('risk@2024@s7');
+  });
+
+  it('an ACT whose id carries the marker is refused — uniqueness by construction, not by coincidence', () => {
+    // `x@a` at commit `b` and `x` at commit `a@b` would be one slot: two acts' columns as
+    // one array of bytes. A session mints `s<n>`, but a replayed log may bring any id.
+    expect(derivedColumnName('x@a', 'b')).toBe('x@a@b');
+    expect(() => derivedColumnName('x', 'a@b')).toThrow(/commit id "a@b" contains the reserved marker "@"/);
+    expect(canNameSlot('s7')).toBe(true);
+    expect(canNameSlot('a@b')).toBe(false);
   });
 });
 
@@ -135,33 +145,69 @@ describe('renameClauseFields — logical names become slots on the way to an eng
     expect(renameClauseFields(clause, slot)).toEqual({ kind: 'cell', fields: ['risk@s2', 'price'], value: [1, [10, 20]] });
   });
 
+  it('rewrites BOTH endpoint columns of a neighbourhood, and keeps the walked ids untouched', () => {
+    // the ids are node KEYS, never column names — a rename that touched them would
+    // rewrite the answer of a walk instead of the columns it is read through
+    const two = (f: string) => `${f}@s2`;
+    const clause: NeighbourhoodClause = { kind: 'neighbourhood', fields: ['risk', 'band'], ids: ['risk', 'Lyme'] };
+    expect(renameClauseFields(clause, two)).toEqual({ kind: 'neighbourhood', fields: ['risk@s2', 'band@s2'], ids: ['risk', 'Lyme'] });
+  });
+
+  it('rewrites ONE endpoint of a neighbourhood when only one is derived', () => {
+    const clause: NeighbourhoodClause = { kind: 'neighbourhood', fields: ['risk', 'to'], ids: ['Lyme'] };
+    expect(renameClauseFields(clause, slot)).toEqual({ kind: 'neighbourhood', fields: ['risk@s2', 'to'], ids: ['Lyme'] });
+  });
+
   it('hands back the SAME clause when nothing moved — no allocation for the common case', () => {
     const point: PointClause = { kind: 'point', field: 'price', value: 50 };
     const cell: CellClause = { kind: 'cell', fields: ['price', 'category'], value: [50, 'Formal'] };
+    const hood: NeighbourhoodClause = { kind: 'neighbourhood', fields: ['from', 'to'], ids: ['Lyme'] };
     expect(renameClauseFields(point, slot)).toBe(point);
     expect(renameClauseFields(cell, slot)).toBe(cell);
+    expect(renameClauseFields(hood, slot)).toBe(hood);
   });
 });
 
 describe('renameRowSlots — rows come back wearing the names the caller asked for', () => {
   const back = new Map([['risk@s2', 'risk']]);
+  const slots = new Set(['risk@s2']);
 
   it('renames the slot and leaves every other column alone', () => {
-    expect(renameRowSlots({ id: 'd1', price: 50, 'risk@s2': 3 }, back)).toEqual({ id: 'd1', price: 50, risk: 3 });
+    expect(renameRowSlots({ id: 'd1', price: 50, 'risk@s2': 3 }, back, slots)).toEqual({ id: 'd1', price: 50, risk: 3 });
   });
 
   it('hands back the SAME row when it carries no derived slot', () => {
     const row = { id: 'd1', price: 50 };
-    expect(renameRowSlots(row, back)).toBe(row);
+    expect(renameRowSlots(row, back, slots)).toBe(row);
   });
 
-  it('an empty back-map is the same-row path', () => {
+  it('a table with no physical slot at all is the same-row path', () => {
     const row = { id: 'd1', 'risk@s2': 3 };
-    expect(renameRowSlots(row, new Map())).toBe(row);
+    expect(renameRowSlots(row, new Map(), new Set())).toBe(row);
   });
 
   it('renames several slots in one row', () => {
     const two = new Map([['risk@s2', 'risk'], ['band@s2', 'band']]);
-    expect(renameRowSlots({ 'risk@s2': 1, 'band@s2': 'hi', id: 'd1' }, two)).toEqual({ risk: 1, band: 'hi', id: 'd1' });
+    expect(renameRowSlots({ 'risk@s2': 1, 'band@s2': 'hi', id: 'd1' }, two, new Set(two.keys()))).toEqual({ risk: 1, band: 'hi', id: 'd1' });
+  });
+
+  it('DROPS a slot another branch landed — an off-path act is not a column here', () => {
+    const both = new Set(['risk@s2', 'risk@s3']);
+    // the cursor resolves `risk` to s2's slot; s3's is a sibling branch's act, in the shared store
+    expect(renameRowSlots({ id: 'd1', 'risk@s2': 3, 'risk@s3': 9 }, back, both)).toEqual({ id: 'd1', risk: 3 });
+  });
+
+  it('a row carrying ONLY off-path slots comes back with its declared columns alone', () => {
+    const off = new Set(['risk@s3']);
+    expect(renameRowSlots({ id: 'd1', 'risk@s3': 9 }, new Map(), off)).toEqual({ id: 'd1' });
+  });
+
+  it('a column named `__proto__` survives as an OWN property, and never becomes the prototype', () => {
+    const row = JSON.parse('{"__proto__": {"a": 1}, "risk@s2": 3}') as Record<string, unknown>;
+    const out = renameRowSlots(row, back, slots);
+    expect(Object.prototype.hasOwnProperty.call(out, '__proto__')).toBe(true);
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+    expect((out as { a?: unknown }).a).toBeUndefined();
+    expect(out.risk).toBe(3);
   });
 });

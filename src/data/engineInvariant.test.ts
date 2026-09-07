@@ -104,6 +104,21 @@ const SESSION_LOG: CommitInput[] = [
     cause: { requestedBy: 'user', computedBy: 'agent', intent: 'agent brushes 20 or more' },
   },
   {
+    // packet 5: the NEIGHBOURHOOD — one gesture on a node, whose predicate
+    // keeps an edge row when BOTH endpoints are in the walked set (the induced
+    // ego subgraph). The invariant must hold for it too, and the persisted
+    // byte must be the real `and(isIn, isIn)`.
+    id: 'c8',
+    parent: 'c7',
+    viewId: 'N',
+    actorMeta: { actor: 'user', label: 'Co-occurrence network' },
+    kind: 'neighbourhood',
+    field: 'source ↔ target',
+    fields: ['source', 'target'],
+    value: { seed: 'Data', derivation: 'ego', hops: 1, ids: ['Data', 'Analytics'] },
+    cause: { requestedBy: 'user', computedBy: 'user', intent: 'alt-click the Data node' },
+  },
+  {
     // A STRING (ISO-8601 date) interval — the other divergent shape: Mosaic
     // renders a string extent as a double-quoted column reference.
     id: 'c7',
@@ -132,22 +147,29 @@ const seamSQLOf = (record: CommitRecord): string => DATA_SEAM_SQL[record.id] ?? 
 
 /** The byte the builtin selection port renders for this commit — what the log must persist under every engine. */
 const engineSQLOf = (record: CommitRecord): string =>
-  record.kind === 'cell'
-    ? mosaicDescriptorSQL('cell', record.fields!, record.value)
+  record.kind === 'cell' || record.kind === 'neighbourhood'
+    ? mosaicDescriptorSQL(record.kind, record.fields!, record.value)
     : mosaicDescriptorSQL(record.kind, record.field, record.kind === 'point' ? pointValueFromWire(record.value) : record.value);
 
 // The dataset the commits above filter, expressed THREE structurally
 // different ways — none derived from the others at the byte level.
+// `source`/`target` are the two ENDS of the tie each row also carries — the
+// shape a neighbourhood walks (c8), in every one of the three layouts.
 const OBJECT_ROWS: Row[] = [
-  { category: 'Data', amount: 15, date: '2026-04-05' },
-  { category: 'Analytics', amount: 25, date: '2026-04-20' },
-  { category: 'Data', amount: 5, date: '2026-05-02' },
-  { category: 'Other', amount: 30, date: '2026-03-30' },
+  { category: 'Data', amount: 15, date: '2026-04-05', source: 'Data', target: 'Analytics' },
+  { category: 'Analytics', amount: 25, date: '2026-04-20', source: 'Analytics', target: 'Other' },
+  { category: 'Data', amount: 5, date: '2026-05-02', source: 'Other', target: 'Data' },
+  { category: 'Other', amount: 30, date: '2026-03-30', source: 'Other', target: 'Other' },
 ];
-const CSV_TEXT = 'category,amount,date\nData,15,2026-04-05\nAnalytics,25,2026-04-20\nData,5,2026-05-02\nOther,30,2026-03-30\n';
+const CSV_TEXT =
+  'category,amount,date,source,target\n' +
+  'Data,15,2026-04-05,Data,Analytics\n' +
+  'Analytics,25,2026-04-20,Analytics,Other\n' +
+  'Data,5,2026-05-02,Other,Data\n' +
+  'Other,30,2026-03-30,Other,Other\n';
 
 function clauseFromCommit(record: {
-  kind: 'point' | 'interval' | 'cell' | 'match';
+  kind: CommitRecord['kind'];
   field: string;
   value: unknown;
   fields?: readonly [string, string];
@@ -155,6 +177,14 @@ function clauseFromCommit(record: {
   if (record.kind === 'cell') {
     // D30: a cell commit's authoritative pair rides `fields`; `field` is display-only.
     return { kind: 'cell', fields: record.fields!, value: record.value as CellClause['value'] };
+  }
+  if (record.kind === 'neighbourhood') {
+    // packet 5: the walked ids are the predicate; the pair rides `fields`, and `field` is their joint label
+    return { kind: 'neighbourhood', fields: record.fields!, ids: (record.value as { ids: readonly unknown[] }).ids };
+  }
+  if (record.kind === 'match') {
+    const body = record.value as { values: readonly unknown[]; exclude?: boolean };
+    return { kind: 'match', field: record.field, values: body.values, ...(body.exclude === true ? { exclude: true } : {}) };
   }
   return record.kind === 'point'
     ? { kind: 'point', field: record.field, value: record.value }
@@ -187,6 +217,8 @@ describe('D24 invariant — replayed log resolves to byte-identical predicate SQ
     // and the divergent shapes really are the odd Mosaic renderings, by value
     expect(live.records.find((r) => r.id === 'c6')!.predicateSQL).toBe('("amount" BETWEEN 20 AND NULL)');
     expect(live.records.find((r) => r.id === 'c7')!.predicateSQL).toBe('("date" BETWEEN "2026-04-01" AND "2026-04-30")');
+    // packet 5: the AND of two IN-lists, as the real `and(isIn, isIn)` renders it — the induced ego subgraph
+    expect(live.records.find((r) => r.id === 'c8')!.predicateSQL).toBe(`(("source" IN ('Data', 'Analytics')) AND ("target" IN ('Data', 'Analytics')))`);
   });
 
   it('three structurally different memoryProvider instances agree on sql/count/rows for every replayed commit, AND match L1\'s own predicateSQL', async () => {
