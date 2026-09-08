@@ -1,6 +1,9 @@
 /**
- * The http carrier — a URL fetched by THIS process (browser or node). Its own
- * module, like the file carrier: the barrel never assumes a network. The
+ * The http carrier — a URL fetched by THIS process (browser or node). It sits
+ * ON the barrel, unlike the file carrier: this module imports no runtime and
+ * reads the global `fetch` at CALL time, so a build that never calls it never
+ * pays for it (PACKAGING.md Law 3 — a subpath is for a symbol whose PRESENCE
+ * changes what the barrel costs). The
  * version is what the server vouches for (an ETag exactly as sent, weak marker
  * and quotes included, else Last-Modified), else a hash of the bytes. Every way a request can fail has a name from the
  * closed vocabulary: cancelled (the caller's signal), timeout (no answer in

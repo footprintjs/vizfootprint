@@ -35,7 +35,7 @@ Sixteen subpaths, and nothing else:
 | `vizfootprint/def` | the `DashboardDef` schema, its validator and the typed parse door (`parseDashboardDef`), the builtin-analysis record that lets a def be JSON, and `whatFits` beside `fitsFor` (with `policyRecommender` and `proposeCharts` beside both); re-exports the links and encoding planes and the source layer beside the def that declares them |
 | `vizfootprint/session` | the interaction session: dispatch, cursor, branches, folds |
 | `vizfootprint/analysis` | the declared analyses |
-| `vizfootprint/source` | the data-source layer: formats, vias, the adapter port, the inline carrier |
+| `vizfootprint/source` | the data-source layer: formats, vias, the adapter port, and the inline and http carriers |
 | `vizfootprint/source/file` | **the one non-barrel door** — see Law 3 |
 | `vizfootprint/data` | the query port, the clause predicate, the one-pass recorders, CSV, and `describeTable` (what is in a table, before there is a dashboard) |
 | `vizfootprint/cause` | `Cause`, `Actor`, and the cause gate |
@@ -150,8 +150,15 @@ the deep path was the thing to delete.**
 ## Law 3 — `source/file` is the exception, and it is about NODE, not about size
 
 `fileSource` is not on `src/source/index.ts`, and the barrel says why in its own
-header: *"Carriers that need a runtime (file, http) are their own modules beside
-this one, so the default entry never loads node or a socket."*
+header: the file carrier imports `node:fs/promises`, so carrying it would drag
+node into every browser build that touches a data source.
+
+The header used to name the http carrier beside it, and that reading cost the
+library a door: `httpSource` imports no runtime and reads the global `fetch` at
+CALL time, so its presence changes nothing about what the barrel costs — and it
+sat unreachable, written and tested and compiled, until a consumer needed it and
+had to write its own copy. It is on the barrel now. The lesson is the law below,
+read strictly: the test is COST, not category.
 
 That is the only reason good enough to mint a subpath. `src/source/file.ts` is
 the ONE file in the whole library that imports a node builtin (`node:fs/promises`,

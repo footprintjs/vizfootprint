@@ -12,7 +12,7 @@
  * The one thing genuinely outstanding is the streaming carrier, and the test
  * requires the paragraph to still name it: a list emptied to pass is drift too.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -48,4 +48,36 @@ describe('the "Not yet" list is what is not yet', () => {
       expect(whole, what).toContain(lands);
     });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('the http carrier is reachable — the door Law 3 says it should always have had', () => {
+  it('the barrel carries it, so a consumer never writes its own copy of a port we ship', async () => {
+    const barrel = await import('./index.js');
+    expect(typeof barrel.httpSource).toBe('function');
+    // the shape a caller gets: an adapter, exactly as the file carrier gives one
+    const adapter = barrel.httpSource();
+    expect(typeof adapter.open).toBe('function');
+  });
+
+  it('importing it opens no socket: the global fetch is read at CALL time, never at import', async () => {
+    const original = globalThis.fetch;
+    // WHY this is the test that matters: it is the whole reason the carrier may
+    // sit on the barrel at all (PACKAGING.md Law 3 — the test is COST). If the
+    // module read `fetch` while loading, a barrel import would fail here.
+    Reflect.deleteProperty(globalThis as { fetch?: unknown }, 'fetch');
+    try {
+      // WHY resetModules and not a query-string specifier: vitest caches the
+      // module, so a plain re-import would prove nothing; a `?probe` suffix
+      // defeats the cache but is not a specifier TypeScript can resolve under
+      // NodeNext, and the typecheck is a gate. Resetting the registry gives a
+      // genuinely fresh load through the one path the compiler also sees.
+      vi.resetModules();
+      const fresh = await import('./http.js');
+      expect(typeof fresh.httpSource).toBe('function');
+    } finally {
+      Object.defineProperty(globalThis, 'fetch', { value: original, configurable: true, writable: true });
+    }
+  });
 });
