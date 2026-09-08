@@ -114,7 +114,7 @@ describe('createSessionView — in-process session edge branches', () => {
         }) as unknown as ReturnType<SessionLike['overview']>,
       gaps: () => [],
       branches: () => [],
-      bookmarkViews: () => [{ id: 'b1', label: 'start', commitId: 'r1', at: null, ts: 1, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }], // exercises the bookmarks.map body
+      bookmarkViews: () => [{ id: 'b1', label: 'start', commitId: 'r1', at: 'r1', ts: 1, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }], // exercises the bookmarks.map body — `at` IS the bookmarked commit, the same id as `commitId`
       // a session holding no pictures: the WRITE doors exist and refuse in words (never a silent empty).
       // Reading is not here: `overview.saved` serves the store (adapter README, Law 1).
       saveSelection: (name: string) => ({ ok: false as const, rejected: `nothing is selected to save as "${name}"` }),

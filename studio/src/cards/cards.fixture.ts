@@ -26,10 +26,10 @@ import { defFeatures } from 'vizfootprint/def';
 const cause = { requestedBy: 'user', computedBy: 'user' } as const;
 
 export const BOOKS = [
-  { id: 'b1', shelf: 'poetry', writer: 'Bishop', year: 1955, pages: 120, listed: 'listed' },
-  { id: 'b2', shelf: 'poetry', writer: 'Bishop', year: 1971, pages: 96, listed: 'listed' },
+  { id: 'b1', shelf: 'poetry', writer: 'Bishop', year: 1955, pages: 120, listed: 'present' },
+  { id: 'b2', shelf: 'poetry', writer: 'Bishop', year: 1971, pages: 96, listed: 'present' },
   { id: 'b3', shelf: 'atlases', writer: 'Ogilby', year: 1971, pages: 400, listed: 'not catalogued' },
-  { id: 'b4', shelf: 'letters', writer: 'Ogilby', year: 1988, pages: 210, listed: 'listed' },
+  { id: 'b4', shelf: 'letters', writer: 'Ogilby', year: 1988, pages: 210, listed: 'present' },
 ];
 
 /** The second table the `desk` surface has and the `story` page does not. */
@@ -53,7 +53,8 @@ export function libraryDef(graph?: { readonly writers: readonly Record<string, u
       books: {
         source: { format: 'rows', via: 'inline', at: BOOKS },
         key: 'id',
-        absence: { field: 'listed', states: ['not catalogued', 'unknown'] },
+        // WHY `present` is in a library's own words: the absence vocabulary must be able to say it (`validateAbsence`) — the derived-column arithmetic reads that one word
+        absence: { field: 'listed', states: ['present', 'not catalogued', 'unknown'] },
         columns: { id: { role: 'identifier' }, shelf: { role: 'dimension' }, writer: { role: 'dimension' }, year: { role: 'dimension' }, pages: { role: 'measure' }, listed: { role: 'absence' } },
       },
       // declared as bare `rows`, with no source — so a card reports one format and not two

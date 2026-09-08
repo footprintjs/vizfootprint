@@ -420,6 +420,13 @@ describe('validateDashboardDef — absence (the declared silence vocabulary)', (
     );
   });
 
+  it('refuses a vocabulary with no word for "present" — its own words for the silences are fine, but the arithmetic reads that one word', () => {
+    expect(validateDashboardDef(withAbsence({ field: 'state', states: ['not catalogued', 'unknown'] }))).toContain(
+      'data["data"].absence.states must include "present" — the word a row uses to say the source reported a value; without it every cell of this table reads as absent',
+    );
+    expect(validateDashboardDef(withAbsence({ field: 'state', states: ['present', 'not catalogued', 'unknown'] }))).toEqual([]);
+  });
+
   it('refuses every MAGNITUDE channel — size as much as x — and the list is one shared constant', () => {
     const decl = { field: 'state', states: ['present', 'unknown'] };
     expect(

@@ -45,6 +45,18 @@ describe('layers — an address is a viewId, gated on the layer table', () => {
     expect((await s.overview()).selectedRowCount).toBe(2);
   });
 
+  it('a layer\'s clause on another table does not narrow an analysis over the default table — an analysis reads its own table under the clauses that reach it', async () => {
+    const s = fresh();
+    const pick = await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'weight', value: 5, cause: userCause('the strong tie') });
+    expect(pick.ok).toBe(true);
+    // a groupBy over nodes: every node is still there, so both groups are — the edges clause names a column nodes has not
+    const res = await s.dispatch({ verb: 'analyze', analysisId: 'byGroup', def: { builtin: 'groupBy', by: 'group', measure: 'size' }, cause: userCause('by group') });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.analysis?.result.ok).toBe(true);
+    expect(res.analysis?.result.ok && res.analysis.result.output.as === 'table' && res.analysis.result.output.rows.map((r) => r['group']).sort()).toEqual(['bacterial', 'viral']);
+  });
+
   it('a select on the nodes layer is judged against the nodes columns; a column of the wrong table is refused in a sentence', async () => {
     const s = fresh();
     const wrong = await s.dispatch({ verb: 'select', viewId: NODES_ADDRESS, field: 'weight', value: 5, cause: userCause() });

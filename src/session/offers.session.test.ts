@@ -89,6 +89,28 @@ describe('replays under requireOffer', () => {
   });
 });
 
+describe('a saved selection applied under requireOffer', () => {
+  it('lands — the person chose the picture, and the offer is only the position\'s stamp, recomputed per landed commit', async () => {
+    const s = buildDashboard(withDoes()).createSession({ requireOffer: true });
+    const pick = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', asOf: (await s.overview()).asOf, cause: userCause('pick') });
+    expect(pick.ok).toBe(true);
+    const brush = await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [50, 150], asOf: (await s.overview()).asOf, cause: userCause('brush') });
+    expect(brush.ok).toBe(true);
+    expect(s.saveSelection('mine', { live: 'all' }).ok).toBe(true);
+    // clear both, so the apply has to land both — and, in replace mode, clear a stranger first
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: null, asOf: (await s.overview()).asOf, cause: userCause() });
+    await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: null, asOf: (await s.overview()).asOf, cause: userCause() });
+    const stranger = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', values: ['Casual'], asOf: (await s.overview()).asOf, cause: userCause() });
+    expect(stranger.ok).toBe(true);
+    const applied = await s.applySaved('mine', userCause('bring the picture back'));
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    expect(applied.refused).toEqual([]);
+    expect(applied.applied.map((c) => c.viewId)).toEqual(['bar', 'scatter']);
+    expect((await s.overview()).activeSelections.map((a) => a.viewId).sort()).toEqual(['bar', 'scatter']);
+  });
+});
+
 describe('a replayed step whose view lost its voice', () => {
   it('is refused in its own words, never told to call whats_here', async () => {
     const s = buildDashboard(withDoes()).createSession({ requireOffer: true });

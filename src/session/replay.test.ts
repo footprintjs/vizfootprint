@@ -341,6 +341,22 @@ describe('a replay re-performs the acts it can', () => {
     expect(s.ledger()).toEqual([]);
   });
 
+  it('a declaration the log carries for an analysis that made NO column is registered, not discarded — and no gap is filed for it', async () => {
+    const source = buildDashboard(makeDashboardDef()).createSession();
+    const stat = await source.dispatch({ verb: 'analyze', analysisId: 'corr2', def: { builtin: 'correlation', x: 'price', y: 'rating', id: 'corr2' }, cause });
+    expect(stat.ok).toBe(true);
+
+    // a session that declares nothing: the declaration rode on the commit, so it is here after the replay
+    const s = buildDashboard(makeDashboardDef()).createSession();
+    expect(s.hasAnalysis('corr2')).toBe(false);
+    const res = await s.replay(source.log.records);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect({ reran: res.reran, filed: res.filed }).toEqual({ reran: 0, filed: 0 });
+    expect(s.hasAnalysis('corr2')).toBe(true);
+    expect(s.gaps()).toEqual([]);
+  });
+
   it('carries a commit’s correlationId onto the rebuilt column’s provenance', async () => {
     const def = defWith({ byPrice: columnAnalysis({ id: 'byPrice', from: 'price', k: 4, out: 'risk' }) });
     const source = buildDashboard(def).createSession();

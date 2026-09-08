@@ -26,7 +26,7 @@ import { ENCODING_SET_FIELD,
   LINK_VIEW_PREFIX,
   PROSE_VIEW_PREFIX,
 } from '../branches/index.js';
-import { ABSENCE_UNKNOWN, DISPATCH_VERBS, type DashboardDef, type DispatchVerb } from './types.js';
+import { ABSENCE_PRESENT, ABSENCE_UNKNOWN, DISPATCH_VERBS, type DashboardDef, type DispatchVerb } from './types.js';
 import { lintEncodings, pageBindings, resolveFacets, validateColumnDecls, validateEncodingRulesShape } from '../encoding/index.js';
 import type { EncodingRules, EncodingSurface, FacetSource } from '../encoding/index.js';
 import type { ColumnInfo } from '../data/index.js';
@@ -263,6 +263,12 @@ function validateAbsence(absence: unknown, where: string, problems: string[], fi
     return;
   }
   if (new Set(states).size !== states.length) problems.push(`${where}.states must not repeat a state`);
+  // WHY: the derived-column arithmetic reads this one word to know a row reported a value; a vocabulary without it blanks every cell
+  if (!states.includes(ABSENCE_PRESENT)) {
+    problems.push(
+      `${where}.states must include "${ABSENCE_PRESENT}" — the word a row uses to say the source reported a value; without it every cell of this table reads as absent`,
+    );
+  }
   if (!states.includes(ABSENCE_UNKNOWN)) {
     problems.push(
       `${where}.states must include "${ABSENCE_UNKNOWN}" — a source that cannot tell which silence it saw needs a word for that`,

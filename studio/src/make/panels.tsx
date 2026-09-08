@@ -64,6 +64,12 @@ const ANALYSIS_OPTIONS: Readonly<Record<BuiltinAnalysisName, readonly AnalysisOp
   // would be offering an act that could only ever be refused.
   layout: null,
   bringOver: null,
+  // The declared column. Its whole content is a TREE, and a tree is not
+  // something a person fills into three text boxes — the door that builds one
+  // is the sheet's, where the table's columns and their types are on screen
+  // beside it. The wizard offers the sentence form of the same act (`formula`)
+  // and leaves the tree to the desk.
+  derive: null,
 };
 
 /** The analyses this wizard can honestly offer: the ones a one-table draft can fill in. */

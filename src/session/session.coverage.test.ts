@@ -312,6 +312,22 @@ describe('doProbe — the correlationId spread + an explicit undefined point val
     });
     expect(s.log.records).toHaveLength(0); // judged first: nothing landed
   });
+
+  it('a MISSING range is refused the same way — the two judges disagree about `undefined` in opposite directions, so it must never reach them', async () => {
+    const s = freshSession();
+    const res = await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: undefined as never, cause: userCause() });
+    expect(res).toMatchObject({
+      ok: false,
+      rejection: {
+        code: 'guard-failed',
+        op: 'filter',
+        detail: 'filter.range is missing — an interval names its bounds, or `null` to clear it (the one spelling of cleared; `undefined` does not survive JSON)',
+      },
+    });
+    expect(s.log.records).toHaveLength(0);
+    // and the session is still readable — the poisoned clause never folded
+    expect((await s.overview()).activeSelections).toEqual([]);
+  });
 });
 
 describe('dispatch — the analyze verb (existing tests only exercise its needs-analysis-kind gap)', () => {
@@ -385,7 +401,7 @@ describe('declareAnalysis — the columns-materialize branches (needs-view / gua
   const flow = (setup: (scope: { $setValue(k: string, v: unknown): void }) => void) =>
     flowChart<Record<string, unknown>>('seed', setup, 'seed').build();
 
-  it('a columns output naming a table with NO provider is a needs-view gap; nothing materializes', async () => {
+  it('a columns output naming a table with NO provider is a needs-backend-data gap — no view is involved; nothing materializes', async () => {
     const s = freshSession();
     const ghostOut: AnalysisDef<readonly DataRow[], ColumnsOutput> = {
       id: 'ghost-out',
@@ -398,7 +414,7 @@ describe('declareAnalysis — the columns-materialize branches (needs-view / gua
     };
     const res = await s.declareAnalysis('ghost-out', { def: ghostOut });
     expect(res.materialized).toEqual([]);
-    expect(res.gap?.code).toBe('needs-view');
+    expect(res.gap?.code).toBe('needs-backend-data');
     expect(res.gap?.detail).toBe('no provider for table "no-such-table"');
   });
 

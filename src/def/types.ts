@@ -200,13 +200,23 @@ export interface DataSourceDef {
 export interface AbsenceDecl {
   /** The column that carries the state. */
   readonly field: string;
-  /** The vocabulary that column may hold. MUST include `unknown`. */
+  /** The vocabulary that column may hold. MUST include `present` and `unknown`. */
   readonly states: readonly string[];
 }
 
-/** The canonical absence vocabulary; a table may declare a subset plus `unknown`, or its own words plus `unknown`. */
+/**
+ * The canonical absence vocabulary; a table may declare a subset, or its own
+ * words for the SILENCES — but it must be able to say `present` and `unknown`,
+ * and the validator refuses a vocabulary that cannot.
+ */
 export const ABSENCE_STATES: readonly string[] = Object.freeze(['present', 'not-configured', 'unavailable', 'unknown']);
-/** The one state every absence vocabulary must be able to say. */
+/**
+ * The one state that means the source reported a value. The derived-column
+ * arithmetic reads exactly this word (`../derive/walk.ts`), so a vocabulary
+ * that cannot say it would read as absent in every cell of every row.
+ */
+export const ABSENCE_PRESENT = 'present';
+/** The one state every absence vocabulary must be able to say for a silence it could not name. */
 export const ABSENCE_UNKNOWN = 'unknown';
 
 /**
