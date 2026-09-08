@@ -35,11 +35,12 @@ import {
   type BringOverJoin,
   type DataRow,
 } from '../analysis/index.js';
+import { deriveAnalysis, type DerivedColumn } from '../derive/index.js';
 import { relationsFrom } from './relations.js';
-import type { RelationEdge } from './types.js';
+import type { AbsenceDecl, RelationEdge } from './types.js';
 
 /** The builtin analyses a def may name. */
-export const BUILTIN_ANALYSES = ['groupBy', 'correlation', 'regression', 'clustering', 'formula', 'layout', 'bringOver'] as const;
+export const BUILTIN_ANALYSES = ['groupBy', 'correlation', 'regression', 'clustering', 'formula', 'layout', 'bringOver', 'derive'] as const;
 export type BuiltinAnalysisName = (typeof BUILTIN_ANALYSES)[number];
 
 /** A group-by summary as a new queryable table (`groupByAnalysis`). */
@@ -179,6 +180,40 @@ export interface BringOverDecl {
   readonly id?: string;
 }
 
+/**
+ * A DECLARED column — the closed grammar of `../derive/`, as a new column
+ * (`deriveAnalysis`).
+ *
+ * The formula record beside it is the same act said as a SENTENCE somebody
+ * typed; this one is the same act said as a TREE, which is what lets it hold
+ * comparisons, conditionals, strings, dates and a calendar — none of which
+ * arithmetic text can spell. Both land through `analyze`, because a computed
+ * column is an analysis: it reads one table, produces the columns channel, and
+ * carries its whole declaration on the commit.
+ *
+ * The record names no absence column and no join. The absence vocabulary is the
+ * DEF's (`data[table].absence`) and arrives beside the record as context, for
+ * the same reason `bringOver` names no join: a record that could name its own
+ * would name one nobody declared. See `./README.md` law 6.
+ */
+export interface DeriveDecl {
+  readonly builtin: 'derive';
+  /** The column it writes. It may never take a source column's name — the session judges that. */
+  readonly name: string;
+  /**
+   * The declaration: `{ ops, kind, expr, over? }`. Judged against the table it
+   * reads at the door, in a sentence.
+   *
+   * `over` is what a reducer runs over — `{ groupBy, where? }` — so a share of a
+   * total or a deviation from a group's mean is one record like any other.
+   */
+  readonly column: DerivedColumn;
+  /** The table the column is written into. Default `data`. */
+  readonly table?: string;
+  /** Default `derive:<table>:<name>` — TABLE-SCOPED, so two tables deriving `rate` are two acts and not one. */
+  readonly id?: string;
+}
+
 /** An analysis named as data — the third form of {@link import('./types.js').AnalysisSlot}. */
 export type BuiltinAnalysisDecl =
   | GroupByDecl
@@ -187,7 +222,8 @@ export type BuiltinAnalysisDecl =
   | ClusteringDecl
   | FormulaDecl
   | LayoutDecl
-  | BringOverDecl;
+  | BringOverDecl
+  | DeriveDecl;
 
 /** Thrown when a builtin record is malformed. Carries every problem at once. */
 export class BuiltinAnalysisError extends Error {
@@ -200,7 +236,7 @@ export class BuiltinAnalysisError extends Error {
 }
 
 /** What an option must be. Six kinds is all seven builtins need. */
-type OptionType = 'string' | 'count' | 'whole' | 'columnType' | 'algorithm' | 'names';
+type OptionType = 'string' | 'count' | 'whole' | 'columnType' | 'algorithm' | 'names' | 'tree';
 
 /** The values a `columnType` option may take — the columns channel's own vocabulary, narrowed to what arithmetic produces. */
 const COLUMN_TYPES = new Set(['int', 'float']);
@@ -257,6 +293,16 @@ const SPECS: Readonly<Record<BuiltinAnalysisName, BuiltinSpec>> = Object.freeze(
       id: 'string',
     },
   },
+  derive: {
+    // No `absence` option, for `bringOver`'s reason: the absence vocabulary is
+    // the def's, and a record that could name its own would name one nobody
+    // declared. The TREE is checked for shape here and judged against the
+    // table's columns at the session's door, where the columns are known.
+    // `column` carries the whole declaration, `over` included: the group is part
+    // of what a column IS, not a second option beside it.
+    required: { name: 'string', column: 'tree' },
+    optional: { table: 'string', id: 'string' },
+  },
   bringOver: {
     required: { table: 'string', from: 'string', columns: 'names' },
     // No `joins` option: which ties are followed is read off the declared
@@ -282,6 +328,12 @@ function holds(value: unknown, type: OptionType): boolean {
       return typeof value === 'string' && COLUMN_TYPES.has(value);
     case 'algorithm':
       return typeof value === 'string' && ALGORITHMS.has(value);
+    case 'tree':
+      // The DECLARATION's shape, and only its shape: an op the grammar does not
+      // have, or one given the wrong arguments, is refused with the table in
+      // hand (`../derive/judge.ts`) — a sentence naming the column it could not
+      // read is worth more than one naming a node.
+      return isObject(value) && typeof value['ops'] === 'number' && typeof value['kind'] === 'string' && isObject(value['expr']);
     case 'names':
       // A LIST of column names: non-empty (an empty one asks for nothing and
       // would land nothing), every entry a real name, and no repeat — a repeated
@@ -304,6 +356,8 @@ function mustBe(type: OptionType): string {
       return `must name a layout algorithm — ${[...ALGORITHMS].map((a) => `"${a}"`).join(' | ')}`;
     case 'names':
       return 'must be a non-empty array of distinct, non-empty column names';
+    case 'tree':
+      return 'must be a derived-column declaration — { ops, kind, expr }';
   }
 }
 
@@ -374,6 +428,38 @@ export function validateBuiltinAnalysis(decl: unknown, where: string, problems: 
  */
 export interface BuiltinAnalysisContext {
   readonly relations?: readonly RelationEdge[];
+  /**
+   * Each table's declared absence vocabulary, by table name — the def's
+   * `data[<table>].absence`, verbatim.
+   *
+   * A derived column has to keep the absence law of the table it reads (a row
+   * whose state is not `present` is absent in every column of it), and the law
+   * is the DEF's to state. It rides beside the record for the same reason the
+   * relations do.
+   */
+  readonly absence?: Readonly<Record<string, AbsenceDecl>>;
+}
+
+/**
+ * Each table's declared absence vocabulary, by table name — the context field
+ * {@link BuiltinAnalysisContext.absence} wants, read off the def's own
+ * `data`.
+ *
+ * One reader, so the dashboard build and the session hand a record the SAME
+ * law. A table that declares no absence column contributes no entry, and the
+ * walker's law is then the half every engine already keeps: `null` is absent.
+ *
+ * ```ts
+ * absenceByTable({ cells: { absence: { field: 'report_state', states: ['present', 'unknown'] } }, pop: {} });
+ * // { cells: { field: 'report_state', states: [...] } }
+ * ```
+ */
+export function absenceByTable(data: Readonly<Record<string, { readonly absence?: AbsenceDecl }>>): Record<string, AbsenceDecl> {
+  const out: Record<string, AbsenceDecl> = {};
+  for (const [table, decl] of Object.entries(data)) {
+    if (decl.absence !== undefined) out[table] = decl.absence;
+  }
+  return out;
 }
 
 /** The ties a `bringOver` record follows: one per declared relation pointing from its table at the related one. */
@@ -408,6 +494,14 @@ export function buildBuiltinAnalysis(decl: BuiltinAnalysisDecl, context: Builtin
       return clusteringAnalysis(optionsOf(decl));
     case 'formula':
       return formulaAnalysis(optionsOf(decl));
+    // The second builtin whose options are NOT the record alone: the absence
+    // vocabulary comes from the def's own table declaration. A table that
+    // declares none passes none, and the walker's law is then the first half of
+    // itself — `null` is absent, and nothing else is.
+    case 'derive': {
+      const absence = context.absence?.[decl.table ?? 'data'];
+      return deriveAnalysis({ ...optionsOf(decl), ...(absence !== undefined ? { absence } : {}) });
+    }
     case 'layout':
       return layoutAnalysis(optionsOf(decl));
     // The one builtin whose options are NOT the record alone: the joins come

@@ -32,6 +32,7 @@ import {
   type StubEngine,
 } from '../data/index.js';
 import { createAlphaInvesting, createLordPlusPlus } from '../fdr/index.js';
+import { absenceByTable } from './builtinAnalyses.js';
 import { DashboardDefError, validateDashboardDef } from './validate.js';
 import { registerAnalysisSlot } from './register.js';
 import {
@@ -743,8 +744,10 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
   // ── promote declared analyses (L3) ──
   const analyses = new Map<string, RegisteredAnalysis>();
   for (const [id, slot] of Object.entries(def.analyses ?? {})) {
-    // the def's relations ride along: a `bringOver` record reads its joins off them (law 6)
-    analyses.set(id, registerAnalysisSlot(id, slot, { relations }));
+    // the def's relations ride along: a `bringOver` record reads its joins off
+    // them (law 6), and a `derive` record reads its table's absence vocabulary
+    // off the same context for the same reason
+    analyses.set(id, registerAnalysisSlot(id, slot, { relations, absence: absenceByTable(def.data) }));
   }
 
   // ── declared views + capability envelope + encoding surface ──

@@ -55,6 +55,28 @@ export const GAP_CODES = [
    * up. See src/session/README.md, "an act either fully happens or does not".
    */
   'effect-failed',
+  /**
+   * A DECLARED COLUMN that is not a legal column at all (`../derive/`): an op
+   * the grammar does not have, an op given the wrong arguments, a column the
+   * table does not hold, a column whose type nobody can name — or a name the
+   * base store already holds (`cases is a source column`).
+   *
+   * It is its own code and not `guard-failed` because an agent has to be able
+   * to branch on one: a declaration it can repair by editing the tree is a
+   * different answer from one it can repair only by opening the source.
+   */
+  'derive-invalid',
+  /**
+   * A DECLARED COLUMN whose rows could not be read — the table refused, was
+   * never opened, or could not say which columns are its own.
+   *
+   * Its sibling above is about the DECLARATION; this one is about the ground it
+   * stands on, and nothing about the tree will fix it. A column is not computed
+   * over rows the source refused: half a table is not a table, and a column
+   * derived from half of one would look exactly like a column derived from all
+   * of it.
+   */
+  'derive-source-refused',
   // ── RP-3: agent-authored chart pipeline refusals ──
   'chart-invalid-spec',
   'chart-transforms-not-owned',
@@ -127,6 +149,12 @@ export type FilterRange = IntervalClause['value'];
  * `[x side, y side]` where each side is an interval `[lo, hi]` (half-open
  * allowed, numeric or ISO-date-string bounds) or a point value; or `null` to
  * clear the whole cell.
+ *
+ * A side's own `null` is NOT a clear — it is IS NULL, the blanks in that column
+ * (`CellSide`, `src/data/types.ts`): `values: [null, 'Formal']` selects the rows
+ * whose x is blank AND whose category is Formal, and on ordinary data that is
+ * zero rows with a live clause. A cell has no per-side clearing; only
+ * `values: null` clears the whole cell.
  */
 export type CellValues = CellClause['value'];
 
@@ -154,7 +182,9 @@ export type DispatchAction =
    * commit whose predicate is the AND of both sides — never two
    * correlationId-linked commits. Same verb, same intent class, same fold key
    * (`selection:${viewId}`, last-wins per view) — the vocabulary stays at 8
-   * verbs. `values: null` clears the cell (the cleared-interval rule).
+   * verbs. `values: null` clears the cell (the cleared-interval rule); a
+   * `null` INSIDE the pair is IS NULL on that side, never a clear
+   * ({@link CellValues}).
    */
   | { readonly verb: 'select'; readonly viewId: string; readonly fields: readonly [string, string]; readonly values: CellValues; readonly cause: Cause; readonly correlationId?: string; readonly asOf?: string }
   /**
@@ -197,21 +227,23 @@ export type DispatchAction =
       readonly cause: Cause;
       readonly correlationId?: string;
     }
-  | {
-      /** The prose plane: set one of a view's words — title, caption, altShort, altLong, howToRead — as a record with an author; null = back to the def's own words. */
-      readonly verb: 'describe';
-      readonly viewId: string;
-      readonly slot: ProseSlot;
-      readonly record: ProseRecord | null;
-      /** Propose the record for a person to accept instead of setting it — it lands in the slot's proposal lane, never as the live words. */
-      readonly proposal?: boolean;
-      /** Accept the open proposal with this commit id: its record lands on the slot with `author.acceptedFrom`. `record` is ignored. */
-      readonly accept?: string;
-      /** Decline the open proposal with this commit id, with a reason that stays on the record. `record` is ignored. */
-      readonly decline?: { readonly proposal: string; readonly reason: string };
-      readonly cause: Cause;
-      readonly correlationId?: string;
-    }
+  /**
+   * The prose plane, in three modes told apart by the key each mode REQUIRES —
+   * never by a sibling key's presence. WHY three members and not one with
+   * optional `accept`/`decline`: `record: null` is the live spelling of "back
+   * to the def's own words", so one shape would let an accept whose key was
+   * dropped type-check as a clear and LAND one.
+   *
+   * Set one of a view's words — title, caption, altShort, altLong, howToRead —
+   * as a record with an author; `null` = back to the def's own words.
+   * `proposal: true` lands the record in the slot's proposal lane for a person
+   * to accept, never as the live words.
+   */
+  | { readonly verb: 'describe'; readonly viewId: string; readonly slot: ProseSlot; readonly record: ProseRecord | null; readonly proposal?: boolean; readonly cause: Cause; readonly correlationId?: string }
+  /** Accept the open proposal with this commit id: its record lands on the slot with `author.acceptedFrom`. */
+  | { readonly verb: 'describe'; readonly viewId: string; readonly slot: ProseSlot; readonly accept: string; readonly cause: Cause; readonly correlationId?: string }
+  /** Decline the open proposal with this commit id, with a reason that stays on the record. */
+  | { readonly verb: 'describe'; readonly viewId: string; readonly slot: ProseSlot; readonly decline: { readonly proposal: string; readonly reason: string }; readonly cause: Cause; readonly correlationId?: string }
   /**
    * `navigate` — record a VIEW-state move; deliberately NON-filtering (a
    * viewport or an arrangement is not a data claim). Two shapes share the verb:
@@ -256,25 +288,24 @@ export type DispatchAction =
 /**
  * A bookmark as the WIRE carries it — a view of a {@link Bookmark} record:
  * `label` is the bookmark's name, `commitId` and `at` are both the bookmarked
- * commit (the moment), `ts` its position in the log. A legacy `bookmark:`
- * commit from an older log reads the same way (its `at` = the position it
- * named). Present mode orders and seeks by `at`.
+ * commit (the moment), `ts` its position in the log. Never derived from the
+ * log: the one producer is `bookmarkViews()`, over the session's own store.
+ * Present mode orders and seeks by `at`.
  */
 export interface BookmarkView {
   /** The bookmark's own id (`b1`, `b2`, …) — what a note's words link and what a badge keys on, so a rename moves nothing. */
   readonly id: string;
   readonly label: string;
-  /** The bookmarked commit (a legacy `bookmark:` commit: itself). */
-  readonly commitId: string | null;
+  /** The bookmarked commit. */
+  readonly commitId: string;
   /**
-   * The moment the bookmark names — the bookmarked commit (a legacy `bookmark:`
-   * commit: its parent). A place in the HISTORY: a commit id, never a time.
-   * The clock time is {@link BookmarkView.madeAt}, and the two are named apart
-   * on purpose, because the store spells this one `commitId` and calls the
-   * clock time `at`.
+   * The moment the bookmark names — the same commit as `commitId`. A place in
+   * the HISTORY: a commit id, never a time. The clock time is
+   * {@link BookmarkView.madeAt}, and the two are named apart on purpose,
+   * because the store spells this one `commitId` and calls the clock time `at`.
    */
-  readonly at: string | null;
-  /** The named commit's index in the log (ordering). */
+  readonly at: string;
+  /** The named commit's index in the log (ordering) — or `-1` when this log does not hold the named commit (a bookmark restored from another log). */
   readonly ts: number;
   /** Who made the bookmark — the CREATOR, exactly as the store holds it (a rename records `editedBy` instead, and never moves this). */
   readonly by: Actor;
@@ -879,7 +910,6 @@ export interface NoteInfo {
   readonly proposals: readonly ProposalStatus[];
 }
 
-/** One declared table as the def states it (see `Overview.tables`). Nothing here is inferred from the rows. */
 /** What bookmarking (or renaming, forgetting) came back with. */
 export type BookmarkResult = { readonly ok: true; readonly bookmark: Bookmark } | { readonly ok: false; readonly rejected: string };
 
@@ -974,6 +1004,7 @@ export type ViewQueryResult =
     }
   | { readonly ok: false; readonly reason: ViewQueryRefusal; readonly engineReason?: string; readonly rejected: string };
 
+/** One declared table as the def states it (see `Overview.tables`). Nothing here is inferred from the rows. */
 export interface TableInfo {
   readonly name: string;
   /** Where the rows come from: a declared source (`format · via · at`, the locator only when it is a string), or inline rows / CSV text carried by the def. */
@@ -1002,9 +1033,9 @@ export interface Overview {
   readonly dashboard: { readonly prose: readonly ProseStatus[]; readonly proposals: readonly ProposalStatus[] };
   /** The notes on the dashboard (the Text tool): every `note:<id>` subject with words at the cursor, oldest first. */
   readonly notes: readonly NoteInfo[];
-  /** The saved selections — saved logic beside the log, oldest first (legacy log-derived ones included unless forgotten). */
+  /** The saved selections — saved logic beside the log, oldest first (the session's own store, never derived from the log). */
   readonly saved: readonly SavedSelection[];
-  /** The bookmarks — names on moments beside the log, oldest first (legacy bookmark commits included unless forgotten). */
+  /** The bookmarks — names on moments beside the log, oldest first (the session's own store, never derived from the log). */
   readonly bookmarks: readonly Bookmark[];
   readonly activeSelections: readonly SelectionInfo[];
   /**

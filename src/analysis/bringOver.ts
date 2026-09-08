@@ -29,7 +29,16 @@
  * — and is COUNTED. The counters ride the analysis's own committed state under
  * {@link COUNTS_SUFFIX}, in `../data/fold.ts`'s shape (`{ total, counted,
  * skipped }`), one entry per join column. A silent null is a lie about how many
- * rows the answer really covers.
+ * rows the answer really covers. And a key that names TWO rows over there is
+ * refused outright ({@link refuseNotUnique}): the value carried back would be
+ * whichever row an engine returned first, which is a number that is right by
+ * accident.
+ *
+ * THIS IS THE LOOKUP DOOR. `../derive/` deliberately has no `lookup` op — a
+ * node carrying its own `{ table, key, value }` would name a join nobody
+ * declared — so a derived column reaches a second table in TWO acts: bring the
+ * column over here, then read it by name in the tree. `../derive/README.md`
+ * law 9 carries the ruling and the worked example.
  *
  * First customers: `../def/builtinAnalyses.ts` (the `bringOver` record, which
  * resolves the joins from the def's relations) and the edge marks that will
@@ -121,9 +130,11 @@ function keyOf(cell: unknown): string | undefined {
  * The related table, once, as one index per DISTINCT key column: key → the
  * fetched cells in `columns` order.
  *
- * FIRST ROW WINS on a repeated key, the rule `adjacencyOf` already follows: a
- * key that names two rows names neither, and picking the later one would make
- * the answer depend on the order a backend happened to return.
+ * FIRST ROW WINS on a repeated key, the rule `adjacencyOf` already follows.
+ * That rule is a tie-break and never a permission: a declared act cannot reach
+ * here with a repeated key, because {@link refuseNotUnique} stops it at the
+ * door with a sentence. This fold stays total for a caller who assembled the
+ * work by hand.
  */
 function indexOf(related: readonly Row[], joins: readonly BringOverJoin[], columns: readonly string[]): Map<string, Map<string, readonly unknown[]>> {
   const byKey = new Map<string, Map<string, readonly unknown[]>>();
@@ -237,6 +248,53 @@ export function bringOverProblems(
     }
   }
   return problems;
+}
+
+/**
+ * The first key value that names more than one row of the related table, and
+ * how many it names. Insertion order, so the sentence quotes the same value on
+ * every run over the same rows.
+ */
+function repeatedIn(related: readonly Row[], key: string): { readonly value: string; readonly rows: number } | null {
+  const seen = new Map<string, number>();
+  for (const row of related) {
+    const at = keyOf(row[key]);
+    if (at === undefined) continue;
+    seen.set(at, (seen.get(at) ?? 0) + 1);
+  }
+  for (const [value, rows] of seen) if (rows > 1) return { value, rows };
+  return null;
+}
+
+/**
+ * THE NOT-UNIQUE REFUSAL: the key this follows names two rows over there.
+ *
+ * A lookup across a relation is only an answer if the key is an IDENTITY. When
+ * it names two rows, every value carried back is whichever one the engine
+ * happened to return first — a number that is right by accident on one backend
+ * and wrong on the next, with nothing on screen to say so. Weave warned about
+ * it; here it is refused, in a sentence quoting the value that names two rows.
+ *
+ * It is refused HERE and not at declaration because the related table's rows
+ * are what say it, and nothing between the def and this point can see them —
+ * the same reason {@link refuseMissingColumns} lives beside it. It is still
+ * before the chart runs and therefore before the commit, so the act does not
+ * happen.
+ *
+ * WHY an UNKEYED row is not refused with it: a related row whose key is absent
+ * names no identity and so can be found by none. It is honestly unreachable
+ * rather than ambiguous, and the counters already report every row of the
+ * written table that reached nothing.
+ */
+function refuseNotUnique(id: string, from: string, joins: readonly BringOverJoin[], related: readonly Row[]): void {
+  for (const key of new Set(joins.map((join) => join.key))) {
+    const repeated = repeatedIn(related, key);
+    if (repeated === null) continue;
+    throw new BringOverError(
+      `analysis "${id}" brings columns over from "${from}" by its key "${key}", which is not unique — "${repeated.value}" names ${String(repeated.rows)} rows there; ` +
+        `a key that names two rows names neither, so bring the columns over from a table that holds one row per "${key}"`,
+    );
+  }
 }
 
 /**
@@ -378,6 +436,7 @@ export function bringOverAnalysis(opts: BringOverOptions = {}): AnalysisModule<r
       // is one case, and the counters are where it shows.
       const source = related[from] ?? [];
       refuseMissingColumns(id, from, columns, source);
+      refuseNotUnique(id, from, joins, source);
       const keys = [...new Set(joins.map((join) => join.key))];
       const work: BringOverWork = {
         joins,

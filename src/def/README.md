@@ -17,6 +17,8 @@ analyses: {
   rate:      { builtin: 'formula',     expression: 'cases / population * 1000', name: 'rate' },
   map:       { builtin: 'layout',      algo: 'stress', table: 'nodes', edges: 'edges' },
   ends:      { builtin: 'bringOver',   table: 'edges', from: 'nodes', columns: ['x', 'y'] },
+  per100k:   { builtin: 'derive',      table: 'cells', name: 'per100k',
+               column: { ops: 1, kind: 'row', expr: { op: 'div', args: [{ col: 'cases' }, { col: 'population' }] } } },
 }
 ```
 
@@ -31,8 +33,11 @@ The record's keys **are** the factory's own options, so there is one vocabulary 
 | `formula` | **an arithmetic expression over this table's number columns, as a new column** | `expression`, `name` |
 | `layout` | **a seeded stress layout, as `x` and `y` columns on the nodes table** | `algo` |
 | `bringOver` | **a related table's columns, fetched across the declared relations** | `table`, `from`, `columns` |
+| `derive` | **a declared column: the closed op grammar, as a new column** | `name`, `column` |
 
 `formula` is the one whose content is a sentence a PERSON typed rather than options a developer chose, so it is the one this door judges twice: the grammar reads `expression` here, at validation, and refuses a token it has no rule for by naming it and its position (`analyses["rate"].expression is not a formula: the formula has no rule for "%" at position 7`); the SESSION then judges the columns it names against the table it will read, before the act exists. The grammar, the five functions it knows and every refusal either judge makes are in [`../analysis/README.md`](../analysis/README.md).
+
+`derive` is the same act said as a TREE rather than as a sentence, which is what lets it hold comparisons, conditionals, strings, dates and a calendar — none of which arithmetic text can spell. This door judges the declaration's SHAPE (`column must be a derived-column declaration — { ops, kind, expr }`); the session judges the tree against the table's own columns, and refuses in the derive taxonomy rather than the general one. Like `bringOver`, it names one thing it may not: its table's absence vocabulary is the def's (`data[<table>].absence`) and rides beside the record as context, because a record that could name its own would name one nobody declared. The absence vocabulary itself must be able to say `present` (and `unknown`): a table may use its own words for the silences, but the derived-column arithmetic reads exactly that one word to know a row reported a value, so `validateAbsence` refuses a vocabulary without it — `states: ['not catalogued', 'unknown']` would read as absent in every cell of every row. The grammar, its 51 ops, its pinned answers and every refusal are in [`../derive/README.md`](../derive/README.md).
 
 **And because a record is data, it can ride on the trace.** `registerAnalysisSlot` keeps the record it built beside the module (`RegisteredAnalysis.record`, absent for the other two forms), and a `declareAnalysis` commit carries it in its value slot — so a log holding record-declared analyses is enough to perform those acts again with nothing registered on the replaying session first. A module cannot ride, which is not a policy but a fact about functions. See [`../session/README.md`](../session/README.md), law 6.
 
@@ -67,7 +72,7 @@ Every refusal is a sentence naming the analysis and the problem:
 ```
 analyses["bins"].k must be a whole number of at least 1 (the "clustering" analysis needs it)
 analyses["a"].pValue is not an option of the "correlation" analysis — it takes x, y, id, branchId
-analyses["a"].builtin "kmeans" is not a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver
+analyses["a"].builtin "kmeans" is not a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver | derive
 analyses["rate"].expression is not a formula: the formula has no rule for "%" at position 7
 analyses["map"].algo must name a layout algorithm — "stress" (the "layout" analysis needs it)
 analyses["ends"].columns must be a non-empty array of distinct, non-empty column names (the "bringOver" analysis needs it)

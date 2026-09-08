@@ -197,7 +197,10 @@ out.gap;                    // { code: 'effect-failed', op: 'declareAnalysis', t
 
 That write has a JUDGE in front of it, and the judge is rule 1 above: a computed
 column may never take a declared source column's name, refused before a single
-value moves (`guard-failed`). Which columns a derived one is allowed to take,
+value moves (`guard-failed` — or `derive-invalid` where the analysis is a
+DECLARED column, which claims the derive taxonomy in one inert word,
+`AnalysisDef.refusalTaxonomy`; see [`../derive/README.md`](../derive/README.md),
+law 10). Which columns a derived one is allowed to take,
 how two branches computing the same name stay apart, and why column VISIBILITY
 is a consequence of that resolution rather than a second mechanism, are in
 [`../data/README.md`](../data/README.md) — "a derived column belongs to the act
@@ -240,7 +243,7 @@ built into fresh maps and swapped in.
 
 A sheet window is ONE call: `viewQuery({ table?, viewId?, columns?, sort?, limit?, offset? })` answers `{ columns, rows, rowIds, positional, key?, count, start, version, cursor, clauses }` or a typed refusal with a sentence. `clausesFor(viewId)` is the engine-side twin of the renderer's crossfilter law — which gestures reach a view through the link graph (own clause excluded, each edge's response and mapping applied, a cleared source remembered per its `onClear`). With no view, the count is exactly what `Overview.selectedRowCount` counts. The engine keeps one sort permutation per (table, sort spec); a brush never rebuilds a sort. The version is read beside the provider and re-checked after the rows: a refresh in between is `version-moved`, never a misdated window.
 
-**A layer address is a viewId everywhere a viewId is accepted.** A view over more than one table has layers, and an act names one by `viewId~layerId` (`vizfootprint/def`'s `layerAddress`). `viewQuery({ viewId: 'net~edges' })` defaults `table` to the layer's own table — and an explicit `table` that DISAGREES with it is refused rather than silently served, because the address is resolved in one place and one place only (`{ ok: false, reason: 'table-mismatch', rejected: 'layer "net~edges" reads table "edges", not "nodes" — ask for its window without a table, or ask table "nodes" without the layer' }`); `dispatch({ verb: 'select', viewId: 'net~edges', field: 'weight', … })` is judged against that table's columns (`no column "group" in table "edges"`), lands ONE commit whose `viewId` is the address, and registers the layer as its own source (`actorMeta: { actor: <the view's>, label: <the layer's label, else its id> }`). A clause on a layer of another table never enters the default table's count: `selectedRowCount`, `selectedRows` and the no-view `viewQuery` apply the clauses whose source is gated on the table asked (`clausesOn`), a plain view's always — the single-default-table limit, kept byte-for-byte. `overview().views[i].layers` projects the declared layers (`{ layerId, table, chartKind, channels, label? }`), absent on a view that declares none.
+**A layer address is a viewId everywhere a viewId is accepted.** A view over more than one table has layers, and an act names one by `viewId~layerId` (`vizfootprint/def`'s `layerAddress`). `viewQuery({ viewId: 'net~edges' })` defaults `table` to the layer's own table — and an explicit `table` that DISAGREES with it is refused rather than silently served, because the address is resolved in one place and one place only (`{ ok: false, reason: 'table-mismatch', rejected: 'layer "net~edges" reads table "edges", not "nodes" — ask for its window without a table, or ask table "nodes" without the layer' }`); `dispatch({ verb: 'select', viewId: 'net~edges', field: 'weight', … })` is judged against that table's columns (`no column "group" in table "edges"`), lands ONE commit whose `viewId` is the address, and registers the layer as its own source (`actorMeta: { actor: <the view's>, label: <the layer's label, else its id> }`). A clause on a layer of another table never enters the default table's count: `selectedRowCount`, `selectedRows`, the no-view `viewQuery` and an analysis's own-table input apply the clauses whose source is gated on the table asked (`clausesOn`), a plain view's always — the single-default-table limit, kept byte-for-byte. (An analysis handed the other table's clause would be refused by its provider for a column its table has not, and report that as a degenerate fit — a claim about the data.) `overview().views[i].layers` projects the declared layers (`{ layerId, table, chartKind, channels, label? }`), absent on a view that declares none.
 
 **A layer carries prose of its own, read off the LAYER's surface.** A layer declares everything a view's words are judged against — a `chartKind`, `channels`, `initial`, and a table — so `describe` on an address is the same act it is on a view, judged against the columns the LAYER reads (propose, accept and decline alike). Two consequences the frame's surface would get wrong: a `derived` slot is the library's own construction line for THAT layer (`describe({ viewId: 'net~nodes', slot: 'howToRead', record: { author: { kind: 'derived' } } })` → `a point with size on size, group on color`, where the frame itself reads `a network with nothing bound`), and a basis that states the layer's bindings is CURRENT the moment it is written (`basis: { encodings: { size: 'weight' } }` on `net~edges` reads `current`, not `stale`) — a layer's bindings are its declared `initial` and no commit moves them, since `reencode` names the view.
 
@@ -272,7 +275,7 @@ Not in this version: more than one hop, shortest paths, connected components, co
 
 A saved selection is the whole picture a person had filtered to, written as data: one condition per view — which chart, which field, which test on the value — plus who saved it, when, and the data version it was made on. It lives BESIDE the log (the dashboard's store, shared by every session), never in it: saving lands nothing on the rail. `saveSelection(name, { live: 'all' } | { viewId } | { conditions })` names it; `applySaved(name, cause, { mode })` is the act — one ordinary select or filter commit per condition, all under one cause ("applied saved selection <name>") and one correlation id; `replace` (the default) clears the other live filters first so the picture comes back, `layer` adds to what is selected. The answer is honest per condition: what landed, what was cleared, and every condition that could not land with its sentence (a view no longer on the dashboard, a field the table lacks). Every picture carries its own short id (`p1`, `p2`, …), minted by the store, which NEVER MINTS A NUMBER TWICE (forgetting frees the name, not the number: words written at another moment in the history link that id, and the forget guard only sees the words on screen at the cursor); `by`/`at` are the CREATION stamp and never move, and a rename records `editedBy`/`editedAt` beside them — which is why the list, ordered by `at`, never reorders under a rename. A note's `@[name]` ref carries that ID (its `label` keeps the words the writer typed); a click applies it, never seeks.
 
-Four laws at the moment of apply: it is JUDGED FIRST — a condition on a view that is gone or a column the table no longer has is refused before anything is touched, and an apply that could land nothing clears nothing (`ok: false`); a picture names a view ONCE (a second condition on the same view is refused at save); the clears a `replace` makes are marked `replacedBy` in their cause, so a link's `onClear` never remembers them — no ghost of the old picture survives; and `layer` is per view — a condition on a view already selecting replaces that view's clause, it does not union within it. Renaming is FREE, even while notes link the picture — they link its id, so nothing breaks; only the words an anchor shows may go stale, and the library never rewrites prose. Forgetting IS refused while words on screen link it, since the link really would break: the sentence names them (`"coastal" is linked from note n1, dashboard — change the link in the words first`). Undo is per commit today; the correlation id lets the rail fold the batch.
+Under a session that requires offers (`requireOffer`), an apply answers the current offer itself, recomputed before every commit it lands — the person chose the picture, and the offer is only the position's stamp, the same law `undo` and `bringOver` keep; an apply that landed nothing and answered `ok: true` would be an act that did not happen reading as one. Four laws at the moment of apply: it is JUDGED FIRST — a condition on a view that is gone or a column the table no longer has is refused before anything is touched, and an apply that could land nothing clears nothing (`ok: false`); a picture names a view ONCE (a second condition on the same view is refused at save); the clears a `replace` makes are marked `replacedBy` in their cause, so a link's `onClear` never remembers them — no ghost of the old picture survives; and `layer` is per view — a condition on a view already selecting replaces that view's clause, it does not union within it. Renaming is FREE, even while notes link the picture — they link its id, so nothing breaks; only the words an anchor shows may go stale, and the library never rewrites prose. Forgetting IS refused while words on screen link it, since the link really would break: the sentence names them (`"coastal" is linked from note n1, dashboard — change the link in the words first`). Undo is per commit today; the correlation id lets the rail fold the batch.
 
 Persistence: a host reads `session.saved()` and puts the pictures back whole with `session.restoreSaved(list)` (or `dashboard.restoreSaved`) — judged, never re-stamped: id, who, when, any edit stamp, and on-what survive the round trip. A record keeps the id it arrives with when no other record holds it; when it carries none, or one already taken, the store names it and says so in `reidentified` — an id is never quietly overwritten. Not here yet: a "saved on version 3, applied on version 5" sentence in the UI, a group undo, a one-update-at-the-end seam for an apply of many conditions, and the rail's family filter that hides non-act commits.
 
@@ -881,6 +884,17 @@ made.commit.value;
 //   def: { builtin: 'formula', expression: 'cases / people', name: 'rate', id: 'rate' } }
 ```
 
+Two consequences at replay, both about WHOSE declaration an act is. An id
+declared twice on one log is two acts with two declarations, and each is
+re-performed with ITS OWN — the module its commit carried, never the one the
+tip registered — because a re-performance that read the tip's registration
+would rebuild the earlier act's column from the later formula, under the
+earlier provenance, and look exactly like a correct answer; the tip still
+registers the last word. And a carried declaration whose analysis made no
+column is registered too, with nothing re-run and no gap filed: the log does
+declare it, so `hasAnalysis` says yes afterwards and a later `declareAnalysis`
+finds it.
+
 Present for a record, absent for a module or a raw def — an asymmetry that is
 not a policy but a fact about functions. `registerAnalysisSlot` keeps the record
 beside the module it built (`RegisteredAnalysis.record`), so there is one place
@@ -1063,7 +1077,18 @@ Three consequences, each deliberate:
   other honest option; it was not taken, because it is a fallback, and a
   fallback here is exactly the guess that let the two spellings live side by
   side unexamined. Refusing means no log this library writes can ever carry the
-  spelling that does not survive JSON — enforced, not promised.
+  spelling that does not survive JSON — enforced, not promised. An interval's
+  `range` gets the same door (*"filter.range is missing — an interval names its
+  bounds, or `null` to clear it"*), for a sharper reason: `undefined` is the one
+  value the selection port (which mints it as CLEARED) and the fold (which
+  keeps it as LIVE) disagree about, and a live clause with no bounds breaks
+  every read after it.
+- **A mode is its own key, never a sibling's presence.** `describe` has three
+  modes — set the words, accept a proposal, decline one — and `DispatchAction`
+  spells them as three members, each REQUIRING its key (`record`, `accept`,
+  `decline`). One shape with optional `accept`/`decline` would make
+  `record: null` mean two things: back to the def's own words, and "the accept
+  whose key was dropped" — and the second would LAND a clear.
 - **`null` INSIDE a compound is untouched, and still means IS NULL.** A cell
   side, a value in a match list. The rule is about the TOP of the value slot,
   where a `null` is the whole clause and there is nothing left for it to be a

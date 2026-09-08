@@ -77,6 +77,20 @@ describe('validateAnalysisDef — a non-function judgeTable', () => {
   });
 });
 
+describe('validateAnalysisDef — a refusal taxonomy nobody can file', () => {
+  it('rejects a taxonomy this library has no codes for', () => {
+    const problems = validateAnalysisDef(
+      minimalDef({ refusalTaxonomy: 'vibes' as unknown as AnalysisDef['refusalTaxonomy'] }),
+    );
+    expect(problems).toContain('refusalTaxonomy, if present, must be one of derive');
+  });
+
+  it('accepts the one there is, and an omitted one — every hand-written analysis files the general codes', () => {
+    expect(validateAnalysisDef(minimalDef({ refusalTaxonomy: 'derive' }))).toEqual([]);
+    expect(validateAnalysisDef(minimalDef({ refusalTaxonomy: undefined }))).toEqual([]);
+  });
+});
+
 describe('validateAnalysisDef — a non-object honesty declaration', () => {
   it('a string honesty is rejected as "must be an object"', () => {
     const problems = validateAnalysisDef(

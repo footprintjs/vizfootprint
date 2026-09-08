@@ -58,6 +58,7 @@ import { isClearedSelection } from '../branches/fold.js';
 import { applyLinkOverrides, edgeId, impliedKinds, validateLinks, type LinkDecl } from '../links/index.js';
 
 import type { ActorMeta, CauseClause } from '../selection/index.js';
+import { absenceByTable, type BuiltinAnalysisContext } from '../def/builtinAnalyses.js';
 import { registerAnalysisSlot } from '../def/register.js';
 import { copyValue, deepFreeze } from '../detach/index.js';
 import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RestorableSaved, RestorableBookmark, RestoreResult, ViewEncodingDecl, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
@@ -698,7 +699,7 @@ class InteractionSessionImpl implements InteractionSession {
    * the opposite: it would land real numbers under real provenance and look
    * exactly like a correct answer.
    */
-  private actToReperform(record: CommitRecord): { readonly table: string; readonly module?: RegisteredAnalysis } | { readonly unperformable: string } | undefined {
+  private actToReperform(record: CommitRecord): { readonly table?: string; readonly module?: RegisteredAnalysis } | { readonly unperformable: string } | undefined {
     if (!record.viewId.startsWith(ANALYSIS_VIEW_PREFIX)) return undefined;
     const analysisId = record.viewId.slice(ANALYSIS_VIEW_PREFIX.length);
     const carried = analysisActOf(record.value)?.def;
@@ -713,16 +714,21 @@ class InteractionSessionImpl implements InteractionSession {
     let module: RegisteredAnalysis | undefined;
     if (carried !== undefined) {
       try {
-        // THIS dashboard's relations, never the log's: a relation is declared,
-        // not recorded, so a replayed `bringOver` follows the joins the session
-        // it is landing in permits — and follows none where none are declared.
-        module = registerAnalysisSlot(analysisId, carried, { relations: this.runtime.relations });
+        // THIS dashboard's relations and absence vocabularies, never the log's:
+        // both are declared, not recorded, so a replayed `bringOver` follows the
+        // joins the session it is landing in permits — and follows none where
+        // none are declared — and a replayed derived column keeps the silence
+        // this dashboard declares rather than one a log could have carried in.
+        module = registerAnalysisSlot(analysisId, carried, this.builtinContext());
       } catch (error) {
         return { unperformable: `analysis "${analysisId}" carries a declaration this library cannot build: ${messageOf(error)}` };
       }
     }
     const analysis = module ?? this.analysis(analysisId);
-    if (analysis === undefined || analysis.def.produces !== 'columns') return undefined;
+    // An analysis that made no column has nothing to re-perform — but a declaration the log carries is
+    // still handed back, so the apply phase REGISTERS it: the log does declare it, and a gap saying this
+    // session does not would be false twice over (it is declared, and it wrote no column).
+    if (analysis === undefined || analysis.def.produces !== 'columns') return module !== undefined ? { module } : undefined;
     const act = analysisActOf(record.value);
     if (act === undefined) {
       // Both lanes carry the act now — the `__analysis__` one and the `pValue`
@@ -776,8 +782,8 @@ class InteractionSessionImpl implements InteractionSession {
     // verdict per spec (the shared judge, pinned by the adapter's parity tests), and a dry run
     // must never touch the live engine
     const scratch = new CauseSelectionSession();
-    /** commit id → the table its act read, for exactly the acts this replay must re-perform. */
-    const acts = new Map<string, string>();
+    /** commit id → the table its act read, and the module ITS commit declared, for exactly the acts this replay must re-perform. */
+    const acts = new Map<string, { readonly table: string; readonly module?: RegisteredAnalysis }>();
     /** analysis id → the module its own commit declared, for the acts that brought one. */
     const declared = new Map<string, RegisteredAnalysis>();
     for (const [index, rec] of records.entries()) {
@@ -796,10 +802,15 @@ class InteractionSessionImpl implements InteractionSession {
       if ('unperformable' in act) {
         return this.replayRefusal(`commit #${index} "${rec.id}" cannot be re-performed: ${act.unperformable}`);
       }
-      acts.set(rec.id, act.table);
-      // A later act declaring the same id supersedes an earlier one, exactly as
-      // a re-registration does on a walk — the log is read in order, so the
-      // last word is the last word here too.
+      // WHY the module rides beside the table: an id declared twice on one log is
+      // two acts with two declarations, and each is re-performed with ITS OWN —
+      // a re-performance that read the tip's registration would rebuild the
+      // earlier act's column from the later formula, under the earlier
+      // provenance, and look exactly like a correct answer.
+      if (act.table !== undefined) acts.set(rec.id, { table: act.table, ...(act.module !== undefined ? { module: act.module } : {}) });
+      // A later act declaring the same id supersedes an earlier one AT THE TIP,
+      // exactly as a re-registration does on a walk — the log is read in order,
+      // so the last word is the last word for what this session declares.
       if (act.module !== undefined) declared.set(act.module.id, act.module);
     }
     const gapsBefore = this.gapLedger.size;
@@ -855,8 +866,11 @@ class InteractionSessionImpl implements InteractionSession {
       // and is not re-run. (No `sink` is passed either: the FDR ledger records
       // what THIS walker asked for, and law 3 names it a legitimate walk/replay
       // difference. A replay must never re-spend alpha.)
-      const table = acts.get(rec.id);
-      if (table === undefined) continue;
+      const act = acts.get(rec.id);
+      if (act === undefined) continue;
+      // …and with the declaration ITS OWN commit carried, when it carried one:
+      // the registered module is the tip's word, and this act may predate it.
+      const performing = act.module ?? analysis;
       // The act is re-performed AT ITS OWN POSITION: which `risk` an analysis
       // could read is a question about the cursor (law 5), and running them all
       // at the tip would answer it with columns the act never saw.
@@ -866,14 +880,14 @@ class InteractionSessionImpl implements InteractionSession {
       // position: the ONE input path serves both doors, so a replayed act sees
       // the rows its original saw. No permission is re-judged here — the act
       // already happened, and a replay re-performs it rather than re-deciding it.
-      const input = await this.resolveAnalysisInput(true, table, analysis.def.reads ?? []);
+      const input = await this.resolveAnalysisInput(true, act.table, performing.def.reads ?? []);
       if ('rejected' in input) {
         this.gapLedger.file('needs-backend-data', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but its input could not be read back: ${input.rejected}`, analysisId);
         continue;
       }
-      let run: Awaited<ReturnType<typeof analysis.run>>;
+      let run: Awaited<ReturnType<typeof performing.run>>;
       try {
-        run = await analysis.run(input.rows, { related: input.related });
+        run = await performing.run(input.rows, { related: input.related });
       } catch (error) {
         this.gapLedger.file('effect-failed', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but re-running it threw: ${messageOf(error)}`, analysisId);
         continue;
@@ -902,7 +916,7 @@ class InteractionSessionImpl implements InteractionSession {
       // channel it produced on. It carries NO `fdrStep`, and that is the law
       // rather than an omission — a replay never re-spends alpha, so the
       // ledger row belongs to the walker who ran the test, not to the log.
-      if (analysis.kind === 'test') this.noteAnalysisProvenance(analysisId, prov);
+      if (performing.kind === 'test') this.noteAnalysisProvenance(analysisId, prov);
       reran += 1;
     }
     // The fold, rebuilt from the tip — the one place this door leaves the
@@ -1986,13 +2000,13 @@ class InteractionSessionImpl implements InteractionSession {
       const making: Cause = { ...stamped, replacedBy: name };
       for (const [viewId, clause] of [...this.activeFilters]) {
         if (named.has(viewId)) continue;
-        const r = await this.dispatch({ ...clearAction(viewId, clause, making), correlationId }, dispatchOpts);
+        const r = await this.dispatch({ ...clearAction(viewId, clause, making), ...this.offerFor(), correlationId }, dispatchOpts);
         /* v8 ignore next -- clearing a live clause on a declared view is never refused; the arm keeps the result honest */
         if (r.ok && r.commit !== undefined) cleared.push(r.commit);
       }
     }
     for (const c of landable) {
-      const r = await this.dispatch({ ...selectionAction(c, stamped), correlationId }, dispatchOpts);
+      const r = await this.dispatch({ ...selectionAction(c, stamped), ...this.offerFor(), correlationId }, dispatchOpts);
       /* v8 ignore next 4 -- the pre-flight judges every refusal the doors know (view, columns, capability); the arm keeps the result honest for one they do not */
       if (!r.ok) {
         refused.push({ viewId: c.viewId, rejected: r.rejection.detail });
@@ -2002,6 +2016,17 @@ class InteractionSessionImpl implements InteractionSession {
       if (r.commit !== undefined) applied.push(r.commit);
     }
     return { ok: true, name, correlationId, applied, cleared, refused };
+  }
+
+  /**
+   * The offer a replayed act answers when this session requires one, or nothing
+   * when it does not. Recomputed per call, never once per batch: every landed
+   * commit moves the cursor, and the stamp with it. WHY a replay answers the
+   * offer itself: the person chose the picture; the offer is only the
+   * position's stamp, not a second choice — `executePlan` keeps the same law.
+   */
+  private offerFor(): { readonly asOf?: string } {
+    return this.requireOffer ? { asOf: this.offerStamp() } : {};
   }
 
   /** The notes on screen whose words link a saved selection by its id — forgetting it would break their links. */
@@ -2076,7 +2101,10 @@ class InteractionSessionImpl implements InteractionSession {
   ): Promise<AnalysisRunInput | { rejected: string }> {
     // Columns-channel analyses run over the FULL table (materialized values must
     // align to the row order); every other channel runs over the selection — one query either way.
-    const rows = await this.allRows(table, producesColumns ? [] : [...this.activeFilters.values()]);
+    // The selection is the clauses that REACH this table (`clausesOn`), the rule every other own-table
+    // read keeps: a layer's clause on another table names columns this table has not, and a provider
+    // handed one refuses the read — reported as a degenerate fit, a claim about the data.
+    const rows = await this.allRows(table, producesColumns ? [] : this.clausesOn(table));
     if ('rejected' in rows) return rows;
     const beside = await this.resolveRelatedRows(reads);
     if ('rejected' in beside) return beside;
@@ -2232,6 +2260,12 @@ class InteractionSessionImpl implements InteractionSession {
       case 'filter': {
         const stale = this.offerGuard('filter', action.viewId, 'interval', action.asOf, intent);
         if (stale !== null) return stale;
+        // The point form's law, for the interval: `undefined` is the one value the selection port
+        // (which mints it as CLEARED) and the fold (which keeps it as LIVE) disagree about, and a live
+        // clause with no bounds breaks every read after it — so it reaches neither.
+        if (action.range === undefined) {
+          return this.reject('filter', intent, this.gapLedger.file('guard-failed', 'filter', 'filter.range is missing — an interval names its bounds, or `null` to clear it (the one spelling of cleared; `undefined` does not survive JSON)', action.field));
+        }
         return this.doProbe(
           action.viewId,
           action.field,
@@ -2248,8 +2282,9 @@ class InteractionSessionImpl implements InteractionSession {
       case 'link':
         return this.doLink(action, as, intent);
       case 'describe':
-        if (action.accept !== undefined) return this.doAccept(action.viewId, action.slot, action.accept, action.cause, as, intent, action.correlationId);
-        if (action.decline !== undefined) return this.doDecline(action.viewId, action.slot, action.decline, action.cause, as, intent, action.correlationId);
+        // three modes, told apart by the key each REQUIRES (`DispatchAction`): an accept with its key dropped is not a clear
+        if ('accept' in action) return this.doAccept(action.viewId, action.slot, action.accept, action.cause, as, intent, action.correlationId);
+        if ('decline' in action) return this.doDecline(action.viewId, action.slot, action.decline, action.cause, as, intent, action.correlationId);
         if (action.proposal === true) return this.doPropose(action.viewId, action.slot, action.record, action.cause, as, intent, action.correlationId);
         return this.doDescribe(action.viewId, action.slot, action.record, action.cause, as, intent, action.correlationId);
       case 'navigate':
@@ -3208,8 +3243,39 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   // ── declareAnalysis (the L3 flags' landing spot) ─────────────────────────────
+
+  /**
+   * What THIS dashboard knows and a builtin record does not say: its relations,
+   * and each table's declared absence vocabulary.
+   *
+   * One reader for both registration doors — the walk's and the replay's — so a
+   * replayed act is built against the same dashboard the live one was. It rides
+   * BESIDE the record rather than into it because both facts are the def's to
+   * declare: a log that carried them could replay a join this dashboard never
+   * permitted, or read a silence it never declared.
+   */
+  private builtinContext(): BuiltinAnalysisContext {
+    return { relations: this.runtime.relations, absence: absenceByTable(this.runtime.def.data) };
+  }
+
+  /**
+   * The code a refusal about one analysis carries.
+   *
+   * Two questions, and an analysis may answer them in its own taxonomy
+   * (`AnalysisDef.refusalTaxonomy`): `invalid` is "what you declared is not a
+   * column", `source` is "the rows it would read could not be read". A declared
+   * column answers in the derive codes so an agent can tell a tree it can
+   * repair from a source it cannot reach; everything else answers in the
+   * general two, exactly as it always has.
+   */
+  private gapCodeFor(analysisId: string, when: 'invalid' | 'source'): GapCode {
+    const derived = this.analysis(analysisId)?.def.refusalTaxonomy === 'derive';
+    if (when === 'invalid') return derived ? 'derive-invalid' : 'guard-failed';
+    return derived ? 'derive-source-refused' : 'needs-backend-data';
+  }
+
   registerAnalysis(id: string, slot: AnalysisSlot): void {
-    this.localAnalyses.set(id, registerAnalysisSlot(id, slot, { relations: this.runtime.relations }));
+    this.localAnalyses.set(id, registerAnalysisSlot(id, slot, this.builtinContext()));
   }
 
   hasAnalysis(id: string): boolean {
@@ -3258,7 +3324,9 @@ class InteractionSessionImpl implements InteractionSession {
     // column the derived registry does not know is declared.
     const declared = await this.declaredColumnsOf(out.table);
     if (!provider) {
-      gap = this.gapLedger.file('needs-view', op, `no provider for table "${out.table}"`, out.table);
+      // a source refusal in the analysis's own taxonomy: no view is involved, and a declared column's
+      // agent must be able to tell a source it cannot reach from a tree it can repair
+      gap = this.gapLedger.file(this.gapCodeFor(analysisId, 'source'), op, `no provider for table "${out.table}"`, out.table);
     } else if (!canNameSlot(commitId)) {
       // an id a replayed log brought in, carrying the slot grammar's own reserved marker: two
       // acts could not be told apart in the store, so nothing is written (`../data/derivedColumns.ts`)
@@ -3266,7 +3334,7 @@ class InteractionSessionImpl implements InteractionSession {
     } else if ('rejected' in declared) {
       // the engine could not say which columns are the map's, so nothing may
       // be written over them — refusing is the only honest direction
-      gap = this.gapLedger.file('needs-backend-data', op, `analysis "${analysisId}" produced columns, but table "${out.table}" could not say which columns are its own: ${declared.rejected}`, out.table);
+      gap = this.gapLedger.file(this.gapCodeFor(analysisId, 'source'), op, `analysis "${analysisId}" produced columns, but table "${out.table}" could not say which columns are its own: ${declared.rejected}`, out.table);
     } else {
       for (const name of Object.keys(out.columns)) {
         const values = snapshot?.sharedState[name];
@@ -3282,7 +3350,7 @@ class InteractionSessionImpl implements InteractionSession {
         const slot = derivedColumnName(name, commitId);
         const collision = declared.has(name) ? name : declared.has(slot) ? slot : undefined;
         if (collision !== undefined) {
-          gap = this.gapLedger.file('guard-failed', op, `analysis "${analysisId}" would write column "${name}" over the declared source column "${collision}" of table "${out.table}" — a computed column may not take a source column's name`, name);
+          gap = this.gapLedger.file(this.gapCodeFor(analysisId, 'invalid'), op, `analysis "${analysisId}" would write column "${name}" over the declared source column "${collision}" of table "${out.table}" — a computed column may not take a source column's name`, name);
           continue;
         }
         // OUTBOUND, and after the declaring commit already landed: writing a
@@ -3364,11 +3432,11 @@ class InteractionSessionImpl implements InteractionSession {
     if (analysis.def.judgeTable) {
       const columns = await this.effectiveColumnsOf(table);
       if ('rejected' in columns) {
-        return refused(this.gapLedger.file('needs-backend-data', 'declareAnalysis', `analysis "${id}" could not be judged against table "${table}": ${columns.rejected}`, id));
+        return refused(this.gapLedger.file(this.gapCodeFor(id, 'source'), 'declareAnalysis', `analysis "${id}" could not be judged against table "${table}": ${columns.rejected}`, id));
       }
       const problems = analysis.def.judgeTable(table, columns);
       if (problems.length > 0) {
-        return refused(this.gapLedger.file('guard-failed', 'declareAnalysis', problems.join('; '), id));
+        return refused(this.gapLedger.file(this.gapCodeFor(id, 'invalid'), 'declareAnalysis', problems.join('; '), id));
       }
     }
     // Resolve input (R11 / the demo's own split: columns-channel over the full
@@ -3388,7 +3456,7 @@ class InteractionSessionImpl implements InteractionSession {
       related = beside.related;
     } else {
       const resolved = await this.resolveAnalysisInput(analysis.def.produces === 'columns', table, reads);
-      if ('rejected' in resolved) return refused(this.gapLedger.file('needs-backend-data', 'declareAnalysis', resolved.rejected, id));
+      if ('rejected' in resolved) return refused(this.gapLedger.file(this.gapCodeFor(id, 'source'), 'declareAnalysis', resolved.rejected, id));
       input = resolved.rows;
       related = resolved.related;
     }

@@ -35,13 +35,13 @@ describe('the builtin analysis record — what it refuses', () => {
 
   it('refuses a record whose `builtin` is not a name', () => {
     expect(problemsOf({ builtin: 7 })).toEqual([
-      'analyses["a"].builtin must name a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver',
+      'analyses["a"].builtin must name a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver | derive',
     ]);
   });
 
   it('refuses an unknown builtin name, and says which names there are', () => {
     expect(problemsOf({ builtin: 'kmeans', column: 'cases' })).toEqual([
-      'analyses["a"].builtin "kmeans" is not a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver',
+      'analyses["a"].builtin "kmeans" is not a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver | derive',
     ]);
   });
 
@@ -83,7 +83,7 @@ describe('the builtin analysis record — what it refuses', () => {
   });
 
   it('accepts every builtin at its plainest', () => {
-    expect(BUILTIN_ANALYSES).toEqual(['groupBy', 'correlation', 'regression', 'clustering', 'formula', 'layout', 'bringOver']);
+    expect(BUILTIN_ANALYSES).toEqual(['groupBy', 'correlation', 'regression', 'clustering', 'formula', 'layout', 'bringOver', 'derive']);
     expect(problemsOf({ builtin: 'groupBy', by: 'disease', measure: 'cases' })).toEqual([]);
     expect(problemsOf({ builtin: 'correlation', x: 'cases', y: 'ytd' })).toEqual([]);
     expect(problemsOf({ builtin: 'regression', x: 'cases', y: 'ytd' })).toEqual([]);
@@ -91,6 +91,24 @@ describe('the builtin analysis record — what it refuses', () => {
     expect(problemsOf({ builtin: 'formula', expression: 'cases / 1000', name: 'rate' })).toEqual([]);
     expect(problemsOf({ builtin: 'layout', algo: 'stress' })).toEqual([]);
     expect(problemsOf({ builtin: 'bringOver', table: 'edges', from: 'nodes', columns: ['x', 'y'] })).toEqual([]);
+    expect(problemsOf({ builtin: 'derive', name: 'rate', column: { ops: 1, kind: 'row', expr: { col: 'cases' } } })).toEqual([]);
+  });
+
+  it('refuses a derived column that is not a declaration — the tree is judged against the table later, its SHAPE here', () => {
+    // the whole record, not a tree
+    expect(problemsOf({ builtin: 'derive', name: 'rate' })).toEqual(['analyses["a"].column must be a derived-column declaration — { ops, kind, expr } (the "derive" analysis needs it)']);
+    // an expression STRING is exactly what this grammar exists not to be
+    expect(problemsOf({ builtin: 'derive', name: 'rate', column: 'cases / population' })).toEqual([
+      'analyses["a"].column must be a derived-column declaration — { ops, kind, expr } (the "derive" analysis needs it)',
+    ]);
+    // …and the pieces, one at a time
+    expect(problemsOf({ builtin: 'derive', name: 'rate', column: { kind: 'row', expr: { col: 'cases' } } })).toHaveLength(1);
+    expect(problemsOf({ builtin: 'derive', name: 'rate', column: { ops: 1, expr: { col: 'cases' } } })).toHaveLength(1);
+    expect(problemsOf({ builtin: 'derive', name: 'rate', column: { ops: 1, kind: 'row' } })).toHaveLength(1);
+    // and the name it writes is required, like every other builtin's
+    expect(problemsOf({ builtin: 'derive', column: { ops: 1, kind: 'row', expr: { col: 'cases' } } })).toEqual([
+      'analyses["a"].name must be a non-empty string (the "derive" analysis needs it)',
+    ]);
   });
 
   it('refuses an algorithm the layout does not have, and names the one it does', () => {
@@ -185,6 +203,31 @@ describe('a builtin record resolves to its factory', () => {
     expect(alone.def.judgeTable!('edges', [{ name: 'source', type: 'string' }])).toEqual([
       'analysis "bring:edges:nodes" brings x over from "nodes", but no declared relation points from "edges" at "nodes" — declare the relation first',
     ]);
+  });
+
+  it('a derive record reads its ABSENCE vocabulary off the def, never off itself', async () => {
+    const rows = [
+      { id: 'a', state: 'present', cases: 10, people: 5 },
+      { id: 'b', state: 'unavailable', cases: 0, people: 5 },
+    ];
+    const record = {
+      builtin: 'derive',
+      name: 'rate',
+      column: { ops: 1 as const, kind: 'row' as const, expr: { op: 'div' as const, args: [{ col: 'cases' }, { col: 'people' }] } },
+    } as const;
+    const absence = { data: { field: 'state', states: ['present', 'unavailable', 'unknown'] } };
+
+    // the table is the record's default (`data`), and the vocabulary for THAT table is what it takes
+    const knowing = buildBuiltinAnalysis(record, { absence });
+    expect((await knowing.run(rows)).snapshot?.sharedState['rate']).toEqual([2, null]);
+
+    // with no context at all it still builds — and the reported zero becomes a number
+    const alone = buildBuiltinAnalysis(record);
+    expect((await alone.run(rows)).snapshot?.sharedState['rate']).toEqual([2, 0]);
+
+    // …as it does when the def declares a vocabulary for some OTHER table
+    const elsewhere = buildBuiltinAnalysis(record, { absence: { cells: absence.data } });
+    expect((await elsewhere.run(rows)).snapshot?.sharedState['rate']).toEqual([2, 0]);
   });
 
   it('refuses a bringOver record whose columns are not a list of distinct names', () => {

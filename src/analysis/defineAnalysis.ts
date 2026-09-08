@@ -61,9 +61,13 @@ const DEF_KEYS = new Set([
   'readOutput',
   'precheck',
   'judgeTable',
+  'refusalTaxonomy',
   'test',
   'honesty',
 ]);
+
+/** The gap taxonomies an analysis may claim its refusals belong to. One so far; see `./types.ts`. */
+const TAXONOMIES = new Set<string>(['derive']);
 
 const KINDS = new Set<string>(ANALYSIS_KINDS);
 const CHANNELS = new Set<string>(OUTPUT_CHANNELS);
@@ -133,6 +137,11 @@ export function validateAnalysisDef(def: unknown): string[] {
   if (!isFn(d.readOutput)) problems.push('readOutput must be a function');
   if (d.precheck !== undefined && !isFn(d.precheck)) problems.push('precheck, if present, must be a function');
   if (d.judgeTable !== undefined && !isFn(d.judgeTable)) problems.push('judgeTable, if present, must be a function');
+  // A taxonomy nobody can file is not one: the session would read the word off
+  // the def and have no code to put on the ledger row.
+  if (d.refusalTaxonomy !== undefined && !TAXONOMIES.has(d.refusalTaxonomy as string)) {
+    problems.push(`refusalTaxonomy, if present, must be one of ${[...TAXONOMIES].join(' | ')}`);
+  }
 
   // R6: a declared test MUST carry its statistic + a caller-supplied p-value.
   if (d.kind === 'test') {

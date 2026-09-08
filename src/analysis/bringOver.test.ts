@@ -158,12 +158,29 @@ describe('the analysis', () => {
 
   it('a cell that is simply not there is null on both sides of the tie, never undefined', async () => {
     const mod = bringOverAnalysis({ joins: [{ column: 'source', key: 'id' }] });
-    // the first edge row carries no `source` at all; the first node row carries no `y`
-    const related: RelatedRows = { nodes: [{ id: 'flu', x: 1 }, ...NODES] };
+    // the first edge row carries no `source` at all; the `flu` node carries no `y`
+    const related: RelatedRows = { nodes: [{ id: 'flu', x: 1 }, { id: 'cold', x: 3, y: 4 }] };
     const run = await mod.run([{}, { source: 'flu' }] as never, { related });
     const state = run.snapshot!.sharedState as Record<string, unknown>;
     expect(state['source_x']).toEqual([null, 1]);
     expect(state['source_y']).toEqual([null, null]);
+  });
+
+  it('REFUSES a key that names two rows, quoting the value that does', async () => {
+    const mod = bringOverAnalysis({ joins: [{ column: 'source', key: 'id' }] });
+    const twice: RelatedRows = { nodes: [{ id: 'flu', x: 1, y: 2 }, ...NODES] };
+    await expect(mod.run(EDGES as never, { related: twice })).rejects.toThrow(BringOverError);
+    await expect(mod.run(EDGES as never, { related: twice })).rejects.toThrow(
+      'analysis "bring:edges:nodes" brings columns over from "nodes" by its key "id", which is not unique — "flu" names 2 rows there; ' +
+        'a key that names two rows names neither, so bring the columns over from a table that holds one row per "id"',
+    );
+  });
+
+  it('an UNKEYED related row is not a repeat — it names no identity, so it is unreachable rather than ambiguous', async () => {
+    const mod = bringOverAnalysis({ joins: [{ column: 'source', key: 'id' }] });
+    const unkeyed: RelatedRows = { nodes: [{ id: null, x: 9, y: 9 }, { x: 8, y: 8 }, ...NODES] };
+    const run = await mod.run(EDGES as never, { related: unkeyed });
+    expect((run.snapshot!.sharedState as Record<string, unknown>)['source_x']).toEqual([1]);
   });
 
   it('every option is the record’s own, and the id can be named', () => {

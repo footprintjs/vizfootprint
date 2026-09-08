@@ -36,7 +36,17 @@ export type AnalysisKind = (typeof ANALYSIS_KINDS)[number];
 export interface ColumnsOutput {
   readonly as: 'columns';
   readonly table: string;
-  readonly columns: Record<string, { readonly type: 'int' | 'float' | 'string' }>;
+  /**
+   * What each column it wrote is DECLARED as.
+   *
+   * `boolean`, `date` and `unknown` joined the three arithmetic words when the
+   * derive grammar landed (`../derive/analysis.ts`): a declared column's type is
+   * COMPUTED from the op table at declaration, so a column of ISO date strings
+   * or of true/false has a type arithmetic could never produce — and one whose
+   * act was replayed rather than re-judged says `unknown` rather than a type
+   * tallied from its values.
+   */
+  readonly columns: Record<string, { readonly type: 'int' | 'float' | 'string' | 'boolean' | 'date' | 'unknown' }>;
 }
 /**
  * A fitted LINE layer — today's only geometry: slope + intercept over a domain.
@@ -250,6 +260,22 @@ export interface AnalysisDef<I = unknown, O extends AnalysisOutput = AnalysisOut
    * typed in by a person (`formulaAnalysis`).
    */
   judgeTable?(table: string, columns: readonly ColumnInfo[]): readonly string[];
+  /**
+   * Which gap taxonomy this analysis's own refusals belong to.
+   *
+   * Inert data, and the only thing an analysis may say about the LEDGER: the
+   * session reads it when it files a refusal about this analysis, so a declared
+   * column's refusals land as `derive-invalid` / `derive-source-refused` rather
+   * than the general `guard-failed` / `needs-backend-data`. An agent that gets
+   * one back can tell "edit the tree" from "open the source" without reading
+   * the sentence.
+   *
+   * Absent — every hand-written analysis — means the general codes, which is
+   * what every analysis in this folder still files. A word this session does
+   * not know is the general codes too: the def is a boundary, and a taxonomy
+   * nobody can file is not one.
+   */
+  readonly refusalTaxonomy?: 'derive';
   /** Required iff kind==='test' (validated): statistic + caller-supplied p-value (R6). */
   readonly test?: TestDecl<I>;
   /** Optional honesty declaration (R14). */

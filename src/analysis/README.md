@@ -229,8 +229,9 @@ This is a **general door**, not a network feature: a sales table brings its cust
 | declared on another table | `analysis "ends" writes onto table "edges", but this act reads table "cells" — declare it on "edges"` |
 | a tie on a column this table lacks | `analysis "ends" follows column "target", which table "edges" does not have — the columns are source, weight` |
 | the fetched column is not over there | `analysis "ends" brings y over from "nodes", which has no such column — compute it there first` |
+| the key names two rows over there | `analysis "bring:cells:population" brings columns over from "population" by its key "jurisdiction", which is not unique — "Texas" names 2 rows there; a key that names two rows names neither, so bring the columns over from a table that holds one row per "jurisdiction"` |
 
-The first three are `judgeTable`, so nothing moves and the session files an ordinary `guard-failed` gap. The last is raised at run time — no hook this library has can see the related table's columns — and still before the commit, so the act does not happen either way. A produced name landing on a DECLARED source column is judged where that law already lives, in the session's `writeColumns`: it is the only judge that can tell a declared column from one an earlier act derived, which is what lets this analysis be re-run over its own output.
+The first three are `judgeTable`, so nothing moves and the session files an ordinary `guard-failed` gap. The last two are raised at run time — no hook this library has can see the related table's rows — and still before the commit, so the act does not happen either way. A produced name landing on a DECLARED source column is judged where that law already lives, in the session's `writeColumns`: it is the only judge that can tell a declared column from one an earlier act derived, which is what lets this analysis be re-run over its own output.
 
 ### The counters
 
@@ -240,4 +241,6 @@ A row whose endpoint names nothing in the related table gets `null` — and is C
 { source: { total: 2, counted: 2, skipped: 0 }, target: { total: 2, counted: 1, skipped: 1 } }
 ```
 
-A silent null is a lie about how many rows the answer really covers. An EMPTY related table is not a refusal but honest emptiness: every row skipped, nothing invented. A repeated key names no row twice — the FIRST wins, so the answer never depends on the order a backend happened to return.
+A silent null is a lie about how many rows the answer really covers. An EMPTY related table is not a refusal but honest emptiness: every row skipped, nothing invented.
+
+**A key that names two rows names neither.** This is the door a derived column reaches a second table through — `../derive/` has no `lookup` op, and law 12 of [`../derive/README.md`](../derive/README.md) says why — so it owes the lookup's honesty. A repeated key is REFUSED at the door, before the commit, quoting the value that repeats: whichever row an engine returned first would be a number that is right by accident. (The pure fold `bringOverColumns` still breaks a tie first-row-wins, so a caller who assembled the work by hand gets a total function; the declared act cannot get there.) A related row whose key is ABSENT is not a repeat and is not refused — it names no identity, so it is honestly unreachable rather than ambiguous.

@@ -15,11 +15,18 @@ export type { ParsedDashboardDef } from './validate.js';
 // An analysis named as DATA — the third form of `AnalysisSlot`, and the key
 // that makes a whole def JSON-serialisable. See ./README.md.
 export { BUILTIN_ANALYSES, BuiltinAnalysisError, isBuiltinRecord, validateBuiltinAnalysis, buildBuiltinAnalysis } from './builtinAnalyses.js';
-export type { BuiltinAnalysisDecl, BuiltinAnalysisName, GroupByDecl, CorrelationDecl, RegressionDecl, ClusteringDecl, FormulaDecl, LayoutDecl, BringOverDecl, BuiltinAnalysisContext } from './builtinAnalyses.js';
+export type { BuiltinAnalysisDecl, BuiltinAnalysisName, GroupByDecl, CorrelationDecl, RegressionDecl, ClusteringDecl, FormulaDecl, LayoutDecl, BringOverDecl, DeriveDecl, BuiltinAnalysisContext } from './builtinAnalyses.js';
+// The DECLARATION a `derive` record carries, from the barrel that owns the
+// record. WHY here and not a subpath of its own: the grammar is consumed as ONE
+// act, never op by op, so what a def author has to be able to NAME is the tree
+// a record holds — and that is a fact about the record, not a second API.
+export { OPS_VERSION } from '../derive/index.js';
+export type { Calendar, ColExpr, DeriveKind, DerivedColumn, Expr, LitExpr, Literal, OpExpr, OpName, Over } from '../derive/index.js';
 export {
   DISPATCH_VERBS,
   DEFAULT_INTENTS,
   ABSENCE_STATES,
+  ABSENCE_PRESENT,
   ABSENCE_UNKNOWN,
   MAGNITUDE_CHANNELS,
   RELATION_KINDS,
