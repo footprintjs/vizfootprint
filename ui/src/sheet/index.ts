@@ -1,7 +1,7 @@
 /**
  * The Sheet: a read-only, virtualized grid over a data session, with its two
  * adapters and the block cache they share. The PUBLIC surface (what
- * `vizfootprint-ui` re-exports) is `<Sheet>`, `<AddColumn>`, the two adapters,
+ * `vizfootprint-ui` re-exports) is `<Sheet>`, `<AddColumn>`, `<AddAggregate>`, the two adapters,
  * the cache factory, the arrangement's two READERS — `sheetLayoutViewId` and
  * `sheetSortOf`, which a host lands a sort through and reads it back at the
  * cursor — and the types. The rest of the pure helpers below (the codec, the
@@ -14,6 +14,9 @@ export type { SheetMetrics, SheetProps } from './Sheet.js';
 export { sheetLayoutScope, sheetLayoutViewId, sheetSortOf, sortArrow, sortedByWords, sortFromLayoutValue, sortPhraseOf, sortToLayoutValue, sortWords, SHEET_LAYOUT_KIND, SHEET_LAYOUT_PREFIX, SHEET_SORT_PROP } from './arrangement.js';
 export { AddColumn, ADD_COLUMN_HINT, ADD_COLUMN_NO_NUMBERS, ADD_COLUMN_PRESENTING } from './AddColumn.js';
 export type { AddColumnOutcome, AddColumnProps } from './AddColumn.js';
+// the same door one level out: a TABLE of one row per group, cut from the rows visible here
+export { AddAggregate, ADD_AGGREGATE_HINT, ADD_AGGREGATE_NO_COLUMNS, ADD_AGGREGATE_PRESENTING, ADD_AGGREGATE_WHOLE_TABLE } from './AddAggregate.js';
+export type { AddAggregateOutcome, AddAggregateProps } from './AddAggregate.js';
 export { sessionSheetData, threwSentence } from './sessionSheetData.js';
 export type { SessionSheetOptions, SheetSessionLike } from './sessionSheetData.js';
 export { httpSheetData, isViewQueryResult, windowQuery } from './httpSheetData.js';

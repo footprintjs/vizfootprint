@@ -18,12 +18,44 @@
  * confident answer about a table nobody declared that way, and the shape of it
  * would look exactly like the declared one.
  */
+import type { DerivedTable } from '../data/index.js';
 import type { DashboardRuntime } from '../def/types.js';
 import type { TableInfo } from './types.js';
 
-/** Every declared table as the def states it — read off the def and the runtime, never inferred from the rows. */
-export function tablesInfoOf(runtime: DashboardRuntime): TableInfo[] {
-  return runtime.tables.map((name) => {
+/**
+ * One table an ACT cut, as the act states it — the twin of the declared row
+ * below, and the one row here that is a projection of the TRACE.
+ *
+ * WHY it is still not a fact about the fold: an aggregate is computed once, at
+ * its cursor, and the record never moves again. Which tables are visible moves
+ * with the walker (the caller decides that, by handing in only the ones
+ * resolved at its cursor); what THIS table is does not.
+ *
+ * Its engine is stated, not looked up: the act minted a memory provider for
+ * its own slot ({@link DashboardRuntime.landDerivedTable}), so there is one
+ * possible answer and a second map holding it could only ever disagree.
+ */
+function derivedInfoOf(table: DerivedTable): TableInfo {
+  return {
+    name: table.name,
+    source: { computed: 'aggregate' },
+    engine: 'memory',
+    ...(table.key !== undefined ? { key: table.key } : {}),
+    derived: { of: table.of, groupBy: [...table.groupBy], measures: table.measures.map((measure) => measure.as), at: table.commitId },
+    // WHY the ACT's own count: nobody declared facets for a table nobody declared —
+    // the columns it lands are the group columns and the measures, and that is the
+    // whole schema the act promised.
+    declaredColumns: table.groupBy.length + table.measures.length,
+  };
+}
+
+/**
+ * Every declared table as the def states it, then every DERIVED table the
+ * caller says is visible — read off the def, the runtime and the act, never
+ * inferred from the rows.
+ */
+export function tablesInfoOf(runtime: DashboardRuntime, derived: readonly DerivedTable[] = []): TableInfo[] {
+  const declared = runtime.tables.map((name) => {
     const decl = runtime.def.data[name]!; // every runtime table is a def table
     const read = runtime.sources[name];
     const source: TableInfo['source'] =
@@ -42,4 +74,5 @@ export function tablesInfoOf(runtime: DashboardRuntime): TableInfo[] {
       declaredColumns: Object.keys(decl.columns ?? {}).length,
     };
   });
+  return [...declared, ...derived.map(derivedInfoOf)];
 }

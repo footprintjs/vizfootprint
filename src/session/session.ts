@@ -42,7 +42,7 @@ import type { CommitInput, CommitRecord } from '../log/index.js';
 // L1 `replayLog` and this session's own `replay`). Not on the `/log` barrel:
 // no importer outside this package has asked for it — PACKAGING.md, Law 2.
 import { replayInput } from '../log/log.js';
-import { NO_RELATED_ROWS, type AnalysisRunInput, type ColumnsOutput, type RelatedRows } from '../analysis/index.js';
+import { NO_RELATED_ROWS, type AnalysisRunInput, type ColumnsOutput, type RelatedRows, type TableOutput } from '../analysis/index.js';
 // The read-across permission: an analysis may read a table beside its own only
 // where a declared relation joins the two (`../def/README.md`, "Relations").
 // Imported from the module that OWNS relations, not the def barrel — the same
@@ -53,15 +53,15 @@ import { judgeAnalysisReads, neighbourhoodEndpoints } from '../def/relations.js'
 import { egoIds } from './neighbourhood.js';
 import { isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
-import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchValue, type NeighbourhoodValue, type NeighbourhoodValueBody, type PredicateClause, type Row } from '../data/index.js';
+import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchValue, type NeighbourhoodValue, type NeighbourhoodValueBody, type PredicateClause, type Row } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
 import { applyLinkOverrides, edgeId, impliedKinds, validateLinks, type LinkDecl } from '../links/index.js';
 
 import type { ActorMeta, CauseClause } from '../selection/index.js';
-import { absenceByTable, type BuiltinAnalysisContext } from '../def/builtinAnalyses.js';
+import { absenceByTable, type AggregateDecl, type BuiltinAnalysisContext } from '../def/builtinAnalyses.js';
 import { registerAnalysisSlot } from '../def/register.js';
 import { copyValue, deepFreeze } from '../detach/index.js';
-import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RestorableSaved, RestorableBookmark, RestoreResult, ViewEncodingDecl, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
+import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RelationEdge, RestorableSaved, RestorableBookmark, RestoreResult, ViewEncodingDecl, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
 import { describeRules, refuses, validateBindings } from '../encoding/index.js';
 import { ENCODING_KIND } from '../links/index.js';
 import { DASHBOARD_PROSE_ID, NOTE_PROSE_PREFIX, isNoteSubject, PROPOSAL_LANE, PROSE_SLOTS, fillProse, PROSE_SENTENCES, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
@@ -144,6 +144,7 @@ import type {
   ApplySavedOptions,
   ApplySavedResult,
   BookmarkResult,
+  TableInfo,
 } from './types.js';
 
 /**
@@ -437,6 +438,16 @@ export interface InteractionSession {
   viewQuery(query?: ViewQuery): Promise<ViewQueryResult>;
 
   /**
+   * Every table name readable AT THE CURSOR: the declared ones, then the
+   * derived ones an act cut on this branch (`src/data/derivedTables.ts`).
+   *
+   * The declared list does not move, which is why it cannot be the answer a
+   * walker gets: an aggregate is a table on the branch whose act cut it and
+   * nowhere else, so seeking past that act makes the name stop being a table.
+   */
+  tablesAt(): readonly string[];
+
+  /**
    * SAVED SELECTIONS ARE SAVED LOGIC. `saved()` lists the named pictures (the
    * store beside the log). `saveSelection`
    * names every live clause, one view's, or explicit conditions — it lands NO
@@ -488,6 +499,22 @@ export const VIEW_QUERY_DEFAULT_LIMIT = 200;
 const EMPTY_BINDINGS: Readonly<Record<string, string>> = Object.freeze({});
 /** No derived column on this table — the shared empty answer {@link Session.derivedAt} hands back. */
 const EMPTY_DERIVED: ReadonlyMap<string, DerivedColumn> = new Map();
+/** No derived table anywhere on this dashboard — the shared empty answer `derivedTablesAt` hands back. */
+const EMPTY_DERIVED_TABLES: ReadonlyMap<string, DerivedTable> = new Map();
+
+/**
+ * A read that did not answer: the sentence a gap quotes, and the engine's own
+ * rejection when there WAS an engine to reject it.
+ *
+ * The second half is what tells the two failures apart. An engine that refused
+ * the rows means the act was never performed and nothing is known — UNAVAILABLE
+ * (`../analysis/types.ts`). No provider at all means there was nothing to ask,
+ * which is the judge's business, not the data's.
+ */
+interface ReadRefusal {
+  readonly rejected: string;
+  readonly rejection?: DataProviderRejection;
+}
 /** No column landed — the shared empty slot map an analysis that wrote nothing carries. */
 const EMPTY_SLOTS: ReadonlyMap<string, string> = new Map();
 
@@ -699,7 +726,7 @@ class InteractionSessionImpl implements InteractionSession {
    * the opposite: it would land real numbers under real provenance and look
    * exactly like a correct answer.
    */
-  private actToReperform(record: CommitRecord): { readonly table?: string; readonly module?: RegisteredAnalysis } | { readonly unperformable: string } | undefined {
+  private actToReperform(record: CommitRecord): { readonly table?: string; readonly module?: RegisteredAnalysis; readonly aggregate?: AggregateDecl } | { readonly unperformable: string } | undefined {
     if (!record.viewId.startsWith(ANALYSIS_VIEW_PREFIX)) return undefined;
     const analysisId = record.viewId.slice(ANALYSIS_VIEW_PREFIX.length);
     const carried = analysisActOf(record.value)?.def;
@@ -725,22 +752,40 @@ class InteractionSessionImpl implements InteractionSession {
       }
     }
     const analysis = module ?? this.analysis(analysisId);
-    // An analysis that made no column has nothing to re-perform — but a declaration the log carries is
-    // still handed back, so the apply phase REGISTERS it: the log does declare it, and a gap saying this
-    // session does not would be false twice over (it is declared, and it wrote no column).
-    if (analysis === undefined || analysis.def.produces !== 'columns') return module !== undefined ? { module } : undefined;
+    // An analysis that left NOTHING outside the log has nothing to re-perform — but a declaration the log
+    // carries is still handed back, so the apply phase REGISTERS it: the log does declare it, and a gap
+    // saying this session does not would be false twice over (it is declared, and it wrote nothing).
+    // Two channels leave something outside: a COLUMN on the table it read, and a TABLE beside it. The
+    // rest — a statistic, a fit, a geometry — are wholly in their own answer.
+    if (analysis === undefined || !this.landsOutsideTheLog(analysis)) return module !== undefined ? { module } : undefined;
     const act = analysisActOf(record.value);
     if (act === undefined) {
       // Both lanes carry the act now — the `__analysis__` one and the `pValue`
       // one — so this is reached only by a record this library did not write:
       // a foreign log, or a hand-built one. Refusing says so; guessing would
       // land real numbers under real provenance and look correct.
-      return { unperformable: `analysis "${analysisId}" writes columns, and the record does not say which table it read` };
+      return { unperformable: `analysis "${analysisId}" writes ${analysis.def.produces === 'columns' ? 'columns' : 'a table'}, and the record does not say which table it read` };
     }
     if (!this.runtime.tables.includes(act.table)) {
       return { unperformable: `analysis "${analysisId}" read table "${act.table}", which this dashboard does not declare — the tables are ${this.runtime.tables.join(', ')}` };
     }
-    return { table: act.table, ...(module !== undefined ? { module } : {}) };
+    const aggregate = this.aggregateOf(analysis);
+    return { table: act.table, ...(module !== undefined ? { module } : {}), ...(aggregate !== undefined ? { aggregate } : {}) };
+  }
+
+  /**
+   * Does this analysis leave anything OUTSIDE the log for a replay to rebuild?
+   *
+   * Two channels do. A COLUMN lands on the table it read. A TABLE lands beside
+   * it — and only when an aggregate declaration rides on the act, because the
+   * slot, the key and the relation back to the parent are all minted from that
+   * record and from nothing else. Everything else — a statistic, a fit, a
+   * geometry — is wholly inside its own answer, and re-running it would spend
+   * the walk's time to arrive back where the log already is.
+   */
+  private landsOutsideTheLog(analysis: RegisteredAnalysis): boolean {
+    if (analysis.def.produces === 'columns') return true;
+    return analysis.def.produces === 'table' && this.aggregateOf(analysis) !== undefined;
   }
 
   async replay(log: readonly CommitRecord[] | string): Promise<ReplayResult> {
@@ -783,7 +828,7 @@ class InteractionSessionImpl implements InteractionSession {
     // must never touch the live engine
     const scratch = new CauseSelectionSession();
     /** commit id → the table its act read, and the module ITS commit declared, for exactly the acts this replay must re-perform. */
-    const acts = new Map<string, { readonly table: string; readonly module?: RegisteredAnalysis }>();
+    const acts = new Map<string, { readonly table: string; readonly module?: RegisteredAnalysis; readonly aggregate?: AggregateDecl }>();
     /** analysis id → the module its own commit declared, for the acts that brought one. */
     const declared = new Map<string, RegisteredAnalysis>();
     for (const [index, rec] of records.entries()) {
@@ -807,7 +852,7 @@ class InteractionSessionImpl implements InteractionSession {
       // a re-performance that read the tip's registration would rebuild the
       // earlier act's column from the later formula, under the earlier
       // provenance, and look exactly like a correct answer.
-      if (act.table !== undefined) acts.set(rec.id, { table: act.table, ...(act.module !== undefined ? { module: act.module } : {}) });
+      if (act.table !== undefined) acts.set(rec.id, { table: act.table, ...(act.module !== undefined ? { module: act.module } : {}), ...(act.aggregate !== undefined ? { aggregate: act.aggregate } : {}) });
       // A later act declaring the same id supersedes an earlier one AT THE TIP,
       // exactly as a re-registration does on a walk — the log is read in order,
       // so the last word is the last word for what this session declares.
@@ -880,7 +925,11 @@ class InteractionSessionImpl implements InteractionSession {
       // position: the ONE input path serves both doors, so a replayed act sees
       // the rows its original saw. No permission is re-judged here — the act
       // already happened, and a replay re-performs it rather than re-deciding it.
-      const input = await this.resolveAnalysisInput(true, act.table, performing.def.reads ?? []);
+      // …under the rule its OWN channel reads by: a columns act runs over the whole
+      // table (its values must align to the row order), and every other channel —
+      // an aggregate's table among them — over the selection folded HERE. Reading a
+      // table act whole would rebuild it from rows the act never folded in.
+      const input = await this.resolveAnalysisInput(performing.def.produces === 'columns', act.table, performing.def.reads ?? []);
       if ('rejected' in input) {
         this.gapLedger.file('needs-backend-data', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but its input could not be read back: ${input.rejected}`, analysisId);
         continue;
@@ -892,12 +941,26 @@ class InteractionSessionImpl implements InteractionSession {
         this.gapLedger.file('effect-failed', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but re-running it threw: ${messageOf(error)}`, analysisId);
         continue;
       }
-      const out = run.result.ok && run.result.output.as === 'columns' ? run.result.output : undefined;
-      if (out === undefined) {
-        this.gapLedger.file('guard-failed', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but re-running it produced no columns on this data — the column it wrote could not be rebuilt`, analysisId);
+      const output = run.result.ok ? run.result.output : undefined;
+      if (output === undefined) {
+        this.gapLedger.file('guard-failed', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but re-running it found no honest answer on this data — what it landed could not be rebuilt`, analysisId);
         continue;
       }
-      const written = await this.writeColumns(analysisId, out, run.snapshot, rec.id, 'replay');
+      // The SAME two owners the walk lands through, at the replayed commit's own
+      // id — so a column goes back into the slot it had, and a table is cut into
+      // the slot it had, with the key and the relation minted from the record again.
+      let slots: ReadonlyMap<string, string> = EMPTY_SLOTS;
+      if (output.as === 'columns') {
+        slots = (await this.writeColumns(analysisId, output, run.snapshot, rec.id, 'replay')).slots;
+      } else if (output.as === 'table' && act.aggregate !== undefined) {
+        this.writeTable(analysisId, output, act.aggregate, act.table, rec.id, 'replay');
+      } else {
+        // The act was accepted as one that lands something, and it landed something
+        // else — a module whose declared channel and its answer disagree. Named, not
+        // guessed at: guessing would put real values under real provenance.
+        this.gapLedger.file('guard-failed', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but re-running it produced ${output.as === 'table' ? 'a table no declaration on the commit could cut' : `a ${output.as}`} — what it landed could not be rebuilt`, analysisId);
+        continue;
+      }
       // `why({kind:'column'})` answers about the act, and the act is the
       // replayed commit — so the provenance is rebuilt beside the values.
       // A columns transform reads the whole table, never the selection, so its
@@ -910,7 +973,7 @@ class InteractionSessionImpl implements InteractionSession {
         ...(run.snapshot ? { snapshot: run.snapshot } : {}),
         ...(rec.correlationId !== undefined ? { correlationId: rec.correlationId } : {}),
       };
-      this.noteColumnProvenance(written.slots, prov);
+      this.noteColumnProvenance(slots, prov);
       // …and the hypothesis channel beside it, on the same rule the walk uses:
       // a declared test is answerable by `why({kind:'hypothesis'})` whichever
       // channel it produced on. It carries NO `fdrStep`, and that is the law
@@ -1481,9 +1544,121 @@ class InteractionSessionImpl implements InteractionSession {
    * See `src/data/README.md`.
    */
   private derivedAt(table: string): ReadonlyMap<string, DerivedColumn> {
-    const entries = this.runtime.derived.forTable(table);
+    const entries = this.runtime.derived.forTable(this.physicalTableOf(table));
     if (entries.length === 0) return EMPTY_DERIVED; // fast path: nothing derived on this table
     return resolveDerived(entries, this.branchPath(this._cursor).map((r) => r.id));
+  }
+
+  // ── derived TABLES: the same resolution, one level out (`src/data/derivedTables.ts`) ──
+  /**
+   * What each derived table NAME means at the cursor. The twin of
+   * {@link derivedAt}, through the SAME {@link resolveDerived}: an aggregate
+   * belongs to the act that made it exactly as a derived column does, so it is
+   * visible on the branch that cut it, superseded by a later act of the same
+   * name on that branch, and absent everywhere else.
+   *
+   * Flat, not per parent: a table's name is resolved dashboard-wide, because a
+   * reader asking for `by_disease` has not said which parent it was cut from —
+   * and two acts that cut that name are two tables whichever parents they read.
+   */
+  private derivedTablesAt(): ReadonlyMap<string, DerivedTable> {
+    const entries = this.runtime.derivedTables.all();
+    if (entries.length === 0) return EMPTY_DERIVED_TABLES; // fast path: no act has cut a table
+    return resolveDerived(entries, this.branchPath(this._cursor).map((r) => r.id));
+  }
+
+  /**
+   * The slot a table NAME reads from at the cursor: a derived table's own
+   * physical name, or the name itself. THE ONE translator — every read of a
+   * table goes through it, so a derived table is an ordinary table to every
+   * door above (`ask`, `columnsOf`, `viewQuery`), and no door has to know the
+   * grammar `src/data/derivedColumns.ts` owns.
+   */
+  private physicalTableOf(table: string): string {
+    return this.derivedTablesAt().get(table)?.physical ?? table;
+  }
+
+  /**
+   * Every physical column slot on the table a NAME reads at the cursor — the
+   * whole set, across branches, which is what the row door drops by.
+   *
+   * Through {@link physicalTableOf} for the store's own reason: a column lands
+   * in the SLOT its parent table had when the act ran, and a logical table name
+   * is re-minted by every act that cuts it. Keyed by the name, a column landed
+   * on `by_disease@s3` would still answer for the `by_disease@s9` a later act
+   * cut — a slot the rows are not in, and one `effectiveColumnsOf` correctly
+   * does not list, so the column door and the row door would disagree.
+   */
+  private derivedSlotsOf(table: string): ReadonlySet<string> {
+    return this.runtime.derived.physicalNames(this.physicalTableOf(table));
+  }
+
+  /** The provider a table NAME reads from at the cursor. Nothing else in this session asks the runtime for a provider by name. */
+  private providerOf(table: string): DataProvider | undefined {
+    return this.runtime.providerFor(this.physicalTableOf(table));
+  }
+
+  /**
+   * Every table name readable at the cursor: the declared ones, then the
+   * derived ones visible on this branch. THE list every door judges a table
+   * name against — `runtime.tables` is the MAP's list and does not move, which
+   * is exactly why it cannot be the one a walker is answered from.
+   */
+  tablesAt(): readonly string[] {
+    const derived = this.derivedTablesAt();
+    return derived.size === 0 ? this.runtime.tables : [...this.runtime.tables, ...derived.keys()];
+  }
+
+  /** Every table visible at the cursor as the def and the acts state it — the Sources rows (`./tablesInfo.ts`), branch-scoped. */
+  private effectiveTablesOf(): readonly TableInfo[] {
+    return tablesInfoOf(this.runtime, [...this.derivedTablesAt().values()]);
+  }
+
+  /**
+   * The edges between tables at the cursor: the declared ones, then the edge
+   * each visible derived table MINTED back to its parent.
+   *
+   * WHY they are not pushed into `runtime.relations`: the declared list is the
+   * MAP's, resolved and frozen once at build, and it is shared by every session
+   * on this dashboard. A minted edge belongs to ONE act on ONE branch — writing
+   * it into the map would make it true for a walker who never made it.
+   */
+  private relationsAt(): readonly RelationEdge[] {
+    const derived = this.derivedTablesAt();
+    if (derived.size === 0) return this.runtime.relations;
+    const minted: RelationEdge[] = [];
+    for (const table of derived.values()) if (table.relation !== undefined) minted.push(table.relation);
+    return [...this.runtime.relations, ...minted];
+  }
+
+  /** The row key a table NAME carries at the cursor: the def's declared key, or the key an act MINTED from its one group column. */
+  private keyOf(table: string): string | undefined {
+    const derived = this.derivedTablesAt().get(table);
+    return derived === undefined ? this.runtime.def.data[table]!.key : derived.key;
+  }
+
+  /**
+   * What data an act over `table` was true of, for the commit's own stamp — or
+   * nothing when the session's hook already answers for this table.
+   *
+   * The hook (`log.stampData`) stamps the DEFAULT table's version, because that
+   * is the table selections and filters act on. An act names the table it read,
+   * so it answers for that one instead; an empty stamp is the honest answer for
+   * a table nothing versions (inline rows never move).
+   */
+  private dataStampFor(table: string): Readonly<Record<string, string>> | undefined {
+    if (table === this.defaultTable) return undefined; // the hook says exactly this, byte-identically
+    const version = this.dataVersionOf(table);
+    return version === undefined ? {} : { [table]: version };
+  }
+
+  /**
+   * The data version a table's rows were true of: what its source vouched for,
+   * or — for a derived table — the version of the parent its act was cut from.
+   * Absent for a table nothing versions (inline rows never move).
+   */
+  private dataVersionOf(table: string): string | undefined {
+    return this.runtime.sources[table]?.version ?? this.derivedTablesAt().get(table)?.dataVersion;
   }
 
   // ── ids ────────────────────────────────────────────────────────────────────
@@ -1509,13 +1684,17 @@ class InteractionSessionImpl implements InteractionSession {
   // Both readers surface a provider REJECTION as a typed `{ rejected }` (never a
   // misleading empty array) so a REQUEST-boundary caller (doProbe / declareAnalysis)
   // can file a `needs-backend-data` gap rather than silently dropping (R14).
-  private async allRows(table: string, clauses: readonly PredicateClause[] = []): Promise<readonly Row[] | { rejected: string }> {
-    const provider = this.runtime.providerFor(table);
+  private async allRows(table: string, clauses: readonly PredicateClause[] = []): Promise<readonly Row[] | ReadRefusal> {
+    const provider = this.providerOf(table);
     if (!provider) return { rejected: `no provider for table "${table}"` };
     // the whole live selection is ONE query to the engine — the session never folds rows in JS after the answer
     const res = await this.ask(table, provider, clauses, { mode: 'rows' });
+    // THE ENGINE'S OWN REJECTION rides along, not just the sentence: a read that
+    // was refused BY an engine is UNAVAILABLE (`../analysis/types.ts`), and the
+    // caller cannot tell that from a string. A table with no provider carries
+    // none — nothing rejected it; there was nothing to ask.
     /* v8 ignore next -- every provider's reject() (memory/wasm/server, src/data/*Provider.ts) always supplies a `detail`; `res.reason` fallback is unreachable via the public API */
-    if (isRejection(res)) return { rejected: res.detail ?? res.reason };
+    if (isRejection(res)) return { rejected: res.detail ?? res.reason, rejection: res };
     /* v8 ignore next -- allRows always requests { mode: 'rows' }, and the only non-rejecting provider (memory) always sets `.rows` in that mode; the `?? []` fallback is unreachable via the public API */
     return res.rows ?? [];
   }
@@ -1543,8 +1722,9 @@ class InteractionSessionImpl implements InteractionSession {
   ): Promise<EvaluateResult | DataProviderRejection> {
     // the WHOLE physical set, not just this cursor's: a slot another branch's act landed is in
     // the shared store too, and the row door must drop it rather than hand it out as a column
-    const slots = this.runtime.derived.physicalNames(table);
-    if (slots.size === 0) return provider.evaluate(table, clauses.length === 0 ? null : clauses, options);
+    const physical = this.physicalTableOf(table); // a derived table answers under its act's own slot
+    const slots = this.derivedSlotsOf(table);
+    if (slots.size === 0) return provider.evaluate(physical, clauses.length === 0 ? null : clauses, options);
     const here = this.derivedAt(table);
     const slot = (field: string): string => here.get(field)?.physical ?? field;
     const asked: EvaluateOptions = {
@@ -1553,18 +1733,20 @@ class InteractionSessionImpl implements InteractionSession {
       ...(options.sort !== undefined ? { sort: options.sort.map((k) => ({ ...k, field: slot(k.field) })) } : {}),
     };
     const mapped = clauses.map((c) => renameClauseFields(c, slot));
-    const res = await provider.evaluate(table, mapped.length === 0 ? null : mapped, asked);
+    const res = await provider.evaluate(physical, mapped.length === 0 ? null : mapped, asked);
     if (isRejection(res) || res.rows === undefined) return res;
     const back = new Map([...here.values()].map((d) => [d.physical, d.name] as const));
     return { ...res, rows: res.rows.map((r) => renameRowSlots(r, back, slots)) };
   }
 
-  private async columnsOf(table: string): Promise<readonly ColumnInfo[] | { rejected: string }> {
-    const provider = this.runtime.providerFor(table);
+  private async columnsOf(table: string): Promise<readonly ColumnInfo[] | ReadRefusal> {
+    const provider = this.providerOf(table);
     if (!provider) return { rejected: `no provider for table "${table}"` };
-    const res = await provider.columns(table);
+    const res = await provider.columns(this.physicalTableOf(table));
+    // the engine's own rejection rides along, for `allRows`' reason: an act judged
+    // against a table an ENGINE could not describe is UNAVAILABLE, not degenerate
     /* v8 ignore next -- every provider's reject() (memory/wasm/server, src/data/*Provider.ts) always supplies a `detail`; `res.reason` fallback is unreachable via the public API */
-    if (isRejection(res)) return { rejected: res.detail ?? res.reason };
+    if (isRejection(res)) return { rejected: res.detail ?? res.reason, rejection: res };
     return res;
   }
 
@@ -1578,7 +1760,7 @@ class InteractionSessionImpl implements InteractionSession {
   private async declaredColumnsOf(table: string): Promise<Set<string> | { rejected: string }> {
     const cols = await this.columnsOf(table);
     if ('rejected' in cols) return cols;
-    const slots = this.runtime.derived.physicalNames(table);
+    const slots = this.derivedSlotsOf(table);
     return new Set(cols.map((c) => c.name).filter((name) => !slots.has(name)));
   }
 
@@ -1597,10 +1779,10 @@ class InteractionSessionImpl implements InteractionSession {
    * A store column the registry does not know is DECLARED source data, and is
    * visible on every branch: the map does not move with the walker.
    */
-  private async effectiveColumnsOf(table: string): Promise<readonly ColumnInfo[] | { rejected: string }> {
+  private async effectiveColumnsOf(table: string): Promise<readonly ColumnInfo[] | ReadRefusal> {
     const cols = await this.columnsOf(table);
     if ('rejected' in cols) return cols;
-    const slots = this.runtime.derived.physicalNames(table);
+    const slots = this.derivedSlotsOf(table);
     if (slots.size === 0) return cols; // fast path: nothing derived on this table
     const here = new Map([...this.derivedAt(table).values()].map((d) => [d.physical, d.name] as const));
     const out: ColumnInfo[] = [];
@@ -1712,7 +1894,12 @@ class InteractionSessionImpl implements InteractionSession {
   async viewQuery(query: ViewQuery = {}): Promise<ViewQueryResult> {
     // a layer address defaults to the layer's own table — the window a layer draws is a window on what it reads
     const table = query.table ?? (query.viewId === undefined ? this.defaultTable : this.tableFor(query.viewId));
-    if (!this.runtime.tables.includes(table)) return { ok: false, reason: 'unknown-table', rejected: `no table "${table}" is declared — the tables are ${this.runtime.tables.join(', ')}` };
+    // AT THE CURSOR, not in the def: a derived table is readable on the branch
+    // whose act cut it and nowhere else, so seeking past that act makes the name
+    // stop being a table — and the sentence has to say the tables HERE, or a
+    // reader is sent to look for a declaration that never existed.
+    const here = this.tablesAt();
+    if (!here.includes(table)) return { ok: false, reason: 'unknown-table', rejected: `no table "${table}" here — the tables at this point are ${here.join(', ')}` };
     if (query.viewId !== undefined && !this.holdsView(query.viewId)) return { ok: false, reason: 'unknown-view', rejected: `no declared view "${query.viewId}" — the views are ${[...this.runtime.views.keys()].join(', ')}` };
     // an address and a table that disagree are two answers to one question: a layer is gated on ITS table (../def/README.md, "Layers"), so serving the
     // other table's rows under the layer's address would be a second resolver of the address — refused by name instead, saying which two tables disagree
@@ -1720,7 +1907,7 @@ class InteractionSessionImpl implements InteractionSession {
     if (place?.layer !== undefined && query.table !== undefined && query.table !== place.layer.table) {
       return { ok: false, reason: 'table-mismatch', rejected: `layer "${query.viewId}" reads table "${place.layer.table}", not "${query.table}" — ask for its window without a table, or ask table "${query.table}" without the layer` };
     }
-    const provider = this.runtime.providerFor(table);
+    const provider = this.providerOf(table);
     // the version is read in the SAME instant as the provider, and checked again after the rows: a refresh landing anywhere in between is a moved version, never a misdated window
     const version = this.runtime.sources[table]?.version ?? null;
     /* v8 ignore next -- every declared table resolves a provider (the def validator refuses an unknown engine; the stubs are providers too) */
@@ -1730,7 +1917,7 @@ class InteractionSessionImpl implements InteractionSession {
     // whose eyes: a view sees what reaches it; no view = the whole-dashboard truth, every live clause filtering (what selectedRowCount counts)
     const clauses: ReachingClause[] = query.viewId === undefined ? [...this.activeFilters].filter(([from]) => this.clauseReaches(from, table)).map(([from, clause]) => ({ from, clause: copyClause(clause), response: 'filter' as const })) : [...this.clausesFor(query.viewId)];
     const filters = clauses.filter((c) => c.response === 'filter').map((c) => c.clause);
-    const key = this.runtime.def.data[table]!.key; // the table is declared: its def row exists
+    const key = this.keyOf(table); // the table is readable here: it has a def row or an act's minted key
     let columns = query.columns;
     if (columns === undefined) {
       const cols = await this.effectiveColumnsOf(table);
@@ -2063,7 +2250,7 @@ class InteractionSessionImpl implements InteractionSession {
 
   /** How many rows the live selection keeps — the engine counts; no row is materialised. */
   private async selectedCount(table: string, clauses: readonly PredicateClause[]): Promise<number | null> {
-    const provider = this.runtime.providerFor(table);
+    const provider = this.providerOf(table);
     if (!provider) return null;
     const res = await this.ask(table, provider, clauses, { mode: 'count' });
     return isRejection(res) ? null : res.count;
@@ -2098,7 +2285,7 @@ class InteractionSessionImpl implements InteractionSession {
     producesColumns: boolean,
     table: string,
     reads: readonly string[] = [],
-  ): Promise<AnalysisRunInput | { rejected: string }> {
+  ): Promise<AnalysisRunInput | ReadRefusal> {
     // Columns-channel analyses run over the FULL table (materialized values must
     // align to the row order); every other channel runs over the selection — one query either way.
     // The selection is the clauses that REACH this table (`clausesOn`), the rule every other own-table
@@ -2128,12 +2315,15 @@ class InteractionSessionImpl implements InteractionSession {
    * A backend that refuses one stops the whole act — the analysis asked for
    * those rows, and half an input is not an input (R14).
    */
-  private async resolveRelatedRows(reads: readonly string[]): Promise<{ related: RelatedRows } | { rejected: string }> {
+  private async resolveRelatedRows(reads: readonly string[]): Promise<{ related: RelatedRows } | ReadRefusal> {
     if (reads.length === 0) return { related: NO_RELATED_ROWS };
     const related: Record<string, readonly Row[]> = {};
     for (const table of reads) {
       const rows = await this.allRows(table, this.clausesOn(table));
-      if ('rejected' in rows) return { rejected: `related table "${table}": ${rows.rejected}` };
+      // the refusal is carried WHOLE and only its sentence widened — the engine's own
+      // rejection is what tells UNAVAILABLE from a judge's answer, and it is not this
+      // door's to drop just because it is quoting the read one table along
+      if ('rejected' in rows) return { ...rows, rejected: `related table "${table}": ${rows.rejected}` };
       related[table] = rows.map((row) => ({ ...row }));
     }
     return { related };
@@ -2498,7 +2688,7 @@ class InteractionSessionImpl implements InteractionSession {
     // 3. the EDGE: two declared relations at one identity (law 7). Read off the
     //    MAP, in declaration order, so either end names the same walk.
     const table = this.tableFor(viewId); // a layer's own table; the default for a view
-    const ends = neighbourhoodEndpoints(this.runtime.relations, table, field);
+    const ends = neighbourhoodEndpoints(this.relationsAt(), table, field);
     if ('rejected' in ends) {
       return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, ends.rejected, field));
     }
@@ -3317,7 +3507,7 @@ class InteractionSessionImpl implements InteractionSession {
     const materialized: string[] = [];
     const slots = new Map<string, string>();
     let gap: GapRow | undefined;
-    const provider = this.runtime.providerFor(out.table);
+    const provider = this.providerOf(out.table);
     // JUDGE FIRST (src/session/README.md): which names on this table are the
     // MAP's — declared source data — decides, before a single value moves,
     // which of this analysis's columns are allowed to land at all. A store
@@ -3363,7 +3553,7 @@ class InteractionSessionImpl implements InteractionSession {
         // turn: the answer says exactly which column did not land.
         let landed: Awaited<ReturnType<typeof provider.materializeColumn>>;
         try {
-          landed = await provider.materializeColumn(out.table, slot, values);
+          landed = await provider.materializeColumn(this.physicalTableOf(out.table), slot, values);
         } catch (error) {
           gap = this.gapLedger.file('effect-failed', op, `analysis "${analysisId}" ran, but writing column "${name}" back into table "${out.table}" threw: ${messageOf(error)}`, name);
           continue;
@@ -3373,14 +3563,84 @@ class InteractionSessionImpl implements InteractionSession {
           /* v8 ignore next -- every provider's materializeColumn() rejection (memory/wasm/server, src/data/*Provider.ts) always supplies a `detail`; the `landed.reason` fallback is unreachable via the public API */
           gap = this.gapLedger.file(code, op, landed.detail ?? landed.reason, name);
         } else {
-          // the slot is the act's; the NAME is what everything else speaks
-          this.runtime.derived.record({ table: out.table, name, physical: slot, commitId });
+          // The slot is the act's; the NAME is what everything else speaks. Registered against the
+          // table SLOT the values went into, never the logical name: a later act that re-cuts that
+          // name is a different table, and this column is not one of its columns.
+          this.runtime.derived.record({ table: this.physicalTableOf(out.table), name, physical: slot, commitId });
           slots.set(name, slot);
           materialized.push(name);
         }
       }
     }
     return { materialized, slots, ...(gap ? { gap } : {}) };
+  }
+
+  /**
+   * THE ONE OWNER of the derived-table write: judge the name the act would
+   * take, then land its rows in a slot of their own under the act that cut
+   * them. The twin of {@link writeColumns}, one level out — and its two callers
+   * are the same two, for the same reason: `declareAnalysis` performs the act,
+   * `replay` re-performs one the log already records, and a second copy of this
+   * rule would agree until the day the judge changed.
+   *
+   * What the ACT mints, nobody types: the physical slot from the commit id, the
+   * KEY from the one group column, and from the key the relation back to the
+   * parent (`../data/derivedTables.ts`). A record that could name its own
+   * relation could name one nobody declared.
+   *
+   * The rows are never written to the log. They live in the provider this mints
+   * and are recomputed on replay from the record — which is the whole reason
+   * the parent's data version rides along: a table cut from bytes that have
+   * since moved is dropped, not re-cut against rows it never saw
+   * (`../def/buildDashboard.ts`, the refresh).
+   */
+  private writeTable(
+    analysisId: string,
+    out: TableOutput,
+    decl: AggregateDecl,
+    parent: string,
+    commitId: string,
+    op: 'declareAnalysis' | 'replay',
+  ): GapRow | undefined {
+    // A DERIVED table may never take a DECLARED table's name — the law
+    // `writeColumns` keeps for a column, said one level out. Both lists are
+    // asked: `tables` is what resolved a provider, `data` is what the def
+    // declared, and a name in either is the map's.
+    if (this.runtime.tables.includes(out.name) || Object.prototype.hasOwnProperty.call(this.runtime.def.data, out.name)) {
+      return this.gapLedger.file(this.gapCodeFor(analysisId, 'invalid'), op, `analysis "${analysisId}" would land the derived table "${out.name}" over the declared table "${out.name}" — a computed table may not take a declared table's name`, out.name);
+    }
+    if (!canNameSlot(commitId)) {
+      // the slot grammar's own reserved marker, arriving on a replayed id: two acts'
+      // tables could not be told apart in the providers map, so nothing is landed
+      return this.gapLedger.file('guard-failed', op, `analysis "${analysisId}" ran at commit "${commitId}", whose id cannot name a table slot — its rows were not landed`, out.name);
+    }
+    const version = this.dataVersionOf(parent);
+    this.runtime.landDerivedTable(
+      mintDerivedTable({
+        name: out.name,
+        commitId,
+        of: parent,
+        groupBy: decl.groupBy,
+        measures: decl.measures,
+        ...(decl.where === undefined ? {} : { where: decl.where }),
+        ...(version === undefined ? {} : { dataVersion: version }),
+      }),
+      out.rows,
+    );
+    return undefined;
+  }
+
+  /**
+   * The aggregate declaration an analysis carries, or nothing.
+   *
+   * WHY a table output lands only with one: the slot, the key, the relation and
+   * the replay all come from the RECORD — the group columns and the measures
+   * are what a derived table IS. An analysis whose table nobody can write down
+   * has no act to belong to, so its rows stay in its own answer, exactly where
+   * they have always been.
+   */
+  private aggregateOf(analysis: RegisteredAnalysis): AggregateDecl | undefined {
+    return analysis.record?.builtin === 'aggregate' ? analysis.record : undefined;
   }
 
   /**
@@ -3413,13 +3673,28 @@ class InteractionSessionImpl implements InteractionSession {
       result: { ok: false, reason: 'degenerate-fit', n: 0, fitDegenerate: true },
       gap,
     });
+    /**
+     * The rows could not be READ. When an ENGINE refused them the act was never
+     * performed and nothing is known about the data — that is UNAVAILABLE, a
+     * third outcome, and calling it a degenerate fit was a claim about rows
+     * nobody ever saw. With no engine to refuse (no provider at all) there is
+     * nothing to say about the data, and the judge's shape is the honest one.
+     */
+    const couldNotRead = (read: ReadRefusal, code: GapCode): AnalysisCommit => {
+      const gap = this.gapLedger.file(code, 'declareAnalysis', read.rejected, id);
+      return read.rejection === undefined
+        ? refused(gap)
+        : { analysisId: id, kind: analysis.kind, result: { ok: false, reason: 'unavailable', rejection: read.rejection }, gap };
+    };
     // THE PERMISSION, FIRST OF ALL (./README.md, law 1; ../def/README.md law 6).
     // An analysis that reads a table BESIDE the one it runs over may do so only
     // where a declared relation joins the two. This is the cheapest judge on the
     // door — declaration against declaration, no row and no backend — so it is
     // asked before the columns are even fetched.
     const reads = analysis.def.reads ?? [];
-    const notPermitted = judgeAnalysisReads(id, table, reads, this.runtime.tables, this.runtime.relations);
+    // AT THE CURSOR: a table an act cut is a table, and the edge it minted back
+    // to its parent is a permission — on the branch that cut it, and nowhere else.
+    const notPermitted = judgeAnalysisReads(id, table, reads, this.tablesAt(), this.relationsAt());
     if (notPermitted.length > 0) {
       return refused(this.gapLedger.file('guard-failed', 'declareAnalysis', notPermitted.join('; '), id));
     }
@@ -3432,7 +3707,7 @@ class InteractionSessionImpl implements InteractionSession {
     if (analysis.def.judgeTable) {
       const columns = await this.effectiveColumnsOf(table);
       if ('rejected' in columns) {
-        return refused(this.gapLedger.file(this.gapCodeFor(id, 'source'), 'declareAnalysis', `analysis "${id}" could not be judged against table "${table}": ${columns.rejected}`, id));
+        return couldNotRead({ ...columns, rejected: `analysis "${id}" could not be judged against table "${table}": ${columns.rejected}` }, this.gapCodeFor(id, 'source'));
       }
       const problems = analysis.def.judgeTable(table, columns);
       if (problems.length > 0) {
@@ -3452,11 +3727,11 @@ class InteractionSessionImpl implements InteractionSession {
       // `{}` for a table it declared would lay out an edgeless graph and call
       // it a success. Half an input is not an input (R14).
       const beside = await this.resolveRelatedRows(reads);
-      if ('rejected' in beside) return refused(this.gapLedger.file('needs-backend-data', 'declareAnalysis', beside.rejected, id));
+      if ('rejected' in beside) return couldNotRead(beside, 'needs-backend-data');
       related = beside.related;
     } else {
       const resolved = await this.resolveAnalysisInput(analysis.def.produces === 'columns', table, reads);
-      if ('rejected' in resolved) return refused(this.gapLedger.file(this.gapCodeFor(id, 'source'), 'declareAnalysis', resolved.rejected, id));
+      if ('rejected' in resolved) return couldNotRead(resolved, this.gapCodeFor(id, 'source'));
       input = resolved.rows;
       related = resolved.related;
     }
@@ -3464,6 +3739,8 @@ class InteractionSessionImpl implements InteractionSession {
     const baseCause: Cause = opts.cause ?? { requestedBy: opts.as ?? this.defaultActor, computedBy: 'system' };
     const stamped = stampCause(baseCause, 'analyze', opts.as); // computedBy FORCED to 'system' (R1)
 
+    /** The declaration a derived TABLE is minted from — present exactly for an aggregate ({@link aggregateOf}). */
+    const aggregate = this.aggregateOf(analysis);
     let hypothesis: AnalysisCommit['hypothesis'];
     let fdrStep: FdrStep | undefined;
     const run = await analysis.run(input, {
@@ -3497,6 +3774,7 @@ class InteractionSessionImpl implements InteractionSession {
     // one is enough to perform it again with nothing registered first. A module
     // carries none, because a function cannot ride. See {@link AnalysisAct}.
     const declaration = analysis.record !== undefined ? { def: analysis.record } : {};
+    const dataStamp = this.dataStampFor(table);
     let landValue: unknown = { id, table, ...declaration } satisfies AnalysisAct;
     if (analysis.kind === 'test' && hypothesis) {
       // The L1-native test emission: a point commit on the reserved 'pValue'
@@ -3511,6 +3789,11 @@ class InteractionSessionImpl implements InteractionSession {
       id: this.nextId(),
       parent: this._cursor, // R8 branch-on-act: declaring from a past cursor branches first, then lands
       ...(opts.correlationId !== undefined ? { correlationId: opts.correlationId } : {}),
+      // WHICH DATA THIS ACT WAS TRUE OF — the table it READ, when that is not the
+      // session's default. The session's own hook answers for the default table,
+      // which is a different table's version for an act over another one; an
+      // aggregate stamped that way would claim a version its rows never came from.
+      ...(dataStamp === undefined ? {} : { data: dataStamp }),
       viewId: analysisViewId,
       actorMeta: { actor: 'system' },
       kind: 'point',
@@ -3531,6 +3814,10 @@ class InteractionSessionImpl implements InteractionSession {
       materialized = written.materialized;
       slots = written.slots;
       gap = written.gap;
+    } else if (run.result.output.as === 'table' && aggregate !== undefined) {
+      // …and a table-channel output lands the same way, one level out: an
+      // aggregate re-enters the data space as an ordinary, readable table.
+      gap = this.writeTable(id, run.result.output, aggregate, table, record.id, 'declareAnalysis');
     }
 
     // ── L6 provenance capture (collect during the run, never post-process) ──────
@@ -3795,7 +4082,7 @@ class InteractionSessionImpl implements InteractionSession {
    * failure this whole area exists to remove.
    */
   private slotForColumn(column: string): string | undefined {
-    for (const table of this.runtime.tables) {
+    for (const table of this.tablesAt()) {
       const hit = this.derivedAt(table).get(column);
       if (hit) return hit.physical;
     }
@@ -3922,7 +4209,7 @@ class InteractionSessionImpl implements InteractionSession {
     // columns per table (schema only — VALUES never ride here; Q8).
     const columns: Record<string, ColumnFacet[]> = {};
     const colNamesByTable = new Map<string, Set<string>>();
-    for (const table of this.runtime.tables) {
+    for (const table of this.tablesAt()) {
       const cols = await this.effectiveColumnsOf(table); // branch-scoped: hides columns off the cursor's branch
       if ('rejected' in cols) {
         columns[table] = [];
@@ -4075,10 +4362,11 @@ class InteractionSessionImpl implements InteractionSession {
       sources: deepFreeze({ ...this.runtime.sources }),
       keys: this.runtime.keys,
       // the Sources tab's rows: every declared table as the def states it, and the data journal beside the log
-      tables: tablesInfoOf(this.runtime),
+      tables: this.effectiveTablesOf(),
       // WHY: the `keys` precedent — the MAP's edges between tables were resolved and frozen once at build,
-      // so they are handed back by reference: projected, never re-derived
-      relations: this.runtime.relations,
+      // so they are handed back by reference: projected, never re-derived. Beside them, the edge each
+      // derived table visible HERE minted back to its parent — an act's edge, on the act's own branch.
+      relations: this.relationsAt(),
       journal: Object.freeze(this.runtime.journal.slice(-JOURNAL_TAIL)), // fresh list; each entry was frozen when it was written
       journalTotal: this.runtime.journal.length,
       selectedRowCount: selCount,

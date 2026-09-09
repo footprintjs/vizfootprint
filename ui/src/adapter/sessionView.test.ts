@@ -1002,6 +1002,19 @@ describe('the declared tables and the data journal (overview.tables, overview.jo
         },
       },
     ]);
+    // a table an ACT cut rides the same wire: the computed source, and the act
+    // that cut it — dropped WHOLE when any part of it is unreadable, because
+    // half an origin is a claim about an act nobody can check
+    const cutTables = [
+      { name: 'by_region', source: { computed: 'aggregate' }, engine: 'memory', key: 'region', declaredColumns: 2, derived: { of: 'cells', groupBy: ['region'], measures: ['total'], at: 's12' } },
+      { name: 'half', source: { computed: 'aggregate' }, engine: 'memory', declaredColumns: 1, derived: { of: 'cells', groupBy: ['region'], at: 's12' } },
+      { name: 'nonsense', source: { computed: 'aggregate' }, engine: 'memory', declaredColumns: 1, derived: 'from somewhere' },
+    ];
+    const withCut = mapPollState({ ...RAW, tables: cutTables });
+    expect(withCut.tables?.[0]).toEqual({ name: 'by_region', source: { computed: 'aggregate' }, engine: 'memory', key: 'region', declaredColumns: 2, derived: { of: 'cells', groupBy: ['region'], measures: ['total'], at: 's12' } });
+    expect(withCut.tables?.[1]).toEqual({ name: 'half', source: { computed: 'aggregate' }, engine: 'memory', declaredColumns: 1 });
+    expect(withCut.tables?.[2]).toEqual({ name: 'nonsense', source: { computed: 'aggregate' }, engine: 'memory', declaredColumns: 1 });
+
     expect(mapPollState(RAW).tables).toBeUndefined();
     expect(mapPollState(RAW).journal).toBeUndefined();
     expect(mapPollState({ ...RAW, tables: 'x', journal: 'y' })).toMatchObject({ tables: [], journal: [] });

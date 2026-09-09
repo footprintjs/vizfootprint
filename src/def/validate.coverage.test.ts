@@ -427,6 +427,26 @@ describe('validateDashboardDef — absence (the declared silence vocabulary)', (
     expect(validateDashboardDef(withAbsence({ field: 'state', states: ['present', 'not catalogued', 'unknown'] }))).toEqual([]);
   });
 
+  it('accepts a `carries` list of declared silences — the states that hold a number anyway', () => {
+    expect(validateDashboardDef(withAbsence({ field: 'state', states: ['present', 'estimated', 'replaced', 'unavailable', 'unknown'], carries: ['estimated', 'replaced'] }))).toEqual([]);
+  });
+
+  it('refuses a malformed `carries`, a word the vocabulary never declared, and the two words it may never name', () => {
+    const decl = (carries: unknown): unknown => withAbsence({ field: 'state', states: ['present', 'estimated', 'unknown'], carries });
+    for (const bad of ['estimated', [], ['']]) {
+      expect(validateDashboardDef(decl(bad))).toContain('data["data"].absence.carries, if present, must be a non-empty array of non-empty strings (which of the states carry a value)');
+    }
+    expect(validateDashboardDef(decl(['guessed']))).toContain(
+      'data["data"].absence.carries names "guessed", which is not one of this table\'s states — a state that carries a value must be a word the vocabulary declares',
+    );
+    expect(validateDashboardDef(decl(['present']))).toContain(
+      'data["data"].absence.carries may not name "present" — that is the word for a row that reported its value, not for a silence that carries one',
+    );
+    expect(validateDashboardDef(decl(['unknown']))).toContain(
+      'data["data"].absence.carries may not name "unknown" — a source that could not tell which silence it saw did not carry the value either',
+    );
+  });
+
   it('refuses every MAGNITUDE channel — size as much as x — and the list is one shared constant', () => {
     const decl = { field: 'state', states: ['present', 'unknown'] };
     expect(

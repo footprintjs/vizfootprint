@@ -27,6 +27,7 @@ import { ENCODING_SET_FIELD,
   PROSE_VIEW_PREFIX,
 } from '../branches/index.js';
 import { ABSENCE_PRESENT, ABSENCE_UNKNOWN, DISPATCH_VERBS, type DashboardDef, type DispatchVerb } from './types.js';
+import { absenceContradictionOf } from '../data/absenceContradiction.js';
 import { lintEncodings, pageBindings, resolveFacets, validateColumnDecls, validateEncodingRulesShape } from '../encoding/index.js';
 import type { EncodingRules, EncodingSurface, FacetSource } from '../encoding/index.js';
 import type { ColumnInfo } from '../data/index.js';
@@ -162,13 +163,35 @@ function absenceFieldOf(src: Record<string, unknown>): string | undefined {
   return isObject(a) && typeof a.field === 'string' ? a.field : undefined;
 }
 
+/** The `carries` list of a well-formed vocabulary — the states that hold a number anyway; absent when malformed, which is already a problem of its own. */
+function carriesOf(a: Record<string, unknown>): { readonly carries?: readonly string[] } {
+  const c = a.carries;
+  return Array.isArray(c) && c.every((x) => typeof x === 'string') ? { carries: c as readonly string[] } : {};
+}
+
 /** The `{ columns, absence }` a facet resolver may read — only the well-formed parts (a malformed part is already a problem). */
 function facetSourceOf(src: Record<string, unknown> | undefined): FacetSource {
   if (src === undefined) return {};
   const a = src.absence;
-  const absence = isObject(a) && typeof a.field === 'string' && Array.isArray(a.states) && a.states.every((x) => typeof x === 'string') ? { field: a.field, states: a.states as string[] } : undefined;
+  const absence = isObject(a) && typeof a.field === 'string' && Array.isArray(a.states) && a.states.every((x) => typeof x === 'string') ? { field: a.field, states: a.states as string[], ...carriesOf(a) } : undefined;
   const columns = isObject(src.columns) && Object.values(src.columns).every(isObject) ? (src.columns as FacetSource['columns']) : undefined;
   return { ...(absence !== undefined ? { absence } : {}), ...(columns !== undefined ? { columns } : {}) };
+}
+
+/**
+ * A table that CONTRADICTS ITSELF is refused here, once: a row its absence
+ * column calls silent whose declared MEASURE holds a number
+ * (`../data/absenceContradiction.ts`). Only inline rows can be judged at this
+ * door — a CSV or a source is read at build — and only declared measures are
+ * values; a table declaring neither an absence vocabulary nor a measure says
+ * nothing this check can hold it to.
+ */
+function judgeAbsenceKept(rows: readonly unknown[], source: FacetSource, where: string, problems: string[]): void {
+  if (source.absence === undefined) return;
+  const measures = Object.entries(source.columns ?? {}).filter(([, decl]) => decl.role === 'measure').map(([name]) => name);
+  if (measures.length === 0) return;
+  const refusal = absenceContradictionOf(rows, source.absence, measures, where);
+  if (refusal !== undefined) problems.push(refusal);
 }
 
 /** The columns the def alone knows about — declared ones, the absence column, and every initially bound field — all of type `unknown` (types are the provider's). */
@@ -250,7 +273,7 @@ function validateAbsence(absence: unknown, where: string, problems: string[], fi
     return;
   }
   for (const key of Object.keys(absence)) {
-    if (key !== 'field' && key !== 'states') problems.push(`${where}: unknown key "${key}"`);
+    if (key !== 'field' && key !== 'states' && key !== 'carries') problems.push(`${where}: unknown key "${key}"`);
   }
   if (typeof absence.field !== 'string' || absence.field.length === 0) {
     problems.push(`${where}.field must be a non-empty string (the column that carries the state)`);
@@ -273,6 +296,35 @@ function validateAbsence(absence: unknown, where: string, problems: string[], fi
     problems.push(
       `${where}.states must include "${ABSENCE_UNKNOWN}" — a source that cannot tell which silence it saw needs a word for that`,
     );
+  }
+  validateCarries(absence.carries, states as readonly string[], where, problems);
+}
+
+/**
+ * Validate `AbsenceDecl.carries` — which of the declared states hold a number
+ * ANYWAY, so that the contradiction check (`../data/absenceContradiction.ts`)
+ * does not refuse an honest row: an estimated figure is a figure. Three rules,
+ * and each of them is the vocabulary's own honesty: a state that carries a
+ * value must be a word this table DECLARES (a word nobody declared would
+ * silence-proof a column by a typo); it may not be `present`, which is not a
+ * silence to begin with; and it may never be `unknown`, the word for a silence
+ * the source could not tell apart — a source that could not tell which silence
+ * it saw cannot also have carried the value.
+ */
+function validateCarries(carries: unknown, states: readonly string[], where: string, problems: string[]): void {
+  if (carries === undefined) return;
+  if (!Array.isArray(carries) || carries.length === 0 || carries.some((st) => typeof st !== 'string' || st.length === 0)) {
+    problems.push(`${where}.carries, if present, must be a non-empty array of non-empty strings (which of the states carry a value)`);
+    return;
+  }
+  for (const state of carries as readonly string[]) {
+    if (state === ABSENCE_PRESENT) {
+      problems.push(`${where}.carries may not name "${ABSENCE_PRESENT}" — that is the word for a row that reported its value, not for a silence that carries one`);
+    } else if (state === ABSENCE_UNKNOWN) {
+      problems.push(`${where}.carries may not name "${ABSENCE_UNKNOWN}" — a source that could not tell which silence it saw did not carry the value either`);
+    } else if (!states.includes(state)) {
+      problems.push(`${where}.carries names "${state}", which is not one of this table's states — a state that carries a value must be a word the vocabulary declares`);
+    }
   }
 }
 
@@ -346,6 +398,7 @@ export function validateDashboardDef(def: unknown): string[] {
       if (src.grain !== undefined) validateGrain(src.grain, `data["${table}"].grain`, problems);
       if (src.absence !== undefined) validateAbsence(src.absence, `data["${table}"].absence`, problems, absenceFields);
       if (src.columns !== undefined) validateColumnDecls(src.columns, `data["${table}"].columns`, problems, absenceFieldOf(src));
+      if (Array.isArray(src.rows)) judgeAbsenceKept(src.rows, facetSourceOf(src), `data["${table}"]`, problems);
     }
   }
 

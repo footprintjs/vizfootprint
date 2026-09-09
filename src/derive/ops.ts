@@ -36,12 +36,13 @@
  *   - `mod`'s sign follows the DIVIDEND (`-7 mod 3` → `-1`) — SQL's and
  *     JavaScript's `%`. Excel and Sheets `MOD` follow the DIVISOR and answer
  *     `2` there.
- *   - `div` is always float — `7 / 2` is `3.5`, never `3`.
+ *   - `div` is always float — `7 / 2` is `3.5`, never `3`. (Postgres's own
+ *     `div(y, x)` and MySQL's `DIV` are integer division; this is `/`.)
  *   - strings compare by CODE UNIT. No collation, no locale; `lower`/`upper`
  *     are the Unicode default case mappings (never the locale-sensitive ones).
  *   - a date is an ISO string and non-ISO date text is absent ({@link ./dates.ts}).
  *   - a REDUCER skips the rows it cannot read, and an EMPTY tally answers `0`
- *     for `count` and `distinct` and ABSENT for the other four — the total of
+ *     for `count` and `countDistinct` and ABSENT for the other four — the total of
  *     nothing is not zero, and neither is the average of nothing.
  *   - `min`/`max` over a group that held two KINDS answer absent: a group
  *     nobody can put in one order has no smallest, and the answer must not
@@ -102,8 +103,8 @@ export type LazyFold = (arms: readonly Arm[]) => Cell;
  *
  * ONE shape for all six, because a reducer's whole state is: how many values it
  * has taken, what they add up to, the best one so far, whether the best was
- * ever compared across kinds, and — for `distinct` alone, made only when that
- * op asks for it — which ones it has already met.
+ * ever compared across kinds, and — for `countDistinct` alone, made only when
+ * that op asks for it — which ones it has already met.
  */
 export interface Tally {
   /** How many PRESENT values this tally TOOK. `0` is what makes an empty group answerable; a value a reducer skipped is not counted. */
@@ -127,7 +128,7 @@ export interface Tally {
  * rather than adding a zero nobody measured.
  *
  * What an EMPTY tally comes to is pinned per row and stated beside it: `count`
- * and `distinct` answer `0` (counting nothing is honestly none), and the other
+ * and `countDistinct` answer `0` (counting nothing is honestly none), and the other
  * four answer ABSENT (the average of nothing is not zero, and neither is the
  * total of nothing).
  */
@@ -266,7 +267,7 @@ const averaging: Reduce = { start: tally, step: summing.step, done: (t) => (t.n 
 /** PINNED: the smallest of nothing is absent, and so is the smallest of a group that held two kinds. */
 const smallest: Reduce = { start: tally, step: (t, cell) => orderedStep(t, cell, isBefore), done: (t) => (t.mixed ? null : t.best) };
 const largest: Reduce = { start: tally, step: (t, cell) => orderedStep(t, cell, (candidate, best) => isBefore(best, candidate)), done: (t) => (t.mixed ? null : t.best) };
-/** PINNED: distinct by VALUE, and a `Set` of primitives is exactly that — the same code-unit equality `eq` keeps. Its set is made only when a value arrives. */
+/** PINNED: counts the DIFFERENT values, by value — a `Set` of primitives is exactly that, the same code-unit equality `eq` keeps. Its set is made only when a value arrives. */
 const different: Reduce = {
   start: tally,
   step: (t, cell) => {
@@ -293,13 +294,22 @@ const MANY = Number.POSITIVE_INFINITY;
  * edit outside the table: a new row grows the vocabulary, so `OPS_VERSION`
  * (`./types.ts`) moves with it, or a record written against the new row would
  * claim to be the old vocabulary.
+ *
+ * The one exception, and it ends at the first release: while no build of this
+ * package has been published there are no records in the wild for a version to
+ * protect, so a word may still be RENAMED without moving the number — provided
+ * the old word lands in {@link RESERVED_OPS} naming the new one (`distinct` ⇒
+ * `countDistinct`). That redirect is a strictly better sentence than a version
+ * refusal, which would refuse every sound `sum` written yesterday and send
+ * nobody anywhere. After the first release the law above has no exceptions.
  */
 const OPS = Object.freeze({
   // ── arithmetic ──
   add: { category: 'arithmetic', least: 2, most: 2, takes: TWO, wants: ['number', 'number'], repeat: 'last', yields: 'number', words: (a) => `${a[0]} plus ${a[1]}`, strict: true, of: (c) => num(c, 0) + num(c, 1) },
   sub: { category: 'arithmetic', least: 2, most: 2, takes: TWO, wants: ['number', 'number'], repeat: 'last', yields: 'number', words: (a) => `${a[0]} minus ${a[1]}`, strict: true, of: (c) => num(c, 0) - num(c, 1) },
   mul: { category: 'arithmetic', least: 2, most: 2, takes: TWO, wants: ['number', 'number'], repeat: 'last', yields: 'number', words: (a) => `${a[0]} times ${a[1]}`, strict: true, of: (c) => num(c, 0) * num(c, 1) },
-  // PINNED: always float, and a division by zero is absent — the walker turns the infinity into the silence it really is.
+  // PINNED: always float — this is `/`, and a division by zero is absent (the walker turns the infinity into the silence it really is).
+  // Postgres `div(y, x)` and MySQL's `DIV` are INTEGER division and answer 3 for 7 and 2; this answers 3.5.
   div: { category: 'arithmetic', least: 2, most: 2, takes: TWO, wants: ['number', 'number'], repeat: 'last', yields: 'number', words: (a) => `${a[0]} divided by ${a[1]}`, strict: true, of: (c) => num(c, 0) / num(c, 1) },
   // PINNED: the sign follows the DIVIDEND — SQL's and JavaScript's `%`. Excel and Sheets MOD follow the DIVISOR: MOD(-7, 3) is 2 there and -1 here.
   mod: { category: 'arithmetic', least: 2, most: 2, takes: TWO, wants: ['number', 'number'], repeat: 'last', yields: 'number', words: (a) => `the remainder of ${a[0]} divided by ${a[1]}`, strict: true, of: (c) => num(c, 0) % num(c, 1) },
@@ -432,7 +442,8 @@ const OPS = Object.freeze({
   mean: { category: 'reducer', least: 1, most: 1, takes: ONE, wants: ['number'], repeat: 'last', yields: 'number', words: (a) => `the average of ${a[0]}`, reduces: true, of: averaging },
   min: { category: 'reducer', least: 1, most: 1, takes: ONE, wants: ['ordered'], repeat: 'last', yields: 'args', words: (a) => `the smallest ${a[0]}`, reduces: true, of: smallest },
   max: { category: 'reducer', least: 1, most: 1, takes: ONE, wants: ['ordered'], repeat: 'last', yields: 'args', words: (a) => `the largest ${a[0]}`, reduces: true, of: largest },
-  distinct: { category: 'reducer', least: 1, most: 1, takes: ONE, wants: ['any'], repeat: 'last', yields: 'number', words: (a) => `how many different ${a[0]} there are`, reduces: true, of: different },
+  // PINNED: `countDistinct`, never `distinct` — this op COUNTS, and the SQL word is reserved for the op that answers the values themselves (`RESERVED_OPS`).
+  countDistinct: { category: 'reducer', least: 1, most: 1, takes: ONE, wants: ['any'], repeat: 'last', yields: 'number', words: (a) => `how many different ${a[0]} there are`, reduces: true, of: different },
 }) satisfies Readonly<Record<string, Op>>;
 
 /** The name of one op of {@link OPS}. */
@@ -440,6 +451,24 @@ export type OpName = keyof typeof OPS;
 
 /** Every op name, in the order the table declares them — and the order a refusal lists them. */
 export const OP_NAMES: readonly OpName[] = Object.freeze(Object.keys(OPS) as OpName[]);
+
+/**
+ * The names of the ops that FOLD ROWS — the vocabulary a measure is written in,
+ * and the only ops that need a group.
+ *
+ * WHY read off the table rather than typed beside it: a seventh reducer added
+ * to {@link OPS} is a seventh word a person may pick, and a hand-written list
+ * would be the one place that did not know. It is what a measure picker offers
+ * (`ui/src/sheet/AddAggregate.tsx`) — one owner, so the screen can never offer
+ * an op this grammar does not have.
+ *
+ * WHY `reduces` and not `category`: `reduces` is the shape discriminant the
+ * judge, the walker and the group collector all branch on, and {@link OpCategory}
+ * is a label nothing reads. A picker keyed on the label would be a second
+ * opinion about which ops fold — and a row retitled for nicer grouping would
+ * silently empty it.
+ */
+export const REDUCER_OPS: readonly OpName[] = Object.freeze(OP_NAMES.filter((name) => opOf(name)!.reduces === true));
 
 /**
  * The op of a name, or `undefined` when the grammar has no such op.
@@ -510,13 +539,20 @@ export function wantAt(op: Op, at: number, count: number): ArgWant {
  * writes the obvious thing is told which door owns it rather than that the word
  * is unknown.
  *
- * Three names, three different reasons, and none of them is "not yet". Two can
- * never become ops: a clock cannot be replayed. `lookup` is not a missing op
- * but an op that would DUPLICATE an act — reaching a second table is
- * `bringOver`, across a declared relation, and a node that carried its own
- * `{ table, key, value }` would be naming a join nobody declared, which is the
- * one thing the relation exists to prevent (`../def/README.md`, law 6). The
- * sentence names the door so the refusal is a direction and not a wall.
+ * Five names, and only one of them is "not yet". Two can never become ops: a
+ * clock cannot be replayed. `avg` is the shortest walk of all — the average is
+ * here, under the name every other reducer of this table already agrees with.
+ * WHY it earns a row: `mean` is the ONE reducer whose name is not the word SQL,
+ * dbt, Cube and Malloy use, so it is the one a person types wrong. `lookup` is not a missing op but an op that would
+ * DUPLICATE an act — reaching a second table is `bringOver`, across a declared
+ * relation, and a node that carried its own `{ table, key, value }` would be
+ * naming a join nobody declared, which is the one thing the relation exists to
+ * prevent (`../def/README.md`, law 6). `distinct` is the one held for later: the
+ * SQL word names the different VALUES themselves — a set, which no column can
+ * hold yet — so the op that COUNTS them is `countDistinct`, and a person who
+ * writes the SQL word is told which op counts rather than handed a count under
+ * a name that will one day mean a set. The sentence names the door in every
+ * case, so the refusal is a direction and not a wall.
  *
  * WHY a null prototype: the judge reads this table by name, and a plain object
  * would answer native code for `toString` — a refusal quoting a function body
@@ -528,6 +564,8 @@ export const RESERVED_OPS: Readonly<Record<string, string>> = Object.freeze(
       'a lookup reads a SECOND table, and only a declared relation may permit that — declare the relation and bring the column over (the bringOver act), then read it here by its name',
     today: 'a column whose value depends on when it ran cannot be replayed, so this grammar has no clock',
     now: 'a column whose value depends on when it ran cannot be replayed, so this grammar has no clock',
+    distinct: 'distinct names the different values themselves, a set this grammar cannot hold yet — to COUNT them, write countDistinct',
+    avg: 'this grammar names the average mean — write mean',
   }),
 );
 

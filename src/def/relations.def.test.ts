@@ -160,7 +160,8 @@ describe('relations on the agent surface', () => {
   it('`relations` is a part beside `tables`, with the same policy, and whats_here serves it on request', async () => {
     const at = SURFACE_PARTS.findIndex((p) => p.part === 'relations');
     expect(SURFACE_PARTS[at - 1]!.part).toBe('tables');
-    expect(SURFACE_PARTS[at]).toEqual({ part: 'relations', scope: 'global', stability: 'immutable', cacheClass: cacheClassOf('global', 'immutable') });
+    // …and the policy is the CURSOR's, because a derived table mints an edge back to its parent that is true on one branch only
+    expect(SURFACE_PARTS[at]).toEqual({ part: 'relations', scope: 'turn', stability: 'versioned', cacheClass: cacheClassOf('turn', 'versioned') });
     const session = buildDashboard({ ...graphDef(), relations: [SOURCE, TARGET] }).createSession({ as: 'agent' });
     const port = vizAsTools(session, { as: 'agent' });
     const a = (await port.call('viz.whats_here', { of: ['relations'] })) as Record<string, unknown>;

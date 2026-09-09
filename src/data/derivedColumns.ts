@@ -1,5 +1,6 @@
 /**
- * DERIVED columns — the trace's columns, kept apart from the map's.
+ * DERIVED columns — the trace's columns, kept apart from the map's — and the
+ * ONE slot grammar a derived TABLE shares with them.
  *
  * A declared SOURCE column is MAP: it was there before anyone looked, it is
  * still, and it is not the trace's to edit. A DERIVED column (an analysis's
@@ -14,8 +15,10 @@
  * logical name is resolved back at the cursor. See `src/data/README.md`.
  *
  * This module is the ONE owner of that grammar. Nothing else may spell a
- * physical name, and — this is the part that matters — nothing may ever PARSE
- * one. A column literally named `risk@s7` could arrive in a CSV tomorrow;
+ * physical name — `./derivedTables.ts` names its slots through
+ * {@link slotNameOf} here, so a derived table's slot and a derived column's
+ * are one spelling under one marker — and, this is the part that matters,
+ * nothing may ever PARSE one. A column literally named `risk@s7` could arrive in a CSV tomorrow;
  * whether a name is derived is answered by this registry, which knows what it
  * wrote, never by looking for the marker in the string.
  */
@@ -30,31 +33,50 @@ import type { PredicateClause, Row } from './types.js';
  */
 const ACT_MARKER = '@';
 
-/** Can this act's id name a slot? False when it carries the reserved marker — the one reader of that rule outside {@link derivedColumnName}, so a caller can file a gap instead of catching a throw. */
+/**
+ * Can this act's id name a slot? False when it carries the reserved marker — the
+ * one reader of that rule outside {@link slotNameOf}, which BOTH doors
+ * ({@link derivedColumnName}, `derivedTableName` in `./derivedTables.ts`) throw
+ * from, so a caller judges here and files a gap instead of catching a throw.
+ */
 export function canNameSlot(commitId: string): boolean {
   return !commitId.includes(ACT_MARKER);
 }
 
 /**
- * The store slot one act's output lives in. Never parsed back — see the file
- * header — and unique per act BY CONSTRUCTION, which is what the refusal here
- * keeps true: `(name, commitId)` maps to one slot only while no commit id
- * carries the marker. A replayed log is free to bring ids this session never
- * minted (`parseCommitLog` judges shape and lineage, never the character set),
- * and `x@a` at commit `b` would otherwise land in the same slot as `x` at
- * commit `a@b` — two acts' columns as one array of bytes.
+ * The store slot one act's output lives in — a column's or a table's. Never
+ * parsed back — see the file header — and unique per act BY CONSTRUCTION,
+ * which is what the refusal here keeps true: `(name, commitId)` maps to one
+ * slot only while no commit id carries the marker. A replayed log is free to
+ * bring ids this session never minted (`parseCommitLog` judges shape and
+ * lineage, never the character set), and `x@a` at commit `b` would otherwise
+ * land in the same slot as `x` at commit `a@b` — two acts' outputs as one.
+ *
+ * The ONE speller. Its two doors say what kind of thing was slotted
+ * ({@link derivedColumnName}, `derivedTableName` in `./derivedTables.ts`);
+ * nothing outside this folder spells a slot, which is why the barrel exports
+ * the doors and not this.
  */
-export function derivedColumnName(name: string, commitId: string): string {
+export function slotNameOf(name: string, commitId: string): string {
   if (!canNameSlot(commitId)) {
-    throw new Error(
-      `vizfootprint: commit id "${commitId}" contains the reserved marker "${ACT_MARKER}" — a derived column's slot could not be told apart from another act's`,
-    );
+    throw new Error(`vizfootprint: commit id "${commitId}" contains the reserved marker "${ACT_MARKER}" — the slot for "${name}" could not be told apart from another act's`);
   }
   return `${name}${ACT_MARKER}${commitId}`;
 }
 
+/** The slot one act's COLUMN lives in. */
+export function derivedColumnName(name: string, commitId: string): string {
+  return slotNameOf(name, commitId);
+}
+
 /** One derived column: what it is called, where it is stored, and the act that made it. */
 export interface DerivedColumn {
+  /**
+   * The table SLOT the values were written into — a declared table's own name,
+   * or a derived table's PHYSICAL one. Never a logical table name: that is
+   * re-minted per act, so a column keyed by it would outlive the rows it was
+   * computed from and resolve on top of a table it never saw.
+   */
   readonly table: string;
   /** The name a person, a chart and a commit use. */
   readonly name: string;
@@ -111,7 +133,11 @@ export class DerivedColumnStore {
 }
 
 /**
- * Which derived column each logical name means at one position on the trace.
+ * Which derived thing each logical name means at one position on the trace —
+ * a column ({@link DerivedColumn}) or a table (`DerivedTable`,
+ * `./derivedTables.ts`), which is why it is generic over the slot record: the
+ * resolution rule is ONE rule, and a table resolves at the cursor exactly as a
+ * column does.
  *
  * `pathIds` is the branch path root→cursor. An entry counts only when its
  * commit is on that path, so a column computed on a branch the cursor is not
@@ -119,17 +145,14 @@ export class DerivedColumnStore {
  * mechanism beside it. When one name was computed twice on the SAME path the
  * later act wins: a re-run supersedes, it does not shadow.
  */
-export function resolveDerived(
-  entries: readonly DerivedColumn[],
-  pathIds: readonly string[],
-): Map<string, DerivedColumn> {
-  const byCommit = new Map<string, DerivedColumn[]>();
+export function resolveDerived<T extends { readonly name: string; readonly commitId: string }>(entries: readonly T[], pathIds: readonly string[]): Map<string, T> {
+  const byCommit = new Map<string, T[]>();
   for (const e of entries) {
     const list = byCommit.get(e.commitId);
     if (list) list.push(e);
     else byCommit.set(e.commitId, [e]);
   }
-  const out = new Map<string, DerivedColumn>();
+  const out = new Map<string, T>();
   for (const id of pathIds) {
     for (const e of byCommit.get(id) ?? []) out.set(e.name, e);
   }
@@ -183,9 +206,12 @@ export function renameClauseFields(
  * derived column is visible.
  */
 export function renameRowSlots(row: Row, back: ReadonlyMap<string, string>, slots: ReadonlySet<string>): Row {
+  // WHY the SLOTS are probed and not the row's keys: a table has a handful of derived columns and a
+  // row has every projected one, so scanning the row costs an array of its keys and a lookup per
+  // COLUMN, per row, to learn there is nothing to rename. Own-key, so a row's own `__proto__` counts.
   let touched = false;
-  for (const key of Object.keys(row)) {
-    if (slots.has(key)) {
+  for (const slot of slots) {
+    if (Object.prototype.hasOwnProperty.call(row, slot)) {
       touched = true;
       break;
     }

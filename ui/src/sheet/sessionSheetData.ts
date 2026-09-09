@@ -25,7 +25,12 @@ export interface SheetSessionLike {
 }
 
 export interface SessionSheetOptions {
-  /** Default: the dashboard's default table. */
+  /**
+   * Default: the dashboard's default table. It may name a table an ACT cut as
+   * readily as a declared one — a derived table is an ordinary table to the
+   * session's view-query door, and a name that is not a table AT THIS CURSOR is
+   * refused there, in the session's own words.
+   */
   readonly table?: string;
   /** False when this table's engine cannot sort — then `refusal` is the sentence the headers show. */
   readonly sort?: boolean;
@@ -66,7 +71,11 @@ export function sessionSheetData(session: SheetSessionLike, options: SessionShee
     async columns(): Promise<readonly SheetColumn[]> {
       const overview = await session.overview();
       const table = options.table ?? overview.defaultTable;
-      const key = overview.keys[table];
+      // WHY the Sources rows and not `overview.keys`: that map is the DEF's, and
+      // a table an act cut was never in the def — its key was MINTED by the act,
+      // from its one group column. The rows carry every table visible at the
+      // cursor, declared or cut, each with the key it actually has.
+      const key = overview.tables.find((row) => row.name === table)?.key;
       return (overview.columns[table] ?? []).map((facet) => ({
         name: facet.field,
         type: facet.type,

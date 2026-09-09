@@ -9,10 +9,10 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { reducersOf, rowsOver, valuesOf } from './groups.js';
+import { groupRowsOf, reducersOf, rowsOver, valuesOf } from './groups.js';
 import { evaluate } from './walk.js';
 import type { AbsenceDecl } from '../def/types.js';
-import type { Cell, DerivedColumn, Expr, OpExpr } from './types.js';
+import type { Cell, DerivedColumnDecl, Expr, OpExpr } from './types.js';
 import type { Row } from '../data/types.js';
 
 const col = (name: string): Expr => ({ col: name });
@@ -28,8 +28,8 @@ const CELLS: readonly Row[] = [
   { jurisdiction: 'Ohio', kind: 'state', disease: 'Measles', cases: null, report_state: 'unavailable' },
 ];
 
-const column = (expr: Expr, over: DerivedColumn['over'], kind: DerivedColumn['kind'] = 'row'): DerivedColumn => ({ ops: 1, kind, expr, over });
-const over = (rows: readonly Row[], declared: DerivedColumn, absence?: AbsenceDecl): Cell[] => valuesOf(declared, rowsOver(rows, absence));
+const column = (expr: Expr, over: DerivedColumnDecl['over'], kind: DerivedColumnDecl['kind'] = 'row'): DerivedColumnDecl => ({ ops: 1, kind, expr, over });
+const over = (rows: readonly Row[], declared: DerivedColumnDecl, absence?: AbsenceDecl): Cell[] => valuesOf(declared, rowsOver(rows, absence));
 
 const ONLY_STATES: Expr = op('eq', col('kind'), lit('state'));
 
@@ -109,7 +109,7 @@ describe('what an empty tally comes to', () => {
 
   it('counting nothing is honestly NONE', () => {
     expect(answer('count')).toBe(0);
-    expect(answer('distinct')).toBe(0);
+    expect(answer('countDistinct')).toBe(0);
   });
 
   it('the total, the average and the extremes of nothing are ABSENT — a silence is not a zero', () => {
@@ -144,8 +144,8 @@ describe('the six reducers, at their pinned answers', () => {
   });
 
   it('counts DISTINCT values, by value', () => {
-    expect(first(op('distinct', col('t')))).toBe(2);
-    expect(first(op('distinct', col('n')))).toBe(2);
+    expect(first(op('countDistinct', col('t')))).toBe(2);
+    expect(first(op('countDistinct', col('n')))).toBe(2);
   });
 });
 
@@ -202,5 +202,57 @@ describe('min and max over a group that held two KINDS', () => {
     expect(over([{ n: 5 }, { n: 3 }], least)).toEqual([3, 3]);
     expect(over([{ n: 5 }, { n: 3 }], most)).toEqual([5, 5]);
     expect(over(MIXED, column(op('sum', col('n')), { groupBy: [] }, 'aggregate'))).toEqual([8, 8, 8]);
+  });
+});
+
+describe('one row per group — pass one, stopping before the broadcast', () => {
+  const rows = (exprs: readonly Expr[], over: { groupBy: readonly string[]; where?: Expr }, absence?: AbsenceDecl): { key: readonly Cell[]; values: readonly Cell[] }[] =>
+    groupRowsOf(exprs, over, rowsOver(CELLS, absence));
+
+  it('answers the groups in first-seen order, each with its key and what every tree came to', () => {
+    expect(rows([op('sum', col('cases')), op('count', col('cases'))], { groupBy: ['disease'], where: ONLY_STATES })).toEqual([
+      { key: ['Pertussis'], values: [40, 2] },
+      { key: ['Measles'], values: [5, 1] },
+    ]);
+  });
+
+  it('a group none of whose rows folded in is not a row — `where` says which rows go in, and a table’s rows ARE the groups', () => {
+    expect(rows([op('sum', col('cases'))], { groupBy: ['kind'], where: op('eq', col('disease'), lit('Measles')) })).toEqual([{ key: ['state'], values: [5] }]);
+    expect(rows([op('sum', col('cases'))], { groupBy: ['kind'], where: lit(false) })).toEqual([]);
+  });
+
+  it('the whole table is one row with an empty key', () => {
+    expect(rows([op('mean', col('cases'))], { groupBy: [] })).toEqual([{ key: [], values: [85 / 4] }]);
+  });
+
+  it('a row whose group key is absent is in no group — and the absence law reaches the key through the reader', () => {
+    const absence: AbsenceDecl = { field: 'report_state', states: ['present', 'unavailable'] };
+    expect(rows([op('count', col('jurisdiction'))], { groupBy: ['disease'] }, absence)).toEqual([
+      { key: ['Pertussis'], values: [3] },
+      { key: ['Measles'], values: [1] },
+    ]);
+  });
+
+  it('a grouping column read outside a reducer answers from the key; any other column is absent, so the fold stays total over a tree the judge never saw', () => {
+    const label = op('concat', col('disease'), lit('!'));
+    const loose = op('add', col('cases'), op('sum', col('cases')));
+    expect(rows([label, loose], { groupBy: ['disease'], where: ONLY_STATES })).toEqual([
+      { key: ['Pertussis'], values: ['Pertussis!', null] },
+      { key: ['Measles'], values: ['Measles!', null] },
+    ]);
+  });
+
+  it('the whole table is one row even when nothing folded in — a grand total nobody reached says 0', () => {
+    // `groupBy: []` names its group in the DECLARATION and not from a value, so no row has to reach
+    // it. SQL, Malloy and dbt all answer one row here; a KPI tile reads 0 rather than going blank.
+    expect(rows([op('count', col('cases')), op('sum', col('cases'))], { groupBy: [], where: lit(false) })).toEqual([{ key: [], values: [0, null] }]);
+    expect(groupRowsOf([op('count', col('cases'))], { groupBy: [] }, rowsOver([]))).toEqual([{ key: [], values: [0] }]);
+    // A NAMED group nothing folded into is still no row: that group was named by a value nothing had.
+    expect(rows([op('count', col('cases'))], { groupBy: ['disease'], where: lit(false) })).toEqual([]);
+  });
+
+  it('two trees sharing one reducer node are answered from one tally', () => {
+    const total = op('sum', col('cases'));
+    expect(rows([total, op('div', total, lit(2))], { groupBy: [], where: ONLY_STATES })).toEqual([{ key: [], values: [45, 22.5] }]);
   });
 });

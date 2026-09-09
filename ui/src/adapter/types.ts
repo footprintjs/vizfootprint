@@ -211,16 +211,45 @@ export interface SourceInfoView {
   readonly rows: number;
 }
 
-/** One declared table as the def states it — nothing inferred from the rows. */
+/**
+ * One measure as a person PICKED it: a name to land it under, one reducer, one
+ * column to fold. Not a tree — the tree is minted at the door
+ * (`createSessionView().addAggregate`), so no screen has to know the grammar,
+ * and a picker that offered a shape the library does not have would be a second
+ * grammar to keep in step.
+ */
+export interface MeasurePick {
+  /** The column it lands as, on the derived table. */
+  readonly as: string;
+  /** One of the library's `REDUCER_OPS` — offered from there, judged by the session. */
+  readonly op: string;
+  /** The column it folds. */
+  readonly of: string;
+}
+
+/** What an aggregate act needs beyond its name: the group columns (`[]` = the whole table as one row) and the measures, in the order they land as columns. */
+export interface AggregatePick {
+  readonly groupBy: readonly string[];
+  readonly measures: readonly MeasurePick[];
+}
+
+/** One table VISIBLE AT THE CURSOR as the def — or the act that cut it — states it; nothing inferred from the rows. */
 export interface TableView {
   readonly name: string;
-  /** A declared source (`format · via · at`, the locator only when it was a string), inline rows / CSV text carried by the def, or `unstated` when the wire's entry could not be read (the table still counts). */
-  readonly source: { readonly format: string; readonly via: string; readonly at?: string } | { readonly inline: 'rows' | 'csv'; readonly rows?: number } | { readonly unstated: true };
+  /** A declared source (`format · via · at`, the locator only when it was a string), inline rows / CSV text carried by the def, COMPUTED by an act (nothing can refresh it — {@link TableView.derived} says which act to ask instead), or `unstated` when the wire's entry could not be read (the table still counts). */
+  readonly source: { readonly format: string; readonly via: string; readonly at?: string } | { readonly inline: 'rows' | 'csv'; readonly rows?: number } | { readonly computed: 'aggregate' } | { readonly unstated: true };
   readonly engine: string;
   readonly key?: string;
   readonly grain?: { readonly bucket?: string; readonly reducer?: string; readonly collapsedFrom?: number; readonly note?: string };
   readonly absence?: { readonly field: string; readonly states: readonly string[] };
   readonly declaredColumns: number;
+  /**
+   * The act that cut this table, when an act did: the parent it read, the group
+   * columns, the measure NAMES in the order they land as columns, and the
+   * commit that made it. Names and words, never values — the rows are read
+   * through the sheet's port like any table's.
+   */
+  readonly derived?: { readonly of: string; readonly groupBy: readonly string[]; readonly measures: readonly string[]; readonly at: string };
 }
 
 /** What a refresh's delta says: exact by the declared row key, or a plain replace when there was no usable key. */

@@ -35,12 +35,12 @@ import {
   type BringOverJoin,
   type DataRow,
 } from '../analysis/index.js';
-import { deriveAnalysis, type DerivedColumn } from '../derive/index.js';
+import { aggregateAnalysis, deriveAnalysis, type DerivedColumnDecl, type Expr, type Measure } from '../derive/index.js';
 import { relationsFrom } from './relations.js';
 import type { AbsenceDecl, RelationEdge } from './types.js';
 
 /** The builtin analyses a def may name. */
-export const BUILTIN_ANALYSES = ['groupBy', 'correlation', 'regression', 'clustering', 'formula', 'layout', 'bringOver', 'derive'] as const;
+export const BUILTIN_ANALYSES = ['groupBy', 'correlation', 'regression', 'clustering', 'formula', 'layout', 'bringOver', 'derive', 'aggregate'] as const;
 export type BuiltinAnalysisName = (typeof BUILTIN_ANALYSES)[number];
 
 /** A group-by summary as a new queryable table (`groupByAnalysis`). */
@@ -207,10 +207,44 @@ export interface DeriveDecl {
    * `over` is what a reducer runs over — `{ groupBy, where? }` — so a share of a
    * total or a deviation from a group's mean is one record like any other.
    */
-  readonly column: DerivedColumn;
+  readonly column: DerivedColumnDecl;
   /** The table the column is written into. Default `data`. */
   readonly table?: string;
   /** Default `derive:<table>:<name>` — TABLE-SCOPED, so two tables deriving `rate` are two acts and not one. */
+  readonly id?: string;
+}
+
+/**
+ * An AGGREGATE — a derived TABLE of one row per group, cut from the parent's
+ * rows visible at the cursor (`../derive/aggregate.ts`).
+ *
+ * The derive record's twin: the same op grammar, the same absence context
+ * riding beside it, the same judge — but it lands a table beside the parent
+ * rather than a column on it. The measures ARE the derive reducers, so a
+ * measure is `{ as, expr }` with a reducer tree and nothing else; the group
+ * columns become the derived table's columns and, when there is exactly one,
+ * its key — from which the session MINTS the relation back to the parent. A
+ * record that could name its own relation could name one nobody declared.
+ *
+ * The rows are never on the record: a replay recomputes them from these bytes
+ * over the parent as it stands, and labels the replay by the data version the
+ * commit carries.
+ */
+export interface AggregateDecl {
+  readonly builtin: 'aggregate';
+  /** The derived table it lands. It may never take a declared table's name — the session judges that. */
+  readonly name: string;
+  /** The parent table it reads. Default `data`. */
+  readonly table?: string;
+  /** The op-vocabulary version the measures and the filter are written against. */
+  readonly ops: number;
+  /** The group columns, in order. `[]` is the whole table as one row, said out loud. */
+  readonly groupBy: readonly string[];
+  /** The measures — `{ as, expr }`, each `expr` a reducer tree — in the order they land as columns. */
+  readonly measures: readonly Measure[];
+  /** Which parent rows go in. Absent means every row visible at the cursor. */
+  readonly where?: Expr;
+  /** Default `aggregate:<table>:<name>` — TABLE-SCOPED, as the derive record's is. */
   readonly id?: string;
 }
 
@@ -223,7 +257,8 @@ export type BuiltinAnalysisDecl =
   | FormulaDecl
   | LayoutDecl
   | BringOverDecl
-  | DeriveDecl;
+  | DeriveDecl
+  | AggregateDecl;
 
 /** Thrown when a builtin record is malformed. Carries every problem at once. */
 export class BuiltinAnalysisError extends Error {
@@ -235,8 +270,8 @@ export class BuiltinAnalysisError extends Error {
   }
 }
 
-/** What an option must be. Six kinds is all seven builtins need. */
-type OptionType = 'string' | 'count' | 'whole' | 'columnType' | 'algorithm' | 'names' | 'tree';
+/** What an option must be. Ten kinds is all nine builtins need. */
+type OptionType = 'string' | 'count' | 'whole' | 'columnType' | 'algorithm' | 'names' | 'tree' | 'node' | 'groupBy' | 'measures';
 
 /** The values a `columnType` option may take — the columns channel's own vocabulary, narrowed to what arithmetic produces. */
 const COLUMN_TYPES = new Set(['int', 'float']);
@@ -303,6 +338,14 @@ const SPECS: Readonly<Record<BuiltinAnalysisName, BuiltinSpec>> = Object.freeze(
     required: { name: 'string', column: 'tree' },
     optional: { table: 'string', id: 'string' },
   },
+  aggregate: {
+    // The derive record's twin, and it names no absence and no relation for the
+    // same reason: both are the def's to state. The measures and the filter are
+    // checked for SHAPE here and judged against the parent's columns at the
+    // session's door, where the columns are known.
+    required: { name: 'string', ops: 'whole', groupBy: 'groupBy', measures: 'measures' },
+    optional: { table: 'string', where: 'node', id: 'string' },
+  },
   bringOver: {
     required: { table: 'string', from: 'string', columns: 'names' },
     // No `joins` option: which ties are followed is read off the declared
@@ -338,8 +381,31 @@ function holds(value: unknown, type: OptionType): boolean {
       // A LIST of column names: non-empty (an empty one asks for nothing and
       // would land nothing), every entry a real name, and no repeat — a repeated
       // name would produce the same column twice and say nothing new.
-      return Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === 'string' && v.length > 0) && new Set(value).size === value.length;
+      return Array.isArray(value) && value.length > 0 && holdsNames(value);
+    case 'node':
+      // One node of a tree — its shape only; the judge reads it against the table.
+      return isObject(value);
+    case 'groupBy':
+      // The group columns: distinct real names, and the EMPTY list is legal — it
+      // is how a declaration says the whole table, out loud.
+      return Array.isArray(value) && holdsNames(value);
+    case 'measures':
+      // Measures: at least one (a table of group columns alone would be the
+      // different values themselves — the set-valued op held for later), each
+      // `{ as, expr }` with a name and a node, and no two under one name — the
+      // derived table holds one column per name.
+      return Array.isArray(value) && value.length > 0 && value.every(isMeasure) && new Set(value.map((m) => (m as Measure).as)).size === value.length;
   }
+}
+
+/** Distinct, non-empty column names — the shape `names` and `groupBy` share. */
+function holdsNames(value: readonly unknown[]): boolean {
+  return value.every((v) => typeof v === 'string' && v.length > 0) && new Set(value).size === value.length;
+}
+
+/** The shape of one measure: a non-empty name and a node. Its tree is judged at the session's door. */
+function isMeasure(value: unknown): boolean {
+  return isObject(value) && typeof value['as'] === 'string' && value['as'].length > 0 && isObject(value['expr']);
 }
 
 function mustBe(type: OptionType): string {
@@ -358,6 +424,12 @@ function mustBe(type: OptionType): string {
       return 'must be a non-empty array of distinct, non-empty column names';
     case 'tree':
       return 'must be a derived-column declaration — { ops, kind, expr }';
+    case 'node':
+      return 'must be a tree — a { col }, { lit } or { op, args } node';
+    case 'groupBy':
+      return 'must be an array of distinct, non-empty column names — [] means the whole table';
+    case 'measures':
+      return 'must be a non-empty array of measures — { as, expr }, each under its own name';
   }
 }
 
@@ -501,6 +573,10 @@ export function buildBuiltinAnalysis(decl: BuiltinAnalysisDecl, context: Builtin
     case 'derive': {
       const absence = context.absence?.[decl.table ?? 'data'];
       return deriveAnalysis({ ...optionsOf(decl), ...(absence !== undefined ? { absence } : {}) });
+    }
+    case 'aggregate': {
+      const absence = context.absence?.[decl.table ?? 'data'];
+      return aggregateAnalysis({ ...optionsOf(decl), ...(absence !== undefined ? { absence } : {}) });
     }
     case 'layout':
       return layoutAnalysis(optionsOf(decl));

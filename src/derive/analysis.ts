@@ -49,7 +49,10 @@
  *
  * The first customers are `../def/builtinAnalyses.ts` (the `derive` record) and
  * the session's `declareAnalysis`; the sheet's add-a-column panel reaches both
- * through the adapter.
+ * through the adapter. `./aggregate.ts` is the second customer, of the four
+ * pieces this file owns for BOTH acts — {@link OUTPUT_TYPE}, {@link readsOf},
+ * {@link chartKeys} and {@link absenceRefusal} — so a change to any of them is
+ * a change to the derived TABLE as much as to the derived column.
  */
 
 import { flowChart } from 'footprintjs';
@@ -61,10 +64,10 @@ import type { ColumnInfo } from '../data/types.js';
 import { columnar, foldOnce } from '../data/fold.js';
 import type { AbsenceDecl } from '../def/types.js';
 import { valuesOf, type Rows } from './groups.js';
-import { judgeDerivedColumn } from './judge.js';
+import { columnsHave, judgeDerivedColumn } from './judge.js';
 import { readerOver } from './walk.js';
 import { wordsForColumn } from './words.js';
-import { OPS_VERSION, type CellReader, type DeriveType, type DerivedColumn } from './types.js';
+import { OPS_VERSION, type CellReader, type DeriveType, type DerivedColumnDecl } from './types.js';
 
 // ── what the caller says ─────────────────────────────────────────────────────
 
@@ -72,7 +75,7 @@ export interface DeriveOptions {
   /** The column it writes. A derived column may never take a source column's name — the session's own law judges that. */
   readonly name: string;
   /** The declaration: `{ ops, kind, expr }`. Judged against the table at the door, never here. */
-  readonly column: DerivedColumn;
+  readonly column: DerivedColumnDecl;
   /** The table the column is written into. Default `data`. */
   readonly table?: string;
   /**
@@ -93,7 +96,7 @@ export interface DeriveOptions {
  * `number` becomes `float` because a derived number is a quotient until proven
  * otherwise — the formula door's own default, for the same reason.
  */
-const OUTPUT_TYPE: Readonly<Record<DeriveType, ColumnsOutput['columns'][string]['type']>> = Object.freeze({
+export const OUTPUT_TYPE: Readonly<Record<DeriveType, ColumnsOutput['columns'][string]['type']>> = Object.freeze({
   number: 'float',
   string: 'string',
   boolean: 'boolean',
@@ -110,18 +113,36 @@ const OUTPUT_TYPE: Readonly<Record<DeriveType, ColumnsOutput['columns'][string][
  * exists: a replay re-performs an act that already happened without re-judging
  * it, and still has to know which columns to fold out of the rows.
  *
+ * It ACCUMULATES into `into` and hands the same array back — one list across
+ * several trees, which is how the aggregate act folds its group columns, its
+ * measures and its filter into a single fold list (`./aggregate.ts`,
+ * `columnsOf`).
+ *
  * WHY total over any value: it runs at construction, before `judgeTable` has
  * seen the declaration, and the judge owns the sentence for a node that is not
  * one — a reader that threw ahead of it would turn that sentence into a stack.
- * It answers "the names I can see"; what those names mean is judged later.
+ * It answers "the names I can see"; what those names mean is judged later. WHY
+ * a worklist and a seen-set rather than recursion: this is the FIRST walker
+ * over unjudged bytes, so it meets the trees the judge's own two ceilings
+ * (`./judge.ts`) exist to refuse — a node shared by both arms of its parent is
+ * a billion visits at depth thirty, and a chain deeper than the JS stack is a
+ * RangeError. Neither may happen before the judge has said its sentence, and a
+ * node walked twice can only repeat names it has already pushed.
  */
-function readsOf(node: unknown, into: string[]): string[] {
-  if (typeof node !== 'object' || node === null) return into;
-  const { col, args } = node as { readonly col?: unknown; readonly args?: unknown };
-  if (typeof col === 'string') {
-    if (!into.includes(col)) into.push(col);
-  } else if (Array.isArray(args)) {
-    for (const arg of args) readsOf(arg, into);
+export function readsOf(node: unknown, into: string[]): string[] {
+  const seen = new Set<object>();
+  const stack: unknown[] = [node];
+  while (stack.length > 0) {
+    const at: unknown = stack.pop();
+    if (typeof at !== 'object' || at === null || seen.has(at)) continue;
+    seen.add(at);
+    const { col, args } = at as { readonly col?: unknown; readonly args?: unknown };
+    if (typeof col === 'string') {
+      if (!into.includes(col)) into.push(col);
+    } else if (Array.isArray(args)) {
+      // Pushed back to front so the pops come out front to back — the first-seen order a caller reads.
+      for (let which = args.length - 1; which >= 0; which -= 1) stack.push(args[which]);
+    }
   }
   return into;
 }
@@ -141,7 +162,7 @@ interface Declared {
  * the tree names would group every row into the same silent group. Total over
  * an unjudged `over` for {@link readsOf}'s reason.
  */
-function columnsOf(column: DerivedColumn): Declared {
+function columnsOf(column: DerivedColumnDecl): Declared {
   const reads = readsOf(column.expr, []);
   const grouping = new Set<string>();
   const over: unknown = column.over;
@@ -166,14 +187,16 @@ interface DeriveInput {
 }
 
 /**
- * The two keys this chart uses beside the column's own, both DERIVED from the
- * column name so neither can collide with it — footprintjs guards an input key
- * as readonly and throws on a colliding write, and the committed key here has
- * to BE the column's name (`writeColumns` reads the values back off it). The
- * formula chart states the argument in full; this is the same one.
+ * The two keys this chart uses beside the landed thing's own, both DERIVED from
+ * the name the act commits under — the derive act's COLUMN, the aggregate act's
+ * TABLE ({@link ./aggregate.ts}) — so neither can collide with it: footprintjs
+ * guards an input key as readonly and throws on a colliding write. The
+ * committed key has to BE that name, because the act's own reader reads the
+ * values back off it (`writeColumns` for a column, `readOutput` for a table).
+ * The formula chart states the argument in full; this is the same one.
  */
-function chartKeys(column: string): { readonly arg: string; readonly held: string } {
-  return { arg: `${column} input`, held: `${column} loaded` };
+export function chartKeys(landed: string): { readonly arg: string; readonly held: string } {
+  return { arg: `${landed} input`, held: `${landed} loaded` };
 }
 
 /**
@@ -184,7 +207,7 @@ function chartKeys(column: string): { readonly arg: string; readonly held: strin
  * table itself (a committed value is frozen), and the next act to materialize a
  * column into it would find the rows unextensible.
  */
-function buildDeriveChart(declared: DerivedColumn, column: string, absence: AbsenceDecl | undefined): FlowChart {
+function buildDeriveChart(declared: DerivedColumnDecl, column: string, absence: AbsenceDecl | undefined): FlowChart {
   const { arg, held } = chartKeys(column);
   return flowChart<Record<string, unknown>>(
     'load the columns it reads',
@@ -224,10 +247,18 @@ function buildDeriveChart(declared: DerivedColumn, column: string, absence: Abse
 
 // ── the act ──────────────────────────────────────────────────────────────────
 
-/** The refusal for an absence column the table does not hold — the read refusal's shape, about the one column the tree never names. */
-function absenceRefusal(field: string, table: string, columns: readonly ColumnInfo[]): string {
-  const has = columns.length === 0 ? 'that table has no columns' : `it has ${columns.map((column) => column.name).join(', ')}`;
-  return `this column keeps the absence law of "${field}", which table "${table}" does not have — ${has}`;
+/**
+ * The refusal for an absence column the table does not hold — the read refusal's
+ * shape, about the one column the tree never names.
+ *
+ * `subject` is what the act calls ITSELF (`this column`, `this aggregate`),
+ * because this sentence is shared with the aggregate act and a person who
+ * declared a derived TABLE would go looking for a column they never wrote. The
+ * sentence-ending stays `columnsHave`'s, so every missing-column refusal in the
+ * folder still ends the same way.
+ */
+export function absenceRefusal(subject: string, field: string, table: string, columns: readonly ColumnInfo[]): string {
+  return `${subject} keeps the absence law of "${field}", which table "${table}" does not have — ${columnsHave(columns)}`;
 }
 
 /**
@@ -249,12 +280,17 @@ export function deriveAnalysis(opts: DeriveOptions): AnalysisModule<readonly Dat
   const { reads, grouping } = columnsOf(declared);
   // The absence column is folded out beside them: the walker has to ask what
   // this row's state is before it may answer for any other column of it.
-  const folded = absence !== undefined && !reads.includes(absence.field) ? [...reads, absence.field] : reads;
+  // ONE decision, named once and spent twice below — folded out of the rows, and bound as an input.
+  const foldsAbsence = absence !== undefined && !reads.includes(absence.field);
+  const folded = foldsAbsence ? [...reads, absence.field] : reads;
   /**
-   * What the judge computed, kept for the write. Set at declaration and kept
-   * for the life of this module — so only a replay that REBUILDS the module
-   * from the record's bytes (a fresh session) has none; a same-session replay
-   * re-runs the module the declaration judged.
+   * What the judge computed, kept for the write. Set at declaration, by the
+   * only door that judges — so ANY replay of a record-declared act has none: the
+   * replay rebuilds the module from the commit's own record (`actToReperform`,
+   * `../session/session.ts`) and re-performs it without ever calling
+   * `judgeTable`. A replayed derive column therefore reports `unknown` for its
+   * type, in the same session as much as a fresh one. Making the type survive a
+   * replay is a SESSION change — judge before re-performing — not a change here.
    */
   let computed: DeriveType | undefined;
   // The grouping columns are declared as such: what a column is grouped BY is
@@ -264,7 +300,7 @@ export function deriveAnalysis(opts: DeriveOptions): AnalysisModule<readonly Dat
   // cause of every blank, and `INPUT_ROLES` has no word for the column that
   // decides whether the others are readable.
   const inputs: InputBinding[] = reads.map((name) => ({ column: name, role: grouping.has(name) ? 'group' : 'value' }));
-  if (folded !== reads) inputs.push({ column: absence!.field });
+  if (absence !== undefined && foldsAbsence) inputs.push({ column: absence.field });
   return defineAnalysis<readonly DataRow[], ColumnsOutput>({
     id: opts.id ?? `derive:${table}:${column}`,
     kind: 'transform',
@@ -285,7 +321,7 @@ export function deriveAnalysis(opts: DeriveOptions): AnalysisModule<readonly Dat
       // WHY judged here and not by the tree walk: the absence column is the DEF's and the tree never
       // names it, so nothing else checks it — and a name the table does not have would read every
       // row as absent, with no sentence anywhere.
-      if (absence !== undefined && !columns.some((known) => known.name === absence.field)) return [absenceRefusal(absence.field, readTable, columns)];
+      if (absence !== undefined && !columns.some((known) => known.name === absence.field)) return [absenceRefusal('this column', absence.field, readTable, columns)];
       computed = judged.type;
       return [];
     },
@@ -314,6 +350,6 @@ export function deriveAnalysis(opts: DeriveOptions): AnalysisModule<readonly Dat
  * describes it are the same import — the words come from the op table, so the
  * sentence cannot drift from what ran ({@link ./words.ts}).
  */
-export function deriveWords(column: DerivedColumn): string {
+export function deriveWords(column: DerivedColumnDecl): string {
   return wordsForColumn(column);
 }

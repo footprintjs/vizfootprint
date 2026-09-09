@@ -4,6 +4,24 @@ An analysis is DECLARED and executed as a footprintjs flowchart, and its output 
 
 Six of the seven are code a DEVELOPER wrote. The seventh is a sentence a PERSON typed, and that difference is what the next section is about.
 
+## Three outcomes, distinct
+
+Every analysis finishes in one of three ways, and `AnalysisResult` (`types.ts`) says which without a reader guessing it from a field that happens to be missing:
+
+- **It landed** — `{ ok: true, output }`. An EMPTY output is this: a table of zero rows, a column of nothing but absences. Zero rows is an honest answer, never a failed one.
+- **It read the rows and found no honest fit** — `{ ok: false, reason: 'degenerate-fit', fitDegenerate: true, n }` (R14). The act ran, the rows were read, and the arithmetic would have had to fabricate a number: fewer than two nodes to lay out, a line through one point.
+- **It could not read the rows at all** — `{ ok: false, reason: 'unavailable', rejection }`. The table's engine refused the read (a stub engine, a source that is not there), so nothing was computed and nothing lands. It carries the engine's own `DataProviderRejection` verbatim; the session files it as `derive-source-refused`.
+
+The third arm exists because the second was once made to stand in for it: a refused read reported as a degenerate fit with `n: 0` told a person their data had no fit when it had never been read. Code that branches on `ok` alone still holds; code that reads `n` or `fitDegenerate` narrows on `reason` first.
+
+```ts
+const result: AnalysisResult = {
+  ok: false,
+  reason: 'unavailable',
+  rejection: { ok: false, engine: 'wasm', operation: 'evaluate', reason: 'not-implemented', detail: 'the wasm engine is a stub in this build' },
+};
+```
+
 ## The formula: a derived column, as data
 
 ```ts

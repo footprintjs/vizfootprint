@@ -40,7 +40,7 @@ import type {
 } from '../analysis/index.js';
 import type { BuiltinAnalysisDecl } from './builtinAnalyses.js';
 import type { FdrStep, GammaSequence, HypothesisRecord } from '../fdr/index.js';
-import type { ColumnFacet, ColumnInfo, DataProvider, DerivedColumnStore, Engine, Row } from '../data/index.js';
+import type { ColumnFacet, ColumnInfo, DataProvider, DerivedColumnStore, DerivedTable, DerivedTableStore, Engine, Row } from '../data/index.js';
 
 // ── The dispatch verb vocabulary (SPEC §9; Q6 — the 7-verb set was INCOMPLETE:
 // changing a view's visual encoding is a state-changing transition too, not an
@@ -202,6 +202,31 @@ export interface AbsenceDecl {
   readonly field: string;
   /** The vocabulary that column may hold. MUST include `present` and `unknown`. */
   readonly states: readonly string[];
+  /**
+   * Which of those states CARRY a number, besides `present` — because an
+   * estimated figure is a figure, and a replaced one is the number the agency
+   * published beside the one that was filed. Default NONE: a declaration that
+   * says nothing says what every declaration said before this key existed —
+   * every state but `present` is a silence.
+   *
+   * It is read by ONE thing: the contradiction check
+   * (`../data/absenceContradiction.ts`), which refuses a table whose SILENT row
+   * holds a number. A state named here is not silent, so its number is not a
+   * contradiction. Nothing else changes: the derived-column walker
+   * (`../derive/walk.ts`) still reads exactly `present`, because "the source
+   * put a number here" and "the arithmetic may add it" are two different
+   * questions and only the source can answer the first.
+   *
+   * `present` may not be named again (it is not a silence to begin with) and
+   * `unknown` may never be named at all: it is the word for a silence the
+   * source could not tell apart, and a vocabulary that let it hold a value
+   * would have no honest word left.
+   *
+   * ```ts
+   * { field: 'demand_state', states: ['present', 'estimated', 'replaced', 'unavailable', 'unknown'], carries: ['estimated', 'replaced'] }
+   * ```
+   */
+  readonly carries?: readonly string[];
 }
 
 /**
@@ -628,6 +653,22 @@ export interface DashboardRuntime {
    * source data, and is visible on every branch.
    */
   readonly derived: DerivedColumnStore;
+  /**
+   * Which table names in this dashboard are DERIVED — an aggregate's landed
+   * rows — and what act each belongs to (`src/data/derivedTables.ts`). The
+   * columns registry one line up, one level out: a derived TABLE gets a slot
+   * per ACT under the same marker, resolved at the cursor, and dropped from
+   * view outside the branch that cut it.
+   */
+  readonly derivedTables: DerivedTableStore;
+  /**
+   * Land one derived table: mint its provider under the act's own slot and
+   * register the act. THE ONE DOOR — a caller never reaches the providers map,
+   * so the provider and the registry cannot come to disagree about which
+   * slots exist. The rows are the act's own, already detached from the engine
+   * that answered.
+   */
+  landDerivedTable(table: DerivedTable, rows: readonly Row[]): void;
   /** Build notes a def should hear: e.g. `engine: 'auto'` resolved to memory because the thresholds are unmeasured. */
   readonly notes: readonly string[];
   /** The declared row key per table (absent = positional rows, no delta). */

@@ -18,6 +18,7 @@ import {
   DATE_UNITS,
   OP_NAMES,
   OPS_VERSION,
+  REDUCER_OPS,
   addOf,
   dayOf,
   daysInMonth,
@@ -60,14 +61,16 @@ const col = (name: string): Expr => ({ col: name });
 const lit = (value: number | string | boolean | null): Expr => ({ lit: value });
 
 describe('the op table', () => {
-  it('holds fifty-one ops in nine categories, and three reserved names beside them', () => {
+  it('holds fifty-one ops in nine categories, and five reserved names beside them', () => {
     expect(OP_NAMES).toHaveLength(51);
     expect(new Set(OP_NAMES.map((name) => opOf(name)!.category))).toEqual(
       new Set(['arithmetic', 'compare', 'logic', 'conditional', 'number', 'string', 'date', 'cast', 'reducer']),
     );
     // The six reducers were reserved names until they had a group to run over; a
-    // clock never can be, and `lookup` names an ACT rather than a missing op.
-    expect(Object.keys(RESERVED_OPS)).toEqual(['lookup', 'today', 'now']);
+    // clock never can be, `lookup` names an ACT rather than a missing op,
+    // `distinct` is held for the set-valued op — the one that COUNTS is countDistinct —
+    // and `avg` is the SQL word for the reducer this table calls mean.
+    expect(Object.keys(RESERVED_OPS)).toEqual(['lookup', 'today', 'now', 'distinct', 'avg']);
     // A reserved name is not also an op: the two lists are the whole vocabulary and they do not overlap.
     expect(OP_NAMES.filter((name) => name in RESERVED_OPS)).toEqual([]);
     expect(OPS_VERSION).toBe(1);
@@ -83,13 +86,26 @@ describe('the op table', () => {
     }
   });
 
+  it('names the reducer vocabulary a measure picker offers, and it is exactly the ops that fold rows', () => {
+    // Read off the table, never typed beside it: the list a screen offers and the
+    // list the walker folds with are the same list, so a seventh reducer arrives
+    // on both at once.
+    expect(REDUCER_OPS).toEqual(['count', 'sum', 'mean', 'min', 'max', 'countDistinct']);
+    // Read off `reduces`, the flag the walker and the group collector branch on — so the picker
+    // and the fold cannot come to hold two opinions about which ops fold.
+    expect(REDUCER_OPS.filter((name) => opOf(name)!.reduces !== true)).toEqual([]);
+    expect(OP_NAMES.filter((name) => opOf(name)!.reduces === true && !REDUCER_OPS.includes(name))).toEqual([]);
+    // The documentation label agrees with the flag today, and nothing reads it: `category` is prose.
+    expect(REDUCER_OPS.filter((name) => opOf(name)!.category !== 'reducer')).toEqual([]);
+  });
+
   it('says which four ops see absence, and it is the four whose subject IS absence', () => {
     expect(OP_NAMES.filter((name) => opOf(name)!.strict === false)).toEqual(['if', 'case', 'coalesce', 'isAbsent']);
   });
 
   it('says which six ops fold ROWS, and they are the only ops that are neither strict nor not', () => {
     const reducers = OP_NAMES.filter((name) => opOf(name)!.reduces === true);
-    expect(reducers).toEqual(['count', 'sum', 'mean', 'min', 'max', 'distinct']);
+    expect(reducers).toEqual(['count', 'sum', 'mean', 'min', 'max', 'countDistinct']);
     // The three shapes are told apart by data, never by guessing: a reducer has
     // no per-row strictness to declare, because its rows are not its arguments.
     for (const name of reducers) expect(opOf(name)!.strict, name).toBeUndefined();

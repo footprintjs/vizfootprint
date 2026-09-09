@@ -124,9 +124,13 @@ export const SURFACE_PARTS: readonly SurfacePart[] = Object.freeze([
   // ── the data: what each source vouched for, and the record of every refresh ──
   row('sources', 'global', 'versioned'),
   row('keys', 'global', 'immutable'),
-  row('tables', 'global', 'immutable'),
-  // WHY: the same policy as `tables` — the edges between tables are declared beside them and resolved once, at build
-  row('relations', 'global', 'immutable'),
+  // the DECLARED tables do not move — but an aggregate cuts a table that is visible on its own branch and
+  // nowhere else (`src/data/derivedTables.ts`), so the LIST is a claim about where the cursor stands. The
+  // `columns` precedent, one level out: a thing an act made is hidden off the branch that made it
+  row('tables', 'turn', 'versioned'),
+  // WHY: the same policy as `tables` — an edge is declared beside its tables, and a derived table MINTS one
+  // back to its parent, which is true on the act's branch and on no other
+  row('relations', 'turn', 'versioned'),
   // a refresh may land at any moment and journals even when nothing moved — there is no version to compare
   row('journal', 'global', 'volatile'),
   row('journalTotal', 'global', 'volatile'),

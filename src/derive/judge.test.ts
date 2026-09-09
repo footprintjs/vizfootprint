@@ -259,6 +259,29 @@ describe('the shapes that are not nodes', () => {
     expect(problem({ op: 'add', args: [{ lit: 1, op: 'abs', args: [] }, lit(1)] })).toMatch(/names lit and op at once$/);
   });
 
+  it('refuses a stray key on the form it picked, so a typo cannot ride onto the committed declaration', () => {
+    // The declaration door keeps this law (`a derived column names ops, kind, expr and over…`); a node
+    // one level down carried anything, and `judgeDerivedColumn` mints `expr` from these very bytes.
+    expect(problem({ col: 'cases', args: [] })).toBe('a {col} node names col, and this one also names "args"');
+    expect(problem({ lit: 3, calendar: 'iso' })).toBe('a {lit} node names lit, and this one also names "calendar"');
+    expect(problem({ op: 'round', args: [col('cases')], digits: 2 })).toBe('a {op} node names op, args, calendar, and this one also names "digits"');
+    // A one-letter typo on a key the op DOES take is refused too, where before it read as a silent success.
+    expect(problem({ op: 'week', args: [col('when')], calender: 'iso' })).toBe('a {op} node names op, args, calendar, and this one also names "calender"');
+    // The two-form sentence still wins: it says the bigger thing about the same node.
+    expect(problem({ col: 'cases', lit: 5, digits: 2 })).toMatch(/names col and lit at once$/);
+  });
+
+  it('holds a WORD position to the same shape, so a unit can never come from a cell', () => {
+    // `judgeArgs` short-circuits a unit or a target into `judgeWord`, so this is the ONE door that
+    // shape passes — and the walker dispatches on `col` first, which would take the unit off a row.
+    expect(problem({ op: 'dateTrunc', args: [col('when'), { lit: 'month', col: 'region' }] })).toBe(
+      'argument 2 of the op "dateTrunc" is the unit it counts in, written down as one of year, month, week, day — and it was given {"lit":"month","col":"region"}',
+    );
+    expect(problem({ op: 'cast', args: [col('cases'), { lit: 'string', op: 'trim', args: [] }] })).toMatch(
+      /^argument 2 of the op "cast" is the type it reads as, written down as one of /,
+    );
+  });
+
   it('refuses the reserved parameter node by name', () => {
     expect(problem({ param: 'year' })).toBe(
       'named parameters are reserved and not built — a column reads its table, and everything else it needs is written down in it',
@@ -411,7 +434,7 @@ describe('the group a reducer runs over', () => {
     };
     expect(type({ op: 'count', args: [col('region')] })).toBe('number');
     expect(type({ op: 'sum', args: [col('cases')] })).toBe('number');
-    expect(type({ op: 'distinct', args: [col('region')] })).toBe('number');
+    expect(type({ op: 'countDistinct', args: [col('region')] })).toBe('number');
     // min and max answer with what they were given, so the smallest date is a date
     expect(type({ op: 'min', args: [col('when')] })).toBe('date');
     expect(type({ op: 'max', args: [col('region')] })).toBe('string');

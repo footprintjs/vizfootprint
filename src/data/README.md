@@ -105,9 +105,9 @@ describeTable('disease,cases\nLyme,12\nZika,3\n');
 //   { name: 'cases',   type: 'number', sample: [12, 3], distinct: 2, distinctCapped: false, extent: [3, 12] } ] }
 ```
 
-It takes CSV text or rows and **composes what is already here**: `parseCSVTyped` turns text into typed rows, and `columnTypes`, `distinct` and `extent` answer every column's question in one `foldOnce` — a fourth recorder, local to this door, spans a date column, since `extent` reads numbers. The type is the `TypeTally` rule, which is **the same rule the memory engine runs** (`inferType`): a column described as a number is a column the built dashboard will also call a number. There is no second sniffer.
+It takes CSV text or rows and **composes what is already here**: `parseCSVTyped` turns text into typed rows, and `columnTypes` and `extent` answer every column's question in one `foldOnce` — two recorders local to this door span a date column (since `extent` reads numbers) and count a column's distinct values as a DESCRIPTION needs them (by value rather than by object identity, retained only to the cap). The type is the `TypeTally` rule, which is **the same rule the memory engine runs** (`inferType`): a column described as a number is a column the built dashboard will also call a number. There is no second sniffer.
 
-Four things it says plainly rather than guessing at: the column set is the CSV's header, or the first row's keys (the engine's own homogeneous-rows rule); `sample` is the first few DISTINCT values, so a column of one repeated value does not look like five; `distinct` counts null and undefined together as one absence, the fold's rule; and the count is **capped** (`distinctCap`, default 1000) with `distinctCapped` saying so, because "1000" that might mean 90,000 is a number nobody should read as the truth. `extent` is present for a `number` or `date` column that carried one — a column of nothing but `NaN` is still a number column, and honestly has no span.
+Four things it says plainly rather than guessing at: the column set is the CSV's header **once each** (the parser collapses a repeated header cell into one row key, so a name kept twice would describe a key that is not there), or the first row's keys (the engine's own homogeneous-rows rule); `sample` is the first few DISTINCT values, so a column of one repeated value does not look like five; `distinct` counts null and undefined together as one absence, the fold's rule, and counts two equal DATES as one date — a description asks what a column holds, not which objects it holds; and the count is **capped** (`distinctCap`, default 1000) with `distinctCapped` saying so, because "1000" that might mean 90,000 is a number nobody should read as the truth. The cap bounds the WORK too: retention stops one past it, so a near-unique id column of a 500k-row file does not hold 500k values to report a capped 1000. `extent` is present for a `number` or `date` column that carried one — a column of nothing but `NaN` is still a number column, and honestly has no span.
 
 What a person does with the answer is DECLARE on top of it — `{ type, role, scale, label }`, which is the def's own `ColumnDecl`. Nothing here guesses a role: a description is what the data says, a declaration is what the person says, and this library never lets the first stand in for the second. `whatFits` (src/encoding) takes both together.
 
@@ -222,3 +222,76 @@ A group-by, then any analysis that writes a column, and the column was gone unde
 **Nothing new.** `DataProvider` is unchanged: `materializeColumn(table, name, values)` still lands one column under the name it is given. The versioning is entirely the session's business — it passes a name that happens to be unique per act — so the memory engine stayed dumb and the wasm and server stubs owe no new behaviour. That is deliberate: the port is the MAP's surface, and which columns belong to the trace is not something a query engine should have to know.
 
 One consequence worth stating plainly: the judge lives in the session, so **a caller that reaches past it and calls `provider.materializeColumn` directly can still overwrite a source column.** That is a caller writing into the store outside any act — there is no trace for it to be consistent with, and the column it lands is, correctly, indistinguishable from declared data afterwards. The session is the thing that judges; going around the session goes around the judge.
+
+## A derived TABLE belongs to the act that made it, exactly as a column does
+
+An aggregate is an ACT and a DERIVED DATASET. It is computed once, over the rows visible at its cursor (the selection folded then), recorded as one cause-tagged commit whose record carries the parent table, the group columns, the measures and an optional filter — and the ROWS live in the store, recomputed on replay from the record, never serialised. A later selection does not recompute it; a new act does. `derivedTables.ts` is the column store's twin, and four laws hold it to the column's own.
+
+### 1. One slot per act, under the one marker
+
+A derived table is registered under a physical name that carries its commit, spelled by the SAME speller the column store owns (`slotNameOf`) — there is one marker, and nothing outside this folder spells a slot:
+
+```ts
+derivedTableName('by_disease', 's7');   // 'by_disease@s7' — the provider's physical table name
+derivedTableName('t', 'a@b');           // throws: the slot for "t" could not be told apart from another act's
+```
+
+### 2. The relation back to the parent is MINTED, never typed
+
+The group column IS the derived table's key, so `parent.groupCol → derived.groupCol` (many-to-one) keeps the IDENTITY law of `../def/relations.ts` — the target column is the target's own key. (That file's `validateRelations` judges DECLARED edges, and a derived table is never in `def.data`, which is why this edge is minted here and never validated there.) A table grouped by two columns is keyed by a tuple no single-column relation can point at, so it has no key and no relation, and says so — and a table cut from a parent of its OWN name keeps the key and mints no edge, because law 3 there refuses a table joined to itself:
+
+```ts
+mintDerivedTable({ name: 'by_disease', commitId: 's7', of: 'cells', groupBy: ['disease'], measures: [total] });
+// { …, physical: 'by_disease@s7', key: 'disease',
+//   relation: { from: { table: 'cells', column: 'disease' }, to: { table: 'by_disease', column: 'disease' }, kind: 'many-to-one' } }
+mintDerivedTable({ name: 'by_disease_kind', commitId: 's8', of: 'cells', groupBy: ['disease', 'kind'], measures: [total] }).key;        // undefined
+mintDerivedTable({ name: 'by_disease', commitId: 's9', of: 'by_disease', groupBy: ['disease'], measures: [total] }).relation;          // undefined (no self-join)
+```
+
+### 3. ONE resolution rule for columns and tables
+
+`resolveDerived` is generic over the slot record: a table resolves at the cursor's branch path exactly as a column does, the later act wins on one path, and a table cut on a branch the cursor is not on has no answer. The store is keyed by PARENT (a refresh of the parent is what drops its tables) and served flat (`all()`), because a table's name is resolved dashboard-wide. `of` is a NAME, so two acts that cut one name share a parent entry and clearing either drops both names' children: over-dropping is the chosen side — a kept child would resolve `of` to a table whose version is gone — so the loss a refresh reports is a CEILING, not an exact list:
+
+```ts
+resolveDerived(store.all(), pathIds).get('by_disease');   // the DerivedTable at this cursor, or undefined
+```
+
+### 4. A refresh clears the generations, and answers what it dropped
+
+A derived table can be a parent in turn (`of` is a logical name). Clearing a parent drops its tables AND the tables cut from those — a table whose parent is gone has nothing to be replayed from — and answers the dropped list oldest first, so the build can report the loss by the names a person knows and drop the providers by the slots it holds. The record carries the parent's `dataVersion` it was cut from, which is what lets a refresh call a surviving table stale rather than serving yesterday quietly.
+
+```ts
+store.clear('cells');   // [by_disease@s1, by_disease_totals@s3 (cut from by_disease), by_disease@s4]
+```
+
+## A table that contradicts itself is refused at the door, once
+
+A declared absence column says, per row, whether the source reported a value. A row whose state is NOT `present` and whose VALUE column holds a number says two things at once, and no reader can keep both. The walker (`../derive/walk.ts`) already reads such a row as a silence; `absenceContradiction.ts` is what keeps that from being QUIET — the table is refused where it enters, in a sentence naming the row, the two columns and the fix. The silence test is the WALKER'S, not the declared vocabulary's: a word the vocabulary never declared (a case slip, a new collector word, an empty cell) blanks the row exactly as `unavailable` does, and judging only the declared list left those rows — the ones nothing else judges — unjudged. Two doors call it: `describeTable(input, { absence, values? })` (a file before there is a def; `refused` carries the sentence beside the description) and the def door (`../def/validate.ts`, inline rows whose declared measures are the values). Only value columns are judged — a numeric address on a silent row (`week_index`, a code) is not a value, and `describeTable` guesses every number column is one unless `values` names them. A declaration that names a column the table does not have is refused there too: a name that misses judges NOTHING, and would answer a contradicting table with a clean bill of health:
+
+```ts
+absenceContradictionOf(rows, { field: 'report_state', states: ['present', 'unavailable', 'unknown'] }, ['cases'], 'data["cells"]');
+// 'data["cells"].rows[1]: report_state says "unavailable" — no value — and cases holds 0; a table cannot say both,
+//  so carry null in cases where the row reports nothing (7 more rows do the same)'
+```
+
+The one thing that moves that line is the DECLARATION: `AbsenceDecl.carries` names the states that hold a number anyway, and a state named there is not a silence, so its number is not a contradiction. EIA's hourly grid is the case it exists for — a `replaced` demand figure is the number the agency published beside the one the authority filed, and an `estimated` one is EIA's own figure for an hour nobody filed; both ARE figures, and a check that refused them would refuse the honest table. Default NONE, so every declaration written before the key existed is judged byte for byte as it was. It moves this check and nothing else: the walker still reads exactly `present`, because "the source put a number here" and "the arithmetic may add it" are two different questions and only the source can answer the first. The def door refuses a `carries` that names a word the vocabulary never declared (a typo would silence-proof a column), `present` (not a silence to begin with) or `unknown` (the word for a silence the source could not tell apart — it cannot also have carried the value):
+
+```ts
+const demand = { field: 'demand_state', states: ['present', 'estimated', 'replaced', 'unavailable', 'unknown'], carries: ['estimated', 'replaced'] };
+absenceContradictionOf([{ authority: 'CISO', demand: 24_000, demand_state: 'replaced' }], demand, ['demand'], 'data["hourly"]');   // undefined
+absenceContradictionOf([{ authority: 'CISO', demand: 24_000, demand_state: 'unavailable' }], demand, ['demand'], 'data["hourly"]');
+// 'data["hourly"].rows[0]: demand_state says "unavailable" — no value — and demand holds 24000; a table cannot
+//  say both, so carry null in demand where the row reports nothing'
+```
+
+## Where the code lives
+
+| file | one job |
+|---|---|
+| `derivedColumns.ts` | the ONE slot grammar (`slotNameOf`, its marker, `canNameSlot`), the column store, `resolveDerived` (generic: columns AND tables), the two renamers |
+| `derivedTables.ts` | the table store keyed by parent, `mintDerivedTable` (slot, key, relation — minted, never typed), the generational `clear` |
+| `absenceContradiction.ts` | the one sentence for a table whose absence column and value columns disagree |
+| `describeTable.ts` | what is in a table before there is a dashboard — and, given a vocabulary, whether it keeps its word |
+| `fold.ts` | one pass, many recorders |
+| `predicate.ts` / `clauseFromWire.ts` | the clause shape this folder evaluates, and the one translation from a commit's wire triple |
+| `memoryProvider.ts` / `wasmProvider.ts` / `serverProvider.ts` / `stubEngines.ts` | the engine that answers, the two that name their tables and refuse the rest, and the one sentence they refuse in |

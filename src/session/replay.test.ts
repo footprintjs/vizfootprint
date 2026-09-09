@@ -445,7 +445,7 @@ describe('what a replay could not rebuild, it says', () => {
     const first = await degenerate.replay(wire);
     expect(first.ok && first.reran).toBe(0);
     expect(degenerate.gaps().at(-1)).toMatchObject({ code: 'guard-failed', op: 'replay', target: 'shrinks' });
-    expect(degenerate.gaps().at(-1)!.detail).toContain('produced no columns on this data');
+    expect(degenerate.gaps().at(-1)!.detail).toContain('found no honest answer on this data');
 
     // (b) the re-run answers on ANOTHER channel than the one it declares
     const wrongChannel = buildDashboard(def).createSession();

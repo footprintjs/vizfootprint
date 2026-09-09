@@ -81,6 +81,8 @@ Five things follow, and each is a test in `arrangement.integration.test.ts`:
 | `arrangement.ts` | the identity (`layout:sheet:<viewId>`), the codec both sides share, `sheetSortOf` (the read at a cursor), and every word an arrangement is said in — `sortArrow`, `sortPhraseOf`, `sortedByWords`, `sortWords`. Pure — no React, no session |
 | `Sheet.tsx` | renders `sort`, asks through `onSort` (closed in Present mode), and owns `noSortWords` — why a header has no toggle, when the answer is the engine's. It spends `arrangement.ts`'s words rather than writing its own |
 | `../adapter/sessionView.ts` | `setSheetSort` (the act, over both sources) and `SessionViewState.layouts` (every layout scope, not only the cockpit's) |
+| `AddColumn.tsx` / `AddAggregate.tsx` | the two doors beside the grid — what is typed or picked, whether an act is in flight, and the last thing the session said. Neither judges |
+| `../adapter/sessionView.ts` (`addAggregate`, `aggregateIntent`) | the measure TREE minted from a pick, the `ops` version read from the library, and the act's plain words |
 
 ## Add a column — an act, not an edit
 
@@ -102,6 +104,28 @@ The columns the form lists are the ones a formula may READ — the number column
 The act rides `SessionView.addColumn`, which is the `analyze` verb carrying its own declaration — a builtin `formula` record, which is data, so an in-process session and a polled endpoint get the same bytes and the same library judges them.
 
 **A column added here replays from the log alone.** The record rides on the commit, so a log carrying it is enough to rebuild the column in a session that declares nothing — no pre-registration, no host cooperation. That is the library's law 6 doing the work; this form only has to hand over the two words a person typed.
+
+## Cut a table — the same act, one level out
+
+```tsx
+<AddAggregate columns={everyColumnName} onAdd={(name, pick) => view.addAggregate(name, pick, { table })} readOnly={presenting} />
+```
+
+`<AddColumn>` lands a column ON the rows in front of you. `<AddAggregate>` lands a **table beside them**: one row per group, cut from the rows visible at THIS cursor, with the measures it names as its columns. It is an act for the same four reasons — it belongs to the commit that made it, it resolves at the cursor's branch path, it carries the data version it was cut from, and it replays — so the four laws above are its laws too, word for word: it judges nothing, a refusal is the session's own sentence and lands nothing, what landed is said (*"by_region is a table now — it has a sheet of its own"*), and `readOnly` closes it.
+
+Three things are its own:
+
+- **The reducers are the LIBRARY's.** The picker offers `REDUCER_OPS`, which is read off the op table itself (`src/derive/ops.ts`) — so a seventh reducer added to the grammar arrives in this form with no edit here, and this form can never offer a fold the grammar does not have. One owner.
+- **A picked measure is not a tree.** The form hands back `{ as, op, of }` — a name, a fold, a column — and `SessionView.addAggregate` mints `{ as, expr: { op, args: [{ col }] } }` from it. That is the ONE place the shape is written down, so no screen has to know the grammar.
+- **The empty group is an ANSWER, said out loud.** Picking no group column reads *"no group column — one row for the whole table"* and sends `groupBy: []`. A form that quietly refused to submit would be judging, and this door judges nothing.
+
+```tsx
+// what the door sends, and the only shape it owns
+await view.addAggregate('by_region', { groupBy: ['region'], measures: [{ as: 'total', op: 'sum', of: 'cases' }] });
+// → one commit: analysis:by_region, "cut by_region: total = sum of cases by region"
+```
+
+The table it cuts is an **ordinary table** everywhere after that: `sessionSheetData(session, { table: 'by_region' })` reads its rows through the same port, its key is the one the act minted from its group column (read off the Sources rows, not `overview.keys` — a table nobody declared is not in the def's map), and `<Workbook sheets=…>` gives it a tab of its own. Nothing versions it: the session answers `version: null`, because no carrier vouched for those rows — the CURSOR is the stamp that moves, and seeking past the act takes the table with it.
 
 ## The port
 

@@ -4,7 +4,8 @@ import type { DashboardDef } from './index.js';
 
 const rows = [
   { area: 'TX', disease: 'flu', cases: 3, ytd: 30, state: 'present', t: new Date('2026-01-04') },
-  { area: 'CA', disease: 'flu', cases: 5, ytd: 50, state: 'unknown', t: new Date('2026-01-11') },
+  // a silent row carries NO value in its measures — a number there would contradict the absence column, and the def door refuses it
+  { area: 'CA', disease: 'flu', cases: null, ytd: null, state: 'unknown', t: new Date('2026-01-11') },
 ];
 const base: DashboardDef = {
   data: {

@@ -12,15 +12,20 @@ import { describeTable } from '../data/index.js';
 import type { Row } from '../data/index.js';
 
 /** NNDSS-shaped: a week's counts per disease per jurisdiction, with a declared absence column. */
-const ROWS: Row[] = Array.from({ length: 12 }, (_, i) => ({
-  jurisdiction: ['Texas', 'Ohio', 'Maine'][i % 3]!,
-  case_id: i,
-  disease: ['Lyme', 'Zika'][i % 2]!,
-  cases: 10 + i * 3,
-  ytd: 100 + i * 9,
-  t: new Date(Date.UTC(2024, 0, 1 + i * 7)),
-  report_state: ['present', 'unavailable', 'unknown'][i % 3]!,
-}));
+const ROWS: Row[] = Array.from({ length: 12 }, (_, i) => {
+  const report_state = ['present', 'unavailable', 'unknown'][i % 3]!;
+  // a silent row carries NO value in its measures — a number there would contradict the absence column, and the def door refuses it
+  const reported = report_state === 'present';
+  return {
+    jurisdiction: ['Texas', 'Ohio', 'Maine'][i % 3]!,
+    case_id: i,
+    disease: ['Lyme', 'Zika'][i % 2]!,
+    cases: reported ? 10 + i * 3 : null,
+    ytd: reported ? 100 + i * 9 : null,
+    t: new Date(Date.UTC(2024, 0, 1 + i * 7)),
+    report_state,
+  };
+});
 
 const DECLS = {
   jurisdiction: { role: 'identifier' as const },

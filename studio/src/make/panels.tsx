@@ -12,9 +12,9 @@
  */
 import { useId, type ReactNode } from 'react';
 import type { ColumnDescription, ColumnRole, ColumnScale, ColumnType } from 'vizfootprint/data';
-import { BUILTIN_ANALYSES, type BuiltinAnalysisName, type ChartProposal } from 'vizfootprint/def';
+import type { BuiltinAnalysisName, ChartProposal } from 'vizfootprint/def';
 import { T } from '../desk/tokens.js';
-import { MAKE_CEILING_SENTENCE, MAKE_CHART_KINDS, MAKE_CHART_KIND_NAMES, ceilingVerdict, fitsForView, proposalsFor } from './steps.js';
+import { ANALYSIS_OPTIONS, MAKE_ANALYSES, MAKE_CEILING_SENTENCE, MAKE_CHART_KINDS, MAKE_CHART_KIND_NAMES, ceilingVerdict, fitsForView, proposalsFor } from './steps.js';
 import type { MakeChartKind, MakeColumn, MakeDraft, MakeReading, MakeView } from './types.js';
 
 /** The type a person may DECLARE, over the sniff. `''` is "I have not said". */
@@ -23,57 +23,6 @@ const TYPES: readonly (ColumnType | '')[] = ['', 'string', 'number', 'boolean', 
 const ROLES: readonly (ColumnRole | '')[] = ['', 'identifier', 'dimension', 'measure'];
 const SCALES: readonly (ColumnScale | '')[] = ['', 'discrete', 'continuous'];
 
-/**
- * What each builtin analysis asks for, so the picker is one loop rather than one
- * branch per analysis.
- *
- * `null` means "not offered by THIS wizard", and the map is exhaustive over
- * `BuiltinAnalysisName` so a builtin added to the library has to be answered for
- * here rather than silently appearing in the picker with nothing to fill in.
- */
-type AnalysisOption = { readonly key: string; readonly of: 'column' | 'number' | 'text'; readonly says: string };
-const ANALYSIS_OPTIONS: Readonly<Record<BuiltinAnalysisName, readonly AnalysisOption[] | null>> = {
-  groupBy: [
-    { key: 'by', of: 'column', says: 'grouped by' },
-    { key: 'measure', of: 'column', says: 'averaging' },
-  ],
-  correlation: [
-    { key: 'x', of: 'column', says: 'between' },
-    { key: 'y', of: 'column', says: 'and' },
-  ],
-  regression: [
-    { key: 'x', of: 'column', says: 'x' },
-    { key: 'y', of: 'column', says: 'y' },
-    { key: 'minPoints', of: 'number', says: 'fitted only from at least this many rows' },
-  ],
-  clustering: [
-    { key: 'column', of: 'column', says: 'binning' },
-    { key: 'k', of: 'number', says: 'into this many bins' },
-  ],
-  // the one whose options are WORDS rather than a pick: an expression the
-  // person writes, and the name of the column it becomes. The library reads the
-  // expression and refuses a token it has no rule for, naming it and where it
-  // sits; nothing here judges it.
-  formula: [
-    { key: 'expression', of: 'text', says: 'working out' },
-    { key: 'name', of: 'text', says: 'into a column called' },
-  ],
-  // The two that read a SECOND table across a DECLARED RELATION. This wizard
-  // brings one table — the file the person dropped — so there is no second
-  // table to relate it to and no relation to grant the read. Offering them
-  // would be offering an act that could only ever be refused.
-  layout: null,
-  bringOver: null,
-  // The declared column. Its whole content is a TREE, and a tree is not
-  // something a person fills into three text boxes — the door that builds one
-  // is the sheet's, where the table's columns and their types are on screen
-  // beside it. The wizard offers the sentence form of the same act (`formula`)
-  // and leaves the tree to the desk.
-  derive: null,
-};
-
-/** The analyses this wizard can honestly offer: the ones a one-table draft can fill in. */
-const MAKE_ANALYSES: readonly BuiltinAnalysisName[] = BUILTIN_ANALYSES.filter((name) => ANALYSIS_OPTIONS[name] !== null);
 
 const field: React.CSSProperties = { display: 'block', fontSize: T.textMd, marginBottom: T.gapSm };
 const box: React.CSSProperties = { font: 'inherit', fontSize: T.textLg, padding: '4px 6px', border: `1px solid ${T.rule}`, borderRadius: T.radius, background: T.paper };
@@ -171,7 +120,7 @@ function Description({ reading }: { readonly reading: MakeReading }): ReactNode 
   const verdict = ceilingVerdict(reading.rows);
   return (
     <div style={card} data-vzf="make-description">
-      <p style={{ ...note, color: verdict.level === 'fine' ? T.ok : T.stale }} data-vzf="make-ceiling-verdict">
+      <p style={{ ...note, color: verdict.level === 'fine' ? T.ok : verdict.level === 'watch' ? T.stale : T.danger }} data-vzf="make-ceiling-verdict">
         {verdict.sentence}
       </p>
       <table style={{ borderCollapse: 'collapse', width: '100%' }}>
@@ -316,11 +265,16 @@ export function ViewsStep({ draft, analysisKind, analysisOptions, onView, onAdd,
       </div>
 
       <div style={card} data-vzf="make-analysis">
-        <Choice label="Run an analysis" value={analysisKind} options={['', ...MAKE_ANALYSES]} said="— none —" onChange={(v) => onAnalysis(v, analysisOptions)} />
+        {/* The options go with the kind: a `k` left over from clustering is not an option of `formula`, and the
+            library's own door refuses it by name two steps later with nothing on screen to clear. The chart-kind
+            Choice below drops its bindings for the same reason — changing a kind is changing what is being said. */}
+        <Choice label="Run an analysis" value={analysisKind} options={['', ...MAKE_ANALYSES]} said="— none —" onChange={(v) => onAnalysis(v, {})} />
         <p style={{ ...note, margin: 0 }}>
-          These are the ones a definition can NAME over ONE table, because they are data. Anything else is a developer’s: an analysis with code in it is written in TypeScript and passed to the build, and no wizard can write one for you. The two that read a second table (a layout, and bringing a related table’s columns over) need a declared relation, and a wizard that brought one file has nothing to relate it to.
+          These are the ones a definition can NAME over ONE table and fill in from boxes, because they are data. Anything else is a developer’s: an analysis with code in it is written in TypeScript and passed to the build, and no wizard can write one for you. Four that a definition CAN name are still not here: the two that read a second table (a layout, and bringing a related table’s columns over) need a declared relation, and a wizard that brought one file has nothing to relate it to; the two whose content is a TREE (a derived column, and an aggregate table of one row per group) are the sheet’s, where the table’s columns and their types are on screen beside the tree being written — `working out` above is the sentence form of the first of them.
         </p>
-        {(ANALYSIS_OPTIONS[analysisKind as BuiltinAnalysisName] ?? []).map((option) =>
+        {/* Own-key: `analysisKind` is a string a host may set, and a bare index would answer
+            Object.prototype's own `toString` for that name — a function where a list belongs. */}
+        {(Object.hasOwn(ANALYSIS_OPTIONS, analysisKind) ? (ANALYSIS_OPTIONS[analysisKind as BuiltinAnalysisName] ?? []) : []).map((option) =>
           option.of === 'column' ? (
             <Choice key={option.key} label={option.says} value={analysisOptions[option.key] ?? ''} options={['', ...names]} said="— not said —" onChange={(v) => onAnalysis(analysisKind, { ...analysisOptions, [option.key]: v })} />
           ) : (

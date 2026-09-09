@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { DataRow } from '../analysis/index.js';
-import { deriveAnalysis, deriveWords, type DerivedColumn } from './index.js';
+import { deriveAnalysis, deriveWords, type DerivedColumnDecl } from './index.js';
 
 /** The demo's own shape: a row the source marked `unavailable` carries `cases = 0`. */
 const ROWS = [
@@ -21,7 +21,7 @@ const ROWS = [
 
 const ABSENCE = { field: 'report_state', states: ['present', 'unavailable', 'unknown'] } as const;
 
-const RATE: DerivedColumn = { ops: 1, kind: 'row', expr: { op: 'div', args: [{ col: 'cases' }, { col: 'population' }] } };
+const RATE: DerivedColumnDecl = { ops: 1, kind: 'row', expr: { op: 'div', args: [{ col: 'cases' }, { col: 'population' }] } };
 
 /** The values one act computed, off the finished run's own snapshot. */
 async function valuesOf(mod: ReturnType<typeof deriveAnalysis>, rows: readonly DataRow[] = ROWS): Promise<unknown> {
@@ -37,7 +37,7 @@ describe('the module a derive record builds', () => {
   });
 
   it('declares the columns the tree reads, once each, and nothing else', () => {
-    const twice: DerivedColumn = {
+    const twice: DerivedColumnDecl = {
       ops: 1,
       kind: 'row',
       expr: { op: 'add', args: [{ col: 'cases' }, { op: 'mul', args: [{ col: 'cases' }, { lit: 2 }] }] },
@@ -46,16 +46,32 @@ describe('the module a derive record builds', () => {
   });
 
   it('reads no column out of a tree that names none, and none out of a node with no arguments', () => {
-    const flat: DerivedColumn = { ops: 1, kind: 'row', expr: { lit: 7 } };
+    const flat: DerivedColumnDecl = { ops: 1, kind: 'row', expr: { lit: 7 } };
     expect(deriveAnalysis({ name: 'rate', column: flat }).def.inputs).toEqual([]);
     // A record the judge never saw — the shape a tampered log could carry. The
     // reader is total over it; the judge is what refuses it.
-    const broken = { ops: 1, kind: 'row', expr: { op: 'add' } } as unknown as DerivedColumn;
+    const broken = { ops: 1, kind: 'row', expr: { op: 'add' } } as unknown as DerivedColumnDecl;
     expect(deriveAnalysis({ name: 'rate', column: broken }).def.inputs).toEqual([]);
   });
 
+  it('walks a shared node once and keeps no stack of its own — it runs BEFORE the judge, so the trees the judge refuses may not hang it', () => {
+    const inputsOf = (column: unknown): unknown => deriveAnalysis({ name: 'rate', column: column as DerivedColumnDecl }).def.inputs;
+    // Forty shared objects: a walk that visited a node once per REFERENCE would make 2^40 calls
+    // collecting the one name, and hang before `judgeTable` could say either ceiling's sentence.
+    let shared: unknown = { col: 'cases' };
+    for (let at = 0; at < 40; at += 1) shared = { op: 'add', args: [shared, shared] };
+    expect(inputsOf({ ops: 1, kind: 'row', expr: shared })).toEqual([{ column: 'cases', role: 'value' }]);
+    // And a chain deeper than the JS stack is a list, not a RangeError — the judge owns that sentence too.
+    let deep: unknown = { col: 'cases' };
+    for (let at = 0; at < 20_000; at += 1) deep = { op: 'add', args: [deep, { col: 'population' }] };
+    expect(inputsOf({ ops: 1, kind: 'row', expr: deep })).toEqual([
+      { column: 'cases', role: 'value' },
+      { column: 'population', role: 'value' },
+    ]);
+  });
+
   it('is total over every unjudged shape a log could carry — the judge owns the sentence, so the reader never throws ahead of it', () => {
-    const inputsOf = (column: unknown): unknown => deriveAnalysis({ name: 'rate', column: column as DerivedColumn }).def.inputs;
+    const inputsOf = (column: unknown): unknown => deriveAnalysis({ name: 'rate', column: column as DerivedColumnDecl }).def.inputs;
     // an argument that is not a node, a column not named with a string, a null arm
     expect(inputsOf({ ops: 1, kind: 'row', expr: { op: 'add', args: [{ col: 'cases' }, 2] } })).toEqual([{ column: 'cases', role: 'value' }]);
     expect(inputsOf({ ops: 1, kind: 'row', expr: { op: 'add', args: [null, { col: 'cases' }] } })).toEqual([{ column: 'cases', role: 'value' }]);
@@ -90,13 +106,13 @@ describe('the absence law reaches the columnar walk', () => {
   });
 
   it('lets the absence column speak for itself, so a test on the state stays honest', async () => {
-    const said: DerivedColumn = { ops: 1, kind: 'row', expr: { op: 'eq', args: [{ col: 'report_state' }, { lit: 'unavailable' }] } };
+    const said: DerivedColumnDecl = { ops: 1, kind: 'row', expr: { op: 'eq', args: [{ col: 'report_state' }, { lit: 'unavailable' }] } };
     const mod = deriveAnalysis({ name: 'rate', column: said, absence: ABSENCE });
     expect(await valuesOf(mod)).toEqual([false, true, false]);
   });
 
   it('folds the absence column out of the rows even when the tree never names it — and does not fold it twice when it does', async () => {
-    const both: DerivedColumn = {
+    const both: DerivedColumnDecl = {
       ops: 1,
       kind: 'row',
       expr: { op: 'if', args: [{ op: 'eq', args: [{ col: 'report_state' }, { lit: 'present' }] }, { col: 'cases' }, { lit: 0 }] },
@@ -119,7 +135,7 @@ describe('the type is computed, never tallied', () => {
   ];
 
   /** Judge it the way the session does, then run it, and read what it says its column is. */
-  async function typeOf(column: DerivedColumn): Promise<unknown> {
+  async function typeOf(column: DerivedColumnDecl): Promise<unknown> {
     const mod = deriveAnalysis({ name: 'rate', column });
     expect(mod.def.judgeTable!('data', columns)).toEqual([]);
     const run = await mod.run(ROWS);
@@ -182,7 +198,7 @@ describe('the act, over a group', () => {
     { id: 'd', kind: 'state', disease: 'Measles', cases: 5, report_state: 'present' },
   ] as unknown as DataRow[];
 
-  const SHARE: DerivedColumn = {
+  const SHARE: DerivedColumnDecl = {
     ops: 1,
     kind: 'row',
     expr: { op: 'div', args: [{ col: 'cases' }, { op: 'sum', args: [{ col: 'cases' }] }] },
@@ -199,7 +215,7 @@ describe('the act, over a group', () => {
   });
 
   it('names a column the tree AND the group read exactly once, and needs no filter to be grouped', () => {
-    const byDisease: DerivedColumn = {
+    const byDisease: DerivedColumnDecl = {
       ops: 1,
       kind: 'row',
       expr: { op: 'concat', args: [{ col: 'disease' }, { op: 'cast', args: [{ op: 'count', args: [{ col: 'cases' }] }, { lit: 'string' }] }] },

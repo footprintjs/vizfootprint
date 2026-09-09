@@ -78,7 +78,7 @@ describe('viewQuery — the whole-dashboard truth and the window', () => {
 
   it('is refused with a sentence — an undeclared table, an undeclared view, a sort by a column the table lacks, an engine that cannot sort, a bad window', async () => {
     const s = fresh();
-    expect(await s.viewQuery({ table: 'ghost' })).toEqual({ ok: false, reason: 'unknown-table', rejected: 'no table "ghost" is declared — the tables are data' });
+    expect(await s.viewQuery({ table: 'ghost' })).toEqual({ ok: false, reason: 'unknown-table', rejected: 'no table "ghost" here — the tables at this point are data' });
     const view = await s.viewQuery({ viewId: 'ghost' });
     expect(!view.ok && [view.reason, view.rejected.startsWith('no declared view "ghost" — the views are ')]).toEqual(['unknown-view', true]);
     const col = await s.viewQuery({ sort: [{ field: 'ghost', dir: 'asc' }] });

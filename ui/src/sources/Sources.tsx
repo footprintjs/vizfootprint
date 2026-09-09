@@ -49,7 +49,7 @@ export function Sources({ tables, sources = {}, columns = {}, journal = [], jour
   return (
     <div className={`vzf vzf-sources${className ? ' ' + className : ''}`} role="region" aria-label="data sources" data-vzf="sources">
       <div className="vzf-sources-head">
-        <span className="vzf-sources-count">{tables.length === 0 ? 'no table declared' : `${tables.length} table${tables.length === 1 ? '' : 's'} declared`}</span>
+        <span className="vzf-sources-count">{tableCountWords(tables)}</span>
         {onRefresh !== undefined && (
           <button type="button" className="vzf-sources-refresh" aria-disabled={!canRefresh} onClick={() => canRefresh && onRefresh()} title="Re-read every declared source with the version held — a dashboard-level act, written to the data journal">
             {refreshing ? 'refreshing…' : 'Refresh all'}
@@ -96,8 +96,14 @@ function TableRow({ table: t, source, columns, last, beyondTail, tail, canRefres
       <dl className="vzf-sources-facts">
         <dt>from</dt>
         <dd>{sourceWords(t.source)}</dd>
+        {t.derived !== undefined && (
+          <>
+            <dt>cut by</dt>
+            <dd data-vzf="sources-derived">{derivedWords(t.derived)}</dd>
+          </>
+        )}
         <dt>vouched for</dt>
-        <dd>{source !== undefined ? `${source.rows.toLocaleString()} rows · version ${source.version} · read ${source.retrievedAt}` : <span className="vzf-soft">carried by the definition — no version to move</span>}</dd>
+        <dd>{source !== undefined ? `${source.rows.toLocaleString()} rows · version ${source.version} · read ${source.retrievedAt}` : <span className="vzf-soft">{t.derived !== undefined ? 'nobody vouched for these rows — an act cut them, and a refresh of the parent drops them' : 'carried by the definition — no version to move'}</span>}</dd>
         <dt>row key</dt>
         <dd>{t.key !== undefined ? <code>{t.key}</code> : <span className="vzf-soft">none — a refresh replaces the table; no row is addressable</span>}</dd>
         {t.grain !== undefined && (
@@ -141,10 +147,40 @@ export function lastAnswer(journal: readonly RefreshRecordView[], table: string)
 /** How many engine columns a row lists before "+N more" (placeholder — a wide table is a scroll, not a wall). */
 const COLUMNS_SHOWN = 40;
 
+/**
+ * How many tables are here — counted in TWO words, because a table an act cut
+ * was never declared by anybody. A single number over both would be a claim
+ * about the definition that the definition does not make.
+ */
+export function tableCountWords(tables: readonly TableView[]): string {
+  const cut = tables.filter((t) => t.derived !== undefined).length;
+  const declared = tables.length - cut;
+  if (declared === 0 && cut === 0) return 'no table declared';
+  return `${declared} table${declared === 1 ? '' : 's'} declared${cut > 0 ? ` · ${cut} cut by an act` : ''}`;
+}
+
 export function sourceWords(source: TableView['source']): string {
   if ('unstated' in source) return 'not stated — the wire carried no readable source for this table';
   if ('inline' in source) return source.inline === 'csv' ? 'CSV text carried by the definition' : `${source.rows ?? 0} inline rows carried by the definition`;
+  // an ACT cut these rows: no carrier holds them, so nothing can re-read them —
+  // the act is the thing to ask, and `derivedWords` below names it
+  if ('computed' in source) return 'computed here — an act cut these rows from another table';
   return `${source.format} via ${source.via}${source.at !== undefined ? ` · ${source.at}` : ''}`;
+}
+
+/**
+ * The act that cut a table, in words: which rows it read, where it read them,
+ * what it grouped by and what it measured.
+ *
+ * "the rows visible at s12" is the whole law said once — an aggregate is
+ * computed over the rows visible at ITS cursor, not over the parent's whole
+ * table, and a Sources row that said only "from cases" would be describing a
+ * different act.
+ */
+export function derivedWords(derived: NonNullable<TableView['derived']>): string {
+  const by = derived.groupBy.length === 0 ? 'the whole table as one row' : `grouped by ${derived.groupBy.join(', ')}`;
+  const measures = derived.measures.length === 0 ? 'no measure' : `measuring ${derived.measures.join(', ')}`;
+  return `derived from ${derived.of} — the rows visible at ${derived.at}, ${by}, ${measures}`;
 }
 
 export function grainWords(grain: NonNullable<TableView['grain']>): string {

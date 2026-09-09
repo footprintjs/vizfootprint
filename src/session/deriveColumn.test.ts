@@ -21,7 +21,7 @@ import { buildDashboard } from '../def/index.js';
 import type { DashboardDef } from '../def/index.js';
 import type { Cause } from '../cause/index.js';
 import type { DataRow } from '../analysis/index.js';
-import type { DerivedColumn, Expr } from '../derive/index.js';
+import type { DerivedColumnDecl, Expr } from '../derive/index.js';
 
 const cause: Cause = { requestedBy: 'user', computedBy: 'user', intent: 'a test' };
 
@@ -41,7 +41,7 @@ const ROWS = [
 
 const ABSENCE = { field: 'report_state', states: ['present', 'unavailable', 'unknown'] };
 
-const tree = (expr: Expr): DerivedColumn => ({ ops: 1, kind: 'row', expr });
+const tree = (expr: Expr): DerivedColumnDecl => ({ ops: 1, kind: 'row', expr });
 
 /** `cases / population` — the design's own motivating column. */
 const RATE = tree({ op: 'div', args: [{ col: 'cases' }, { col: 'population' }] });
@@ -406,7 +406,7 @@ describe('two branches, one column name, two declarations', () => {
 
   it('lands a GROUPED column, and the group rides the commit into a replay', async () => {
     // each row's share of its region's reported total, counting present rows only
-    const share: DerivedColumn = {
+    const share: DerivedColumnDecl = {
       ops: 1,
       kind: 'row',
       expr: { op: 'div', args: [{ col: 'cases' }, { op: 'sum', args: [{ col: 'cases' }] }] },
@@ -420,7 +420,7 @@ describe('two branches, one column name, two declarations', () => {
     expect(await read(source, 'share')).toEqual([1, null, 30 / 75, 45 / 75]);
 
     // the WHOLE declaration is on the commit — the group and its filter included
-    const landed = source.log.records.at(-1) as { readonly value: { readonly def: { readonly column: DerivedColumn } } };
+    const landed = source.log.records.at(-1) as { readonly value: { readonly def: { readonly column: DerivedColumnDecl } } };
     expect(landed.value.def.column.over).toEqual(share.over);
 
     const fresh = buildDashboard(defWith(undefined)).createSession();

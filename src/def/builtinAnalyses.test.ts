@@ -35,13 +35,13 @@ describe('the builtin analysis record — what it refuses', () => {
 
   it('refuses a record whose `builtin` is not a name', () => {
     expect(problemsOf({ builtin: 7 })).toEqual([
-      'analyses["a"].builtin must name a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver | derive',
+      'analyses["a"].builtin must name a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver | derive | aggregate',
     ]);
   });
 
   it('refuses an unknown builtin name, and says which names there are', () => {
     expect(problemsOf({ builtin: 'kmeans', column: 'cases' })).toEqual([
-      'analyses["a"].builtin "kmeans" is not a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver | derive',
+      'analyses["a"].builtin "kmeans" is not a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver | derive | aggregate',
     ]);
   });
 
@@ -83,7 +83,7 @@ describe('the builtin analysis record — what it refuses', () => {
   });
 
   it('accepts every builtin at its plainest', () => {
-    expect(BUILTIN_ANALYSES).toEqual(['groupBy', 'correlation', 'regression', 'clustering', 'formula', 'layout', 'bringOver', 'derive']);
+    expect(BUILTIN_ANALYSES).toEqual(['groupBy', 'correlation', 'regression', 'clustering', 'formula', 'layout', 'bringOver', 'derive', 'aggregate']);
     expect(problemsOf({ builtin: 'groupBy', by: 'disease', measure: 'cases' })).toEqual([]);
     expect(problemsOf({ builtin: 'correlation', x: 'cases', y: 'ytd' })).toEqual([]);
     expect(problemsOf({ builtin: 'regression', x: 'cases', y: 'ytd' })).toEqual([]);
@@ -92,6 +92,7 @@ describe('the builtin analysis record — what it refuses', () => {
     expect(problemsOf({ builtin: 'layout', algo: 'stress' })).toEqual([]);
     expect(problemsOf({ builtin: 'bringOver', table: 'edges', from: 'nodes', columns: ['x', 'y'] })).toEqual([]);
     expect(problemsOf({ builtin: 'derive', name: 'rate', column: { ops: 1, kind: 'row', expr: { col: 'cases' } } })).toEqual([]);
+    expect(problemsOf({ builtin: 'aggregate', name: 'by_disease', ops: 1, groupBy: ['disease'], measures: [{ as: 'total', expr: { op: 'sum', args: [{ col: 'cases' }] } }] })).toEqual([]);
   });
 
   it('refuses a derived column that is not a declaration — the tree is judged against the table later, its SHAPE here', () => {
@@ -342,5 +343,71 @@ describe('the def door', () => {
     expect(session.analysisIds()).toContain('byDisease');
     const commit = await session.declareAnalysis('byDisease');
     expect(commit.result.ok).toBe(true);
+  });
+});
+
+describe('the aggregate record — a derived table, named as data', () => {
+  const SUM = { as: 'total', expr: { op: 'sum', args: [{ col: 'cases' }] } };
+  const plain = { builtin: 'aggregate', name: 'by_disease', ops: 1, groupBy: ['disease'], measures: [SUM] };
+
+  it('takes its options and nothing else, and says which it takes', () => {
+    expect(problemsOf({ ...plain, table: 'cells', where: { op: 'eq', args: [{ col: 'kind' }, { lit: 'state' }] }, id: 'agg' })).toEqual([]);
+    expect(problemsOf({ ...plain, absence: { field: 'state' } })).toEqual(['analyses["a"].absence is not an option of the "aggregate" analysis — it takes name, ops, groupBy, measures, table, where, id']);
+  });
+
+  it('refuses a record missing what an aggregate needs, in one sentence each', () => {
+    expect(problemsOf({ builtin: 'aggregate' })).toEqual([
+      'analyses["a"].name must be a non-empty string (the "aggregate" analysis needs it)',
+      'analyses["a"].ops must be a whole number of at least 1 (the "aggregate" analysis needs it)',
+      'analyses["a"].groupBy must be an array of distinct, non-empty column names — [] means the whole table (the "aggregate" analysis needs it)',
+      'analyses["a"].measures must be a non-empty array of measures — { as, expr }, each under its own name (the "aggregate" analysis needs it)',
+    ]);
+  });
+
+  it('accepts an EMPTY groupBy — the whole table as one row, said out loud — and refuses a repeated or empty group name', () => {
+    expect(problemsOf({ ...plain, groupBy: [] })).toEqual([]);
+    expect(problemsOf({ ...plain, groupBy: ['disease', 'disease'] })).toHaveLength(1);
+    expect(problemsOf({ ...plain, groupBy: ['disease', ''] })).toHaveLength(1);
+    expect(problemsOf({ ...plain, groupBy: 'disease' })).toHaveLength(1);
+  });
+
+  it('refuses measures that are not a non-empty list of { as, expr } under distinct names — the trees themselves are judged at the session’s door', () => {
+    expect(problemsOf({ ...plain, measures: [] })).toHaveLength(1);
+    expect(problemsOf({ ...plain, measures: [SUM, SUM] })).toHaveLength(1);
+    expect(problemsOf({ ...plain, measures: [{ as: '', expr: { col: 'cases' } }] })).toHaveLength(1);
+    expect(problemsOf({ ...plain, measures: [{ as: 'total' }] })).toHaveLength(1);
+    expect(problemsOf({ ...plain, measures: ['sum(cases)'] })).toHaveLength(1);
+    // a tree the grammar will refuse still has the SHAPE of a measure here
+    expect(problemsOf({ ...plain, measures: [{ as: 'total', expr: { op: 'sqrt', args: [] } }] })).toEqual([]);
+  });
+
+  it('refuses a filter that is not a node', () => {
+    expect(problemsOf({ ...plain, where: 'kind = state' })).toEqual(['analyses["a"].where, if present, must be a tree — a { col }, { lit } or { op, args } node']);
+  });
+
+  it('builds the aggregate act, table-scoped, reading its ABSENCE vocabulary off the def', async () => {
+    const rows = [
+      { id: 'a', disease: 'Lyme', state: 'present', cases: 10 },
+      { id: 'b', disease: 'Lyme', state: 'unavailable', cases: 0 },
+      { id: 'c', disease: 'Zika', state: 'present', cases: 4 },
+    ];
+    const record = { ...plain, measures: [{ as: 'n', expr: { op: 'count', args: [{ col: 'id' }] } }] } as unknown as BuiltinAnalysisDecl;
+    const absence = { data: { field: 'state', states: ['present', 'unavailable', 'unknown'] } };
+
+    const knowing = buildBuiltinAnalysis(record, { absence });
+    expect(knowing.id).toBe('aggregate:data:by_disease');
+    expect(knowing.def.produces).toBe('table');
+    const landed = await knowing.run(rows);
+    expect(landed.result.ok && landed.result.output.as === 'table' ? landed.result.output.rows : undefined).toEqual([
+      { disease: 'Lyme', n: 1 },
+      { disease: 'Zika', n: 1 },
+    ]);
+
+    // with no vocabulary the unavailable row is a row like any other
+    const alone = await buildBuiltinAnalysis(record).run(rows);
+    expect(alone.result.ok && alone.result.output.as === 'table' ? alone.result.output.rows : undefined).toEqual([
+      { disease: 'Lyme', n: 2 },
+      { disease: 'Zika', n: 1 },
+    ]);
   });
 });

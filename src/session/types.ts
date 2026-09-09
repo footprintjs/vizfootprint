@@ -1007,8 +1007,14 @@ export type ViewQueryResult =
 /** One declared table as the def states it (see `Overview.tables`). Nothing here is inferred from the rows. */
 export interface TableInfo {
   readonly name: string;
-  /** Where the rows come from: a declared source (`format · via · at`, the locator only when it is a string), or inline rows / CSV text carried by the def. */
-  readonly source: { readonly format: string; readonly via: string; readonly at?: string } | { readonly inline: 'rows' | 'csv'; readonly rows?: number };
+  /**
+   * Where the rows come from: a declared source (`format · via · at`, the
+   * locator only when it is a string), inline rows / CSV text carried by the
+   * def, or COMPUTED — an act cut them, and no carrier holds them. The third
+   * arm is not an inline table said differently: nothing can refresh it, and
+   * `derived` below says which act to ask instead.
+   */
+  readonly source: { readonly format: string; readonly via: string; readonly at?: string } | { readonly inline: 'rows' | 'csv'; readonly rows?: number } | { readonly computed: 'aggregate' };
   /** The engine the table routed to. */
   readonly engine: Engine;
   /** The declared row key, when the def states one — without it a refresh replaces the table and no row is addressable. */
@@ -1016,8 +1022,23 @@ export interface TableInfo {
   readonly grain?: SeriesGrain;
   /** The absence column and the vocabulary it speaks, when declared. */
   readonly absence?: { readonly field: string; readonly states: readonly string[] };
-  /** How many columns the def declares facets for (the engine may list more). */
+  /** How many columns the def declares facets for (the engine may list more) — for a derived table, how many the ACT lands. */
   readonly declaredColumns: number;
+  /**
+   * The act that cut this table, when an act did: the parent it was cut from,
+   * the group columns, the measure NAMES in the order they land as columns,
+   * and the commit that made it.
+   *
+   * Names and words, never values — the rows are read through `viewQuery` like
+   * any table's. The measure TREES stay on the commit: this is the Sources row,
+   * and a reader asking what a measure computes is asking the act, not the map.
+   */
+  readonly derived?: {
+    readonly of: string;
+    readonly groupBy: readonly string[];
+    readonly measures: readonly string[];
+    readonly at: string;
+  };
 }
 
 /** The structured payload `whats_here` projects. All app content lives in DATA fields. */

@@ -74,9 +74,18 @@ export type { ParsedCSV, SniffedCSV } from './csv.js';
 export { describeTable, DESCRIBE_DISTINCT_CAP, DESCRIBE_SAMPLE } from './describeTable.js';
 export type { ColumnDescription, DescribeTableOptions, TableDescription } from './describeTable.js';
 
+// A table whose absence column and value columns disagree is refused at the data door, once — this is the sentence.
+export { absenceContradictionOf } from './absenceContradiction.js';
+
 // Derived columns — the trace's columns, versioned by the act that made them.
 export { DerivedColumnStore, canNameSlot, derivedColumnName, renameClauseFields, renameRowSlots, resolveDerived } from './derivedColumns.js';
 export type { DerivedColumn } from './derivedColumns.js';
+
+// Derived tables — an aggregate is an ACT, not a view: computed once over the rows visible at its
+// cursor and landed in its own slot (a later selection does not recompute it; a new act does), under
+// the same slot grammar as the columns; its relation back to the parent is minted, never typed.
+export { DerivedTableStore, derivedTableName, mintDerivedTable } from './derivedTables.js';
+export type { DerivedTable, DerivedTableAct } from './derivedTables.js';
 
 export { memoryProvider, SORT_CACHE_PER_TABLE } from './memoryProvider.js';
 export type { Layout, MemoryProviderOptions, RowsInput } from './memoryProvider.js';

@@ -187,8 +187,7 @@ describe('R14 — honest degenerate fit (no commit, no wealth spent)', () => {
     const s = freshSession();
     const eight: DataRow[] = SAMPLE_ROWS.slice(0, 8).map((r) => ({ ...r, rating: 3 })); // zero y-variance
     const a = await s.declareAnalysis('correlation', { input: eight });
-    expect(a.result.ok).toBe(false);
-    if (!a.result.ok) expect(a.result.fitDegenerate).toBe(true);
+    expect(a.result).toMatchObject({ ok: false, reason: 'degenerate-fit', fitDegenerate: true });
     expect(a.commit).toBeUndefined();
     expect(a.fdrStep).toBeUndefined();
     expect(s.ledger()).toHaveLength(0);

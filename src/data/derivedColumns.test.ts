@@ -211,3 +211,15 @@ describe('renameRowSlots — rows come back wearing the names the caller asked f
     expect(out.risk).toBe(3);
   });
 });
+
+describe('slotNameOf — the ONE speller, behind two doors', () => {
+  it('spells a column’s slot and a table’s slot the same way, under the same marker', async () => {
+    const { slotNameOf } = await import('./derivedColumns.js');
+    const { derivedTableName } = await import('./derivedTables.js');
+    expect(slotNameOf('risk', 's7')).toBe('risk@s7');
+    expect(derivedColumnName('risk', 's7')).toBe(slotNameOf('risk', 's7'));
+    expect(derivedTableName('risk', 's7')).toBe(slotNameOf('risk', 's7'));
+    // The sentence NAMES what was being slotted: on a replayed log it is the only thread back to the act.
+    expect(() => slotNameOf('x', 'a@b')).toThrow('vizfootprint: commit id "a@b" contains the reserved marker "@" — the slot for "x" could not be told apart from another act\'s');
+  });
+});

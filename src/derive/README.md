@@ -52,19 +52,23 @@ The arity is written twice because neither should have to be derived from the ot
 | string | `concat lower upper trim length contains startsWith endsWith in split substring replace` |
 | date | `year month week dayOfWeek dateDiff dateAdd dateTrunc` |
 | cast | `cast` |
-| reducer | `count sum mean min max distinct` — law 11 |
+| reducer | `count sum mean min max countDistinct` — law 11 |
 
 A row has a third shape as well as `strict: true` and `strict: false`: `reduces: true`, the six ops that fold ROWS rather than sibling arguments. Which shape an op has is read off the table and never guessed.
 
-**Three names are reserved**, and each is refused with the reason rather than as an unknown word — a person who asks for one has understood the model and is somewhere else:
+**Five names are reserved**, and each is refused with the reason rather than as an unknown word — a person who asks for one has understood the model and is somewhere else:
 
 ```
 the op "lookup" is reserved: a lookup reads a SECOND table, and only a declared relation may permit that — declare the
   relation and bring the column over (the bringOver act), then read it here by its name
 the op "today" is reserved: a column whose value depends on when it ran cannot be replayed, so this grammar has no clock
+the op "distinct" is reserved: distinct names the different values themselves, a set this grammar cannot hold yet — to COUNT them, write countDistinct
+the op "avg" is reserved: this grammar names the average mean — write mean
 ```
 
-`today` and `now` never arrive: a replay months later has a different clock. `lookup` never arrives either, and for a better reason than "not yet" — see law 12.
+`today` and `now` never arrive: a replay months later has a different clock. `lookup` never arrives either, and for a better reason than "not yet" — see law 12. `distinct` is the one name held for LATER, and it is held rather than taken because the SQL word names the different values themselves — a set, which no column can hold yet — so the reducer that counts them is `countDistinct`: a count under the set's name would have to change meaning the day the set arrived, and nothing has shipped carrying the old word. `avg` is the shortest walk of the five: the average is here, and `mean` is the one reducer whose name is not the word SQL, dbt, Cube and Malloy use, so it is the one a person types wrong.
+
+The op vocabulary is versioned (`OPS_VERSION`), and adding a row moves the number — with ONE pre-release exception, stated beside the table and ending at the first published build: while nothing is published there are no records in the wild for a version to protect, so a word may be RENAMED without moving it provided the old word lands in `RESERVED_OPS` naming the new one. That redirect is a better sentence than a version refusal, which would refuse every sound `sum` written yesterday and send nobody anywhere.
 
 **A literal whose text is an ISO date IS a date.** There is no date-literal FORM in the tree, so ISO text is the only way a date constant can be written down — and a grammar in which no date constant can be written is a grammar whose date ops cannot be used:
 
@@ -127,7 +131,7 @@ An op whose answer moves with the engine is not one answer. Each is named beside
 |---|---|
 | `round` | half **away from zero** — `0.5` → `1`, `-0.5` → `-1` (DuckDB's half-to-even is a different answer and must be wrapped) |
 | `mod` | the sign follows the **dividend** — `-7 mod 3` → `-1`, SQL's and JavaScript's `%`. Excel and Sheets `MOD` follow the divisor and answer `2` |
-| `div` | always float — `7 / 2` → `3.5`, never `3` |
+| `div` | always float — `7 / 2` → `3.5`, never `3`. Postgres's own `div(y, x)` and MySQL's `DIV` are INTEGER division and answer `3`; this is `/` |
 | compare | by **code unit**; no collation, no locale (which is also why ISO dates compare chronologically) |
 | `lower` / `upper` | the Unicode **default** case mappings, never the locale-sensitive ones |
 | dates | non-ISO date text is **absent**; `2026/01/04` is not a date here, whatever `Date.parse` says, and a `T` must be followed by a time. The arithmetic writes only the four-digit years its own reader reads back — a day past `9999-12-31` is absent, never spelled wrong. A column of `Date` objects (the only column the engine calls a `date`) enters as its UTC ISO day |
@@ -263,7 +267,7 @@ A reducer reads rows the row it is on knows nothing about, so it needs to say WH
 
 ```ts
 // each state cell's share of its disease's national total
-const share: DerivedColumn = {
+const share: DerivedColumnDecl = {
   ops: 1,
   kind: 'row',
   expr: { op: 'div', args: [{ col: 'cases' }, { op: 'sum', args: [{ col: 'cases' }] }] },
@@ -274,11 +278,11 @@ const share: DerivedColumn = {
 
 Six clauses, each of which a wrong answer would look right without:
 
-- **`groupBy: []` means the whole table**, said out loud. There is no implicit default, so no reducer ever ran over rows nobody named.
+- **`groupBy: []` means the whole table**, said out loud. There is no implicit default, so no reducer ever ran over rows nobody named. It is a group the DECLARATION names rather than one a value named, so it exists whether or not a row reached it: a grand total nothing folded into is one row saying `0`, never no row — the answer SQL, Malloy and dbt all give. A NAMED group nothing folded into is still no row.
 - **`where` picks the rows the reducer FOLDS, never the rows that get a value.** The demo's `cells` hold state rows, region roll-ups and a national total as ordinary rows, so `sum(cases)` over a disease double-counts unless the declaration says `where kind is "state"` — and the roll-up rows still get their disease's answer. The why-sentence prints the clause, so a caption cannot show half of what ran.
 - **A row whose group key has an absence is in no group.** Its aggregate is absent and it is folded into nothing — a group named by a silence is not a group. The absence law reaches this through the same reader, so a row the table does not call `present` is in no group either.
 - **A reducer SKIPS what it cannot read** — an absent value, or one that is not the kind the position wanted. That is the other side of the absence law, not an exception to it: the law is about the arguments of one row, and a reducer's rows are not its arguments. It is what makes `sum(if(cond, x, absent))` the honest SUMIF — the rows the condition did not pick add nothing rather than adding a zero nobody measured.
-- **An empty tally answers for itself:** `count` and `distinct` answer `0` (counting nothing is honestly none); `sum`, `mean`, `min` and `max` answer ABSENT. A silence is not a zero.
+- **An empty tally answers for itself:** `count` and `countDistinct` answer `0` (counting nothing is honestly none); `sum`, `mean`, `min` and `max` answer ABSENT. A silence is not a zero.
 - **The basis is the FULL table, always** — never the live selection. A per-selection aggregate is a measure (`ViewQuery.reduce`), not a column; a column that moved with the selection would be a number nobody could replay.
 
 **The kind law.** `kind` is not a label somebody chose, and the judge holds a declaration to it in both directions. A column is an AGGREGATE when it is the same on every row of its group — it holds a reducer, and every column it reads outside one is a grouping column, which cannot vary within the group by definition. Malloy's dimension/measure split, made checkable:
@@ -336,6 +340,54 @@ analysis "bring:cells:population" brings columns over from "population" by its k
 
 A related row whose key is ABSENT is not a repeat and is not refused: it names no identity, so it is honestly unreachable rather than ambiguous, and the per-join counters already report every row that reached nothing.
 
+## Law 13 — an aggregate is an act AND a derived dataset
+
+A derived COLUMN lands on the table it reads. An AGGREGATE lands a TABLE beside it: one row per group, cut from the rows visible at its cursor, recorded as one commit whose record carries the parent, the group columns, the measures and an optional filter — and replayed from those bytes, never from serialised rows. The measures ARE the reducers of law 11, judged by the one judge under the kind law's aggregate half, so a measure and a grouped column say the same thing in the same words:
+
+```ts
+analyses: {
+  byDisease: {
+    builtin: 'aggregate',
+    table: 'cells',
+    name: 'by_disease',
+    ops: 1,
+    groupBy: ['disease'],
+    measures: [
+      { as: 'total', expr: { op: 'sum', args: [{ col: 'cases' }] } },
+      { as: 'areas', expr: { op: 'countDistinct', args: [{ col: 'jurisdiction' }] } },
+    ],
+    where: { op: 'eq', args: [{ col: 'kind' }, { lit: 'state' }] },
+  },
+}
+// 'total = the total of cases; areas = how many different jurisdiction there are, over each disease, counting only rows where kind is "state"'
+```
+
+Five clauses:
+
+- **Computed once, at its cursor.** The session hands in the rows the selection folded to when the act was declared; a later selection does not recompute it — a new act does. The fold itself (`groupRowsOf`) is pass one of law 11 stopping before the broadcast, so a group exists exactly when at least one of its rows folded in, and the groups come out in first-seen row order.
+- **Three outcomes, distinct.** EMPTY — zero groups — is an honest table that LANDS (`{ ok: true, output: { rows: [] } }`); a degenerate result means no honest fit, not zero rows. UNAVAILABLE — the parent's engine refused the read — is `{ ok: false, reason: 'unavailable', rejection }` (`../analysis/types.ts`), the act never performed. REFUSED is the judge's sentence, and nothing lands.
+- **The judge says everything at once, in the aggregate's own words**, and the three things that belong to the ACT — the op version, the group columns and the filter — are each said ONCE, never once per measure. A measure is named only for what a measure owns; `where` is refused under the key the record spells it with, and reads inside it are refused under that key too (`where reads "ghost"`), because the aggregate's declaration has no column in it. The version is said first and alone: measures written against a vocabulary this build does not have cannot be judged by its op table at all.
+
+```
+this aggregate groups by "ghost", which table "cells" does not have — it has id, region, kind, cases
+this aggregate groups by "region" twice, and a table can only group by it once
+where says which rows the reducer runs over, so it must come to a boolean, and this one comes to a number
+the op "sum" folds many rows into one answer, and where picks the rows a group is made of, so it cannot itself ask what a group came to
+measure "share": this column says it is an aggregate, and it reads "cases" outside its reducers — a column that changes within its own group is a row column
+measure "total": this column reads "deaths", which table "cells" does not have — it has id, region, kind, cases
+the measure "region" takes the name of a group column — the derived table already has a column called that
+two measures are called "total", and the derived table can only hold one column of that name
+this aggregate is written against ops 2, and this build knows ops 1
+an aggregate lands one column per measure, and this one declares none
+this aggregate keeps the absence law of "state", which table "cells" does not have — it has id, region, kind, cases
+where reads "ghost", which table "cells" does not have — it has id, region, kind, cases
+```
+
+The filter's two sentences are the derived column's own (`over.where`), under the aggregate's key: `judgeGroupFilter` and `judgeOver` run the one implementation, so the two acts cannot come to hold two opinions about what a filter may say.
+
+- **The relation back to the parent is minted, never typed** — by the session, from the record, through `../data/derivedTables.ts`: the one group column is the derived table's key. A record that could name its own relation could name one nobody declared.
+- **The schema is computed, and a replay says `unknown`** — law 9, for a table: the group columns' types are the parent's own, the measures' are what their trees yield, and a fresh-session replay carries the rows and refuses to tally a type from them.
+
 ## What the walker checks, and what it does not
 
 The walker walks a tree the judge has already accepted and never re-checks what the judge settled — the division of labour `parseFormula` and `evaluateWith` already keep. What it DOES check on every row is the KIND of each value it actually finds, against the same `wants` the judge read: a column declared `number` that holds text on one row makes THAT ROW absent on every STRICT position, rather than a fabricated answer. Declarations describe; rows are what they are. The four lazy ops are the limit (law 3): their arms are unevaluated, and a `same` position agrees with the OTHER arms — the ones a lazy op must not run — so a value arm hands back what it finds.
@@ -356,13 +408,14 @@ A reducer node reached with NO group under it is absent, rather than a number no
 | file | one job |
 |---|---|
 | `types.ts` | the tree, the declaration (`over` included), the answers — data before code |
-| `ops.ts` | THE op table: 51 rows, six fields each, plus the three reserved names |
+| `ops.ts` | THE op table: 51 rows, six fields each, plus the four reserved names — and `REDUCER_OPS`, the folding subset read off the table itself, which is what a measure picker offers |
 | `dates.ts` | the calendar arithmetic: ISO parsing, MMWR and ISO weeks, truncate/add/difference |
-| `judge.ts` | is this a column, and what type is it — one sentence, never a throw |
+| `judge.ts` | is this a column, and what type is it — one sentence, never a throw; and `columnsHave`, the one ending every refusal about a missing column shares |
 | `walk.ts` | one row through one tree, and the absence law |
-| `groups.ts` | a GROUP of rows through one tree: two passes, the tallies, the broadcast |
+| `groups.ts` | a GROUP of rows through one tree: two passes, the tallies, the broadcast — and `groupRowsOf`, pass one stopping before the broadcast: one row per group |
 | `words.ts` | the tree as a sentence, in the table's own words |
 | `analysis.ts` | THE ACT: the record's factory — one column, judged at the cursor, landed through `analyze` |
+| `aggregate.ts` | THE ACT's twin: the `aggregate` record's factory — one TABLE of one row per group, judged at the cursor, landed through `analyze` (law 13) |
 | `index.ts` | the folder's door, with TWO edges out: `../def/builtinAnalyses.ts` takes the factory (one act), and `../def/index.ts` republishes `OPS_VERSION` plus the declaration types onto the published `vizfootprint/def` entry — public names, so renaming one is a breaking change |
 
 ## Not in this step, and why
@@ -370,6 +423,7 @@ A reducer node reached with NO group under it is absent, rather than a number no
 - **`window`** — needs an ordering as well as a group, and an ordering is not in this version. Refused by name.
 - **`lookup` as an OP** — not deferred: ruled out. Law 12.
 - **`{ param }`** — reserved in the design, refused here.
+- **Set-valued `distinct`** — the name is reserved for the op that answers the different values themselves; `countDistinct` counts them today.
 - **A count of what a reducer skipped** — the fold knows how many rows it could not read; nothing carries that number out yet. `bringOver`'s per-join counters are the shape it should take when it does.
 - **A gap CODE for the not-unique refusal** — `derive-lookup-not-unique` is a sentence today, thrown at `bringOver`'s door before the commit. Turning the derive sentences into codes is the codes packet, and this one will join them there.
 - **`absentBy` counting** — the recorder that counts absences per column and per input. The walk that would count them is here; the header that would print them is not.

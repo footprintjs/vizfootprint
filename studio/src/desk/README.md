@@ -14,9 +14,9 @@ map of the files, for whoever is about to change one.
 | `tokens.ts` | the seventeen names, their defaults, and why they are inline rather than a stylesheet. |
 | `JumpBox.tsx` | "go to #34". |
 | `WindowReadout.tsx` | the default status line — a screenshot that answers its own layout question. |
-| `panels/` | the four report bodies whose words are the desk's: `SilencesPanel`, `ProposalsPanel`, `DataPanel`, `PathsPanel`, plus `StoryPanel` and the post it memoizes. |
+| `panels/` | the four report bodies whose words are the desk's: `SilencesPanel`, `ProposalsPanel`, `DataPanel` (the workbook, and the two acts over it — add a column, cut a table), `PathsPanel`, plus `StoryPanel` and the post it memoizes. |
 
-## Three rules for changing anything in here
+## Five rules for changing anything in here
 
 1. **Before adding a prop, ask which session call already answers it.** If one
    does, the desk should be reading it, not being told it. `types.ts`'s header
@@ -30,7 +30,16 @@ map of the files, for whoever is about to change one.
    `Desk.tsx`**, in the position it should hold by default — the host combinator
    receives that list and may reorder it, so the default order is a real design
    decision and not an accident of insertion.
-4. **A cell's ✕ follows its CLAUSE, not its id.** They are usually the same
+4. **The Data tab asks the SESSION which tables are here.** `DataPanel` builds
+   one sheet port per table the cursor can see — `data.table` first, then every
+   Sources row an act cut (`row.derived !== undefined`) — and calls
+   `DeskData.sheet(columns, table)` once for each, keyed on the schemas. It
+   keeps no list of its own: a table an act cut appears and disappears with the
+   cursor, and a list written here would be the one that went stale. A cut
+   table's sheet is drawn with `version={null}` — nothing vouched for those rows
+   — and with no `viewId`, no `onSelect` and no `onSort`, because those are acts
+   on a view nobody declared.
+5. **A cell's ✕ follows its CLAUSE, not its id.** They are usually the same
    address and `clauseId` may be left off. They are not the same for a layered
    chart: its marks belong to a layer, so the clause lands at `viewId~layerId`
    while the cell is registered under the frame. A cell that does not say so is

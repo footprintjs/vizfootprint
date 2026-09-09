@@ -195,22 +195,26 @@ export interface DeskProposals {
 }
 
 /**
- * The Data tab — the Sources view and the Sheet, in one workbook.
+ * The Data tab — the Sources view, the Sheet, and one more sheet for every
+ * table an act cut, in one workbook.
  *
- * The desk derives the Sheet's COLUMNS from `state.columns[table]` (the session
+ * The desk derives each sheet's COLUMNS from `state.columns[table]` (the session
  * holds them, so the desk projects them) and hands them to `sheet`, which is the
  * host's because only the host knows where its rows come from: a window
  * endpoint, an in-process session, a file.
  */
 export interface DeskData {
-  /** The table the Sheet shows. */
+  /** The table the first Sheet shows, and the table the two act strips write into. */
   readonly table: string;
   /**
-   * Build the sheet's data port over the columns the desk derived. Called only
-   * when the schema changes — a new adapter every poll would be a new question
-   * every second.
+   * Build one table's data port over the columns the desk derived. Called once
+   * for {@link DeskData.table} and once for each table an ACT cut that the
+   * cursor can see — the name is the second argument, because a host serving
+   * windows has to know which table it is being asked about. Called only when a
+   * schema changes: a new adapter every poll would be a new question every
+   * second.
    */
-  readonly sheet: (columns: readonly SheetColumn[]) => SheetData;
+  readonly sheet: (columns: readonly SheetColumn[], table: string) => SheetData;
   /** The data checks, when the host has a door for them (`lintData`). */
   readonly checks?: readonly string[];
   /** A checks door that refused, said in words rather than shown as "not asked yet". */

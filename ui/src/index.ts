@@ -47,6 +47,8 @@ export type { SheetProps } from './sheet/Sheet.js';
 export { sheetLayoutViewId, sheetSortOf } from './sheet/arrangement.js';
 export { AddColumn } from './sheet/AddColumn.js';
 export type { AddColumnOutcome, AddColumnProps } from './sheet/AddColumn.js';
+export { AddAggregate } from './sheet/AddAggregate.js';
+export type { AddAggregateOutcome, AddAggregateProps } from './sheet/AddAggregate.js';
 export { sessionSheetData } from './sheet/sessionSheetData.js';
 export type { SessionSheetOptions, SheetSessionLike } from './sheet/sessionSheetData.js';
 export { httpSheetData } from './sheet/httpSheetData.js';

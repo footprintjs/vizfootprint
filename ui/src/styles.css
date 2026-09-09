@@ -2525,6 +2525,24 @@
 :where(.vzf) .vzf-addcol-said { margin: 0; min-height: 1.2em; font-size: 11.5px; color: var(--vzf-ink-soft); }
 :where(.vzf) .vzf-addcol-refused { color: var(--vzf-clay); }
 
+/* ── Cut a table: the same act one level out — a table beside the rows, never a cell inside them ── */
+:where(.vzf) .vzf-addagg { display: flex; flex-direction: column; gap: var(--vzf-space-1); padding: var(--vzf-space-2); font-size: 12.5px; color: var(--vzf-ink); background: var(--vzf-surface-2); border: 1px solid var(--vzf-line); border-radius: var(--vzf-r-md); }
+:where(.vzf) .vzf-addagg-row { display: flex; align-items: center; gap: var(--vzf-space-2); flex-wrap: wrap; }
+:where(.vzf) .vzf-addagg-field { display: flex; align-items: center; gap: 6px; min-width: 0; }
+:where(.vzf) .vzf-addagg-label { color: var(--vzf-ink-soft); }
+:where(.vzf) .vzf-addagg-name { width: 9em; }
+:where(.vzf) .vzf-addagg-groups, :where(.vzf) .vzf-addagg-measures { display: flex; flex-wrap: wrap; align-items: center; gap: var(--vzf-space-1) var(--vzf-space-2); margin: 0; padding: var(--vzf-space-1) 0 0; border: 0; border-top: 1px solid var(--vzf-line); }
+:where(.vzf) .vzf-addagg-groups legend, :where(.vzf) .vzf-addagg-measures legend { padding: 0 6px 0 0; }
+:where(.vzf) .vzf-addagg-group { display: flex; align-items: center; gap: 4px; }
+:where(.vzf) .vzf-addagg-measure { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+:where(.vzf) .vzf-addagg-as { width: 8em; }
+:where(.vzf) .vzf-addagg-op, :where(.vzf) .vzf-addagg-of { font-family: var(--vzf-font-mono); }
+:where(.vzf) .vzf-addagg-drop { padding: 0 6px; line-height: 1.6; }
+:where(.vzf) .vzf-addagg-more { font-size: 11.5px; }
+:where(.vzf) .vzf-addagg-hint { flex-basis: 100%; margin: 0; font-size: 11.5px; color: var(--vzf-ink-soft); }
+:where(.vzf) .vzf-addagg-said { margin: 0; min-height: 1.2em; font-size: 11.5px; color: var(--vzf-ink-soft); }
+:where(.vzf) .vzf-addagg-refused { color: var(--vzf-clay); }
+
 /* ── the Workbook: the data layer's two tabs ── */
 :where(.vzf) .vzf-workbook { display: flex; flex-direction: column; gap: var(--vzf-space-2); min-height: 0; height: 100%; }
 :where(.vzf) .vzf-workbook-tabs { flex: none; display: flex; gap: 2px; border-bottom: 1px solid var(--vzf-line); }

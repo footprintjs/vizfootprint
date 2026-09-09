@@ -41,7 +41,10 @@ import type {
   ApplySavedOptions,
   ApplySavedResult,
 } from 'vizfootprint/session';
-import type { SavedSelection } from 'vizfootprint/def';
+import type { OpName, SavedSelection } from 'vizfootprint/def';
+// the op-vocabulary version a declaration is written against — read from the
+// library and never restated, so a build that moved on refuses this act by name
+import { OPS_VERSION } from 'vizfootprint/def';
 import type { Cause } from 'vizfootprint/cause';
 import type { ChartEmission } from 'vizfootprint/selection';
 import {
@@ -69,7 +72,7 @@ import {
   type ChartCellView,
   type LayoutChange,
   type LayoutView,
-  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProposalView, type SavedSelectionView, type SavedClauseView, type SourceInfoView, type DashboardWordsView, type NoteView, type TableView, type RefreshRecordView, type RefreshOutcomeView, type RefreshDeltaView, type LayoutPreset } from './types.js';
+  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProposalView, type SavedSelectionView, type SavedClauseView, type SourceInfoView, type DashboardWordsView, type NoteView, type TableView, type RefreshRecordView, type RefreshOutcomeView, type RefreshDeltaView, type LayoutPreset, type AggregatePick } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { mapProseRefs } from './proseRefs.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
@@ -599,20 +602,39 @@ function mapProse(raw: unknown): readonly ProseStatusView[] {
   });
 }
 /** The proposals on the table, as the wire serves them; anything malformed is dropped. */
-/** Every declared table off the wire — a named table always counts; a source that cannot be read is `unstated`, never invented. */
+/** The aggregate act's plain words — what it measures and what it groups by, as the cause a reader meets on the rail. */
+export function aggregateIntent(name: string, pick: AggregatePick): string {
+  const measures = pick.measures.map((m) => `${m.as} = ${m.op} of ${m.of}`).join(', ');
+  // `[]` is the whole table as one row, and the words say so rather than leaving the group off
+  const by = pick.groupBy.length === 0 ? 'over the whole table' : `by ${pick.groupBy.join(', ')}`;
+  return `cut ${name}: ${measures} ${by}`;
+}
+
+/** The act that cut a table, off the wire — dropped whole unless every part of it reads, because half an origin is a claim about an act nobody can check. */
+function mapDerived(raw: unknown): TableView['derived'] | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const d = raw as { of?: unknown; groupBy?: unknown; measures?: unknown; at?: unknown };
+  if (typeof d.of !== 'string' || typeof d.at !== 'string' || !Array.isArray(d.groupBy) || !Array.isArray(d.measures)) return undefined;
+  return { of: d.of, groupBy: d.groupBy.map(String), measures: d.measures.map(String), at: d.at };
+}
+
+/** Every table visible at the cursor off the wire — a named table always counts; a source that cannot be read is `unstated`, never invented. */
 function mapTables(raw: unknown): readonly TableView[] {
   if (!Array.isArray(raw)) return [];
   const out: TableView[] = [];
   for (const t of raw) {
     const o = t as Partial<TableView>;
     if (typeof o.name !== 'string' || typeof o.engine !== 'string' || typeof o.declaredColumns !== 'number') continue;
-    const src = (typeof o.source === 'object' && o.source !== null ? o.source : {}) as { format?: unknown; via?: unknown; at?: unknown; inline?: unknown; rows?: unknown };
+    const src = (typeof o.source === 'object' && o.source !== null ? o.source : {}) as { format?: unknown; via?: unknown; at?: unknown; inline?: unknown; rows?: unknown; computed?: unknown };
     const source: TableView['source'] =
       typeof src.format === 'string' && typeof src.via === 'string'
         ? { format: src.format, via: src.via, ...(typeof src.at === 'string' ? { at: src.at } : {}) }
         : src.inline === 'rows' || src.inline === 'csv'
           ? { inline: src.inline, ...(typeof src.rows === 'number' ? { rows: src.rows } : {}) }
-          : { unstated: true };
+          : src.computed === 'aggregate'
+            ? { computed: 'aggregate' }
+            : { unstated: true };
+    const derived = mapDerived(o.derived);
     const g = (typeof o.grain === 'object' && o.grain !== null ? o.grain : null) as { bucket?: unknown; reducer?: unknown; collapsedFrom?: unknown; note?: unknown } | null;
     const grain = g === null ? undefined : { ...(typeof g.bucket === 'string' ? { bucket: g.bucket } : {}), ...(typeof g.reducer === 'string' ? { reducer: g.reducer } : {}), ...(typeof g.collapsedFrom === 'number' ? { collapsedFrom: g.collapsedFrom } : {}), ...(typeof g.note === 'string' ? { note: g.note } : {}) };
     out.push({
@@ -623,6 +645,7 @@ function mapTables(raw: unknown): readonly TableView[] {
       ...(grain !== undefined ? { grain } : {}),
       ...(typeof o.absence === 'object' && o.absence !== null && typeof o.absence.field === 'string' && Array.isArray(o.absence.states) ? { absence: { field: o.absence.field, states: o.absence.states.map(String) } } : {}),
       declaredColumns: o.declaredColumns,
+      ...(derived !== undefined ? { derived } : {}),
     });
   }
   return out;
@@ -1239,6 +1262,24 @@ export interface SessionView {
    */
   addColumn(name: string, expression: string, opts?: { readonly table?: string }): Promise<DescribeOutcome>;
   /**
+   * ADD AN AGGREGATE: a derived TABLE of one row per group, cut from the rows
+   * of `table` visible at the cursor — the column door's twin, one level out.
+   *
+   * It rides the same `analyze` verb with a builtin `aggregate` declaration
+   * attached, so it crosses a wire to a polled session exactly as it reaches an
+   * in-process one and the same library judges it either way. The one thing
+   * owned here is the MEASURE TREE: a picked measure is a one-argument reducer
+   * over one column (`sum` of `cases`), and this is where that shape is written
+   * down, so a screen never has to know the grammar. Everything else — the
+   * name, the group columns, whether a reducer may read that column — is the
+   * session's to answer, in its own words.
+   *
+   * The analysis is registered under the TABLE'S NAME, the name a person will
+   * look for in `why` and in the log; cutting it again supersedes the record,
+   * as re-running any analysis does.
+   */
+  addAggregate(name: string, pick: AggregatePick, opts?: { readonly table?: string }): Promise<DescribeOutcome>;
+  /**
    * Move the read-only cursor to a commit, and say what the SESSION said: it
    * landed, or it was refused — judged before anything moved — with the
    * session's own sentence, never one written here. The answer is the shared
@@ -1638,6 +1679,23 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       const table = opts?.table;
       const def = { builtin: 'formula' as const, expression: formula, name: column, ...(table !== undefined ? { table } : {}) };
       const body = { verb: 'analyze' as const, analysisId: column, def, ...(table !== undefined ? { table } : {}) };
+      return dispatch({ ...body, cause: cause(intent) }, { ...body, intent });
+    },
+
+    async addAggregate(name, pick, opts) {
+      const cut = name.trim();
+      const table = opts?.table;
+      const picked: AggregatePick = { groupBy: pick.groupBy.map((column) => column.trim()), measures: pick.measures.map((m) => ({ as: m.as.trim(), op: m.op, of: m.of.trim() })) };
+      // The measures as the GRAMMAR states them: `{ as, expr }`, each expr a
+      // reducer over one column. THE one place that shape is written down — the
+      // picker offers `REDUCER_OPS` and hands back what was picked, so no screen
+      // has to know what a tree looks like.
+      // WHY the cast: a picked op is TEXT, and whether the grammar has it is the
+      // session's to answer — this says which door judges, never that it passed.
+      const measures = picked.measures.map((m) => ({ as: m.as, expr: { op: m.op as OpName, args: [{ col: m.of }] } }));
+      const intent = aggregateIntent(cut, picked);
+      const def = { builtin: 'aggregate' as const, name: cut, ops: OPS_VERSION, groupBy: picked.groupBy, measures, ...(table !== undefined ? { table } : {}) };
+      const body = { verb: 'analyze' as const, analysisId: cut, def, ...(table !== undefined ? { table } : {}) };
       return dispatch({ ...body, cause: cause(intent) }, { ...body, intent });
     },
 

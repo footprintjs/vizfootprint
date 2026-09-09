@@ -77,6 +77,8 @@ export type {
   TableOutput,
   OutputChannel,
   DegenerateResult,
+  UnavailableResult,
+  OutputColumnType,
   AnalysisResult,
   HonestyDecl,
   InputBinding,

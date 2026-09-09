@@ -16,7 +16,7 @@
  */
 
 import type { RuntimeSnapshot } from 'footprintjs';
-import type { ColumnInfo, Row } from '../data/types.js';
+import type { ColumnInfo, DataProviderRejection, Row } from '../data/types.js';
 import type { HypothesisRecord } from '../fdr/index.js';
 
 /**
@@ -32,21 +32,26 @@ export type AnalysisKind = (typeof ANALYSIS_KINDS)[number];
 
 // ── The R11 output vocabulary. NEVER a row-id list (R11 forbids it). ──────────
 
+/**
+ * What a produced column is DECLARED as — the one type vocabulary the columns
+ * channel and the table channel share.
+ *
+ * `boolean`, `date` and `unknown` joined the three arithmetic words when the
+ * derive grammar landed (`../derive/analysis.ts`): a declared column's type is
+ * COMPUTED from the op table at declaration, so a column of ISO date strings
+ * or of true/false has a type arithmetic could never produce — and one whose
+ * act was replayed rather than re-judged says `unknown` rather than a type
+ * tallied from its values. An aggregate's measures carry the same words
+ * (`../derive/aggregate.ts`), which is why the table's schema speaks them too.
+ */
+export type OutputColumnType = 'int' | 'float' | 'string' | 'boolean' | 'date' | 'unknown';
+
 /** A materialized column set (e.g. adds `cluster_id : int`). Re-enters as a predicate. */
 export interface ColumnsOutput {
   readonly as: 'columns';
   readonly table: string;
-  /**
-   * What each column it wrote is DECLARED as.
-   *
-   * `boolean`, `date` and `unknown` joined the three arithmetic words when the
-   * derive grammar landed (`../derive/analysis.ts`): a declared column's type is
-   * COMPUTED from the op table at declaration, so a column of ISO date strings
-   * or of true/false has a type arithmetic could never produce — and one whose
-   * act was replayed rather than re-judged says `unknown` rather than a type
-   * tallied from its values.
-   */
-  readonly columns: Record<string, { readonly type: 'int' | 'float' | 'string' | 'boolean' | 'date' | 'unknown' }>;
+  /** What each column it wrote is DECLARED as ({@link OutputColumnType}). */
+  readonly columns: Record<string, { readonly type: OutputColumnType }>;
 }
 /**
  * A fitted LINE layer — today's only geometry: slope + intercept over a domain.
@@ -73,7 +78,7 @@ export interface ScalarOutput {
 export interface TableOutput {
   readonly as: 'table';
   readonly name: string;
-  readonly schema: Record<string, 'int' | 'float' | 'string'>;
+  readonly schema: Record<string, OutputColumnType>;
   readonly rows: ReadonlyArray<Record<string, unknown>>;
 }
 export type AnalysisOutput = ColumnsOutput | GeometryOutput | ScalarOutput | TableOutput;
@@ -91,10 +96,30 @@ export interface DegenerateResult {
   readonly fitDegenerate: true;
 }
 
-/** A finished analysis: a typed output, or an honest degenerate flag (R14). */
+/**
+ * The rows could not be READ: the parent table's engine refused, so nothing
+ * was computed and nothing lands. The third outcome, distinct from the other
+ * two — a degenerate result means the rows were read and no honest fit came
+ * of them; a refusal means the act was never performed. The session files
+ * this as `derive-source-refused`, carrying the engine's own rejection
+ * verbatim rather than a fabricated degenerate flag.
+ */
+export interface UnavailableResult {
+  readonly ok: false;
+  readonly reason: 'unavailable';
+  readonly rejection: DataProviderRejection;
+}
+
+/**
+ * A finished analysis: a typed output, an honest degenerate flag (R14), or the
+ * rows it could not read. An EMPTY output — a table of zero rows, a column of
+ * nothing but absences — is `ok: true`: an honest answer that LANDS, never a
+ * degenerate one.
+ */
 export type AnalysisResult<O extends AnalysisOutput = AnalysisOutput> =
   | { readonly ok: true; readonly output: O }
-  | DegenerateResult;
+  | DegenerateResult
+  | UnavailableResult;
 
 /** Declarative honesty envelope. Inert metadata; the guard lives in `precheck`/`readOutput`. */
 export interface HonestyDecl {

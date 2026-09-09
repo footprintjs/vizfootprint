@@ -27,14 +27,16 @@
  * // { ok: false, problem: 'argument 2 of the op "div" must be a number, and the column "region" is a string' }
  * ```
  *
- * The first customers are the column verb's declaration door and the sheet's
- * add-a-column panel; the walker never re-checks what the judge settled.
+ * The first customers are the column verb's declaration door, the sheet's
+ * add-a-column panel and the aggregate act (`./aggregate.ts`), which judges its
+ * measures and its filter through the same door; the walker never re-checks
+ * what the judge settled.
  */
 
 import type { ColumnInfo, ColumnType } from '../data/types.js';
 import { epochDayOf } from './dates.js';
 import { CALENDARS, CAST_TARGETS, DATE_UNITS, OP_NAMES, opOf, RESERVED_OPS, wantAt, type ArgWant, type Op } from './ops.js';
-import { OPS_VERSION, type Calendar, type DeriveJudgement, type DeriveType, type DerivedColumn, type Expr, type ExprJudgement, type Over } from './types.js';
+import { OPS_VERSION, type Calendar, type DeriveJudgement, type DeriveType, type DerivedColumnDecl, type Expr, type ExprJudgement, type Over } from './types.js';
 
 /**
  * How deep a tree may nest.
@@ -64,6 +66,9 @@ const ORDERED: readonly DeriveType[] = Object.freeze(['number', 'string', 'date'
 
 /** The keys the three node forms are told apart by. */
 const FORMS: readonly string[] = Object.freeze(['col', 'lit', 'op']);
+
+/** The only keys each node form may carry. `calendar` rides an {@link judgeCalendar} op and no other form. */
+const NODE_KEYS: Readonly<Record<string, readonly string[]>> = Object.freeze({ col: ['col'], lit: ['lit'], op: ['op', 'args', 'calendar'] });
 
 /** The only four keys a declaration may carry. */
 const COLUMN_KEYS: readonly string[] = Object.freeze(['ops', 'kind', 'expr', 'over']);
@@ -113,10 +118,21 @@ function sketchOf(node: unknown): string {
 
 interface Ground {
   readonly table: string;
+  /**
+   * What a refusal about a column read CALLS the thing being judged — `this
+   * column` for a derived column, and the caller's own key (`where`) for a
+   * filter judged on its own, whose declaration has no column in it.
+   */
+  readonly subject: string;
   readonly types: ReadonlyMap<string, ColumnType>;
   /** What the table has, as a refusal lists it. */
   readonly has: string;
-  /** Every column the tree reads, in first-seen order. */
+  /**
+   * Every column the DECLARATION depends on, in first-seen order: the grouping
+   * columns, then the group filter's, then the tree's own. A superset of what
+   * the tree names, and the right one — a materialized column has to be reloaded
+   * when any of the three moves. {@link Ground.loose} is the tree-only half.
+   */
   readonly reads: string[];
   /**
    * Why a reducer may not stand here, or `null` when one may.
@@ -145,11 +161,23 @@ interface Ground {
 /** A reducer with no group named is the ordinary case, and this is what it is told. */
 const NO_GROUP = 'a reducer needs to say which rows it runs over — declare over: { groupBy: [...] }, and an empty groupBy means the whole table';
 
-function groundOf(table: string, columns: readonly ColumnInfo[], noReduce: string | null): Ground {
+/**
+ * What a table HAS, as every refusal about a missing column ends. The one
+ * owner: the derive judge refuses a read and a group with it, the derive act
+ * refuses an absence column with it, and the aggregate act refuses a group
+ * column with it — one sentence-ending, so a person who has read one has read
+ * them all.
+ */
+export function columnsHave(columns: readonly ColumnInfo[]): string {
+  return columns.length === 0 ? 'that table has no columns' : `it has ${columns.map((column) => column.name).join(', ')}`;
+}
+
+function groundOf(table: string, columns: readonly ColumnInfo[], noReduce: string | null, subject = 'this column'): Ground {
   return {
     table,
+    subject,
     types: new Map(columns.map((column) => [column.name, column.type] as const)),
-    has: columns.length === 0 ? 'that table has no columns' : `it has ${columns.map((column) => column.name).join(', ')}`,
+    has: columnsHave(columns),
     reads: [],
     noReduce,
     folded: false,
@@ -163,9 +191,17 @@ function groundOf(table: string, columns: readonly ColumnInfo[], noReduce: strin
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/** The literal WORD a node holds, for the positions that take one written down. */
+/**
+ * The literal WORD a node holds, for the positions that take one written down.
+ *
+ * WHY `lit` must be the node's SOLE form: a word position skips {@link judgeNode},
+ * so this is the only door that shape passes — and the walks dispatch on `col`
+ * first, so a node naming both would take its unit from a cell, which is the one
+ * thing {@link judgeWord} exists to refuse.
+ */
 function wordOf(node: unknown): string | null {
-  return isRecord(node) && typeof node['lit'] === 'string' ? node['lit'] : null;
+  if (!isRecord(node) || typeof node['lit'] !== 'string') return null;
+  return FORMS.filter((key) => key in node).length === 1 ? node['lit'] : null;
 }
 
 function judgeNode(value: unknown, ground: Ground, depth: number): Judged {
@@ -182,6 +218,14 @@ function judgeNode(value: unknown, ground: Ground, depth: number): Judged {
   // settles must be the shape every later walk reads — and the walks dispatch on different keys first.
   const forms = FORMS.filter((key) => key in value);
   if (forms.length > 1) refuse(`a node of a derived column is one of {col}, {lit} or {op, args}, and this one names ${forms.join(' and ')} at once`);
+  // WHY refused and not dropped, the same law the declaration door keeps: a typo'd key would otherwise
+  // turn a refusal into a silent success, and `judgeDerivedColumn` mints `expr` from these very bytes.
+  const form = forms[0];
+  if (form !== undefined) {
+    const allowed = NODE_KEYS[form]!;
+    const stray = Object.keys(value).find((key) => !allowed.includes(key));
+    if (stray !== undefined) refuse(`a {${form}} node names ${allowed.join(', ')}, and this one also names "${stray}"`);
+  }
   if ('col' in value) return judgeCol(value, ground);
   if ('lit' in value) return judgeLit(value);
   if ('op' in value) return judgeOp(value, ground, depth);
@@ -202,10 +246,10 @@ function judgeCol(node: Record<string, unknown>, ground: Ground): Judged {
 /** The type of one column of the table, refusing the two ways there is not one. */
 function typeOf(name: string, ground: Ground): DeriveType {
   const type = ground.types.get(name);
-  if (type === undefined) refuse(`this column reads "${name}", which table "${ground.table}" does not have — ${ground.has}`);
+  if (type === undefined) refuse(`${ground.subject} reads "${name}", which table "${ground.table}" does not have — ${ground.has}`);
   // WHY refused rather than read: `unknown` is what the engine says when it could not tell, and a
   // column built on a type nobody can name is a column whose refusals would arrive one row at a time.
-  if (type === 'unknown') refuse(`this column reads "${name}", which table "${ground.table}" holds as unknown — a derived column reads columns whose type is known`);
+  if (type === 'unknown') refuse(`${ground.subject} reads "${name}", which table "${ground.table}" holds as unknown — a derived column reads columns whose type is known`);
   return type;
 }
 
@@ -439,18 +483,54 @@ function judgeOver(value: unknown, ground: Ground): Over {
   }
   const raw: unknown = value['where'];
   if (raw === undefined) return { groupBy: named };
-  // Nothing `where` reads is part of the VALUE, so its columns are not what
-  // tells a row column from an aggregate — hence `folded`, beside the refusal
-  // that keeps a reducer out of it.
-  ground.noReduce = 'over.where picks the rows a group is made of, so it cannot itself ask what a group came to';
+  judgeFilter(raw, ground, 'over.where');
+  return { groupBy: named, where: raw as Expr };
+}
+
+/**
+ * The `where` half of a group, judged — the ONE implementation, so a derived
+ * column's filter and an aggregate's are held to one rule and refused in one
+ * pair of sentences.
+ *
+ * Nothing `where` reads is part of the VALUE, so its columns are not what tells
+ * a row column from an aggregate — hence `folded`, beside the refusal that
+ * keeps a reducer out of it. It must come to a boolean: a filter that answered
+ * a number would be picking rows by a rule nobody wrote down.
+ *
+ * `spelledAs` is the key the CALLER'S record spells the filter under —
+ * `over.where` on a derived column, `where` on an aggregate — because a refusal
+ * sends a person to a key in their own declaration, and one that named a key
+ * they never wrote would send them looking for it.
+ */
+function judgeFilter(raw: unknown, ground: Ground, spelledAs: string): void {
+  ground.noReduce = `${spelledAs} picks the rows a group is made of, so it cannot itself ask what a group came to`;
   ground.folded = true;
   const type = judgeNode(raw, ground, 1);
   ground.noReduce = null;
   ground.folded = false;
   if (type !== 'boolean') {
-    refuse(`over.where says which rows the reducer runs over, so it must come to a boolean, and this one comes to ${type === 'absent' ? 'an absence' : `a ${type}`}`);
+    refuse(`${spelledAs} says which rows the reducer runs over, so it must come to a boolean, and this one comes to ${type === 'absent' ? 'an absence' : `a ${type}`}`);
   }
-  return { groupBy: named, where: raw as Expr };
+}
+
+/**
+ * Judge a group's FILTER on its own, against the table it picks rows from.
+ *
+ * The aggregate act's door ({@link ./aggregate.ts}): its `where` is the whole
+ * act's, not any one measure's, so it is judged ONCE and refused in one sentence
+ * — never once per measure, each blaming a measure for a filter it does not own.
+ * The rule is {@link judgeFilter}'s, which is `judgeOver`'s, so the two acts
+ * cannot come to hold two opinions about what a filter may say.
+ *
+ * This ground is the FILTER'S own, so it carries the caller's key as its
+ * subject: a column read inside an aggregate's `where` is refused as `where
+ * reads "ghost"`, never as "this column" — that act declares no column.
+ */
+export function judgeGroupFilter(value: unknown, table: string, columns: readonly ColumnInfo[], spelledAs: string): { readonly ok: true } | { readonly ok: false; readonly problem: string } {
+  return caught(() => {
+    judgeFilter(value, groundOf(table, columns, null, spelledAs), spelledAs);
+    return {};
+  });
 }
 
 /**
@@ -511,7 +591,7 @@ export function judgeDerivedColumn(value: unknown, table: string, columns: reado
     const type = judgeNode(value['expr'], ground, 1);
     if (type === 'absent') refuse('this column is an absence on every row, so nothing in it says what type it would be');
     judgeKind(kind, over, ground);
-    const column: DerivedColumn = { ops: OPS_VERSION, kind, expr: value['expr'] as Expr, ...(over === undefined ? {} : { over }) };
+    const column: DerivedColumnDecl = { ops: OPS_VERSION, kind, expr: value['expr'] as Expr, ...(over === undefined ? {} : { over }) };
     return { column, type, reads: [...ground.reads] };
   });
 }

@@ -673,6 +673,49 @@ record `rebuildFold` has to *interpret*, that expiry fires exactly as written.
 
 Pinned by `branchScoped.test.ts`.
 
+### And a derived TABLE is the same law, one level out
+
+An **aggregate** is an act AND a derived dataset. It is computed ONCE, over the
+rows visible at ITS cursor — the selection folded then — and recorded as one
+cause-tagged commit whose value carries the parent, the group columns, the
+measures and an optional filter. The ROWS live in a provider of their own and
+are recomputed on replay from that record; they are never serialised. A later
+selection does not recompute the table. **A new act does.**
+
+So it belongs to the act that made it exactly as a derived column does, through
+the same resolution: `derivedTablesAt()` resolves a table NAME against
+`branchPath(cursor)`, `tablesAt()` is the list every door judges a name against,
+and `relationsAt()` is the declared edges plus the one each visible derived
+table MINTED back to its parent — the group column is the derived table's key,
+so `parent.groupCol → derived.groupCol` is an edge nobody typed. Seek before the
+act and the name stops being a table; a sibling branch never saw it at all.
+
+```ts
+const made = await s.declareAnalysis('by_disease', { cause });   // ONE commit
+s.tablesAt();                                  // ['cells', 'by_disease']
+(await s.viewQuery({ table: 'by_disease' })).rows;
+                                               // [{ disease: 'flu', total: 30 }, …]
+(await s.overview()).relations;                // [{ from: { table: 'cells', column: 'disease' },
+                                               //    to: { table: 'by_disease', column: 'disease' },
+                                               //    kind: 'many-to-one' }]  ← minted, not declared
+
+s.seek(before);                                // one step back, before the act
+s.tablesAt();                                  // ['cells']
+(await s.viewQuery({ table: 'by_disease' })).rejected;
+                                               // 'no table "by_disease" here — the tables at this point are cells'
+```
+
+Three outcomes, and they stay distinct. **EMPTY** — zero groups — is
+`{ ok: true }` and an honest table that LANDS. **UNAVAILABLE** is
+`{ ok: false, reason: 'unavailable', rejection }`: the parent's engine refused
+the read, so the act was never performed and nothing is known about the data —
+which used to be reported as a degenerate fit, a claim about rows nobody had
+seen. **REFUSED** is the judge's sentence, before anything moves. A refresh of
+the parent DROPS the table rather than serving yesterday's rows under today's
+name, and says so by name (`derivedLost`, beside `materialisedLost`).
+
+Pinned by `aggregateTable.test.ts`.
+
 ## Law 6 — a session can replay a log into itself
 
 A log is the portable, tamper-evident record of everything that happened. Until

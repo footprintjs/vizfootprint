@@ -9,7 +9,7 @@ import type { ColumnDecl } from './types.js';
 
 export interface FacetSource {
   readonly columns?: Readonly<Record<string, ColumnDecl>>;
-  readonly absence?: { readonly field: string; readonly states: readonly string[] };
+  readonly absence?: { readonly field: string; readonly states: readonly string[]; readonly carries?: readonly string[] };
 }
 
 /** The scale a type implies when the def stated none; `unknown` and `boolean`-free ambiguity stay undefined. */

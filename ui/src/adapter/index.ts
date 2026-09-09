@@ -23,6 +23,9 @@ export type {
   RawAdoptResult,
   RawChart, LinkEdit } from './sessionView.js';
 
+// the aggregate act's plain words — exported because a host landing the act its own way says the same thing
+export { aggregateIntent } from './sessionView.js';
+
 export { mapCompareResult, entryLabel, entryDetail } from './compareView.js';
 export type { RawCompareResult } from './compareView.js';
 
@@ -75,4 +78,10 @@ export type {
   // The two RECORDS that hold the prose views above: the dashboard's own words and one note's.
   // A consumer drawing either had `ProseStatusView` and no name for the thing carrying it, and
   // reached around the barrel for it (PACKAGING.md, Law 2 — widen the barrel the symbol belongs to).
-  DashboardWordsView, NoteView } from './types.js';
+  DashboardWordsView, NoteView,
+  // What a person PICKED for an aggregate act: the group columns and the
+  // measures, in the shape the door takes and the form fills (never a tree —
+  // the tree is minted at the door).
+  AggregatePick, MeasurePick,
+  // The Sources rows, so a host drawing its own can name what it is holding.
+  TableView, SourceInfoView, RefreshRecordView, RefreshOutcomeView, RefreshDeltaView } from './types.js';

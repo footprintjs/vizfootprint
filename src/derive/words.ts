@@ -36,7 +36,7 @@
  */
 
 import { opOf, wantAt } from './ops.js';
-import type { DerivedColumn, Expr, Literal, Over } from './types.js';
+import type { DerivedColumnDecl, Expr, Literal, Over } from './types.js';
 
 /**
  * A literal as a sentence says it: strings quoted, an absence named rather than
@@ -85,7 +85,7 @@ export function wordsFor(expr: Expr): string {
  * caption that printed the first and swallowed the second would be the exact
  * silent disagreement this grammar exists to stop.
  */
-function groupWords(over: Over): string {
+export function groupWords(over: Over): string {
   const rows = over.groupBy.length === 0 ? 'over the whole table' : `over each ${over.groupBy.join(' and ')}`;
   return over.where === undefined ? rows : `${rows}, counting only rows where ${wordsFor(over.where)}`;
 }
@@ -109,7 +109,7 @@ function groupWords(over: Over): string {
  * // 'cases divided by (the total of cases), over each disease, counting only rows where kind is "state"'
  * ```
  */
-export function wordsForColumn(column: DerivedColumn): string {
+export function wordsForColumn(column: DerivedColumnDecl): string {
   const said = wordsFor(column.expr);
   return column.over === undefined ? said : `${said}, ${groupWords(column.over)}`;
 }

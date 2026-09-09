@@ -126,7 +126,9 @@ export type Expr = ColExpr | LitExpr | OpExpr;
  * of mis-reading a node it has never seen. WHY refused in both directions: a
  * vocabulary that grew is a vocabulary whose old nodes may have changed
  * meaning, and only a migration may say they did not. Adding a row to the op
- * table grows the vocabulary, so this number moves with it.
+ * table grows the vocabulary, so this number moves with it — with the one
+ * pre-release exception `./ops.ts` states beside the table, which ends at the
+ * first published build.
  */
 export const OPS_VERSION = 1;
 
@@ -140,7 +142,7 @@ export const OPS_VERSION = 1;
  * `window` needs an ordering as well as a group and is refused by name — a
  * refusal that says which step owns the thing is more use than one that says
  * the word is unknown. It is a word a person may WRITE, never one a declaration
- * may HOLD ({@link DerivedColumn.kind}).
+ * may HOLD ({@link DerivedColumnDecl.kind}).
  */
 export type DeriveKind = 'row' | 'aggregate' | 'window';
 
@@ -168,8 +170,16 @@ export interface Over {
   readonly where?: Expr;
 }
 
-/** The declaration. Everything a person must be able to ask WHY about, and nothing else. */
-export interface DerivedColumn {
+/**
+ * The declaration. Everything a person must be able to ask WHY about, and
+ * nothing else.
+ *
+ * Named as the other declarations are (`LayerDecl`, `RelationDecl`,
+ * `LinkDecl`): the DECL is what a person writes; the store's slot record for a
+ * landed column keeps the bare name (`../data/derivedColumns.ts`,
+ * `DerivedColumn`), so the two are never one word for two things.
+ */
+export interface DerivedColumnDecl {
   /** The op-vocabulary version — {@link OPS_VERSION} for anything this build writes. */
   readonly ops: number;
   /** `row` or `aggregate`, and the judge holds the tree to it. `window` is refused by name and so never held. */
@@ -186,6 +196,11 @@ export interface DerivedColumn {
  * What the judge answers about one tree: the type it computes and the columns
  * it reads, or the ONE sentence saying why it is not a column.
  *
+ * `reads` is every column the DECLARATION depends on, in first-seen order: the
+ * grouping columns, then the group filter's, then the tree's own. A superset of
+ * what the tree names, and the right one — a materialized column has to be
+ * reloaded when any of the three moves.
+ *
  * The type is COMPUTED from the op table at declaration, never tallied from the
  * values afterwards — which is what lets a column of nothing but absences still
  * know it is a number.
@@ -196,7 +211,7 @@ export type ExprJudgement =
 
 /** The same, for a whole declaration. */
 export type DeriveJudgement =
-  | { readonly ok: true; readonly column: DerivedColumn; readonly type: DeriveType; readonly reads: readonly string[] }
+  | { readonly ok: true; readonly column: DerivedColumnDecl; readonly type: DeriveType; readonly reads: readonly string[] }
   | { readonly ok: false; readonly problem: string };
 
 /**
@@ -208,3 +223,23 @@ export type DeriveJudgement =
  * declaration means.
  */
 export type CellReader = (column: string) => unknown;
+
+// ── a measure of an aggregate ────────────────────────────────────────────────
+
+/**
+ * One column of an AGGREGATE table: what it is called, and the tree that
+ * computes it — a reducer tree, one answer per group ({@link ./aggregate.ts}).
+ *
+ * The same node forms and the same op table as a derived column, held to the
+ * kind law's aggregate half by the same judge: a measure holds a reducer, and
+ * reads nothing outside one but a grouping column. There is no second measure
+ * vocabulary — `sum`, `mean`, `countDistinct` and the rest are the reducers
+ * above, which is what lets a measure and a grouped column say the same thing
+ * in the same words.
+ */
+export interface Measure {
+  /** The column it lands as, on the derived table. */
+  readonly as: string;
+  /** The reducer tree. */
+  readonly expr: Expr;
+}

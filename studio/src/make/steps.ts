@@ -26,8 +26,8 @@
  * That split is why `assembleDef` is called by the judge itself: the honest way
  * to ask "would this be refused" is to make the thing and ask.
  */
-import { parseDashboardDef, proposeCharts, whatFits, type BuiltinAnalysisDecl, type ChartProposal, type ChartProposals, type DashboardDef, type Fit, type FitColumn, type ProposalKind } from 'vizfootprint/def';
-import { describeTable } from 'vizfootprint/data';
+import { BUILTIN_ANALYSES, parseDashboardDef, proposeCharts, whatFits, type BuiltinAnalysisDecl, type BuiltinAnalysisName, type ChartProposal, type ChartProposals, type DashboardDef, type Fit, type FitColumn, type ProposalKind } from 'vizfootprint/def';
+import { describeTable, parseCSV } from 'vizfootprint/data';
 import type { MakeAbsence, MakeAnalysis, MakeChartKind, MakeColumn, MakeDraft, MakeReading, MakeStepId, MakeView, StepVerdict } from './types.js';
 
 /**
@@ -52,6 +52,71 @@ export const MAKE_CHART_KINDS: Readonly<Record<MakeChartKind, { readonly channel
 
 /** The kinds in the order the picker offers them. */
 export const MAKE_CHART_KIND_NAMES: readonly MakeChartKind[] = ['bar', 'line', 'table'];
+
+/**
+ * What each builtin analysis asks for, so the picker is one loop rather than one
+ * branch per analysis.
+ *
+ * `null` means "not offered by THIS wizard", and the map is exhaustive over
+ * `BuiltinAnalysisName` so a builtin added to the library has to be answered for
+ * here rather than silently appearing in the picker with nothing to fill in.
+ */
+export type AnalysisOption = { readonly key: string; readonly of: 'column' | 'number' | 'text'; readonly says: string };
+export const ANALYSIS_OPTIONS: Readonly<Record<BuiltinAnalysisName, readonly AnalysisOption[] | null>> = {
+  groupBy: [
+    { key: 'by', of: 'column', says: 'grouped by' },
+    { key: 'measure', of: 'column', says: 'averaging' },
+  ],
+  correlation: [
+    { key: 'x', of: 'column', says: 'between' },
+    { key: 'y', of: 'column', says: 'and' },
+  ],
+  regression: [
+    { key: 'x', of: 'column', says: 'x' },
+    { key: 'y', of: 'column', says: 'y' },
+    { key: 'minPoints', of: 'number', says: 'fitted only from at least this many rows' },
+  ],
+  clustering: [
+    { key: 'column', of: 'column', says: 'binning' },
+    { key: 'k', of: 'number', says: 'into this many bins' },
+  ],
+  // the one whose options are WORDS rather than a pick: an expression the
+  // person writes, and the name of the column it becomes. The library reads the
+  // expression and refuses a token it has no rule for, naming it and where it
+  // sits; nothing here judges it.
+  formula: [
+    { key: 'expression', of: 'text', says: 'working out' },
+    { key: 'name', of: 'text', says: 'into a column called' },
+  ],
+  // The two that read a SECOND table across a DECLARED RELATION. This wizard
+  // brings one table — the file the person dropped — so there is no second
+  // table to relate it to and no relation to grant the read. Offering them
+  // would be offering an act that could only ever be refused.
+  layout: null,
+  bringOver: null,
+  // The declared column. Its whole content is a TREE, and a tree is not
+  // something a person fills into three text boxes — the door that builds one
+  // is the sheet's, where the table's columns and their types are on screen
+  // beside it. The wizard offers the sentence form of the same act (`formula`)
+  // and leaves the tree to the desk.
+  derive: null,
+  // The declared TABLE — the derive act's twin, refused for the SAME reason: its
+  // measures are reducer TREES, and its record also carries an op version and a
+  // group list, which is not something a person fills into three text boxes.
+  // Landing a second table is NOT the objection (`groupBy` above lands one too),
+  // and neither is a relation: the session MINTS an aggregate's relation back to
+  // its parent from the group column. The desk is where a tree gets written.
+  aggregate: null,
+};
+
+/**
+ * The analyses this wizard can honestly offer: the ones a one-table draft can
+ * fill in. Exported for {@link MAKE_CHART_KIND_NAMES}' reason — a flow that can
+ * only be driven by a screen is a flow nobody can test, script or drive from an
+ * agent, and "which analyses may this wizard be given" is a judgement of the
+ * FLOW, not of the drawing.
+ */
+export const MAKE_ANALYSES: readonly BuiltinAnalysisName[] = BUILTIN_ANALYSES.filter((name) => ANALYSIS_OPTIONS[name] !== null);
 
 // ── the ceiling ─────────────────────────────────────────────────────────────
 
@@ -110,11 +175,14 @@ export function readTable(csv: string): TableReading {
   // with no first line is text with nothing in it, which the check above already
   // said. What CAN go wrong is a header cell with nothing in it.
   if (described.rows === 0) refusals.push('this CSV has a header and no rows — there is nothing to describe, and nothing to draw');
+  // WHY the parser's header and not the description's columns: a repeated header cell is a fact about
+  // the TEXT, and the parser collapses it into ONE row key — so `describeTable` names it once, which
+  // is the truth about the table and would leave this door with nothing to refuse.
   const seen = new Set<string>();
-  for (const column of described.columns) {
-    if (column.name.trim().length === 0) refusals.push('one of the header\u2019s columns has no name — a column nobody can name is a column nobody can bind');
-    else if (seen.has(column.name)) refusals.push(`the column "${column.name}" is in the header twice — a column is named once, or the two of them cannot be told apart`);
-    seen.add(column.name);
+  for (const name of parseCSV(csv).header) {
+    if (name.trim().length === 0) refusals.push('one of the header\u2019s columns has no name — a column nobody can name is a column nobody can bind');
+    else if (seen.has(name)) refusals.push(`the column "${name}" is in the header twice — a column is named once, or the two of them cannot be told apart`);
+    seen.add(name);
   }
   if (refusals.length > 0) return { ok: false, refusals };
   return { ok: true, reading: described };

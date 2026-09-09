@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
-import { Sources, lastAnswer, sourceWords, grainWords, outcomeWords } from './Sources.js';
+import { Sources, derivedWords, lastAnswer, sourceWords, grainWords, outcomeWords, tableCountWords } from './Sources.js';
 import type { RefreshDeltaView, RefreshRecordView, TableView } from '../adapter/types.js';
 
 const TABLES: TableView[] = [
@@ -74,6 +74,34 @@ describe('Sources', () => {
     expect(container.querySelector('.vzf-sources-checks')!.textContent).toContain('not asked yet');
     rerender(<Sources tables={TABLES} checks={['stale']} checksError="503 from the door" />);
     expect(container.querySelector('.vzf-sources-checks')!.textContent).toContain('the checks could not be read: 503 from the door'); // a refusal is never "not asked yet"
+  });
+
+  it('a table an ACT cut says which act cut it, and never pretends anyone declared or vouched for it', () => {
+    const cut: TableView = {
+      name: 'by_region',
+      source: { computed: 'aggregate' },
+      engine: 'memory',
+      key: 'region',
+      declaredColumns: 2,
+      derived: { of: 'cells', groupBy: ['region'], measures: ['total', 'places'], at: 's12' },
+    };
+    const { container } = render(<Sources tables={[...TABLES, cut]} columns={{ by_region: [{ field: 'region', type: 'string' }, { field: 'total', type: 'number' }] }} />);
+    // the count keeps its two words apart: nobody declared this one
+    expect(container.querySelector('.vzf-sources-count')!.textContent).toBe('3 tables declared · 1 cut by an act');
+    const row = container.querySelector('[aria-label="table by_region"]')!;
+    expect(row.textContent).toContain('computed here — an act cut these rows from another table');
+    expect(row.querySelector('[data-vzf="sources-derived"]')!.textContent).toBe('derived from cells — the rows visible at s12, grouped by region, measuring total, places');
+    expect(row.textContent).toContain('nobody vouched for these rows — an act cut them, and a refresh of the parent drops them');
+    expect(row.textContent).toContain('region'); // the key the act minted, shown like any other
+    // there is nothing to re-read: a refresh door is offered only where a carrier holds the rows
+    expect(row.querySelector('.vzf-sources-refresh-one')).toBeNull();
+  });
+
+  it('the derived words say the empty group and the measureless act out loud, rather than leaving them off', () => {
+    expect(derivedWords({ of: 'cells', groupBy: [], measures: ['rows'], at: 's3' })).toBe('derived from cells — the rows visible at s3, the whole table as one row, measuring rows');
+    expect(derivedWords({ of: 'cells', groupBy: ['region'], measures: [], at: 's3' })).toBe('derived from cells — the rows visible at s3, grouped by region, no measure');
+    expect(tableCountWords([])).toBe('no table declared');
+    expect(sourceWords({ computed: 'aggregate' })).toBe('computed here — an act cut these rows from another table');
   });
 
   it('no table declared says so; a wide table caps its column list; the helpers speak plainly, including the unkeyed replace', () => {

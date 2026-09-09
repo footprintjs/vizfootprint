@@ -10,7 +10,8 @@
  *     lands it), then re-enters as an ORDINARY point predicate (a cluster
  *     click-list) — driven by `session.dispatch({verb:'select', ...})`.
  *   - regression (kind:'transform')  → an OLS line drawn as an SVG overlay
- *     (geometry channel; selects no rows). Honesty floor: < 10 points → R14.
+ *     (geometry channel; selects no rows). Honesty floor: fewer points than the
+ *     library's exported `REGRESSION_MIN_POINTS` → R14.
  *   - group-by (kind:'transform')    → a small summary table.
  *
  * User gestures (scatter brush, bar click, cluster chip) all ride
@@ -63,7 +64,7 @@ import {
 import { causeClauseFromEmission, isRejection, type ActorMeta, type ClauseEmission, type RegisteredSource } from 'vizfootprint/selection';
 import type { Cause } from 'vizfootprint/cause';
 import { matchesClause, type PredicateClause } from 'vizfootprint/data';
-import { correlationAnalysis, clusteringAnalysis, regressionAnalysis, groupByAnalysis } from 'vizfootprint/analysis';
+import { correlationAnalysis, clusteringAnalysis, regressionAnalysis, groupByAnalysis, REGRESSION_MIN_POINTS, type DegenerateResult, type UnavailableResult } from 'vizfootprint/analysis';
 import type { FdrStep } from 'vizfootprint/session';
 import type { CommitRecord } from 'vizfootprint/log';
 import { buildDashboard, vizAsTools, type AnalysisCommit, type DashboardDef, type FdrSummary, type GapRow, type VizToolResult } from 'vizfootprint/agent';
@@ -269,6 +270,27 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
     return result.analysis ?? null;
   }
 
+  /**
+   * What a not-ok analysis result SAYS — NARROWED on the discriminant the union
+   * carries, never asserted onto one arm of it.
+   *
+   * The two arms say opposite things: a degenerate fit means the rows were read
+   * and none of them fit; `unavailable` means the act was never performed. WHY
+   * the second cannot arrive here — and it is not "the memory engine always
+   * answers", which is false (`memoryProvider` refuses an unknown table, an
+   * unknown column and a bad window): `doAnalyze` (src/session/session.ts)
+   * rejects any analysis commit carrying a gap and no commit, which is exactly
+   * what an unreadable input returns (`couldNotRead`), so `runAnalyze`'s own
+   * `!result.ok` arm has already taken it. Asserting `DegenerateResult` would
+   * print `n=undefined` under a confident sentence the day a second table, a
+   * `reads` relation or a file source made that arm reachable.
+   */
+  function saidOf(result: DegenerateResult | UnavailableResult, degenerate: (n: number) => string): string {
+    /* v8 ignore next -- see above: an `unavailable` result is consumed by `runAnalyze`'s own arm and never reaches a caller's `commit.result` */
+    if (result.reason !== 'degenerate-fit') return `unavailable — the engine refused the read: ${result.rejection.detail ?? result.rejection.reason}`;
+    return degenerate(result.n);
+  }
+
   // ── declared analyses ────────────────────────────────────────────────────────
   async function declareCorrelation(): Promise<void> {
     const commit = await runAnalyze('correlation', 'declare correlation');
@@ -278,7 +300,7 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
     if (!commit.result.ok) {
       showResult([
         el('div', { class: 'analysis-title', text: 'correlation (price × rating)' }),
-        el('div', { class: 'flag r14', text: `honest degenerate-fit flag (R14): n=${commit.result.n}, no r computed, no FDR wealth spent` }),
+        el('div', { class: 'flag r14', text: saidOf(commit.result, (n) => `honest degenerate-fit flag (R14): n=${n}, no r computed, no FDR wealth spent`) }),
       ]);
     } else {
       // `correlationAnalysis` (src/analysis/builtins.ts) hardcodes `as:'scalar'` on every `ok:true`
@@ -340,17 +362,7 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
     // row) so the SVG can highlight by cluster; the REAL materialize already
     // landed in the session's own provider above, which is what makes
     // "cluster_id" a real, selectable column for the dispatch below.
-    const mirrorRun = await clusteringModule.run(rows);
-    /* v8 ignore next -- `clusteringModule.run` (quantileBins, src/analysis/stats.ts) always
-     * succeeds and always sets `sharedState['cluster_id']` to an array — the `?? []` fallback
-     * (a missing/undefined snapshot or key) is unreachable via this deterministic mirror call. */
-    const clusterIds = (mirrorRun.snapshot?.sharedState['cluster_id'] as number[] | undefined) ?? [];
-    rows.forEach((r, i) => {
-      /* v8 ignore next -- `clusterIds` is produced by mapping the SAME `rows` array one-to-one
-       * (quantileBins returns one entry per input value), so `clusterIds[i]` is always defined for
-       * every index this `forEach` visits. */
-      r['cluster_id'] = clusterIds[i] ?? 0;
-    });
+    await syncClusterMirror();
 
     renderClusterList();
     /* v8 ignore next -- `session.ts`'s `declareAnalysis` unconditionally initializes `materialized
@@ -406,7 +418,8 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
       scatter.setRegressionLine(null);
       showResult([
         el('div', { class: 'analysis-title', text: 'regression (price → rating)' }),
-        el('div', { class: 'flag r14', text: `R14 honesty floor: only ${commit.result.n} points (< 10) — no line fit` }),
+        // The floor is the library's own, quoted rather than retyped: move the default and this sentence moves.
+        el('div', { class: 'flag r14', text: saidOf(commit.result, (n) => `R14 honesty floor: only ${n} points (< ${REGRESSION_MIN_POINTS}) — no line fit`) }),
       ]);
       return;
     }
@@ -636,15 +649,24 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
     }
   }
 
-  /** Same session-free mirror trick as `declareClustering` — see the file header. */
+  /**
+   * The session-free mirror, in ONE place — see the file header for why it exists.
+   *
+   * Both the manual "Declare clustering" button and the agent task call this
+   * rather than each keeping a copy: two copies of the same three statements
+   * meant the mirrored key and the absent-value rule could drift, and the chips
+   * colour from `cluster_id` in both flows.
+   */
   async function syncClusterMirror(): Promise<void> {
     const mirrorRun = await clusteringModule.run(rows);
-    /* v8 ignore next -- same reasoning as `declareClustering`'s identical line above: quantileBins
-     * always succeeds and always sets `sharedState['cluster_id']`. */
+    /* v8 ignore next -- `clusteringModule.run` (quantileBins, src/analysis/stats.ts) always succeeds
+     * and always sets `sharedState['cluster_id']` to an array — the `?? []` fallback (a missing or
+     * undefined snapshot or key) is unreachable via this deterministic mirror call. */
     const clusterIds = (mirrorRun.snapshot?.sharedState['cluster_id'] as number[] | undefined) ?? [];
     rows.forEach((r, i) => {
-      /* v8 ignore next -- same reasoning as `declareClustering`'s identical line above: `clusterIds`
-       * is one-to-one with the SAME `rows` array this `forEach` walks. */
+      /* v8 ignore next -- `clusterIds` is produced by mapping the SAME `rows` array one-to-one
+       * (quantileBins returns one entry per input value), so `clusterIds[i]` is always defined for
+       * every index this `forEach` visits. */
       r['cluster_id'] = clusterIds[i] ?? 0;
     });
   }

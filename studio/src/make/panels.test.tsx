@@ -41,9 +41,12 @@ describe('the description a HOST supplied', () => {
     expect(verdict.style.color).toBe('var(--vzfs-stale)');
   });
 
-  it('says what a file past a MILLION rows will cost, in the same place', () => {
+  it('says what a file past a MILLION rows will cost, in the same place — and in its own colour', () => {
     render(<DataStep draft={emptyDraft()} reading={{ ...dated, rows: MEASURED_BREAKS_ROWS }} onCsv={() => undefined} onRead={() => undefined} />);
-    expect(document.querySelector('[data-vzf="make-ceiling-verdict"]')?.textContent).toContain('at or past the million');
+    const verdict = document.querySelector('[data-vzf="make-ceiling-verdict"]') as HTMLElement;
+    expect(verdict.textContent).toContain('at or past the million');
+    // The library computed THREE levels; drawn in two, a two-million-row file read like a hundred-thousand-row one.
+    expect(verdict.style.color).toBe('var(--vzfs-danger)');
   });
 
   it('a file input that hands back NO file list at all changes nothing', () => {
@@ -89,6 +92,42 @@ function views(draft: MakeDraft, analysisKind = ''): void {
     />,
   );
 }
+
+describe('the analysis picker', () => {
+  it('drops the options that were for the other kind — changing the kind is changing what is being said', () => {
+    const said: { kind: string; options: Readonly<Record<string, string>> }[] = [];
+    render(
+      <ViewsStep
+        draft={emptyDraft()}
+        analysisKind="clustering"
+        analysisOptions={{ column: 'sales', k: '3' }}
+        onView={() => undefined}
+        onAdd={() => undefined}
+        onRemove={() => undefined}
+        onAnalysis={(kind, options) => said.push({ kind, options })}
+        onWords={() => undefined}
+        onTake={() => undefined}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Run an analysis'), { target: { value: 'formula' } });
+    // `column` and `k` are not options of `formula`: carried over, the library refuses the whole
+    // definition two steps later, naming a field the screen no longer shows and cannot clear.
+    expect(said).toEqual([{ kind: 'formula', options: {} }]);
+  });
+
+  it('offers nothing to fill in for a kind the map has no key for, rather than reaching Object.prototype', () => {
+    // `analysisKind` is a plain string on an exported panel, so a host may hand one in.
+    views(emptyDraft(), 'toString');
+    expect(document.querySelector('[data-vzf="make-analysis"]')?.textContent).toContain('Run an analysis');
+    cleanup();
+    views(emptyDraft(), 'groupby'); // one letter off the real name: nothing to fill in, and no crash
+    expect(document.querySelector('[data-vzf="make-analysis"]')?.textContent).toContain('Run an analysis');
+    cleanup();
+    // …and a real builtin the map answers for with `null` — one this wizard does not offer — is the same: nothing to fill in.
+    views(emptyDraft(), 'aggregate');
+    expect(document.querySelector('[data-vzf="make-analysis"]')?.textContent).toContain('Run an analysis');
+  });
+});
 
 describe('the formula picker, over a table a host handed in', () => {
   it('names the columns a formula may read, and says so when the host handed in none', () => {

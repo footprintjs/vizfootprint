@@ -18,11 +18,11 @@
  * folder's own tests.
  */
 
-export type { Calendar, Cell, CellReader, ColExpr, DeriveJudgement, DeriveKind, DeriveType, DerivedColumn, Expr, ExprJudgement, LitExpr, Literal, OpExpr, Over } from './types.js';
+export type { Calendar, Cell, CellReader, ColExpr, DeriveJudgement, DeriveKind, DeriveType, DerivedColumnDecl, Expr, ExprJudgement, LitExpr, Literal, Measure, OpExpr, Over } from './types.js';
 export { OPS_VERSION } from './types.js';
 
 export type { ArgWant, Arm, Fold, LazyFold, Op, OpCategory, OpName, Reduce, Tally, YieldRule } from './ops.js';
-export { CALENDARS, CAST_TARGETS, DATE_UNITS, OP_NAMES, opOf, RESERVED_OPS, wantAt } from './ops.js';
+export { CALENDARS, CAST_TARGETS, DATE_UNITS, OP_NAMES, opOf, REDUCER_OPS, RESERVED_OPS, wantAt } from './ops.js';
 
 export type { DateUnit } from './dates.js';
 export { addOf, daysInMonth, dayOf, diffOf, epochDayOf, isoOf, isoOfMoment, partsOf, truncOf, weekdayOf, weekOf, weekStartOf } from './dates.js';
@@ -39,3 +39,11 @@ export { wordsFor } from './words.js';
 export type { DeriveOptions } from './analysis.js';
 // `deriveWords` is the whole declaration's sentence under the landing door's name; `wordsFor` is a fragment for one tree.
 export { deriveAnalysis, deriveWords } from './analysis.js';
+
+// The GROUP fold's second door: one row per group — what an aggregate table is made of.
+export type { GroupRow, Rows } from './groups.js';
+export { groupRowsOf, rowsOver, valuesOf } from './groups.js';
+
+// THE AGGREGATE — the derive act's twin: a derived TABLE of one row per group, landed through `analyze`.
+export type { AggregateOptions } from './aggregate.js';
+export { aggregateAnalysis, aggregateWords } from './aggregate.js';

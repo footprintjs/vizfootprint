@@ -196,6 +196,51 @@ describe('the data workbook', () => {
     expect(rows.ok && rows.rows.map((r) => r['per_year'])).toEqual([12, 9.6, 40, 21]);
   });
 
+  it('offers a fold over every column the session knows, cuts a TABLE as an act, and grows a sheet for it', async () => {
+    const { view, session } = openLibrary();
+    await view.refresh();
+    // one port per table asked for, so the desk's second argument is checked and not assumed
+    const asked: string[] = [];
+    const factory = (_columns: readonly { readonly name: string }[], table: string) => {
+      asked.push(table);
+      return answering() as never;
+    };
+    const props = () => ({ data: { table: 'books', sheet: factory as never }, state: view.getState(), view, readOnly: false });
+    const { container, rerender } = render(<DataPanel {...props()} />);
+
+    // the offer is the session's schema, projected — EVERY column, because a group is not a number
+    expect(container.querySelector('[data-vzf="add-aggregate-columns"]')?.textContent).toBe('the columns it may read: id, shelf, binding, year, pages');
+    expect(asked).toEqual(['books']); // nothing has been cut yet, so there is one table here
+
+    fireEvent.change(container.querySelector('.vzf-addagg-name') as HTMLInputElement, { target: { value: 'by_shelf' } });
+    fireEvent.click(container.querySelector('input[aria-label="group by shelf"]') as HTMLInputElement);
+    fireEvent.change(container.querySelector('.vzf-addagg-as') as HTMLInputElement, { target: { value: 'pages_total' } });
+    fireEvent.change(container.querySelector('.vzf-addagg-op') as HTMLSelectElement, { target: { value: 'sum' } });
+    fireEvent.change(container.querySelector('.vzf-addagg-of') as HTMLSelectElement, { target: { value: 'pages' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cut this table' }));
+
+    await waitFor(() => expect((container.querySelector('.vzf-addagg-said') as HTMLElement).textContent).toBe('by_shelf is a table now — it has a sheet of its own'));
+    // an ACT: a commit with a cause, on the analysis's own view id
+    const commit = session.log.records.at(-1)!;
+    expect(commit.viewId).toBe('analysis:by_shelf');
+    expect(commit.cause.intent).toBe('cut by_shelf: pages_total = sum of pages by shelf');
+    const rows = await session.viewQuery({ table: 'by_shelf', limit: 10 });
+    expect(rows.ok && rows.rows).toEqual([
+      { shelf: 'poetry', pages_total: 216 },
+      { shelf: 'atlases', pages_total: 400 },
+      { shelf: 'letters', pages_total: 210 },
+    ]);
+
+    // the workbook grew a tab, under the table's own name, after the Sheet
+    rerender(<DataPanel {...props()} />);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Sources', 'Sheet', 'by_shelf']);
+    expect(asked).toEqual(['books', 'books', 'by_shelf']); // the desk asked the host for the cut table's own port
+    // the Sources tab says which act cut it, in words, before anyone opens the rows
+    expect(container.querySelector('[data-vzf="sources-derived"]')?.textContent).toBe(`derived from books — the rows visible at ${commit.id}, grouped by shelf, measuring pages_total`);
+    fireEvent.click(screen.getByRole('tab', { name: 'by_shelf' }));
+    await waitFor(() => expect(document.querySelector('[role="columnheader"]')).toBeTruthy());
+  });
+
   it('shows the SESSION’s refusal and lands nothing', async () => {
     const { view, session } = openLibrary();
     await view.refresh();

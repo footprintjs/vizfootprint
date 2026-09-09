@@ -17,6 +17,7 @@
 import {
   chooseEngine,
   DerivedColumnStore,
+  DerivedTableStore,
   isPairKind,
   isStubEngine,
   memoryProvider,
@@ -27,7 +28,9 @@ import {
   type DataProvider,
   type DatasetStats,
   type Engine,
+  type DerivedTable,
   type ResolvedEngine,
+  type Row,
   type RowsInput,
   type StubEngine,
 } from '../data/index.js';
@@ -142,6 +145,14 @@ export type RefreshOutcome =
       readonly delta: RefreshDelta;
       /** Columns an analysis had materialised on the old rows, gone with them — re-run the analysis. */
       readonly materialisedLost?: readonly string[];
+      /**
+       * Derived TABLES an aggregate had cut from the old rows, gone with them —
+       * and every table cut from those in turn. Reported by the names a person
+       * knows, like `materialisedLost`, and for its reason: a table whose
+       * parent moved cannot be replayed from its record against the new bytes
+       * and still claim the version it was cut from.
+       */
+      readonly derivedLost?: readonly string[];
     }
   | { readonly refused: true; readonly reason: SourceRefusalReason | 'no-source'; readonly message: string };
 
@@ -428,7 +439,7 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
     engines[table] = engine;
     providers.set(table, buildProvider(engine, table, source));
   }
-  return assemble(def, options, providers, engines, sources, notes, journal, new DerivedColumnStore());
+  return assemble(def, options, providers, engines, sources, notes, journal, new DerivedColumnStore(), derivedTableSlots(providers));
 }
 
 /**
@@ -484,6 +495,8 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
   // Dashboard-scoped because the stores are: two sessions write into one
   // provider. A refresh replaces a provider, so it drops that table's slots.
   const derived = new DerivedColumnStore();
+  // …and the tables an aggregate cut from them, on the same reasoning one level out.
+  const derivedTables = derivedTableSlots(providers);
   const run = async (which?: readonly string[]): Promise<RefreshResult> => {
     // ONE answer per table asked: a name given twice fetches its carrier twice, and the second
     // pass reads the FIRST pass's own swap as "unchanged" — overwriting the change it just made
@@ -531,10 +544,15 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
           const spelling = derived.logicalByPhysical(table);
           const lost = goneSlots.map((c) => spelling.get(c) ?? c);
           derived.clear(table);
+          // A derived TABLE goes the same way and is reported the same way: its
+          // record says which version of this parent it was cut from, and that
+          // version no longer exists — so it is dropped rather than left
+          // serving yesterday's rows under today's name.
+          const tablesLost = derivedTables.drop(table);
           const base = goneSlots.length === 0 ? before : before.map((r) => Object.fromEntries(Object.entries(r).filter(([c]) => arrived.has(c))));
           providers.set(table, fresh);
           sources[table] = { ...held, version: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length };
-          out[table] = { changed: true, from: held.version, to: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length, delta: deltaByKey(base, snap.rows, decl.key), ...(lost.length > 0 ? { materialisedLost: lost } : {}) };
+          out[table] = { changed: true, from: held.version, to: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length, delta: deltaByKey(base, snap.rows, decl.key), ...(lost.length > 0 ? { materialisedLost: lost } : {}), ...(tablesLost.length > 0 ? { derivedLost: tablesLost } : {}) };
         } finally {
           await handle.close();
         }
@@ -554,7 +572,7 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
     queue = next.catch(() => undefined);
     return next;
   };
-  return assemble(def, options, providers, engines, sources, notes, journal, derived, refresh);
+  return assemble(def, options, providers, engines, sources, notes, journal, derived, derivedTables, refresh);
 }
 
 /**
@@ -712,6 +730,49 @@ export function restoreBookmarksInto(store: BookmarkStore, list: readonly Restor
 }
 
 /**
+ * The two things a derived table's slot IS, minted and dropped together: a row
+ * provider registered under the act's physical name, and the registry entry
+ * that says which act it belongs to.
+ *
+ * ONE owner for both, because a provider without its entry is a table nobody
+ * can resolve a name to, and an entry without its provider is a name that
+ * resolves to nothing. The providers map is the live one `providerFor` reads,
+ * which is why a table cut by an act is readable the instant it lands and
+ * unreadable the instant its parent moves.
+ */
+interface DerivedTableSlots {
+  /** The registry a session resolves a derived table NAME through, at its cursor. */
+  readonly store: DerivedTableStore;
+  /** Land one: a fresh memory provider under the act's slot, then the entry. */
+  land(table: DerivedTable, rows: readonly Row[]): void;
+  /** Drop every table cut from one parent — and every table cut from THOSE — answering the names, oldest first. */
+  drop(of: string): readonly string[];
+}
+
+function derivedTableSlots(providers: Map<string, DataProvider>): DerivedTableSlots {
+  const store = new DerivedTableStore();
+  return {
+    store,
+    land: (table, rows) => {
+      // A FRESH provider per act: the rows were computed once, at one cursor, and
+      // two acts that cut the same name are two tables (`src/data/derivedTables.ts`).
+      //
+      // DETACHED on the way in (`../detach/README.md`): these row objects are also
+      // in the answer the act already handed its caller, and a store that shared them
+      // would serve whatever that caller wrote into them, with no commit anywhere.
+      // One shallow copy per row; the cells are borrowed values nobody writes to.
+      providers.set(table.physical, memoryProvider(rows.map((row) => ({ ...row })), { tableName: table.physical }));
+      store.record(table);
+    },
+    drop: (of) => {
+      const dropped = store.clear(of);
+      for (const table of dropped) providers.delete(table.physical);
+      return dropped.map((table) => table.name);
+    },
+  };
+}
+
+/**
  * Everything after the providers exist — ONE assembly for both builders.
  *
  * `refresh` is passed IN rather than layered on afterwards. It used to be
@@ -721,7 +782,7 @@ export function restoreBookmarksInto(store: BookmarkStore, list: readonly Restor
  * never saw a refresh again. One object literal, built once, cannot go wrong
  * that way.
  */
-function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[], derived: DerivedColumnStore, refresh?: Dashboard['refresh']): Dashboard {
+function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[], derived: DerivedColumnStore, derivedTables: DerivedTableSlots, refresh?: Dashboard['refresh']): Dashboard {
   freezeDefinition(def);
   const saved: SavedStore = { list: [], minted: 0 }; // saved selections: logic beside the log, shared by every session (the counter rides the store: it outlives every session)
   const bookmarks: BookmarkStore = { list: [], minted: 0 }; // bookmarks: names on moments beside the log, shared by every session
@@ -813,6 +874,8 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     bookmarks,
     commitIds,
     derived,
+    derivedTables: derivedTables.store,
+    landDerivedTable: (table, rows) => derivedTables.land(table, rows),
     makeFdrStepper,
     fdrProcedure: def.fdr?.procedure ?? 'LORD++',
     fdrAlpha: def.fdr?.alpha ?? 0.05,

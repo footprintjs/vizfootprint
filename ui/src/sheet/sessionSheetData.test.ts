@@ -11,7 +11,17 @@ import type { Overview, ViewQuery, ViewQueryResult } from 'vizfootprint/session'
 const OVERVIEW = {
   defaultTable: 'cells',
   keys: { cells: 'id' },
+  // the Sources rows: every table visible at the cursor — the declared one, and
+  // one an act CUT, whose key nobody declared and the act minted
+  tables: [
+    { name: 'cells', source: { inline: 'rows', rows: 1 }, engine: 'memory', key: 'id', declaredColumns: 3 },
+    { name: 'by_region', source: { computed: 'aggregate' }, engine: 'memory', key: 'region', declaredColumns: 2, derived: { of: 'cells', groupBy: ['region'], measures: ['total'], at: 's12' } },
+  ],
   columns: {
+    by_region: [
+      { field: 'region', type: 'string' },
+      { field: 'total', type: 'number' },
+    ],
     cells: [
       { field: 'id', type: 'string', role: 'identifier' },
       { field: 'cases', type: 'number', role: 'measure' },
@@ -56,6 +66,18 @@ describe('sessionSheetData', () => {
       { name: 'cases', type: 'number', role: 'measure' },
       { name: 'note', type: 'unknown' },
     ]);
+  });
+
+  it('a table an ACT cut is an ordinary table here: its own columns, and the key the act minted', async () => {
+    // `overview.keys` is the DEF's map and has no entry for `by_region`; the
+    // Sources row does, because the act minted it from the one group column.
+    const { session, asked } = fakeSession();
+    expect(await sessionSheetData(session, { table: 'by_region' }).columns()).toEqual([
+      { name: 'region', type: 'string', key: true },
+      { name: 'total', type: 'number' },
+    ]);
+    await sessionSheetData(session, { table: 'by_region' }).rows({ offset: 0, limit: 10 });
+    expect(asked[0]).toEqual({ table: 'by_region', offset: 0, limit: 10 });
   });
 
   it('a table the overview lists no columns for has none — never an invented set', async () => {
