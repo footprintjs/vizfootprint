@@ -103,8 +103,13 @@ function numberedColumnOf(row: Row, values: readonly string[]): { readonly colum
  * number. Everything else is a silence, INCLUDING a word the vocabulary never
  * declared and a cell that holds no word at all — those are the rows nothing
  * else judges, and they are the reason this module exists.
+ *
+ * EXPORTED because a second reader needs exactly this law and must not restate
+ * it: a shared SCALE may not be folded over silent rows either ("unavailable"
+ * is not a low number, so a silence on an axis reads as one), and the adapter's
+ * frame door drops them with this test before it calls `frameDomains`.
  */
-function silenceTestOf(absence: AbsenceDecl): (state: unknown) => boolean {
+export function silenceTestOf(absence: AbsenceDecl): (state: unknown) => boolean {
   const carries = new Set(absence.carries ?? []);
   return (state) => state !== ABSENCE_PRESENT && !(typeof state === 'string' && carries.has(state));
 }

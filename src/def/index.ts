@@ -40,7 +40,7 @@ export { validateRelations, relationEdgeId, joinsTables, relationsFrom, judgeAna
 // and `./layerAddress.ts` is the ONE owner of the marker (laws in ./README.md "Layers").
 export { LAYER_MARKER, layerAddress, splitLayerAddress, holdsLayerMarker } from './layerAddress.js';
 export type { LayerAddressParts } from './layerAddress.js';
-export { validateLayers, layerSurfaceOf, layerSurfacesOf } from './layers.js';
+export { validateLayers, validateFrame, layerSurfaceOf, layerSurfacesOf } from './layers.js';
 export type { LayerSurface } from './layers.js';
 // The long-form series contract (F3): `{t, entity, metric, value}` in, rows +
 // declared encodings out — no bespoke chart API. See `./series.ts`.
@@ -63,6 +63,8 @@ export type {
   CapabilityDecl,
   ViewEncodingDecl,
   LayerDecl,
+  // the frame: per channel, how its scale is resolved across a view's layers
+  ChannelResolution,
   FdrDecl,
   AgentDecl,
   IntentDecl,
@@ -131,6 +133,16 @@ export {
   BIG_AT,
   densityOf,
   graphReadingFor,
+  // THE FRAME's fold — beside the `ChannelResolution` the def declares, because a
+  // consumer that reads the declaration is the one that has to fold it (a host
+  // filling `RenderState.frame` reads both from this one door)
+  frameDomains,
+  frameLint,
+  frameScaleOf,
+  resolutionFor,
+  zeroPolicyFor,
+  FRAME_LAYER_LINT,
+  ZERO_ANCHORED_KINDS,
 } from '../encoding/index.js';
 export type {
   ChannelClass,
@@ -166,6 +178,11 @@ export type {
   GraphReading,
   GraphReadingKind,
   GraphReadingRule,
+  ChannelValues,
+  EffectiveResolution,
+  FrameLayer,
+  ResolvedChannel,
+  ResolvedDomain,
 } from '../encoding/index.js';
 
 // The data-source layer (owned by src/source; the file carrier is its own module, src/source/file.ts).

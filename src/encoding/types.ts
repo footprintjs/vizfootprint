@@ -235,6 +235,8 @@ export interface ColumnDecl {
   readonly scale?: ColumnScale;
   /** A display label, echoed verbatim. */
   readonly label?: string;
+  /** The unit the values are in ('cases', 'mg/dL'), echoed verbatim — read by the frame's shared-scale law (see {@link ColumnFacet.unit}). */
+  readonly unit?: string;
 }
 
 export const COLUMN_ROLES: readonly ColumnRole[] = ['identifier', 'dimension', 'measure', 'absence'];

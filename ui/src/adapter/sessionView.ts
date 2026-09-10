@@ -41,7 +41,7 @@ import type {
   ApplySavedOptions,
   ApplySavedResult,
 } from 'vizfootprint/session';
-import type { OpName, SavedSelection } from 'vizfootprint/def';
+import type { ChannelResolution, OpName, SavedSelection } from 'vizfootprint/def';
 // the op-vocabulary version a declaration is written against — read from the
 // library and never restated, so a build that moved on refuses this act by name
 import { OPS_VERSION } from 'vizfootprint/def';
@@ -507,6 +507,8 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       proposals?: unknown;
       /** Layers (1.2): `views[].layers` serialized — the key is absent on a plain view, and stays absent here. */
       layers?: unknown;
+      /** The frame (1.5): `views[].frame` serialized — per channel, the declared resolution. Absent on a view that declares none. */
+      frame?: unknown;
       canProbe?: boolean;
       mounted?: boolean;
     };
@@ -515,6 +517,7 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       actor: o.actor,
       label: o.label,
       ...(o.layers !== undefined ? { layers: mapLayers(o.layers) } : {}),
+      ...(o.frame !== undefined ? { frame: mapFrame(o.frame) } : {}),
       selectionKinds: o.selectionKinds ?? [],
       canProbe: o.canProbe ?? true,
       mounted: o.mounted ?? true,
@@ -541,6 +544,23 @@ function mapLayers(raw: unknown): readonly LayerView[] {
       ...(typeof x.label === 'string' ? { label: x.label } : {}),
     }];
   });
+}
+/**
+ * The frame as the wire serves it — per channel, a resolution is kept only when
+ * it names one of the two MODES; anything else is dropped rather than defaulted.
+ * WHY dropped and not defaulted to shared: a channel with no entry ALREADY
+ * means shared/union/table/merged, so dropping a malformed one lands on the
+ * library's own default instead of inventing a second one here.
+ */
+function mapFrame(raw: unknown): Readonly<Record<string, ChannelResolution>> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+  const out: Record<string, ChannelResolution> = {};
+  for (const [channel, decl] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof decl !== 'object' || decl === null) continue;
+    const mode = (decl as { mode?: unknown }).mode;
+    if (mode === 'shared' || mode === 'independent') out[channel] = decl as ChannelResolution;
+  }
+  return out;
 }
 /** Per channel, the column verdicts src/encoding serves — anything malformed is dropped, never invented. */
 function mapFits(raw: unknown): Readonly<Record<string, readonly FitView[]>> {

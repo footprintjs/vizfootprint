@@ -13,7 +13,7 @@
 import { validateAnalysisDef } from '../analysis/index.js';
 import { isBuiltinRecord, validateBuiltinAnalysis } from './builtinAnalyses.js';
 import { validateRelations } from './relations.js';
-import { layerLinkViewsOf, layerSurfacesOf, markerRefusal, validateLayers } from './layers.js';
+import { layerLinkViewsOf, layerSurfacesOf, markerRefusal, validateFrame, validateLayers } from './layers.js';
 import { holdsLayerMarker } from './layerAddress.js';
 import { EMISSION_KINDS, validateLinks, voiceOf, type EmissionKind } from '../links/index.js';
 import { ENCODING_SET_FIELD,
@@ -548,7 +548,10 @@ export function validateDashboardDef(def: unknown): string[] {
           problems.push(`encodings[${i}].initial, if present, must be an object mapping channel -> field (strings)`);
         }
         // layers — a view over more than one table (src/def/layers.ts); absent on every view built before layers existed
-        validateLayers(enc.layers, `encodings[${i}]`, typeof enc.viewId === 'string' ? enc.viewId : String(enc.viewId), def.data, problems);
+        const encViewId = typeof enc.viewId === 'string' ? enc.viewId : String(enc.viewId);
+        validateLayers(enc.layers, `encodings[${i}]`, encViewId, def.data, problems);
+        // the frame — per channel, how its scale is resolved across those layers (src/def/layers.ts, "the frame")
+        validateFrame(enc.frame, `encodings[${i}]`, encViewId, enc.layers, def.data, problems);
       });
     }
   }

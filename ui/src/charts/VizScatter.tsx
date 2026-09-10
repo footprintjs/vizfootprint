@@ -21,7 +21,7 @@
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
-import { linearScale, extent, ticks } from '../primitives/scales.js';
+import { linearScale, extent, ticks, domainOr, type ChartDomain } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { useBrightPredicate, dimClass } from '../primitives/useSelection.js';
@@ -89,6 +89,16 @@ export interface VizScatterProps {
   readonly width?: number;
   readonly height?: number;
   readonly className?: string;
+  /**
+   * THE FRAME'S SCALES (protocol 1.5): the domains to draw against instead of
+   * this chart's own extent, both in the bound columns' own units, so a layer
+   * of a frame sits on the shared scale. Absent = the chart's own extent, and
+   * every mark is byte-identical to the chart before the prop existed. It
+   * filters nothing: a point outside the domain is drawn outside it.
+   */
+  readonly domain?: ChartDomain;
+  /** Draw this chart's own axes (lines, ticks and the interactive axis labels). Default `true`; `false` while the FRAME draws one merged guide for the stack. */
+  readonly axes?: boolean;
 }
 
 const PAD = { l: 52, r: 18, t: 18, b: 44 };
@@ -119,10 +129,12 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   // the self-excluded crossfilter fold — recomputed only when the selection changes
   const keep = useBrightPredicate(selection);
 
-  const [xlo, xhi] = extent(data, (d) => d.x, 5);
+  // the frame's domain when a frame gave one, this chart's own extent otherwise (../primitives/scales.ts)
+  const [xlo, xhi] = domainOr(props.domain?.x, extent(data, (d) => d.x, 5));
   const x = linearScale(xlo, xhi, PAD.l, width - PAD.r);
-  const [ylo, yhi] = extent(data, (d) => d.y, 0.5);
+  const [ylo, yhi] = domainOr(props.domain?.y, extent(data, (d) => d.y, 0.5));
   const y = linearScale(ylo, yhi, height - PAD.b, PAD.t);
+  const axes = props.axes ?? true;
 
   // drag→interval on x — the brush primitive's completion discipline (a sub-4px
   // release emits the CLEARED interval); snap = this chart's own scale invert
@@ -137,8 +149,10 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
 
   const { pickerChannel, openPicker, closePicker } = useReencodePicker(onReencodeRequest);
 
-  const xTicks = ticks(xlo + 5, xhi - 5, 4);
-  const yTickVals = ticks(Math.ceil(ylo + 0.5), Math.floor(yhi - 0.5), 4);
+  // the chart's OWN extents are padded (5 on x, 0.5 on y), so its ticks step inside that padding;
+  // a frame's domain carries no padding of ours, so its ticks span exactly what the axis claims
+  const xTicks = ticks(props.domain?.x === undefined ? xlo + 5 : xlo, props.domain?.x === undefined ? xhi - 5 : xhi, 4);
+  const yTickVals = props.domain?.y === undefined ? ticks(Math.ceil(ylo + 0.5), Math.floor(yhi - 0.5), 4) : ticks(ylo, yhi, 4);
 
   return (
     <>
@@ -150,11 +164,11 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         aria-label={props.ariaLabel ?? `scatter of ${yLabel} against ${xLabel}`}
         {...handlers}
       >
-        {/* axes frame */}
-        <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />
-        <line className="vzf-axis" x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={height - PAD.b} />
+        {/* axes frame — absent while the FRAME draws one merged guide for the stack */}
+        {axes && <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />}
+        {axes && <line className="vzf-axis" x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={height - PAD.b} />}
         {/* x ticks */}
-        {xTicks.map((v, i) => (
+        {axes && xTicks.map((v, i) => (
           <g key={`xt${i}`}>
             <line className="vzf-axis" x1={x(v)} y1={height - PAD.b} x2={x(v)} y2={height - PAD.b + 4} />
             <text className="vzf-tick" x={x(v)} y={height - PAD.b + 16} textAnchor="middle">
@@ -163,7 +177,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
           </g>
         ))}
         {/* y ticks */}
-        {yTickVals.map((v, i) => (
+        {axes && yTickVals.map((v, i) => (
           <g key={`yt${i}`}>
             <line className="vzf-axis" x1={PAD.l - 4} y1={y(v)} x2={PAD.l} y2={y(v)} />
             <text className="vzf-tick" x={PAD.l - 8} y={y(v) + 3} textAnchor="end">
@@ -200,8 +214,8 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         {/* brush */}
         <BrushOverlay brush={brush} y={PAD.t} height={height - PAD.t - PAD.b} />
         {/* interactive axis labels */}
-        <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />
-        <AxisLabel x={14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={-90} onOpen={openPicker} />
+        {axes && <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />}
+        {axes && <AxisLabel x={14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={-90} onOpen={openPicker} />}
       </svg>
       <EncodingPicker
         open={pickerChannel !== null}

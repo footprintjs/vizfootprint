@@ -267,6 +267,39 @@ of the address, and the second one is the copy nobody tests when the rule moves.
 The door is in-process, like `sessionSheetData`; a polled host needs its own
 endpoint for it (Law 2).
 
+### The same law, one layer up: a frame's SCALES
+
+The frame (protocol 1.5) needed the same judgement and got the same answer. A
+host drawing layers on one frame could fold its own axis from the rows it just
+read — and an axis folded beside the marks, by different code, from a different
+read, is exactly how a picture comes to contradict itself. So the DECLARATION is
+projected (`ViewView.frame`, straight off `overview.views[].frame` — words, never
+numbers) and the FOLD is a door:
+
+```ts
+import { frameFor } from 'vizfootprint-ui';
+
+const frame = await frameFor(session, { viewId: 'trend', layers, columns: state.columns, frame: view.frame });
+// { y: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [0, 90] }, … }
+bound.view.update({ ...state, layers: renderLayers, ...(Object.keys(frame).length > 0 ? { frame } : {}) });
+```
+
+Two things the door owns because nobody else can: WHICH ROWS each channel's
+`basis` meant — `'rows'` is the layer's own window through `layerRowsFor`,
+`'table'` is the table with **nobody's** clause (`viewQuery({ viewId: null })`),
+which is what makes a fixed axis stay put when a filter lands elsewhere — and
+dropping the ABSENCE rows first, with the library's own silence test
+(`silenceTestOf`), because "unavailable" on an axis reads as a low number. An
+INDEPENDENT channel asks for no rows at all (it has no domain to fold) and
+still enters the frame, because `mode: 'independent'` is what tells a renderer
+who draws that guide. The domains themselves are `frameDomains`'
+(`vizfootprint/def`): the union has ONE owner, and this door is not it.
+
+The gap this door has and names: it is one read per layer per basis, and the
+port cannot ask N questions as one, so a refresh landing between two reads
+folds one frame over two table versions until the next update. It is written at
+`frameFor`, next to the `version` every answer already carries.
+
 ---
 
 ## Adding a field to `SessionViewState` — the checklist

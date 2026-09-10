@@ -20,6 +20,31 @@ const userCause = (intent?: string): Cause => ({ requestedBy: 'user', computedBy
 const fresh = () => buildDashboard(makeDashboardDef()).createSession();
 
 describe('viewQuery — the whole-dashboard truth and the window', () => {
+  it("viewId: null is NOBODY'S clause — the table as it stands at the cursor, which is what a fixed axis is folded from", async () => {
+    const s = fresh();
+    const before = await s.viewQuery({ viewId: null });
+    expect(before.ok && [before.count, before.clauses.length]).toEqual([40, 0]);
+    // two live clauses: the whole-dashboard window narrows, an explicit null does NOT move
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick') });
+    await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [60, 100], cause: userCause('brush') });
+    const everybody = await s.viewQuery();
+    const nobody = await s.viewQuery({ viewId: null });
+    expect(everybody.ok && everybody.count).toBeLessThan(40);
+    expect(nobody.ok && [nobody.count, nobody.clauses.length]).toEqual([40, 0]);
+    // …and it is the TABLE's window, not a view's: the default table with no viewId to resolve one, and a named table honoured
+    expect(nobody.ok && nobody.rows).toHaveLength(40);
+    const named = await s.viewQuery({ viewId: null, table: 'data' });
+    expect(named.ok && named.count).toBe(40);
+    // a table that is not here is still refused by name — null names no consumer, never a missing table
+    const ghost = await s.viewQuery({ viewId: null, table: 'ghost' });
+    expect(ghost.ok).toBe(false);
+    if (!ghost.ok) expect(ghost.reason).toBe('unknown-table');
+    // …and a column that is not there is the engine's refusal, with no link blamed: no consumer means no mapping reached it
+    const noColumn = await s.viewQuery({ viewId: null, columns: ['ghost'] });
+    expect(noColumn.ok).toBe(false);
+    if (!noColumn.ok) expect([noColumn.reason, noColumn.rejected.includes('the link from')]).toEqual(['engine', false]);
+  });
+
   it('parity: with no view every live clause filters, and the count is what selectedRowCount counts; a positional table names rows by version and source index', async () => {
     const s = fresh();
     const empty = await s.viewQuery();

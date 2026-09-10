@@ -21,7 +21,9 @@
  * real columns), the session's `tableFor` (reads the layer's table off the
  * address), the overview (projects them).
  */
-import type { EncodingSurface } from '../encoding/index.js';
+import type { ColumnFacet } from '../data/types.js';
+import type { ColumnDecl, EncodingSurface } from '../encoding/index.js';
+import { MAGNITUDE_CHANNELS, ZERO_ANCHORED_KINDS, resolveFacet, zeroAnchorsChannel } from '../encoding/index.js';
 import { ENCODING_KIND, type LinkView } from '../links/index.js';
 import { LAYER_MARKER, holdsLayerMarker, layerAddress } from './layerAddress.js';
 import type { LayerDecl } from './types.js';
@@ -104,6 +106,154 @@ function judgeSurface(at: string, layer: Record<string, unknown>, problems: stri
     problems.push(`${at}.initial, if present, must be an object mapping channel -> field (strings)`);
   }
   if (layer.label !== undefined && typeof layer.label !== 'string') problems.push(`${at}.label, if present, must be a string`);
+}
+
+// ── the frame: who may share a scale ──────────────────────────────────────────
+
+/** The keys a resolution may carry, per mode — anything else is refused by name (R12). An independent channel has no domain, no basis and no zero policy: there is nothing folded to apply them to. */
+const SHARED_KEYS: readonly string[] = ['mode', 'domain', 'basis', 'guide', 'zero'];
+const INDEPENDENT_KEYS: readonly string[] = ['mode', 'guide'];
+
+/** The Wickham default, stated where the validator needs it — the FOLD's copy is `zeroPolicyFor`/`resolutionFor` (`../encoding/frame.ts`), which is the one that produces numbers. */
+const SHARED_BY_DEFAULT = { mode: 'shared' } as const;
+
+/**
+ * THE COLUMN FACTS TWO LAYERS MUST AGREE ON TO SHARE A SCALE, as data — each
+ * with the words it says when they disagree. A pixel means one thing per
+ * frame: if x is a number on one layer and a date on another, one axis cannot
+ * be read for both, and the picture is a lie however carefully it is drawn.
+ *
+ * Every fact is skipped where either side did not DECLARE it — the def door
+ * refuses on evidence, never on ignorance (which is also why a unit mismatch
+ * is refused only when both columns name a unit).
+ */
+const FRAME_FACTS: readonly { readonly of: (facet: ColumnFacet) => string | undefined; readonly say: (value: string) => string }[] = [
+  { of: (facet) => (facet.type === 'unknown' ? undefined : facet.type), say: (value) => `a ${value}` },
+  { of: (facet) => facet.role, say: (value) => `a ${value}` },
+  { of: (facet) => facet.scale, say: (value) => value },
+  { of: (facet) => facet.unit, say: (value) => `in "${value}"` },
+];
+
+/**
+ * Judge `encodings[i].frame`, when present — the frame's own laws, each one
+ * sentence in `problems` (`./README.md`, "The frame", laws 7–10).
+ *
+ * `layersRaw` is the same declared list `validateLayers` judged (a malformed
+ * layer was refused on its own line and is not judged again here); `data` is
+ * the def's table map, which is where the COLUMN facts two sharing layers must
+ * agree on are declared.
+ */
+export function validateFrame(raw: unknown, where: string, viewId: string, layersRaw: unknown, data: unknown, problems: string[]): void {
+  if (raw === undefined) return;
+  const layers = Array.isArray(layersRaw) ? layersRaw.map(wellFormedLayer).filter((layer): layer is LayerDecl => layer !== undefined) : [];
+  // WHY first: a frame resolves what the LAYERS would otherwise decide apart, so on a plain view every other sentence would be beside the point
+  if (layers.length === 0) {
+    problems.push(`${where}.frame declares resolution for layers; view "${viewId}" has none`);
+    return;
+  }
+  if (!isObject(raw)) {
+    problems.push(`${where}.frame, if present, must be an object mapping channel -> { mode: "shared" | "independent" }`);
+    return;
+  }
+  const channels = channelsOfLayers(layers);
+  for (const [channel, decl] of Object.entries(raw)) {
+    const at = `${where}.frame.${channel}`;
+    // a resolution for a channel no layer can bind resolves nothing — and naming the channels is how a typo gets found
+    if (!channels.includes(channel)) problems.push(`${at}: unknown channel — the layers bind ${channels.join(', ')}`);
+    judgeResolution(at, decl, problems);
+  }
+  // the laws hold for every channel the frame RESOLVES — the ones it names AND the ones it defaults
+  for (const channel of channels) {
+    const resolution = resolutionOf(raw, channel);
+    if (resolution === undefined) continue; // refused on its own line above; not refused again through its laws
+    judgeChannelLaws(`${where}.frame.${channel}`, channel, resolution, layers, data, problems);
+  }
+}
+
+/** Law 7: the shape — a mode from the two words, and only the keys that mode has. */
+function judgeResolution(at: string, decl: unknown, problems: string[]): void {
+  if (!isObject(decl)) {
+    problems.push(`${at} must be an object { mode: "shared" | "independent", domain?, basis?, guide?, zero? }`);
+    return;
+  }
+  if (decl.mode !== 'shared' && decl.mode !== 'independent') {
+    problems.push(`${at}.mode must be "shared" or "independent"`);
+    return;
+  }
+  const independent = decl.mode === 'independent';
+  for (const key of Object.keys(decl)) {
+    if (!(independent ? INDEPENDENT_KEYS : SHARED_KEYS).includes(key)) problems.push(`${at}: unknown key "${key}" on ${independent ? 'an independent' : 'a shared'} channel`);
+  }
+  if (independent) {
+    if (decl.guide !== undefined && decl.guide !== 'per-layer') problems.push(`${at}.guide must be "per-layer" on an independent channel — there is no merged guide for scales that disagree`);
+    return;
+  }
+  // WHY a word and not numbers: the fold owns every domain, so an axis can never disagree with the rows under it (R1)
+  if (decl.domain !== undefined && decl.domain !== 'union') problems.push(`${at}.domain, if present, must be "union" — a frame declares a fold, never numbers`);
+  if (decl.basis !== undefined && decl.basis !== 'table' && decl.basis !== 'rows') problems.push(`${at}.basis, if present, must be "table" or "rows"`);
+  if (decl.guide !== undefined && decl.guide !== 'merged' && decl.guide !== 'per-layer') problems.push(`${at}.guide, if present, must be "merged" or "per-layer"`);
+  if (decl.zero !== undefined && typeof decl.zero !== 'boolean') problems.push(`${at}.zero, if present, must be a boolean`);
+}
+
+/** The resolution a channel is judged under: the declared one, the Wickham default where none was declared, or `undefined` for one already refused as malformed. */
+function resolutionOf(raw: Record<string, unknown>, channel: string): Record<string, unknown> | undefined {
+  const decl = raw[channel];
+  if (decl === undefined) return SHARED_BY_DEFAULT as unknown as Record<string, unknown>;
+  if (!isObject(decl) || (decl.mode !== 'shared' && decl.mode !== 'independent')) return undefined;
+  return decl;
+}
+
+/** Laws 8–10 for one channel: who may go independent, who keeps one zero, and which columns may share. */
+function judgeChannelLaws(at: string, channel: string, resolution: Record<string, unknown>, layers: readonly LayerDecl[], data: unknown, problems: string[]): void {
+  // the marks whose extent IS the quantity — read against a second axis, or off a cut baseline, a bar overstates by whatever was cut
+  if (MAGNITUDE_CHANNELS.has(channel)) {
+    for (const layer of layers.filter((l) => l.channels.includes(channel) && ZERO_ANCHORED_KINDS.includes(l.chartKind))) {
+      if (resolution.mode === 'independent') problems.push(`${at}: layer "${layer.layerId}" is a ${layer.chartKind} — a ${layer.chartKind} cannot take an independent ${channel}, its extent is read against one baseline`);
+      // …and the ZERO half only where the extent is read on a channel the layer BINDS: a histogram's bound
+      // channel is the axis its bins sit on, and its count axis is counted, never bound (`zeroAnchorsChannel`,
+      // the one owner — it is what the FOLD asks too, so a refusal here and a domain there cannot disagree)
+      else if (resolution.zero === false && zeroAnchorsChannel(layer.chartKind, channel)) problems.push(`${at}.zero is false but layer "${layer.layerId}" is a ${layer.chartKind} — its ${channel} is read from zero`);
+    }
+  }
+  if (resolution.mode === 'shared') judgeSharedColumns(at, channel, layers, data, problems);
+}
+
+/** Law 10: a shared channel means ONE scale, so every layer binding it must bind a column that agrees on {@link FRAME_FACTS}. */
+function judgeSharedColumns(at: string, channel: string, layers: readonly LayerDecl[], data: unknown, problems: string[]): void {
+  const binding = layers.filter((layer) => layer.initial?.[channel] !== undefined);
+  if (binding.length < 2) return; // one layer (or none) cannot disagree with anybody
+  const first = binding[0]!;
+  const reference = declaredFacet(data, first.table, first.initial![channel]!);
+  for (const layer of binding.slice(1)) {
+    const facet = declaredFacet(data, layer.table, layer.initial![channel]!);
+    for (const fact of FRAME_FACTS) {
+      const mine = fact.of(reference);
+      const theirs = fact.of(facet);
+      if (mine === undefined || theirs === undefined || mine === theirs) continue;
+      problems.push(`${at}: layer "${layer.layerId}" shares ${channel} with layer "${first.layerId}" but ${channel} is ${fact.say(mine)} on "${first.layerId}" and ${fact.say(theirs)} on "${layer.layerId}"`);
+    }
+  }
+}
+
+/** Every channel any layer can bind, in declaration order, first-seen wins — what a frame may name, and the list its refusal spells. */
+function channelsOfLayers(layers: readonly LayerDecl[]): readonly string[] {
+  const seen: string[] = [];
+  for (const layer of layers) for (const channel of layer.channels) if (!seen.includes(channel)) seen.push(channel);
+  return seen;
+}
+
+/**
+ * One column as the DEF ALONE knows it. Column TYPES are the provider's, so a
+ * column the def says nothing about answers `unknown` for every fact and is
+ * therefore never held to one — `dashboard.lint()` judges it with the data.
+ * The absence vocabulary is left out on purpose: an absence column on a
+ * magnitude channel is already refused by the absence law, and repeating it
+ * here would say the same thing twice in different words.
+ */
+function declaredFacet(data: unknown, table: string, field: string): ColumnFacet {
+  const src = isObject(data) && isObject(data[table]) ? (data[table] as Record<string, unknown>) : undefined;
+  const columns = src !== undefined && isObject(src.columns) && Object.values(src.columns).every(isObject) ? (src.columns as Readonly<Record<string, ColumnDecl>>) : undefined;
+  return resolveFacet({ name: field, type: 'unknown' }, columns === undefined ? {} : { columns });
 }
 
 // ── the layers as nodes of the link graph ─────────────────────────────────────

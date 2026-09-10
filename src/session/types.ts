@@ -20,7 +20,7 @@ import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
 import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause, PredicateClause, Row, SortSpec, WalkAsk } from '../data/index.js';
 import type { EncodingProblem, Fit, RuleLine, RuleScope } from '../encoding/index.js';
 import type { ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
-import type { DispatchVerb, IntentClass, SeriesGrain, SavedClause, SavedSelection, Bookmark, RelationEdge } from '../def/types.js';
+import type { ChannelResolution, DispatchVerb, IntentClass, SeriesGrain, SavedClause, SavedSelection, Bookmark, RelationEdge } from '../def/types.js';
 import type { RefreshRecord } from '../def/buildDashboard.js';
 import type { DiffChange, DiffOnly, PlanRecipe, RefEvent } from '../branches/index.js';
 
@@ -848,6 +848,14 @@ export interface ViewInfo {
    * the layer's table. Absent on a view that declares none.
    */
   readonly layers?: readonly LayerInfo[];
+  /**
+   * THE FRAME: per channel, how its scale is resolved across those layers —
+   * the DECLARATION (`ViewEncodingDecl.frame`), projected verbatim, in which no
+   * number can be typed. A host folds it into actual domains with
+   * `frameDomains` at every update, over rows it reads through one door.
+   * Absent on a view that declares none (and on every plain view).
+   */
+  readonly frame?: Readonly<Record<string, ChannelResolution>>;
 }
 
 /** One layer of a view as the overview projects it: its address parts, its table and its encoding surface. */
@@ -999,8 +1007,25 @@ export interface ViewQuery {
    * resolved in one place, and one place only.
    */
   readonly table?: string;
-  /** The consumer. Absent = every live clause filters (what `Overview.selectedRowCount` counts). */
-  readonly viewId?: string;
+  /**
+   * WHOSE EYES. A viewId = what reaches that consumer through the link graph.
+   * Absent = every live clause filters (what `Overview.selectedRowCount`
+   * counts — the whole-dashboard truth). `null` = **no clause at all**: the
+   * table as it stands at the cursor, which is the window an axis is FIXED to
+   * (`ChannelResolution.basis: 'table'` — a filter elsewhere repaints the
+   * marks and leaves the axis where it was).
+   *
+   * Three states, three meanings, exactly like a `PointClause.value` (a value,
+   * `null`, absent) — and for the same reason: "nobody's clause" and "everybody's
+   * clause" are two different questions, and neither is the other's default.
+   *
+   * The third state is THIS query's alone. A `FindQuery` takes a viewId or none
+   * (a find moves where a person stands inside a window; there is no window to
+   * fix), and neither does the sheet's `SheetWindowRequest`, which is what the
+   * HTTP door serialises — so no `null` can reach a wire as the string
+   * `"null"`. The frame door that needs it is in-process.
+   */
+  readonly viewId?: string | null;
   /** Default: the columns visible at the cursor. A declared row key is always projected — identity rides every window. */
   readonly columns?: readonly string[];
   readonly sort?: readonly SortSpec[];
@@ -1053,7 +1078,7 @@ export type ViewQueryResult =
 export interface FindQuery {
   /** Default: the dashboard's default table — or, for a LAYER address, that layer's own table. A `table` that disagrees is refused (`table-mismatch`), exactly as in `ViewQuery`. */
   readonly table?: string;
-  /** The consumer. Absent = every live clause filters — the same "whose eyes" `ViewQuery` means by it. */
+  /** The consumer. Absent = every live clause filters — the same "whose eyes" `ViewQuery` means by it, minus its `null`: a find has no window to fix, it moves where a person stands inside one. */
   readonly viewId?: string;
   /**
    * The order the positions are counted in. Pass the SAME sort the window was

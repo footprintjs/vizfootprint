@@ -346,7 +346,65 @@ Six laws.
    It cuts both ways: an `only-with` companion bound on a SIBLING layer counts as present under `scope: 'dashboard'` and refuses nothing. A `scope: 'view'` rule still means this surface alone — a sibling layer is not "here".
 6. **The resolved layers are data on the view.** `ViewDecl.layers` is the declared list, frozen at build, present only when the def declared it; the session's `tableFor(address)` reads the layer's table off it, and the overview projects `views[].layers`.
 
-The shape sentences, for completeness: `encodings[i].layers, if present, must be an array of { layerId, table, chartKind, channels }` · `encodings[i].layers[j] must be an object { layerId, table, chartKind, channels, initial?, label? }` · `encodings[i].layers[j]: unknown key "x"` · `…layerId must be a non-empty string` · `…chartKind must be a non-empty string` · `…channels must be a non-empty array of non-empty strings` · `…initial, if present, must be an object mapping channel -> field (strings)` · `…label, if present, must be a string`. A table refused on its own line is not refused again through a layer, and a layer on it is not judged at the build door. Not in this version: a frame with shared scales, per-layer opacity/visibility dials, annotation layers, an implicit crossfilter between sibling layers (only a declared link routes between them).
+### The frame — layers share their scales, and the frame owns them
+
+A stack of layers is one picture only if it is read on one set of scales ("scales are common across layers" — Wickham). `frame` on the view's encoding says how, **per channel**, and says it in words: `{ mode: 'shared' | 'independent' }`, plus `domain: 'union'`, `basis: 'table' | 'rows'`, `guide: 'merged' | 'per-layer'` and `zero` on a shared one. **No number can be typed into it.** The domains are folded from the rows by `frameDomains` (`vizfootprint/def` — the door that re-exports the encoding plane, PACKAGING.md, Law 1) at every update, so an axis can never disagree with the data under it, and a channel the frame does not name is `shared / union / table / merged` — the default that makes a stack one picture.
+
+```ts
+encodings: [{
+  viewId: 'trend', chartKind: 'bar', channels: ['x', 'y'],
+  layers: [
+    { layerId: 'bars',  table: 'weekly', chartKind: 'bar',  channels: ['x', 'y'], initial: { x: 'week', y: 'cases' } },
+    { layerId: 'trend', table: 'weekly', chartKind: 'line', channels: ['x', 'y'], initial: { x: 'week', y: 'fitted' } },
+  ],
+  frame: {
+    x: { mode: 'shared', basis: 'table' },            // SHARED, fixed: the axis does not move when a filter lands elsewhere
+    y: { mode: 'shared', zero: true, guide: 'merged' }, // SHARED, one baseline, ONE axis drawn by the frame
+    color: { mode: 'independent' },                    // INDEPENDENT: each layer legends its own categories
+  },
+}],
+```
+
+One example per mode, in one sentence each: **shared / basis `table`** — the union over the whole table's rows at the cursor, so a selection in another view repaints the marks and leaves the axis where it was (vgplot's `Fixed`); **shared / basis `rows`** — the union over just the rows this frame draws, so the axis breathes with every selection; **shared / guide `per-layer`** — one domain folded, each layer still drawing its own axis (two units, honestly labelled twice); **independent** — no domain at all, each layer on its own scale and its own guide.
+
+Four more laws.
+
+7. **A frame declares resolution for LAYERS, and its shape is judged by name.** A plain view has nothing to resolve; an independent channel has no domain, no basis and no zero policy to apply:
+   ```
+   encodings[0].frame declares resolution for layers; view "net" has none
+   encodings[0].frame.y.mode must be "shared" or "independent"
+   encodings[0].frame.y.domain, if present, must be "union" — a frame declares a fold, never numbers
+   encodings[0].frame.color: unknown key "basis" on an independent channel
+   encodings[0].frame.color.guide must be "per-layer" on an independent channel — there is no merged guide for scales that disagree
+   ```
+8. **A resolution names a channel the layers can bind.** The refusal spells the channels there are, so a typo is one read away from fixed:
+   ```
+   encodings[0].frame.z: unknown channel — the layers bind x, y, size, color
+   ```
+9. **A bar, a histogram and a boxplot may not take an independent magnitude channel, and a bar or a box may not be told to drop zero.** Their extent IS the quantity: measured against a second axis, or off a cut baseline, a bar overstates a difference by exactly what was taken away. A line or a point encodes POSITION and may honestly zoom, which is why the law is about the marks and not about the channel:
+   ```
+   encodings[0].frame.y: layer "counts" is a bar — a bar cannot take an independent y, its extent is read against one baseline
+   encodings[0].frame.y.zero is false but layer "counts" is a bar — its y is read from zero
+   ```
+   The zero half stops at the marks whose extent is read on a channel a layer BINDS (`zeroAnchorsChannel`, the one predicate the def door and the fold BOTH ask, so a refusal here and a domain there cannot disagree). A **histogram** is the exception it names: the channel a histogram layer binds is the axis its BINS sit on — a position — and its count axis is counted from the rows and never bound, so a histogram's bound channel is neither refused a `zero: false` nor anchored by default. Anchoring it would stretch an axis of ages from 30 down to 0 and leave a third of the plot empty; the count baseline stays at zero in the CHART that draws it.
+
+   The zero DEFAULT has one owner (`zeroPolicyFor`): undeclared, the marks decide — a bar-like layer anchors the whole channel at zero and pulls the line above it down to the same baseline; a line/point stack takes the data's own union. It bites on the MAGNITUDE channel only: a bar drags no zero onto its own colour ramp. A `zero` on a channel that folds as a CATEGORY or a DATE is inert (the fold applies it to a quantitative union and nothing else) and is deliberately not refused: column types are the provider's, so the def door usually cannot prove which one a channel will fold as.
+10. **A shared channel means one scale, so the columns the layers bind must agree.** Four facts, each its own sentence, each judged only where BOTH columns declare it (the door refuses on evidence, never on ignorance — which is also why a unit mismatch needs two declared units):
+    ```
+    encodings[0].frame.x: layer "b" shares x with layer "a" but x is a number on "a" and a date on "b"
+    encodings[0].frame.x: layer "b" shares x with layer "a" but x is a measure on "a" and a dimension on "b"
+    encodings[0].frame.x: layer "b" shares x with layer "a" but x is continuous on "a" and discrete on "b"
+    encodings[0].frame.x: layer "b" shares x with layer "a" but x is in "cases" on "a" and in "mg/dL" on "b"
+    ```
+    `unit` is a new optional `ColumnDecl` / `ColumnFacet` fact — echoed verbatim, never parsed and never converted. It exists for this law: two columns that mean 'cases' and 'mg/dL' cannot share an axis however alike their numbers look.
+
+    The BOUNDARY of laws 9 and 10: they are judged where a frame is DECLARED, and `frame: {}` is enough — every channel it does not name is judged under the shared default. A layered view that declares NO frame is judged exactly as it was before the frame existed, because that is what it is: a def written against 1.2, drawn by a host that folds nothing, each layer on its own extent. Declaring the frame is how a def asks to be held to these two.
+
+    A last thing the fold does that no declaration can prevent, stated at `frameDomains` rather than left to be found: where the columns disagree and the def declared no types to catch it, the SCALE KIND is the first binding layer's, and a categorical fold NAMES every cell it is given — so a number on a category channel becomes the category `"7"`, while a string on a quantitative one is skipped. The two spellings of one disagreement therefore answer differently, which is the reason law 10 exists at the door.
+
+Two things the fold is OWED rather than able to check, both named at `frameDomains`: **absence rows never enter a domain** (a table's declared absence column says a cell is a silence, not a low number, so the caller drops those rows first — the adapter's frame door does), and **which rows the basis meant** (two reads of the session's one row door: a layer's own window for `rows`, and the table under NOBODY's clause — `viewQuery({ viewId: null })` — for `table`; the fold folds what it is handed and echoes back which it was told). More than four layers on one frame is a **lint** (`frameLint`), never a refusal: a fifth mark is hard to read, not illegal. Paint order is declaration order, first layer at the bottom.
+
+The shape sentences, for completeness: `encodings[i].layers, if present, must be an array of { layerId, table, chartKind, channels }` · `encodings[i].layers[j] must be an object { layerId, table, chartKind, channels, initial?, label? }` · `encodings[i].layers[j]: unknown key "x"` · `…layerId must be a non-empty string` · `…chartKind must be a non-empty string` · `…channels must be a non-empty array of non-empty strings` · `…initial, if present, must be an object mapping channel -> field (strings)` · `…label, if present, must be a string`. A table refused on its own line is not refused again through a layer, and a layer on it is not judged at the build door. The frame's shape sentences: `encodings[i].frame, if present, must be an object mapping channel -> { mode: "shared" | "independent" }` · `encodings[i].frame.<channel> must be an object { mode: "shared" | "independent", domain?, basis?, guide?, zero? }` · `…basis, if present, must be "table" or "rows"` · `…guide, if present, must be "merged" or "per-layer"` · `…zero, if present, must be a boolean` · `encodings[i].frame.<channel>: unknown key "x" on a shared channel`. Not in this version: per-layer opacity/visibility dials, annotation layers, re-encoding one layer of a frame, a map frame with an inset, an implicit crossfilter between sibling layers (only a declared link routes between them) — each its own packet.
 
 ## The card a demo cannot get wrong
 

@@ -24,6 +24,9 @@ const read = (file: string): string => readFileSync(path.join(here, file), 'utf8
 /** A first-party renderer that declares the layer capability — the fact the prose has to agree with. */
 const holdsLayeredRenderer = (): boolean => /canLayer:\s*true/.test(read('renderers.tsx'));
 
+/** The contract really carries the layers' shared scales: `RenderState.frame`, folded by the host (protocol 1.5). */
+const holdsFrame = (): boolean => /readonly frame\?:/.test(read('types.ts'));
+
 /** The claim itself: from "Not in this version" to the end of that sentence. */
 const notInThisVersion = (): string => {
   const from = read('README.md').indexOf('Not in this version');
@@ -37,12 +40,20 @@ describe('the layers law says only what is true', () => {
     expect(holdsLayeredRenderer()).toBe(true);
   });
 
-  it('so the outstanding list no longer counts a first-party layered chart among what is missing', () => {
+  it('the contract really carries the frame — the layers\' shared scales, folded by the host (1.5)', () => {
+    expect(holdsFrame()).toBe(true);
+  });
+
+  it('so the outstanding list no longer counts a first-party layered chart, or shared scales, among what is missing', () => {
     const claim = notInThisVersion();
     expect(claim).not.toContain('layered chart');
     expect(claim).not.toContain('network view');
+    // `RenderState.frame` shipped, so the list may no longer count shared scales as unbuilt — what is
+    // still missing is the RENDERER that draws several 2D layers on one folded frame
+    expect(claim).not.toContain('shared scales');
     // and it still names what IS missing — a list emptied to pass a test is drift of its own
-    expect(claim).toContain('shared scales');
+    expect(claim).toContain('annotation layers');
+    expect(claim).toContain('one folded frame');
   });
 
   it('no sentence still says no first-party chart declares the capability', () => {

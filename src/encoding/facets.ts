@@ -43,5 +43,6 @@ export function resolveFacet(col: ColumnInfo, source: FacetSource = {}): ColumnF
     ...(scale !== undefined ? { scale } : {}),
     ...(isAbsence ? { absence: source.absence!.states } : {}),
     ...(decl?.label !== undefined ? { label: decl.label } : {}),
+    ...(decl?.unit !== undefined ? { unit: decl.unit } : {}),
   };
 }

@@ -13,6 +13,8 @@
  */
 
 import type { Actor } from 'vizfootprint/cause';
+// the frame's DECLARATION shape — the library's own, never a twin (the frame door folds it)
+import type { ChannelResolution } from 'vizfootprint/def';
 
 export type { Actor };
 
@@ -90,6 +92,14 @@ export interface ViewView {
   readonly label?: string;
   /** The view's layers when it declares any (a node-link: edges under nodes, each its own table). Absent on a plain view and on an older wire. */
   readonly layers?: readonly LayerView[];
+  /**
+   * THE FRAME (protocol 1.5): per channel, how its scale is resolved across
+   * those layers — the DECLARATION, in words, exactly as the def wrote it. A
+   * host folds it into `RenderState.frame` with the adapter's `frameFor` door,
+   * which reads the rows and applies the absence law. Absent on a view that
+   * declares none and on an older wire.
+   */
+  readonly frame?: Readonly<Record<string, ChannelResolution>>;
   /** Which point/interval/cell/match SELECTION kinds this view can emit (R3 capability). */
   readonly selectionKinds: readonly ('point' | 'interval' | 'cell' | 'match' | 'neighbourhood')[];
   readonly canProbe: boolean;

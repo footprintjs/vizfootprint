@@ -43,6 +43,11 @@
  */
 
 import type { ChartEmission } from 'vizfootprint/selection';
+// The frame's resolved channels come from the LIBRARY, not a twin declared here:
+// the host folds them with `frameDomains` and pushes exactly what it folded, so
+// there is one shape and it cannot drift (the `ChartEmission` precedent above).
+// Through `/def` — the door that re-exports the encoding plane (PACKAGING.md, Law 1).
+import type { ResolvedChannel } from 'vizfootprint/def';
 
 /**
  * The protocol version this build of vizfootprint-ui speaks. 1.1 ADDED the
@@ -61,10 +66,16 @@ import type { ChartEmission } from 'vizfootprint/selection';
  * (`{ derivation, hops?, to? }`: two hops of ego, a path between two nodes, or
  * a whole component). It is optional and absent means the one-hop ego walk
  * every 1.3 renderer emits, so a 1.3 renderer binds and emits byte-identically.
+ * 1.5 ADDED `RenderState.frame` — the layers' SHARED SCALES, already folded:
+ * per channel the resolution the def declared and, for a shared one, the actual
+ * domain over the layers' values. It is one optional field a renderer may read
+ * or decline (a 1.4 renderer ignores it and draws each layer on its own scale,
+ * exactly as it did before the field existed), so the minor stays compatible.
  */
-export const RENDERER_PROTOCOL_VERSION = '1.4';
+export const RENDERER_PROTOCOL_VERSION = '1.5';
 
 export type { ChartEmission };
+export type { ResolvedChannel };
 
 /**
  * The emission kinds the R3 rail carries. `'cell'` (D30, protocol 1.1) is the
@@ -349,6 +360,28 @@ export interface RenderState {
    * `layers-unsupported` gap. Absent = a plain view, byte-identical to 1.1.
    */
   readonly layers?: readonly RenderLayer[];
+  /**
+   * Protocol 1.5: THE FRAME — the stack's shared scales, per channel, already
+   * folded. `{ mode, guide, basis, scale, domain }` for a shared channel;
+   * `{ mode: 'independent', guide: 'per-layer' }` for one the def left to the
+   * layers; NO entry for a channel nothing could be folded from (no domain is
+   * more honest than an invented `[0, 1]`).
+   *
+   * THE NUMBERS ARE HERE BECAUSE THE HOST FOLDED THEM. The def declares only
+   * words (`ViewEncodingDecl.frame`, a `ChannelResolution` per channel — no
+   * number can be typed into it); the host folds them with `frameDomains`
+   * (`vizfootprint/def`) at EVERY update, over rows read through one door,
+   * with absence rows already dropped. So an axis drawn from this can never
+   * disagree with the marks beside it.
+   *
+   * A renderer may decline it: ignoring the field draws each layer on its own
+   * extent, which is the `independent` picture and an honest one — nothing is
+   * hidden, so there is no `canLayer`-style guard for it. Honouring it is what
+   * makes a stack ONE picture, and is the frame renderer's promise.
+   *
+   * Absent = no frame was folded (a plain view, or a host that predates 1.5).
+   */
+  readonly frame?: Readonly<Record<string, ResolvedChannel>>;
 }
 
 /** The mounted half a renderer returns: its hello plus the two lifecycle verbs. */

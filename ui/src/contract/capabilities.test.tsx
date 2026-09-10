@@ -135,8 +135,8 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
     { layerId: 'nodes', table: 'nodes', rows: [{ id: 'flu', group: 'viral' }, { id: 'cold', group: 'viral' }], encodings: { color: 'group' } },
   ] as const;
 
-  it('the protocol this build speaks is 1.4 — the which-walk minor', () => {
-    expect(RENDERER_PROTOCOL_VERSION).toBe('1.4');
+  it('the protocol this build speaks is 1.5 — the frame minor', () => {
+    expect(RENDERER_PROTOCOL_VERSION).toBe('1.5');
   });
 
   it('declares TRUE — and a layered frame pushed through the bind draws BOTH layers, each under its own table', () => {
@@ -156,6 +156,32 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
     // a layer mark with no bundle bound speaks to nobody — never through the view's own callbacks
     fireEvent.click(el.querySelector('button[data-layer="nodes"]')!);
     expect(cbs.emit).not.toHaveBeenCalled();
+    res.view.unmount();
+  });
+
+  // ── the frame (protocol 1.5) — one optional field a renderer may read or decline ──
+
+  it('a 1.4 renderer IGNORES the frame: the same frame with and without it draws byte-identically, and update still answers ok', () => {
+    // `layeredRenderer` (the pure-DOM fixture) reads `layers` and knows nothing of `frame` — which is
+    // exactly the 1.4 renderer this law is about: a minor only ADDS, so the field costs it nothing.
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const res = bindRenderer(layeredRenderer(), el, { viewId: 'net', callbacks: callbacks() });
+    if (!res.ok) throw new Error('bind failed');
+    const frame = { ...state([{ id: 'flu' }]), layers: LAYERS };
+    expect(res.view.update(frame)).toEqual({ ok: true });
+    const without = el.innerHTML;
+    // the SAME frame, now carrying the folded scales the def asked for
+    expect(
+      res.view.update({
+        ...frame,
+        frame: {
+          size: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [0, 5] },
+          group: { mode: 'independent', guide: 'per-layer' },
+        },
+      }),
+    ).toEqual({ ok: true });
+    expect(el.innerHTML).toBe(without);
     res.view.unmount();
   });
 

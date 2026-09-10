@@ -46,7 +46,7 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { linearScale, extent, ticks, epochOf, dayOf } from '../primitives/scales.js';
+import { linearScale, extent, ticks, epochOf, dayOf, domainOr, type ChartDomain } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { togglePointEmission, keyActivates } from '../primitives/pointSelect.js';
 import { selectedValue } from '../primitives/useSelection.js';
@@ -105,6 +105,21 @@ export interface VizBoxPlotProps {
   readonly width?: number;
   readonly height?: number;
   readonly className?: string;
+  /**
+   * THE FRAME'S SCALES (protocol 1.5): `y` in the value column's own units, so
+   * a box and a line stacked on one frame put equal values at equal pixels.
+   * This chart has no quantitative x (its x is a band per category), so a
+   * `domain.x` has nothing here to scale and is not read. Absent = this chart's
+   * own extent plus its 8% outer pad, and every box is byte-identical to the
+   * chart before the prop existed.
+   *
+   * A frame's domain is taken AS the axis: the outer pad is this chart's own
+   * breathing room around its own extent, and a shared axis has already been
+   * folded to what the whole stack needs.
+   */
+  readonly domain?: ChartDomain;
+  /** Draw this chart's own axes (lines, y ticks, category labels and the interactive axis labels). Default `true`; `false` while the FRAME draws one merged guide. */
+  readonly axes?: boolean;
 }
 
 const PAD = { l: 48, r: 16, t: 16, b: 48 };
@@ -222,9 +237,12 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
   // the drawn marks off the plot's own edge (the VizScatter padding idea,
   // sized relative to THIS chart's own value range rather than a fixed constant)
   const allYs = geoms.flatMap((g) => [g.loP, g.hiP, ...g.outlierGeoms.map((o) => o.p)]);
-  const [rawLo, rawHi] = extent(allYs, (v) => v, 0);
-  const outerPad = (rawHi - rawLo) * 0.08;
+  // the frame's domain when a frame gave one, this chart's own extent otherwise (../primitives/scales.ts)
+  const [rawLo, rawHi] = domainOr(props.domain?.y, extent(allYs, (v) => v, 0));
+  // the outer pad is breathing room around THIS chart's own extent; a frame's axis is taken as it comes
+  const outerPad = props.domain?.y === undefined ? (rawHi - rawLo) * 0.08 : 0;
   const y = linearScale(rawLo - outerPad, rawHi + outerPad, height - PAD.b, PAD.t);
+  const axes = props.axes ?? true;
 
   const band = Math.max(0, (width - PAD.l - PAD.r) / Math.max(1, geoms.length)); // a pushed-narrow cell never draws a negative width
   const boxW = Math.max(0, Math.max(6, Math.min(band * 0.5, 64))); // a pushed-narrow cell never draws a negative width
@@ -257,11 +275,11 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
         role="group"
         aria-label={props.ariaLabel ?? `box plot of ${yLabel} by ${xLabel}`}
       >
-        {/* axes frame */}
-        <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />
-        <line className="vzf-axis" x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={height - PAD.b} />
+        {/* axes frame — absent while the FRAME draws one merged guide for the stack */}
+        {axes && <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />}
+        {axes && <line className="vzf-axis" x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={height - PAD.b} />}
         {/* y ticks */}
-        {yTickVals.map((v, i) => (
+        {axes && yTickVals.map((v, i) => (
           <g key={`yt${i}`}>
             <line className="vzf-axis" x1={PAD.l - 4} y1={y(v)} x2={PAD.l} y2={y(v)} />
             <text className="vzf-tick" x={PAD.l - 8} y={y(v) + 3} textAnchor="end">
@@ -330,15 +348,17 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
                 <title>{`${g.category} · ${g.count} ${countLabel} · box ${range} · median ${edgeLabel(g.median)} · click to ${sel ? 'clear' : 'select'}`}</title>
               </rect>
               {/* category tick label — width-aware truncation (fitCategoryLabel); the full name lives on the hit column's own aria-label/title above */}
-              <text className="vzf-tick vzf-box-catlabel" x={cx(i)} y={height - PAD.b + 16} textAnchor="middle">
-                {fitCategoryLabel(g.category, band)}
-              </text>
+              {axes && (
+                <text className="vzf-tick vzf-box-catlabel" x={cx(i)} y={height - PAD.b + 16} textAnchor="middle">
+                  {fitCategoryLabel(g.category, band)}
+                </text>
+              )}
             </g>
           );
         })}
-        {/* the two interactive axis labels */}
-        <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />
-        <AxisLabel x={14} y={(PAD.t + height - PAD.b) / 2} text={yLabel} channel="y" anchor="middle" rotate={-90} onOpen={openPicker} />
+        {/* the two interactive axis labels — the re-encode affordance rides the guide, so the frame owns both or neither */}
+        {axes && <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />}
+        {axes && <AxisLabel x={14} y={(PAD.t + height - PAD.b) / 2} text={yLabel} channel="y" anchor="middle" rotate={-90} onOpen={openPicker} />}
         <desc>{`view ${viewId}: click a box to select ${xLabel}; click it again to clear`}</desc>
       </svg>
       <EncodingPicker

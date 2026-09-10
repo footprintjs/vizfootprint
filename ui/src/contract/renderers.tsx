@@ -58,7 +58,9 @@ import {
   type RenderRow,
   type RenderState,
 } from './types.js';
+import { frameDomains, type ResolvedChannel } from 'vizfootprint/def';
 import { boundField } from '../charts/binding.js';
+import type { ChartDomain } from '../primitives/scales.js';
 import { VizScatter } from '../charts/VizScatter.js';
 import { VizLine } from '../charts/VizLine.js';
 import { VizBar } from '../charts/VizBar.js';
@@ -701,6 +703,57 @@ function edgesOf(layer: RenderLayer, endpoints: EndpointFields): NetworkEdge[] {
   return edges;
 }
 
+/**
+ * THE SUBSTRATE A NODE-LINK IS DRAWN ON — the union of every node position and
+ * every edge endpoint, folded by the LIBRARY.
+ *
+ * WHY `frameDomains` and not an extent here: a union over layers is the frame's
+ * fold, and it has one owner (`vizfootprint/def`). This renderer used to hold a
+ * second copy of it, which is how an axis and its marks come to disagree.
+ *
+ * The HOST's fold wins when it pushed one (protocol 1.5) — it read the whole
+ * table, not just the rows on screen, so a filter elsewhere leaves the layout
+ * where it was. It is taken only when it carries BOTH axes as shared
+ * quantitative domains: half a fold from the host and half from here would put
+ * one px-per-unit substrate on two different reads. And per axis it is the
+ * UNION of every channel that axis is bound on — a node's own `x` and both of
+ * the edge layer's endpoint channels — because a host folds per CHANNEL and
+ * `x` alone is only where the nodes are.
+ */
+function substrateOf(nodes: readonly NetworkNode[], edges: readonly NetworkEdge[], layers: readonly RenderLayer[], pushed: Readonly<Record<string, ResolvedChannel>> | undefined): ChartDomain | undefined {
+  const fromHost = { x: hostSpan(pushed, SUBSTRATE_CHANNELS.x), y: hostSpan(pushed, SUBSTRATE_CHANNELS.y) };
+  if (fromHost.x !== undefined && fromHost.y !== undefined) return { x: fromHost.x, y: fromHost.y };
+  const folded = frameDomains([
+    { layerId: layers[0]?.layerId ?? 'nodes', chartKind: 'point', channels: { x: { type: 'number', values: nodes.map((n) => n.x) }, y: { type: 'number', values: nodes.map((n) => n.y) } } },
+    // both ends of every edge: a link running off the plot is a lie about where its far end is
+    { layerId: layers[1]?.layerId ?? 'edges', chartKind: 'line', channels: { x: { type: 'number', values: edges.flatMap((e) => [e.sx, e.tx]) }, y: { type: 'number', values: edges.flatMap((e) => [e.sy, e.ty]) } } },
+  ]);
+  const x = quantitativeDomain(folded['x']);
+  const y = quantitativeDomain(folded['y']);
+  return x === undefined || y === undefined ? undefined : { x, y };
+}
+
+/** One resolved channel's numbers, when it is a shared quantitative one — otherwise nothing, never a coerced pair. */
+function quantitativeDomain(channel: ResolvedChannel | undefined): readonly [number, number] | undefined {
+  return channel !== undefined && channel.mode === 'shared' && channel.scale === 'quantitative' ? channel.domain : undefined;
+}
+
+/**
+ * Which channels each AXIS of the substrate is bound on: the nodes' own
+ * position and, off {@link ENDPOINT_CHANNELS} so the names have one owner, both
+ * ends of every edge.
+ */
+const SUBSTRATE_CHANNELS: Readonly<Record<'x' | 'y', readonly string[]>> = {
+  x: ['x', ...ENDPOINT_CHANNELS.filter((channel) => channel.endsWith('X'))],
+  y: ['y', ...ENDPOINT_CHANNELS.filter((channel) => channel.endsWith('Y'))],
+};
+
+/** One axis of the host's fold: the union of the shared quantitative domains it pushed for that axis's channels, or nothing where it pushed none. */
+function hostSpan(pushed: Readonly<Record<string, ResolvedChannel>> | undefined, channels: readonly string[]): readonly [number, number] | undefined {
+  const domains = channels.map((channel) => quantitativeDomain(pushed?.[channel])).filter((domain): domain is readonly [number, number] => domain !== undefined);
+  return domains.length === 0 ? undefined : [Math.min(...domains.map(([lo]) => lo)), Math.max(...domains.map(([, hi]) => hi))];
+}
+
 /** The refusal a frame past a ceiling gets — the count, the ceiling, and the reading that survives at this size. */
 function ceilingRefusal(count: number, marks: string, ceiling: number): JSX.Element {
   return (
@@ -865,16 +918,20 @@ export function networkRenderer(options: NetworkRendererOptions = {}): Renderer 
       // address.
       const edgeVoice = edge === null ? undefined : handshake.layers?.[edge.layer.layerId];
       const walk = edge === null || edgeVoice === undefined ? undefined : { field: endpointKeysOf(edge.layer)[0], emit: edgeVoice.emit };
+      const marks = { nodes: nodesOf(rows, encodings, keyField), edges: edge === null ? [] : edgesOf(edge.layer, edge.endpoints) };
+      // the substrate both groups are placed by — the library's fold, or the host's when it pushed one
+      const domain = substrateOf(marks.nodes, marks.edges, layers, state.frame);
       return (
         <NetworkFrame
           viewId={handshake.viewId}
-          nodes={nodesOf(rows, encodings, keyField)}
-          edges={edge === null ? [] : edgesOf(edge.layer, edge.endpoints)}
+          nodes={marks.nodes}
+          edges={marks.edges}
           keyField={keyField}
           selection={state.selection}
           width={state.size.width}
           height={state.size.height}
           onEmit={voice.emit}
+          {...(domain === undefined ? {} : { domain })}
           {...(walk === undefined ? {} : { walk })}
         />
       );

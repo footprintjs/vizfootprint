@@ -69,6 +69,36 @@ describe('ViewView.layers — projected, never derived', () => {
     expect(state.views.find((v) => v.viewId === 'odd')!.layers).toEqual([]);
     expect('layers' in state.views.find((v) => v.viewId === 'plain')!).toBe(false);
   });
+
+  it("the poll mapper keeps a resolution that names one of the two MODES and drops the rest — a dropped one lands on the library's own default", () => {
+    const raw = {
+      records: [],
+      views: [
+        {
+          viewId: 'net',
+          actor: 'user',
+          frame: {
+            x: { mode: 'shared', basis: 'table' },
+            color: { mode: 'independent', guide: 'per-layer' },
+            y: { mode: 'fixed' }, // not one of the two words — dropped, so `y` takes the shared default
+            size: 'shared',
+            r: null,
+          },
+        },
+        { viewId: 'odd', actor: 'user', frame: 'shared' },
+        { viewId: 'listy', actor: 'user', frame: [] },
+        { viewId: 'nulled', actor: 'user', frame: null },
+        { viewId: 'plain', actor: 'user' },
+      ],
+      cursor: null,
+      head: null,
+    } as unknown as RawPollState;
+    const state = mapPollState(raw);
+    expect(state.views.find((v) => v.viewId === 'net')!.frame).toEqual({ x: { mode: 'shared', basis: 'table' }, color: { mode: 'independent', guide: 'per-layer' } });
+    for (const viewId of ['odd', 'listy', 'nulled']) expect(state.views.find((v) => v.viewId === viewId)!.frame).toEqual({});
+    // and a view the wire says nothing about carries no key at all
+    expect('frame' in state.views.find((v) => v.viewId === 'plain')!).toBe(false);
+  });
 });
 
 describe('layerRowsFor — the one door for a layer\'s rows', () => {

@@ -46,7 +46,7 @@ import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedInterval } from '../contract/selection.js';
-import { linearScale, epochOf, dayOf } from '../primitives/scales.js';
+import { linearScale, epochOf, dayOf, domainOr, type ChartDomain } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { keyActivates } from '../primitives/pointSelect.js';
@@ -94,6 +94,18 @@ export interface VizHistogramProps {
   readonly width?: number;
   readonly height?: number;
   readonly className?: string;
+  /**
+   * THE FRAME'S SCALES (protocol 1.5): `x` in the binned column's own units (the
+   * value axis the buckets sit on) and `y` as the COUNT axis's ceiling, so a
+   * histogram and a line stacked on one frame measure the same way. The count
+   * BASELINE stays zero whatever is passed — a bin's height is read from zero,
+   * the law the def validator enforces on a shared quantitative channel.
+   * Absent = the buckets' own span and this chart's own maximum, and every bin
+   * is byte-identical to the chart before the prop existed.
+   */
+  readonly domain?: ChartDomain;
+  /** Draw this chart's own axis line, bucket-edge ticks and axis label. Default `true`; `false` while the FRAME draws one merged guide for the stack. */
+  readonly axes?: boolean;
 }
 
 const PAD = { l: 30, r: 30, t: 20, b: 48 };
@@ -146,11 +158,15 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
   const label = props.label ?? field;
 
   const geoms = useMemo(() => toGeoms(data), [data]);
-  const d0 = geoms.length > 0 ? geoms[0]!.p0 : 0;
-  const d1 = geoms.length > 0 ? geoms[geoms.length - 1]!.p1 : 1;
+  // the frame's domain when a frame gave one, the buckets' own span otherwise (../primitives/scales.ts)
+  const [d0, d1] = domainOr(props.domain?.x, [geoms.length > 0 ? geoms[0]!.p0 : 0, geoms.length > 0 ? geoms[geoms.length - 1]!.p1 : 1]);
   const x = linearScale(d0, d1, PAD.l, width - PAD.r);
+  const axes = props.axes ?? true;
 
-  const max = Math.max(1, ...geoms.map((g) => g.count));
+  // the frame's ceiling when a frame gave one (never below 1, so a bin always has height), this chart's own
+  // maximum otherwise. Through `domainOr` like the x axis above, because it holds the guard: a ceiling that is
+  // not a finite number is not a ceiling, and scaling by it would draw every bin at nothing.
+  const max = Math.max(1, domainOr(props.domain?.y, [0, Math.max(...geoms.map((g) => g.count))])[1]);
   const plot = height - PAD.t - PAD.b;
   const plotBottom = height - PAD.b;
 
@@ -236,7 +252,7 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
         {...handlers}
       >
         {/* baseline */}
-        <line className="vzf-axis" x1={PAD.l} y1={plotBottom} x2={width - PAD.r} y2={plotBottom} />
+        {axes && <line className="vzf-axis" x1={PAD.l} y1={plotBottom} x2={width - PAD.r} y2={plotBottom} />}
         {/* buckets: a full-height HIT area (keyboard + tooltip) + the count bar */}
         {geoms.map((g) => {
           const px0 = x(g.p0);
@@ -282,8 +298,8 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
             </g>
           );
         })}
-        {/* bucket-edge ticks — the brush snaps to exactly these values */}
-        {edges.map((e, i) => (
+        {/* bucket-edge ticks — the brush snaps to exactly these values (absent while the FRAME draws the guide) */}
+        {axes && edges.map((e, i) => (
           <g key={`e${i}`}>
             <line className="vzf-axis" x1={x(e.pos)} y1={plotBottom} x2={x(e.pos)} y2={plotBottom + 4} />
             <text className="vzf-tick" x={x(e.pos)} y={plotBottom + 16} textAnchor="middle">
@@ -294,7 +310,7 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
         {/* brush */}
         <BrushOverlay brush={brush} y={PAD.t} height={plot} />
         {/* the interactive x axis label — the re-encode affordance */}
-        <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={label} channel="x" onOpen={openPicker} />
+        {axes && <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={label} channel="x" onOpen={openPicker} />}
       </svg>
       <EncodingPicker
         open={pickerChannel !== null}

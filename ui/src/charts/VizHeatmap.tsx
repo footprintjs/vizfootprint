@@ -41,7 +41,7 @@ import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedCell } from '../contract/selection.js';
-import { linearScale, epochOf, dayOf, rampStep, SEQ_RAMP_STEPS } from '../primitives/scales.js';
+import { linearScale, epochOf, dayOf, rampStep, SEQ_RAMP_STEPS, domainOr, type ChartDomain } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { keyActivates } from '../primitives/pointSelect.js';
 import { useReencodePicker } from '../primitives/reencode.js';
@@ -91,6 +91,18 @@ export interface VizHeatmapProps {
   readonly width?: number;
   readonly height?: number;
   readonly className?: string;
+  /**
+   * THE FRAME'S SCALES (protocol 1.5): `x` in EPOCH MILLISECONDS (the bucket
+   * axis this chart positions dates on), so a heatmap and a line over the same
+   * weeks agree about where a week is. Its ROWS are categories and its colour
+   * is the magnitude, so `domain.y` has no quantitative axis here and is not
+   * read — a heatmap really owns most of its own frame, which is why the frame
+   * renderer refuses one as a layer. Absent = the buckets' own span, and every
+   * cell is byte-identical to the chart before the prop existed.
+   */
+  readonly domain?: ChartDomain;
+  /** Draw this chart's own baseline, edge ticks, row headers and axis labels. Default `true`; `false` while the FRAME draws one merged guide. */
+  readonly axes?: boolean;
 }
 
 const PAD = { r: 16, t: 16, b: 64 };
@@ -192,8 +204,9 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
     }
   }
 
-  const d0 = cols.length > 0 ? cols[0]!.p0 : 0;
-  const d1 = cols.length > 0 ? cols[cols.length - 1]!.p1 : 1;
+  // the frame's domain when a frame gave one, the buckets' own span otherwise (../primitives/scales.ts)
+  const [d0, d1] = domainOr(props.domain?.x, [cols.length > 0 ? cols[0]!.p0 : 0, cols.length > 0 ? cols[cols.length - 1]!.p1 : 1]);
+  const axes = props.axes ?? true;
   const { padL, maxChars } = labelGutter(width);
   const x = linearScale(d0, d1, padL, width - PAD.r);
   const plotBottom = height - PAD.b;
@@ -286,15 +299,15 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
             );
           }),
         )}
-        {/* y category labels (row headers) */}
-        {rows.map((yLabel) => (
+        {/* y category labels (row headers) — absent while the FRAME draws one merged guide for the stack */}
+        {axes && rows.map((yLabel) => (
           <text key={yLabel} className="vzf-tick vzf-heat-row" x={padL - 6} y={rowY(yLabel) + rowH / 2 + 3} textAnchor="end">
             {fitLabel(yLabel, maxChars)}
           </text>
         ))}
         {/* x baseline + edge ticks — the emitted intervals name exactly these edges */}
-        <line className="vzf-axis" x1={padL} y1={plotBottom} x2={width - PAD.r} y2={plotBottom} />
-        {edges.map((e, i) => (
+        {axes && <line className="vzf-axis" x1={padL} y1={plotBottom} x2={width - PAD.r} y2={plotBottom} />}
+        {axes && edges.map((e, i) => (
           <g key={`e${i}`}>
             <line className="vzf-axis" x1={x(e.pos)} y1={plotBottom} x2={x(e.pos)} y2={plotBottom + 4} />
             <text className="vzf-tick" x={x(e.pos)} y={plotBottom + 16} textAnchor="middle">
@@ -318,8 +331,8 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
           )}
         </g>
         {/* the two interactive axis labels — both re-encode affordances */}
-        <AxisLabel x={(padL + width - PAD.r) / 2} y={height - 8} text={xField} channel="x" onOpen={openPicker} />
-        <AxisLabel x={14} y={(PAD.t + plotBottom) / 2} text={yField} channel="y" rotate={-90} onOpen={openPicker} />
+        {axes && <AxisLabel x={(padL + width - PAD.r) / 2} y={height - 8} text={xField} channel="x" onOpen={openPicker} />}
+        {axes && <AxisLabel x={14} y={(PAD.t + plotBottom) / 2} text={yField} channel="y" rotate={-90} onOpen={openPicker} />}
         <desc>{`view ${viewId}: click a cell to select ${xField} and ${yField} together; click it again to clear`}</desc>
       </svg>
       <EncodingPicker

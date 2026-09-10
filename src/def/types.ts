@@ -276,7 +276,81 @@ export interface ViewEncodingDecl {
    * A view with no layers is exactly what it was before layers existed.
    */
   readonly layers?: readonly LayerDecl[];
+  /**
+   * THE FRAME: per CHANNEL, how its scale is resolved across the layers
+   * (`./README.md`, "The frame"). Keyed by channel name — `{ y: { mode:
+   * 'shared' }, color: { mode: 'independent' } }`.
+   *
+   * A channel the frame does not name is `shared / union / table / merged` —
+   * Wickham's default, because "scales are common across layers" is what makes
+   * a stack of layers ONE picture. A view that declares no `layers` may not
+   * declare a `frame`: there is nothing for a resolution to resolve, and the
+   * validator says so by name.
+   */
+  readonly frame?: Readonly<Record<string, ChannelResolution>>;
 }
+
+/**
+ * HOW ONE CHANNEL'S SCALE IS RESOLVED ACROSS A VIEW'S LAYERS — the frame's
+ * half of "layers on one frame".
+ *
+ * A view is an ordered stack of LAYERS over ONE FRAME, and the frame owns the
+ * scales, the axes and the legends. Per channel it declares a RESOLUTION and
+ * nothing else:
+ *
+ * - `mode: 'shared'` — one domain folded across every layer that binds the
+ *   channel, so equal values sit at equal pixels in every layer.
+ * - `mode: 'independent'` — each layer keeps its own scale, and each draws its
+ *   own guide. Never available on the quantitative channel of a `bar`,
+ *   `histogram` or `boxplot`: a bar measured against a second axis is a lie
+ *   about its own height.
+ *
+ * **No hand-typed domain exists in this type.** `domain: 'union'` is a WORD;
+ * the numbers are folded from the rows by `frameDomains`
+ * (`vizfootprint/def` — the door that re-exports the encoding plane,
+ * PACKAGING.md, Law 1) at every update, so an axis can never disagree
+ * with the data under it.
+ *
+ * ```ts
+ * frame: {
+ *   x: { mode: 'shared', basis: 'table' },   // the axis does not move when a filter elsewhere lands
+ *   y: { mode: 'shared', zero: true },       // one zero policy for the whole stack
+ *   color: { mode: 'independent' },          // each layer legends its own categories
+ * }
+ * ```
+ */
+export type ChannelResolution =
+  | {
+      readonly mode: 'shared';
+      /** The only fold there is — a word, never numbers. Default `'union'`. */
+      readonly domain?: 'union';
+      /**
+       * WHICH ROWS the domain is folded over. `'table'` (the default) = the
+       * table's rows at the cursor, so a filter elsewhere does not move the
+       * axis (vgplot's `Fixed`); `'rows'` = only the rows this frame draws, so
+       * the axis breathes with every selection.
+       */
+      readonly basis?: 'table' | 'rows';
+      /**
+       * `'merged'` (the default) = ONE axis/legend for the stack, drawn by the
+       * frame; `'per-layer'` = the frame folds one domain but each layer still
+       * draws its own guide.
+       */
+      readonly guide?: 'merged' | 'per-layer';
+      /**
+       * Extend the folded domain to include 0. One policy for the whole
+       * channel — a stack cannot have two. Absent means the kinds decide:
+       * a `bar` / `histogram` / `boxplot` layer anchors its magnitude channel
+       * at zero, anything else takes the data's own union (`zeroPolicyFor`,
+       * `vizfootprint/def` — the one owner of that default).
+       */
+      readonly zero?: boolean;
+    }
+  | {
+      readonly mode: 'independent';
+      /** Only `'per-layer'` is meaningful: there is no merged guide for scales that disagree. */
+      readonly guide?: 'per-layer';
+    };
 
 /**
  * One layer of a view — the same encoding surface a view declares, plus the

@@ -230,8 +230,59 @@ through the first layer's bundle, fails the arm in plain words. It runs on a
 real two-table session (`adapter/network.fixture.ts`) against a pure-DOM
 `canLayer` renderer (`layered.fixture.ts`).
 
-Not in this version: shared scales across layers, per-layer opacity/visible
-dials, and annotation layers. Sibling layers get **no implicit crossfilter**: a
+### The frame — the layers' shared scales, already folded (protocol 1.5)
+
+A stack of layers is one picture only if it is read on one set of scales. The
+def declares that in WORDS — `ViewEncodingDecl.frame`, a `ChannelResolution`
+per channel, into which no number can be typed — and the HOST folds it:
+`frameDomains` (`vizfootprint/def`) turns the resolution plus the layers' own
+values into `RenderState.frame`, at every update.
+
+```ts
+// what the host pushes — the numbers are here because the host folded them
+frame: {
+  x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'temporal', domain: ['2026-01-04', '2026-03-01'] },
+  y: { mode: 'shared', basis: 'rows',  guide: 'merged', scale: 'quantitative', domain: [0, 90] },
+  color: { mode: 'independent', guide: 'per-layer' },
+}
+// a channel nothing could be folded from carries NO entry — no domain is more honest than [0, 1]
+```
+
+Three things a renderer can rely on. **The domain agrees with the marks**: it
+was folded from the same rows, at the same update, through the same door
+(`adapter/layerRows.ts`), with absence rows already dropped — an axis drawn
+from it cannot contradict what is drawn beside it. **`basis` says which read
+it was**: `'table'` means the table's rows at the cursor (a filter elsewhere
+repaints the marks and leaves the axis where it was), `'rows'` means only the
+rows this frame draws. **`guide` says who draws it**: `'merged'` = the frame
+draws ONE axis or legend for the stack, `'per-layer'` = each layer still draws
+its own.
+
+**Why this needs no capability flag** (Law 2's test): a renderer that ignores
+`frame` draws each layer on its own extent, which is the `independent` picture
+and a complete one — nothing is hidden, so there is nothing to refuse out
+loud. That is why 1.5 is a MINOR and why a 1.4 renderer binds and draws
+byte-identically (`capabilities.test.tsx` pins it: the same frame with and
+without the field renders the same DOM). Honouring the frame is a PROMISE some
+renderers make — `networkRenderer` folds its one px-per-unit substrate through
+`frameDomains` today, and the generic frame renderer draws the merged guide —
+and each 2D chart takes the domain as a prop (`domain={{ x, y }}`,
+`axes={false}` while the frame draws the guide), so a host can put a layer on
+a shared scale without the chart knowing a frame exists.
+
+Two things to know when you push it into a chart. A `ChartDomain` is NUMBERS,
+so a `temporal` domain — ISO strings, as the fold answers them — is converted
+by the caller with `epochOf` (`primitives/scales.ts`), the same function the
+charts use on their own rows; and a `categorical` domain has no chart prop in
+this version, so a band chart still orders its bands by its own rows. A value
+outside the domain is DRAWN, at its true position: a domain says what the axis
+means, and a row past it is a data fact, not an overflow — seeing a layer run
+off the frame is the point of sharing one.
+
+Not in this version: per-layer opacity/visible dials, annotation layers,
+re-encoding one layer of a frame, and a first-party renderer that draws several
+2D layers on one folded frame — the frame RENDERER is the next packet, and the
+field it reads is here. Sibling layers get **no implicit crossfilter**: a
 select on `net~nodes` reaches `net~edges` only through a declared link.
 
 **The first-party layered chart has since shipped** (packet 4): `networkRenderer`
@@ -332,7 +383,8 @@ community detection.
    (`RENDERER_PROTOCOL_VERSION`); a new outbound verb is a MAJOR one. 1.1
    added the `cell` kind; 1.2 added layers (`RenderState.layers`, `canLayer`,
    the handshake's bundles); 1.3 added the `neighbourhood` kind and the walk
-   arm; 1.4 added `walk` on a neighbourhood emission (WHICH walk) — all
+   arm; 1.4 added `walk` on a neighbourhood emission (WHICH walk); 1.5 added
+   `RenderState.frame`, the layers' shared scales already folded — all
    optional, so every one of them stayed a minor.
 
 ## One more habit: the derivation helpers ship in a set

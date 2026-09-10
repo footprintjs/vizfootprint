@@ -96,7 +96,7 @@ export { describeTable, DESCRIBE_DISTINCT_CAP, DESCRIBE_SAMPLE } from './describ
 export type { ColumnDescription, DescribeTableOptions, TableDescription } from './describeTable.js';
 
 // A table whose absence column and value columns disagree is refused at the data door, once — this is the sentence.
-export { absenceContradictionOf } from './absenceContradiction.js';
+export { absenceContradictionOf, silenceTestOf } from './absenceContradiction.js';
 
 // Derived columns — the trace's columns, versioned by the act that made them.
 export { DerivedColumnStore, canNameSlot, derivedColumnName, renameClauseFields, renameRowSlots, resolveDerived } from './derivedColumns.js';

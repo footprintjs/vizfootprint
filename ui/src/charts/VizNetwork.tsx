@@ -48,7 +48,7 @@ import { useMemo, useState } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { WalkAsk } from 'vizfootprint/data';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
-import { linearScale, extent } from '../primitives/scales.js';
+import { linearScale, extent, domainOr, type ChartDomain } from '../primitives/scales.js';
 import { dimClass, useBrightPredicate, selectedSet, inSet, markClass } from '../primitives/useSelection.js';
 import { clickEmission, toggleInSetEmission, toggleWalkEmission, walkEmission } from '../primitives/pointSelect.js';
 import { selfSelectedNeighbourhood, type SelfSelectedNeighbourhood } from '../contract/selection.js';
@@ -140,6 +140,18 @@ export interface VizNetworkProps {
   readonly width?: number;
   readonly height?: number;
   readonly className?: string;
+  /**
+   * THE FRAME'S SCALES (protocol 1.5): the x and y span this substrate is laid
+   * out in, in layout units. Given one, this chart scales to THAT instead of
+   * folding its own union of node positions and edge endpoints — which is how
+   * `networkRenderer` hands it the union `frameDomains` folded over the two
+   * layers, so the union has ONE owner in the library rather than a copy here.
+   * Absent = this chart's own union, byte-identical to before the prop existed.
+   *
+   * Still ONE px-per-unit for both axes whatever is passed: a node-link's x and
+   * y are one spatial substrate, not two quantities (see {@link frameOf}).
+   */
+  readonly domain?: ChartDomain;
 }
 
 /** The whole frame is padding: a node-link has no axis to leave room for. */
@@ -179,10 +191,12 @@ interface Frame {
  * distances depending on their orientation, and turn a ring into an ellipse.
  * `extent` never returns lo === hi, so `k` is always finite.
  */
-function frameOf(nodes: readonly NetworkNode[], edges: readonly NetworkEdge[], width: number, height: number): Frame {
+function frameOf(nodes: readonly NetworkNode[], edges: readonly NetworkEdge[], width: number, height: number, domain?: ChartDomain): Frame {
   const points = framePoints(nodes, edges);
-  const [xlo, xhi] = extent(points, (p) => p.x);
-  const [ylo, yhi] = extent(points, (p) => p.y);
+  // a FRAME's domain when one was folded for the whole stack, this chart's own union otherwise.
+  // `domainOr` widens a flat domain exactly as `extent` does, because `k` below divides by the span.
+  const [xlo, xhi] = domainOr(domain?.x, extent(points, (p) => p.x));
+  const [ylo, yhi] = domainOr(domain?.y, extent(points, (p) => p.y));
   const availW = width - PAD.l - PAD.r;
   const availH = height - PAD.t - PAD.b;
   const k = Math.min(availW / (xhi - xlo), availH / (yhi - ylo));
@@ -331,7 +345,12 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
 
   // The frame is render-INVARIANT — it depends on the rows and the box, never
   // on the hover — so it is derived once and not on every pointer crossing.
-  const frame = useMemo(() => frameOf(nodes, edges, width, height), [nodes, edges, width, height]);
+  // …which is why a given domain enters the memo as its four NUMBERS and not as the prop: a host folds a
+  // FRESH `{x, y}` object at every update, so a dependency on its identity would recompute the frame on
+  // every pointer crossing — exactly what the line above says this does not do.
+  const [dx0, dx1] = [props.domain?.x?.[0], props.domain?.x?.[1]];
+  const [dy0, dy1] = [props.domain?.y?.[0], props.domain?.y?.[1]];
+  const frame = useMemo(() => frameOf(nodes, edges, width, height, props.domain), [nodes, edges, width, height, dx0, dx1, dy0, dy1]);
   const degree = useMemo(() => degreeOf(edges), [edges]);
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n] as const)), [nodes]);
 

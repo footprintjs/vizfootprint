@@ -15,6 +15,7 @@ import type { RenderSelection } from '../contract/types.js';
 import { useRef } from 'react';
 import { TICK_ANGLE, VALUE_CHAR_PX, fitTick, fitsBand } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
+import { domainOr, type ChartDomain } from '../primitives/scales.js';
 import { clickEmission, matchEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
 import { inSet, markClass, selectedSet } from '../primitives/useSelection.js';
 import { useReencodePicker } from '../primitives/reencode.js';
@@ -63,6 +64,19 @@ export interface VizBarProps {
   readonly width?: number;
   readonly height?: number;
   readonly className?: string;
+  /**
+   * THE FRAME'S SCALES (protocol 1.5): `y` is the COUNT axis's ceiling in count
+   * units, so a bar and a line stacked on one frame measure heights the same
+   * way. The BASELINE stays zero whatever is passed — a bar's height is read
+   * from zero, which is the same law the def validator enforces on a shared
+   * quantitative channel (`../../src/def/README.md`, "The frame", law 9). This
+   * chart has no quantitative x (its x is a band per category), so a `domain.x`
+   * has nothing here to scale and is not read. Absent = the chart's own maximum,
+   * and every bar is byte-identical to the chart before the prop existed.
+   */
+  readonly domain?: ChartDomain;
+  /** Draw this chart's own axis line, category ticks and axis label. Default `true`; `false` while the FRAME draws one merged guide for the stack. */
+  readonly axes?: boolean;
 }
 
 const PAD = { l: 38, r: 14, t: 20, b: 48 };
@@ -102,7 +116,11 @@ export function VizBar(props: VizBarProps): JSX.Element {
   const run = useRef<{ start: string; end: string } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
-  const max = Math.max(1, ...data.map((d) => d.count));
+  // the frame's ceiling when a frame gave one (never below 1, so a band always has height), this chart's own
+  // maximum otherwise. Through `domainOr` like every other axis, because it holds the guard: a ceiling that is
+  // not a finite number is not a ceiling, and dividing by it would draw every bar at NaN.
+  const max = Math.max(1, domainOr(props.domain?.y, [0, Math.max(...data.map((d) => d.count))])[1]);
+  const axes = props.axes ?? true;
   const band = Math.max(0, (width - PAD.l - PAD.r) / Math.max(1, data.length)); // a pushed-narrow cell never draws a negative width
   // ticks: flat when they fit their band; slanted (and the plot shorter) when any does not
   // (a short chart cannot give the slant its full room — the plot keeps MIN_PLOT and the ticks clip harder)
@@ -168,7 +186,8 @@ export function VizBar(props: VizBarProps): JSX.Element {
         onPointerCancel={cancelRun}
         onPointerLeave={cancelRun}
       >
-        <line className="vzf-axis" x1={PAD.l} y1={axisY} x2={width - PAD.r} y2={axisY} />
+        {/* the axis line — absent while the FRAME draws one merged guide for the stack */}
+        {axes && <line className="vzf-axis" x1={PAD.l} y1={axisY} x2={width - PAD.r} y2={axisY} />}
         {data.map((d, i) => {
           const cx = PAD.l + band * i;
           const h = (d.count / max) * plot;
@@ -211,7 +230,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
                   {d.count}
                 </text>
               ) : null}
-              {tick.rotate ? (
+              {!axes ? null : tick.rotate ? (
                 <text className="vzf-tick" x={tx} y={axisY + 12} textAnchor="end" transform={`rotate(-${String(TICK_ANGLE)} ${String(tx)} ${String(axisY + 12)})`}>
                   {tick.clipped ? <title>{d.category}</title> : null}
                   {tick.text}
@@ -224,7 +243,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
             </g>
           );
         })}
-        <AxisLabel x={width / 2} y={height - 8} text={label} channel="category" onOpen={openPicker} />
+        {axes && <AxisLabel x={width / 2} y={height - 8} text={label} channel="category" onOpen={openPicker} />}
       </svg>
       <EncodingPicker
         open={pickerChannel !== null}

@@ -31,6 +31,7 @@ import {
   type RenderLayer,
   type RenderRow,
   type RenderState,
+  type ResolvedChannel,
 } from './types.js';
 import type { GeoFeatureCollection } from '../charts/VizMap.js';
 
@@ -443,6 +444,92 @@ describe('networkRenderer — which layer is which', () => {
     m2.update(state([{ id: 'n1', x: 1, y: 2 }])); // every default: id, x, y
     expect(bare.querySelector('circle[data-node="n1"]')).not.toBeNull();
     m2.unmount();
+  });
+});
+
+describe('networkRenderer — the substrate is the LIBRARY\'s fold, and the host\'s wins when it pushed one (protocol 1.5)', () => {
+  /** Where two nodes landed in pixels — the substrate is whatever put them there. */
+  const spanOf = (el: Element): number => {
+    const at = (id: string): number => Number(el.querySelector(`circle[data-node="${id}"]`)!.getAttribute('cx'));
+    return Math.abs(at('cold') - at('flu'));
+  };
+
+  it('with no frame pushed it folds the union of node positions and BOTH ends of every edge', () => {
+    const { el, m } = mountNet();
+    m.update(layered([NODES_LAYER]));
+    const nodesOnly = spanOf(el);
+    // an edge whose far end is a node this frame does NOT carry (a filtered-away endpoint): it is still
+    // part of the substrate, because a link running off the plot is a lie about where its far end is
+    const reaching: RenderLayer = {
+      ...EDGES_LAYER,
+      rows: [{ src: 'flu', tgt: 'gone', source_x: 0, source_y: 0, target_x: 400, target_y: 400 }],
+    };
+    m.update(layered([reaching, NODES_LAYER]));
+    expect(spanOf(el)).toBeLessThan(nodesOnly);
+    m.unmount();
+  });
+
+  it("the HOST's fold wins when it carries BOTH axes as shared quantitative domains — it read the whole table, not just what is on screen", () => {
+    const { el, m } = mountNet();
+    m.update(layered([EDGES_LAYER, NODES_LAYER]));
+    const own = spanOf(el);
+    m.update({
+      ...layered([EDGES_LAYER, NODES_LAYER]),
+      frame: {
+        x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [0, 100] },
+        y: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [0, 100] },
+      },
+    });
+    // ten times the span in layout units puts the same two nodes ten times closer together
+    expect(spanOf(el)).toBeLessThan(own);
+    m.unmount();
+  });
+
+  it('half a fold is no fold: a frame missing an axis, or one that is not shared quantitative, falls back to the library fold', () => {
+    const { el, m } = mountNet();
+    m.update(layered([EDGES_LAYER, NODES_LAYER]));
+    const own = spanOf(el);
+    const shared = { mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [0, 100] } as const;
+    const halves: readonly Readonly<Record<string, ResolvedChannel>>[] = [
+      { x: shared }, // no y at all
+      { x: shared, y: { mode: 'independent', guide: 'per-layer' } as const }, // y left to the layers
+      { x: shared, y: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'categorical', domain: ['a'] } as const }, // y is not a magnitude
+    ];
+    for (const frame of halves) {
+      m.update({ ...layered([EDGES_LAYER, NODES_LAYER]), frame });
+      expect(spanOf(el)).toBe(own);
+    }
+    m.unmount();
+  });
+
+  it('a host fold covers BOTH the node channels and the EDGE ENDPOINTS — half the channels is not a substrate', () => {
+    const { el, m } = mountNet();
+    // one edge reaching far outside the node extent, exactly as in the library-fold test above
+    const reaching: RenderLayer = { ...EDGES_LAYER, rows: [{ src: 'flu', tgt: 'gone', source_x: 0, source_y: 0, target_x: 400, target_y: 400 }] };
+    m.update(layered([reaching, NODES_LAYER]));
+    const folded = spanOf(el); // the library's own fold: nodes ∪ both ends of every edge
+    const q = (lo: number, hi: number) => ({ mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [lo, hi] }) as const;
+    // the host folded every channel the two layers bind: `x`/`y` on the nodes, the ENDPOINT channels on the edges
+    m.update({
+      ...layered([reaching, NODES_LAYER]),
+      frame: { x: q(0, 10), y: q(0, 10), sourceX: q(0, 0), sourceY: q(0, 0), targetX: q(0, 400), targetY: q(0, 400) },
+    });
+    // the same span: an endpoint is part of the substrate whoever folded it, or a link runs off the plot
+    expect(spanOf(el)).toBeCloseTo(folded, 5);
+    m.unmount();
+  });
+
+  it('a frame with no layers at all still folds, and a frame with no positions folds nothing rather than a substrate of one point', () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const m = networkRenderer({ keyField: 'disease' }).mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'net', callbacks: callbacks() });
+    // no `layers`: the layer ids the fold names fall back, and the nodes still land on one substrate
+    m.update(state(NET_NODES, { x: 'px', y: 'py' }));
+    expect(spanOf(el)).toBeGreaterThan(0);
+    // no rows at all: nothing to fold, and the chart keeps its own empty frame rather than being handed one
+    m.update(state([], { x: 'px', y: 'py' }));
+    expect(el.querySelectorAll('circle[data-node]')).toHaveLength(0);
+    m.unmount();
   });
 });
 

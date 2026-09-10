@@ -163,3 +163,193 @@ describe('layers — the def door', () => {
     expect(validateDashboardDef(makeDashboardDef())).toEqual([]);
   });
 });
+
+/** A def whose one view carries `layers` AND a `frame` — the two halves the frame's laws judge together. */
+const framed = (frame: unknown, layers: readonly unknown[] = [nodesLayer, edgesLayer], extra: Partial<DashboardDef> = {}): string[] =>
+  validateDashboardDef({ ...makeNetworkDef(undefined, extra), encodings: [{ viewId: 'net', chartKind: 'network', channels: ['x', 'y'], layers, frame }] } as unknown);
+
+/**
+ * The two-table def with the COLUMN facts a frame law reads laid over it — a
+ * type, a role, a scale, a unit. One column at a time: the named columns are
+ * REPLACED whole (so a role can be dropped) and the rest of each table's
+ * declarations stand, which is what keeps the nodes table's declared key real.
+ */
+const facts = (nodes: Record<string, unknown>, edges: Record<string, unknown>): Partial<DashboardDef> => {
+  const def = makeNetworkDef();
+  return {
+    data: {
+      nodes: { ...def.data.nodes!, columns: { ...def.data.nodes!.columns, ...nodes } },
+      edges: { ...def.data.edges!, columns: { ...def.data.edges!.columns, ...edges } },
+    },
+  } as Partial<DashboardDef>;
+};
+
+/**
+ * Two POINT layers sharing x, one per table. WHY `point` and WHY x: its x
+ * accepts a number AND a date, so the columns below can disagree about the
+ * frame's law without ALSO tripping the channel requirement — one law per test.
+ */
+const onX = (layerId: string, table: string, field: string) => ({ layerId, table, chartKind: 'point', channels: ['x', 'y'], initial: { x: field } });
+const sharesX = [onX('a', 'nodes', 'size'), onX('b', 'edges', 'weight')];
+
+/** A bar layer over the nodes table with no bindings — the shape the zero-anchored laws are about, with nothing else to judge. */
+const barLayer = { layerId: 'counts', table: 'nodes', chartKind: 'bar', channels: ['x', 'y'] };
+
+describe('the frame — per channel, how its scale is resolved across the layers', () => {
+  it('the fixture accepts a frame, and a frame is optional', () => {
+    expect(framed(undefined)).toEqual([]);
+    expect(framed({ size: { mode: 'shared', domain: 'union', basis: 'rows', guide: 'per-layer', zero: true } })).toEqual([]);
+    expect(framed({ color: { mode: 'independent', guide: 'per-layer' } })).toEqual([]);
+    // a channel with NO entry is shared/union/table/merged — the Wickham default, and it refuses nothing on this fixture
+    expect(framed({})).toEqual([]);
+  });
+
+  it('LAW 7: a frame declares resolution for LAYERS — a plain view has none', () => {
+    expect(framed({ y: { mode: 'shared' } }, [])).toEqual(['encodings[0].frame declares resolution for layers; view "net" has none']);
+    // no `layers` key at all — the same sentence, and the frame's other laws are not restated beside it
+    expect(validateDashboardDef({ ...makeNetworkDef(undefined), encodings: [{ viewId: 'net', chartKind: 'point', channels: ['x', 'y'], frame: { y: { mode: 'independent' } } }] } as unknown)).toEqual([
+      'encodings[0].frame declares resolution for layers; view "net" has none',
+    ]);
+    // a layer list that is entirely malformed was refused layer by layer; the frame does not pile on
+    expect(framed({ y: { mode: 'shared' } }, ['junk'])).toEqual([
+      'encodings[0].layers[0] must be an object { layerId, table, chartKind, channels, initial?, label? }',
+      'encodings[0].frame declares resolution for layers; view "net" has none',
+    ]);
+  });
+
+  it('LAW 7: the shape — a mode from the two words, and only the keys that mode has', () => {
+    expect(framed('shared')).toEqual(['encodings[0].frame, if present, must be an object mapping channel -> { mode: "shared" | "independent" }']);
+    expect(framed({ y: 'shared' })).toEqual(['encodings[0].frame.y must be an object { mode: "shared" | "independent", domain?, basis?, guide?, zero? }']);
+    expect(framed({ y: {} })).toEqual(['encodings[0].frame.y.mode must be "shared" or "independent"']);
+    expect(framed({ y: { mode: 'fixed' } })).toEqual(['encodings[0].frame.y.mode must be "shared" or "independent"']);
+    expect(framed({ y: { mode: 'shared', zeroed: true } })).toEqual(['encodings[0].frame.y: unknown key "zeroed" on a shared channel']);
+    // an independent channel has no domain, no basis and no zero policy: there is nothing folded to apply them to
+    expect(framed({ color: { mode: 'independent', basis: 'rows', zero: true } })).toEqual([
+      'encodings[0].frame.color: unknown key "basis" on an independent channel',
+      'encodings[0].frame.color: unknown key "zero" on an independent channel',
+    ]);
+    expect(framed({ color: { mode: 'independent', guide: 'merged' } })).toEqual([
+      'encodings[0].frame.color.guide must be "per-layer" on an independent channel — there is no merged guide for scales that disagree',
+    ]);
+    expect(framed({ y: { mode: 'shared', domain: [0, 10] } })).toEqual(['encodings[0].frame.y.domain, if present, must be "union" — a frame declares a fold, never numbers']);
+    expect(framed({ y: { mode: 'shared', basis: 'whole' } })).toEqual(['encodings[0].frame.y.basis, if present, must be "table" or "rows"']);
+    expect(framed({ y: { mode: 'shared', guide: 'once' } })).toEqual(['encodings[0].frame.y.guide, if present, must be "merged" or "per-layer"']);
+    expect(framed({ y: { mode: 'shared', zero: 'yes' } })).toEqual(['encodings[0].frame.y.zero, if present, must be a boolean']);
+  });
+
+  it('LAW 8: a resolution for a channel no layer can bind resolves nothing — and the refusal names the channels there are', () => {
+    expect(framed({ z: { mode: 'shared' } })).toEqual(['encodings[0].frame.z: unknown channel — the layers bind x, y, size, color']);
+    // the channels are the layers' own surfaces, in declaration order, first-seen wins
+    expect(framed({ z: { mode: 'shared' } }, [edgesLayer, nodesLayer])).toEqual(['encodings[0].frame.z: unknown channel — the layers bind x, y, size, color']);
+  });
+
+  it('LAW 9: a bar, a histogram and a boxplot may not take an independent magnitude channel — extent IS the quantity', () => {
+    expect(framed({ y: { mode: 'independent' } }, [barLayer, edgesLayer])).toEqual([
+      'encodings[0].frame.y: layer "counts" is a bar — a bar cannot take an independent y, its extent is read against one baseline',
+    ]);
+    expect(framed({ y: { mode: 'independent' } }, [{ ...barLayer, chartKind: 'histogram' }])).toEqual([
+      'encodings[0].frame.y: layer "counts" is a histogram — a histogram cannot take an independent y, its extent is read against one baseline',
+    ]);
+    expect(framed({ y: { mode: 'independent' } }, [{ ...barLayer, chartKind: 'boxplot' }])).toEqual([
+      'encodings[0].frame.y: layer "counts" is a boxplot — a boxplot cannot take an independent y, its extent is read against one baseline',
+    ]);
+    // a line or a point encodes POSITION — an independent y is a legitimate second axis for it
+    expect(framed({ y: { mode: 'independent' } }, [nodesLayer, edgesLayer])).toEqual([]);
+    // …and the law is about the MAGNITUDE channel: a bar's colour may resolve independently
+    expect(framed({ color: { mode: 'independent' } }, [{ ...barLayer, channels: ['x', 'y', 'color'] }])).toEqual([]);
+  });
+
+  it('LAW 9: a shared quantitative channel keeps ONE zero policy, and a bar-like layer may not be told to drop it', () => {
+    expect(framed({ y: { mode: 'shared', zero: false } }, [barLayer, edgesLayer])).toEqual([
+      'encodings[0].frame.y.zero is false but layer "counts" is a bar — its y is read from zero',
+    ]);
+    // stating what the marks already imply is no refusal, and neither is leaving it to them
+    expect(framed({ y: { mode: 'shared', zero: true } }, [barLayer])).toEqual([]);
+    expect(framed({ y: { mode: 'shared' } }, [barLayer])).toEqual([]);
+    // a line stack may honestly zoom
+    expect(framed({ y: { mode: 'shared', zero: false } }, [nodesLayer, edgesLayer])).toEqual([]);
+    // …and so may a HISTOGRAM's bound channel: it is the axis its bins sit on, and its count axis is
+    // counted from the rows, never bound — the refusal and the FOLD ask one predicate (`zeroAnchorsChannel`)
+    expect(framed({ y: { mode: 'shared', zero: false } }, [{ ...barLayer, chartKind: 'histogram' }])).toEqual([]);
+    // a boxplot's extent IS on the channel it binds, so it keeps the refusal a bar gets
+    expect(framed({ y: { mode: 'shared', zero: false } }, [{ ...barLayer, chartKind: 'boxplot' }])).toEqual([
+      'encodings[0].frame.y.zero is false but layer "counts" is a boxplot — its y is read from zero',
+    ]);
+  });
+
+  it('LAW 10: a shared channel means one scale, so the columns the layers bind must agree — type, role, scale kind and unit', () => {
+    const mismatched = (nodes: Record<string, unknown>, edges: Record<string, unknown>): string[] => framed({ x: { mode: 'shared' } }, sharesX, facts(nodes, edges));
+    expect(mismatched({ size: { type: 'number' } }, { weight: { type: 'date' } })).toEqual([
+      'encodings[0].frame.x: layer "b" shares x with layer "a" but x is a number on "a" and a date on "b"',
+    ]);
+    expect(mismatched({ size: { role: 'measure' } }, { weight: { role: 'dimension' } })).toEqual([
+      'encodings[0].frame.x: layer "b" shares x with layer "a" but x is a measure on "a" and a dimension on "b"',
+    ]);
+    expect(mismatched({ size: { scale: 'continuous' } }, { weight: { scale: 'discrete' } })).toEqual([
+      'encodings[0].frame.x: layer "b" shares x with layer "a" but x is continuous on "a" and discrete on "b"',
+    ]);
+    expect(mismatched({ size: { unit: 'cases' } }, { weight: { unit: 'mg/dL' } })).toEqual([
+      'encodings[0].frame.x: layer "b" shares x with layer "a" but x is in "cases" on "a" and in "mg/dL" on "b"',
+    ]);
+    // two facts disagreeing is two sentences, because a reader fixes them one at a time
+    expect(mismatched({ size: { type: 'number', unit: 'cases' } }, { weight: { type: 'date', unit: 'mg/dL' } })).toEqual([
+      'encodings[0].frame.x: layer "b" shares x with layer "a" but x is a number on "a" and a date on "b"',
+      'encodings[0].frame.x: layer "b" shares x with layer "a" but x is in "cases" on "a" and in "mg/dL" on "b"',
+    ]);
+    // the same unit shares; and a unit mismatch is refused only when BOTH columns declare one — the door refuses on evidence, never on ignorance
+    expect(mismatched({ size: { unit: 'cases' } }, { weight: { unit: 'cases' } })).toEqual([]);
+    expect(mismatched({ size: { unit: 'cases' } }, { weight: {} })).toEqual([]);
+    expect(mismatched({}, {})).toEqual([]);
+  });
+
+  it('LAW 10: an INDEPENDENT channel asks nobody to agree — that is what it is for', () => {
+    const disagreeing = facts({ size: { type: 'number', unit: 'cases' } }, { weight: { type: 'date', unit: 'mg/dL' } });
+    expect(framed({ x: { mode: 'independent' } }, sharesX, disagreeing)).toEqual([]);
+    // …and the DEFAULT is shared, so the same two columns refuse under an EMPTY frame — `frame: {}` is a
+    // declared frame, and every channel it does not name is shared/union/table/merged
+    expect(framed({}, sharesX, disagreeing)).toHaveLength(2);
+    // the BOUNDARY, stated: a layered view that declares NO frame is judged exactly as it was before the
+    // frame existed (1.2 defs keep validating, and a 1.4 host draws each layer on its own extent). Declaring
+    // the frame — `{}` is enough — is how a def asks to be held to law 10.
+    expect(framed(undefined, sharesX, disagreeing)).toEqual([]);
+  });
+
+  it('LAW 10: one layer cannot disagree with anybody, and a channel a layer only ACCEPTS carries no column to compare', () => {
+    const disagreeing = facts({ size: { type: 'number' } }, { weight: { type: 'date' } });
+    expect(framed({ x: { mode: 'shared' } }, [sharesX[0]], disagreeing)).toEqual([]);
+    // y is on both layers' surfaces and bound by neither: nothing to compare, and no sentence invented
+    // (x still refuses under the shared DEFAULT — which is the point: the laws run per channel, on what each one actually binds)
+    expect(framed({ y: { mode: 'shared' } }, sharesX, disagreeing).filter((p) => p.includes('frame.y'))).toEqual([]);
+  });
+
+  it('a frame law invents no sentence where the DEF says nothing about the columns', () => {
+    // a `data` that is not a map of tables was refused on its own line; the frame reads no column facts off it
+    const noTables = validateDashboardDef({ ...makeNetworkDef(), data: 'nodes', encodings: [{ viewId: 'net', chartKind: 'network', channels: ['x', 'y'], layers: sharesX, frame: { x: { mode: 'shared' } } }] } as unknown);
+    expect(noTables.filter((p) => p.includes('frame'))).toEqual([]);
+    // a table that is not an object, and a `columns` that is not one either: the same silence, never a guess
+    const def = makeNetworkDef();
+    for (const broken of [{ ...def.data, edges: 1 }, { ...def.data, edges: { ...def.data.edges!, columns: 'weight' } }, { ...def.data, edges: { ...def.data.edges!, columns: { weight: 'measure' } } }]) {
+      const problems = validateDashboardDef({ ...def, data: broken, encodings: [{ viewId: 'net', chartKind: 'network', channels: ['x', 'y'], layers: sharesX, frame: { x: { mode: 'shared' } } }] } as unknown);
+      expect(problems.filter((p) => p.includes('frame'))).toEqual([]);
+    }
+  });
+
+  it('a malformed resolution is refused once — its own laws are not read off a shape nobody could parse', () => {
+    // x disagrees on type across the two layers, but its resolution never said which mode it was in
+    const problems = framed({ x: { mode: 'fixed' } }, sharesX, facts({ size: { type: 'number' } }, { weight: { type: 'date' } }));
+    expect(problems).toEqual(['encodings[0].frame.x.mode must be "shared" or "independent"']);
+  });
+
+  it('a view with no frame is byte-identical to a view built before the frame existed', () => {
+    expect(JSON.stringify(buildDashboard(makeNetworkDef()).def)).not.toContain('frame');
+    expect(validateDashboardDef(makeNetworkDef())).toEqual([]);
+  });
+
+  it('the frame rides on the view’s encoding, so it is frozen at build and reaches the session with it', () => {
+    const frame = { size: { mode: 'shared', basis: 'rows' } } as const;
+    const dashboard = buildDashboard({ ...makeNetworkDef(), encodings: [{ viewId: 'net', chartKind: 'network', channels: ['x', 'y'], layers: [nodesLayer, edgesLayer], frame }] });
+    expect(dashboard.def.encodings![0]!.frame).toEqual(frame);
+    expect(Object.isFrozen(dashboard.def.encodings![0]!.frame)).toBe(true);
+    expect(Object.isFrozen(dashboard.def.encodings![0]!.frame!['size'])).toBe(true);
+  });
+});

@@ -82,6 +82,14 @@ export interface ColumnFacet {
   readonly absence?: readonly string[];
   /** A display label, echoed verbatim (never parsed). */
   readonly label?: string;
+  /**
+   * The UNIT the column's values are in ('mg/dL', 'cases', 'USD'), echoed
+   * verbatim and never parsed or converted. It exists so a shared scale can be
+   * refused: two layers on one frame may only share a channel when the columns
+   * they bind speak the same unit (`../def/README.md`, "The frame"). Declared,
+   * never guessed — a mismatch is refused only when BOTH columns declare one.
+   */
+  readonly unit?: string;
 }
 
 // ── The clause kinds this seam evaluates. ──────────────────────────────────

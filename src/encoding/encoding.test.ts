@@ -272,15 +272,17 @@ describe('shape checks (the def door)', () => {
   it('column declarations', () => {
     const problems: string[] = [];
     validateColumnDecls('x', 'data["t"].columns', problems);
-    validateColumnDecls({ a: 1, b: { role: 'boss', scale: 'huge', label: 2, extra: 1, type: 'int' }, rs: { role: 'measure' } }, 'c', problems, 'rs');
+    validateColumnDecls({ a: 1, b: { role: 'boss', scale: 'huge', label: 2, unit: 3, extra: 1, type: 'int' }, rs: { role: 'measure' } }, 'c', problems, 'rs');
     expect(problems).toEqual([
-      'data["t"].columns must be an object mapping field -> { type?, role?, scale?, label? }',
+      'data["t"].columns must be an object mapping field -> { type?, role?, scale?, label?, unit? }',
       'c["a"] must be an object',
       'c["b"].extra is not a column declaration key',
       'c["b"].type must be one of number, string, boolean, date, unknown',
       'c["b"].role must be one of identifier, dimension, measure, absence',
       'c["b"].scale must be one of discrete, continuous',
       'c["b"].label must be a string',
+      // the UNIT a shared scale is judged by (src/def/README.md, "The frame", law 10) — a word, echoed verbatim
+      'c["b"].unit must be a string',
       'c["rs"].role is "measure" but "rs" is the table\'s declared absence column — its role is absence',
     ]);
     const fine: string[] = [];

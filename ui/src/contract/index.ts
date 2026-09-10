@@ -11,6 +11,9 @@ export type {
   RenderEncodings,
   // protocol 1.2: one layer of a frame — exported in the SAME change as the field that carries it
   RenderLayer,
+  // protocol 1.5: one channel of the frame, resolved — the library's own shape, re-exported so a
+  // renderer author reads the frame's type from the barrel it draws through
+  ResolvedChannel,
   SelectionClauseView,
   RenderSelection,
   RenderState,

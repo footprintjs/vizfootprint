@@ -2057,19 +2057,20 @@ class InteractionSessionImpl implements InteractionSession {
    * The refusal it returns is a `ViewQueryResult`'s — every word of it is in
    * `FindInViewResult`'s vocabulary too, so a find can hand it straight back.
    */
-  private viewClauses(query: { readonly table?: string; readonly viewId?: string; readonly sort?: readonly SortSpec[] }): ViewReach | ViewReachRefused {
-    // a layer address defaults to the layer's own table — the window a layer draws is a window on what it reads
-    const table = query.table ?? (query.viewId === undefined ? this.defaultTable : this.tableFor(query.viewId));
+  private viewClauses(query: { readonly table?: string; readonly viewId?: string | null; readonly sort?: readonly SortSpec[] }): ViewReach | ViewReachRefused {
+    // a layer address defaults to the layer's own table — the window a layer draws is a window on what it reads.
+    // `viewId: null` names no consumer at all, so it defaults the table the same way an absent one does.
+    const table = query.table ?? (query.viewId === undefined || query.viewId === null ? this.defaultTable : this.tableFor(query.viewId));
     // AT THE CURSOR, not in the def: a derived table is readable on the branch
     // whose act cut it and nowhere else, so seeking past that act makes the name
     // stop being a table — and the sentence has to say the tables HERE, or a
     // reader is sent to look for a declaration that never existed.
     const here = this.tablesAt();
     if (!here.includes(table)) return { ok: false, reason: 'unknown-table', rejected: `no table "${table}" here — the tables at this point are ${here.join(', ')}` };
-    if (query.viewId !== undefined && !this.holdsView(query.viewId)) return { ok: false, reason: 'unknown-view', rejected: `no declared view "${query.viewId}" — the views are ${[...this.runtime.views.keys()].join(', ')}` };
+    if (query.viewId !== undefined && query.viewId !== null && !this.holdsView(query.viewId)) return { ok: false, reason: 'unknown-view', rejected: `no declared view "${query.viewId}" — the views are ${[...this.runtime.views.keys()].join(', ')}` };
     // an address and a table that disagree are two answers to one question: a layer is gated on ITS table (../def/README.md, "Layers"), so serving the
     // other table's rows under the layer's address would be a second resolver of the address — refused by name instead, saying which two tables disagree
-    const place = query.viewId === undefined ? undefined : this.placeOf(query.viewId);
+    const place = query.viewId === undefined || query.viewId === null ? undefined : this.placeOf(query.viewId);
     if (place?.layer !== undefined && query.table !== undefined && query.table !== place.layer.table) {
       return { ok: false, reason: 'table-mismatch', rejected: `layer "${query.viewId}" reads table "${place.layer.table}", not "${query.table}" — ask for its window without a table, or ask table "${query.table}" without the layer` };
     }
@@ -2080,8 +2081,15 @@ class InteractionSessionImpl implements InteractionSession {
     if (!provider) return { ok: false, reason: 'engine', rejected: `no provider for table "${table}"` };
     const sorted = query.sort !== undefined && query.sort.length > 0;
     if (sorted && provider.capabilities.canSort !== true) return { ok: false, reason: 'unsupported-sort', rejected: `the ${provider.engine} engine cannot sort. Ask for this window without a sort` };
-    // whose eyes: a view sees what reaches it; no view = the whole-dashboard truth, every live clause filtering (what selectedRowCount counts)
-    const clauses: ReachingClause[] = query.viewId === undefined ? [...this.activeFilters].filter(([from]) => this.clauseReaches(from, table)).map(([from, clause]) => ({ from, clause: copyClause(clause), response: 'filter' as const })) : [...this.clausesFor(query.viewId)];
+    // whose eyes: a view sees what reaches it; no view = the whole-dashboard truth, every live clause filtering
+    // (what selectedRowCount counts); an EXPLICIT null = nobody's clause — the table as it stands, which is what
+    // a fixed axis is folded from (`ChannelResolution.basis: 'table'`).
+    const clauses: ReachingClause[] =
+      query.viewId === null
+        ? []
+        : query.viewId === undefined
+          ? [...this.activeFilters].filter(([from]) => this.clauseReaches(from, table)).map(([from, clause]) => ({ from, clause: copyClause(clause), response: 'filter' as const }))
+          : [...this.clausesFor(query.viewId)];
     const filters = clauses.filter((c) => c.response === 'filter').map((c) => c.clause);
     const key = this.keyOf(table); // the table is readable here: it has a def row or an act's minted key
     return { ok: true, table, provider, version, sorted, clauses, filters, ...(key !== undefined ? { key } : {}) };
@@ -2118,7 +2126,8 @@ class InteractionSessionImpl implements InteractionSession {
         const spelling = this.runtime.derived.logicalByPhysical(table);
         /* v8 ignore next -- the engine just named a column it lacks, so it can list the ones it has; the rejected arm keeps the type honest */
         const has = new Set('rejected' in own ? [] : own.map((c) => spelling.get(c.name) ?? c.name));
-        const invented = mappingsInto(this.currentGraph(), query.viewId).filter((m) => !has.has(m.to));
+        // `viewId: null` names no consumer, so no mapping reaches it and nothing was invented on its behalf
+        const invented = mappingsInto(this.currentGraph(), query.viewId ?? undefined).filter((m) => !has.has(m.to));
         if (invented.length > 0) rejected += ` — ${invented.map((m) => `the link from ${m.from} maps ${m.field} → ${m.to}`).join('; ')}`;
       }
       return { ok: false, reason: 'engine', engineReason: res.reason, rejected };
@@ -3042,8 +3051,9 @@ class InteractionSessionImpl implements InteractionSession {
       return { gap: this.gapLedger.file('needs-view', 'reencode', `no declared view "${viewId}"`, viewId) };
     }
     // 1b. a LAYER's bindings are declared on the layer and stay so in this version: the encoding fold
-    //     (initial seeds, fits, effective, follows) is per VIEW, and a frame with shared scales is the
-    //     packet that makes a layer's rebind meaningful (../def/README.md, "Layers", not-in-this-version)
+    //     (initial seeds, fits, effective, follows) is per VIEW. The frame now folds shared scales, but
+    //     RE-ENCODING one layer of a frame is still its own packet (../def/README.md, "The frame",
+    //     not-in-this-version) — a rebind would have to move the frame's domain with it.
     if (this.placeOf(viewId)!.layer !== undefined) {
       return { gap: this.gapLedger.file('guard-failed', 'reencode', `"${viewId}" is a layer — its bindings are declared on the layer and cannot be re-encoded; reencode names the view`, viewId) };
     }
@@ -4720,6 +4730,9 @@ class InteractionSessionImpl implements InteractionSession {
         proposals: this.proposalsOf(view.viewId),
         // the layers, projected from the MAP: absent on a view that declares none (byte-identical to before layers existed)
         ...(view.layers !== undefined ? { layers: layerInfosOf(view) } : {}),
+        // the FRAME, projected verbatim off the view's encoding: words, never numbers — a host folds
+        // them into domains with `frameDomains` over rows it reads at the same cursor (src/def/README.md, "The frame")
+        ...(view.encoding?.frame !== undefined ? { frame: view.encoding.frame } : {}),
       };
     });
     const encodingPolicy = { onInvalid: this.runtime.encoding.rules.onInvalid ?? 'refuse', ruleScope: this.runtime.encoding.rules.ruleScope ?? ('dashboard' as const) };

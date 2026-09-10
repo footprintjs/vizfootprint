@@ -31,7 +31,7 @@
 import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
-import { linearScale, extent, ticks, epochOf, dayOf } from '../primitives/scales.js';
+import { linearScale, extent, ticks, epochOf, dayOf, domainOr, type ChartDomain } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { useReencodePicker } from '../primitives/reencode.js';
@@ -91,6 +91,24 @@ export interface VizLineProps {
    * filtered — a viewport is not a data claim. Absent = the data's own extent.
    */
   readonly xDomain?: readonly [string | number | null, string | number | null];
+  /**
+   * THE FRAME'S SCALES (protocol 1.5): the domains to draw against instead of
+   * this chart's own extent, so a layer of a frame sits on the shared scale —
+   * `x` in EPOCH MILLISECONDS (this chart positions dates on a linear scale),
+   * `y` in the value column's own units. Absent = the chart's own extent, and
+   * every mark is byte-identical to the chart before the prop existed.
+   *
+   * NOT a viewport and NOT a filter: unlike {@link VizLineProps.xDomain} it
+   * drops no point — a domain says what the axis MEANS, and the points outside
+   * it are simply drawn outside it.
+   */
+  readonly domain?: ChartDomain;
+  /**
+   * Draw this chart's own axes (lines, ticks and the interactive axis labels).
+   * Default `true`. `false` while the FRAME draws one merged guide for the
+   * whole stack — including the re-encode affordance, which is the axis label.
+   */
+  readonly axes?: boolean;
 }
 
 /**
@@ -214,10 +232,12 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const { series, dates } = useMemo(() => aggregate(scoped), [scoped]);
   const compat = useMemo(() => lineCompat(dateFields ?? [dateField]), [dateFields, dateField]);
 
-  const [elo, ehi] = extent(dates, (d) => d.epoch, 0);
+  // the frame's domain when a frame gave one, this chart's own extent otherwise (../primitives/scales.ts)
+  const [elo, ehi] = domainOr(props.domain?.x, extent(dates, (d) => d.epoch, 0));
   const x = linearScale(elo, ehi, PAD.l, width - PAD.r);
   const allMeans = series.flatMap((s) => s.points);
-  const [vlo, vhi] = extent(allMeans, (p) => p.mean, 0.5);
+  const [vlo, vhi] = domainOr(props.domain?.y, extent(allMeans, (p) => p.mean, 0.5));
+  const axes = props.axes ?? true;
   // ≥2 series carry a legend ABOVE the plot, never over it: the band's rows are laid out first and the plot starts
   // below them, so a legend of nine regions cannot sit on top of nine spiky lines (identity is never colour-alone).
   const legend = layoutLegend(series.map((s) => s.name ?? 'all'), width - PAD.l - PAD.r);
@@ -276,7 +296,10 @@ export function VizLine(props: VizLineProps): JSX.Element {
     }
     if (dates.length > 1) tickSpecs.push({ ...last, anchor: 'end' });
   }
-  const yTickVals = ticks(vlo + 0.5, vhi - 0.5, 3);
+  // the chart's OWN y extent is padded by 0.5, so its ticks step inside that padding; a frame's
+  // domain carries no padding of ours, so its ticks span exactly what the axis claims
+  const yPad = props.domain?.y === undefined ? 0.5 : 0;
+  const yTickVals = ticks(vlo + yPad, vhi - yPad, 3);
 
   const seriesColor = (name: string | undefined): string => (colorOf ? colorOf(name) : 'var(--vzf-brand)');
   const showLegend = series.length >= 2;
@@ -291,12 +314,12 @@ export function VizLine(props: VizLineProps): JSX.Element {
         aria-label={props.ariaLabel ?? `${yLabel} over ${xLabel}`}
         {...handlers}
       >
-        {/* axes frame */}
-        <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />
-        <line className="vzf-axis" x1={PAD.l} y1={top} x2={PAD.l} y2={height - PAD.b} />
+        {/* axes frame — absent while the FRAME draws one merged guide for the stack */}
+        {axes && <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />}
+        {axes && <line className="vzf-axis" x1={PAD.l} y1={top} x2={PAD.l} y2={height - PAD.b} />}
         {/* x ticks — actual data dates; the edge labels anchor inward so they
             never clip at the plot edges or collide with each other */}
-        {tickSpecs.map((d) => (
+        {axes && tickSpecs.map((d) => (
           <g key={`xt${d.date}`}>
             <line className="vzf-axis" x1={x(d.epoch)} y1={height - PAD.b} x2={x(d.epoch)} y2={height - PAD.b + 4} />
             <text className="vzf-tick" x={x(d.epoch)} y={height - PAD.b + 16} textAnchor={d.anchor}>
@@ -305,7 +328,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
           </g>
         ))}
         {/* y ticks */}
-        {yTickVals.map((v, i) => (
+        {axes && yTickVals.map((v, i) => (
           <g key={`yt${i}`}>
             <line className="vzf-axis" x1={PAD.l - 4} y1={y(v)} x2={PAD.l} y2={y(v)} />
             <text className="vzf-tick" x={PAD.l - 8} y={y(v) + 3} textAnchor="end">
@@ -345,9 +368,9 @@ export function VizLine(props: VizLineProps): JSX.Element {
         )}
         {/* brush */}
         <BrushOverlay brush={brush} y={top} height={height - top - PAD.b} />
-        {/* interactive axis labels */}
-        <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />
-        <AxisLabel x={14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={-90} onOpen={openPicker} />
+        {/* interactive axis labels — the re-encode affordance rides the guide, so the frame owns both or neither */}
+        {axes && <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />}
+        {axes && <AxisLabel x={14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={-90} onOpen={openPicker} />}
       </svg>
       <EncodingPicker
         open={pickerChannel !== null}

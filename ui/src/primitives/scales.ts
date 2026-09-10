@@ -72,3 +72,64 @@ export const SEQ_RAMP_STEPS = 5;
 export function rampStep(value: number, max: number): number {
   return Math.min(SEQ_RAMP_STEPS, Math.max(1, Math.ceil((value / max) * SEQ_RAMP_STEPS)));
 }
+
+// ── the frame's scales (protocol 1.5) — a chart's domain is swappable ─────────
+
+/**
+ * A CHART'S SCALES ARE SWAPPABLE. Every 2D chart takes a `domain` and an
+ * `axes` prop: it draws its OWN extent by default and is byte-identical to the
+ * chart that existed before these props, and given a `domain` it scales to THAT
+ * instead — the numbers folded by `frameDomains` over every layer of a frame,
+ * so two charts stacked on one frame put equal values at equal pixels. With
+ * `axes={false}` a chart draws no guide at all, because the frame is drawing
+ * one for the whole stack (`guide: 'merged'`).
+ *
+ * WHY props and not a context: a chart with a domain prop is still a standalone
+ * chart, testable and usable with no frame in sight — and the host that folded
+ * the domain is the one that knows which rows it folded.
+ */
+/**
+ * The scale domains a frame hands a chart, in the DATA UNITS that chart's axis
+ * already reads — which is per chart, and each says so at its own prop:
+ * `VizLine`'s x is epoch milliseconds, `VizBar` has no quantitative x at all
+ * (its x is a band per category), `VizHeatmap`'s x is epoch milliseconds and
+ * its rows are categories. A chart ignores an axis it has no quantitative
+ * scale for; it never invents one to fit the prop.
+ *
+ * NUMBERS, so a TEMPORAL domain is converted by the caller: `frameDomains`
+ * folds a date channel to a pair of ISO strings (`ResolvedDomain`), and a chart
+ * that positions dates on a linear scale reads epoch milliseconds — `epochOf`
+ * (this module, exported) is the bridge, and it is the same function the charts
+ * use on their own rows, so a converted domain and the marks agree. A
+ * CATEGORICAL domain has no prop here at all in this version: an injected
+ * category order is the frame renderer's packet, so a band chart still orders
+ * its bands by its own rows.
+ *
+ * ONE LAW ACROSS EVERY CHART, for a value outside the domain: it is DRAWN, at
+ * its true position, and nothing is dropped or clamped. A domain says what the
+ * axis MEANS; a row outside it is a data fact, not an overflow, and a chart
+ * that silently rescaled or hid it would be answering a question nobody asked.
+ * The only clip is the SVG viewport itself, so a mark far outside simply falls
+ * outside the picture — which is what a shared frame is FOR: the reader sees
+ * that this layer runs past what the frame was folded over.
+ */
+export interface ChartDomain {
+  readonly x?: readonly [number, number];
+  readonly y?: readonly [number, number];
+}
+
+/**
+ * The domain a chart scales by: the frame's when it was given one, its own
+ * extent otherwise.
+ *
+ * Two guards, both because a linear scale divides by the span. A FLAT domain
+ * (`lo === hi`) is widened by one on each side — exactly what `extent` does
+ * with data that holds one distinct value — and a domain that is not two finite
+ * numbers is not a domain at all, so the chart keeps its own rather than
+ * drawing marks at NaN.
+ */
+export function domainOr(given: readonly [number, number] | undefined, own: readonly [number, number]): [number, number] {
+  if (given === undefined || !Number.isFinite(given[0]) || !Number.isFinite(given[1])) return [own[0], own[1]];
+  const [lo, hi] = [Math.min(given[0], given[1]), Math.max(given[0], given[1])];
+  return lo === hi ? [lo - 1, hi + 1] : [lo, hi];
+}
