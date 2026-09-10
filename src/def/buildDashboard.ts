@@ -24,7 +24,6 @@ import {
   serverProvider,
   stubEngineRefusal,
   STUB_ENGINES,
-  wasmProvider,
   type DataProvider,
   type DatasetStats,
   type Engine,
@@ -32,8 +31,11 @@ import {
   type ResolvedEngine,
   type Row,
   type RowsInput,
+  type SqlConnection,
   type StubEngine,
 } from '../data/index.js';
+// This build's ONE wasm backend: where a def's bytes meet a SQL connection (./wasmBackend.ts).
+import { wasmBackend, wasmBytesOf, wasmRowBytes, type WasmBackend } from './wasmBackend.js';
 import { createAlphaInvesting, createLordPlusPlus } from '../fdr/index.js';
 import { absenceByTable } from './builtinAnalyses.js';
 import { DashboardDefError, validateDashboardDef } from './validate.js';
@@ -131,6 +133,19 @@ export interface Dashboard {
   lint(): Promise<EncodingProblem[]>;
   /** The LINT door of the prose plane: every declared slot judged with the data's real columns and the declared analyses. */
   lintProse(): Promise<ProseProblem[]>;
+  /**
+   * Release what this BUILD opened: the SQL connection a `wasm` table's bytes
+   * were landed in (`./wasmBackend.ts`). Nothing else — a `DataProvider` a host
+   * brought and a database a host's own `openSqlConnection` opened stay the
+   * host's, on the one law an owner can be read from: whoever opened it closes
+   * it.
+   *
+   * Never throws, and safe to call twice. A dashboard with no wasm table has
+   * nothing to close and says so by doing nothing. Sessions opened from this
+   * dashboard read through that connection, so close it when the last of them
+   * is done — a read after it is refused by the engine's own words.
+   */
+  close(): Promise<void>;
 }
 
 /** One table's answer to a refresh. */
@@ -154,7 +169,16 @@ export type RefreshOutcome =
        */
       readonly derivedLost?: readonly string[];
     }
-  | { readonly refused: true; readonly reason: SourceRefusalReason | 'no-source'; readonly message: string };
+  | {
+      readonly refused: true;
+      /**
+       * Why nothing moved: the carrier's own reason, `no-source` (nothing to
+       * re-read), or `not-reloadable` (there IS a source, but the table's rows
+       * live in an engine this builder does not re-land — see `refresh`).
+       */
+      readonly reason: SourceRefusalReason | 'no-source' | 'not-reloadable';
+      readonly message: string;
+    };
 
 export interface RefreshResult {
   readonly tables: Readonly<Record<string, RefreshOutcome>>;
@@ -193,6 +217,16 @@ export interface BuildDashboardOptions {
    * survives the default and leaves `auto` with nothing to resolve at all.
    */
   readonly availableEngines?: readonly ResolvedEngine[];
+  /**
+   * How the WASM engine's SQL backend is opened, for a def that declares one.
+   * Omitted, it is `duckdbConnection()` — DuckDB-WASM in a browser, imported
+   * dynamically by the read that finally needs it.
+   *
+   * ONE connection serves every wasm table in the build (they have to be able to
+   * see each other), it is opened at most once, and a build with no wasm table
+   * never calls this at all.
+   */
+  readonly openSqlConnection?: () => Promise<SqlConnection>;
   /** The encoding plane's PORTS — explainer, coercers, recommender (code, so never on the def; see src/encoding/README.md). */
   readonly encoding?: EncodingPorts;
   /**
@@ -232,8 +266,13 @@ export interface BuildDashboardOptions {
 
 /** The port's four methods — a provider that misses one cannot answer a query. */
 const PROVIDER_METHODS = ['tables', 'columns', 'evaluate', 'materializeColumn'] as const;
-/** …and the one data field the audit reads back: which engine the host's provider IS. The one that answers, then the two `src/data/stubEngines.ts` names — never a second hand-typed list. */
-const RESOLVED_ENGINES: readonly ResolvedEngine[] = ['memory', ...STUB_ENGINES];
+/**
+ * …and the one data field the audit reads back: which engine the host's provider IS.
+ * The two that ANSWER, then the `src/data/stubEngines.ts` names — that second half is
+ * never hand-typed, so the day an engine starts answering it leaves this list by
+ * leaving that one (`wasm` did exactly that in D24 build step 2).
+ */
+const RESOLVED_ENGINES: readonly ResolvedEngine[] = ['memory', 'wasm', ...STUB_ENGINES];
 
 /**
  * Judge {@link BuildDashboardOptions.providers} against the def, before a
@@ -301,13 +340,34 @@ const hostProviderNote = (table: string, host: ResolvedEngine, declared: Engine)
 /** …and the note a table routed to an engine THIS VERSION DOES NOT RUN owes it: the read-time refusal, word for word, heard at the door instead. */
 const stubEngineNote = (table: string, engine: StubEngine): string => `data["${table}"]: ${stubEngineRefusal(engine, table)}`;
 
+/**
+ * …and the note the engine that DOES run owes THIS door: landing bytes in a SQL
+ * backend is an await, and this door has none to spend. The table is built lazy —
+ * the connection opens and the bytes land on the first read that needs an answer
+ * (`./wasmBackend.ts`) — and the author hears at BUILD which read will pay for it.
+ */
+const wasmLazyNote = (table: string): string =>
+  `data["${table}"]: the "wasm" engine holds this table lazily — a sync build cannot await a load, so the SQL connection opens and its bytes land on the first read; build with buildDashboardAsync to have them landed before the dashboard is returned`;
+
+/** …and the note a table owes when its bytes DID NOT land: the read-time refusal, word for word, heard at the door instead. */
+const wasmFailedNote = (table: string, failed: string): string => `data["${table}"]: ${failed}`;
+
 const DEFAULT_AVAILABLE: readonly ResolvedEngine[] = ['memory'];
 
 function rowsInputOf(source: { rows?: readonly unknown[]; csv?: string }): RowsInput {
   return source.csv !== undefined ? source.csv : ((/* v8 ignore next -- rows is guaranteed defined here by the R12 firewall (rows XOR csv); unreachable via buildDashboard's public entry */ source.rows ?? []) as RowsInput);
 }
 
-function statsOf(source: { rows?: readonly unknown[]; csv?: string }): DatasetStats {
+/**
+ * A dataset's stats WITH the one field this door always knows.
+ *
+ * WHY the intersection: `statsOf` counts rows on every path it has, so the note
+ * below can print the count without a fallback — and a `?? 0` for a case that
+ * cannot happen is a branch no test can ever take.
+ */
+type CountedStats = DatasetStats & { readonly rowCountEstimate: number };
+
+function statsOf(source: { rows?: readonly unknown[]; csv?: string }): CountedStats {
   if (source.rows !== undefined) return { rowCountEstimate: source.rows.length };
   /* v8 ignore else -- the "neither rows nor csv" fall-through is unreachable: the R12 firewall (validateDashboardDef) rejects a data table declaring neither before buildDashboard ever calls statsOf */
   if (typeof source.csv === 'string') {
@@ -323,30 +383,48 @@ function statsOf(source: { rows?: readonly unknown[]; csv?: string }): DatasetSt
  * The engine a table runs on, and the NOTES it owes — one when `auto` was
  * declared, one when the declaration routed somewhere this version does not run.
  *
- * WHY a declared `wasm`/`server` is honoured and NOT refused at the def door:
- * both name a real seam, both are legal in the def's grammar, and the very same
- * def RUNS when a host answers that table through `options.providers` — which
- * the validator never sees. What is missing is an engine in this VERSION, not a
- * rule the def broke; so the build says it, loudly, in the words the engine
- * itself will use at the first read (`src/data/stubEngines.ts`).
+ * WHY a declared `server` is honoured and NOT refused at the def door: it names
+ * a real seam, it is legal in the def's grammar, and the very same def RUNS when
+ * a host answers that table through `options.providers` — which the validator
+ * never sees. What is missing is an engine in this VERSION, not a rule the def
+ * broke; so the build says it, loudly, in the words the engine itself will use
+ * at the first read (`src/data/stubEngines.ts`).
+ *
+ * `wasm` is no longer one of those: it RUNS (`./wasmBackend.ts` lands a def's
+ * bytes in a SQL connection), so the note it owes is about WHEN — and only the
+ * sync door owes one at all, which is why it is minted there and not here.
  */
 function resolveEngine(
   declared: Engine | undefined,
-  // a THUNK: only `auto` reads the stats, and counting a 50MB CSV's lines to
-  // quote a guess nobody looks at is a whole extra pass over the bytes
-  stats: () => DatasetStats,
+  // a THUNK: only `auto` reads the stats, and counting a 50MB CSV's lines for a
+  // table that declared its engine is a whole extra pass over the bytes
+  stats: () => CountedStats,
   available: readonly ResolvedEngine[],
   table: string,
   notes: string[],
 ): ResolvedEngine {
   const engine = declared ?? 'memory';
   if (engine === 'auto') {
-    // `auto` resolves to the one engine that runs, and says so: the thresholds behind
-    // `chooseEngine` are an unmeasured placeholder (Q12), and a round number must not
-    // route a real table to a stub that refuses every query.
-    const guess = chooseEngine(stats(), { availableEngines: available });
-    notes.push(`data["${table}"]: engine "auto" resolved to memory (the placeholder thresholds would have said "${guess}"; they are unmeasured — declare an engine to choose otherwise)`);
-    return 'memory';
+    // `auto` FOLLOWS `chooseEngine` now. It used to resolve to memory whatever the
+    // stats said, because the thresholds behind it were an unmeasured placeholder
+    // (Q12) and a round number must not spawn a WASM database for a table this
+    // process can answer in JS. `bench/step0-wasm` measured the row axis — at
+    // 300,000 rows the memory engine answers every steady-state read inside an
+    // interaction budget (its FIRST sorted ask, which builds the permutation,
+    // is 125 ms); at 1,000,000 it does not: the sorted window is 97.5 ms and
+    // the first sorted ask 517 ms, against DuckDB's 14.8 ms — so above that
+    // threshold the router now says so.
+    // It still NAMES the engine it picked and the rows it picked it on: a table
+    // that opens a database should never do it silently.
+    // read ONCE: the thunk exists because counting a 50 MB CSV's lines is a whole
+    // pass over the bytes, and asking twice would be two of them
+    const seen = stats();
+    const picked = chooseEngine(seen, { availableEngines: available });
+    const rows = seen.rowCountEstimate;
+    notes.push(
+      `data["${table}"]: engine "auto" resolved to ${picked} (${rows.toLocaleString('en-US')} rows, against the measured row threshold in chooseEngine — declare an engine to choose otherwise)${clampNote(seen, picked, available)}`,
+    );
+    return picked;
   }
   // the same law one step over: if a round number may not route to a stub silently,
   // neither may a declaration — the author hears at BUILD what the table says at READ
@@ -354,10 +432,28 @@ function resolveEngine(
   return engine;
 }
 
+/**
+ * The other half of the `auto` note: what the MEASUREMENT said, when the
+ * availability clamp walked it back.
+ *
+ * WHY it has to be said out loud: `availableEngines` defaults to `['memory']`,
+ * so a 400,000-row table crosses the measured threshold, `chooseEngine` picks
+ * wasm on the numbers, the clamp answers memory because nobody told this build
+ * wasm was there — and the note alone would read as if the bench had chosen
+ * memory. It names the remedy, because "the threshold said wasm" without one is
+ * a fact an author cannot act on.
+ */
+function clampNote(seen: CountedStats, picked: ResolvedEngine, available: readonly ResolvedEngine[]): string {
+  const measured = chooseEngine(seen, { availableEngines: RESOLVED_ENGINES });
+  if (measured === picked) return '';
+  return `; the measured threshold said ${measured}, which this build was not told is available — pass availableEngines: ${JSON.stringify([...available, measured])} to allow it`;
+}
+
 function buildProvider(
   engine: ResolvedEngine,
   table: string,
   source: { rows?: readonly unknown[]; csv?: string; layout?: 'row' | 'column' },
+  wasm: WasmBackend,
 ): DataProvider {
   switch (engine) {
     case 'memory':
@@ -366,8 +462,9 @@ function buildProvider(
         ...(source.layout ? { layout: source.layout } : {}),
       });
     case 'wasm':
-      // Typed stub — declares the table so tables() is honest; every op rejects.
-      return wasmProvider({ sources: { [table]: { kind: 'objects', data: [] } } });
+      // The declared bytes, and this build's ONE connection. Still inert: nothing
+      // opens and nothing lands until a read needs an answer (`./wasmBackend.ts`).
+      return wasm.provider(table, wasmBytesOf(source));
     case 'server':
       return serverProvider({ tables: [table] });
   }
@@ -403,14 +500,21 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
   // the host's own options — the providers it brought and the engines it says it has — judged with the def, before a table is built
   const hostProblems = [...judgeProviders(def, options.providers), ...judgeAvailableEngines(options.availableEngines)];
   if (hostProblems.length) throw new DashboardDefError(hostProblems);
-  // a table whose rows must be fetched cannot be built synchronously — say so rather than pretend
-  const remote = Object.entries(def.data).filter(([, src]) => src.source !== undefined && src.source.via !== 'inline').map(([t, src]) => `data["${t}"] declares a source via ${src.source!.via} — build it with buildDashboardAsync`);
-  if (remote.length) throw new DashboardDefError(remote);
+  // What this door cannot do for a source table, one sentence per table: its bytes
+  // must be FETCHED (an await), or LANDED in a SQL backend (also an await).
+  const asyncOnly: string[] = [];
+  for (const [table, src] of Object.entries(def.data)) {
+    if (src.source === undefined) continue;
+    if (src.source.via !== 'inline') asyncOnly.push(`data["${table}"] declares a source via ${src.source.via} — build it with buildDashboardAsync`);
+    else if (src.engine === 'wasm') asyncOnly.push(`data["${table}"] declares a source with engine "wasm" — a source's rows are landed in the SQL backend by an await; build it with buildDashboardAsync`);
+  }
+  if (asyncOnly.length) throw new DashboardDefError(asyncOnly);
 
   const available = options.availableEngines ?? DEFAULT_AVAILABLE;
   const notes: string[] = [];
   const sources: Record<string, SourceInfo> = {};
   const journal: RefreshRecord[] = []; // the data journal — refreshes, oldest first
+  const wasm = wasmBackend(options.openSqlConnection); // inert until a wasm table is declared, and then until it is read
 
   // ── resolve data → one provider per table (D24) ──
   const providers = new Map<string, DataProvider>();
@@ -437,9 +541,11 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
     }
     const engine = resolveEngine(source.engine, () => statsOf(source), available, table, notes);
     engines[table] = engine;
-    providers.set(table, buildProvider(engine, table, source));
+    providers.set(table, buildProvider(engine, table, source, wasm));
+    // the one thing this door cannot do for the engine that runs: land the bytes
+    if (engine === 'wasm') notes.push(wasmLazyNote(table));
   }
-  return assemble(def, options, providers, engines, sources, notes, journal, new DerivedColumnStore(), derivedTableSlots(providers));
+  return assemble(def, options, providers, engines, sources, notes, journal, new DerivedColumnStore(), derivedTableSlots(providers), wasm);
 }
 
 /**
@@ -457,6 +563,7 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
   const notes: string[] = [];
   const sources: Record<string, SourceInfo> = {};
   const journal: RefreshRecord[] = []; // the data journal — refreshes, oldest first
+  const wasm = wasmBackend(options.openSqlConnection);
   const providers = new Map<string, DataProvider>();
   const engines: Record<string, Engine> = {};
   for (const [table, source] of Object.entries(def.data)) {
@@ -473,8 +580,16 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
     if (source.source !== undefined) {
       // the carrier's refusal is the def's problem, in the same shape the sync door raises it
       const snap = await readSource(source.source, table, options.sources ?? []);
-      engines[table] = 'memory';
-      providers.set(table, memoryProvider(snap.rows, { tableName: table, ...(source.layout ? { layout: source.layout } : {}) }));
+      // A source table's rows go wherever its engine reads them: into this process,
+      // or into the SQL backend — which is why a source may declare "wasm" at all
+      // (../def/README.md, "A source table and the wasm engine").
+      engines[table] = source.engine === 'wasm' ? 'wasm' : 'memory';
+      providers.set(
+        table,
+        source.engine === 'wasm'
+          ? wasm.provider(table, wasmRowBytes(snap.rows))
+          : memoryProvider(snap.rows, { tableName: table, ...(source.layout ? { layout: source.layout } : {}) }),
+      );
       sources[table] = {
         format: source.source.format,
         via: source.source.via,
@@ -488,7 +603,14 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
     }
     const engine = resolveEngine(source.engine, () => statsOf(source), available, table, notes);
     engines[table] = engine;
-    providers.set(table, buildProvider(engine, table, source));
+    providers.set(table, buildProvider(engine, table, source, wasm));
+  }
+  // THE DOOR THAT CAN AWAIT, DOES: every wasm table's bytes land here, so a caller
+  // who asked for this door is handed an engine that has already answered its first
+  // question. A landing that failed is a NOTE and a refused read — never a throw
+  // past this door, which would lose the tables that did land.
+  for (const outcome of await wasm.settle()) {
+    if ('failed' in outcome) notes.push(wasmFailedNote(outcome.table, outcome.failed));
   }
   const adapters = options.sources ?? [];
   // Which table-store slots hold TRACE-derived columns (src/data/README.md).
@@ -513,6 +635,16 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
       }
       if (decl.source === undefined || held === undefined) {
         out[table] = { refused: true, reason: 'no-source', message: `data["${table}"] declares no source — inline rows never move` };
+        continue;
+      }
+      if (engines[table] === 'wasm') {
+        // A refresh swaps an ARRAY for a new one. This table's rows are not an
+        // array — they are a table in a SQL backend, and re-landing them is a
+        // different act with a different delta (read the old rows back out of the
+        // backend, re-land, re-DESCRIBE). Refused in a sentence rather than done
+        // by silently swapping the table onto the memory engine, which is what
+        // "just build a memoryProvider here" would mean.
+        out[table] = { refused: true, reason: 'not-reloadable', message: `data["${table}"] runs on the "wasm" engine — its rows were landed in a SQL backend at build, and this builder does not re-land them; close() this dashboard and build again to read the source afresh` };
         continue;
       }
       try {
@@ -572,7 +704,7 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
     queue = next.catch(() => undefined);
     return next;
   };
-  return assemble(def, options, providers, engines, sources, notes, journal, derived, derivedTables, refresh);
+  return assemble(def, options, providers, engines, sources, notes, journal, derived, derivedTables, wasm, refresh);
 }
 
 /**
@@ -782,7 +914,7 @@ function derivedTableSlots(providers: Map<string, DataProvider>): DerivedTableSl
  * never saw a refresh again. One object literal, built once, cannot go wrong
  * that way.
  */
-function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[], derived: DerivedColumnStore, derivedTables: DerivedTableSlots, refresh?: Dashboard['refresh']): Dashboard {
+function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[], derived: DerivedColumnStore, derivedTables: DerivedTableSlots, wasm: WasmBackend, refresh?: Dashboard['refresh']): Dashboard {
   freezeDefinition(def);
   const saved: SavedStore = { list: [], minted: 0 }; // saved selections: logic beside the log, shared by every session (the counter rides the store: it outlives every session)
   const bookmarks: BookmarkStore = { list: [], minted: 0 }; // bookmarks: names on moments beside the log, shared by every session
@@ -925,6 +1057,8 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     bookmarks: () => bookmarks.list.map((t) => ({ ...t })),
     restoreBookmarks: (list) => restoreBookmarksInto(bookmarks, list, commitIds),
     createSession: (opts) => createInteractionSession(runtime, opts),
+    // the ONE thing this build owns outside this process (./wasmBackend.ts, law 4)
+    close: () => wasm.close(),
     lintProse: async () => {
       const cols = await providers.get(defaultTable)!.columns(defaultTable);
       if (isRejection(cols)) throw new Error(`lintProse: the "${defaultTable}" provider cannot list its columns — ${cols.detail ?? cols.reason}`);

@@ -100,7 +100,10 @@ describe('the def door (build throws) for the encoding plane', () => {
   });
   it('lint() throws when the provider cannot list columns (a stub engine): nothing to judge is not nothing wrong', async () => {
     const def: DashboardDef = { ...base, data: { cases: { rows, engine: 'wasm' } }, encodings: [] };
-    await expect(buildDashboard(def, { availableEngines: ['memory', 'wasm'] }).lint()).rejects.toThrow(/cannot list its columns/);
+    // the engine is real (it opens a DuckDB where it finds a host), so the thing this
+    // test needs — a provider that cannot list columns — is made by refusing the OPEN
+    const cannotOpen = { availableEngines: ['memory' as const, 'wasm' as const], openSqlConnection: () => Promise.reject(new Error('no database in this test')) };
+    await expect(buildDashboard(def, cannotOpen).lint()).rejects.toThrow(/cannot list its columns/);
   });
   it('a malformed encodings entry is refused structurally and not judged again; a def with no default-table data still validates', () => {
     const problems = validateDashboardDef({ ...base, encodings: [{ viewId: 'bar', chartKind: 'bar', channels: ['category'], initial: { category: 1 } }] } as unknown as DashboardDef);

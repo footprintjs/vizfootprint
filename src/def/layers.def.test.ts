@@ -126,7 +126,10 @@ describe('layers — the def door', () => {
     // a stub engine on the EDGES table only: the default table lists its columns, the layer's cannot
     const def = makeNetworkDef();
     const stubbed: DashboardDef = { ...def, data: { ...def.data, edges: { ...def.data.edges!, engine: 'wasm' } } };
-    await expect(buildDashboard(stubbed, { availableEngines: ['memory', 'wasm'] }).lint()).rejects.toThrow(/^lint: the "edges" provider cannot list its columns — /);
+    // …and it cannot list them because the connection never opens: the wasm engine itself
+    // answers fine where a DuckDB can be opened, which is not what this law is about
+    const cannotOpen = { availableEngines: ['memory' as const, 'wasm' as const], openSqlConnection: () => Promise.reject(new Error('no database in this test')) };
+    await expect(buildDashboard(stubbed, cannotOpen).lint()).rejects.toThrow(/^lint: the "edges" provider cannot list its columns — /);
   });
 
   it('the surfaces the build door judges — one per well-formed layer on a declared table, under its address', () => {

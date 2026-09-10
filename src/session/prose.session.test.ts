@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { buildDashboard, validateDashboardDef } from '../def/index.js';
 import type { DashboardDef } from '../def/index.js';
 import { vizAsTools } from '../agent/vizAsTools.js';
-import { makeDashboardDef } from './dashboard.fixture.js';
+import { makeDashboardDef, noSqlConnection } from './dashboard.fixture.js';
 import type { Cause } from '../cause/index.js';
 import type { ProseRecord } from '../prose/index.js';
 
@@ -42,7 +42,7 @@ describe('the def door and the lint door', () => {
     expect(() => buildDashboard(derivedElsewhere)).toThrow(/nothing to derive from/);
     expect(await buildDashboard(withProse()).lintProse()).toEqual([]);
     const stub: DashboardDef = { ...withProse(), data: { data: { rows: [], engine: 'wasm' } } };
-    await expect(buildDashboard(stub, { availableEngines: ['memory', 'wasm'] }).lintProse()).rejects.toThrow(/cannot list its columns/);
+    await expect(buildDashboard(stub, { availableEngines: ['memory', 'wasm'], ...noSqlConnection }).lintProse()).rejects.toThrow(/cannot list its columns/);
   });
 });
 
@@ -148,7 +148,7 @@ describe('the remaining doors', () => {
     expect(validateDashboardDef(def)).toEqual([]);
     const s = buildDashboard(def).createSession();
     expect((await s.overview()).views.find((v) => v.viewId === 'cluster')!.prose.map((p) => p.text)).toEqual(['Clusters']);
-    const stub = buildDashboard({ ...def, data: { data: { rows: [], engine: 'wasm' } } }, { availableEngines: ['memory', 'wasm'] }).createSession();
+    const stub = buildDashboard({ ...def, data: { data: { rows: [], engine: 'wasm' } } }, { availableEngines: ['memory', 'wasm'], ...noSqlConnection }).createSession();
     const res = await stub.dispatch({ verb: 'describe', viewId: 'cluster', slot: 'title', record: null, cause: userCause() });
     expect(!res.ok && res.rejection.code).toBe('needs-backend-data');
   });
@@ -196,7 +196,7 @@ describe('the author port — propose, accept, decline', () => {
     expect(o.views.find((v) => v.viewId === 'bar')!.proposals).toEqual([]);
     const lawless = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: { text: 'x', author: { kind: 'agent' } }, proposal: true, cause: userCause() });
     expect(!lawless.ok && lawless.rejection.detail).toContain('states no basis');
-    const stub = buildDashboard({ ...withProse(), data: { data: { rows: [], engine: 'wasm' } } }, { availableEngines: ['memory', 'wasm'] }).createSession();
+    const stub = buildDashboard({ ...withProse(), data: { data: { rows: [], engine: 'wasm' } } }, { availableEngines: ['memory', 'wasm'], ...noSqlConnection }).createSession();
     expect((await stub.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: draft, proposal: true, cause: userCause() })).ok).toBe(false);
     const nothing = await s.dispatch({ verb: 'describe', viewId: 'scatter', slot: 'caption', record: null, proposal: true, cause: userCause() });
     expect(!nothing.ok && nothing.rejection.detail).toContain('null is not a proposal');

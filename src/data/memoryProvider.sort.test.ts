@@ -97,15 +97,17 @@ describe.each(['row', 'column'] as const)('memoryProvider.evaluate — sort, off
     }
   });
 
-  it('the stub engines refuse a sort with the one sentence every engine keeps — never an answer in source order', async () => {
-    for (const stub of [wasmProvider(), serverProvider()]) {
-      expect(stub.capabilities.canSort).toBeUndefined();
-      const r = await stub.evaluate('data', null, { sort: [{ field: 'x', dir: 'asc' }] });
-      // the DETAIL is read from its owner, never re-typed here: a stub that cannot sort also cannot answer
-      // the unsorted window the old remedy sent a caller to, so the whole refusal is the minted one
-      expect(r).toMatchObject({ reason: 'unsupported-sort', detail: stubEngineRefusal(stub.engine as 'wasm' | 'server', 'data') });
-      expect((await stub.evaluate('data', null, { sort: [] })) as { reason: string }).not.toMatchObject({ reason: 'unsupported-sort' }); // an empty sort is no sort
-    }
+  it('the stub engine refuses a sort with the one sentence every engine keeps — never an answer in source order', async () => {
+    const stub = serverProvider();
+    expect(stub.capabilities.canSort).toBeUndefined();
+    const r = await stub.evaluate('data', null, { sort: [{ field: 'x', dir: 'asc' }] });
+    // the DETAIL is read from its owner, never re-typed here: a stub that cannot sort also cannot answer
+    // the unsorted window the old remedy sent a caller to, so the whole refusal is the minted one
+    expect(r).toMatchObject({ reason: 'unsupported-sort', detail: stubEngineRefusal('server', 'data') });
+    expect((await stub.evaluate('data', null, { sort: [] })) as { reason: string }).not.toMatchObject({ reason: 'unsupported-sort' }); // an empty sort is no sort
+    // the wasm engine is NOT in this loop any more: it declares `canSort` and renders the ORDER BY itself
+    // (`wasmProvider.test.ts`) — the gate a session reads before it offers a sorted window is the capability, not the engine's name
+    expect(wasmProvider().capabilities.canSort).toBe(true);
   });
 
   it('keeps the permutations a person comes back to: a hit is fresh again, the least recently used goes first, the cap is a dial', async () => {

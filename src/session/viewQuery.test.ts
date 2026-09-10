@@ -85,8 +85,9 @@ describe('viewQuery — the whole-dashboard truth and the window', () => {
     expect(col).toEqual({ ok: false, reason: 'engine', engineReason: 'unknown-column', rejected: 'table "data" has no column "ghost" to sort by' });
     const window = await s.viewQuery({ offset: -3 });
     expect(window).toEqual({ ok: false, reason: 'engine', engineReason: 'bad-window', rejected: 'offset must be a whole number at or above zero (got -3)' });
-    const stub = buildDashboard(makeDashboardDef({ engine: 'wasm' })).createSession();
-    expect(await stub.viewQuery({ sort: [{ field: 'price', dir: 'asc' }] })).toEqual({ ok: false, reason: 'unsupported-sort', rejected: 'the wasm engine cannot sort. Ask for this window without a sort' });
+    // the engine that cannot sort is the typed stub: `wasm` declares `canSort` now (it renders the ORDER BY itself), so the pre-flight gate is exercised by `server`
+    const stub = buildDashboard(makeDashboardDef({ engine: 'server' })).createSession();
+    expect(await stub.viewQuery({ sort: [{ field: 'price', dir: 'asc' }] })).toEqual({ ok: false, reason: 'unsupported-sort', rejected: 'the server engine cannot sort. Ask for this window without a sort' });
     const unsorted = await stub.viewQuery();
     expect(!unsorted.ok && unsorted.reason).toBe('no-columns'); // the stub engine's own sentence, never a fabricated window
   });

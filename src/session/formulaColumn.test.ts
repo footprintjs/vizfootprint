@@ -16,6 +16,7 @@ import { buildDashboard } from '../def/index.js';
 import type { DashboardDef } from '../def/index.js';
 import type { Cause } from '../cause/index.js';
 import type { DataRow } from '../analysis/index.js';
+import { noSqlConnection } from './dashboard.fixture.js';
 
 const cause: Cause = { requestedBy: 'user', computedBy: 'user', intent: 'a test' };
 
@@ -138,12 +139,12 @@ describe('judged before anything moves', () => {
 
   it('refuses when the engine cannot say what its columns are — never judged on a guess', async () => {
     const def: DashboardDef = {
-      data: { data: { rows: [...ROWS], engine: 'wasm' } }, // the wasm engine is a typed stub: it answers nothing
+      data: { data: { rows: [...ROWS], engine: 'wasm' } }, // …on a connection that never opens (`noSqlConnection`), so the engine can say nothing about its columns
       actors: { grid: { actor: 'user', label: 'The grid' } },
       analyses: { rate: { builtin: 'formula', expression: 'cases / people', name: 'rate' } },
       defaultTable: 'data',
     };
-    const s = buildDashboard(def).createSession();
+    const s = buildDashboard(def, noSqlConnection).createSession();
     const made = await s.declareAnalysis('rate', { cause });
     expect(made.commit).toBeUndefined();
     expect(made.gap).toMatchObject({ code: 'needs-backend-data', op: 'declareAnalysis', target: 'rate' });

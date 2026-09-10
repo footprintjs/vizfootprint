@@ -30,6 +30,7 @@ import { defineAnalysis } from '../analysis/index.js';
 import type { AnalysisModule, ColumnsOutput, DataRow } from '../analysis/index.js';
 import type { Expr, Measure } from '../derive/index.js';
 import { vizAsTools } from '../agent/index.js';
+import { noSqlConnection } from './dashboard.fixture.js';
 
 const cause: Cause = { requestedBy: 'user', computedBy: 'user', intent: 'a test' };
 
@@ -341,10 +342,10 @@ describe('an aggregate can be a parent in turn', () => {
 
 describe('the three outcomes stay distinct', () => {
   it('a parent whose engine refuses the read is UNAVAILABLE — the engine’s own rejection, never a fabricated degenerate fit', async () => {
-    const s = buildDashboard(defWith(byDisease(), { engine: 'wasm' })).createSession();
+    const s = buildDashboard(defWith(byDisease(), { engine: 'wasm' }), noSqlConnection).createSession();
     const made = await s.declareAnalysis('by_disease', { cause });
 
-    expect(made.result).toEqual({ ok: false, reason: 'unavailable', rejection: { ok: false, engine: 'wasm', operation: 'columns', reason: 'not-implemented', detail: expect.any(String) } });
+    expect(made.result).toEqual({ ok: false, reason: 'unavailable', rejection: { ok: false, engine: 'wasm', operation: 'columns', reason: 'no-backend-connection', detail: expect.any(String) } });
     expect(made.commit).toBeUndefined();
     expect(made.gap!.code).toBe('derive-source-refused');
     expect(s.tablesAt()).toEqual(['cells']); // nothing landed

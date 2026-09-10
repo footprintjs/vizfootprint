@@ -1,23 +1,89 @@
 # data — the rows, the engine, and one walk over them
 
-The query port (`DataProvider`: tables, columns, `evaluate(table, clause | clause[] | null)`, `materializeColumn`) is OUR shape; the memory engine answers it today, and the wasm and server engines are typed stubs that render the same SQL descriptor. A clause list is its AND, so the whole live selection is one question.
+The query port (`DataProvider`: tables, columns, `evaluate(table, clause | clause[] | null)`, `materializeColumn`) is OUR shape; the memory engine answers it in this process, the wasm engine answers it out of DuckDB-WASM over a `SqlConnection`, and the server engine is a typed stub that renders the same SQL descriptor. A clause list is its AND, so the whole live selection is one question.
 
-## The two engines this version does not run
+## The engine this version does not run
 
-Three engines are named; one answers. `memoryProvider` runs. `wasmProvider` and `serverProvider` are typed stubs — declared so the port's shape is honest before the backends exist — and a stub answers **only its declared table list**: every read of a column or a row is refused. `stubEngines.ts` is the one place that says so, so the build door and the read door say it in the same words instead of each inventing its own:
+Three engines are named; two answer. `memoryProvider` runs in this process and `wasmProvider` runs over a SQL connection (below). `serverProvider` is a typed stub — declared so the port's shape is honest before a Mosaic Coordinator exists — and a stub answers **only its declared table list**: every read of a column or a row is refused. `stubEngines.ts` is the one place that says so, so the build door and the read door say it in the same words instead of each inventing its own:
 
 ```ts
-await wasmProvider().columns('cases');
-// { ok: false, engine: 'wasm', operation: 'columns', reason: 'not-implemented',
-//   detail: 'the "wasm" engine answers no query in this version — it is a typed stub: it names
+await serverProvider({ tables: ['cases'] }).columns('cases');
+// { ok: false, engine: 'server', operation: 'columns', reason: 'not-implemented',
+//   detail: 'the "server" engine answers no query in this version — it is a typed stub: it names
 //            its declared tables and answers nothing else. Declare engine "memory" to run "cases"
 //            in this process, or bring the engine yourself: pass
 //            { providers: { "cases": yourProvider } } to the builder you already call' }
 ```
 
-Two laws sit inside that sentence. **A refusal points at what to do instead** — "no DuckDB-WASM connector is wired yet" names our build order, where the person reading it is holding a table that answers nothing. And **one wording, every door**: `buildDashboard` quotes these exact words as a build note the moment a def routes a table here, and `lint()` throws them ([`../def/README.md`](../def/README.md)), so nobody learns the same fact twice, differently. Change the words in `stubEngines.ts` and every door moves together; write them anywhere else and they drift.
+Two laws sit inside that sentence. **A refusal points at what to do instead** — "no Coordinator is wired yet" names our build order, where the person reading it is holding a table that answers nothing. And **one wording, every door**: `buildDashboard` quotes these exact words as a build note the moment a def routes a table here, and `lint()` throws them ([`../def/README.md`](../def/README.md)), so nobody learns the same fact twice, differently. Change the words in `stubEngines.ts` and every door moves together; write them anywhere else and they drift.
+
+`STUB_ENGINES` is that list, and it is DATA for exactly this reason: it shrank from two names to one the day the wasm engine started answering, and every door that judges "does this declaration route to something that runs?" shrank with it, in the same edit. A second hand-typed list would have gone on refusing a table that now runs.
 
 `tables()` is the one thing a stub still answers honestly — the DECLARED list is real information, and an empty array would be a lie of a different kind, which is why the sentence itself says so rather than claiming the table is wholly dark. A sorted window keeps its own REASON (`unsupported-sort`, the law every engine keeps) and quotes the same sentence for its detail, because "ask for this window without a sort" pointed a caller at a second refusal. The one refusal here that is *not* the shared sentence is `serverProvider.materializeColumn`: it is refused by the declared capability (`canMaterialize: false`), not by our build order, because a real Coordinator behind that provider would refuse a write-back too — and the remedy never names a builder, because which door an author must call is a fact about the whole def (a remote source forces `buildDashboardAsync`), not about the table being refused.
+
+## The wasm engine: a real SQL backend, opened only when something is asked
+
+`wasmProvider` answers real queries out of DuckDB-WASM. Six laws hold it up, and each one is why a line of it looks the way it does.
+
+**The door is the BUILD, because the build is what lands bytes.** A def declares the engine; `buildDashboardAsync` opens ONE connection, lands every wasm table's bytes in it, and hands back a dashboard that has already answered its first question. That is the path to write — the provider below is what it wires up for you.
+
+```ts
+const dash = await buildDashboardAsync(
+  { meta: { title: 'cases' }, data: { cases: { csv, engine: 'wasm' } }, actors: { grid: { actor: 'user', label: 'Grid' } } },
+  // omitted, this is `duckdbConnection()`: DuckDB-WASM in a browser, the node bundle under node
+);
+await dash.createSession().viewQuery({ table: 'cases', columns: ['week', 'disease'] }); // out of DuckDB
+await dash.close();                  // whoever opened it closes it — see below
+```
+
+**Choosing an engine is not asking it something.** Construction is inert: no DuckDB import, no worker, no bundle fetch, no connection. The backend arrives through `SqlConnection` — either one already open, or an `open` function called at most ONCE, by the first read that needs it.
+
+```ts
+const provider = wasmProvider({
+  sources: ['cases'],                // the tables this provider SERVES: names, nothing else
+  open: duckdbConnection(),          // nothing has been imported or spawned yet
+});
+await provider.tables();             // ['cases'] — still nothing: this is a fact about the DECLARATION
+await provider.evaluate('cases', { kind: 'point', field: 'disease', value: 'Lyme' }); // NOW it opens, once
+```
+
+**The bytes are landed by the BUILD, not by this provider.** `wasmProvider` is handed the NAMES of the tables it serves (`sources`) and a way to reach a backend; who puts the rows in that backend is the def door's job — [`../def/wasmBackend.ts`](../def/README.md) runs `loadTableSQL` for every wasm table in a def, through ONE connection, at most once. `buildDashboardAsync` does it before it returns the dashboard; `buildDashboard` cannot await, so the same landing happens on the first read and the build says so in a note. A table this provider was declared with but whose bytes never arrived is refused by the backend in the backend's own words (`no-backend-connection`), which is why the failure a reader meets always names a cause somebody can act on.
+
+`duckdbConnection.ts` is the only module that names `@duckdb/duckdb-wasm`, and it names it inside the returned function — a static import anywhere in this tree would drag a WASM bundle into every build that merely mentions the data seam. An open that throws is remembered, not retried: every later read hears the same cause, and the fix is a new provider.
+
+**A row's identity is read, never inferred.** DuckDB does not promise insertion order back, so a table this engine loads carries `__row` — 0-based, assigned by the same statement that reads the bytes (`loadTableSQL`). `evaluate` strips it from every row and answers it as `indices`; `columns()` never lists it, because a bookkeeping column offered as an encodable one would let a sheet draw the load order as if it were data.
+
+**A value comes back as this library's own, not as DuckDB's wire type.** Two halves. The database is opened with `castBigIntToDouble` and `castDecimalToDouble` (`duckdbConnection.ts`, `READ_CONFIG`), because `read_json_auto`/`read_csv_auto` infer BIGINT for every integer column — unset, a def's `amount: 15` comes back as `15n` while `columns()` says `number`, `JSON.stringify` throws on it, and `equalWidthBins`/`boxSummary` read every value as ABSENT. And a `date`-typed column's epoch number is read back as the ISO string the memory engine holds — a DATE as the day (`'2026-04-05'`), a TIMESTAMP as the whole instant — using the type words that table's own `DESCRIBE` gave. Measured, not assumed: a TIME still arrives as a bigint of microseconds and an INTERVAL as DuckDB's own object, because this library has no value for either and does not invent one. `engineInvariant.test.ts` compares the two engines' rows RAW: the normalizer that used to sit there was hiding this bug.
+
+**Every rendered order ends in the source-order column.** `ORDER BY "cases" DESC` over a tied column is not a total order, and two pages of one window are two statements: before the tie-break, page 2 of a 300,000-row window repeated rows page 1 had served and never served others at all. `sqlWindow.ts` appends `"__row" ASC` as the last key for a table this engine loaded (a table it did not load has no such column, and gets no such key) — which also makes the order the one the memory engine keeps, whose ties stay in source order.
+
+**And an unsorted PAGE is served in source order.** The same reason with the sort taken away: a window that asked for no order is not a total order either — every row is tied with every other — and the sheet pages unsorted, so this is the default window, not an exotic one. `sqlWindow.ts` renders `ORDER BY "__row" ASC` as the *whole* order whenever a `LIMIT` or an `OFFSET` is present on a table this engine loaded. A full unpaged read stays unordered on purpose: with no window there is no boundary for a row to fall on the wrong side of, every matching row comes back exactly once whatever order the scan chose, and a reader that cares about position reads `__row` off the rows (`indices: true`) — sorting 300,000 rows to hand back all 300,000 of them would buy that reader nothing. What holds this down is an assertion on the rendered statement, not on the rows: with the clause removed, the 300,000-row paging test still passed on a scan that happened to come back in source order (`engineInvariant.test.ts`), which is the defect exactly — the order was never *promised*.
+
+**The descriptor and the statement are different strings, on purpose.** `evaluate().sql` is `resolvePredicateSQL`'s output — byte-identical to what the memory engine returns for the same clause, which is what the commit log's `predicateSQL` rests on. What actually RUNS is that descriptor wrapped by `windowSQL`, plus a second `COUNT(*)` statement: `count` is how many rows MATCH, and counting the window's own rows would report its size as the size of the selection.
+
+**Everything it cannot do says which word it is refused under.** A table nobody declared is `unknown-table` (quoting the list that WAS declared); a clause or sort key on a column the schema does not have is `unknown-column`, in the memory engine's exact words; a malformed window is `bad-window` before the backend is asked anything; no connection — or a backend that throws — is `no-backend-connection`, quoting the statement and the engine's own message. `materializeColumn` is refused by a declared capability (`canMaterialize: false`), so a caller can branch before calling.
+
+**Whoever opened it closes it.** A connection this provider was HANDED (`connection`) is never closed by it, and neither is one an `open` function it was given opened — the party that passed the opener owns the release, because only that party knows whether another provider is still reading the same database. For a def that party is the build, and it surfaces the act as `Dashboard.close()`: it closes the connection the build itself opened and leaves a host's own `openSqlConnection` result alone. Each table's `DESCRIBE` is also remembered for the life of a provider, so a table re-landed under the same connection needs a new build, not a second read.
+
+**It opens in EITHER host, and which one is judged when the opener is called.** `duckdbConnection()` opens `AsyncDuckDB` over a `Worker` in a browser, and under node it opens the bundle DuckDB-WASM ships for node — the BLOCKING bindings (`dist/duckdb-node-blocking.cjs`): no worker, no download, the `.wasm` read off disk. `duckdbHostOf` reads two facts (is there a `Worker`; is there a `process.getBuiltinModule`, i.e. node ≥ 22.3/20.16) and an environment that is neither is refused in a sentence — `NO_DUCKDB_HOST` — before anything is imported. A caller who knows better says so: `duckdbConnection({ host: 'node' })` names the host as an ASSERTION and skips the judgement, which is what a jsdom suite needs (jsdom defines a `Worker`, so the judgement would send it to the CDN arm). Two details are load-bearing: the node specifier lives in a `const` no bundler can resolve statically, because that bundle is CJS-only while the package's `./blocking` entry names an `.mjs` it does not ship — a browser build of an app that merely imports this seam fails on it, which this repo's own demo bundles caught. And because node can open the real thing, the D24 invariant is proven against a REAL DuckDB: `engineInvariant.test.ts`'s FOURTH layout lands the same four rows in it and asks every logged commit — point, interval, cleared, cell, neighbourhood — for `sql`, `count` and rows, against the memory engine's answers, plus a sorted window and a second page.
+
+## What the two engines cost — measured, not guessed
+
+`bench/step0-wasm` puts both engines on one clock, in one process, on the same rows. **node v22.16.0 · darwin arm64 · 2026-09-10** — median of 3–7 repetitions, 2 warm-ups discarded (0–1 for the load arms, which open a fresh database each time), `--expose-gc` between samples ([`wasm-table.md`](../../bench/step0-wasm/wasm-table.md) carries each arm's spread, its own warm-up count, and the controls):
+
+| arm — memory / DuckDB-WASM | 90,300 rows | 300,000 rows | 1,000,000 rows |
+|---|---:|---:|---:|
+| construct or load the table | 6.45 / 345 ms | 21.7 / 507 ms | 72.7 / 935 ms |
+| `COUNT` (point AND interval) | 4.13 / 1.73 ms | 9.58 / 2.94 ms | 32.3 / 7.08 ms |
+| window, `limit 100` | 3.01 / 2.95 ms | 9.80 / 4.42 ms | 32.2 / 8.62 ms |
+| sorted window, repeat asks | 6.92 / 3.70 ms | 24.1 / 6.20 ms | 97.5 / 14.8 ms |
+| FIRST sorted ask, fresh table (memory only) | 33.0 ms | 125 ms | 517 ms |
+
+Read it as a trade, because that is what it is: **DuckDB is faster on every read at every size** (0.15×–0.55× at and above 300,000 rows) and costs **345–935 ms once** to open and land the table. **Choosing it is buying reads with a startup.** At 90,300 and 300,000 rows the memory engine answers every steady-state read in 3–24 ms — inside an interaction budget — so its ~500 ms cheaper start is the better trade for a dashboard that opens, filters and closes. At 1,000,000 it is not: a sorted window is 97.5 ms and the first sorted ask 517 ms, against DuckDB's 14.8 ms.
+
+So `chooseEngine`'s `DEFAULT_ENGINE_THRESHOLDS.maxMemoryRows` is **300,000** — the largest size the bench measured the memory engine winning at, and a measured size rather than a point interpolated between two others (the bench ran a third size for exactly this reason). `engine: 'auto'` now FOLLOWS that number instead of always answering `memory`, and the build note says which side of it the table fell on: `engine "auto" resolved to wasm (300,001 rows, against the measured row threshold in chooseEngine — declare an engine to choose otherwise)`.
+
+What is still **unmeasured, and says so** rather than routing on a guess: no memory FOOTPRINT was sampled and the bench never found DuckDB's ceiling (it landed 1,000,000 rows without complaint), so `maxMemoryBytes`, `maxWasmRows` and `maxWasmBytes` are all `Infinity` — a threshold saying "no threshold" out loud. An invented byte cap would silently veto the one number that WAS measured (the policy ANDs the axes), and an invented row ceiling would send a table to `serverProvider`, which is a typed stub that answers nothing. A host that knows its own budget passes `thresholds`. These are also NODE numbers: a browser pays a bundle download, has no `--expose-gc`, and runs the async bundle over a Worker — read the ratios, not the absolute milliseconds.
 
 ## Reading a commit: ONE translation, two evaluators
 
@@ -115,7 +181,39 @@ Not a recorder: bins — `bins.ts` recounts NEW values into fixed edges, one wal
 
 ## The sheet's window (`sort`, `offset`, `indices`)
 
-`evaluate(table, clauses, { sort, offset, limit, indices })` is the one call a sheet window makes. `sort` is a list of `{ field, dir, absent }` keys; the memory engine builds ONE permutation per (table, sort spec) — an `Int32Array` sorted in place — and keeps the most recently used few per table (`sortCache`, default `SORT_CACHE_PER_TABLE` = 8; 4 bytes per row per kept sort), rebuilt when the row count moved and dropped when a column is materialised; a window walks the permutation with the predicate, so a brush never rebuilds the sort. The order is total: numbers, then dates, then booleans, then everything by its text, then what cannot say itself — ranks never mix, so `2`, `10` and `"100"` cannot loop; ties keep source order; absent values (null, undefined, NaN, an invalid date) sit together at one end, last unless `absent: 'first'`. `offset` skips matching rows and comes back as `start` (clamped to `count`); every match is counted but only the window's rows are collected; `indices: true` returns each row's source-order index, which the session turns into a positional row id (`<version>#<index>`) when the table declares no key. A malformed window is refused (`bad-window`) and a sort by a missing column is refused (`unknown-column`) in both modes; an engine without `capabilities.canSort` refuses a sort (`unsupported-sort`, enforced in every engine) rather than answering in source order. The session's `viewQuery` / `clausesFor` (src/session) sit above this: whose eyes, which clauses reach, the row identity, and a default window of `VIEW_QUERY_DEFAULT_LIMIT` rows.
+`evaluate(table, clauses, { sort, offset, limit, indices })` is the one call a sheet window makes. `sort` is a list of `{ field, dir, absent }` keys; the memory engine builds ONE permutation per (table, sort spec) — an `Int32Array` sorted in place — and keeps the most recently used few per table (`sortCache`, default `SORT_CACHE_PER_TABLE` = 8; 4 bytes per row per kept sort), rebuilt when the row count moved and dropped when a column is materialised; a window walks the permutation with the predicate, so a brush never rebuilds the sort. The order is total: numbers, then dates, then booleans, then everything by its text, then what cannot say itself — ranks never mix, so `2`, `10` and `"100"` cannot loop; ties keep source order; absent values (null, undefined, NaN, an invalid date) sit together at one end, last unless `absent: 'first'`. `offset` skips matching rows and comes back as `start` (clamped to `count`); every match is counted but only the window's rows are collected; `indices: true` returns each row's source-order index, which the session turns into a positional row id (`<version>#<index>`) when the table declares no key. A malformed window is refused (`bad-window`) and a sort or projection naming a missing column is refused (`unknown-column`) in both modes; an engine without `capabilities.canSort` refuses a sort (`unsupported-sort`, enforced in every engine) rather than answering in source order. The session's `viewQuery` / `clausesFor` (src/session) sit above this: whose eyes, which clauses reach, the row identity, and a default window of `VIEW_QUERY_DEFAULT_LIMIT` rows.
+
+### One law for the projection and the sort
+
+`columns` says which columns come BACK; `sort` says which rows come FIRST. They are different questions, and both engines answer them the same way — one law, because two engines that judge one `EvaluateOptions` differently is the bug this seam exists to prevent:
+
+```ts
+// LEGAL in both engines: order by a column the answer does not carry.
+await provider.evaluate('cases', null, { columns: ['disease'], sort: [{ field: 'week', dir: 'desc' }] });
+// → rows: [{ disease: 'Zika' }, { disease: 'Lyme' }]   (SQL orders by unprojected columns; so does the fold)
+
+// REFUSED by both, before any statement runs or any window is walked:
+await provider.evaluate('cases', null, { columns: ['disease', 'nope'] });
+// → { ok: false, reason: 'unknown-column', detail: 'table "cases" has no column "nope" to return' }
+```
+
+One exception, and it is about what an engine can KNOW rather than about the law: the memory engine reads a row-major table's column names off its rows, so a table with ZERO rows knows none (`columns()` answers `[]` — an aggregate whose group set came out empty lands there) and its projection is answered, not refused. A SQL engine has a schema without rows, so the wasm door has no such exception.
+
+The refusal is the half that used to be missing: the memory engine answered `{ nope: undefined }` — a column that does not exist, reported in the shape a real absent value has — and DuckDB answered a Binder Error the provider filed under `no-backend-connection`, reporting a typo as a missing database. `unsupported-sort` is now only what an engine that cannot sort AT ALL says (`serverProvider`).
+
+## The window around the WHERE
+
+`resolvePredicateSQL` says which ROWS. `windowSQL(table, whereFragment, options)` says which columns, in what order, and how many — one pure statement builder (no DuckDB, no connection, no `await`), so the SQL a window will run is pinned by a test before any engine runs it, and the in-browser engine and a server engine cannot drift about what the same `EvaluateOptions` mean.
+
+```ts
+windowSQL('cases', resolvePredicateSQL(clause), { columns: ['state', 'count'], sort: [{ field: 'count', dir: 'desc' }], limit: 25, offset: 50, indices: true }, { hasRowOrder: true });
+// SELECT "state", "count", "__row" FROM "cases" WHERE ("state" IN ('TX'))
+//   ORDER BY "count" DESC NULLS LAST, "__row" ASC LIMIT 25 OFFSET 50
+```
+
+Five things that statement says out loud. **`__row` as the last ORDER BY key** is the tie-break: a rendered order that is not TOTAL makes two pages of one window two different orders, so `windowSQL`'s fourth argument — a FACT about the table, read off its own `DESCRIBE`, never an option a reader passes — appends it for a table this engine loaded. **`__row`** is the source-order column: DuckDB does not promise insertion order — a filter, a hash join or a parallel scan may change row order between two runs of the SAME query — so "the 4th row" cannot be recovered after the fact, which is WHY the engine loads every table with an explicit 0-based row-order column and `indices: true` asks for it (`SELECT *` already carries it; naming it again would return two columns of that name). **`NULLS LAST`** is always spelled out, because `SortSpec` documents absent values as last unless asked otherwise while DuckDB's own default is the session setting `default_null_order` — implicit, the same spec could put absent values at the opposite end from the memory engine's total order. One exception is named and not closed: the memory engine counts `NaN` as ABSENT while DuckDB counts it as the largest number there is, and no `NULLS` clause can bridge that — closing it would mean rendering an `isnan(...)` key on every sorted window, for a value a chart cannot draw. **`count` mode** renders `SELECT COUNT(*) AS n FROM … [WHERE …]` and no `ORDER BY`/`LIMIT`/`OFFSET`: a count is one row, so a window would cap the ANSWER rather than the rows counted (`OFFSET 10` would report no count at all). And the **cleared descriptor** (`'null'`, `isClearedSQL`) renders no `WHERE` at all — `WHERE null` is not true in SQL, so DuckDB would answer zero rows and invert the meaning of an empty selection.
+
+ONE refusal, thrown as a `WindowRefusal` carrying the data port's own reason code — a builder has no `ResolvedEngine` to name, so the provider that catches it converts one field (`reject(engine, 'evaluate', err.reason, err.message)`). A negative or fractional `limit`/`offset` is `bad-window`, in the same sentence `memoryProvider`'s `badWindowValue` already refuses in, and judged in BOTH modes so flipping to `count` cannot launder a bad number. That is the whole list: a sort key the projection drops used to be `unsupported-sort` here, and it is legal now (see the law above) — a pure builder judges the window's NUMBERS and nothing else.
 
 ## A derived column belongs to the act that made it
 
@@ -294,4 +392,8 @@ absenceContradictionOf([{ authority: 'CISO', demand: 24_000, demand_state: 'unav
 | `describeTable.ts` | what is in a table before there is a dashboard — and, given a vocabulary, whether it keeps its word |
 | `fold.ts` | one pass, many recorders |
 | `predicate.ts` / `clauseFromWire.ts` | the clause shape this folder evaluates, and the one translation from a commit's wire triple |
-| `memoryProvider.ts` / `wasmProvider.ts` / `serverProvider.ts` / `stubEngines.ts` | the engine that answers, the two that name their tables and refuse the rest, and the one sentence they refuse in |
+| `sqlWindow.ts` | the window AROUND the `WHERE` — one pure statement builder (projection, `ORDER BY` with its null placement and its `__row` tie-break, the `__row`-only order a paged unsorted window gets, `LIMIT`/`OFFSET`, the `__row` source-order column), and the ONE way a window is refused |
+| `memoryProvider.ts` / `wasmProvider.ts` / `serverProvider.ts` / `stubEngines.ts` | the engine that answers in this process, the engine that answers over a SQL connection (its tables' bytes are landed by `../def/wasmBackend.ts`), the one that names its tables and refuses the rest, and the sentence it refuses in |
+| `sqlConnection.ts` | the port a SQL backend is reached through (`query`, `close`), the loader shape (`load` — rows or CSV text), and `loadTableSQL`: the ONE statement that gives a loaded table its `__row` source order |
+| `duckdbConnection.ts` | the only module that names `@duckdb/duckdb-wasm` (an optional peer, pinned by a test, imported dynamically — [`../../PACKAGING.md`](../../PACKAGING.md) Law 3), and it names it inside the opener — the Arrow-to-rows adapter, the file-registering loader, the host judgement, and the one query config (`READ_CONFIG`) both hosts open with |
+| `sqlConnection.coverage.helpers.ts` | not shipped code: the two FAKE backends both SQL-engine suites are judged against — the canned one (`wasmProvider.test.ts` asserts the statements) and the tiny one that answers only what was landed in it (`../def/wasmEngine.def.test.ts` asserts the wiring) |

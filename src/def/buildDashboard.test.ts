@@ -119,8 +119,8 @@ describe('buildDashboard (D24 engine routing + promotion)', () => {
     };
     const autoReads = { n: 0 };
     const auto = buildDashboard({ ...makeDashboardDef(), data: { data: csvSource(autoReads, 'auto') } });
-    // 3 lines minus the header = 2 rows, and the guess the placeholder thresholds would have made is quoted
-    expect(auto.notes[0]).toContain('engine "auto" resolved to memory (the placeholder thresholds would have said "memory"');
+    // 3 lines minus the header = 2 rows, and the note quotes the count it routed on
+    expect(auto.notes[0]).toContain('engine "auto" resolved to memory (2 rows, against the measured row threshold in chooseEngine');
     const declaredReads = { n: 0 };
     const declared = buildDashboard({ ...makeDashboardDef(), data: { data: csvSource(declaredReads, 'memory') } });
     expect(declared.notes).toEqual([]);

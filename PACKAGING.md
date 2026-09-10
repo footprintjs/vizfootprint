@@ -174,6 +174,54 @@ or a dependency the barrel promises not to need. `vizfootprint/mcp` is the same
 rule at folder scale (the optional MCP SDK), and so is `vizfootprint/mosaic`
 (the optional Mosaic peers).
 
+### The third optional peer, and the one that needs no subpath at all
+
+`@duckdb/duckdb-wasm` (`>=1.29.0 || >=1.33.1-dev`, `peerDependenciesMeta.optional`) is the
+in-browser SQL engine behind `engine: 'wasm'`. It is on `vizfootprint/data`,
+the ordinary barrel — and that is safe for one reason only: **it is named in
+exactly one module, inside a function, as a dynamic `import()`.**
+`src/data/duckdbConnection.ts` holds that line, pinned by a test; nothing else
+under `src/` may name the package. So a consumer who never declares a wasm
+table never loads a byte of it, and one who does pays for the bundle on the
+first read that needs an answer — not at import, and not at build.
+
+That is why this peer got a rule instead of a door: a subpath would buy nothing
+a dynamic import has not already bought. The mosaic and MCP peers are static
+imports in their modules, so their COST is the module — hence a folder and a
+door for each.
+
+What a bundler needs from you: **leave the dynamic import dynamic.** Mark
+`@duckdb/duckdb-wasm` external (Vite: `build.rollupOptions.external`; esbuild:
+`--external:@duckdb/duckdb-wasm`) if you do not want it in your graph at all,
+or install it and let the bundler emit it as its own chunk — which is what a
+dynamic `import()` already asks for. Two things break the law: an `optimizeDeps`
+entry or a manual chunk that pulls it into the entry graph (the bundle is then
+downloaded by every visitor, including the ones with no wasm table), and any
+transform that rewrites dynamic imports to static ones (`target: 'es5'` with
+some toolchains) — that turns "never loaded" into "always loaded" without a
+warning. The library's own bench had to stub `@uwdata/mosaic-core` for exactly
+this class of reason, which is the measured version of this paragraph.
+
+#### Why the range has a second clause, and why it is not simplified away
+
+The range reads `>=1.29.0 || >=1.33.1-dev`, and the second clause is not
+redundant. Semver's prerelease rule is that a version with a prerelease tag
+(`1.33.1-dev45.0`) satisfies a range only if that range mentions a prerelease
+*of the same [major, minor, patch] tuple* — so `>=1.29.0` alone REJECTS
+upstream's own `latest`, which is a `-dev` build (`1.33.1-dev45.0` is what this
+repo resolves, and what `@uwdata/mosaic-core` pins EXACTLY as its dependency).
+A consumer installing the current package would meet an `invalid` peer warning
+for having the only version there is. The second clause admits the `-dev` line
+without loosening the floor: `>=1.29.0` still names the oldest stable this
+engine is written against.
+
+It is also why the package sits in `devDependencies` at that exact version
+(`1.33.1-dev45.0`, no range): the gate REQUIRES it — `engineInvariant.test.ts`
+opens a real DuckDB in node and `bench/step0-wasm` measures against it — while
+the package itself only ever *optionally* depends on it. Before that entry the
+tree got its copy transitively, through mosaic's exact pin, which meant the
+suite's own requirement was invisible and one `npm install` away from vanishing.
+
 ---
 
 ## Law 4 — a deep import that works today stops working the moment there is an exports map

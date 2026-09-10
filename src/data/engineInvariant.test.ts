@@ -4,8 +4,10 @@
  * byte-identical (acceptance test at L5/data-provider packet)."
  *
  * This is the strongest form of that claim this packet can prove without a
- * real wasm/server backend (both are still typed stubs — `wasmProvider.ts`,
- * `serverProvider.ts`): it drives a REAL L1 (`src/log`) + L2 (`src/selection`)
+ * real backend in the room (`serverProvider.ts` is still a typed stub, and the
+ * wasm engine's DuckDB is a browser away — it joins the last describe below
+ * over a fake connection, which is exactly what its `SqlConnection` port is
+ * for): it drives a REAL L1 (`src/log`) + L2 (`src/selection`)
  * cause-tagged commit session — the exact machinery a real dashboard uses —
  * serializes it, replays it onto a fresh port/registry, and then feeds
  * the (replayed) commit stream into THREE differently-shaped `memoryProvider`
@@ -22,13 +24,17 @@
  * Mosaic factories' byte. That ties the data seam's SQL resolution to the
  * actual upstream clause factories, not just to this package's own replica.
  */
-import { describe, it, expect } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import { CauseSelectionSession, causeHistogram, replayLog, serializeLog, type CommitInput, type CommitRecord } from '../log/index.js';
 import { memoryProvider } from './memoryProvider.js';
+import { wasmProvider } from './wasmProvider.js';
+import { windowSQL } from './sqlWindow.js';
+import { duckdbConnection, duckdbHostOf, hostFactsOf } from './duckdbConnection.js';
+import { canLoad, type LoadingConnection } from './sqlConnection.js';
 import { mosaicDescriptorSQL } from './predicate.js';
 import { pointValueFromWire } from './clauseFromWire.js';
 import { isRejection } from './types.js';
-import type { CellClause, DataProvider, IntervalClause, PredicateClause, Row } from './types.js';
+import type { CellClause, DataProvider, DataProviderRejection, EvaluateResult, IntervalClause, PredicateClause, Row } from './types.js';
 
 // ── A realistic small cause-tagged session (mirrors src/log/log.test.ts's MAIN_LINE). ──
 const SESSION_LOG: CommitInput[] = [
@@ -334,5 +340,361 @@ describe('D24 invariant — a clause LIST (the whole live selection) resolves to
     const counts = new Set(answers.map((a) => ('count' in a ? a.count : -1)));
     expect(sqls.size).toBe(1);
     expect(counts).toEqual(new Set([1]));
+  });
+});
+
+describe('D24 invariant — the engine that runs SQL reports the same descriptor as the engine that does not', () => {
+  /** The wasm engine's backend, faked: a schema for the dataset above, and a count. What it RECORDS is the statement it was asked. */
+  function connectionOverSchema(asked: string[]): { query(sql: string): Promise<readonly Record<string, unknown>[]> } {
+    return {
+      async query(sql: string): Promise<readonly Record<string, unknown>[]> {
+        asked.push(sql);
+        if (sql.startsWith('DESCRIBE')) {
+          return Object.keys(OBJECT_ROWS[0]!).map((name) => ({ column_name: name, column_type: 'VARCHAR' }));
+        }
+        return [{ n: 0n }];
+      },
+    };
+  }
+
+  it('every logged commit resolves to the SAME `sql` under the wasm engine — and that descriptor is what its statement wraps', async () => {
+    const live = new CauseSelectionSession();
+    for (const c of SESSION_LOG) live.commit(c);
+
+    const asked: string[] = [];
+    const wasm = wasmProvider({ sources: ['data'], connection: connectionOverSchema(asked) });
+    const memory = memoryProvider(OBJECT_ROWS, { layout: 'row' });
+
+    for (const record of live.records) {
+      const clause = clauseFromCommit(record);
+      const [overSQL, inMemory] = await Promise.all([
+        wasm.evaluate('data', clause, { mode: 'count' }),
+        memory.evaluate('data', clause, { mode: 'count' }),
+      ]);
+      if (isRejection(overSQL) || isRejection(inMemory)) throw new Error(`an engine refused commit ${record.id}: ${JSON.stringify(overSQL)}`);
+      // the descriptor the commit log rests on — one string, three engines
+      expect(overSQL.sql, `sql mismatch on commit ${record.id}`).toBe(seamSQLOf(record));
+      expect(overSQL.sql).toBe(inMemory.sql);
+      // …and the STATEMENT that ran is that same descriptor, wrapped — never a second rendering of the clause
+      expect(asked.at(-1)).toBe(windowSQL('data', seamSQLOf(record), { mode: 'count' }));
+    }
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE FOURTH LAYOUT: A REAL DUCKDB, OPENED IN NODE BY THE SHIPPED OPENER.
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The three layouts above are three shapes of ONE engine, and the wasm layout
+// below them is that engine's SQL against a fake backend. This one is the
+// engine itself: `duckdbConnection()` opens the bundle DuckDB-WASM ships for
+// node (no browser, no worker, no download — `duckdbConnection.ts`), the same
+// four rows are LANDED through the same `load` a def's build uses, and every
+// commit in the session is asked of a real database.
+//
+// WHY it is not gated behind a flag: `npm run typecheck` already resolves
+// `@duckdb/duckdb-wasm` for its types, so a checkout that can typecheck this
+// repo can open this database. A skipped proof would be a proof nobody notices
+// losing.
+
+/**
+ * NO NORMALIZER. There used to be one here — bigint → number, a DATE's epoch
+ * millis → the ISO day — and it was hiding the engine's own bug: `15n` where
+ * `columns()` promised a number, a value `JSON.stringify` throws on and every
+ * fold reads as absent. The engine owes this library's own values now (the
+ * database is opened with `castBigIntToDouble`/`castDecimalToDouble` and dates
+ * are read back as ISO text — `duckdbConnection.ts`, `wasmProvider.ts`), so the
+ * two engines' rows are compared RAW. A test that normalized them would pass
+ * again the day the fix is undone.
+ *
+ * WHY the rows are still paired with their indices below and not compared as
+ * two arrays: that is about ORDER, not about values.
+ */
+
+/**
+ * The rows of a result in SOURCE order, paired with the index each one carries.
+ *
+ * WHY the pairing and not the arrays as they came: a `SELECT` with no `ORDER BY`
+ * may hand its rows back in any order at all (`sqlWindow.ts` — the reason `__row`
+ * exists), so an unsorted window's rows agree between engines as a MAP from
+ * source-order index to row, never as two parallel arrays. An asked-for order is
+ * a different claim, and the sorted window below asserts it as one.
+ */
+function byIndex(result: EvaluateResult): readonly (readonly [number, Row])[] {
+  const rows = result.rows ?? [];
+  const indices = result.indices ?? [];
+  return rows.map((row, i) => [indices[i] ?? -1, row] as const).sort((a, b) => a[0] - b[0]);
+}
+
+/** The engine's own answer, or a failure that says which commit and which engine. */
+function answered(result: EvaluateResult | DataProviderRejection, where: string): EvaluateResult {
+  if (isRejection(result)) throw new Error(`${where}: ${JSON.stringify(result)}`);
+  return result;
+}
+
+describe('D24 invariant — the FOURTH layout: a REAL DuckDB, opened in node by the shipped opener', () => {
+  const memory = memoryProvider(OBJECT_ROWS, { layout: 'row' });
+  let connection: LoadingConnection;
+  let live: DataProvider;
+
+  beforeAll(async () => {
+    const opened = await duckdbConnection()();
+    // The shipped opener owes BOTH halves of the port: a def's build lands its
+    // bytes through `load`, and a connection that could only read would refuse it.
+    if (!canLoad(opened)) throw new Error('the shipped opener answered a connection that cannot land a table');
+    connection = opened;
+    await connection.load('data', { kind: 'rows', rows: OBJECT_ROWS });
+    live = wasmProvider({ sources: ['data'], connection });
+    const columns = await live.columns('data');
+    if (isRejection(columns)) throw new Error(`the live engine refused DESCRIBE: ${JSON.stringify(columns)}`);
+  });
+
+  afterAll(async () => {
+    await connection?.close?.();
+  });
+
+  it('the schema comes back through DESCRIBE as this library’s five types — and the bookkeeping column is not one of them', async () => {
+    // Pinned against a REAL DuckDB's own type words (BIGINT, DATE, VARCHAR),
+    // which is what `TYPE_WORDS` was written for and what a fake DESCRIBE cannot prove.
+    expect(await live.columns('data')).toEqual([
+      { name: 'category', type: 'string' },
+      { name: 'amount', type: 'number' },
+      { name: 'date', type: 'date' },
+      { name: 'source', type: 'string' },
+      { name: 'target', type: 'string' },
+    ]);
+  });
+
+  it('the landed table carries its SOURCE order, and index 0 is the row that was written first', async () => {
+    const all = answered(await live.evaluate('data', null, { indices: true }), 'live engine, whole table');
+    expect(all.count).toBe(OBJECT_ROWS.length);
+    expect(byIndex(all)).toEqual(OBJECT_ROWS.map((row, i) => [i, row]));
+  });
+
+  it('every logged commit — point, interval, cleared, cell, neighbourhood — resolves to the same sql, the same count and the same rows as the memory engine', async () => {
+    const session = new CauseSelectionSession();
+    for (const c of SESSION_LOG) session.commit(c);
+    const replayed = replayLog(serializeLog(session.records));
+
+    for (const record of replayed.records) {
+      const clause = clauseFromCommit(record);
+      const [overSQL, inMemory] = await Promise.all([
+        live.evaluate('data', clause, { indices: true }),
+        memory.evaluate('data', clause, { indices: true }),
+      ]);
+      const real = answered(overSQL, `live engine on commit ${record.id}`);
+      const fold = answered(inMemory, `memory engine on commit ${record.id}`);
+
+      // 1. the descriptor the commit log rests on — one string, both engines
+      expect(real.sql, `sql mismatch on commit ${record.id}`).toBe(seamSQLOf(record));
+      expect(real.sql).toBe(fold.sql);
+      // 2. how many rows the selection keeps
+      expect(real.count, `count mismatch on commit ${record.id} (${real.sql})`).toBe(fold.count);
+      // 3. …and WHICH rows, by source-order index and by value
+      expect(byIndex(real), `rows mismatch on commit ${record.id}`).toEqual(byIndex(fold));
+    }
+  });
+
+  it('…and every one of them counts the same in count mode, where no row is projected at all', async () => {
+    const session = new CauseSelectionSession();
+    for (const c of SESSION_LOG) session.commit(c);
+    for (const record of session.records) {
+      const clause = clauseFromCommit(record);
+      const [overSQL, inMemory] = await Promise.all([
+        live.evaluate('data', clause, { mode: 'count' }),
+        memory.evaluate('data', clause, { mode: 'count' }),
+      ]);
+      expect(answered(overSQL, `live count on ${record.id}`).count).toBe(answered(inMemory, `memory count on ${record.id}`).count);
+    }
+  });
+
+  it('a SORTED window agrees row for row IN ORDER — the one claim an unsorted window never makes', async () => {
+    const window = { sort: [{ field: 'amount' as const, dir: 'desc' as const }], limit: 2, indices: true };
+    const clause: PredicateClause = { kind: 'interval', field: 'amount', value: [5, 30] };
+    const [overSQL, inMemory] = await Promise.all([live.evaluate('data', clause, window), memory.evaluate('data', clause, window)]);
+    const real = answered(overSQL, 'live sorted window');
+    const fold = answered(inMemory, 'memory sorted window');
+
+    expect(real.indices).toEqual(fold.indices);
+    expect(real.rows).toEqual(fold.rows);
+    expect(real.rows).toHaveLength(2);
+    // the count is the SELECTION's, never the window's — the number a gap check reads
+    expect(real.count).toBe(4);
+    expect(real.count).toBe(fold.count);
+  });
+
+  it('the opener takes a NAMED host as an assertion — the judgement is what it overrides, not what it consults', async () => {
+    // jsdom defines a `Worker`, so the judgement would send a jsdom suite to the
+    // CDN arm; `host: 'node'` is that suite saying which host it really is.
+    expect(duckdbHostOf(hostFactsOf({ Worker: class {}, process: globalThis.process }))).toBe('browser');
+    const named = await duckdbConnection({ host: 'node' })();
+    try {
+      expect(await named.query('SELECT 1 AS n')).toEqual([{ n: 1 }]);
+    } finally {
+      await named.close?.();
+    }
+  });
+
+  it('a window PAST the first page agrees too, and both engines say where it starts', async () => {
+    const window = { sort: [{ field: 'amount' as const, dir: 'asc' as const }], limit: 2, offset: 2, indices: true };
+    const [overSQL, inMemory] = await Promise.all([live.evaluate('data', null, window), memory.evaluate('data', null, window)]);
+    const real = answered(overSQL, 'live second page');
+    const fold = answered(inMemory, 'memory second page');
+    expect(real.start).toBe(2);
+    expect(real.start).toBe(fold.start);
+    expect(real.indices).toEqual(fold.indices);
+    expect(real.rows).toEqual(fold.rows);
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TIES, AND TWO PAGES OF ONE WINDOW.
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// A sorted window is asked once PER PAGE, so an order that is not TOTAL is two
+// different orders. `ORDER BY "bucket" ASC` over 300,000 rows with three
+// distinct buckets leaves every tie to whatever the scan produced, and DuckDB
+// promises nothing about that between two runs of the same statement: measured
+// before the fix, page 2 repeated rows page 1 had already served and never
+// served others at all. The remedy is the source-order column as the last key
+// (`sqlWindow.ts`), which also makes the order the one the memory engine keeps.
+//
+// WHY 300,000 rows and not twelve: at twelve DuckDB answers a single-threaded
+// scan in source order and the bug does not appear — a test at that size would
+// pass with the fix reverted. This is the size the defect was measured at.
+
+describe('a paged sorted window over a TIED column serves every row exactly once', () => {
+  const TIED: Row[] = Array.from({ length: 300_000 }, (_, i) => ({ bucket: i % 3, id: i }));
+  const PAGE = 50;
+  const SORTED = { sort: [{ field: 'bucket' as const, dir: 'asc' as const }], limit: PAGE, indices: true };
+  let connection: LoadingConnection;
+  let live: DataProvider;
+
+  beforeAll(async () => {
+    const opened = await duckdbConnection()();
+    if (!canLoad(opened)) throw new Error('the shipped opener answered a connection that cannot land a table');
+    connection = opened;
+    await connection.load('ties', { kind: 'rows', rows: TIED });
+    live = wasmProvider({ sources: ['ties'], connection });
+  });
+
+  afterAll(async () => {
+    await connection?.close?.();
+  });
+
+  it('two pages hold 100 DIFFERENT rows — no row twice, none skipped between them', async () => {
+    const first = answered(await live.evaluate('ties', null, SORTED), 'live page 1');
+    const second = answered(await live.evaluate('ties', null, { ...SORTED, offset: PAGE }), 'live page 2');
+    const ids = [...(first.rows ?? []), ...(second.rows ?? [])].map((row) => row['id']);
+    expect(ids).toHaveLength(2 * PAGE);
+    expect(new Set(ids).size).toBe(2 * PAGE);
+    // the tie-break is the SOURCE order within the tie, so the two pages are the
+    // first hundred `bucket: 0` rows, in the order they were landed in
+    expect(ids).toEqual(TIED.filter((row) => row['bucket'] === 0).slice(0, 2 * PAGE).map((row) => row['id']));
+    expect(second.start).toBe(PAGE);
+  });
+
+  it('…and they are the same two pages the memory engine serves, row for row, in order', async () => {
+    const memory = memoryProvider(TIED, { layout: 'row', tableName: 'ties' });
+    for (const offset of [0, PAGE]) {
+      const window = { ...SORTED, offset };
+      const [real, fold] = await Promise.all([live.evaluate('ties', null, window), memory.evaluate('ties', null, window)]);
+      const page = answered(real, `live page at ${String(offset)}`);
+      const held = answered(fold, `memory page at ${String(offset)}`);
+      expect(page.indices, `indices mismatch at offset ${String(offset)}`).toEqual(held.indices);
+      expect(page.rows).toEqual(held.rows);
+      expect(page.count).toBe(TIED.length);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AND TWO PAGES OF A WINDOW THAT ASKED FOR NO ORDER AT ALL.
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The same defect with the sort taken away, and it is the DEFAULT window: the
+// sheet pages unsorted. An unsorted window is not a total order either — every
+// row is tied with every other — and each page is its own scan of the table,
+// which DuckDB promises nothing about. `sqlWindow.ts` renders `ORDER BY "__row"
+// ASC` as the whole order of a PAGED unsorted window (a full unpaged read keeps
+// no order: there is no boundary in it for a row to fall on the wrong side of).
+//
+// WHICH ASSERTION HOLDS THIS DOWN, honestly: the SQL one. With the clause taken
+// back out, this file was run at 300,000 rows and the row-order assertion still
+// PASSED — DuckDB's scan came back in source order that time. That is the whole
+// defect: not that the order is wrong, but that it is not PROMISED, so it can
+// change between two runs of one statement and take a page boundary with it. An
+// output assertion cannot catch a broken promise that happens to be kept, so the
+// connection is tapped below and the rendered statement is asserted directly —
+// that is the assertion that fails the moment the ORDER BY is removed (measured:
+// `expected 'SELECT * FROM "wide" LIMIT 50 OFFSET 0' to contain 'ORDER BY
+// "__row" ASC'`). The 300,000 rows stay because the row-order check is worth
+// having at the size the sorted defect was measured at, where a parallel scan is
+// what answers.
+
+describe('a paged UNSORTED window serves every row exactly once, in source order', () => {
+  const WIDE: Row[] = Array.from({ length: 300_000 }, (_, i) => ({ bucket: i % 3, id: i }));
+  const PAGE = 50;
+  const PAGES = 4; // the first 200 rows, the sheet's own first screenfuls
+  const UNSORTED = { limit: PAGE, indices: true } as const;
+  let connection: LoadingConnection;
+  let live: DataProvider;
+  const asked: string[] = [];
+
+  beforeAll(async () => {
+    const opened = await duckdbConnection()();
+    if (!canLoad(opened)) throw new Error('the shipped opener answered a connection that cannot land a table');
+    connection = opened;
+    await connection.load('wide', { kind: 'rows', rows: WIDE });
+    // WHY the connection is tapped: the row-order assertion below DID pass with
+    // the clause removed (see the note above), so the statement the engine
+    // actually SENT is the assertion that holds this fix down.
+    live = wasmProvider({
+      sources: ['wide'],
+      connection: {
+        query: async (sql: string) => {
+          asked.push(sql);
+          return connection.query(sql);
+        },
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await connection?.close?.();
+  });
+
+  it('four pages of 50 hold 200 DIFFERENT rows, in the order they were landed', async () => {
+    const served: unknown[] = [];
+    for (let page = 0; page < PAGES; page += 1) {
+      // WHY every page names its offset, page 0 included: `start` is the engine's
+      // answer to an ASKED-for offset, and `OFFSET 0` is a whole number at or
+      // above zero — a legal window, not a missing one.
+      const window = { ...UNSORTED, offset: page * PAGE };
+      const answer = answered(await live.evaluate('wide', null, window), `live unsorted page ${String(page)}`);
+      expect(answer.start).toBe(page * PAGE);
+      expect(answer.indices).toEqual(Array.from({ length: PAGE }, (_, i) => page * PAGE + i));
+      served.push(...(answer.rows ?? []).map((row) => row['id']));
+    }
+    expect(served).toHaveLength(PAGES * PAGE);
+    expect(new Set(served).size).toBe(PAGES * PAGE); // no row twice, none skipped
+    expect(served).toEqual(WIDE.slice(0, PAGES * PAGE).map((row) => row['id'])); // and in SOURCE order
+  });
+
+  it('…because every one of those statements was rendered with the source-order clause', async () => {
+    await live.evaluate('wide', null, UNSORTED);
+    const windows = asked.filter((sql) => sql.includes('LIMIT') || sql.includes('OFFSET'));
+    expect(windows.length).toBeGreaterThan(0);
+    for (const sql of windows) expect(sql).toContain('ORDER BY "__row" ASC');
+    // and it is the whole order, not a tie-break after some other key
+    expect(windowSQL('wide', '', UNSORTED, { hasRowOrder: true })).toBe('SELECT * FROM "wide" ORDER BY "__row" ASC LIMIT 50');
+  });
+
+  it('a full read asks for no order — the boundary is what needed one', async () => {
+    const before = asked.length;
+    answered(await live.evaluate('wide', null, { columns: ['id'] }), 'live whole table');
+    expect(asked.slice(before).some((sql) => sql.includes('ORDER BY'))).toBe(false);
   });
 });

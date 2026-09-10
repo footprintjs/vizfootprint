@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildDashboard } from '../def/index.js';
-import { makeDashboardDef } from './dashboard.fixture.js';
+import { makeDashboardDef, noSqlConnection } from './dashboard.fixture.js';
 import type { Cause } from '../cause/index.js';
 
 const userCause = (intent?: string): Cause => ({ requestedBy: 'user', computedBy: 'user', ...(intent ? { intent } : {}) });
@@ -22,7 +22,7 @@ describe('the session and the engine', () => {
     expect(rows.length).toBeGreaterThan(0);
   });
   it('a stub engine that cannot evaluate: the count is honestly null, the rows are none', async () => {
-    const s = buildDashboard({ ...makeDashboardDef(), data: { data: { rows: [], engine: 'wasm' } } }, { availableEngines: ['memory', 'wasm'] }).createSession();
+    const s = buildDashboard({ ...makeDashboardDef(), data: { data: { rows: [], engine: 'wasm' } } }, { availableEngines: ['memory', 'wasm'], ...noSqlConnection }).createSession();
     expect((await s.overview()).selectedRowCount).toBeNull();
     expect(await s.selectedRows()).toEqual([]);
   });

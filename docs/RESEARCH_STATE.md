@@ -52,7 +52,18 @@ with DuckDB stubbed) | wasm (DuckDB-WASM in-browser; loadCSV/loadObjects/loadPar
 server (connector) | auto. INVARIANT: engine never changes commit semantics — cross-engine replay byte-identical
 (acceptance test at L5/data-provider packet). Keysets stay eliminated as coordination; the VizAdapter small-data
 insight lives as the memory ENGINE.
-Q12 [OPEN] auto-engine thresholds (rows/bytes for memory→wasm→server) — measure with an X4-style bench, don't guess.
+Q12 [CLOSED on the ROW axis, 2026-09-10] auto-engine thresholds — measured, not guessed: bench/step0-wasm puts both
+engines on one clock in one process (node v22.16.0, darwin arm64) at 90,300 / 300,000 / 1,000,000 rows. DuckDB-WASM is
+faster on every read at every size (0.15×-0.55× at and above 300k) for a 345-935 ms one-time open+load; the memory engine
+answers every read in 3-24 ms up to 300,000 and then falls off a cliff (sorted window 97.5 ms, first sorted ask 517 ms at
+1M). DEFAULT_ENGINE_THRESHOLDS.maxMemoryRows = 300,000 (a MEASURED size, not an interpolation) and engine 'auto' now
+follows chooseEngine instead of always answering memory. CAVEAT on 'auto': availableEngines defaults to ['memory'], so a
+table past 300,000 rows is picked as wasm by the policy and then CLAMPED back to memory by availability — the build note
+now says both halves ("the measured threshold said wasm, which this build was not told is available — pass
+availableEngines: ['memory','wasm'] to allow it") so the sentence cannot read as if the bench had chosen memory.
+STILL OPEN: the BYTE axis and DuckDB's own ceiling — no footprint
+was sampled and 1M loaded without complaint, so maxMemoryBytes/maxWasmRows/maxWasmBytes are Infinity ("no threshold") and
+never route to the server stub on a guess.
 ## Orchestrator adjudications of SPEC §11 conflicts
 C1 ACCEPT rename JoinRecord→CorrelationEnvelope. C2 ACCEPT: L6 must prove a SECOND target kind before claiming
 why(target) generality. C3 ACCEPT: L3 greenfield/highest-risk — packet starts with a mini-spike validating the

@@ -132,13 +132,69 @@ It **calls** the validator; it never restates it, so the two cannot disagree. `b
 
 ## The engine a table runs on — and the one this version does not run
 
-`data[t].engine` routes a table to a D24 engine: `memory` (in-JS predicates, always on), `wasm` or `server` (typed stubs — the port's shape with nothing behind it), or `auto`. `auto` resolves to **memory** and only quotes the guess the placeholder thresholds would have made, because a round number must not point a real table at an engine that refuses every query.
+`data[t].engine` routes a table to a D24 engine: `memory` (in-JS predicates, always on), `wasm` (a real SQL engine — DuckDB-WASM behind the `SqlConnection` port, with this table's bytes landed in it), `server` (a typed stub — the port's shape with nothing behind it), or `auto`. **`auto` follows `chooseEngine`**, whose row threshold is MEASURED (`bench/step0-wasm`: 300,000 rows is the largest size at which the memory engine answered every read inside an interaction budget; at 1,000,000 its sorted window is 97.5 ms and its first sorted ask 517 ms against DuckDB's 14.8 ms). It used to resolve to memory whatever the stats said, because those thresholds were an unmeasured placeholder and a round number must not spawn a database for a table this process can answer in JS. It still NAMES what it picked and the count it picked on — `engine "auto" resolved to wasm (300,001 rows, against the measured row threshold in chooseEngine — declare an engine to choose otherwise)` — because a table that opens a database should never do it silently, and `availableEngines` still bounds the answer — and when that bound is what decided it, the note says THAT too (`; the measured threshold said wasm, which this build was not told is available — pass availableEngines: ["memory","wasm"] to allow it`), because `availableEngines` defaults to `['memory']` and the sentence would otherwise read as if the measurement had chosen memory. Declaring the engine is how a table overrides it.
 
-**A declared stub engine is honoured, and never silent.** It builds, every read of that table is refused, and the BUILD says at the door exactly what the read will say — the same sentence, minted once in [`../data/stubEngines.ts`](../data/stubEngines.ts) and quoted by both:
+### The wasm engine runs — and WHICH DOOR you called decides when its bytes land
+
+The engine needs two things a def cannot carry: a connection, and the bytes in it. The connection comes from `openSqlConnection` (default: `duckdbConnection()`, imported dynamically — see [`../../PACKAGING.md`](../../PACKAGING.md)); the bytes are the table's own `rows` or `csv`, landed by [`./wasmBackend.ts`](./wasmBackend.ts). What differs between the doors is WHEN:
 
 ```ts
-buildDashboard({ data: { cases: { rows, engine: 'wasm' } }, actors: { … } }).notes;
-// [ 'data["cases"]: the "wasm" engine answers no query in this version — it is a typed stub:
+const def = { data: { cases: { rows, engine: 'wasm' } }, actors: { … } };
+
+// the door that CAN await, does: the bytes are in the backend before the dashboard is returned
+const live = await buildDashboardAsync(def);
+live.engines;   // { cases: 'wasm' }
+live.notes;     // [] — the engine ran, and its table is in it
+
+// the sync door cannot await a load, so it says which read will pay for it
+buildDashboard(def).notes;
+// [ 'data["cases"]: the "wasm" engine holds this table lazily — a sync build cannot await a load,
+//    so the SQL connection opens and its bytes land on the first read; build with
+//    buildDashboardAsync to have them landed before the dashboard is returned' ]
+```
+
+ONE connection serves every wasm table in a build — two databases could not see each other's tables — it is opened at most once, and a def with no wasm table never opens one at all. A landing that FAILS is a build note *and* a `no-backend-connection` refusal on the first read of that table, never a throw past the door: a def with two wasm tables must not lose the one that landed because the other did not.
+
+### Whoever opened it closes it
+
+A wasm build holds something no other dashboard does: a database, with a worker or a WASM instance behind it. `Dashboard.close()` releases the one THIS BUILD opened, and nothing else — a connection a host handed over through `openSqlConnection` stays the host's, because the host may be reading it through five other things this build has never heard of. Close it when the last session that reads it is done; a read after it is refused by the engine's own words, never answered from a cache.
+
+```ts
+const mine = await buildDashboardAsync(def);            // the default opener: this build owns the database
+await mine.close();                                     // …so this closes it — twice is a no-op, and it never throws
+
+const theirs = await buildDashboardAsync(def, { openSqlConnection: () => myPool.connect() });
+await theirs.close();                                   // opens nothing, closes nothing: not ours to release
+```
+
+A dashboard with no wasm table has nothing to close and says so by doing nothing — as does a sync-door build whose lazy wasm table nobody ever read, because nothing was opened. `refresh()` on a wasm table still refuses (below), and its remedy is this pair of acts: close, then build again.
+
+### A source table and the wasm engine
+
+**A source table may declare `engine: 'wasm'`, and `buildDashboardAsync` is the door that honours it.** The old rule ("a source table is materialised in memory") was written when no other engine could answer; now the async door already holds the carrier's decoded rows, so it lands them in the SQL backend instead of an array. What it may NOT declare is an engine that cannot RECEIVE bytes — `server` (nothing behind it) or `auto` (a real fetch whose engine is not known until the bytes have been counted) — because that would fetch bytes nothing loads:
+
+```ts
+const def = { data: { cases: { source: { format: 'csv', via: 'http', at: url }, engine: 'wasm' } }, actors: { … } };
+
+const dash = await buildDashboardAsync(def, { sources: [httpSource()] });
+dash.engines;          // { cases: 'wasm' } — the rows the carrier decoded, landed in the backend
+dash.sources['cases']; // …and the provenance it vouched for, kept as for any source table
+
+buildDashboard(def);
+// DashboardDefError: data["cases"] declares a source via http — build it with buildDashboardAsync
+validateDashboardDef({ ...def, data: { cases: { source, engine: 'server' } } });
+// [ 'data["cases"] sets engine "server" with a source; a source's rows are loaded into the engine
+//    that reads them, so a source table declares "memory" (materialised in this process) or "wasm"
+//    (landed in the SQL backend by buildDashboardAsync) — or no engine at all' ]
+```
+
+Two consequences, both said out loud rather than papered over. The SYNC door refuses an inline source beside `engine: 'wasm'` in a sentence (landing bytes is an await, whichever via carried them). And `refresh()` REFUSES such a table (`reason: 'not-reloadable'`): a refresh swaps an array, and this table's rows are a table in a SQL backend — re-landing them is a different act with a different delta, and quietly rebuilding it as a memory table would make `dashboard.engines` a lie. The remedy names both acts — `close()` this dashboard and build again — because a second build over an unclosed one leaves the first database open.
+
+**A declared engine is honoured, and never silent.** A table routed to the engine this version does NOT run still builds, every read of it is refused, and the BUILD says at the door exactly what the read will say — the same sentence, minted once by its owner ([`../data/stubEngines.ts`](../data/stubEngines.ts)) and quoted by both doors:
+
+```ts
+buildDashboard({ data: { cases: { rows, engine: 'server' } }, actors: { … } }).notes;
+// [ 'data["cases"]: the "server" engine answers no query in this version — it is a typed stub:
 //    it names its declared tables and answers nothing else. Declare engine "memory" to run
 //    "cases" in this process, or bring the engine yourself: pass
 //    { providers: { "cases": yourProvider } } to the builder you already call' ]
@@ -146,11 +202,11 @@ buildDashboard({ data: { cases: { rows, engine: 'wasm' } }, actors: { … } }).n
 
 **Why a note and not a `parseDashboardDef` refusal.** Three reasons, and they are all the same reason: the def is not what is wrong.
 
-1. `wasm` and `server` are legal declarations of a real seam. What is missing is an engine in this VERSION — a fact about the build, not about the grammar, and the grammar door is where a def's own shape is judged.
+1. `server` is a legal declaration of a real seam. What is missing is an engine in this VERSION — a fact about the build, not about the grammar, and the grammar door is where a def's own shape is judged.
 2. **The same def RUNS when a host brings that engine.** `buildDashboard(def, { providers: { cases: yourProvider } })` answers the table from the host's own `DataProvider`; the validator never sees the options, so a refusal there would refuse a def that works. (That table then owes the *host* note — the def's routing was not built — and never the stub's.)
 3. A stub engine is the one reachable way to exercise what a session does when an engine cannot serve: the typed `needs-backend-data` gap, with the act still standing ([`../session/README.md`](../session/README.md), law 1, rule 3). Refuse the declaration at the grammar door and that behaviour loses its only test path.
 
-What refuses out loud instead, in the same words: `dashboard.notes` at build, `lint()` and `lintProse()` **throw** them (nothing to judge is not "nothing wrong"), and `lintData()` reports them per key and per relation. `availableEngines` bounds one thing only — the guess `auto` quotes — and says so; it has never gated an explicit engine. Naming **no** engine (`[]`) is refused at the door in a sentence, because `[]` is not "unset": it reaches `chooseEngine` with nothing to pick and would abort the whole build with a `RangeError` for a guess that only appears in a note.
+What refuses out loud instead, in the same words: `dashboard.notes` at build, `lint()` and `lintProse()` **throw** them (nothing to judge is not "nothing wrong"), and `lintData()` reports them per key and per relation. `availableEngines` bounds one thing only — what `auto` may resolve to — and says so; it has never gated an explicit engine. Naming **no** engine (`[]`) is refused at the door in a sentence, because `[]` is not "unset": it reaches `chooseEngine` with nothing to pick and would abort the whole build with a `RangeError` for a guess that only appears in a note.
 
 **A host provider is judged on the whole port.** `judgeProviders` reads back the two DATA members as well as the four methods: `engine` (what `dashboard.engines` reports) and `capabilities` (what the session reads before every sorted window — a provider that declares none leaves it dereferencing nothing at first query):
 
@@ -347,6 +403,7 @@ And two things stay hand-written, because no declaration holds them: **which ges
 | `builtinAnalyses.ts` | an analysis as data (the nine records, their options, the extra judge one carries, and the def context another needs) |
 | `register.ts` | the one registry boundary |
 | `buildDashboard.ts` | the build — resolves engines (and notes, in the engine's own words, a table routed to one this version does not run), keys, relations and each view's layers onto the runtime; owns the DERIVED-TABLE slots (`landDerivedTable` mints a provider under an act's own name; a refresh drops that parent's tables and every table cut from those, reported as `derivedLost`); `lintData` judges keys and relations against the engine; `lint()` judges every layer against its own table's columns |
+| `wasmBackend.ts` | this build's ONE SQL backend: a def's bytes (`rows`, `csv`, or the rows a carrier decoded) landed in one connection opened at most once — with a sentence for each way a landing fails, and never a throw past the door |
 | `revision.ts` | the definition's revision, digested once at build |
 | `features.ts` | `defFeatures` — the feature card of a BUILT dashboard, read off the build so a demo's tags cannot drift |
 | `series.ts` | the long-form series contract |

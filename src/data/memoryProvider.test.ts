@@ -106,6 +106,28 @@ describe('memoryProvider — evaluate()', () => {
     expect(result.rows).toEqual([{ category: 'Data' }, { category: 'Analytics' }, { category: 'Data' }]);
   });
 
+  it('a projection naming a column the table does not have is REFUSED, not answered with an empty key', async () => {
+    // The one law both engines keep (src/data/README.md). This engine used to
+    // answer `{ nope: undefined }` — a column that does not exist, reported as a
+    // column with no value in it, which is the shape a real absent value has.
+    const p = memoryProvider(SAMPLE);
+    expect(await p.evaluate('data', null, { columns: ['category', 'nope'] })).toMatchObject({
+      ok: false,
+      engine: 'memory',
+      reason: 'unknown-column',
+      detail: 'table "data" has no column "nope" to return',
+    });
+    // …in count mode too, where the projection is ignored: a typo is a typo whichever mode asks
+    expect(await p.evaluate('data', null, { columns: ['nope'], mode: 'count' })).toMatchObject({ reason: 'unknown-column' });
+  });
+
+  it('a sort key the projection DROPS is legal — the order is about which rows come first, not which columns come back', async () => {
+    const p = memoryProvider(SAMPLE);
+    const result = await p.evaluate('data', null, { columns: ['category'], sort: [{ field: 'amount', dir: 'desc' }] });
+    if (isRejection(result)) throw new Error('unreachable');
+    expect(result.rows).toEqual([{ category: 'Analytics' }, { category: 'Data' }, { category: 'Data' }]);
+  });
+
   it('a limit caps the returned rows without changing count', async () => {
     const p = memoryProvider(SAMPLE);
     const result = await p.evaluate('data', null, { limit: 1 });

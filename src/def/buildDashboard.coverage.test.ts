@@ -48,15 +48,22 @@ describe('buildDashboard — D24 data-source arms', () => {
     expect(await session.selectedRows('t')).toEqual(rows);
   });
 
-  it('routes an explicit wasm engine to its typed stub (every read honestly rejects, never fakes rows)', async () => {
+  it('routes an explicit wasm engine to that engine, lazily — and a read that cannot open one rejects honestly, never fakes rows', async () => {
     const dash = buildDashboard(baseDef({ data: { t: { rows: [{ id: 1 }], engine: 'wasm' } } }), {
       availableEngines: ['memory', 'wasm'],
+      // WHY an opener that refuses: this test is about a read that CANNOT open a
+      // backend, and the default opener now opens a real DuckDB wherever it finds
+      // a host (`../data/duckdbConnection.ts`) — the environment would otherwise
+      // decide which half of this test runs.
+      openSqlConnection: () => Promise.reject(new Error('no database in this test')),
     });
     expect(dash.engines).toEqual({ t: 'wasm' });
+    // …and the build says which read will pay for the load (../def/README.md, the wasm engine)
+    expect(dash.notes[0]).toContain('holds this table lazily');
 
     const session = dash.createSession();
-    // wasmProvider.evaluate() always rejects 'not-implemented' — selectedRows
-    // is a best-effort projection that yields [] on a backend rejection.
+    // The opener refused, so wasmProvider.evaluate() rejects 'no-backend-connection',
+    // and selectedRows is a best-effort projection that yields [] on a backend rejection.
     expect(await session.selectedRows('t')).toEqual([]);
   });
 });

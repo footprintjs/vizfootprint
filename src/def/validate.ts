@@ -379,8 +379,16 @@ export function validateDashboardDef(def: unknown): string[] {
       if (!hasRows && !hasCsv && !hasSource) problems.push(`data["${table}"] must set rows, csv, or source`);
       if (hasSource) {
         validateSourceDecl(src.source, `data["${table}"].source`, problems);
-        // a source table is materialised in memory; another engine beside it would be silently overridden
-        if (src.engine !== undefined && src.engine !== 'memory') problems.push(`data["${table}"] sets engine "${String(src.engine)}" with a source; a source table is materialised in memory — remove the engine key`);
+        // THE RULING (./README.md, "A source table and the wasm engine"): a source's
+        // bytes have to land in an engine that can RECEIVE them, and two can —
+        // `memory` materialises them in this process, `wasm` lands them in the SQL
+        // backend (an await, so `buildDashboardAsync` only). `server` cannot be
+        // handed bytes at all, and `auto` would route real fetched rows on an
+        // unmeasured threshold; both are refused here rather than left to fetch
+        // bytes that nothing loads.
+        if (src.engine !== undefined && src.engine !== 'memory' && src.engine !== 'wasm') {
+          problems.push(`data["${table}"] sets engine "${String(src.engine)}" with a source; a source's rows are loaded into the engine that reads them, so a source table declares "memory" (materialised in this process) or "wasm" (landed in the SQL backend by buildDashboardAsync) — or no engine at all`);
+        }
       }
       if (src.key !== undefined) {
         if (typeof src.key !== 'string' || src.key.length === 0) problems.push(`data["${table}"].key must be a column name`);

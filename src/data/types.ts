@@ -338,6 +338,16 @@ export function clauseFields(clause: PredicateClause): readonly string[] {
   return isPairClause(clause) ? clause.fields : [clause.field];
 }
 
+/**
+ * One clause, a list of them, or none — as the LIST every engine walks. The
+ * single place `null` and a bare clause become the same shape, so two engines
+ * cannot disagree about what "no predicate" is (it is the empty list, whose
+ * descriptor is the cleared one — `resolvePredicateSQL`).
+ */
+export function clauseList(clause: PredicateClause | readonly PredicateClause[] | null): readonly PredicateClause[] {
+  return clause === null ? [] : Array.isArray(clause) ? (clause as readonly PredicateClause[]) : [clause as PredicateClause];
+}
+
 /** {@link isPairKind} over a BUILT clause — the narrowing the union needs, still reading the one array. */
 export function isPairClause(clause: PredicateClause): clause is CellClause | NeighbourhoodClause {
   return isPairKind(clause.kind);
@@ -408,9 +418,17 @@ export interface DataProviderCapabilities {
 
 /** Typed reason codes — every rejection names one; never a bare `false`/`undefined`. */
 export type RejectionReason =
-  /** The engine is a stub — no backend is wired yet (wasm/server today). */
+  /** This engine does not do this at all in this version: a typed stub with no backend (`server`), or a door an engine declares shut (`canMaterialize: false`). */
   | 'not-implemented'
-  /** A backend handle (Coordinator / DuckDB-WASM connection) was required but not supplied. */
+  /**
+   * A backend handle (Coordinator / DuckDB-WASM connection) was required but
+   * not supplied — OR it was there and the exchange with it failed: a statement
+   * the backend refused (its own error quoted in `detail`), an opener that
+   * threw, a count that came back without a number. Every outcome that depends
+   * on the backend rather than on the caller's ask is filed here, so `detail`
+   * is the only place that says WHICH — read it, never branch on this word
+   * alone to mean "pass a connection".
+   */
   | 'no-backend-connection'
   /** The named table is not known to this provider. */
   | 'unknown-table'

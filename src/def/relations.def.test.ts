@@ -145,7 +145,11 @@ describe('relations on the runtime and the overview', () => {
     const bad = buildDashboard({ ...graphDef(), relations: [SOURCE, { from: { table: 'cells', column: 'ghost' }, to: SOURCE.to }] });
     expect(await bad.lintData()).toEqual(['relations[1].from.column "ghost" names no column of "cells" — the columns are disease, jurisdiction, cases']);
     // an engine that cannot list columns is named as such, never mistaken for a missing column
-    const stub = buildDashboard({ ...graphDef(), data: { ...graphDef().data, cells: { rows: [], engine: 'wasm' } }, relations: [{ from: { table: 'cells', column: 'disease' }, to: SOURCE.to }] }, { availableEngines: ['memory', 'wasm'] });
+    const stub = buildDashboard(
+      { ...graphDef(), data: { ...graphDef().data, cells: { rows: [], engine: 'wasm' } }, relations: [{ from: { table: 'cells', column: 'disease' }, to: SOURCE.to }] },
+      // an engine whose connection never opens — the wasm engine WITH one lists its columns like any other
+      { availableEngines: ['memory', 'wasm'], openSqlConnection: () => Promise.reject(new Error('no database in this test')) },
+    );
     expect((await stub.lintData())[0]).toMatch(/^relations\[0\]\.from\.column "disease": the engine cannot list this table's columns — /);
   });
 

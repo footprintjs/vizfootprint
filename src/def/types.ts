@@ -669,7 +669,7 @@ export interface DashboardRuntime {
    * that answered.
    */
   landDerivedTable(table: DerivedTable, rows: readonly Row[]): void;
-  /** Build notes a def should hear: e.g. `engine: 'auto'` resolved to memory because the thresholds are unmeasured. */
+  /** Build notes a def should hear: e.g. which engine `engine: 'auto'` resolved to, and the row count it resolved on. */
   readonly notes: readonly string[];
   /** The declared row key per table (absent = positional rows, no delta). */
   readonly keys: Readonly<Record<string, string>>;

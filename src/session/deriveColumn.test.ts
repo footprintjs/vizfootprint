@@ -22,6 +22,7 @@ import type { DashboardDef } from '../def/index.js';
 import type { Cause } from '../cause/index.js';
 import type { DataRow } from '../analysis/index.js';
 import type { DerivedColumnDecl, Expr } from '../derive/index.js';
+import { noSqlConnection } from './dashboard.fixture.js';
 
 const cause: Cause = { requestedBy: 'user', computedBy: 'user', intent: 'a test' };
 
@@ -305,7 +306,7 @@ describe('judged before anything moves, in the derive taxonomy', () => {
   });
 
   it('refuses when the rows behind it could not be read — a source refusal, not a bad declaration', async () => {
-    const s = buildDashboard(defWith({ rate: { builtin: 'derive', table: 'cells', name: 'rate', column: RATE } }, { engine: 'wasm' })).createSession();
+    const s = buildDashboard(defWith({ rate: { builtin: 'derive', table: 'cells', name: 'rate', column: RATE } }, { engine: 'wasm' }), noSqlConnection).createSession();
     const made = await s.declareAnalysis('rate', { cause });
     expect(made.commit).toBeUndefined();
     expect(made.gap).toMatchObject({ code: 'derive-source-refused', op: 'declareAnalysis', target: 'rate' });
@@ -324,7 +325,7 @@ describe('judged before anything moves, in the derive taxonomy', () => {
       ...defWith({ twice: { builtin: 'derive', table: 'notes', name: 'twice', column: tree({ op: 'mul', args: [{ col: 'cases' }, { lit: 2 }] }) } }),
       data: { cells: { rows: [...ROWS] }, notes: { rows: [...ROWS], engine: 'wasm' } },
     };
-    const notes = buildDashboard(def).createSession();
+    const notes = buildDashboard(def, noSqlConnection).createSession();
     const unsaid = await notes.declareAnalysis('twice', { cause });
     expect(unsaid.gap).toMatchObject({ code: 'derive-source-refused', op: 'declareAnalysis', target: 'notes' });
     expect(unsaid.gap?.detail).toContain('could not say which columns are its own');

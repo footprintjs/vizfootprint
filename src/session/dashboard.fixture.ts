@@ -17,6 +17,18 @@ import {
 } from '../analysis/index.js';
 import type { DashboardDef } from '../def/index.js';
 
+/**
+ * Build options that leave the wasm engine with NO database, and the words it refuses in.
+ *
+ * WHY a fixture rather than `engine: 'wasm'` on its own: that engine is REAL — it
+ * opens DuckDB-WASM wherever it finds a host, a browser's Worker or the bundle node
+ * ships (`../data/duckdbConnection.ts`) — so a test that needs an engine which cannot
+ * answer has to refuse the OPEN. Left to the default opener, the environment would
+ * decide which half of such a test runs.
+ */
+export const NO_SQL_BACKEND = 'no SQL backend in this test';
+export const noSqlConnection = { openSqlConnection: (): Promise<never> => Promise.reject(new Error(NO_SQL_BACKEND)) };
+
 export const CATEGORIES = ['Casual', 'Formal', 'Party', 'Work', 'Summer'] as const;
 
 /** 40 rows: price = 50 + 2i + (i mod 5); rating = 1 + 0.1i (both rise together). */

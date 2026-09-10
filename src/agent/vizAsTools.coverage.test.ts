@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildDashboard, vizAsTools } from './index.js';
-import { makeDashboardDef, SAMPLE_ROWS } from '../session/dashboard.fixture.js';
+import { makeDashboardDef, noSqlConnection, SAMPLE_ROWS } from '../session/dashboard.fixture.js';
 import type { VizToolResult } from './index.js';
 
 function get(result: VizToolResult, key: string): unknown {
@@ -333,8 +333,8 @@ describe('viz.declare_analysis — the invalid-id guard and the intent pass-thro
 });
 
 describe('viz.declare_analysis — projectAnalysis omits absent commit/gap fields, includes present ones', () => {
-  it('a backend rejection (the wasm stub always rejects evaluate) is REFUSED, with the gap as the sentence', async () => {
-    const session = buildDashboard(makeDashboardDef({ engine: 'wasm' })).createSession();
+  it('a backend rejection (an engine whose connection never opens) is REFUSED, with the gap as the sentence', async () => {
+    const session = buildDashboard(makeDashboardDef({ engine: 'wasm' }), noSqlConnection).createSession();
     const port = vizAsTools(session);
     const res = await port.call('viz.declare_analysis', { analysisId: 'correlation' });
     // Nothing landed — no commit, no fold moved — so the answer says so. An `ok`

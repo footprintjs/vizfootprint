@@ -1,48 +1,46 @@
 /**
- * stubProviders.test.ts — pins the R14 contract for the wasm/server typed
- * stubs (D24 build step 3): honest `capabilities`, and every data-touching
- * call returns a typed rejection — never a thrown exception, never a
- * silently empty success.
+ * stubProviders.test.ts — pins the R14 contract at the edge of the data port:
+ * honest `capabilities`, and every data-touching call answers a typed
+ * rejection — never a thrown exception, never a silently empty success.
+ *
+ * `server` is the typed stub this version still ships. `wasm` is here only for
+ * the ONE law it shares with it — a provider is inert to construct and refuses
+ * in a typed shape — because it now answers real queries over a
+ * `SqlConnection`, and its own laws are pinned in `wasmProvider.test.ts`.
  */
 import { describe, it, expect } from 'vitest';
 import { wasmProvider } from './wasmProvider.js';
 import { serverProvider } from './serverProvider.js';
 import { isRejection } from './types.js';
 
-describe('wasmProvider — typed stub', () => {
-  it('declares the engine tag and forward-looking capabilities', () => {
+describe('wasmProvider — an engine that answers, judged by the same edge contract', () => {
+  it('declares what it does, including the door it keeps shut', () => {
     const p = wasmProvider();
     expect(p.engine).toBe('wasm');
-    expect(p.capabilities).toEqual({ canEvaluateSQL: true, canMaterialize: true });
+    expect(p.capabilities).toEqual({ canEvaluateSQL: true, canSort: true, canMaterialize: false });
   });
 
   it('tables() resolves to empty rather than rejecting when nothing was declared (no lie either way)', async () => {
-    const p = wasmProvider();
-    expect(await p.tables()).toEqual([]);
+    expect(await wasmProvider().tables()).toEqual([]);
   });
 
-  it('tables() reflects DECLARED sources (an honest partial capability) even without a live connection', async () => {
-    const p = wasmProvider({
-      sources: { events: { kind: 'csv', fileName: 'events.csv' }, brushes: { kind: 'objects', data: [] } },
-    });
+  it('tables() reflects DECLARED sources — a fact about the declaration, answered with no connection open', async () => {
+    const p = wasmProvider({ sources: ['events', 'brushes'] });
     expect(await p.tables()).toEqual(['events', 'brushes']);
   });
 
-  it('columns/evaluate/materializeColumn all reject with reason "not-implemented"', async () => {
-    const p = wasmProvider();
-    const columns = await p.columns('t');
-    const evald = await p.evaluate('t', null);
-    const materialized = await p.materializeColumn('t', 'c', []);
-    for (const result of [columns, evald, materialized]) {
+  it('a read with no connection behind it is a typed rejection, never a throw', async () => {
+    const p = wasmProvider({ sources: ['t'] });
+    for (const result of [await p.columns('t'), await p.evaluate('t', null)]) {
       expect(isRejection(result)).toBe(true);
       if (!isRejection(result)) throw new Error('unreachable');
       expect(result.engine).toBe('wasm');
-      expect(result.reason).toBe('not-implemented');
+      expect(result.reason).toBe('no-backend-connection');
     }
   });
 
   it('constructing a provider never throws (no eager WASM/network side effect)', () => {
-    expect(() => wasmProvider({ sources: { t: { kind: 'csv', fileName: 'x.csv' } } })).not.toThrow();
+    expect(() => wasmProvider({ sources: ['t'] })).not.toThrow();
   });
 });
 

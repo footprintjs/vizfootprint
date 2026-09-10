@@ -1,0 +1,368 @@
+{
+ "node": "v22.16.0",
+ "platform": "darwin arm64",
+ "generatedAt": "2026-09-10T07:19:58.678Z",
+ "shape": {
+  "kinds": [
+   58,
+   9,
+   3
+  ],
+  "weeks": 86,
+  "reportStates": {
+   "present": 0.55,
+   "not-configured": 0.27,
+   "unavailable": 0.13,
+   "withheld": 0.01,
+   "unknown": 0.04
+  }
+ },
+ "reps": {
+  "90k": 7,
+  "300k": 5,
+  "1M": 3
+ },
+ "warmup": 2,
+ "sizes": {
+  "90k": {
+   "rows": 90300,
+   "reps": 7,
+   "loadReps": 3,
+   "loadWarmup": 1
+  },
+  "300k": {
+   "rows": 300000,
+   "reps": 5,
+   "loadReps": 3,
+   "loadWarmup": 1
+  },
+  "1M": {
+   "rows": 1000000,
+   "reps": 3,
+   "loadReps": 2,
+   "loadWarmup": 0
+  }
+ },
+ "gcExposed": true,
+ "controls": {
+  "clock": {
+   "askedMs": 40,
+   "readMs": 40.00975,
+   "live": true
+  },
+  "agreement": [
+   {
+    "size": "90k",
+    "clause": "point AND interval",
+    "memory": 3080,
+    "wasm": 3080,
+    "agree": true
+   },
+   {
+    "size": "300k",
+    "clause": "point AND interval",
+    "memory": 3080,
+    "wasm": 3080,
+    "agree": true
+   },
+   {
+    "size": "1M",
+    "clause": "point AND interval",
+    "memory": 3080,
+    "wasm": 3080,
+    "agree": true
+   }
+  ]
+ },
+ "failures": [],
+ "results": [
+  {
+   "engine": "memory",
+   "arm": "construct / load the table",
+   "size": "90k",
+   "rows": 90300,
+   "median": 6.453207999999989,
+   "p95": 11.391291999999993,
+   "min": 5.912915999999996,
+   "n": 3,
+   "note": "memoryProvider(rows, { layout: \"row\" }): every row cloned + a columnTypes fold"
+  },
+  {
+   "engine": "wasm",
+   "arm": "construct / load the table",
+   "size": "90k",
+   "rows": 90300,
+   "median": 345.34012499999994,
+   "p95": 360.8489579999999,
+   "min": 341.0794999999998,
+   "n": 3,
+   "note": "a fresh database per rep: instantiate the wasm module + registerFileText(rows as JSON) + CREATE TABLE AS SELECT … row_number()"
+  },
+  {
+   "engine": "memory",
+   "arm": "COUNT — point AND interval",
+   "size": "90k",
+   "rows": 90300,
+   "median": 4.126917000000049,
+   "p95": 7.867749999999887,
+   "min": 3.0299580000000788,
+   "n": 7
+  },
+  {
+   "engine": "memory",
+   "arm": "rows, limit 100 — point AND interval",
+   "size": "90k",
+   "rows": 90300,
+   "median": 3.00583400000005,
+   "p95": 4.072834000000057,
+   "min": 2.9064579999999296,
+   "n": 7
+  },
+  {
+   "engine": "memory",
+   "arm": "rows, ORDER BY cases DESC, limit 100 — repeat asks",
+   "size": "90k",
+   "rows": 90300,
+   "median": 6.915958000000046,
+   "p95": 7.187000000000353,
+   "min": 6.1374580000001515,
+   "n": 7,
+   "note": "the permutation is cached per sort spec — this is the second ask onwards"
+  },
+  {
+   "engine": "wasm",
+   "arm": "COUNT — point AND interval",
+   "size": "90k",
+   "rows": 90300,
+   "median": 1.7306670000002669,
+   "p95": 2.259208000000399,
+   "min": 1.6001249999999345,
+   "n": 7
+  },
+  {
+   "engine": "wasm",
+   "arm": "rows, limit 100 — point AND interval",
+   "size": "90k",
+   "rows": 90300,
+   "median": 2.9480830000002243,
+   "p95": 3.101249999999709,
+   "min": 2.7844170000003032,
+   "n": 7,
+   "note": "two statements: the window, then a COUNT of the whole selection"
+  },
+  {
+   "engine": "wasm",
+   "arm": "rows, ORDER BY cases DESC, limit 100 — repeat asks",
+   "size": "90k",
+   "rows": 90300,
+   "median": 3.7012079999999514,
+   "p95": 3.8737080000000788,
+   "min": 3.467916999999943,
+   "n": 7,
+   "note": "DuckDB keeps no permutation: every ask sorts"
+  },
+  {
+   "engine": "memory",
+   "arm": "rows, ORDER BY cases DESC, limit 100 — FIRST ask on a fresh table",
+   "size": "90k",
+   "rows": 90300,
+   "median": 33.03883399999995,
+   "p95": 33.2621250000002,
+   "min": 31.81554099999994,
+   "n": 3,
+   "note": "a fresh provider each rep, so the sort is paid for: this cell INCLUDES the construction above it. DuckDB has no such cell — it keeps no permutation, so its every ask is a first ask"
+  },
+  {
+   "engine": "memory",
+   "arm": "construct / load the table",
+   "size": "300k",
+   "rows": 300000,
+   "median": 21.722083999999995,
+   "p95": 21.799082999999882,
+   "min": 20.8615420000001,
+   "n": 3,
+   "note": "memoryProvider(rows, { layout: \"row\" }): every row cloned + a columnTypes fold"
+  },
+  {
+   "engine": "wasm",
+   "arm": "construct / load the table",
+   "size": "300k",
+   "rows": 300000,
+   "median": 506.6046670000005,
+   "p95": 611.003541,
+   "min": 493.78087499999947,
+   "n": 3,
+   "note": "a fresh database per rep: instantiate the wasm module + registerFileText(rows as JSON) + CREATE TABLE AS SELECT … row_number()"
+  },
+  {
+   "engine": "memory",
+   "arm": "COUNT — point AND interval",
+   "size": "300k",
+   "rows": 300000,
+   "median": 9.580332999999882,
+   "p95": 10.703500000000531,
+   "min": 9.507791999999426,
+   "n": 5
+  },
+  {
+   "engine": "memory",
+   "arm": "rows, limit 100 — point AND interval",
+   "size": "300k",
+   "rows": 300000,
+   "median": 9.804417000000285,
+   "p95": 11.23962499999925,
+   "min": 9.583875000000262,
+   "n": 5
+  },
+  {
+   "engine": "memory",
+   "arm": "rows, ORDER BY cases DESC, limit 100 — repeat asks",
+   "size": "300k",
+   "rows": 300000,
+   "median": 24.05699999999979,
+   "p95": 25.861374999999498,
+   "min": 23.700416000000587,
+   "n": 5,
+   "note": "the permutation is cached per sort spec — this is the second ask onwards"
+  },
+  {
+   "engine": "wasm",
+   "arm": "COUNT — point AND interval",
+   "size": "300k",
+   "rows": 300000,
+   "median": 2.9430419999998776,
+   "p95": 3.0272920000006707,
+   "min": 2.860125000000153,
+   "n": 5
+  },
+  {
+   "engine": "wasm",
+   "arm": "rows, limit 100 — point AND interval",
+   "size": "300k",
+   "rows": 300000,
+   "median": 4.415208000000348,
+   "p95": 4.502832999999555,
+   "min": 4.1522090000007665,
+   "n": 5,
+   "note": "two statements: the window, then a COUNT of the whole selection"
+  },
+  {
+   "engine": "wasm",
+   "arm": "rows, ORDER BY cases DESC, limit 100 — repeat asks",
+   "size": "300k",
+   "rows": 300000,
+   "median": 6.2034160000002885,
+   "p95": 6.329666999999972,
+   "min": 6.037290999999641,
+   "n": 5,
+   "note": "DuckDB keeps no permutation: every ask sorts"
+  },
+  {
+   "engine": "memory",
+   "arm": "rows, ORDER BY cases DESC, limit 100 — FIRST ask on a fresh table",
+   "size": "300k",
+   "rows": 300000,
+   "median": 124.5152079999998,
+   "p95": 125.40258400000039,
+   "min": 120.64879199999996,
+   "n": 3,
+   "note": "a fresh provider each rep, so the sort is paid for: this cell INCLUDES the construction above it. DuckDB has no such cell — it keeps no permutation, so its every ask is a first ask"
+  },
+  {
+   "engine": "memory",
+   "arm": "construct / load the table",
+   "size": "1M",
+   "rows": 1000000,
+   "median": 72.6638329999987,
+   "p95": 75.93116699999973,
+   "min": 72.6638329999987,
+   "n": 2,
+   "note": "memoryProvider(rows, { layout: \"row\" }): every row cloned + a columnTypes fold"
+  },
+  {
+   "engine": "wasm",
+   "arm": "construct / load the table",
+   "size": "1M",
+   "rows": 1000000,
+   "median": 935.0547079999997,
+   "p95": 939.9255420000009,
+   "min": 935.0547079999997,
+   "n": 2,
+   "note": "a fresh database per rep: instantiate the wasm module + registerFileText(rows as JSON) + CREATE TABLE AS SELECT … row_number()"
+  },
+  {
+   "engine": "memory",
+   "arm": "COUNT — point AND interval",
+   "size": "1M",
+   "rows": 1000000,
+   "median": 32.34812500000044,
+   "p95": 33.28195799999958,
+   "min": 31.838834000000134,
+   "n": 3
+  },
+  {
+   "engine": "memory",
+   "arm": "rows, limit 100 — point AND interval",
+   "size": "1M",
+   "rows": 1000000,
+   "median": 32.16925000000083,
+   "p95": 33.2086249999993,
+   "min": 31.340457999998762,
+   "n": 3
+  },
+  {
+   "engine": "memory",
+   "arm": "rows, ORDER BY cases DESC, limit 100 — repeat asks",
+   "size": "1M",
+   "rows": 1000000,
+   "median": 97.49620800000048,
+   "p95": 100.54870800000026,
+   "min": 91.59499999999935,
+   "n": 3,
+   "note": "the permutation is cached per sort spec — this is the second ask onwards"
+  },
+  {
+   "engine": "wasm",
+   "arm": "COUNT — point AND interval",
+   "size": "1M",
+   "rows": 1000000,
+   "median": 7.08179200000086,
+   "p95": 7.280500000000757,
+   "min": 7.003374999998414,
+   "n": 3
+  },
+  {
+   "engine": "wasm",
+   "arm": "rows, limit 100 — point AND interval",
+   "size": "1M",
+   "rows": 1000000,
+   "median": 8.616834000000381,
+   "p95": 9.116583000000901,
+   "min": 8.515417000000525,
+   "n": 3,
+   "note": "two statements: the window, then a COUNT of the whole selection"
+  },
+  {
+   "engine": "wasm",
+   "arm": "rows, ORDER BY cases DESC, limit 100 — repeat asks",
+   "size": "1M",
+   "rows": 1000000,
+   "median": 14.758250000000771,
+   "p95": 14.760583000001134,
+   "min": 14.73566700000083,
+   "n": 3,
+   "note": "DuckDB keeps no permutation: every ask sorts"
+  },
+  {
+   "engine": "memory",
+   "arm": "rows, ORDER BY cases DESC, limit 100 — FIRST ask on a fresh table",
+   "size": "1M",
+   "rows": 1000000,
+   "median": 516.5311249999995,
+   "p95": 580.8477920000005,
+   "min": 516.5311249999995,
+   "n": 2,
+   "note": "a fresh provider each rep, so the sort is paid for: this cell INCLUDES the construction above it. DuckDB has no such cell — it keeps no permutation, so its every ask is a first ask"
+  }
+ ]
+}

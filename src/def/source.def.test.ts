@@ -38,10 +38,12 @@ describe('the def door — data[t].source', () => {
     expect(at({ format: 'csv', via: 'inline', at: 'a\n1', options: 3 })).toContain('data["data"].source.options, if present, must be an object');
     expect(at({ format: 'csv', via: 'inline', at: 'a\n1', options: { delimiter: ',' } })).toEqual([]);
   });
-  it('an engine beside a source is refused rather than silently overridden', () => {
-    const def = withSource({ format: 'rows', via: 'inline', at: SAMPLE_ROWS }, { engine: 'wasm' });
-    expect(validateDashboardDef(def)).toContain('data["data"] sets engine "wasm" with a source; a source table is materialised in memory — remove the engine key');
+  it('an engine beside a source is judged on whether it can RECEIVE the bytes (the ruling: ./README.md)', () => {
+    const def = withSource({ format: 'rows', via: 'inline', at: SAMPLE_ROWS }, { engine: 'server' });
+    expect(validateDashboardDef(def)).toContain('data["data"] sets engine "server" with a source; a source\'s rows are loaded into the engine that reads them, so a source table declares "memory" (materialised in this process) or "wasm" (landed in the SQL backend by buildDashboardAsync) — or no engine at all');
     expect(validateDashboardDef(withSource({ format: 'rows', via: 'inline', at: SAMPLE_ROWS }, { engine: 'memory' }))).toEqual([]);
+    // …and the engine that CAN receive them is legal here — `./wasmEngine.def.test.ts` owns what the two doors then do with it
+    expect(validateDashboardDef(withSource({ format: 'rows', via: 'inline', at: SAMPLE_ROWS }, { engine: 'wasm' }))).toEqual([]);
   });
 });
 
@@ -72,7 +74,7 @@ describe('buildDashboard (sync) over a source', () => {
     const dash = buildDashboard(makeDashboardDef({ engine: 'auto' }));
     expect(dash.sources).toEqual({});
     expect(dash.engines.data).toBe('memory');
-    expect(dash.notes).toEqual(['data["data"]: engine "auto" resolved to memory (the placeholder thresholds would have said "memory"; they are unmeasured — declare an engine to choose otherwise)']);
+    expect(dash.notes).toEqual(['data["data"]: engine "auto" resolved to memory (40 rows, against the measured row threshold in chooseEngine — declare an engine to choose otherwise)']);
   });
 });
 

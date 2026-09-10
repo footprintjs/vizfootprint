@@ -13,6 +13,7 @@ import { describe, it, expect } from 'vitest';
 import { buildDashboard, layerAddress } from '../def/index.js';
 import type { DashboardDef } from '../def/index.js';
 import { EDGES, NETWORK_RELATIONS, NODES, edgesLayer, makeNetworkDef, nodesLayer } from '../def/network.fixture.js';
+import { noSqlConnection } from './dashboard.fixture.js';
 import { reject, type DataProvider } from '../data/index.js';
 import { egoIds } from './neighbourhood.js';
 import type { Cause } from '../cause/index.js';
@@ -307,7 +308,7 @@ describe('every refusal is a sentence, and lands nothing', () => {
         relations: [...NETWORK_RELATIONS],
         capabilities: WALKS,
       }),
-      { availableEngines: ['memory', 'wasm'] },
+      { availableEngines: ['memory', 'wasm'], ...noSqlConnection },
     ).createSession();
     expect(await refusal({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'cold', cause: userCause() }, blind)).toContain('needs-backend-data:');
 

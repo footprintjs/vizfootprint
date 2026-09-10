@@ -6,3 +6,6 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# the bench runners' esbuild output — a generated executable, never a report
+bench/*/*.bundle.mjs

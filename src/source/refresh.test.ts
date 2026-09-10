@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { buildDashboard, buildDashboardAsync, validateDashboardDef, deltaByKey, inlineSource } from '../def/index.js';
 import type { DashboardDef } from '../def/index.js';
 import { fileSource } from './file.js';
-import { makeDashboardDef, SAMPLE_ROWS } from '../session/dashboard.fixture.js';
+import { makeDashboardDef, noSqlConnection, SAMPLE_ROWS } from '../session/dashboard.fixture.js';
 import { CauseSelectionSession, serializeLog, deserializeLog, replayLog } from '../log/index.js';
 import type { Cause } from '../cause/index.js';
 
@@ -188,7 +188,7 @@ describe('the review\'s laws', () => {
     expect((await s.overview()).keys).toEqual({ data: 'id', other: 'a' });
     const pick = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick') });
     expect(pick.ok && pick.commit?.data).toBeUndefined(); // the default table is inline rows: nothing to stamp, even though `other` has a source
-    const stub = buildDashboard({ ...makeDashboardDef(), data: { data: { rows: [], engine: 'wasm', key: 'id' } } }, { availableEngines: ['memory', 'wasm'] });
+    const stub = buildDashboard({ ...makeDashboardDef(), data: { data: { rows: [], engine: 'wasm', key: 'id' } } }, { availableEngines: ['memory', 'wasm'], ...noSqlConnection });
     expect((await stub.lintData())[0]).toMatch(/^data\["data"\]\.key "id": the engine cannot list this table's columns — /);
   });
 });

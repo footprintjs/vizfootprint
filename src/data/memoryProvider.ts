@@ -24,6 +24,7 @@ import { matchesClause, resolvePredicateSQL } from './predicate.js';
 import { TypeTally, columnTypes, columnar, foldOnce } from './fold.js';
 import {
   clauseFields,
+  clauseList,
   reject,
   type ColumnInfo,
   type ColumnType,
@@ -233,11 +234,6 @@ function collectMatches(store: TableStore, clauses: readonly PredicateClause[], 
   return { indices, count };
 }
 
-/** One clause, a list, or null — as the list the matcher walks. */
-function clauseList(clause: PredicateClause | readonly PredicateClause[] | null): readonly PredicateClause[] {
-  return clause === null ? [] : Array.isArray(clause) ? (clause as readonly PredicateClause[]) : [clause as PredicateClause];
-}
-
 /**
  * The D24 "memory" engine. `input` is either a single table's data (array of
  * row objects or CSV text — table name defaults to `options.tableName ??
@@ -326,6 +322,23 @@ export function memoryProvider(
       const missing = clauses.flatMap((c) => clauseFields(c)).find((f) => !names.includes(f));
       if (missing !== undefined) {
         return reject('memory', 'evaluate', 'unknown-column', `table "${table}" has no column "${missing}"`);
+      }
+
+      // …and so must every column the PROJECTION names, in both modes and before
+      // any window is walked: ONE law, both engines (src/data/README.md). Left
+      // unjudged this engine answered `{ nope: undefined }` — a column that does
+      // not exist, reported as a column with no value in it.
+      //
+      // WHY it is skipped for a table with NO columns: this engine reads a
+      // row-major table's column names off its rows, so a table with zero rows
+      // knows none at all and `columns()` honestly answers `[]` — an aggregate
+      // whose group set came out empty lands exactly there. Judging a projection
+      // against a schema the engine cannot see would report every column of it
+      // as missing. A SQL engine has a schema without rows, which is why the
+      // wasm door needs no such exception.
+      const unprojectable = names.length === 0 ? undefined : (evalOptions.columns ?? []).find((c) => !names.includes(c));
+      if (unprojectable !== undefined) {
+        return reject('memory', 'evaluate', 'unknown-column', `table "${table}" has no column "${unprojectable}" to return`);
       }
 
       const sql = resolvePredicateSQL(clauses);

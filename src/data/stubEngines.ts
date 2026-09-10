@@ -1,13 +1,19 @@
 /**
- * STUB ENGINES — THE TWO THIS VERSION NAMES AND DOES NOT RUN.
+ * STUB ENGINES — THE ONE THIS VERSION NAMES AND DOES NOT RUN.
  *
- * D24 names three engines behind the data seam. `memory` answers; `wasm` and
- * `server` are typed stubs — declared so the port's shape is honest before the
- * backends exist (`wasmProvider.ts`, `serverProvider.ts`) — and a stub answers
- * only its DECLARED TABLE LIST: every read of a column or a row is refused.
- * This module is the one place that says so, in one sentence, so the build door
- * and the read door tell an author the same thing in the same words instead of
- * each inventing its own.
+ * D24 names three engines behind the data seam. `memory` answers, `wasm` now
+ * answers over a real SQL connection (`wasmProvider.ts` — DuckDB-WASM behind
+ * `SqlConnection`), and `server` is still a typed stub: declared so the port's
+ * shape is honest before a Mosaic Coordinator exists (`serverProvider.ts`), and
+ * a stub answers only its DECLARED TABLE LIST — every read of a column or a row
+ * is refused. This module is the one place that says so, in one sentence, so
+ * the build door and the read door tell an author the same thing in the same
+ * words instead of each inventing its own.
+ *
+ * WHY the list is data and not a hand-typed name: it SHRANK when the wasm
+ * engine started answering (D24 build step 2), and every door that judges
+ * "does this declaration route to something that runs?" shrank with it in the
+ * same commit — a second list would have kept refusing a table that now runs.
  *
  * The law: a refusal quotes the offending value and says what is known — and
  * here it also says what to do instead, because "not implemented yet" is a fact
@@ -16,20 +22,20 @@
  * table is wholly dark: a refusal that claims MORE absence than there is sends
  * a reader away from the one thing they could still ask for.
  *
- * First customers: `wasmProvider` / `serverProvider` — the `detail` on every
- * rejection they file for a read this version cannot perform, which is all of
- * them but one. `serverProvider.materializeColumn` speaks in its own words on
- * purpose: it is refused by a DECLARED capability (`canMaterialize: false`)
- * that a real Coordinator behind that provider would refuse too, not by our
- * build order. Also `src/def/buildDashboard.ts` — the build note a table routed
- * to a stub owes its author, and the `lint()` door that throws it.
+ * First customer: `serverProvider` — the `detail` on every rejection it files
+ * for a read, which is all of them but one. `serverProvider.materializeColumn`
+ * speaks in its own words on purpose: it is refused by a DECLARED capability
+ * (`canMaterialize: false`) that a real Coordinator behind that provider would
+ * refuse too, not by our build order. Also `src/def/buildDashboard.ts` — the
+ * build note a table routed to a stub owes its author, and the `lint()` door
+ * that throws it.
  */
 import type { Engine } from './types.js';
 
 /** The engines this version declares and does not run — data, so both doors read ONE list. */
-export const STUB_ENGINES = ['wasm', 'server'] as const;
+export const STUB_ENGINES = ['server'] as const;
 
-/** One of those two. (`memory` is the engine that answers; `auto` never survives resolution.) */
+/** The one of them. (`memory` and `wasm` answer; `auto` never survives resolution.) */
 export type StubEngine = (typeof STUB_ENGINES)[number];
 
 /** Does this declaration route to an engine that answers no column and no row? */

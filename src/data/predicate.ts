@@ -89,8 +89,12 @@ export function literalToSQL(value: unknown): string {
   }
 }
 
-/** Double-quoted identifier, escaping an embedded `"` by doubling it (standard SQL quoting). */
-function quoteIdent(field: string): string {
+/**
+ * Double-quoted identifier, escaping an embedded `"` by doubling it (standard
+ * SQL quoting). EXPORTED because `sqlWindow` quotes the same names around the
+ * same fragment — one quoting rule for the whole statement, never two.
+ */
+export function quoteIdent(field: string): string {
   return `"${field.replaceAll('"', '""')}"`;
 }
 

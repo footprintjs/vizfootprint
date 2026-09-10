@@ -45,9 +45,17 @@ export type {
   Row,
   SortSpec,
 } from './types.js';
-export { PAIR_CLAUSE_KINDS, cellFieldLabel, clauseFields, isPairClause, isPairKind, isRejection, neighbourhoodFieldLabel, reject } from './types.js';
+export { PAIR_CLAUSE_KINDS, cellFieldLabel, clauseFields, clauseList, isPairClause, isPairKind, isRejection, neighbourhoodFieldLabel, reject } from './types.js';
 
 export { literalToSQL, matchesClause, resolvePredicateSQL, isClearedSQL, mosaicDescriptorSQL } from './predicate.js';
+
+// The window AROUND the WHERE: one pure statement builder, no engine — the
+// columns, the order, the cap and the source-order column a window asks for,
+// rendered once so two engines cannot disagree about what the same
+// `EvaluateOptions` mean. `quoteIdent` is the one quoting rule both share.
+export { windowSQL, ROW_ORDER_COLUMN, WindowRefusal } from './sqlWindow.js';
+export type { WindowRefusalReason, WindowTableFacts } from './sqlWindow.js';
+export { quoteIdent } from './predicate.js';
 
 // The wire triple a commit carries, read as the clause it means — the one
 // translation, so a consumer holding a commit never writes the rules again.
@@ -90,13 +98,40 @@ export type { DerivedTable, DerivedTableAct } from './derivedTables.js';
 export { memoryProvider, SORT_CACHE_PER_TABLE } from './memoryProvider.js';
 export type { Layout, MemoryProviderOptions, RowsInput } from './memoryProvider.js';
 
-export { wasmProvider } from './wasmProvider.js';
-export type { WasmLoadSource, WasmProviderOptions } from './wasmProvider.js';
+export { wasmProvider, wasmConnectionRefusal } from './wasmProvider.js';
+export type { WasmProviderOptions } from './wasmProvider.js';
+
+// The port a SQL backend is reached through — and the ONE statement that gives a
+// loaded table its source-order column. `wasmProvider` sees this and never DuckDB.
+export { canLoad, loadTableSQL } from './sqlConnection.js';
+export type { LoadingConnection, SqlConnection, SqlLoader, TableData } from './sqlConnection.js';
+
+// …and the one implementation of it. Exported as a FACTORY of an opener: importing
+// this barrel must never be the act that fetches a WASM bundle — only calling the
+// opener the factory returns is (`duckdbConnection.ts` holds the dynamic import).
+// It opens in EITHER host — a browser's Worker or node's blocking bundle — and
+// which one is judged when the opener is called, by `duckdbHostOf`.
+export { duckdbConnection, duckdbHostOf, hostFactsOf, nodeBundles, nodeConnectionOver, nodeLoggerOf, nodeModuleOf, rowOf, rowsOf, sqlConnectionOver, NO_DUCKDB_HOST } from './duckdbConnection.js';
+export type {
+  DuckDBConnectionOptions,
+  DuckDBDatabase,
+  DuckDBHandle,
+  DuckDBHost,
+  DuckDBNodeBindings,
+  DuckDBNodeBundle,
+  DuckDBNodeBundles,
+  DuckDBNodeConnection,
+  DuckDBNodeModule,
+  DuckDBResult,
+  FileResolver,
+  HostFacts,
+  HostGlobals,
+} from './duckdbConnection.js';
 
 export { serverProvider } from './serverProvider.js';
 export type { ServerProviderOptions } from './serverProvider.js';
 
-// The two engines this version names and does not run — and the one sentence the
+// The engine this version names and does not run — and the one sentence the
 // build door (`buildDashboard`/`lint()`) and the read door (the providers' typed
 // rejections) both say so in.
 export { STUB_ENGINES, isStubEngine, stubEngineRefusal, stubEngineRemedy, stubEngineSentence } from './stubEngines.js';
@@ -105,7 +140,14 @@ export type { StubEngine } from './stubEngines.js';
 export {
   chooseEngine,
   defaultEnginePolicy,
-  PLACEHOLDER_ENGINE_THRESHOLDS,
+  DEFAULT_ENGINE_THRESHOLDS,
+  /**
+   * @deprecated The name these thresholds had while they were an unmeasured
+   * placeholder (Q12). `bench/step0-wasm` measured the row axis, so the name
+   * stopped being true: import {@link DEFAULT_ENGINE_THRESHOLDS}. Kept for ONE
+   * release so a consumer pinned to the old name still resolves.
+   */
+  DEFAULT_ENGINE_THRESHOLDS as PLACEHOLDER_ENGINE_THRESHOLDS,
 } from './chooseEngine.js';
 export type { ChooseEngineOptions, DatasetStats, EnginePolicy, EngineThresholds } from './chooseEngine.js';
 

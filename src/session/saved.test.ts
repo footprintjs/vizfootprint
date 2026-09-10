@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildDashboard } from '../def/index.js';
-import { makeDashboardDef } from './dashboard.fixture.js';
+import { makeDashboardDef, noSqlConnection } from './dashboard.fixture.js';
 import type { Cause } from '../cause/index.js';
 
 const userCause = (intent?: string): Cause => ({ requestedBy: 'user', computedBy: 'user', ...(intent ? { intent } : {}) });
@@ -350,7 +350,7 @@ describe('saved selections — saved logic beside the log', () => {
   });
 
   it('an engine that cannot list columns refuses the whole apply before anything is cleared — the same answer the select door would give, said first', async () => {
-    const s = buildDashboard(makeDashboardDef({ engine: 'wasm' })).createSession();
+    const s = buildDashboard(makeDashboardDef({ engine: 'wasm' }), noSqlConnection).createSession();
     expect(s.saveSelection('on a stub', { conditions: [{ viewId: 'bar', kind: 'point', field: 'category', value: 'Formal' }] }).ok).toBe(true);
     const before = s.log.records.length;
     const r = await s.applySaved('on a stub', userCause());
