@@ -43,6 +43,7 @@
  * bite on a built-in kind at all, because four candidates on at most three
  * channels is sixty-four. Both numbers are where a reader can check them.
  */
+import type { AbsenceDecl } from '../def/types.js';
 import { CHART_KIND_FOR_READING, graphReadingFor, type GraphFact, type GraphReading, type GraphReadingKind } from './graphReading.js';
 import { policyRecommender } from './recommend.js';
 import { KINDS_NOT_PROPOSED, channelsOf, chartKindsOf, requirementFor } from './requirements.js';
@@ -118,8 +119,8 @@ export interface ChartProposals {
 export interface ProposeChartsInput {
   /** The described table plus the person's declarations — `whatFits`'s own column shape. */
   readonly columns: readonly FitColumn[];
-  /** The table's absence vocabulary, when it declared one. */
-  readonly absence?: { readonly field: string; readonly states: readonly string[] };
+  /** The table's absence declaration, when it declared one — bare or a LIST, since silence belongs to a column (`../data/silence.ts`); handed straight to {@link resolveFacets}. */
+  readonly absence?: AbsenceDecl | readonly AbsenceDecl[];
   /** The rule set the def carries (or would carry) — its `channels` also widen which kinds are proposed. */
   readonly rules?: EncodingRules;
   /** The ports a build would pass. With no `recommender` among them, {@link policyRecommender} ranks. */

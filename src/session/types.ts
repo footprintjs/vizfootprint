@@ -1151,8 +1151,16 @@ export interface TableInfo {
   /** The declared row key, when the def states one — without it a refresh replaces the table and no row is addressable. */
   readonly key?: string;
   readonly grain?: SeriesGrain;
-  /** The absence column and the vocabulary it speaks, when declared. */
-  readonly absence?: { readonly field: string; readonly states: readonly string[] };
+  /**
+   * The state columns and the vocabulary each of them speaks, when the table
+   * declares any — a LIST, in declaration order, because silence belongs to a
+   * column and not to the row (`../data/silence.ts`). A `measurements` table
+   * whose radius was measured, whose mass is a published bound and whose period
+   * was never taken lists three, and the Sources tab shows all three: a tab
+   * that showed the first would be telling a reader that one column speaks for
+   * the row, which is the thing that is not true.
+   */
+  readonly absence?: readonly { readonly field: string; readonly states: readonly string[] }[];
   /** How many columns the def declares facets for (the engine may list more) — for a derived table, how many the ACT lands. */
   readonly declaredColumns: number;
   /**

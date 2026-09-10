@@ -35,7 +35,7 @@ describe('overview.tables', () => {
     const o = await s.overview();
     expect(o.tables).toEqual([
       { name: 'data', source: { format: 'rows', via: 'inline' }, engine: 'memory', key: 'id', declaredColumns: 2 },
-      { name: 'flags', source: { inline: 'rows', rows: 2 }, engine: 'memory', key: 'id', grain: { bucket: 'week', reducer: 'sum', note: 'weekly totals' }, absence: { field: 'state', states: ['present', 'unknown'] }, declaredColumns: 1 },
+      { name: 'flags', source: { inline: 'rows', rows: 2 }, engine: 'memory', key: 'id', grain: { bucket: 'week', reducer: 'sum', note: 'weekly totals' }, absence: [{ field: 'state', states: ['present', 'unknown'] }], declaredColumns: 1 },
       { name: 'text', source: { inline: 'csv' }, engine: 'memory', declaredColumns: 0 },
     ]);
     // provenance rides `sources` only for the table that declared a source; an inline payload is never repeated
@@ -43,6 +43,25 @@ describe('overview.tables', () => {
     expect(o.sources['data']!.at).toBeUndefined();
     expect(o.journal).toEqual([]);
     expect(o.journalTotal).toBe(0);
+  });
+
+  it('reports EVERY state column when a table declares one per measured quantity — silence belongs to a column', async () => {
+    const def = withTables();
+    const measurements = {
+      rows: [{ id: 'a', radius_state: 'present', pl_rade: 1, mass_state: 'not-measured', pl_masse: null }],
+      key: 'id',
+      columns: { id: { role: 'identifier' as const }, pl_rade: { role: 'measure' as const }, pl_masse: { role: 'measure' as const } },
+      absence: [
+        { field: 'radius_state', states: ['present', 'upper-bound', 'unknown'], governs: ['pl_rade'] },
+        { field: 'mass_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_masse'] },
+      ],
+    };
+    const s = buildDashboard({ ...def, data: { ...def.data, measurements } }).createSession();
+    const o = await s.overview();
+    expect(o.tables.find((t) => t.name === 'measurements')?.absence).toEqual([
+      { field: 'radius_state', states: ['present', 'upper-bound', 'unknown'] },
+      { field: 'mass_state', states: ['present', 'not-measured', 'unknown'] },
+    ]);
     // the plain fixture: one table, inline rows, no key
     const plain = await buildDashboard(makeDashboardDef()).createSession().overview();
     expect(plain.tables).toEqual([{ name: 'data', source: { inline: 'rows', rows: SAMPLE_ROWS.length }, engine: 'memory', declaredColumns: 0 }]);

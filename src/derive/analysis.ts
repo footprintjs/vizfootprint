@@ -33,10 +33,12 @@
  * ## The absence law, end to end
  *
  * The walker keeps it ({@link ./walk.ts}); this file is what carries the
- * table's declared `AbsenceDecl` to it, because the declaration is the DEF's
- * and a record may not name its own. It arrives beside the record as context,
- * exactly as a relation does for `bringOver` — a record that could name its own
- * absence column could name one nobody declared.
+ * table's declared `AbsenceDecl` to it — one entry or a LIST of them, since
+ * silence belongs to a column — because the declaration is the DEF's and a
+ * record may not name its own. It arrives beside the record as context, exactly
+ * as a relation does for `bringOver` — a record that could name its own state
+ * column could name one nobody declared. This door adapts it to the port ONCE
+ * (`../data/silence.ts` · `silenceOfDecl`) and everything below reads that.
  *
  * ```ts
  * deriveAnalysis({
@@ -62,6 +64,7 @@ import type { DataRow } from '../analysis/builtins.js';
 import type { AnalysisModule, ColumnsOutput, InputBinding } from '../analysis/types.js';
 import type { ColumnInfo } from '../data/types.js';
 import { columnar, foldOnce } from '../data/fold.js';
+import { silenceOfDecl, silenceOfNothing, type TableSilence } from '../data/silence.js';
 import type { AbsenceDecl } from '../def/types.js';
 import { valuesOf, type Rows } from './groups.js';
 import { columnsHave, judgeDerivedColumn } from './judge.js';
@@ -79,13 +82,14 @@ export interface DeriveOptions {
   /** The table the column is written into. Default `data`. */
   readonly table?: string;
   /**
-   * The table's declared absence vocabulary, when it has one.
+   * The table's declared absence vocabulary, when it has one — one entry, or a
+   * LIST when the table declares one state column per measured quantity.
    *
    * Passed IN rather than read: the decl belongs to the def, and this folder
    * has no dashboard to ask. `../def/builtinAnalyses.ts` supplies it from the
-   * def's own `data[table].absence`.
+   * def's own `data[table].absence`, verbatim.
    */
-  readonly absence?: AbsenceDecl;
+  readonly absence?: AbsenceDecl | readonly AbsenceDecl[];
   /** Default `derive:<table>:<name>`. */
   readonly id?: string;
 }
@@ -207,7 +211,7 @@ export function chartKeys(landed: string): { readonly arg: string; readonly held
  * table itself (a committed value is frozen), and the next act to materialize a
  * column into it would find the rows unextensible.
  */
-function buildDeriveChart(declared: DerivedColumnDecl, column: string, absence: AbsenceDecl | undefined): FlowChart {
+function buildDeriveChart(declared: DerivedColumnDecl, column: string, silence: TableSilence): FlowChart {
   const { arg, held } = chartKeys(column);
   return flowChart<Record<string, unknown>>(
     'load the columns it reads',
@@ -228,7 +232,7 @@ function buildDeriveChart(declared: DerivedColumnDecl, column: string, absence: 
         // closure — which is the whole reason `Rows.at` hands one back.
         let at = 0;
         const cells: CellReader = (name) => input.columns[name]?.[at];
-        const read = readerOver(cells, absence);
+        const read = readerOver(cells, silence);
         const rows: Rows = {
           count: input.rows,
           at: (which) => {
@@ -277,12 +281,16 @@ export function deriveAnalysis(opts: DeriveOptions): AnalysisModule<readonly Dat
   const table = opts.table ?? 'data';
   const declared = opts.column;
   const absence = opts.absence;
+  // ONE reading of the table's silences, per column (`../data/silence.ts`) — the declaration is the
+  // DEF's shape and stops here; everything below asks the port. PLURAL state columns, because a
+  // table may declare one per measured quantity.
+  const silence = absence === undefined ? silenceOfNothing() : silenceOfDecl(absence);
   const { reads, grouping } = columnsOf(declared);
-  // The absence column is folded out beside them: the walker has to ask what
-  // this row's state is before it may answer for any other column of it.
+  // The state columns are folded out beside them: the walker has to ask what this row's state is
+  // before it may answer for any column that state governs.
   // ONE decision, named once and spent twice below — folded out of the rows, and bound as an input.
-  const foldsAbsence = absence !== undefined && !reads.includes(absence.field);
-  const folded = foldsAbsence ? [...reads, absence.field] : reads;
+  const foldedStates = silence.stateColumns.filter((field) => !reads.includes(field));
+  const folded = foldedStates.length === 0 ? reads : [...reads, ...foldedStates];
   /**
    * What the judge computed, kept for the write. Set at declaration, by the
    * only door that judges — so ANY replay of a record-declared act has none: the
@@ -300,7 +308,7 @@ export function deriveAnalysis(opts: DeriveOptions): AnalysisModule<readonly Dat
   // cause of every blank, and `INPUT_ROLES` has no word for the column that
   // decides whether the others are readable.
   const inputs: InputBinding[] = reads.map((name) => ({ column: name, role: grouping.has(name) ? 'group' : 'value' }));
-  if (absence !== undefined && foldsAbsence) inputs.push({ column: absence.field });
+  for (const field of foldedStates) inputs.push({ column: field });
   return defineAnalysis<readonly DataRow[], ColumnsOutput>({
     id: opts.id ?? `derive:${table}:${column}`,
     kind: 'transform',
@@ -321,7 +329,9 @@ export function deriveAnalysis(opts: DeriveOptions): AnalysisModule<readonly Dat
       // WHY judged here and not by the tree walk: the absence column is the DEF's and the tree never
       // names it, so nothing else checks it — and a name the table does not have would read every
       // row as absent, with no sentence anywhere.
-      if (absence !== undefined && !columns.some((known) => known.name === absence.field)) return [absenceRefusal('this column', absence.field, readTable, columns)];
+      // Each state column is judged on its own: a table missing one of three is a sentence about THAT one.
+      const missing = silence.stateColumns.find((field) => !columns.some((known) => known.name === field));
+      if (missing !== undefined) return [absenceRefusal('this column', missing, readTable, columns)];
       computed = judged.type;
       return [];
     },
@@ -330,7 +340,7 @@ export function deriveAnalysis(opts: DeriveOptions): AnalysisModule<readonly Dat
       // door a declaration written against another vocabulary would otherwise walk through — under
       // this build's op table, with this build's meanings.
       if (declared.ops !== OPS_VERSION) throw new Error(`this column is written against ops ${String(declared.ops)}, and this build knows ops ${String(OPS_VERSION)}`);
-      return buildDeriveChart(declared, column, absence);
+      return buildDeriveChart(declared, column, silence);
     },
     // ONE walk of the table, folding out only the columns the tree names.
     toRunInput: (rows) => ({

@@ -3,12 +3,18 @@
  *
  * ## The absence law, stated once
  *
- * **A cell is ABSENT when it is `null`, or when the table's declared absence
- * column says the row is not `present`.** Two sources, not one — and the second
- * is the whole reason this law needed writing down. A row whose `report_state`
- * says `unavailable` carries `cases = 0`, and that zero is a REPORTED NOTHING,
- * not a measured zero: `cases / population` must be absent on that row, never
- * `0`. A dashboard that draws the zero is not drawing the data.
+ * **A cell is ABSENT when it is `null`, or when the state column GOVERNING
+ * that column says the row is not `present`.** Two sources, not one — and the
+ * second is the whole reason this law needed writing down. A row whose
+ * `report_state` says `unavailable` carries `cases = 0`, and that zero is a
+ * REPORTED NOTHING, not a measured zero: `cases / population` must be absent on
+ * that row, never `0`. A dashboard that draws the zero is not drawing the data.
+ *
+ * *Governing* is the whole of the second source: silence belongs to a COLUMN,
+ * not to the row (`../data/silence.ts` · `TableSilence`). A `measurements` table
+ * declares one state column per measured quantity, and a row whose radius was
+ * never taken still reports its mass and its period. The walker asks the port
+ * per column and never per row.
  *
  * **Every op is strict: any absent input makes the result absent.** Division by
  * zero is absent, never `Infinity`. Text where a number was declared is absent.
@@ -25,7 +31,13 @@
  * us its opinion.
  *
  * The absence law is **not a dial.** Nothing about it is configurable, and no
- * engine may hold a second opinion.
+ * engine may hold a second opinion. The ONE thing a definition may choose is
+ * per column and is not this law: `arithmetic: 'carried'` on an absence entry
+ * says the states that entry declared as carrying a number are read as that
+ * number. The default is `'present-only'` — exactly `present` — because a
+ * global switch would silently move every total ever computed here, and a
+ * dashboard that wants published estimates inside its sums must SAY so where a
+ * reader can see it (`./README.md`, "A carried number is not a default").
  *
  * ## Judge first
  *
@@ -61,8 +73,9 @@
  * {@link CellReader}, which is why the reader is a parameter and not a row.
  */
 
+import { readsValueTestOf, silenceOfNothing, type TableSilence } from '../data/silence.js';
 import type { Row } from '../data/types.js';
-import { ABSENCE_PRESENT, type AbsenceDecl } from '../def/types.js';
+import { ABSENCE_PRESENT } from '../def/types.js';
 import { epochDayOf, isoOfMoment } from './dates.js';
 import { opOf, wantAt, type ArgWant, type Op } from './ops.js';
 import type { Cell, CellReader, Expr, OpExpr } from './types.js';
@@ -181,20 +194,53 @@ export function evaluate(expr: Expr, read: CellReader, group?: GroupAnswer): Cel
 // ── where a cell comes from ──────────────────────────────────────────────────
 
 /**
+ * What one governed column's gate is: the state column to ask, and the test
+ * that says whether the arithmetic reads the cell.
+ *
+ * Built ONCE per column and remembered, because the closure below is called
+ * per column per row and the test is the same one every time.
+ */
+interface ColumnGate {
+  readonly state: string;
+  readonly readsValue: (state: unknown) => boolean;
+}
+
+/**
  * A reader that keeps the absence law's second half, over any reader beneath it.
  *
- * A row the table's absence column does not call `present` reads as absent in
- * EVERY column — except that column itself, which speaks for itself, so that
+ * A column whose governing state column does not say `present` reads as absent
+ * — but only the columns THAT entry governs, because silence belongs to a
+ * column and not to the row (`../data/silence.ts`). A state column itself, and
+ * any column no entry governs, read as they are, so that
  * `eq(report_state, "unavailable")` and `isAbsent(cases)` both stay honest on
  * the same row. A row whose state is missing, or is any of the vocabulary's
  * other words, is not `present`: `unknown` means the source could not tell the
  * two silences apart, and a tool that read it as "here it is" would be
  * inventing the answer the source refused to give.
+ *
+ * THE ONE DIAL, and it is per column: an entry declaring
+ * `arithmetic: 'carried'` also reads the states it named in `carries`, so a
+ * published bound lands in the sum. The default is `'present-only'` — exactly
+ * `present`, the law every total this library has ever computed — and it is not
+ * global for that reason (`./README.md` states the law). A carried state whose
+ * cell holds no number still reads absent: the gate opens and {@link cellOf}
+ * judges the cell it finds.
  */
-export function readerOver(read: CellReader, absence?: AbsenceDecl): CellReader {
-  const field = absence?.field;
-  if (field === undefined) return read;
-  return (column) => (column === field || read(field) === PRESENT ? read(column) : null);
+export function readerOver(read: CellReader, silence: TableSilence = silenceOfNothing()): CellReader {
+  // A table that declares no silence adds no work at all — the reader beneath is the reader.
+  if (silence.stateColumns.length === 0) return read;
+  const gates = new Map<string, ColumnGate | undefined>();
+  const gateFor = (column: string): ColumnGate | undefined => {
+    if (gates.has(column)) return gates.get(column);
+    const governing = silence.silenceFor(column);
+    const gate = governing === undefined ? undefined : { state: governing.state, readsValue: readsValueTestOf(governing) };
+    gates.set(column, gate);
+    return gate;
+  };
+  return (column) => {
+    const gate = gateFor(column);
+    return gate === undefined || gate.readsValue(read(gate.state)) ? read(column) : null;
+  };
 }
 
 /**
@@ -205,11 +251,11 @@ export function readerOver(read: CellReader, absence?: AbsenceDecl): CellReader 
  * keep ONE absence law, and a second copy would agree with this one until the
  * day somebody edited one of them.
  */
-export function readerFor(row: Row, absence?: AbsenceDecl): CellReader {
-  return readerOver((column) => row[column], absence);
+export function readerFor(row: Row, silence?: TableSilence): CellReader {
+  return readerOver((column) => row[column], silence);
 }
 
 /** One ROW through the tree, absence law and all — the shortest door there is. */
-export function evaluateRow(expr: Expr, row: Row, absence?: AbsenceDecl): Cell {
-  return evaluate(expr, readerFor(row, absence));
+export function evaluateRow(expr: Expr, row: Row, silence?: TableSilence): Cell {
+  return evaluate(expr, readerFor(row, silence));
 }

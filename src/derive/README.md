@@ -82,7 +82,7 @@ The cost is that date-looking text cannot be used as a string without saying so 
 
 ## Law 3 — the absence law, and it is not a dial
 
-> **A cell is absent when it is `null`, OR when the table's declared absence column says the row is not `present`. Every op is strict: any absent input makes the result absent.**
+> **A cell is absent when it is `null`, OR when the state column GOVERNING that column says the row is not `present`. Every op is strict: any absent input makes the result absent.**
 
 The second half is the whole reason the law needed writing down. In the demo's own rows a `report_state` of `unavailable` sits beside `cases = 0`, and that zero is a reported nothing, not a measured zero:
 
@@ -92,7 +92,7 @@ evaluateRow({ op: 'div', args: [{ col: 'cases' }, { col: 'population' }] }, row,
 // null — not 0
 ```
 
-The absence column speaks for itself, so `eq(report_state, "unavailable")` still answers `true` on that row and `isAbsent(cases)` still answers `true`. A row whose state is missing, or is `unknown`, is not `present`: `unknown` means the source could not tell the two silences apart, and reading it as "here it is" would invent the answer the source refused to give.
+A state column speaks for itself, so `eq(report_state, "unavailable")` still answers `true` on that row and `isAbsent(cases)` still answers `true`. A row whose state is missing, or is `unknown`, is not `present`: `unknown` means the source could not tell the two silences apart, and reading it as "here it is" would invent the answer the source refused to give.
 
 Strict means strict: division by zero is absent (never `Infinity`), text where a number was declared is absent, non-ISO date text is absent. **The only ops that see absence are the four whose subject IS absence** — `isAbsent`, `coalesce`, and `if`/`case` whose condition is absent (the result is absent, because nobody knows which arm the row belongs in). Those four say `strict: false` in the table itself, so the exceptions are data and can be counted; a test pins that there are exactly four and names them. Their arms arrive UNEVALUATED, so a value arm is not held to its kind: `coalesce(cases, 0)` on a row where `cases` holds text answers with the text, not the fallback — one row cannot be told which type its declaration agreed on, and only the judge knows. `walk.ts` states the limit, and a test pins it.
 
@@ -101,6 +101,37 @@ Strict means strict: division by zero is absent (never `Infinity`), text where a
 This departs from SQL's three-valued `and`/`or` deliberately — `and(absent, false)` is absent here, not `false` — which is why an engine that answers SQL's way must be wrapped rather than trusted. **The absence law is not configurable, and no engine may hold a second opinion.**
 
 It follows that `sum(if(cond, x, null))` — when the group step lands — skips a row rather than adding a zero, and the skipped count stays honest.
+
+### Silence belongs to a COLUMN, not to the row
+
+The walker asks the port (`../data/silence.ts` · `TableSilence`) per column, never per row. A table may declare one state column per measured quantity, each naming the value columns it `governs`:
+
+```ts
+absence: [
+  { field: 'radius_state', states: ['present', 'upper-bound', 'not-measured', 'unknown'], carries: ['upper-bound'], governs: ['pl_rade'] },
+  { field: 'mass_state',   states: ['present', 'not-measured', 'unknown'],                                          governs: ['pl_masse'] },
+]
+// a planet with a mass and no radius: its mass is in the sum, its radius is not
+evaluateRow({ col: 'pl_masse' }, row, silenceOfDecl(absence)); // 6.4
+evaluateRow({ col: 'pl_rade' },  row, silenceOfDecl(absence)); // null
+```
+
+A bare declaration means exactly what it always meant — its one state column speaks for every OTHER column of the table — and every total ever computed under one is byte-identical. A column no entry governs, a state column included, reads as it is.
+
+### A carried number is not a default
+
+> **The walker reads exactly `present`. A definition may opt ONE column in with `arithmetic: 'carried'`, and nothing else moves.**
+
+`carries` says the SOURCE published a figure beside a silence — a bound, an estimate, a replaced number — so the contradiction check stops refusing that row (`../data/README.md`). Whether the ARITHMETIC adds that figure is a second question, and the answer is not a library default:
+
+```ts
+// present-only (the default): the published bound is absent, and the sum is 1.0
+{ field: 'radius_state', states: [...], carries: ['upper-bound'], governs: ['pl_rade'] }
+// carried: the bound reads as the number the cell holds, and the same sum is 3.0
+{ field: 'radius_state', states: [...], carries: ['upper-bound'], governs: ['pl_rade'], arithmetic: 'carried' }
+```
+
+WHY per column and never a global switch: a switch would silently move every total this library has ever computed, and nobody would see it move. The house law is **declare what must be explained ⇒ data** — if a dashboard wants published estimates inside its sums, that belongs in the declaration where a reader can see it, not in a default nobody chose. A carried state whose cell holds no number is still absent: the gate opens and the arithmetic edge judges the cell it finds.
 
 ## Law 4 — calendars are data
 

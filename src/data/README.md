@@ -454,28 +454,55 @@ store.clear('cells');   // [by_disease@s1, by_disease_totals@s3 (cut from by_dis
 A declared absence column says, per row, whether the source reported a value. A row whose state is NOT `present` and whose VALUE column holds a number says two things at once, and no reader can keep both. The walker (`../derive/walk.ts`) already reads such a row as a silence; `absenceContradiction.ts` is what keeps that from being QUIET — the table is refused where it enters, in a sentence naming the row, the two columns and the fix. The silence test is the WALKER'S, not the declared vocabulary's: a word the vocabulary never declared (a case slip, a new collector word, an empty cell) blanks the row exactly as `unavailable` does, and judging only the declared list left those rows — the ones nothing else judges — unjudged. Two doors call it: `describeTable(input, { absence, values? })` (a file before there is a def; `refused` carries the sentence beside the description) and the def door (`../def/validate.ts`, inline rows whose declared measures are the values). Only value columns are judged — a numeric address on a silent row (`week_index`, a code) is not a value, and `describeTable` guesses every number column is one unless `values` names them. A declaration that names a column the table does not have is refused there too: a name that misses judges NOTHING, and would answer a contradicting table with a clean bill of health:
 
 ```ts
-absenceContradictionOf(rows, { field: 'report_state', states: ['present', 'unavailable', 'unknown'] }, ['cases'], 'data["cells"]');
+absenceContradictionOf(rows, silenceOfDecl({ field: 'report_state', states: ['present', 'unavailable', 'unknown'] }), ['cases'], 'data["cells"]');
 // 'data["cells"].rows[1]: report_state says "unavailable" — no value — and cases holds 0; a table cannot say both,
 //  so carry null in cases where the row reports nothing (7 more rows do the same)'
 ```
 
-The one thing that moves that line is the DECLARATION: `AbsenceDecl.carries` names the states that hold a number anyway, and a state named there is not a silence, so its number is not a contradiction. EIA's hourly grid is the case it exists for — a `replaced` demand figure is the number the agency published beside the one the authority filed, and an `estimated` one is EIA's own figure for an hour nobody filed; both ARE figures, and a check that refused them would refuse the honest table. Default NONE, so every declaration written before the key existed is judged byte for byte as it was. It moves this check and nothing else: the walker still reads exactly `present`, because "the source put a number here" and "the arithmetic may add it" are two different questions and only the source can answer the first. The def door refuses a `carries` that names a word the vocabulary never declared (a typo would silence-proof a column), `present` (not a silence to begin with) or `unknown` (the word for a silence the source could not tell apart — it cannot also have carried the value):
+The one thing that moves that line is the DECLARATION: `AbsenceDecl.carries` names the states that hold a number anyway, and a state named there is not a silence, so its number is not a contradiction. EIA's hourly grid is the case it exists for — a `replaced` demand figure is the number the agency published beside the one the authority filed, and an `estimated` one is EIA's own figure for an hour nobody filed; both ARE figures, and a check that refused them would refuse the honest table. Default NONE, so every declaration written before the key existed is judged byte for byte as it was. It moves this check and nothing else: the walker still reads exactly `present` unless the entry ALSO says `arithmetic: 'carried'`, because "the source put a number here" and "the arithmetic may add it" are two different questions and only the source can answer the first ([`../derive/README.md`](../derive/README.md), "A carried number is not a default"). The def door refuses a `carries` that names a word the vocabulary never declared (a typo would silence-proof a column), `present` (not a silence to begin with) or `unknown` (the word for a silence the source could not tell apart — it cannot also have carried the value):
 
 ```ts
 const demand = { field: 'demand_state', states: ['present', 'estimated', 'replaced', 'unavailable', 'unknown'], carries: ['estimated', 'replaced'] };
-absenceContradictionOf([{ authority: 'CISO', demand: 24_000, demand_state: 'replaced' }], demand, ['demand'], 'data["hourly"]');   // undefined
-absenceContradictionOf([{ authority: 'CISO', demand: 24_000, demand_state: 'unavailable' }], demand, ['demand'], 'data["hourly"]');
+absenceContradictionOf([{ authority: 'CISO', demand: 24_000, demand_state: 'replaced' }], silenceOfDecl(demand), ['demand'], 'data["hourly"]');   // undefined
+absenceContradictionOf([{ authority: 'CISO', demand: 24_000, demand_state: 'unavailable' }], silenceOfDecl(demand), ['demand'], 'data["hourly"]');
 // 'data["hourly"].rows[0]: demand_state says "unavailable" — no value — and demand holds 24000; a table cannot
 //  say both, so carry null in demand where the row reports nothing'
 ```
+
+## Silence belongs to a COLUMN — the port every reader asks
+
+> **`ColumnSilence` answers, for ONE column: which column carries its state, what vocabulary that column speaks, which of those states carry a number, and whether the arithmetic reads them. `TableSilence` answers it per column, and is total.**
+
+`AbsenceDecl` used to speak for the ROW, and the exoplanet demo found the cost: a `measurements` row carries a radius, a mass and a period, each with its own silence — measured, a published bound, or never taken — and 43 planets have a mass and no radius. Read row-wise, that honest table contradicts itself (`radius_state` says `not-measured` on a row where `pl_orbper` holds 88) and the library's own validator correctly refused it. The question was wrong, not the answer.
+
+`silence.ts` is the port (OUR shape), and two adapters map onto it:
+
+```ts
+// a BARE declaration means what it always meant: one state column speaks for every OTHER column
+silenceOfDecl({ field: 'report_state', states: ['present', 'unavailable', 'unknown'] });
+// a LIST means each entry speaks for the columns it names
+const measurements = silenceOfDecl([
+  { field: 'radius_state', states: ['present', 'upper-bound', 'not-measured', 'unknown'], carries: ['upper-bound'], governs: ['pl_rade'] },
+  { field: 'mass_state',   states: ['present', 'not-measured', 'unknown'],                                          governs: ['pl_masse'] },
+]);
+measurements.silenceFor('pl_rade')?.state;  // 'radius_state'
+measurements.silenceFor('pl_masse')?.state; // 'mass_state'
+measurements.silenceFor('radius_state');    // undefined — a state column speaks for itself
+silenceOfNothing().silenceFor('anything');  // undefined — the null object, so nothing below branches
+```
+
+Every reader asks the port and is written once: the arithmetic and the group fold (`../derive/`), the contradiction check beside it, the encoding plane's facets (each state column gets role `absence` with the words IT speaks), the derive and aggregate acts, `describeTable`, and the adapter's frame door. Two tests read a `ColumnSilence`, and they are two because they answer two questions — `silenceTestOf` asks *did the source report anything* (the contradiction check's), and `readsValueTestOf` asks *does the arithmetic read the cell* (the walker's, and the one `arithmetic` moves).
+
+The def door holds the list to **one column, one owner**: an entry must name what it `governs` (two entries each claiming "every other column" are two answers to one question), no two entries may govern the same column, `governs` may not name a column the table does not declare or the entry's own state column, and an empty list is refused. The port's own resolution order — a state column first, then the first entry naming the column, then the entry that names none — exists only so it is TOTAL, and every overlap that would make that order visible is already a sentence ([`../def/README.md`](../def/README.md)).
 
 ## Where the code lives
 
 | file | one job |
 |---|---|
+| `silence.ts` | THE PORT for absence: `ColumnSilence` / `TableSilence`, the two adapters (`silenceOfDecl`, `silenceOfNothing`) and the two tests every reader shares (`silenceTestOf`, `readsValueTestOf`) |
 | `derivedColumns.ts` | the ONE slot grammar (`slotNameOf`, its marker, `canNameSlot`), the column store, `resolveDerived` (generic: columns AND tables), the two renamers |
 | `derivedTables.ts` | the table store keyed by parent, `mintDerivedTable` (slot, key, relation — minted, never typed), the generational `clear` |
-| `absenceContradiction.ts` | the one sentence for a table whose absence column and value columns disagree |
+| `absenceContradiction.ts` | the one sentence for a table whose state columns and value columns disagree — judged per governed column, against the port |
 | `describeTable.ts` | what is in a table before there is a dashboard — and, given a vocabulary, whether it keeps its word |
 | `fold.ts` | one pass, many recorders |
 | `cellText.ts` | the TEXT FORM of a cell (`cellString`) — one owner, below every door that reads it: the export writes it into a field, a copy puts it on a clipboard, a FIND matches against it |

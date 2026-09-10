@@ -15,8 +15,15 @@ const REQUIREMENT_KEYS = new Set(['channel', 'accepts', 'scale', 'roles', 'notRo
 const RULES_KEYS = new Set(['channels', 'rules', 'onInvalid', 'ruleScope']);
 const COLUMN_DECL_KEYS = new Set(['type', 'role', 'scale', 'label', 'unit']);
 
-/** `DataSourceDef.columns` — field → { type?, role?, scale?, label?, unit? }. The absence column may not claim another role. */
-export function validateColumnDecls(raw: unknown, where: string, problems: string[], absenceField?: string): void {
+/**
+ * `DataSourceDef.columns` — field → { type?, role?, scale?, label?, unit? }. A
+ * state column may not claim another role.
+ *
+ * `absenceFields` is PLURAL because silence belongs to a column: a list
+ * declaration has one state column per entry (`../data/silence.ts` ·
+ * `TableSilence.stateColumns`), and each of them owes its role `absence`.
+ */
+export function validateColumnDecls(raw: unknown, where: string, problems: string[], absenceFields: readonly string[] = []): void {
   if (!isObject(raw)) {
     problems.push(`${where} must be an object mapping field -> { type?, role?, scale?, label?, unit? }`);
     return;
@@ -33,7 +40,7 @@ export function validateColumnDecls(raw: unknown, where: string, problems: strin
     if (decl.scale !== undefined && !COLUMN_SCALES.includes(decl.scale as never)) problems.push(`${at}.scale must be one of ${COLUMN_SCALES.join(', ')}`);
     if (decl.label !== undefined && typeof decl.label !== 'string') problems.push(`${at}.label must be a string`);
     if (decl.unit !== undefined && typeof decl.unit !== 'string') problems.push(`${at}.unit must be a string`);
-    if (absenceField === field && decl.role !== undefined && decl.role !== 'absence') {
+    if (absenceFields.includes(field) && decl.role !== undefined && decl.role !== 'absence') {
       problems.push(`${at}.role is "${String(decl.role)}" but "${field}" is the table's declared absence column — its role is absence`);
     }
   }

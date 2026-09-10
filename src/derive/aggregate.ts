@@ -58,6 +58,7 @@ import type { DataRow } from '../analysis/builtins.js';
 import type { AnalysisModule, InputBinding, OutputColumnType, TableOutput } from '../analysis/types.js';
 import type { ColumnInfo } from '../data/types.js';
 import { columnar, foldOnce } from '../data/fold.js';
+import { silenceOfDecl, silenceOfNothing, type TableSilence } from '../data/silence.js';
 import type { AbsenceDecl } from '../def/types.js';
 import { absenceRefusal, chartKeys, OUTPUT_TYPE, readsOf } from './analysis.js';
 import { groupRowsOf, type Rows } from './groups.js';
@@ -81,8 +82,8 @@ export interface AggregateOptions {
   readonly measures: readonly Measure[];
   /** Which parent rows go in. Absent means every row handed in. */
   readonly where?: Expr;
-  /** The parent's declared absence vocabulary, passed IN for the derive act's reason: the decl belongs to the def. */
-  readonly absence?: AbsenceDecl;
+  /** The parent's declared absence vocabulary — one entry, or a LIST when silence belongs to a column — passed IN for the derive act's reason: the decl belongs to the def. */
+  readonly absence?: AbsenceDecl | readonly AbsenceDecl[];
   /** Default `aggregate:<table>:<name>`. */
   readonly id?: string;
 }
@@ -220,7 +221,7 @@ function rowOf(opts: AggregateOptions, key: readonly Cell[], values: readonly Ce
  * rows, for the derive act's reason: a committed value is frozen, and the
  * provider's own row objects must never be.
  */
-function buildAggregateChart(opts: AggregateOptions, absence: AbsenceDecl | undefined): FlowChart {
+function buildAggregateChart(opts: AggregateOptions, silence: TableSilence): FlowChart {
   const { arg, held } = chartKeys(opts.name);
   const exprs = opts.measures.map((measure) => measure.expr);
   const over = overOf(opts);
@@ -240,7 +241,7 @@ function buildAggregateChart(opts: AggregateOptions, absence: AbsenceDecl | unde
         // derive act runs, so the two acts cannot hold two opinions about what a row is.
         let at = 0;
         const cells: CellReader = (name) => input.columns[name]?.[at];
-        const read = readerOver(cells, absence);
+        const read = readerOver(cells, silence);
         const rows: Rows = {
           count: input.rows,
           at: (which) => {
@@ -287,15 +288,18 @@ function schemaOf(opts: AggregateOptions, types: ReadonlyMap<string, DeriveType>
 export function aggregateAnalysis(opts: AggregateOptions): AnalysisModule<readonly DataRow[], TableOutput> {
   const table = opts.table ?? 'data';
   const absence = opts.absence;
+  // ONE reading of the parent's silences, per column (`../data/silence.ts`) — the derive act's reason,
+  // and the same port, so the two acts cannot hold two opinions about what a row reported.
+  const silence = absence === undefined ? silenceOfNothing() : silenceOfDecl(absence);
   const { reads, grouping } = columnsOf(opts);
-  // ONE decision, named once and spent twice: the absence column is folded in and bound as an input
+  // ONE decision, named once and spent twice: the state columns are folded in and bound as inputs
   // together, so neither can be recovered from whether `folded` is the same array as `reads`.
-  const foldsAbsence = absence !== undefined && !reads.includes(absence.field);
-  const folded = foldsAbsence ? [...reads, absence.field] : reads;
+  const foldedStates = silence.stateColumns.filter((field) => !reads.includes(field));
+  const folded = foldedStates.length === 0 ? reads : [...reads, ...foldedStates];
   /** What the judge computed, kept for the output — set at declaration, absent on a fresh-session replay. */
   let computed: Map<string, DeriveType> | undefined;
   const inputs: InputBinding[] = reads.map((name) => ({ column: name, role: grouping.has(name) ? 'group' : 'value' }));
-  if (absence !== undefined && foldsAbsence) inputs.push({ column: absence.field });
+  for (const field of foldedStates) inputs.push({ column: field });
   return defineAnalysis<readonly DataRow[], TableOutput>({
     id: opts.id ?? `aggregate:${table}:${opts.name}`,
     kind: 'transform',
@@ -316,7 +320,8 @@ export function aggregateAnalysis(opts: AggregateOptions): AnalysisModule<readon
         ...(filter === undefined ? [] : [filter]),
         ...measureProblemsOf(opts, readTable, columns, types),
       ];
-      if (absence !== undefined && !columns.some((known) => known.name === absence.field)) problems.push(absenceRefusal('this aggregate', absence.field, readTable, columns));
+      // Every missing state column earns its OWN sentence: a table missing one of three says which.
+      for (const field of silence.stateColumns) if (!columns.some((known) => known.name === field)) problems.push(absenceRefusal('this aggregate', field, readTable, columns));
       if (problems.length > 0) return problems;
       // The group columns' types are the parent's own — and known, because `groupProblemsOf` refused an unknown one above.
       for (const column of columns) if (grouping.has(column.name)) types.set(column.name, column.type as DeriveType);
@@ -326,7 +331,7 @@ export function aggregateAnalysis(opts: AggregateOptions): AnalysisModule<readon
     build: () => {
       // WHY here as well as in the judge: a replay re-performs without judging (the derive act's reason).
       if (opts.ops !== OPS_VERSION) throw new Error(opsRefusal(opts.ops));
-      return buildAggregateChart(opts, absence);
+      return buildAggregateChart(opts, silence);
     },
     toRunInput: (rows) => ({
       [chartKeys(opts.name).arg]: { columns: foldOnce(rows, { c: columnar(folded) }).c, rows: rows.length } satisfies AggregateInput,

@@ -29,7 +29,10 @@
  *   - **A row whose group key has an absence is in no group.** Its aggregate is
  *     absent, and it is folded into nothing — a group named by a silence is not
  *     a group. (The absence law's second half reaches this through the reader,
- *     so a row the table calls unavailable is in no group either.)
+ *     so a row whose key column is governed by a state column that does not say
+ *     `present` is in no group either. Governed, not "the row": silence belongs
+ *     to a column, so a row silent in its radius still groups by its period —
+ *     `../data/silence.ts`.)
  *   - **`where` picks the rows the reducer folds, never the rows that get a
  *     value.** The demo's `cells` hold state rows AND region and national
  *     roll-ups, so a total over a disease double-counts unless the declaration
@@ -55,8 +58,8 @@
  * holding rows hands in {@link rowsOver} instead. Both are the same evaluation.
  */
 
+import type { TableSilence } from '../data/silence.js';
 import type { Row } from '../data/types.js';
-import type { AbsenceDecl } from '../def/types.js';
 import { opOf, wantAt, type ArgWant, type Reduce, type Tally } from './ops.js';
 import type { Cell, CellReader, ColExpr, DerivedColumnDecl, Expr, OpExpr, Over } from './types.js';
 import { evaluate, holdsWant, readerFor, type GroupAnswer } from './walk.js';
@@ -78,12 +81,17 @@ export interface Rows {
 /**
  * A list of rows as {@link Rows}, keeping the absence law.
  *
+ * `silence` is the table's READING of its own silences, per column
+ * (`../data/silence.ts` · `silenceOfDecl` / `silenceOfNothing`) — the same one
+ * the walker takes, so the group fold and the arithmetic cannot disagree about
+ * which cells the source reported. Omitted, nothing is governed.
+ *
  * ```ts
- * valuesOf(column, rowsOver(rows, absence));
+ * valuesOf(column, rowsOver(rows, silenceOfDecl(def.data.cells.absence)));
  * ```
  */
-export function rowsOver(rows: readonly Row[], absence?: AbsenceDecl): Rows {
-  return { count: rows.length, at: (at) => readerFor(rows[at]!, absence) };
+export function rowsOver(rows: readonly Row[], silence?: TableSilence): Rows {
+  return { count: rows.length, at: (at) => readerFor(rows[at]!, silence) };
 }
 
 /**

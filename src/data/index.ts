@@ -95,8 +95,13 @@ export type { ParsedCSV, SniffedCSV } from './csv.js';
 export { describeTable, DESCRIBE_DISTINCT_CAP, DESCRIBE_SAMPLE } from './describeTable.js';
 export type { ColumnDescription, DescribeTableOptions, TableDescription } from './describeTable.js';
 
-// A table whose absence column and value columns disagree is refused at the data door, once — this is the sentence.
-export { absenceContradictionOf, silenceTestOf } from './absenceContradiction.js';
+// SILENCE BELONGS TO A COLUMN: the port every reader of absence asks, its two adapters and its two
+// tests. One reading per table, answered per column — the declaration stays the def's shape.
+export { readsValueTestOf, SILENCE_ARITHMETICS, silenceOfDecl, silenceOfNothing, silenceTestOf } from './silence.js';
+export type { ColumnSilence, TableSilence } from './silence.js';
+
+// A table whose state columns and value columns disagree is refused at the data door, once — this is the sentence.
+export { absenceContradictionOf } from './absenceContradiction.js';
 
 // Derived columns — the trace's columns, versioned by the act that made them.
 export { DerivedColumnStore, canNameSlot, derivedColumnName, renameClauseFields, renameRowSlots, resolveDerived } from './derivedColumns.js';

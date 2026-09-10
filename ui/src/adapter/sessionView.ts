@@ -639,6 +639,26 @@ function mapDerived(raw: unknown): TableView['derived'] | undefined {
   return { of: d.of, groupBy: d.groupBy.map(String), measures: d.measures.map(String), at: d.at };
 }
 
+/** One `{ field, states }` off the wire, or undefined when it is not one. */
+function absenceEntryOf(raw: unknown): { readonly field: string; readonly states: readonly string[] } | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const e = raw as { field?: unknown; states?: unknown };
+  return typeof e.field === 'string' && Array.isArray(e.states) ? { field: e.field, states: e.states.map(String) } : undefined;
+}
+
+/**
+ * The table's state columns off the wire — a LIST, because silence belongs to a
+ * column and a table may declare one per measured quantity.
+ *
+ * A BARE object is still read, and read as a list of one: this is a defensive
+ * wire reader, and a host on an older build sends the shape it always sent. Both
+ * spellings mean the same table, so neither is dropped.
+ */
+function absenceOf(raw: unknown): readonly { readonly field: string; readonly states: readonly string[] }[] | undefined {
+  const entries = (Array.isArray(raw) ? raw : [raw]).map(absenceEntryOf).filter((entry): entry is { field: string; states: readonly string[] } => entry !== undefined);
+  return entries.length === 0 ? undefined : entries;
+}
+
 /** Every table visible at the cursor off the wire — a named table always counts; a source that cannot be read is `unstated`, never invented. */
 function mapTables(raw: unknown): readonly TableView[] {
   if (!Array.isArray(raw)) return [];
@@ -656,6 +676,7 @@ function mapTables(raw: unknown): readonly TableView[] {
             ? { computed: 'aggregate' }
             : { unstated: true };
     const derived = mapDerived(o.derived);
+    const absence = absenceOf(o.absence);
     const g = (typeof o.grain === 'object' && o.grain !== null ? o.grain : null) as { bucket?: unknown; reducer?: unknown; collapsedFrom?: unknown; note?: unknown } | null;
     const grain = g === null ? undefined : { ...(typeof g.bucket === 'string' ? { bucket: g.bucket } : {}), ...(typeof g.reducer === 'string' ? { reducer: g.reducer } : {}), ...(typeof g.collapsedFrom === 'number' ? { collapsedFrom: g.collapsedFrom } : {}), ...(typeof g.note === 'string' ? { note: g.note } : {}) };
     out.push({
@@ -664,7 +685,7 @@ function mapTables(raw: unknown): readonly TableView[] {
       engine: o.engine,
       ...(typeof o.key === 'string' ? { key: o.key } : {}),
       ...(grain !== undefined ? { grain } : {}),
-      ...(typeof o.absence === 'object' && o.absence !== null && typeof o.absence.field === 'string' && Array.isArray(o.absence.states) ? { absence: { field: o.absence.field, states: o.absence.states.map(String) } } : {}),
+      ...(absence !== undefined ? { absence } : {}),
       declaredColumns: o.declaredColumns,
       ...(derived !== undefined ? { derived } : {}),
     });

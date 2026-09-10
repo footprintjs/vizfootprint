@@ -4,9 +4,12 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { absenceContradictionOf } from './index.js';
+import { absenceContradictionOf, silenceOfDecl } from './index.js';
+import type { AbsenceDecl } from '../def/types.js';
 
-const ABSENCE = { field: 'report_state', states: ['present', 'unavailable', 'unknown'] } as const;
+// The check takes a READING (`./silence.ts`), because silence belongs to a column; every assertion
+// below is the one it always made, with the declaration adapted at the door instead of inside.
+const ABSENCE = silenceOfDecl({ field: 'report_state', states: ['present', 'unavailable', 'unknown'] });
 
 const row = (state: unknown, cases: unknown, extra: Record<string, unknown> = {}): Record<string, unknown> => ({ region: 'north', week_index: 3, report_state: state, cases, ...extra });
 
@@ -66,17 +69,17 @@ describe('absenceContradictionOf', () => {
   it('a state the declaration says CARRIES a value is not a silence — an estimated figure is a figure', () => {
     // the same rows, the same value column, the same door: only the declaration differs
     const rows = [row('present', 7), row('estimated', 12), row('replaced', 400)];
-    const declared = { field: 'report_state', states: ['present', 'estimated', 'replaced', 'unavailable', 'unknown'], carries: ['estimated', 'replaced'] };
+    const declared = silenceOfDecl({ field: 'report_state', states: ['present', 'estimated', 'replaced', 'unavailable', 'unknown'], carries: ['estimated', 'replaced'] });
     expect(absenceContradictionOf(rows, declared, ['cases'], 'data["cells"]')).toBeUndefined();
     // …and without the key, those two words are silences like any other: the default is NONE
-    const silent = { field: 'report_state', states: ['present', 'estimated', 'replaced', 'unavailable', 'unknown'] };
+    const silent = silenceOfDecl({ field: 'report_state', states: ['present', 'estimated', 'replaced', 'unavailable', 'unknown'] });
     expect(absenceContradictionOf(rows, silent, ['cases'], 'data["cells"]')).toBe(
       'data["cells"].rows[1]: report_state says "estimated" — no value — and cases holds 12; a table cannot say both, so carry null in cases where the row reports nothing (1 more row does the same)',
     );
   });
 
   it('a state the declaration does NOT name still refuses in the sentence it always did, `carries` or no `carries`', () => {
-    const declared = { field: 'report_state', states: ['present', 'estimated', 'unavailable', 'unknown'], carries: ['estimated'] };
+    const declared = silenceOfDecl({ field: 'report_state', states: ['present', 'estimated', 'unavailable', 'unknown'], carries: ['estimated'] });
     const sentence = 'data["cells"].rows[0]: report_state says "unavailable" — no value — and cases holds 0; a table cannot say both, so carry null in cases where the row reports nothing';
     expect(absenceContradictionOf([row('unavailable', 0)], declared, ['cases'], 'data["cells"]')).toBe(sentence);
     // a state that is not a word at all is judged the same way — `carries` names words, and this row has none
@@ -86,5 +89,75 @@ describe('absenceContradictionOf', () => {
   it('a table with no rows, or no value columns, contradicts nothing', () => {
     expect(absenceContradictionOf([], ABSENCE, ['cases'], 'this table')).toBeUndefined();
     expect(absenceContradictionOf([row('unavailable', 5)], ABSENCE, [], 'this table')).toBeUndefined();
+  });
+
+  it('passes over a value column NOTHING governs — a reading that names no owner for it holds it to nothing', () => {
+    const governed = silenceOfDecl({ field: 'report_state', states: ['present', 'unavailable', 'unknown'], governs: ['cases'] });
+    expect(absenceContradictionOf([row('unavailable', null, { ytd: 9 })], governed, ['ytd'], 'this table')).toBeUndefined();
+    expect(absenceContradictionOf([row('unavailable', 9)], governed, ['cases'], 'this table')).toMatch(/cases holds 9/);
+  });
+});
+
+/**
+ * THE DEMO'S OWN TABLE — three value columns, three state columns, three
+ * entries. This is the shape the per-TABLE check refused: it read one state
+ * column as speaking for the whole row, so an honest row (a mass measured, a
+ * radius never taken) said two things at once and the table was turned away at
+ * the door. These are the proof that it is not any more.
+ */
+describe('absenceContradictionOf — silence belongs to a column', () => {
+  const MEASUREMENTS: readonly AbsenceDecl[] = [
+    { field: 'radius_state', states: ['present', 'upper-bound', 'not-measured', 'unknown'], carries: ['upper-bound'], governs: ['pl_rade'] },
+    { field: 'mass_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_masse'] },
+    { field: 'period_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_orbper'] },
+  ];
+  const SILENCE = silenceOfDecl(MEASUREMENTS);
+  const VALUES = ['pl_rade', 'pl_masse', 'pl_orbper'];
+
+  /** One planet: a radius, a mass, a period, and the three words for how each was got. */
+  const planet = (radius: [unknown, unknown], mass: [unknown, unknown], period: [unknown, unknown]): Record<string, unknown> => ({
+    pl_name: 'Kepler-22 b',
+    radius_state: radius[0],
+    pl_rade: radius[1],
+    mass_state: mass[0],
+    pl_masse: mass[1],
+    period_state: period[0],
+    pl_orbper: period[1],
+  });
+
+  it('ACCEPTS the row the per-table check refused: no radius, a mass, and a period of 88', () => {
+    const rows = [planet(['not-measured', null], ['present', 6.4], ['present', 88])];
+    expect(absenceContradictionOf(rows, SILENCE, VALUES, 'data["measurements"]')).toBeUndefined();
+  });
+
+  it('still FIRES when a column is silent and holds a number — and names the state column it broke', () => {
+    const rows = [planet(['not-measured', 2.4], ['present', 6.4], ['present', 88])];
+    expect(absenceContradictionOf(rows, SILENCE, VALUES, 'data["measurements"]')).toBe(
+      'data["measurements"].rows[0]: radius_state says "not-measured" — no value — and pl_rade holds 2.4; a table cannot say both, so carry null in pl_rade where the row reports nothing',
+    );
+    // …and the sentence names the OTHER state column when that is the one that broke
+    const mass = [planet(['present', 2.4], ['not-measured', 6.4], ['present', 88])];
+    expect(absenceContradictionOf(mass, SILENCE, VALUES, 'data["measurements"]')).toMatch(/mass_state says "not-measured" — no value — and pl_masse holds 6.4/);
+  });
+
+  it('honours each entry’s OWN carries: an upper-bound radius is a figure, a not-measured mass is not', () => {
+    const rows = [planet(['upper-bound', 2.4], ['not-measured', null], ['present', 88])];
+    expect(absenceContradictionOf(rows, SILENCE, VALUES, 'data["measurements"]')).toBeUndefined();
+    // the same word on the mass column is not declared there, so it is a silence like any other
+    const mass = [planet(['present', 2.4], ['upper-bound', 6.4], ['present', 88])];
+    expect(absenceContradictionOf(mass, SILENCE, VALUES, 'data["measurements"]')).toMatch(/mass_state says "upper-bound" — no value — and pl_masse holds 6.4/);
+  });
+
+  it('counts ROWS and not cells — a row that breaks two of its three columns says the same thing once', () => {
+    const rows = [
+      planet(['not-measured', 2.4], ['not-measured', 6.4], ['present', 88]),
+      planet(['not-measured', 1.1], ['present', 6.4], ['present', 88]),
+    ];
+    expect(absenceContradictionOf(rows, SILENCE, VALUES, 'this table')).toMatch(/radius_state says "not-measured" — no value — and pl_rade holds 2.4; .* \(1 more row does the same\)$/);
+  });
+
+  it('never judges a state column, even when a caller lists one as a value', () => {
+    const rows = [planet(['not-measured', null], ['present', 6.4], ['present', 88])];
+    expect(absenceContradictionOf(rows, SILENCE, ['radius_state', 'mass_state', 'period_state'], 'this table')).toBeUndefined();
   });
 });

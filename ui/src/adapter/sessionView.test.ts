@@ -974,6 +974,11 @@ describe('the declared tables and the data journal (overview.tables, overview.jo
       { name: 'nosrc', engine: 'memory', declaredColumns: 0, grain: { bucket: 'week', reducer: 'sum' } },
       { name: 'noted', source: { inline: 'csv' }, engine: 'memory', declaredColumns: 0, grain: { note: 'only a note' } },
       { name: 'ghost' },
+      // silence belongs to a COLUMN: a LIST of state columns rides the wire, and every entry that is
+      // not one — `null`, a word, an object with no `field` — is dropped rather than rendered
+      { name: 'measurements', source: { inline: 'csv' }, engine: 'memory', declaredColumns: 2, absence: [{ field: 'radius_state', states: ['present', 'unknown'] }, { field: 'mass_state', states: ['present', 'unknown'] }, null, 'nope', { states: ['present'] }] },
+      // …and a table whose whole `absence` is unreadable carries none at all, rather than an empty list
+      { name: 'unreadable', source: { inline: 'csv' }, engine: 'memory', declaredColumns: 0, absence: null },
     ];
     const journal = [
       { at: '2026-09-02T10:00:00Z', asked: ['cells'], tables: { cells: { unchanged: true, version: 'v1' } } },
@@ -993,10 +998,12 @@ describe('the declared tables and the data journal (overview.tables, overview.jo
       'nope',
     ];
     const state = mapPollState({ ...RAW, tables, journal });
-    expect(state.tables?.map((t) => t.name)).toEqual(['cells', 'plain', 'remote', 'text', 'broken', 'nosrc', 'noted']);
+    expect(state.tables?.map((t) => t.name)).toEqual(['cells', 'plain', 'remote', 'text', 'broken', 'nosrc', 'noted', 'measurements', 'unreadable']);
+    expect(state.tables?.[7]?.absence).toEqual([{ field: 'radius_state', states: ['present', 'unknown'] }, { field: 'mass_state', states: ['present', 'unknown'] }]);
+    expect(state.tables?.[8]).not.toHaveProperty('absence');
     expect(state.tables?.[6]?.grain).toEqual({ note: 'only a note' }); // a grain may state only its note
     expect(state.tables?.[5]).toEqual({ name: 'nosrc', source: { unstated: true }, engine: 'memory', grain: { bucket: 'week', reducer: 'sum' }, declaredColumns: 0 }); // no source at all is unstated too
-    expect(state.tables?.[0]).toEqual({ name: 'cells', source: { format: 'rows', via: 'inline' }, engine: 'memory', key: 'id', absence: { field: 'state', states: ['present', 'unknown'] }, grain: { bucket: 'week', collapsedFrom: 3, note: 'n' }, declaredColumns: 3 }); // a reducer that is not a string is dropped
+    expect(state.tables?.[0]).toEqual({ name: 'cells', source: { format: 'rows', via: 'inline' }, engine: 'memory', key: 'id', absence: [{ field: 'state', states: ['present', 'unknown'] }], grain: { bucket: 'week', collapsedFrom: 3, note: 'n' }, declaredColumns: 3 }); // a reducer that is not a string is dropped
     expect(state.tables?.[1]?.source).toEqual({ inline: 'rows', rows: 40 });
     expect(state.tables?.[2]?.source).toEqual({ format: 'csv', via: 'http', at: 'https://x/y.csv' });
     expect(state.tables?.[3]?.source).toEqual({ inline: 'csv' });

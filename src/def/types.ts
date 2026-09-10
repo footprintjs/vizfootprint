@@ -155,8 +155,14 @@ export interface DataSourceDef {
    * that column is a fact the SOURCE established, and the validator refuses
    * to let the column bind to a numeric channel — "unavailable" is not a low
    * number.
+   *
+   * A LIST when silence belongs to a column and not to the row: a
+   * `measurements` table whose radius was measured, whose mass is a published
+   * bound and whose period was never taken has three state columns, each
+   * naming the value columns it `governs`. One reading answers all of them
+   * (`../data/silence.ts` · `silenceOfDecl`), and every reader asks that.
    */
-  readonly absence?: AbsenceDecl;
+  readonly absence?: AbsenceDecl | readonly AbsenceDecl[];
   /**
    * What the caller STATES about its columns for the encoding plane — a role
    * (`identifier | dimension | measure`), a scale, a label. The absence
@@ -212,10 +218,11 @@ export interface AbsenceDecl {
    * It is read by ONE thing: the contradiction check
    * (`../data/absenceContradiction.ts`), which refuses a table whose SILENT row
    * holds a number. A state named here is not silent, so its number is not a
-   * contradiction. Nothing else changes: the derived-column walker
-   * (`../derive/walk.ts`) still reads exactly `present`, because "the source
-   * put a number here" and "the arithmetic may add it" are two different
-   * questions and only the source can answer the first.
+   * contradiction. It does NOT by itself move the arithmetic: the walker
+   * (`../derive/walk.ts`) reads exactly `present` unless this entry also says
+   * {@link AbsenceDecl.arithmetic} — because "the source put a number here"
+   * and "the arithmetic may add it" are two different questions and only the
+   * source can answer the first.
    *
    * `present` may not be named again (it is not a silence to begin with) and
    * `unknown` may never be named at all: it is the word for a silence the
@@ -227,6 +234,43 @@ export interface AbsenceDecl {
    * ```
    */
   readonly carries?: readonly string[];
+  /**
+   * The VALUE columns this state column speaks for.
+   *
+   * ABSENT keeps the meaning this declaration always had: every OTHER column of
+   * the table. Named, it speaks for exactly those columns and no others — which
+   * is how one table carries three silences (a measured radius, a bounded mass,
+   * a period never taken).
+   *
+   * In the LIST form an entry MUST name it: two entries each claiming "every
+   * other column" are two answers to one question, and the def door refuses
+   * that rather than pick. One column may be governed by one entry only, and an
+   * entry may not govern its own state column (which speaks for itself).
+   *
+   * ```ts
+   * { field: 'radius_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_rade'] }
+   * ```
+   */
+  readonly governs?: readonly string[];
+  /**
+   * Whether the ARITHMETIC reads a number a silent state carries. Default
+   * `'present-only'`.
+   *
+   * `'present-only'` reads exactly `present` — every total this library has
+   * ever computed. `'carried'` opts THIS entry's columns in: a state named in
+   * {@link AbsenceDecl.carries} reads as the number its cell holds, so a
+   * published bound lands in the sum.
+   *
+   * It is per entry and never global, because a global switch would silently
+   * move every total already computed. A dashboard that wants published
+   * estimates inside its sums declares it here, where a reader can see it
+   * (`../derive/README.md` states the law).
+   *
+   * ```ts
+   * { field: 'radius_state', states: ['present', 'upper-bound', 'unknown'], carries: ['upper-bound'], governs: ['pl_rade'], arithmetic: 'carried' }
+   * ```
+   */
+  readonly arithmetic?: 'present-only' | 'carried';
 }
 
 /**

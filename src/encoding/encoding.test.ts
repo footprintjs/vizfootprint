@@ -55,6 +55,37 @@ describe('facets', () => {
     expect(f['disease']!.role).toBeUndefined();
     expect(f['mystery']!.scale).toBeUndefined();
   });
+  it('gives EVERY state column role `absence` with the words IT speaks — silence belongs to a column', () => {
+    // The demo's shape: three measured quantities, three state columns, three vocabularies. A plane
+    // that named one absence column would tell a reader that one column speaks for the whole row.
+    const measurements = [
+      { name: 'pl_name', type: 'string' as const },
+      { name: 'pl_rade', type: 'number' as const },
+      { name: 'radius_state', type: 'string' as const },
+      { name: 'pl_masse', type: 'number' as const },
+      { name: 'mass_state', type: 'string' as const },
+      { name: 'pl_orbper', type: 'number' as const },
+      { name: 'period_state', type: 'string' as const },
+    ];
+    const f = Object.fromEntries(
+      resolveFacets(measurements, {
+        absence: [
+          { field: 'radius_state', states: ['present', 'upper-bound', 'not-measured', 'unknown'], carries: ['upper-bound'], governs: ['pl_rade'] },
+          { field: 'mass_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_masse'] },
+          { field: 'period_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_orbper'] },
+        ],
+        columns: { pl_rade: { role: 'measure' }, pl_masse: { role: 'measure' }, pl_orbper: { role: 'measure' } },
+      }).map((x) => [x.field, x]),
+    );
+    expect(f['radius_state']).toEqual({ field: 'radius_state', type: 'string', role: 'absence', scale: 'discrete', absence: ['present', 'upper-bound', 'not-measured', 'unknown'] });
+    expect(f['mass_state']).toEqual({ field: 'mass_state', type: 'string', role: 'absence', scale: 'discrete', absence: ['present', 'not-measured', 'unknown'] });
+    expect(f['period_state']!.role).toBe('absence');
+    // the GOVERNED columns keep the role the def declared — they are values, not silences
+    expect(f['pl_rade']!.role).toBe('measure');
+    expect(f['pl_masse']!.absence).toBeUndefined();
+    // and a column no entry mentions is neither
+    expect(f['pl_name']!.role).toBeUndefined();
+  });
   it('a declared type wins over the provider\'s (an ISO string that is a date), and the scale follows it', () => {
     expect(resolveFacet({ name: 't', type: 'string' }, { columns: { t: { type: 'date' } } })).toEqual({ field: 't', type: 'date', scale: 'continuous' });
   });
@@ -272,7 +303,7 @@ describe('shape checks (the def door)', () => {
   it('column declarations', () => {
     const problems: string[] = [];
     validateColumnDecls('x', 'data["t"].columns', problems);
-    validateColumnDecls({ a: 1, b: { role: 'boss', scale: 'huge', label: 2, unit: 3, extra: 1, type: 'int' }, rs: { role: 'measure' } }, 'c', problems, 'rs');
+    validateColumnDecls({ a: 1, b: { role: 'boss', scale: 'huge', label: 2, unit: 3, extra: 1, type: 'int' }, rs: { role: 'measure' } }, 'c', problems, ['rs']);
     expect(problems).toEqual([
       'data["t"].columns must be an object mapping field -> { type?, role?, scale?, label?, unit? }',
       'c["a"] must be an object',
@@ -286,7 +317,7 @@ describe('shape checks (the def door)', () => {
       'c["rs"].role is "measure" but "rs" is the table\'s declared absence column — its role is absence',
     ]);
     const fine: string[] = [];
-    validateColumnDecls({ rs: { role: 'absence' }, m: { role: 'measure', scale: 'continuous', label: 'M', type: 'number' } }, 'c', fine, 'rs');
+    validateColumnDecls({ rs: { role: 'absence' }, m: { role: 'measure', scale: 'continuous', label: 'M', type: 'number' } }, 'c', fine, ['rs']);
     expect(fine).toEqual([]);
   });
   it('the rule set', () => {

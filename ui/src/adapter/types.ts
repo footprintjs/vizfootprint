@@ -67,7 +67,7 @@ export interface ColumnView {
   readonly type: string;
   /** What the column IS to a chart, when the def declared (or derived) one: `identifier | dimension | measure | absence`. Absent on an older wire. */
   readonly role?: string;
-  /** The declared absence vocabulary, when the def named this column as the table's absence column — words, never values. */
+  /** The declared absence vocabulary, when the def named this column as one of the table's state columns — words, never values. */
   readonly absence?: readonly string[];
 }
 
@@ -251,7 +251,14 @@ export interface TableView {
   readonly engine: string;
   readonly key?: string;
   readonly grain?: { readonly bucket?: string; readonly reducer?: string; readonly collapsedFrom?: number; readonly note?: string };
-  readonly absence?: { readonly field: string; readonly states: readonly string[] };
+  /**
+   * The state columns and the vocabulary each speaks — a LIST, because silence
+   * belongs to a column and not to the row (`vizfootprint/data` · `silenceOfDecl`).
+   * A `measurements` table declares one per measured quantity, and the Sources
+   * tab shows all of them: one shown alone would tell a reader that a single
+   * column speaks for the whole row.
+   */
+  readonly absence?: readonly { readonly field: string; readonly states: readonly string[] }[];
   readonly declaredColumns: number;
   /**
    * The act that cut this table, when an act did: the parent it read, the group

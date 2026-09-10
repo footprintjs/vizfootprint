@@ -186,6 +186,63 @@ describe('frameFor — the basis decides which rows, and says which it read', ()
     expect(await frameFor(recording({ 'table:t': rows }).session, { viewId: 'trend', layers: [ONE], columns, absence: declared })).toMatchObject({ y: { domain: [1, 5] } });
   });
 
+  it('drops the silences PER COLUMN: a row with no radius still lends its mass and its period to their domains', async () => {
+    // The exoplanet demo's shape. Before this the door dropped the whole ROW on one state column, so
+    // the 43 planets with a mass and no radius were missing from every axis but their own.
+    const rows = [
+      { pl_rade: 1, radius_state: 'present', pl_masse: 1, mass_state: 'present', pl_orbper: 10, period_state: 'present' },
+      { pl_rade: 999, radius_state: 'not-measured', pl_masse: 6, mass_state: 'present', pl_orbper: 88, period_state: 'present' },
+    ];
+    const columns = {
+      t: [
+        { field: 'pl_rade', type: 'number' },
+        { field: 'pl_masse', type: 'number' },
+        { field: 'pl_orbper', type: 'number' },
+        { field: 'radius_state', type: 'string', absence: ['present', 'not-measured', 'unknown'] },
+        { field: 'mass_state', type: 'string', absence: ['present', 'not-measured', 'unknown'] },
+        { field: 'period_state', type: 'string', absence: ['present', 'not-measured', 'unknown'] },
+      ],
+    };
+    const absence = {
+      t: [
+        { field: 'radius_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_rade'] },
+        { field: 'mass_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_masse'] },
+        { field: 'period_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_orbper'] },
+      ],
+    };
+    const layer: FrameLayerRef = { layerId: 'a', table: 't', chartKind: 'point', encodings: { x: 'pl_masse', y: 'pl_rade', size: 'pl_orbper' } };
+    const frame = await frameFor(recording({ 'table:t': rows }).session, { viewId: 'trend', layers: [layer], columns, absence });
+    // the radius axis sees only the measured one; the mass and period axes see both rows
+    expect(frame).toMatchObject({ y: { domain: [1, 1] }, x: { domain: [1, 6] }, size: { domain: [10, 88] } });
+  });
+
+  it('read off `columns` alone, EVERY state column still governs every other column — the projection cannot say `governs`', async () => {
+    const rows = [{ v: 1, a_state: 'present', b_state: 'present' }, { v: 900, a_state: 'present', b_state: 'unavailable' }];
+    const columns = {
+      t: [
+        { field: 'v', type: 'number' },
+        { field: 'a_state', type: 'string', absence: ['present', 'unavailable', 'unknown'] },
+        { field: 'b_state', type: 'string', absence: ['present', 'unavailable', 'unknown'] },
+      ],
+    };
+    // `v` is governed by the FIRST state column the projection lists, and the second row's silence in
+    // `b_state` does not reach it — which is exactly why a def with `governs` passes its declaration in.
+    expect(await frameFor(recording({ 'table:t': rows }).session, { viewId: 'trend', layers: [ONE], columns })).toMatchObject({ y: { domain: [1, 900] } });
+  });
+
+  it('a state column bound to its OWN channel shows its silences — it is never governed, not even by itself', async () => {
+    // Before per-column dropping this door filtered whole ROWS on the ONE declared state column, so a
+    // channel bound to that same column could never show the word that made a row silent — a legend for
+    // it would never carry "unavailable". `silenceOfDecl`'s state-column check (`vizfootprint/data`)
+    // answers `undefined` for a state column, so this door reads it as it is; PINNED, either way.
+    const rows = [{ v: 1, state: 'present' }, { v: 2, state: 'unavailable' }];
+    const columns = { t: [{ field: 'v', type: 'number' }, { field: 'state', type: 'string', absence: ['present', 'unavailable', 'unknown'] }] };
+    const layer: FrameLayerRef = { layerId: 'a', table: 't', chartKind: 'point', encodings: { x: 'state', y: 'v' } };
+    const frame = await frameFor(recording({ 'table:t': rows }).session, { viewId: 'trend', layers: [layer], columns });
+    // the state axis carries both words; `v`, which the bare declaration governs, sees only the present row
+    expect(frame).toMatchObject({ x: { domain: ['present', 'unavailable'] }, y: { domain: [1, 1] } });
+  });
+
   it('a table the columns map does not list, and a layer with no mark, still fold — as `unknown`, which is no domain at all', async () => {
     const { session } = recording({ 'table:t': [{ v: 4 }] });
     // no columns for table `t`: the type is unknown, and an unknown type folds to nothing rather than a guess

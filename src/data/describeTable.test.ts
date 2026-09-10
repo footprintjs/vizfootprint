@@ -170,6 +170,27 @@ describe('describeTable — refusing a table that contradicts its own absence co
     expect(describeTable(broken, { absence: ABSENCE, values: [] })).not.toHaveProperty('refused');
   });
 
+  it('refuses a `governs` column this table does not have — that entry judges NOTHING either', () => {
+    expect(describeTable(broken, { absence: [{ field: 'report_state', states: ['present', 'unavailable'], governs: ['Cases'] }] }).refused).toBe(
+      'this table: the absence law governs "Cases", which is not a column of it — it has region, report_state, cases',
+    );
+  });
+
+  it('judges a LIST per governed column — the demo\'s honest table stops being refused', () => {
+    const absence = [
+      { field: 'radius_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_rade'] },
+      { field: 'period_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_orbper'] },
+    ];
+    const honest: Row[] = [{ radius_state: 'not-measured', pl_rade: null, period_state: 'present', pl_orbper: 88 }];
+    expect(describeTable(honest, { absence })).not.toHaveProperty('refused');
+    const lying: Row[] = [{ radius_state: 'not-measured', pl_rade: 2.4, period_state: 'present', pl_orbper: 88 }];
+    expect(describeTable(lying, { absence }).refused).toMatch(/radius_state says "not-measured" — no value — and pl_rade holds 2.4/);
+    // and a state column that misses is named on its OWN entry, not blamed on "the absence law" as a whole
+    expect(describeTable(honest, { absence: [...absence, { field: 'mass_state', states: ['present', 'unknown'], governs: ['pl_rade'] }] }).refused).toBe(
+      'this table: the absence law names "mass_state", which is not a column of it — it has radius_state, pl_rade, period_state, pl_orbper',
+    );
+  });
+
   it('reads the vocabulary against CSV text too', () => {
     const csv = ['region,report_state,cases', 'north,present,7', 'south,unavailable,3'].join('\n');
     expect(describeTable(csv, { absence: ABSENCE }).refused).toMatch(/^this table\.rows\[1\]: report_state says "unavailable" — no value — and cases holds 3;/);

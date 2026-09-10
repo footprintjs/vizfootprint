@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import { groupRowsOf, reducersOf, rowsOver, valuesOf } from './groups.js';
 import { evaluate } from './walk.js';
-import type { AbsenceDecl } from '../def/types.js';
+import { silenceOfDecl, type TableSilence } from '../data/silence.js';
 import type { Cell, DerivedColumnDecl, Expr, OpExpr } from './types.js';
 import type { Row } from '../data/types.js';
 
@@ -29,7 +29,7 @@ const CELLS: readonly Row[] = [
 ];
 
 const column = (expr: Expr, over: DerivedColumnDecl['over'], kind: DerivedColumnDecl['kind'] = 'row'): DerivedColumnDecl => ({ ops: 1, kind, expr, over });
-const over = (rows: readonly Row[], declared: DerivedColumnDecl, absence?: AbsenceDecl): Cell[] => valuesOf(declared, rowsOver(rows, absence));
+const over = (rows: readonly Row[], declared: DerivedColumnDecl, silence?: TableSilence): Cell[] => valuesOf(declared, rowsOver(rows, silence));
 
 const ONLY_STATES: Expr = op('eq', col('kind'), lit('state'));
 
@@ -75,7 +75,7 @@ describe('which rows a group is made of', () => {
   });
 
   it('the declared absence law reaches the group: a row the table does not call present is in no group', () => {
-    const absence: AbsenceDecl = { field: 'report_state', states: ['present', 'unavailable'] };
+    const absence: TableSilence = silenceOfDecl({ field: 'report_state', states: ['present', 'unavailable'] });
     const total = column(op('sum', col('cases')), { groupBy: ['disease'] }, 'aggregate');
     // the `unavailable` Measles row is in no group AND adds nothing to one
     expect(over(CELLS, total, absence)).toEqual([80, 80, 80, 5, null]);
@@ -206,8 +206,8 @@ describe('min and max over a group that held two KINDS', () => {
 });
 
 describe('one row per group — pass one, stopping before the broadcast', () => {
-  const rows = (exprs: readonly Expr[], over: { groupBy: readonly string[]; where?: Expr }, absence?: AbsenceDecl): { key: readonly Cell[]; values: readonly Cell[] }[] =>
-    groupRowsOf(exprs, over, rowsOver(CELLS, absence));
+  const rows = (exprs: readonly Expr[], over: { groupBy: readonly string[]; where?: Expr }, silence?: TableSilence): { key: readonly Cell[]; values: readonly Cell[] }[] =>
+    groupRowsOf(exprs, over, rowsOver(CELLS, silence));
 
   it('answers the groups in first-seen order, each with its key and what every tree came to', () => {
     expect(rows([op('sum', col('cases')), op('count', col('cases'))], { groupBy: ['disease'], where: ONLY_STATES })).toEqual([
@@ -226,7 +226,7 @@ describe('one row per group — pass one, stopping before the broadcast', () => 
   });
 
   it('a row whose group key is absent is in no group — and the absence law reaches the key through the reader', () => {
-    const absence: AbsenceDecl = { field: 'report_state', states: ['present', 'unavailable'] };
+    const absence: TableSilence = silenceOfDecl({ field: 'report_state', states: ['present', 'unavailable'] });
     expect(rows([op('count', col('jurisdiction'))], { groupBy: ['disease'] }, absence)).toEqual([
       { key: ['Pertussis'], values: [3] },
       { key: ['Measles'], values: [1] },
@@ -254,5 +254,65 @@ describe('one row per group — pass one, stopping before the broadcast', () => 
   it('two trees sharing one reducer node are answered from one tally', () => {
     const total = op('sum', col('cases'));
     expect(rows([total, op('div', total, lit(2))], { groupBy: [], where: ONLY_STATES })).toEqual([{ key: [], values: [45, 22.5] }]);
+  });
+});
+
+/**
+ * SILENCE BELONGS TO A COLUMN, in the GROUP FOLD — the demo's own table.
+ *
+ * Three measured quantities, three state columns, three entries. The row that
+ * matters is the one with no radius and a mass: before this packet one state
+ * column spoke for the whole row, so that row's mass was lost from every sum.
+ */
+describe('the group fold, per column', () => {
+  const MEASURED = silenceOfDecl([
+    { field: 'radius_state', states: ['present', 'upper-bound', 'not-measured', 'unknown'], carries: ['upper-bound'], governs: ['pl_rade'] },
+    { field: 'mass_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_masse'] },
+  ]);
+  const CARRIED = silenceOfDecl([
+    { field: 'radius_state', states: ['present', 'upper-bound', 'not-measured', 'unknown'], carries: ['upper-bound'], governs: ['pl_rade'], arithmetic: 'carried' },
+    { field: 'mass_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_masse'] },
+  ]);
+  /** Three planets: one measured both ways, one with a bounded radius, one with no radius at all. */
+  const PLANETS: readonly Row[] = [
+    { method: 'transit', radius_state: 'present', pl_rade: 1.0, mass_state: 'present', pl_masse: 1.0 },
+    { method: 'transit', radius_state: 'upper-bound', pl_rade: 2.0, mass_state: 'present', pl_masse: 4.0 },
+    { method: 'transit', radius_state: 'not-measured', pl_rade: null, mass_state: 'present', pl_masse: 6.0 },
+  ];
+  const sumOf = (field: string, silence?: TableSilence): Cell[] => over(PLANETS, column(op('sum', col(field)), { groupBy: ['method'] }, 'aggregate'), silence);
+
+  it('a row silent in its RADIUS still contributes its MASS to a sum', () => {
+    expect(sumOf('pl_masse', MEASURED)).toEqual([11, 11, 11]);
+  });
+
+  it('…and contributes nothing to the radius sum, while the measured rows still do', () => {
+    // 1.0 only: the bounded radius is a figure the source published, but the default arithmetic reads exactly `present`
+    expect(sumOf('pl_rade', MEASURED)).toEqual([1, 1, 1]);
+  });
+
+  it("arithmetic: 'carried' puts the published bound into the SAME sum, over the same rows", () => {
+    expect(sumOf('pl_rade', CARRIED)).toEqual([3, 3, 3]);
+    // and it moves that column only — the mass entry never said `carried`
+    expect(sumOf('pl_masse', CARRIED)).toEqual([11, 11, 11]);
+  });
+
+  it('a table with no reading at all sums every cell it finds — the law is the declaration\'s, never guessed', () => {
+    expect(sumOf('pl_rade')).toEqual([3, 3, 3]);
+  });
+
+  it("the aggregate's `where` drops the right rows per column: a filter on one state column leaves the others alone", () => {
+    const measuredRadius = op('eq', col('radius_state'), lit('present'));
+    const filtered = column(op('sum', op('if', measuredRadius, col('pl_masse'), lit(null))), { groupBy: ['method'] }, 'aggregate');
+    // only the first planet's radius is `present`, so only its mass is folded — the state column stayed askable
+    expect(over(PLANETS, filtered, MEASURED)).toEqual([1, 1, 1]);
+  });
+
+  it('a row silent in the GROUP KEY\'s own column is in no group, and its neighbours are not dropped with it', () => {
+    const keyed = silenceOfDecl([{ field: 'radius_state', states: ['present', 'not-measured', 'unknown'], governs: ['method'] }]);
+    // Planet 1 groups. Planet 3's `method` is blanked by its governor (`not-measured`), and planet 2's
+    // too — `upper-bound` is a word THIS vocabulary never declared, and an undeclared word is a
+    // silence like any other (the walker's law, `./walk.ts`). Each is in no group, and each one's
+    // OTHER columns are untouched: the mass sums above still count all three.
+    expect(over(PLANETS, column(op('count', col('pl_masse')), { groupBy: ['method'] }, 'aggregate'), keyed)).toEqual([1, null, null]);
   });
 });

@@ -125,6 +125,12 @@ describe('the judge — every problem at once, each a sentence, before anything 
     expect(problemsOf({ absence: { field: 'state', states: ['present', 'unknown'] } })).toEqual([
       'this aggregate keeps the absence law of "state", which table "cells" does not have — it has id, region, kind, report_state, cases, population, blank',
     ]);
+    // …a state column the table DOES have earns no sentence
+    expect(problemsOf({ absence: ABSENCE })).toEqual([]);
+    // …and EVERY entry of a list is judged on its own: the one that misses says which
+    expect(problemsOf({ absence: [{ field: 'report_state', states: ['present', 'unknown'], governs: ['cases'] }, { field: 'state', states: ['present', 'unknown'], governs: ['population'] }] })).toEqual([
+      'this aggregate keeps the absence law of "state", which table "cells" does not have — it has id, region, kind, report_state, cases, population, blank',
+    ]);
   });
 
   it('says everything at once, so a person fixes the declaration in one pass — and a broken group is said once, not once per measure', () => {

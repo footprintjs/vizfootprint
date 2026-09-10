@@ -53,7 +53,7 @@ export interface ColumnInfo {
 
 /**
  * What a column IS to a chart, declared by the def (`DataSourceDef.columns`)
- * or derived: the table's declared absence column is `absence`; every other
+ * or derived: each of the table's declared STATE columns is `absence`; every other
  * role is stated, never guessed — a rule that needs a role simply does not
  * match a column that never declared one.
  */
@@ -74,10 +74,14 @@ export interface ColumnFacet {
   /** Present when declared, or derived from the type (number/date → continuous; string/boolean → discrete). */
   readonly scale?: ColumnScale;
   /**
-   * Present when the def declared this column as the table's ABSENCE column
-   * (`DataSourceDef.absence`): the vocabulary it speaks, verbatim. An agent
-   * reading `whats_here` learns that "unavailable" here is a kind of silence,
-   * not a category like any other — and never a number.
+   * Present when the def declared this column as one of the table's STATE
+   * columns (`DataSourceDef.absence`): the vocabulary IT speaks, verbatim. An
+   * agent reading `whats_here` learns that "unavailable" here is a kind of
+   * silence, not a category like any other — and never a number.
+   *
+   * A table may have more than one, each with its own words, because silence
+   * belongs to a column and not to the row (`./silence.ts`): `radius_state`
+   * speaks of a radius and says nothing about a mass.
    */
   readonly absence?: readonly string[];
   /** A display label, echoed verbatim (never parsed). */

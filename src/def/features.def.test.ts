@@ -92,10 +92,30 @@ describe('defFeatures — the three facts only a BUILD holds', () => {
     expect(defFeatures(buildDashboard(def)).tables).toEqual([{ table: 'only', engine: 'memory' }]);
   });
 
+  it('lists ONE vocabulary PER STATE COLUMN — a table may declare one per measured quantity', () => {
+    // silence belongs to a column: a row lists what each state column speaks, in declaration order
+    const def: DashboardDef = {
+      ...BARE(),
+      data: {
+        only: {
+          rows: [{ pl_rade: 1, radius_state: 'present', pl_masse: 1, mass_state: 'present' }],
+          columns: { pl_rade: { role: 'measure' }, pl_masse: { role: 'measure' } },
+          absence: [
+            { field: 'radius_state', states: ['present', 'upper-bound', 'unknown'], governs: ['pl_rade'] },
+            { field: 'mass_state', states: ['present', 'unknown'], governs: ['pl_masse'] },
+          ],
+        },
+      },
+    };
+    expect(defFeatures(buildDashboard(def)).tables).toEqual([
+      { table: 'only', engine: 'memory', absence: [['present', 'upper-bound', 'unknown'], ['present', 'unknown']] },
+    ]);
+  });
+
   it('a table with a source carries what the source vouched for; a bare `rows` table carries none', () => {
     const card = richCard();
     expect(card.tables).toEqual([
-      { table: 'cells', engine: 'memory', source: { format: 'rows', via: 'inline' }, absence: ['present', 'unknown'] },
+      { table: 'cells', engine: 'memory', source: { format: 'rows', via: 'inline' }, absence: [['present', 'unknown']] },
       { table: 'nodes', engine: 'memory', key: 'disease' },
       { table: 'edges', engine: 'memory' },
     ]);

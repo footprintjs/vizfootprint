@@ -502,14 +502,18 @@ export interface BuiltinAnalysisContext {
   readonly relations?: readonly RelationEdge[];
   /**
    * Each table's declared absence vocabulary, by table name — the def's
-   * `data[<table>].absence`, verbatim.
+   * `data[<table>].absence`, verbatim: the WHOLE declaration, one entry or a
+   * list of them.
    *
-   * A derived column has to keep the absence law of the table it reads (a row
-   * whose state is not `present` is absent in every column of it), and the law
-   * is the DEF's to state. It rides beside the record for the same reason the
-   * relations do.
+   * A derived column has to keep the absence law of the table it reads (a cell
+   * whose governing state column is not `present` is absent), and the law is
+   * the DEF's to state. It rides beside the record for the same reason the
+   * relations do. Verbatim and never narrowed to one entry, because silence
+   * belongs to a COLUMN: a table with three state columns has three, and the
+   * derive act adapts them to the port at its own door
+   * (`../data/silence.ts` · `silenceOfDecl`).
    */
-  readonly absence?: Readonly<Record<string, AbsenceDecl>>;
+  readonly absence?: Readonly<Record<string, AbsenceDecl | readonly AbsenceDecl[]>>;
 }
 
 /**
@@ -518,16 +522,21 @@ export interface BuiltinAnalysisContext {
  * `data`.
  *
  * One reader, so the dashboard build and the session hand a record the SAME
- * law. A table that declares no absence column contributes no entry, and the
+ * law. A table that declares no state column contributes no entry, and the
  * walker's law is then the half every engine already keeps: `null` is absent.
+ *
+ * It carries the table's WHOLE declaration and not one entry of it — the defect
+ * a per-table reading was: a `measurements` table declares one state column per
+ * measured quantity, and a context that carried the first would have blanked
+ * the other two columns on every row (`../data/silence.ts`).
  *
  * ```ts
  * absenceByTable({ cells: { absence: { field: 'report_state', states: ['present', 'unknown'] } }, pop: {} });
  * // { cells: { field: 'report_state', states: [...] } }
  * ```
  */
-export function absenceByTable(data: Readonly<Record<string, { readonly absence?: AbsenceDecl }>>): Record<string, AbsenceDecl> {
-  const out: Record<string, AbsenceDecl> = {};
+export function absenceByTable(data: Readonly<Record<string, { readonly absence?: AbsenceDecl | readonly AbsenceDecl[] }>>): Record<string, AbsenceDecl | readonly AbsenceDecl[]> {
+  const out: Record<string, AbsenceDecl | readonly AbsenceDecl[]> = {};
   for (const [table, decl] of Object.entries(data)) {
     if (decl.absence !== undefined) out[table] = decl.absence;
   }

@@ -15,10 +15,12 @@
  * for `'table'`) and hands the values here. Two things the caller owes this
  * fold, because it cannot see them:
  *
- *   1. ABSENCE ROWS ARE ALREADY OUT. A table's declared absence column says a
- *      cell is a SILENCE, not a low number ("unavailable" is not zero), so a
- *      row the absence vocabulary excludes must never reach a domain. The
- *      adapter drops those rows before it folds (see `frameFor`).
+ *   1. THE SILENCES ARE ALREADY OUT. A state column says a cell is a SILENCE,
+ *      not a low number ("unavailable" is not zero), so a cell its governing
+ *      state column excludes must never reach a domain. The adapter drops them
+ *      before it folds, PER COLUMN — silence belongs to a column and not to the
+ *      row (`../data/silence.ts`), so a planet with no radius still lends its
+ *      period to the period axis (see `frameFor`).
  *   2. THE BASIS. `'table'` rows and `'rows'` rows are two different reads of
  *      the same door; this fold cannot tell them apart and does not try. It
  *      echoes back the basis it was told, so a renderer knows what it got.

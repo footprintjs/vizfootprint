@@ -10,7 +10,7 @@ import { Sources, derivedWords, lastAnswer, sourceWords, grainWords, outcomeWord
 import type { RefreshDeltaView, RefreshRecordView, TableView } from '../adapter/types.js';
 
 const TABLES: TableView[] = [
-  { name: 'cells', source: { format: 'rows', via: 'inline' }, engine: 'memory', key: 'id', absence: { field: 'state', states: ['present', 'unknown'] }, grain: { bucket: 'week', reducer: 'sum', note: 'weekly totals' }, declaredColumns: 2 },
+  { name: 'cells', source: { format: 'rows', via: 'inline' }, engine: 'memory', key: 'id', absence: [{ field: 'state', states: ['present', 'unknown'] }], grain: { bucket: 'week', reducer: 'sum', note: 'weekly totals' }, declaredColumns: 2 },
   { name: 'plain', source: { inline: 'rows', rows: 40 }, engine: 'memory', declaredColumns: 0 },
   { name: 'remote', source: { format: 'csv', via: 'http', at: 'https://x/y.csv' }, engine: 'wasm', declaredColumns: 1 },
 ];
@@ -28,6 +28,23 @@ describe('Sources', () => {
     expect(cells.textContent).toContain('90,300 rows · version v1 · read 09:00');
     expect(cells.textContent).toContain('per week · sum over the bucket · weekly totals');
     expect(cells.textContent).toContain('state speaks present · unknown');
+    // silence belongs to a COLUMN: a table with three state columns shows all three, separated
+    const three: TableView[] = [
+      {
+        name: 'measurements',
+        source: { inline: 'csv' },
+        engine: 'memory',
+        declaredColumns: 3,
+        absence: [
+          { field: 'radius_state', states: ['present', 'upper-bound'] },
+          { field: 'mass_state', states: ['present', 'not-measured'] },
+        ],
+      },
+    ];
+    const many = render(<Sources tables={three} sources={{}} columns={{}} journal={[]} checks={[]} />);
+    expect(many.container.querySelector('[aria-label="table measurements"]')!.textContent).toContain(
+      'radius_state speaks present · upper-bound; mass_state speaks present · not-measured',
+    );
     expect(cells.textContent).toContain('10:00 · unchanged · version v1');
     expect(cells.textContent).toContain('2 declared · 2 listed by the engine');
     expect(cells.querySelectorAll('.vzf-sources-columns li')).toHaveLength(2);

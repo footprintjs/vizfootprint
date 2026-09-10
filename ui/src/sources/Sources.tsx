@@ -113,7 +113,7 @@ function TableRow({ table: t, source, columns, last, beyondTail, tail, canRefres
           </>
         )}
         <dt>absence</dt>
-        <dd>{t.absence !== undefined ? <><code>{t.absence.field}</code> speaks {t.absence.states.map((s, i) => <span key={s}>{i > 0 ? ' · ' : ''}<code>{s}</code></span>)}</> : <span className="vzf-soft">not declared — a row that exists is present by construction</span>}</dd>
+        <dd>{t.absence !== undefined ? t.absence.map((a, at) => <span key={a.field}>{at > 0 ? '; ' : ''}<code>{a.field}</code> speaks {a.states.map((s, i) => <span key={s}>{i > 0 ? ' · ' : ''}<code>{s}</code></span>)}</span>) : <span className="vzf-soft">not declared — a row that exists is present by construction</span>}</dd>
         <dt>last refresh</dt>
         <dd>{last === null ? <span className="vzf-soft">{beyondTail ? `no answer in the latest ${tail} refreshes` : 'never asked'}</span> : <>{last.at} · {outcomeWords(last.outcome)}</>}</dd>
         <dt>columns</dt>

@@ -36,6 +36,7 @@
  * says what is there; `refused` carries the sentence.
  */
 import { absenceContradictionOf } from './absenceContradiction.js';
+import { silenceOfDecl, type TableSilence } from './silence.js';
 import { parseCSVTyped } from './csv.js';
 import { columnTypes, extent, foldOnce, type RowRecorder } from './fold.js';
 import type { ColumnType, Row } from './types.js';
@@ -55,10 +56,12 @@ export interface DescribeTableOptions {
   readonly delimiter?: string;
   /**
    * The table's declared absence vocabulary, when the person already holds
-   * one. With it the description judges the table against its own word: a
-   * silent row whose value column holds a number is refused (`refused`).
+   * one — one entry, or a LIST when silence belongs to a column (a measured
+   * radius, a bounded mass, a period never taken). With it the description
+   * judges the table against its own word: a cell whose governing state column
+   * calls it silent, and which holds a number anyway, is refused (`refused`).
    */
-  readonly absence?: AbsenceDecl;
+  readonly absence?: AbsenceDecl | readonly AbsenceDecl[];
   /**
    * Which columns are VALUES the source reports — the ones the absence check
    * judges. Default: every column the data calls a `number`; name them when a
@@ -174,8 +177,9 @@ function readInput(input: string | readonly Row[], options: DescribeTableOptions
 
 /** The value columns the absence check judges: the ones named, or every `number` column. */
 function valuesOf(options: DescribeTableOptions, columns: readonly ColumnDescription[]): readonly string[] {
-  // The absence column itself is not among them whatever is named here — `./absenceContradiction.ts`
-  // owns that rule and keeps it for both its doors, so this is not a second place that knows.
+  // A state column is not among them whatever is named here, and neither is a column no entry
+  // governs — `./absenceContradiction.ts` owns both rules and keeps them for its two doors, so this
+  // is not a second place that knows.
   return options.values ?? columns.filter((column) => column.type === 'number').map((column) => column.name);
 }
 
@@ -191,9 +195,15 @@ const columnsHere = (columns: readonly ColumnDescription[]): string =>
  * a contradicting table with no `refused` at all — a clean bill of health, which
  * is the one wrong answer a refusal door must never give.
  */
-function namingProblemOf(options: DescribeTableOptions, columns: readonly ColumnDescription[], absence: AbsenceDecl): string | undefined {
+function namingProblemOf(options: DescribeTableOptions, columns: readonly ColumnDescription[], silence: TableSilence): string | undefined {
   const have = new Set(columns.map((column) => column.name));
-  if (!have.has(absence.field)) return `this table: the absence law names "${absence.field}", which is not a column of it — ${columnsHere(columns)}`;
+  // Every state column is judged, and the FIRST that misses is the sentence — a table with three
+  // silences and one typo says which name it does not have, not that "the absence law" is wrong.
+  const missing = silence.stateColumns.find((field) => !have.has(field));
+  if (missing !== undefined) return `this table: the absence law names "${missing}", which is not a column of it — ${columnsHere(columns)}`;
+  // A `governs` entry that names a column this table lacks judges nothing either — same reason.
+  const ungoverned = silence.governed.find((column) => !have.has(column));
+  if (ungoverned !== undefined) return `this table: the absence law governs "${ungoverned}", which is not a column of it — ${columnsHere(columns)}`;
   const stray = (options.values ?? []).find((name) => !have.has(name));
   return stray === undefined ? undefined : `this table: values names "${stray}", which is not a column of it — ${columnsHere(columns)}`;
 }
@@ -247,7 +257,9 @@ export function describeTable(input: string | readonly Row[], options: DescribeT
   // WHY judged after the fold: which columns are values is read off the types the fold just settled.
   // The NAMES are judged first — a declaration that names a column this table lacks judges nothing.
   const absence = options.absence;
+  // ONE reading, spent by both judgements below (`./silence.ts`) — no door here reads the declaration.
+  const silence = absence === undefined ? undefined : silenceOfDecl(absence);
   const refused =
-    absence === undefined ? undefined : (namingProblemOf(options, columns, absence) ?? absenceContradictionOf(rows, absence, valuesOf(options, columns), 'this table'));
+    silence === undefined ? undefined : (namingProblemOf(options, columns, silence) ?? absenceContradictionOf(rows, silence, valuesOf(options, columns), 'this table'));
   return { rows: rows.length, columns, ...(refused === undefined ? {} : { refused }) };
 }

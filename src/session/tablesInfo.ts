@@ -70,7 +70,8 @@ export function tablesInfoOf(runtime: DashboardRuntime, derived: readonly Derive
       engine: runtime.engines[name]!, // every runtime table resolved an engine at build
       ...(runtime.keys[name] !== undefined ? { key: runtime.keys[name]! } : {}),
       ...(decl.grain !== undefined ? { grain: decl.grain } : {}),
-      ...(decl.absence !== undefined ? { absence: { field: decl.absence.field, states: [...decl.absence.states] } } : {}),
+      // Every entry, never the first: the tab reports what the def declared, and a table may declare one state column per measured quantity.
+      ...(decl.absence !== undefined ? { absence: (Array.isArray(decl.absence) ? decl.absence : [decl.absence]).map((entry) => ({ field: entry.field, states: [...entry.states] })) } : {}),
       declaredColumns: Object.keys(decl.columns ?? {}).length,
     };
   });

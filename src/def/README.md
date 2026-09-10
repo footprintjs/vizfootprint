@@ -44,7 +44,7 @@ The record's keys **are** the factory's own options, so there is one vocabulary 
 
 ### The absence vocabulary — and which of its words carry a number
 
-One key of that vocabulary is not about the arithmetic at all. `carries` names which of the declared states hold a number ANYWAY, and EIA's hourly grid is the case it exists for: an `estimated` figure is EIA's own number for an hour nobody filed, and a `replaced` one is the number EIA published beside the number the authority filed. Both are figures. It is read by ONE thing — the contradiction check ([`../data/README.md`](../data/README.md)), which refuses a table whose silent row holds a number — so a state named there is not silent and its number is not a table saying two things at once. Default NONE: a def written before the key existed is judged byte for byte as it was. The walker is untouched and still reads exactly `present`, because "the source put a number here" and "the arithmetic may add it" are two different questions, and only the source can answer the first.
+One key of that vocabulary is not about the arithmetic at all. `carries` names which of the declared states hold a number ANYWAY, and EIA's hourly grid is the case it exists for: an `estimated` figure is EIA's own number for an hour nobody filed, and a `replaced` one is the number EIA published beside the number the authority filed. Both are figures. It is read by ONE thing — the contradiction check ([`../data/README.md`](../data/README.md)), which refuses a table whose silent row holds a number — so a state named there is not silent and its number is not a table saying two things at once. Default NONE: a def written before the key existed is judged byte for byte as it was. The walker is untouched and still reads exactly `present` unless the same entry says `arithmetic: 'carried'`, because "the source put a number here" and "the arithmetic may add it" are two different questions, and only the source can answer the first.
 
 ```ts
 data: {
@@ -65,6 +65,57 @@ The door refuses a `carries` that names a word the vocabulary never declared (a 
 ```
 data["hourly"].absence.carries may not name "unknown" — a source that could not tell which silence it saw did not carry the value either
 ```
+
+### Silence belongs to a COLUMN — `governs`, and one column one owner
+
+> **`absence` is one entry, or a LIST of them. An entry with no `governs` speaks for every OTHER column of the table — what a bare declaration has always meant. In a list every entry names its own, because two entries each claiming "every other column" are two answers to one question.**
+
+The exoplanet demo found this. A `measurements` row carries a radius, a mass and a period, each with its own silence — measured, a published bound, or never taken — and 43 planets have a mass and no radius. Read row-wise that table contradicts itself, and this door correctly refused it; the demo had to fall back to `role: 'absence'` per column plus a `where` on every act, which is honest but carries none of the fact into the declaration, so nothing downstream could enforce it. Now it does:
+
+```ts
+data: {
+  measurements: {
+    rows,
+    absence: [
+      { field: 'radius_state', states: ['present', 'upper-bound', 'not-measured', 'unknown'], carries: ['upper-bound'], governs: ['pl_rade'] },
+      { field: 'mass_state',   states: ['present', 'not-measured', 'unknown'],                                          governs: ['pl_masse'] },
+      { field: 'period_state', states: ['present', 'not-measured', 'unknown'],                                          governs: ['pl_orbper'] },
+    ],
+    columns: { pl_rade: { role: 'measure' }, pl_masse: { role: 'measure' }, pl_orbper: { role: 'measure' } },
+  },
+}
+// { radius_state: 'not-measured', pl_rade: null, mass_state: 'present', pl_masse: 6.4, period_state: 'present', pl_orbper: 88 }
+// is ACCEPTED — the radius says nothing about the period, and each cell is judged by the column that governs it
+```
+
+Every state column earns role `absence` with the words IT speaks, so none may bind to a magnitude channel and each keeps its own vocabulary in the encoding plane. The list's rules are all the same rule — **one column, one owner** — and each is a sentence:
+
+```
+data["measurements"].absence[1].governs must name the value columns this state column speaks for — in a list every entry names its own, because two entries each speaking for "every other column" are two answers to one question
+data["measurements"].absence: "pl_rade" is governed by both entry 0 ("radius_state") and entry 1 ("mass_state") — one column, one owner: a column whose silence has two answers has none
+data["measurements"].absence[0].governs may not name "radius_state" — that is this entry's own state column, and a state column speaks for itself
+data["measurements"].absence[0].governs names "pl_radee", which this table does not declare in columns — a state column can only speak for a column the table declares
+data["measurements"].absence, if it is a list, must declare at least one entry — an empty list is a table saying it has an absence vocabulary and then naming none
+```
+
+### `arithmetic` — a carried number is not a default
+
+> **The arithmetic reads exactly `present`. A definition may opt ONE column in with `arithmetic: 'carried'` (default `'present-only'`), and nothing else moves.**
+
+```ts
+// present-only (the default): the published bound is a figure, and it is NOT in the sum
+{ field: 'radius_state', states: [...], carries: ['upper-bound'], governs: ['pl_rade'] }
+// carried: the same rows, and the bound is in the sum
+{ field: 'radius_state', states: [...], carries: ['upper-bound'], governs: ['pl_rade'], arithmetic: 'carried' }
+```
+
+WHY it is per entry and never a global switch: a switch would silently move every total this library has ever computed, and nobody would see it move. The house law is **declare what must be explained ⇒ data** — a dashboard that wants published estimates inside its sums says so in the declaration, where a reader can see it, rather than inheriting a default nobody chose. The door refuses a third word:
+
+```
+data["hourly"].absence.arithmetic, if present, must be one of present-only|carried — "present-only" reads exactly "present" (the default, and every total this library has computed), "carried" also reads the states named in carries
+```
+
+The reading every consumer asks — which column governs which, what each speaks, and what the arithmetic does with it — is one port: `silenceOfDecl` / `TableSilence` ([`../data/README.md`](../data/README.md)).
 
 `aggregate` is `derive`'s twin, and lands a TABLE beside the parent rather than a column on it: one row per group, cut from the rows visible at the cursor when the act was declared, its measures written in the same op grammar — `{ as, expr }`, each `expr` a reducer tree (`sum`, `mean`, `countDistinct`, …). This door judges the record's SHAPE: `groupBy` a list of distinct names, where `[]` is the whole table as one row, said out loud; `measures` a non-empty list under distinct names; `where`, if present, a node. The session judges every tree against the parent's own columns, in the derive taxonomy. Like `derive` it names no absence vocabulary, and like `bringOver` it names no relation: the group column becomes the derived table's key, and the relation back to the parent is MINTED from that by the session, never typed on the record ([`../data/README.md`](../data/README.md)). The rows never ride the record — a replay recomputes them from these bytes. The act, its three outcomes and its refusals are law 13 of [`../derive/README.md`](../derive/README.md).
 
@@ -402,7 +453,7 @@ Four more laws.
 
     A last thing the fold does that no declaration can prevent, stated at `frameDomains` rather than left to be found: where the columns disagree and the def declared no types to catch it, the SCALE KIND is the first binding layer's, and a categorical fold NAMES every cell it is given — so a number on a category channel becomes the category `"7"`, while a string on a quantitative one is skipped. The two spellings of one disagreement therefore answer differently, which is the reason law 10 exists at the door.
 
-Two things the fold is OWED rather than able to check, both named at `frameDomains`: **absence rows never enter a domain** (a table's declared absence column says a cell is a silence, not a low number, so the caller drops those rows first — the adapter's frame door does), and **which rows the basis meant** (two reads of the session's one row door: a layer's own window for `rows`, and the table under NOBODY's clause — `viewQuery({ viewId: null })` — for `table`; the fold folds what it is handed and echoes back which it was told). More than four layers on one frame is a **lint** (`frameLint`), never a refusal: a fifth mark is hard to read, not illegal. Paint order is declaration order, first layer at the bottom.
+Two things the fold is OWED rather than able to check, both named at `frameDomains`: **silent cells never enter a domain** (a state column says a cell is a silence, not a low number, so the caller drops those cells first — the adapter's frame door does, per COLUMN, through the port), and **which rows the basis meant** (two reads of the session's one row door: a layer's own window for `rows`, and the table under NOBODY's clause — `viewQuery({ viewId: null })` — for `table`; the fold folds what it is handed and echoes back which it was told). More than four layers on one frame is a **lint** (`frameLint`), never a refusal: a fifth mark is hard to read, not illegal. Paint order is declaration order, first layer at the bottom.
 
 The shape sentences, for completeness: `encodings[i].layers, if present, must be an array of { layerId, table, chartKind, channels }` · `encodings[i].layers[j] must be an object { layerId, table, chartKind, channels, initial?, label? }` · `encodings[i].layers[j]: unknown key "x"` · `…layerId must be a non-empty string` · `…chartKind must be a non-empty string` · `…channels must be a non-empty array of non-empty strings` · `…initial, if present, must be an object mapping channel -> field (strings)` · `…label, if present, must be a string`. A table refused on its own line is not refused again through a layer, and a layer on it is not judged at the build door. The frame's shape sentences: `encodings[i].frame, if present, must be an object mapping channel -> { mode: "shared" | "independent" }` · `encodings[i].frame.<channel> must be an object { mode: "shared" | "independent", domain?, basis?, guide?, zero? }` · `…basis, if present, must be "table" or "rows"` · `…guide, if present, must be "merged" or "per-layer"` · `…zero, if present, must be a boolean` · `encodings[i].frame.<channel>: unknown key "x" on a shared channel`. Not in this version: per-layer opacity/visibility dials, annotation layers, re-encoding one layer of a frame, a map frame with an inset, an implicit crossfilter between sibling layers (only a declared link routes between them) — each its own packet.
 

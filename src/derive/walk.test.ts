@@ -18,10 +18,12 @@
 import { describe, expect, it } from 'vitest';
 import { evaluate, evaluateRow, PRESENT, readerFor, type Expr } from './index.js';
 import { ABSENCE_STATES } from '../def/types.js';
-import type { AbsenceDecl } from '../def/types.js';
+import { silenceOfDecl, silenceOfNothing } from '../data/silence.js';
 import type { Row } from '../data/types.js';
 
-const REPORTED: AbsenceDecl = { field: 'report_state', states: ['present', 'unavailable', 'unknown'] };
+// The walker takes a READING (`../data/silence.ts`), because silence belongs to a column; every
+// assertion below is the one the bare declaration always earned, adapted at the door.
+const REPORTED = silenceOfDecl({ field: 'report_state', states: ['present', 'unavailable', 'unknown'] });
 
 const col = (name: string): Expr => ({ col: name });
 const lit = (value: number | string | boolean | null): Expr => ({ lit: value });
@@ -124,5 +126,79 @@ describe('one walker, reached only through a reader', () => {
 
   it('answers a literal without reading anything', () => {
     expect(evaluate(lit('North'), () => undefined)).toBe('North');
+  });
+});
+
+/**
+ * SILENCE BELONGS TO A COLUMN — the exoplanet demo's own shape.
+ *
+ * A `measurements` row carries a radius, a mass and a period, each with its own
+ * silence. Before this the walker read ONE state column as speaking for the
+ * whole row, so a row whose radius was never taken lost its mass and its period
+ * too. These pin that it does not, and that `arithmetic` is per column.
+ */
+describe('the absence law, per column', () => {
+  const MEASURED = silenceOfDecl([
+    { field: 'radius_state', states: ['present', 'upper-bound', 'not-measured', 'unknown'], carries: ['upper-bound'], governs: ['pl_rade'] },
+    { field: 'mass_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_masse'] },
+    { field: 'period_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_orbper'] },
+  ]);
+  /** No radius taken, a mass measured, a period of 88 — the 43 planets the demo found. */
+  const noRadius: Row = { radius_state: 'not-measured', pl_rade: null, mass_state: 'present', pl_masse: 6.4, period_state: 'present', pl_orbper: 88 };
+
+  it('reads the columns each entry governs and no others', () => {
+    expect(evaluateRow(col('pl_rade'), noRadius, MEASURED)).toBeNull();
+    expect(evaluateRow(col('pl_masse'), noRadius, MEASURED)).toBe(6.4);
+    expect(evaluateRow(col('pl_orbper'), noRadius, MEASURED)).toBe(88);
+  });
+
+  it('blanks a governed cell even when the CELL holds a number — the state column is the authority', () => {
+    const lying: Row = { ...noRadius, pl_rade: 2.4 };
+    expect(evaluateRow(col('pl_rade'), lying, MEASURED)).toBeNull();
+  });
+
+  it('lets every state column speak for itself, so each silence stays askable', () => {
+    expect(evaluateRow({ op: 'eq', args: [col('radius_state'), lit('not-measured')] }, noRadius, MEASURED)).toBe(true);
+    expect(evaluateRow({ op: 'isAbsent', args: [col('pl_rade')] }, noRadius, MEASURED)).toBe(true);
+    expect(evaluateRow({ op: 'isAbsent', args: [col('pl_masse')] }, noRadius, MEASURED)).toBe(false);
+  });
+
+  it('reads a column NO entry governs as it is', () => {
+    expect(evaluateRow(col('pl_name'), { ...noRadius, pl_name: 'Kepler-22 b' }, MEASURED)).toBe('Kepler-22 b');
+  });
+
+  it('arithmetic: the DEFAULT reads exactly `present`, so a published bound is absent', () => {
+    const bounded: Row = { ...noRadius, radius_state: 'upper-bound', pl_rade: 2.4 };
+    expect(evaluateRow(col('pl_rade'), bounded, MEASURED)).toBeNull();
+  });
+
+  it("arithmetic: 'carried' reads the states the entry named in `carries`, and only those", () => {
+    const carried = silenceOfDecl([{ field: 'radius_state', states: ['present', 'upper-bound', 'not-measured', 'unknown'], carries: ['upper-bound'], governs: ['pl_rade'], arithmetic: 'carried' }]);
+    expect(evaluateRow(col('pl_rade'), { radius_state: 'upper-bound', pl_rade: 2.4 }, carried)).toBe(2.4);
+    expect(evaluateRow(col('pl_rade'), { radius_state: 'not-measured', pl_rade: 2.4 }, carried)).toBeNull();
+    expect(evaluateRow(col('pl_rade'), { radius_state: 'present', pl_rade: 1.1 }, carried)).toBe(1.1);
+    // …and a carried state whose cell holds NO number is still absent: the gate opens, the arithmetic edge judges the cell
+    expect(evaluateRow(col('pl_rade'), { radius_state: 'upper-bound', pl_rade: null }, carried)).toBeNull();
+    expect(evaluateRow({ op: 'add', args: [col('pl_rade'), lit(0)] }, { radius_state: 'upper-bound', pl_rade: 'about two' }, carried)).toBeNull();
+  });
+
+  it("arithmetic is PER ENTRY: one column carried, its neighbour not, over the same row", () => {
+    const mixed = silenceOfDecl([
+      { field: 'radius_state', states: ['present', 'bound', 'unknown'], carries: ['bound'], governs: ['pl_rade'], arithmetic: 'carried' },
+      { field: 'mass_state', states: ['present', 'bound', 'unknown'], carries: ['bound'], governs: ['pl_masse'] },
+    ]);
+    const both: Row = { radius_state: 'bound', pl_rade: 2.4, mass_state: 'bound', pl_masse: 6.4 };
+    expect(evaluateRow(col('pl_rade'), both, mixed)).toBe(2.4);
+    expect(evaluateRow(col('pl_masse'), both, mixed)).toBeNull();
+  });
+
+  it('reads the same governed column twice in one tree from ONE gate — the state is asked once per column, not once per read', () => {
+    expect(evaluateRow({ op: 'add', args: [col('pl_masse'), col('pl_masse')] }, noRadius, MEASURED)).toBe(12.8);
+    expect(evaluateRow({ op: 'add', args: [col('pl_rade'), col('pl_rade')] }, noRadius, MEASURED)).toBeNull();
+  });
+
+  it('a reading that governs nothing is the reader beneath it, untouched', () => {
+    const read = readerFor({ cases: 12 }, silenceOfNothing());
+    expect(read('cases')).toBe(12);
   });
 });

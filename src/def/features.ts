@@ -57,8 +57,13 @@ export interface TableFeature {
   readonly source?: { readonly format: SourceFormat; readonly via: SourceVia; readonly at?: string };
   /** The row-identity column, when the table declares one. */
   readonly key?: string;
-  /** The absence vocabulary this table speaks, when it declares one. */
-  readonly absence?: readonly string[];
+  /**
+   * The absence vocabularies this table speaks, when it declares any — ONE PER
+   * STATE COLUMN, in declaration order, because silence belongs to a column and
+   * not to the row (`../data/silence.ts`). A table with a measured radius, a
+   * bounded mass and a period never taken lists three.
+   */
+  readonly absence?: readonly (readonly string[])[];
 }
 
 /** One layer of a view — the table it reads and the surface it draws with. */
@@ -196,7 +201,7 @@ function tablesOf(dashboard: Dashboard): readonly TableFeature[] {
       engine: dashboard.engines[table]!,
       ...(info === undefined ? {} : { source: { format: info.format, via: info.via, ...(info.at === undefined ? {} : { at: info.at }) } }),
       ...(decl.key === undefined ? {} : { key: decl.key }),
-      ...(decl.absence === undefined ? {} : { absence: decl.absence.states }),
+      ...(decl.absence === undefined ? {} : { absence: (Array.isArray(decl.absence) ? decl.absence : [decl.absence]).map((entry) => entry.states) }),
     };
   });
 }

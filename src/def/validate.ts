@@ -26,8 +26,9 @@ import { ENCODING_SET_FIELD,
   LINK_VIEW_PREFIX,
   PROSE_VIEW_PREFIX,
 } from '../branches/index.js';
-import { ABSENCE_PRESENT, ABSENCE_UNKNOWN, DISPATCH_VERBS, type DashboardDef, type DispatchVerb } from './types.js';
+import { ABSENCE_PRESENT, ABSENCE_UNKNOWN, DISPATCH_VERBS, type AbsenceDecl, type DashboardDef, type DispatchVerb } from './types.js';
 import { absenceContradictionOf } from '../data/absenceContradiction.js';
+import { SILENCE_ARITHMETICS, silenceOfDecl } from '../data/silence.js';
 import { lintEncodings, pageBindings, resolveFacets, validateColumnDecls, validateEncodingRulesShape } from '../encoding/index.js';
 import type { EncodingRules, EncodingSurface, FacetSource } from '../encoding/index.js';
 import type { ColumnInfo } from '../data/index.js';
@@ -157,10 +158,14 @@ function validateSourceDecl(raw: unknown, where: string, problems: string[]): vo
   if (raw.options !== undefined && !isObject(raw.options)) problems.push(`${where}.options, if present, must be an object`);
 }
 
-/** The absence field a well-formed `absence` names, for the column-declaration check; undefined when malformed (already refused). */
-function absenceFieldOf(src: Record<string, unknown>): string | undefined {
-  const a = src.absence;
-  return isObject(a) && typeof a.field === 'string' ? a.field : undefined;
+/**
+ * The absence fields a well-formed `absence` names, for the column-declaration
+ * check. Plural since silence belongs to a COLUMN: a list declaration has one
+ * state column per entry, and each of them owes its role `absence`. A malformed
+ * entry contributes nothing (it is already refused).
+ */
+function absenceFieldsOf(src: Record<string, unknown>): readonly string[] {
+  return wellFormedEntriesOf(src.absence).map((entry) => entry.field);
 }
 
 /** The `carries` list of a well-formed vocabulary — the states that hold a number anyway; absent when malformed, which is already a problem of its own. */
@@ -169,13 +174,40 @@ function carriesOf(a: Record<string, unknown>): { readonly carries?: readonly st
   return Array.isArray(c) && c.every((x) => typeof x === 'string') ? { carries: c as readonly string[] } : {};
 }
 
+/** The `governs` list of a well-formed entry — the value columns it speaks for; absent when malformed or unstated ("every other column"). */
+function governsOf(a: Record<string, unknown>): { readonly governs?: readonly string[] } {
+  const g = a.governs;
+  return Array.isArray(g) && g.every((x) => typeof x === 'string') ? { governs: g as readonly string[] } : {};
+}
+
+/** The `arithmetic` word of a well-formed entry — carried only when it is one of the two words (a third is already a problem). */
+function arithmeticOf(a: Record<string, unknown>): { readonly arithmetic?: 'present-only' | 'carried' } {
+  const w = a.arithmetic;
+  return w === 'present-only' || w === 'carried' ? { arithmetic: w } : {};
+}
+
+/** One entry as a declaration, or undefined when it is malformed (already a problem of its own). */
+function wellFormedEntryOf(a: unknown): AbsenceDecl | undefined {
+  if (!isObject(a) || typeof a.field !== 'string' || !Array.isArray(a.states) || !a.states.every((x) => typeof x === 'string')) return undefined;
+  return { field: a.field, states: a.states as string[], ...carriesOf(a), ...governsOf(a), ...arithmeticOf(a) };
+}
+
+/**
+ * Every well-formed entry of an `absence` declaration, bare or a list — the
+ * shape the port's adapter takes (`../data/silence.ts` · `silenceOfDecl`), so
+ * this door and every reader beneath it read one declaration one way.
+ */
+function wellFormedEntriesOf(a: unknown): readonly AbsenceDecl[] {
+  const raw = Array.isArray(a) ? (a as readonly unknown[]) : a === undefined ? [] : [a];
+  return raw.map(wellFormedEntryOf).filter((entry): entry is AbsenceDecl => entry !== undefined);
+}
+
 /** The `{ columns, absence }` a facet resolver may read — only the well-formed parts (a malformed part is already a problem). */
 function facetSourceOf(src: Record<string, unknown> | undefined): FacetSource {
   if (src === undefined) return {};
-  const a = src.absence;
-  const absence = isObject(a) && typeof a.field === 'string' && Array.isArray(a.states) && a.states.every((x) => typeof x === 'string') ? { field: a.field, states: a.states as string[], ...carriesOf(a) } : undefined;
+  const absence = wellFormedEntriesOf(src.absence);
   const columns = isObject(src.columns) && Object.values(src.columns).every(isObject) ? (src.columns as FacetSource['columns']) : undefined;
-  return { ...(absence !== undefined ? { absence } : {}), ...(columns !== undefined ? { columns } : {}) };
+  return { ...(absence.length > 0 ? { absence } : {}), ...(columns !== undefined ? { columns } : {}) };
 }
 
 /**
@@ -190,7 +222,9 @@ function judgeAbsenceKept(rows: readonly unknown[], source: FacetSource, where: 
   if (source.absence === undefined) return;
   const measures = Object.entries(source.columns ?? {}).filter(([, decl]) => decl.role === 'measure').map(([name]) => name);
   if (measures.length === 0) return;
-  const refusal = absenceContradictionOf(rows, source.absence, measures, where);
+  // The reading, not the declaration: each measure is judged against the entry that governs IT, so a
+  // table whose radius is silent while its mass is present is no longer refused for holding both.
+  const refusal = absenceContradictionOf(rows, silenceOfDecl(source.absence), measures, where);
   if (refusal !== undefined) problems.push(refusal);
 }
 
@@ -199,7 +233,7 @@ function defColumns(src: Record<string, unknown> | undefined, surfaces: readonly
   const names = new Set<string>();
   const source = facetSourceOf(src);
   for (const name of Object.keys(source.columns ?? {})) names.add(name);
-  if (source.absence !== undefined) names.add(source.absence.field);
+  for (const field of silenceOfDecl(source.absence ?? []).stateColumns) names.add(field);
   for (const { surface } of surfaces) for (const field of Object.values(surface.initial ?? {})) names.add(field);
   return [...names].map((name) => ({ name, type: 'unknown' }));
 }
@@ -259,27 +293,54 @@ function validateGrain(grain: unknown, where: string, problems: string[]): void 
 }
 
 /**
- * Validate an `AbsenceDecl` — the STATED absence vocabulary of one table
- * (never inferred). Inert data: a column name and a list of words, echoed
- * verbatim. The one semantic rule: the vocabulary MUST include `unknown`,
- * because a source that cannot tell "feature off" from "collector failed"
- * needs a word for that, or it is forced to lie with one of the others.
+ * Validate a table's `absence` — one entry, or a LIST of them when silence
+ * belongs to a column rather than to the row.
+ *
+ * A bare object means exactly what it always meant, and every sentence it can
+ * earn is byte-identical. A list is the shape the exoplanet demo needed: three
+ * value columns, three state columns, three entries, each naming the columns it
+ * `governs`. The list's own rules are all one rule — **one column, one owner** —
+ * because a column whose silence has two answers has none.
+ */
+function validateAbsence(absence: unknown, where: string, problems: string[], fields: Set<string>, declared: ReadonlySet<string> | undefined): void {
+  if (Array.isArray(absence)) {
+    if (absence.length === 0) {
+      problems.push(`${where}, if it is a list, must declare at least one entry — an empty list is a table saying it has an absence vocabulary and then naming none`);
+      return;
+    }
+    absence.forEach((entry, at) => validateAbsenceEntry(entry, `${where}[${at}]`, problems, fields, declared, true));
+    judgeGovernedOnce(absence, where, problems);
+    judgeGovernsNoStateColumn(absence, where, problems);
+    return;
+  }
+  validateAbsenceEntry(absence, where, problems, fields, declared, false);
+}
+
+/**
+ * Validate ONE `AbsenceDecl` — the STATED absence vocabulary of one set of
+ * columns (never inferred). Inert data: a column name and a list of words,
+ * echoed verbatim. The one semantic rule: the vocabulary MUST include
+ * `unknown`, because a source that cannot tell "feature off" from "collector
+ * failed" needs a word for that, or it is forced to lie with one of the others.
  * Collects the declared field into `fields` so the encodings pass can refuse
  * binding it to a numeric channel.
  */
-function validateAbsence(absence: unknown, where: string, problems: string[], fields: Set<string>): void {
+function validateAbsenceEntry(absence: unknown, where: string, problems: string[], fields: Set<string>, declared: ReadonlySet<string> | undefined, inList: boolean): void {
   if (!isObject(absence)) {
     problems.push(`${where}, if present, must be an object { field, states }`);
     return;
   }
   for (const key of Object.keys(absence)) {
-    if (key !== 'field' && key !== 'states' && key !== 'carries') problems.push(`${where}: unknown key "${key}"`);
+    if (key !== 'field' && key !== 'states' && key !== 'carries' && key !== 'governs' && key !== 'arithmetic') problems.push(`${where}: unknown key "${key}"`);
   }
-  if (typeof absence.field !== 'string' || absence.field.length === 0) {
+  const field = typeof absence.field === 'string' && absence.field.length > 0 ? absence.field : undefined;
+  if (field === undefined) {
     problems.push(`${where}.field must be a non-empty string (the column that carries the state)`);
   } else {
-    fields.add(absence.field);
+    fields.add(field);
   }
+  validateGoverns(absence.governs, field, where, problems, declared, inList);
+  validateArithmetic(absence.arithmetic, where, problems);
   const states = absence.states;
   if (!Array.isArray(states) || states.length === 0 || states.some((st) => typeof st !== 'string' || st.length === 0)) {
     problems.push(`${where}.states must be a non-empty array of non-empty strings`);
@@ -298,6 +359,103 @@ function validateAbsence(absence: unknown, where: string, problems: string[], fi
     );
   }
   validateCarries(absence.carries, states as readonly string[], where, problems);
+}
+
+/**
+ * Validate `AbsenceDecl.governs` — the value columns this state column speaks
+ * for.
+ *
+ * Unstated it means "every OTHER column of the table", which is what a bare
+ * declaration has always meant; in a LIST it must be stated, because two
+ * entries each speaking for every other column are two answers to one
+ * question and this door does not pick between them. A named column must be
+ * one the table DECLARES (when it declares any), or a typo would quietly
+ * govern nothing, and it may never be the entry's own state column — that
+ * column speaks for itself, which is what keeps `eq(radius_state, …)` honest
+ * on the very row whose radius reads as absent.
+ */
+function validateGoverns(governs: unknown, field: string | undefined, where: string, problems: string[], declared: ReadonlySet<string> | undefined, inList: boolean): void {
+  if (governs === undefined) {
+    if (inList) {
+      problems.push(
+        `${where}.governs must name the value columns this state column speaks for — in a list every entry names its own, because two entries each speaking for "every other column" are two answers to one question`,
+      );
+    }
+    return;
+  }
+  if (!Array.isArray(governs) || governs.length === 0 || governs.some((c) => typeof c !== 'string' || c.length === 0)) {
+    problems.push(`${where}.governs, if present, must be a non-empty array of non-empty strings (the value columns this state column speaks for)`);
+    return;
+  }
+  for (const column of governs as readonly string[]) {
+    if (column === field) {
+      problems.push(`${where}.governs may not name "${column}" — that is this entry's own state column, and a state column speaks for itself`);
+    } else if (declared !== undefined && !declared.has(column)) {
+      problems.push(`${where}.governs names "${column}", which this table does not declare in columns — a state column can only speak for a column the table declares`);
+    }
+  }
+}
+
+/** Validate `AbsenceDecl.arithmetic` — the two words of `../data/silence.ts`, and no third. */
+function validateArithmetic(arithmetic: unknown, where: string, problems: string[]): void {
+  if (arithmetic === undefined) return;
+  if (!(SILENCE_ARITHMETICS as readonly unknown[]).includes(arithmetic)) {
+    problems.push(
+      `${where}.arithmetic, if present, must be one of ${SILENCE_ARITHMETICS.join('|')} — "present-only" reads exactly "${ABSENCE_PRESENT}" (the default, and every total this library has computed), "carried" also reads the states named in carries`,
+    );
+  }
+}
+
+/**
+ * ONE COLUMN, ONE OWNER: no two entries may govern the same column.
+ *
+ * A column governed twice has two answers to "was this reported?", and a reader
+ * that picked the first would be picking silently. Refused here so that
+ * `../data/silence.ts`'s first-namer-wins totality rule is never a policy
+ * anybody can reach.
+ */
+function judgeGovernedOnce(entries: readonly unknown[], where: string, problems: string[]): void {
+  const owner = new Map<string, { readonly at: number; readonly field: string }>();
+  entries.forEach((entry, at) => {
+    if (!isObject(entry) || typeof entry.field !== 'string' || !Array.isArray(entry.governs)) return;
+    for (const column of entry.governs as readonly unknown[]) {
+      if (typeof column !== 'string' || column.length === 0) continue;
+      const first = owner.get(column);
+      if (first === undefined) owner.set(column, { at, field: entry.field });
+      else if (first.at !== at) {
+        problems.push(
+          `${where}: "${column}" is governed by both entry ${String(first.at)} ("${first.field}") and entry ${String(at)} ("${entry.field}") — one column, one owner: a column whose silence has two answers has none`,
+        );
+      }
+    }
+  });
+}
+
+/**
+ * A STATE COLUMN SPEAKS FOR ITSELF, always: no entry — not even a DIFFERENT
+ * one — may name another entry's state column in `governs`.
+ *
+ * `../data/silence.ts` · `silenceOfDecl`'s `silenceFor` checks a column against
+ * every entry's `field` before it ever looks in a `governs` list (a state
+ * column is never governed, not even by another entry that names it — see its
+ * own WHY comment). Without this refusal a `governs` naming a sibling's state
+ * column would validate cleanly, land in `TableSilence.governed` (the door's
+ * own listing of what was NAMED), and then be silently ignored by every
+ * reader that asks `silenceFor` — a declaration that looks like it does
+ * something and does nothing. `validateGoverns` alone cannot catch this: it
+ * judges one entry against its OWN field, not against its siblings'.
+ */
+function judgeGovernsNoStateColumn(entries: readonly unknown[], where: string, problems: string[]): void {
+  const stateFields = new Set(entries.filter((entry): entry is Record<string, unknown> => isObject(entry) && typeof entry.field === 'string').map((entry) => entry.field as string));
+  entries.forEach((entry, at) => {
+    if (!isObject(entry) || typeof entry.field !== 'string' || !Array.isArray(entry.governs)) return;
+    for (const column of entry.governs as readonly unknown[]) {
+      // Naming its OWN field is `validateGoverns`'s sentence already — only a SIBLING's state column is new here.
+      if (typeof column === 'string' && column !== entry.field && stateFields.has(column)) {
+        problems.push(`${where}[${String(at)}].governs may not name "${column}" — that is another entry's state column, and a state column speaks for itself, so this entry's claim on it is silently ignored`);
+      }
+    }
+  });
 }
 
 /**
@@ -404,8 +562,10 @@ export function validateDashboardDef(def: unknown): string[] {
         problems.push(`data["${table}"].layout, if present, must be "row" | "column"`);
       }
       if (src.grain !== undefined) validateGrain(src.grain, `data["${table}"].grain`, problems);
-      if (src.absence !== undefined) validateAbsence(src.absence, `data["${table}"].absence`, problems, absenceFields);
-      if (src.columns !== undefined) validateColumnDecls(src.columns, `data["${table}"].columns`, problems, absenceFieldOf(src));
+      // The declared column names, when the table declares any — a `governs` entry may only name one of them.
+      const declaredColumns = isObject(src.columns) ? new Set(Object.keys(src.columns)) : undefined;
+      if (src.absence !== undefined) validateAbsence(src.absence, `data["${table}"].absence`, problems, absenceFields, declaredColumns);
+      if (src.columns !== undefined) validateColumnDecls(src.columns, `data["${table}"].columns`, problems, absenceFieldsOf(src));
       if (Array.isArray(src.rows)) judgeAbsenceKept(src.rows, facetSourceOf(src), `data["${table}"]`, problems);
     }
   }

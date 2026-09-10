@@ -18,12 +18,15 @@
  *      as it stands at the cursor with NOBODY's clause (`viewQuery({ viewId:
  *      null })`), so a filter elsewhere repaints the marks and leaves the axis
  *      where it was — vgplot's `Fixed`. Both are the session's one row door.
- *   2. ABSENCE ROWS ARE DROPPED HERE, before anything is folded. A table's
- *      declared absence column says a cell is a SILENCE, and "unavailable" on
- *      an axis reads as a low number. The test is the library's own
- *      (`silenceTestOf`, `vizfootprint/data`) — never restated: `present`
- *      reports a value, so does any state the table declared as one that
- *      `carries` a number, and everything else is silence.
+ *   2. SILENCES ARE BLANKED HERE, before anything is folded — PER COLUMN,
+ *      because silence belongs to a column and not to the row
+ *      (`silenceOfDecl` / `TableSilence`, `vizfootprint/data`). A cell whose
+ *      governing state column does not report a value never enters a domain,
+ *      and "unavailable" on an axis reads as a low number. The test is the
+ *      library's own (`silenceTestOf`) — never restated: `present` reports a
+ *      value, so does any state the table declared as one that `carries` a
+ *      number, and everything else is silence. A column no entry governs — a
+ *      STATE column included, since it speaks for itself — reads as it is.
  *
  * In-process only, like `layerRowsFor` and `sessionSheetData`: a polled host
  * needs its own endpoint for this, and that is the server's door to grow.
@@ -35,8 +38,8 @@
 import type { ChannelResolution, ResolvedChannel, FrameLayer, ChannelValues } from 'vizfootprint/def';
 import { frameDomains, layerAddress, resolutionFor } from 'vizfootprint/def';
 import type { AbsenceDecl } from 'vizfootprint/def';
-import type { ColumnType, Row } from 'vizfootprint/data';
-import { silenceTestOf } from 'vizfootprint/data';
+import type { ColumnType, Row, TableSilence } from 'vizfootprint/data';
+import { silenceOfDecl, silenceOfNothing, silenceTestOf } from 'vizfootprint/data';
 import type { ViewQuery, ViewQueryResult } from 'vizfootprint/session';
 import { layerRowsFor, type LayerRowsSessionLike } from './layerRows.js';
 
@@ -63,7 +66,7 @@ export interface FrameLayerRef {
 export interface FrameColumn {
   readonly field: string;
   readonly type: string;
-  /** Present when this is the table's declared absence column: the vocabulary it speaks. */
+  /** Present when this is one of the table's declared state columns: the vocabulary IT speaks. */
   readonly absence?: readonly string[];
 }
 
@@ -77,12 +80,15 @@ export interface FrameRequest {
   /** Per table, its columns — `SessionViewState.columns`. The column TYPE decides which scale a channel folds as. */
   readonly columns: Readonly<Record<string, readonly FrameColumn[]>>;
   /**
-   * Per table, its declared absence vocabulary, when the def declared one that
-   * `carries` a value in some state. Absent for a table: the vocabulary is read
-   * off `columns` instead, which cannot carry `carries` — so a table that
-   * declares one passes it here or its carrying rows are read as silences.
+   * Per table, its declared absence vocabulary — one entry or a LIST, the def's
+   * own shape — when the def declared one that `carries` a value in some state
+   * or that `governs` named columns. Absent for a table: the vocabulary is read
+   * off `columns` instead, which carries the state columns and their words but
+   * neither `carries` nor `governs` — so a table that declares either passes it
+   * here or its carrying rows are read as silences and its state columns are
+   * read as speaking for every other column.
    */
-  readonly absence?: Readonly<Record<string, AbsenceDecl>>;
+  readonly absence?: Readonly<Record<string, AbsenceDecl | readonly AbsenceDecl[]>>;
   /** How many rows each read asks for. Default {@link FRAME_ROW_LIMIT}. */
   readonly limit?: number;
 }
@@ -136,6 +142,8 @@ export async function frameFor(session: FrameSessionLike, request: FrameRequest)
 async function valuesOf(session: FrameSessionLike, request: FrameRequest, layer: FrameLayerRef): Promise<FrameLayer> {
   const columns = request.columns[layer.table] ?? [];
   const bound = Object.entries(layer.encodings);
+  // ONE reading of this table's silences, spent by every channel of the layer (`cellsFor`).
+  const silence = silenceFor(request, layer.table);
   const channels: Record<string, ChannelValues> = {};
   for (const [channel, field] of bound.filter(([channel]) => basisOf(request.frame, channel) === undefined)) {
     channels[channel] = { type: typeOf(columns, field), values: [] };
@@ -143,7 +151,7 @@ async function valuesOf(session: FrameSessionLike, request: FrameRequest, layer:
   for (const basis of bases(bound.map(([channel]) => basisOf(request.frame, channel)))) {
     const rows = await readFor(session, request, layer, basis);
     for (const [channel, field] of bound.filter(([channel]) => basisOf(request.frame, channel) === basis)) {
-      channels[channel] = { type: typeOf(columns, field), values: rows.map((row) => row[field]) };
+      channels[channel] = { type: typeOf(columns, field), values: cellsFor(rows, field, silence) };
     }
   }
   return { layerId: layer.layerId, ...(layer.chartKind !== undefined ? { chartKind: layer.chartKind } : {}), channels };
@@ -154,14 +162,19 @@ function bases(asked: readonly ('table' | 'rows' | undefined)[]): ReadonlySet<'t
   return new Set(asked.filter((basis): basis is 'table' | 'rows' => basis !== undefined));
 }
 
-/** One read of one layer, on one basis, with the silences already dropped. A refused read is no rows — never stale ones. */
+/**
+ * One read of one layer, on one basis. A refused read is no rows — never stale
+ * ones. The silences are dropped per COLUMN afterwards ({@link cellsFor}), not
+ * here: this door has no field to judge a row by, and a row silent in one
+ * column still reports the others.
+ */
 async function readFor(session: FrameSessionLike, request: FrameRequest, layer: FrameLayerRef, basis: 'table' | 'rows'): Promise<readonly Row[]> {
   const limit = request.limit ?? FRAME_ROW_LIMIT;
   // 'rows' = the rows this frame draws, through the ONE door for a layer's rows (it owns the address→table rule).
   // 'table' = nobody's clause, so the axis does not move with a filter elsewhere. The layer already names its
   // table, so there is no address to resolve and no second resolver to introduce.
   const answer = basis === 'rows' ? await layerRowsFor(session, layerAddress(request.viewId, layer.layerId), { limit }) : await session.viewQuery({ viewId: null, table: layer.table, limit });
-  return answer.ok ? present(answer.rows, request, layer.table) : [];
+  return answer.ok ? answer.rows : [];
 }
 
 /**
@@ -177,18 +190,43 @@ function basisOf(frame: Readonly<Record<string, ChannelResolution>> | undefined,
   return resolution.mode === 'shared' ? resolution.basis : undefined;
 }
 
-/** The rows that REPORTED a value — a silence never enters a domain, because "unavailable" on an axis reads as a low number. */
-function present(rows: readonly Row[], request: FrameRequest, table: string): readonly Row[] {
-  const declared = request.absence?.[table] ?? absenceOf(request.columns[table]);
-  if (declared === undefined) return rows; // a table with no absence vocabulary has no silences to drop
-  const silent = silenceTestOf(declared);
-  return rows.filter((row) => !silent(row[declared.field]));
+/**
+ * The table's reading of its own silences: the DECLARATION when the host passed
+ * one, otherwise whatever the columns projection carries.
+ *
+ * The projection knows which columns speak a vocabulary but not what any of
+ * them `governs`, so a table read that way is read the way it always was: each
+ * state column speaks for every other column. That is why a def with `governs`
+ * or `carries` passes its declaration here.
+ */
+function silenceFor(request: FrameRequest, table: string): TableSilence {
+  const declared = request.absence?.[table] ?? declsOf(request.columns[table]);
+  return declared === undefined ? silenceOfNothing() : silenceOfDecl(declared);
 }
 
-/** The table's absence vocabulary as the columns projection carries it — the column that speaks one IS the absence column. */
-function absenceOf(columns: readonly FrameColumn[] | undefined): AbsenceDecl | undefined {
-  const column = columns?.find((c) => c.absence !== undefined && c.absence.length > 0);
-  return column === undefined ? undefined : { field: column.field, states: column.absence! };
+/** Every state column the columns projection carries, as bare declarations — the columns that speak a vocabulary ARE the state columns. */
+function declsOf(columns: readonly FrameColumn[] | undefined): readonly AbsenceDecl[] | undefined {
+  const speaking = (columns ?? []).filter((c) => c.absence !== undefined && c.absence.length > 0);
+  return speaking.length === 0 ? undefined : speaking.map((c) => ({ field: c.field, states: c.absence! }));
+}
+
+/**
+ * The cells of ONE field for the domain fold, with that column's silences
+ * dropped — because "unavailable" on an axis reads as a low number.
+ *
+ * Per column, and only the column's OWN governing state column decides: a row
+ * whose radius was never taken still lends its period to the period axis. A
+ * column nothing governs (a state column, or one outside every `governs`) reads
+ * as it is. Dropping the cell and blanking it are the same thing to all three
+ * folds — `frameDomains` skips a non-number for a quantitative domain, an
+ * unreadable date for a temporal one and `null` for a categorical one — and
+ * dropping says what is meant.
+ */
+function cellsFor(rows: readonly Row[], field: string, silence: TableSilence): readonly unknown[] {
+  const governing = silence.silenceFor(field);
+  if (governing === undefined) return rows.map((row) => row[field]);
+  const silent = silenceTestOf(governing);
+  return rows.filter((row) => !silent(row[governing.state])).map((row) => row[field]);
 }
 
 /** The declared type of one column, or `unknown` where the table lists none — an unknown type folds to no domain rather than a guessed one. */

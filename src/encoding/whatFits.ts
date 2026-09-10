@@ -16,6 +16,7 @@
  * answer here and the answer the build gives cannot differ, because there is
  * only one of them. `whatFits.def.test.ts` pins that over an NNDSS-shaped def.
  */
+import type { AbsenceDecl } from '../def/types.js';
 import { resolveFacets, type FacetSource } from './facets.js';
 import { fitsFor } from './fits.js';
 import type { Bindings, ColumnDecl, EncodingPorts, EncodingRules, EncodingSurface, Fit } from './types.js';
@@ -34,8 +35,14 @@ export interface FitColumn extends ColumnDecl {
 export interface WhatFitsInput {
   /** The described table plus the person's declarations, one entry per column. */
   readonly columns: readonly FitColumn[];
-  /** The table's absence vocabulary, when it has declared one — the built-in law needs it to refuse a magnitude. */
-  readonly absence?: { readonly field: string; readonly states: readonly string[] };
+  /**
+   * The table's absence declaration, when it has one — bare or a LIST, the
+   * def's own shape. The built-in law needs it to refuse a magnitude, and it
+   * needs EVERY entry: a table with three state columns has three columns that
+   * may not carry one (`../data/silence.ts`). Handed straight to
+   * {@link resolveFacets}, which adapts it to the port once.
+   */
+  readonly absence?: AbsenceDecl | readonly AbsenceDecl[];
   /** The chart kind under consideration (`line`, `bar`, `point`, …). */
   readonly chartKind: string;
   /** The channels of that chart kind. */

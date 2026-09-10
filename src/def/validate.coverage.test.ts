@@ -447,6 +447,162 @@ describe('validateDashboardDef — absence (the declared silence vocabulary)', (
     );
   });
 
+  // ── SILENCE BELONGS TO A COLUMN: the LIST form, and the two new keys ──
+  // The exoplanet demo found this: `AbsenceDecl` spoke for the ROW, so an honest table (a mass
+  // measured, a radius never taken, a period of 88) was refused by the library's own validator.
+
+  it('accepts a LIST — one entry per state column, each naming the value columns it governs', () => {
+    const columns = { pl_rade: { role: 'measure' }, pl_masse: { role: 'measure' }, radius_state: {}, mass_state: {} };
+    const rows = [{ radius_state: 'not-measured', pl_rade: null, mass_state: 'present', pl_masse: 6.4 }];
+    expect(
+      validateDashboardDef(
+        baseDef({
+          data: {
+            data: {
+              rows,
+              columns,
+              absence: [
+                { field: 'radius_state', states: ['present', 'upper-bound', 'not-measured', 'unknown'], carries: ['upper-bound'], governs: ['pl_rade'], arithmetic: 'carried' },
+                { field: 'mass_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_masse'] },
+              ],
+            },
+          },
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it('accepts `governs` and `arithmetic` on a BARE declaration too', () => {
+    expect(
+      validateDashboardDef(baseDef({ data: { data: { rows: [{ n: 2, state: 'unknown' }], columns: { n: {}, state: {} }, absence: { field: 'state', states: ['present', 'unknown'], governs: ['n'] } } } })),
+    ).toEqual([]);
+    expect(validateDashboardDef(withAbsence({ field: 'state', states: ['present', 'unknown'], arithmetic: 'carried' }))).toEqual([]);
+    expect(validateDashboardDef(withAbsence({ field: 'state', states: ['present', 'unknown'], arithmetic: 'present-only' }))).toEqual([]);
+  });
+
+  it('refuses an EMPTY list — a table naming an absence vocabulary and then naming none', () => {
+    expect(validateDashboardDef(withAbsence([]))).toContain(
+      'data["data"].absence, if it is a list, must declare at least one entry — an empty list is a table saying it has an absence vocabulary and then naming none',
+    );
+  });
+
+  it('refuses a list entry with NO `governs` — two entries claiming "every other column" are two answers to one question', () => {
+    const problems = validateDashboardDef(withAbsence([{ field: 'state', states: ['present', 'unknown'] }]));
+    expect(problems).toContain(
+      'data["data"].absence[0].governs must name the value columns this state column speaks for — in a list every entry names its own, because two entries each speaking for "every other column" are two answers to one question',
+    );
+  });
+
+  it('refuses a malformed `governs`, and names the entry it came from', () => {
+    for (const bad of ['n', [], ['']]) {
+      expect(validateDashboardDef(withAbsence([{ field: 'state', states: ['present', 'unknown'], governs: bad }]))).toContain(
+        'data["data"].absence[0].governs, if present, must be a non-empty array of non-empty strings (the value columns this state column speaks for)',
+      );
+    }
+  });
+
+  it('refuses a `governs` column the table does not DECLARE — a typo would quietly govern nothing', () => {
+    const def = (governs: readonly string[]): unknown =>
+      baseDef({ data: { data: { rows: [{ n: 2, state: 'unknown' }], columns: { n: {}, state: {} }, absence: [{ field: 'state', states: ['present', 'unknown'], governs }] } } });
+    expect(validateDashboardDef(def(['nn']))).toContain(
+      'data["data"].absence[0].governs names "nn", which this table does not declare in columns — a state column can only speak for a column the table declares',
+    );
+    expect(validateDashboardDef(def(['n']))).toEqual([]);
+    // …and a table that declares NO columns is held to nothing here: there is no list to check against
+    expect(validateDashboardDef(withAbsence([{ field: 'state', states: ['present', 'unknown'], governs: ['whatever'] }]))).toEqual([]);
+  });
+
+  it('refuses an entry governing its OWN state column — a state column speaks for itself', () => {
+    expect(validateDashboardDef(withAbsence([{ field: 'state', states: ['present', 'unknown'], governs: ['state'] }]))).toContain(
+      'data["data"].absence[0].governs may not name "state" — that is this entry\'s own state column, and a state column speaks for itself',
+    );
+  });
+
+  it('refuses two entries governing the SAME column — one column, one owner', () => {
+    expect(
+      validateDashboardDef(
+        withAbsence([
+          { field: 'a_state', states: ['present', 'unknown'], governs: ['n'] },
+          { field: 'b_state', states: ['present', 'unknown'], governs: ['n'] },
+        ]),
+      ),
+    ).toContain(
+      'data["data"].absence: "n" is governed by both entry 0 ("a_state") and entry 1 ("b_state") — one column, one owner: a column whose silence has two answers has none',
+    );
+  });
+
+  it('refuses an entry governing a SIBLING\'s state column — a state column speaks for itself, whoever claims it', () => {
+    // Silently ignored otherwise: `silenceOfDecl`'s state-column check runs before `governs` is ever
+    // consulted (`../data/silence.ts`), so this declaration would validate and then do nothing.
+    expect(
+      validateDashboardDef(
+        withAbsence([
+          { field: 'radius_state', states: ['present', 'unknown'], governs: ['pl_rade'] },
+          { field: 'mass_state', states: ['present', 'unknown'], governs: ['pl_masse', 'radius_state'] },
+        ]),
+      ),
+    ).toContain(
+      'data["data"].absence[1].governs may not name "radius_state" — that is another entry\'s state column, and a state column speaks for itself, so this entry\'s claim on it is silently ignored',
+    );
+  });
+
+  it('…but ONE entry naming a column twice is still one owner, and says nothing', () => {
+    // The duplicate is redundant, not ambiguous: the same entry cannot disagree with itself.
+    expect(validateDashboardDef(withAbsence([{ field: 'state', states: ['present', 'unknown'], governs: ['n', 'n'] }]))).toEqual([]);
+  });
+
+  it('refuses an `arithmetic` that is not one of the two words', () => {
+    expect(validateDashboardDef(withAbsence({ field: 'state', states: ['present', 'unknown'], arithmetic: 'carry' }))).toContain(
+      'data["data"].absence.arithmetic, if present, must be one of present-only|carried — "present-only" reads exactly "present" (the default, and every total this library has computed), "carried" also reads the states named in carries',
+    );
+  });
+
+  it('holds every ENTRY of a list to the same vocabulary rules, naming the entry', () => {
+    const problems = validateDashboardDef(
+      withAbsence([
+        { field: 'a_state', states: ['present'], governs: ['n'] },
+        { field: '', states: ['present', 'unknown'], governs: ['id'], extra: 1 },
+      ]),
+    );
+    expect(problems).toContain('data["data"].absence[0].states must include "unknown" — a source that cannot tell which silence it saw needs a word for that');
+    expect(problems).toContain('data["data"].absence[1].field must be a non-empty string (the column that carries the state)');
+    expect(problems).toContain('data["data"].absence[1]: unknown key "extra"');
+  });
+
+  it('refuses a CONTRADICTING table per governed column — and stops refusing the demo\'s honest one', () => {
+    const columns = { pl_rade: { role: 'measure' }, pl_orbper: { role: 'measure' }, radius_state: {}, period_state: {} };
+    const absence = [
+      { field: 'radius_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_rade'] },
+      { field: 'period_state', states: ['present', 'not-measured', 'unknown'], governs: ['pl_orbper'] },
+    ];
+    const def = (rows: readonly unknown[]): unknown => baseDef({ data: { data: { rows, columns, absence } } });
+    // THE FIX: no radius, a period of 88 — refused before this packet, accepted now
+    expect(validateDashboardDef(def([{ radius_state: 'not-measured', pl_rade: null, period_state: 'present', pl_orbper: 88 }]))).toEqual([]);
+    // …and the check still fires when a column IS silent and holds a number, naming the state column it broke
+    expect(validateDashboardDef(def([{ radius_state: 'not-measured', pl_rade: 2.4, period_state: 'present', pl_orbper: 88 }]))).toContain(
+      'data["data"].rows[0]: radius_state says "not-measured" — no value — and pl_rade holds 2.4; a table cannot say both, so carry null in pl_rade where the row reports nothing',
+    );
+  });
+
+  it('gives EVERY state column role `absence`, and refuses one that claims another role', () => {
+    const problems = validateDashboardDef(
+      baseDef({
+        data: {
+          data: {
+            rows: [{ n: 2, m: 3, a_state: 'unknown', b_state: 'unknown' }],
+            columns: { n: {}, m: {}, a_state: { role: 'measure' }, b_state: { role: 'dimension' } },
+            absence: [
+              { field: 'a_state', states: ['present', 'unknown'], governs: ['n'] },
+              { field: 'b_state', states: ['present', 'unknown'], governs: ['m'] },
+            ],
+          },
+        },
+      }),
+    );
+    expect(problems).toContain('data["data"].columns["a_state"].role is "measure" but "a_state" is the table\'s declared absence column — its role is absence');
+    expect(problems).toContain('data["data"].columns["b_state"].role is "dimension" but "b_state" is the table\'s declared absence column — its role is absence');
+  });
+
   it('refuses every MAGNITUDE channel — size as much as x — and the list is one shared constant', () => {
     const decl = { field: 'state', states: ['present', 'unknown'] };
     expect(
