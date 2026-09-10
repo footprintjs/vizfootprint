@@ -404,3 +404,121 @@ describe('the walk — alt-click asks the edges, and the answer lights the nodes
     expect(nodeAt(plain, 'flu').querySelector('title')!.textContent).not.toContain('alt-click');
   });
 });
+
+// ── protocol 1.4: WHICH walk — the host picks the question, the gesture follows ──
+
+/** A landed walk of any derivation, folded for the NODES layer (the shape the def's `mirror` edge delivers). */
+function walkedAs(value: Record<string, unknown>): ReturnType<typeof selectionForView> {
+  const rows: SelectionView[] = [{ viewId: 'net~edges', field: 'source ↔ target', kind: 'neighbourhood', value, fields: ['source', 'target'] }];
+  return selectionForView(rows, 'net~nodes');
+}
+
+describe('the walk QUESTION (protocol 1.4) — two hops, a component, and the two-click path', () => {
+  it('the default question asks what it always asked: no `walk` on the encoding at all', () => {
+    const { walk, emit } = walkDoor();
+    const { container } = renderNet({ walk: { ...walk, question: { derivation: 'ego', hops: 1 } } });
+    fireEvent.click(nodeAt(container, 'cold'), { altKey: true });
+    expect(emit).toHaveBeenCalledWith({ rawValue: 'cold', encoding: { kind: 'neighbourhood', field: 'source' } });
+  });
+
+  it('an ego question with no hops named is the default one hop — the question may be partial, the ask never is', () => {
+    const { walk, emit } = walkDoor();
+    const { container } = renderNet({ walk: { ...walk, question: { derivation: 'ego' } } });
+    fireEvent.click(nodeAt(container, 'cold'), { altKey: true });
+    expect(emit).toHaveBeenCalledWith({ rawValue: 'cold', encoding: { kind: 'neighbourhood', field: 'source' } });
+    expect(nodeAt(container, 'cold').querySelector('title')!.textContent).toContain('alt-click for its neighbourhood');
+    expect(container.querySelector('desc')!.textContent).toContain('to select it and everything it links to');
+  });
+
+  it('two hops of ego, and a whole component, ride out on the encoding', () => {
+    const two = walkDoor();
+    const twoUp = renderNet({ walk: { ...two.walk, question: { derivation: 'ego', hops: 2 } } });
+    fireEvent.click(nodeAt(twoUp.container, 'cold'), { altKey: true });
+    expect(two.emit).toHaveBeenCalledWith({ rawValue: 'cold', encoding: { kind: 'neighbourhood', field: 'source', walk: { derivation: 'ego', hops: 2 } } });
+    cleanup();
+
+    const whole = walkDoor();
+    const wholeUp = renderNet({ walk: { ...whole.walk, question: { derivation: 'component' } } });
+    fireEvent.click(nodeAt(wholeUp.container, 'flu'), { altKey: true });
+    expect(whole.emit).toHaveBeenCalledWith({ rawValue: 'flu', encoding: { kind: 'neighbourhood', field: 'source', walk: { derivation: 'component' } } });
+  });
+
+  it('the PATH takes two clicks: the first lands the seed\'s own neighbourhood, the second asks for the path', () => {
+    const { walk, emit } = walkDoor();
+    const question = { derivation: 'path' } as const;
+    // FIRST click — nothing is walked yet, so there is no path to ask for: the seed's neighbourhood is something to see
+    const first = renderNet({ walk: { ...walk, question } });
+    fireEvent.click(nodeAt(first.container, 'flu'), { altKey: true });
+    expect(emit).toHaveBeenLastCalledWith({ rawValue: 'flu', encoding: { kind: 'neighbourhood', field: 'source' } });
+    cleanup();
+
+    // SECOND click — the live walk's seed comes off the FOLD, and the far end is the node clicked
+    const second = renderNet({ walk: { ...walk, question }, selection: walkedAs({ seed: 'flu', derivation: 'ego', hops: 1, ids: ['flu', 'cold'] }) });
+    fireEvent.click(nodeAt(second.container, 'strep'), { altKey: true });
+    expect(emit).toHaveBeenLastCalledWith({ rawValue: 'flu', encoding: { kind: 'neighbourhood', field: 'source', walk: { derivation: 'path', to: 'strep' } } });
+  });
+
+  it('a path already landed keeps asking from ITS seed, and alt-clicking the seed clears', () => {
+    const { walk, emit } = walkDoor();
+    const question = { derivation: 'path' } as const;
+    const live = walkedAs({ seed: 'flu', derivation: 'path', hops: 2, to: 'strep', ids: ['flu', 'cold', 'strep'] });
+    const { container } = renderNet({ walk: { ...walk, question }, selection: live });
+    // another far end: the same seed, a new `to` — one act, never two
+    fireEvent.click(nodeAt(container, 'cold'), { altKey: true });
+    expect(emit).toHaveBeenLastCalledWith({ rawValue: 'flu', encoding: { kind: 'neighbourhood', field: 'source', walk: { derivation: 'path', to: 'cold' } } });
+    // the seed itself: cleared, and a cleared walk asks NO walk
+    fireEvent.click(nodeAt(container, 'flu'), { altKey: true });
+    expect(emit).toHaveBeenLastCalledWith({ rawValue: null, encoding: { kind: 'neighbourhood', field: 'source' } });
+  });
+
+  it('a path with NO PATH still lights what it recorded — `hops: null` is a body, not a failure', () => {
+    const { container } = renderNet({ selection: walkedAs({ seed: 'flu', derivation: 'path', hops: null, to: 'lone', ids: ['flu', 'lone'] }) });
+    // the recorded set is the two nodes, so every node outside it dims — the honest picture of "nothing joins them".
+    // `flu — ghost` stays bright for the reason it always does: an end this frame does not carry is not evidence.
+    expect(dimmed(container).sort()).toEqual(['cold', 'cold — strep', 'flu — cold', 'strep']);
+  });
+
+  it('the `<title>` says what the NEXT alt-click will do — in every mode', () => {
+    const { walk } = walkDoor();
+    const two = renderNet({ walk: { ...walk, question: { derivation: 'ego', hops: 2 } } });
+    expect(nodeAt(two.container, 'cold').querySelector('title')!.textContent).toContain('alt-click for its neighbourhood two hops out');
+    expect(two.container.querySelector('desc')!.textContent).toContain('to select it and everything within two hops');
+    cleanup();
+
+    const whole = renderNet({ walk: { ...walk, question: { derivation: 'component' } }, selection: walkedAs({ seed: 'flu', derivation: 'component', hops: 2, ids: ['flu', 'cold', 'strep'] }) });
+    expect(nodeAt(whole.container, 'cold').querySelector('title')!.textContent).toContain('alt-click for everything it connects to');
+    expect(nodeAt(whole.container, 'flu').querySelector('title')!.textContent).toContain('alt-click to clear everything it connects to');
+    expect(whole.container.querySelector('desc')!.textContent).toContain('to select everything it connects to');
+    cleanup();
+
+    const fresh = renderNet({ walk: { ...walk, question: { derivation: 'path' } } });
+    expect(nodeAt(fresh.container, 'cold').querySelector('title')!.textContent).toContain('alt-click to start a path here');
+    expect(fresh.container.querySelector('desc')!.textContent).toContain('to start a path, then alt-click another node for the path between them');
+    cleanup();
+
+    const live = renderNet({ walk: { ...walk, question: { derivation: 'path' } }, selection: walkedAs({ seed: 'flu', derivation: 'ego', hops: 1, ids: ['flu', 'cold'] }) });
+    expect(nodeAt(live.container, 'strep').querySelector('title')!.textContent).toContain('alt-click for the path from flu');
+    // the picker says PATH while an EGO walk is what is in force, so the clear arm names the EGO
+    // walk: these words are about what this click clears, and that is what the trace shows
+    expect(nodeAt(live.container, 'flu').querySelector('title')!.textContent).toContain('alt-click to clear its neighbourhood');
+  });
+
+  it('the CLEAR arm names the walk IN FORCE, never the one the picker is set to', () => {
+    const { walk } = walkDoor();
+    const cases: readonly (readonly [Record<string, unknown>, string])[] = [
+      [{ seed: 'flu', derivation: 'ego', hops: 1, ids: ['flu', 'cold'] }, 'clear its neighbourhood'],
+      [{ seed: 'flu', derivation: 'ego', hops: 2, ids: ['flu', 'cold', 'strep'] }, 'clear its neighbourhood two hops out'],
+      [{ seed: 'flu', derivation: 'path', hops: 2, to: 'strep', ids: ['flu', 'cold', 'strep'] }, 'clear the path'],
+      [{ seed: 'flu', derivation: 'component', hops: 2, ids: ['flu', 'cold', 'strep'] }, 'clear everything it connects to'],
+      // a walk another build minted is still cleared by that click — and the words claim nothing
+      // about a shape this frame cannot read
+      [{ seed: 'flu', derivation: 'community', hops: 1, ids: ['flu', 'cold'] }, 'clear this walk'],
+    ];
+    for (const [body, words] of cases) {
+      // the picker stays at its DEFAULT throughout: the words come off the landed body, never off the pick
+      const { container } = renderNet({ walk, selection: walkedAs(body) });
+      expect(nodeAt(container, 'flu').querySelector('title')!.textContent, String(body['derivation'])).toContain(`alt-click to ${words}`);
+      cleanup();
+    }
+  });
+});

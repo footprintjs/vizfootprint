@@ -29,7 +29,7 @@ import type { Actor, Cause } from '../cause/index.js';
 import { DISPATCH_VERBS } from '../def/index.js';
 import { acceptsOf } from '../encoding/index.js';
 import type { InteractionSession } from '../session/index.js';
-import type { CellValues, DispatchAction, DispatchResult, AnalysisCommit, FilterRange, ProposeChartResult, WhyTarget } from '../session/index.js';
+import type { CellValues, DispatchAction, DispatchResult, AnalysisCommit, FilterRange, ProposeChartResult, WalkAsk, WhyTarget } from '../session/index.js';
 import { SURFACE_PARTS, SURFACE_PART_NAMES } from './surfaceParts.js';
 import { basisOf } from './basis.js';
 import { narrowParts } from './narrow.js';
@@ -141,6 +141,7 @@ const DISPATCH_DESCRIPTION =
   'view keeps every edge BETWEEN that disease and its neighbours (the ties inside the walked set; a ' +
   'neighbour\'s tie to a node outside it is one hop further out); the ' +
   'walk runs once, over the rows as they are now, and the commit records the ids it found; ' +
+  'add walk to say WHICH walk — two hops, a path to another node, a whole component; ' +
   'seed: null clears), filter (an ' +
   'interval [lo, hi] on a field, or null to clear — see the range parameter for the full shape, ' +
   'including open-ended and date ranges), annotate (an inert note), navigate (move view state — a ' +
@@ -249,8 +250,21 @@ const DISPATCH_SCHEMA = {
         'NEIGHBOURHOOD select only: the DATA-space node value the walk starts from (e.g. a disease name), ' +
         'or null to clear it. Use with field, which must name one ENDPOINT column of the acting view\'s ' +
         'table — a column a declared relation points at another table\'s key with; the other end is read ' +
-        'off the relations, never guessed. The act keeps every row whose BOTH ends are the seed or one of ' +
-        'its neighbours, and the commit records the seed, the derivation ("ego"), the hops (1) and the ids.',
+        'off the relations, never guessed. The act keeps every row whose BOTH ends are in the walked set, ' +
+        'and the commit records the question (seed, derivation, hops, and to for a path) with its answer (the ids).',
+    },
+    walk: {
+      type: 'object',
+      description:
+        'NEIGHBOURHOOD select only, and OPTIONAL — WHICH walk to run from the seed. Omit it for the ' +
+        'default, one hop of "ego". Every walk is UNDIRECTED (either end joins). derivation: "ego" (the ' +
+        'seed and everything within hops of it), "path" (the nodes IN ORDER from the seed to to — a ' +
+        'shortest path) or "component" (everything the seed can reach, however far). hops: 1 or 2, and ' +
+        'only with "ego" — past two hops an ego set is most of any real graph (a policy), and a path and ' +
+        'a component ANSWER their own distance rather than being told one. to: the node a "path" runs to ' +
+        '— required there, refused elsewhere; to equal to the seed is the trivial path, and a to nothing ' +
+        'joins to the seed records hops: null with just those two nodes (the honest "no path"). A walk ' +
+        'whose answer would hold more nodes than a commit records is refused with the count and a remedy.',
     },
     values: {
       type: ['array', 'null'],
@@ -554,6 +568,31 @@ function isValidFilterRange(range: unknown): range is readonly [RawBound, RawBou
  * `null` is a real IS-NULL constraint, never a per-side clear).
  */
 /** A plain value a match list may carry — a string, number, boolean, or null (IS NULL). */
+/**
+ * Is this payload a walk QUESTION at all? A sentence when it is not, `null`
+ * when it is (including when it is absent — a walk nobody asked for is the
+ * default one).
+ *
+ * SHAPE only, and deliberately: which walks exist, which slots each one takes
+ * and how far an ego walk may go are the session's laws
+ * (`../session/neighbourhood.ts`, `walkRefusal`) — restating them here would
+ * be two owners of one rule, and the agent would get whichever copy drifted
+ * last. What this judges is what no session should have to: a `walk` that is
+ * not an object, a `derivation` that is not a string, a `hops` that is not a
+ * number — a payload, not a question.
+ */
+function walkPayloadError(walk: unknown): string | null {
+  if (walk === undefined) return null;
+  if (walk === null || typeof walk !== 'object' || Array.isArray(walk)) {
+    return 'walk must be an object naming the walk to run — { derivation }, plus hops for "ego" or to for "path"; omit it for one hop of "ego"';
+  }
+  const asked = walk as Record<string, unknown>;
+  if (asked['derivation'] !== undefined && typeof asked['derivation'] !== 'string') return 'walk.derivation must be a string: "ego", "path" or "component"';
+  if (asked['hops'] !== undefined && typeof asked['hops'] !== 'number') return 'walk.hops must be a number (1 or 2), and only an "ego" walk takes one';
+  if (asked['to'] !== undefined && !isScalarValue(asked['to'])) return 'walk.to must be one plain value naming the node the path runs to (a string, number or boolean)';
+  return null;
+}
+
 function isScalarValue(v: unknown): boolean {
   return v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
 }
@@ -645,7 +684,14 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
           if (seed !== null && !isScalarValue(seed)) {
             return { error: 'a neighbourhood select requires seed: one plain value naming the node to walk from (a string, number or boolean) — or seed: null to clear it' };
           }
-          return { verb: 'select', viewId: args['viewId'], field: args['field'], seed, cause };
+          // R6: the WALK rides beside the seed, in the session's own words. SHAPE is judged here
+          // (a payload that is not a walk question never reaches the session); the three LEGALITY
+          // laws — hops is ego-only, 1 or 2; `to` belongs to a path and only to a path — belong to
+          // the session's one owner of them (`walkRefusal`), which a saved picture's re-ask meets too.
+          const walkShape = walkPayloadError(args['walk']);
+          if (walkShape !== null) return { error: walkShape };
+          const walk = args['walk'] as WalkAsk | undefined;
+          return { verb: 'select', viewId: args['viewId'], field: args['field'], seed, ...(walk === undefined ? {} : { walk }), cause };
         }
         // SET-1: the MATCH form — field + values (many), optional exclude.
         if (args['values'] !== undefined) {

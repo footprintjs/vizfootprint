@@ -46,6 +46,7 @@ export type {
   ResolvedEngine,
   Row,
   SortSpec,
+  WalkAsk,
 } from './types.js';
 export { PAIR_CLAUSE_KINDS, badFindReason, cellFieldLabel, clauseFields, clauseList, isPairClause, isPairKind, isRejection, neighbourhoodFieldLabel, reject } from './types.js';
 

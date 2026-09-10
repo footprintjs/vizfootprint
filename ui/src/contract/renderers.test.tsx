@@ -475,6 +475,54 @@ describe('networkRenderer — whose voice a node click is', () => {
   });
 });
 
+describe('networkRenderer — the WALK PICKER (protocol 1.4): the reader chooses which walk an alt-click asks for', () => {
+  it('the picker is drawn only where there is a walk to choose — and it offers the four walks by name', () => {
+    const { el, m } = mountNet();
+    m.update(layered([EDGES_LAYER, NODES_LAYER]));
+    const select = el.querySelector('select[aria-label="which walk an alt-click asks for"]') as HTMLSelectElement;
+    expect([...select.options].map((o) => o.textContent)).toEqual(['neighbours', 'two hops', 'component', 'path']);
+    m.unmount();
+
+    // an unlayered frame carries no edges, so there is no walk door and no choice to offer
+    const bare = mountNet();
+    bare.m.update(state(NET_NODES, { x: 'px', y: 'py', key: 'disease' }));
+    expect(bare.el.querySelector('select')).toBeNull();
+    bare.m.unmount();
+  });
+
+  it('the pick changes what the NEXT alt-click ASKS, and nothing else — and it survives the next update', () => {
+    const { el, m, bundles } = mountNet();
+    m.update(layered([EDGES_LAYER, NODES_LAYER]));
+    const select = el.querySelector('select') as HTMLSelectElement;
+    // the default asks what it always asked: no `walk` on the encoding at all
+    fireEvent.click(el.querySelector('circle[data-node="cold"]')!, { altKey: true });
+    expect(bundles.edges.emit).toHaveBeenLastCalledWith({ rawValue: 'cold', encoding: { kind: 'neighbourhood', field: 'src' } });
+
+    fireEvent.change(select, { target: { value: '2' } }); // component
+    // a pick lands NOTHING by itself: it is a question nobody has asked yet
+    expect(bundles.edges.emit).toHaveBeenCalledTimes(1);
+    fireEvent.click(el.querySelector('circle[data-node="cold"]')!, { altKey: true });
+    expect(bundles.edges.emit).toHaveBeenLastCalledWith({ rawValue: 'cold', encoding: { kind: 'neighbourhood', field: 'src', walk: { derivation: 'component' } } });
+
+    // a re-render (new rows, a crossfilter tick) keeps the reader's choice: the pick is the frame's, not the state's
+    m.update(layered([EDGES_LAYER, NODES_LAYER]));
+    expect((el.querySelector('select') as HTMLSelectElement).value).toBe('2');
+    fireEvent.change(el.querySelector('select') as HTMLSelectElement, { target: { value: '1' } }); // two hops
+    fireEvent.click(el.querySelector('circle[data-node="flu"]')!, { altKey: true });
+    expect(bundles.edges.emit).toHaveBeenLastCalledWith({ rawValue: 'flu', encoding: { kind: 'neighbourhood', field: 'src', walk: { derivation: 'ego', hops: 2 } } });
+    m.unmount();
+  });
+
+  it('picking the PATH puts the two-click gesture in the chart\'s own words', () => {
+    const { el, m } = mountNet();
+    m.update(layered([EDGES_LAYER, NODES_LAYER]));
+    fireEvent.change(el.querySelector('select') as HTMLSelectElement, { target: { value: '3' } }); // path
+    expect(el.querySelector('desc')!.textContent).toContain('to start a path, then alt-click another node for the path between them');
+    expect(el.querySelector('circle[data-node="flu"]')!.querySelector('title')!.textContent).toContain('alt-click to start a path here');
+    m.unmount();
+  });
+});
+
 describe('networkRenderer — the SVG ceiling lives in the wrapper', () => {
   const manyNodes = (n: number): RenderRow[] => Array.from({ length: n }, (_, i) => ({ id: `n${i}`, x: i, y: i }));
 

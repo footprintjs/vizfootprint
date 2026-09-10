@@ -381,6 +381,53 @@ describe('packet 5 — the agent can walk a NEIGHBOURHOOD by naming a seed (one 
     expect(JSON.stringify(res)).toContain('is not an endpoint');
     expect(session.log.records).toHaveLength(0);
   });
+
+  // ── packet D: WHICH walk, in the same words the session uses (R6) ──
+  it('the schema teaches the three walks beside the seed, and says which slot belongs to which', () => {
+    const dispatchTool = vizAsTools(netSession()).tools().find((t) => t.name === 'viz.dispatch')!;
+    const walk = (dispatchTool.inputSchema as { properties: Record<string, { type?: string; description?: string }> }).properties['walk']!;
+    expect(walk.type).toBe('object');
+    for (const word of ['"ego"', '"path"', '"component"', 'hops: 1 or 2', 'UNDIRECTED', 'required there, refused elsewhere']) {
+      expect(walk.description).toContain(word);
+    }
+  });
+
+  it('the walk rides beside the seed: a PATH lands the path, and the tool call is the gesture', async () => {
+    const bySession = netSession();
+    const gesture = await bySession.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'path', to: 'strep' }, cause: { requestedBy: 'user', computedBy: 'user' } });
+    const byTool = netSession();
+    const res = await vizAsTools(byTool).call('viz.dispatch', { verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'path', to: 'strep' } });
+    expect(get(res, 'ok')).toBe(true);
+    expect((get(res, 'commit') as { value: unknown }).value).toEqual({ seed: 'flu', derivation: 'path', hops: 2, to: 'strep', ids: ['flu', 'cold', 'strep'] });
+    expect(gesture.ok && (get(res, 'commit') as { value: unknown }).value).toEqual(gesture.ok ? gesture.commit!.value : null);
+    // and two hops of ego, through the same slot
+    const two = await vizAsTools(netSession()).call('viz.dispatch', { verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'ego', hops: 2 } });
+    expect((get(two, 'commit') as { value: unknown }).value).toEqual({ seed: 'flu', derivation: 'ego', hops: 2, ids: ['flu', 'cold', 'strep'] });
+  });
+
+  it('fire-time validation judges the PAYLOAD; the session judges the QUESTION — and only one of them lands nothing twice', async () => {
+    const session = netSession();
+    const port = vizAsTools(session);
+    // a payload that is not a walk question at all never reaches the session
+    for (const [walk, words] of [
+      ['nope', 'walk must be an object'],
+      [{ derivation: 7 }, 'walk.derivation must be a string'],
+      [{ hops: 'two' }, 'walk.hops must be a number'],
+      [{ derivation: 'path', to: { deep: true } }, 'walk.to must be one plain value'],
+    ] as const) {
+      const res = await port.call('viz.dispatch', { verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk });
+      expect(get(res, 'reason')).toBe('PAYLOAD_INVALID');
+      expect(JSON.stringify(res)).toContain(words);
+    }
+    // a well-shaped question the session refuses comes back as the SESSION's own sentence
+    const refused = await port.call('viz.dispatch', { verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'path' } });
+    expect(JSON.stringify(refused)).toContain('select.walk.to is missing');
+    expect(session.log.records).toHaveLength(0);
+    // and a payload that smuggles a `seed` INTO the walk does not move the act: the tool's `seed`
+    // is the node the commit records, or the receipt would name one node and the trace another
+    const smuggled = await port.call('viz.dispatch', { verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'ego', seed: 'strep' } });
+    expect((get(smuggled, 'commit') as { value: unknown }).value).toEqual({ seed: 'flu', derivation: 'ego', hops: 1, ids: ['flu', 'cold'] });
+  });
 });
 
 describe('D30 — the agent can CELL-select through the dispatch tool (one gesture = one commit)', () => {

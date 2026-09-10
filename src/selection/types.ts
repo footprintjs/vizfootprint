@@ -260,9 +260,9 @@ export type CauseClauseSpec =
        * WHY a kind of its own, given that the predicate is an AND: the same
        * reason the `cell` above is one — ONE gesture lands ONE commit, over a
        * value recorded whole. `value` carries the question (the
-       * `seed` the gesture landed on, the `derivation`, the `hops`) beside its
-       * answer (the materialized `ids`); `value: null` clears it (the
-       * cleared-interval rule).
+       * `seed` the gesture landed on, the `derivation`, the `hops`, and a
+       * path's `to`) beside its answer (the materialized `ids`);
+       * `value: null` clears it (the cleared-interval rule).
        */
       kind: 'neighbourhood';
       source: RegisteredSource;

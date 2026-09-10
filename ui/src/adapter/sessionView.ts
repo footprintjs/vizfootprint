@@ -1492,9 +1492,14 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
         // exactly as it never bins.
         const seed = emission.rawValue;
         const field = emission.encoding.field;
+        // protocol 1.4: WHICH walk rides through UNREAD — the chart named the question, and the
+        // session owns every judgement about it (which walks exist, how far an ego walk may go,
+        // which slot belongs to which). An absent `walk` is the one-hop ego walk, so a 1.3
+        // renderer's emission lands the byte-identical act it always did.
+        const walk = emission.encoding.walk === undefined ? {} : { walk: emission.encoding.walk };
         await dispatch(
-          { verb: 'select', viewId, field, seed, cause: cause(label) },
-          { verb: 'select', viewId, field, seed, intent: label },
+          { verb: 'select', viewId, field, seed, ...walk, cause: cause(label) },
+          { verb: 'select', viewId, field, seed, ...walk, intent: label },
         );
         return;
       }

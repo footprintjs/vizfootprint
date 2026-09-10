@@ -44,6 +44,7 @@
  *     cannot drift from the charts it wraps.
  */
 
+import { useState } from 'react';
 import type { CSSProperties } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
@@ -66,7 +67,7 @@ import { VizTable, type TableRow } from '../charts/VizTable.js';
 import { VizHistogram } from '../charts/VizHistogram.js';
 import { VizHeatmap } from '../charts/VizHeatmap.js';
 import { VizBoxPlot } from '../charts/VizBoxPlot.js';
-import { VizNetwork, type NetworkEdge, type NetworkNode } from '../charts/VizNetwork.js';
+import { VizNetwork, type NetworkEdge, type NetworkNode, type NetworkWalkQuestion, type VizNetworkProps } from '../charts/VizNetwork.js';
 
 /** The bridge spec: declared capabilities + a pure state→element function. */
 export interface ReactRendererSpec {
@@ -759,6 +760,66 @@ function layersRefusal(layers: readonly RenderLayer[]): JSX.Element {
  * {@link NETWORK_NODE_CEILING} nodes the frame is refused in a sentence naming
  * the count, the ceiling and the reading that still works at that size.
  */
+/**
+ * THE FOUR WALKS a reader can pick between, as data — the label, and the
+ * question it sets on the chart's walk door.
+ *
+ * WHY these four and not every combination the session accepts: they are the
+ * questions a person asks of a node-link out loud. Two hops is the most an ego
+ * walk is offered (the session's own policy), and a path is the one that takes
+ * two gestures — the chart says so in its own words as you go.
+ */
+const WALK_CHOICES: readonly { readonly label: string; readonly question: NetworkWalkQuestion }[] = [
+  { label: 'neighbours', question: { derivation: 'ego', hops: 1 } },
+  { label: 'two hops', question: { derivation: 'ego', hops: 2 } },
+  { label: 'component', question: { derivation: 'component' } },
+  { label: 'path', question: { derivation: 'path' } },
+];
+
+/**
+ * The node-link plus the ONE piece of chrome this wrapper owns: a labelled
+ * select for WHICH walk an alt-click asks for (protocol 1.4).
+ *
+ * WHY here and not in `<VizNetwork>`: the chart draws what it is given and asks
+ * what it is told to ask — a control inside it would make it own a choice, and
+ * every host embedding it would inherit that choice whether it wanted the
+ * chrome or not. WHY not in the host instead: this renderer is the only place a
+ * node-link is PLACED in this repo, and a capability nothing reaches is a
+ * capability nobody has.
+ *
+ * The pick is local, unrecorded state — it changes what the NEXT gesture ASKS,
+ * and nothing about it lands until somebody alt-clicks (at which point the
+ * question rides on the commit, where it can be read back). A frame with no
+ * edges layer has no walk door and no walk to choose between, so no picker is
+ * drawn.
+ */
+function NetworkFrame(props: VizNetworkProps): JSX.Element {
+  const [pick, setPick] = useState(0);
+  const asked = WALK_CHOICES[pick]!; // the select's own option values ARE this array's indices
+  return (
+    <>
+      {props.walk === undefined ? null : (
+        <label className="vzf-net-walk">
+          {'alt-click asks for '}
+          <select
+            className="vzf-input"
+            aria-label="which walk an alt-click asks for"
+            value={pick}
+            onChange={(e) => setPick(Number(e.target.value))}
+          >
+            {WALK_CHOICES.map((choice, i) => (
+              <option key={choice.label} value={i}>
+                {choice.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <VizNetwork {...props} {...(props.walk === undefined ? {} : { walk: { ...props.walk, question: asked.question } })} />
+    </>
+  );
+}
+
 export function networkRenderer(options: NetworkRendererOptions = {}): Renderer {
   return reactRenderer({
     capabilities: {
@@ -805,7 +866,7 @@ export function networkRenderer(options: NetworkRendererOptions = {}): Renderer 
       const edgeVoice = edge === null ? undefined : handshake.layers?.[edge.layer.layerId];
       const walk = edge === null || edgeVoice === undefined ? undefined : { field: endpointKeysOf(edge.layer)[0], emit: edgeVoice.emit };
       return (
-        <VizNetwork
+        <NetworkFrame
           viewId={handshake.viewId}
           nodes={nodesOf(rows, encodings, keyField)}
           edges={edge === null ? [] : edgesOf(edge.layer, edge.endpoints)}

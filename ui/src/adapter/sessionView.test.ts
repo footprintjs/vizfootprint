@@ -869,6 +869,21 @@ describe('SET-1 — emit(match), clear, clearAll, setPolarity', () => {
     ]);
     view.dispose();
   });
+  it('emit(neighbourhood) carries WHICH walk through UNREAD (protocol 1.4) — the chart asks, the session judges', async () => {
+    const { impl, posts } = fetchOf(STATE);
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    await view.emit('net~edges', { rawValue: 'flu', encoding: { kind: 'neighbourhood', field: 'source', walk: { derivation: 'path', to: 'strep' } } }, 'how flu reaches strep');
+    await view.emit('net~edges', { rawValue: 'flu', encoding: { kind: 'neighbourhood', field: 'source', walk: { derivation: 'ego', hops: 2 } } }, 'two hops');
+    // and an emission with NO walk posts the byte-identical act a 1.3 renderer always posted — no `walk` key at all
+    await view.emit('net~edges', { rawValue: 'flu', encoding: { kind: 'neighbourhood', field: 'source' } }, 'one hop');
+    expect(posts).toEqual([
+      { verb: 'select', viewId: 'net~edges', field: 'source', seed: 'flu', walk: { derivation: 'path', to: 'strep' }, intent: 'how flu reaches strep' },
+      { verb: 'select', viewId: 'net~edges', field: 'source', seed: 'flu', walk: { derivation: 'ego', hops: 2 }, intent: 'two hops' },
+      { verb: 'select', viewId: 'net~edges', field: 'source', seed: 'flu', intent: 'one hop' },
+    ]);
+    view.dispose();
+  });
   it('clearAll clears every live selection, one commit each', async () => {
     const { impl, posts } = fetchOf(STATE);
     const view = createSessionView(pollingSource({ fetchImpl: impl }));

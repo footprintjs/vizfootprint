@@ -498,9 +498,10 @@ export interface SavedClause {
   /**
    * JSON-safe: a point's value, an interval's bounds, a match body
    * `{ values, exclude? }`, a cell's two sides, a neighbourhood's whole walk
-   * `{ seed, derivation, hops, ids }` — which is what lets applying the
+   * `{ seed, derivation, hops, to?, ids }` — which is what lets applying the
    * picture RE-ASK the walk over today's rows rather than replay yesterday's
-   * answer.
+   * answer, and re-ask the walk it RECORDED (a picture saved with a path
+   * re-walks a path — `../session/wire.ts`, `walkAsked`).
    */
   readonly value: unknown;
 }

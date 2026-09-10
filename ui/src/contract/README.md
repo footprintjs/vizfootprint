@@ -245,15 +245,30 @@ before changing either side.
 
 ---
 
-## Law 5 — one gesture on a node selects the ties inside its ego set, and the ANSWER is recorded with the question (protocol 1.3)
+## Law 5 — one gesture on a node selects the ties inside the set it walks to, and the ANSWER is recorded with the question (protocol 1.3, which-walk 1.4)
 
 A `neighbourhood` emission is the one kind on the rail that a renderer cannot
 answer. It carries a **seed** — one node id, on one endpoint column of the
 edges table — and nothing else, because the walk reads the edge ROWS at the
 cursor and a renderer owns no rows (the transform-ownership rule: it never
 bins, and it never walks). The session walks once, and lands ONE commit
-carrying the question (`seed`, `derivation`, `hops`) beside the answer (the
-materialized `ids`).
+carrying the question (`seed`, `derivation`, `hops`, and `to` for a path)
+beside the answer (the materialized `ids`).
+
+**WHICH walk is the renderer's to ask and the host's to run (protocol 1.4).**
+`encoding.walk` says which: `{ derivation: 'ego', hops: 2 }` for two hops out,
+`{ derivation: 'component' }` for everything the seed reaches, or
+`{ derivation: 'path', to: <node> }` for the nodes in order between two of them.
+Absent means one hop of ego, so a 1.3 renderer's emission is byte-identical and
+lands the act it always did. It is still a QUESTION: the host owns the rows, so
+the host runs it — and refuses it in a sentence when it cannot (a walk whose
+answer is too big to record, a `hops` past two, a `to` on a walk that has no far
+end). A path takes two nodes, so a chart asks it in two gestures and reads the
+first one's seed back off the FOLD — `<VizNetwork>` keeps no state for it, which
+is why the gesture after a seek asks about the walk the trace shows. The same
+rule settles its WORDS: what an alt-click on the seed clears is named off the
+LANDED body (`landedWords`), not off the pick, because a walk can arrive from a
+seek, an agent or a saved picture and the two disagree.
 
 ```ts
 // the ASK, from the chart — a question, never a set
@@ -317,7 +332,8 @@ community detection.
    (`RENDERER_PROTOCOL_VERSION`); a new outbound verb is a MAJOR one. 1.1
    added the `cell` kind; 1.2 added layers (`RenderState.layers`, `canLayer`,
    the handshake's bundles); 1.3 added the `neighbourhood` kind and the walk
-   arm — all optional, so every one of them stayed a minor.
+   arm; 1.4 added `walk` on a neighbourhood emission (WHICH walk) — all
+   optional, so every one of them stayed a minor.
 
 ## One more habit: the derivation helpers ship in a set
 

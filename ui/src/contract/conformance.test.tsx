@@ -1021,6 +1021,30 @@ describe('conformance — the walk arm (one gesture on a node, one commit, the i
     });
   });
 
+  it('protocol 1.4: a renderer that says WHICH walk gets that walk — and the 1.3 emission still binds and lands the ego one', async () => {
+    const { view } = await buildNetworkFixture(WALKABLE);
+    const report = await runConformance({
+      renderer: layeredRenderer({ walk: { field: 'source', seed: 'flu', ask: { derivation: 'path', to: 'strep' } } }),
+      viewId: 'net',
+      el: mountEl(),
+      view,
+      buildState: (st) => networkState(st),
+      gesture: clickProbeButton,
+      verifyUpdate: () => true,
+      neighbourhoodGesture: clickWalk,
+      layers: { layerIds: ['edges', 'nodes'], gesture: clickMark('nodes') },
+    });
+    // the arm judges the COMMIT, whichever walk it was: one commit, the seed inside the set it recorded
+    expect(report.ok, explain(report)).toBe(true);
+    expect(report.emissions[1]).toEqual({ rawValue: 'flu', encoding: { kind: 'neighbourhood', field: 'source', walk: { derivation: 'path', to: 'strep' } } });
+    const walk = view.getState().commits.find((c) => c.kind === 'neighbourhood')!;
+    expect(walk.value).toEqual({ seed: 'flu', derivation: 'path', hops: 2, to: 'strep', ids: ['flu', 'cold', 'strep'] });
+    // …and the ONE reader a renderer draws with carries the far end through, `to` and all
+    expect(selfSelectedNeighbourhood(selectionForView(view.getState().selections, 'net~edges'))).toMatchObject({ derivation: 'path', hops: 2, to: 'strep' });
+    // the 1.3 shape — no `walk` key — is the emission every other test in this block drives, and it
+    // lands the one-hop ego walk unchanged (see 'the landed commit carries the answer BESIDE the question')
+  });
+
   it('a renderer DECLARING the walk but given no neighbourhoodGesture fails the arm honestly', async () => {
     const report = await runWalk({ walk: { field: 'source', seed: 'flu' } }, { neighbourhoodGesture: undefined });
     const last = report.steps[report.steps.length - 1]!;

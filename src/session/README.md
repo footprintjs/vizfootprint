@@ -26,7 +26,7 @@ apart, and each file's own header carries the reasoning:
 | `effectiveEncodings.ts` | what a view SHOWS once the encoding edges are read through, and the ONE-HOP law that keeps two views pointing at each other from becoming a solver |
 | `offers.ts` | the offers list and the position stamp — and the line between them, which is why `offers` stopped churning on every act |
 | `layers.ts` | a layer address (`viewId~layerId`) resolved against the map — which view, which layer, which TABLE an act is gated on, whose meta it lands with. Every guard that read `this.defaultTable` reads `tableFor(address)`; every reader of a view's SURFACE reads `surfaceOf(place)` (the prose plane's construction line and staleness); a plain viewId resolves to what it always did ([`../def/README.md`](../def/README.md), "Layers") |
-| `neighbourhood.ts` | the ego walk — rows in, ids out, one hop; the closure a `neighbourhood` select records with its question |
+| `neighbourhood.ts` | the three walks — one adjacency map, `egoIds` / `pathIds` / `componentIds`, and the `walkNeighbourhood` door (with the id ceiling) a `neighbourhood` select records with its question |
 | `namespaces.ts` | the names a session-authored commit lands under: the reserved fields and the synthetic `encoding:` / `link:` / `chart:` / `layout:` identities |
 | `stampCause.ts` | the cause a commit carries, validated and R1-forced rather than believed |
 | `tablesInfo.ts` | the Sources rows — one of the two parts of `overview()` that project the MAP and not the trace; the other is `overview().relations` (`runtime.relations` echoed by reference, resolved once at build — [`../def/README.md`](../def/README.md), "Relations") |
@@ -360,7 +360,7 @@ cursor on the receipt).
 
 ## One gesture on a node — the `neighbourhood` select
 
-A node-link's most ordinary gesture selects a node **and the ties inside its ego set** — the induced subgraph, which is exactly the edge set the chart brightens for that gesture. That is one act, so it lands ONE commit, over a value recorded whole (`source IN (…) AND target IN (…)` over the edges table). So it is a selection KIND of its own (`kind: 'neighbourhood'`) for the reason the `cell` is one, never two composed clauses: two clauses would be two acts and two records of half a question.
+A node-link's most ordinary gesture selects a node **and the ties inside the set it walks to** — the induced subgraph, which is exactly the edge set the chart brightens for that gesture. That is one act, so it lands ONE commit, over a value recorded whole (`source IN (…) AND target IN (…)` over the edges table). So it is a selection KIND of its own (`kind: 'neighbourhood'`) for the reason the `cell` is one, never two composed clauses: two clauses would be two acts and two records of half a question.
 
 ```ts
 await session.dispatch({ verb: 'select', viewId: 'net~edges', field: 'source', seed: 'Salmonellosis', cause });
@@ -374,11 +374,45 @@ Five laws.
 
 1. **The act names an ENDPOINT, and the map names the other one.** `field` is one endpoint column of the acting view's own table (the EDGES table — a clause names columns of the table it is judged against, and this predicate is "both ends are in the set"). The other end is read off the declared relations, in declaration order, so a gesture on either end lands the same bytes (`../def/README.md`, law 7). The node table is reached FROM there, through the relation the endpoint declares — nothing infers a join from the rows. Every refusal is a sentence and lands nothing: `"edges.weight" is not an endpoint — the endpoints of "edges" are source, target` · `table "nodes" declares no relation, so "id" is not an endpoint …` · `no column "ghost" in table "edges"`.
 2. **The walk runs ONCE, when the act lands, at the cursor.** It reads `allRows` over the edges table under the clauses of the OTHER views on that table — its own is left out, because a view is never filtered by its own selection (the crossfilter law), and reading under the last walk would answer about the ego net that walk left behind rather than about the graph the gesture was made on. Derived columns are resolved, so a walk over a column an analysis landed is walked over what is really there.
-3. **The answer is recorded WITH its question.** `value` is `{ seed, derivation: 'ego', hops: 1, ids }` — the materialized set, the seed included. A read at a cursor answers about THAT cursor and the rows may move, so a record carrying only the seed would re-walk today's rows and answer a question nobody asked; the question rides beside the answer so the act stays legible and could be walked again. The clause tier keeps only the answer (`ids`), the way a match's clause keeps only its `values`.
+3. **The answer is recorded WITH its question.** `value` is `{ seed, derivation, hops, to?, ids }` — the materialized set, the seed included. A read at a cursor answers about THAT cursor and the rows may move, so a record carrying only the seed would re-walk today's rows and answer a question nobody asked; the question rides beside the answer so the act stays legible and could be walked again. The clause tier keeps only the answer (`ids`), the way a match's clause keeps only its `values`.
 4. **A walk is DECLARED, never assumed.** Every other kind is assumed of a view that declares no capability; this one is not — nothing about an undeclared view says it has an edge to walk, and an assumed walk would put an offer on every chart in the cockpit that no gesture could answer (`../links/voice.ts`). A view that can be walked from says so: `capabilities: [{ viewId: 'net', canProbe: true, encodings: ['point', 'neighbourhood'] }]`. The act door reads the same helper the offers do, so the two can never differ: `view "net~edges" declares no capability, and a neighbourhood selection is never assumed — declare encodings: ["neighbourhood"] on it`.
 5. **Everything else is the vocabulary it already had.** It rides the `select` verb (the vocabulary stays at 8 verbs), the same fold key (`selection:${viewId}`, last-wins per view), the same clearing rule (`seed: null`, the one spelling of cleared) and the same branch-on-act parent, so branching, `compare`, `seek` and replay are untouched by construction. A saved picture carries the whole question and RE-ASKS the walk over today's rows when it is applied (saved logic, not a saved answer — which is why `clauseOfLive` is handed the landed commit's value: the clause alone cannot say what it walked from); a `bringOver` or `undo` of one re-asks it the same way, and a clear of one is kind-faithful — a cleared neighbourhood, pair and all.
 
-Not in this version: more than one hop, shortest paths, connected components, community detection, a walk over a self-join (the relation door still refuses one), and a walk from a view whose own table is the NODE table (its clause would name columns the table does not have).
+### Which walk — three derivations, one value shape
+
+`walk` on the act says WHICH walk to run from the seed. Absent means one hop of `'ego'`, so every caller written before the other two existed lands the same bytes and the same record. Every derivation is **UNDIRECTED**: either end joins, because the mark has no arrowhead and the layout read an undirected graph. A DIRECTED walk (follow `source → target` only) is a later dial and is deliberately **not offered** — it would answer a different question under the same recorded name.
+
+```ts
+// EGO — the seed and everything within `hops` of it. `hops` is the distance ASKED (1 or 2).
+await session.dispatch({ verb: 'select', viewId: 'net~edges', field: 'source', seed: 'flu', walk: { derivation: 'ego', hops: 2 }, cause });
+// value { seed: 'flu', derivation: 'ego', hops: 2, ids: ['flu', 'cold', 'strep'] }   ← seed first, then by distance, then row order
+
+// PATH — the nodes IN ORDER from the seed to `to`, a shortest path, ties broken by row order.
+await session.dispatch({ verb: 'select', viewId: 'net~edges', field: 'source', seed: 'flu', walk: { derivation: 'path', to: 'strep' }, cause });
+// value { seed: 'flu', derivation: 'path', hops: 2, to: 'strep', ids: ['flu', 'cold', 'strep'] }   ← `hops` is the length in EDGES
+// no path at this cursor?  { …, hops: null, to: 'measles', ids: ['flu', 'measles'] }  ← the two nodes, and no tie: the honest picture of "nothing joins them"
+// `to` equal to the seed?  { …, hops: 0, to: 'flu', ids: ['flu'] }                    ← the trivial path
+
+// COMPONENT — everything the seed can reach, however far.
+await session.dispatch({ verb: 'select', viewId: 'net~edges', field: 'source', seed: 'strep', walk: { derivation: 'component' }, cause });
+// value { seed: 'strep', derivation: 'component', hops: 2, ids: ['strep', 'cold', 'flu'] }   ← `hops` is the FARTHEST node's distance
+```
+
+**The picture is the same predicate for all three: BOTH ends inside the recorded ids** — the induced subgraph over the set that was walked. For an ego set or a component that keeps the CHORDS: a tie between two of the seed's neighbours has both ends in the set, so it is in the picture (which is what a reader sees brightened). A path has none to keep — an edge between two non-adjacent nodes of a *shortest* path would BE a shorter path — so a path's picture is the path's own ties, and a `hops: null` path keeps no edge at all. A self-loop on a node of the set is a tie inside the set like any other.
+
+```ts
+// edges a—b, b—c, a—c (the chord), c—d
+{ seed: 'a', derivation: 'ego', hops: 1, ids: ['a', 'b', 'c'] }        // keeps a—b, b—c AND a—c: b—c joins two neighbours
+{ seed: 'a', derivation: 'path', hops: 2, to: 'd', ids: ['a', 'c', 'd'] }  // keeps a—c and c—d: exactly its own ties
+```
+
+`hops` MEANS a different thing per derivation, and that is the point: for an ego walk it is the question, for the other two it is part of the answer (which is why neither of them may be TOLD one — `select.walk.hops is only asked of an "ego" walk …`). `to` belongs to a path and to nothing else, and it is REQUIRED there: a value that names no node (`null`, `undefined`) is missing, not a node. Every OTHER value is a node, including the falsy ones — `0`, `''` and `false` are ids a key column really holds — and a node id is compared, never coerced: the number `1` and the string `"1"` are two nodes here and stay two in the ids the commit records (`neighbourhood.ts`, `sameNode`: the adjacency map's own SameValueZero law, `NaN` included). Two hops is the most an ego walk is offered — a POLICY of this build, said as one in its own refusal, because past two hops an ego set is most of any real graph; for everything reachable, ask for the component.
+
+**A ceiling on what a commit records.** The ids land IN the commit value and ride every replay, wire projection and saved picture, so a walk that would record more than `NEIGHBOURHOOD_ID_CEILING` (10,000 — a policy, not a measurement) is REFUSED with the count and a remedy, and nothing lands: `result-too-large: the component of "n0" holds 24,113 nodes, past the 10,000 one commit records — filter the edges first, or select by a column instead`. It is its own gap code because no re-reading of the declaration repairs it — the repair is smaller data or a smaller question. The ceiling lives at the walk's own door (`neighbourhood.ts`, `walkNeighbourhood`), so a saved picture's re-ask meets the same refusal the first ask did.
+
+**The wire re-asks the same question.** A saved picture, a `bringOver` and an `undo` re-ask the walk they RECORDED — a picture saved with a path re-walks a path (`wire.ts`, `walkAsked`: for an ego body `hops` is the question and is asked back; for a path and a component the recorded `hops` is the answer and never is). A body naming a derivation this build does not mint is re-asked VERBATIM, so `applySaved` refuses it by name before anything lands — quietly running a different walk under the recorded name would be worse than the refusal. Read as a CLAUSE that same body still selects by its recorded `ids`; that law belongs to `../data/clauseFromWire.ts` and is untouched.
+
+Not in this version: a DIRECTED walk, hops past two, weighted or shortest-by-cost paths, all shortest paths (one is answered, deterministically), community detection, a walk over a self-join (the relation door still refuses one), and a walk from a view whose own table is the NODE table (its clause would name columns the table does not have).
 
 ## Saved selections are saved logic (`saved`, `saveSelection`, `renameSaved`, `forgetSaved`, `applySaved`)
 

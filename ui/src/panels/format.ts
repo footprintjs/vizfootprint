@@ -49,12 +49,19 @@ function formatScalar(v: unknown): string {
  * `ids` is the answer, and this line reports the answer. The seed itself rides
  * in the recorded set, so it is dropped from the count — a reader asked about
  * one node and wants to hear how many OTHERS came with it.
+ *
+ * TWO honest elses for the walks protocol 1.4 added. `hops: null` is a path
+ * that found NO PATH, so it reads "no path" rather than a hop count nobody
+ * walked. And "its N neighbours" is a claim only an EGO walk earns: the far
+ * end of a path and the rim of a component are not the seed's neighbours, so
+ * every other derivation reports "N more nodes" — the same count, without the
+ * adjacency it cannot promise.
  */
 function formatNeighbourhoodWords(body: NeighbourhoodValueBody): string {
   const others = body.ids.filter((id) => id !== body.seed).length;
-  const walk = `${body.derivation}, ${body.hops} hop${body.hops === 1 ? '' : 's'}`;
-  const found = others === 1 ? 'its 1 neighbour' : `its ${others} neighbours`;
-  return `${formatScalar(body.seed)} and ${found} (${walk})`;
+  const far = body.hops === null ? 'no path' : `${body.hops} hop${body.hops === 1 ? '' : 's'}`;
+  const found = body.derivation === 'ego' ? (others === 1 ? 'its 1 neighbour' : `its ${others} neighbours`) : others === 1 ? '1 more node' : `${others} more nodes`;
+  return `${formatScalar(body.seed)} and ${found} (${body.derivation}, ${far})`;
 }
 
 /** One cell side in plain words: "price 100 – 150" (interval) / "category = Formal" (point). */

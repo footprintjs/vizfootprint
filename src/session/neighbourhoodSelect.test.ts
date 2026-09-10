@@ -14,7 +14,7 @@ import { buildDashboard, layerAddress } from '../def/index.js';
 import type { DashboardDef } from '../def/index.js';
 import { EDGES, NETWORK_RELATIONS, NODES, edgesLayer, makeNetworkDef, nodesLayer } from '../def/network.fixture.js';
 import { noSqlConnection } from './dashboard.fixture.js';
-import { reject, type DataProvider } from '../data/index.js';
+import { reject, type DataProvider, type WalkAsk } from '../data/index.js';
 import { egoIds } from './neighbourhood.js';
 import type { Cause } from '../cause/index.js';
 
@@ -406,5 +406,273 @@ describe('the picture and the plan — a walk saved, applied, and taken back', (
     if (!brought.ok) return;
     expect(brought.recipe).toMatchObject({ apply: 'selection', kind: 'neighbourhood', fields: ['source', 'target'] });
     expect(brought.commit).toMatchObject({ kind: 'neighbourhood', value: { seed: 'cold', ids: COLD_EGO } });
+  });
+});
+
+// ── TWO HOPS, PATHS AND COMPONENTS (packet D) ────────────────────────────────
+
+/** The fixture graph is a path: flu — cold — strep, plus `measles`, a node no edge names. */
+describe('which walk the act asks for (R3): the same verb, the same commit, three questions', () => {
+  it('two hops of ego reaches past the neighbours, and the record says it asked for two', async () => {
+    const s = fresh();
+    const res = await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'ego', hops: 2 }, cause: userCause('two hops out from flu') });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.commit!.value).toEqual({ seed: 'flu', derivation: 'ego', hops: 2, ids: ['flu', 'cold', 'strep'] });
+    // and the induced subgraph is now the whole path, where one hop kept only flu—cold
+    expect(await s.selectedRows('edges')).toEqual(EDGES);
+  });
+
+  it('a PATH lands the nodes in order with its length, and `to` rides on the value — only here', async () => {
+    const s = fresh();
+    const res = await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'path', to: 'strep' }, cause: userCause('how does flu reach strep') });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.commit!.value).toEqual({ seed: 'flu', derivation: 'path', hops: 2, to: 'strep', ids: ['flu', 'cold', 'strep'] });
+    expect(res.commit!.predicateSQL).toBe(`(("source" IN ('flu', 'cold', 'strep')) AND ("target" IN ('flu', 'cold', 'strep')))`);
+    // an ego walk's value carries no `to` at all — the key is present only for the derivation that has one
+    const ego = await fresh().dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', cause: userCause() });
+    expect(ego.ok && 'to' in (ego.commit!.value as object)).toBe(false);
+  });
+
+  it('NO PATH is a landed answer: the two nodes, `hops: null`, and no tie between them', async () => {
+    const s = fresh();
+    const res = await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'path', to: 'measles' }, cause: userCause() });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.commit!.value).toEqual({ seed: 'flu', derivation: 'path', hops: null, to: 'measles', ids: ['flu', 'measles'] });
+    // the honest picture of "no path": the predicate keeps no edge, because no edge joins those two
+    expect(await s.selectedRows('edges')).toEqual([]);
+  });
+
+  it('a COMPONENT lands everything the seed reaches, with the farthest distance as its hops', async () => {
+    const s = fresh();
+    const res = await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'target', seed: 'strep', walk: { derivation: 'component' }, cause: userCause('the whole outbreak') });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.commit!.value).toEqual({ seed: 'strep', derivation: 'component', hops: 2, ids: ['strep', 'cold', 'flu'] });
+    expect(await s.selectedRows('edges')).toEqual(EDGES);
+  });
+
+  it('the WALK reads the rows at the cursor too — a filter on the edges shortens the path away', async () => {
+    const s = twoEdgeLayers();
+    await s.dispatch({ verb: 'filter', viewId: TIES_ADDRESS, field: 'weight', range: [4, 6], cause: userCause('the strong ties only') });
+    const res = await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'path', to: 'strep' }, cause: userCause() });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // cold—strep rode the weak tie, so at THIS cursor there is no path at all
+    expect(res.commit!.value).toEqual({ seed: 'flu', derivation: 'path', hops: null, to: 'strep', ids: ['flu', 'strep'] });
+  });
+
+  it('a replay of those three commits rebuilds the same bytes and the same rows', async () => {
+    const s = fresh();
+    await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'ego', hops: 2 }, cause: userCause() });
+    await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'path', to: 'strep' }, cause: userCause() });
+    await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'strep', walk: { derivation: 'component' }, cause: userCause() });
+    const other = fresh();
+    const replay = await other.replay(s.log.records);
+    expect(replay.ok).toBe(true);
+    expect(other.log.records.map((r) => r.value)).toEqual(s.log.records.map((r) => r.value));
+    expect(other.log.records.map((r) => r.predicateSQL)).toEqual(s.log.records.map((r) => r.predicateSQL));
+  });
+});
+
+describe('an unaskable walk is refused in a sentence, and nothing lands (R3/R4)', () => {
+  const refusal = async (act: Parameters<ReturnType<typeof fresh>['dispatch']>[0], session = fresh()) => {
+    const res = await session.dispatch(act);
+    expect(res.ok).toBe(false);
+    expect(session.log.records).toHaveLength(0);
+    return res.ok ? '' : `${res.rejection.code}: ${res.rejection.detail}`;
+  };
+
+  it('hops asked of a path', async () => {
+    expect(await refusal({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'path', to: 'strep', hops: 2 }, cause: userCause() })).toBe(
+      'guard-failed: select.walk.hops is only asked of an "ego" walk — a "path" walk answers its own distance, so it cannot also be told one',
+    );
+  });
+
+  it('a path with no `to`', async () => {
+    expect(await refusal({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'path' }, cause: userCause() })).toBe(
+      'guard-failed: select.walk.to is missing — a "path" walk runs from the seed TO a node, and the node it runs to is named, never guessed',
+    );
+  });
+
+  it('three hops — the policy, said as one', async () => {
+    expect(await refusal({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'ego', hops: 3 as 1 | 2 }, cause: userCause() })).toContain(
+      'guard-failed: select.walk.hops must be 1 or 2 — past two hops an ego set is most of any real graph',
+    );
+  });
+
+  it('`to` on a component', async () => {
+    expect(await refusal({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'component', to: 'strep' }, cause: userCause() })).toBe(
+      'guard-failed: select.walk.to is only asked of a "path" walk — a "component" walk has no far end to name',
+    );
+  });
+
+  it('the question is judged BEFORE the rows are read — an unaskable walk asks no engine anything', async () => {
+    const offline = fresh();
+    const provider = (offline as unknown as { runtime: { providerFor(t: string): DataProvider } }).runtime.providerFor('edges');
+    provider.evaluate = async () => reject('memory', 'evaluate', 'no-backend-connection', 'the reader is offline');
+    // a reader that cannot serve a row still gets the walk's own sentence, not the backend's
+    expect(await refusal({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'path' }, cause: userCause() }, offline)).toContain('select.walk.to is missing');
+  });
+
+  it('an ANSWER too big to record is its own code — nothing about the declaration can repair it (R4)', async () => {
+    // a star with more neighbours than a commit records: the walk is legal, its answer is not carriable
+    const hub = Array.from({ length: 10_000 }, (_, i) => ({ source: 'hub', target: `n${i}`, weight: 1 }));
+    const big = buildDashboard(
+      makeNetworkDef(undefined, {
+        data: {
+          nodes: { rows: NODES, key: 'id', columns: { id: { role: 'identifier' }, size: { role: 'measure' }, group: { role: 'dimension' } } },
+          edges: { rows: hub, columns: { source: { role: 'dimension' }, target: { role: 'dimension' }, weight: { role: 'measure' } } },
+        },
+        relations: [...NETWORK_RELATIONS],
+        capabilities: WALKS,
+      }),
+    ).createSession();
+    expect(await refusal({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'hub', cause: userCause() }, big)).toBe(
+      'result-too-large: the 1-hop neighbourhood of "hub" holds 10,001 nodes, past the 10,000 one commit records — filter the edges first, or select by a column instead',
+    );
+  });
+});
+
+describe('the wire re-asks the SAME question (R5)', () => {
+  it('a picture saved with a PATH re-walks a path — not the ego set the default would have given', async () => {
+    const s = fresh();
+    await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'path', to: 'strep' }, cause: userCause() });
+    const saved = s.saveSelection('how flu reaches strep', { live: 'all' }, 'user');
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    const PATH = { seed: 'flu', derivation: 'path', hops: 2, to: 'strep', ids: ['flu', 'cold', 'strep'] };
+    expect(saved.saved.conditions.map((c) => c.value)).toEqual([PATH]);
+    await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: null, cause: userCause() });
+    const applied = await s.applySaved('how flu reaches strep', userCause());
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    // the whole question came back: the derivation, the far end, and the length TODAY's rows give
+    expect(applied.applied.map((c) => c.value)).toEqual([PATH]);
+  });
+
+  it('a picture saved with TWO HOPS re-asks two hops; a one-hop picture asks the act it always asked', async () => {
+    const s = fresh();
+    await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'ego', hops: 2 }, cause: userCause() });
+    expect(s.saveSelection('two hops from flu', { live: 'all' }, 'user').ok).toBe(true);
+    await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'cold', cause: userCause() }); // a plain one-hop walk
+    expect(s.saveSelection('the cold ego net', { live: 'all' }, 'user').ok).toBe(true);
+
+    const two = await s.applySaved('two hops from flu', userCause());
+    expect(two.ok && two.applied.map((c) => c.value)).toEqual([{ seed: 'flu', derivation: 'ego', hops: 2, ids: ['flu', 'cold', 'strep'] }]);
+    const one = await s.applySaved('the cold ego net', userCause());
+    expect(one.ok && one.applied.map((c) => c.value)).toEqual([COLD_WALK]); // byte-identical to the record it was saved from
+  });
+
+  it('a COMPONENT picture re-asks the component — the recorded hops is its ANSWER and is never asked back', async () => {
+    const s = fresh();
+    await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'strep', walk: { derivation: 'component' }, cause: userCause() });
+    expect(s.saveSelection('the whole outbreak', { live: 'all' }, 'user').ok).toBe(true);
+    await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: null, cause: userCause() });
+    const applied = await s.applySaved('the whole outbreak', userCause());
+    expect(applied.ok && applied.applied.map((c) => c.value)).toEqual([{ seed: 'strep', derivation: 'component', hops: 2, ids: ['strep', 'cold', 'flu'] }]);
+  });
+
+  it('a picture naming a derivation this build does not mint is REFUSED by name — never re-asked as a different walk', async () => {
+    const s = fresh();
+    const saved = s.saveSelection('a walk from another build', {
+      conditions: [
+        {
+          viewId: EDGES_ADDRESS,
+          kind: 'neighbourhood',
+          field: 'source ↔ target',
+          fields: ['source', 'target'],
+          value: { seed: 'flu', derivation: 'lasso', hops: 4, ids: ['flu', 'cold'] },
+        },
+      ],
+    }, 'user');
+    expect(saved.ok).toBe(true);
+    // ONE condition, and it is not landable here: the whole apply is refused, and nothing was touched
+    const applied = await s.applySaved('a walk from another build', userCause());
+    expect(applied.ok).toBe(false);
+    expect(applied.ok ? '' : applied.rejected).toContain('"lasso" is not a walk this build knows how to run');
+    expect(s.log.records).toHaveLength(0);
+  });
+
+  it('a bring-over re-asks the walk it recorded — a path brought over is a path', async () => {
+    const s = fresh();
+    const landed = await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'path', to: 'strep' }, cause: userCause() });
+    expect(landed.ok).toBe(true);
+    if (!landed.ok) return;
+    s.seek(s.log.records[0]!.id);
+    s.newPathAt(s.log.records[0]!.id, 'other');
+    await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: null, cause: userCause() });
+    const brought = await s.bringOver(landed.commit!.id);
+    expect(brought.ok).toBe(true);
+    if (!brought.ok) return;
+    expect(brought.commit!.value).toEqual({ seed: 'flu', derivation: 'path', hops: 2, to: 'strep', ids: ['flu', 'cold', 'strep'] });
+  });
+});
+
+describe('the act names the SEED, and the picture is the INDUCED subgraph over the set it walked', () => {
+  /** a — b — c, plus the CHORD a — c (two of a's neighbours, tied), plus the tail c — d. */
+  const TRIANGLE = [
+    { source: 'a', target: 'b', weight: 1 },
+    { source: 'b', target: 'c', weight: 1 },
+    { source: 'a', target: 'c', weight: 1 },
+    { source: 'c', target: 'd', weight: 1 },
+  ];
+  const triangle = () =>
+    buildDashboard(
+      makeNetworkDef(undefined, {
+        data: {
+          nodes: { rows: NODES, key: 'id', columns: { id: { role: 'identifier' }, size: { role: 'measure' }, group: { role: 'dimension' } } },
+          edges: { rows: TRIANGLE, columns: { source: { role: 'dimension' }, target: { role: 'dimension' }, weight: { role: 'measure' } } },
+        },
+        relations: [...NETWORK_RELATIONS],
+        capabilities: WALKS,
+      }),
+    ).createSession();
+
+  it('an ego set keeps the CHORDS — a tie between two neighbours is inside the set, so it is in the picture', async () => {
+    const s = triangle();
+    const res = await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'a', cause: userCause() });
+    expect(res.ok && res.commit!.value).toMatchObject({ ids: ['a', 'b', 'c'] });
+    // b — c joins two NEIGHBOURS of the seed: both ends are in the set, so it is kept. c — d is not.
+    expect(await s.selectedRows('edges')).toEqual(TRIANGLE.slice(0, 3));
+  });
+
+  it('a PATH has no chords to keep — an edge between two of its nodes would BE a shorter path', async () => {
+    const s = triangle();
+    const res = await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'a', walk: { derivation: 'path', to: 'd' }, cause: userCause() });
+    expect(res.ok && res.commit!.value).toEqual({ seed: 'a', derivation: 'path', hops: 2, to: 'd', ids: ['a', 'c', 'd'] });
+    // exactly the path's own two ties: a — c and c — d. The same predicate as every other walk.
+    expect(await s.selectedRows('edges')).toEqual([TRIANGLE[2], TRIANGLE[3]]);
+  });
+
+  it('a `walk` payload carrying its own `seed` never moves the act — the node the act named is the node recorded', async () => {
+    const s = fresh();
+    const res = await s.dispatch({
+      verb: 'select',
+      viewId: EDGES_ADDRESS,
+      field: 'source',
+      seed: 'flu',
+      // an untyped caller (or an agent's payload) can carry any key; the act's own seed still wins,
+      // or the receipt would name one node and the commit another
+      walk: { derivation: 'ego', seed: 'strep' } as WalkAsk,
+      cause: userCause(),
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.commit!.value).toEqual({ seed: 'flu', derivation: 'ego', hops: 1, ids: ['flu', 'cold'] });
+  });
+
+  it('an UNDO that puts a walk back re-asks the walk it recorded (R5) — a path comes back a path', async () => {
+    const s = fresh();
+    await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'flu', walk: { derivation: 'path', to: 'strep' }, cause: userCause() });
+    const cleared = await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: null, cause: userCause() });
+    expect(cleared.ok).toBe(true);
+    if (!cleared.ok) return;
+    const undone = await s.undo(cleared.commit!.id); // undoing the CLEAR asks the walk again
+    expect(undone.ok).toBe(true);
+    if (!undone.ok) return;
+    expect(undone.commit!.value).toEqual({ seed: 'flu', derivation: 'path', hops: 2, to: 'strep', ids: ['flu', 'cold', 'strep'] });
   });
 });

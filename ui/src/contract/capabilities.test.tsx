@@ -135,8 +135,8 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
     { layerId: 'nodes', table: 'nodes', rows: [{ id: 'flu', group: 'viral' }, { id: 'cold', group: 'viral' }], encodings: { color: 'group' } },
   ] as const;
 
-  it('the protocol this build speaks is 1.3 — the walk minor', () => {
-    expect(RENDERER_PROTOCOL_VERSION).toBe('1.3');
+  it('the protocol this build speaks is 1.4 — the which-walk minor', () => {
+    expect(RENDERER_PROTOCOL_VERSION).toBe('1.4');
   });
 
   it('declares TRUE — and a layered frame pushed through the bind draws BOTH layers, each under its own table', () => {

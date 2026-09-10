@@ -144,6 +144,11 @@ export interface ConformancePlan {
    * renderer declares the 'neighbourhood' emission kind; ignored otherwise.
    * Drive it on a node no earlier step walked — asking for the walk already in
    * force CLEARS it, and a cleared walk lands no set to check.
+   *
+   * The arm judges the COMMIT, whichever walk it was: a 1.4 renderer may say
+   * which one (`encoding.walk` — two hops of ego, a path, a component) and a
+   * 1.3 one says nothing and gets the one-hop ego walk. Both land one commit
+   * whose recorded set contains its seed, which is what is checked.
    */
   neighbourhoodGesture?(el: HTMLElement): void | Promise<void>;
   /** Prove the post-crossfilter re-render is visible. Default: the mount's DOM changed since before the gesture. */

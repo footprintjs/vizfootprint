@@ -101,7 +101,13 @@ function judgeWalkQuestion(fields: readonly [string, string], value: Neighbourho
   const missing = [
     ...('seed' in body ? [] : ['seed']),
     ...(typeof body.derivation === 'string' ? [] : ['derivation']),
-    ...(typeof body.hops === 'number' ? [] : ['hops']),
+    // `null` is a RECORDED hop count and not a missing one: a 'path' walk that found no path
+    // answers `hops: null` (`../data/types.ts`), and refusing it would refuse the honest answer
+    ...(typeof body.hops === 'number' || body.hops === null ? [] : ['hops']),
+    // a PATH's far end is HALF its question: `to` is the node a re-ask runs to, so a path body
+    // without one can only be refused later and by the ACT — the very mis-blame this judge exists
+    // to prevent. `null`/`undefined` name no node, the same reading `walkRefusal` gives them.
+    ...(body.derivation === 'path' && (body.to === undefined || body.to === null) ? ['to'] : []),
   ];
   if (missing.length > 0) {
     refuse(

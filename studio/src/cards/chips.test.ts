@@ -11,6 +11,7 @@
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { logFeatures } from 'vizfootprint/branches';
+import type { LogFeatures } from 'vizfootprint/branches';
 import { byHandChipsOf, chipId, chipsOf, declaresChipsOf, groundSentenceOf, unseenOf, walkReadoutOf, walkedChipsOf } from './chips.js';
 import { librarySurfaces, otherWalks } from './cards.fixture.js';
 import type { DemoSurface } from './types.js';
@@ -105,6 +106,20 @@ describe('what somebody did', () => {
     const { branched } = await otherWalks();
     expect(walkedChipsOf({ ...story, walked: branched }).map((chip) => chip.id)).toContain('walked:trace:branched');
     expect(idsOf(desk)).not.toContain('walked:trace:branched');
+  });
+
+  it('says WHICH walk somebody ran, beside the fact that a walk landed', async () => {
+    const { branched } = await otherWalks();
+    // hand-built rather than dispatched: the walk needs a node-link with two declared relations, which
+    // this fixture's library def is not — and the card's contract is over a `LogFeatures`, whose own
+    // reader is pinned against real commits in the library suite (`src/branches/features.test.ts`)
+    const withWalks: LogFeatures = { ...branched, selectionKinds: ['neighbourhood'], walkDerivations: ['ego', 'path'] };
+    const ids = walkedChipsOf({ ...story, walked: withWalks }).map((chip) => chip.id);
+    expect(ids).toContain('walked:selection:neighbourhood'); // a walk landed
+    expect(ids).toContain('walked:walk:ego'); // …and WHICH walks it was
+    expect(ids).toContain('walked:walk:path');
+    // a trace where nobody walked mints no walk chip — a chip is a claim
+    expect(walkedChipsOf({ ...story, walked: branched }).some((chip) => chip.facet === 'walk')).toBe(false);
   });
 
   it('calls the agent only when a CAUSE names it — never on a correlation id alone', async () => {

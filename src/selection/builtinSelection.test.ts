@@ -141,11 +141,17 @@ describe('builtinSelection.clause — mints our shape, carrying the byte law', (
       [{ derivation: 'ego', hops: 1, ids: ['Zika'] }, 'seed'],
       [{ seed: 'Zika', hops: 1, ids: ['Zika'] }, 'derivation'],
       [{ seed: 'Zika', derivation: 'ego', ids: ['Zika'] }, 'hops'],
+      // a PATH's far end is half its question: without `to` the walk can only be refused later, by
+      // the ACT that re-asks it — the mis-blame this judge exists to prevent
+      [{ seed: 'Zika', derivation: 'path', hops: 2, ids: ['Zika', 'Lyme'] }, 'to'],
     ] as const) {
       expect(walk(body), slot).toMatchObject({ ok: false, reason: 'unsupported-shape', detail: expect.stringContaining(`no ${slot}`) });
     }
     // all three missing are named in one sentence, and a cleared walk records no question at all
     expect(walk({ ids: [] })).toMatchObject({ detail: expect.stringContaining('no seed, no derivation, no hops') });
+    // `to` is asked of a PATH and of nothing else — an ego body has no far end to be missing
+    expect(isRejection(walk({ seed: 'Zika', derivation: 'ego', hops: 1, ids: ['Zika'] }))).toBe(false);
+    expect(walk({ seed: 'Zika', derivation: 'path', hops: null, to: null, ids: ['Zika', 'Lyme'] })).toMatchObject({ detail: expect.stringContaining('no to') });
     expect(isRejection(walk(null))).toBe(false);
     expect(port.clauses()).toEqual([]);
   });

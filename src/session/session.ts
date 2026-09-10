@@ -48,9 +48,11 @@ import { NO_RELATED_ROWS, type AnalysisRunInput, type ColumnsOutput, type Relate
 // Imported from the module that OWNS relations, not the def barrel — the same
 // rule `registerAnalysisSlot` follows, so no layer edge is added by a judge.
 import { judgeAnalysisReads, neighbourhoodEndpoints } from '../def/relations.js';
-// The walk itself — rows in, ids out (`./neighbourhood.ts`), so the door below
-// judges and lands while the closure stays a function anybody can read.
-import { egoIds } from './neighbourhood.js';
+// The walks themselves — rows in, ids out (`./neighbourhood.ts`): `walkRefusal`
+// owns which questions are askable and `walkNeighbourhood` runs the one asked
+// (with the id ceiling), so the door below judges and lands while the walking
+// stays pure functions anybody can read.
+import { walkNeighbourhood, walkRefusal } from './neighbourhood.js';
 import { isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
 import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchValue, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
@@ -76,7 +78,7 @@ import { layerBindingsOf, layerInfosOf, metaOf, placeOf, surfaceOf, surfacedAddr
 import { computeEffectiveEncodings, fitsWithFollows, followSentence } from './effectiveEncodings.js';
 import { offerStampOf, offersOf } from './offers.js';
 import { branchPathOf, commitsElsewhereThan, stepsSinceAncestor } from './branchPath.js';
-import { clauseOfLive, clearAction, copyClause, kindOfAct, probeClause, selectionAction, selectionInfoOf } from './wire.js';
+import { clauseOfLive, clearAction, copyClause, kindOfAct, probeClause, selectionAction, selectionInfoOf, walkAsked } from './wire.js';
 import { ANALYSIS_FIELD, ANNOTATION_FIELD, CHART_FIELD, DASHBOARD_ACTOR_META, LAYOUT_SOURCE_META, LAYOUT_VALUE_MAX, NOTE_ACTOR_META, RESERVED_PROBE_FIELDS, analysisActOf, chartViewId, encodingViewId, linkViewId, type AnalysisAct } from './namespaces.js';
 import { why } from '../why/index.js';
 import type { RuntimeSnapshot } from 'footprintjs';
@@ -141,6 +143,7 @@ import type {
   ReachingClause,
   ViewQuery,
   ViewQueryResult,
+  WalkAsk,
   SaveSelectionSource,
   SaveSelectionResult,
   ApplySavedOptions,
@@ -1533,9 +1536,12 @@ class InteractionSessionImpl implements InteractionSession {
     switch (recipe.apply) {
       case 'selection':
         // packet 5: a neighbourhood recipe re-ASKS the walk from its recorded
-        // seed (the answer it carries was true of the rows at that cursor).
+        // seed (the answer it carries was true of the rows at that cursor) —
+        // and it re-asks the WALK it recorded, not the default one (R5, one
+        // owner: `wire.ts`'s `walkAsked`), so a brought-over path is a path.
         if (recipe.kind === 'neighbourhood') {
-          return { verb: 'select', viewId: recipe.viewId, field: recipe.fields![0], seed: (recipe.value as NeighbourhoodValueBody).seed, cause };
+          const body = recipe.value as NeighbourhoodValueBody;
+          return { verb: 'select', viewId: recipe.viewId, field: recipe.fields![0], seed: body.seed, ...walkAsked(body), cause };
         }
         // D30: a cell recipe re-lands the COMPOUND (its pair rides the recipe).
         if (recipe.kind === 'cell') {
@@ -2347,6 +2353,14 @@ class InteractionSessionImpl implements InteractionSession {
         refused.push({ viewId: c.viewId, rejected: cannot });
         continue;
       }
+      // a WALK is re-ASKED, so the question it recorded is judged here too (R5) — for the
+      // reason a missing column is: a picture whose walk this build cannot run must be
+      // refused BEFORE anything lands, or the reader gets half a picture and no sentence.
+      const unaskable = c.kind === 'neighbourhood' ? walkRefusal({ ...walkAsked(c.value as NeighbourhoodValueBody).walk, seed: null }) : null;
+      if (unaskable !== null) {
+        refused.push({ viewId: c.viewId, rejected: unaskable });
+        continue;
+      }
       landable.push(c);
     }
     if (landable.length === 0) return { ok: false, rejected: `"${name}" cannot be applied here — ${refused.map((r) => r.rejected).join('; ')}` };
@@ -2369,7 +2383,7 @@ class InteractionSessionImpl implements InteractionSession {
     }
     for (const c of landable) {
       const r = await this.dispatch({ ...selectionAction(c, stamped), ...this.offerFor(), correlationId }, dispatchOpts);
-      /* v8 ignore next 4 -- the pre-flight judges every refusal the doors know (view, columns, capability); the arm keeps the result honest for one they do not */
+      /* v8 ignore next 4 -- the pre-flight judges every refusal the doors know (view, columns, capability, an unaskable walk); the arm keeps the result honest for one they do not */
       if (!r.ok) {
         refused.push({ viewId: c.viewId, rejected: r.rejection.detail });
         continue;
@@ -2597,7 +2611,7 @@ class InteractionSessionImpl implements InteractionSession {
           if (action.seed === undefined) {
             return this.reject('select', intent, this.gapLedger.file('guard-failed', 'select', 'select.seed is missing — a neighbourhood names the node it walks from, or `null` to clear it (the one spelling of cleared; `undefined` does not survive JSON)', action.field));
           }
-          return this.doNeighbourhoodProbe(action.viewId, action.field, action.seed, action.cause, as, intent, action.correlationId);
+          return this.doNeighbourhoodProbe(action.viewId, action.field, action.seed, action.walk, action.cause, as, intent, action.correlationId);
         }
         if ('fields' in action) {
           return this.doCellProbe(action.viewId, action.fields, action.values, action.cause, as, intent, action.correlationId);
@@ -2821,7 +2835,7 @@ class InteractionSessionImpl implements InteractionSession {
 
   /**
    * The NEIGHBOURHOOD probe (packet 5): ONE gesture on a node selects the ties
-   * INSIDE its ego set — the induced subgraph — and lands ONE commit.
+   * INSIDE the set it walks to — the induced subgraph — and lands ONE commit.
    *
    * The act is judged against the table its address names — the EDGES table,
    * because the predicate this walk lands is "both ends are in the set" over
@@ -2832,8 +2846,10 @@ class InteractionSessionImpl implements InteractionSession {
    * The walk runs ONCE, here, over `allRows` at the cursor — so derived
    * columns and the live clauses of the OTHER views on that table are honoured
    * (its own is not: a view is never filtered by itself) — and the answer
-   * is recorded WITH its question (`{ seed, derivation, hops, ids }`), because
-   * a read at a cursor answers about that cursor and the rows may move. Rides
+   * is recorded WITH its question (`{ seed, derivation, hops, to?, ids }`),
+   * because a read at a cursor answers about that cursor and the rows may
+   * move. WHICH walk is the act's own `walk` ({@link WalkAsk}) — absent is one
+   * hop of ego, and every question is judged askable before a row is read. Rides
    * the `select` verb, the same fold key (`selection:${viewId}`, last-wins per
    * view) and the same clearing rule (`seed: null`), so branching, compare and
    * time travel are untouched by construction.
@@ -2842,6 +2858,7 @@ class InteractionSessionImpl implements InteractionSession {
     viewId: string,
     field: string,
     seed: unknown,
+    walk: WalkAsk | undefined,
     cause: Cause,
     as: Actor | undefined,
     intent: DispatchResult['intent'],
@@ -2859,6 +2876,17 @@ class InteractionSessionImpl implements InteractionSession {
     // 2b. a walk may not start from a reserved session field (R6), like every other probe.
     if (RESERVED_PROBE_FIELDS.has(field)) {
       return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `field "${field}" is reserved by the session and cannot be selected on`, field));
+    }
+    // 2c. the WALK QUESTION must be ASKABLE (R3) — the walk's own door owns those
+    //     laws (`./neighbourhood.ts`, `walkRefusal`), and it is read HERE so an
+    //     unaskable question is refused before an engine is asked for a single row.
+    //     Judged whatever the seed is: the question is either legal or it is not,
+    //     and a clear that carried an illegal one still asked something impossible.
+    //     The SEED goes last: a `walk` is a payload, and a payload naming its own `seed` may not
+    //     quietly move the act — the node the act named is the node that is walked from and recorded.
+    const unaskable = walkRefusal({ ...walk, seed });
+    if (unaskable !== null) {
+      return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, unaskable, field));
     }
     // 3. the EDGE: two declared relations at one identity (law 7). Read off the
     //    MAP, in declaration order, so either end names the same walk.
@@ -2905,7 +2933,15 @@ class InteractionSessionImpl implements InteractionSession {
       if ('rejected' in rows) {
         return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, rows.rejected, field));
       }
-      value = { seed, derivation: 'ego', hops: 1, ids: egoIds(rows, fields, seed) };
+      // ONE door for the live act and a saved picture's re-ask alike — so the CEILING
+      // (`NEIGHBOURHOOD_ID_CEILING`) refuses the same walk in both. The question was
+      // already judged askable at step 2c, so the only refusal left here is that ceiling:
+      // an answer too big to record, which nothing about the declaration can repair.
+      const walked = walkNeighbourhood(rows, fields, { ...walk, seed }); // the ACT's seed wins over any the payload carries (step 2c)
+      if (!walked.ok) {
+        return this.reject(verb, intent, this.gapLedger.file('result-too-large', verb, walked.rejected, field));
+      }
+      value = walked.body;
     }
     // 6. land ONE cause-tagged commit (commit-on-intent), parented at the CURSOR
     //    (R8 branch-on-act) — the question and its answer in one value.

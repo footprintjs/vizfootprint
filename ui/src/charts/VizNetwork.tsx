@@ -18,11 +18,19 @@
  * `<VizScatter>` reads it (dim-not-hide, self-excluded) — plus ONE reading no
  * other chart has: the WALK (protocol 1.3). Alt/option on a node asks for that
  * node and everything it links to; the SESSION walks the edges and records the
- * ids, and this chart reads them back to light the ego net. The ask goes out
+ * ids, and this chart reads them back to light the walked set. The ask goes out
  * on the EDGES layer's voice (their columns are what the clause names), the
  * answer comes back on the frame's fold, and the two ends of one act are
  * therefore two addresses — which is the whole reason `walk` is a prop of its
  * own and not another `onEmit`.
+ *
+ * WHICH walk is the host's to choose (protocol 1.4, `walk.question`): one or
+ * two hops of ego, a whole component, or a PATH — and a path takes two nodes,
+ * so it takes two gestures. The chart holds NO state for that: the first
+ * alt-click lands the seed's own neighbourhood (something to see), and the
+ * second reads the live seed back off the FOLD and asks for the path from it.
+ * A gesture whose memory lived in a `useState` here would answer differently
+ * after a seek than the trace says it did.
  *
  * HOVER is the one
  * thing here that is local state and NOT a selection: hovering a node keeps
@@ -38,11 +46,12 @@
  */
 import { useMemo, useState } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
+import type { WalkAsk } from 'vizfootprint/data';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
 import { linearScale, extent } from '../primitives/scales.js';
 import { dimClass, useBrightPredicate, selectedSet, inSet, markClass } from '../primitives/useSelection.js';
-import { clickEmission, toggleInSetEmission, toggleWalkEmission } from '../primitives/pointSelect.js';
-import { selfSelectedNeighbourhood } from '../contract/selection.js';
+import { clickEmission, toggleInSetEmission, toggleWalkEmission, walkEmission } from '../primitives/pointSelect.js';
+import { selfSelectedNeighbourhood, type SelfSelectedNeighbourhood } from '../contract/selection.js';
 
 /** One node: its key, the position the layout act wrote, and the source row the clauses judge. */
 export interface NetworkNode {
@@ -91,6 +100,24 @@ export interface NetworkWalk {
   readonly field: string;
   /** The edges layer's own voice — a walk narrows the LINKS, so their bundle speaks it. */
   readonly emit: (emission: ChartEmission) => void;
+  /**
+   * WHICH walk an alt-click asks for (protocol 1.4). Absent = one hop of
+   * `'ego'`, and the emission then carries no `walk` at all — byte-identical
+   * to what this chart has always sent.
+   *
+   * `'path'` is the one that changes the GESTURE: a path needs two nodes, so
+   * the first alt-click lands the seed's neighbourhood and the second asks for
+   * the path from that seed to the node clicked. Alt-clicking the seed itself
+   * clears, in every mode — the point's own click-again rule.
+   */
+  readonly question?: NetworkWalkQuestion;
+}
+
+/** The walk a frame asks for — the session's own vocabulary, narrowed to what a chart can ask before a click happens (a path's far end IS the click). */
+export interface NetworkWalkQuestion {
+  readonly derivation: 'ego' | 'path' | 'component';
+  /** `'ego'` only, 1 or 2 — the session refuses it anywhere else, and refuses more than two. */
+  readonly hops?: 1 | 2;
 }
 
 export interface VizNetworkProps {
@@ -216,8 +243,68 @@ function nodeLabel(node: NetworkNode, degree: number): string {
   return `${node.id}${group} · ${degree} ${degree === 1 ? 'link' : 'links'}`;
 }
 
+/**
+ * THE ASK for a question that needs no click to complete it — `undefined` for
+ * the DEFAULT one hop of ego, so the emission carries no `walk` key and a 1.3
+ * host reads the bytes it always read.
+ *
+ * A `'path'` also answers `undefined`: its first alt-click lands the seed's own
+ * neighbourhood (a path needs a second node, and one node is not a path yet).
+ */
+function askOf(question: NetworkWalkQuestion | undefined): WalkAsk | undefined {
+  if (question === undefined || question.derivation === 'path') return undefined;
+  if (question.derivation === 'component') return { derivation: 'component' };
+  return (question.hops ?? 1) === 1 ? undefined : { derivation: 'ego', hops: question.hops };
+}
+
+/**
+ * What an alt-click ASKS FOR, in the words a person reads — used by the node
+ * `<title>`s, so a tooltip says which walk this frame is set to.
+ *
+ * Asked only of the walks ONE click completes (ego at either depth, and the
+ * component): a PATH takes two clicks and its words say which of them you are
+ * about to make, so `walkTitle` writes those itself and never comes here.
+ *
+ * The default question's words are the ones this chart has always said: a
+ * gesture that did not change may not read as though it did.
+ */
+function walkWords(question: NetworkWalkQuestion | undefined): string {
+  if (question === undefined || question.derivation === 'ego') return (question?.hops ?? 1) === 1 ? 'its neighbourhood' : 'its neighbourhood two hops out';
+  return 'everything it connects to';
+}
+
+/**
+ * The words for the walk that is IN FORCE — what an alt-click on its seed would
+ * clear. Read off the LANDED body and never off the picker: a walk can arrive
+ * from a seek, an agent or a saved picture, and the picker can be moved after
+ * one landed, so the two disagree often enough that naming the wrong one is a
+ * sentence the frame cannot support.
+ *
+ * A derivation this build does not mint says "this walk" — a body from another
+ * build is still cleared by that click, and the words claim nothing about a
+ * shape this frame cannot read.
+ */
+function landedWords(walked: SelfSelectedNeighbourhood): string {
+  if (walked.derivation === 'path') return 'the path';
+  if (walked.derivation === 'component') return 'everything it connects to';
+  if (walked.derivation === 'ego') return walked.hops === 2 ? 'its neighbourhood two hops out' : 'its neighbourhood';
+  return 'this walk';
+}
+
+/**
+ * The same gesture as one sentence on the FRAME (`<desc>`) — where the counts
+ * and the name already are, and the only place a screen reader can be told what
+ * the modifier does (a node's own `aria-label` wins over its `<title>`).
+ */
+function descGesture(question: NetworkWalkQuestion | undefined): string {
+  if (question?.derivation === 'component') return 'to select everything it connects to';
+  if (question?.derivation === 'path') return 'to start a path, then alt-click another node for the path between them';
+  return (question?.hops ?? 1) === 1 ? 'to select it and everything it links to' : 'to select it and everything within two hops';
+}
+
 export function VizNetwork(props: VizNetworkProps): JSX.Element {
   const { viewId = 'network', nodes, edges, keyField, selection, onEmit, walk, width = 420, height = 340 } = props;
+  const question = walk?.question;
 
   // HOVER is local and unrecorded: it never leaves the component, so it needs
   // no capability and lands no commit (contract/types.ts, `RendererCallbacks.hover`).
@@ -276,11 +363,28 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
 
   const nodeIsBright = (node: NetworkNode): boolean => survivesById(node.id) && (near === null || near.has(node.id));
 
-  /** Is this the node the live walk started from? Its own gesture is the one that CLEARS the walk. */
-  // WHY the null guard: `null` is the recorded sentinel for a walk whose seed is UNNAMED (a clause
-  // with no commit behind it — `vizfootprint/data`'s `NeighbourhoodValueBody.seed`), and without it
-  // a node whose key is the STRING "null" would wear that walk's focus
-  const isWalked = (id: string): boolean => walked !== null && walked.seed !== null && String(walked.seed) === id;
+  /**
+   * The live walk's seed as the frame spells node ids, or `null` when no walk
+   * is in force — ONE owner of that reading, read by the focus below and by
+   * both alt-click gestures.
+   *
+   * WHY the null guard: `null` is the recorded sentinel for a walk whose seed
+   * is UNNAMED (a clause with no commit behind it — `vizfootprint/data`'s
+   * `NeighbourhoodValueBody.seed`), and without it a node whose key is the
+   * STRING "null" would wear that walk's focus.
+   */
+  const liveSeed: string | null = walked === null || walked.seed === null ? null : String(walked.seed);
+
+  /**
+   * The live walk, when THIS node is the one it started from — `null` for every
+   * other node. Its own gesture is the one that CLEARS the walk, and the body
+   * comes back with the answer so the words can name the walk being cleared
+   * ({@link landedWords}) without asking the picker.
+   *
+   * `liveSeed === id` is the whole test: a node id is a string here, so a walk
+   * with no named seed (`liveSeed === null`) matches no node.
+   */
+  const walkedFrom = (id: string): SelfSelectedNeighbourhood | null => (liveSeed === id ? walked : null);
   const edgeIsBright = (edge: NetworkEdge): boolean =>
     survivesById(edge.source) && survivesById(edge.target) && (hovered === null || edge.source === hovered || edge.target === hovered);
 
@@ -291,16 +395,54 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
   };
 
   /**
+   * Is this frame asking for a PATH, and is there a seed to run one FROM? Then
+   * the next alt-click names the far end.
+   *
+   * The seed comes off the FOLD, whatever derivation landed it: a picker moved
+   * to `'path'` while an ego walk is in force runs the path from THAT walk's
+   * seed, because the chart remembers no click and the trace is the only thing
+   * that can say where the reader is. `label` is the seed as this frame spells
+   * ids; `seed` is the DATA-space value the fold recorded, which is what the
+   * emission has to carry.
+   */
+  const pathFrom: { readonly label: string; readonly seed: unknown } | null =
+    question?.derivation === 'path' && walked !== null && liveSeed !== null ? { label: liveSeed, seed: walked.seed } : null;
+
+  /**
+   * The alt-click's own words for ONE node, or nothing at all where the
+   * modifier is not a gesture (no walk door). Three states in path mode,
+   * because a path is asked in two clicks and the reader must be told which
+   * one they are about to make; one state everywhere else.
+   */
+  const walkTitle = (id: string): string => {
+    if (walk === undefined) return '';
+    // the CLEAR arm names the walk IN FORCE and not the one the picker is set to: the two can
+    // disagree (a walk arrives from a seek, an agent or a saved picture), and what this click
+    // clears is what is on screen — so the words come off the landed body (`landedWords`).
+    const clearing = walkedFrom(id);
+    if (clearing !== null) return ` · alt-click to clear ${landedWords(clearing)}`;
+    if (pathFrom !== null) return ` · alt-click for the path from ${pathFrom.label}`;
+    if (question?.derivation === 'path') return ' · alt-click to start a path here';
+    return ` · alt-click for ${walkWords(question)}`;
+  };
+
+  /**
    * ONE reader for both affordances (pointer and keyboard), so a keyboard user
-   * reaches every gesture a mouse does. Alt/option ASKS THE WALK — the node and
-   * everything it links to, one gesture, one commit; alt on the node already
-   * walked clears it (the point's own click-again rule). Without a walk door
-   * the modifier is not a gesture here and the click selects, which is the
-   * honest answer for a frame that carries no links.
+   * reaches every gesture a mouse does. Alt/option ASKS THE WALK — one gesture,
+   * one commit; alt on the node already walked FROM clears it (the point's own
+   * click-again rule). Without a walk door the modifier is not a gesture here
+   * and the click selects, which is the honest answer for a frame that carries
+   * no links.
+   *
+   * The PATH's second click is the one asymmetry, and it reads the seed off the
+   * fold rather than remembering it: `pathFrom` is the live walk's own seed, so
+   * the gesture after a seek asks about the walk the trace shows.
    */
   const act = (id: string, mod: { readonly altKey: boolean; readonly shiftKey: boolean; readonly metaKey: boolean; readonly ctrlKey: boolean }): void => {
-    if (mod.altKey && walk !== undefined) walk.emit(toggleWalkEmission(walk.field, id, walked?.seed ?? null));
-    else emit(id, mod.shiftKey || mod.metaKey || mod.ctrlKey);
+    if (mod.altKey && walk !== undefined) {
+      if (pathFrom !== null && pathFrom.label !== id) walk.emit(walkEmission(walk.field, pathFrom.seed, { derivation: 'path', to: id }));
+      else walk.emit(toggleWalkEmission(walk.field, id, liveSeed, askOf(question)));
+    } else emit(id, mod.shiftKey || mod.metaKey || mod.ctrlKey);
   };
 
   return (
@@ -315,7 +457,8 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
           no assistive technology — the `<desc>` is the only place it can be
           said. The counts are already on the svg's own label, and the
           PROVENANCE is not this chart's to claim: it draws what it is given. */}
-      <desc>{`view ${viewId}: click a node to filter ${keyField}; click it again to clear${walk === undefined ? '' : '; alt-click (or alt+Enter) a node to select it and everything it links to'}`}</desc>
+      {/* the DEFAULT question's sentence is unchanged, word for word: a gesture that did not change may not read as though it did */}
+      <desc>{`view ${viewId}: click a node to filter ${keyField}; click it again to clear${walk === undefined ? '' : `; alt-click (or alt+Enter) a node ${descGesture(question)}`}`}</desc>
       {/* links UNDER nodes — DOM order is paint order, and the nodes are the marks that take the tab */}
       <g className="vzf-net-links">
         {edges.map((e, i) => {
@@ -369,7 +512,7 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
                 act(n.id, e);
               }}
             >
-              <title>{`${label} · click to ${isSel ? 'clear' : 'select'}${walk === undefined ? '' : isWalked(n.id) ? ' · alt-click to clear its neighbourhood' : ' · alt-click for its neighbourhood'}`}</title>
+              <title>{`${label} · click to ${isSel ? 'clear' : 'select'}${walkTitle(n.id)}`}</title>
             </circle>
           );
         })}

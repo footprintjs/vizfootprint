@@ -216,9 +216,16 @@ function listOnBody(value: unknown, key: 'values' | 'ids'): readonly unknown[] |
  * unreadable `hops` as `1`. A derivation another build minted is passed
  * through verbatim — it still selects by its recorded ids.
  *
+ * THE WHOLE QUESTION RIDES THROUGH (R5), so a saved picture re-asks the walk it
+ * saved rather than the one this door defaults to: a `hops` of `null` is
+ * carried as `null` (a `'path'` walk that found no path answered that, and "no
+ * path" is not "one hop"), and a `to` is carried when the body has one (the
+ * `'path'` walk's far end). A body with no `to` gets no `to` key at all, so an
+ * `'ego'` body is byte-identical to the one this door has always answered.
+ *
  * ```ts
  * const c = session.log.records.at(-1)!;                  // a landed walk
- * const walk = neighbourhoodValueFromWire(c.value);       // { seed, derivation, hops, ids } | null
+ * const walk = neighbourhoodValueFromWire(c.value);       // { seed, derivation, hops, to?, ids } | null
  * ```
  */
 export function neighbourhoodValueFromWire(value: unknown): NeighbourhoodValueBody | null {
@@ -228,7 +235,10 @@ export function neighbourhoodValueFromWire(value: unknown): NeighbourhoodValueBo
   return {
     seed: body.seed ?? null,
     derivation: typeof body.derivation === 'string' ? body.derivation : 'ego',
-    hops: typeof body.hops === 'number' ? body.hops : 1,
+    // `null` is an ANSWER ("no path"), so it rides through; anything unreadable is this door's own `1`
+    hops: typeof body.hops === 'number' || body.hops === null ? body.hops : 1,
+    // the ids above already proved this is an object, so the `in` needs no shape guard of its own
+    ...('to' in body ? { to: body.to } : {}),
     ids,
   };
 }

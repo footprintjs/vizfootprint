@@ -73,12 +73,14 @@
  *     A cell whose `fields` never arrived, and any value the wire's declared
  *     shape does not cover, is CLEARED — `clauseFromWire`'s one fallback, so
  *     "keep-all is the only honest fallback" is now stated in one place too.
- *   - neighbourhood (protocol 1.3): the induced ego subgraph — an edge row is
- *     kept when BOTH endpoint columns hold one of the walked `ids`, which is
- *     the edge set the network brightens for that gesture. An empty set keeps
- *     NOTHING (a walk that found nobody found nobody); "no filter" is spelled
- *     `null`, as it is for a match. The seed, derivation and hops ride beside
- *     the ids as the QUESTION and are never part of the predicate.
+ *   - neighbourhood (protocol 1.3): the induced subgraph of the walked set — an
+ *     edge row is kept when BOTH endpoint columns hold one of the walked
+ *     `ids`, which is the edge set the network brightens for that gesture. An
+ *     empty set keeps NOTHING (a walk that found nobody found nobody); "no
+ *     filter" is spelled `null`, as it is for a match. The seed, derivation,
+ *     hops and a path's `to` ride beside the ids as the QUESTION and are never
+ *     part of the predicate — so which walk it was (protocol 1.4: two hops of
+ *     ego, a path, a component) changes the ids and nothing else here.
  */
 
 import { cellSideClause, clauseFromWire, neighbourhoodValueFromWire } from 'vizfootprint/data';
@@ -422,8 +424,18 @@ export interface SelfSelectedNeighbourhood {
    * honest else.
    */
   readonly derivation: NeighbourhoodValueBody['derivation'];
-  /** How far the walk went. */
-  readonly hops: number;
+  /**
+   * HOW FAR the walk went, as the commit recorded it — the hops an `'ego'`
+   * walk ASKED for, a `'path'`'s length in edges, a `'component'`'s farthest
+   * distance ({@link NeighbourhoodValueBody.hops}).
+   *
+   * `null` is an ANSWER and not an absence: a path that found no path between
+   * its two nodes says so. A consumer that draws or writes a distance keeps an
+   * honest else for it rather than printing a `1` nobody walked.
+   */
+  readonly hops: number | null;
+  /** The far end a `'path'` walk ran to — present only for a path, the one derivation whose question names a second node. */
+  readonly to?: unknown;
   /** The walked set, the seed included — the answer, recorded with its question. */
   readonly ids: readonly unknown[];
 }
@@ -474,5 +486,6 @@ export function selfSelectedNeighbourhood(selection: RenderSelection): SelfSelec
   // (`null`, UNNAMED), an unreadable derivation and an unreadable hop count, for every consumer
   const body = neighbourhoodValueFromWire(walk.value);
   if (body === null) return null;
-  return { fields: walk.fields, seed: body.seed, derivation: body.derivation, hops: body.hops, ids: body.ids };
+  // `to` rides through only when the recorded body has one — an ego reader sees the same object it always did
+  return { fields: walk.fields, seed: body.seed, derivation: body.derivation, hops: body.hops, ...('to' in body ? { to: body.to } : {}), ids: body.ids };
 }

@@ -102,8 +102,9 @@ export interface CommitRecord {
    * Which clause factory to reconstruct with (`'cell'` = the D30 compound;
    * `'match'` = the SET-1 IN-list, its value a `MatchValue`;
    * `'neighbourhood'` = the packet-5 walk, its value a `NeighbourhoodValue`
-   * — the QUESTION (seed, derivation, hops) recorded with its ANSWER (the
-   * walked ids), and its `fields` the edges table's two endpoint columns).
+   * — the QUESTION (seed, derivation, hops, and `to` for a path) recorded
+   * with its ANSWER (the walked ids), and its `fields` the edges table's two
+   * endpoint columns).
    */
   readonly kind: 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood';
   /**
@@ -119,7 +120,9 @@ export interface CommitRecord {
    * is the two-sided pair `[x side, y side]` (each side an interval
    * `[lo, hi]` or a point value), or `null` for a cleared cell. For
    * `kind: 'neighbourhood'` it is the walk's whole record —
-   * `{ seed, derivation, hops, ids }` — or `null` for a cleared one.
+   * `{ seed, derivation, hops, to?, ids }`, where `hops` may be `null` (a
+   * path that found none) and `to` rides only on a path — or `null` for a
+   * cleared one.
    */
   readonly value: unknown;
   /**

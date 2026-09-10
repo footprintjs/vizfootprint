@@ -24,12 +24,12 @@
  * restate the cell lift. That duplicate is named there rather than hidden, and
  * folding them together is a session-side decision nobody has made yet.
  */
-import { cellFieldLabel, neighbourhoodFieldLabel, neighbourhoodValueFromWire, type MatchValue, type NeighbourhoodClause, type NeighbourhoodValueBody, type PredicateClause } from '../data/index.js';
+import { cellFieldLabel, neighbourhoodFieldLabel, neighbourhoodValueFromWire, type MatchValue, type NeighbourhoodClause, type NeighbourhoodDerivation, type NeighbourhoodValueBody, type PredicateClause } from '../data/index.js';
 import type { EmissionKind } from '../links/index.js';
 import type { Cause } from '../cause/index.js';
 import type { SavedClause } from '../def/types.js';
 import { copyValue } from '../detach/index.js';
-import type { CellValues, DispatchAction, FilterRange, SelectionInfo } from './types.js';
+import type { CellValues, DispatchAction, FilterRange, SelectionInfo, WalkAsk } from './types.js';
 
 /**
  * The predicate clause a landed probe folds to — ONE spelling for the live
@@ -155,10 +155,45 @@ export function clauseOfLive(viewId: string, clause: PredicateClause, question?:
   return { viewId, kind: clause.kind, field: clause.field, value: copyValue(clause.value) };
 }
 
+/**
+ * WHICH WALK a recorded body says was asked (R5) — the act's `walk`, or
+ * nothing at all when the record is the one-hop ego walk every caller wrote
+ * before the other two existed (so its re-ask is byte-identical to the act it
+ * always landed).
+ *
+ * The split that matters: for an `'ego'` body `hops` is the QUESTION, so it is
+ * re-asked; for a `'path'` and a `'component'` the recorded `hops` is the
+ * ANSWER (the length it found, the farthest distance), and asking it back
+ * would be asserting an answer — the walk's own door refuses that.
+ *
+ * A derivation THIS build does not mint rides through VERBATIM rather than
+ * falling back to ego: a re-ask that quietly ran a different walk under the
+ * recorded name would be worse than the refusal the door answers with. (The
+ * body still SELECTS by its recorded ids wherever it is read as a clause —
+ * that law is `../data/clauseFromWire.ts`'s, and it is untouched.)
+ *
+ * Exported because `applySaved` judges the same question BEFORE it lands
+ * anything: it asks `walkRefusal` about this, so a picture carrying a walk this
+ * build cannot run is refused with nothing touched.
+ */
+export function walkAsked(body: NeighbourhoodValueBody): { readonly walk?: WalkAsk } {
+  if (body.derivation === 'path') return { walk: { derivation: 'path', to: body.to } };
+  if (body.derivation === 'component') return { walk: { derivation: 'component' } };
+  if (body.derivation !== 'ego') return { walk: { derivation: body.derivation as NeighbourhoodDerivation } };
+  // the cast is deliberate and safe: a RECORDED hop count is a number this build may not mint (a
+  // foreign log, a hand-written picture), and handing it on unchanged is what makes the ONE owner
+  // of the law refuse it by name (`walkRefusal`) instead of this reader guessing a legal one
+  return body.hops === 1 ? {} : { walk: { derivation: 'ego', hops: body.hops as 1 | 2 } };
+}
+
 /** The ordinary act a saved condition lands as — the same mapping a bring-over uses for a selection recipe. */
 export function selectionAction(c: SavedClause, cause: Cause): Extract<DispatchAction, { verb: 'select' | 'filter' }> {
-  // a neighbourhood condition is re-ASKED, never replayed: the act names the seed and one endpoint, and the walk runs again over today's rows
-  if (c.kind === 'neighbourhood') return { verb: 'select', viewId: c.viewId, field: c.fields![0], seed: (c.value as NeighbourhoodValueBody).seed, cause };
+  // a neighbourhood condition is re-ASKED, never replayed: the act names the seed, one endpoint and
+  // the WALK it recorded, and that walk runs again over today's rows
+  if (c.kind === 'neighbourhood') {
+    const body = c.value as NeighbourhoodValueBody;
+    return { verb: 'select', viewId: c.viewId, field: c.fields![0], seed: body.seed, ...walkAsked(body), cause };
+  }
   if (c.kind === 'cell') return { verb: 'select', viewId: c.viewId, fields: c.fields!, values: c.value as CellValues, cause }; // a cell condition always carries its pair
   if (c.kind === 'match') {
     const body = c.value as Exclude<MatchValue, null>;

@@ -123,6 +123,17 @@ export interface LogFeatures {
   readonly verbs: Readonly<Record<LogVerb, VerbEvidence>>;
   /** The distinct selection kinds that landed on a real view, alphabetically. */
   readonly selectionKinds: readonly CommitRecord['kind'][];
+  /**
+   * The distinct WALKS those neighbourhood selections recorded — the
+   * `derivation` on each walk's own value (`'component'`, `'ego'`, `'path'`),
+   * alphabetically; empty when nobody walked.
+   *
+   * Beside `selectionKinds` and not inside it because they answer different
+   * questions: that one says a walk landed, this one says WHICH walk, and a
+   * card that printed only the kind would report "neighbourhood" for a trace
+   * whose whole story was one path between two nodes.
+   */
+  readonly walkDerivations: readonly string[];
   /** How many commits fell in each family (`familyOf`), including the families with none. */
   readonly families: Readonly<Record<CommitFamily, number>>;
   /** The lanes `deriveBranches` names — 1 for a straight line, 0 for an empty log. */
@@ -174,6 +185,7 @@ export function logFeatures(records: readonly CommitRecord[], input: LogFeatures
       describe: evidenceOf('describe', landed),
     },
     selectionKinds: selectionKindsOf(records),
+    walkDerivations: walkDerivationsOf(records),
     families: familiesOf(records),
     lanes,
     branched: lanes > 1,
@@ -232,6 +244,26 @@ function selectionKindsOf(records: readonly CommitRecord[]): readonly CommitReco
     return verb === 'select' || verb === 'filter';
   });
   return [...new Set(probes.map((r) => r.kind))].sort();
+}
+
+/**
+ * The walks a trace SHOWS — one `derivation` per distinct walk that landed on a
+ * real view, alphabetically (the order `selectionKindsOf` chose, for its
+ * reason).
+ *
+ * Read off the recorded value LOCALLY, with a plain string test, because this
+ * package imports `../log` and nothing else (`README.md`, the folder law) — so
+ * `../data`'s own reader is not available here and is deliberately not
+ * imported for one field. A body naming a derivation this build does not mint
+ * still counts: a card reports what the trace says, not what this version can
+ * run. A walk body with no readable derivation is not reported at all rather
+ * than reported as `'ego'` — a default is this reader's guess, and a card never
+ * guesses.
+ */
+function walkDerivationsOf(records: readonly CommitRecord[]): readonly string[] {
+  const walks = records.filter((r) => r.kind === 'neighbourhood' && verbOf(r) === 'select');
+  const named = walks.map((r) => (r.value as { readonly derivation?: unknown } | null)?.derivation).filter((d): d is string => typeof d === 'string');
+  return [...new Set(named)].sort();
 }
 
 /** Every family, including the ones with no commits — a card says "no design edits", not nothing. */

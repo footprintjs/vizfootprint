@@ -202,12 +202,51 @@ export interface CellClause {
 }
 
 /**
- * How a neighbourhood's id set was WALKED. ONE derivation today: `'ego'` —
- * the seed plus every node an edge joins it to, one hop out. It is named (and
- * recorded) rather than assumed because the set alone cannot say which walk
- * produced it, and a set nobody can re-walk is a number without a question.
+ * How a neighbourhood's id set was WALKED. THREE derivations, all UNDIRECTED
+ * (either end joins — R1, `../session/neighbourhood.ts`):
+ *
+ * - `'ego'` — the seed plus every node within the hops it asked for (1 or 2).
+ * - `'path'` — the nodes IN ORDER from the seed to one other node (`to`), a
+ *   shortest path, ties broken by row order.
+ * - `'component'` — everything the seed can reach, however far.
+ *
+ * It is named (and recorded) rather than assumed because the set alone cannot
+ * say which walk produced it, and a set nobody can re-walk is a number without
+ * a question. A DIRECTED walk is a later dial and is deliberately not offered.
  */
-export type NeighbourhoodDerivation = 'ego';
+export type NeighbourhoodDerivation = 'ego' | 'path' | 'component';
+
+/**
+ * WHICH WALK a neighbourhood `select` asks for (R3) — absent on the act means
+ * `{ derivation: 'ego', hops: 1 }`, so every caller written before the other
+ * two walks existed lands the same bytes and the same record.
+ *
+ * - `derivation` — `'ego'` (the seed and everything within `hops` of it),
+ *   `'path'` (the nodes IN ORDER from the seed to `to`) or `'component'`
+ *   (everything the seed can reach, however far).
+ * - `hops` — legal ONLY with `'ego'`, and 1 or 2: past two hops an ego set is
+ *   most of any real graph (a POLICY of this build, not a limit of the walk).
+ *   For "everything reachable", ask for the component instead. A path and a
+ *   component ANSWER their own distance, so neither can be told one.
+ * - `to` — REQUIRED with `'path'` and refused elsewhere. `to` equal to the
+ *   seed is the trivial path (`hops: 0`, `ids: [seed]`); a `to` nothing joins
+ *   to the seed is the honest "no path" (`hops: null`, `ids: [seed, to]`).
+ *
+ * Every one of those refusals is a sentence, and nothing lands. So is a walk
+ * whose answer would be bigger than a commit records
+ * (`NEIGHBOURHOOD_ID_CEILING`, `./neighbourhood.ts`) — that one is filed under
+ * `result-too-large`, because no re-reading of the declaration repairs it.
+ *
+ * ```ts
+ * await session.dispatch({ verb: 'select', viewId, field: 'source', seed: 'flu', walk: { derivation: 'path', to: 'strep' }, cause });
+ * // → one commit: { seed: 'flu', derivation: 'path', hops: 2, to: 'strep', ids: ['flu', 'cold', 'strep'] }
+ * ```
+ */
+export interface WalkAsk {
+  readonly derivation?: NeighbourhoodDerivation;
+  readonly hops?: 1 | 2;
+  readonly to?: unknown;
+}
 
 /**
  * What a `neighbourhood` commit CARRIES (`CommitRecord.value` for
@@ -240,13 +279,38 @@ export interface NeighbourhoodValueBody {
    */
   readonly derivation: NeighbourhoodDerivation | (string & {});
   /**
-   * How far the walk went. `1` is the one distance this version MINTS.
-   * WHY `number` and not the literal `1`: this is the RECORDED shape, and it is
-   * read back from logs another build wrote — the same law `derivation` states
-   * above. A reader renders what arrived; it never re-walks to check it.
+   * HOW FAR THE WALK WENT — one number per derivation, and each of them is
+   * about a different thing:
+   *
+   * - `'ego'`: the hops it ASKED for (1 or 2). A one-hop walk on a graph two
+   *   hops wide still asked one hop.
+   * - `'path'`: the path's LENGTH in edges — `0` for the trivial path (`to` is
+   *   the seed), and `null` when NO PATH exists.
+   * - `'component'`: the FARTHEST node's distance from the seed (`0` for a
+   *   node no edge names).
+   *
+   * WHY `null` is a value and not an absence: "these two nodes, and nothing
+   * joining them" is an ANSWER, and a reader renders what arrived rather than
+   * re-walking to check it (the same law `derivation` states above — a body
+   * read back from another build's log may carry a number this one would not
+   * mint). A consumer that formats a distance keeps an honest else for `null`.
    */
-  readonly hops: number;
-  /** The materialized set, the seed included — the answer, recorded with its question. */
+  readonly hops: number | null;
+  /**
+   * The far end a `'path'` walk ran TO — present only for `'path'`, because it
+   * is the only derivation whose question names a second node.
+   *
+   * It rides beside `seed` rather than inside `ids` because it is part of the
+   * QUESTION: `ids` is the path it found (and, when there is none, just the two
+   * nodes), and a re-ask needs to know which of them was asked for.
+   */
+  readonly to?: unknown;
+  /**
+   * The materialized set, the seed included — the answer, recorded with its
+   * question. The ORDER is the walk's own: `'ego'` and `'component'` put the
+   * seed first, then by distance, then row order; `'path'` puts the nodes in
+   * order from the seed to `to` (or, with no path, just those two).
+   */
   readonly ids: readonly unknown[];
 }
 export type NeighbourhoodValue = NeighbourhoodValueBody | null;

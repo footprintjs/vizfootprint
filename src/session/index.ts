@@ -14,6 +14,9 @@ export type {
   DispatchResult,
   FilterRange,
   CellValues,
+  // WHICH walk a neighbourhood select asks for — the one spelling of those three slots,
+  // read by the agent port's fire-time judge as well as by every caller of `dispatch`
+  WalkAsk,
   AnalysisCommit,
   BookmarkView,
   BranchInfo,

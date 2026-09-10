@@ -23,6 +23,7 @@
  */
 import type { KeyboardEvent } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
+import type { WalkAsk } from 'vizfootprint/data';
 
 /** The R3 point emission for a DATA value on a field. */
 export function pointEmission(field: string, value: unknown): ChartEmission {
@@ -75,18 +76,26 @@ export function clickEmission(field: string, value: string, current: { readonly 
  *
  * It is a QUESTION and not an answer: the ids are the session's to walk (a
  * chart owns no rows), which is why nothing here takes a set.
+ *
+ * `walk` (protocol 1.4) says WHICH walk to run from that seed — two hops of
+ * ego, a path to a named node, a whole component. Omit it for the one-hop ego
+ * walk: the key is then absent from the encoding, so the emission is
+ * byte-identical to the one every 1.3 renderer sends.
  */
-export function walkEmission(field: string, seed: unknown): ChartEmission {
-  return { rawValue: seed, encoding: { kind: 'neighbourhood', field } };
+export function walkEmission(field: string, seed: unknown, walk?: WalkAsk): ChartEmission {
+  return { rawValue: seed, encoding: { kind: 'neighbourhood', field, ...(walk === undefined ? {} : { walk }) } };
 }
 
 /**
  * Walk-again-clears: asking for the neighbourhood already in force emits the
  * CLEARED walk (`rawValue: null`), releasing it — the point's own rule, read
  * against the live SEED rather than a selected value.
+ *
+ * A cleared walk asks NO walk: `null` names no seed, so there is nothing to
+ * run from and the `walk` is dropped rather than carried along for nothing.
  */
-export function toggleWalkEmission(field: string, seed: string, current: unknown): ChartEmission {
-  return walkEmission(field, current != null && String(current) === seed ? null : seed);
+export function toggleWalkEmission(field: string, seed: string, current: unknown, walk?: WalkAsk): ChartEmission {
+  return current != null && String(current) === seed ? walkEmission(field, null) : walkEmission(field, seed, walk);
 }
 
 /** Enter/Space activates — the shared keyboard handler for clickable marks. */

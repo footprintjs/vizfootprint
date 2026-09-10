@@ -68,9 +68,19 @@ describe('formatCommitValue — neighbourhood (protocol 1.3)', () => {
   });
 
   it('the QUESTION is quoted as recorded — a derivation or a distance this build does not mint still reads', () => {
-    expect(walk({ derivation: 'two-hop', hops: 2 })).toBe('Salmonellosis and its 2 neighbours (two-hop, 2 hops)');
+    // and "its N neighbours" is a claim only an EGO walk earns: any other derivation reports the
+    // same count without the adjacency it cannot promise
+    expect(walk({ derivation: 'two-hop', hops: 2 })).toBe('Salmonellosis and 2 more nodes (two-hop, 2 hops)');
     // a body missing either half of the question falls back to what the one derivation this version walks is
     expect(walk({ derivation: 7, hops: '2' })).toBe('Salmonellosis and its 2 neighbours (ego, 1 hop)');
+  });
+
+  it('the three walks each read as what they are — and `hops: null` reads as NO PATH, never as a hop nobody walked', () => {
+    expect(walk({ derivation: 'ego', hops: 2, ids: ['Salmonellosis', 'Lyme', 'Zika'] })).toBe('Salmonellosis and its 2 neighbours (ego, 2 hops)');
+    expect(walk({ derivation: 'path', hops: 2, to: 'Zika', ids: ['Salmonellosis', 'Lyme', 'Zika'] })).toBe('Salmonellosis and 2 more nodes (path, 2 hops)');
+    // a path that found none: the two nodes it named, and the honest words for the distance
+    expect(walk({ derivation: 'path', hops: null, to: 'Zika', ids: ['Salmonellosis', 'Zika'] })).toBe('Salmonellosis and 1 more node (path, no path)');
+    expect(walk({ derivation: 'component', hops: 3, ids: ['Salmonellosis', 'Lyme', 'Zika'] })).toBe('Salmonellosis and 2 more nodes (component, 3 hops)');
   });
 
   it('a numeric seed rounds like every other value, and an absent one is ∅', () => {

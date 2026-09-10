@@ -56,9 +56,13 @@ import type { ChartEmission } from 'vizfootprint/selection';
  * nothing. 1.3 ADDED the optional `'neighbourhood'` emission kind (one gesture
  * on a node selects that node AND what it touches) and the conformance kit's
  * optional neighbourhood arm; a 1.2 renderer never declares or emits one, so
- * the minor stays compatible (same-major binds; minors only add).
+ * the minor stays compatible (same-major binds; minors only add). 1.4 ADDED the
+ * optional `walk` on a neighbourhood emission — WHICH walk the gesture asks for
+ * (`{ derivation, hops?, to? }`: two hops of ego, a path between two nodes, or
+ * a whole component). It is optional and absent means the one-hop ego walk
+ * every 1.3 renderer emits, so a 1.3 renderer binds and emits byte-identically.
  */
-export const RENDERER_PROTOCOL_VERSION = '1.3';
+export const RENDERER_PROTOCOL_VERSION = '1.4';
 
 export type { ChartEmission };
 
@@ -69,11 +73,17 @@ export type { ChartEmission };
  *
  * `'neighbourhood'` (protocol 1.3) is the graph walk: one gesture on a node
  * emits that node as the SEED, the host walks the edges ONCE at the cursor,
- * and one commit lands carrying the question (seed, derivation, hops) beside
- * the answer (the materialized ids). A renderer emits the seed and nothing
- * else — it never walks, exactly as it never bins (the transform-ownership
- * rule, `transforms` on {@link RendererHello}). A renderer that draws the
- * walked set reads it back off its own clause with `selfSelectedNeighbourhood`.
+ * and one commit lands carrying the question (seed, derivation, hops, and `to`
+ * for a path) beside the answer (the materialized ids). A renderer emits the
+ * seed and nothing else — it never walks, exactly as it never bins (the
+ * transform-ownership rule, `transforms` on {@link RendererHello}). A renderer
+ * that draws the walked set reads it back off its own clause with
+ * `selfSelectedNeighbourhood`.
+ *
+ * Protocol 1.4 lets that emission also say WHICH walk (`encoding.walk` —
+ * `NeighbourhoodEncoding`): ego at one or two hops, a path to a named node, or
+ * the whole component. Still a QUESTION and still not an answer: the host owns
+ * the rows, so the host runs whichever walk was asked for.
  */
 export type EmissionKind = 'point' | 'interval' | 'cell' | 'match' | 'neighbourhood';
 
@@ -267,7 +277,7 @@ export interface SelectionClauseView {
   readonly response?: 'filter' | 'highlight' | 'navigate' | 'mirror';
   /** For the two-column kinds ('cell', 'neighbourhood') this is the display-only joint label; the pair rides `fields`. */
   readonly field: string;
-  /** For kind:'cell': the two-sided pair `[x side, y side]` (each side a value or [lo, hi]); for kind:'match': `{ values, exclude? }` or null; for kind:'neighbourhood': `{ seed, derivation, hops, ids }` or null. */
+  /** For kind:'cell': the two-sided pair `[x side, y side]` (each side a value or [lo, hi]); for kind:'match': `{ values, exclude? }` or null; for kind:'neighbourhood': `{ seed, derivation, hops, to?, ids }` or null (`hops` is `null` for a path that found none, and `to` rides only on a path — protocol 1.4). */
   readonly value: unknown;
   /** The two-column kinds only — a cell's x/y fields, or a neighbourhood's two edge endpoints. */
   readonly fields?: readonly [string, string];

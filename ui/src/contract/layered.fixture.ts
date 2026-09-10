@@ -10,6 +10,7 @@
 import { selectionForView } from './selection.js';
 import { RENDERER_PROTOCOL_VERSION, type Renderer, type RendererCallbacks, type RendererCapabilities, type RenderLayer, type RenderState } from './types.js';
 import type { SessionViewState } from '../adapter/types.js';
+import type { WalkAsk } from 'vizfootprint/data';
 import { EDGES, NODES } from '../adapter/network.fixture.js';
 
 export interface LayeredRendererOptions {
@@ -35,6 +36,12 @@ export interface LayeredRendererOptions {
     /** `'view'` asks through the VIEW's own callbacks — a plain view that walks, where the view IS the table the clause names. */
     readonly through?: 'view';
     readonly then?: { readonly field: string; readonly value: unknown };
+    /**
+     * Protocol 1.4: WHICH walk the button asks for. Absent = the 1.3-shaped
+     * emission (no `walk` key at all), which is what every other test here
+     * drives — a 1.3 renderer's emission binds, lands and passes unchanged.
+     */
+    readonly ask?: WalkAsk;
   };
   /** The field the VIEW's own probe emits on. Default `size` — a nodes column, which is what `net` reads by default. */
   readonly viewField?: string;
@@ -80,7 +87,7 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
             ask.textContent = `walk from ${String(walk.seed)}`;
             ask.addEventListener('click', () => {
               const voice = walk.through === 'view' ? handshake.callbacks : bundleFor(walk.layerId ?? 'edges');
-              voice?.emit({ rawValue: walk.seed, encoding: { kind: 'neighbourhood', field: walk.field } });
+              voice?.emit({ rawValue: walk.seed, encoding: { kind: 'neighbourhood', field: walk.field, ...(walk.ask === undefined ? {} : { walk: walk.ask }) } });
               if (walk.then !== undefined) voice?.emit({ rawValue: walk.then.value, encoding: { kind: 'point', field: walk.then.field } });
             });
             host.appendChild(ask);

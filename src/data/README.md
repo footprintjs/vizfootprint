@@ -110,7 +110,7 @@ One duplicate is still open and is named rather than hidden: `probeClause` in `s
 
 ## One gesture on a node: the `neighbourhood` clause
 
-One gesture on a node selects the ties INSIDE its ego set: a row of the edges table is kept when BOTH endpoint columns name a node in the walked set — the INDUCED ego subgraph, which is the edge set the network chart brightens for that same gesture, and what a depth-1 ego filter returns in Cytoscape, Gephi and Bloom. "Either endpoint" would reach one edge-hop further, keeping a neighbour's tie to a stranger the seed never touches, and a gesture's rows must be the ones its own highlight promised.
+One gesture on a node selects the ties INSIDE the set it walked to: a row of the edges table is kept when BOTH endpoint columns name a node in that set — the INDUCED subgraph, which is the edge set the network chart brightens for that same gesture, and what a depth-1 ego filter returns in Cytoscape, Gephi and Bloom. "Either endpoint" would reach one edge-hop further, keeping a neighbour's tie to a stranger the seed never touches, and a gesture's rows must be the ones its own highlight promised.
 
 It is a kind of its own, with its own arm in every reader, for the reason the `cell` above is one: ONE gesture lands ONE commit, over a value (the walk) recorded whole. Two composed clauses would be two acts and two records of half a question.
 
@@ -125,9 +125,26 @@ edges.filter((row) => matchesClause(row, clause));                    // every t
 clauseFromWire('neighbourhood', 'from ↔ to', record.value, record.fields);
 ```
 
-**The answer is recorded with its question.** The wire value is `{ seed, derivation, hops, ids }` (or `null` to clear): the ids are the ANSWER a walk produced, and the seed, the derivation (`'ego'` — one hop out) and the hop count are the QUESTION that produced them. A record carrying only the seed would have to re-walk to be read, and a read at a cursor must answer about THAT cursor — the rows a later act may have changed. The clause tier keeps only the `ids`, exactly as a match keeps only its `values`; the rest is provenance, never predicate. `clauseFields` answers both endpoint columns, `neighbourhoodFieldLabel(['from','to'])` mints the display-only `"from ↔ to"` for the slots that expect one field name (`×` is the cell's; `↔` says "one edge", whose both ends the predicate asks about), and `renameClauseFields` rewrites both columns and never the ids — those are node keys, not column names.
+**The answer is recorded with its question.** The wire value is `{ seed, derivation, hops, to?, ids }` (or `null` to clear): the ids are the ANSWER a walk produced, and the seed, the derivation and the hop count are the QUESTION that produced them. A record carrying only the seed would have to re-walk to be read, and a read at a cursor must answer about THAT cursor — the rows a later act may have changed. The clause tier keeps only the `ids`, exactly as a match keeps only its `values`; the rest is provenance, never predicate. `clauseFields` answers both endpoint columns, `neighbourhoodFieldLabel(['from','to'])` mints the display-only `"from ↔ to"` for the slots that expect one field name (`×` is the cell's; `↔` says "one edge", whose both ends the predicate asks about), and `renameClauseFields` rewrites both columns and never the ids — those are node keys, not column names.
 
-**The question has a door of its own.** `clauseFromWire` yields the PREDICATE (the ids), because that is all a row filter needs; `neighbourhoodValueFromWire(record.value)` yields the recorded QUESTION beside it — `{ seed, derivation, hops, ids }`, or `null` for a body carrying no walked list. Every slot is answered in ONE place: an absent seed reads as `null` (UNNAMED, never a node key), an unreadable derivation as this version's own `'ego'`, an unreadable hop count as `1`; a derivation another build minted rides through verbatim, because a body still selects by its recorded ids. A chip, a commit-log line and a chart that highlights the seed all read it here rather than writing the three defaults again.
+**Three derivations, one value shape.** `derivation` says WHICH walk (all UNDIRECTED — either end joins; a directed walk is not offered), and `hops` says HOW FAR IT WENT — which means a different thing in each:
+
+| `derivation` | `ids` | `hops` | `to` |
+|---|---|---|---|
+| `'ego'` | the seed first, then by distance, then row order | the distance ASKED (1 or 2) | — |
+| `'path'` | the nodes IN ORDER, seed → `to` (a shortest path; unreachable: just `[seed, to]`) | the path's length in EDGES, `0` for the trivial path, **`null` when no path exists** | the far end it ran to |
+| `'component'` | the seed first, then by distance, then row order | the FARTHEST node's distance (`0` for a node no edge names) | — |
+
+```ts
+{ seed: 'flu', derivation: 'ego', hops: 2, ids: ['flu', 'cold', 'strep'] }                     // two hops out
+{ seed: 'flu', derivation: 'path', hops: 2, to: 'strep', ids: ['flu', 'cold', 'strep'] }       // how flu reaches strep
+{ seed: 'flu', derivation: 'path', hops: null, to: 'measles', ids: ['flu', 'measles'] }        // nothing joins them, said honestly
+{ seed: 'strep', derivation: 'component', hops: 2, ids: ['strep', 'cold', 'flu'] }             // everything it can reach
+```
+
+`hops: null` is an ANSWER, not an absence, so a consumer that formats a distance keeps an honest else for it; the predicate is the `ids` either way (two nodes and no tie between them is exactly the picture of "no path"). Being the ids either way is also what makes every walk's picture the INDUCED subgraph over its own set, chords included: a tie between two members of an ego set or a component is inside the set and is kept, while a shortest path has no chord to keep (an edge between two of its non-adjacent nodes would be a shorter path). `to` is present only for `'path'`, so an `'ego'` body is byte-identical to the one that shipped before the other two walks existed.
+
+**The question has a door of its own.** `clauseFromWire` yields the PREDICATE (the ids), because that is all a row filter needs; `neighbourhoodValueFromWire(record.value)` yields the recorded QUESTION beside it — `{ seed, derivation, hops, to?, ids }`, or `null` for a body carrying no walked list. Every slot is answered in ONE place: an absent seed reads as `null` (UNNAMED, never a node key), an unreadable derivation as this version's own `'ego'`, an unreadable hop count as `1` — while a `hops` of `null` and a `to` the body carries ride through untouched, because those are recorded answers and not gaps. A derivation another build minted rides through verbatim too, because a body still selects by its recorded ids. A chip, a commit-log line and a chart that highlights the seed all read it here rather than writing the defaults again.
 
 **The two-column kinds are data, not a fork.** `PAIR_CLAUSE_KINDS` (`['cell', 'neighbourhood']`) is the one array literal, with `isPairKind(kind)` for the slots that ask about a KIND before a clause exists — a wire triple's arm, a saved condition, a `CommitInput` the log judges — and `isPairClause(clause)` for the narrowed question over a built one. `clauseFields` reads it too, so the third pair kind lands in one place.
 

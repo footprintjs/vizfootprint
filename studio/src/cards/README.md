@@ -87,6 +87,17 @@ On the CDC story trace those five ids sit on ordinary user selections. The
 `walked:trace:agent acted` chip is minted only when a commit's own **cause**
 names the agent.
 
+### 4b. Which walk, beside the fact that somebody walked
+
+A `neighbourhood` commit says a walk landed; it does not say WHICH walk. So the
+walked ground mints a `walk` facet from `logFeatures().walkDerivations` — one
+chip per distinct derivation a commit recorded, so a trace whose whole story is
+one path between two nodes reads `walked · walk: path` and not only
+`walked · selection: neighbourhood`. A derivation another build minted is
+reported as it was recorded (a card says what the trace says), and a walk body
+with no readable derivation mints nothing rather than being counted as the
+default one.
+
 ### 5. What is hand-written is labelled as hand-written
 
 Two facts are on no card the readers can produce, and both are on the CDC demo's

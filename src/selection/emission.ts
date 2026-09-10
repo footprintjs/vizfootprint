@@ -19,7 +19,7 @@
  */
 
 import type { Cause } from '../cause/index.js';
-import type { CellSide, MatchValue } from '../data/index.js';
+import type { CellSide, MatchValue, WalkAsk } from '../data/index.js';
 import type { CauseClause, CauseClauseSpec, RegisteredSource, SelectionPort, SelectionRejection } from './types.js';
 
 /** A point selection: one field, one DATA-space value. */
@@ -74,6 +74,18 @@ export interface MatchEncoding {
 export interface NeighbourhoodEncoding {
   readonly kind: 'neighbourhood';
   readonly field: string;
+  /**
+   * WHICH walk the gesture asks for (protocol 1.4, {@link WalkAsk}) — absent
+   * is one hop of `'ego'`, so a renderer written before the other two walks
+   * existed emits the same bytes and lands the same commit.
+   *
+   * It rides on the ENCODING and not in `rawValue` because `rawValue` is the
+   * seed — the one DATA-space value the gesture landed on — and the walk is
+   * part of what the chart is ASKING, exactly as `field` is. A chart still
+   * never walks: it says which question, and the session answers it over the
+   * rows at the cursor.
+   */
+  readonly walk?: WalkAsk;
 }
 
 export type ChartEncoding = PointEncoding | IntervalEncoding | CellEncoding | MatchEncoding | NeighbourhoodEncoding;

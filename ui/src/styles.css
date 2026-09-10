@@ -755,6 +755,14 @@
   stroke: var(--vzf-ink);
   stroke-width: 2;
 }
+/* the node-link's walk picker: one labelled select above the frame (networkRenderer) */
+:where(.vzf) .vzf-net-walk {
+  display: flex;
+  gap: var(--vzf-space-2);
+  align-items: center;
+  font-size: 0.9em;
+  color: var(--vzf-ink-soft);
+}
 /* a chart that refuses a frame says so in words, in the space the chart would have filled */
 :where(.vzf) .vzf-chart-refusal {
   margin: 0;

@@ -149,6 +149,18 @@ describe('neighbourhood — the walked ids ride INSIDE the value; the clause kee
     }
   });
 
+  it('the WHOLE question rides through (R5): a null hop count is an answer, and a path\'s far end comes back', () => {
+    // `hops: null` is what a path that found NO PATH answered — carrying it as `1` would invent a hop
+    expect(neighbourhoodValueFromWire({ seed: 'Formal', derivation: 'path', hops: null, to: 'x', ids: ['Formal', 'x'] })).toEqual({
+      seed: 'Formal', derivation: 'path', hops: null, to: 'x', ids: ['Formal', 'x'],
+    });
+    expect(neighbourhoodValueFromWire({ seed: 'Formal', derivation: 'path', hops: 2, to: 'x', ids: ['Formal', 'y', 'x'] })).toMatchObject({ hops: 2, to: 'x' });
+    // a body with no `to` gets no `to` KEY — an ego body is byte-identical to the one this door always answered
+    expect(JSON.stringify(neighbourhoodValueFromWire(body(['Formal', 'x'])))).toBe('{"seed":"Formal","derivation":"ego","hops":1,"ids":["Formal","x"]}');
+    // and a `to` of null is a recorded null, not an absent key: a reader renders what arrived
+    expect('to' in neighbourhoodValueFromWire({ derivation: 'path', hops: null, to: null, ids: [] })!).toBe(true);
+  });
+
   it('an empty walked set keeps NOTHING — an empty set is a real answer, not "no filter"', () => {
     expect(kept('neighbourhood', 'category ↔ note', body([]), pair)).toEqual([]);
   });

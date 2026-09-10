@@ -118,6 +118,22 @@ describe('logFeatures — what a trace shows, and what it cannot', () => {
     expect(logFeatures([rec('c1', null, { viewId: 'net', kind: 'neighbourhood' })]).selectionKinds).toEqual(['neighbourhood']);
   });
 
+  it('the WALKS beside the kinds: which derivation landed, alphabetically, and never a guess', () => {
+    const walk = (id: string, value: unknown) => rec(id, null, { viewId: 'net', kind: 'neighbourhood', value });
+    const card = logFeatures([
+      walk('c1', { seed: 'flu', derivation: 'path', hops: 2, to: 'strep', ids: ['flu', 'cold', 'strep'] }),
+      walk('c2', { seed: 'flu', derivation: 'ego', hops: 1, ids: ['flu', 'cold'] }),
+      walk('c3', { seed: 'cold', derivation: 'ego', hops: 2, ids: ['cold', 'flu', 'strep'] }),
+    ]);
+    expect(card.selectionKinds).toEqual(['neighbourhood']); // the kind says a walk landed
+    expect(card.walkDerivations).toEqual(['ego', 'path']); // this says WHICH walk, each once
+    // a derivation another build minted is REPORTED (a card says what the trace says), and a body
+    // with no readable derivation is not reported at all rather than reported as this build's default
+    expect(logFeatures([walk('c1', { derivation: 'community', ids: [] }), walk('c2', { ids: [] }), walk('c3', null)]).walkDerivations).toEqual(['community']);
+    // nobody walked: no derivations, and no zero to explain
+    expect(logFeatures(EVERY_VERB).walkDerivations).toEqual([]);
+  });
+
   it('a commit no verb landed lands no verb — an agent-authored chart is registered, never selected', () => {
     const card = logFeatures([rec('c1', null, { viewId: 'chart:proposal1' }), rec('c2', 'c1', { viewId: 'bookmark:1' })]);
     expect(card.commits).toBe(2);

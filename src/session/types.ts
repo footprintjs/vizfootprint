@@ -17,7 +17,7 @@ import type { CommitRecord } from '../log/index.js';
 import type { CauseClause, SelectionPort } from '../selection/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
 import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
-import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause, PredicateClause, Row, SortSpec } from '../data/index.js';
+import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause, PredicateClause, Row, SortSpec, WalkAsk } from '../data/index.js';
 import type { EncodingProblem, Fit, RuleLine, RuleScope } from '../encoding/index.js';
 import type { ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
 import type { DispatchVerb, IntentClass, SeriesGrain, SavedClause, SavedSelection, Bookmark, RelationEdge } from '../def/types.js';
@@ -77,6 +77,18 @@ export const GAP_CODES = [
    * of it.
    */
   'derive-source-refused',
+  /**
+   * An act was legal and its ANSWER is too big to record — a walk whose set
+   * holds more nodes than a commit may carry (`NEIGHBOURHOOD_ID_CEILING`,
+   * `./neighbourhood.ts`). Nothing lands.
+   *
+   * It is its own code and not `guard-failed` because an agent has to be able
+   * to branch on one: nothing about the declaration is wrong, so re-reading
+   * the capabilities will never repair it — the repair is to make the DATA
+   * smaller (filter the edges first) or to ask a smaller question. The same
+   * argument that gives `derive-invalid` a code of its own.
+   */
+  'result-too-large',
   // ── RP-3: agent-authored chart pipeline refusals ──
   'chart-invalid-spec',
   'chart-transforms-not-owned',
@@ -144,6 +156,14 @@ export interface GapRow {
 export type FilterRange = IntervalClause['value'];
 
 /**
+ * WHICH WALK a neighbourhood `select` asks for — the act's own slot, owned by
+ * `../data/types.ts` beside the BODY it records ({@link NeighbourhoodValueBody}),
+ * because the ask and the record are the same question either side of the walk.
+ * Re-exported here so every act shape reads from one module.
+ */
+export type { WalkAsk };
+
+/**
  * The cell-select value pair — single-sourced from `src/data`'s `CellClause`
  * (the seam that actually EVALUATES it), the `FilterRange` precedent exactly:
  * `[x side, y side]` where each side is an interval `[lo, hi]` (half-open
@@ -189,20 +209,31 @@ export type DispatchAction =
   | { readonly verb: 'select'; readonly viewId: string; readonly fields: readonly [string, string]; readonly values: CellValues; readonly cause: Cause; readonly correlationId?: string; readonly asOf?: string }
   /**
    * The NEIGHBOURHOOD form of `select` (packet 5): ONE gesture on a node
-   * selects the ties INSIDE its ego set. `field` names one ENDPOINT column
+   * selects the ties INSIDE the walked set. `field` names one ENDPOINT column
    * of the act's own table (the edges table — `source`), `seed` is the node
    * the walk starts from; the session reads the declared relations to find
    * the other endpoint, walks the edges ONCE at the cursor, and lands ONE
-   * commit carrying the question (seed, derivation, hops) with its answer
-   * (the walked ids). `seed: null` clears it (the cleared-interval rule);
-   * `seed` missing is refused, exactly as a point's missing value is.
+   * commit carrying the question (seed, derivation, hops, `to` for a path)
+   * with its answer (the walked ids). `seed: null` clears it (the
+   * cleared-interval rule); `seed` missing is refused, exactly as a point's
+   * missing value is.
    *
    * WHY the act names an endpoint and not the node table: a clause names
    * columns of the table it is judged against, and this clause's predicate is
    * "both ends are in the set" over the EDGES table. The node table is
    * reached from there, through the relation the endpoint declares.
    */
-  | { readonly verb: 'select'; readonly viewId: string; readonly field: string; readonly seed: unknown; readonly cause: Cause; readonly correlationId?: string; readonly asOf?: string }
+  | {
+      readonly verb: 'select';
+      readonly viewId: string;
+      readonly field: string;
+      readonly seed: unknown;
+      /** WHICH WALK to run from the seed ({@link WalkAsk}) — absent = one hop of ego, the walk that existed before the other two. */
+      readonly walk?: WalkAsk;
+      readonly cause: Cause;
+      readonly correlationId?: string;
+      readonly asOf?: string;
+    }
   /** Layer 4: `asOf` names the offer (from whats_here.offers) an act answers; a stale one is refused by naming the current one. */
   | { readonly verb: 'filter'; readonly viewId: string; readonly field: string; readonly range: FilterRange; readonly cause: Cause; readonly correlationId?: string; readonly asOf?: string }
   | { readonly verb: 'annotate'; readonly target: string; readonly note: string; readonly cause: Cause }
@@ -849,7 +880,8 @@ export interface SelectionInfo {
    * For kind:'cell': the two-sided pair `[x side, y side]`; for kind:'match':
    * the `MatchValue` (values + polarity); for kind:'neighbourhood': the walked
    * ids — the ANSWER a live clause carries. The QUESTION that produced them
-   * (seed, derivation, hops) rides the COMMIT, which `commitId` names.
+   * (seed, derivation, hops, and a path's `to`) rides the COMMIT, which
+   * `commitId` names.
    */
   readonly value: unknown;
   /** The two-column kinds only — a cell's x side then y side, a neighbourhood's two endpoint columns. */

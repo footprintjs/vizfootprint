@@ -141,6 +141,9 @@ export function walkedChipsOf(surface: DemoSurface): readonly FeatureChip[] {
   return [
     ...of('verb', landedVerbsOf(walked), 'a commit on this trace lands only this verb'),
     ...of('selection', walked.selectionKinds, 'a selection of this kind landed on a real view'),
+    // WHICH walk somebody ran, beside the fact that they walked: a trace whose whole story is one
+    // path between two nodes says "walked · path" rather than only "walked · neighbourhood"
+    ...of('walk', walked.walkDerivations, 'a walk of this derivation landed on a real view'),
     ...of('trace', branchedOf(walked), 'the trace holds more than one lane — somebody acted while looking at the past'),
     ...of('trace', agentActedOf(walked), "a commit's own cause names the agent, which is the only thing that can"),
   ];
