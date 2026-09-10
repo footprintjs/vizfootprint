@@ -1,31 +1,31 @@
-node v22.16.0 · darwin arm64 · 2026-09-10T10:57:35.486Z
+node v22.16.0 · darwin arm64 · 2026-09-10T11:42:43.469Z
 
 **Unit: UTF-8 bytes.** Tokens NOT counted (not requested — run with --tokens to count real tokens).
 
 ### 1 · menu — the fixed cost paid every turn
 
-Whole menu: **21,155 bytes**, 9 tools. Byte-stability: **HOLDS** — byte-identical across all three shapes and across a session that acted — the documented claim holds
+Whole menu: **21,830 bytes**, 9 tools. Byte-stability: **HOLDS** — byte-identical across all three shapes and across a session that acted — the documented claim holds
 
 | tool | shape | bytes | of which description | of which schema |
 |---|---|---:|---:|---:|
 | `viz.whats_here` | any (shape-independent) | 2,516 | 1,483 | 978 |
 | `viz.dispatch` | any (shape-independent) | 12,077 | 3,055 | 8,969 |
 | `viz.declare_analysis` | any (shape-independent) | 645 | 312 | 272 |
-| `viz.why` | any (shape-independent) | 599 | 354 | 197 |
+| `viz.why` | any (shape-independent) | 1,274 | 883 | 343 |
 | `viz.fork` | any (shape-independent) | 799 | 469 | 281 |
 | `viz.bookmark` | any (shape-independent) | 518 | 200 | 265 |
 | `viz.paths` | any (shape-independent) | 1,926 | 1,038 | 838 |
 | `viz.compare` | any (shape-independent) | 612 | 320 | 240 |
 | `viz.propose_chart` | any (shape-independent) | 1,453 | 857 | 538 |
-| **total** | any (shape-independent) | **21,155** | | |
+| **total** | any (shape-independent) | **21,830** | | |
 
 ### 2 · whats_here — the per-call answer
 
 | shape | views | table cols | link edges | analyses | prose slots | whats_here bytes | × the menu |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| small | 3 | 8 | 12 | 2 | 1 | 9,971 | 0.47× |
-| realistic | 9 | 30 | 132 | 6 | 3 | 48,668 | 2.30× |
-| large | 20 | 80 | 674 | 12 | 5 | 193,389 | 9.14× |
+| small | 3 | 8 | 12 | 2 | 1 | 9,971 | 0.46× |
+| realistic | 9 | 30 | 132 | 6 | 3 | 48,668 | 2.23× |
+| large | 20 | 80 | 674 | 12 | 5 | 193,389 | 8.86× |
 
 ### 3 · composition — where the answer's bytes go
 
