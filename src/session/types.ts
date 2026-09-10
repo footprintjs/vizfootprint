@@ -1005,6 +1005,30 @@ export interface ReachingClause {
   /** The clause as the consumer sees it — the edge's field mapping already applied. */
   readonly clause: PredicateClause;
   readonly response: LinkResponse;
+  /**
+   * Present exactly when the clause REACHED this consumer and the table it
+   * reads could not judge it: the column that table lacks, and the sentence
+   * saying so (`unjudgeableWords`). Such a clause filtered NOTHING — it is
+   * still listed, because omitting a clause silently would make the read look
+   * like a clause nobody sent (law 3: omit, never deny). Absent = it was
+   * judged, which is every clause on a table that carries its columns.
+   */
+  readonly narrowed?: {
+    readonly column: string;
+    readonly reason: string;
+  };
+  /**
+   * The edge's mapping entries that actually RENAMED one of this clause's
+   * fields (`from !== to`) — the author naming a landing column, as opposed to
+   * a field that reached unchanged (the crossfilter default, or an identity
+   * pair). Read by the view-query door alone: when `narrowed.column` is one of
+   * these `to` names, the miss is an AIM that missed — an author error, not a
+   * coincidence to omit quietly — and the door refuses the read by name
+   * instead of narrowing it away (`unjudgeableColumn`'s narrowing stays the
+   * law for every clause that arrived unaimed). Absent = no mapping touched
+   * this clause's fields.
+   */
+  readonly mappedFields?: readonly FieldMapping[];
 }
 
 /**

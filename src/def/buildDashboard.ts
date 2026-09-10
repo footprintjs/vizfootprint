@@ -65,6 +65,7 @@ import {
 import { COMMIT_ID_PREFIX, PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, raiseMinted, restoredRecordId } from './recordIds.js';
 import { defRevision } from './revision.js';
 import { layerLinkViewOf, layerSurfaceOf } from './layers.js';
+import { tableReachOf } from './tableReach.js';
 import { createInteractionSession, type InteractionSession } from '../session/session.js';
 import type { SessionOptions } from '../session/types.js';
 import { EMISSION_KINDS, materializeLinks, voiceOf } from '../links/index.js';
@@ -984,12 +985,15 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
   const linkViews = [...views.values()].map((v) => ({
     viewId: v.viewId,
     voice: voiceOf(v.capability, { hasEncodingSurface: v.encoding !== undefined }),
+    // a layerless view draws the DEFAULT table — the rows the reach law judges an edge into it against
+    table: defaultTable,
     ...(v.encoding !== undefined ? { channels: v.encoding.channels } : {}),
     ...(v.grain !== undefined ? { grain: v.grain } : {}),
   }));
   const voiceByView = new Map(linkViews.map((lv) => [lv.viewId, lv.voice] as const)); // read once per layer: the voice is already computed, never re-derived
   const layerViews = [...views.values()].flatMap((v) => (v.layers ?? []).map((layer) => layerLinkViewOf(v.viewId, layer, voiceByView.get(v.viewId)!)));
-  const links = materializeLinks([...linkViews, ...layerViews], def.links ?? [], def.linkDefault ?? 'crossfilter');
+  // the reach law's evidence, read off the def ONCE by the owner both doors share (./tableReach.ts)
+  const links = materializeLinks([...linkViews, ...layerViews], def.links ?? [], def.linkDefault ?? 'crossfilter', tableReachOf(def));
 
   const runtime: DashboardRuntime = {
     def,

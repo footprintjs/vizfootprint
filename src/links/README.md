@@ -34,6 +34,73 @@ Four laws, stated once here:
   navigate. (The pass itself lives in the consumer: the ui adapter's
   `selectionForView` reads `edgesInto(target)`.)
 
+**A default edge is a promise the engine can keep (enforced).** The
+`crossfilter` default may only mint an edge whose clause could *reach* the
+target's table. An edge carries a sentence about the source's columns to the
+target's **rows**, so two views over tables that no declared relation joins and
+that share no column name cannot filter one another — the edge would be a
+promise nothing can keep, and an engine asked to judge `radii = 4.5` against a
+table with no `radii` refuses the *whole* read.
+
+`reach.ts` is the one owner. `tablesCanReach(source, target, reach)` answers
+`true` on the three grounds — one table judges its own sentences, a declared
+relation is a permission to read across, one shared column name is a sentence
+both sides hear — and `true` on **every kind of ignorance**: no reach handed in,
+a view whose table is unstated, a table whose columns nothing declares. It only
+ever removes an edge it can *prove* is unkeepable (the `grain.ts` rule: refuse
+on evidence, never on ignorance).
+
+```ts
+// two views over tables nothing joins: the default mints no edge, and says why
+const g = materializeLinks([hist, scatter], [], 'crossfilter', tableReachOf(def));
+g.edges;    // []
+g.declined; // [{ id: 'hist:point→scatter', source: 'hist', kind: 'point', target: 'scatter', reason: 'view "hist" draws table "radii_per_planet" and view "scatter" draws table "measurements" — no relation joins those tables and they share no column, so nothing this edge carries could be judged there' }]
+```
+
+**A declined edge is a fact, not a silence.** "Declared === drawn" cuts both
+ways: a reader who counts the default's n² edges and finds fewer is owed the
+reason, so every declined edge is recorded on the graph (`LinkGraph.declined`)
+and `linksToMermaid` writes each as a note beside the graph it drew. The key is
+absent when nothing was declined, so a graph judged by no reach is byte-identical
+to one built before this law.
+
+**A DECLARED edge is the author's claim, and the door judges it separately.**
+`links: [{ source, kind, target, response: 'filter' }]` between two such views is
+refused by name, in the same sentence, with its remedies:
+
+```
+links[0]: view "hist" draws table "radii_per_planet" and view "scatter" draws table "measurements" — no relation joins those tables and they share no column, so nothing this edge carries could be judged there. Declare a relation between the tables, map the field to one the target has, or write response: 'none'
+```
+
+Judged for `filter` **alone**. `filter` is the one response that makes an
+*engine* judge the source's sentence against the target's rows, so an
+unjudgeable filter is a read that would have failed; `highlight` and `mirror`
+are drawn, not queried, and an unjudgeable one dims nothing.
+
+**Two grounds, never both judged on one edge.** With no `mapping`, the tables'
+own reach decides — a declared relation, or a shared column name
+(`tablesCanReach`, above). With a `mapping`, the author has *named* the landing
+column by hand, which voids the shared-column-name evidence entirely (two
+unrelated tables may still be joined by an aimed mapping) — but the name itself
+is now evidence of its own, and `unmappedColumn` judges *that* instead: a
+mapping onto a column the target does not have is refused by name too —
+
+```
+links[0]: table "nodes" has no column "bogus" — the link from edges maps weight → bogus. Name a column the table has, or write response: 'none'
+```
+
+(An earlier cut of this door skipped the mapped case entirely — trusting any
+mapping to be self-evidently correct — so a mapped-but-wrong edge was caught
+nowhere; review found it and this is the fix, `unmappedColumn`/
+`unmappedColumnWords`.)
+
+Where the rule is **not** knowable at declaration — a table that declares no
+columns, or a field that depends on the gesture — the runtime half catches it:
+`../session/README.md`, "A clause a table cannot judge". There, the two
+grounds split again: an unmapped miss is *narrowed* (omitted, reported, the
+read survives); a mapped miss still **refuses** the read, because an author's
+aim that misses is an error, not a coincidence to omit quietly.
+
 **Grain and fold (enforced).** A view may declare its GRAIN on the def
 (`grains: [{ viewId, keys }]`): the group keys its marks stand for, `[]` for one
 mark per row. An edge whose source emits over an aggregate (a non-empty grain)
@@ -97,12 +164,16 @@ frame, so "shares a frame" is "is the same node".
 
 **Edited at run time — the `link` verb.** A person (the matrix) or the agent
 (`dispatch` with `verb: 'link'`) lands one edge as a commit: `{ source, kind,
-target, response, mapping? }`. It is validated exactly like a declared edge,
-folds last-wins per edge id (`link:<edgeId>` in the log), overrides the base
-edge in place with origin `edited`, and rides undo, bring-over and time travel
-like every act. `response: null` un-declares the edit: the edge falls back to
-the def's rule (a cleared interval's shape). `applyLinkOverrides(base,
-overrides)` is the fold.
+target, response, mapping? }`. It is validated exactly like a declared edge —
+the SAME reach-law refusal included (`InteractionSessionImpl.doLink` reads
+`tableReachOf(this.runtime.def)` off the running def, the ONE reader both
+doors already shared; review found this call omitted `reach` and fixed it,
+since a promise "the same refusals a declared edge gets" that only held for
+half of them was worse than making none) — folds last-wins per edge id
+(`link:<edgeId>` in the log), overrides the base edge in place with origin
+`edited`, and rides undo, bring-over and time travel like every act.
+`response: null` un-declares the edit: the edge falls back to the def's rule (a
+cleared interval's shape). `applyLinkOverrides(base, overrides)` is the fold.
 
 ## The encoding kind — one chart follows another's bindings
 

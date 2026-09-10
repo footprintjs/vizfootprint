@@ -22,8 +22,8 @@ const EDGES = layerLinkViewOf('net', { layerId: 'edges', table: 'edges', chartKi
 const BAR: LinkView = { viewId: 'bar', voice: ['point', 'match'] };
 
 describe('layers — nodes of the link graph', () => {
-  it('a layer node speaks its view voice minus encoding, under its address', () => {
-    expect(NODES).toEqual({ viewId: layerAddress('net', 'nodes'), voice: ['point', 'interval', 'cell', 'match'] });
+  it('a layer node speaks its view voice minus encoding, under its address — and carries its own TABLE, which the reach law judges edges by', () => {
+    expect(NODES).toEqual({ viewId: layerAddress('net', 'nodes'), voice: ['point', 'interval', 'cell', 'match'], table: 'nodes' });
     expect(NODES).not.toHaveProperty('channels');
   });
 

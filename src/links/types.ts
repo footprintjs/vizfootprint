@@ -98,10 +98,36 @@ export interface LinkEdge extends LinkDecl {
 export interface LinkView {
   readonly viewId: string;
   readonly voice: readonly LinkKind[];
+  /**
+   * The TABLE this node draws — a layer's own, or the dashboard's default table
+   * for a plain view. Absent = unstated, and then never judged (`./reach.ts`).
+   * Read by the reach law: an edge carries a sentence about the source's
+   * columns to the target's ROWS, so which rows those are is the first thing
+   * the law needs.
+   */
+  readonly table?: string;
   /** The channels the view's encoding surface declares — present exactly when it has one (so an encoding edge can be judged). */
   readonly channels?: readonly string[];
   /** The GRAIN: the group keys the view's marks stand for ([] = one mark per row); absent = unknown, never judged. */
   readonly grain?: readonly string[];
+}
+
+/**
+ * A default edge the reach law DECLINED to mint, and why (`./reach.ts`).
+ *
+ * WHY it is recorded and not merely absent: "declared === drawn" is the law of
+ * this package, and a reader of the map who counts n² edges and finds fewer is
+ * owed the reason. An absent edge is a silence; a DECLINED one is a fact, and
+ * `linksToMermaid` writes each as a note beside the graph it drew.
+ */
+export interface DeclinedEdge {
+  /** `${source}:${kind}→${target}` — the id the edge WOULD have had. */
+  readonly id: string;
+  readonly source: string;
+  readonly kind: LinkKind;
+  readonly target: string;
+  /** The sentence: `unreachableWords(source, target)`. */
+  readonly reason: string;
 }
 
 /** The materialized graph the session serves and the cockpit draws. */
@@ -109,6 +135,12 @@ export interface LinkGraph {
   readonly default: LinkDefault;
   readonly views: readonly LinkView[];
   readonly edges: readonly LinkEdge[];
+  /**
+   * The default edges the reach law declined, each with its reason. Absent =
+   * none were (which is every graph materialized with no `TableReach` to judge
+   * by) — so a graph built before this law is byte-identical.
+   */
+  readonly declined?: readonly DeclinedEdge[];
 }
 
 /** The id every replica of the wire uses for an edge. */

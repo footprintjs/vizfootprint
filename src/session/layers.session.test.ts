@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildDashboard, LAYER_MARKER, layerAddress } from '../def/index.js';
 import type { DashboardDef } from '../def/index.js';
-import { EDGES, NODES, makeNetworkDef, nodesLayer } from '../def/network.fixture.js';
+import { EDGES, NETWORK_RELATIONS, NODES, makeNetworkDef, nodesLayer } from '../def/network.fixture.js';
 import { makeDashboardDef } from './dashboard.fixture.js';
 import { RESERVED_ID_MARKER } from './namespaces.js';
 import type { Cause } from '../cause/index.js';
@@ -83,7 +83,13 @@ describe('layers — an address is a viewId, gated on the layer table', () => {
     expect(silent.clausesFor(EDGES_ADDRESS)).toEqual([]);
     expect(silent.clausesFor('net')).toEqual([]);
     expect((await silent.overview()).links.edges).toEqual([]);
-    const linked = fresh({ links: [{ source: NODES_ADDRESS, kind: 'point', target: EDGES_ADDRESS, response: 'highlight' }] });
+    // REVIEW OF PACKET N: the runtime `link` verb now gets the same reach-law
+    // door a DECLARED edge gets (`InteractionSessionImpl.doLink`, a gap the
+    // packet left open — see `reach.test.ts`'s "the DEF door speaks it" for the
+    // identical nodes/edges edge, refused with no relation declared). `nodes`
+    // and `edges` are joined in the domain (an edge names its ends' node ids),
+    // so the fixture states that relation, exactly as the def door requires.
+    const linked = fresh({ relations: NETWORK_RELATIONS, links: [{ source: NODES_ADDRESS, kind: 'point', target: EDGES_ADDRESS, response: 'highlight' }] });
     await linked.dispatch({ verb: 'select', viewId: NODES_ADDRESS, field: 'group', value: 'viral', cause: userCause() });
     expect(linked.clausesFor(EDGES_ADDRESS)).toEqual([{ from: NODES_ADDRESS, response: 'highlight', clause: { kind: 'point', field: 'group', value: 'viral' } }]);
     expect(linked.clausesFor('net')).toEqual([]);

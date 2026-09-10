@@ -420,7 +420,9 @@ function declaredFacet(data: unknown, table: string | undefined, field: string):
  * "declares no encoding surface" sentences; a grain is a view's, judged there.
  */
 export function layerLinkViewOf(viewId: string, layer: LayerDecl, voice: LinkView['voice']): LinkView {
-  return { viewId: layerAddress(viewId, layer.layerId), voice: voice.filter((k) => k !== ENCODING_KIND) };
+  // the layer's own TABLE rides the node: it is the rows every edge into this
+  // address lands on, and the reach law (`../links/reach.ts`) asks for it first
+  return { viewId: layerAddress(viewId, layer.layerId), voice: voice.filter((k) => k !== ENCODING_KIND), table: layer.table };
 }
 
 /** The link-graph nodes of every well-formed layer on `encodings` (the door's twin of `layerSurfacesOf`), each with its view's voice. */

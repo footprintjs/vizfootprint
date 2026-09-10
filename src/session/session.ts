@@ -55,13 +55,14 @@ import { judgeAnalysisReads, neighbourhoodEndpoints } from '../def/relations.js'
 import { walkNeighbourhood, walkRefusal } from './neighbourhood.js';
 import { isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
-import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchValue, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
+import { canNameSlot, cellFieldLabel, derivedColumnName, isPairKind, isRejection, mintDerivedTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchValue, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
-import { applyLinkOverrides, edgeId, impliedKinds, validateLinks, type LinkDecl } from '../links/index.js';
+import { applyLinkOverrides, edgeId, impliedKinds, unmappedColumnWords, validateLinks, type LinkDecl } from '../links/index.js';
 
 import type { ActorMeta, CauseClause } from '../selection/index.js';
 import { absenceByTable, mintedTables, type AggregateDecl, type BuiltinAnalysisContext } from '../def/builtinAnalyses.js';
 import { registerAnalysisSlot } from '../def/register.js';
+import { tableReachOf } from '../def/tableReach.js';
 import { copyValue, deepFreeze } from '../detach/index.js';
 import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RelationEdge, RestorableSaved, RestorableBookmark, RestoreResult, ViewEncodingDecl, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
 import { describeRules, refuses, validateBindings } from '../encoding/index.js';
@@ -71,7 +72,7 @@ import type { ProseProposal, ProseRecord, ProseSlot, ProseStatus, ProposalStatus
 import type { LinkGraph } from '../links/index.js';
 import type { Bindings, EncodingProblem, Fit } from '../encoding/index.js';
 import { GapLedger, messageOf } from './gapLedger.js';
-import { clausesReaching, mappingsInto } from './clausesReaching.js';
+import { clausesReaching, mappingsInto, narrowToJudgeable, unjudgeableColumn } from './clausesReaching.js';
 import { tablesInfoOf } from './tablesInfo.js';
 import { stampCause } from './stampCause.js';
 import { layerBindingsOf, layerInfosOf, metaOf, placeOf, surfaceOf, surfacedAddressesOf, tableOf, type Place } from './layers.js';
@@ -555,9 +556,16 @@ interface ViewReach {
   readonly version: string | null;
   /** Whether the ask carries a real order — the one place that judges it, so two doors cannot disagree about what "no sort" is. */
   readonly sorted: boolean;
-  /** Every clause that reached the consumer, with its response — what a window reports back. */
+  /**
+   * The table's columns AT THE CURSOR, read ONCE here — or the engine's
+   * refusal. WHY it rides the reach: the narrowing law below is judged against
+   * this reading, and both read doors project their window from it, so a
+   * second read could describe a table the clauses were never judged against.
+   */
+  readonly columns: readonly ColumnInfo[] | ReadRefusal;
+  /** Every clause that reached the consumer, with its response — narrowed ones carrying their reason (law 3). */
   readonly clauses: readonly ReachingClause[];
-  /** Just the ones that RESTRICT the rows, as the engine takes them. */
+  /** Just the ones that RESTRICT the rows, as the engine takes them — a narrowed clause restricts nothing. */
   readonly filters: readonly PredicateClause[];
   /** The declared (or act-minted) row key, when the table has one. */
   readonly key?: string;
@@ -2000,8 +2008,19 @@ class InteractionSessionImpl implements InteractionSession {
    * clause names ITS table's columns — applied to another it would be an
    * unknown column, not a filter.
    */
-  private clausesOn(table: string): PredicateClause[] {
-    return [...this.activeFilters].filter(([from]) => this.clauseReaches(from, table)).map(([, clause]) => clause);
+  private async clausesOn(table: string): Promise<PredicateClause[]> {
+    const reaching = [...this.activeFilters].filter(([from]) => this.clauseReaches(from, table)).map(([, clause]) => clause);
+    if (reaching.length === 0) return reaching; // nothing to judge, so nothing to ask the table about
+    // LAW 2, from the ONE owner (`./clausesReaching.ts` · `unjudgeableColumn`): a
+    // clause naming a column this table does not have is not a claim about these
+    // rows, and handing it to an engine refuses the WHOLE read.
+    const cols = await this.effectiveColumnsOf(table);
+    // a table an engine could not DESCRIBE proves nothing about what it lacks, so
+    // nothing is narrowed on that ignorance — the read that follows files the
+    // authoritative `needs-backend-data` refusal for the same failure.
+    if ('rejected' in cols) return reaching;
+    const names = new Set(cols.map((c) => c.name));
+    return reaching.filter((c) => unjudgeableColumn(c, names) === undefined);
   }
 
   /** THE per-table rule itself, named once: a view's clause reaches every table; a LAYER's reaches only its own. */
@@ -2034,7 +2053,7 @@ class InteractionSessionImpl implements InteractionSession {
    * projection called by `overview()` must not spam the ledger).
    */
   async selectedRows(table = this.defaultTable): Promise<readonly Row[]> {
-    const rows = await this.allRows(table, this.clausesOn(table));
+    const rows = await this.allRows(table, await this.clausesOn(table));
     return 'rejected' in rows ? [] : rows;
   }
 
@@ -2057,7 +2076,7 @@ class InteractionSessionImpl implements InteractionSession {
    * The refusal it returns is a `ViewQueryResult`'s — every word of it is in
    * `FindInViewResult`'s vocabulary too, so a find can hand it straight back.
    */
-  private viewClauses(query: { readonly table?: string; readonly viewId?: string | null; readonly sort?: readonly SortSpec[] }): ViewReach | ViewReachRefused {
+  private async viewClauses(query: { readonly table?: string; readonly viewId?: string | null; readonly sort?: readonly SortSpec[] }): Promise<ViewReach | ViewReachRefused> {
     // a layer address defaults to the layer's own table — the window a layer draws is a window on what it reads.
     // `viewId: null` names no consumer at all, so it defaults the table the same way an absent one does.
     const table = query.table ?? (query.viewId === undefined || query.viewId === null ? this.defaultTable : this.tableFor(query.viewId));
@@ -2090,20 +2109,52 @@ class InteractionSessionImpl implements InteractionSession {
         : query.viewId === undefined
           ? [...this.activeFilters].filter(([from]) => this.clauseReaches(from, table)).map(([from, clause]) => ({ from, clause: copyClause(clause), response: 'filter' as const }))
           : [...this.clausesFor(query.viewId)];
-    const filters = clauses.filter((c) => c.response === 'filter').map((c) => c.clause);
+    // LAW 2 AT THE READ DOOR, from the ONE owner (`./clausesReaching.ts`): a
+    // clause this table cannot judge filtered nothing, and is REPORTED with its
+    // reason rather than dropped (law 3 — `ReachingClause.narrowed`). It is
+    // applied here and not in `clausesFor`, because `clausesFor` answers what
+    // the GRAPH sends (a pure function of the graph and the fold) while
+    // judgeability is a fact about the TABLE that only an engine can state.
+    // Both read doors take it from here, so a window and a find can never
+    // disagree about which clauses shaped the rows they answered with.
+    const columns = await this.effectiveColumnsOf(table);
+    // an engine that could not DESCRIBE the table proves nothing about what it
+    // lacks: nothing is narrowed on that ignorance, and the door below refuses
+    // the read by name instead.
+    const judged = 'rejected' in columns ? clauses : narrowToJudgeable(clauses, table, new Set(columns.map((c) => c.name)));
+    // AN AIM THAT MISSED IS NOT AN ACCIDENT: a clause narrowed on a column an
+    // edge's MAPPING named by hand (`ReachingClause.mappedFields`) is an author
+    // error — the def door already refuses this by name wherever the target's
+    // columns are declared (`../links/validate.ts`), but a mapping onto a
+    // column only known once the table is BUILT (no static `columns`, an
+    // act-minted table) is not knowable there, and used to refuse the whole
+    // window until this packet started narrowing every miss alike. Restoring
+    // the refusal HERE (and only here — `clausesOn`'s narrowing stays
+    // universal, since it is what stops one bad edge from taking down
+    // `overview`/`selectedRows` on every unrelated table) keeps that promise
+    // for the one read the broken edge actually targets.
+    for (const c of judged) {
+      if (c.narrowed === undefined) continue;
+      const column = c.narrowed.column; // captured outside the closure below, so no clause reads `c.narrowed!` twice to satisfy it
+      const bad = c.mappedFields?.find((m) => m.to === column);
+      if (bad === undefined) continue; // narrowed, but unaimed — law 2/3's ordinary narrowing stands
+      // the ONE sentence a mapped miss is refused in, whichever door catches it (`../links/reach.ts`)
+      return { ok: false, reason: 'engine', engineReason: 'unknown-column', rejected: unmappedColumnWords(c.from, table, bad) };
+    }
+    const filters = judged.filter((c) => c.response === 'filter' && c.narrowed === undefined).map((c) => c.clause);
     const key = this.keyOf(table); // the table is readable here: it has a def row or an act's minted key
-    return { ok: true, table, provider, version, sorted, clauses, filters, ...(key !== undefined ? { key } : {}) };
+    return { ok: true, table, provider, version, sorted, columns, clauses: judged, filters, ...(key !== undefined ? { key } : {}) };
   }
 
   async viewQuery(query: ViewQuery = {}): Promise<ViewQueryResult> {
-    const reach = this.viewClauses(query);
+    const reach = await this.viewClauses(query);
     if (!reach.ok) return reach;
     const { table, provider, version, sorted, clauses, filters, key } = reach;
     let columns = query.columns;
     if (columns === undefined) {
-      const cols = await this.effectiveColumnsOf(table);
-      if ('rejected' in cols) return { ok: false, reason: 'no-columns', rejected: cols.rejected };
-      columns = cols.map((c) => c.name);
+      // the SAME reading the clauses were judged against (`ViewReach.columns`) — never a second one
+      if ('rejected' in reach.columns) return { ok: false, reason: 'no-columns', rejected: reach.columns.rejected };
+      columns = reach.columns.map((c) => c.name);
     }
     if (key !== undefined && !columns.includes(key)) columns = [...columns, key]; // identity rides every window
     const cursor = this._cursor;
@@ -2144,7 +2195,7 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   async findInView(query: FindQuery): Promise<FindInViewResult> {
-    const reach = this.viewClauses(query);
+    const reach = await this.viewClauses(query);
     if (!reach.ok) return reach;
     const { table, provider, version, sorted, filters, key } = reach;
     // A find is ONE NEW QUESTION ON THE PORT, and not every engine answers it:
@@ -2161,9 +2212,9 @@ class InteractionSessionImpl implements InteractionSession {
     // is searchable as its digits, but only when it is NAMED)
     let columns = query.columns;
     if (columns === undefined) {
-      const cols = await this.effectiveColumnsOf(table);
-      if ('rejected' in cols) return { ok: false, reason: 'no-columns', rejected: cols.rejected };
-      columns = cols.filter((c) => c.type === 'string').map((c) => c.name);
+      // the SAME reading the clauses were judged against (`ViewReach.columns`) — never a second one
+      if ('rejected' in reach.columns) return { ok: false, reason: 'no-columns', rejected: reach.columns.rejected };
+      columns = reach.columns.filter((c) => c.type === 'string').map((c) => c.name);
     }
     if (columns.length === 0) {
       return { ok: false, reason: 'no-columns', rejected: `no text column to look in on table "${table}" — name the columns to search` };
@@ -2541,7 +2592,7 @@ class InteractionSessionImpl implements InteractionSession {
     // The selection is the clauses that REACH this table (`clausesOn`), the rule every other own-table
     // read keeps: a layer's clause on another table names columns this table has not, and a provider
     // handed one refuses the read — reported as a degenerate fit, a claim about the data.
-    const rows = await this.allRows(table, producesColumns ? [] : this.clausesOn(table));
+    const rows = await this.allRows(table, producesColumns ? [] : await this.clausesOn(table));
     if ('rejected' in rows) return rows;
     const beside = await this.resolveRelatedRows(reads);
     if ('rejected' in beside) return beside;
@@ -2569,7 +2620,7 @@ class InteractionSessionImpl implements InteractionSession {
     if (reads.length === 0) return { related: NO_RELATED_ROWS };
     const related: Record<string, readonly Row[]> = {};
     for (const table of reads) {
-      const rows = await this.allRows(table, this.clausesOn(table));
+      const rows = await this.allRows(table, await this.clausesOn(table));
       // the refusal is carried WHOLE and only its sentence widened — the engine's own
       // rejection is what tells UNAVAILABLE from a judge's answer, and it is not this
       // door's to drop just because it is quoting the read one table along
@@ -2669,7 +2720,12 @@ class InteractionSessionImpl implements InteractionSession {
     // the same refusals a declared edge gets, in the same sentences (the response may be null = un-declare)
     const problems: string[] = [];
     const probe: LinkDecl = { source, kind, target, response: response ?? 'none', ...(mapping !== undefined ? { mapping } : {}), ...(channels !== undefined ? { channels } : {}), ...(onClear !== undefined ? { onClear } : {}), ...(fold !== undefined ? { fold } : {}) };
-    validateLinks([probe], undefined, this.runtime.links.views, problems);
+    // review finding: this call used to omit `reach`, so a runtime `link` dispatch
+    // never got the reach-law refusal the SAME edge gets from the def door
+    // (`validateDashboardDef`) — the "same sentences" the comment above promises
+    // required it. Read off `this.runtime.def` (the ONE reader both doors share,
+    // `../def/tableReach.ts`), not a second derivation.
+    validateLinks([probe], undefined, this.runtime.links.views, problems, tableReachOf(this.runtime.def));
     if (problems.length > 0) {
       return this.reject('link', intent, this.gapLedger.file('guard-failed', 'link', problems.map((p) => p.replace(/^links\[0\]/, `link ${id}`)).join('; '), id));
     }
@@ -3034,17 +3090,13 @@ class InteractionSessionImpl implements InteractionSession {
       // under the last walk would answer about the ego net it left behind, which
       // is not what anybody clicked on.
       const own = this.activeFilters.get(viewId);
-      // WHY the clauses are narrowed to the JUDGEABLE ones: a clause reaching
-      // this table may name a column another table carries (a view's clause
-      // reaches EVERY table — `clauseReaches`), and an engine asked to judge
-      // `disease = "Measles"` against an edges table with no such column
-      // refuses the whole read — so one selection anywhere else on the
-      // dashboard would make every walk impossible. A sentence about a column
-      // these rows do not have is not a claim about these rows. `cols` is the
-      // same reading of the table the endpoint check above was made against,
-      // so the guard and the walk never disagree about what this table has.
-      const names = new Set(cols.map((c) => c.name));
-      const here = this.clausesOn(table).filter((c) => c !== own && clauseFields(c).every((f) => names.has(f)));
+      // The walk reads under `clausesOn`, which NARROWS to the clauses this table
+      // can judge (`./clausesReaching.ts` · `unjudgeableColumn`) — the law this
+      // probe used to keep a private copy of, and now shares with every other
+      // read. It judges against the same `effectiveColumnsOf` reading the
+      // endpoint check above was made against, so the guard and the walk cannot
+      // disagree about what this table has.
+      const here = (await this.clausesOn(table)).filter((c) => c !== own);
       const rows = await this.allRows(table, here);
       if ('rejected' in rows) {
         return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, rows.rejected, field));
@@ -4741,7 +4793,7 @@ class InteractionSessionImpl implements InteractionSession {
 
   // ── the whats_here projection ────────────────────────────────────────────────
   async overview(): Promise<Overview> {
-    const selCount = await this.selectedCount(this.defaultTable, this.clausesOn(this.defaultTable)); // a layer's clause on another table is that table's, not this count's
+    const selCount = await this.selectedCount(this.defaultTable, await this.clausesOn(this.defaultTable)); // a layer's clause on another table is that table's, not this count's
 
     // columns per table (schema only — VALUES never ride here; Q8).
     const columns: Record<string, ColumnFacet[]> = {};

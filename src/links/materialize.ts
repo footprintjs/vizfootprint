@@ -9,8 +9,9 @@
  * IN PLACE — so a declared edge keeps the position the default gave it, and
  * declared edges with no default counterpart append in declaration order.
  */
-import { ENCODING_KIND, edgeId, type ChannelPair, type LinkDecl, type LinkDefault, type LinkEdge, type LinkGraph, type LinkView } from './types.js';
+import { ENCODING_KIND, edgeId, type ChannelPair, type DeclinedEdge, type LinkDecl, type LinkDefault, type LinkEdge, type LinkGraph, type LinkView } from './types.js';
 import { DEFAULT_FOLD, crossesGrain } from './grain.js';
+import { unreachableWords, viewsCanReach, type TableReach } from './reach.js';
 import { deepFreeze } from '../detach/index.js';
 import { splitLayerAddress } from '../def/layerAddress.js';
 
@@ -39,14 +40,30 @@ function sharesFrame(a: string, b: string): boolean {
   return splitLayerAddress(a).viewId === splitLayerAddress(b).viewId;
 }
 
-export function materializeLinks(views: readonly LinkView[], declared: readonly LinkDecl[] = [], defaultRule: LinkDefault = 'crossfilter'): LinkGraph {
+/**
+ * @param reach - What the TABLES say about reaching one another (`./reach.ts`).
+ *   Handed in rather than read off a def, because this package knows nothing
+ *   about definitions. Omitted = nothing is judged, and the default rule mints
+ *   the full n² it always did.
+ */
+export function materializeLinks(views: readonly LinkView[], declared: readonly LinkDecl[] = [], defaultRule: LinkDefault = 'crossfilter', reach?: TableReach): LinkGraph {
   const edges: LinkEdge[] = [];
+  const declined: DeclinedEdge[] = [];
   if (defaultRule === 'crossfilter') {
     for (const source of views) {
       for (const kind of source.voice) {
         if (kind === ENCODING_KIND) continue; // no default encoding edge: absent is a silence (law 1, amended)
         for (const target of views) {
           if (sharesFrame(source.viewId, target.viewId)) continue; // self excluded — the one cycle-breaker; and a frame's layers, which are one place
+          // A DEFAULT EDGE IS A PROMISE THE ENGINE CAN KEEP: the rule may only
+          // mint an edge whose clause could be judged where it lands. Two views
+          // over tables no relation joins and no column shares cannot filter one
+          // another, and minting the edge anyway hands the target a sentence
+          // about columns it does not have. The refusal is RECORDED, not silent.
+          if (!viewsCanReach(source, target, reach)) {
+            declined.push({ id: edgeId(source.viewId, kind, target.viewId), source: source.viewId, kind, target: target.viewId, reason: unreachableWords(source, target) });
+            continue;
+          }
           edges.push({
             id: edgeId(source.viewId, kind, target.viewId),
             source: source.viewId,
@@ -72,7 +89,8 @@ export function materializeLinks(views: readonly LinkView[], declared: readonly 
   // it (rather than copying it on every read) is what lets `applyLinkOverrides`
   // hand back this very object when there is nothing to lay over it: a
   // reference to something nobody can change is a safe thing to hand a reader.
-  return deepFreeze({ default: defaultRule, views, edges });
+  // `declined` is absent when the reach law refused nothing, so a graph judged by no reach is byte-identical to one built before this law
+  return deepFreeze({ default: defaultRule, views, edges, ...(declined.length > 0 ? { declined } : {}) });
 }
 
 /**

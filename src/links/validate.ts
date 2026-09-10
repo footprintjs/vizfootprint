@@ -6,14 +6,22 @@
  * aggregate the target does not show must state its `fold` — judged only when
  * both views declare a grain (see grain.ts).
  */
-import { ENCODING_KIND, ENCODING_RESPONSES, LINK_DEFAULTS, LINK_KINDS, LINK_ON_CLEAR, LINK_RESPONSES, edgeId, type LinkKind, type LinkView } from './types.js';
+import { ENCODING_KIND, ENCODING_RESPONSES, LINK_DEFAULTS, LINK_KINDS, LINK_ON_CLEAR, LINK_RESPONSES, edgeId, type FieldMapping, type LinkKind, type LinkView } from './types.js';
 import { crossesGrain, grainWords } from './grain.js';
+import { unmappedColumn, unmappedColumnWords, unreachableWords, viewsCanReach, type TableReach } from './reach.js';
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 
-/** Push problems for `links` / `linkDefault` onto `problems`; `views` are the declared views with their voices. */
-export function validateLinks(links: unknown, linkDefault: unknown, views: readonly LinkView[], problems: string[]): void {
+/**
+ * Push problems for `links` / `linkDefault` onto `problems`; `views` are the
+ * declared views with their voices.
+ *
+ * @param reach - What the TABLES say about reaching one another (`./reach.ts`).
+ *   Omitted = the reach rule is not judged, which is what every caller that
+ *   knows no tables gets.
+ */
+export function validateLinks(links: unknown, linkDefault: unknown, views: readonly LinkView[], problems: string[], reach?: TableReach): void {
   if (linkDefault !== undefined && !(LINK_DEFAULTS as readonly unknown[]).includes(linkDefault)) {
     problems.push(`linkDefault, if present, must be one of ${LINK_DEFAULTS.join('|')}`);
   }
@@ -81,6 +89,52 @@ export function validateLinks(links: unknown, linkDefault: unknown, views: reado
         const tv = viewById.get(link.target);
         if (sv?.grain !== undefined && tv?.grain !== undefined && crossesGrain(sv, tv)) {
           problems.push(`${where}: view "${link.source}" emits over ${grainWords(sv.grain)} and view "${link.target}" shows ${grainWords(tv.grain)} — an edge that crosses grains must state its fold`);
+        }
+      }
+      // THE REACH RULE, where it is knowable at the DOOR: an edge whose clause
+      // could never be judged where it lands is a promise nothing can keep, and
+      // it is refused by name rather than left to fail on somebody's gesture.
+      //
+      // Judged for `filter` ALONE. WHY that narrow: `filter` is the one
+      // response that makes an ENGINE judge the source's sentence against the
+      // target's rows, so an unjudgeable filter is a read that would have
+      // failed — the exact break this packet exists for. `highlight` and
+      // `mirror` are DRAWN, not queried: an unjudgeable one dims nothing and
+      // costs no read, and law 3 reports it on the clause.
+      //
+      // TWO grounds, never both judged on the same edge: with no `mapping`,
+      // the tables' own reach decides (a declared relation, or a shared column
+      // name — `tablesCanReach`). With a `mapping`, the author has NAMED the
+      // landing column by hand, which voids the shared-column-name evidence
+      // entirely (two unrelated tables may still be joined by an aimed
+      // mapping) — but the name itself is now evidence of its own, and
+      // `unmappedColumn` judges THAT instead: a mapping onto a column the
+      // target does not have is an author error, not a coincidence, and
+      // review found the first cut of this door skipped it (a mapped-but-wrong
+      // edge was caught nowhere).
+      //
+      // Where the rule is NOT knowable here — a table that declares no columns
+      // (so `reach.columns` has no entry for it), or a field that depends on
+      // the gesture — law 2 catches it at run time: the unmapped case narrows
+      // and reports (`../session/clausesReaching.ts` · `unjudgeableColumn`);
+      // the mapped case still REFUSES, because an aim that misses is an author
+      // error wherever it is caught (`../session/session.ts` · `viewClauses`,
+      // `ReachingClause.mappedFields`).
+      if (link.response === 'filter' && nonEmpty(link.source) && nonEmpty(link.target)) {
+        const sv = viewById.get(link.source);
+        const tv = viewById.get(link.target);
+        if (link.mapping === undefined) {
+          if (sv !== undefined && tv !== undefined && !viewsCanReach(sv, tv, reach)) {
+            problems.push(`${where}: ${unreachableWords(sv, tv)}. Declare a relation between the tables, map the field to one the target has, or write response: 'none'`);
+          }
+        } else if (Array.isArray(link.mapping) && tv?.table !== undefined) {
+          // malformed entries are skipped here — the shape check below refuses them by name; this ground only judges the well-formed ones.
+          // `tv.table`, not `link.target` — `reach.columns` is keyed by TABLE, and an unstated table is the ignorance ground already refuses to judge on.
+          const wellFormed = link.mapping.filter((m): m is FieldMapping => isObject(m) && nonEmpty(m.from) && nonEmpty(m.to));
+          const bad = unmappedColumn(wellFormed, tv.table, reach);
+          if (bad !== undefined) {
+            problems.push(`${where}: ${unmappedColumnWords(link.source, tv.table, bad)}. Name a column the table has, or write response: 'none'`);
+          }
         }
       }
     }

@@ -26,7 +26,7 @@
  * it were done in place.
  */
 import { copyClause } from './wire.js';
-import type { LinkEdge, LinkGraph } from '../links/index.js';
+import type { FieldMapping, LinkEdge, LinkGraph } from '../links/index.js';
 // the ONE renamer and the ONE column reader — a two-column kind is renamed and
 // read here the day it is added there, never by a second spelling of the rule
 import { clauseFields, renameClauseFields, type PredicateClause } from '../data/index.js';
@@ -67,6 +67,19 @@ export function clausesReaching(input: {
     const to = (f: string): string => edge.mapping!.find((m) => m.from === f)?.to ?? f;
     return renameClauseFields(own, to);
   };
+  // The mapping entries that actually RENAMED one of `clause`'s fields — the
+  // author naming a landing column, versus a field an identity pair or no
+  // mapping at all left unchanged. Read by the view-query door alone
+  // (`ReachingClause.mappedFields`'s own WHY): an aim that misses is an author
+  // error, not a coincidence to narrow away quietly.
+  const authorMapped = (edge: LinkEdge, clause: PredicateClause): readonly FieldMapping[] | undefined => {
+    if (edge.mapping === undefined) return undefined;
+    const out = clauseFields(clause).flatMap((f) => {
+      const m = edge.mapping!.find((mm) => mm.from === f);
+      return m !== undefined && m.to !== m.from ? [m] : [];
+    });
+    return out.length > 0 ? out : undefined;
+  };
   const out: ReachingClause[] = [];
   // a source that CLEARED still reaches a consumer whose edge says so: `leave` keeps the last clause, `excludeAll` keeps nothing, `showAll` (the default) = gone
   for (const [from, rec] of cleared) {
@@ -77,13 +90,20 @@ export function clausesReaching(input: {
     const policy = edge.onClear ?? 'showAll';
     if (policy === 'showAll') continue;
     const clause = mapped(edge, rec.clause);
+    const mappedFields = authorMapped(edge, rec.clause);
     // `excludeAll` keeps nothing: an empty IN-list on the clause's first column — whatever kind it was, asked once (`clauseFields`)
-    out.push({ from, response: edge.response, clause: policy === 'leave' ? clause : { kind: 'match', field: clauseFields(clause)[0]!, values: [] } });
+    out.push({
+      from,
+      response: edge.response,
+      clause: policy === 'leave' ? clause : { kind: 'match', field: clauseFields(clause)[0]!, values: [] },
+      ...(mappedFields !== undefined ? { mappedFields } : {}),
+    });
   }
   for (const [from, clause] of live) {
     const edge = reaches(from, clause.kind);
     if (edge === undefined) continue;
-    out.push({ from, response: edge.response, clause: mapped(edge, clause) });
+    const mappedFields = authorMapped(edge, clause);
+    out.push({ from, response: edge.response, clause: mapped(edge, clause), ...(mappedFields !== undefined ? { mappedFields } : {}) });
   }
   return out;
 }
@@ -103,4 +123,50 @@ export function mappingsInto(graph: LinkGraph, viewId: string | undefined): read
     for (const m of e.mapping) out.push({ from: e.source, field: m.from, to: m.to }); // an identity pair names a real column and is never picked as invented
   }
   return out;
+}
+
+// ── Can this table JUDGE this clause? (the reach law's runtime half) ─────────
+
+/**
+ * THE narrowing law, named once: which column of `clause` the table does not
+ * have — `undefined` when it can judge every one of them.
+ *
+ * WHY every read needs it, and not only a walk (this argument was written at
+ * `doNeighbourhoodProbe` and lived there alone): a clause reaching a table may
+ * name a column ANOTHER table carries — a view's clause reaches every table
+ * (`Session.clauseReaches`), and a link's `mapping` can rename a field into a
+ * column nothing on this side declares. An engine asked to judge
+ * `disease = "Measles"` against an edges table with no such column refuses the
+ * WHOLE read, so one selection anywhere else on the dashboard would make every
+ * read on that table impossible. **A sentence about a column these rows do not
+ * have is not a claim about these rows.** So it is dropped from the predicate
+ * and REPORTED instead (`ReachingClause.narrowed`) — omitted, never denied.
+ *
+ * `columns` must be the SAME reading of the table the caller's own guards were
+ * made against (`Session.effectiveColumnsOf`), so a guard and the read that
+ * follows it can never disagree about what the table has.
+ */
+export function unjudgeableColumn(clause: PredicateClause, columns: ReadonlySet<string>): string | undefined {
+  return clauseFields(clause).find((f) => !columns.has(f));
+}
+
+/**
+ * The one spelling of WHY a clause was narrowed away, naming the column and the
+ * table — the sentence a reader of `ViewQueryResult.clauses` (and `why()`) meets.
+ * One owner, so the sheet, the prose and a refusal cannot word it three ways.
+ */
+export function unjudgeableWords(table: string, column: string): string {
+  return `table "${table}" has no column "${column}" — a sentence about a column these rows do not have is not a claim about these rows`;
+}
+
+/**
+ * The reaching clauses as a READ sees them: each one the table cannot judge
+ * carries its `narrowed` reason, and every other is untouched. The list keeps
+ * its order and its length — law 3 is that a narrowed clause is still listed.
+ */
+export function narrowToJudgeable(clauses: readonly ReachingClause[], table: string, columns: ReadonlySet<string>): ReachingClause[] {
+  return clauses.map((c) => {
+    const missing = unjudgeableColumn(c.clause, columns);
+    return missing === undefined ? c : { ...c, narrowed: { column: missing, reason: unjudgeableWords(table, missing) } };
+  });
 }

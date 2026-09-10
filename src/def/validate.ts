@@ -15,6 +15,7 @@ import { isBuiltinRecord, validateBuiltinAnalysis } from './builtinAnalyses.js';
 import { validateRelations } from './relations.js';
 import { mintedTables } from './builtinAnalyses.js';
 import { layerLinkViewsOf, layerSurfacesOf, markerRefusal, validateFrame, validateLayers } from './layers.js';
+import { tableReachOf } from './tableReach.js';
 import { holdsLayerMarker } from './layerAddress.js';
 import { EMISSION_KINDS, validateLinks, voiceOf, type EmissionKind } from '../links/index.js';
 import { ENCODING_SET_FIELD,
@@ -650,6 +651,11 @@ export function validateDashboardDef(def: unknown): string[] {
     }
   }
 
+  // The table a LAYERLESS view's columns are declared under — the def's `defaultTable`, or its first table. ONE
+  // expression, read by the link graph's reach law below, by the frame's laws, and by the build door, so no two
+  // of them can resolve it apart.
+  const defaultTableName = isObject(def.data) ? (typeof def.defaultTable === 'string' ? def.defaultTable : Object.keys(def.data)[0]) : undefined;
+
   // ── links (optional) — layer 4: the edges between views, refused at declaration in sentences ──
   if (isObject(def.actors)) {
     const capabilityByView = new Map<string, { canProbe: boolean; encodings?: readonly EmissionKind[] }>();
@@ -668,11 +674,14 @@ export function validateDashboardDef(def: unknown): string[] {
     const linkViews = Object.keys(def.actors).map((viewId) => {
       const surface = surfaceByView.get(viewId);
       const grain = grainByView.get(viewId);
-      return { viewId, voice: voiceOf(capabilityByView.get(viewId), { hasEncodingSurface: surface !== undefined }), ...(surface !== undefined ? { channels: surface.channels } : {}), ...(grain !== undefined ? { grain } : {}) };
+      // the TABLE the node draws — a layerless view draws the default one, resolved by the ONE expression
+      // `defaultTableName` below, so the door and the build door judge reach against the same rows
+      return { viewId, voice: voiceOf(capabilityByView.get(viewId), { hasEncodingSurface: surface !== undefined }), ...(defaultTableName !== undefined ? { table: defaultTableName } : {}), ...(surface !== undefined ? { channels: surface.channels } : {}), ...(grain !== undefined ? { grain } : {}) };
     });
     // a layer is a node of the graph under its address, so a declared edge may name one (src/def/layers.ts)
     const layerViews = Array.isArray(def.encodings) ? layerLinkViewsOf(def.encodings, (viewId) => linkViews.find((v) => v.viewId === viewId)?.voice) : [];
-    validateLinks(def.links, def.linkDefault, [...linkViews, ...layerViews], problems);
+    // the reach law's evidence, read off the def ONCE by the owner both doors share (./tableReach.ts)
+    validateLinks(def.links, def.linkDefault, [...linkViews, ...layerViews], problems, tableReachOf(def));
   }
 
   // ── relations (optional) — the edges between TABLES: a column pointing at another table's key (src/def/relations.ts) ──
@@ -680,9 +689,6 @@ export function validateDashboardDef(def: unknown): string[] {
   if (isObject(def.data) && Object.keys(def.data).length > 0) validateRelations(def.relations, def.data, problems);
 
   // ── encodings (optional) — the `reencode` verb's per-view validation surface ──
-  // The table a LAYERLESS view's columns are declared under — the def's `defaultTable`, or its first table. ONE
-  // expression, read by the frame's laws here and by the build door below, so the two can never resolve it apart.
-  const defaultTableName = isObject(def.data) ? (typeof def.defaultTable === 'string' ? def.defaultTable : Object.keys(def.data)[0]) : undefined;
   // The tables the declared ACTS land — read ONCE, off the declaration, and handed to every door below that
   // judges a table name or a field against a table's columns, so the two can never disagree (./README.md,
   // "Layers", law 2). An aggregate declares the table it lands and its whole column list; nothing new is declared.

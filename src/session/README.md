@@ -249,6 +249,65 @@ A sheet window is ONE call: `viewQuery({ table?, viewId?, columns?, sort?, limit
 
 Not in this version: `reencode` on a layer (refused with a sentence — a layer's bindings are declared on the layer), a layer's prose in the overview, prose DECLARED in the def under a layer address (the def's prose subjects are the declared views; a layer's words are set at runtime with `describe`), the data-version stamp of a commit on a layer (still the default table's).
 
+### A clause a table cannot judge
+
+**A sentence about a column these rows do not have is not a claim about these
+rows.** A view's clause reaches every table (the single-default-table limit
+above), a link's `mapping` may rename a field into a column nothing on the
+target side declares, and a table an act mints has columns no other table has.
+An engine asked to judge `radii = 4.5` against a table with no `radii` refuses
+the **whole** read — so one gesture anywhere else on the dashboard could make
+every read on that table impossible. That is the break a consumer hit: a
+histogram over a minted table, the crossfilter default minting a `filter` edge
+from it to all ten other views, and every one of their windows dead until the
+definition declared `response: 'none'` on all ten by hand.
+
+So every read narrows the clauses to the ones its table can judge, and the ones
+it drops are **reported, never vanished** (omit, never deny):
+
+- `unjudgeableColumn(clause, columns)` (`./clausesReaching.ts`) is the ONE owner
+  of the law — which column of a clause the table does not have. `clausesOn`
+  (every own-table read, the neighbourhood walk included) and the read door
+  behind `viewQuery` / `findInView` both call it, judged against the SAME
+  `effectiveColumnsOf` reading the doors' own guards were made against, so a
+  guard and the read that follows it can never disagree about what the table has.
+- A narrowed clause is still listed in `ViewQueryResult.clauses` — and so in the
+  export receipt — carrying `narrowed: { column, reason }`, the sentence
+  `unjudgeableWords` spells once: `table "measurements" has no column "radii" —
+  a sentence about a column these rows do not have is not a claim about these
+  rows`. It filtered nothing, and a reader of the sheet meets the reason where
+  they already look.
+- An engine that could not **describe** the table proves nothing about what it
+  lacks: nothing is narrowed on that ignorance, and the door refuses the read by
+  name instead.
+
+**An aim that misses is not an accident (review finding, fixed).** A `mapping`
+is the author *naming* the landing column, unlike the crossfilter default,
+which never names anything — so a mapping onto a column the table lacks is a
+declaration error, not a coincidence to omit quietly. Wherever the target's
+columns are known at declaration, the def door already refuses this
+(`../links/README.md`, "the mapped case"); a mapping onto a column only known
+once the table is built (no static `columns`, an act-minted table) is not
+knowable there, and the read door restores the refusal instead of narrowing it
+away — `ReachingClause.mappedFields` names which of a clause's fields an edge's
+mapping actually renamed (`from !== to`), and `viewQuery` / `findInView` refuse
+the whole read when `narrowed.column` is one of them, in the SAME sentence the
+def door uses (`unmappedColumnWords`, `../links/reach.ts`). An unaimed miss —
+the crossfilter default, or an identity mapping — still narrows exactly as
+above; only an author's own aim earns a refusal. `clausesOn`'s narrowing (every
+own-table read, the neighbourhood walk included) is deliberately **not**
+changed by this: one bad mapping on one edge must not be able to take down
+`overview` / `selectedRows` on a table the broken edge never even targets — the
+refusal lands only on the one read the edge actually reaches.
+
+`clausesFor(viewId)` is deliberately NOT narrowed. It answers what the *graph*
+sends — a pure function of the graph and the fold, the twin the renderer
+contract enforces — while judgeability is a fact about the **table** that only
+an engine can state, and only at a read. The map's own half of the law (the
+crossfilter default declining an edge whose clause could never reach the
+target's table, and the def door refusing a declared one) is
+`../links/README.md`, "A default edge is a promise the engine can keep".
+
 ## Find is a read too, and it moves where you STAND (`findInView`)
 
 `findInView({ text, from, direction, table?, viewId?, sort?, columns? })` answers `{ position, rowId?, ordinal?, matches, version, cursor }` — where the next match is, in the order the reader is already in.

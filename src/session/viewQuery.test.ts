@@ -149,16 +149,66 @@ describe('clausesFor — what reaches a view', () => {
     expect(s.clausesFor('scatter')).toEqual([]);
   });
 
-  it('a field mapping on the edge renames the clause for the consumer — and a mapped field the table lacks is refused with the engine\'s sentence', async () => {
+  // REVIEW OF PACKET N, LAW 2 — an AIM that misses is not an accident. A
+  // mapping is the author NAMING the landing column (unlike the crossfilter
+  // default, which never names anything), so a mapping onto a column the
+  // table lacks is a declaration error, and law 2 must not swallow it under
+  // the same "omit, never deny" umbrella the unaimed case earns. Here the
+  // target's columns are not STATICALLY declared (`dashboard.fixture.ts`'s
+  // `data` table states no `columns`), so the def door's mapped-case refusal
+  // (`../links/validate.ts`) cannot catch it at declaration — the read door
+  // restores the refusal instead (`ReachingClause.mappedFields`,
+  // `InteractionSessionImpl.viewClauses`), while a clause that reached
+  // UNAIMED still narrows (pinned on the minted-table fixture,
+  // `reach.session.test.ts`).
+  it('a field mapping on the edge renames the clause for the consumer — and a mapped field the table lacks REFUSES the read, naming the link (an aim that missed, not a coincidence)', async () => {
     const s = fresh();
     await s.dispatch({ verb: 'link', source: 'bar', kind: 'point', target: 'scatter', response: 'filter', mapping: [{ from: 'price', to: 'price' }, { from: 'category', to: 'kind' }], cause: userCause('map') }); // an identity pair invents nothing
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick') });
-    expect(s.clausesFor('scatter')).toMatchObject([{ from: 'bar', clause: { field: 'kind', value: 'Formal' } }]);
+    expect(s.clausesFor('scatter')).toMatchObject([{ from: 'bar', clause: { field: 'kind', value: 'Formal' } }]); // the MAP still sends it — `clausesFor` answers the graph
     const q = await s.viewQuery({ viewId: 'scatter' });
     expect(q).toEqual({ ok: false, reason: 'engine', engineReason: 'unknown-column', rejected: 'table "data" has no column "kind" — the link from bar maps category → kind' });
-    // the hint is judged against the table's columns, not the caller's projection — an innocent mapping is never named
+    // the same refusal, whichever door of the view-query port is asked
+    const found = await s.findInView({ viewId: 'scatter', text: 'x', from: 0, direction: 'forward' });
+    expect(found).toEqual({ ok: false, reason: 'engine', engineReason: 'unknown-column', rejected: 'table "data" has no column "kind" — the link from bar maps category → kind' });
+    // the refusal is the WINDOW's, not the projection's: it fires before a requested `columns` is even
+    // looked at, so asking for real columns does not route around a filter clause the table cannot judge
     const narrow = await s.viewQuery({ viewId: 'scatter', columns: ['id'] });
-    expect(!narrow.ok && narrow.rejected).toBe('table "data" has no column "kind" — the link from bar maps category → kind');
+    expect(narrow).toEqual({ ok: false, reason: 'engine', engineReason: 'unknown-column', rejected: 'table "data" has no column "kind" — the link from bar maps category → kind' });
+  });
+
+  // The "invented" hint (`mappingsInto`) is a SEPARATE door from the one above: it fires when a
+  // caller explicitly PROJECTS a column a mapping invented, with no clause narrowed at all (nobody
+  // selected on `bar`, so nothing reaches `scatter` to be an aim that misses) — the engine itself
+  // refuses the projection, and the hint says whose mapping is to blame.
+  it('projecting a column a mapping invented (no clause reaching it) gets the engine\'s own refusal, with the mapping named', async () => {
+    const s = fresh();
+    await s.dispatch({ verb: 'link', source: 'bar', kind: 'point', target: 'scatter', response: 'filter', mapping: [{ from: 'category', to: 'kind' }], cause: userCause('map') });
+    // nobody selected on `bar`: no clause reaches `scatter`, so nothing is narrowed and nothing is an aim that missed
+    expect(s.clausesFor('scatter')).toEqual([]);
+    const projected = await s.viewQuery({ viewId: 'scatter', columns: ['kind'] });
+    expect(projected).toEqual({ ok: false, reason: 'engine', engineReason: 'unknown-column', rejected: 'table "data" has no column "kind" to return — the link from bar maps category → kind' });
+  });
+
+  it('a field mapping the target CAN judge reaches and filters exactly as an unmapped clause would', async () => {
+    const s = fresh();
+    await s.dispatch({ verb: 'link', source: 'bar', kind: 'point', target: 'scatter', response: 'filter', mapping: [{ from: 'category', to: 'category' }], cause: userCause('identity map') });
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick') });
+    const q = await s.viewQuery({ viewId: 'scatter' });
+    expect(q.ok && q.count).toBe(8);
+    expect(q.ok && q.clauses.every((c) => c.narrowed === undefined)).toBe(true); // an identity pair maps nothing, so nothing is "aimed"
+  });
+
+  // The aim-that-missed refusal applies to a REMEMBERED (cleared, `onClear: 'leave'`) clause too —
+  // the cleared branch of `clausesReaching` carries `mappedFields` exactly like the live one does.
+  it('an aimed mapping still refuses once the source CLEARS but the edge remembers it (`onClear: leave`)', async () => {
+    const s = fresh();
+    await s.dispatch({ verb: 'link', source: 'bar', kind: 'point', target: 'scatter', response: 'filter', onClear: 'leave', mapping: [{ from: 'category', to: 'kind' }], cause: userCause('map') });
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick') });
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: null, cause: userCause('clear') });
+    expect(s.clausesFor('scatter')).toMatchObject([{ from: 'bar', clause: { field: 'kind', value: 'Formal' } }]); // remembered, not gone
+    const q = await s.viewQuery({ viewId: 'scatter' });
+    expect(q).toEqual({ ok: false, reason: 'engine', engineReason: 'unknown-column', rejected: 'table "data" has no column "kind" — the link from bar maps category → kind' });
   });
 
   it('a cleared source is remembered per the edge\'s onClear: leave keeps the last clause, excludeAll keeps nothing, showAll (the default) forgets it — and selecting again speaks live', async () => {
