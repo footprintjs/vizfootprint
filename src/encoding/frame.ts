@@ -178,8 +178,32 @@ export function frameScaleOf(type: ColumnType): ResolvedDomain['scale'] | undefi
   }
 }
 
-/** More than {@link FRAME_LAYER_LINT} layers on one frame — the sentence a host shows, or an empty list. */
-export function frameLint(layers: readonly FrameLayer[]): readonly string[] {
+/**
+ * ONE NOTE ABOUT ONE FRAME — advice about a whole view's stack, which is why it
+ * is not an `EncodingProblem`: that shape names a CHANNEL, a FIELD and a
+ * severity of `refused`/`coerced`, and a frame note has none of the three
+ * ("five layers on one frame" is about the stack, and nothing is refused).
+ * Forcing it into that shape would mean inventing a channel and a severity, so
+ * the notes ride on a row of their own kind.
+ */
+export interface FrameNote {
+  readonly viewId: string;
+  readonly sentence: string;
+}
+
+/**
+ * More than {@link FRAME_LAYER_LINT} layers on one frame — the sentence a host
+ * shows, or an empty list. ADVICE, never a refusal: a legitimate small-multiple
+ * of five exists, so this says what a reader will struggle with and leaves the
+ * choice with the author (`Dashboard.lintFrames` is the door it reaches a host
+ * through).
+ *
+ * It asks for the NARROWEST thing it reads — a layer's id — rather than a whole
+ * {@link FrameLayer}: counting layers needs no values, so a caller with only
+ * the DEF (which is when this lint is useful, before any data is read) can ask
+ * without inventing empty channels.
+ */
+export function frameLint(layers: readonly { readonly layerId: string }[]): readonly string[] {
   if (layers.length <= FRAME_LAYER_LINT) return [];
   return [`${layers.length} layers on one frame — past ${FRAME_LAYER_LINT} a reader cannot tell the marks apart; consider a frame of its own for ${layers.slice(FRAME_LAYER_LINT).map((l) => `"${l.layerId}"`).join(', ')}`];
 }

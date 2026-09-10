@@ -38,9 +38,10 @@ export { ChartFrame } from './ChartFrame.js';
 export type { ChartFrameProps, ChartSize } from './ChartFrame.js';
 
 export { linearScale, extent, ticks, epochOf, dayOf, rampStep, SEQ_RAMP_STEPS } from './scales.js';
-// the frame's scales (protocol 1.5): the `domain`/`axes` props every 2D chart takes, and the one
-// function that reads a given domain — a host putting a chart on a shared scale needs both
-export { domainOr } from './scales.js';
+// the frame's scales (protocol 1.5): the `domain`/`axes` props every 2D chart takes, and the two
+// functions that read a given domain — a host putting a chart on a shared scale needs them
+// (`domainOr` for a run of numbers, `bandOrder` for a band's slots)
+export { bandOrder, domainOr } from './scales.js';
 export type { LinearScale, ChartDomain } from './scales.js';
 
 export { AxisLabel } from './AxisLabel.js';

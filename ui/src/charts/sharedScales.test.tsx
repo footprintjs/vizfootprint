@@ -21,7 +21,7 @@ import { VizHistogram, type HistogramBinDatum } from './VizHistogram.js';
 import { VizBoxPlot, type BoxPlotDatum } from './VizBoxPlot.js';
 import { VizHeatmap, type HeatmapCellDatum } from './VizHeatmap.js';
 import { VizNetwork } from './VizNetwork.js';
-import { domainOr } from '../primitives/scales.js';
+import { bandOrder, domainOr } from '../primitives/scales.js';
 
 afterEach(cleanup);
 
@@ -68,6 +68,43 @@ describe('domainOr — the two guards a linear scale needs', () => {
     expect(domainOr([100, 0], [7, 8])).toEqual([0, 100]);
     expect(domainOr([Number.NaN, 3], [7, 8])).toEqual([7, 8]);
     expect(domainOr([0, Number.POSITIVE_INFINITY], [7, 8])).toEqual([7, 8]);
+  });
+});
+
+describe('bandOrder — the frame’s slots, and what a chart does with one it has no row for', () => {
+  it('the frame’s list decides the order; a category outside it is APPENDED, never hidden; with no list the chart keeps its own', () => {
+    expect(bandOrder(['b', 'a'], ['a', 'b'])).toEqual(['b', 'a']);
+    expect(bandOrder(['b'], ['a', 'b'])).toEqual(['b', 'a']); // "a" is a data fact, not an overflow
+    expect(bandOrder(undefined, ['a', 'b'])).toEqual(['a', 'b']);
+  });
+
+  it('VizBar: a band with no row of its own is EMPTY — no bar, no value, no highlight, and never a zero', () => {
+    const { container } = render(
+      <VizBar data={BARS} field="category" domain={{ categories: ['Casual', 'Sporty', 'Formal'] }} highlight={[{ category: 'Casual', count: 2 }]} />,
+    );
+    // three slots, two bars: "Sporty" is a silence, and a zero-height bar with a tooltip saying 0 would be a claim
+    expect(container.querySelectorAll('text.vzf-tick')).toHaveLength(3);
+    expect(Array.from(container.querySelectorAll('rect.vzf-barrect')).map((r) => r.getAttribute('aria-label'))).toEqual(['select Casual (4)', 'select Formal (9)']);
+    expect(container.querySelectorAll('rect.vzf-barhl')).toHaveLength(2); // one per BAR — the empty slot has no share either
+    // …and the slots are in the frame's order: Formal is third, not second
+    const ticks = Array.from(container.querySelectorAll('text.vzf-tick')).map((t) => t.textContent);
+    expect(ticks).toEqual(['Casual', 'Sporty', 'Formal']);
+  });
+
+  it('VizBar: no ticks, no tick room — with axes={false} the slant never takes plot height from the frame', () => {
+    const long = [
+      { category: 'Extraordinarily Long Shelf Name One', count: 4 },
+      { category: 'Extraordinarily Long Shelf Name Two', count: 9 },
+    ];
+    const slanted = render(<VizBar data={long} field="category" width={240} />).container;
+    // with its own guide the labels slant and the plot gives up room for them
+    expect(Array.from(slanted.querySelectorAll('text.vzf-tick')).some((t) => t.getAttribute('transform') !== null)).toBe(true);
+    const withGuide = Number(slanted.querySelector('rect.vzf-barrect')?.getAttribute('height'));
+    cleanup();
+    const bare = render(<VizBar data={long} field="category" width={240} axes={false} />).container;
+    const withoutGuide = Number(bare.querySelector('rect.vzf-barrect')?.getAttribute('height'));
+    // no guide is drawn, so no room is kept for one: the bar is TALLER, on the frame's own box
+    expect(withoutGuide).toBeGreaterThan(withGuide);
   });
 });
 

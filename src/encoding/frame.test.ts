@@ -214,6 +214,13 @@ describe('the layer-count lint is a sentence, never a refusal', () => {
     // and the fold still ANSWERS for six: a lint says a picture is hard to read, never that it may not exist
     expect(frameDomains(kinds(6))['y']).toMatchObject({ domain: [0, 6] });
   });
+
+  it('counts layers off their IDS alone — a caller with only the def has no values to fold and needs none', () => {
+    expect(frameLint([{ layerId: 'a' }, { layerId: 'b' }])).toEqual([]);
+    expect(frameLint(Array.from({ length: 5 }, (_, i) => ({ layerId: `l${i}` })))).toEqual([
+      '5 layers on one frame — past 4 a reader cannot tell the marks apart; consider a frame of its own for "l4"',
+    ]);
+  });
 });
 
 describe('frameScaleOf — the type each scale kind folds from', () => {

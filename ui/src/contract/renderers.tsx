@@ -2,8 +2,14 @@
  * The FIRST-PARTY REFERENCE IMPLEMENTATIONS of the renderer contract (RP-1):
  * each of the nine charts (scatter · line · bar · map · table · histogram ·
  * heatmap · box plot · network), wrapped as a framework-agnostic
- * {@link Renderer} via one generic React bridge (`reactRenderer`). They are
- * proof, not assertion — the first eight pass the conformance kit
+ * {@link Renderer} via one generic React bridge (`reactRenderer`) — and the
+ * TENTH, which draws no chart of its own: `layeredRenderer`, the generic FRAME
+ * (R6), which composes the 2D marks of a def's layer stack over one margin box
+ * through `<VizFrame>`. Each 2D mark is ONE function here (`barMark`,
+ * `lineMark`, …), used by its single-mark renderer and by the frame alike: two
+ * spellings of "how a bar is drawn from rows" is the one that goes stale.
+ *
+ * They are proof, not assertion — the first eight pass the conformance kit
  * (`conformance.test.tsx`) end to end, the heatmap including the D30 cell arm.
  * The ninth, `networkRenderer`, is the first to declare `canLayer`, and it is
  * also the first whose every mark belongs to a LAYER rather than to the view:
@@ -19,13 +25,16 @@
  *     bar renderer expects one row per category carrying its count).
  *   - update() renders synchronously (flushSync) so an imperative host sees
  *     the DOM settle before its next line — the contract has no async render
- *     acknowledgement on purpose.
+ *     acknowledgement on purpose. A REACT host pushing from inside its own
+ *     render (an effect) has to defer the push by a microtask, or React warns
+ *     that flushSync ran while it was rendering: `ui/gallery/frame.tsx` shows
+ *     the one-line shape, and it is the price of the sync render, not a bug.
  *   - The four callbacks wire straight through: a brush/click → `emit`; an
  *     axis-label click → `reencodeRequest` (the HOST owns the picker — the
  *     charts' built-in EncodingPicker never opens in contract mode). None of
  *     the nine pans or zooms, and each says so where it counts
  *     (`canPanZoom: false` — a host-driven navigate lands a typed gap
- *     instead of silently recording nothing). None of them speaks `hover`
+ *     instead of silently recording nothing). None of the nine speaks `hover`
  *     either, and no capability says so BY DESIGN: hover records nothing, so
  *     a host loses nothing by discovering the silence at runtime — see the
  *     note on `RendererCallbacks.hover` in types.ts.
@@ -55,12 +64,16 @@ import {
   type RendererCapabilities,
   type RenderEncodings,
   type RenderLayer,
+  type EmissionKind,
+  type RendererCallbacks,
   type RenderRow,
+  type RenderSelection,
   type RenderState,
 } from './types.js';
 import { frameDomains, type ResolvedChannel } from 'vizfootprint/def';
 import { boundField } from '../charts/binding.js';
-import type { ChartDomain } from '../primitives/scales.js';
+import { bandOrder, epochOf, type ChartDomain } from '../primitives/scales.js';
+import { VizFrame, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
 import { VizScatter } from '../charts/VizScatter.js';
 import { VizLine } from '../charts/VizLine.js';
 import { VizBar } from '../charts/VizBar.js';
@@ -79,7 +92,7 @@ export interface ReactRendererSpec {
 
 /**
  * Wrap a React element function as a contract {@link Renderer}. Any React
- * chart can join the protocol through this one bridge; the nine first-party
+ * chart can join the protocol through this one bridge; the ten first-party
  * factories below are its reference uses.
  */
 export function reactRenderer(spec: ReactRendererSpec): Renderer {
@@ -115,6 +128,45 @@ function num(v: unknown): number {
   return typeof v === 'number' ? v : 0;
 }
 
+/**
+ * WHAT ONE MARK IS DRAWN FROM. A plain view's mark reads the view's own rows
+ * and speaks with the view's callbacks; a LAYER of a frame reads its own rows,
+ * on the frame's scales, in the box the frame sized for it, and speaks with its
+ * own bundle. Everything else about drawing a bar is the same either way — so
+ * each kind below is ONE function over this, used by the single-mark renderer
+ * and by `layeredRenderer` alike. Two spellings of "how a bar is drawn from
+ * rows" is the one that goes stale.
+ */
+interface MarkDraw {
+  readonly viewId: string;
+  readonly rows: readonly RenderRow[];
+  readonly encodings: RenderEncodings;
+  readonly selection: RenderSelection;
+  readonly width: number;
+  readonly height: number;
+  /** Whose voice a gesture on this mark is — the view's, or the layer's own bundle (the 1.2 law). */
+  readonly callbacks: RendererCallbacks;
+  /** The frame's scales, or `{}` for a mark on its own extents (which is byte-identical to the chart before frames existed). */
+  readonly domain: ChartDomain;
+  /** `false` while the FRAME draws one merged guide for the stack. */
+  readonly axes: boolean;
+}
+
+/** A whole view as one mark's material: its rows, its voice, its own extents, its own guide. */
+function viewDraw(state: RenderState, handshake: HostHandshake): MarkDraw {
+  return {
+    viewId: handshake.viewId,
+    rows: state.rows,
+    encodings: state.encodings,
+    selection: state.selection,
+    width: state.size.width,
+    height: state.size.height,
+    callbacks: handshake.callbacks,
+    domain: {},
+    axes: true,
+  };
+}
+
 // ── scatter ────────────────────────────────────────────────────────────────────
 
 export interface ScatterRendererOptions {
@@ -135,33 +187,40 @@ export function scatterRenderer(options: ScatterRendererOptions = {}): Renderer 
       emissionKinds: ['interval'],
     },
     render(state, handshake) {
-      const x = boundField(state.encodings, 'x', 'x');
-      const y = boundField(state.encodings, 'y', 'y');
-      const color = state.encodings['color'];
-      const idField = options.idField ?? 'id';
-      const data = state.rows.map((r, i) => ({
-        id: String(r[idField] ?? i),
-        x: num(r[x]),
-        y: num(r[y]),
-        category: color !== undefined ? String(r[color]) : undefined,
-        row: r,
-      }));
-      return (
-        <VizScatter
-          viewId={handshake.viewId}
-          data={data}
-          xField={x}
-          yField={y}
-          selection={state.selection}
-          colorOf={options.colorOf}
-          width={state.size.width}
-          height={state.size.height}
-          onEmit={handshake.callbacks.emit}
-          onReencodeRequest={handshake.callbacks.reencodeRequest}
-        />
-      );
+      return pointMark(viewDraw(state, handshake), options);
     },
   });
+}
+
+/** One layer (or one view) of points. */
+function pointMark(d: MarkDraw, options: ScatterRendererOptions): JSX.Element {
+  const x = boundField(d.encodings, 'x', 'x');
+  const y = boundField(d.encodings, 'y', 'y');
+  const color = d.encodings['color'];
+  const idField = options.idField ?? 'id';
+  const data = d.rows.map((r, i) => ({
+    id: String(r[idField] ?? i),
+    x: num(r[x]),
+    y: num(r[y]),
+    category: color !== undefined ? String(r[color]) : undefined,
+    row: r,
+  }));
+  return (
+    <VizScatter
+      viewId={d.viewId}
+      data={data}
+      xField={x}
+      yField={y}
+      selection={d.selection}
+      colorOf={options.colorOf}
+      width={d.width}
+      height={d.height}
+      domain={d.domain}
+      axes={d.axes}
+      onEmit={d.callbacks.emit}
+      onReencodeRequest={d.callbacks.reencodeRequest}
+    />
+  );
 }
 
 // ── line ───────────────────────────────────────────────────────────────────────
@@ -187,29 +246,36 @@ export function lineRenderer(options: LineRendererOptions = {}): Renderer {
       emissionKinds: ['interval'],
     },
     render(state, handshake) {
-      const dateField = boundField(state.encodings, 'x', 'date');
-      const valueField = boundField(state.encodings, 'y', 'value');
-      const seriesField = state.encodings['color'];
-      const data = state.rows.map((r) => ({
-        date: String(r[dateField]),
-        value: num(r[valueField]),
-        series: seriesField !== undefined ? String(r[seriesField]) : undefined,
-      }));
-      return (
-        <VizLine
-          viewId={handshake.viewId}
-          data={data}
-          dateField={dateField}
-          valueField={valueField}
-          colorOf={options.colorOf}
-          width={state.size.width}
-          height={state.size.height}
-          onEmit={handshake.callbacks.emit}
-          onReencodeRequest={handshake.callbacks.reencodeRequest}
-        />
-      );
+      return lineMark(viewDraw(state, handshake), options);
     },
   });
+}
+
+/** One layer (or one view) of a line. */
+function lineMark(d: MarkDraw, options: LineRendererOptions): JSX.Element {
+  const dateField = boundField(d.encodings, 'x', 'date');
+  const valueField = boundField(d.encodings, 'y', 'value');
+  const seriesField = d.encodings['color'];
+  const data = d.rows.map((r) => ({
+    date: String(r[dateField]),
+    value: num(r[valueField]),
+    series: seriesField !== undefined ? String(r[seriesField]) : undefined,
+  }));
+  return (
+    <VizLine
+      viewId={d.viewId}
+      data={data}
+      dateField={dateField}
+      valueField={valueField}
+      colorOf={options.colorOf}
+      width={d.width}
+      height={d.height}
+      domain={d.domain}
+      axes={d.axes}
+      onEmit={d.callbacks.emit}
+      onReencodeRequest={d.callbacks.reencodeRequest}
+    />
+  );
 }
 
 // ── bar ────────────────────────────────────────────────────────────────────────
@@ -256,33 +322,41 @@ export function barRenderer(options: BarRendererOptions = {}): Renderer {
       emissionKinds: ['point', 'match'], // SET-1: shift-click adds to the view's own set
     },
     render(state, handshake) {
-      const field = boundField(state.encodings, 'category', 'category');
-      const countField = options.countField ?? 'count';
-      const data = state.rows.map((r) => ({ category: String(r[field]), count: num(r[countField]) }));
-      // The overlay rides only while the host is actually sending the share.
-      // A frame whose rows carry no such number means no highlight edge is
-      // live, and an overlay of zeros would draw a claim of its own ("none of
-      // this bar is bright") over every bar — so the absence stays an absence.
-      const highlight =
-        highlightField === undefined || !state.rows.some((r) => typeof r[highlightField] === 'number')
-          ? undefined
-          : state.rows.map((r) => ({ category: String(r[field]), count: num(r[highlightField]) }));
-      return (
-        <VizBar
-          viewId={handshake.viewId}
-          data={data}
-          highlight={highlight}
-          field={field}
-          selection={state.selection}
-          colorOf={options.colorOf}
-          width={state.size.width}
-          height={state.size.height}
-          onEmit={handshake.callbacks.emit}
-          onReencodeRequest={handshake.callbacks.reencodeRequest}
-        />
-      );
+      return barMark(viewDraw(state, handshake), options);
     },
   });
+}
+
+/** One layer (or one view) of bars. */
+function barMark(d: MarkDraw, options: BarRendererOptions): JSX.Element {
+  const highlightField = options.highlightCountField;
+  const field = boundField(d.encodings, 'category', 'category');
+  const countField = options.countField ?? 'count';
+  const data = d.rows.map((r) => ({ category: String(r[field]), count: num(r[countField]) }));
+  // The overlay rides only while the host is actually sending the share.
+  // A frame whose rows carry no such number means no highlight edge is
+  // live, and an overlay of zeros would draw a claim of its own ("none of
+  // this bar is bright") over every bar — so the absence stays an absence.
+  const highlight =
+    highlightField === undefined || !d.rows.some((r) => typeof r[highlightField] === 'number')
+      ? undefined
+      : d.rows.map((r) => ({ category: String(r[field]), count: num(r[highlightField]) }));
+  return (
+    <VizBar
+      viewId={d.viewId}
+      data={data}
+      highlight={highlight}
+      field={field}
+      selection={d.selection}
+      colorOf={options.colorOf}
+      width={d.width}
+      height={d.height}
+      domain={d.domain}
+      axes={d.axes}
+      onEmit={d.callbacks.emit}
+      onReencodeRequest={d.callbacks.reencodeRequest}
+    />
+  );
 }
 
 // ── map ────────────────────────────────────────────────────────────────────────
@@ -371,26 +445,33 @@ export function histogramRenderer(options: HistogramRendererOptions = {}): Rende
       emissionKinds: ['interval'],
     },
     render(state, handshake) {
-      const field = boundField(state.encodings, 'x', 'value');
-      const x0Field = options.x0Field ?? 'x0';
-      const x1Field = options.x1Field ?? 'x1';
-      const countField = options.countField ?? 'count';
-      const data = state.rows.map((r) => ({ x0: edge(r[x0Field]), x1: edge(r[x1Field]), count: num(r[countField]) }));
-      return (
-        <VizHistogram
-          viewId={handshake.viewId}
-          data={data}
-          field={field}
-          countLabel={options.countLabel}
-          selection={state.selection}
-          width={state.size.width}
-          height={state.size.height}
-          onEmit={handshake.callbacks.emit}
-          onReencodeRequest={handshake.callbacks.reencodeRequest}
-        />
-      );
+      return histogramMark(viewDraw(state, handshake), options);
     },
   });
+}
+
+/** One layer (or one view) of host-binned buckets. */
+function histogramMark(d: MarkDraw, options: HistogramRendererOptions): JSX.Element {
+  const field = boundField(d.encodings, 'x', 'value');
+  const x0Field = options.x0Field ?? 'x0';
+  const x1Field = options.x1Field ?? 'x1';
+  const countField = options.countField ?? 'count';
+  const data = d.rows.map((r) => ({ x0: edge(r[x0Field]), x1: edge(r[x1Field]), count: num(r[countField]) }));
+  return (
+    <VizHistogram
+      viewId={d.viewId}
+      data={data}
+      field={field}
+      countLabel={options.countLabel}
+      selection={d.selection}
+      width={d.width}
+      height={d.height}
+      domain={d.domain}
+      axes={d.axes}
+      onEmit={d.callbacks.emit}
+      onReencodeRequest={d.callbacks.reencodeRequest}
+    />
+  );
 }
 
 // ── heatmap ────────────────────────────────────────────────────────────────────
@@ -494,36 +575,43 @@ export function boxPlotRenderer(options: BoxPlotRendererOptions = {}): Renderer 
       emissionKinds: ['point'],
     },
     render(state, handshake) {
-      const xField = boundField(state.encodings, 'x', 'category');
-      const yField = boundField(state.encodings, 'y', 'value');
-      const categoryField = options.categoryField ?? 'category';
-      const countLabel = options.countLabel;
-      const data = state.rows.map((r) => ({
-        category: String(r[categoryField]),
-        q1: stat(r['q1']),
-        median: stat(r['median']),
-        q3: stat(r['q3']),
-        whiskerLo: stat(r['whiskerLo']),
-        whiskerHi: stat(r['whiskerHi']),
-        outliers: outliersOf(r['outliers']),
-        count: typeof r['count'] === 'number' ? r['count'] : 0,
-      }));
-      return (
-        <VizBoxPlot
-          viewId={handshake.viewId}
-          data={data}
-          xField={xField}
-          yField={yField}
-          countLabel={countLabel}
-          selection={state.selection}
-          width={state.size.width}
-          height={state.size.height}
-          onEmit={handshake.callbacks.emit}
-          onReencodeRequest={handshake.callbacks.reencodeRequest}
-        />
-      );
+      return boxPlotMark(viewDraw(state, handshake), options);
     },
   });
+}
+
+/** One layer (or one view) of host-summarized boxes. */
+function boxPlotMark(d: MarkDraw, options: BoxPlotRendererOptions): JSX.Element {
+  const xField = boundField(d.encodings, 'x', 'category');
+  const yField = boundField(d.encodings, 'y', 'value');
+  const categoryField = options.categoryField ?? 'category';
+  const countLabel = options.countLabel;
+  const data = d.rows.map((r) => ({
+    category: String(r[categoryField]),
+    q1: stat(r['q1']),
+    median: stat(r['median']),
+    q3: stat(r['q3']),
+    whiskerLo: stat(r['whiskerLo']),
+    whiskerHi: stat(r['whiskerHi']),
+    outliers: outliersOf(r['outliers']),
+    count: typeof r['count'] === 'number' ? r['count'] : 0,
+  }));
+  return (
+    <VizBoxPlot
+      viewId={d.viewId}
+      data={data}
+      xField={xField}
+      yField={yField}
+      countLabel={countLabel}
+      selection={d.selection}
+      width={d.width}
+      height={d.height}
+      domain={d.domain}
+      axes={d.axes}
+      onEmit={d.callbacks.emit}
+      onReencodeRequest={d.callbacks.reencodeRequest}
+    />
+  );
 }
 
 // ── table ──────────────────────────────────────────────────────────────────────
@@ -933,6 +1021,425 @@ export function networkRenderer(options: NetworkRendererOptions = {}): Renderer 
           onEmit={voice.emit}
           {...(domain === undefined ? {} : { domain })}
           {...(walk === undefined ? {} : { walk })}
+        />
+      );
+    },
+  });
+}
+
+// ── the frame (R6 — the first GENERIC layered renderer) ───────────────────────
+
+/**
+ * One layer's MARK, as the host names it. The contract carries rows, never
+ * marks (`RenderLayer` has no `chartKind`), because a renderer is free to draw
+ * rows however it likes — so a frame renderer, whose whole job is to draw the
+ * def's stack, is told here which mark each layer is and which row fields that
+ * mark reads. `kind` is the def's `LayerDecl.chartKind`; the field names are
+ * the same defaults the single-mark renderers use, in one bag so a spec can be
+ * handed straight to whichever mark the kind names.
+ */
+export interface LayeredLayerSpec {
+  /** The def's `chartKind`. A kind no frame can draw (map, network, heatmap, table) is REFUSED in words, never dropped. */
+  readonly kind: string;
+  /** point: the row field carrying a stable id. Default `'id'`. */
+  readonly idField?: string;
+  /** bar · histogram: the row field carrying the host-aggregated count. Default `'count'`. */
+  readonly countField?: string;
+  /** bar: the row field carrying the host-aggregated BRIGHT count (the Layer-4 highlight share). */
+  readonly highlightCountField?: string;
+  /** histogram: the row fields carrying the host-computed bucket edges. Default `'x0'`/`'x1'`. */
+  readonly x0Field?: string;
+  readonly x1Field?: string;
+  /** boxplot: the row field carrying the category label. Default `'category'`. */
+  readonly categoryField?: string;
+  /** histogram · boxplot: the unit word for tooltips. Default `'rows'`. */
+  readonly countLabel?: string;
+  /** The colour of one series/category. Takes `undefined` because a line's series and a point's category can both be absent. */
+  readonly colorOf?: (name: string | undefined) => string;
+}
+
+export interface LayeredRendererOptions {
+  /** Per layerId, its mark. A layer with no entry is REFUSED in words — a frame cannot guess what a table should be drawn as. */
+  readonly layers?: Readonly<Record<string, LayeredLayerSpec>>;
+  /** The merged x axis's label. Default: the field every layer binding that channel agrees on, or none. */
+  readonly xLabel?: string;
+  /** The merged y axis's label. Same default. */
+  readonly yLabel?: string;
+}
+
+/** A channel the host folded a domain for — the only arm of `ResolvedChannel` that carries numbers. */
+type SharedChannel = Extract<ResolvedChannel, { readonly mode: 'shared' }>;
+
+/** One layer with the mark its spec names. */
+interface FramedLayer {
+  readonly layer: RenderLayer;
+  readonly kind: FrameChartKind;
+  readonly spec: LayeredLayerSpec;
+}
+
+/**
+ * WHICH CHANNEL each mark's axes are bound on. A bar's x is its `category`
+ * channel, not `x` — a bar is declared with `channels: ['category']` and
+ * `barMark` reads that binding, so the frame must look for the bar's x
+ * resolution under the same name the def wrote. `undefined` = this mark binds
+ * no channel on that axis (a bar or a histogram whose y is a host-aggregated
+ * COUNT, not a bound column), and then the frame gives it no domain there and
+ * it keeps its own ceiling.
+ */
+const AXIS_CHANNELS: Readonly<Record<FrameChartKind, { readonly x: string; readonly y: string }>> = Object.freeze({
+  line: { x: 'x', y: 'y' },
+  point: { x: 'x', y: 'y' },
+  histogram: { x: 'x', y: 'y' },
+  boxplot: { x: 'x', y: 'y' },
+  bar: { x: 'category', y: 'y' },
+});
+
+/** The marks whose x is a BAND — one slot per value — rather than a run of numbers. */
+const BAND_X_KINDS: readonly FrameChartKind[] = ['bar', 'boxplot'];
+
+/**
+ * WHAT EACH FRAMED MARK REALLY DOES — the same claims its own single-mark
+ * renderer makes, so a frame's capabilities are the UNION of the marks it was
+ * told to draw and never a claim about one it does not draw. A frame of bars
+ * does not brush; a frame with a line in it does.
+ *
+ * The capability-honesty law of this file, one level up: a capability is a
+ * promise about the BOUND renderer. `bar`'s highlight is the one that is also a
+ * promise about the SPEC — a bar can only draw the bright SHARE its host
+ * aggregated, so it stays false until `highlightCountField` names it, exactly
+ * as in `barRenderer`.
+ */
+const MARK_CAPABILITIES: Readonly<Record<FrameChartKind, { readonly brush: boolean; readonly point: boolean; readonly highlight: boolean; readonly kinds: readonly EmissionKind[] }>> = Object.freeze({
+  line: { brush: true, point: false, highlight: false, kinds: ['interval'] },
+  point: { brush: true, point: false, highlight: true, kinds: ['interval'] },
+  bar: { brush: false, point: true, highlight: false, kinds: ['point', 'match'] },
+  histogram: { brush: true, point: false, highlight: false, kinds: ['interval'] },
+  boxplot: { brush: false, point: true, highlight: false, kinds: ['point'] },
+});
+
+/** The framed marks a host named, with their specs — the only marks the capabilities may speak for. */
+function namedMarks(options: LayeredRendererOptions): readonly { readonly kind: FrameChartKind; readonly spec: LayeredLayerSpec }[] {
+  const out: { kind: FrameChartKind; spec: LayeredLayerSpec }[] = [];
+  for (const spec of Object.values(options.layers ?? {})) if (isFrameChartKind(spec.kind)) out.push({ kind: spec.kind, spec });
+  return out;
+}
+
+/** A frame's capabilities: the union of the marks it draws, computed at MOUNT off the specs — never asserted. */
+function frameCapabilities(options: LayeredRendererOptions): RendererCapabilities {
+  const marks = namedMarks(options);
+  return {
+    canBrush: marks.some((m) => MARK_CAPABILITIES[m.kind].brush),
+    canPointSelect: marks.some((m) => MARK_CAPABILITIES[m.kind].point),
+    canHighlight: marks.some((m) => (m.kind === 'bar' ? m.spec.highlightCountField !== undefined : MARK_CAPABILITIES[m.kind].highlight)),
+    canReencode: false, // the merged guide's labels are TEXT: a click would have to ask WHICH layer to re-encode
+    canPanZoom: false,
+    // which layer emits which kind is the layer's own business, and the host reads it off the commit's address
+    emissionKinds: [...new Set(marks.flatMap((m) => MARK_CAPABILITIES[m.kind].kinds))],
+    canLayer: true,
+  };
+}
+
+/** Every layer with the mark its spec names, or the SENTENCE the first layer that cannot be framed gets. */
+function framedLayers(layers: readonly RenderLayer[], options: LayeredRendererOptions): readonly FramedLayer[] | string {
+  const framed: FramedLayer[] = [];
+  for (const layer of layers) {
+    const spec = options.layers?.[layer.layerId];
+    if (spec === undefined) {
+      return `layer "${layer.layerId}": no mark was named for it — a frame draws what the def declared, so pass its chartKind in this renderer's \`layers\` option.`;
+    }
+    if (!isFrameChartKind(spec.kind)) {
+      return `layer "${layer.layerId}": a ${spec.kind} owns its own frame — a frame draws line, bar, point, histogram and boxplot marks. Draw it on a frame of its own.`;
+    }
+    framed.push({ layer, kind: spec.kind, spec });
+  }
+  return framed;
+}
+
+/**
+ * WHAT A STACK MAY NOT BE, in words. Each of these is a picture that would be
+ * DRAWN wrong rather than merely be empty, which is why it is refused instead
+ * of attempted — and one sentence, not a list: the frame is refused, so the
+ * next reason is the next thing the reader sees once this one is fixed.
+ */
+function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | null {
+  const bands = framed.filter((f) => BAND_X_KINDS.includes(f.kind));
+  const runs = framed.filter((f) => !BAND_X_KINDS.includes(f.kind));
+  // A BAND AND A RUN CANNOT BE ONE X. A bar's slots carry no distance and a line's
+  // x does; overlaid, the line's peak would sit over a band it has nothing to do
+  // with. This is the one refusal that does not read the declaration: no
+  // resolution can make one axis both kinds of thing.
+  if (bands.length > 0 && runs.length > 0) {
+    return `layer "${bands[0]!.layer.layerId}" draws its x as a band (one slot per value) and layer "${runs[0]!.layer.layerId}" along a run of numbers — one frame cannot be both, so the line would sit over slots it has nothing to do with. Give each a frame of its own, or bind both to the same kind of column.`;
+  }
+  if (bands.length > 1) {
+    // TWO BANDS LINE UP ONLY OFF ONE CATEGORY LIST. Without it each lays its slots
+    // out from its own rows, and two tables with different values put "Formal"
+    // over two different slots — the frame would draw a comparison nobody folded.
+    if (bandsOf(sharedAxis(bands, frame, 'x')?.resolved) === undefined) {
+      return `layers "${bands[0]!.layer.layerId}" and "${bands[1]!.layer.layerId}" both draw bands, and the frame folded no category list for them — each would order its slots by its own rows. Share their x channel as a categorical one, or give each a frame of its own.`;
+    }
+    const box = bands.find((f) => f.kind === 'boxplot');
+    // A BOX PLOT ORDERS ITS SLOTS BY ITS OWN ROWS in this version (it reads no
+    // category list), so it cannot be the layer that lines up with another band.
+    if (box !== undefined) {
+      return `layer "${box.layer.layerId}" is a box plot on a shared band: a box plot orders its slots by its own rows in this version, so it cannot line up with layer "${bands.find((f) => f !== box)!.layer.layerId}". Give it a frame of its own.`;
+    }
+  }
+  const line = colouredLineRefusal(framed);
+  if (line !== null) return line;
+  // PER-LAYER GUIDES OVERPRINT ON TWO OR MORE LAYERS. Every layer's plot
+  // rectangle is the SAME rectangle (`layeredRenderer`'s one margin box), so
+  // when `frameGuide` — the ONE place that decides merged vs per-layer —
+  // says each layer draws its own axes, two-or-more layers draw them at the
+  // SAME pixels: illegible, not merely doubled. A single layer has no second
+  // axis to collide with, so it stays legal.
+  if (framed.length > 1 && frameGuide(frame) === 'per-layer') {
+    return `per-layer guides overprint on one frame in this version — declare guide: 'merged', or draw one layer`;
+  }
+  return null;
+}
+
+/**
+ * A LINE SPLIT INTO SERIES lays its legend INSIDE its own box, which moves its
+ * plot top off every other layer's — the one thing a chart does to its own
+ * margin that the frame cannot see. Refused rather than drawn a few pixels
+ * high.
+ */
+function colouredLineRefusal(framed: readonly FramedLayer[]): string | null {
+  for (const f of framed) {
+    if (f.kind !== 'line') continue;
+    const field = f.layer.encodings['color'];
+    if (field === undefined) continue;
+    const series = new Set(f.layer.rows.map((row) => String(row[field])));
+    if (series.size > 1) {
+      return `layer "${f.layer.layerId}" is a line split into ${String(series.size)} series: its legend sits inside its own box and moves its plot top off the frame's. Draw one series per layer, or give it a frame of its own.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * The ONE channel a stack's axis is bound on, as a 0-or-1 list — EMPTY when the
+ * marks name two different ones (a bar's x is `category` and a box plot's is
+ * `x`), which means the def never shared that axis between them and there is
+ * nothing merged to draw. A list rather than an optional so the one caller that
+ * needs the channel and the one that needs its resolution read it the same way.
+ */
+function axisChannels(framed: readonly FramedLayer[], axis: 'x' | 'y'): readonly string[] {
+  const names = new Set(framed.map((f) => AXIS_CHANNELS[f.kind][axis]));
+  return names.size === 1 ? [...names] : [];
+}
+
+/** THE ONE DOOR to a stack's shared axis: the channel it is bound on and the resolution the host folded for it — or nothing where it was not shared. */
+function sharedAxis(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, axis: 'x' | 'y'): { readonly channel: string; readonly resolved: SharedChannel } | undefined {
+  for (const channel of axisChannels(framed, axis)) {
+    const resolved = frame?.[channel];
+    if (resolved !== undefined && resolved.mode === 'shared') return { channel, resolved };
+  }
+  return undefined;
+}
+
+/**
+ * One shared channel as a SPAN a chart can scale by: its numbers, or a temporal
+ * pair converted to the epoch milliseconds every chart positions dates on
+ * (`epochOf`, the same function the charts use on their own rows). A category
+ * list is not a span, and a date the parser cannot read is no axis at all.
+ *
+ * (`quantitativeDomain` above answers a different question — whether a channel
+ * is a px-per-unit SUBSTRATE, which a date can never be.)
+ */
+function spanOf(channel: SharedChannel | undefined): readonly [number, number] | undefined {
+  if (channel === undefined) return undefined;
+  if (channel.scale === 'quantitative') return channel.domain;
+  if (channel.scale === 'categorical') return undefined;
+  const lo = epochOf(channel.domain[0]);
+  const hi = epochOf(channel.domain[1]);
+  return lo === null || hi === null ? undefined : [lo, hi];
+}
+
+/** One shared channel as a BAND ORDER, when the frame folded it as categories. */
+function bandsOf(channel: SharedChannel | undefined): readonly string[] | undefined {
+  return channel !== undefined && channel.scale === 'categorical' ? channel.domain : undefined;
+}
+
+/**
+ * THE FULL BAND ORDER a merged categorical x actually needs: the frame's own
+ * fold, then every band layer's OWN categories not already in it, layer by
+ * layer in declaration order — `bandOrder` applied progressively over the
+ * whole stack, ONCE, before any chart sees a domain.
+ *
+ * WHY here, rather than leaving each chart's own `bandOrder` call to append
+ * what its rows carry: a chart's band WIDTH is `plotWidth / bandCount`, so a
+ * layer whose rows reach past the frame's fold would draw MORE bands, at a
+ * NARROWER width, than the merged guide has ticks for — and every band, not
+ * only the appended one, would drift off the axis it is meant to share (the
+ * guide has no rows of its own to widen its ticks by; it only ever reads
+ * `domain.categories`). Folding the union once and handing the SAME list to
+ * the guide and to every layer turns each chart's own `bandOrder` call into a
+ * no-op agreement instead of a second, narrower count.
+ */
+function fullBandOrder(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): readonly string[] | undefined {
+  const given = bandsOf(sharedAxis(framed, frame, 'x')?.resolved);
+  if (given === undefined) return undefined; // nothing merged on x — no union to keep, each layer keeps its own order
+  // every layer here is a BAND kind by construction: `stackRefusal`'s band-over-run check
+  // (unconditional, by mark kind alone — it "does not read the declaration") already refused
+  // any stack that mixed one in, before this function is ever called.
+  return framed
+    .filter((f) => BAND_X_KINDS.includes(f.kind))
+    .reduce<readonly string[]>((union, f) => {
+      const field = f.layer.encodings[AXIS_CHANNELS[f.kind].x];
+      return field === undefined ? union : bandOrder(union, f.layer.rows.map((r) => String(r[field]))); // "this layer never declared that axis" — the same silence `layerDomain` keeps
+    }, given);
+}
+
+/**
+ * THE FRAME'S OWN SCALES — the numbers its MERGED GUIDE is drawn from, taken
+ * off the channels its layers' axes are bound on. The guide is the frame's
+ * claim about the whole stack, so it reads the frame's fold; what each LAYER
+ * is scaled by is narrower ({@link layerDomain}), and the two come from the
+ * same `RenderState.frame` PLUS the same `categories` union ({@link fullBandOrder}),
+ * so a tick can never disagree with a mark.
+ */
+function frameChartDomain(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, categories: readonly string[] | undefined): ChartDomain {
+  const on = (axis: 'x' | 'y'): SharedChannel | undefined => sharedAxis(framed, frame, axis)?.resolved;
+  const x = spanOf(on('x'));
+  const y = spanOf(on('y'));
+  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...(categories === undefined ? {} : { categories }) };
+}
+
+/**
+ * The frame's scales AS ONE LAYER RECEIVES THEM — and only for the channels
+ * THAT layer binds. The frame never puts a number on an axis a layer never
+ * declared: a bar that binds no y keeps its own count ceiling, because a value
+ * span folded over somebody else's column is not this bar's height. `categories`
+ * is the SAME union {@link frameChartDomain} drew its ticks from ({@link fullBandOrder}) —
+ * never this layer's own narrower fold — so this layer's band count can never
+ * outrun the guide's tick count.
+ */
+function layerDomain(f: FramedLayer, frame: Readonly<Record<string, ResolvedChannel>> | undefined, categories: readonly string[] | undefined): ChartDomain {
+  const channels = AXIS_CHANNELS[f.kind];
+  const bound = (channel: string): SharedChannel | undefined => {
+    if (f.layer.encodings[channel] === undefined) return undefined; // this layer never declared that axis
+    const resolved = frame?.[channel];
+    return resolved !== undefined && resolved.mode === 'shared' ? resolved : undefined;
+  };
+  const x = spanOf(bound(channels.x));
+  const y = spanOf(bound(channels.y));
+  const boundCategories = bound(channels.x) === undefined ? undefined : categories;
+  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...(boundCategories === undefined ? {} : { categories: boundCategories }) };
+}
+
+/**
+ * ONE GUIDE, OR ONE PER LAYER. Merged only while every channel the frame folded
+ * asks for a merged guide: a chart draws BOTH its axes or neither (`axes` is one
+ * prop), so a single `guide: 'per-layer'` channel gives every layer its own
+ * pair. A frame that folded nothing has nothing merged to draw, and each layer
+ * draws its own on its own extents — the honest `independent` picture.
+ */
+function frameGuide(frame: Readonly<Record<string, ResolvedChannel>> | undefined): 'merged' | 'per-layer' {
+  const channels = Object.values(frame ?? {});
+  return channels.length > 0 && channels.every((channel) => channel.guide === 'merged') ? 'merged' : 'per-layer';
+}
+
+/** One axis of the merged guide, or nothing when that axis was not shared — the frame draws only the axes it was given. */
+function frameAxisOf(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, axis: 'x' | 'y', label: string | undefined): FrameAxis | undefined {
+  const shared = sharedAxis(framed, frame, axis);
+  if (shared === undefined) return undefined;
+  const named = label ?? channelLabel(framed, shared.channel);
+  return { scale: shared.resolved.scale, ...(named === undefined ? {} : { label: named }) };
+}
+
+/** The field name a merged axis carries: the one every layer binding that channel agrees on — an axis of two fields has no single name. */
+function channelLabel(framed: readonly FramedLayer[], channel: string): string | undefined {
+  const fields = new Set(framed.map((f) => f.layer.encodings[channel]).filter((field): field is string => field !== undefined));
+  return fields.size === 1 ? [...fields][0] : undefined;
+}
+
+/** Draw one layer with the mark its kind names — the ONE place a framed kind becomes a chart. */
+function layerMark(f: FramedLayer, draw: MarkDraw): JSX.Element {
+  if (f.kind === 'line') return lineMark(draw, f.spec);
+  if (f.kind === 'bar') return barMark(draw, f.spec);
+  if (f.kind === 'point') return pointMark(draw, f.spec);
+  if (f.kind === 'histogram') return histogramMark(draw, f.spec);
+  return boxPlotMark(draw, f.spec); // 'boxplot' — the list is closed by FrameChartKind
+}
+
+/** A stack this renderer will not draw, said in words in the space the frame would have filled (the `layersRefusal` grammar). */
+function frameRefusal(sentence: string): JSX.Element {
+  return (
+    <p className="vzf-chart-refusal" role="status">
+      {sentence}
+    </p>
+  );
+}
+
+/**
+ * THE FRAME: the def's layers, in declaration order, over ONE margin box and
+ * ONE pair of scales (protocol 1.5). Each layer is drawn by the mark its spec
+ * names, given the frame's domain for the channels IT binds; the guide is the
+ * frame's when every folded channel asked for a merged one, and each layer's
+ * own otherwise. Paint order is declaration order — the first layer is the
+ * bottom one.
+ *
+ * A gesture on a layer speaks through THAT layer's callback bundle
+ * (`handshake.layers[layerId]`), so the commit lands under `viewId~layerId` —
+ * the 1.2 law. With no bundle for it the view speaks and the ADDRESS is lost,
+ * not the gesture.
+ *
+ * Every layer reads the frame's ONE `selection`. A self-exclusion fold can only
+ * name one address, so a host with several interactive layers chooses whose
+ * clause is "self" — a fold per layer is a protocol change, not a renderer one.
+ *
+ * A stack it cannot draw is REFUSED IN WORDS (`stackRefusal`) rather than drawn
+ * wrong: an unframeable kind, a band mark over a run mark, two bands with no
+ * category list, a box plot on a shared band, a line split into series, or
+ * per-layer guides on two or more layers.
+ */
+export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer {
+  return reactRenderer({
+    capabilities: frameCapabilities(options),
+    render(state, handshake) {
+      const layers = state.layers ?? [];
+      // a frame IS its layers: with none there is no stack, and drawing `state.rows`
+      // as some default mark would be this renderer inventing a picture
+      if (layers.length === 0) return frameRefusal('this frame carried no layers — a frame is its layers, so there is nothing to draw. Push at least one layer, or bind a single-mark renderer for a plain view.');
+      const framed = framedLayers(layers, options);
+      if (typeof framed === 'string') return frameRefusal(framed);
+      const refusal = stackRefusal(framed, state.frame);
+      if (refusal !== null) return frameRefusal(refusal);
+      const x = frameAxisOf(framed, state.frame, 'x', options.xLabel);
+      const y = frameAxisOf(framed, state.frame, 'y', options.yLabel);
+      // the ONE band union every layer AND the merged guide draw off — see `fullBandOrder`
+      const categories = fullBandOrder(framed, state.frame);
+      return (
+        <VizFrame
+          layers={framed.map((f) => ({
+            layerId: f.layer.layerId,
+            kind: f.kind,
+            render: (draw) =>
+              layerMark(f, {
+                viewId: handshake.viewId,
+                rows: f.layer.rows,
+                encodings: f.layer.encodings,
+                selection: state.selection,
+                width: draw.width,
+                height: draw.height,
+                // the LAYER speaks whenever it has a bundle; with none the view speaks and the address is lost, not the gesture
+                callbacks: handshake.layers?.[f.layer.layerId] ?? handshake.callbacks,
+                // ONLY what THIS layer binds — never the frame's whole fold (`draw.domain`), because
+                // an axis a layer never declared is not its axis: a bar that binds no y keeps its own
+                // count ceiling rather than taking somebody else's value span as its height
+                domain: layerDomain(f, state.frame, categories),
+                axes: draw.axes,
+              }),
+          }))}
+          domain={frameChartDomain(framed, state.frame, categories)}
+          guide={frameGuide(state.frame)}
+          {...(x === undefined ? {} : { x })}
+          {...(y === undefined ? {} : { y })}
+          width={state.size.width}
+          height={state.size.height}
+          ariaLabel={`${String(framed.length)} layers on one frame`}
         />
       );
     },

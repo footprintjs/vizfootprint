@@ -101,7 +101,13 @@ export interface VizScatterProps {
   readonly axes?: boolean;
 }
 
-const PAD = { l: 52, r: 18, t: 18, b: 44 };
+/**
+ * THE MARGIN BOX this chart draws inside — and its ONE owner. EXPORTED so a
+ * frame can put this chart's plot box exactly where every other layer's is
+ * (`VizFrame`): the frame offsets each layer by its own pad, so an alignment
+ * computed there can never drift from the box drawn here.
+ */
+export const PAD = { l: 52, r: 18, t: 18, b: 44 };
 
 export function VizScatter(props: VizScatterProps): JSX.Element {
   const {

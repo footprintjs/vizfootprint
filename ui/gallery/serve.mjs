@@ -34,11 +34,14 @@ const page = (title, script) => `<!doctype html>
 const PAGE = page('vizfootprint-ui — gallery', '/gallery.js');
 /* the Sheet over 90,300 rows, on its own page */
 const SHEET_PAGE = page('vizfootprint-ui — sheet', '/sheet.js');
+/* the FRAME — two layers of marks on one frame — on its own page */
+const FRAME_PAGE = page('vizfootprint-ui — frame', '/frame.js');
 
 export async function startGallery({ port = 5177 } = {}) {
   const out = await buildGallery();
   const bundle = readFileSync(path.join(out, 'gallery.js'));
   const sheetBundle = readFileSync(path.join(out, 'sheet.js'));
+  const frameBundle = readFileSync(path.join(out, 'frame.js'));
   const css = readFileSync(path.join(out, 'vizfootprint-ui.css'));
   const server = http.createServer((req, res) => {
     const url = (req.url ?? '/').split('?')[0];
@@ -48,9 +51,15 @@ export async function startGallery({ port = 5177 } = {}) {
     } else if (url === '/sheet.js') {
       res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
       res.end(sheetBundle);
+    } else if (url === '/frame.js') {
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
+      res.end(frameBundle);
     } else if (url === '/sheet' || url === '/sheet.html') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       res.end(SHEET_PAGE);
+    } else if (url === '/frame' || url === '/frame.html') {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(FRAME_PAGE);
     } else if (url === '/vizfootprint-ui.css') {
       res.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
       res.end(css);

@@ -108,7 +108,13 @@ export interface VizHistogramProps {
   readonly axes?: boolean;
 }
 
-const PAD = { l: 30, r: 30, t: 20, b: 48 };
+/**
+ * THE MARGIN BOX this chart draws inside — and its ONE owner. EXPORTED so a
+ * frame can put this chart's plot box exactly where every other layer's is
+ * (`VizFrame`): the frame offsets each layer by its own pad, so an alignment
+ * computed there can never drift from the box drawn here.
+ */
+export const PAD = { l: 30, r: 30, t: 20, b: 48 };
 
 /** A bucket edge's position on the linear axis — numbers as-is, ISO dates by epoch. */
 function edgePos(edge: number | string): number | null {

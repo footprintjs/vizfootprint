@@ -270,20 +270,110 @@ and each 2D chart takes the domain as a prop (`domain={{ x, y }}`,
 `axes={false}` while the frame draws the guide), so a host can put a layer on
 a shared scale without the chart knowing a frame exists.
 
-Two things to know when you push it into a chart. A `ChartDomain` is NUMBERS,
-so a `temporal` domain — ISO strings, as the fold answers them — is converted
-by the caller with `epochOf` (`primitives/scales.ts`), the same function the
-charts use on their own rows; and a `categorical` domain has no chart prop in
-this version, so a band chart still orders its bands by its own rows. A value
-outside the domain is DRAWN, at its true position: a domain says what the axis
-means, and a row past it is a data fact, not an overflow — seeing a layer run
-off the frame is the point of sharing one.
+Two things to know when you push it into a chart. A `ChartDomain`'s `x`/`y` are
+NUMBERS, so a `temporal` domain — ISO strings, as the fold answers them — is
+converted by the caller with `epochOf` (`primitives/scales.ts`), the same
+function the charts use on their own rows; and a `categorical` domain rides on
+`domain.categories` instead, the BAND ORDER a band chart lays its slots out in
+(`bandOrder`), because a bar has no quantitative x to scale. A value outside the
+domain is DRAWN, at its true position: a domain says what the axis means, and a
+row past it is a data fact, not an overflow — seeing a layer run off the frame
+is the point of sharing one. The band spelling of that law is the same: a
+category the frame's list does not name is APPENDED, never hidden, and a slot
+the layer has no row for stays EMPTY rather than becoming a bar of zero ("no
+rows here" and "none of them" are two different sentences).
 
 Not in this version: per-layer opacity/visible dials, annotation layers,
-re-encoding one layer of a frame, and a first-party renderer that draws several
-2D layers on one folded frame — the frame RENDERER is the next packet, and the
-field it reads is here. Sibling layers get **no implicit crossfilter**: a
-select on `net~nodes` reaches `net~edges` only through a declared link.
+re-encoding one layer of a frame, a map frame with an inset, a legend on a layer
+(a line split into series lays one inside its own box, so the frame refuses it —
+see below), a line on a band (`VizLine` positions dates along a run of numbers;
+a band mode is its own packet), a box plot sharing a band with another layer (it
+orders its slots by its own rows), a guide per CHANNEL (a chart draws both its
+axes or neither, so one `per-layer` channel gives every layer its own pair), a
+second axis placed on the right for per-layer guides (the honest remedy for
+two-or-more layers under `'per-layer'` — refused in words instead, in this
+version, see below), and a selection folded per layer (the contract carries ONE
+`selection` per frame, so a host with several interactive layers chooses whose
+clause is "self"). Sibling layers get **no implicit crossfilter**: a select on
+`net~nodes` reaches `net~edges` only through a declared link.
+
+### The frame renderer (R6): the def's stack of 2D marks, drawn
+
+`layeredRenderer` is the GENERIC one — `canLayer: true`, and it draws the five
+2D marks (line, bar, point, histogram, boxplot) in DECLARATION order inside one
+box, through `<VizFrame>`. The contract carries rows, never marks, so the host
+names each layer's mark (its def `chartKind`) and that mark's row fields:
+
+```ts
+const res = bindRenderer(
+  layeredRenderer({
+    layers: {
+      all: { kind: 'bar', colorOf: () => 'var(--vzf-line)' },
+      top: { kind: 'bar' },
+    },
+    xLabel: 'category',
+    yLabel: 'rows',
+  }),
+  el,
+  {
+    viewId: 'bar',
+    callbacks: verbs('all'),
+    // 1.2: one bundle per layer, so a gesture lands under `bar~all` / `bar~top`
+    layers: { layerIds: ['all', 'top'], callbacksFor: (address) => verbs(address.split('~')[1]!) },
+  },
+);
+res.view.update({ ...state, layers, frame: frameDomains(values) }); // the fold the axis is drawn from
+```
+
+`res.view.update` renders SYNCHRONOUSLY (`flushSync` — every `reactRenderer`,
+not only the frame's, see "The bridge" above): a REACT host that calls it from
+inside its own render (an effect) has to push the frame's `update` on a
+microtask, or React warns that `flushSync` ran while it was still rendering.
+`ui/gallery/frame.tsx` shows the one-line shape (`queueMicrotask(() =>
+boundRef.current?.update(...))`) — the price of the synchronous render, not a
+bug in the frame.
+
+What it owns:
+
+- **ONE MARGIN BOX.** Every layer's PLOT rectangle is the same rectangle. The
+  charts keep different margins of their own (a line 52px on the left, a bar
+  38), so the frame takes the UNION as its own margin and offsets each layer by
+  ITS pad — each chart's `PAD` is exported and stays its one owner, so an
+  alignment computed in the frame cannot drift from the box the chart draws.
+- **ONE GUIDE.** With every folded channel asking for `guide: 'merged'` the
+  frame draws the axes once, from the frame's own fold, and every layer is drawn
+  with `axes={false}`. A single `'per-layer'` channel (or an `independent` one,
+  which is per-layer by definition) gives every layer its own pair instead —
+  legal for exactly one layer. Because every layer's plot rectangle is the SAME
+  rectangle (promise 1), two-or-more layers under `'per-layer'` would land their
+  axes at the same frame pixel, so the frame REFUSES that stack in words (see
+  the table below) rather than overprint them; declare `guide: 'merged'`, or
+  draw one layer.
+- **each layer gets only what IT binds.** A bar that binds no `y` keeps its own
+  count ceiling: a value span folded over somebody else's column is not this
+  bar's height. Bind `y` to the count field on both bar layers and they share
+  one ceiling, which is what makes their heights comparable.
+- **the layer's own voice.** A gesture speaks through
+  `handshake.layers[layerId]`, so the commit lands under `viewId~layerId` (the
+  1.2 law). With no bundle for it the view speaks and the ADDRESS is lost, not
+  the gesture.
+- **the pointer law of a stack.** The BOTTOM layer keeps the pointer over its
+  whole box (nothing is beneath it to reach); every layer above takes the
+  pointer only where it drew a mark, so a click on blank canvas falls through
+  instead of being swallowed by whichever layer is on top.
+
+What it REFUSES, in words, rather than drawing wrong — each of these is a
+picture that would be drawn a lie, not one that would merely be empty:
+
+| the stack | the reason |
+|---|---|
+| a kind that owns its own frame (map, network, heatmap, table) | a frame draws the 2D marks; the others are frames |
+| a band mark over a run mark (a bar under a line) | one x cannot be both a set of slots and a run of numbers, whatever the column says — the line would sit over slots it has nothing to do with |
+| two band layers with no category list folded | each would order its slots by its own rows, so "Formal" would be two different slots |
+| a box plot sharing a band | it reads no category list in this version |
+| a line split into 2+ series | its legend sits inside its own box and moves its plot top off the frame's |
+| a layer with no mark named | a frame draws what the def declared; it never guesses |
+| per-layer guides on two or more layers | every layer's plot rectangle is the same rectangle, so their axes would land on the same pixels |
 
 **The first-party layered chart has since shipped** (packet 4): `networkRenderer`
 — `<VizNetwork>` behind the bridge — is the ninth reference renderer and the

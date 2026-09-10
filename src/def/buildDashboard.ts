@@ -69,7 +69,8 @@ import { createInteractionSession, type InteractionSession } from '../session/se
 import type { SessionOptions } from '../session/types.js';
 import { EMISSION_KINDS, materializeLinks, voiceOf } from '../links/index.js';
 import { lintEncodings, pageBindings, resolveFacet, resolveFacets } from '../encoding/index.js';
-import type { Bindings, EncodingPorts, EncodingProblem } from '../encoding/index.js';
+import type { Bindings, EncodingPorts, EncodingProblem, FrameNote } from '../encoding/index.js';
+import { frameLint } from '../encoding/index.js';
 import { validateProseRecord } from '../prose/index.js';
 import type { ProseProblem } from '../prose/index.js';
 import { isRejection } from '../data/index.js';
@@ -133,6 +134,16 @@ export interface Dashboard {
   lint(): Promise<EncodingProblem[]>;
   /** The LINT door of the prose plane: every declared slot judged with the data's real columns and the declared analyses. */
   lintProse(): Promise<ProseProblem[]>;
+  /**
+   * The LINT door of the FRAME: what a reader will struggle with in a view's
+   * stack of layers, said in advice (`frameLint`) rather than refused — more
+   * than four layers on one frame is a judgement, not an error.
+   *
+   * SYNCHRONOUS, unlike the other two: a frame note reads the DEFINITION (how
+   * many layers a view stacks), never a column, so there is no provider to ask
+   * and nothing to await.
+   */
+  lintFrames(): readonly FrameNote[];
   /**
    * Release what this BUILD opened: the SQL connection a `wasm` table's bytes
    * were landed in (`./wasmBackend.ts`). Nothing else — a `DataProvider` a host
@@ -1088,6 +1099,7 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
       }
       return out;
     },
+    lintFrames: () => frameNotesOf(views),
     lint: async () => {
       const cols = await providers.get(defaultTable)!.columns(defaultTable);
       if (isRejection(cols)) throw new Error(`lint: the "${defaultTable}" provider cannot list its columns — ${cols.detail ?? cols.reason}`);
@@ -1130,6 +1142,22 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
       return [...viewProblems, ...(await lintLayers(views, providers, runtime, page))];
     },
   };
+}
+
+/**
+ * Every view's FRAME linted: the notes `frameLint` gives a stack, each under the
+ * view it is about. A view with no layers has no frame and no notes.
+ *
+ * The one owner of the sentence is `frameLint` (`../encoding/frame.ts`) — this
+ * only says which stack it was asked about, so the def door and a host that
+ * folds its own frame read the same advice.
+ */
+function frameNotesOf(views: ReadonlyMap<string, ViewDecl>): readonly FrameNote[] {
+  const out: FrameNote[] = [];
+  for (const view of views.values()) {
+    for (const sentence of frameLint(view.layers ?? [])) out.push({ viewId: view.viewId, sentence });
+  }
+  return Object.freeze(out);
 }
 
 /**

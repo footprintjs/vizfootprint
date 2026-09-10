@@ -63,4 +63,4 @@ export { discreteCoercer, BUILTIN_COERCERS } from './coercers.js';
 // THE FRAME: the one place a declared `ChannelResolution` becomes an actual domain
 // (layers on one frame — the def declares, this folds; see ./frame.ts).
 export { frameDomains, frameLint, frameScaleOf, resolutionFor, zeroAnchorsChannel, zeroPolicyFor, FRAME_LAYER_LINT, ZERO_ANCHORED_KINDS } from './frame.js';
-export type { ChannelValues, EffectiveResolution, FrameLayer, ResolvedChannel, ResolvedDomain } from './frame.js';
+export type { ChannelValues, EffectiveResolution, FrameLayer, FrameNote, ResolvedChannel, ResolvedDomain } from './frame.js';

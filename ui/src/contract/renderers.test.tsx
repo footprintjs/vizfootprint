@@ -18,6 +18,7 @@ import {
   heatmapRenderer,
   boxPlotRenderer,
   networkRenderer,
+  layeredRenderer,
   NETWORK_EDGE_CEILING,
   NETWORK_NODE_CEILING,
 } from './renderers.js';
@@ -659,6 +660,329 @@ describe('networkRenderer — the SVG ceiling lives in the wrapper', () => {
     const { el, m } = mountNet();
     m.update(state(manyNodes(NETWORK_NODE_CEILING + 1)));
     expect(el.querySelector('p.vzf-chart-refusal')!.getAttribute('role')).toBe('status');
+    m.unmount();
+  });
+});
+
+// ── layeredRenderer (R6): the def's stack of 2D marks over ONE frame ──────────
+
+const SHARED = (scale: 'quantitative' | 'temporal' | 'categorical', domain: unknown): ResolvedChannel =>
+  ({ mode: 'shared', basis: 'table', guide: 'merged', scale, domain } as ResolvedChannel);
+
+/** A frame's state: the layers, plus the resolved channels the HOST folded (protocol 1.5). */
+function framed(layers: readonly RenderLayer[], frame?: Readonly<Record<string, ResolvedChannel>>): RenderState {
+  return { ...state([]), layers, ...(frame === undefined ? {} : { frame }) };
+}
+
+/** Mount the frame renderer with a callback bundle per layer — what `bindRenderer` hands a canLayer renderer. */
+function mountFrame(options: Parameters<typeof layeredRenderer>[0], layerIds: readonly string[] = ['a', 'b']): { el: HTMLElement; m: MountedRenderer; view: RendererCallbacks; bundles: Record<string, RendererCallbacks> } {
+  const el = document.createElement('div');
+  document.body.appendChild(el);
+  const view = callbacks();
+  const bundles: Record<string, RendererCallbacks> = {};
+  for (const id of layerIds) bundles[id] = callbacks();
+  const m = layeredRenderer(options).mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: view, layers: bundles });
+  return { el, m, view, bundles };
+}
+
+const POINT_ROWS: RenderRow[] = [
+  { id: 'p1', price: 10, rating: 2 },
+  { id: 'p2', price: 90, rating: 8 },
+];
+const LINE_ROWS: RenderRow[] = [
+  { price: 20, rating: 3 },
+  { price: 80, rating: 7 },
+];
+const POINTS_LAYER: RenderLayer = { layerId: 'a', table: 'shoes', rows: POINT_ROWS, encodings: { x: 'price', y: 'rating' } };
+const LINE_LAYER: RenderLayer = { layerId: 'b', table: 'trend', rows: LINE_ROWS, encodings: { x: 'price', y: 'rating' } };
+/** The 2D frame's own fold: one x span and one y span over both layers. */
+const XY_FRAME = { x: SHARED('quantitative', [0, 100]), y: SHARED('quantitative', [0, 10]) };
+
+const refusalOf = (el: Element): string => el.querySelector('.vzf-chart-refusal')?.textContent ?? '';
+const guidesOf = (el: Element): number => el.querySelectorAll('.vzf-frame-guide').length;
+
+describe('layeredRenderer — the capabilities are the marks it was told to draw', () => {
+  it('a frame of BARS does not brush, and a frame with a line in it does — the union of its marks, never a blanket claim', () => {
+    const bars = layeredRenderer({ layers: { a: { kind: 'bar' }, b: { kind: 'bar' } } }).mount(document.createElement('div'), { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks() });
+    expect(bars.hello.capabilities).toMatchObject({ canBrush: false, canPointSelect: true, canLayer: true, emissionKinds: ['point', 'match'] });
+    const mixed = layeredRenderer({ layers: { a: { kind: 'point' }, b: { kind: 'line' } } }).mount(document.createElement('div'), { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks() });
+    expect(mixed.hello.capabilities).toMatchObject({ canBrush: true, canPointSelect: false, canHighlight: true, emissionKinds: ['interval'] });
+    // a bar's highlight is a promise about the SPEC: it can only draw the share the host aggregated
+    expect(bars.hello.capabilities.canHighlight).toBe(false);
+    const bright = layeredRenderer({ layers: { a: { kind: 'bar', highlightCountField: 'bright' } } }).mount(document.createElement('div'), { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks() });
+    expect(bright.hello.capabilities.canHighlight).toBe(true);
+    // a kind no frame can draw promises nothing on its behalf (it is refused at update, in words)
+    const none = layeredRenderer({ layers: { a: { kind: 'heatmap' } } }).mount(document.createElement('div'), { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks() });
+    expect(none.hello.capabilities).toMatchObject({ canBrush: false, canPointSelect: false, emissionKinds: [] });
+    // and a frame told NOTHING promises nothing — every layer it is pushed is refused in words
+    const bare = layeredRenderer().mount(document.createElement('div'), { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks() });
+    expect(bare.hello.capabilities).toMatchObject({ canBrush: false, canPointSelect: false, canHighlight: false, emissionKinds: [], canLayer: true });
+    for (const mounted of [bars, mixed, bright, none, bare]) mounted.unmount();
+  });
+});
+
+describe('layeredRenderer — the marks, the box and the guide', () => {
+  it('declares canLayer and draws the layers in DECLARATION order, each on the frame’s scales with no guide of its own', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' }, b: { kind: 'line' } } });
+    expect(m.hello.capabilities.canLayer).toBe(true);
+    m.update(framed([POINTS_LAYER, LINE_LAYER], XY_FRAME));
+    expect(Array.from(el.querySelectorAll('[data-layer]')).map((n) => n.getAttribute('data-layer'))).toEqual(['a', 'b']);
+    // ONE guide for the stack — and the scatter/line drew none of their own
+    expect(guidesOf(el)).toBe(1);
+    expect(el.querySelectorAll('.vzf-scatter .vzf-axis, .vzf-line .vzf-axis')).toHaveLength(0);
+    // the guide's ticks are the frame's fold, not either layer's own extent
+    expect(Array.from(el.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent)).toEqual(['0', '33.3', '66.7', '100', '0', '3.3', '6.7', '10', 'price', 'rating']);
+    m.unmount();
+  });
+
+  it('a per-layer guide gives a single layer its own axes and the frame none (a chart draws both axes or neither) — two-or-more layers under per-layer is refused, below', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' } } }, ['a']);
+    m.update(framed([POINTS_LAYER], { x: { ...XY_FRAME.x, guide: 'per-layer' } as ResolvedChannel, y: XY_FRAME.y }));
+    expect(guidesOf(el)).toBe(0);
+    expect(el.querySelectorAll('.vzf-scatter .vzf-axis').length).toBeGreaterThan(0);
+    m.unmount();
+  });
+
+  it('a frame that folded NOTHING draws a single layer on its own extents, with its own guide — the honest independent picture', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' } } }, ['a']);
+    m.update(framed([POINTS_LAYER]));
+    expect(guidesOf(el)).toBe(0);
+    expect(el.querySelectorAll('.vzf-scatter .vzf-axis').length).toBeGreaterThan(0);
+    m.unmount();
+  });
+
+  it('the axis label is the field every layer agrees on; two fields have no one name, and the host’s label wins', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' }, b: { kind: 'line' } } });
+    // b binds a DIFFERENT y field: the merged y axis carries no name
+    m.update(framed([POINTS_LAYER, { ...LINE_LAYER, encodings: { x: 'price', y: 'stars' } }], XY_FRAME));
+    expect(Array.from(el.querySelectorAll('.vzf-frame-axislabel')).map((t) => t.textContent)).toEqual(['price']);
+    m.update({ ...framed([POINTS_LAYER, LINE_LAYER], XY_FRAME) });
+    expect(Array.from(el.querySelectorAll('.vzf-frame-axislabel')).map((t) => t.textContent)).toEqual(['price', 'rating']);
+    m.unmount();
+    const named = mountFrame({ layers: { a: { kind: 'point' }, b: { kind: 'line' } }, xLabel: 'price (USD)', yLabel: 'stars' });
+    named.m.update(framed([POINTS_LAYER, LINE_LAYER], XY_FRAME));
+    expect(Array.from(named.el.querySelectorAll('.vzf-frame-axislabel')).map((t) => t.textContent)).toEqual(['price (USD)', 'stars']);
+    named.m.unmount();
+  });
+
+  it('draws all five framed marks — the three RUN marks on one frame, the two BAND marks each on theirs', () => {
+    const runs: RenderLayer[] = [
+      { layerId: 'l', table: 't', rows: [{ x: '2026-01-01', y: 1 }], encodings: { x: 'x', y: 'y' } },
+      { layerId: 'p', table: 't', rows: POINT_ROWS, encodings: { x: 'price', y: 'rating' } },
+      { layerId: 'h', table: 't', rows: [{ x0: 0, x1: 5, count: 2 }], encodings: { x: 'price' } },
+    ];
+    const { el, m } = mountFrame({ layers: { l: { kind: 'line' }, p: { kind: 'point' }, h: { kind: 'histogram' } } }, ['l', 'p', 'h']);
+    // a merged guide, not the (per-layer, now refused for 3 layers) default of an unfolded frame — see "per-layer guides on two or more layers" below
+    m.update(framed(runs, XY_FRAME));
+    for (const cls of ['.vzf-line', '.vzf-scatter', '.vzf-histogram']) expect(el.querySelectorAll(cls).length, cls).toBeGreaterThan(0);
+    m.unmount();
+    // a bar, with the fold's category list — the band mark that reads one
+    const bars = mountFrame({ layers: { a: { kind: 'bar' } } }, ['a']);
+    bars.m.update(framed([{ layerId: 'a', table: 't', rows: [{ shelf: 'Casual', count: 4 }], encodings: { category: 'shelf' } }], { category: SHARED('categorical', ['Casual']) }));
+    expect(bars.el.querySelectorAll('.vzf-barrect')).toHaveLength(1);
+    bars.m.unmount();
+    // a box plot, alone on its frame: its own order IS the fold's order for one layer
+    const box = mountFrame({ layers: { a: { kind: 'boxplot' } } }, ['a']);
+    box.m.update(framed([{ layerId: 'a', table: 't', rows: [{ category: 'Casual', q1: 1, median: 2, q3: 3, whiskerLo: 0, whiskerHi: 4, outliers: [], count: 3 }], encodings: { x: 'shelf', y: 'price' } }], { x: SHARED('categorical', ['Casual']), y: SHARED('quantitative', [0, 5]) }));
+    expect(box.el.querySelectorAll('.vzf-box-hit')).toHaveLength(1);
+    box.m.unmount();
+  });
+});
+
+describe('layeredRenderer — two bands off ONE category list', () => {
+  it('both bar layers lay their slots out in the FRAME’s order, and a category a layer has no row for stays an empty band', () => {
+    const a: RenderLayer = { layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }, { shelf: 'Formal', count: 9 }], encodings: { category: 'shelf' } };
+    const b: RenderLayer = { layerId: 'b', table: 'tb', rows: [{ shelf: 'Formal', count: 2 }, { shelf: 'Sporty', count: 6 }], encodings: { category: 'shelf' } };
+    const { el, m } = mountFrame({ layers: { a: { kind: 'bar' }, b: { kind: 'bar' } } });
+    // the fold's union, in first-seen order across the layers in declaration order
+    m.update(framed([a, b], { category: SHARED('categorical', ['Casual', 'Formal', 'Sporty']) }));
+    const barsOf = (layerId: string): Record<string, string> => {
+      const out: Record<string, string> = {};
+      for (const rect of Array.from(el.querySelectorAll(`[data-layer="${layerId}"] rect.vzf-barrect`))) out[rect.getAttribute('aria-label') ?? ''] = rect.getAttribute('x') ?? '';
+      return out;
+    };
+    const first = barsOf('a');
+    const second = barsOf('b');
+    // each layer draws only the categories it HAS rows for — two of the three bands
+    expect(Object.keys(first)).toEqual(['select Casual (4)', 'select Formal (9)']);
+    expect(Object.keys(second)).toEqual(['select Formal (2)', 'select Sporty (6)']);
+    // …and "Formal" is at the SAME x in both, which is the whole point of one band order
+    expect(second['select Formal (2)']).toBe(first['select Formal (9)']);
+    m.unmount();
+  });
+
+  it('a layer whose rows carry a category the frame’s fold did not name still lines up with the merged guide — the APPENDED band never narrows every OTHER band off its tick', () => {
+    // the frame folded only 'Casual' — narrower than layer a's own rows, which is what `bandOrder` calls an APPEND
+    const a: RenderLayer = { layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }, { shelf: 'Formal', count: 9 }], encodings: { category: 'shelf' } };
+    const { el, m } = mountFrame({ layers: { a: { kind: 'bar' } } }, ['a']);
+    m.update(framed([a], { category: SHARED('categorical', ['Casual']) }));
+    // the guide draws the APPENDED category too — the union, not just the fold (excluding the axis LABEL, also a `.vzf-tick`)
+    const ticks = Array.from(el.querySelectorAll('.vzf-frame-guide text.vzf-tick:not(.vzf-frame-axislabel)'));
+    expect(ticks.map((t) => t.textContent)).toEqual(['Casual', 'Formal']);
+    const tickX: Record<string, number> = {};
+    for (const t of ticks) tickX[t.textContent ?? ''] = parseFloat(t.getAttribute('x') ?? '');
+    for (const rect of Array.from(el.querySelectorAll('[data-layer="a"] rect.vzf-barrect'))) {
+      const category = rect.getAttribute('aria-label')?.replace(/^select (\S+).*$/, '$1') ?? '';
+      const x = parseFloat(rect.getAttribute('x') ?? '0');
+      const w = parseFloat(rect.getAttribute('width') ?? '0');
+      // the bar's own centre lands exactly on its tick's x — including 'Casual', the band the fold DID name
+      expect(x + w / 2, category).toBeCloseTo(tickX[category]!, 5);
+    }
+    m.unmount();
+  });
+
+  it('a band layer that binds no category channel at all contributes nothing to the union — "never declared that axis", not a crash', () => {
+    const a: RenderLayer = { layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }], encodings: { category: 'shelf' } };
+    const b: RenderLayer = { layerId: 'b', table: 'tb', rows: [{ count: 9 }], encodings: {} }; // no `category` encoding
+    const { el, m } = mountFrame({ layers: { a: { kind: 'bar' }, b: { kind: 'bar' } } });
+    m.update(framed([a, b], { category: SHARED('categorical', ['Casual']) }));
+    const ticks = el.querySelectorAll('.vzf-frame-guide text.vzf-tick:not(.vzf-frame-axislabel)');
+    expect(Array.from(ticks).map((t) => t.textContent)).toEqual(['Casual']); // b named no category, so it named nothing to append
+    m.unmount();
+  });
+});
+
+describe('layeredRenderer — whose voice a gesture is', () => {
+  it('a click on layer b lands through b’s OWN bundle, never the view’s or a’s', () => {
+    const a: RenderLayer = { layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }], encodings: { category: 'shelf' } };
+    const b: RenderLayer = { layerId: 'b', table: 'tb', rows: [{ shelf: 'Formal', count: 2 }], encodings: { category: 'shelf' } };
+    const { el, m, view, bundles } = mountFrame({ layers: { a: { kind: 'bar' }, b: { kind: 'bar' } } });
+    m.update(framed([a, b], { category: SHARED('categorical', ['Casual', 'Formal']) }));
+    fireEvent.click(el.querySelector('[data-layer="b"] rect.vzf-barrect')!);
+    expect(bundles['b']?.emit).toHaveBeenCalledTimes(1);
+    expect(bundles['a']?.emit).not.toHaveBeenCalled();
+    expect(view.emit).not.toHaveBeenCalled();
+    m.unmount();
+  });
+
+  it('with no bundle for a layer the VIEW speaks — a 1.1 host loses the address, not the gesture', () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const view = callbacks();
+    const m = layeredRenderer({ layers: { a: { kind: 'bar' } } }).mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: view });
+    m.update(framed([{ layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }], encodings: { category: 'shelf' } }]));
+    fireEvent.click(el.querySelector('rect.vzf-barrect')!);
+    expect(view.emit).toHaveBeenCalledTimes(1);
+    m.unmount();
+  });
+});
+
+describe('layeredRenderer — what a stack may not be, in words', () => {
+  it('a layer with no mark named for it', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' } } });
+    m.update(framed([POINTS_LAYER, LINE_LAYER], XY_FRAME));
+    expect(refusalOf(el)).toContain('layer "b": no mark was named for it');
+    m.unmount();
+  });
+
+  it('a kind that owns its own frame', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' }, b: { kind: 'heatmap' } } });
+    m.update(framed([POINTS_LAYER, LINE_LAYER], XY_FRAME));
+    expect(refusalOf(el)).toBe('layer "b": a heatmap owns its own frame — a frame draws line, bar, point, histogram and boxplot marks. Draw it on a frame of its own.');
+    m.unmount();
+  });
+
+  it('a BAND mark over a RUN mark — one x cannot be both, whatever the column says', () => {
+    const bar: RenderLayer = { layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }], encodings: { category: 'shelf' } };
+    const { el, m } = mountFrame({ layers: { a: { kind: 'bar' }, b: { kind: 'line' } } });
+    m.update(framed([bar, LINE_LAYER], XY_FRAME));
+    expect(refusalOf(el)).toContain('draws its x as a band (one slot per value) and layer "b" along a run of numbers');
+    m.unmount();
+  });
+
+  it('two bands with no category list folded for them', () => {
+    const a: RenderLayer = { layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }], encodings: { category: 'shelf' } };
+    const b: RenderLayer = { layerId: 'b', table: 'tb', rows: [{ shelf: 'Formal', count: 2 }], encodings: { category: 'shelf' } };
+    const { el, m } = mountFrame({ layers: { a: { kind: 'bar' }, b: { kind: 'bar' } } });
+    m.update(framed([a, b]));
+    expect(refusalOf(el)).toContain('the frame folded no category list for them');
+    // …and a numeric fold is not a category list either
+    m.update(framed([a, b], { category: SHARED('quantitative', [0, 10]) }));
+    expect(refusalOf(el)).toContain('the frame folded no category list for them');
+    m.unmount();
+    // nor is a stack whose two band marks name two different x CHANNELS: a bar's x is
+    // `category` and a box plot's is `x`, so the def never shared an axis between them
+    const box: RenderLayer = { layerId: 'b', table: 'tb', rows: [{ category: 'Casual', q1: 1, median: 2, q3: 3, whiskerLo: 0, whiskerHi: 4, outliers: [], count: 3 }], encodings: { x: 'shelf', y: 'price' } };
+    const mixed = mountFrame({ layers: { a: { kind: 'bar' }, b: { kind: 'boxplot' } } });
+    mixed.m.update(framed([a, box], { category: SHARED('categorical', ['Casual']), x: SHARED('categorical', ['Casual']) }));
+    expect(refusalOf(mixed.el)).toContain('the frame folded no category list for them');
+    mixed.m.unmount();
+  });
+
+  it('a box plot on a shared band — it orders its slots by its own rows in this version', () => {
+    // both box plots bind the SAME channel (a box plot's x is `x`, a bar's is `category`), so this is
+    // the stack where a shared band really was folded for two band layers — and one of them cannot read it
+    const boxRow = { category: 'Casual', q1: 1, median: 2, q3: 3, whiskerLo: 0, whiskerHi: 4, outliers: [], count: 3 };
+    const a: RenderLayer = { layerId: 'a', table: 'ta', rows: [boxRow], encodings: { x: 'shelf', y: 'price' } };
+    const b: RenderLayer = { layerId: 'b', table: 'tb', rows: [boxRow], encodings: { x: 'shelf', y: 'price' } };
+    const { el, m } = mountFrame({ layers: { a: { kind: 'boxplot' }, b: { kind: 'boxplot' } } });
+    m.update(framed([a, b], { x: SHARED('categorical', ['Casual']), y: SHARED('quantitative', [0, 5]) }));
+    expect(refusalOf(el)).toBe('layer "a" is a box plot on a shared band: a box plot orders its slots by its own rows in this version, so it cannot line up with layer "b". Give it a frame of its own.');
+    m.unmount();
+  });
+
+  it('a line split into series — its legend would move its plot top off the frame’s', () => {
+    const coloured: RenderLayer = { layerId: 'b', table: 'trend', rows: [{ price: 20, rating: 3, grp: 'x' }, { price: 80, rating: 7, grp: 'y' }], encodings: { x: 'price', y: 'rating', color: 'grp' } };
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' }, b: { kind: 'line' } } });
+    m.update(framed([POINTS_LAYER, coloured], XY_FRAME));
+    expect(refusalOf(el)).toContain('layer "b" is a line split into 2 series');
+    // ONE series is fine: the legend is not drawn, so the box does not move
+    m.update(framed([POINTS_LAYER, { ...coloured, rows: [{ price: 20, rating: 3, grp: 'x' }] }], XY_FRAME));
+    expect(refusalOf(el)).toBe('');
+    m.unmount();
+  });
+
+  it('per-layer guides on two or more layers — every layer’s plot rectangle is the SAME rectangle, so their axes would land on the SAME pixels', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' }, b: { kind: 'line' } } });
+    m.update(framed([POINTS_LAYER, LINE_LAYER], { x: { ...XY_FRAME.x, guide: 'per-layer' } as ResolvedChannel, y: XY_FRAME.y }));
+    expect(refusalOf(el)).toBe("per-layer guides overprint on one frame in this version — declare guide: 'merged', or draw one layer");
+    // a SINGLE layer under per-layer has no second axis to collide with, so it stays legal
+    m.update(framed([POINTS_LAYER], { x: { ...XY_FRAME.x, guide: 'per-layer' } as ResolvedChannel, y: XY_FRAME.y }));
+    expect(refusalOf(el)).toBe('');
+    m.unmount();
+  });
+
+  it('a frame with no layers at all', () => {
+    const { el, m } = mountFrame({ layers: {} }, []);
+    m.update(state([]));
+    expect(refusalOf(el)).toContain('this frame carried no layers');
+    m.unmount();
+  });
+});
+
+describe('layeredRenderer — a temporal frame', () => {
+  const ROWS: RenderRow[] = [
+    { when: '2026-01-01', v: 1 },
+    { when: '2026-01-04', v: 5 },
+  ];
+  const LAYER: RenderLayer = { layerId: 'a', table: 't', rows: ROWS, encodings: { x: 'when', y: 'v' } };
+
+  it('a shared temporal x is spelled as DAYS on the guide — folded as ISO strings, drawn on the epoch milliseconds the charts position dates on', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'line' } } }, ['a']);
+    m.update(framed([LAYER], { x: SHARED('temporal', ['2026-01-01', '2026-01-04']), y: SHARED('quantitative', [0, 10]) }));
+    const ticks = Array.from(el.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent);
+    expect(ticks.slice(0, 4)).toEqual(['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04']);
+    m.unmount();
+  });
+
+  it('a date pair nothing can parse is NO axis — the guide draws its line and no ticks, and the layer keeps its own extent', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'line' } } }, ['a']);
+    m.update(framed([LAYER], { x: SHARED('temporal', ['not-a-date', 'nor-this']), y: SHARED('quantitative', [0, 10]) }));
+    const ticks = Array.from(el.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent);
+    // the y ticks and the axis labels survive; not one x tick was invented
+    expect(ticks).toEqual(['0', '3.3', '6.7', '10', 'when', 'v']);
+    m.unmount();
+  });
+});
+
+describe('layeredRenderer — an INDEPENDENT channel', () => {
+  it('a channel the def left to the layer gets no merged guide and no domain: the layer keeps its own scale', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' } } }, ['a']);
+    m.update(framed([POINTS_LAYER], { x: { mode: 'independent', guide: 'per-layer' }, y: XY_FRAME.y }));
+    // an independent channel's guide is per-layer by definition, and a chart draws both axes or neither
+    expect(guidesOf(el)).toBe(0);
+    // the scatter's own x extent is its rows' (10..90 padded), NOT the frame's 0..100 — its first tick says so
+    expect(el.querySelector('.vzf-scatter text.vzf-tick')?.textContent).not.toBe('0');
     m.unmount();
   });
 });

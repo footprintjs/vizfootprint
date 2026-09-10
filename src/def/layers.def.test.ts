@@ -14,6 +14,23 @@ import { edgesLayer, makeNetworkDef, nodesLayer } from './network.fixture.js';
 
 const at = (layers: unknown, extra: Partial<DashboardDef> = {}): string[] => validateDashboardDef({ ...makeNetworkDef(undefined, extra), encodings: [{ viewId: 'net', chartKind: 'network', channels: ['x', 'y'], layers }] } as unknown);
 
+describe('lintFrames — the frame’s own advice, on a row of its own kind', () => {
+  it('a view stacking more than four layers earns a NOTE under its own name; a two-layer view earns none, and no view is refused', () => {
+    expect(buildDashboard(makeNetworkDef()).lintFrames()).toEqual([]); // the two-layer fixture reads fine
+    const many = Array.from({ length: 5 }, (_, i) => ({ ...nodesLayer, layerId: `l${String(i)}` }));
+    const def = { ...makeNetworkDef(), encodings: [{ viewId: 'net', chartKind: 'network' as const, channels: ['x', 'y'], layers: many }] };
+    // a lint is never a refusal: the def still builds, and the note names the view and what to move
+    expect(validateDashboardDef(def)).toEqual([]);
+    expect(buildDashboard(def).lintFrames()).toEqual([
+      { viewId: 'net', sentence: '5 layers on one frame — past 4 a reader cannot tell the marks apart; consider a frame of its own for "l4"' },
+    ]);
+  });
+
+  it('a dashboard whose views declare no layers has no frames to lint', () => {
+    expect(buildDashboard(makeDashboardDef()).lintFrames()).toEqual([]);
+  });
+});
+
 describe('layers — the def door', () => {
   it('accepts the two-layer fixture and builds it', () => {
     expect(validateDashboardDef(makeNetworkDef())).toEqual([]);

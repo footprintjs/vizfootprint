@@ -3,12 +3,14 @@
  * notInThisVersion.test.ts — WHAT THE CONTRACT SAYS IT HAS NOT BUILT MUST STILL
  * BE UNBUILT.
  *
- * `README.md`'s layers law ended with "Not in this version: … and any
- * first-party layered chart — the network view is the next packet". The network
- * view shipped as packet 4: `networkRenderer` is the ninth reference renderer
- * and the first to declare `canLayer`. A "not in this version" that outlives the
- * work sends a host to build a renderer the library already hands them, so this
- * pins the sentence against the CODE that falsifies it.
+ * `README.md`'s layers law has now outlived two of its own outstanding items.
+ * It once ended with "… and any first-party layered chart — the network view is
+ * the next packet"; the network view shipped as packet 4 (`networkRenderer`, the
+ * first `canLayer` renderer). It then said the RENDERER that draws several 2D
+ * layers on one folded frame was the next packet; that shipped as
+ * `layeredRenderer` (R6) with `<VizFrame>` behind it. A "not in this version"
+ * that outlives the work sends a host to build what the library already hands
+ * them, so this pins the sentence against the CODE that falsifies it.
  *
  * It reads files rather than importing: the claim is about the prose, and the
  * proof is one declaration in `renderers.tsx` — no DOM, no React, no render.
@@ -27,6 +29,9 @@ const holdsLayeredRenderer = (): boolean => /canLayer:\s*true/.test(read('render
 /** The contract really carries the layers' shared scales: `RenderState.frame`, folded by the host (protocol 1.5). */
 const holdsFrame = (): boolean => /readonly frame\?:/.test(read('types.ts'));
 
+/** The GENERIC frame renderer really ships: `layeredRenderer` draws the def's stack of 2D marks (R6). */
+const holdsFrameRenderer = (): boolean => /export function layeredRenderer\(/.test(read('renderers.tsx'));
+
 /** The claim itself: from "Not in this version" to the end of that sentence. */
 const notInThisVersion = (): string => {
   const from = read('README.md').indexOf('Not in this version');
@@ -44,16 +49,23 @@ describe('the layers law says only what is true', () => {
     expect(holdsFrame()).toBe(true);
   });
 
-  it('so the outstanding list no longer counts a first-party layered chart, or shared scales, among what is missing', () => {
+  it('the GENERIC frame renderer really does ship', () => {
+    expect(holdsFrameRenderer()).toBe(true);
+  });
+
+  it('so the outstanding list no longer counts a layered chart, shared scales, or the frame RENDERER among what is missing', () => {
     const claim = notInThisVersion();
     expect(claim).not.toContain('layered chart');
     expect(claim).not.toContain('network view');
-    // `RenderState.frame` shipped, so the list may no longer count shared scales as unbuilt — what is
-    // still missing is the RENDERER that draws several 2D layers on one folded frame
+    // `RenderState.frame` shipped, so the list may no longer count shared scales as unbuilt
     expect(claim).not.toContain('shared scales');
+    // …and `layeredRenderer` shipped, so neither may it count the renderer that draws them
+    expect(claim).not.toContain('one folded frame');
+    expect(claim).not.toContain('the frame RENDERER is the next packet');
     // and it still names what IS missing — a list emptied to pass a test is drift of its own
     expect(claim).toContain('annotation layers');
-    expect(claim).toContain('one folded frame');
+    expect(claim).toContain('a map frame with an inset');
+    expect(claim).toContain('a line on a band');
   });
 
   it('no sentence still says no first-party chart declares the capability', () => {

@@ -763,6 +763,39 @@
   font-size: 0.9em;
   color: var(--vzf-ink-soft);
 }
+/* ── THE FRAME: layers of marks over ONE margin box (VizFrame) ──────────────
+   The guide and every layer sit absolutely in one box, so the stack paints in
+   DOM order — which is declaration order, which is the paint order the def
+   declared. Each layer's svg fills the box the frame sized for it (its own
+   margin around the frame's plot rectangle), so 1 user unit is 1 px in every
+   layer and nothing is scaled. */
+:where(.vzf) .vzf-frame {
+  position: relative;
+}
+:where(.vzf) .vzf-frame-guide {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none; /* a ruler is never a hit target */
+}
+:where(.vzf) .vzf-frame-layer .vzf-chart {
+  width: 100%;
+  height: 100%;
+}
+/* THE POINTER LAW OF A STACK. The BOTTOM layer keeps the pointer over its whole
+   box — nothing is beneath it to reach, so its brush still works on empty
+   canvas. Every layer ABOVE it takes the pointer only where it actually drew
+   something, so a click on blank canvas falls through to the marks below
+   instead of being swallowed by whichever layer happens to be on top. An
+   invisible hit column is a mark too (a box plot's), which is the one place
+   this rule can still cover a layer beneath it. */
+:where(.vzf) .vzf-frame-layer.vzf-frame-over {
+  pointer-events: none;
+}
+:where(.vzf) .vzf-frame-layer.vzf-frame-over :where(rect, circle, path, line, text) {
+  pointer-events: auto;
+}
 /* a chart that refuses a frame says so in words, in the space the chart would have filled */
 :where(.vzf) .vzf-chart-refusal {
   margin: 0;

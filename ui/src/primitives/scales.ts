@@ -101,9 +101,9 @@ export function rampStep(value: number, max: number): number {
  * that positions dates on a linear scale reads epoch milliseconds — `epochOf`
  * (this module, exported) is the bridge, and it is the same function the charts
  * use on their own rows, so a converted domain and the marks agree. A
- * CATEGORICAL domain has no prop here at all in this version: an injected
- * category order is the frame renderer's packet, so a band chart still orders
- * its bands by its own rows.
+ * CATEGORICAL domain rides on `categories` instead of `x`: a band chart has no
+ * quantitative x to scale, and what a frame can honestly give it is the ORDER
+ * its slots sit in ({@link bandOrder}).
  *
  * ONE LAW ACROSS EVERY CHART, for a value outside the domain: it is DRAWN, at
  * its true position, and nothing is dropped or clamped. A domain says what the
@@ -116,6 +116,8 @@ export function rampStep(value: number, max: number): number {
 export interface ChartDomain {
   readonly x?: readonly [number, number];
   readonly y?: readonly [number, number];
+  /** The frame's BAND ORDER for a shared categorical channel — see {@link bandOrder}. A chart with no band ignores it. */
+  readonly categories?: readonly string[];
 }
 
 /**
@@ -132,4 +134,45 @@ export function domainOr(given: readonly [number, number] | undefined, own: read
   if (given === undefined || !Number.isFinite(given[0]) || !Number.isFinite(given[1])) return [own[0], own[1]];
   const [lo, hi] = [Math.min(given[0], given[1]), Math.max(given[0], given[1])];
   return lo === hi ? [lo - 1, hi + 1] : [lo, hi];
+}
+
+/**
+ * THE BAND ORDER a frame hands a band chart: the categories, in the order the
+ * frame folded them (`frameDomains`' categorical union — first-seen across the
+ * layers in declaration order). A bar layer and a bar layer over two different
+ * tables put "Casual" over the same slot only if one list decides the slots, and
+ * that list is this one.
+ *
+ * It rides on {@link ChartDomain} beside `x`/`y` rather than in a prop of its
+ * own because it IS the x domain when the shared channel is categorical — a
+ * band chart has no quantitative x to scale, so `domain.x` is dead there and
+ * `domain.categories` is what a frame can honestly give it.
+ *
+ * NOT read through `domainOr`: that one holds the guards a LINEAR scale needs
+ * (two finite numbers, a widened flat span, divide-by-zero), and a category
+ * list has none of them — {@link bandOrder} is its sibling, and the two are
+ * deliberately separate so neither has to ask what kind of thing it was given.
+ */
+/**
+ * The bands to lay out, left to right: the frame's list, then any category the
+ * chart's own rows carry that the frame's list does not name, in the chart's
+ * own order.
+ *
+ * TWO LAWS, both the same law the numeric domains keep:
+ *
+ *   1. NOTHING IS DROPPED. A category outside the frame's list is APPENDED, not
+ *      hidden — the band-axis spelling of "a value outside the domain is drawn
+ *      at its true position". A frame folded over the whole table and a layer
+ *      drawing rows that reach past it is a data fact the reader should see.
+ *   2. A BAND WITH NO ROW IS EMPTY, never a zero. The chart draws no mark in
+ *      it, because "this layer has no row for Formal" and "this layer counted
+ *      none" are two different sentences, and a zero-height bar with a tooltip
+ *      saying 0 tells the second one.
+ *
+ * With no frame list the answer is the chart's own order, unchanged — which is
+ * what every band chart did before a frame existed.
+ */
+export function bandOrder(given: readonly string[] | undefined, own: readonly string[]): readonly string[] {
+  if (given === undefined) return own;
+  return [...given, ...own.filter((category) => !given.includes(category))];
 }

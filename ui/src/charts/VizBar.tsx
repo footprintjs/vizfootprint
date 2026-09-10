@@ -15,7 +15,7 @@ import type { RenderSelection } from '../contract/types.js';
 import { useRef } from 'react';
 import { TICK_ANGLE, VALUE_CHAR_PX, fitTick, fitsBand } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
-import { domainOr, type ChartDomain } from '../primitives/scales.js';
+import { bandOrder, domainOr, type ChartDomain } from '../primitives/scales.js';
 import { clickEmission, matchEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
 import { inSet, markClass, selectedSet } from '../primitives/useSelection.js';
 import { useReencodePicker } from '../primitives/reencode.js';
@@ -79,7 +79,13 @@ export interface VizBarProps {
   readonly axes?: boolean;
 }
 
-const PAD = { l: 38, r: 14, t: 20, b: 48 };
+/**
+ * THE MARGIN BOX this chart draws inside — and its ONE owner. EXPORTED so a
+ * frame can put this chart's plot box exactly where every other layer's is
+ * (`VizFrame`): the frame offsets each layer by its own pad, so an alignment
+ * computed there can never drift from the box drawn here.
+ */
+export const PAD = { l: 38, r: 14, t: 20, b: 48 };
 /** Extra bottom room when any tick has to slant (the plot gives it up). */
 const SLANT_PAD = 40;
 /** Bottom pixels kept for the axis label, beneath the ticks. */
@@ -121,10 +127,17 @@ export function VizBar(props: VizBarProps): JSX.Element {
   // not a finite number is not a ceiling, and dividing by it would draw every bar at NaN.
   const max = Math.max(1, domainOr(props.domain?.y, [0, Math.max(...data.map((d) => d.count))])[1]);
   const axes = props.axes ?? true;
-  const band = Math.max(0, (width - PAD.l - PAD.r) / Math.max(1, data.length)); // a pushed-narrow cell never draws a negative width
+  // THE BANDS, left to right: the FRAME's order when a frame gave one, this chart's own otherwise
+  // (`bandOrder`, ../primitives/scales.ts). One slot per category, holding this layer's datum for it or
+  // NOTHING — so two bar layers on one frame put "Casual" over the same slot, and a category this layer
+  // has no row for stays an EMPTY band instead of a bar claiming zero.
+  const bands = bandOrder(props.domain?.categories, data.map((d) => d.category)).map((category) => ({ category, datum: data.find((d) => d.category === category) }));
+  const band = Math.max(0, (width - PAD.l - PAD.r) / Math.max(1, bands.length)); // a pushed-narrow cell never draws a negative width
   // ticks: flat when they fit their band; slanted (and the plot shorter) when any does not
-  // (a short chart cannot give the slant its full room — the plot keeps MIN_PLOT and the ticks clip harder)
-  const slanted = data.some((d) => fitTick(d.category, band, 0).rotate);
+  // (a short chart cannot give the slant its full room — the plot keeps MIN_PLOT and the ticks clip harder).
+  // No ticks, no tick room: with `axes={false}` the guide is the FRAME's, so giving up 40px of plot for
+  // labels this chart is not drawing would move its baseline off every other layer's.
+  const slanted = axes && bands.some((b) => fitTick(b.category, band, 0).rotate);
   const padB = slanted ? Math.min(PAD.b + SLANT_PAD, Math.max(PAD.b, height - PAD.t - MIN_PLOT)) : PAD.b;
   const tickRoom = Math.max(0, padB - 12 - AXIS_LABEL_ROOM);
   const plot = Math.max(0, height - PAD.t - padB);
@@ -142,16 +155,16 @@ export function VizBar(props: VizBarProps): JSX.Element {
     const box = svgRef.current?.getBoundingClientRect();
     const sx = box !== undefined && box.width > 0 ? (e.clientX - box.left) * (width / box.width) : e.clientX;
     if (!Number.isFinite(sx)) return -1;
-    return Math.min(data.length - 1, Math.max(0, Math.floor((sx - PAD.l) / band)));
+    return Math.min(bands.length - 1, Math.max(0, Math.floor((sx - PAD.l) / band)));
   };
   const beginRun = (category: string): void => {
     run.current = { start: category, end: category };
   };
   const moveRun = (e: { clientX: number; pointerId: number }): void => {
-    if (run.current === null || data.length === 0) return;
+    if (run.current === null || bands.length === 0) return;
     const idx = bandAt(e);
     if (idx < 0) return; // a pointer event with no position says nothing about where the pointer is
-    const end = data[idx]!.category;
+    const end = bands[idx]!.category;
     if (end === run.current.end) return;
     // the pointer has left the pressed bar: this is a DRAG now, so capture it — a plain click never
     // captures (capturing on pointerdown would retarget the click away from the bar in real browsers)
@@ -163,11 +176,13 @@ export function VizBar(props: VizBarProps): JSX.Element {
     const r = run.current;
     run.current = null;
     if (r === null || r.start === r.end) return; // a press-and-release on one bar is the click handler's business
-    const a = data.findIndex((d) => d.category === r.start);
-    const b = data.findIndex((d) => d.category === r.end);
+    const a = bands.findIndex((slot) => slot.category === r.start);
+    const b = bands.findIndex((slot) => slot.category === r.end);
     if (a < 0 || b < 0) return; // the data changed under the drag — nothing honest to select
     const [lo, hi] = a < b ? [a, b] : [b, a];
-    onEmit?.(matchEmission(field, data.slice(lo, hi + 1).map((d) => d.category), set.exclude));
+    // the RUN is the bands the pointer crossed, empty ones included: a drag across a slot this layer has
+    // no row for still means "these categories", and dropping it would emit a set the reader did not draw
+    onEmit?.(matchEmission(field, bands.slice(lo, hi + 1).map((slot) => slot.category), set.exclude));
   };
   const cancelRun = (): void => {
     run.current = null;
@@ -188,56 +203,56 @@ export function VizBar(props: VizBarProps): JSX.Element {
       >
         {/* the axis line — absent while the FRAME draws one merged guide for the stack */}
         {axes && <line className="vzf-axis" x1={PAD.l} y1={axisY} x2={width - PAD.r} y2={axisY} />}
-        {data.map((d, i) => {
+        {bands.map(({ category, datum: d }, i) => {
           const cx = PAD.l + band * i;
-          const h = (d.count / max) * plot;
+          const h = d === undefined ? 0 : (d.count / max) * plot;
           const barY = axisY - h;
-          const isSel = inSet(d.category, set);
+          const isSel = inSet(category, set);
           const tx = cx + band / 2;
-          const tick = fitTick(d.category, band, tickRoom, tx);
+          const tick = fitTick(category, band, tickRoom, tx);
           return (
-            <g key={d.category}>
-              {highlight !== undefined && (() => {
-                const hl = highlight.find((h) => h.category === d.category)?.count ?? 0;
+            <g key={category}>
+              {d !== undefined && highlight !== undefined && (() => {
+                const hl = highlight.find((h) => h.category === category)?.count ?? 0;
                 const hh = (Math.min(hl, d.count) / max) * plot;
                 return <rect className="vzf-barhl" x={cx + band * 0.3} y={axisY - hh} width={Math.max(0, band * 0.4)} height={hh} rx={2} aria-hidden="true" />;
               })()}
-              <rect
-                className={`vzf-barrect${markClass(d.category, set)}`}
+              {d === undefined ? null : <rect
+                className={`vzf-barrect${markClass(category, set)}`}
                 x={cx + band * 0.12}
                 y={barY}
                 width={band * 0.76}
                 height={h}
                 rx={3}
-                fill={colorOf ? colorOf(d.category) : 'var(--vzf-brand)'}
+                fill={colorOf ? colorOf(category) : 'var(--vzf-brand)'}
                 role="button"
                 tabIndex={0}
                 aria-pressed={isSel && !set.exclude}
-                aria-label={`select ${d.category} (${d.count})${isSel && set.exclude ? ' — excluded' : ''}`}
+                aria-label={`select ${category} (${d.count})${isSel && set.exclude ? ' — excluded' : ''}`}
                 style={{ cursor: 'pointer' }}
-                onClick={(e) => emit(d.category, e.shiftKey || e.metaKey || e.ctrlKey)}
+                onClick={(e) => emit(category, e.shiftKey || e.metaKey || e.ctrlKey)}
                 onKeyDown={(e) => {
                   if (e.key !== 'Enter' && e.key !== ' ') return;
                   e.preventDefault();
-                  emit(d.category, e.shiftKey || e.metaKey || e.ctrlKey);
+                  emit(category, e.shiftKey || e.metaKey || e.ctrlKey);
                 }}
-                onPointerDown={() => beginRun(d.category)}
+                onPointerDown={() => beginRun(category)}
               >
-                <title>{`click to select ${d.category}`}</title>
-              </rect>
-              {showValues ? (
+                <title>{`click to select ${category}`}</title>
+              </rect>}
+              {showValues && d !== undefined ? (
                 <text className="vzf-barval" x={tx} y={barY - 5} textAnchor="middle">
                   {d.count}
                 </text>
               ) : null}
               {!axes ? null : tick.rotate ? (
                 <text className="vzf-tick" x={tx} y={axisY + 12} textAnchor="end" transform={`rotate(-${String(TICK_ANGLE)} ${String(tx)} ${String(axisY + 12)})`}>
-                  {tick.clipped ? <title>{d.category}</title> : null}
+                  {tick.clipped ? <title>{category}</title> : null}
                   {tick.text}
                 </text>
               ) : (
                 <text className="vzf-tick" x={tx} y={axisY + 16} textAnchor="middle">
-                  {d.category}
+                  {category}
                 </text>
               )}
             </g>

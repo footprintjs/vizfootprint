@@ -69,6 +69,9 @@ export {
   boxPlotRenderer,
   // protocol 1.2: the first first-party renderer that layers — exported in the SAME change as the chart it wraps
   networkRenderer,
+  // R6: the first GENERIC layered renderer — the def's stack of 2D marks over one
+  // margin box, one pair of scales and one guide (`VizFrame` draws it)
+  layeredRenderer,
   // the ceiling THIS RENDERER refuses past — a size judgement about one SVG
   // frame, not a protocol limit and not the chart's: `<VizNetwork>` draws
   // whatever it is handed (renderers.tsx, "a ceiling, not a capability")
@@ -86,6 +89,8 @@ export type {
   HeatmapRendererOptions,
   BoxPlotRendererOptions,
   NetworkRendererOptions,
+  LayeredRendererOptions,
+  LayeredLayerSpec,
 } from './renderers.js';
 
 export { runConformance } from './conformance.js';

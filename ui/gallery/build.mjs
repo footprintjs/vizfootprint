@@ -24,13 +24,18 @@ const stubDuckDb = {
 export async function buildGallery() {
   mkdirSync(OUT, { recursive: true });
   copyFileSync(path.join(__dirname, '..', 'src', 'styles.css'), path.join(OUT, 'vizfootprint-ui.css'));
-  // two pages: the cockpit gallery, and the Sheet over 90,300 rows (its own page,
-  // because 90k rows in the cockpit's document would change every no-scroll assertion)
+  // three pages: the cockpit gallery, the Sheet over 90,300 rows, and the FRAME (two
+  // layers on one frame) — each of the last two its own page, because either one in the
+  // cockpit's document would change assertions the cockpit's smoke makes
   await bundle('entry.tsx', 'gallery.js', 'production');
   // the SHEET page is built in DEVELOPMENT mode on purpose: React's dev build is the
   // only thing that warns about a duplicate key or a bad prop, and the sheet's smoke
   // asserts that nothing is warned. It costs a bigger bundle on one test page.
   await bundle('sheet.tsx', 'sheet.js', 'development');
+  // the FRAME page: two layers of marks on one frame, for the same reason the sheet is
+  // its own page — a second bar chart in the cockpit's document would change every
+  // chart-count assertion its smoke makes. Development mode, for the same warnings.
+  await bundle('frame.tsx', 'frame.js', 'development');
   return OUT;
 }
 
