@@ -8,12 +8,17 @@
  * (no row leaves the count, because an arrangement is never a data claim), it
  * is restored at a cursor, and it survives a replay into a session that never
  * saw the walk.
+ *
+ * And the other three props — `hidden`, `order`, `frozen` — are the SAME road,
+ * which is the point of the packet that added them: one prop per act, one
+ * commit per prop, the same identity, the same four properties proved again
+ * rather than assumed.
  */
 import { describe, it, expect } from 'vitest';
 import { buildDashboard } from 'vizfootprint/def';
 import type { DashboardDef } from 'vizfootprint/def';
 import { createSessionView, sessionSource } from '../adapter/sessionView.js';
-import { sheetSortOf } from './arrangement.js';
+import { sheetFrozenOf, sheetHiddenOf, sheetOrderOf, sheetSortOf } from './arrangement.js';
 
 const DEF: DashboardDef = {
   data: { data: { rows: [
@@ -127,5 +132,101 @@ describe('the sort a person left is the sort they come back to', () => {
     const res = await reloaded.replay(wire as never);
     expect(res.ok).toBe(true);
     expect(sheetSortOf((await reloaded.overview()).layouts, 'cells')).toEqual(DESC);
+  });
+});
+
+describe('the REST of the arrangement is the same road', () => {
+  it('lands ONE commit per prop, under the same identity, in words a person can read', async () => {
+    const { session, view } = open();
+    await view.refresh();
+    await view.setSheetArrangement('cells', 'hidden', ['region']);
+    await view.setSheetArrangement('cells', 'order', ['cases']);
+    await view.setSheetArrangement('cells', 'frozen', 2);
+
+    expect(session.log.records).toHaveLength(3);
+    expect(session.log.records.map((r) => [r.viewId, r.field, r.value, r.cause.intent])).toEqual([
+      ['layout:sheet:cells', 'hidden', '["region"]', 'cells: hid region'],
+      ['layout:sheet:cells', 'order', '["cases"]', 'cells: moved cases first'],
+      ['layout:sheet:cells', 'frozen', '2', 'cells: froze 2 columns'],
+    ]);
+    view.dispose();
+  });
+
+  it('the WORDS come off the trace, not off the caller — the same list read two ways is two sentences', async () => {
+    const { session, view } = open();
+    await view.refresh();
+    await view.setSheetArrangement('cells', 'hidden', ['region']);
+    await view.setSheetArrangement('cells', 'hidden', ['region', 'cases']);
+    await view.setSheetArrangement('cells', 'hidden', ['region']);
+    await view.setSheetArrangement('cells', 'hidden', undefined);
+    expect(session.log.records.map((r) => r.cause.intent)).toEqual(['cells: hid region', 'cells: hid cases', 'cells: showed cases', 'cells: showed every column']);
+    view.dispose();
+  });
+
+  it('is INERT: what you look at changes, what is true does not', async () => {
+    const { session, view } = open();
+    await view.refresh();
+    const before = await session.overview();
+    await view.setSheetArrangement('cells', 'hidden', ['region']);
+    await view.setSheetArrangement('cells', 'order', ['cases']);
+    await view.setSheetArrangement('cells', 'frozen', 2);
+    const after = await session.overview();
+    expect(after.selectedRowCount).toBe(before.selectedRowCount);
+    expect(after.activeSelections).toEqual([]);
+    view.dispose();
+  });
+
+  it('TIME TRAVEL restores every prop: a cursor before the acts is a cursor with none of them', async () => {
+    const { session, view } = open();
+    await view.refresh();
+    const first = await session.dispatch({ verb: 'select', viewId: 'bar', field: 'region', value: 'north', cause });
+    await view.setSheetArrangement('cells', 'hidden', ['region']);
+    await view.setSheetArrangement('cells', 'order', ['cases']);
+    await view.setSheetArrangement('cells', 'frozen', 2);
+    await view.refresh();
+    expect(sheetHiddenOf(view.getState().layouts, 'cells')).toEqual(['region']);
+    expect(sheetOrderOf(view.getState().layouts, 'cells')).toEqual(['cases']);
+    expect(sheetFrozenOf(view.getState().layouts, 'cells')).toBe(2);
+
+    session.seek(first.ok ? first.commit!.id : '');
+    await view.refresh();
+    expect(sheetHiddenOf(view.getState().layouts, 'cells')).toBeUndefined();
+    expect(sheetOrderOf(view.getState().layouts, 'cells')).toBeUndefined();
+    expect(sheetFrozenOf(view.getState().layouts, 'cells')).toBeUndefined();
+
+    session.seek(session.log.records.at(-1)!.id);
+    await view.refresh();
+    expect(sheetFrozenOf(view.getState().layouts, 'cells')).toBe(2);
+    view.dispose();
+  });
+
+  it('A RELOAD keeps them: the log alone rebuilds all four props in a session that never saw the walk', async () => {
+    const { session, view } = open();
+    await view.refresh();
+    await view.setSheetSort('cells', DESC);
+    await view.setSheetArrangement('cells', 'hidden', ['region']);
+    await view.setSheetArrangement('cells', 'order', ['cases']);
+    await view.setSheetArrangement('cells', 'frozen', 2);
+    const wire = JSON.parse(JSON.stringify(session.log.records)) as unknown[];
+    view.dispose();
+
+    const reloaded = buildDashboard(DEF).createSession();
+    expect((await reloaded.replay(wire as never)).ok).toBe(true);
+    const layouts = (await reloaded.overview()).layouts;
+    expect(sheetSortOf(layouts, 'cells')).toEqual(DESC);
+    expect(sheetHiddenOf(layouts, 'cells')).toEqual(['region']);
+    expect(sheetOrderOf(layouts, 'cells')).toEqual(['cases']);
+    expect(sheetFrozenOf(layouts, 'cells')).toBe(2);
+  });
+
+  it('LAST WINS per prop, and one prop never touches another', async () => {
+    const { view } = open();
+    await view.refresh();
+    await view.setSheetArrangement('cells', 'hidden', ['region']);
+    await view.setSheetArrangement('cells', 'frozen', 3);
+    await view.setSheetArrangement('cells', 'hidden', ['cases']);
+    expect(sheetHiddenOf(view.getState().layouts, 'cells')).toEqual(['cases']);
+    expect(sheetFrozenOf(view.getState().layouts, 'cells')).toBe(3);
+    view.dispose();
   });
 });

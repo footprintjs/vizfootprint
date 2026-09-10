@@ -156,6 +156,96 @@ describe('the data workbook', () => {
     expect(session.log.records.at(-1)!.value).toBe('[{"field":"shelf","dir":"asc"}]');
   });
 
+  it('ARRANGING the grid lands an act too — and the export beside it walks the same projection', async () => {
+    const { view, session } = openLibrary();
+    await view.refresh();
+    const asks: { readonly columns?: readonly string[] }[] = [];
+    // two columns, one of them the key: the key offers nothing to hide, so `title` is
+    // the one with a menu — and the port records every projection it is asked for
+    const port = {
+      capabilities: { sort: true, countKnown: true, edit: false },
+      columns: async () => [
+        { name: 'shelf', type: 'string' as const },
+        { name: 'title', type: 'string' as const },
+      ],
+      rows: async (ask: { readonly columns?: readonly string[] }) => {
+        asks.push(ask);
+        return { ok: true as const, columns: ask.columns ?? ['shelf', 'title'], rows: [{ shelf: 'a', title: 'b' }], rowIds: ['a'], positional: false, key: 'shelf', count: 1, start: 0, version: 'v1', cursor: null };
+      },
+    };
+    const { rerender } = render(<DataPanel data={{ table: 'books', sheet: (() => port) as never }} state={view.getState()} view={view} readOnly={false} />);
+    fireEvent.click(screen.getByRole('tab', { name: /Sheet/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'arrange title' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'hide' }));
+
+    // one commit, under the sheet's own layout identity, in the words a person reads
+    await waitFor(() => expect(session.log.records.at(-1)?.field).toBe('hidden'));
+    expect(session.log.records.at(-1)!.viewId).toBe('layout:sheet:sheet');
+    expect(session.log.records.at(-1)!.value).toBe('["title"]');
+    expect(session.log.records.at(-1)!.cause.intent).toBe('sheet: hid title');
+
+    // …and from the state that act produced, NOTHING reads the hidden column: not the
+    // grid's window, not the export's probe. One projection, spent twice.
+    asks.length = 0;
+    rerender(<DataPanel data={{ table: 'books', sheet: (() => port) as never }} state={view.getState()} view={view} readOnly={false} />);
+    await waitFor(() => expect(asks.length).toBeGreaterThan(0));
+    expect(asks.every((ask) => !(ask.columns ?? []).includes('title'))).toBe(true);
+    expect(asks.some((ask) => (ask.columns ?? []).includes('shelf'))).toBe(true);
+  });
+
+  it('the export walks the SAME order as the grid even when the declared key is not the schema’s first column', async () => {
+    const { view, session } = openLibrary();
+    await view.refresh();
+    const asks: { readonly columns?: readonly string[] }[] = [];
+    // the schema lists `title` before the key `shelf`, and `binding` third — the
+    // ordinary case for a table whose author put a display column first and an
+    // identifier second. Three columns so `binding` (the second movable one) has
+    // somewhere to move: THAT is what puts the whole arrangement through
+    // `arrangeColumns` with a real order, which is where the two doors used to differ.
+    const port = {
+      capabilities: { sort: true, countKnown: true, edit: false },
+      columns: async () => [
+        { name: 'title', type: 'string' as const },
+        { name: 'shelf', type: 'string' as const },
+        { name: 'binding', type: 'string' as const },
+      ],
+      rows: async (ask: { readonly columns?: readonly string[] }) => {
+        asks.push(ask);
+        return {
+          ok: true as const,
+          columns: ask.columns ?? ['title', 'shelf', 'binding'],
+          rows: [{ title: 'b', shelf: 'a', binding: 'hardback' }],
+          rowIds: ['a'],
+          positional: false,
+          key: 'shelf',
+          count: 1,
+          start: 0,
+          version: 'v1',
+          cursor: null,
+        };
+      },
+    };
+    // `state.tables[...].key` is the declared fact `<DataPanel>` reads instead of
+    // waiting on a window to learn it — the fixture's own `books` table declares
+    // none, so it is stood in by hand here, the way a def that DID declare one would read
+    const state = { ...view.getState(), tables: [{ name: 'books', source: { unstated: true as const }, engine: 'memory', key: 'shelf', declaredColumns: 3 }] };
+    const { rerender } = render(<DataPanel data={{ table: 'books', sheet: (() => port) as never }} state={state} view={view} readOnly={false} />);
+    fireEvent.click(screen.getByRole('tab', { name: /Sheet/ }));
+    // "move first" on `binding` (the second movable column) is a real order act
+    fireEvent.click(await screen.findByRole('button', { name: 'arrange binding' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'move first' }));
+    await waitFor(() => expect(session.log.records.at(-1)?.field).toBe('order'));
+
+    // from the state THAT act produced — the same rerender the real host does on
+    // every commit — both doors ask again, and the KEY leads every ask this time,
+    // whichever door asked: never `title` first, however the schema names it
+    asks.length = 0;
+    rerender(<DataPanel data={{ table: 'books', sheet: (() => port) as never }} state={{ ...view.getState(), tables: state.tables }} view={view} readOnly={false} />);
+    await waitFor(() => expect(asks.length).toBeGreaterThan(0));
+    expect(asks.every((ask) => (ask.columns ?? [])[0] === 'shelf')).toBe(true);
+    expect(asks.some((ask) => JSON.stringify(ask.columns) === JSON.stringify(['shelf', 'binding', 'title']))).toBe(true);
+  });
+
   it('present mode reads the rows and never rearranges them', async () => {
     const { view } = openLibrary();
     await view.refresh();

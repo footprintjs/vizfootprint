@@ -2,16 +2,18 @@
  * The Sheet: a read-only, virtualized grid over a data session, with its two
  * adapters and the block cache they share. The PUBLIC surface (what
  * `vizfootprint-ui` re-exports) is `<Sheet>`, `<AddColumn>`, `<AddAggregate>`, the two adapters,
- * the cache factory, the arrangement's two READERS — `sheetLayoutViewId` and
- * `sheetSortOf`, which a host lands a sort through and reads it back at the
- * cursor — and the types. The rest of the pure helpers below (the codec, the
+ * the cache factory, the arrangement's READERS — `sheetLayoutViewId` and one
+ * per prop (`sheetSortOf`, `sheetHiddenOf`, `sheetOrderOf`, `sheetFrozenOf`),
+ * which a host lands an act through and reads back at the cursor — and the types. The rest of the pure helpers below (the codec, the
  * scope builder, the words, the three constants) are exported for the tests and
  * for a host building its own renderer over the same port. See ./README.md.
  */
-export { Sheet, canvasMetrics, cellText, findFrom, findWords, nextSort, noSortWords, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_BORDERS, SHEET_CANNOT_FIND, SHEET_CANVAS_MAX, SHEET_ENGINE_CANNOT_SORT, SHEET_FIND_HEIGHT, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './Sheet.js';
+export { Sheet, canvasMetrics, cellText, findFrom, findWords, nextSort, noSortWords, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_ARRANGE_HEIGHT, SHEET_BORDERS, SHEET_CANNOT_FIND, SHEET_CANVAS_MAX, SHEET_COLUMN_WIDTH, SHEET_ENGINE_CANNOT_SORT, SHEET_FIND_HEIGHT, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './Sheet.js';
 export type { SheetMetrics, SheetProps } from './Sheet.js';
-// the arrangement: a sheet's sort as an ACT, and the codec both sides of it share
-export { sheetLayoutScope, sheetLayoutViewId, sheetSortOf, sortArrow, sortedByWords, sortFromLayoutValue, sortPhraseOf, sortToLayoutValue, sortWords, SHEET_LAYOUT_KIND, SHEET_LAYOUT_PREFIX, SHEET_SORT_PROP } from './arrangement.js';
+// the arrangement: a sheet's sort, hidden columns, order and frozen count as ACTS,
+// the codec both sides of them share, the projection they make, and their words
+export { arrangeColumns, arrangeItems, arrangementSaid, arrangementToLayoutValue, arrangementWords, frozenCount, frozenFromLayoutValue, frozenToLayoutValue, hiddenFromLayoutValue, hiddenToLayoutValue, orderFromLayoutValue, orderToLayoutValue, sheetArrangementOf, sheetFrozenOf, sheetHiddenOf, sheetLayoutScope, sheetLayoutViewId, sheetOrderOf, sheetSortOf, sortArrow, sortedByWords, sortFromLayoutValue, sortPhraseOf, sortToLayoutValue, sortWords, SHEET_FROZEN_PROP, SHEET_HIDDEN_PROP, SHEET_LAYOUT_KIND, SHEET_LAYOUT_PREFIX, SHEET_ORDER_PROP, SHEET_SORT_PROP } from './arrangement.js';
+export type { ArrangeAt, ArrangedColumns, SheetArrangeItem, SheetArrangementProp, SheetArrangementValues, SheetLayoutFold } from './arrangement.js';
 export { AddColumn, ADD_COLUMN_HINT, ADD_COLUMN_NO_NUMBERS, ADD_COLUMN_PRESENTING } from './AddColumn.js';
 export type { AddColumnOutcome, AddColumnProps } from './AddColumn.js';
 // the same door one level out: a TABLE of one row per group, cut from the rows visible here

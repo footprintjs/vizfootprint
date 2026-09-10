@@ -2535,9 +2535,12 @@
 :where(.vzf) .vzf-sheet-cell { flex: 0 0 auto; width: 148px; min-width: 0; display: flex; align-items: center; padding: 0 var(--vzf-space-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; border-right: 1px solid var(--vzf-line-soft); }
 :where(.vzf) .vzf-sheet-cell:focus-visible { outline: none; box-shadow: inset var(--vzf-focus); }
 /* the frozen leading column: the declared row key when the table has one, else the first column */
-:where(.vzf) .vzf-sheet-row > .vzf-sheet-cell:first-child { position: sticky; left: 0; z-index: 1; background: var(--vzf-surface); border-right: 1px solid var(--vzf-line); }
-:where(.vzf) .vzf-sheet-header > .vzf-sheet-cell:first-child { background: var(--vzf-surface-2); }
+:where(.vzf) .vzf-sheet-row > .vzf-sheet-cell.vzf-sheet-frozen { position: sticky; z-index: 1; background: var(--vzf-surface); border-right: 1px solid var(--vzf-line); } /* `left` is inline: the cumulative offset — see SHEET_COLUMN_WIDTH in Sheet.tsx */
+:where(.vzf) .vzf-sheet-header > .vzf-sheet-cell.vzf-sheet-frozen { background: var(--vzf-surface-2); z-index: 2; }
 :where(.vzf) .vzf-sheet-colhead { border-right: 1px solid var(--vzf-line); padding: 0; }
+:where(.vzf) .vzf-sheet-colhead > .vzf-sheet-sort { flex: 1 1 0; width: auto; }
+:where(.vzf) .vzf-sheet-menubtn { flex: none; align-self: stretch; width: 16px; padding: 0; font: inherit; font-size: 11px; line-height: 1; color: var(--vzf-ink-soft); background: transparent; border: none; border-left: 1px solid var(--vzf-line-soft); cursor: pointer; }
+:where(.vzf) .vzf-sheet-menubtn:hover, :where(.vzf) .vzf-sheet-menubtn[aria-expanded='true'] { color: var(--vzf-ink); background: var(--vzf-surface-3); }
 :where(.vzf) .vzf-sheet-sort { display: flex; align-items: center; gap: 6px; width: 100%; height: 100%; padding: 0 var(--vzf-space-2); font: inherit; text-align: left; color: var(--vzf-ink); background: transparent; border: none; cursor: pointer; overflow: hidden; }
 :where(.vzf) span.vzf-sheet-sort { cursor: default; flex-wrap: wrap; align-content: center; }
 /* the cannot-sort sentence is READ, on its own line under the name — a tooltip is not an answer */
@@ -2546,7 +2549,7 @@
 /* a number reads down its column: right-aligned, tabular figures (set on every cell above) */
 :where(.vzf) .vzf-sheet-num { justify-content: flex-end; }
 /* the row the session's own clause holds */
-:where(.vzf) .vzf-sheet-picked, :where(.vzf) .vzf-sheet-picked > .vzf-sheet-cell:first-child { background: var(--vzf-brand-tint); }
+:where(.vzf) .vzf-sheet-picked, :where(.vzf) .vzf-sheet-picked > .vzf-sheet-cell.vzf-sheet-frozen { background: var(--vzf-brand-tint); }
 :where(.vzf) .vzf-sheet-said { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 :where(.vzf) .vzf-sheet-colname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 :where(.vzf) .vzf-sheet-type { font-family: var(--vzf-font-mono); font-size: 10px; color: var(--vzf-ink-faint); }
@@ -2559,6 +2562,10 @@
 :where(.vzf) .vzf-sheet-findnext, :where(.vzf) .vzf-sheet-findprev, :where(.vzf) .vzf-sheet-findclose { flex: none; font: inherit; font-size: 11.5px; padding: 1px 6px; color: var(--vzf-ink); background: var(--vzf-surface); border: 1px solid var(--vzf-line); border-radius: var(--vzf-r-sm); cursor: pointer; }
 /* the strip's refusal is READ in place of the input, so it is given the whole line */
 :where(.vzf) .vzf-sheet-find > .vzf-sheet-cannot { flex-basis: auto; }
+:where(.vzf) .vzf-sheet-arrange { flex: none; display: flex; align-items: center; gap: var(--vzf-space-2); padding: 0 var(--vzf-space-2); font-size: 12px; background: var(--vzf-surface-2); border-top: 1px solid var(--vzf-line); overflow-x: auto; }
+:where(.vzf) .vzf-sheet-arrangename { flex: none; font-weight: 600; white-space: nowrap; }
+:where(.vzf) .vzf-sheet-arrangeitem, :where(.vzf) .vzf-sheet-arrangeclose, :where(.vzf) .vzf-sheet-showall { flex: none; font: inherit; font-size: 11.5px; padding: 1px 6px; white-space: nowrap; color: var(--vzf-ink); background: var(--vzf-surface); border: 1px solid var(--vzf-line); border-radius: var(--vzf-r-sm); cursor: pointer; }
+:where(.vzf) .vzf-sheet-showall { margin: 0 var(--vzf-space-2); }
 
 /* ── Add a column: an ACT beside the read-only grid, never an edit inside it ── */
 :where(.vzf) .vzf-addcol { display: flex; flex-direction: column; gap: 2px; padding: var(--vzf-space-2); font-size: 12.5px; color: var(--vzf-ink); background: var(--vzf-surface-2); border: 1px solid var(--vzf-line); border-radius: var(--vzf-r-md); }

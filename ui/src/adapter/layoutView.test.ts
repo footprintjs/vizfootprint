@@ -73,6 +73,28 @@ describe('setSheetSort — a sheet’s order lands as an act, over the poll sour
   });
 });
 
+describe('setSheetArrangement \u2014 the other three props POST the same shape, over the poll source too', () => {
+  it('hidden / order / frozen each land their OWN navigate body, field named for the prop', async () => {
+    const calls: { url: string; body?: Record<string, unknown> }[] = [];
+    const impl = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined });
+      if (!init || init.method !== 'POST') return { ok: true, json: async () => BASE } as unknown as Response;
+      return { ok: true, json: async () => ({ ok: true }) } as unknown as Response;
+    });
+    const view = createSessionView(pollingSource({ fetchImpl: impl as unknown as typeof fetch }));
+    await view.refresh();
+    await view.setSheetArrangement('cells', 'hidden', ['region']);
+    await view.setSheetArrangement('cells', 'order', ['cases']);
+    await view.setSheetArrangement('cells', 'frozen', 2);
+    expect(calls.filter((c) => c.url === '/api/dispatch').map((c) => c.body)).toEqual([
+      { verb: 'navigate', viewId: 'layout:sheet:cells', field: 'hidden', value: '["region"]', intent: 'cells: hid region' },
+      { verb: 'navigate', viewId: 'layout:sheet:cells', field: 'order', value: '["cases"]', intent: 'cells: moved cases first' },
+      { verb: 'navigate', viewId: 'layout:sheet:cells', field: 'frozen', value: '2', intent: 'cells: froze 2 columns' },
+    ]);
+    view.dispose();
+  });
+});
+
 describe('setLayout — poll source POSTs navigate dispatches with plain-words intents', () => {
   function fakeFetch() {
     const calls: { url: string; body?: Record<string, unknown> }[] = [];

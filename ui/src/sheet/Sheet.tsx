@@ -39,6 +39,24 @@
  * `onSelect` already follows: a door the host did not wire is a door that is
  * closed, never one that half-works. See `./arrangement.ts` for the ruling and
  * `./README.md` for the law.
+ *
+ * AND SO IS THE REST OF THE ARRANGEMENT. `hidden`, `order` and `frozen` are
+ * the same law with the same shape: the sheet renders what it is handed, asks
+ * through ONE door (`onArrange(prop, value)` — one prop per gesture, so one
+ * commit per gesture), and remembers nothing. Two of them earn the act as
+ * plainly as the sort does — HIDING a column changes what the next window is
+ * even asked for, and ORDER changes what "the first column" means to every
+ * later reader. Three rules are this file's own, because only a grid can keep
+ * them: the key column is never hidden and never moved out of first place (it
+ * is the row's identity, and a row click selects on it); the ASK carries the
+ * arranged VISIBLE projection, so the engine never ships a column nobody is
+ * looking at and an export handed the same projection walks the same columns;
+ * and a name the trace holds that this table does not have is ignored for that
+ * column and SAID ONCE, never a broken grid and never a silent rewrite of the
+ * trace. The one read the arrangement does NOT narrow is `find`: which columns
+ * are "text" is the library's judgment (`findInView` searches a number column
+ * only when it is named), and naming the visible ones here would put a second
+ * judge of that question in the grid — see `./README.md`, R4.
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FocusEvent as ReactFocusEvent, JSX, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, UIEvent as ReactUIEvent } from 'react';
@@ -46,7 +64,8 @@ import type { Row, SortSpec } from 'vizfootprint/data';
 // what LEAVES is formatted by the library, one cell or a whole window (see `copyFocusedCell`) —
 // and it is the DATA layer's function, the same text a FIND matches against
 import { cellString } from 'vizfootprint/data';
-import { sortArrow, sortedByWords } from './arrangement.js';
+import { arrangeColumns, arrangeItems, arrangementSaid, frozenCount, sortArrow, sortedByWords } from './arrangement.js';
+import type { SheetArrangeItem, SheetArrangementProp, SheetArrangementValues } from './arrangement.js';
 import { createBlockCache, type BlockCache } from './blockCache.js';
 // the clipboard door and the one sentence for a browser that refuses it — a module of
 // its own, so the grid never reaches through the export FORM to put text on a clipboard
@@ -59,6 +78,18 @@ export const SHEET_ROW_HEIGHT = 28;
 export const SHEET_CANVAS_MAX = 10_000_000;
 /** The status strip's height, reserved out of the sheet's own height so the readout never overlaps the rows. */
 export const SHEET_STATUS_HEIGHT = 24;
+/**
+ * ONE column's width in pixels — what the frozen columns' sticky offsets are
+ * measured in.
+ *
+ * A COPY of the stylesheet's `.vzf-sheet-cell { width }`, because `position:
+ * sticky` needs a `left` in pixels and only the layout knows one. It is pinned
+ * against `styles.css` in `Sheet.test.tsx`: drift would leave the second frozen
+ * column overlapping the first, or floating away from it.
+ */
+export const SHEET_COLUMN_WIDTH = 148;
+/** The arrange strip's height, paid for out of the body's — exactly as the find strip is. */
+export const SHEET_ARRANGE_HEIGHT = 30;
 /** The sheet's own 1px frame, top and bottom — the height a host gives is the OUTER one. */
 export const SHEET_BORDERS = 2;
 /** Rows fetched beyond the visible ones, so a small scroll is served from the block already held. */
@@ -137,13 +168,22 @@ export function cellText(value: unknown): string {
   return value === null || value === undefined ? '' : String(value);
 }
 
-/** The readout: which rows, of how many, at what version, in what order. Never a range past the count. */
-export function statusWords(win: SheetWindow | null, sort: readonly SortSpec[] | undefined): string {
+/**
+ * The readout: which rows, of how many, at what version, in what order, and
+ * how many columns are OFF the screen. Never a range past the count.
+ *
+ * WHY the hidden columns are counted here: a grid missing a column looks
+ * exactly like a table that never had one, and a person who cannot see that
+ * something is hidden cannot ask for it back. The count is the one fact that
+ * makes the "show all" control beside it make sense.
+ */
+export function statusWords(win: SheetWindow | null, sort: readonly SortSpec[] | undefined, hiddenCount = 0): string {
   if (win === null) return 'reading the first window…';
   const last = win.rows.length === 0 ? 0 : Math.min(win.start + win.rows.length, win.count);
   const first = last === 0 ? 0 : Math.min(win.start + 1, last);
   const parts = [`rows ${first.toLocaleString()}–${last.toLocaleString()} of ${win.count.toLocaleString()}`, win.version === null ? 'no data version' : `version ${win.version}`];
   if (sort !== undefined && sort.length > 0) parts.push(sortedByWords(sort)); // the rail's own words, so one arrangement never reads two ways
+  if (hiddenCount > 0) parts.push(`${hiddenCount} hidden`);
   return parts.join(' · ');
 }
 
@@ -215,6 +255,23 @@ export interface SheetProps {
    * that has not wired the act, read the order the trace holds.
    */
   readonly onSort?: (next: readonly SortSpec[] | undefined) => void;
+  /** The columns the TRACE hides at this cursor (`sheetHiddenOf(state.layouts, viewId)`). The key column is never one of them. */
+  readonly hidden?: readonly string[];
+  /** The LEADING column order the trace holds (`sheetOrderOf`); columns it does not name follow in the engine's order. */
+  readonly order?: readonly string[];
+  /** How many leading columns stay put under horizontal scroll (`sheetFrozenOf`). Absent = one: the key alone. */
+  readonly frozen?: number;
+  /**
+   * ONE DOOR for the other three props: a header menu item asks for one prop's
+   * new value and the host LANDS it (`view.setSheetArrangement(viewId, prop,
+   * value)`), handing the answer back through `hidden` / `order` / `frozen`.
+   *
+   * Leave it out and there are no menus and no "show all" — Present mode, and
+   * any host that has not wired the act, read the arrangement the trace holds
+   * and are told nothing about a door that is not there. The sort's law, applied
+   * to the other three.
+   */
+  readonly onArrange?: (prop: SheetArrangementProp, value: SheetArrangementValues[SheetArrangementProp]) => void;
   /** The row the session's own clause holds, by its row id — marked, so a person sees which row they picked. */
   readonly selectedRowId?: string;
   readonly rowHeight?: number;
@@ -231,7 +288,7 @@ export interface SheetProps {
 }
 
 export function Sheet(props: SheetProps): JSX.Element {
-  const { data, viewId, table, columns, readOnly = false, onSelect, selectedRowId, sort, onSort, version, cursor, className } = props;
+  const { data, viewId, table, columns, readOnly = false, onSelect, selectedRowId, sort, onSort, hidden, order, frozen, onArrange, version, cursor, className } = props;
   const rowHeight = props.rowHeight ?? SHEET_ROW_HEIGHT;
   const canvasMax = props.canvasMax ?? SHEET_CANVAS_MAX;
 
@@ -249,6 +306,9 @@ export function Sheet(props: SheetProps): JSX.Element {
   // standing and what they are looking for.
   const [finding, setFinding] = useState(false);
   const [findText, setFindText] = useState('');
+  // which header's arrange menu is open (by column name), or none. State about
+  // where a person is standing — never about the arrangement, which is the trace's.
+  const [menuFor, setMenuFor] = useState<string | null>(null);
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -264,6 +324,7 @@ export function Sheet(props: SheetProps): JSX.Element {
   const focusPending = useRef<{ forAsk: number | null } | null>(null);
   const cannotSortRef = useRef<string | null>(null);
   const findRef = useRef<HTMLInputElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   /** Which find is the current one: an answer from an older press is dropped rather than painted over a newer one (the window effect's `seq`, for the other read). */
   const findSeq = useRef(0);
   const cacheRef = useRef<BlockCache | null>(null);
@@ -274,6 +335,15 @@ export function Sheet(props: SheetProps): JSX.Element {
   // `askSort` is undefined exactly when the host wired no door, which is what
   // closes the toggle — the rule `canSelect` already follows one field over.
   const askSort = onSort === undefined ? undefined : (field: string): void => onSort(nextSort(sort, field));
+  /**
+   * ONE arrangement act, asked of the host. Typed per prop, so a menu item can
+   * never hand `frozen` a list of names even though the PROP itself is two plain
+   * arguments to the host — the pairing is checked where the values are built.
+   */
+  const ask = <P extends SheetArrangementProp>(prop: P, value: SheetArrangementValues[P]): void => onArrange?.(prop, value);
+  // the three menus need a door and a person who is not merely READING: Present
+  // mode closes them exactly as it closes the sort toggle and the row click
+  const canArrange = !readOnly && onArrange !== undefined;
   // WHY: the window effect must be able to hand a refused sort BACK to the host
   // without re-asking for a window every time the host re-renders its callback.
   // It carries the ACT DOOR, not the raw callback: Present mode closes that door
@@ -318,7 +388,7 @@ export function Sheet(props: SheetProps): JSX.Element {
   const headHeight = engineCanSort ? rowHeight : rowHeight * 2;
   // the strip is paid for out of the BODY, like the status strip and the header's
   // refusal line: a sheet given a height keeps it, whatever is open inside it
-  const bodyHeight = Math.max(rowHeight, outerHeight - SHEET_BORDERS - headHeight - SHEET_STATUS_HEIGHT - (finding ? SHEET_FIND_HEIGHT : 0));
+  const bodyHeight = Math.max(rowHeight, outerHeight - SHEET_BORDERS - headHeight - SHEET_STATUS_HEIGHT - (finding ? SHEET_FIND_HEIGHT : 0) - (menuFor !== null ? SHEET_ARRANGE_HEIGHT : 0));
   const metrics = canvasMetrics(count, rowHeight, bodyHeight, canvasMax);
   const { canvasHeight, scrollMax, visibleRows } = metrics;
   const firstIndex = rowAtScroll(scrollTop, metrics);
@@ -348,10 +418,53 @@ export function Sheet(props: SheetProps): JSX.Element {
     };
   }, [data]);
 
+  // ── the arranged projection: what is asked for, and what is drawn ──
+  //
+  // The key the WINDOW names (else the column the facets declared) is the one
+  // the arrangement is measured from: never hidden, always first, and the first
+  // of the frozen ones.
+  const keyField = win?.key ?? facets.find((f) => f.key === true)?.name;
+  // the columns this sheet KNOWS the table has: the host's projection when it
+  // named one, else the schema the port answered. Empty until one of them lands.
+  const baseKey = JSON.stringify(columns ?? facets.map((f) => f.name));
+  const namesKey = JSON.stringify(win?.columns ?? []);
+  const hiddenKey = JSON.stringify(hidden ?? []);
+  const orderKey = JSON.stringify(order ?? []);
+  // ONE owner of the whole rule (`arrangeColumns`), spent twice: over the columns
+  // the sheet knows about (what the next window ASKS for) and over the columns the
+  // engine ANSWERED (what the grid draws). The JSON keys stand in for the arrays'
+  // identity — a new array with the same names is the same arrangement.
+  const arrange = useCallback(
+    (namesJson: string) => arrangeColumns(JSON.parse(namesJson) as string[], keyField, { order: JSON.parse(orderKey) as string[], hidden: JSON.parse(hiddenKey) as string[] }),
+    [keyField, orderKey, hiddenKey],
+  );
+  // `asked` is arranged over every column the table HAS — which is why the readout's
+  // hidden COUNT is read from it and never from `drawn`, where a hidden column is
+  // already gone and the count would always answer zero
+  const asked = useMemo(() => arrange(baseKey), [arrange, baseKey]);
+  const drawn = useMemo(() => arrange(namesKey), [arrange, namesKey]);
+  const ordered = drawn.columns;
+  // A HIDDEN COLUMN IS NOT READ: the ask carries the arranged VISIBLE projection,
+  // so the engine never ships a hidden column and `<ExportRows>` handed the same
+  // projection walks the same ones. With no arrangement the ask is exactly what it
+  // always was — the host's projection, or none at all.
+  const arranges = (hidden?.length ?? 0) > 0 || (order?.length ?? 0) > 0;
+  const knowsColumns = (columns ?? facets).length > 0; // the host's projection, or the schema — one of them has landed
+  const projection = arranges && knowsColumns ? asked.columns : columns;
+  // an arrangement CAN hide every column (no menu will do it, but a trace may hold
+  // one): asking with an empty projection would show the whole table back, which is
+  // the opposite of what the trace says, so nothing is asked and the status line says so
+  const nothingLeft = projection !== undefined && projection.length === 0;
+  // R6: a name the arrangement holds that this table does not have — reported only
+  // once the sheet KNOWS the table's columns, or every name would look missing on
+  // the first paint, before the schema has landed
+  const missing = knowsColumns ? asked.missing : [];
+
   // ── one window per scroll stop: the block cache turns overlapping asks into one fetch ──
-  const columnsKey = columns === undefined ? '' : JSON.stringify(columns);
+  const columnsKey = projection === undefined ? '' : JSON.stringify(projection);
   const sortKey = sort === undefined ? '' : JSON.stringify(sort);
   useEffect(() => {
+    if (nothingLeft) return; // nothing to ask for — see `nothingLeft`
     let live = true;
     const controller = new AbortController();
     const mine = ++seq.current;
@@ -361,10 +474,10 @@ export function Sheet(props: SheetProps): JSX.Element {
       if (waiting.forAsk === null) waiting.forAsk = mine;
       else focusPending.current = null;
     }
-    const parts = { ...(table !== undefined ? { table } : {}), ...(viewId !== undefined ? { viewId } : {}), ...(columns !== undefined ? { columns } : {}), ...(sort !== undefined ? { sort } : {}), ...(version !== undefined ? { version } : {}), ...(cursor !== undefined ? { cursor } : {}) };
+    const parts = { ...(table !== undefined ? { table } : {}), ...(viewId !== undefined ? { viewId } : {}), ...(projection !== undefined ? { columns: projection } : {}), ...(sort !== undefined ? { sort } : {}), ...(version !== undefined ? { version } : {}), ...(cursor !== undefined ? { cursor } : {}) };
     void cache
       .window(parts, firstIndex, limit, (offset, size) =>
-        data.rows({ ...(columns !== undefined ? { columns } : {}), ...(sort !== undefined ? { sort } : {}), ...(viewId !== undefined ? { viewId } : {}), offset, limit: size }, { signal: controller.signal }),
+        data.rows({ ...(projection !== undefined ? { columns: projection } : {}), ...(sort !== undefined ? { sort } : {}), ...(viewId !== undefined ? { viewId } : {}), offset, limit: size }, { signal: controller.signal }),
       )
       .then((answer) => {
         if (!live || mine !== seq.current) return; // a window the scroll already left behind
@@ -404,17 +517,68 @@ export function Sheet(props: SheetProps): JSX.Element {
     };
     // `columnsKey`/`sortKey` stand in for the arrays' identity — a new array with the same names is the same question
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cache, data, table, viewId, columnsKey, sortKey, version, cursor, firstIndex, limit]);
+  }, [cache, data, table, viewId, columnsKey, sortKey, version, cursor, firstIndex, limit, nothingLeft]);
 
-  // ── the frozen column: the key the WINDOW names, else the column the engine put first ──
-  const keyField = win?.key ?? facets.find((f) => f.key === true)?.name;
-  const namesKey = JSON.stringify(win?.columns ?? []);
-  const ordered = useMemo(() => {
-    const names = JSON.parse(namesKey) as string[];
-    return keyField !== undefined && names.includes(keyField) ? [keyField, ...names.filter((n) => n !== keyField)] : names;
-  }, [namesKey, keyField]);
   const facetOf = useCallback((name: string): SheetColumn | undefined => facets.find((f) => f.name === name), [facets]);
   const numeric = useMemo(() => ordered.map((name) => facetOf(name)?.type === 'number'), [ordered, facetOf]);
+
+  // ── the frozen columns: the key, plus however many the trace says ──
+  //
+  // ONE mechanism for all of them (the key was already sticky, on its own CSS
+  // rule): each frozen cell is `position: sticky` at the CUMULATIVE offset of the
+  // columns before it. The count starts at the key, so there is no zero — a grid
+  // whose identity column scrolled away would be a grid nobody can read.
+  const frozenAt = Math.min(frozenCount(frozen), ordered.length);
+
+  /** What this header's menu offers, and nothing when the host wired no door (R5). */
+  const itemsFor = (name: string): readonly SheetArrangeItem[] => (canArrange ? arrangeItems(name, { drawn: ordered, key: keyField, hidden, order, frozen }) : []);
+  const menuItems = menuFor === null ? [] : itemsFor(menuFor);
+
+  /**
+   * The menu closes and the FOCUS GOES BACK to the header it came from — a menu
+   * that closed into nowhere would drop a keyboard person out of the grid.
+   *
+   * The button is found by walking the header's own buttons rather than by a
+   * selector built from the name: a column may be called `a"b`, which no
+   * attribute selector could carry (the same hazard this folder's JSON values
+   * exist for).
+   */
+  const closeMenu = (): void => {
+    setMenuFor(null);
+    /* v8 ignore next -- the header is mounted whenever a menu inside it can be closed; the guard keeps the ref's type honest */
+    const buttons = headRef.current?.querySelectorAll<HTMLElement>('[data-vzf-menu]') ?? [];
+    for (const button of buttons) if (button.dataset.vzfMenu === menuFor) button.focus();
+  };
+
+  /** One item: ONE act, then the menu closes — the arrangement it was built from is now the old one. */
+  const runItem = (item: SheetArrangeItem): void => {
+    ask(item.prop, item.value);
+    closeMenu();
+  };
+
+  /** Esc closes and hands the focus back; the arrows walk the items, either axis, wrapping at both ends. */
+  const onMenuKeys = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeMenu();
+      return;
+    }
+    const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0;
+    if (step === 0) return;
+    event.preventDefault(); // an arrow inside the menu is a move between items, never a scroll
+    /* v8 ignore next -- the strip is mounted whenever a key event can reach it; the guard keeps the ref's type honest */
+    const items = [...(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    // the strip always holds at least the "close" item, so a step always lands on one
+    items[(at + step + items.length) % items.length]!.focus();
+  };
+
+  // the first item takes the focus when a menu opens — never on first paint (no
+  // menu is open then), so the page's own focus is never stolen
+  useEffect(() => {
+    if (menuFor === null) return;
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }, [menuFor]);
 
   // the readout and `aria-sort` speak for the ROWS, never for the ask: an engine
   // that refused this order left them in the table's own, and saying otherwise
@@ -740,6 +904,10 @@ export function Sheet(props: SheetProps): JSX.Element {
                 canSort={canSort}
                 refusal={noSortWords(engineCanSort, data.capabilities.refusal ?? cannotSort)}
                 onToggle={askSort === undefined ? undefined : () => askSort(name)}
+                frozen={ci < frozenAt ? ci * SHEET_COLUMN_WIDTH : undefined}
+                menu={itemsFor(name).length > 0}
+                menuOpen={menuFor === name}
+                onMenu={() => setMenuFor(menuFor === name ? null : name)}
               />
             ))}
           </div>
@@ -754,6 +922,7 @@ export function Sheet(props: SheetProps): JSX.Element {
                 index={start + i}
                 columns={ordered}
                 numeric={numeric}
+                frozenAt={frozenAt}
                 rowHeight={rowHeight}
                 focusedRow={focus.row === start + i}
                 focusedCol={focus.col}
@@ -766,6 +935,26 @@ export function Sheet(props: SheetProps): JSX.Element {
           </div>
         </div>
       </div>
+      {menuFor !== null && (
+        // the arrange strip: paid for out of the BODY, exactly as the find strip and
+        // the header's refusal line are — a sheet given a height keeps it, whatever is
+        // open inside it. It sits OUTSIDE `role="grid"` (a menu is not a gridcell) and
+        // names the column it is about, because it is not drawn under its own header.
+        <div className="vzf-sheet-arrange" style={{ height: SHEET_ARRANGE_HEIGHT }} data-vzf="sheet-arrange" role="menu" aria-label={`arrange ${menuFor}`} ref={menuRef} onKeyDown={onMenuKeys}>
+          <span className="vzf-sheet-arrangename" role="presentation">
+            {menuFor}
+          </span>
+          {menuItems.map((item) => (
+            <button key={item.label} type="button" role="menuitem" className="vzf-sheet-arrangeitem" onClick={() => runItem(item)}>
+              {item.label}
+            </button>
+          ))}
+          {/* a pointer's way out, said in words — Esc is the keyboard's */}
+          <button type="button" role="menuitem" className="vzf-sheet-arrangeclose" onClick={closeMenu}>
+            close
+          </button>
+        </div>
+      )}
       {finding && (
         // the strip sits BETWEEN the grid and the readout: outside `role="grid"`
         // (an input is not a gridcell), and above the sentence it writes into
@@ -802,11 +991,23 @@ export function Sheet(props: SheetProps): JSX.Element {
       <div className="vzf-sheet-status" style={{ height: SHEET_STATUS_HEIGHT }}>
         {/* the readout changes on every scroll: announcing it would talk over everything else */}
         <span className="vzf-sheet-readout" aria-live="off">
-          {statusWords(win, shownSort)}
+          {statusWords(win, shownSort, asked.hidden.length)}
         </span>
+        {/* the way back from a hidden column — an ACT, so a sheet with no door has none of it */}
+        {canArrange && asked.hidden.length > 0 && (
+          <button type="button" className="vzf-sheet-showall" onClick={() => ask('hidden', undefined)}>
+            show all
+          </button>
+        )}
         <span className="vzf-sheet-said" role="status" aria-live="polite">
           {schemaError !== null && <span className="vzf-sheet-refused"> · {schemaError}</span>}
           {refused !== null && <span className="vzf-sheet-refused"> · {refused}</span>}
+          {/* what the ARRANGEMENT itself says: the key that cannot be hidden, a name this
+              table does not have, an arrangement that left nothing. Said whether or not this
+              sheet can arrange anything — a reader of a story page is owed them too. */}
+          {arrangementSaid({ key: keyField, hidden, missing, empty: nothingLeft }).map((words) => (
+            <span key={words} className="vzf-sheet-refused"> · {words}</span>
+          ))}
           {note !== null && <span className="vzf-sheet-refused"> · {note}</span>}
         </span>
       </div>
@@ -824,10 +1025,16 @@ interface HeaderCellProps {
   readonly refusal: string | undefined;
   /** Absent exactly when the host wired no sort door, which is one of the reasons there is no toggle. */
   readonly onToggle: (() => void) | undefined;
+  /** The sticky offset in pixels when this column is one of the frozen ones, else absent. */
+  readonly frozen: number | undefined;
+  /** Whether this header has an arrange menu to open at all — false in Present mode, and wherever the host wired no door. */
+  readonly menu: boolean;
+  readonly menuOpen: boolean;
+  readonly onMenu: () => void;
 }
 
 /** One column header: the name, the type the facets settled on, a role badge when the role is worth one, and a sort toggle — or the sentence saying why there is none. */
-function HeaderCell({ name, facet, index, sort, canSort, refusal, onToggle }: HeaderCellProps): JSX.Element {
+function HeaderCell({ name, facet, index, sort, canSort, refusal, onToggle, frozen, menu, menuOpen, onMenu }: HeaderCellProps): JSX.Element {
   const key = sort?.[0];
   const dir = key !== undefined && key.field === name ? key.dir : null;
   const arrow = dir === null ? '' : ` ${sortArrow(dir)}`;
@@ -841,7 +1048,14 @@ function HeaderCell({ name, facet, index, sort, canSort, refusal, onToggle }: He
     </>
   );
   return (
-    <div className="vzf-sheet-cell vzf-sheet-colhead" role="columnheader" aria-colindex={index + 1} aria-sort={dir === null ? 'none' : dir === 'asc' ? 'ascending' : 'descending'} data-column={name}>
+    <div
+      className={`vzf-sheet-cell vzf-sheet-colhead${frozen === undefined ? '' : ' vzf-sheet-frozen'}`}
+      role="columnheader"
+      aria-colindex={index + 1}
+      aria-sort={dir === null ? 'none' : dir === 'asc' ? 'ascending' : 'descending'}
+      data-column={name}
+      style={frozen === undefined ? undefined : { left: frozen }}
+    >
       {canSort ? (
         <button type="button" className="vzf-sheet-sort" onClick={onToggle} aria-label={`sort by ${name}`}>
           {words}
@@ -856,6 +1070,13 @@ function HeaderCell({ name, facet, index, sort, canSort, refusal, onToggle }: He
           {refusal !== undefined && <span className="vzf-sheet-cannot">{refusal}</span>}
         </span>
       )}
+      {/* the arrangement's own door: hide, move, freeze — one gesture, one act. `Enter`
+          opens it because a button is a button; the strip below takes the focus. */}
+      {menu && (
+        <button type="button" className="vzf-sheet-menubtn" aria-haspopup="menu" aria-expanded={menuOpen} aria-label={`arrange ${name}`} data-vzf-menu={name} onClick={onMenu}>
+          ⋯
+        </button>
+      )}
     </div>
   );
 }
@@ -865,6 +1086,8 @@ interface SheetRowProps {
   readonly index: number;
   readonly columns: readonly string[];
   readonly numeric: readonly boolean[];
+  /** How many LEADING columns stay put under horizontal scroll — at least the key. */
+  readonly frozenAt: number;
   readonly rowHeight: number;
   readonly focusedRow: boolean;
   readonly focusedCol: number;
@@ -875,7 +1098,7 @@ interface SheetRowProps {
 }
 
 /** One row: plain text nodes, memoized — a scroll re-renders the rows that moved, never the ones that did not. */
-const SheetRow = memo(function SheetRow({ row, index, columns, numeric, rowHeight, focusedRow, focusedCol, selected, clickable, onPick, onRefuseEdit }: SheetRowProps): JSX.Element {
+const SheetRow = memo(function SheetRow({ row, index, columns, numeric, frozenAt, rowHeight, focusedRow, focusedCol, selected, clickable, onPick, onRefuseEdit }: SheetRowProps): JSX.Element {
   // the SECOND click of a double-click never selects — the first one already did, exactly as a spreadsheet behaves
   const pick = (event: ReactMouseEvent<HTMLDivElement>): void => {
     if (event.detail <= 1) onPick(row);
@@ -893,12 +1116,15 @@ const SheetRow = memo(function SheetRow({ row, index, columns, numeric, rowHeigh
       {columns.map((name, ci) => (
         <div
           key={name}
-          className={`vzf-sheet-cell${numeric[ci] === true ? ' vzf-sheet-num' : ''}`}
+          className={`vzf-sheet-cell${numeric[ci] === true ? ' vzf-sheet-num' : ''}${ci < frozenAt ? ' vzf-sheet-frozen' : ''}`}
           role="gridcell"
           aria-colindex={ci + 1}
           tabIndex={focusedRow && focusedCol === ci ? 0 : -1}
           data-vzf-focused={focusedRow && focusedCol === ci ? 'true' : 'false'}
           data-column={name}
+          // the cumulative offset the frozen columns stack at — the stylesheet gives every
+          // cell ONE width (`SHEET_COLUMN_WIDTH`), which is the only reason it can be computed
+          style={ci < frozenAt ? { left: ci * SHEET_COLUMN_WIDTH } : undefined}
           onDoubleClick={() => onRefuseEdit(name)}
         >
           {cellText(row[name])}

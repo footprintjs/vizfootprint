@@ -3,22 +3,38 @@
 The rows the charts see, in a scrollable grid. Every visible window is one question the engine answered; nothing here holds a copy of the table.
 
 ```tsx
-import { Sheet, httpSheetData, sessionSheetData, sheetSortOf } from 'vizfootprint-ui';
+import { Sheet, httpSheetData, sessionSheetData, sheetFrozenOf, sheetHiddenOf, sheetOrderOf, sheetSortOf } from 'vizfootprint-ui';
 
 // in process
 const data = useMemo(() => sessionSheetData(session, { table: 'cells' }), [session]);
 // or over a door that answers the session's ViewQueryResult JSON verbatim
 const data = useMemo(() => httpSheetData({ endpoint: '/api/window', table: 'cells', columns: facets }), [facetsKey]);
 
-// the sort is the TRACE's, not the component's: read it at the cursor, land it as an act
-<Sheet data={data} viewId="sheet" table="cells" height={480} version={version} cursor={state.cursor} selectedRowId={pickedRowId} onSelect={(field, value) => view.emit('sheet', { rawValue: value, encoding: { kind: 'point', field } })} sort={sheetSortOf(state.layouts, 'sheet')} onSort={(next) => void view.setSheetSort('sheet', next)} readOnly={presenting} />
+// the ARRANGEMENT is the TRACE's, not the component's: read each prop at the cursor, land it as an act
+<Sheet
+  data={data}
+  viewId="sheet"
+  table="cells"
+  height={480}
+  version={version}
+  cursor={state.cursor}
+  selectedRowId={pickedRowId}
+  onSelect={(field, value) => view.emit('sheet', { rawValue: value, encoding: { kind: 'point', field } })}
+  sort={sheetSortOf(state.layouts, 'sheet')}
+  onSort={(next) => void view.setSheetSort('sheet', next)}
+  hidden={sheetHiddenOf(state.layouts, 'sheet')}
+  order={sheetOrderOf(state.layouts, 'sheet')}
+  frozen={sheetFrozenOf(state.layouts, 'sheet')}
+  onArrange={(prop, value) => void view.setSheetArrangement('sheet', prop, value)}
+  readOnly={presenting}
+/>
 ```
 
 ## The laws
 
 - **The grid is virtualized over the engine.** A window is `viewQuery({ viewId, sort, offset, limit })` — sorted, offset, with a row identity per row — and it answers `{columns, rows, rowIds, positional, key, count, start, version, cursor}`. The count is the engine's, so the scrollbar is never a guess.
 - **Whose eyes.** `viewId` is the consumer: the session excludes the sheet's own clause and applies each edge's response, so selecting a row never makes the sheet's other rows vanish. Rows that failed the incoming clauses are already absent — the engine filtered them; the sheet did not hide them.
-- **The window names the key.** `SheetWindow.key` is the declared row key's column: what the grid moves to the front, freezes, and selects on. A host never has to hand it in (the facets are still worth handing in, for types and roles).
+- **The window names the key.** `SheetWindow.key` is the declared row key's column: what the grid moves to the front, freezes **first**, and selects on. It is never hidden and never moved out of first place — it is the row's identity. A host never has to hand it in (the facets are still worth handing in, for types and roles).
 - **The capped canvas keeps both ends exact.** 1M rows × 28px is 28 million pixels, past what a browser will lay out, so the canvas is capped at `canvasMax` (10,000,000 px) and the scrollbar becomes a shorter ruler. The map is between what can be *scrolled* and what can be *shown* — `scrollTop ∈ [0, canvasHeight − bodyHeight]` ↔ `first row ∈ [0, count − visibleRows]` — so **the last row is always reachable** and a row → scroll → row round trip returns the row it started from. The rows layer is drawn from the viewport's top edge (scrolling is row-quantized by construction) and is never allowed to reach past the canvas, which would invent scrollable space below the last row.
 - **One block cache, two keys.** The **question** (table, viewId, columns, sort) says which rows in what order; change it and the blocks are forgotten. The **stamp** (version, cursor) rides beside it: the blocks wear the stamp of the ANSWER that filled them, never of the ask. A host whose polled cursor is one poll behind therefore asks with the old stamp, gets an answer stamped with the live one, and it applies — no refusal — and the next ask (with the caught-up prop) is a hit. Only an answer whose own stamp differs from the blocks' replaces them: two versions never share a grid. An answer to a question the cache has since LEFT is dropped rather than written into the new question's blocks — the cache enforces its own law, so a host driving it directly (a future AG Grid adapter) gets the same guarantee the `<Sheet>` does. Blocks are `blockRows` (100) rows, at most `maxBlocks` (50), evicted least-recently-served first. A miss is fetched as ONE range, never one call per block.
 - **Answers apply in request order.** Every ask takes a sequence number; an answer below the last applied one is dropped silently — a fresher answer is already on screen, and there is nothing to tell.
@@ -27,7 +43,8 @@ const data = useMemo(() => httpSheetData({ endpoint: '/api/window', table: 'cell
 - **A row click is a selection, or a refusal.** On a keyed table it emits a `point` on the key column through `onSelect`, and `selectedRowId` marks the row the session's own clause holds. **The second click of a double-click never selects** — the first one already did, exactly as a spreadsheet behaves. On a **positional** table the click is refused in the status line: *"this table declares no row key — a row cannot be selected; declare `key` on the table"*. `readOnly` (Present mode) closes the door.
 - **A cell edit is refused with a next action.** Double-click a cell and the status line says *"‹column› is a source column — the sheet is read-only in this version; annotate the row instead"*. `capabilities.edit` is `false` by construction: the unit is the column, never the cell.
 - **Adding a column is an ACT, not an edit.** `<AddColumn>` is a form beside the grid, never a control inside it, and the grid it sits beside stays exactly as read-only as it was. See "Add a column" below.
-- **The status strip is two regions.** The readout (`rows a–b of N · version v · sorted by x ↓`, never a range past the count) is `aria-live="off"` because it changes on every scroll; the refusals sit in their own `role="status" aria-live="polite"` and are the only thing announced.
+- **The status strip is two regions.** The readout (`rows a–b of N · version v · sorted by x ↓ · 3 hidden`, never a range past the count) is `aria-live="off"` because it changes on every scroll; the refusals sit in their own `role="status" aria-live="polite"` and are the only thing announced. The hidden **count** is a fact about the *table*, not about the window — a grid missing a column looks exactly like a table that never had one, and a person who cannot see that something is hidden cannot ask for it back.
+- **Every header carries an arrange menu** — hide, move left, move right, move first, freeze up to here / unfreeze — when the host wired `onArrange` and this is not Present mode. One item is one act. It opens as a strip below the rows (paid for out of the body's height, exactly as the find strip is), takes the focus, walks under the arrows, and closes on Esc with the focus back on the header it came from. An item that would change nothing is not offered.
 - **Memoize the adapter.** `data` is part of the question: a new `httpSheetData(…)` built on every render is a new data layer every render. Build it in a `useMemo` keyed on the facts (endpoint, table, the schema's values — not the poll's object identity).
 - **Mount it once the state knows the version**, or the first paint asks once for the unknown version and again when it arrives. The gallery's sheet page shows the pattern.
 - **Height.** Give `height` (the OUTER height, frame included) and the sheet uses it; leave it out and the sheet measures the box it was given with a `ResizeObserver` and follows it. A host without one keeps the first measurement.
@@ -71,6 +88,43 @@ Five things follow, and each is a test in `arrangement.integration.test.ts`:
 
 - **The words name every key.** `sortWords` spells the whole arrangement (`sheet: sorted by region ↑, cases ↓`) rather than the first key and a count, because two different arrangements would otherwise land byte-identical words, and the words are the only account of the act a person scrolling the rail has. The glyph pair has one owner (`sortArrow`), spent by the rail, the readout and the header alike.
 
+### …and so are `hidden`, `order` and `frozen`
+
+**One law, four props, one road.** Each is one `(scope, prop)` pair under `layout:sheet:<viewId>` — last-wins, inert, restored per cursor, **no new verb**. Two of them earn the act as plainly as the sort does: **hiding** a column changes what the next window is even *asked for*, and **order** changes what "the first column" means to every later reader. `frozen` moves no data, but a story page that came back with three columns unstuck from the left edge would be showing a different sheet than the one a person left.
+
+```tsx
+// ONE act per gesture, through one door — the host lands it and hands it back
+<Sheet
+  hidden={sheetHiddenOf(state.layouts, 'sheet')}
+  order={sheetOrderOf(state.layouts, 'sheet')}
+  frozen={sheetFrozenOf(state.layouts, 'sheet')}
+  onArrange={(prop, value) => void view.setSheetArrangement('sheet', prop, value)}
+/>
+
+// "hide" on the `cases` header lands exactly one commit:
+//   viewId  layout:sheet:sheet   field  hidden   value  ["cases"]
+//   cause   "sheet: hid cases"
+// "move first" on `region`:      field  order    value  ["region"]
+//   cause   "sheet: moved region first"
+// "freeze up to here" on the second column:
+//                                field  frozen   value  2
+//   cause   "sheet: froze 2 columns"
+// and "show all" in the status strip:  value  ""  ·  cause "sheet: showed every column"
+```
+
+Six rulings ride with them, each one a test:
+
+- **R1 — three more props on the same scope, the same door, no verb.** `hidden` is a JSON list of column names, `order` a JSON list (the *leading* order — columns it does not name follow in the engine's own), `frozen` a JSON number (how many leading columns stay put under horizontal scroll). One JSON grammar reads all four, so there are never four parsers to disagree about a blank value or a poll's `null` leaf. `sheetHiddenOf(state.layouts, 'sheet')` → `['cases']`.
+- **R2 — one act is one prop.** `setSheetArrangement(viewId, prop, value)` generalises `setSheetSort` (kept as a one-line wrapper, so nothing public broke), and the plain words are written by ONE owner, `arrangementWords`, beside `sortWords`: `sheet: hid cases` · `sheet: showed cases` · `sheet: hid 3 columns` (a whole list landed at once — the menu only ever changes one) · `sheet: moved region first` · `sheet: order region, date, cases` · `sheet: froze 2 columns` · `sheet: unfroze`. The **before** comes off the fold the view already holds at the cursor, never from the caller: "hid cases" and "showed cases" are the same act with the sign reversed, and only the trace can say which one this is.
+- **R3 — the key is never hidden and always frozen first.** It is the row's identity: a row click selects on it, the window names it, and a grid whose identity column had scrolled away or vanished could still be scrolled but no longer read. Its header therefore offers nothing to hide and nothing to move, `frozen` counts *from* it (so there is no zero — `frozen: 1` and no arrangement at all are the same arrangement), and a trace that names it in `hidden` anyway is refused in the status line — *"the key column id is the row's identity — it cannot be hidden"* — with the column still on screen and not counted as hidden.
+- **R4 — a hidden column is not read.** The window request's `columns` **is** the arranged visible projection, so the engine never ships a column nobody is looking at, and `<ExportRows>` handed the same projection walks the same ones (its receipt says which). **This is why `hidden` is worth an act at all**: like the sort, it changes what the next question is asked *of*. (An arrangement that names columns is applied only once the sheet knows which columns the table has; the ask before the schema lands is the same one it always was.) **The one read it does not narrow is FIND**, and deliberately: the port's default is the text columns of the projection *at the cursor*, and which columns are "text" is the library's judgment — naming the visible ones here would search the numbers among them too (`findInView`: "a number column is searched only when it is named") and put a second judge of the same question in the grid. So a find can still land on a row whose matching cell is hidden; the position and the count stay honest, and the way to see the match is the "show all" beside the readout.
+- **R5 — Present mode closes the door**, and a sheet given no `onArrange` offers nothing: no menus, no "show all", and nothing said about a door that is not there — the sort's law, applied to the other three. What the trace holds is still *honoured*: reading a story page shows the sheet a person left, frozen columns and all.
+- **R6 — a prop the trace holds for a column the table no longer has** (a branch without the derived column, a refreshed schema) is ignored for that column and said once — *"the arrangement names rate, which this table does not have"*. Never a broken grid, and never a silent rewrite of the trace: rewriting it to match would be forging the record of an act.
+
+One corollary the rulings do not name: an arrangement *can* hide every column (no menu will do it — the key is never hidden — but a hand-landed act on a keyless table could). The sheet then asks for **no window at all** and says *"the arrangement hides every column — show one to read the rows"*, because an empty projection would come back as the whole table: the opposite of what the trace says.
+
+**The frozen columns have one mechanism.** The key was already sticky on its own CSS rule; now every frozen cell is `position: sticky` at the *cumulative* offset of the columns before it, which is why `SHEET_COLUMN_WIDTH` exists — a copy of the stylesheet's one cell width, pinned against `styles.css` in `Sheet.test.tsx`, because `sticky` needs a `left` in pixels and only the layout knows one.
+
 **Why the value is JSON** and not a joined string like the cockpit's `order`: this folder already ruled on it one file over. `httpSheetData` sends `columns` and `sort` as JSON because *"a column may be called `a,b`; a joined list could not carry it"* — the same hazard, already decided. JSON also round-trips `absent` and a multi-key spec exactly, so nothing is silently truncated. The plain words a reader sees ride the cause's **intent**, exactly as `setLayout`'s do: the value is for the machine, the intent is for the reader. Reading one back is **total** — a blank value, a leaf that is not text at all (a poll's JSON can carry `null` there), text that is not JSON, a half-written key, or a key carrying a slot this version does not know all read as *no sort*, never a guessed one. That last one matters most: the window port silently drops a prop it cannot name, so honouring the rest of a newer wire's key would put the grid in an order nobody asked for.
 
 **The alternative was considered and refused.** "Sort is a read, like scrolling — so lift it into view state a bookmark and the story payload carry" fails on the library's own laws: a bookmark is a name on a moment that explicitly *saves no state*, and the story payload carries the log, the bookmarks and the saved pictures — the trace and the stores beside it. Making a sort survive that way means inventing a second persistence channel next to the trace, which is the one thing this library exists not to do. The trace already had a place for it.
@@ -79,9 +133,9 @@ Five things follow, and each is a test in `arrangement.integration.test.ts`:
 
 | file | what it owns |
 |---|---|
-| `arrangement.ts` | the identity (`layout:sheet:<viewId>`), the codec both sides share, `sheetSortOf` (the read at a cursor), and every word an arrangement is said in — `sortArrow`, `sortPhraseOf`, `sortedByWords`, `sortWords`. Pure — no React, no session |
-| `Sheet.tsx` | renders `sort`, asks through `onSort` (closed in Present mode), and owns `noSortWords` — why a header has no toggle, when the answer is the engine's. It spends `arrangement.ts`'s words rather than writing its own |
-| `../adapter/sessionView.ts` | `setSheetSort` (the act, over both sources) and `SessionViewState.layouts` (every layout scope, not only the cockpit's) |
+| `arrangement.ts` | the identity (`layout:sheet:<viewId>`), the ONE JSON grammar and the four codecs, one reader per prop (`sheetSortOf` / `sheetHiddenOf` / `sheetOrderOf` / `sheetFrozenOf`, all over `sheetArrangementOf`), `arrangeColumns` (the visible projection + the names the table lacks), `arrangeItems` (what a header's menu offers), `arrangementSaid` (what the status line says about the arrangement itself), and every word an act is said in — `sortArrow`, `sortPhraseOf`, `sortedByWords`, `sortWords`, `arrangementWords`. Pure — no React, no session |
+| `Sheet.tsx` | renders the arrangement, asks through `onSort` / `onArrange` (both closed in Present mode), owns `noSortWords` — why a header has no toggle, when the answer is the engine's — and owns the geometry: `SHEET_COLUMN_WIDTH` (the frozen columns' offsets) and `SHEET_ARRANGE_HEIGHT` (the menu strip, paid for out of the body). It spends `arrangement.ts`'s words rather than writing its own |
+| `../adapter/sessionView.ts` | `setSheetArrangement` (the act, one prop at a time, over both sources), `setSheetSort` (its one-line wrapper) and `SessionViewState.layouts` (every layout scope, not only the cockpit's) |
 | `AddColumn.tsx` / `AddAggregate.tsx` | the two doors beside the grid — what is typed or picked, whether an act is in flight, and the last thing the session said. Neither judges |
 | `../adapter/sessionView.ts` (`addAggregate`, `aggregateIntent`) | the measure TREE minted from a pick, the `ops` version read from the library, and the act's plain words |
 
@@ -278,6 +332,6 @@ Two adapters ship. `sessionSheetData` is in process: a translation and a refusal
 ## Deliberately not here yet
 
 - **A row on a KEYLESS table cannot be selected in this version.** The design calls for a "within-version marked point" — a selection on `<version>#<index>` that a bookmark records as valid only inside that version — and the library port does not express one yet: `ViewQueryResult` carries the positional row id but nothing consumes it as a clause. **That is a pending library decision**, not an oversight here; until it lands the sheet says so in words rather than inventing an identity.
-- **The REST of the arrangement.** `sort` lands (see "The sort is an act" above); `hidden`, `order`, `frozen` and `firstRow` do not yet. They belong under the same identity and the same prop grammar — one `navigate` note per prop on `layout:sheet:<viewId>` — so each is a small packet on a road that is already built, not a new decision. `firstRow` is the one to think twice about: a scroll position is a READ by this folder's own law, and it would be here only as a place to RESUME, never as a claim about an order.
+- **`firstRow`** — the last of the arrangement props, and the one to think twice about. `sort`, `hidden`, `order` and `frozen` all land (see "The sort is an act" and the section after it); a scroll position is a READ by this folder's own law, and it would be here only as a place to RESUME, never as a claim about an order.
 - **A profile per column** — the quality bar, the distribution mini-bar, the distinct count, the absence tally. They come from ONE fold per (table, version, visible overlay set), which does not exist yet; a header that guessed them from the rendered window would be lying about 90,300 rows while showing 30.
 - **The formula bar**, the why panel, cell edits, and the AG Grid adapter — each is its own packet. (Derived columns arrived: see "Add a column" above; copy and export arrived: see "Copy and export are reads"; find arrived: see "Find (Ctrl+F) is a read too".)

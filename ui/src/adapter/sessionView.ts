@@ -79,7 +79,8 @@ import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './ste
 import type { NavigateViewState } from '../contract/types.js';
 // the sheet's arrangement grammar has ONE owner (`../sheet/README.md`); this door
 // spells nothing out for itself, so the act and the read can never disagree
-import { SHEET_SORT_PROP, sheetLayoutViewId, sortToLayoutValue, sortWords } from '../sheet/arrangement.js';
+import { arrangementToLayoutValue, arrangementWords, sheetArrangementOf, sheetLayoutViewId, SHEET_SORT_PROP } from '../sheet/arrangement.js';
+import type { SheetArrangementProp, SheetArrangementValues } from '../sheet/arrangement.js';
 import type { SortSpec } from 'vizfootprint/data';
 
 // ── the structural session contract (duck-typed; no value import from src) ─────
@@ -1262,6 +1263,24 @@ export interface SessionView {
    * (too long, say) files its own typed gap in the session's words.
    */
   setSheetSort(viewId: string, sort: readonly SortSpec[] | undefined): Promise<void>;
+  /**
+   * LY-1, THE WHOLE SHEET ARRANGEMENT: one act, one prop — `sort`, `hidden`,
+   * `order` or `frozen` — under `layout:sheet:<viewId>`.
+   *
+   * The generalisation of `setSheetSort`, and the same road: each prop is one
+   * (scope, prop) pair, last-wins, inert, restored at a cursor, and no verb was
+   * added for any of them. `undefined` CLEARS a prop, which is itself an act and
+   * says so in its own words.
+   *
+   * The words are not the caller's: `arrangementWords` writes them from the value
+   * this view already holds at the cursor and the one being landed, so a rail
+   * sentence can never disagree with the value beside it on the same commit.
+   *
+   * Read them back with `sheetSortOf` / `sheetHiddenOf` / `sheetOrderOf` /
+   * `sheetFrozenOf` over `state.layouts` and hand them to `<Sheet>`; nothing here
+   * is judged, and a value the session refuses files its own typed gap.
+   */
+  setSheetArrangement<P extends SheetArrangementProp>(viewId: string, prop: P, value: SheetArrangementValues[P]): Promise<void>;
   analyze(analysisId: string, intent?: string): Promise<void>;
   /**
    * ADD A DERIVED COLUMN: a formula over the columns this table already has,
@@ -1681,16 +1700,26 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       }
     },
 
-    async setSheetSort(viewId, sort) {
-      // ONE commit, whatever the arrangement: the value round-trips exactly and
-      // the plain words a reader sees ride the cause, exactly as setLayout's do.
+    async setSheetArrangement(viewId, prop, next) {
+      // ONE commit per prop, whatever the arrangement: the value round-trips
+      // exactly and the plain words a reader sees ride the cause, exactly as
+      // setLayout's do.
       const layoutViewId = sheetLayoutViewId(viewId);
-      const value = sortToLayoutValue(sort);
-      const intent = sortWords(viewId, sort);
+      const value = arrangementToLayoutValue(prop, next);
+      // BEFORE comes off the fold this view already holds at the cursor, never
+      // from the caller: "hid cases" and "showed cases" are the same act with the
+      // sign reversed, and only the trace can say which one this is.
+      const intent = arrangementWords(viewId, prop, sheetArrangementOf(state.layouts, viewId, prop), next);
       await dispatch(
-        { verb: 'navigate', viewId: layoutViewId, field: SHEET_SORT_PROP, value, cause: cause(intent) },
-        { verb: 'navigate', viewId: layoutViewId, field: SHEET_SORT_PROP, value, intent },
+        { verb: 'navigate', viewId: layoutViewId, field: prop, value, cause: cause(intent) },
+        { verb: 'navigate', viewId: layoutViewId, field: prop, value, intent },
       );
+    },
+
+    // the sort's own door, kept because it was public before the other three
+    // existed — a wrapper, so there is exactly one act and one sentence writer
+    async setSheetSort(viewId, sort) {
+      await view.setSheetArrangement(viewId, SHEET_SORT_PROP, sort);
     },
 
     async analyze(analysisId, intent) {

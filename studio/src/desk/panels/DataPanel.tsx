@@ -23,7 +23,7 @@
  * refusal shows is the session's own.
  */
 import { useMemo, useRef, type ReactNode } from 'react';
-import { AddAggregate, AddColumn, ExportRows, Sheet, Sources, Workbook, sheetSortOf, type AddColumnOutcome, type AggregatePick, type SessionView, type SessionViewState, type SheetColumn, type SheetData } from 'vizfootprint-ui';
+import { AddAggregate, AddColumn, ExportRows, Sheet, Sources, Workbook, arrangeColumns, sheetFrozenOf, sheetHiddenOf, sheetOrderOf, sheetSortOf, type AddColumnOutcome, type AggregatePick, type SessionView, type SessionViewState, type SheetArrangementProp, type SheetArrangementValues, type SheetColumn, type SheetData } from 'vizfootprint-ui';
 import type { SortSpec } from 'vizfootprint/data';
 import { T } from '../tokens.js';
 import type { DeskData } from '../types.js';
@@ -85,9 +85,26 @@ export function DataPanel(props: {
   const everyColumn = useMemo(() => here.columns.map((c) => c.name), [here]);
   const addColumn = (name: string, expression: string): Promise<AddColumnOutcome> => view.addColumn(name, expression, { table });
   const addAggregate = (name: string, pick: AggregatePick): Promise<AddColumnOutcome> => view.addAggregate(name, pick, { table });
-  // sorting the grid is an ACT, not a view preference: it lands under the sheet's
-  // own layout identity, so a reload and a seek both bring the order back
+  // ARRANGING the grid is an ACT, not a view preference: every prop lands under the
+  // sheet's own layout identity, so a reload and a seek both bring the arrangement
+  // back. Read ONCE here and spent below, so the grid and the export beside it can
+  // never be looking at two different projections.
   const sortBy = (next: readonly SortSpec[] | undefined): void => void view.setSheetSort('sheet', next);
+  const arrangeBy = <P extends SheetArrangementProp>(prop: P, value: SheetArrangementValues[P]): void => void view.setSheetArrangement('sheet', prop, value);
+  const sort = sheetSortOf(state.layouts, 'sheet');
+  const hidden = sheetHiddenOf(state.layouts, 'sheet');
+  const columnOrder = sheetOrderOf(state.layouts, 'sheet');
+  const frozen = sheetFrozenOf(state.layouts, 'sheet');
+  // THE VISIBLE PROJECTION the export walks — the same columns, in the same order,
+  // the grid is showing. The KEY rides here too, off `state.tables[...].key` — the
+  // DECLARED key (a fact about the def, not the fold), the same value the window's
+  // own `key` resolves to once it has loaded. A window-only key would leave this
+  // door blind before the grid's first fetch, and — worse — let a foreign or stale
+  // `hidden` naming the key silently drop the row's identity column from the file
+  // while the grid keeps refusing to hide it (R3): the declared key is knowable
+  // synchronously, so there is no reason to accept that gap.
+  const keyField = state.tables?.find((t) => t.name === table)?.key;
+  const visible = arrangeColumns(everyColumn, keyField, { order: columnOrder, hidden }).columns;
 
   // the table's version at the cursor: the sheet's blocks are keyed by it, so a refresh empties them
   const version = state.sources?.[table]?.version;
@@ -111,7 +128,7 @@ export function DataPanel(props: {
         rows a person is actually looking at — and the receipt beside it names the
         cursor they were read at.
       */}
-      <ExportRows data={here.data} table={table} viewId="sheet" sort={sheetSortOf(state.layouts, 'sheet')} />
+      <ExportRows data={here.data} table={table} viewId="sheet" columns={visible} sort={sort} />
       <Workbook
         sources={
           <Sources
@@ -141,9 +158,13 @@ export function DataPanel(props: {
               {...(selectedRowId !== undefined ? { selectedRowId } : {})}
               readOnly={readOnly}
               onSelect={pick}
-              // the order is the TRACE's: read at the cursor, landed as an act
-              sort={sheetSortOf(state.layouts, 'sheet')}
+              // the ARRANGEMENT is the TRACE's: read at the cursor, landed as an act
+              sort={sort}
               onSort={sortBy}
+              hidden={hidden}
+              order={columnOrder}
+              frozen={frozen}
+              onArrange={arrangeBy}
             />
           )
         }

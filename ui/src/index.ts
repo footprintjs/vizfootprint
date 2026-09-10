@@ -43,8 +43,10 @@ export * from './notes/index.js';
 // `./sheet/index.js` for a host that builds its own renderer over the port.
 export { Sheet } from './sheet/Sheet.js';
 export type { SheetProps } from './sheet/Sheet.js';
-// a sheet's sort is an act: the host lands it and reads it back at the cursor
-export { sheetLayoutViewId, sheetSortOf } from './sheet/arrangement.js';
+// a sheet's ARRANGEMENT is an act: the host lands one prop at a time and reads
+// each back at the cursor (`sort`, `hidden`, `order`, `frozen`)
+export { arrangeColumns, sheetFrozenOf, sheetHiddenOf, sheetLayoutViewId, sheetOrderOf, sheetSortOf } from './sheet/arrangement.js';
+export type { SheetArrangementProp, SheetArrangementValues } from './sheet/arrangement.js';
 export { AddColumn } from './sheet/AddColumn.js';
 export type { AddColumnOutcome, AddColumnProps } from './sheet/AddColumn.js';
 export { AddAggregate } from './sheet/AddAggregate.js';

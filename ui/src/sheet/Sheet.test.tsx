@@ -10,7 +10,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { render, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import type { JSX } from 'react';
-import { Sheet, canvasMetrics, cellText, findFrom, findWords, nextSort, noSortWords, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_BORDERS, SHEET_CANNOT_FIND, SHEET_CANVAS_MAX, SHEET_ENGINE_CANNOT_SORT, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './index.js';
+import { Sheet, canvasMetrics, cellText, findFrom, findWords, nextSort, noSortWords, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_BORDERS, SHEET_CANNOT_FIND, SHEET_CANVAS_MAX, SHEET_COLUMN_WIDTH, SHEET_ENGINE_CANNOT_SORT, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './index.js';
 import type { SheetProps } from './index.js';
 import type { SortSpec } from 'vizfootprint/data';
 import type { SheetColumn, SheetData, SheetFindAnswer, SheetFindRequest, SheetRefusal, SheetWindow, SheetWindowRequest } from './types.js';
@@ -1264,5 +1264,233 @@ describe('findWords — the three sentences a find can say', () => {
   it('says the text back when nothing holds it, and stays honest when a walk ran out anyway', () => {
     expect(findWords('zebra', { ok: true, position: null, matches: 0, version: null, cursor: null }, null)).toBe('no cell contains “zebra”');
     expect(findWords('lyme', { ok: true, position: null, matches: 12, version: null, cursor: null }, null)).toBe('no match from here · 12 in this view');
+  });
+});
+
+/**
+ * A HOST that holds the whole arrangement, the way a real one does: the acts
+ * are recorded (`landed`) AND handed back through the props, so a menu gesture
+ * is followed by the render it causes — which is the only way to see that the
+ * sheet remembers nothing of its own.
+ */
+function Arranged({ data, landed, ...rest }: { readonly data: SheetData; readonly landed: [string, unknown][] } & Partial<SheetProps>): JSX.Element {
+  const [held, setHeld] = useState<{ hidden?: readonly string[]; order?: readonly string[]; frozen?: number }>({});
+  return (
+    <Sheet
+      data={data}
+      height={HEIGHT}
+      version="v1"
+      cursor="c1"
+      hidden={held.hidden}
+      order={held.order}
+      frozen={held.frozen}
+      onArrange={(prop, value) => {
+        landed.push([prop, value]);
+        setHeld((was) => ({ ...was, [prop]: value }));
+      }}
+      {...rest}
+    />
+  );
+}
+
+/** Three columns, so a movable one has somewhere to move — with two, one of them is the key. */
+const THREE: FakeOptions = { count: 4, facets: [...FACETS, { name: 'note', type: 'string' }], columns: ['cases', 'jurisdiction', 'note'] };
+
+const menuButton = (container: HTMLElement, column: string): HTMLElement => container.querySelector<HTMLElement>(`[data-column="${column}"] .vzf-sheet-menubtn`)!;
+const items = (container: HTMLElement): string[] => [...container.querySelectorAll('.vzf-sheet-arrange [role="menuitem"]')].map((el) => el.textContent ?? '');
+const clickItem = (container: HTMLElement, label: string): void => {
+  const item = [...container.querySelectorAll<HTMLElement>('.vzf-sheet-arrange [role="menuitem"]')].find((el) => el.textContent === label)!;
+  fireEvent.click(item);
+};
+
+describe('<Sheet> — the REST of the arrangement is the host’s too', () => {
+  it('the width the frozen columns are measured in is the stylesheet’s own — a copy that drifted would overlap them', async () => {
+    const { readFileSync } = await import('node:fs');
+    // jsdom's `import.meta.url` is not a file URL, and this suite is run from the
+    // repo root AND from `ui/` — so the sheet's own stylesheet is found from either
+    const css = readFileSync(process.cwd().endsWith('/ui') ? 'src/styles.css' : 'ui/src/styles.css', 'utf8');
+    const rule = /\.vzf-sheet-cell \{[^}]*width: (\d+)px/.exec(css);
+    expect(rule).not.toBeNull();
+    expect(Number(rule![1])).toBe(SHEET_COLUMN_WIDTH);
+  });
+
+  it('every header carries a menu, and each item lands ONE (prop, value) act through the door', async () => {
+    const { data } = fakeData(THREE);
+    const landed: [string, unknown][] = [];
+    const { container } = render(<Arranged data={data} landed={landed} />);
+    await waitFor(() => expect(rowsIn(container)).toHaveLength(4));
+
+    const button = menuButton(container, 'note');
+    expect(button.getAttribute('aria-haspopup')).toBe('menu');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(button.getAttribute('aria-label')).toBe('arrange note');
+    fireEvent.click(button);
+    // 'jurisdiction' is the key and stays first; 'note' is drawn last, so it cannot move right
+    expect(items(container)).toEqual(['hide', 'move left', 'move first', 'freeze up to here', 'close']);
+    expect(container.querySelector('.vzf-sheet-arrange')!.getAttribute('aria-label')).toBe('arrange note');
+    clickItem(container, 'freeze up to here');
+    await waitFor(() => expect(landed).toEqual([['frozen', 3]]));
+
+    fireEvent.click(menuButton(container, 'note'));
+    clickItem(container, 'move first');
+    await waitFor(() => expect(landed.at(-1)).toEqual(['order', ['note']]));
+    // the LEADING order is what makes the rail read "moved note first" — and the key still leads
+    await waitFor(() => expect([...container.querySelectorAll('[role="columnheader"]')].map((el) => el.getAttribute('data-column'))).toEqual(['jurisdiction', 'note', 'cases']));
+
+    fireEvent.click(menuButton(container, 'note'));
+    clickItem(container, 'hide');
+    await waitFor(() => expect(landed.at(-1)).toEqual(['hidden', ['note']]));
+    // …and the sheet renders what the HOST handed back, having remembered nothing
+    await waitFor(() => expect([...container.querySelectorAll('[role="columnheader"]')].map((el) => el.getAttribute('data-column'))).toEqual(['jurisdiction', 'cases']));
+  });
+
+  it('THE KEY offers nothing to hide or move — and a trace that hides it anyway is refused in words, with the column still there', async () => {
+    const { data } = fakeData({ count: 4 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" hidden={['jurisdiction']} onArrange={() => undefined} />);
+    await waitFor(() => expect(said(container)).toContain("the key column jurisdiction is the row's identity — it cannot be hidden"));
+    expect([...container.querySelectorAll('[role="columnheader"]')].map((el) => el.getAttribute('data-column'))).toEqual(['jurisdiction', 'cases']);
+    // the key's own header has no menu at all here: nothing to hide, nothing to move, nothing frozen to undo
+    expect(container.querySelector('[data-column="jurisdiction"] .vzf-sheet-menubtn')).toBeNull();
+    expect(readout(container)).not.toContain('hidden'); // and it is not COUNTED as hidden either
+  });
+
+  it('R6: a name this table does not have is said once — the grid is never broken and the trace is never rewritten', async () => {
+    const { data } = fakeData({ count: 4 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" hidden={['note']} order={['rate']} onArrange={() => undefined} />);
+    await waitFor(() => expect(said(container)).toContain('the arrangement names rate, note, which this table does not have'));
+    expect([...container.querySelectorAll('[role="columnheader"]')].map((el) => el.getAttribute('data-column'))).toEqual(['jurisdiction', 'cases']);
+  });
+
+  it('A HIDDEN COLUMN IS NOT READ: the window request carries the arranged VISIBLE projection', async () => {
+    const { data, asked } = fakeData({ count: 4 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" hidden={['cases']} order={['jurisdiction']} onArrange={() => undefined} />);
+    await waitFor(() => expect(asked.at(-1)!.columns).toEqual(['jurisdiction']));
+    // the first ask goes out before the schema has landed (nothing is known to hide yet); the
+    // one that matters is the one the arrangement is applied to, and no later ask ships `cases`
+    expect(asked.every((ask) => !(ask.columns ?? []).includes('cases'))).toBe(true);
+    expect(cells(container)).not.toContain('0');
+  });
+
+  it('counts what is off the screen and offers the way back — an ACT, so Present mode has neither', async () => {
+    const { data } = fakeData({ count: 4 });
+    const landed: [string, unknown][] = [];
+    const { container, rerender } = render(<Arranged data={data} landed={landed} hidden={['cases']} />);
+    await waitFor(() => expect(readout(container)).toContain('1 hidden'));
+    fireEvent.click(container.querySelector('.vzf-sheet-showall')!);
+    expect(landed).toEqual([['hidden', undefined]]);
+    rerender(<Arranged data={data} landed={landed} hidden={['cases']} readOnly />);
+    await waitFor(() => expect(container.querySelector('.vzf-sheet-showall')).toBeNull());
+    // the COUNT is not a door, so a reader still learns that a column is off the screen
+    expect(readout(container)).toContain('1 hidden');
+  });
+
+  it('the hidden COUNT is a fact about the TABLE, not about the window — an engine that ships only the visible columns still says “1 hidden”', async () => {
+    // the fake answers exactly the visible projection here, the way a real engine does:
+    // counting off the ANSWER would always say zero, because a hidden column is not in it
+    const { data } = fakeData({ count: 4, columns: ['jurisdiction'] });
+    const { container } = render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" hidden={['cases']} onArrange={() => undefined} />);
+    await waitFor(() => expect(readout(container)).toContain('1 hidden'));
+    expect(container.querySelector('.vzf-sheet-showall')).not.toBeNull();
+  });
+
+  it('the frozen columns stay put at their CUMULATIVE offsets — the key is simply the first of them', async () => {
+    const { data } = fakeData({ count: 4 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" frozen={2} onArrange={() => undefined} />);
+    await waitFor(() => expect(rowsIn(container)).toHaveLength(4));
+    const stuck = [...container.querySelectorAll<HTMLElement>('[data-row="0"] .vzf-sheet-frozen')];
+    expect(stuck.map((el) => [el.dataset.column, el.style.left])).toEqual([
+      ['jurisdiction', '0px'],
+      ['cases', `${String(SHEET_COLUMN_WIDTH)}px`],
+    ]);
+    const heads = [...container.querySelectorAll<HTMLElement>('.vzf-sheet-header .vzf-sheet-frozen')];
+    expect(heads.map((el) => el.style.left)).toEqual(['0px', `${String(SHEET_COLUMN_WIDTH)}px`]);
+  });
+
+  it('the frozen count is clamped to what is actually DRAWN — hiding a frozen column pulls the freeze in behind it', async () => {
+    const { data } = fakeData(THREE);
+    // `frozen: 5` outruns the three columns even before anything is hidden; hiding
+    // `note` then leaves two drawn (`jurisdiction`, `cases`) — the clamp is read off
+    // the VISIBLE list, so both of the two remaining stay frozen, never a third that
+    // does not exist and never a stale offset for a column that scrolled out of the count
+    const { container } = render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" frozen={5} hidden={['note']} onArrange={() => undefined} />);
+    await waitFor(() => expect(rowsIn(container)).toHaveLength(4));
+    const stuck = [...container.querySelectorAll<HTMLElement>('[data-row="0"] .vzf-sheet-frozen')];
+    expect(stuck.map((el) => el.dataset.column)).toEqual(['jurisdiction', 'cases']);
+    expect(stuck.map((el) => el.style.left)).toEqual(['0px', `${String(SHEET_COLUMN_WIDTH)}px`]);
+  });
+
+  it('with no arrangement at all, ONE column stays put — the grid’s own law, unchanged', async () => {
+    const { data } = fakeData({ count: 4 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" />);
+    await waitFor(() => expect(rowsIn(container)).toHaveLength(4));
+    expect([...container.querySelectorAll('[data-row="0"] .vzf-sheet-frozen')].map((el) => el.getAttribute('data-column'))).toEqual(['jurisdiction']);
+  });
+
+  it('the keyboard: the arrows walk the items, Esc closes and the focus goes back to the header it came from', async () => {
+    const { data } = fakeData(THREE);
+    const landed: [string, unknown][] = [];
+    const { container } = render(<Arranged data={data} landed={landed} />);
+    await waitFor(() => expect(rowsIn(container)).toHaveLength(4));
+    const button = menuButton(container, 'cases');
+    fireEvent.click(button); // a button is a button: Enter and Space open it the same way
+    const strip = container.querySelector<HTMLElement>('.vzf-sheet-arrange')!;
+    await waitFor(() => expect(document.activeElement!.textContent).toBe('hide'));
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.keyDown(strip, { key: 'ArrowRight' });
+    expect(document.activeElement!.textContent).toBe('move right');
+    fireEvent.keyDown(strip, { key: 'ArrowLeft' });
+    expect(document.activeElement!.textContent).toBe('hide');
+    fireEvent.keyDown(strip, { key: 'ArrowUp' }); // wraps rather than falling off the end
+    expect(document.activeElement!.textContent).toBe('close');
+    fireEvent.keyDown(strip, { key: 'ArrowDown' });
+    expect(document.activeElement!.textContent).toBe('hide');
+    fireEvent.keyDown(strip, { key: 'Tab' }); // a key the menu does not own is left alone
+    expect(document.activeElement!.textContent).toBe('hide');
+    fireEvent.keyDown(strip, { key: 'Escape' });
+    await waitFor(() => expect(container.querySelector('.vzf-sheet-arrange')).toBeNull());
+    expect(document.activeElement).toBe(button);
+    expect(landed).toEqual([]); // walking a menu lands nothing
+  });
+
+  it('the menu button closes its own menu, and “close” closes it too', async () => {
+    const { data } = fakeData({ count: 4 });
+    const landed: [string, unknown][] = [];
+    const { container } = render(<Arranged data={data} landed={landed} />);
+    await waitFor(() => expect(rowsIn(container)).toHaveLength(4));
+    fireEvent.click(menuButton(container, 'cases'));
+    await waitFor(() => expect(container.querySelector('.vzf-sheet-arrange')).not.toBeNull());
+    fireEvent.click(menuButton(container, 'cases'));
+    expect(container.querySelector('.vzf-sheet-arrange')).toBeNull();
+    fireEvent.click(menuButton(container, 'cases'));
+    clickItem(container, 'close');
+    expect(container.querySelector('.vzf-sheet-arrange')).toBeNull();
+    expect(landed).toEqual([]);
+  });
+
+  it('PRESENT MODE and a host with no door have no menus and say nothing about them', async () => {
+    const { data } = fakeData({ count: 4 });
+    const { container, rerender } = render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" frozen={2} onArrange={() => undefined} readOnly />);
+    await waitFor(() => expect(rowsIn(container)).toHaveLength(4));
+    expect(container.querySelectorAll('.vzf-sheet-menubtn')).toHaveLength(0);
+    // …and the arrangement it was GIVEN is still honoured: reading a story page shows the sheet a person left
+    expect([...container.querySelectorAll('[data-row="0"] .vzf-sheet-frozen')]).toHaveLength(2);
+    rerender(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" frozen={2} />);
+    await waitFor(() => expect(container.querySelectorAll('.vzf-sheet-menubtn')).toHaveLength(0));
+    expect(said(container)).toBe('');
+  });
+
+  it('an arrangement that hides EVERY column says so, rather than showing the whole table back', async () => {
+    const { data, asked } = fakeData({ count: 4, key: null, positional: true });
+    const { container } = render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" hidden={['cases', 'jurisdiction']} onArrange={() => undefined} />);
+    await waitFor(() => expect(said(container)).toContain('the arrangement hides every column — show one to read the rows'));
+    expect(container.querySelectorAll('[role="columnheader"]')).toHaveLength(0);
+    // nothing is asked for: an empty projection would come back as the whole table
+    expect(asked.every((ask) => (ask.columns ?? ['cases']).length > 0)).toBe(true);
+  });
+
+  it('the readout counts the hidden columns beside the rows, the version and the order', () => {
+    const win = { ok: true as const, columns: ['a'], rows: [{ a: 1 }], rowIds: ['1'], positional: false, count: 1, start: 0, version: 'v1', cursor: 'c1' };
+    expect(statusWords(win, [{ field: 'a', dir: 'asc' }], 3)).toBe('rows 1–1 of 1 · version v1 · sorted by a ↑ · 3 hidden');
+    expect(statusWords(win, undefined, 0)).toBe('rows 1–1 of 1 · version v1');
   });
 });

@@ -35,7 +35,7 @@ to drift, and the one on screen will be the one nobody tested.
 **And a projection copies the WHOLE fact, not the part today's screen uses.**
 `state.layout` is the parsed `dashboard` scope of the layout fold, and for a
 while it was the only scope that survived the projection — so a sheet's own
-arrangement (`layout:sheet:<viewId>`, landed by `setSheetSort`) reached the
+arrangement (`layout:sheet:<viewId>`, landed by `setSheetArrangement`) reached the
 state and was dropped one field over, leaving a visible order the trace held
 and the UI could not read back. `state.layouts` now carries every scope
 verbatim beside it. Same shape as law 3 below: a door that discards its own
@@ -44,7 +44,9 @@ answer forces its consumer to re-derive or to invent.
 ```ts
 state.layout;                              // { preset: 'focus', … }  — the cockpit, parsed
 sheetSortOf(state.layouts, 'sheet');       // [{ field: 'cases', dir: 'desc' }] — the sheet's own
+sheetHiddenOf(state.layouts, 'sheet');     // ['cases'] — and its hidden columns, its order, its frozen count
 await view.setSheetSort('sheet', undefined);   // and clearing it is an act, with its own words
+await view.setSheetArrangement('sheet', 'hidden', ['cases']);  // one act per prop — see ../sheet/README.md
 ```
 
 ### The scar: saved selections, derived from annotations
