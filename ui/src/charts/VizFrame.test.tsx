@@ -177,3 +177,49 @@ describe('what a layer is handed', () => {
     expect(container.querySelector('.vzf-frame')?.getAttribute('aria-label')).toBe('0 layers on one frame');
   });
 });
+
+describe('the merged LOGARITHMIC axis (protocol 1.6)', () => {
+  it('ticks a quantitative merged axis at decades, labelled as powers of ten', () => {
+    const { container } = render(
+      <VizFrame layers={[fake('a', 'point')]} x={{ scale: 'quantitative', label: 'mass' }} y={{ scale: 'quantitative' }} domain={{ x: [1, 1000], y: [1, 100], transform: { x: 'log', y: 'log' } }} width={400} height={300} />,
+    );
+    const labels = Array.from(container.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent);
+    // the decades of each span, plus the x axis label; NOT the linear 4-label default
+    expect(labels).toEqual(['1', '10', '100', '1000', '1', '10', '100', 'mass']);
+  });
+
+  it('puts equal factors at equal pixel spans on the merged axis', () => {
+    const { container } = render(
+      <VizFrame layers={[fake('a', 'point')]} x={{ scale: 'quantitative' }} domain={{ x: [1, 100], transform: { x: 'log' } }} width={400} height={300} />,
+    );
+    const at = Array.from(container.querySelectorAll('.vzf-frame-guide g line.vzf-axis')).map((l) => Number(l.getAttribute('x1')));
+    expect(at).toHaveLength(3);
+    expect(at[1]! - at[0]!).toBeCloseTo(at[2]! - at[1]!, 6);
+  });
+
+  it('ignores the transform on an axis with no logarithm — a band list or a run of dates', () => {
+    const bands = render(<VizFrame layers={[fake('a', 'bar')]} x={{ scale: 'categorical' }} domain={{ categories: ['Casual', 'Formal'], transform: { x: 'log' } }} width={400} height={300} />);
+    expect(Array.from(bands.container.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent)).toEqual(['Casual', 'Formal']);
+    // a temporal axis keeps its day labels: the def door refuses a log transform on a non-number column (law 11b)
+    const dates = render(<VizFrame layers={[fake('a', 'line')]} x={{ scale: 'temporal' }} domain={{ x: [Date.parse('2026-01-01'), Date.parse('2026-01-04')], transform: { x: 'log' } }} width={400} height={300} />);
+    expect(Array.from(dates.container.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent)).toEqual(['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04']);
+  });
+
+  it('a stack mixing a logarithmic and a linear layer on one channel CANNOT be expressed: every layer is handed the frame’s one domain, by the same reference', () => {
+    const handed: FrameLayerDraw[] = [];
+    const spy = (layerId: string): VizFrameLayer => ({
+      layerId,
+      kind: 'point',
+      render: (draw: FrameLayerDraw) => {
+        handed.push(draw);
+        return <svg className="vzf-chart" />;
+      },
+    });
+    const domain = { x: [1, 100] as const, transform: { x: 'log' } as const };
+    render(<VizFrame layers={[spy('a'), spy('b')]} x={{ scale: 'quantitative' }} domain={domain} width={400} height={300} />);
+    expect(handed).toHaveLength(2);
+    // ONE object, not two copies — so there is nowhere to put a second answer for the same channel
+    expect(handed[0]!.domain).toBe(handed[1]!.domain);
+    expect(handed[0]!.domain.transform).toEqual({ x: 'log' });
+  });
+});

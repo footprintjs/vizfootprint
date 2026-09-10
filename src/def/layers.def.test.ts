@@ -212,6 +212,14 @@ const sharesX = [onX('a', 'nodes', 'size'), onX('b', 'edges', 'weight')];
 /** A bar layer over the nodes table with no bindings — the shape the zero-anchored laws are about, with nothing else to judge. */
 const barLayer = { layerId: 'counts', table: 'nodes', chartKind: 'bar', channels: ['x', 'y'] };
 
+/**
+ * THE LAYERLESS VIEW — one plain chart, NO `layers` key, carrying a frame. The
+ * def's `defaultTable` ('nodes') is where its columns are declared, so a column
+ * fact laid over that table is what the axis laws read here.
+ */
+const plain = (frame: unknown, view: Record<string, unknown> = {}, extra: Partial<DashboardDef> = {}): string[] =>
+  validateDashboardDef({ ...makeNetworkDef(undefined, extra), encodings: [{ viewId: 'net', chartKind: 'point', channels: ['x', 'y'], frame, ...view }] } as unknown);
+
 describe('the frame — per channel, how its scale is resolved across the layers', () => {
   it('the fixture accepts a frame, and a frame is optional', () => {
     expect(framed(undefined)).toEqual([]);
@@ -221,22 +229,47 @@ describe('the frame — per channel, how its scale is resolved across the layers
     expect(framed({})).toEqual([]);
   });
 
-  it('LAW 7: a frame declares resolution for LAYERS — a plain view has none', () => {
-    expect(framed({ y: { mode: 'shared' } }, [])).toEqual(['encodings[0].frame declares resolution for layers; view "net" has none']);
-    // no `layers` key at all — the same sentence, and the frame's other laws are not restated beside it
-    expect(validateDashboardDef({ ...makeNetworkDef(undefined), encodings: [{ viewId: 'net', chartKind: 'point', channels: ['x', 'y'], frame: { y: { mode: 'independent' } } }] } as unknown)).toEqual([
-      'encodings[0].frame declares resolution for layers; view "net" has none',
-    ]);
-    // a layer list that is entirely malformed was refused layer by layer; the frame does not pile on
+  it('LAW 7: a MALFORMED plain view still folds a binder — refused on its own line, and never refused a second time through the frame', () => {
+    // THE LAW: the frame's binder for a layerless view is built from what the view SAYS, and a view that
+    // said it badly was already refused for saying it badly. So the frame adds nothing: a missing chartKind
+    // leaves the binder's kind empty (no mark, so no mark-shaped refusal), and a `channels` that is not an
+    // array leaves it naming NO channel — and a sentence that would end mid-air ("the view binds ") is not
+    // said at all, exactly as it is not said for a layered view whose every layer was malformed.
+    expect(plain({ x: { transform: 'log' } }, { chartKind: '' })).toEqual(['encodings[0].chartKind must be a non-empty string']);
+    expect(plain({ x: { transform: 'log' } }, { channels: 'x' })).toEqual(['encodings[0].channels must be a non-empty array of non-empty strings']);
+  });
+
+  it('LAW 7: a frame is legal on ANY view — `mode` is the one key that needs layers, and it is refused by name', () => {
+    // THE LAW: a transform is not a resolution, and the frame owns both. `mode` — shared versus independent —
+    // is meaningless with one layer; `transform` and `zero` describe the AXIS and are legal on a plain chart.
+    expect(plain({ y: { mode: 'shared' } })).toEqual(['encodings[0].frame.y.mode: view "net" has no layers, so there is nothing to resolve — drop "mode" and keep the axis keys']);
+    expect(plain({ y: { mode: 'independent' } })).toEqual(['encodings[0].frame.y.mode: view "net" has no layers, so there is nothing to resolve — drop "mode" and keep the axis keys']);
+    // an EMPTY layer list is a view with no layers, and reads the same
+    expect(framed({ y: { mode: 'shared' } }, [])).toEqual(['encodings[0].frame.y.mode: view "net" has no layers, so there is nothing to resolve — drop "mode" and keep the axis keys']);
+    // …and the axis keys pass on that same plain view
+    expect(plain({ y: { transform: 'log' } })).toEqual([]);
+    expect(plain({ y: { transform: 'linear', zero: true, domain: 'union', basis: 'rows', guide: 'merged' } })).toEqual([]);
+    expect(plain(undefined)).toEqual([]);
+    // a layer list that is entirely malformed was refused layer by layer; the frame does not pile on — and it
+    // does not become layerless either, because the author DID declare layers
     expect(framed({ y: { mode: 'shared' } }, ['junk'])).toEqual([
       'encodings[0].layers[0] must be an object { layerId, table, chartKind, channels, initial?, label? }',
-      'encodings[0].frame declares resolution for layers; view "net" has none',
     ]);
+  });
+
+  it('LAW 7: the layerless shape says what a layerless entry is, and its unknown keys are refused on the axis', () => {
+    expect(plain('log')).toEqual(['encodings[0].frame, if present, must be an object mapping channel -> { transform?: "linear" | "log" }']);
+    expect(plain({ y: 'log' })).toEqual(['encodings[0].frame.y must be an object { transform?: "linear" | "log", domain?, basis?, guide?, zero? }']);
+    expect(plain({ y: { logged: true } })).toEqual(['encodings[0].frame.y: unknown key "logged" on an axis']);
+    // no mode is needed at all — an entry with only axis keys is complete
+    expect(plain({ y: {} })).toEqual([]);
+    // the channel is still named against what the VIEW binds, not what layers bind
+    expect(plain({ z: { transform: 'log' } })).toEqual(['encodings[0].frame.z: unknown channel — the view binds x, y']);
   });
 
   it('LAW 7: the shape — a mode from the two words, and only the keys that mode has', () => {
     expect(framed('shared')).toEqual(['encodings[0].frame, if present, must be an object mapping channel -> { mode: "shared" | "independent" }']);
-    expect(framed({ y: 'shared' })).toEqual(['encodings[0].frame.y must be an object { mode: "shared" | "independent", domain?, basis?, guide?, zero? }']);
+    expect(framed({ y: 'shared' })).toEqual(['encodings[0].frame.y must be an object { mode: "shared" | "independent", domain?, basis?, guide?, zero?, transform? }']);
     expect(framed({ y: {} })).toEqual(['encodings[0].frame.y.mode must be "shared" or "independent"']);
     expect(framed({ y: { mode: 'fixed' } })).toEqual(['encodings[0].frame.y.mode must be "shared" or "independent"']);
     expect(framed({ y: { mode: 'shared', zeroed: true } })).toEqual(['encodings[0].frame.y: unknown key "zeroed" on a shared channel']);
@@ -368,5 +401,66 @@ describe('the frame — per channel, how its scale is resolved across the layers
     expect(dashboard.def.encodings![0]!.frame).toEqual(frame);
     expect(Object.isFrozen(dashboard.def.encodings![0]!.frame)).toBe(true);
     expect(Object.isFrozen(dashboard.def.encodings![0]!.frame!['size'])).toBe(true);
+  });
+});
+
+describe('LAW 11 — the logarithmic axis: the frame owns whether an axis is linear or logarithmic', () => {
+  it('the transform is one of two words, on a layer and on a plain view alike', () => {
+    expect(framed({ size: { mode: 'shared', transform: 'log' } })).toEqual([]);
+    expect(framed({ size: { mode: 'shared', transform: 'linear' } })).toEqual([]);
+    // an INDEPENDENT channel keeps it too: each layer's own scale is still an axis
+    expect(framed({ color: { mode: 'independent', transform: 'log' } })).toEqual([]);
+    expect(framed({ size: { mode: 'shared', transform: 'logarithmic' } })).toEqual(['encodings[0].frame.size.transform, if present, must be "linear" or "log"']);
+    expect(framed({ color: { mode: 'independent', transform: 'ln' } })).toEqual(['encodings[0].frame.color.transform, if present, must be "linear" or "log"']);
+    expect(plain({ y: { transform: 'log10' } })).toEqual(['encodings[0].frame.y.transform, if present, must be "linear" or "log"']);
+  });
+
+  it('a logarithmic axis has no zero — the pair is refused, so the FOLD never sees it', () => {
+    expect(framed({ size: { mode: 'shared', transform: 'log', zero: true } })).toEqual(['encodings[0].frame.size: a logarithmic axis has no zero — drop "zero", or draw this channel linearly']);
+    expect(plain({ y: { transform: 'log', zero: true } })).toEqual(['encodings[0].frame.y: a logarithmic axis has no zero — drop "zero", or draw this channel linearly']);
+    // `zero: false` is not a claim that a zero exists — it is the default a log axis already keeps
+    expect(framed({ size: { mode: 'shared', transform: 'log', zero: false } })).toEqual([]);
+  });
+
+  it('a logarithm needs a NUMBER — judged where the def declares the column, never on ignorance', () => {
+    // the same two point layers that share x, with x declared a date on one of them
+    expect(framed({ x: { mode: 'shared', transform: 'log' } }, sharesX, facts({ size: { type: 'date' } }, { weight: { type: 'date' } }))).toEqual([
+      'encodings[0].frame.x: transform "log" needs a number — layer "a" binds x to "size", a date',
+      'encodings[0].frame.x: transform "log" needs a number — layer "b" binds x to "weight", a date',
+    ]);
+    // a number passes, and a column the def says nothing about is not held to the law (the `unit` precedent)
+    expect(framed({ x: { mode: 'shared', transform: 'log' } }, sharesX, facts({ size: { type: 'number' } }, { weight: { type: 'number' } }))).toEqual([]);
+    expect(framed({ x: { mode: 'shared', transform: 'log' } }, sharesX)).toEqual([]);
+    // the layerless view reads its column off the DEFAULT table, and names itself
+    expect(plain({ x: { transform: 'log' } }, { initial: { x: 'size' } }, facts({ size: { type: 'date', role: 'measure' } }, {}))).toEqual([
+      'encodings[0].frame.x: transform "log" needs a number — view "net" binds x to "size", a date',
+    ]);
+  });
+
+  it('a MAGNITUDE channel of a bar or a box is refused — its extent IS the quantity; a POSITION channel of those marks is not', () => {
+    const bar = 'encodings[0].frame.y: layer "counts" is a bar — its y extent IS the quantity, and on a logarithmic axis a bar four times as long is not four times the value; a POSITION channel of a bar, histogram or boxplot may still be logarithmic';
+    expect(framed({ y: { mode: 'shared', transform: 'log' } }, [barLayer])).toEqual([bar]);
+    expect(framed({ y: { mode: 'shared', transform: 'log' } }, [{ ...barLayer, chartKind: 'boxplot' }])).toEqual([
+      'encodings[0].frame.y: layer "counts" is a boxplot — its y extent IS the quantity, and on a logarithmic axis a bar four times as long is not four times the value; a POSITION channel of a bar, histogram or boxplot may still be logarithmic',
+    ]);
+    // the same view with no layers at all — one law, and it names the view
+    expect(plain({ y: { transform: 'log' } }, { chartKind: 'bar' })).toEqual([
+      'encodings[0].frame.y: view "net" is a bar — its y extent IS the quantity, and on a logarithmic axis a bar four times as long is not four times the value; a POSITION channel of a bar, histogram or boxplot may still be logarithmic',
+    ]);
+    // A HISTOGRAM'S BOUND CHANNEL IS ITS BIN AXIS — a position, so log-spaced bins are legitimate. This is
+    // `zeroAnchorsChannel` answering, the same predicate the zero law and the fold read (one owner, no drift).
+    expect(framed({ y: { mode: 'shared', transform: 'log' } }, [{ ...barLayer, chartKind: 'histogram' }])).toEqual([]);
+    expect(plain({ y: { transform: 'log' } }, { chartKind: 'histogram' })).toEqual([]);
+    // …and a point layer's y is a position wherever it sits
+    expect(framed({ y: { mode: 'shared', transform: 'log' } }, [nodesLayer, edgesLayer])).toEqual([]);
+    // a NON-magnitude channel of a bar is a colour ramp, not a length
+    expect(framed({ color: { mode: 'shared', transform: 'log' } }, [{ ...barLayer, channels: ['x', 'y', 'color'] }])).toEqual([]);
+  });
+
+  it('the transform rides on the view’s encoding, frozen at build, on a view with NO layers', () => {
+    const frame = { y: { transform: 'log' } } as const;
+    const dashboard = buildDashboard({ ...makeNetworkDef(), encodings: [{ viewId: 'net', chartKind: 'point', channels: ['x', 'y'], frame }] });
+    expect(dashboard.def.encodings![0]!.frame).toEqual(frame);
+    expect(Object.isFrozen(dashboard.def.encodings![0]!.frame!['y'])).toBe(true);
   });
 });

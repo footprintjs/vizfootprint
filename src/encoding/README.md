@@ -215,6 +215,27 @@ Three things it states because they are easy to get wrong:
 - **a ruling is never a refusal.** `proposeCharts` still offers both pictures when both fit; the reading only decides which comes FIRST, and it never touches `cost` (which measures one thing: how far a binding sat from the recommender's first choices). Every other kind keeps its cost order — a reading has no opinion about a bar chart.
 - **the reason travels with the ruling.** The two studies are named in the value, not in a comment: Ghoniem, Fekete and Castagliola (2004), who found the matrix ahead on every task but path-finding as size and density grew, and Okoe, Jianu and Kobourov (2018), who found the node-link recovering on topology and paths WHEN a reader could explore, while the matrix stayed ahead on adjacency, common neighbours and clusters. A ruling nobody can check is an opinion with a citation stapled to it.
 
+## The frame's fold, and the logarithmic axis (`frame.ts`)
+
+`frameDomains` folds ONE domain per shared channel from the layers' own values — the numbers no def can type in. What the DECLARATION means is judged at the def door (`../def/README.md`, "The frame", laws 7–11); this file only folds, and echoes back the words it was told.
+
+**A transform is not a resolution, and the frame owns both.** `ChannelResolution.transform` (`'linear' | 'log'`, default linear, base 10) rides onto `ResolvedChannel` on BOTH modes, so a renderer knows which scale to build (`scaleFor`, `vizfootprint-ui/primitives/scales.ts`, is the one owner of that answer on the chart side).
+
+**Exclude and count, never silently drop.** A logarithm has no answer for 0 or a negative number, and which cells those are is DATA, not declaration — the door cannot refuse them. So a logarithmic fold takes the union over the POSITIVE cells and records how many it could not place:
+
+```ts
+frameDomains(layers, { mass: { mode: 'shared', transform: 'log' } });
+// → { mass: { mode: 'shared', basis: 'table', guide: 'merged', transform: 'log',
+//             scale: 'quantitative', domain: [0.02, 4700], excluded: 712 } }
+//
+// …and when NOTHING is placeable there is no domain at all — no entry, the existing
+// "nothing folds" arm, because an invented domain is a drawn lie.
+```
+
+Three things to know about `excluded`. It is **absent** unless something was excluded, so a linear fold is byte-identical to the one that existed before the key. It is **not a silence**: a silence is a cell the data says nothing about (the adapter has already dropped those, per column, before this fold sees a value), and this is a cell the data speaks plainly about but a logarithm cannot place — a reader told "712 excluded" without knowing which has learned nothing, so the two are deliberately never summed. And it is **met in the picture**, not here: the chart appends `excludedNote(n)` to the words it already says, because that is where the marks are missing from.
+
+`zeroPolicyFor` never anchors a logarithmic channel at zero — one predicate, asked once, so no caller has to remember it. The def door refuses a DECLARED `zero: true` beside `transform: 'log'`, so the only zero that can reach the fold with a log is one the MARKS implied — and those marks (a bar, a box) are refused a logarithmic axis on that very channel by law 11.
+
 ## Not yet
 
 - **the build door refusing a view that leaves a REQUIRED channel unbound** — the second reader that would make `ChannelRequirement.optional` enforced rather than advisory. Queued deliberately and not built here: it may refuse definitions that build today, so it is its own packet
@@ -224,4 +245,4 @@ Three things it states because they are easy to get wrong:
 
 ## Files
 
-`types.ts` the vocabulary · `requirements.ts` built-in channel requirements + merge, and which channels a kind binds · `sentences.ts` templates · `facets.ts` column → facet · `validate.ts` the validator · `shape.ts` def-door shape checks · `fits.ts` what fits where · `whatFits.ts` the same, before a build · `recommend.ts` the preference policy · `propose.ts` whole charts, offered · `graphReading.ts` matrix or node-link, the rule as data · `lint.ts` the lint door · `frame.ts` THE FRAME — one domain per shared channel, folded from the layers' own values (`frameDomains`, the resolution defaults, the zero policy, and `frameLint`, the layer-count ADVICE a host reaches through `Dashboard.lintFrames()` as `FrameNote` rows) · `describe.ts` rules as sentences · `coercers.ts` the built-in adapter
+`types.ts` the vocabulary · `requirements.ts` built-in channel requirements + merge, and which channels a kind binds · `sentences.ts` templates · `facets.ts` column → facet · `validate.ts` the validator · `shape.ts` def-door shape checks · `fits.ts` what fits where · `whatFits.ts` the same, before a build · `recommend.ts` the preference policy · `propose.ts` whole charts, offered · `graphReading.ts` matrix or node-link, the rule as data · `lint.ts` the lint door · `frame.ts` THE FRAME — one domain per shared channel, folded from the layers' own values (`frameDomains`, the resolution defaults, the zero policy, the LOGARITHMIC fold with its `excluded` count, and `frameLint`, the layer-count ADVICE a host reaches through `Dashboard.lintFrames()` as `FrameNote` rows) · `describe.ts` rules as sentences · `coercers.ts` the built-in adapter

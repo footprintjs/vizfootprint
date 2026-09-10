@@ -73,6 +73,15 @@ export interface VizBarProps {
    * chart has no quantitative x (its x is a band per category), so a `domain.x`
    * has nothing here to scale and is not read. Absent = the chart's own maximum,
    * and every bar is byte-identical to the chart before the prop existed.
+   *
+   * A BAR CHART HAS NO LOGARITHMIC AXIS, so `transform` (protocol 1.6) is not
+   * read on either channel and this chart draws linear bars whatever it is
+   * handed. Both halves of that: its x is a band per category, which has no
+   * curve to traverse, and its y is a count read as a LENGTH from a baseline —
+   * on a logarithmic axis a bar four times as long is not four times the value.
+   * The second half is the def door's law 11c (`zeroAnchorsChannel`), which
+   * refuses the declaration outright, so nothing legitimate is being ignored
+   * here; this is only the second fence.
    */
   readonly domain?: ChartDomain;
   /** Draw this chart's own axis line, category ticks and axis label. Default `true`; `false` while the FRAME draws one merged guide for the stack. */

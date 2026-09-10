@@ -116,6 +116,16 @@ export interface VizBoxPlotProps {
    * A frame's domain is taken AS the axis: the outer pad is this chart's own
    * breathing room around its own extent, and a shared axis has already been
    * folded to what the whole stack needs.
+   *
+   * A BOX PLOT HAS NO LOGARITHMIC AXIS, so `transform` (protocol 1.6) is not
+   * read on either channel and this chart draws linear boxes whatever it is
+   * handed. Its x is a band, which has no curve to traverse; its y is the
+   * value column's own extent, read whisker-to-whisker — the same MAGNITUDE
+   * shape a bar's height is, and the def door's law 11c refuses the
+   * declaration outright for exactly that reason (`zeroAnchorsChannel`, which
+   * treats `'boxplot'` identically to `'bar'`). Nothing legitimate is being
+   * ignored here; this is only the second fence, the same one {@link VizBar}
+   * keeps.
    */
   readonly domain?: ChartDomain;
   /** Draw this chart's own axes (lines, y ticks, category labels and the interactive axis labels). Default `true`; `false` while the FRAME draws one merged guide. */
@@ -237,6 +247,13 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
   const yLabel = props.yLabel ?? yField;
 
   const geoms = useMemo(() => toGeoms(data), [data]);
+  // NO LOGARITHMIC AXIS AT ALL (protocol 1.6), on either channel — the same answer `VizBar` gives,
+  // and for the same reason: this chart's x is a band per category, and its y is the value column's
+  // OWN extent read whisker-to-whisker, which is exactly the shape law 11c refuses a log transform
+  // on (`zeroAnchorsChannel('boxplot', 'y')` is true — a box, like a bar, has its MAGNITUDE read as
+  // an extent, not placed as an independent point the way a scatter's y is). The def door refuses
+  // the declaration outright, so nothing legitimate is being ignored here; this is only the second
+  // fence, and `transform` is not read on `props.domain` below.
 
   // the y domain: every whisker end + every outlier across every box — the
   // RAW extent drives the tick labels; a separate 8%-of-span outer pad keeps

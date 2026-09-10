@@ -122,6 +122,18 @@ const COLUMN_TYPES: readonly ColumnType[] = ['number', 'string', 'boolean', 'dat
  * would be a whisker wide of the marks until the next update, which pushes a
  * frame folded whole. Each answer carries the `version` it was read at, so the
  * day the port can ask atomically, this door is where that goes.
+ *
+ * NOTHING FOR THIS DOOR TO DECIDE ABOUT THE AXIS'S CURVE (protocol 1.6). The
+ * fold's answer is RETURNED VERBATIM — the whole `ResolvedChannel` record, not
+ * a copy this door rebuilds field by field — so `transform` (which curve) and
+ * `excluded` (how many cells a logarithm could not place) ride through with no
+ * code here at all. That is deliberate and worth stating: `transform` is a
+ * DECLARATION the def already owns and `frameDomains` already echoes, and
+ * `excluded` is a fact only the fold can count, since only it sees the cells.
+ * A door that re-derived either would be a second owner of the axis. What this
+ * door owns stays exactly what its header says: which rows to read, and which
+ * cells are absences (dropped BEFORE the fold, which is why `excluded` counts
+ * only what a logarithm cannot place and never a silence).
  */
 export async function frameFor(session: FrameSessionLike, request: FrameRequest): Promise<Readonly<Record<string, ResolvedChannel>>> {
   const layers = await Promise.all(request.layers.map((layer) => valuesOf(session, request, layer)));

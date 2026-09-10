@@ -135,8 +135,8 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
     { layerId: 'nodes', table: 'nodes', rows: [{ id: 'flu', group: 'viral' }, { id: 'cold', group: 'viral' }], encodings: { color: 'group' } },
   ] as const;
 
-  it('the protocol this build speaks is 1.5 — the frame minor', () => {
-    expect(RENDERER_PROTOCOL_VERSION).toBe('1.5');
+  it('the protocol this build speaks is 1.6 — the logarithmic-axis minor', () => {
+    expect(RENDERER_PROTOCOL_VERSION).toBe('1.6');
   });
 
   it('declares TRUE — and a layered frame pushed through the bind draws BOTH layers, each under its own table', () => {
@@ -182,6 +182,35 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
       }),
     ).toEqual({ ok: true });
     expect(el.innerHTML).toBe(without);
+    res.view.unmount();
+  });
+
+  it('a 1.5 renderer IGNORES the logarithmic axis: the same frame with and without `transform`/`excluded` draws byte-identically (protocol 1.6)', () => {
+    // `layeredRenderer` reads `layers` and knows nothing of a curve — exactly the 1.5 renderer this
+    // law is about. The two keys ride on `ResolvedChannel`, the LIBRARY's own shape, so they cost a
+    // renderer that does not read them nothing at all: it draws the linear axis it always drew.
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const res = bindRenderer(layeredRenderer(), el, { viewId: 'net', callbacks: callbacks() });
+    if (!res.ok) throw new Error('bind failed');
+    const frame = { ...state([{ id: 'flu' }]), layers: LAYERS };
+    expect(
+      res.view.update({
+        ...frame,
+        frame: { size: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [1, 5] } },
+      }),
+    ).toEqual({ ok: true });
+    const linear = el.innerHTML;
+    expect(
+      res.view.update({
+        ...frame,
+        frame: {
+          size: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [1, 5], transform: 'log', excluded: 2 },
+          group: { mode: 'independent', guide: 'per-layer', transform: 'log' },
+        },
+      }),
+    ).toEqual({ ok: true });
+    expect(el.innerHTML).toBe(linear);
     res.view.unmount();
   });
 

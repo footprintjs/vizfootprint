@@ -64,7 +64,26 @@ export interface FrameLayer {
  * things: a pair of numbers, a pair of ISO strings, an ordered category list.
  */
 export type ResolvedDomain =
-  | { readonly scale: 'quantitative'; readonly domain: readonly [number, number] }
+  | {
+      readonly scale: 'quantitative';
+      readonly domain: readonly [number, number];
+      /**
+       * HOW MANY CELLS THE TRANSFORM COULD NOT PLACE — a zero or a negative
+       * number on a LOGARITHMIC axis (`ChannelResolution.transform`), which a
+       * logarithm has no answer for. Set only when something was excluded, so a
+       * linear fold is byte-identical to the one that existed before.
+       *
+       * WHY it is counted and not dropped: which cells those are is DATA, not
+       * declaration, so the door cannot refuse them — and a picture that
+       * silently draws 300 of 1000 planets is worse than one that says so
+       * ("exclude and count, never silently drop", the law the absence work set
+       * in `../data/silence.ts`). It is a SEPARATE fact from a silence: a
+       * silence is a cell the data says nothing about, and this is a cell the
+       * data speaks plainly about but a logarithm cannot place. The adapter has
+       * already dropped the silences before this fold sees a value.
+       */
+      readonly excluded?: number;
+    }
   | { readonly scale: 'temporal'; readonly domain: readonly [string, string] }
   | { readonly scale: 'categorical'; readonly domain: readonly string[] };
 
@@ -80,8 +99,10 @@ export type ResolvedChannel =
       /** Which rows the caller folded — echoed from the declaration, never decided here. */
       readonly basis: 'table' | 'rows';
       readonly guide: 'merged' | 'per-layer';
+      /** WHICH SCALE A RENDERER MUST BUILD. Echoed from the declaration and absent unless one was declared, so a linear axis carries no key at all (`scaleFor`, `vizfootprint-ui/primitives/scales.ts`, is the one owner of the answer on the chart side). */
+      readonly transform?: 'linear' | 'log';
     } & ResolvedDomain)
-  | { readonly mode: 'independent'; readonly guide: 'per-layer' };
+  | { readonly mode: 'independent'; readonly guide: 'per-layer'; readonly transform?: 'linear' | 'log' };
 
 // ── the defaults, spelled once ────────────────────────────────────────────────
 
@@ -138,15 +159,18 @@ export const FRAME_LAYER_LINT = 4;
  * only {@link zeroPolicyFor} can see them.
  */
 export type EffectiveResolution =
-  | { readonly mode: 'shared'; readonly domain: 'union'; readonly basis: 'table' | 'rows'; readonly guide: 'merged' | 'per-layer'; readonly zero?: boolean }
-  | { readonly mode: 'independent'; readonly guide: 'per-layer' };
+  | { readonly mode: 'shared'; readonly domain: 'union'; readonly basis: 'table' | 'rows'; readonly guide: 'merged' | 'per-layer'; readonly zero?: boolean; readonly transform?: 'linear' | 'log' }
+  | { readonly mode: 'independent'; readonly guide: 'per-layer'; readonly transform?: 'linear' | 'log' };
 
 export function resolutionFor(channel: string, frame?: Readonly<Record<string, ChannelResolution>>): EffectiveResolution {
   const declared = frame?.[channel];
   if (declared === undefined) return { mode: 'shared', domain: 'union', basis: 'table', guide: 'merged' };
+  // `transform` is the AXIS's own nature and rides on BOTH modes; like `zero` it stays absent where it was
+  // not declared, because 'linear' is what every scale already is and a key nobody typed is not a decision
+  const transform = declared.transform !== undefined ? { transform: declared.transform } : {};
   // an independent channel has one guide and no domain by definition: each layer keeps its own scale
-  if (declared.mode === 'independent') return { mode: 'independent', guide: 'per-layer' };
-  return { mode: 'shared', domain: 'union', basis: declared.basis ?? 'table', guide: declared.guide ?? 'merged', ...(declared.zero !== undefined ? { zero: declared.zero } : {}) };
+  if (declared.mode === 'independent') return { mode: 'independent', guide: 'per-layer', ...transform };
+  return { mode: 'shared', domain: 'union', basis: declared.basis ?? 'table', guide: declared.guide ?? 'merged', ...(declared.zero !== undefined ? { zero: declared.zero } : {}), ...transform };
 }
 
 /**
@@ -160,7 +184,11 @@ export function resolutionFor(channel: string, frame?: Readonly<Record<string, C
  * ({@link zeroAnchorsChannel}) — never every kind in the stack, or a bar would
  * drag the zero onto its own colour ramp and onto a histogram's bin axis.
  */
-export function zeroPolicyFor(chartKinds: readonly (string | undefined)[], declared?: boolean): boolean {
+export function zeroPolicyFor(chartKinds: readonly (string | undefined)[], declared?: boolean, transform?: 'linear' | 'log'): boolean {
+  // A LOGARITHMIC AXIS HAS NO ZERO, and this is the one predicate that says so — asked here, so no caller has to
+  // remember it. The def door refuses a DECLARED `zero: true` beside `transform: 'log'`, so the only pair that
+  // can reach this is a zero the MARKS implied, and those marks are refused a log axis on that very channel.
+  if (transform === 'log') return false;
   if (declared !== undefined) return declared;
   return chartKinds.some((kind) => kind !== undefined && ZERO_ANCHORED_KINDS.includes(kind));
 }
@@ -242,18 +270,22 @@ export function frameDomains(layers: readonly FrameLayer[], frame?: Readonly<Rec
   const out: Record<string, ResolvedChannel> = {};
   for (const channel of channelsOfLayers(layers)) {
     const resolution = resolutionFor(channel, frame);
+    // the transform is the AXIS's own nature, so it rides BOTH modes: an independent channel folds no
+    // domain here, but each layer still builds a scale, and it must be the scale the def asked for
+    const transform = resolution.transform !== undefined ? { transform: resolution.transform } : {};
     if (resolution.mode === 'independent') {
-      out[channel] = { mode: 'independent', guide: 'per-layer' };
+      out[channel] = { mode: 'independent', guide: 'per-layer', ...transform };
       continue;
     }
     const binding = layers.filter((layer) => layer.channels[channel] !== undefined);
     const scale = firstScaleOf(binding, channel);
     if (scale === undefined) continue; // nothing folds from `unknown` — no entry, no claim
-    // only the layers whose EXTENT is read on this channel may imply a zero (a histogram's bins are a position)
-    const zero = zeroPolicyFor(binding.filter((layer) => zeroAnchorsChannel(layer.chartKind, channel)).map((layer) => layer.chartKind), resolution.zero);
-    const domain = foldDomain(binding, channel, scale, zero);
+    // only the layers whose EXTENT is read on this channel may imply a zero (a histogram's bins are a position),
+    // and a LOGARITHMIC axis has no zero at all — `zeroPolicyFor` is the one predicate asked, so nothing here decides it twice
+    const zero = zeroPolicyFor(binding.filter((layer) => zeroAnchorsChannel(layer.chartKind, channel)).map((layer) => layer.chartKind), resolution.zero, resolution.transform);
+    const domain = foldDomain(binding, channel, scale, zero, resolution.transform);
     if (domain === undefined) continue; // every cell was absent or unreadable — an invented domain would be a drawn lie
-    out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...domain };
+    out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...transform, ...domain };
   }
   return out;
 }
@@ -277,25 +309,48 @@ function firstScaleOf(binding: readonly FrameLayer[], channel: string): Resolved
 }
 
 /** The union, per scale kind. `undefined` = not one readable cell across the layers. */
-function foldDomain(binding: readonly FrameLayer[], channel: string, scale: ResolvedDomain['scale'], zero: boolean): ResolvedDomain | undefined {
+function foldDomain(binding: readonly FrameLayer[], channel: string, scale: ResolvedDomain['scale'], zero: boolean, transform?: 'linear' | 'log'): ResolvedDomain | undefined {
   const cells = binding.flatMap((layer) => layer.channels[channel]!.values);
-  if (scale === 'quantitative') return quantitative(cells, zero);
+  if (scale === 'quantitative') return quantitative(cells, zero, transform);
   if (scale === 'temporal') return temporal(cells);
   return categorical(cells);
 }
 
-/** `[min, max]` over the finite numbers, extended to 0 under the zero policy. A non-number cell is an absence, not a 0. */
-function quantitative(cells: readonly unknown[], zero: boolean): ResolvedDomain | undefined {
+/**
+ * `[min, max]` over the finite numbers, extended to 0 under the zero policy. A
+ * non-number cell is an absence, not a 0.
+ *
+ * ON A LOGARITHMIC AXIS the union is over the POSITIVE cells only — a logarithm
+ * has no answer for 0 or a negative number — and the ones it could not place
+ * are COUNTED on the domain (`excluded`), never silently dropped. Two
+ * exclusions live side by side and are deliberately NOT summed: a SILENCE is
+ * already gone before this fold sees a cell (the adapter drops it per column),
+ * and this count is only the cells a logarithm cannot place. They are different
+ * facts about the data, and a reader told "700 excluded" without knowing which
+ * has learned nothing.
+ *
+ * When NOTHING is placeable there is no domain at all — the existing "nothing
+ * folds" arm, because an invented domain is a drawn lie. The count has no
+ * domain to ride on then, and the CHART is where a reader meets the number
+ * (`excludedNote`, `vizfootprint-ui/primitives/scales.ts`): it is the picture
+ * the marks are missing from.
+ */
+function quantitative(cells: readonly unknown[], zero: boolean, transform?: 'linear' | 'log'): ResolvedDomain | undefined {
   let lo = Infinity;
   let hi = -Infinity;
+  let excluded = 0;
   for (const cell of cells) {
     if (typeof cell !== 'number' || !Number.isFinite(cell)) continue;
+    if (transform === 'log' && cell <= 0) {
+      excluded += 1;
+      continue;
+    }
     if (cell < lo) lo = cell;
     if (cell > hi) hi = cell;
   }
   // not one readable cell: no domain. `zero: true` says where a domain must REACH, never that one exists
   if (lo === Infinity) return undefined;
-  return { scale: 'quantitative', domain: zero ? [Math.min(lo, 0), Math.max(hi, 0)] : [lo, hi] };
+  return { scale: 'quantitative', domain: zero ? [Math.min(lo, 0), Math.max(hi, 0)] : [lo, hi], ...(excluded > 0 ? { excluded } : {}) };
 }
 
 /**

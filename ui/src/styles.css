@@ -720,6 +720,14 @@
   font-family: var(--vzf-font-mono);
   font-size: 10px;
 }
+/* the words for what a transform (or an out-of-window date) could not place, IN THE PICTURE — the
+   accessible name already carries this fact for a screen reader; a sighted reader meets it only here
+   (protocol 1.6, `excludedNote`) */
+:where(.vzf) .vzf-excluded-note {
+  fill: var(--vzf-ink-faint);
+  font-family: var(--vzf-font-mono);
+  font-size: 9px;
+}
 :where(.vzf) .vzf-dot {
   transition: opacity 0.15s ease;
 }

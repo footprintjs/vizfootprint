@@ -679,6 +679,9 @@ export function validateDashboardDef(def: unknown): string[] {
   if (isObject(def.data) && Object.keys(def.data).length > 0) validateRelations(def.relations, def.data, problems);
 
   // ── encodings (optional) — the `reencode` verb's per-view validation surface ──
+  // The table a LAYERLESS view's columns are declared under — the def's `defaultTable`, or its first table. ONE
+  // expression, read by the frame's laws here and by the build door below, so the two can never resolve it apart.
+  const defaultTableName = isObject(def.data) ? (typeof def.defaultTable === 'string' ? def.defaultTable : Object.keys(def.data)[0]) : undefined;
   if (def.encodings !== undefined) {
     if (!Array.isArray(def.encodings)) {
       problems.push('encodings, if present, must be an array of ViewEncodingDecl');
@@ -710,8 +713,10 @@ export function validateDashboardDef(def: unknown): string[] {
         // layers — a view over more than one table (src/def/layers.ts); absent on every view built before layers existed
         const encViewId = typeof enc.viewId === 'string' ? enc.viewId : String(enc.viewId);
         validateLayers(enc.layers, `encodings[${i}]`, encViewId, def.data, problems);
-        // the frame — per channel, how its scale is resolved across those layers (src/def/layers.ts, "the frame")
-        validateFrame(enc.frame, `encodings[${i}]`, encViewId, enc.layers, def.data, problems);
+        // the frame — per channel, how its scale is resolved across those layers AND what the axis itself is
+        // (src/def/layers.ts, "the frame"): legal on ANY view, since a transform is not a resolution. A view with
+        // no layers is judged as its own one implicit layer, which is what this last argument carries.
+        validateFrame(enc.frame, `encodings[${i}]`, encViewId, enc.layers, def.data, { chartKind: enc.chartKind, channels: enc.channels, initial: enc.initial, table: defaultTableName }, problems);
       });
     }
   }
@@ -734,7 +739,7 @@ export function validateDashboardDef(def: unknown): string[] {
   //    the dispatch door judges every act. Ports are not here, so an initial
   //    binding that would need a coercer is refused: a def never STARTS coerced.
   if (ruleShapeProblems.length === 0 && Array.isArray(def.encodings) && isObject(def.data)) {
-    const table = typeof def.defaultTable === 'string' ? def.defaultTable : Object.keys(def.data)[0];
+    const table = defaultTableName;
     const src = table !== undefined && isObject(def.data[table]) ? (def.data[table] as Record<string, unknown>) : undefined;
     const surfaces = wellFormedSurfaces(def.encodings);
     const facets = resolveFacets(defColumns(src, surfaces), facetSourceOf(src));

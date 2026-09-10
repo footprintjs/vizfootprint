@@ -41,7 +41,7 @@ import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedCell } from '../contract/selection.js';
-import { linearScale, epochOf, dayOf, rampStep, SEQ_RAMP_STEPS, domainOr, type ChartDomain } from '../primitives/scales.js';
+import { epochOf, dayOf, rampStep, SEQ_RAMP_STEPS, domainOr, scaleFor, placeable, excludedNote, type ChartDomain } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { keyActivates } from '../primitives/pointSelect.js';
 import { useReencodePicker } from '../primitives/reencode.js';
@@ -182,9 +182,17 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
   const xField = boundField(encoding, 'x', props.xField ?? 'value');
   const yField = boundField(encoding, 'y', props.yField ?? 'category');
 
+  // WHICH CURVE THE BUCKET AXIS IS DRAWN ON. Only x: this chart's magnitude is a COLOUR RAMP, not a
+  // length, so there is no logarithm to take of it — the law ChartDomain keeps for a channel with no
+  // quantitative scale. Numeric bucket edges make a log-spaced x legitimate, as on VizHistogram.
+  const xKind = props.domain?.transform?.x;
   // x columns in first-appearance order (host edge order), skipping any whose
   // edge cannot be placed (unparseable date — never guessed); y rows likewise.
   const cols: ColumnGeom[] = [];
+  // the buckets the TRANSFORM could not place — a separate skip from the unparseable edge above,
+  // because that one is an absence the adapter owns and this one is a cell the data speaks plainly
+  // about. Counted in CELLS below (the marks a reader is missing), never silently dropped.
+  const excludedCols = new Set<string>();
   const seenCols = new Set<string>();
   const rows: string[] = [];
   const seenRows = new Set<string>();
@@ -194,7 +202,8 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
       const p0 = edgePos(c.x0);
       const p1 = edgePos(c.x1);
       if (p0 !== null && p1 !== null) {
-        cols.push({ x0: c.x0, x1: c.x1, p0, p1 });
+        if (xKind !== undefined && (!placeable(xKind, p0) || !placeable(xKind, p1))) excludedCols.add(key);
+        else cols.push({ x0: c.x0, x1: c.x1, p0, p1 });
       }
       seenCols.add(key); // an unplaceable bucket is skipped once, not retried per row
     }
@@ -204,15 +213,21 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
     }
   }
 
-  // the frame's domain when a frame gave one, the buckets' own span otherwise (../primitives/scales.ts)
-  const [d0, d1] = domainOr(props.domain?.x, [cols.length > 0 ? cols[0]!.p0 : 0, cols.length > 0 ? cols[cols.length - 1]!.p1 : 1]);
+  // the frame's domain when a frame gave one, the buckets' own span otherwise (../primitives/scales.ts).
+  // No buckets at all under a LOGARITHMIC axis falls back to [0, 0] rather than the ordinary [0, 1] —
+  // see `VizHistogram`'s identical fallback and `extentFor`'s doc for why [0, 1] would otherwise be
+  // misread by `logDomain` as a real positive span instead of "nothing was placeable at all".
+  const [d0, d1] = domainOr(props.domain?.x, cols.length > 0 ? [cols[0]!.p0, cols[cols.length - 1]!.p1] : xKind === 'log' ? [0, 0] : [0, 1]);
   const axes = props.axes ?? true;
   const { padL, maxChars } = labelGutter(width);
-  const x = linearScale(d0, d1, padL, width - PAD.r);
+  const x = scaleFor(xKind)(d0, d1, padL, width - PAD.r);
   const plotBottom = height - PAD.b;
   const plotH = plotBottom - PAD.t;
   const rowH = rows.length > 0 ? plotH / rows.length : plotH;
   const rowY = (label: string): number => PAD.t + rows.indexOf(label) * rowH;
+
+  // the input cells whose bucket the transform could not place: the marks not drawn
+  const excluded = excludedCols.size === 0 ? 0 : data.filter((c) => excludedCols.has(`${c.x0}`)).length;
 
   const counts = new Map(data.map((c) => [`${c.x0}|${c.y}`, c.count]));
   const max = Math.max(0, ...data.map((c) => c.count));
@@ -257,7 +272,7 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
         className={`vzf-chart vzf-heatmap${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         role="group"
-        aria-label={props.ariaLabel ?? `${countLabel} by ${xField} and ${yField}`}
+        aria-label={(props.ariaLabel ?? `${countLabel} by ${xField} and ${yField}`) + excludedNote(excluded)}
       >
         {/* cells: color = count on the shared ramp; 0 = the honest neutral */}
         {rows.map((yLabel) =>
@@ -333,6 +348,13 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
         {/* the two interactive axis labels — both re-encode affordances */}
         {axes && <AxisLabel x={(padL + width - PAD.r) / 2} y={height - 8} text={xField} channel="x" onOpen={openPicker} />}
         {axes && <AxisLabel x={14} y={(PAD.t + plotBottom) / 2} text={yField} channel="y" rotate={-90} onOpen={openPicker} />}
+        {/* the words for what a transform could not place, IN THE PICTURE (`excludedNote` already
+            carries it into the accessible name for a screen reader) */}
+        {excluded > 0 && (
+          <text className="vzf-excluded-note" x={width - PAD.r} y={PAD.t - 4} textAnchor="end">
+            {excludedNote(excluded).replace(/^ — /, '')}
+          </text>
+        )}
         <desc>{`view ${viewId}: click a cell to select ${xField} and ${yField} together; click it again to clear`}</desc>
       </svg>
       <EncodingPicker

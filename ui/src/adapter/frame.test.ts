@@ -258,3 +258,26 @@ describe('frameFor — the basis decides which rows, and says which it read', ()
     expect(asked).toEqual([]);
   });
 });
+
+describe('frameFor — the axis\'s CURVE passes through, because this door has nothing to decide about it (protocol 1.6)', () => {
+  it('hands the declared `transform` back untouched, on both modes', async () => {
+    const { session } = recording({ 'table:t': [{ v: 1 }, { v: 1000 }] });
+    const shared = await frameFor(session, { viewId: 'trend', layers: [ONE], columns: COLUMNS, frame: { y: { mode: 'shared', basis: 'table', transform: 'log' } } });
+    expect(shared['y']).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', transform: 'log', scale: 'quantitative', domain: [1, 1000] });
+    // an independent channel folds no domain and still says which curve each layer's own scale takes
+    const own = await frameFor(session, { viewId: 'trend', layers: [ONE], columns: COLUMNS, frame: { y: { mode: 'independent', transform: 'log' } } });
+    expect(own['y']).toEqual({ mode: 'independent', guide: 'per-layer', transform: 'log' });
+  });
+
+  it('hands the fold\'s `excluded` count back untouched — only the fold sees the cells, so only the fold can count them', async () => {
+    const { session } = recording({ 'table:t': [{ v: 0 }, { v: -4 }, { v: 10 }, { v: 100 }] });
+    const answer = await frameFor(session, { viewId: 'trend', layers: [ONE], columns: COLUMNS, frame: { y: { mode: 'shared', basis: 'table', transform: 'log' } } });
+    expect(answer['y']).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', transform: 'log', scale: 'quantitative', domain: [10, 100], excluded: 2 });
+  });
+
+  it('and a LINEAR channel carries neither key, so a frame with no transform is byte-identical to the one before 1.6', async () => {
+    const { session } = recording({ 'table:t': [{ v: 0 }, { v: 10 }] });
+    const answer = await frameFor(session, { viewId: 'trend', layers: [ONE], columns: COLUMNS, frame: { y: { mode: 'shared', basis: 'table' } } });
+    expect(answer['y']).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [0, 10] });
+  });
+});

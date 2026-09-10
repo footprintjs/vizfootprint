@@ -42,7 +42,7 @@ import { PAD as BAR_PAD } from './VizBar.js';
 import { PAD as POINT_PAD } from './VizScatter.js';
 import { PAD as HISTOGRAM_PAD } from './VizHistogram.js';
 import { PAD as BOXPLOT_PAD } from './VizBoxPlot.js';
-import { dayOf, linearScale, ticks, type ChartDomain } from '../primitives/scales.js';
+import { dayOf, ticks, scaleFor, logTicks, logTickLabel, type ChartDomain, type ScaleKind } from '../primitives/scales.js';
 
 /** The mark kinds a frame can draw: the 2D charts, and exactly those (a map, a network, a heatmap and a table each own their own frame). */
 export type FrameChartKind = 'line' | 'bar' | 'point' | 'histogram' | 'boxplot';
@@ -169,16 +169,47 @@ interface FrameTick {
   readonly full?: string;
 }
 
-/** A tick's number as the merged guide spells it: a date as its day, anything else rounded to a tenth (one rule, named here, for both axes). */
-function tickText(scale: FrameAxis['scale'], value: number): string {
-  return scale === 'temporal' ? dayOf(new Date(value).toISOString()) : String(Math.round(value * 10) / 10);
+/**
+ * THE CURVE ONE MERGED AXIS IS DRAWN ON, and the ONE place the frame decides
+ * it: the transform the frame's own domain declares, but only where the axis is
+ * QUANTITATIVE. A categorical axis is a list of bands and a temporal one is a
+ * run of dates, and neither has a logarithm to take — the def door refuses a
+ * log transform on a non-number column outright (law 11b), and here the key is
+ * ignored for the same reason a chart ignores an axis it cannot scale.
+ *
+ * A STACK MIXING A LOGARITHMIC AND A LINEAR LAYER ON ONE SHARED CHANNEL CANNOT
+ * HAPPEN, and this function is where that is ASSERTED rather than handled: the
+ * transform rides on the frame's ONE `domain` object, which every layer
+ * receives by that same reference ({@link FrameLayerDraw}), so there is nowhere
+ * to put a second answer for the same channel. One resolution per channel is
+ * the library's law (`ChannelResolution`); on this side it is a shape, so the
+ * guide and every layer's marks are folded from the same pair AND the same
+ * curve by construction.
+ */
+function curveOf(axis: FrameAxis | undefined, declared: ScaleKind | undefined): ScaleKind | undefined {
+  return axis?.scale === 'quantitative' ? declared : undefined;
 }
 
-/** Evenly-spaced ticks across a span. A span that is not two finite numbers is not a span — no ticks, rather than an axis of NaN. */
-function spanTicks(scale: FrameAxis['scale'], span: readonly [number, number] | undefined, from: number, to: number): readonly FrameTick[] {
+/** A tick's number as the merged guide spells it: a date as its day, a decade of a logarithmic axis as its power of ten, anything else rounded to a tenth (one rule, named here, for both axes). */
+function tickText(scale: FrameAxis['scale'], value: number, kind?: ScaleKind): string {
+  if (scale === 'temporal') return dayOf(new Date(value).toISOString());
+  return kind === 'log' ? logTickLabel(value) : String(Math.round(value * 10) / 10);
+}
+
+/**
+ * Ticks across a span: DECADES on a logarithmic axis, evenly spaced otherwise.
+ * A span that is not two finite numbers is not a span — no ticks, rather than
+ * an axis of NaN.
+ *
+ * The logarithmic ticks are read off the scale's OWN clamped domain
+ * (`scaleFor`, which is the one owner of that clamp) rather than the raw pair,
+ * so the guide labels the span the layers' marks were actually placed on.
+ */
+function spanTicks(scale: FrameAxis['scale'], span: readonly [number, number] | undefined, from: number, to: number, kind?: ScaleKind): readonly FrameTick[] {
   if (span === undefined || !Number.isFinite(span[0]) || !Number.isFinite(span[1])) return [];
-  const at = linearScale(span[0], span[1], from, to);
-  return ticks(span[0], span[1], FRAME_TICK_STEPS).map((value) => ({ at: at(value), text: tickText(scale, value), rotate: false }));
+  const at = scaleFor(kind)(span[0], span[1], from, to);
+  const values = kind === 'log' ? logTicks(at.domain[0], at.domain[1], FRAME_TICK_STEPS + 1) : ticks(span[0], span[1], FRAME_TICK_STEPS);
+  return values.map((value) => ({ at: at(value), text: tickText(scale, value, kind), rotate: false }));
 }
 
 /** One tick per band, at its centre, fitted to the band the way a bar chart fits its own (`fitTick` — one owner). */
@@ -199,8 +230,8 @@ function bandTicks(categories: readonly string[] | undefined, from: number, to: 
  * categorical Y is given none, and draws its line and no ticks rather than the
  * x's names down its side.
  */
-function axisTicks(axis: FrameAxis, categories: readonly string[] | undefined, span: readonly [number, number] | undefined, from: number, to: number, room: number): readonly FrameTick[] {
-  return axis.scale === 'categorical' ? bandTicks(categories, from, to, room) : spanTicks(axis.scale, span, from, to);
+function axisTicks(axis: FrameAxis, categories: readonly string[] | undefined, span: readonly [number, number] | undefined, from: number, to: number, room: number, kind?: ScaleKind): readonly FrameTick[] {
+  return axis.scale === 'categorical' ? bandTicks(categories, from, to, room) : spanTicks(axis.scale, span, from, to, kind);
 }
 
 /** The merged guide: one axis line and one set of ticks per axis the frame was given, drawn in the frame's own margin. */
@@ -209,8 +240,8 @@ function FrameGuide(props: { readonly frame: VizFrameProps; readonly plot: Frame
   const domain = frame.domain ?? {};
   const room = Math.max(0, props.height - plot.bottom - 12 - (frame.x?.label === undefined ? 0 : AXIS_LABEL_ROOM));
   // x runs left→right; y runs bottom→top (a value grows upwards), which is the only difference between them
-  const xTicks = frame.x === undefined ? [] : axisTicks(frame.x, domain.categories, domain.x, plot.left, plot.right, room);
-  const yTicks = frame.y === undefined ? [] : axisTicks(frame.y, undefined, domain.y, plot.bottom, plot.top, 0);
+  const xTicks = frame.x === undefined ? [] : axisTicks(frame.x, domain.categories, domain.x, plot.left, plot.right, room, curveOf(frame.x, domain.transform?.x));
+  const yTicks = frame.y === undefined ? [] : axisTicks(frame.y, undefined, domain.y, plot.bottom, plot.top, 0, curveOf(frame.y, domain.transform?.y));
   return (
     <svg className="vzf-chart vzf-frame-guide" viewBox={`0 0 ${props.width} ${props.height}`} aria-hidden="true">
       {frame.x !== undefined && <line className="vzf-axis" x1={plot.left} y1={plot.bottom} x2={plot.right} y2={plot.bottom} />}

@@ -21,7 +21,7 @@
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
-import { linearScale, extent, ticks, domainOr, type ChartDomain } from '../primitives/scales.js';
+import { ticks, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, type ChartDomain } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { useBrightPredicate, dimClass } from '../primitives/useSelection.js';
@@ -135,11 +135,24 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   // the self-excluded crossfilter fold — recomputed only when the selection changes
   const keep = useBrightPredicate(selection);
 
+  // which curve each axis is drawn on — `scaleFor` is the ONE owner of the answer (../primitives/scales.ts)
+  const xKind = props.domain?.transform?.x;
+  const yKind = props.domain?.transform?.y;
+  // A VALUE THE TRANSFORM CANNOT PLACE HAS NO POSITION, so it is left out of the picture AND out of
+  // the extent the axis is folded from (a 0 in a logarithmic column must not drag the low bound to a
+  // value the axis cannot label) — and it is COUNTED, never silently dropped, the same law the
+  // library's fold keeps with `ResolvedDomain.excluded`. Guarded on a transform being declared at
+  // all, so a chart with none filters nothing and stays byte-identical to the one that existed before.
+  const drawable = props.domain?.transform === undefined ? data : data.filter((d) => placeable(xKind, d.x) && placeable(yKind, d.y));
+  const excluded = data.length - drawable.length;
   // the frame's domain when a frame gave one, this chart's own extent otherwise (../primitives/scales.ts)
-  const [xlo, xhi] = domainOr(props.domain?.x, extent(data, (d) => d.x, 5));
-  const x = linearScale(xlo, xhi, PAD.l, width - PAD.r);
-  const [ylo, yhi] = domainOr(props.domain?.y, extent(data, (d) => d.y, 0.5));
-  const y = linearScale(ylo, yhi, height - PAD.b, PAD.t);
+  // the chart's own breathing room, which a LOGARITHMIC axis takes none of (`padFor`); `extentFor` is
+  // LOG-AWARE about an empty `drawable` — see its own doc for why `extent`'s plain [0,1] default would
+  // otherwise mislead `logDomain` into lifting a low bound that was never really there
+  const [xlo, xhi] = domainOr(props.domain?.x, extentFor(drawable, (d) => d.x, padFor(xKind, 5), xKind));
+  const x = scaleFor(xKind)(xlo, xhi, PAD.l, width - PAD.r);
+  const [ylo, yhi] = domainOr(props.domain?.y, extentFor(drawable, (d) => d.y, padFor(yKind, 0.5), yKind));
+  const y = scaleFor(yKind)(ylo, yhi, height - PAD.b, PAD.t);
   const axes = props.axes ?? true;
 
   // drag→interval on x — the brush primitive's completion discipline (a sub-4px
@@ -157,8 +170,10 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
 
   // the chart's OWN extents are padded (5 on x, 0.5 on y), so its ticks step inside that padding;
   // a frame's domain carries no padding of ours, so its ticks span exactly what the axis claims
-  const xTicks = ticks(props.domain?.x === undefined ? xlo + 5 : xlo, props.domain?.x === undefined ? xhi - 5 : xhi, 4);
-  const yTickVals = props.domain?.y === undefined ? ticks(Math.ceil(ylo + 0.5), Math.floor(yhi - 0.5), 4) : ticks(ylo, yhi, 4);
+  // a LOGARITHMIC axis is ticked at decades instead (`logTicks`), read off the scale's own clamped
+  // domain rather than the raw pair, because that is the span the marks were actually placed on
+  const xTicks = xKind === 'log' ? logTicks(x.domain[0], x.domain[1], 5) : ticks(props.domain?.x === undefined ? xlo + 5 : xlo, props.domain?.x === undefined ? xhi - 5 : xhi, 4);
+  const yTickVals = yKind === 'log' ? logTicks(y.domain[0], y.domain[1], 5) : props.domain?.y === undefined ? ticks(Math.ceil(ylo + 0.5), Math.floor(yhi - 0.5), 4) : ticks(ylo, yhi, 4);
 
   return (
     <>
@@ -167,7 +182,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         className={`vzf-chart vzf-scatter${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={props.ariaLabel ?? `scatter of ${yLabel} against ${xLabel}`}
+        aria-label={(props.ariaLabel ?? `scatter of ${yLabel} against ${xLabel}`) + excludedNote(excluded)}
         {...handlers}
       >
         {/* axes frame — absent while the FRAME draws one merged guide for the stack */}
@@ -178,7 +193,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
           <g key={`xt${i}`}>
             <line className="vzf-axis" x1={x(v)} y1={height - PAD.b} x2={x(v)} y2={height - PAD.b + 4} />
             <text className="vzf-tick" x={x(v)} y={height - PAD.b + 16} textAnchor="middle">
-              {Math.round(v)}
+              {xKind === 'log' ? logTickLabel(v) : Math.round(v)}
             </text>
           </g>
         ))}
@@ -187,12 +202,15 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
           <g key={`yt${i}`}>
             <line className="vzf-axis" x1={PAD.l - 4} y1={y(v)} x2={PAD.l} y2={y(v)} />
             <text className="vzf-tick" x={PAD.l - 8} y={y(v) + 3} textAnchor="end">
-              {v}
+              {yKind === 'log' ? logTickLabel(v) : v}
             </text>
           </g>
         ))}
-        {/* regression overlay */}
-        {regression && (
+        {/* regression overlay — drawn only where the transform can place both of its ends: a
+            least-squares line is a LINEAR statement, and an end with no position would draw at NaN */}
+        {regression && placeable(xKind, regression.domain[0]) && placeable(xKind, regression.domain[1])
+          && placeable(yKind, regression.slope * regression.domain[0] + regression.intercept)
+          && placeable(yKind, regression.slope * regression.domain[1] + regression.intercept) && (
           <line
             className="vzf-regline"
             x1={x(regression.domain[0])}
@@ -201,8 +219,8 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
             y2={y(regression.slope * regression.domain[1] + regression.intercept)}
           />
         )}
-        {/* points */}
-        {data.map((d) => {
+        {/* points — the placeable ones; see `drawable` above */}
+        {drawable.map((d) => {
           const kept = keep && d.row ? keep(d.row) : true;
           return (
             <circle
@@ -222,6 +240,15 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         {/* interactive axis labels */}
         {axes && <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />}
         {axes && <AxisLabel x={14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={-90} onOpen={openPicker} />}
+        {/* the words for what a transform could not place, IN THE PICTURE — `excludedNote` already
+            carries this fact into the accessible name for a screen reader; a sighted reader meets it
+            only here, so a log-log scatter that silently omits hundreds of rows does not look like one
+            that has none */}
+        {excluded > 0 && (
+          <text className="vzf-excluded-note" x={width - PAD.r} y={PAD.t - 6} textAnchor="end">
+            {excludedNote(excluded).replace(/^ — /, '')}
+          </text>
+        )}
       </svg>
       <EncodingPicker
         open={pickerChannel !== null}

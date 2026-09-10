@@ -9,7 +9,9 @@
  *
  *   • `<ChartFrame>`        — measure a cell, fill it (viewBox == CSS box).
  *   • scales                — `linearScale`/`extent`/`ticks` + the ISO date
- *                             handling (`epochOf`/`dayOf`).
+ *                             handling (`epochOf`/`dayOf`) + the logarithmic
+ *                             axis (`scaleFor`, the one owner of which builder
+ *                             a channel gets, with `logScale`/`logTicks`).
  *   • `<AxisLabel>`         — the interactive axis label (the re-encode
  *                             affordance) + `useReencodePicker` (host-mode vs
  *                             built-in-picker dispatch) + `defaultCompat`
@@ -42,7 +44,11 @@ export { linearScale, extent, ticks, epochOf, dayOf, rampStep, SEQ_RAMP_STEPS } 
 // functions that read a given domain — a host putting a chart on a shared scale needs them
 // (`domainOr` for a run of numbers, `bandOrder` for a band's slots)
 export { bandOrder, domainOr } from './scales.js';
-export type { LinearScale, ChartDomain } from './scales.js';
+// the logarithmic axis (protocol 1.6): `scaleFor` is the ONE owner of which builder a channel gets,
+// and the rest are what a host drawing its own guide over a logarithmic channel needs — the ticks,
+// their labels, the placeability predicate and the words for what a transform could not place
+export { logScale, logDomain, extentFor, scaleFor, placeable, padFor, logTicks, logTickLabel, excludedNote } from './scales.js';
+export type { LinearScale, ChartDomain, ScaleKind, ScaleBuilder } from './scales.js';
 
 export { AxisLabel } from './AxisLabel.js';
 export type { AxisLabelProps } from './AxisLabel.js';

@@ -327,9 +327,18 @@ export interface ViewEncodingDecl {
    *
    * A channel the frame does not name is `shared / union / table / merged` —
    * Wickham's default, because "scales are common across layers" is what makes
-   * a stack of layers ONE picture. A view that declares no `layers` may not
-   * declare a `frame`: there is nothing for a resolution to resolve, and the
-   * validator says so by name.
+   * a stack of layers ONE picture.
+   *
+   * A LAYERLESS VIEW MAY DECLARE ONE TOO, and this is the law: **a transform is
+   * not a resolution, and the frame owns both.** Whether an axis is linear or
+   * logarithmic has nothing to do with layers — a plain scatter of mass against
+   * radius needs it exactly as much as a stack does — so the frame is legal on
+   * any view and the refusal narrows to the one key that needs layers: `mode`,
+   * refused by name on a view with no layers (`shared` versus `independent` is
+   * meaningless with one layer), while `transform` and `zero` are legal there.
+   * NO SECOND TYPE IS MINTED: a layerless frame entry is the same
+   * {@link ChannelResolution}, judged with `mode` refused, and the view itself
+   * is judged as its own one implicit layer (`./layers.ts`, `validateFrame`).
    */
   readonly frame?: Readonly<Record<string, ChannelResolution>>;
 }
@@ -389,11 +398,55 @@ export type ChannelResolution =
        * `vizfootprint/def` — the one owner of that default).
        */
       readonly zero?: boolean;
+      /**
+       * LINEAR OR LOGARITHMIC — the axis's own nature, and the frame is where
+       * it is said. Default `'linear'`.
+       *
+       * NOT a `ColumnScale` (`../data/types.ts`, `'discrete' | 'continuous'`):
+       * that is the COLUMN's nature, and the same column is drawn linear on one
+       * chart and logarithmic on another. NOT a second per-channel block on the
+       * encoding declaration either — an axis has ONE owner, and `zero` already
+       * lives here.
+       *
+       * `'log'` is refused with `zero: true` (a logarithmic axis has no zero),
+       * on a channel whose bound column is not a number, and on the MAGNITUDE
+       * channel of a `bar`/`histogram`/`boxplot` — a bar's length IS its
+       * quantity, and on a log axis a bar four times as long is not four times
+       * the value. A POSITION channel of those marks may still be logarithmic
+       * (a histogram of log-spaced bins is legitimate). The cells a logarithm
+       * cannot place — a zero, a negative — are DATA, not declaration, so they
+       * are excluded and COUNTED by the fold (`ResolvedDomain.excluded`), never
+       * refused at the door and never silently dropped.
+       */
+      readonly transform?: 'linear' | 'log';
     }
   | {
       readonly mode: 'independent';
       /** Only `'per-layer'` is meaningful: there is no merged guide for scales that disagree. */
       readonly guide?: 'per-layer';
+      /** Linear or logarithmic — each layer's own scale is still an AXIS, so it is said here too. Default `'linear'`. */
+      readonly transform?: 'linear' | 'log';
+    }
+  | {
+      /**
+       * THE AXIS ALONE — the arm a view with NO LAYERS declares: every key the
+       * axis has and no `mode`, because `shared` versus `independent` is a
+       * question about layers and there are none (the validator refuses a
+       * `mode` here by name). It is an ARM of this same union rather than a
+       * type of its own, so `transform` and `zero` are declared and read
+       * identically whether or not the view has layers, and the FOLD reads it
+       * as shared (`resolutionFor`, `../encoding/frame.ts`).
+       *
+       * A LAYERED view may not use this arm — a resolution with no mode is
+       * refused at the door, which TypeScript cannot tell apart because
+       * whether layers exist is a fact about a sibling key.
+       */
+      readonly mode?: undefined;
+      readonly domain?: 'union';
+      readonly basis?: 'table' | 'rows';
+      readonly guide?: 'merged' | 'per-layer';
+      readonly zero?: boolean;
+      readonly transform?: 'linear' | 'log';
     };
 
 /**

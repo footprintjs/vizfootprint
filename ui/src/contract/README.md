@@ -297,6 +297,70 @@ version, see below), and a selection folded per layer (the contract carries ONE
 clause is "self"). Sibling layers get **no implicit crossfilter**: a select on
 `net~nodes` reaches `net~edges` only through a declared link.
 
+### The logarithmic axis — the frame owns the curve too (protocol 1.6)
+
+A transform is not a resolution, and the frame owns both. `mode` answers "do
+these layers share a scale"; `transform` answers "is that scale traversed by
+differences or by factors" — and a plain scatter needs the second exactly as
+much as a stack does. So a resolved channel may carry `transform: 'linear' |
+'log'` (absent means linear), and a quantitative domain may carry `excluded`.
+
+```ts
+// what the host pushes for the canonical log-log figure
+frame: {
+  x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [0.02, 4700], transform: 'log', excluded: 712 },
+  y: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [0.3, 22],    transform: 'log' },
+}
+
+// what the renderer does with it — `scaleFor` is the ONE owner of the answer
+const x = scaleFor(channel.transform)(lo, hi, plot.left, plot.right);   // primitives/scales.ts
+const ticks = logTicks(x.domain[0], x.domain[1], 5);                     // decades, labelled
+label = `mass against radius${excludedNote(channel.excluded ?? 0)}`;     // the words for the 712
+```
+
+**No new field and no new type.** `RenderState.frame` is typed by the LIBRARY's
+own `ResolvedChannel`, imported here, so both keys arrived on this contract the
+moment `vizfootprint/def` declared them — which is the whole point of the axis
+having one owner. A renderer that reads neither draws the linear axis it always
+drew, so 1.6 is a MINOR (`capabilities.test.tsx` pins it: the same frame with
+and without the two keys renders the same DOM).
+
+**`excluded` is a count, not a filter.** A logarithm has no answer for zero or a
+negative number, and WHICH cells those are is data, not declaration — the def
+door cannot refuse them, so the fold excludes and COUNTS them ("exclude and
+count, never silently drop"). The renderer is where a reader meets that number,
+and it is met TWICE: each first-party chart appends `excludedNote(n)` to the
+accessible name it already builds (a screen reader), AND — for the four charts
+that can honour a logarithmic transform at all — draws the same words as a
+small `<text class="vzf-excluded-note">` inside the picture itself, so a
+SIGHTED reader of a log-log scatter that silently omits 300 of 1000 planets
+does not see a picture with nothing missing from it. Absent when nothing was
+excluded, so a chart with no transform is unchanged. It is a SEPARATE fact from
+a silence — a silence is a cell the data says nothing about, this is one a
+logarithm cannot place — and the two are deliberately never summed.
+
+**Which channels honour it, per chart.** `VizScatter` x and y; `VizLine` y
+(its x is a date, which has no logarithm); `VizHistogram` and `VizHeatmap` x,
+their bin edges — log-spaced bins are the legitimate case. `VizBar` honours
+NEITHER, `VizBoxPlot` honours NEITHER, and `VizNetwork` neither: a bar's
+length IS its quantity (the def door refuses it as law 11c), and a box's y is
+the SAME shape — its extent is read whisker-to-whisker, `zeroAnchorsChannel`
+treats `'boxplot'` identically to `'bar'`, and the def door refuses that
+declaration too — while a node-link's x and y are one spatial substrate with
+one px-per-unit, which a factor axis would turn into a spiral. A chart ignores
+the key for a channel it has no quantitative scale for, exactly as it already
+ignores `domain.x` there. A logarithmic axis also takes no additive padding
+(`padFor`): breathing room is a difference, and adding one to a logarithmic
+domain does not widen it but breaks it — the decade ticks are its breathing
+room.
+
+Not in this version: a symlog or a power transform (a log is the one the
+figures asked for), a per-layer transform on a shared channel (one resolution
+per channel, so `VizFrame` asserts it as a SHAPE rather than handling it — every
+layer is handed the frame's one `domain` object by the same reference), a
+logarithmic count axis for a bar or a histogram bin height, and a logarithmic
+colour ramp.
+
 ### The frame renderer (R6): the def's stack of 2D marks, drawn
 
 `layeredRenderer` is the GENERIC one — `canLayer: true`, and it draws the five

@@ -31,7 +31,7 @@
 import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
-import { linearScale, extent, ticks, epochOf, dayOf, domainOr, type ChartDomain } from '../primitives/scales.js';
+import { linearScale, extent, ticks, epochOf, dayOf, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, type ChartDomain } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { useReencodePicker } from '../primitives/reencode.js';
@@ -101,6 +101,10 @@ export interface VizLineProps {
    * NOT a viewport and NOT a filter: unlike {@link VizLineProps.xDomain} it
    * drops no point — a domain says what the axis MEANS, and the points outside
    * it are simply drawn outside it.
+   *
+   * `transform` (protocol 1.6) is honoured on **y only**: this chart's x is a
+   * date, and a date has no logarithm. A mean a logarithm cannot place has no
+   * position, so it is not drawn and is counted in the chart's accessible name.
    */
   readonly domain?: ChartDomain;
   /**
@@ -241,14 +245,26 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // the frame's domain when a frame gave one, this chart's own extent otherwise (../primitives/scales.ts)
   const [elo, ehi] = domainOr(props.domain?.x, extent(dates, (d) => d.epoch, 0));
   const x = linearScale(elo, ehi, PAD.l, width - PAD.r);
-  const allMeans = series.flatMap((s) => s.points);
-  const [vlo, vhi] = domainOr(props.domain?.y, extent(allMeans, (p) => p.mean, 0.5));
+  // WHICH CURVE THE VALUE AXIS IS DRAWN ON. Only y: this chart's x is a DATE (epoch milliseconds)
+  // and a date has no logarithm, so `transform.x` is ignored here — the same law ChartDomain already
+  // keeps for a channel a chart has no quantitative scale for.
+  const yKind = props.domain?.transform?.y;
+  // a mean the transform cannot place has NO position: it is left out of the picture AND out of the
+  // extent, and COUNTED (`excludedNote`). Guarded on a transform being declared, so a chart with
+  // none filters nothing and stays byte-identical to the one that existed before this key.
+  const placed = yKind === undefined ? series : series.map((s) => ({ ...s, points: s.points.filter((p) => placeable(yKind, p.mean)) }));
+  const allMeans = placed.flatMap((s) => s.points);
+  const excluded = series.reduce((n, s) => n + s.points.length, 0) - allMeans.length;
+  // the chart's own breathing room, which a LOGARITHMIC axis takes none of (`padFor`); `extentFor` is
+  // LOG-AWARE about an empty `allMeans` (see its own doc) so an all-excluded series gets the
+  // placeholder decade rather than `extent`'s plain [0,1] default read as a real low bound to lift
+  const [vlo, vhi] = domainOr(props.domain?.y, extentFor(allMeans, (p) => p.mean, padFor(yKind, 0.5), yKind));
   const axes = props.axes ?? true;
   // ≥2 series carry a legend ABOVE the plot, never over it: the band's rows are laid out first and the plot starts
   // below them, so a legend of nine regions cannot sit on top of nine spiky lines (identity is never colour-alone).
   const legend = layoutLegend(series.map((s) => s.name ?? 'all'), width - PAD.l - PAD.r);
   const top = PAD.t + legend.height;
-  const y = linearScale(vlo, vhi, height - PAD.b, top);
+  const y = scaleFor(yKind)(vlo, vhi, height - PAD.b, top);
 
   /** The distinct data date NEAREST an epoch (dates is chronological, monotone in its argument). */
   const snapToDate = (epoch: number): { date: string; epoch: number } | null => {
@@ -305,7 +321,9 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // the chart's OWN y extent is padded by 0.5, so its ticks step inside that padding; a frame's
   // domain carries no padding of ours, so its ticks span exactly what the axis claims
   const yPad = props.domain?.y === undefined ? 0.5 : 0;
-  const yTickVals = ticks(vlo + yPad, vhi - yPad, 3);
+  // a LOGARITHMIC value axis is ticked at decades instead, read off the scale's own clamped domain
+  // (the span the marks were actually placed on) rather than the raw pair
+  const yTickVals = yKind === 'log' ? logTicks(y.domain[0], y.domain[1], 4) : ticks(vlo + yPad, vhi - yPad, 3);
 
   const seriesColor = (name: string | undefined): string => (colorOf ? colorOf(name) : 'var(--vzf-brand)');
   const showLegend = series.length >= 2;
@@ -317,7 +335,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
         className={`vzf-chart vzf-line${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={props.ariaLabel ?? `${yLabel} over ${xLabel}`}
+        aria-label={(props.ariaLabel ?? `${yLabel} over ${xLabel}`) + excludedNote(excluded)}
         {...handlers}
       >
         {/* axes frame — absent while the FRAME draws one merged guide for the stack */}
@@ -338,12 +356,12 @@ export function VizLine(props: VizLineProps): JSX.Element {
           <g key={`yt${i}`}>
             <line className="vzf-axis" x1={PAD.l - 4} y1={y(v)} x2={PAD.l} y2={y(v)} />
             <text className="vzf-tick" x={PAD.l - 8} y={y(v) + 3} textAnchor="end">
-              {Math.round(v * 10) / 10}
+              {yKind === 'log' ? logTickLabel(v) : Math.round(v * 10) / 10}
             </text>
           </g>
         ))}
-        {/* one path + dots per series */}
-        {series.map((s) => (
+        {/* one path + dots per series — the placeable points; see `placed` above */}
+        {placed.map((s) => (
           <g key={s.name ?? '__single__'} className="vzf-line-series">
             {s.points.length > 1 && (
               <path
@@ -377,6 +395,14 @@ export function VizLine(props: VizLineProps): JSX.Element {
         {/* interactive axis labels — the re-encode affordance rides the guide, so the frame owns both or neither */}
         {axes && <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />}
         {axes && <AxisLabel x={14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={-90} onOpen={openPicker} />}
+        {/* the words for what a transform could not place, IN THE PICTURE (`excludedNote` already
+            carries it into the accessible name for a screen reader). Bottom-right, clear of the
+            legend band the top carries for ≥2 series. */}
+        {excluded > 0 && (
+          <text className="vzf-excluded-note" x={width - PAD.r} y={height - PAD.b - 6} textAnchor="end">
+            {excludedNote(excluded).replace(/^ — /, '')}
+          </text>
+        )}
       </svg>
       <EncodingPicker
         open={pickerChannel !== null}

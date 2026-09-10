@@ -150,6 +150,15 @@ export interface VizNetworkProps {
    *
    * Still ONE px-per-unit for both axes whatever is passed: a node-link's x and
    * y are one spatial substrate, not two quantities (see {@link frameOf}).
+   *
+   * AND THAT IS WHY `transform` (protocol 1.6) IS NOT READ HERE. A logarithmic
+   * axis traverses its span by factors, so equal layout distances would land at
+   * unequal pixel distances depending on where in the span they sit — the exact
+   * thing the one-px-per-unit law exists to prevent, and it would turn a ring
+   * into a spiral. A node-link has no axis to make logarithmic: it has a
+   * substrate. This is the same answer {@link VizBar} gives for the same
+   * reason — the channel is not a quantitative scale, so the key is ignored
+   * rather than half-honoured.
    */
   readonly domain?: ChartDomain;
 }

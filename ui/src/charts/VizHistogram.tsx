@@ -46,7 +46,7 @@ import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedInterval } from '../contract/selection.js';
-import { linearScale, epochOf, dayOf, domainOr, type ChartDomain } from '../primitives/scales.js';
+import { epochOf, dayOf, domainOr, scaleFor, placeable, excludedNote, type ChartDomain, type ScaleKind } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { keyActivates } from '../primitives/pointSelect.js';
@@ -131,16 +131,32 @@ interface BinGeom extends HistogramBinDatum {
   readonly p1: number;
 }
 
-/** Positionable bins in edge order — a bin whose edge cannot be placed is skipped, never guessed. */
-function toGeoms(data: readonly HistogramBinDatum[]): BinGeom[] {
+/**
+ * Positionable bins in edge order — a bin whose edge cannot be placed is
+ * skipped, never guessed — and how many the TRANSFORM could not place.
+ *
+ * TWO KINDS OF SKIP, deliberately not summed. An unparseable edge is an ABSENCE
+ * the adapter already owns, and it is skipped as it always was. A bin a
+ * logarithm cannot place (an edge ≤ 0) is a cell the data speaks plainly about,
+ * so it is skipped WHOLE — an edge is half a bin, and half a bin is a guess —
+ * and COUNTED, the same law the library's fold keeps with
+ * `ResolvedDomain.excluded`. The count is only ever non-zero once a transform
+ * is declared, so a chart with none is byte-identical to the one before the key.
+ */
+function toGeoms(data: readonly HistogramBinDatum[], kind?: ScaleKind): { geoms: BinGeom[]; excluded: number } {
   const geoms: BinGeom[] = [];
+  let excluded = 0;
   for (const b of data) {
     const p0 = edgePos(b.x0);
     const p1 = edgePos(b.x1);
     if (p0 === null || p1 === null) continue;
+    if (kind !== undefined && (!placeable(kind, p0) || !placeable(kind, p1))) {
+      excluded += 1;
+      continue;
+    }
     geoms.push({ ...b, p0, p1 });
   }
-  return geoms;
+  return { geoms, excluded };
 }
 
 export function VizHistogram(props: VizHistogramProps): JSX.Element {
@@ -163,10 +179,22 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
   const field = boundField(encoding, 'x', props.field ?? 'value');
   const label = props.label ?? field;
 
-  const geoms = useMemo(() => toGeoms(data), [data]);
-  // the frame's domain when a frame gave one, the buckets' own span otherwise (../primitives/scales.ts)
-  const [d0, d1] = domainOr(props.domain?.x, [geoms.length > 0 ? geoms[0]!.p0 : 0, geoms.length > 0 ? geoms[geoms.length - 1]!.p1 : 1]);
-  const x = linearScale(d0, d1, PAD.l, width - PAD.r);
+  // WHICH CURVE THE BIN AXIS IS DRAWN ON. Only x: this chart's y is a COUNT read as a length from a
+  // baseline, and on a logarithmic axis a bar four times as long is not four times the value (the
+  // def door's law 11c, `zeroAnchorsChannel`) — so `transform.y` is ignored. Log-spaced bins on x
+  // are exactly the legitimate case that law leaves open.
+  const xKind = props.domain?.transform?.x;
+  const { geoms, excluded } = useMemo(() => toGeoms(data, xKind), [data, xKind]);
+  // the frame's domain when a frame gave one, the buckets' own span otherwise (../primitives/scales.ts).
+  // No bins at all under a LOGARITHMIC axis falls back to [0, 0] rather than the ordinary [0, 1]: every
+  // surviving `geom`'s edges are already positive (`toGeoms` filtered them), so [0, 1] here could only
+  // ever be this empty placeholder — and handed to `logDomain` as a real span, its `1` would be read as
+  // a genuine positive high bound instead of "nothing was placeable at all" (see `extentFor`'s doc).
+  const [d0, d1] = domainOr(
+    props.domain?.x,
+    geoms.length > 0 ? [geoms[0]!.p0, geoms[geoms.length - 1]!.p1] : xKind === 'log' ? [0, 0] : [0, 1],
+  );
+  const x = scaleFor(xKind)(d0, d1, PAD.l, width - PAD.r);
   const axes = props.axes ?? true;
 
   // the frame's ceiling when a frame gave one (never below 1, so a bin always has height), this chart's own
@@ -254,7 +282,7 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
         className={`vzf-chart vzf-histogram${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         role="group"
-        aria-label={props.ariaLabel ?? `histogram of ${label}`}
+        aria-label={(props.ariaLabel ?? `histogram of ${label}`) + excludedNote(excluded)}
         {...handlers}
       >
         {/* baseline */}
@@ -317,6 +345,13 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
         <BrushOverlay brush={brush} y={PAD.t} height={plot} />
         {/* the interactive x axis label — the re-encode affordance */}
         {axes && <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={label} channel="x" onOpen={openPicker} />}
+        {/* the words for what a transform could not place, IN THE PICTURE (`excludedNote` already
+            carries it into the accessible name for a screen reader) */}
+        {excluded > 0 && (
+          <text className="vzf-excluded-note" x={width - PAD.r} y={PAD.t - 6} textAnchor="end">
+            {excludedNote(excluded).replace(/^ — /, '')}
+          </text>
+        )}
       </svg>
       <EncodingPicker
         open={pickerChannel !== null}

@@ -237,3 +237,78 @@ describe('frameScaleOf — the type each scale kind folds from', () => {
     expect(JSON.parse(JSON.stringify(declared))).toEqual(declared);
   });
 });
+
+describe('the LOGARITHMIC axis — the fold honours the transform, excludes what it cannot place, and counts it', () => {
+  const log = { y: { mode: 'shared', transform: 'log' } } as unknown as Readonly<Record<string, ChannelResolution>>;
+
+  it('a POSITIVE column folds its own union, and the transform rides along so a renderer knows which scale to build', () => {
+    expect(frameDomains([layer('a', 'point', { y: ['number', [1, 1000]] })], log)['y']).toEqual({
+      mode: 'shared',
+      basis: 'table',
+      guide: 'merged',
+      transform: 'log',
+      scale: 'quantitative',
+      domain: [1, 1000],
+    });
+    // no transform declared: byte-identical to the fold that existed before, with no key at all
+    expect(frameDomains([layer('a', 'point', { y: ['number', [1, 1000]] })])['y']).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [1, 1000] });
+  });
+
+  it('a ZERO is EXCLUDED and COUNTED — the domain is the union over the positive cells', () => {
+    expect(frameDomains([layer('a', 'point', { y: ['number', [0, 2, 8]] })], log)['y']).toEqual({
+      mode: 'shared',
+      basis: 'table',
+      guide: 'merged',
+      transform: 'log',
+      scale: 'quantitative',
+      domain: [2, 8],
+      excluded: 1,
+    });
+  });
+
+  it('a NEGATIVE is excluded the same way, and the two counts add up to one number the reader can check', () => {
+    expect(frameDomains([layer('a', 'point', { y: ['number', [-5, 0, -1, 4, 40]] })], log)['y']).toMatchObject({ domain: [4, 40], excluded: 3 });
+    // an ABSENT cell is not an exclusion: it was never a value the transform was asked to place
+    expect(frameDomains([layer('a', 'point', { y: ['number', [null, undefined, NaN, 4, 40]] })], log)['y']).toEqual({
+      mode: 'shared',
+      basis: 'table',
+      guide: 'merged',
+      transform: 'log',
+      scale: 'quantitative',
+      domain: [4, 40],
+    });
+  });
+
+  it('a column with NOTHING positive folds NO domain — an invented one would be a drawn lie', () => {
+    expect(frameDomains([layer('a', 'point', { y: ['number', [0, -3, -9]] })], log)['y']).toBeUndefined();
+    // the same column drawn LINEARLY still folds: the exclusion is the transform's, not the data's
+    expect(frameDomains([layer('a', 'point', { y: ['number', [0, -3, -9]] })])['y']).toMatchObject({ domain: [-9, 0] });
+  });
+
+  it('the union is logarithmic ACROSS the layers — one axis, folded over every layer that binds it', () => {
+    const two = frameDomains([layer('a', 'point', { y: ['number', [10, 0, 5]] }), layer('b', 'line', { y: ['number', [-1, 5000]] })], log);
+    expect(two['y']).toMatchObject({ domain: [5, 5000] });
+  });
+
+  it('a logarithmic axis is NEVER anchored at zero — one predicate, asked once', () => {
+    expect(zeroPolicyFor(['bar'], undefined, 'log')).toBe(false);
+    expect(zeroPolicyFor(['line'], true, 'log')).toBe(false);
+    expect(zeroPolicyFor(['bar'], undefined, 'linear')).toBe(true);
+    // the def door refuses `zero: true` beside `transform: 'log'`, so the fold only ever meets it through a bug —
+    // and even then the floor is the data's own smallest positive value, never a 0 the scale cannot place
+    const pair = { y: { mode: 'shared', transform: 'log', zero: true } } as unknown as Readonly<Record<string, ChannelResolution>>;
+    expect(frameDomains([layer('a', 'point', { y: ['number', [3, 90]] })], pair)['y']).toMatchObject({ domain: [3, 90] });
+  });
+
+  it('an INDEPENDENT channel carries the transform too — each layer builds its own logarithmic scale', () => {
+    const independent = { color: { mode: 'independent', transform: 'log' } } as unknown as Readonly<Record<string, ChannelResolution>>;
+    expect(frameDomains([layer('a', 'point', { color: ['number', [1, 9]] })], independent)['color']).toEqual({ mode: 'independent', guide: 'per-layer', transform: 'log' });
+    expect(resolutionFor('color', independent)).toEqual({ mode: 'independent', guide: 'per-layer', transform: 'log' });
+  });
+
+  it('a LAYERLESS resolution — the arm with no mode — folds as shared, which is what one layer means', () => {
+    const axis = { y: { transform: 'log' } } as Readonly<Record<string, ChannelResolution>>;
+    expect(resolutionFor('y', axis)).toEqual({ mode: 'shared', domain: 'union', basis: 'table', guide: 'merged', transform: 'log' });
+    expect(frameDomains([layer('a', 'point', { y: ['number', [0, 1, 100]] })], axis)['y']).toMatchObject({ transform: 'log', domain: [1, 100], excluded: 1 });
+  });
+});

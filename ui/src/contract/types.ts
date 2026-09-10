@@ -71,8 +71,18 @@ import type { ResolvedChannel } from 'vizfootprint/def';
  * domain over the layers' values. It is one optional field a renderer may read
  * or decline (a 1.4 renderer ignores it and draws each layer on its own scale,
  * exactly as it did before the field existed), so the minor stays compatible.
+ * 1.6 ADDED THE LOGARITHMIC AXIS to that same field: a resolved channel may now
+ * carry `transform: 'linear' | 'log'` (which CURVE the axis is drawn on) and a
+ * quantitative domain may carry `excluded` (how many cells the transform could
+ * not place — a zero or a negative number has no logarithm). No new field and
+ * no new type: `ResolvedChannel` is the LIBRARY's own shape, imported here, so
+ * the two keys arrived on this contract for free the moment `vizfootprint/def`
+ * declared them — which is exactly why the axis has one owner. Both are
+ * optional and absent unless a def declared a transform, so a 1.5 renderer
+ * ignores them and draws the linear axis it always drew; the minor stays
+ * compatible.
  */
-export const RENDERER_PROTOCOL_VERSION = '1.5';
+export const RENDERER_PROTOCOL_VERSION = '1.6';
 
 export type { ChartEmission };
 export type { ResolvedChannel };
@@ -380,6 +390,17 @@ export interface RenderState {
    * makes a stack ONE picture, and is the frame renderer's promise.
    *
    * Absent = no frame was folded (a plain view, or a host that predates 1.5).
+   *
+   * PROTOCOL 1.6 — THE CURVE, AND WHAT IT COULD NOT PLACE. A channel may carry
+   * `transform: 'log'`, which says the axis is traversed by factors and not by
+   * differences; on the chart side `scaleFor` (`../primitives/scales.ts`) is
+   * the one owner of which scale builder that means. A quantitative domain may
+   * carry `excluded`: how many cells the transform could not place, because a
+   * logarithm has no answer for zero or a negative number. Which cells those
+   * are is DATA, not declaration, so the def door cannot refuse them — the fold
+   * excludes and COUNTS them instead, and the renderer is where a reader meets
+   * the number (`excludedNote`). A renderer that ignores both draws the linear
+   * axis it always drew, which is why 1.6 is a minor.
    */
   readonly frame?: Readonly<Record<string, ResolvedChannel>>;
 }
