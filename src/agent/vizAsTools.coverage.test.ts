@@ -36,13 +36,41 @@ describe('viz.why — object-form target coercion (coerceWhyTarget)', () => {
     expect(res).toEqual({ ok: false, missing: 'no-such-target', target: { kind: 'hypothesis', analysisId: 'correlation' } });
   });
 
+  it('{ kind: "selection" | "chart", viewId } coerce to the two view-shaped targets — the SAME words the library uses (R6)', async () => {
+    const port = freshPort();
+    // the tool is the consumer path: an agent asks in the library's own vocabulary and gets the library's own honest misses
+    expect(await port.call('viz.why', { target: { kind: 'selection', viewId: 'bar' } })).toEqual({
+      ok: false,
+      missing: 'nothing-live',
+      target: { kind: 'selection', viewId: 'bar' },
+    });
+    expect(await port.call('viz.why', { target: { kind: 'chart', viewId: 'scatter' } })).toEqual({
+      ok: false,
+      missing: 'declared-in-def',
+      target: { kind: 'chart', viewId: 'scatter' },
+    });
+    await port.call('viz.dispatch', { verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', intent: 'pick' });
+    const held = await port.call('viz.why', { target: { kind: 'selection', viewId: 'bar' } });
+    expect(get(held, 'targetKind')).toBe('selection');
+    const shown = await port.call('viz.why', { target: { kind: 'chart', viewId: 'scatter' } });
+    expect(get(shown, 'targetKind')).toBe('chart');
+    // the qualifier travels with the answer: the bar's pick FILTERS the scatter
+    expect(get(shown, 'commits')).toEqual([{ tier: 'viz', id: 's1', kind: 'declaring', response: 'filter' }]);
+    // a bare { viewId } names neither question, and the door does not guess
+    expect(get(await port.call('viz.why', { target: { viewId: 'bar' } }), 'reason')).toBe('PAYLOAD_INVALID');
+    // nor does an unknown kind
+    expect(get(await port.call('viz.why', { target: { kind: 'picture', viewId: 'bar' } }), 'reason')).toBe('PAYLOAD_INVALID');
+  });
+
   it('an object with neither column nor analysisId is a typed PAYLOAD_INVALID (falls through to the error arm)', async () => {
     const port = freshPort();
     const res = await port.call('viz.why', { target: {} });
     expect(res).toEqual({
       ok: false,
       reason: 'PAYLOAD_INVALID',
-      detail: "why requires target: a column name (string), { column }, { analysisId }, or { viewId, slot } for a view's words",
+      detail:
+        'why requires target: a column name (string), { column }, { analysisId }, { viewId, slot } for a view\'s words, ' +
+        '{ kind: "selection", viewId } for what a view holds, or { kind: "chart", viewId } for what a view shows',
     });
   });
 

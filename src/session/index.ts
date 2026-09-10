@@ -79,10 +79,13 @@ export type {
 // L6 `why(target)` result types (promoted P3-L6; owned by `../why`).
 export type {
   AgentEventFrame,
+  CommitResponse,
   CorrelationEnvelope,
   CrossTierMiss,
   CrossTierSlice,
   DroppedRef,
+  RelatedCommit,
+  RelatedCommitKind,
   Tier,
   TierCommit,
   TierCommitKind,

@@ -782,6 +782,65 @@ in `dropped`, each with `off-branch` (this log holds it, elsewhere) or
 say *"it is on another branch"* rather than the untrue *"the log does not hold
 it"*, the same courtesy `proseWorld` pays at the door.
 
+### why over a VIEW — what it holds, and what it shows
+
+Two more targets ride the same join (see [`../why/README.md`](../why/README.md)
+for the vocabulary and an example of each). What this session adds is how their
+**sources** are built — and each has its own anchor law, because the two
+questions are not the same question.
+
+**A selection's anchor is the commit that landed it.** `activeFilterCommits` at
+the cursor already knows which act put the live clause there, so nothing is
+re-derived. The input is the OTHER views' clauses live at **that** moment
+(`foldStateAt(records, landing.id)`, its own view removed) — the filter a walk
+was walked under, the brush a match was matched beneath. `origin` /
+`replaced` / `sibling` name what put it there: the commit an undo took back
+(`cause.revertOf`), the clear that made room for a saved picture
+(`cause.replacedBy`), and the rest of the batch (one `correlationId`) — a
+sibling is any act of the same GESTURE, so the analysis a tool call ran beside
+its select rides too.
+
+A view holding nothing answers **`nothing-live`**, which is deliberately neither
+of the two misses that already existed. `no-such-target` would say the chart is
+not here, and it is; `declared-in-def` would say the declaration holds the
+answer, and a selection has no declaration to fall back to. A person who cleared
+a brush should be told the brush is gone.
+
+**A chart's anchor is the newest commit on this branch that shaped it** — a
+clause reaching it, a binding on one of its channels, an arrangement of its own
+layout scope, an edit of a link into it, or its own brush. Nothing shaped it →
+`declared-in-def`: the chart looks the way the definition says, which is an
+answer and not a failure. Everything that shaped it rides as a related commit,
+plus, for each DERIVED column the encoding draws, the act that computed it — so
+*"why does this chart look like this"* reaches the arithmetic behind the column
+it plots.
+
+**Two things stand LATER than the anchor, and one rule admits them.** R5 says an
+answer may name only commits on the target's path, and two named lists break the
+shape of that rule without breaking the rule. A batch is ONE gesture, and
+`applySaved` lands its conditions in SEQUENCE, so whichever condition anchors an
+answer, the rest of its own gesture is *newer* than the anchor. A derived-column
+act is deliberately not an anchor candidate — it made a column, it did not shape
+a picture — so the act that computed a column a chart draws can be newer than
+the chart's newest shaping act. Both stand on this very lineage, so `lineageTail`
+admits exactly the commits the TARGET ITSELF named that this cursor's lineage
+holds later than the anchor (checked against `branchPath(cursor)`): a
+`correlationId` a caller reused, or a column act made, on a branch this cursor
+left still comes back `dropped: off-branch`. Telling a reader that the other half
+of their own gesture — or the arithmetic behind the colour in front of them —
+happened somewhere else would have been false.
+
+**Why the fold grew three commit-id twins** (`activeEncodingCommits`,
+`activeLayoutCommits`, `activeLinkCommits`). `activeFilterCommits` already
+proved the point: a fold that carries only VALUES cannot answer *which act did
+this*, and a chart's provenance would otherwise have had to walk the log a
+second time and re-derive an answer the fold was standing on. They are written
+in the same two places their value maps are — live by the door, and by
+`rebuildFold` on a seek — because a fold that is only correct after a seek is
+not a fold.
+
+Pinned by `view.why.test.ts`.
+
 ### Rebuilding at a cursor must rebuild everything derived from it
 
 `rebuildFold(cursor)` is the whole of the position-derived state. The audit,
@@ -792,8 +851,11 @@ with what a person would see if a row were missing:
 | `activeFilters`, `activeFilterCommits` | yes | correct — this is the fold |
 | `clearedFilters` (the `onClear` memory) | yes | correct; a link's policy would otherwise honour a clear from another branch |
 | `activeEncodings` | yes, re-seeded from each view's declared `initial` first | correct — a seek restores the axes that were live |
+| `activeEncodingCommits` | yes, and **not** re-seeded from `initial` | correct. A declared binding has no commit, and a fold that invented one would let `why({kind:'chart'})` name an act that never happened. |
 | `activeLayouts` | yes | correct — each path keeps its own arrangement |
+| `activeLayoutCommits` | yes | correct — the twin of the row above, last-wins per (scope, prop) |
 | `activeLinks` | yes | correct |
+| `activeLinkCommits` | yes, **deleted with** its value on an un-declare | correct — an un-declared edge shapes nothing, so it has no shaping commit either |
 | `activeProse`, `activeProposals` | yes, re-seeded from the def's words first | correct |
 | the derived-column registry (`runtime.derived`) | **not rebuilt — resolved** | correct, and better. It is a dashboard-scoped store; `derivedAt` resolves a name against `branchPath(cursor)` on every read. Visibility falls out of resolution rather than being a second mechanism beside it ([`../data/README.md`](../data/README.md), rule 3). Rebuilding it would be a second copy of the same truth. |
 | the effective-encoding memo, the `fits` memo | **not rebuilt — self-invalidating** | correct. Each is keyed by a `JSON.stringify` of exactly what it depends on (`activeEncodings`, `activeLinks`, the facets). `rebuildFold` replaces those, the key changes, the memo recomputes. Clearing them too would be belt-and-braces on a key that is already the belt. |

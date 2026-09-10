@@ -169,10 +169,16 @@ const DECLARE_ANALYSIS_DESCRIPTION =
   'their readiness.';
 
 const WHY_DESCRIPTION =
-  'Ask why a value is what it is: returns the MINIMAL cross-tier dependency set (declaring commit, ' +
+  'Ask why something is what it is: returns the MINIMAL cross-tier dependency set (declaring commit, ' +
   'input-selection commits, kernel stages) as machine-shaped {tier,id,kind} records — never prose. ' +
-  'target is a materialized column name (string) or { analysisId } for a scalar/test result. Tiers ' +
-  'that were not threaded come back as typed misses, never faked.';
+  'target is a materialized column name (string) or { analysisId } for a scalar/test result; ' +
+  '{ kind: "selection", viewId } asks why a view HOLDS what it holds (the commit that landed it, the ' +
+  'other views\' clauses live under it, and the undo / saved-picture clear / batch siblings that put ' +
+  'it there — a cleared view answers nothing-live); { kind: "chart", viewId } asks why a view SHOWS ' +
+  'what it shows (the last commit that shaped it, plus every reaching clause with its response, ' +
+  'binding, arrangement, link edit and the act that computed each derived column it draws — an ' +
+  'untouched chart answers declared-in-def). Tiers that were not threaded come back as typed misses, ' +
+  'never faked.';
 
 const FORK_DESCRIPTION =
   'Travel back: move the read-only cursor to a prior commit id and rebuild the visible selection there. ' +
@@ -354,7 +360,12 @@ const DECLARE_ANALYSIS_SCHEMA = {
 const WHY_SCHEMA = {
   type: 'object',
   properties: {
-    target: { description: 'A materialized column name (string), or { column } / { analysisId } for a scalar/test.' },
+    target: {
+      description:
+        'A materialized column name (string), or { column } / { analysisId } for a scalar/test, ' +
+        '{ viewId, slot } for a view\'s words, { kind: "selection", viewId } for what a view holds, ' +
+        'or { kind: "chart", viewId } for what a view shows.',
+    },
   },
   required: ['target'],
   additionalProperties: false,
@@ -370,8 +381,17 @@ function coerceWhyTarget(raw: unknown): WhyTarget | { error: string } {
     if (typeof o['viewId'] === 'string' && typeof o['slot'] === 'string' && (PROSE_SLOTS as readonly string[]).includes(o['slot'])) {
       return { kind: 'prose', viewId: o['viewId'], slot: o['slot'] as ProseSlot };
     }
+    // the two view-shaped kinds name themselves: a bare { viewId } is ambiguous
+    // between what a view HOLDS and what it SHOWS, and a door does not guess
+    if (typeof o['viewId'] === 'string' && (o['kind'] === 'selection' || o['kind'] === 'chart')) {
+      return { kind: o['kind'], viewId: o['viewId'] };
+    }
   }
-  return { error: 'why requires target: a column name (string), { column }, { analysisId }, or { viewId, slot } for a view\'s words' };
+  return {
+    error:
+      'why requires target: a column name (string), { column }, { analysisId }, { viewId, slot } for a view\'s words, ' +
+      '{ kind: "selection", viewId } for what a view holds, or { kind: "chart", viewId } for what a view shows',
+  };
 }
 
 const FORK_SCHEMA = {

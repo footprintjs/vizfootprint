@@ -82,7 +82,7 @@ import { clauseOfLive, clearAction, copyClause, kindOfAct, probeClause, selectio
 import { ANALYSIS_FIELD, ANNOTATION_FIELD, CHART_FIELD, DASHBOARD_ACTOR_META, LAYOUT_SOURCE_META, LAYOUT_VALUE_MAX, NOTE_ACTOR_META, RESERVED_PROBE_FIELDS, analysisActOf, chartViewId, encodingViewId, linkViewId, type AnalysisAct } from './namespaces.js';
 import { why } from '../why/index.js';
 import type { RuntimeSnapshot } from 'footprintjs';
-import type { AgentEventFrame, WhyResult, WhyTarget } from '../why/index.js';
+import type { AgentEventFrame, CommitResponse, RelatedCommit, WhyResult, WhyTarget } from '../why/index.js';
 import {
   ANALYSIS_VIEW_PREFIX,
   ANNOTATION_VIEW_PREFIX,
@@ -376,10 +376,13 @@ export interface InteractionSession {
   /**
    * The L6 cross-tier `why(target)` — the MINIMAL commit set the target depends
    * on, machine-shaped (viz declaring + input-selection commits, agent frame,
-   * kernel stages), or a typed miss. `target` names a materialised COLUMN or a
-   * SCALAR/hypothesis (analysis id). Pass a caller-harvested `agentEventLog`
-   * (sanctioned `EventMeta` frames) to thread the agent tier; omit it for an
-   * honest `no-agent-tier` miss.
+   * kernel stages), or a typed miss. FIVE target kinds, ONE join: a
+   * materialised COLUMN, a SCALAR/hypothesis (analysis id), a view's WORDS
+   * (`{viewId, slot}`), what a view HOLDS (`{kind:'selection', viewId}`) and
+   * what a view SHOWS (`{kind:'chart', viewId}`) — each with its own anchor
+   * law, all through one algorithm (`../why/README.md`). Pass a
+   * caller-harvested `agentEventLog` (sanctioned `EventMeta` frames) to thread
+   * the agent tier; omit it for an honest `no-agent-tier` miss.
    */
   why(target: WhyTarget, opts?: { agentEventLog?: readonly AgentEventFrame[] }): WhyResult;
 
@@ -615,14 +618,29 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly activeFilterCommits = new Map<string, string>();
   /** viewId → its current channel→field visual-encoding map (the `reencode` fold; SPEC Q6 8th verb). */
   private readonly activeEncodings = new Map<string, Record<string, string>>();
+  /**
+   * R4 — viewId → channel → the commit that landed the binding live there.
+   * Last-wins and cleared exactly like {@link activeEncodings}, and NOT seeded
+   * from the def: a declared `initial` binding has no commit, and a fold that
+   * invented one would let `why({kind:'chart'})` name a commit that never
+   * happened. The three commit-id twins exist for one reason —
+   * {@link activeFilterCommits} already proved a fold that carries only VALUES
+   * cannot answer "which act did this", so a chart's provenance would have had
+   * to re-derive it by walking the log a second time.
+   */
+  private readonly activeEncodingCommits = new Map<string, Record<string, string>>();
   /** Layer 4: the `link` edits at the cursor, one per edge id (folded by rebuildFold like the encodings). */
   private readonly activeLinks = new Map<string, LinkDecl>();
+  /** R4 — edge id → the commit that landed the live edit of that edge (the {@link activeLinks} twin). */
+  private readonly activeLinkCommits = new Map<string, string>();
   /** Layer 4 offers: when true, a select/filter must name a current asOf (the act door enforces what whats_here served). */
   private readonly requireOffer: boolean;
   /** Layer 4 `onClear`: each view whose last selection was CLEARED, with what it was and the clearing commit — a target edge's policy reads it. */
   private readonly clearedFilters = new Map<string, { readonly clause: PredicateClause; readonly clearedBy: string }>();
   /** layout scope → its current prop→value arrangement map (the LY-1 layout fold — see LAYOUT_SOURCE_META). */
   private readonly activeLayouts = new Map<string, Record<string, string>>();
+  /** R4 — layout scope → prop → the commit that landed the live arrangement (the {@link activeLayouts} twin). */
+  private readonly activeLayoutCommits = new Map<string, Record<string, string>>();
   /** The prose plane's fold: viewId → slot → record, seeded from the def, overridden by `describe` commits (null = the def's words again). */
   private readonly activeProse = new Map<string, Map<ProseSlot, ProseRecord>>();
   /** The proposal lane's fold: viewId → slot → the latest proposal (with the proposing commit's id). */
@@ -1120,6 +1138,18 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /**
+   * R4 — note the commit that landed one or more props on a keyed fold, last
+   * wins. WHY one helper for two maps: the encoding fold and the layout fold
+   * are the same shape (a key, a prop map, last-wins per prop), and both are
+   * written twice — once live by their door, once by `rebuildFold` on a seek.
+   * Four copies of one rule is how a fold and its commit-id twin drift apart.
+   */
+  private noteFoldCommits(into: Map<string, Record<string, string>>, key: string, props: readonly string[], commitId: string): void {
+    const current = into.get(key) ?? {};
+    into.set(key, Object.freeze({ ...current, ...Object.fromEntries(props.map((prop) => [prop, commitId])) }));
+  }
+
+  /**
    * Rebuild the resolved selection fold (active filters + their input-selection
    * commit ids) as the PURE fold of the branch path root→cursor. Only real view
    * probes fold into the selection; annotation/analysis/encoding commits (whose
@@ -1136,8 +1166,11 @@ class InteractionSessionImpl implements InteractionSession {
     this.activeFilterCommits.clear();
     this.clearedFilters.clear();
     this.activeEncodings.clear();
+    this.activeEncodingCommits.clear();
     this.activeLinks.clear();
+    this.activeLinkCommits.clear();
     this.activeLayouts.clear();
+    this.activeLayoutCommits.clear();
     for (const view of this.runtime.views.values()) {
       if (view.encoding?.initial) this.activeEncodings.set(view.viewId, Object.freeze({ ...view.encoding.initial }));
     }
@@ -1148,15 +1181,22 @@ class InteractionSessionImpl implements InteractionSession {
       if (rec.viewId.startsWith(LINK_VIEW_PREFIX)) {
         // Layer 4: an edited edge, last-wins per edge id; null un-declares it
         const id = rec.viewId.slice(LINK_VIEW_PREFIX.length);
-        if (rec.value === null) this.activeLinks.delete(id);
-        else this.activeLinks.set(id, rec.value as LinkDecl);
+        if (rec.value === null) {
+          this.activeLinks.delete(id);
+          this.activeLinkCommits.delete(id); // R4: the commit-id twin is cleared WITH its value — an un-declared edge shapes nothing
+        } else {
+          this.activeLinks.set(id, rec.value as LinkDecl);
+          this.activeLinkCommits.set(id, rec.id);
+        }
         continue;
       }
       if (rec.viewId.startsWith(ENCODING_VIEW_PREFIX)) {
         const targetViewId = rec.viewId.slice(ENCODING_VIEW_PREFIX.length);
         const current = this.activeEncodings.get(targetViewId) ?? {};
         // a binding set (the `*` marker) carries several channels in one commit
-        this.activeEncodings.set(targetViewId, Object.freeze(isEncodingSet(rec) ? { ...current, ...encodingSetOf(rec) } : { ...current, [rec.field]: String(rec.value) }));
+        const landedChannels = isEncodingSet(rec) ? encodingSetOf(rec) : { [rec.field]: String(rec.value) };
+        this.activeEncodings.set(targetViewId, Object.freeze({ ...current, ...landedChannels }));
+        this.noteFoldCommits(this.activeEncodingCommits, targetViewId, Object.keys(landedChannels), rec.id); // R4
         continue;
       }
       // LY-1: the layout fold — last-wins per (scope, prop), exactly like the
@@ -1172,6 +1212,7 @@ class InteractionSessionImpl implements InteractionSession {
         const scope = rec.viewId.slice(LAYOUT_VIEW_PREFIX.length);
         const current = this.activeLayouts.get(scope) ?? {};
         this.activeLayouts.set(scope, Object.freeze({ ...current, [rec.field]: String(rec.value) }));
+        this.noteFoldCommits(this.activeLayoutCommits, scope, [rec.field], rec.id); // R4
         continue;
       }
       if (!this.holdsView(rec.viewId)) continue; // skip annotation:/analysis: commits (a layer address is a view's place, and folds)
@@ -2577,8 +2618,13 @@ class InteractionSessionImpl implements InteractionSession {
       cause: stamped,
     });
     this.landed(record);
-    if (value === null) this.activeLinks.delete(id);
-    else this.activeLinks.set(id, value);
+    if (value === null) {
+      this.activeLinks.delete(id);
+      this.activeLinkCommits.delete(id); // R4
+    } else {
+      this.activeLinks.set(id, value);
+      this.activeLinkCommits.set(id, record.id);
+    }
     const linked = applyLinkOverrides(this.runtime.links, this.activeLinks).edges.find((e) => e.id === id);
     return { ok: true, verb: 'link', intent, commit: record, ...(linked !== undefined ? { linked } : {}) };
   }
@@ -3061,6 +3107,7 @@ class InteractionSessionImpl implements InteractionSession {
     });
     this.landed(record);
     this.activeEncodings.set(viewId, Object.freeze({ ...(this.activeEncodings.get(viewId) ?? {}), ...next }));
+    this.noteFoldCommits(this.activeEncodingCommits, viewId, Object.keys(next), record.id); // R4: live, for the same reason activeFilterCommits is — a fold only right after a seek is not a fold
     return record;
   }
 
@@ -3554,6 +3601,7 @@ class InteractionSessionImpl implements InteractionSession {
     this.landed(record);
     const current = this.activeLayouts.get(scope) ?? {};
     this.activeLayouts.set(scope, Object.freeze({ ...current, [field]: value }));
+    this.noteFoldCommits(this.activeLayoutCommits, scope, [field], record.id); // R4
     return { ok: true, verb: 'navigate', intent, navigatedTo: viewId, commit: record };
   }
 
@@ -4304,6 +4352,10 @@ class InteractionSessionImpl implements InteractionSession {
   // ── L6 why(target) ─────────────────────────────────────────────────────────────
   why(target: WhyTarget, opts: { agentEventLog?: readonly AgentEventFrame[] } = {}): WhyResult {
     if (target.kind === 'prose') return this.whyProse(target, opts);
+    // R1: the two view-shaped targets ride the SAME join below — only the way
+    // this session builds their sources differs, and each has its own anchor law.
+    if (target.kind === 'selection') return this.whySelection(target, opts);
+    if (target.kind === 'chart') return this.whyChart(target, opts);
     const prov = target.kind === 'column'
       ? this.whyByColumn.get(this.slotForColumn(target.column) ?? target.column)
       : this.provenanceForAnalysis(target.analysisId, this._cursor);
@@ -4375,6 +4427,209 @@ class InteractionSessionImpl implements InteractionSession {
       ...(quoted?.snapshot ? { kernelSnapshot: quoted.snapshot } : {}),
       ...(quoted?.kernelKey !== undefined ? { kernelKey: quoted.kernelKey } : {}),
       ...(quoted?.fdrStep ? { fdrStep: quoted.fdrStep } : {}),
+      ...(opts.agentEventLog ? { agentEventLog: opts.agentEventLog } : {}),
+    });
+  }
+
+  /**
+   * `why({kind:'selection'})` — R2: the anchor is the commit that LANDED the
+   * view's live selection. The input is the OTHER views' clauses live at THAT
+   * moment (the neighbourhood a walk was walked under, the filter a match was
+   * matched beneath) — read at the landing's own position, never the reader's
+   * (R5) — and `origin` / `replaced` / `sibling` name the act that put it there.
+   *
+   * A view holding nothing is not a view with an empty selection: a cleared
+   * brush is gone, so there is no act to be the reason for.
+   */
+  private whySelection(target: Extract<WhyTarget, { kind: 'selection' }>, opts: { agentEventLog?: readonly AgentEventFrame[] }): WhyResult {
+    const anchorId = this.activeFilterCommits.get(target.viewId);
+    if (anchorId === undefined) {
+      // Two different sentences on purpose: a view that is not on this
+      // dashboard cannot hold a selection at all, and a view that is here and
+      // holds nothing has none AT THIS CURSOR. They send a reader to two
+      // different places — one to the definition, one to a seek.
+      return { ok: false, missing: this.holdsView(target.viewId) ? 'nothing-live' : 'no-such-target', target };
+    }
+    // the fold names a commit of THIS log: every live clause was landed by a door that records its commit beside it
+    const landing = this.log.records.find((r) => r.id === anchorId)!;
+    const relatives = this.selectionRelatives(landing);
+    const path = [...this.branchPath(landing.id), ...this.lineageTail(landing.id, relatives)];
+    const inputSelectionCommitIds = [...foldStateAt(this.log.records, landing.id).values()].flatMap((e) =>
+      e.kind === 'selection' && e.viewId !== target.viewId ? [e.commitId] : [],
+    );
+    return why(target, {
+      vizRecords: path,
+      // never admitted — only so a dropped id can say "another branch" instead of the untrue "the log does not hold it"
+      commitsElsewhere: commitsElsewhereThan(this.log.records, path),
+      declaringCommitId: landing.id,
+      inputSelectionCommitIds,
+      relatedCommits: relatives,
+      ...(landing.correlationId !== undefined ? { correlationId: landing.correlationId } : {}),
+      ...(opts.agentEventLog ? { agentEventLog: opts.agentEventLog } : {}),
+    });
+  }
+
+  /**
+   * R5 — the commits the TARGET ITSELF named that stand on this cursor's
+   * lineage but LATER than the anchor. One rule, because two targets need it
+   * for the same reason:
+   *
+   *   - a BATCH is ONE gesture, and `applySaved` lands its conditions in
+   *     SEQUENCE, so whichever condition anchors an answer, the rest of the
+   *     batch is newer than it;
+   *   - a DERIVED COLUMN is deliberately not an anchor candidate (it made a
+   *     column, it did not shape a picture), so the act that computed one can
+   *     be newer than the chart's newest shaping act.
+   *
+   * In both cases those commits stand on this very lineage — not another
+   * branch — and dropping them as `off-branch` would tell a reader that their
+   * own act happened somewhere else, which is false. The lineage check is what
+   * keeps R5 intact: an id from a branch this cursor has LEFT stays out, and
+   * `why()` reports it dropped.
+   */
+  private lineageTail(anchorId: string, named: readonly RelatedCommit[]): CommitRecord[] {
+    const ids = new Set(named.map((c) => c.id));
+    if (ids.size === 0) return []; // the target named nothing, so the anchor's own path is the whole world
+    const ancestry = new Set(this.branchPath(anchorId).map((r) => r.id));
+    return this.branchPath(this._cursor).filter((r) => ids.has(r.id) && !ancestry.has(r.id));
+  }
+
+  /**
+   * R2 — what PUT this selection here. An undo names the commit it reverted
+   * (`origin`, from `cause.revertOf`); everything else that landed in the same
+   * batch — one `correlationId`, e.g. one `applySaved` landing several
+   * conditions, or the analysis a tool call ran beside its select: a sibling is
+   * any act of the same GESTURE, not only a selection — rides as `sibling`,
+   * except a clear that was only making room
+   * for a saved picture (`cause.replacedBy`), which gets the more specific
+   * `replaced`. The correlationId threads the agent tier here exactly as it
+   * does for every other target: a batch and a tool call share one key.
+   */
+  private selectionRelatives(landing: CommitRecord): RelatedCommit[] {
+    const out: RelatedCommit[] = [];
+    if (landing.cause.revertOf !== undefined) out.push({ id: landing.cause.revertOf, kind: 'origin' });
+    if (landing.correlationId === undefined) return out; // nothing threads a batch, so this selection landed alone
+    for (const rec of this.log.records) {
+      if (rec.id === landing.id || rec.correlationId !== landing.correlationId) continue;
+      out.push({ id: rec.id, kind: rec.cause.replacedBy !== undefined ? 'replaced' : 'sibling' });
+    }
+    return out;
+  }
+
+  /**
+   * R3 — the clauses that REACH this view through the link graph, each named by
+   * the commit that landed it and qualified by what the edge does with it here.
+   *
+   * WHY no `at` parameter: the reaching set is read from the LIVE fold, and the
+   * live fold IS the cursor — `rebuildFold` is what a seek does. A CLEARED
+   * source that still reaches (its edge's `onClear` says `leave` or
+   * `excludeAll`) is named by its clearing commit: that is the act that shaped
+   * what this view shows.
+   */
+  private reachingCommits(viewId: string): RelatedCommit[] {
+    return this.clausesFor(viewId).flatMap((c) => {
+      // the two maps are disjoint by construction (`clausesReaching` lists a
+      // source that is selecting again only once, from the live map), so the
+      // cleared record is asked FIRST and answers for itself
+      const cleared = this.clearedFilters.get(c.from);
+      const commitId = cleared === undefined ? this.activeFilterCommits.get(c.from) : cleared.clearedBy;
+      /* v8 ignore next -- clausesReaching draws only from those two maps, and a live clause always carries its commit; the guard keeps the type honest */
+      if (commitId === undefined) return [];
+      // `clausesReaching` never yields `none`/`follow` (an edge carrying either
+      // does not reach a consumer), so the response is always one of the four
+      // qualifiers — asserted here rather than re-checked with a dead arm.
+      return [{ id: commitId, kind: 'reaching-clause' as const, response: c.response as CommitResponse }];
+    });
+  }
+
+  /**
+   * R3 — every commit that shaped what `viewId` SHOWS, in the order a reader
+   * walks them: the clauses reaching it, the bindings on its channels, the
+   * arrangements of its own layout scope, the edits of links into it, and the
+   * act that COMPUTED each derived column its encoding draws (so "why does this
+   * chart look like this" reaches the arithmetic behind the column it plots).
+   *
+   * The derived-column entries are the one list that may point OFF this branch
+   * — a column computed on a path this cursor has left (see `slotForColumn`) —
+   * and `why()` drops those as `off-branch` rather than crediting an act this
+   * picture never saw.
+   */
+  private shapingCommits(viewId: string): RelatedCommit[] {
+    const out: RelatedCommit[] = [...this.reachingCommits(viewId)];
+    for (const commitId of new Set(Object.values(this.activeEncodingCommits.get(viewId) ?? {}))) out.push({ id: commitId, kind: 'binding' });
+    for (const [scope, props] of this.activeLayoutCommits) {
+      // A layout scope is a free-form string (`dashboard`, `sheet:<viewId>`), so
+      // the view's OWN arrangement is the scope that IS its id or ENDS in it.
+      // The cockpit's `dashboard` scope is nobody's chart in particular.
+      if (scope !== viewId && !scope.endsWith(`:${viewId}`)) continue;
+      for (const commitId of new Set(Object.values(props))) out.push({ id: commitId, kind: 'arrangement' });
+    }
+    for (const [edgeId, decl] of this.activeLinks) {
+      if (decl.target !== viewId) continue; // an edge OUT of this view shapes the other end's picture, not this one
+      const commitId = this.activeLinkCommits.get(edgeId);
+      /* v8 ignore next -- the two link maps are written and cleared together (in `rebuildFold` and in `doLink`), so a live edit always has its commit */
+      if (commitId === undefined) continue;
+      out.push({ id: commitId, kind: 'link-edit' });
+    }
+    // the same slot-then-name lookup `why({kind:'column'})` uses — one resolver for "which act made this column", never a second spelling
+    for (const column of Object.values(this.viewEncodings(viewId))) {
+      const prov = this.whyByColumn.get(this.slotForColumn(column) ?? column);
+      if (prov !== undefined) out.push({ id: prov.declaringCommitId, kind: 'derived-column' });
+    }
+    return out;
+  }
+
+  /**
+   * `why({kind:'chart'})` — R3: the anchor is the LAST commit on this branch
+   * that shaped what the view shows, and every commit that shaped it rides as a
+   * related one. Nothing shaped it → `declared-in-def`: the chart looks the way
+   * the definition says, which is an honest answer and not a failure.
+   *
+   * The kernel tier is deliberately left an honest miss: a chart may draw
+   * SEVERAL derived columns, so there is no one anchor key — the arithmetic is
+   * reached by asking `why({kind:'column'})` about the column named here.
+   */
+  private whyChart(target: Extract<WhyTarget, { kind: 'chart' }>, opts: { agentEventLog?: readonly AgentEventFrame[] }): WhyResult {
+    if (!this.holdsView(target.viewId)) return { ok: false, missing: 'no-such-target', target };
+    const shaping = this.shapingCommits(target.viewId);
+    const own = this.activeFilterCommits.get(target.viewId);
+    // The view's own brush is DRAWN on the view, so it shapes the picture. It
+    // rides as `input-selection` — the existing word for a selection that
+    // formed an input — rather than a sixth kind saying the same thing.
+    const inputSelectionCommitIds = own === undefined ? [] : [own];
+    // "the LAST commit that shaped it" is a POSITION on this branch: the newest
+    // candidate by its place root→cursor. A derived-column act is deliberately
+    // not a candidate — it made a column, it did not shape this picture, and it
+    // may not even be on this branch.
+    const position = new Map(this.branchPath(this._cursor).map((r, i) => [r.id, i] as const));
+    let anchorId: string | undefined;
+    let newest = -1;
+    for (const id of [...shaping.filter((c) => c.kind !== 'derived-column').map((c) => c.id), ...inputSelectionCommitIds]) {
+      // every candidate came from the fold of THIS branch path, so it has a place on it
+      const at = position.get(id)!;
+      if (at > newest) {
+        newest = at;
+        anchorId = id;
+      }
+    }
+    if (anchorId === undefined) return { ok: false, missing: 'declared-in-def', target };
+    const landing = this.log.records.find((r) => r.id === anchorId)!; // the anchor came off this branch path, so the log holds it
+    // the derived-column acts are the one list that may stand LATER than the
+    // anchor on this very lineage, so the path admits its tail — see `lineageTail`
+    const path = [...this.branchPath(landing.id), ...this.lineageTail(landing.id, shaping)];
+    // the anchor is reported ONCE (one row per commit), so when it is itself a
+    // reaching clause its qualifier travels on the anchor row — see
+    // `WhySources.declaringResponse`
+    const anchorResponse = shaping.find((c) => c.id === anchorId && c.kind === 'reaching-clause')?.response;
+    return why(target, {
+      vizRecords: path,
+      // never admitted — only so a dropped id can say "another branch" instead of the untrue "the log does not hold it"
+      commitsElsewhere: commitsElsewhereThan(this.log.records, path),
+      declaringCommitId: landing.id,
+      ...(anchorResponse !== undefined ? { declaringResponse: anchorResponse } : {}),
+      inputSelectionCommitIds,
+      relatedCommits: shaping,
+      ...(landing.correlationId !== undefined ? { correlationId: landing.correlationId } : {}),
       ...(opts.agentEventLog ? { agentEventLog: opts.agentEventLog } : {}),
     });
   }

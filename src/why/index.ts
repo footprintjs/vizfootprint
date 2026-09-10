@@ -15,10 +15,13 @@ export { resolveVizTier, resolveAgentTier, resolveKernelTier, isMiss } from './r
 export type { KernelResolution } from './resolvers.js';
 export type {
   AgentEventFrame,
+  CommitResponse,
   CorrelationEnvelope,
   CrossTierMiss,
   CrossTierSlice,
   DroppedRef,
+  RelatedCommit,
+  RelatedCommitKind,
   Tier,
   TierCommit,
   TierCommitKind,

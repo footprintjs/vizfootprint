@@ -5,12 +5,17 @@
  * never prose.
  *
  * Generalised off the spike's hard-coded `'rowCount'` (adjudication C2): the
- * same `why()` answers a materialised COLUMN (`kind:'column'`) and a
- * SCALAR/hypothesis ledger row (`kind:'hypothesis'`) — two proven target kinds.
+ * same `why()` answers a materialised COLUMN (`kind:'column'`), a
+ * SCALAR/hypothesis ledger row (`kind:'hypothesis'`), a view's WORDS
+ * (`kind:'prose'`), what a view HOLDS (`kind:'selection'`) and what it SHOWS
+ * (`kind:'chart'`) — five target kinds, one join. Each kind's ANCHOR law (which
+ * commit the answer is rooted at, and therefore whose branch it may name) is
+ * the caller's: it arrives in {@link WhySources}. See `./README.md`.
  */
 
 import { isMiss, resolveAgentTier, resolveKernelTier, resolveVizTier } from './resolvers.js';
 import type {
+  CommitResponse,
   CrossTierMiss,
   CrossTierSlice,
   DroppedRef,
@@ -19,6 +24,25 @@ import type {
   WhySources,
   WhyTarget,
 } from './types.js';
+
+/**
+ * The anchor key a target's kernel slice roots at, when the caller named none.
+ * A selection and a picture are the VIEW's, not a column's — there is no state
+ * key under them, so the view's own id names the answer.
+ */
+function anchorKeyOf(target: WhyTarget): string {
+  switch (target.kind) {
+    case 'column':
+      return target.column;
+    case 'hypothesis':
+      return target.analysisId;
+    case 'prose':
+      return `${target.viewId}.${target.slot}`;
+    case 'selection':
+    case 'chart':
+      return target.viewId;
+  }
+}
 
 /**
  * "Why is this value what it is?" — traverse viz → agent → kernel via the
@@ -34,7 +58,10 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
   const viz = resolveVizTier(sources.correlationId, sources.declaringCommitId, sources.vizRecords);
   if (isMiss(viz)) return { ok: false, missing: 'no-such-target', target };
 
-  const commits: TierCommit[] = [{ tier: 'viz', id: viz.commitId, kind: 'declaring' }];
+  // the anchor keeps its qualifier when it has one (see WhySources.declaringResponse); absent, the row is byte-identical to before
+  const commits: TierCommit[] = [
+    { tier: 'viz', id: viz.commitId, kind: 'declaring', ...(sources.declaringResponse !== undefined ? { response: sources.declaringResponse } : {}) },
+  ];
   const misses: CrossTierMiss[] = [];
   // A commit the target named that this answer may not report as provenance is
   // DROPPED — that law stands (see DroppedRef) — but it is no longer dropped
@@ -45,7 +72,7 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
   // named in wins — a commit named twice is one commit, whether it was honoured
   // or dropped, so `seen` records the DECISION about an id, not just an entry.
   const seen = new Set<string>([viz.commitId]);
-  const addViz = (id: string, kind: TierCommit['kind']): void => {
+  const addViz = (id: string, kind: TierCommit['kind'], response?: CommitResponse): void => {
     if (seen.has(id)) return; // already decided under an earlier role — not a second loss
     seen.add(id);
     if (!sources.vizRecords.some((r) => r.id === id)) {
@@ -53,15 +80,16 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
       dropped.push({ id, kind, reason: elsewhere.has(id) ? 'off-branch' : 'unverified' });
       return;
     }
-    commits.push({ tier: 'viz', id, kind });
+    // the qualifier rides only when the caller gave one — an absent key keeps every pre-existing answer byte-identical
+    commits.push({ tier: 'viz', id, kind, ...(response !== undefined ? { response } : {}) });
   };
 
   // Input-selection viz commits — the selects/filters that formed the analysis input.
   for (const selId of sources.inputSelectionCommitIds) addViz(selId, 'input-selection');
 
-  // Prose: the commits the words themselves name — a proposal accepted, a basis
-  // stated, a span's citation.
-  for (const rel of sources.relatedCommits ?? []) addViz(rel.id, rel.kind);
+  // The commits the TARGET names — a proposal accepted, a basis stated, a span's
+  // citation; the act that put a selection there; everything that shaped a chart.
+  for (const rel of sources.relatedCommits ?? []) addViz(rel.id, rel.kind, rel.response);
 
   // ── agent ─────────────────────────────────────────────────────────────────────
   const agentRes = resolveAgentTier(sources.correlationId, sources.agentEventLog);
@@ -90,7 +118,7 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
     });
   }
 
-  const key = sources.kernelKey ?? (target.kind === 'column' ? target.column : target.kind === 'hypothesis' ? target.analysisId : `${target.viewId}.${target.slot}`);
+  const key = sources.kernelKey ?? anchorKeyOf(target);
   const threaded = sources.correlationId !== undefined && agent !== null;
 
   return {

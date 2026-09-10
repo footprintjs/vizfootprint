@@ -24,6 +24,9 @@
 import type { ProseSlot } from '../prose/types.js';
 import type { CommitRecord } from '../log/index.js';
 import type { FdrStep } from '../fdr/index.js';
+// type-only: the response vocabulary is the LINK layer's (one owner), so a fifth
+// response there widens this type instead of being cast into a lie here
+import type { LINK_RESPONSES } from '../links/index.js';
 
 // Re-exported so downstream types resolve without a footprintjs import here.
 import type { RuntimeSnapshot } from 'footprintjs';
@@ -31,15 +34,42 @@ import type { RuntimeSnapshot } from 'footprintjs';
 /** The three provenance tiers a value can depend on. */
 export type Tier = 'viz' | 'agent' | 'kernel';
 
-/** The ROLE a commit plays in a target's provenance (machine tag, never prose). */
+/**
+ * The ROLE a commit plays in a target's provenance (machine tag, never prose),
+ * documented in the order a reader walks them: the anchor, its inputs, the two
+ * other tiers, then the roles each target kind adds.
+ */
 export type TierCommitKind =
   | 'declaring' // the viz commit that declared/produced the target
-  | 'input-selection' // a viz select/filter that formed the analysis input
+  | 'input-selection' // a viz select/filter that formed the analysis input — and, for a chart, the view's OWN live clause (it draws its own brush)
   | 'kernel-stage' // a footprintjs stage the target's value flows through
   | 'agent-frame' // the agent tool-call that dispatched the run
   | 'proposal' // prose: the proposing commit the words were accepted from
   | 'basis' // prose: the commit the words state they were written at
-  | 'ref'; // prose: a commit the words cite by a span
+  | 'ref' // prose: a commit the words cite by a span
+  | 'reaching-clause' // chart: a selection on ANOTHER view that reaches this one through the link graph — the {@link TierCommit.response} says what it does here
+  | 'binding' // chart: a `reencode` that changed which column one of this view's channels draws
+  | 'arrangement' // chart: a layout note on this view's own scope (a sheet's sort, a preset)
+  | 'link-edit' // chart: an edit of a link edge INTO this view (its response, mapping or onClear)
+  | 'derived-column' // chart: the act that COMPUTED a column this view's encoding draws — so "why does it look like this" reaches the arithmetic
+  | 'origin' // selection: the commit an undo reverted to put this selection back (`cause.revertOf`)
+  | 'replaced' // selection: the clear that made room for this selection when a saved picture was applied (`cause.replacedBy`)
+  | 'sibling'; // selection: another commit of the same batch — one `correlationId`, e.g. one `applySaved` landing several conditions
+
+/**
+ * The responses a reaching selection can carry into a consumer — today
+ * `filter | highlight | navigate | mirror`. WHY a FIELD and not four kinds: a
+ * clause reaching a chart plays ONE role (`reaching-clause`) with four
+ * meanings — filtering its rows is not the same act as lighting them up — and
+ * a role that needs a qualifier takes a qualifier.
+ *
+ * Derived from `LINK_RESPONSES` rather than spelled again: `none` is excluded
+ * by construction (an edge carrying it does not reach a consumer at all, and
+ * nor does an encoding edge's `follow`, which is not a selection response), and
+ * a fifth link response widens this type the day it is added instead of being
+ * quietly cast into a value the type says is impossible.
+ */
+export type CommitResponse = Exclude<(typeof LINK_RESPONSES)[number], 'none'>;
 
 /** One commit in the composed cross-tier set. Pure ids + tier/role tags. */
 export interface TierCommit {
@@ -50,6 +80,8 @@ export interface TierCommit {
   readonly stageId?: string;
   /** The role this commit plays. */
   readonly kind: TierCommitKind;
+  /** The qualifier a `reaching-clause` needs — what the receiving view DOES with the selection. Absent on every other role. */
+  readonly response?: CommitResponse;
 }
 
 /**
@@ -89,12 +121,38 @@ export interface CorrelationEnvelope {
   readonly kernel?: { readonly snapshot: RuntimeSnapshot; readonly key: string };
 }
 
-/** The two proven target kinds (C2). `column` = a materialised column; `hypothesis` = a scalar/ledger row. */
+/**
+ * The five target kinds one `why()` answers. `column` = a materialised column;
+ * `hypothesis` = a scalar/ledger row (C2); `prose` = a view's words;
+ * `selection` and `chart` = what a view HOLDS and what a view SHOWS.
+ *
+ * R1: the two view-shaped targets ride the SAME join — nothing here is a second
+ * algorithm. What differs is how the session builds {@link WhySources} for them:
+ * each kind has its own ANCHOR law, stated at the target and in
+ * `src/why/README.md`.
+ */
 export type WhyTarget =
   | { readonly kind: 'column'; readonly column: string }
   | { readonly kind: 'hypothesis'; readonly analysisId: string }
   /** A view's words: the `describe` commit that landed them, the selections they were written under, the proposal they were accepted from, the commits they cite, and the analysis they quote. */
-  | { readonly kind: 'prose'; readonly viewId: string; readonly slot: ProseSlot };
+  | { readonly kind: 'prose'; readonly viewId: string; readonly slot: ProseSlot }
+  /**
+   * What a view HOLDS: its live selection. The anchor is the commit that LANDED
+   * it (R2); the other views' clauses live at that moment are the input (the
+   * neighbourhood a walk was taken under); `origin` / `replaced` / `sibling`
+   * name the act that put it there. No live clause at this cursor → an honest
+   * `nothing-live` — a cleared selection is not a selection.
+   */
+  | { readonly kind: 'selection'; readonly viewId: string }
+  /**
+   * What a view SHOWS: its picture. The anchor is the LAST commit on the branch
+   * that shaped it (R3) — a reaching clause, a binding, an arrangement, a link
+   * edit, or its own live clause — and every one of those rides as a related
+   * commit, together with the act that computed each derived column the
+   * encoding draws. Nothing shaped it → `declared-in-def`: the chart looks the
+   * way the definition says.
+   */
+  | { readonly kind: 'chart'; readonly viewId: string };
 
 /** Documented registry gaps the answer surfaces honestly (never faked). */
 export interface WhyFlags {
@@ -133,6 +191,20 @@ export interface DroppedRef {
    * a caller that supplied only the branch and not the rest of the log.
    */
   readonly reason: 'off-branch' | 'unverified';
+}
+
+/**
+ * The roles a RELATED commit may be named in: every kind EXCEPT the four
+ * `why()` assigns itself — `declaring` (it resolves the anchor),
+ * `input-selection` (it reads that list), and the two off-viz tiers.
+ */
+export type RelatedCommitKind = Exclude<TierCommitKind, 'declaring' | 'input-selection' | 'kernel-stage' | 'agent-frame'>;
+
+/** One commit the target names, with the role it is named in and (for a reaching clause) its qualifier. */
+export interface RelatedCommit {
+  readonly id: string;
+  readonly kind: RelatedCommitKind;
+  readonly response?: CommitResponse;
 }
 
 /** Per-tier honest miss — an unthreaded/unresolvable tier, typed, never dropped. */
@@ -201,14 +273,19 @@ export interface CrossTierSlice {
 
 /**
  * No provenance to walk. `no-such-target`: the target could not be located in
- * the session (an unknown column / analysis / slot). `declared-in-def`: the
- * target EXISTS — a view's words are the declaration's own — but no commit
- * landed them. A consumer must not read `ok: false` as "unknown target"
- * without looking at `missing`.
+ * the session (an unknown column / analysis / slot / view). `declared-in-def`:
+ * the target EXISTS — a view's words, or its picture, are the declaration's
+ * own — but no commit landed them. `nothing-live`: the view is here and holds
+ * NOTHING at this cursor, so there is no selection to be the reason for; it is
+ * kept apart from `declared-in-def` because a selection has no declaration to
+ * fall back to, and apart from `no-such-target` because the view is real — a
+ * reader who cleared a brush should be told the brush is gone, not that the
+ * view does not exist. A consumer must not read `ok: false` as "unknown
+ * target" without looking at `missing`.
  */
 export interface WhyTargetMiss {
   readonly ok: false;
-  readonly missing: 'no-such-target' | 'declared-in-def';
+  readonly missing: 'no-such-target' | 'declared-in-def' | 'nothing-live';
   readonly target: WhyTarget;
 }
 
@@ -223,6 +300,19 @@ export interface WhySources {
   readonly vizRecords: readonly CommitRecord[];
   /** The viz commit that declared the target (the analysis's landed commit / kernel's originating brush). */
   readonly declaringCommitId: string;
+  /**
+   * The QUALIFIER for the anchor row, when the anchor is itself a reaching
+   * clause (a chart whose newest shaping act is another view's brush).
+   *
+   * WHY it exists: `why()` reports one row per commit and the first role wins,
+   * so a commit that is BOTH the anchor and a reaching clause is reported once
+   * — as `declaring`. Without this field its `response` would be dropped
+   * precisely where a reader needs it most (the act you just made is usually
+   * the newest one), and an answer must not gain or lose the meaning with the
+   * data. Absent for every other target, so every pre-existing answer is
+   * byte-identical.
+   */
+  readonly declaringResponse?: CommitResponse;
   /** Viz select/filter commits that formed the analysis input (empty for a full-table transform). */
   readonly inputSelectionCommitIds: readonly string[];
   /** The footprintjs run that computed the target (the kernel tier). Absent → `no-kernel-snapshot`. */
@@ -235,8 +325,13 @@ export interface WhySources {
   readonly agentEventLog?: readonly AgentEventFrame[];
   /** kind:'hypothesis' — the target's online-FDR ledger row (machine context, not a commit). */
   readonly fdrStep?: FdrStep;
-  /** kind:'prose' — the commits the words point at (accepted from, written at, cited), each validated against the log before it enters the set. */
-  readonly relatedCommits?: readonly { readonly id: string; readonly kind: 'proposal' | 'basis' | 'ref' }[];
+  /**
+   * The commits the TARGET ITSELF points at — a view's words at the proposal
+   * they were accepted from, a selection at the act that put it there, a chart
+   * at everything that shaped it — each validated against the log before it
+   * enters the set. A `reaching-clause` may carry its `response` qualifier.
+   */
+  readonly relatedCommits?: readonly RelatedCommit[];
   /**
    * The commit ids this log holds that are NOT in {@link vizRecords} — every
    * other branch. Supplied ONLY so a dropped citation can say *"it is on
