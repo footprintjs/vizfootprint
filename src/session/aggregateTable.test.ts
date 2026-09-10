@@ -22,7 +22,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { buildDashboard, buildDashboardAsync } from '../def/index.js';
+import { buildDashboard, buildDashboardAsync, layerAddress, validateDashboardDef } from '../def/index.js';
 import type { DashboardDef, SourceAdapter } from '../def/index.js';
 import type { Cause } from '../cause/index.js';
 import { flowChart } from 'footprintjs';
@@ -468,6 +468,95 @@ describe('a refresh of the parent takes the table with it', () => {
     expect(await rowsOf(s, 'by_disease')).toEqual([
       { disease: 'flu', total: 130 },
       { disease: 'measles', total: 12 },
+    ]);
+  });
+});
+
+describe('a view may DRAW the minted table, and the door says why it cannot speak yet', () => {
+  /**
+   * The def side of this is one law widened (`../def/layers.ts` · `judgeTable`
+   * reads `mintedTables`), so a chart over an aggregate's table is a declared
+   * chart like any other. What is new HERE is the honest replacement for the
+   * `canProbe: false` such a view used to need: a table appears where its act
+   * landed, so the probe door refuses PER CURSOR and names the act.
+   */
+  const LAYER = { layerId: 'agg', table: 'by_disease', chartKind: 'bar', channels: ['x', 'y'], initial: { x: 'disease', y: 'total' } };
+  const address = layerAddress('bars', 'agg');
+
+  function drawingTheAggregate(): DashboardDef {
+    return {
+      ...defWith({ byDisease: { builtin: 'aggregate', table: 'cells', name: 'by_disease', ops: 1, groupBy: ['disease'], measures: [TOTAL] } }),
+      encodings: [{ viewId: 'bars', chartKind: 'bar', channels: ['x', 'y'], layers: [LAYER] }],
+    } as DashboardDef;
+  }
+
+  it('the def accepts the chart; the probe is refused before the act, lands after it, and is refused again after a seek back', async () => {
+    const def = drawingTheAggregate();
+    expect(validateDashboardDef(def)).toEqual([]); // the layer draws a table the DEFINITION already declares, under the act that mints it
+    const s = buildDashboard(def).createSession();
+    const root = await s.dispatch({ verb: 'select', viewId: 'grid', field: 'kind', value: 'state', cause });
+    const rootId = root.ok ? root.commit!.id : '';
+
+    // ── before the act: a typed gap that names the act, in `viewQuery`'s voice
+    const early = await s.dispatch({ verb: 'select', viewId: address, field: 'disease', value: 'flu', cause });
+    expect(early.ok).toBe(false);
+    expect(!early.ok && [early.rejection.code, early.rejection.detail]).toEqual([
+      'needs-act',
+      'view "bars~agg" draws "by_disease", which the act "byDisease" mints — it has not landed on this path',
+    ]);
+    // …and the READ door still refuses the table exactly as it does today — the two are twins, not one
+    expect(await rowsOf(s, 'by_disease')).toEqual(['REFUSED: no table "by_disease" here — the tables at this point are cells']);
+
+    // ── after the act: the same probe lands a commit, and its clause filters the layer's own table
+    await s.declareAnalysis('byDisease', { cause });
+    // the grid's own clause is cleared first: a VIEW's clause reaches every table (the single-default-table
+    // law, untouched here) and `kind` is not a column of the minted one — the act already folded with it live
+    await s.dispatch({ verb: 'select', viewId: 'grid', field: 'kind', value: null, cause });
+    expect(await rowsOf(s, 'by_disease')).toEqual([{ disease: 'flu', total: 30 }, { disease: 'measles', total: 5 }]);
+    const landed = await s.dispatch({ verb: 'select', viewId: address, field: 'disease', value: 'flu', cause });
+    expect(landed.ok).toBe(true);
+    expect(landed.ok && landed.commit!.viewId).toBe(address);
+    // …and the LAYER's clause reaches only its own table, which is the one it just narrowed
+    expect(await rowsOf(s, 'by_disease')).toEqual([{ disease: 'flu', total: 30 }]);
+
+    // ── seek back past the act: the table is gone, and the probe is refused again in the same sentence
+    s.seek(rootId);
+    const again = await s.dispatch({ verb: 'select', viewId: address, field: 'disease', value: 'measles', cause });
+    expect(!again.ok && [again.rejection.code, again.rejection.detail]).toEqual([
+      'needs-act',
+      'view "bars~agg" draws "by_disease", which the act "byDisease" mints — it has not landed on this path',
+    ]);
+  });
+
+  it('a minted name that collides with a declared table is still refused by the session', async () => {
+    // the act door's law, unmoved: the def may now NAME a minted table, and a computed table may still
+    // never take a declared one's name — one name, one owner (`aggregateOf`, the landing door)
+    const s = buildDashboard(defWith({ shadow: { builtin: 'aggregate', table: 'cells', name: 'cells', ops: 1, groupBy: ['disease'], measures: [TOTAL] } })).createSession();
+    const made = await s.declareAnalysis('shadow', { cause });
+    expect(made.gap!.detail).toBe('analysis "shadow" would land the derived table "cells" over the declared table "cells" — a computed table may not take a declared table\'s name');
+    expect(s.tablesAt()).toEqual(['cells']);
+  });
+
+  it('a SAVED selection on the minted view is refused as its own CONDITION, honestly and by name — not as a whole-apply abort', async () => {
+    const s = buildDashboard(drawingTheAggregate()).createSession();
+    const root = await s.dispatch({ verb: 'select', viewId: 'grid', field: 'kind', value: null, cause });
+    const rootId = root.ok ? root.commit!.id : '';
+    await s.declareAnalysis('byDisease', { cause });
+    // an ordinary condition, alongside one on the not-yet-landed minted view — saved while the act is live
+    await s.dispatch({ verb: 'select', viewId: 'grid', field: 'kind', value: 'state', cause });
+    await s.dispatch({ verb: 'select', viewId: address, field: 'disease', value: 'flu', cause });
+    expect(s.saveSelection('mixed', { live: 'all' }).ok).toBe(true);
+
+    // seek back past the act: the minted table is gone again
+    s.seek(rootId);
+    const applied = await s.applySaved('mixed', cause);
+    // the WHOLE apply is not aborted: the ordinary condition still lands…
+    expect(applied.ok && applied.applied.map((c) => c.viewId)).toEqual(['grid']);
+    // …and the minted-view condition is refused on its OWN, in the probe door's exact voice — not the
+    // generic "no provider for table" a broken engine gets (`saved.test.ts`, "an engine that cannot list
+    // columns…", the law this leaves untouched for that case)
+    expect(applied.ok && applied.refused).toEqual([
+      { viewId: address, rejected: 'view "bars~agg" draws "by_disease", which the act "byDisease" mints — it has not landed on this path' },
     ]);
   });
 });

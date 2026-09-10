@@ -7,8 +7,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildDashboard, validateDashboardDef, layerAddress } from './index.js';
-import type { DashboardDef } from './index.js';
+import type { DashboardDef, LayerDecl } from './index.js';
 import { layerSurfaceOf, layerSurfacesOf } from './layers.js';
+import { mintedTables } from './builtinAnalyses.js';
 import { makeDashboardDef } from '../session/dashboard.fixture.js';
 import { edgesLayer, makeNetworkDef, nodesLayer } from './network.fixture.js';
 
@@ -53,7 +54,7 @@ describe('layers — the def door', () => {
     expect(at([{ ...nodesLayer, layerId: 'a~b' }])).toEqual(['encodings[0].layers[0].layerId "a~b" may not contain "~" — it is the layer marker']);
     expect(at([nodesLayer, { ...edgesLayer, layerId: 'nodes' }])).toEqual(['encodings[0].layers[1].layerId "nodes" repeats within view "net"']);
     expect(at([{ ...nodesLayer, table: '' }])).toEqual(['encodings[0].layers[0].table must be a non-empty string — a layer exists to name its table']);
-    expect(at([{ ...nodesLayer, table: 'ghost' }])).toEqual(['encodings[0].layers[0].table "ghost" is not a declared data table — the tables are nodes, edges']);
+    expect(at([{ ...nodesLayer, table: 'ghost' }])).toEqual(['encodings[0].layers[0].table "ghost" is not a declared data table, and no declared analysis mints it — the tables are nodes, edges; no act mints one']);
     expect(at([{ ...nodesLayer, chartKind: '' }])).toEqual(['encodings[0].layers[0].chartKind must be a non-empty string']);
     expect(at([{ ...nodesLayer, channels: [] }])).toEqual(['encodings[0].layers[0].channels must be a non-empty array of non-empty strings']);
     expect(at([{ ...nodesLayer, channels: 'x' }])).toEqual(['encodings[0].layers[0].channels must be a non-empty array of non-empty strings']);
@@ -462,5 +463,89 @@ describe('LAW 11 — the logarithmic axis: the frame owns whether an axis is lin
     const dashboard = buildDashboard({ ...makeNetworkDef(), encodings: [{ viewId: 'net', chartKind: 'point', channels: ['x', 'y'], frame }] });
     expect(dashboard.def.encodings![0]!.frame).toEqual(frame);
     expect(Object.isFrozen(dashboard.def.encodings![0]!.frame!['y'])).toBe(true);
+  });
+});
+
+describe('layers — a layer may draw a table an ACT mints', () => {
+  /**
+   * The aggregate that lands `sizes_per_group`: one row per group, one
+   * measure. Nothing here is new — an aggregate already declares the table it
+   * lands (`name`), the columns it lands (`groupBy`, then the measures' `as`)
+   * and, with one group column, its key. Law 2 reads what is already there.
+   */
+  const BY_GROUP = { builtin: 'aggregate', table: 'nodes', name: 'sizes_per_group', ops: 1, groupBy: ['group'], measures: [{ as: 'total', expr: { op: 'sum', args: [{ col: 'size' }] } }] };
+  const acts = { analyses: { sizesPerGroup: BY_GROUP } } as unknown as Partial<DashboardDef>;
+  const bars: LayerDecl = { layerId: 'bars', table: 'sizes_per_group', chartKind: 'bar', channels: ['x', 'y'], initial: { x: 'group', y: 'total' } };
+
+  it('the ONE owner answers name → { analysisId, columns, key } off the declaration', () => {
+    const minted = mintedTables({ analyses: { sizesPerGroup: BY_GROUP } });
+    expect([...minted.keys()]).toEqual(['sizes_per_group']);
+    // the columns are the act's own order: the group columns, then the measures as they land
+    expect(minted.get('sizes_per_group')).toEqual({ analysisId: 'sizesPerGroup', columns: ['group', 'total'], key: 'group' });
+    // two group columns are a compound nobody declared a key for; a whole-table aggregate has neither
+    expect(mintedTables({ analyses: { a: { ...BY_GROUP, groupBy: ['group', 'size'] } } })!.get('sizes_per_group')).toEqual({ analysisId: 'a', columns: ['group', 'size', 'total'] });
+    expect(mintedTables({ analyses: { a: { ...BY_GROUP, groupBy: [] } } })!.get('sizes_per_group')).toEqual({ analysisId: 'a', columns: ['total'] });
+    // a record that states a name and nothing usable beside it mints a table with no columns — every part is read for what it says
+    expect(mintedTables({ analyses: { a: { builtin: 'aggregate', name: 'bare' } } }).get('bare')).toEqual({ analysisId: 'a', columns: [] });
+    expect(mintedTables({ analyses: { a: { ...BY_GROUP, measures: ['total'] } } }).get('sizes_per_group')).toEqual({ analysisId: 'a', columns: ['group'], key: 'group' });
+    // two acts claiming one name: the first declaration answers — a second owner is the ACT door's question, not a reader's
+    expect(mintedTables({ analyses: { first: BY_GROUP, second: BY_GROUP } }).get('sizes_per_group')!.analysisId).toBe('first');
+    // total over what it is handed: no def, no analyses, an analysis that is CODE, a non-aggregate builtin and a nameless record mint nothing
+    expect(mintedTables(undefined).size).toBe(0);
+    expect(mintedTables({}).size).toBe(0);
+    expect(mintedTables({ analyses: { m: { run: () => ({ ok: true }) } } }).size).toBe(0);
+    expect(mintedTables({ analyses: { g: { builtin: 'groupBy', by: 'group', measure: 'size' } } }).size).toBe(0);
+    expect(mintedTables({ analyses: { a: { builtin: 'aggregate' } } }).size).toBe(0);
+  });
+
+  it('a layer drawing the minted table validates, builds, and keeps its voice', async () => {
+    expect(at([nodesLayer, bars], acts)).toEqual([]);
+    const def = { ...makeNetworkDef([nodesLayer, bars], acts) };
+    const dashboard = buildDashboard(def);
+    expect(dashboard.def.encodings![0]!.layers![1]!.table).toBe('sizes_per_group');
+    // `lint()` judges a layer against its table's REAL columns; a table no act has landed has no provider
+    // to ask, so the minted layer is skipped there — it refuses nothing and, above all, does not throw
+    expect(await dashboard.lint()).toEqual([]);
+    // the view keeps its VOICE: it need not declare itself mute because one of its layers draws a minted
+    // table — whether that table is HERE is the probe door's question, asked per cursor (../session/)
+    const overview = await dashboard.createSession().overview();
+    expect(overview.views.find((v) => v.viewId === 'net')?.canProbe).toBe(true);
+    // the layer carries the act's column list, which is what the field law is judged against
+    expect(layerSurfacesOf(def.encodings!, def.data, mintedTables(def))[1]!.minted).toEqual({ analysisId: 'sizesPerGroup', columns: ['group', 'total'], key: 'group' });
+  });
+
+  it("the field law is judged against the act's columns — EXISTENCE only, because the types are the act's to answer", () => {
+    // a measure's `as` and a group column are both columns of the minted table
+    expect(at([{ ...bars, initial: { x: 'group', y: 'total' } }], acts)).toEqual([]);
+    // a name the act does not land is refused in the field law's own sentence, under the layer's slot
+    expect(at([{ ...bars, initial: { x: 'group', y: 'ghost' } }], acts)).toEqual(['encodings[0].layers[0].initial.y: "ghost" is not a column of the table']);
+    // …including a column of the PARENT the act does not carry over: a minted table holds what it lands and nothing else
+    expect(at([{ ...bars, initial: { x: 'id', y: 'total' } }], acts)).toEqual(['encodings[0].layers[0].initial.x: "id" is not a column of the table']);
+  });
+
+  it('a table neither declared nor minted is refused in a sentence naming BOTH sets', () => {
+    expect(at([{ ...bars, table: 'ghost' }], acts)).toEqual([
+      'encodings[0].layers[0].table "ghost" is not a declared data table, and no declared analysis mints it — the tables are nodes, edges; the acts mint sizes_per_group',
+    ]);
+  });
+
+  it("a minted name that COLLIDES with a declared table never shadows it — the declared table's real columns still judge the layer", () => {
+    // an act that claims the real `nodes` name, landing only `group` (no `id`, no `size`) — the session's
+    // landing door already refuses to ever let such an act LAND over a declared name (aggregateTable.test.ts);
+    // this pins that the DEF door does not let the collision borrow its existence-only judgement either
+    const shadow = { analyses: { shadowsNodes: { ...BY_GROUP, name: 'nodes' } } } as unknown as Partial<DashboardDef>;
+    // `size` and `id` are real columns of the declared `nodes` table, not of the act's `['group', 'total']` —
+    // a bug that let `minted` win this name would refuse them here with "is not a column of the table"
+    expect(at([nodesLayer], shadow)).toEqual([]);
+    const def = makeNetworkDef([nodesLayer], shadow);
+    // `layerSurfacesOf` must carry NO `minted` for a layer on a table that is ALSO declared — the declared
+    // table is the real one at every cursor, so its layer is judged (and lints) with the real columns
+    expect(layerSurfacesOf(def.encodings!, def.data, mintedTables(def))[0]!.minted).toBeUndefined();
+  });
+
+  it('defaultTable stays DECLARED-only — a minted-only name is refused in the same, unwidened sentence', () => {
+    // `defaultTable` is the dashboard's ground, resolved before any act can have landed (../validate.ts) —
+    // law 2 widened for a LAYER, deliberately not for this; the sentence a def author sees is unchanged
+    expect(validateDashboardDef({ ...makeNetworkDef([nodesLayer, bars], acts), defaultTable: 'sizes_per_group' })).toEqual(['defaultTable "sizes_per_group" is not a declared data table']);
   });
 });

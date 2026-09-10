@@ -418,6 +418,16 @@ The filter's two sentences are the derived column's own (`over.where`), under th
 
 - **The relation back to the parent is minted, never typed** — by the session, from the record, through `../data/derivedTables.ts`: the one group column is the derived table's key. A record that could name its own relation could name one nobody declared.
 - **The schema is computed, and a replay says `unknown`** — law 9, for a table: the group columns' types are the parent's own, the measures' are what their trees yield, and a fresh-session replay carries the rows and refuses to tally a type from them.
+- **The declaration is also a TABLE DECLARATION, and a view may draw it.** `name` is the table it lands and `groupBy` + `measures[].as` are, in that order, the columns it lands — so a chart over the act's table is a declared chart, judged at the def door with nothing new declared anywhere. `mintedTables(def)` (`../def/builtinAnalyses.ts`) is the one reader of that; `../def/README.md` ("Layers", law 3) is the door:
+  ```ts
+  analyses: { byDisease: { builtin: 'aggregate', table: 'cells', name: 'by_disease', ops: 1, groupBy: ['disease'], measures: [{ as: 'total', expr: { op: 'sum', args: [{ col: 'cases' }] } }] } },
+  encodings: [{ viewId: 'bars', chartKind: 'bar', channels: ['x', 'y'], layers: [
+    { layerId: 'agg', table: 'by_disease', chartKind: 'bar', channels: ['x', 'y'], initial: { x: 'disease', y: 'total' } },
+  ] }],
+  // the def validates; a field the act does not land is refused — `"ghost" is not a column of the table`
+  // and until the act lands, a probe on that layer is the typed gap `needs-act`, naming `byDisease`
+  ```
+  The columns are judged for EXISTENCE only: a minted column's TYPE is this act's to answer when it runs (the clause above), and the def has no `ColumnDecl` for it to hold it to.
 
 ## What the walker checks, and what it does not
 

@@ -13,6 +13,7 @@
 import { validateAnalysisDef } from '../analysis/index.js';
 import { isBuiltinRecord, validateBuiltinAnalysis } from './builtinAnalyses.js';
 import { validateRelations } from './relations.js';
+import { mintedTables } from './builtinAnalyses.js';
 import { layerLinkViewsOf, layerSurfacesOf, markerRefusal, validateFrame, validateLayers } from './layers.js';
 import { holdsLayerMarker } from './layerAddress.js';
 import { EMISSION_KINDS, validateLinks, voiceOf, type EmissionKind } from '../links/index.js';
@@ -682,6 +683,10 @@ export function validateDashboardDef(def: unknown): string[] {
   // The table a LAYERLESS view's columns are declared under — the def's `defaultTable`, or its first table. ONE
   // expression, read by the frame's laws here and by the build door below, so the two can never resolve it apart.
   const defaultTableName = isObject(def.data) ? (typeof def.defaultTable === 'string' ? def.defaultTable : Object.keys(def.data)[0]) : undefined;
+  // The tables the declared ACTS land — read ONCE, off the declaration, and handed to every door below that
+  // judges a table name or a field against a table's columns, so the two can never disagree (./README.md,
+  // "Layers", law 2). An aggregate declares the table it lands and its whole column list; nothing new is declared.
+  const minted = mintedTables(def);
   if (def.encodings !== undefined) {
     if (!Array.isArray(def.encodings)) {
       problems.push('encodings, if present, must be an array of ViewEncodingDecl');
@@ -712,7 +717,7 @@ export function validateDashboardDef(def: unknown): string[] {
         }
         // layers — a view over more than one table (src/def/layers.ts); absent on every view built before layers existed
         const encViewId = typeof enc.viewId === 'string' ? enc.viewId : String(enc.viewId);
-        validateLayers(enc.layers, `encodings[${i}]`, encViewId, def.data, problems);
+        validateLayers(enc.layers, `encodings[${i}]`, encViewId, def.data, problems, minted);
         // the frame — per channel, how its scale is resolved across those layers AND what the axis itself is
         // (src/def/layers.ts, "the frame"): legal on ANY view, since a transform is not a resolution. A view with
         // no layers is judged as its own one implicit layer, which is what this last argument carries.
@@ -744,7 +749,7 @@ export function validateDashboardDef(def: unknown): string[] {
     const surfaces = wellFormedSurfaces(def.encodings);
     const facets = resolveFacets(defColumns(src, surfaces), facetSourceOf(src));
     const indexOf = new Map(surfaces.map((s) => [s.surface.viewId, s.index] as const));
-    const layerSurfaces = layerSurfacesOf(def.encodings, def.data);
+    const layerSurfaces = layerSurfacesOf(def.encodings, def.data, minted);
     // a `dashboard`-scope rule means ANYWHERE on the page: every view's bindings and every layer's, side by side, so
     // the boundary between a frame and its layers is not a hole a never-together pair can hide in (../def/README.md, "Layers", law 5)
     const page = pageBindings([...surfaces.map((s) => s.surface), ...layerSurfaces.map((l) => l.surface)]);
@@ -754,9 +759,16 @@ export function validateDashboardDef(def: unknown): string[] {
     // ── the same door once per LAYER, against the layer's own table — never the default table.
     //    WHY one call per layer: the FACETS that judge a binding are its table's; the page-wide
     //    bindings above are what its dashboard-scope rules read, and they span every table.
-    for (const { index, at, table: layerTable, surface } of layerSurfaces) {
+    for (const { index, at, table: layerTable, surface, minted: lands } of layerSurfaces) {
       const layerSrc = isObject(def.data[layerTable]) ? (def.data[layerTable] as Record<string, unknown>) : undefined;
-      const layerFacets = resolveFacets(defColumns(layerSrc, [{ surface }]), facetSourceOf(layerSrc));
+      // A MINTED table's columns ARE its act's declaration — `groupBy` in order, then the measures' `as`
+      // names — and that is the WHOLE list, so a field naming a column the act does not land is refused
+      // right here. EXISTENCE only: a minted column has no `ColumnDecl` to declare a role or a scale, and
+      // its TYPE is the act's to answer when it runs, so every facet is `unknown` — which is exactly what
+      // `requirementFailure` declines to judge. `dashboard.lint()` judges the landed table with its data.
+      const layerFacets = lands !== undefined
+        ? resolveFacets(lands.columns.map((name) => ({ name, type: 'unknown' as const })))
+        : resolveFacets(defColumns(layerSrc, [{ surface }]), facetSourceOf(layerSrc));
       for (const p of lintEncodings({ views: [surface], facets: layerFacets, page, ...(def.encodingRules !== undefined ? { rules: def.encodingRules as EncodingRules } : {}) })) {
         problems.push(`encodings[${index}].layers[${at}].initial.${p.channel}: ${p.sentence}`);
       }
@@ -811,7 +823,11 @@ export function validateDashboardDef(def: unknown): string[] {
     }
   }
 
-  // ── defaultTable (optional) — must name a declared table ──
+  // ── defaultTable (optional) — must name a DECLARED table, and deliberately not a minted one.
+  //    WHY law 2 widened for a layer and not for this: `defaultTable` is the dashboard's GROUND — the
+  //    providers, the sources, the row keys and `lint()` are all resolved through it at build, before any
+  //    act can have landed, so a default table nobody carries is a dashboard with no floor. A view that
+  //    wants a minted table names it where a table is named per view: on a LAYER (./layers.ts, law 2).
   if (def.defaultTable !== undefined) {
     if (typeof def.defaultTable !== 'string') {
       problems.push('defaultTable, if present, must be a string');

@@ -919,6 +919,33 @@ seen. **REFUSED** is the judge's sentence, before anything moves. A refresh of
 the parent DROPS the table rather than serving yesterday's rows under today's
 name, and says so by name (`derivedLost`, beside `materialisedLost`).
 
+**A view may DRAW that table, and the probe door says why it cannot speak yet.**
+The definition already declares the act, so it already declares the table's name
+and columns — a layer may name it (`../def/README.md`, "Layers", law 3). Whether
+it is HERE is this law's question, not the definition's, so a probe on such a
+view while the table is absent is its own typed gap naming the act, in
+`viewQuery`'s voice above:
+
+```ts
+// encodings: [{ viewId: 'bars', …, layers: [{ layerId: 'agg', table: 'by_disease', … }] }]
+await s.dispatch({ verb: 'select', viewId: 'bars~agg', field: 'disease', value: 'flu', cause });
+// { ok: false, rejection: { code: 'needs-act', detail:
+//   'view "bars~agg" draws "by_disease", which the act "byDisease" mints — it has not landed on this path' } }
+
+await s.declareAnalysis('byDisease', { cause });   // …the act lands…
+await s.dispatch({ verb: 'select', viewId: 'bars~agg', field: 'disease', value: 'flu', cause });
+// { ok: true, … } — and the clause narrows the layer's own table
+
+s.seek(before);                                    // back past the act: refused again, same sentence
+```
+
+It is `needs-act` and not `guard-failed` because the repair is to PERFORM the
+act: nothing about the view's capability is wrong, and an agent that could only
+see `guard-failed` would go looking in the definition for a refusal it does not
+hold. This is the honest replacement for declaring such a view
+`canProbe: false` — a chart a reader can see and can never click, with no
+sentence saying why.
+
 Pinned by `aggregateTable.test.ts`.
 
 ## Law 6 — a session can replay a log into itself

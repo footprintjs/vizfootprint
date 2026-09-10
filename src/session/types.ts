@@ -89,6 +89,19 @@ export const GAP_CODES = [
    * argument that gives `derive-invalid` a code of its own.
    */
   'result-too-large',
+  /**
+   * A view's TABLE IS NOT HERE YET: it is one a declared act mints (an
+   * aggregate's landed table), and that act has not landed on this path.
+   *
+   * The act named in the detail is the repair, which is the whole reason this
+   * is not `guard-failed`: nothing about the view's capability is wrong and
+   * re-reading it will never fix this, so an agent that could only see
+   * `guard-failed` would go looking in the definition for a refusal the
+   * definition does not hold. It is per CURSOR — the same probe lands after the
+   * act and is refused again after a seek back past it. The same argument that
+   * gives `derive-invalid` and `result-too-large` codes of their own.
+   */
+  'needs-act',
   // ── RP-3: agent-authored chart pipeline refusals ──
   'chart-invalid-spec',
   'chart-transforms-not-owned',

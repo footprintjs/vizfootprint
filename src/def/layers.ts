@@ -25,6 +25,7 @@ import type { ColumnFacet } from '../data/types.js';
 import type { ColumnDecl, EncodingSurface } from '../encoding/index.js';
 import { MAGNITUDE_CHANNELS, ZERO_ANCHORED_KINDS, resolveFacet, zeroAnchorsChannel } from '../encoding/index.js';
 import { ENCODING_KIND, type LinkView } from '../links/index.js';
+import type { MintedTable } from './builtinAnalyses.js';
 import { LAYER_MARKER, holdsLayerMarker, layerAddress } from './layerAddress.js';
 import type { LayerDecl } from './types.js';
 
@@ -40,6 +41,9 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 const hasOwn = (record: Record<string, unknown>, key: string): boolean => Object.prototype.hasOwnProperty.call(record, key);
 
+/** No declared analysis mints a table — the shared empty answer, so a caller with no def to read passes nothing. */
+const NOTHING_MINTED: ReadonlyMap<string, MintedTable> = new Map();
+
 /** The one sentence for a reserved marker in any id — the same voice at a viewId, a table name and a layerId. */
 export function markerRefusal(what: string, id: string): string {
   return `${what} "${id}" may not contain "${LAYER_MARKER}" — it is the layer marker`;
@@ -53,7 +57,7 @@ export function markerRefusal(what: string, id: string): string {
  * is raised against it); `viewId` is the enclosing view's id, for the repeat
  * sentence. Every problem is one sentence in `problems`.
  */
-export function validateLayers(raw: unknown, where: string, viewId: string, data: unknown, problems: string[]): void {
+export function validateLayers(raw: unknown, where: string, viewId: string, data: unknown, problems: string[], minted: ReadonlyMap<string, MintedTable> = NOTHING_MINTED): void {
   if (raw === undefined) return;
   if (!Array.isArray(raw)) {
     problems.push(`${where}.layers, if present, must be an array of { layerId, table, chartKind, channels }`);
@@ -68,7 +72,7 @@ export function validateLayers(raw: unknown, where: string, viewId: string, data
     }
     for (const key of Object.keys(layer)) if (!LAYER_KEYS.includes(key)) problems.push(`${at}: unknown key "${key}"`);
     judgeLayerId(at, layer.layerId, viewId, seen, problems);
-    judgeTable(at, layer.table, data, problems);
+    judgeTable(at, layer.table, data, minted, problems);
     judgeSurface(at, layer, problems);
   });
 }
@@ -85,15 +89,45 @@ function judgeLayerId(at: string, layerId: unknown, viewId: string, seen: Set<st
   seen.add(layerId);
 }
 
-/** Law 2: the table is the point of a layer — required, and declared under `data`. */
-function judgeTable(at: string, table: unknown, data: unknown, problems: string[]): void {
+/**
+ * Law 2: the table is the point of a layer — required, and either DECLARED
+ * under `data` or MINTED by a declared act.
+ *
+ * WHY both sets: a definition that declares an aggregate has already declared
+ * the table it lands, under the act that owns it (`mintedTables`,
+ * ./builtinAnalyses.ts). A layer drawing that table names something the
+ * definition says exists; refusing it would be the door failing to read what
+ * the definition already states. There is deliberately no `{computed: … }`
+ * source in `data`: `DataSourceDef` is the CARRIERS, a minted table has no
+ * carrier, and a table declared twice — once as a promise, once as the act
+ * that keeps it — would have two owners. The act is the owner.
+ *
+ * WHEN it exists is a different question, and not one a definition can answer:
+ * a minted table appears where its act landed, which is why the PROBE door
+ * refuses per cursor and names the act (`../session/session.ts`).
+ */
+function judgeTable(at: string, table: unknown, data: unknown, minted: ReadonlyMap<string, MintedTable>, problems: string[]): void {
   if (!nonEmpty(table)) {
     problems.push(`${at}.table must be a non-empty string — a layer exists to name its table`);
     return;
   }
   // WHY: a malformed or empty `data` was refused on its own line; naming no tables here would only repeat it
   if (!isObject(data) || Object.keys(data).length === 0) return;
-  if (!hasOwn(data, table)) problems.push(`${at}.table "${table}" is not a declared data table — the tables are ${Object.keys(data).join(', ')}`);
+  if (hasOwn(data, table) || minted.has(table)) return;
+  problems.push(`${at}.table "${table}" ${notATable(data, minted)}`);
+}
+
+/**
+ * The tail of law 2's refusal: it names BOTH sets, because either one would
+ * have satisfied the law and a reader shown one of them cannot tell whether
+ * the name was a typo or the wrong kind of table. The minted half spells the
+ * empty set in words — "the acts mint" with nothing after it is noise, not
+ * honesty.
+ */
+function notATable(data: Record<string, unknown>, minted: ReadonlyMap<string, MintedTable>): string {
+  const tables = Object.keys(data).join(', ');
+  const acts = [...minted.keys()].join(', ');
+  return `is not a declared data table, and no declared analysis mints it — the tables are ${tables}; ${acts.length === 0 ? 'no act mints one' : `the acts mint ${acts}`}`;
 }
 
 /** Law 3: the same encoding surface a view declares, in the same sentences — the meaning is judged by the encoding rules at the build door. */
@@ -414,6 +448,13 @@ export interface LayerSurface {
   readonly at: number;
   readonly table: string;
   readonly surface: EncodingSurface;
+  /**
+   * Present when the table is one an ACT lands rather than a declared source:
+   * the caller judges this layer's fields against `minted.columns` and nothing
+   * else. A minted column has no `ColumnDecl` facets to judge — its TYPE is
+   * the act's to answer when it runs — so the judgement is EXISTENCE only.
+   */
+  readonly minted?: MintedTable;
 }
 
 /** A layer as declared, or undefined unless every required part is well-formed (a malformed layer is already a problem and is not judged). */
@@ -441,18 +482,32 @@ export function layerSurfaceOf(viewId: string, layer: LayerDecl): EncodingSurfac
 }
 
 /**
- * Every well-formed layer of every well-formed encoding entry whose table is
- * declared — the list the build door lints, one layer at a time against its
- * own table. A layer on an undeclared table was refused by name and is skipped.
+ * Every well-formed layer of every well-formed encoding entry whose table law 2
+ * accepted — the list the build door lints, one layer at a time against its own
+ * table. A layer on a table neither declared nor minted was refused by name and
+ * is skipped; a layer on a MINTED table carries the act's column list, which is
+ * all the def can judge it against.
+ *
+ * WHY a declared table wins a name collision: the session never lets an act land
+ * OVER a declared table's name (`../session/session.ts`, the landing door's own
+ * refusal) — a declared `cells` and a minted `cells` can both be named in one def,
+ * but only the declared one is ever the real `cells` at any cursor. Judging such a
+ * layer against the act's existence-only column list instead of the table's real,
+ * typed columns would silently trade a sound field check for a strictly weaker
+ * (or wrongly stricter) one, purely because an unrelated analysis happens to share
+ * the name — so `minted` is read only when the table is NOT also declared.
  */
-export function layerSurfacesOf(encodings: readonly unknown[], data: Record<string, unknown>): LayerSurface[] {
+export function layerSurfacesOf(encodings: readonly unknown[], data: Record<string, unknown>, minted: ReadonlyMap<string, MintedTable> = NOTHING_MINTED): LayerSurface[] {
   const out: LayerSurface[] = [];
   encodings.forEach((enc, index) => {
     if (!isObject(enc) || !nonEmpty(enc.viewId) || !Array.isArray(enc.layers)) return;
     enc.layers.forEach((raw, at) => {
       const layer = wellFormedLayer(raw);
-      if (layer === undefined || !hasOwn(data, layer.table)) return;
-      out.push({ index, at, table: layer.table, surface: layerSurfaceOf(enc.viewId as string, layer) });
+      if (layer === undefined) return;
+      const declared = hasOwn(data, layer.table);
+      const lands = declared ? undefined : minted.get(layer.table);
+      if (!declared && lands === undefined) return;
+      out.push({ index, at, table: layer.table, surface: layerSurfaceOf(enc.viewId as string, layer), ...(lands !== undefined ? { minted: lands } : {}) });
     });
   });
   return out;

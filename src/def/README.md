@@ -372,16 +372,30 @@ Six laws.
    data["a~b"]: a table name "a~b" may not contain "~" — it is the layer marker
    encodings[0].layers[0].layerId "a~b" may not contain "~" — it is the layer marker
    ```
-3. **A layer names its table, and the table is declared.** `table` is required — a layer exists to name one — and unlike a view's default table it is never inferred:
+3. **A layer names its table, and the table is DECLARED — as data, or as the act that mints it.** `table` is required (a layer exists to name one) and, unlike a view's default table, is never inferred. It may be a key of `data` **or** the `name` of a declared analysis that lands a table — an `aggregate` names the table it lands, the group columns that become its columns and the measures that follow them, so a minted table's name and whole column list are known at declaration time. A definition that declares the act has already declared the table; refusing the chart over it would be the door failing to read what the definition says. A table that is neither is refused in a sentence naming **both** sets:
    ```
    encodings[0].layers[0].table must be a non-empty string — a layer exists to name its table
-   encodings[0].layers[0].table "ghost" is not a declared data table — the tables are nodes, edges
+   encodings[0].layers[0].table "ghost" is not a declared data table, and no declared analysis mints it — the tables are nodes, edges; the acts mint sizes_per_group
+   encodings[0].layers[0].table "ghost" is not a declared data table, and no declared analysis mints it — the tables are nodes, edges; no act mints one
    ```
+   ```ts
+   analyses: { sizesPerGroup: { builtin: 'aggregate', table: 'nodes', name: 'sizes_per_group', ops: 1, groupBy: ['group'], measures: [{ as: 'total', expr: { op: 'sum', args: [{ col: 'size' }] } }] } },
+   encodings: [{ viewId: 'net', chartKind: 'bar', channels: ['x', 'y'], layers: [
+     { layerId: 'bars', table: 'sizes_per_group', chartKind: 'bar', channels: ['x', 'y'], initial: { x: 'group', y: 'total' } },
+   ] }],
+   ```
+   `mintedTables(def)` (`./builtinAnalyses.ts`) is the ONE owner of *which table names an act lands* — name → `{ analysisId, columns, key? }`, read off the declaration — so this law, the field law below and the probe door cannot disagree about the same definition. There is deliberately **no `{ computed: … }` source in `data`**: `DataSourceDef` is the carriers, a minted table has no carrier, and a table declared twice — once as a promise, once as the act that keeps it — would have two owners. The act is the owner. For the same reason a `relation` still names declared tables only: an aggregate MINTS its edge back to its parent from its key, and a declared one would be a second owner. `defaultTable` is also declared-only — it is the dashboard's ground, resolved to a provider at build, before any act can have landed.
+
+   **When it exists is a different question, and the PROBE door answers it per cursor.** A minted table appears where its act landed, so a view drawing one is refused — while it is not here — as its own typed gap naming the act, in `viewQuery`'s voice:
+   ```
+   needs-act   view "bars~agg" draws "by_disease", which the act "byDisease" mints — it has not landed on this path
+   ```
+   That is the honest replacement for declaring such a view `canProbe: false`: the view keeps its voice, and the door says why it cannot speak yet. It is `needs-act` and not `guard-failed` because the repair is to perform the act, not to re-read the definition — and it comes back after a seek back past the act.
 4. **A layerId is declared once within its view.** Two views may each have a `nodes` layer (`a~nodes`, `b~nodes` are different addresses); one view may not:
    ```
    encodings[0].layers[1].layerId "nodes" repeats within view "net"
    ```
-5. **A layer's bindings are judged against ITS table.** The build door runs the encoding validator once per layer with the layer's table's declared columns — a role declared on the nodes table refuses on the nodes layer and says nothing on the edges layer, where the def declares no such column; `dashboard.lint()` then judges each layer against the columns its own table's provider lists, under the layer address. The view-level `initial` is judged against the default table exactly as before:
+5. **A layer's bindings are judged against ITS table.** The build door runs the encoding validator once per layer with the layer's table's declared columns — or, on a MINTED table, against the act's declared column list (`groupBy`, then the measures' `as` names), for **existence only**: a minted column has no `ColumnDecl` to declare a role or a scale and its type is the act's to answer when it runs, so `"ghost" is not a column of the table` is the whole of what the def can say. `lint()` has no provider to ask for such a table and judges it when the act lands — a role declared on the nodes table refuses on the nodes layer and says nothing on the edges layer, where the def declares no such column; `dashboard.lint()` then judges each layer against the columns its own table's provider lists, under the layer address. The view-level `initial` is judged against the default table exactly as before:
    ```
    encodings[0].layers[0].initial.size: "id" is identifier — it cannot be the size of a point     ← the door
    { viewId: 'net~nodes', channel: 'size', field: 'weight', sentence: '"weight" is not a column of the table' }   ← lint()

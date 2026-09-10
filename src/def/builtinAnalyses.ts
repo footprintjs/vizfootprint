@@ -543,6 +543,84 @@ export function absenceByTable(data: Readonly<Record<string, { readonly absence?
   return out;
 }
 
+/**
+ * A TABLE AN ACT LANDS, as the DECLARATION already states it.
+ *
+ * An {@link AggregateDecl} names the table it lands (`name`), the group
+ * columns that become its columns (`groupBy`, in order) and the measures that
+ * follow them (`measures[].as`, in the order they land) — so a minted table's
+ * name and its whole column list are known at declaration time, before a
+ * single row is folded. Nothing here is guessed: the order is
+ * `../derive/aggregate.ts` · `schemaOf`'s order, and the key is the one the
+ * session mints the relation back to the parent from.
+ *
+ * What it does NOT carry: types and facets. A minted column's type is the
+ * act's to answer when it runs (the judge computes it from the parent's own
+ * columns), so a reader of this map judges a field for EXISTENCE only.
+ */
+export interface MintedTable {
+  /** The analysis id under `def.analyses` whose act lands the table. */
+  readonly analysisId: string;
+  /** Its columns: the group columns in declared order, then the measures' `as` names. */
+  readonly columns: readonly string[];
+  /** Its key — the one group column, when there is exactly one. Absent for a grouped-by-many or whole-table aggregate. */
+  readonly key?: string;
+}
+
+/**
+ * Every table this definition's declared analyses MINT, by name.
+ *
+ * THE ONE OWNER of "which table names an act lands", so the def door (a
+ * layer's table), the field judge (its columns) and the probe door (which act
+ * to name when it has not landed) can never disagree about what the same
+ * definition says. It lives beside {@link absenceByTable} because this is
+ * where a def's analyses are already read as data.
+ *
+ * Total over `unknown`, like every reader on this boundary: a malformed
+ * aggregate is refused on its own line by {@link validateBuiltinAnalysis}, and
+ * is read here for whatever it does state (a record with no usable `name`
+ * mints nothing).
+ *
+ * ```ts
+ * mintedTables({ analyses: { radiiPerPlanet: { builtin: 'aggregate', name: 'radii_per_planet', ops: 1, groupBy: ['planet'], measures: [{ as: 'radius', expr: … }] } } });
+ * // Map { 'radii_per_planet' => { analysisId: 'radiiPerPlanet', columns: ['planet', 'radius'], key: 'planet' } }
+ * ```
+ */
+export function mintedTables(def: unknown): ReadonlyMap<string, MintedTable> {
+  const out = new Map<string, MintedTable>();
+  if (!isObject(def) || !isObject(def.analyses)) return out;
+  for (const [analysisId, slot] of Object.entries(def.analyses)) {
+    const minted = mintedBy(analysisId, slot);
+    // WHY first-declared wins: two acts claiming one name is a question for the act door (the
+    // session refuses landing a table whose name is already taken), not for a reader of the def
+    if (minted !== undefined && !out.has(minted.name)) out.set(minted.name, minted.table);
+  }
+  return out;
+}
+
+/** A usable name in a raw record — the guard every list read here shares. */
+const isNonEmpty = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+
+/** The one analysis form that lands a table, read for the three things a reader needs. An aggregate whose `name` is unusable mints nothing nameable. */
+function mintedBy(analysisId: string, slot: unknown): { readonly name: string; readonly table: MintedTable } | undefined {
+  if (!isBuiltinRecord(slot) || slot.builtin !== 'aggregate') return undefined;
+  const decl = slot as unknown as Record<string, unknown>;
+  const name = decl['name'];
+  if (typeof name !== 'string' || name.length === 0) return undefined;
+  const groupBy = Array.isArray(decl['groupBy']) ? decl['groupBy'].filter(isNonEmpty) : [];
+  const measures = Array.isArray(decl['measures']) ? decl['measures'] : [];
+  const landed = measures.map((measure) => (isObject(measure) ? measure['as'] : undefined)).filter(isNonEmpty);
+  return {
+    name,
+    table: {
+      analysisId,
+      columns: [...groupBy, ...landed],
+      // the session mints the relation back to the parent from a SINGLE group column; two group columns are a compound nobody declared a key for
+      ...(groupBy.length === 1 ? { key: groupBy[0]! } : {}),
+    },
+  };
+}
+
 /** The ties a `bringOver` record follows: one per declared relation pointing from its table at the related one. */
 function joinsFor(decl: BringOverDecl, relations: readonly RelationEdge[]): BringOverJoin[] {
   return relationsFrom(relations, decl.table, decl.from).map((r) => ({ column: r.from.column, key: r.to.column }));

@@ -1170,7 +1170,13 @@ async function lintLayers(views: ReadonlyMap<string, ViewDecl>, providers: Reado
   const out: EncodingProblem[] = [];
   for (const view of views.values()) {
     for (const layer of view.layers ?? []) {
-      const cols = await providers.get(layer.table)!.columns(layer.table);
+      const provider = providers.get(layer.table);
+      // WHY a layer can have no provider: its table is one an ACT lands (`mintedTables`, ./builtinAnalyses.ts)
+      // and no act has run at build. The def door already judged its fields against the act's declared column
+      // list; there are no ROWS to judge until the act lands, and inventing an empty table here would refuse
+      // every binding on a chart that is perfectly well declared.
+      if (provider === undefined) continue;
+      const cols = await provider.columns(layer.table);
       if (isRejection(cols)) throw new Error(`lint: the "${layer.table}" provider cannot list its columns — ${cols.detail ?? cols.reason}`);
       out.push(...lintEncodings({ views: [layerSurfaceOf(view.viewId, layer)], facets: runtime.encoding.facetsOf(layer.table, cols), page, rules: runtime.encoding.rules, ports: runtime.encoding.ports }));
     }

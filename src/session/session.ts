@@ -60,7 +60,7 @@ import { isClearedSelection } from '../branches/fold.js';
 import { applyLinkOverrides, edgeId, impliedKinds, validateLinks, type LinkDecl } from '../links/index.js';
 
 import type { ActorMeta, CauseClause } from '../selection/index.js';
-import { absenceByTable, type AggregateDecl, type BuiltinAnalysisContext } from '../def/builtinAnalyses.js';
+import { absenceByTable, mintedTables, type AggregateDecl, type BuiltinAnalysisContext } from '../def/builtinAnalyses.js';
 import { registerAnalysisSlot } from '../def/register.js';
 import { copyValue, deepFreeze } from '../detach/index.js';
 import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RelationEdge, RestorableSaved, RestorableBookmark, RestoreResult, ViewEncodingDecl, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
@@ -2388,7 +2388,18 @@ class InteractionSessionImpl implements InteractionSession {
       let has = hasByTable.get(table);
       if (has === undefined) {
         const cols = await this.effectiveColumnsOf(table);
-        if ('rejected' in cols) return { ok: false, rejected: `"${name}" cannot be applied here — ${cols.rejected}` }; // the select door would refuse every condition without the columns: say so before clearing anything
+        if ('rejected' in cols) {
+          // WHY not always the whole-apply abort below: a table an ACT mints and has not landed at
+          // THIS cursor is not a broken engine (the case the abort exists for, `saved.test.ts`, "an
+          // engine that cannot list columns…") — it is honestly refused, per cursor, in the probe
+          // door's own voice (`tableNotHere`), and the OTHER conditions still get their chance.
+          const notHere = this.tableNotHere(c.viewId);
+          if (notHere !== null) {
+            refused.push({ viewId: c.viewId, rejected: notHere.detail });
+            continue;
+          }
+          return { ok: false, rejected: `"${name}" cannot be applied here — ${cols.rejected}` }; // the select door would refuse every condition without the columns: say so before clearing anything
+        }
         has = new Set(cols.map((col) => col.name));
         hasByTable.set(table, has);
       }
@@ -2400,7 +2411,7 @@ class InteractionSessionImpl implements InteractionSession {
       }
       const cannot = this.probeGuard(c.viewId, c.kind);
       if (cannot !== null) {
-        refused.push({ viewId: c.viewId, rejected: cannot });
+        refused.push({ viewId: c.viewId, rejected: cannot.detail });
         continue;
       }
       // a WALK is re-ASKED, so the question it recorded is judged here too (R5) — for the
@@ -2584,22 +2595,71 @@ class InteractionSessionImpl implements InteractionSession {
     return undefined;
   }
 
-  /** Returns a `guard-failed` detail string if the view cannot accept this probe, else null. */
-  private probeGuard(viewId: string, kind: EmissionKind): string | null {
+  /**
+   * Why a view cannot accept this probe HERE — the CODE it is refused under
+   * and the sentence — or null when it can.
+   *
+   * Two refusals, deliberately two codes: what the view DECLARES is
+   * `guard-failed` (a definition to re-read), and whether the table it draws
+   * is here yet is `needs-act` (an act to perform). One door, so the three
+   * probe paths cannot come to different conclusions.
+   */
+  private probeGuard(viewId: string, kind: EmissionKind): { readonly code: GapCode; readonly detail: string } | null {
     const cap = this.probeCapability(viewId);
+    const refuse = (detail: string): { readonly code: GapCode; readonly detail: string } => ({ code: 'guard-failed', detail });
     if (!cap) {
       // No capability declared → the ASSUMED voice, read from the one helper
       // that answers "what can this view emit" everywhere else (`voiceOf`), so
       // the act door and the offers can never say different things. Every kind
       // but the walk is assumed, exactly as before; a walk is declared, because
       // nothing about an undeclared view says it has an edge to walk.
-      return voiceOf(undefined).includes(kind) ? null : `view "${viewId}" declares no capability, and a ${kind} selection is never assumed — declare encodings: ["${kind}"] on it`;
+      if (!voiceOf(undefined).includes(kind)) return refuse(`view "${viewId}" declares no capability, and a ${kind} selection is never assumed — declare encodings: ["${kind}"] on it`);
+    } else if (!cap.canProbe) {
+      return refuse(`view "${viewId}" declares no-probe capability`);
+    } else if (cap.encodings !== undefined && !impliedKinds(cap.encodings).includes(kind)) {
+      return refuse(`view "${viewId}" does not encode a ${kind} selection`);
     }
-    if (!cap.canProbe) return `view "${viewId}" declares no-probe capability`;
-    if (cap.encodings !== undefined && !impliedKinds(cap.encodings).includes(kind)) {
-      return `view "${viewId}" does not encode a ${kind} selection`;
-    }
-    return null;
+    return this.tableNotHere(viewId);
+  }
+
+  /**
+   * A view may draw a table an ACT mints (an aggregate's landed table — the
+   * def door reads that off the declaration, `../def/builtinAnalyses.ts` ·
+   * `mintedTables`). Such a table exists where its act landed, so whether the
+   * view can be probed is a question about THIS CURSOR, not about the
+   * definition: refused before the act, landing after it, refused again after
+   * a seek back past it.
+   *
+   * It names the act, because the act is the repair. This is the honest
+   * replacement for a definition declaring such a view `canProbe: false` — a
+   * chart a reader can see and can never click, with no sentence saying why.
+   * The voice is `viewQuery`'s `unknown-table`: the read door's twin refusal.
+   */
+  private tableNotHere(viewId: string): { readonly code: GapCode; readonly detail: string } | null {
+    const table = this.tableFor(viewId);
+    // WHY the act is asked FIRST: a DECLARED table is in `runtime.tables` and so is at every cursor, which
+    // leaves today's law (the column check each probe path makes next, in its own sentences) untouched for
+    // every ordinary view — and leaves no branch here that nothing can reach.
+    const act = this.mintingActOf(table);
+    if (act === undefined || this.tablesAt().includes(table)) return null;
+    return { code: 'needs-act', detail: `view "${viewId}" draws "${table}", which the act "${act}" mints — it has not landed on this path` };
+  }
+
+  /**
+   * Which declared act lands this table name, if any.
+   *
+   * WHY it reads `mintedTables` — the ONE owner (`../def/builtinAnalyses.ts`) —
+   * off the def, and not a registry scan of its own: any table a LAYER can name
+   * was already accepted by this SAME reader at build (`../def/layers.ts`, law
+   * 2), so a second, independently-derived answer over `this.runtime.analyses`
+   * could only ever repeat what this map already says, or silently drift from
+   * it — two owners for one question. (An analysis registered after build via
+   * `registerAnalysis` cannot back a LAYER either way: a layer's table is fixed
+   * from the def at build, and any table it names was already required to be
+   * declared or minted THEN.)
+   */
+  private mintingActOf(table: string): string | undefined {
+    return mintedTables(this.runtime.def).get(table)?.analysisId;
   }
 
   // ── link (layer 4) — edit ONE edge of the graph, as a commit ───────────────────
@@ -2755,9 +2815,10 @@ class InteractionSessionImpl implements InteractionSession {
     if (!this.holdsView(viewId)) {
       return this.reject(verb, intent, this.gapLedger.file('needs-view', verb, `no declared view "${viewId}"`, viewId));
     }
-    // 2. the view's capability guard (R14: guard-failed).
+    // 2. the view's own door (R14): what it DECLARES (`guard-failed`) and whether the table it draws is
+    //    here yet (`needs-act`) — one guard, and it says which code it is refused under.
     const guard = this.probeGuard(viewId, kind);
-    if (guard) return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, guard, viewId));
+    if (guard) return this.reject(verb, intent, this.gapLedger.file(guard.code, verb, guard.detail, viewId));
     // 2b. a probe may not target a reserved session field (R6: keep the log's
     //     test-analog channel uncorruptible by an ordinary select/filter).
     if (RESERVED_PROBE_FIELDS.has(field)) {
@@ -2828,10 +2889,10 @@ class InteractionSessionImpl implements InteractionSession {
     if (!this.holdsView(viewId)) {
       return this.reject(verb, intent, this.gapLedger.file('needs-view', verb, `no declared view "${viewId}"`, viewId));
     }
-    // 2. the view's capability guard (R14: guard-failed) — a cell must be a
+    // 2. the view's own door (R14, the two codes of `probeGuard`) — a cell must be a
     //    DECLARED emission kind (the classic charts honestly do not emit cells).
     const guard = this.probeGuard(viewId, 'cell');
-    if (guard) return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, guard, viewId));
+    if (guard) return this.reject(verb, intent, this.gapLedger.file(guard.code, verb, guard.detail, viewId));
     // 2b. a cell is a TWO-field gesture — the same field twice is almost
     //     certainly a caller bug, refused honestly rather than landing a
     //     double constraint that looks like a heatmap cell but is not one.
@@ -2924,10 +2985,10 @@ class InteractionSessionImpl implements InteractionSession {
     if (!this.holdsView(viewId)) {
       return this.reject(verb, intent, this.gapLedger.file('needs-view', verb, `no declared view "${viewId}"`, viewId));
     }
-    // 2. the view's capability guard (R14: guard-failed) — a walk is a DECLARED
+    // 2. the view's own door (R14, the two codes of `probeGuard`) — a walk is a DECLARED
     //    emission kind, implied by nothing (`../links/voice.ts`).
     const guard = this.probeGuard(viewId, 'neighbourhood');
-    if (guard) return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, guard, viewId));
+    if (guard) return this.reject(verb, intent, this.gapLedger.file(guard.code, verb, guard.detail, viewId));
     // 2b. a walk may not start from a reserved session field (R6), like every other probe.
     if (RESERVED_PROBE_FIELDS.has(field)) {
       return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `field "${field}" is reserved by the session and cannot be selected on`, field));
