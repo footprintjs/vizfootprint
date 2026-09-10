@@ -215,6 +215,76 @@ Five things that statement says out loud. **`__row` as the last ORDER BY key** i
 
 ONE refusal, thrown as a `WindowRefusal` carrying the data port's own reason code — a builder has no `ResolvedEngine` to name, so the provider that catches it converts one field (`reject(engine, 'evaluate', err.reason, err.message)`). A negative or fractional `limit`/`offset` is `bad-window`, in the same sentence `memoryProvider`'s `badWindowValue` already refuses in, and judged in BOTH modes so flipping to `count` cannot launder a bad number. That is the whole list: a sort key the projection drops used to be `unsupported-sort` here, and it is legal now (see the law above) — a pure builder judges the window's NUMBERS and nothing else.
 
+## A find is a READ, and it is a TEXT question
+
+`find(table, clauses, { text, columns, sort, from, direction })` answers ONE question: **where is the next match, in THIS order?**
+
+**A find is a read.** It moves where a person STANDS in one fixed order — exactly as a scroll does — and nothing lands: no commit, no clause, no staged anything. The rows are the same before and after, which is what makes it safe to press repeatedly. It is deliberately **not** an agent tool: an agent that wants fewer rows FILTERS (an act, with a cause, on the log); a person looking for a cell wants their table left exactly as it is.
+
+**It is on the PORT because only an engine can answer it.** "The position of the next match in this order" cannot be answered without walking the table — so a consumer that tried would be re-doing the engine's job at the consumer's cost, over rows it does not have. It is therefore ONE optional question on `DataProvider`, and the option is the honesty:
+
+```ts
+provider.capabilities.canFind === true && provider.find !== undefined
+// absent ⇒ the engine cannot answer it, and the caller refuses IN WORDS:
+//   "the server engine cannot find — filter instead"   (the session's `findInView`)
+```
+
+The memory engine answers over the same sort permutation a window walks; the wasm engine answers in SQL; the stub engines declare nothing and are refused. Nobody silently scans rows on their behalf.
+
+**The match is a case-insensitive SUBSTRING over the TEXT FORM of a cell.** The text form has ONE owner, `cellText.ts`'s `cellString` — the same function the export writes into a CSV field and the sheet's Ctrl+C puts on the clipboard, which is why it lives in `data/` (below both) and is re-exported by `vizfootprint/session` under the name it had there first. The needle is not trimmed (a space is a character a person may be looking for); a search that is ENTIRELY whitespace is refused instead.
+
+```ts
+const answer = await provider.find('cases', clause, { text: 'lyme', columns: ['disease'], from: 0, direction: 'forward' });
+// → { sql: '("state" IN (\'TX\'))', matches: 812, position: 5, ordinal: 1, index: 4193, row: { … } }
+//    matches  = how many rows in the WHOLE view hold it   ("match 1 of 812")
+//    position = 0-based in the view — the `offset` a window opens at to show that row
+//    index    = its source-order index, what a positional row identity is made of
+```
+
+Two shapes, kept apart by the type: a HIT carries `ordinal`, `index` and `row`; a MISS is `{ sql, matches, position: null }` and carries none of them, so a caller cannot mint a row identity out of a match that was not found. **A miss with `matches > 0` is the honest end of a walk** — no match THAT WAY, and some the other way. Nothing wraps: the caller decides to ask again from the other end, and can say so ("wrapped to the top").
+
+**A non-text column's text form is the ENGINE'S OWN.** `columns` says where to LOOK (not what to answer with — the row comes back whole), and a number column is searchable as its digits. The two engines are pinned to AGREE on **strings and integers** (`src/data/engineInvariant.test.ts`, on the 300,000-row fixture, sorted and unsorted, forward and backward, filtered and not). They are documented to DIVERGE on floats and timestamps, and that is named rather than papered over: `3` is `"3"` in JS and `"3.0"` in DuckDB for a `DOUBLE`, and a timestamp is an ISO instant here (`2024-01-02T00:00:00.000Z`) and a SQL timestamp there (`2024-01-02 00:00:00`). Closing that would mean rendering a formatter into every ILIKE — a cost every find would pay for a match nobody types.
+
+**And case-insensitivity is not ONE rule, in one measured place.** JS `toLowerCase()` is full Unicode and a few of its folds **change length**; DuckDB's `ILIKE` folds one code point to one. The pairs that would break first do not — `Ä`/`ä` folds in both engines, `ß`/`SS` folds in neither — but `İ` (U+0130, the Turkish dotted capital I) lowercases in JS to `i` + U+0307, a combining dot, and in DuckDB to a plain `i`:
+
+```ts
+// a table holding one row 'İstanbul' and one row 'plain'
+await find(t, null, { text: 'istanbul', columns: ['t'], from: 0, direction: 'forward' });
+//   wasm   → matches: 1   (İ folded to i, so the needle lines up)
+//   memory → matches: 0   ('i̇stanbul' has a combining dot between the i and the s)
+await find(t, null, { text: 'İ', columns: ['t'], from: 0, direction: 'forward' });
+//   wasm   → matches: 2   (the needle folded to a plain 'i', which 'plain' holds too)
+//   memory → matches: 1
+```
+
+Both numbers are PINNED (`engineInvariant.test.ts`, "agrees about every case pair EXCEPT a fold that changes length"), so an engine that closes the gap fails the test and this paragraph is corrected with it. Closing it deliberately would mean shipping a full case-folding table into the ILIKE, or refusing the needle — a cost every find would pay for one letter.
+
+**The SQL is two statements from one builder** (`findSQL`, beside `windowSQL`), and the builder owns the ORDER BY so a position cannot mean two things:
+
+```sql
+-- the hit: at most one row, and everything a reader is owed about it
+WITH __view AS (SELECT (ROW_NUMBER() OVER (ORDER BY "disease" ASC NULLS LAST, "__row" ASC)) - 1 AS __pos, * FROM "cases" WHERE ("state" IN ('TX'))),
+     __found AS (SELECT (ROW_NUMBER() OVER (ORDER BY __pos ASC)) AS __ordinal, * FROM __view WHERE (CAST("disease" AS VARCHAR) ILIKE '%lyme%' ESCAPE '\'))
+SELECT * FROM __found WHERE __pos >= 0 ORDER BY __pos ASC LIMIT 1
+-- the count: the same view, the same tests, no window function to pay for
+SELECT COUNT(*) AS n FROM "cases" WHERE ("state" IN ('TX')) AND (CAST("disease" AS VARCHAR) ILIKE '%lyme%' ESCAPE '\')
+```
+
+Why TWO: the hit statement answers no row at all at the end of a walk, and that is exactly when `matches` still has to be honest — a count riding inside the hit row would vanish with it. Why the source-order key is UNCONDITIONAL here while `windowSQL` may leave an order off: a position IS a page boundary, so a find on a table this engine did not load (no `__row`) has no honest position at all and is refused in the same words `indices: true` is refused in on the same table. And `%`, `_` and `\` in the needle are escaped with a named `ESCAPE`, so a person searching for `50%` does not match every row.
+
+**One malformed-find judgement, one set of words** (`badFindReason`, beside the type it judges — the memory engine calls it, `findSQL` calls it and throws the sentence as a `WindowRefusal` its provider converts):
+
+| the ask | `reason` | the sentence |
+|---|---|---|
+| `text` empty once trimmed | `bad-find` | `a find needs something to look for — the text was empty` |
+| `from` negative or fractional | `bad-find` | `from must be a whole number at or above zero (got -1)` |
+| `direction` neither way | `bad-find` | `direction must be "forward" or "backward" (got "sideways")` |
+| `columns` empty | `bad-find` | `a find needs at least one column to look in` |
+| a column the table lacks | `unknown-column` | `table "cases" has no column "nope" to look in` |
+| an engine that cannot sort | `unsupported-sort` | (`evaluate`'s own sentence, from `serverProvider`) |
+
+`direction` is judged at RUNTIME even though the type pins it: this port is reached across an HTTP door, and a word the compiler never saw must be refused rather than read as "backward".
+
 ## A derived column belongs to the act that made it
 
 Source columns are the MAP: declared, still, there before anyone looked, and not the trace's to edit. A **derived** column — an analysis's `as: 'columns'` output, landed through `materializeColumn` — is the TRACE: it exists only because an act created it, at a position, on a branch.
@@ -391,8 +461,9 @@ absenceContradictionOf([{ authority: 'CISO', demand: 24_000, demand_state: 'unav
 | `absenceContradiction.ts` | the one sentence for a table whose absence column and value columns disagree |
 | `describeTable.ts` | what is in a table before there is a dashboard — and, given a vocabulary, whether it keeps its word |
 | `fold.ts` | one pass, many recorders |
+| `cellText.ts` | the TEXT FORM of a cell (`cellString`) — one owner, below every door that reads it: the export writes it into a field, a copy puts it on a clipboard, a FIND matches against it |
 | `predicate.ts` / `clauseFromWire.ts` | the clause shape this folder evaluates, and the one translation from a commit's wire triple |
-| `sqlWindow.ts` | the window AROUND the `WHERE` — one pure statement builder (projection, `ORDER BY` with its null placement and its `__row` tie-break, the `__row`-only order a paged unsorted window gets, `LIMIT`/`OFFSET`, the `__row` source-order column), and the ONE way a window is refused |
+| `sqlWindow.ts` | the window AROUND the `WHERE` — one pure statement builder (projection, `ORDER BY` with its null placement and its `__row` tie-break, the `__row`-only order a paged unsorted window gets, `LIMIT`/`OFFSET`, the `__row` source-order column), the two statements a FIND runs (`findSQL` — the same order, rendered once, plus the ILIKE tests and their escaping), and the ONE way either is refused |
 | `memoryProvider.ts` / `wasmProvider.ts` / `serverProvider.ts` / `stubEngines.ts` | the engine that answers in this process, the engine that answers over a SQL connection (its tables' bytes are landed by `../def/wasmBackend.ts`), the one that names its tables and refuses the rest, and the sentence it refuses in |
 | `sqlConnection.ts` | the port a SQL backend is reached through (`query`, `close`), the loader shape (`load` — rows or CSV text), and `loadTableSQL`: the ONE statement that gives a loaded table its `__row` source order |
 | `duckdbConnection.ts` | the only module that names `@duckdb/duckdb-wasm` (an optional peer, pinned by a test, imported dynamically — [`../../PACKAGING.md`](../../PACKAGING.md) Law 3), and it names it inside the opener — the Arrow-to-rows adapter, the file-registering loader, the host judgement, and the one query config (`READ_CONFIG`) both hosts open with |

@@ -48,7 +48,7 @@
  */
 
 import { quoteIdent, resolvePredicateSQL } from './predicate.js';
-import { ROW_ORDER_COLUMN, WindowRefusal, windowSQL } from './sqlWindow.js';
+import { FIND_ORDINAL_COLUMN, FIND_POSITION_COLUMN, ROW_ORDER_COLUMN, WindowRefusal, findSQL, windowSQL } from './sqlWindow.js';
 import type { SqlConnection } from './sqlConnection.js';
 import {
   clauseFields,
@@ -61,6 +61,8 @@ import {
   type DataProviderRejection,
   type EvaluateOptions,
   type EvaluateResult,
+  type FindOptions,
+  type FindResult,
   type PredicateClause,
   type Row,
 } from './types.js';
@@ -109,6 +111,9 @@ const capabilities: DataProviderCapabilities = {
   // so the session's pre-flight sort gate may hand it a sorted window.
   canEvaluateSQL: true,
   canSort: true,
+  // It answers a find in SQL — `ROW_NUMBER()` over the same order a window
+  // renders, so a position it hands back is the offset that window opens at.
+  canFind: true,
   // Landing a computed column is an ALTER TABLE this engine does not issue
   // yet. Declared false so a caller branches BEFORE the call, and refused in
   // those words at the door if it calls anyway.
@@ -229,11 +234,15 @@ function tableFactsOf(described: readonly Record<string, unknown>[]): TableFacts
   };
 }
 
-/** `SELECT COUNT(*) AS n` answers one row with one number — as a JS number, whether DuckDB sent a bigint or a double. */
+/** One number DuckDB sent, as a JS number whether it arrived as a bigint or a double — `undefined` for anything that is not a number at all. */
+function numberOf(value: unknown): number | undefined {
+  if (typeof value === 'bigint') return Number(value);
+  return typeof value === 'number' ? value : undefined;
+}
+
+/** `SELECT COUNT(*) AS n` answers one row with one number. */
 function countOf(rows: readonly Record<string, unknown>[]): number | undefined {
-  const n = rows[0]?.['n'];
-  if (typeof n === 'bigint') return Number(n);
-  return typeof n === 'number' ? n : undefined;
+  return numberOf(rows[0]?.['n']);
 }
 
 /**
@@ -290,14 +299,26 @@ function epochMillisOf(value: unknown): number | undefined {
   return value instanceof Date ? value.getTime() : undefined;
 }
 
+/**
+ * A find's hit row as the caller's own: the three bookkeeping numbers the
+ * statement added removed, and the rest read exactly as a window's row is.
+ *
+ * WHY it reuses `withoutRowOrder` rather than stripping three names itself: a
+ * found row is a row, and a date in it must read the way the same date reads in
+ * a window — one conversion, one place.
+ */
+function foundRowOf(raw: Record<string, unknown>, dates: ReadonlyMap<string, DateShape>): Row {
+  const { [FIND_POSITION_COLUMN]: _position, [FIND_ORDINAL_COLUMN]: _ordinal, ...rest } = raw;
+  return withoutRowOrder(rest, dates);
+}
+
 /** Each row's source-order index, or `undefined` if any row failed to carry one — an answer that cannot be trusted is not answered. */
 function indicesOf(rows: readonly Record<string, unknown>[]): readonly number[] | undefined {
   const indices: number[] = [];
   for (const row of rows) {
-    const index = row[ROW_ORDER_COLUMN];
-    if (typeof index === 'bigint') indices.push(Number(index));
-    else if (typeof index === 'number') indices.push(index);
-    else return undefined;
+    const index = numberOf(row[ROW_ORDER_COLUMN]);
+    if (index === undefined) return undefined;
+    indices.push(index);
   }
   return indices;
 }
@@ -452,6 +473,67 @@ export function wasmProvider(options: WasmProviderOptions = {}): DataProvider {
         ...(evalOptions.offset !== undefined ? { start: Math.min(evalOptions.offset, count) } : {}),
         ...(indices !== undefined ? { indices } : {}),
       };
+    },
+
+    async find(
+      table: string,
+      clause: PredicateClause | readonly PredicateClause[] | null,
+      findOptions: FindOptions,
+    ): Promise<FindResult | DataProviderRejection> {
+      const ready = await readyFor(table);
+      if (ready === 'unknown-table') return reject('wasm', 'find', 'unknown-table', unknownTableSentence(table, declaredTables));
+      if (!ready.ok) return reject('wasm', 'find', 'no-backend-connection', ready.detail);
+      const { connection, schema } = ready.value;
+      const names = schema.columns.map((column) => column.name);
+      const clauses = clauseList(clause);
+      // The judgements in `evaluate`'s order and `evaluate`'s words — a find over
+      // a view is the same view, so it cannot refuse it differently.
+      const missing = clauses.flatMap((one) => clauseFields(one)).find((field) => !names.includes(field));
+      if (missing !== undefined) return reject('wasm', 'find', 'unknown-column', unknownColumnSentence(table, missing));
+      const readable = schema.hasRowOrder ? [...names, ROW_ORDER_COLUMN] : names;
+      const unsearchable = findOptions.columns.find((column) => !readable.includes(column));
+      if (unsearchable !== undefined) return reject('wasm', 'find', 'unknown-column', `${unknownColumnSentence(table, unsearchable)} to look in`);
+      // A POSITION needs a total order, and this engine's total order is the
+      // source-order column (`sqlWindow.ts`). A table it did not load has none,
+      // so the position would be whatever the scan chose — refused in the same
+      // words `indices: true` is refused in on the same table.
+      if (!schema.hasRowOrder) {
+        return reject('wasm', 'find', 'unknown-column', `${unknownColumnSentence(table, ROW_ORDER_COLUMN)} — a find answers a POSITION, and this engine's tables carry a source-order column assigned at load, so this table was not loaded by it`);
+      }
+
+      // The DESCRIPTOR is the VIEW's, byte-identical to what `evaluate` reports
+      // for the same clause: the text searched for is not part of what the view IS.
+      const sql = resolvePredicateSQL(clauses);
+      let statements: { readonly hit: string; readonly matches: string };
+      try {
+        statements = findSQL(table, sql, findOptions);
+      } catch (error) {
+        /* v8 ignore next -- findSQL throws WindowRefusal and nothing else (sqlWindow.ts); rethrowing anything else is how a bug there stays visible instead of arriving as a data refusal */
+        if (!(error instanceof WindowRefusal)) throw error;
+        return reject('wasm', 'find', error.reason, error.message);
+      }
+      const missingSort = (findOptions.sort ?? []).map((key) => key.field).find((field) => !readable.includes(field));
+      if (missingSort !== undefined) return reject('wasm', 'find', 'unknown-column', `${unknownColumnSentence(table, missingSort)} to sort by`);
+
+      // WHY the count runs whatever the hit says: a direction with no match ahead
+      // still owes the reader how many there are (they are behind), and a count
+      // read from the hit row would vanish with it.
+      const counted = countFrom(await ask(connection, statements.matches, table), table);
+      if (!counted.ok) return reject('wasm', 'find', 'no-backend-connection', counted.detail);
+      const answered = await ask(connection, statements.hit, table);
+      if (!answered.ok) return reject('wasm', 'find', 'no-backend-connection', answered.detail);
+      const raw = answered.value[0];
+      if (raw === undefined) return { sql, matches: counted.value, position: null };
+      const position = numberOf(raw[FIND_POSITION_COLUMN]);
+      const ordinal = numberOf(raw[FIND_ORDINAL_COLUMN]);
+      const index = numberOf(raw[ROW_ORDER_COLUMN]);
+      // The hit statement NAMES all three numbers and the table was just checked
+      // to carry `__row`, so a hit row without them is a backend that broke its
+      // own answer — refused, never reported as a position of NaN.
+      if (position === undefined || ordinal === undefined || index === undefined) {
+        return reject('wasm', 'find', 'no-backend-connection', `finding in "${table}" came back without a position — the backend answered ${describeAnswer(answered.value)}`);
+      }
+      return { sql, matches: counted.value, position, ordinal, index, row: foundRowOf(raw, schema.dates) };
     },
 
     async materializeColumn(

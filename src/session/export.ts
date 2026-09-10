@@ -30,11 +30,20 @@
  *
  * **No cell may abort an export.** `cellString` names every value shape a row can
  * hold and throws for none — an invalid `Date`, a nested `BigInt` and a circular
- * value are each a sentence in a cell, never a rejected promise upstream.
+ * value are each a sentence in a cell, never a rejected promise upstream. It is
+ * OWNED one layer down (`../data/cellText.ts`) and re-exported here under the
+ * name it has always had: a find matches against the same text form, and a
+ * search that read a cell differently from the export would be a second answer
+ * to one question.
  */
-import type { Row, SortSpec } from '../data/index.js';
+import { cellString, type Row, type SortSpec } from '../data/index.js';
 import type { InteractionSession } from './session.js';
 import type { ReachingClause } from './types.js';
+
+// The text form is the data layer's, not this file's — see the header. Re-exported
+// so `cellString` stays importable from `vizfootprint/session` for every consumer
+// that already imports it from here.
+export { cellString };
 
 /** The two delimited text formats a spreadsheet opens without being asked twice. */
 export type ExportFormat = 'csv' | 'tsv';
@@ -55,35 +64,6 @@ export const EXPORT_ROW_CEILING = 200_000;
 
 /** The delimiter each format separates fields with. */
 const DELIMITER: Record<ExportFormat, string> = { csv: ',', tsv: '\t' };
-
-/**
- * One cell as text. Never locale-formatted: a receipt is read by another
- * program as often as by a person, and `toLocaleString` would make the same
- * number two different files on two different machines.
- */
-export function cellString(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
-  // an INVALID date is a value the row holds, so it is named rather than blanked —
-  // and `toISOString()` on one throws `Invalid time value`, which would abort the
-  // whole export over a single cell. No cell may do that (see below).
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? 'Invalid Date' : value.toISOString();
-  // an object or array rides as JSON so a cell is never "[object Object]".
-  //
-  // WHY the guard and not a bare `JSON.stringify`: it THROWS on a circular value
-  // and on a nested BigInt, and one throw here escapes `tabularText`,
-  // `exportWindows` and the consumer's `await` alike — a form left frozen on a
-  // rejected promise over one odd cell. A nested BigInt still becomes data (its
-  // digits, as text); anything left names itself.
-  //
-  // JSON.stringify answers undefined for a function or a symbol; String() names those.
-  try {
-    return JSON.stringify(value, (_key, held: unknown) => (typeof held === 'bigint' ? String(held) : held)) ?? String(value);
-  } catch {
-    return String(value);
-  }
-}
 
 /**
  * Quote one field when it holds something the delimiter cannot survive.

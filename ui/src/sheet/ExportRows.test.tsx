@@ -38,7 +38,7 @@ function fakePort(
   return {
     asked,
     data: {
-      capabilities: { sort: true, countKnown: true, edit: false },
+      capabilities: { sort: true, countKnown: true, edit: false, find: false },
       columns: () => Promise.resolve([{ name: 'n', type: 'number' as const }]),
       rows: (window: SheetWindowRequest): Promise<SheetWindow | SheetRefusal> => {
         asked.push(window);

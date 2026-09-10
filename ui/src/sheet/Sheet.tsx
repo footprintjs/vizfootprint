@@ -43,14 +43,15 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FocusEvent as ReactFocusEvent, JSX, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, UIEvent as ReactUIEvent } from 'react';
 import type { Row, SortSpec } from 'vizfootprint/data';
-// what LEAVES is formatted by the library, one cell or a whole window (see `copyFocusedCell`)
-import { cellString } from 'vizfootprint/session';
+// what LEAVES is formatted by the library, one cell or a whole window (see `copyFocusedCell`) —
+// and it is the DATA layer's function, the same text a FIND matches against
+import { cellString } from 'vizfootprint/data';
 import { sortArrow, sortedByWords } from './arrangement.js';
 import { createBlockCache, type BlockCache } from './blockCache.js';
 // the clipboard door and the one sentence for a browser that refuses it — a module of
 // its own, so the grid never reaches through the export FORM to put text on a clipboard
 import { clipboardRefusal, writeClipboard } from './clipboard.js';
-import type { SheetColumn, SheetData, SheetWindow } from './types.js';
+import type { SheetColumn, SheetData, SheetFindAnswer, SheetFindRequest, SheetWindow } from './types.js';
 
 /** One row's height in pixels — fixed, so a scroll position IS a row index. */
 export const SHEET_ROW_HEIGHT = 28;
@@ -146,6 +147,48 @@ export function statusWords(win: SheetWindow | null, sort: readonly SortSpec[] |
   return parts.join(' · ');
 }
 
+/** The find strip's height, reserved out of the body's so the rows never sit under it. */
+export const SHEET_FIND_HEIGHT = 30;
+
+/** What a data layer that cannot find, and offers no sentence of its own, is saying. */
+export const SHEET_CANNOT_FIND = 'this data layer cannot find';
+
+/**
+ * Where a find starts, given where the person is standing — and whether that
+ * start is already a WRAP.
+ *
+ * "Next" means the row AFTER the one you are on, and "previous" the one before
+ * it, so pressing next twice never lands on the same row twice. Both ends are
+ * pre-empted here rather than left to the door: `from: -1` is a MALFORMED ask
+ * (the port refuses it in words), and a person pressing "previous" on row 0
+ * means "wrap to the bottom", not "show me a refusal".
+ */
+export function findFrom(row: number, direction: 'forward' | 'backward', count: number): { readonly from: number; readonly wrapped: boolean } {
+  if (direction === 'forward') return row + 1 >= count ? { from: 0, wrapped: true } : { from: row + 1, wrapped: false };
+  return row - 1 < 0 ? { from: Math.max(0, count - 1), wrapped: true } : { from: row - 1, wrapped: false };
+}
+
+/**
+ * What a find answer says, in the words the readout already counts rows in.
+ *
+ * Three honest sentences and no fourth: nothing in the view holds the text; a
+ * match, with its place among them and the row it is on; or — the race — no
+ * match from here after all, with the count still stated. A wrap SAYS it
+ * wrapped, because a jump backwards through the table is otherwise a surprise.
+ */
+export function findWords(text: string, answer: SheetFindAnswer, wrapped: 'top' | 'bottom' | null): string {
+  if (answer.matches === 0) return `no cell contains \u201c${text}\u201d`;
+  if (answer.position === null) return `no match from here \u00b7 ${answer.matches.toLocaleString()} in this view`;
+  // WHICH match, when the door said (it always does on a hit) — and honestly
+  // vague when it did not, rather than a confident "match 0"
+  const place = answer.ordinal === undefined ? `a match of ${answer.matches.toLocaleString()}` : `match ${answer.ordinal.toLocaleString()} of ${answer.matches.toLocaleString()}`;
+  // 1-based, the way the readout counts rows — one grid never numbers a row two ways
+  const said = `${place} \u00b7 row ${(answer.position + 1).toLocaleString()}`;
+  // WHICH END is the caller's fact, not a guess from the position: a forward wrap
+  // restarts at the top and may still land in the middle of the table.
+  return wrapped === null ? said : `${said} \u00b7 wrapped to the ${wrapped}`;
+}
+
 export interface SheetProps {
   /** The grid port — `sessionSheetData` in process, `httpSheetData` over a door. Memoize it: a new one is a new question. */
   readonly data: SheetData;
@@ -201,6 +244,11 @@ export function Sheet(props: SheetProps): JSX.Element {
   const [scrollTop, setScrollTop] = useState(0);
   const [measured, setMeasured] = useState(0);
   const [focus, setFocus] = useState<{ readonly row: number; readonly col: number }>({ row: 0, col: 0 });
+  // the find strip: open or not, and what is typed in it. A find is a READ, so
+  // none of this is state about the DATA — it is state about where a person is
+  // standing and what they are looking for.
+  const [finding, setFinding] = useState(false);
+  const [findText, setFindText] = useState('');
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -215,6 +263,9 @@ export function Sheet(props: SheetProps): JSX.Element {
    */
   const focusPending = useRef<{ forAsk: number | null } | null>(null);
   const cannotSortRef = useRef<string | null>(null);
+  const findRef = useRef<HTMLInputElement | null>(null);
+  /** Which find is the current one: an answer from an older press is dropped rather than painted over a newer one (the window effect's `seq`, for the other read). */
+  const findSeq = useRef(0);
   const cacheRef = useRef<BlockCache | null>(null);
   cacheRef.current ??= createBlockCache({ ...(props.blockRows !== undefined ? { blockRows: props.blockRows } : {}), ...(props.maxBlocks !== undefined ? { maxBlocks: props.maxBlocks } : {}) });
   const cache = cacheRef.current;
@@ -265,7 +316,9 @@ export function Sheet(props: SheetProps): JSX.Element {
   // WHY the height follows the ENGINE and not the toggle: only the engine has a
   // sentence to print, so only the engine costs a row of the table
   const headHeight = engineCanSort ? rowHeight : rowHeight * 2;
-  const bodyHeight = Math.max(rowHeight, outerHeight - SHEET_BORDERS - headHeight - SHEET_STATUS_HEIGHT);
+  // the strip is paid for out of the BODY, like the status strip and the header's
+  // refusal line: a sheet given a height keeps it, whatever is open inside it
+  const bodyHeight = Math.max(rowHeight, outerHeight - SHEET_BORDERS - headHeight - SHEET_STATUS_HEIGHT - (finding ? SHEET_FIND_HEIGHT : 0));
   const metrics = canvasMetrics(count, rowHeight, bodyHeight, canvasMax);
   const { canvasHeight, scrollMax, visibleRows } = metrics;
   const firstIndex = rowAtScroll(scrollTop, metrics);
@@ -416,7 +469,143 @@ export function Sheet(props: SheetProps): JSX.Element {
     }
   };
 
+  // ── the find strip: a READ that moves where you stand ──
+  //
+  // The door and the capability are read together: the capability is the CLAIM
+  // and the method is the door, so a port that claims without wiring is treated
+  // as refusing rather than as a page that silently does nothing.
+  const findDoor = data.find;
+  const canFind = data.capabilities.find && findDoor !== undefined;
+  const findRefusal = data.capabilities.findRefusal ?? SHEET_CANNOT_FIND;
+
+  /** One ask, in the SAME order and through the same eyes the window was read with — or the position would not be this window's offset. */
+  const findAsk = (from: number, direction: 'forward' | 'backward'): SheetFindRequest => ({
+    text: findText,
+    from,
+    direction,
+    ...(shownSort !== undefined ? { sort: shownSort } : {}),
+    ...(viewId !== undefined ? { viewId } : {}),
+  });
+
+  /**
+   * Where a found row is: MARKED (the sheet's focused cell moves to it) and
+   * scrolled into view — but the DOM focus stays in the input, because a person
+   * mid-search is going to press Enter again. Esc is what hands the focus over.
+   *
+   * The mark survives a row this window does not hold yet: `focus` is state, and
+   * the cell renders as focused the moment the window that holds it arrives.
+   */
+  const landFind = (answer: SheetFindAnswer, wrapped: 'top' | 'bottom' | null): void => {
+    if (answer.position !== null) {
+      setFocus({ row: answer.position, col: focus.col });
+      scrollToRow(answer.position);
+    }
+    setNote(findWords(findText, answer, wrapped));
+  };
+
+  /**
+   * Press "next" or "previous".
+   *
+   * WHY the empty ask is not judged here: the port already judges it (`bad-find`,
+   * "a find needs something to look for — the text was empty") and one library
+   * says that once. A second judge in the grid could disagree with it.
+   *
+   * WHY it may ask TWICE: neither direction wraps at the door — a walk that ran
+   * out says so honestly (`position: null` with `matches > 0`) — so the WRAP is
+   * this grid's decision, made once, and said out loud in the note.
+   */
+  const runFind = async (direction: 'forward' | 'backward'): Promise<void> => {
+    /* v8 ignore next -- the strip renders no buttons at all when there is no door (see `canFind`), so this arm is unreachable from the DOM; it keeps the optional method honest for a host calling in */
+    if (findDoor === undefined) return;
+    const mine = ++findSeq.current;
+    const { from, wrapped } = findFrom(focus.row, direction, count);
+    const answer = await findDoor(findAsk(from, direction));
+    if (mine !== findSeq.current) return; // a newer press already answered
+    if (!answer.ok) {
+      setNote(answer.rejected);
+      return;
+    }
+    const end = direction === 'forward' ? 'top' : 'bottom';
+    if (answer.position === null && answer.matches > 0 && !wrapped) {
+      // nothing that way, but the view holds matches: come back round, once
+      const again = await findDoor(findAsk(direction === 'forward' ? 0 : Math.max(0, count - 1), direction));
+      if (mine !== findSeq.current) return;
+      if (!again.ok) {
+        setNote(again.rejected);
+        return;
+      }
+      landFind(again, end);
+      return;
+    }
+    landFind(answer, wrapped ? end : null);
+  };
+
+  /** Esc: the strip closes and the FOUND ROW takes the focus — through the same keep-until-it-arrives intent a keyboard move uses. */
+  const closeFind = (): void => {
+    setFinding(false);
+    focusPending.current = { forAsk: null };
+  };
+
+  /**
+   * The caret goes into the input, with what is there selected to type over.
+   *
+   * ONE owner, because two things ask for it: the effect below, when the strip
+   * has just opened (the input does not exist until that render), and Ctrl+F
+   * pressed while the strip is ALREADY open with the focus back in the rows —
+   * where the effect cannot fire, because `finding` did not change. A no-op
+   * before that first render, which is exactly what the effect is for.
+   */
+  const takeFindInput = (): void => {
+    findRef.current?.select();
+    findRef.current?.focus();
+  };
+
+  // the input takes the focus when the strip opens — never on first paint (the
+  // strip is not open then), so the page's own focus is never stolen
+  useEffect(() => {
+    if (!finding) return;
+    takeFindInput();
+    // `takeFindInput` reads a ref and is re-made every render; the OPENING is the event
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finding]);
+
+  const onFindKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeFind();
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault(); // a form around the grid must not submit on a search
+      void runFind(event.shiftKey ? 'backward' : 'forward');
+      return;
+    }
+    // Ctrl+F while the strip is already open: the browser's own find stays shut,
+    // and the person gets their text selected to type over
+    if ((event.ctrlKey || event.metaKey) && (event.key === 'f' || event.key === 'F')) {
+      event.preventDefault();
+      event.currentTarget.select();
+    }
+  };
+
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    // Ctrl/Cmd+F opens the strip — a READ, so Present mode does not close this
+    // door (the same law the copy key follows one block down)
+    if ((event.ctrlKey || event.metaKey) && (event.key === 'f' || event.key === 'F')) {
+      // The browser's own find searches the WINDOW and this searches the TABLE,
+      // so the key is taken out of the way — but ONLY when this port can answer
+      // instead. A strip that can only refuse must not also cost a person the
+      // find their browser already gave them (the copy key's law one block down:
+      // prevented only because something IS going to happen). The strip still
+      // opens either way, because a person who asked is owed the sentence.
+      if (canFind) event.preventDefault();
+      setFinding(true);
+      // …and a key that WAS swallowed always does something: pressed with the
+      // strip already open and the focus back in the rows, `finding` does not
+      // change, so no effect fires and only this puts the caret back.
+      takeFindInput();
+      return;
+    }
     // the copy key is not a MOVE, so it is judged before the movement switch and
     // leaves `focus` exactly where it was
     if ((event.ctrlKey || event.metaKey) && (event.key === 'c' || event.key === 'C')) {
@@ -577,6 +766,39 @@ export function Sheet(props: SheetProps): JSX.Element {
           </div>
         </div>
       </div>
+      {finding && (
+        // the strip sits BETWEEN the grid and the readout: outside `role="grid"`
+        // (an input is not a gridcell), and above the sentence it writes into
+        <div className="vzf-sheet-find" style={{ height: SHEET_FIND_HEIGHT }} data-vzf="sheet-find" role="search">
+          {canFind ? (
+            <>
+              <input
+                ref={findRef}
+                className="vzf-sheet-findinput"
+                type="text"
+                value={findText}
+                onChange={(event) => setFindText(event.currentTarget.value)}
+                onKeyDown={onFindKeyDown}
+                aria-label="find in this table"
+                placeholder="find in this table"
+              />
+              <button type="button" className="vzf-sheet-findnext" onClick={() => void runFind('forward')} aria-label="next match">
+                next
+              </button>
+              <button type="button" className="vzf-sheet-findprev" onClick={() => void runFind('backward')} aria-label="previous match">
+                previous
+              </button>
+              <button type="button" className="vzf-sheet-findclose" onClick={closeFind} aria-label="close find">
+                ✕
+              </button>
+            </>
+          ) : (
+            // no input at all: one that cannot answer is worse than none, and the
+            // sentence says whose refusal it is
+            <span className="vzf-sheet-cannot">{findRefusal}</span>
+          )}
+        </div>
+      )}
       <div className="vzf-sheet-status" style={{ height: SHEET_STATUS_HEIGHT }}>
         {/* the readout changes on every scroll: announcing it would talk over everything else */}
         <span className="vzf-sheet-readout" aria-live="off">

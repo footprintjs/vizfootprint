@@ -50,8 +50,20 @@ export interface SheetCapabilities {
   readonly countKnown: true;
   /** The sheet is read-only in this version. A cell edit is refused with a next action, never swallowed. */
   readonly edit: false;
+  /**
+   * False when nothing behind this port can answer WHERE THE NEXT MATCH IS —
+   * the find strip then shows `findRefusal` and offers no input at all, because
+   * an input that cannot answer is worse than no input.
+   *
+   * WHY it is a capability and not just an absent method: a person pressing
+   * Ctrl+F is owed a reason, and "the door was never wired" is a different
+   * reason from "this engine cannot do it". Both arrive here as words.
+   */
+  readonly find: boolean;
   /** Why `sort` is false, in the words a person reads. Absent when nothing is refused. */
   readonly refusal?: string;
+  /** Why `find` is false, in the words a person reads. Absent when nothing is refused. */
+  readonly findRefusal?: string;
 }
 
 /** One window asked for: which columns, in what order, where it starts, how many rows, and through whose eyes. */
@@ -108,8 +120,46 @@ export interface SheetWindow {
  */
 export interface SheetRefusal {
   readonly ok: false;
-  readonly reason: ViewQueryRefusal | 'unreachable';
+  /** `unsupported-find` is a find's own: an engine that cannot say where the next match is. */
+  readonly reason: ViewQueryRefusal | 'unsupported-find' | 'unreachable';
   readonly rejected: string;
+}
+
+/**
+ * One find asked for: what to look for, where from, which way — and the same
+ * ORDER and eyes the window was read with.
+ *
+ * WHY the sort rides along: a position is only the offset of a row if the find
+ * and the window agree about what order the rows are in.
+ */
+export interface SheetFindRequest {
+  /** What a person typed. */
+  readonly text: string;
+  /** The view position to search FROM, inclusive. */
+  readonly from: number;
+  /** `'forward'` = the first match at or after `from`; `'backward'` = the last at or before it. Neither WRAPS — the caller asks again from the other end and says so. */
+  readonly direction: 'forward' | 'backward';
+  /** Which columns to look in. Default (absent): the data layer's own — the TEXT columns of the projection at the cursor. */
+  readonly columns?: readonly string[];
+  /** The order the positions are counted in — the same one the window was read with. */
+  readonly sort?: readonly SortSpec[];
+  /** Whose eyes, as on a window. */
+  readonly viewId?: string;
+}
+
+/** Where the next match is — mirrored from `FindInViewResult`'s `ok` arm. */
+export interface SheetFindAnswer {
+  readonly ok: true;
+  /** The view position of the match — the `offset` a window opens at to show it — or `null` when there is none that way. */
+  readonly position: number | null;
+  /** The found row's identity, the same one the window names it by. Absent when `position` is null. */
+  readonly rowId?: string;
+  /** 1-based among the matches, in view order. Absent when `position` is null. */
+  readonly ordinal?: number;
+  /** How many rows in the whole view hold the text — `0` is "no cell contains it", not an error. */
+  readonly matches: number;
+  readonly version: string | null;
+  readonly cursor: string | null;
 }
 
 /** The port itself: what a sheet may ask a data layer. */
@@ -119,4 +169,13 @@ export interface SheetData {
   columns(): Promise<readonly SheetColumn[]>;
   /** One window, or a refusal with a sentence. `signal` aborts a window a scroll has already left behind. */
   rows(window: SheetWindowRequest, opts?: { readonly signal?: AbortSignal }): Promise<SheetWindow | SheetRefusal>;
+  /**
+   * WHERE IS THE NEXT MATCH — a READ, like `rows`: it says where to STAND, and
+   * the grid then opens its window there. Nothing is filtered and nothing lands.
+   *
+   * OPTIONAL, paired with `capabilities.find`: a door that cannot answer leaves
+   * it off and says why in `capabilities.findRefusal`, and the grid shows the
+   * sentence instead of an input it cannot serve.
+   */
+  find?(ask: SheetFindRequest, opts?: { readonly signal?: AbortSignal }): Promise<SheetFindAnswer | SheetRefusal>;
 }

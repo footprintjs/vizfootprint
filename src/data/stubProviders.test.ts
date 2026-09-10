@@ -17,7 +17,7 @@ describe('wasmProvider — an engine that answers, judged by the same edge contr
   it('declares what it does, including the door it keeps shut', () => {
     const p = wasmProvider();
     expect(p.engine).toBe('wasm');
-    expect(p.capabilities).toEqual({ canEvaluateSQL: true, canSort: true, canMaterialize: false });
+    expect(p.capabilities).toEqual({ canEvaluateSQL: true, canSort: true, canFind: true, canMaterialize: false });
   });
 
   it('tables() resolves to empty rather than rejecting when nothing was declared (no lie either way)', async () => {

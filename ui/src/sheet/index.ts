@@ -8,7 +8,7 @@
  * scope builder, the words, the three constants) are exported for the tests and
  * for a host building its own renderer over the same port. See ./README.md.
  */
-export { Sheet, canvasMetrics, cellText, nextSort, noSortWords, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_BORDERS, SHEET_CANVAS_MAX, SHEET_ENGINE_CANNOT_SORT, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './Sheet.js';
+export { Sheet, canvasMetrics, cellText, findFrom, findWords, nextSort, noSortWords, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_BORDERS, SHEET_CANNOT_FIND, SHEET_CANVAS_MAX, SHEET_ENGINE_CANNOT_SORT, SHEET_FIND_HEIGHT, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './Sheet.js';
 export type { SheetMetrics, SheetProps } from './Sheet.js';
 // the arrangement: a sheet's sort as an ACT, and the codec both sides of it share
 export { sheetLayoutScope, sheetLayoutViewId, sheetSortOf, sortArrow, sortedByWords, sortFromLayoutValue, sortPhraseOf, sortToLayoutValue, sortWords, SHEET_LAYOUT_KIND, SHEET_LAYOUT_PREFIX, SHEET_SORT_PROP } from './arrangement.js';
@@ -25,10 +25,10 @@ export type { ExportFile, ExportRowsProps } from './ExportRows.js';
 export { clipboardRefusal, writeClipboard, NO_CLIPBOARD } from './clipboard.js';
 export { sessionSheetData, threwSentence } from './sessionSheetData.js';
 export type { SessionSheetOptions, SheetSessionLike } from './sessionSheetData.js';
-export { httpSheetData, isViewQueryResult, windowQuery } from './httpSheetData.js';
+export { httpSheetData, findQueryBody, isFindInViewResult, isViewQueryResult, windowQuery, NO_FIND_DOOR } from './httpSheetData.js';
 export type { FetchLike, HttpSheetOptions } from './httpSheetData.js';
 export { blockKey, blockRange, createBlockCache, questionKey, sliceWindow, splitBlocks, SHEET_BLOCK_ROWS, SHEET_MAX_BLOCKS } from './blockCache.js';
 export type { BlockCache, BlockCacheOptions, BlockKeyParts, RangeFetch, SheetBlock, SheetEntry } from './blockCache.js';
 // …including the two the port SPEAKS but does not own: a renderer naming the type of a value this
 // barrel just handed it should not have to reach past the port for the name (`./types.ts` re-exports them for that).
-export type { SheetCapabilities, SheetColumn, SheetData, SheetRefusal, SheetWindow, SheetWindowRequest, SortSpec, ViewQueryRefusal } from './types.js';
+export type { SheetCapabilities, SheetColumn, SheetData, SheetFindAnswer, SheetFindRequest, SheetRefusal, SheetWindow, SheetWindowRequest, SortSpec, ViewQueryRefusal } from './types.js';

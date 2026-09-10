@@ -5,9 +5,9 @@
  * than in a browser, where a silently empty answer looks like an empty table.
  */
 import { describe, it, expect } from 'vitest';
-import { windowSQL, ROW_ORDER_COLUMN, WindowRefusal } from './sqlWindow.js';
+import { findSQL, windowSQL, ROW_ORDER_COLUMN, WindowRefusal } from './sqlWindow.js';
 import { resolvePredicateSQL } from './predicate.js';
-import type { EvaluateOptions, SortSpec } from './types.js';
+import type { EvaluateOptions, FindOptions, SortSpec } from './types.js';
 
 const WHERE = '("state" IN (\'TX\'))';
 
@@ -330,5 +330,107 @@ describe('windowSQL — quoting', () => {
 
   it('a name with a space or a keyword needs no special case — every identifier is quoted', () => {
     expect(windowSQL('order by', '', { columns: ['select', 'a b'] })).toBe('SELECT "select", "a b" FROM "order by"');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// findSQL — the two statements, byte for byte.
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// A find's whole claim is that the POSITION it answers is the `offset` the next
+// window opens at. That claim lives in the ORDER BY, which is why these are
+// pinned as strings: a dropped `"__row" ASC` still answers a row, just not the
+// row the reader was shown.
+
+const FIND: FindOptions = { text: 'apple', columns: ['fruit'], from: 0, direction: 'forward' };
+
+describe('findSQL — the hit statement', () => {
+  it('numbers the view from zero over the source-order column, and takes the FIRST match at or after `from`', () => {
+    expect(findSQL('cases', '', FIND).hit).toBe(
+      'WITH __view AS (SELECT (ROW_NUMBER() OVER (ORDER BY "__row" ASC)) - 1 AS __pos, * FROM "cases"), ' +
+        '__found AS (SELECT (ROW_NUMBER() OVER (ORDER BY __pos ASC)) AS __ordinal, * FROM __view WHERE (CAST("fruit" AS VARCHAR) ILIKE \'%apple%\' ESCAPE \'\\\')) ' +
+        'SELECT * FROM __found WHERE __pos >= 0 ORDER BY __pos ASC LIMIT 1',
+    );
+  });
+
+  it('BACKWARD turns both the comparison and the order — the LAST match at or before `from`', () => {
+    const back = findSQL('cases', '', { ...FIND, from: 40, direction: 'backward' }).hit;
+    expect(back).toContain('WHERE __pos <= 40 ORDER BY __pos DESC LIMIT 1');
+    // and nothing else about the statement moved
+    expect(back.replace('__pos <= 40 ORDER BY __pos DESC', '__pos >= 40 ORDER BY __pos ASC')).toBe(findSQL('cases', '', { ...FIND, from: 40 }).hit);
+  });
+
+  it('the filter becomes the view\'s WHERE — the position is counted over the rows the filter KEPT', () => {
+    expect(findSQL('cases', WHERE, FIND).hit).toContain('AS __pos, * FROM "cases" WHERE ("state" IN (\'TX\'))), __found');
+  });
+
+  it('the sort keys come first and the source-order column last — the SAME order windowSQL renders', () => {
+    const sort: SortSpec[] = [{ field: 'cases', dir: 'desc' }, { field: 'state', dir: 'asc', absent: 'first' }];
+    expect(findSQL('cases', '', { ...FIND, sort }).hit).toContain(
+      'ORDER BY "cases" DESC NULLS LAST, "state" ASC NULLS FIRST, "__row" ASC)) - 1 AS __pos',
+    );
+    // one key, not two, when the caller ordered by the source-order column itself
+    expect(findSQL('cases', '', { ...FIND, sort: [{ field: ROW_ORDER_COLUMN, dir: 'asc' }] }).hit).toContain('ORDER BY "__row" ASC NULLS LAST)) - 1 AS __pos');
+  });
+
+  it('every named column is its own ILIKE, ORed — any cell holding the text makes the row a match', () => {
+    expect(findSQL('cases', '', { ...FIND, columns: ['fruit', 'note'] }).hit).toContain(
+      'WHERE (CAST("fruit" AS VARCHAR) ILIKE \'%apple%\' ESCAPE \'\\\' OR CAST("note" AS VARCHAR) ILIKE \'%apple%\' ESCAPE \'\\\')',
+    );
+  });
+
+  it('the wildcards, the escape character and the quote in the TEXT are escaped, so the pattern means what was typed', () => {
+    // a person searching for `50%_off\x` and one searching for `o'clock`
+    expect(findSQL('t', '', { ...FIND, text: '50%_off\\x' }).hit).toContain('ILIKE \'%50\\%\\_off\\\\x%\' ESCAPE \'\\\'');
+    expect(findSQL('t', '', { ...FIND, text: "o'clock" }).hit).toContain('ILIKE \'%o\'\'clock%\' ESCAPE \'\\\'');
+  });
+
+  it('a name carrying a double quote has it doubled here too — one quoting rule for the whole statement', () => {
+    expect(findSQL('ta"ble', '', { ...FIND, columns: ['we"ird'] }).hit).toContain('CAST("we""ird" AS VARCHAR)');
+    expect(findSQL('ta"ble', '', FIND).hit).toContain('FROM "ta""ble"');
+  });
+});
+
+describe('findSQL — the count statement', () => {
+  it('counts the matches over the WHOLE view, and pays for no window function to do it', () => {
+    expect(findSQL('cases', '', FIND).matches).toBe('SELECT COUNT(*) AS n FROM "cases" WHERE (CAST("fruit" AS VARCHAR) ILIKE \'%apple%\' ESCAPE \'\\\')');
+    expect(findSQL('cases', '', FIND).matches).not.toContain('ROW_NUMBER');
+  });
+
+  it('the filter and the text tests are ANDed — the count is the view\'s, never the table\'s', () => {
+    expect(findSQL('cases', WHERE, FIND).matches).toBe(
+      'SELECT COUNT(*) AS n FROM "cases" WHERE ("state" IN (\'TX\')) AND (CAST("fruit" AS VARCHAR) ILIKE \'%apple%\' ESCAPE \'\\\')',
+    );
+  });
+
+  it('a CLEARED descriptor is no filter at all — never `WHERE null`, which would count zero', () => {
+    const cleared = resolvePredicateSQL(null);
+    expect(cleared).toBe('null');
+    expect(findSQL('cases', cleared, FIND).matches).toBe(findSQL('cases', '', FIND).matches);
+    expect(findSQL('cases', cleared, FIND).hit).toBe(findSQL('cases', '', FIND).hit);
+  });
+
+  it('neither statement is affected by the direction or by `from` — how many match is not where you stand', () => {
+    expect(findSQL('cases', WHERE, { ...FIND, from: 900, direction: 'backward' }).matches).toBe(findSQL('cases', WHERE, FIND).matches);
+  });
+});
+
+describe('findSQL — the refusal', () => {
+  it('a malformed ask is `bad-find`, in the port\'s own words, before anything is rendered', () => {
+    const refused = (over: Partial<FindOptions>): WindowRefusal => {
+      try {
+        findSQL('cases', '', { ...FIND, ...over });
+      } catch (error) {
+        return error as WindowRefusal;
+      }
+      throw new Error('findSQL answered a statement for a malformed ask');
+    };
+    expect(refused({ text: '  ' }).reason).toBe('bad-find');
+    expect(refused({ text: '  ' }).message).toBe('a find needs something to look for — the text was empty');
+    expect(refused({ from: -2 }).message).toBe('from must be a whole number at or above zero (got -2)');
+    expect(refused({ from: 0.5 }).message).toBe('from must be a whole number at or above zero (got 0.5)');
+    expect(refused({ direction: 'up' as unknown as 'forward' }).message).toBe('direction must be "forward" or "backward" (got "up")');
+    expect(refused({ columns: [] }).message).toBe('a find needs at least one column to look in');
+    expect(refused({ columns: [] })).toBeInstanceOf(WindowRefusal);
   });
 });

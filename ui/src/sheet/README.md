@@ -32,6 +32,7 @@ const data = useMemo(() => httpSheetData({ endpoint: '/api/window', table: 'cell
 - **Mount it once the state knows the version**, or the first paint asks once for the unknown version and again when it arrives. The gallery's sheet page shows the pattern.
 - **Height.** Give `height` (the OUTER height, frame included) and the sheet uses it; leave it out and the sheet measures the box it was given with a `ResizeObserver` and follows it. A host without one keeps the first measurement.
 - **Keyboard: APG grid keys.** Arrow keys move the focused cell, Home/End move to the first/last column of the row, PageUp/PageDown move a page of rows; the scroll follows the focus. A move onto a row this window does not hold yet KEEPS the intent until the row arrives, then takes the DOM focus — it is never dropped on a render that could not honour it. **The intent never outlives its own ask**: a newer ask, a refused window, focus leaving the grid, or any pointer press anywhere drops it, so a window that lands minutes later can never reach across the page and steal focus from whatever a person is typing in. The focus is taken only after a keyboard move, never on first paint.
+- **Find (Ctrl+F) is a READ, and only the engine can answer it.** The strip asks the port where the next match is — in the same order and through the same eyes the window was read with — and the grid then STANDS there: the focused cell moves and the scroll follows. Nothing is filtered, nothing lands, and `readOnly` does not close it (see "Find (Ctrl+F) is a read too" below).
 - **A refused sort is remembered.** When the engine says `unsupported-sort` at runtime the sort is handed BACK to the host to clear — one honest act, never a quiet local undo — AND the sentence is kept for the life of this sheet: the header shows it on its own line from then on, the toggles go, and the status strip keeps it instead of flashing once and vanishing.
 
 ## The sort is an ACT — the ruling, and where it lands
@@ -202,15 +203,81 @@ A version or cursor that moves between pages refuses the WHOLE export
 versions never share a file. Pinned by `ExportRows.test.tsx` and, for the grid's
 one-cell copy, by `Sheet.test.tsx`.
 
+## Find (Ctrl+F) is a read too — it moves where you STAND
+
+```tsx
+<Sheet data={sheetData} readOnly />   // Ctrl+F works here too: reading is what a find is
+```
+
+**Nothing is filtered and nothing lands.** Ctrl+F / Cmd+F opens a strip between
+the rows and the readout; typing and pressing Enter moves the sheet's focused
+cell to the next matching row and scrolls it into view. The rows are the same
+rows before and after — a find changes where a person is standing, exactly as a
+scroll does. An agent that wants fewer rows FILTERS, which is an act with a
+cause; this is a read, so `readOnly` does not close the door (the same law
+Ctrl+C follows above).
+
+**The engine answers, not the grid.** The strip asks
+`SheetData.find({ text, from, direction, sort?, viewId? })` and the port asks the
+session, which asks the engine — "the position of the next match in THIS order"
+cannot be answered without walking the table, so the grid never walks it. The
+`sort` and `viewId` it asks with are the ones the WINDOW was read with, which is
+what makes the answer's `position` the `offset` the grid then opens at. The laws
+of the answer itself are the library's:
+[`src/data/README.md`](../../../src/data/README.md), "A find is a READ, and it is
+a TEXT question", and
+[`src/session/README.md`](../../../src/session/README.md), "Find is a read too".
+
+**Four sentences, and each one is said in the status line:**
+
+| what happened | what it says |
+|---|---|
+| a match | `match 3 of 12 · row 1,204` |
+| the walk ran out and came round | `match 1 of 12 · row 3 · wrapped to the top` |
+| nothing in the view holds it | `no cell contains “zebra”` |
+| the port refused (empty text, a moved version, an engine that cannot) | the port's OWN sentence, unedited |
+
+**Where a walk starts, and the one place it wraps.** "Next" starts at the row
+AFTER the one you are standing on and "previous" at the one before it, so
+pressing next twice never lands twice on the same row. Both ends round: previous
+on row 0 asks from the last row, and next on the last row asks from 0 — `from: -1`
+is a MALFORMED ask, and a person pressing previous at the top means "wrap", not
+"show me a refusal". When a walk runs out mid-table (the door answers
+`position: null` with `matches > 0`) the grid asks **once** more from the other
+end and says that it wrapped. The door itself never wraps; wrapping is a
+decision, and the grid makes it out loud.
+
+**Focus, and why Esc exists.** A found row is MARKED (the focused cell moves to
+it) and scrolled to, but the DOM focus stays in the input — a person mid-search
+is going to press Enter again. **Esc** closes the strip and hands the focus to
+the row the find landed on, through the same keep-until-it-arrives intent a
+keyboard move uses, so it works even when that row's window has not arrived yet.
+Shift+Enter is "previous"; the strip also has next / previous / close buttons.
+Ctrl+F pressed again — from the input or from the rows — puts the caret back in
+the input with the text selected to type over, because a key whose default was
+swallowed must always do something.
+
+**A port that cannot find shows the sentence and no input — and leaves the
+browser's own find alone.** `capabilities.find` is the claim and `find` is the
+door; a port missing either is treated as refusing, and the strip renders
+`capabilities.findRefusal` (or `SHEET_CANNOT_FIND`) where the input would have
+been — an input that cannot answer is worse than no input. Ctrl+F's default is
+**prevented only when the port can actually answer** (the same law Ctrl+C
+follows: prevented only because a cell IS going to the clipboard), so on such a
+port the person gets the sentence AND keeps the find their browser already gave
+them. `httpSheetData` without a `findEndpoint` says
+*"this door answers windows only — no find door was given"*; a stub-engine table
+says the session's own *"the server engine cannot find — filter instead"*.
+
 ## The port
 
-`SheetData` (`./types.ts`) is React-free and core-free at the type level — only TYPES come from `src`. It is three things: `capabilities` (each `false` naming its refusal sentence), `columns()` (name, type, role), and `rows(window, { signal })` answering a window **or** a refusal. There is no third arm: an empty grid never stands in for an answer nobody gave.
+`SheetData` (`./types.ts`) is React-free and core-free at the type level — only TYPES come from `src`. It is four things: `capabilities` (each `false` naming its refusal sentence), `columns()` (name, type, role), `rows(window, { signal })` answering a window **or** a refusal, and the OPTIONAL `find(ask, { signal })` answering where the next match is **or** a refusal. There is no third arm on either read: an empty grid never stands in for an answer nobody gave, and neither does an unmoved cursor.
 
-Two adapters ship. `sessionSheetData` is in process: a translation and a refusal pass-through over `session.viewQuery`, which turns a throw into a sentence and drops a window whose signal was aborted. `httpSheetData` speaks `GET <endpoint>?table=&viewId=&columns=&sort=&offset=&limit=` with `columns` and `sort` as **JSON** (a column may be called `a,b`; a joined list could not carry it) and validates what comes back — a refusing door's own `error` sentence is the one shown.
+Two adapters ship. `sessionSheetData` is in process: a translation and a refusal pass-through over `session.viewQuery`, which turns a throw into a sentence and drops a window whose signal was aborted. `httpSheetData` speaks `GET <endpoint>?table=&viewId=&columns=&sort=&offset=&limit=` with `columns` and `sort` as **JSON** (a column may be called `a,b`; a joined list could not carry it) and validates what comes back — a refusing door's own `error` sentence is the one shown. Its find door is `POST <findEndpoint>` with the `FindQuery` as the body: a person's typing and a sort spec do not belong in a URL a proxy logs, and a query string that changes on every keystroke is a cache key per keystroke. It is a read all the same.
 
 ## Deliberately not here yet
 
 - **A row on a KEYLESS table cannot be selected in this version.** The design calls for a "within-version marked point" — a selection on `<version>#<index>` that a bookmark records as valid only inside that version — and the library port does not express one yet: `ViewQueryResult` carries the positional row id but nothing consumes it as a clause. **That is a pending library decision**, not an oversight here; until it lands the sheet says so in words rather than inventing an identity.
 - **The REST of the arrangement.** `sort` lands (see "The sort is an act" above); `hidden`, `order`, `frozen` and `firstRow` do not yet. They belong under the same identity and the same prop grammar — one `navigate` note per prop on `layout:sheet:<viewId>` — so each is a small packet on a road that is already built, not a new decision. `firstRow` is the one to think twice about: a scroll position is a READ by this folder's own law, and it would be here only as a place to RESUME, never as a claim about an order.
 - **A profile per column** — the quality bar, the distribution mini-bar, the distinct count, the absence tally. They come from ONE fold per (table, version, visible overlay set), which does not exist yet; a header that guessed them from the rendered window would be lying about 90,300 rows while showing 30.
-- **Find (Ctrl+F)**, the formula bar, the why panel, cell edits, and the AG Grid adapter — each is its own packet. (Derived columns arrived: see "Add a column" above; copy and export arrived: see "Copy and export are reads".)
+- **The formula bar**, the why panel, cell edits, and the AG Grid adapter — each is its own packet. (Derived columns arrived: see "Add a column" above; copy and export arrived: see "Copy and export are reads"; find arrived: see "Find (Ctrl+F) is a read too".)

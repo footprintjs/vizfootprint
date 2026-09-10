@@ -12,16 +12,19 @@
  * a newer window.
  *
  * The session is read STRUCTURALLY (the same rule `ui/src/adapter/sessionView.ts`
- * follows for `SessionLike`): only the two methods a sheet needs are named, so
- * a test double is three lines and no value is imported from `src`.
+ * follows for `SessionLike`): only the three methods a sheet needs are named
+ * (`viewQuery`, `overview`, `findInView`), so a test double is a few lines and
+ * no value is imported from `src`.
  */
-import type { Overview, ViewQuery, ViewQueryResult } from 'vizfootprint/session';
-import type { SheetColumn, SheetData, SheetRefusal, SheetWindow, SheetWindowRequest } from './types.js';
+import type { FindInViewResult, FindQuery, Overview, ViewQuery, ViewQueryResult } from 'vizfootprint/session';
+import type { SheetColumn, SheetData, SheetFindAnswer, SheetFindRequest, SheetRefusal, SheetWindow, SheetWindowRequest } from './types.js';
 
 /** The subset of an `InteractionSession` a sheet reads. */
 export interface SheetSessionLike {
   viewQuery(query?: ViewQuery): Promise<ViewQueryResult> | ViewQueryResult;
   overview(): Promise<Overview> | Overview;
+  /** WHERE IS THE NEXT MATCH — a read, like `viewQuery`. The session refuses an engine that cannot answer it, and that refusal rides through. */
+  findInView(query: FindQuery): Promise<FindInViewResult> | FindInViewResult;
 }
 
 export interface SessionSheetOptions {
@@ -36,6 +39,17 @@ export interface SessionSheetOptions {
   readonly sort?: boolean;
   /** Why sort is refused, when it is. */
   readonly sortRefusal?: string;
+  /**
+   * False when this table's engine cannot answer where the next match is — then
+   * `findRefusal` is the sentence the find strip shows INSTEAD of an input.
+   *
+   * Default true, and honestly so: the session refuses an engine without a find
+   * door in its own words (`unsupported-find`), so a host that does not know
+   * which engine backs the table is not made to guess — the first Ctrl+F says.
+   */
+  readonly find?: boolean;
+  /** Why find is refused, when the host already knows it is. */
+  readonly findRefusal?: string;
 }
 
 /**
@@ -62,6 +76,19 @@ function asWindow(answer: Extract<ViewQueryResult, { ok: true }>): SheetWindow {
   };
 }
 
+/** The find as the sheet's port states it — a translation, never a second opinion (see `asWindow`). */
+function asFound(answer: Extract<FindInViewResult, { ok: true }>): SheetFindAnswer {
+  return {
+    ok: true,
+    position: answer.position,
+    ...(answer.rowId !== undefined ? { rowId: answer.rowId } : {}),
+    ...(answer.ordinal !== undefined ? { ordinal: answer.ordinal } : {}),
+    matches: answer.matches,
+    version: answer.version,
+    cursor: answer.cursor,
+  };
+}
+
 /** A thrown thing as a sentence — a data layer that breaks says so, and the grid shows it. */
 export function threwSentence(error: unknown): string {
   return `the data layer threw: ${error instanceof Error ? error.message : String(error)}`;
@@ -69,12 +96,15 @@ export function threwSentence(error: unknown): string {
 
 export function sessionSheetData(session: SheetSessionLike, options: SessionSheetOptions = {}): SheetData {
   const canSort = options.sort ?? true;
+  const canFind = options.find ?? true;
   return {
     capabilities: {
       sort: canSort,
       countKnown: true,
       edit: false,
+      find: canFind,
       ...(canSort ? {} : { refusal: options.sortRefusal ?? 'this table\'s engine cannot sort — ask for the window in the table\'s own order' }),
+      ...(canFind ? {} : { findRefusal: options.findRefusal ?? 'this table\'s engine cannot find — filter to fewer rows instead' }),
     },
     async columns(): Promise<readonly SheetColumn[]> {
       const overview = await session.overview();
@@ -103,6 +133,25 @@ export function sessionSheetData(session: SheetSessionLike, options: SessionShee
         });
         if (opts?.signal?.aborted === true) return { ok: false, reason: 'engine', rejected: 'this window was left behind by a newer one' };
         return answer.ok ? asWindow(answer) : { ok: false, reason: answer.reason, rejected: answer.rejected };
+      } catch (error: unknown) {
+        return { ok: false, reason: 'engine', rejected: threwSentence(error) };
+      }
+    },
+    async find(ask: SheetFindRequest, opts?: { readonly signal?: AbortSignal }): Promise<SheetFindAnswer | SheetRefusal> {
+      try {
+        const answer = await session.findInView({
+          ...(options.table !== undefined ? { table: options.table } : {}),
+          ...(ask.viewId !== undefined ? { viewId: ask.viewId } : {}),
+          ...(ask.columns !== undefined ? { columns: ask.columns } : {}),
+          ...(ask.sort !== undefined ? { sort: ask.sort } : {}),
+          text: ask.text,
+          from: ask.from,
+          direction: ask.direction,
+        });
+        // an aborted find is dropped for the same reason an aborted window is:
+        // the person has typed on, and this answer is about a question they left
+        if (opts?.signal?.aborted === true) return { ok: false, reason: 'engine', rejected: 'this find was left behind by a newer one' };
+        return answer.ok ? asFound(answer) : { ok: false, reason: answer.reason, rejected: answer.rejected };
       } catch (error: unknown) {
         return { ok: false, reason: 'engine', rejected: threwSentence(error) };
       }

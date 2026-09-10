@@ -127,6 +127,11 @@ function Page(): JSX.Element {
     window.__sheetWindows = 0;
     window.__sheetCommits = () => session.log.records.length;
     const base = sessionSheetData(session, { table: 'cells' });
+    // the find door rides through UNWRAPPED: it is a READ that lands nothing, so
+    // there is no window for this page to count. Bound once here rather than
+    // reached through `base` inside the object, so the optional method needs no
+    // assertion to survive the narrowing.
+    const passThrough = base.find?.bind(base);
     // the counting wrapper is the page's, not the port's: the smoke reads it, the library never does
     const counted: SheetData = {
       capabilities: base.capabilities,
@@ -135,6 +140,7 @@ function Page(): JSX.Element {
         window.__sheetWindows += 1;
         return base.rows(window_, opts);
       },
+      ...(passThrough !== undefined ? { find: passThrough } : {}),
     };
     return { view: createSessionView(sessionSource(session), { as: 'user' }), data: counted };
   }, []);

@@ -34,7 +34,10 @@ import { canLoad, type LoadingConnection } from './sqlConnection.js';
 import { mosaicDescriptorSQL } from './predicate.js';
 import { pointValueFromWire } from './clauseFromWire.js';
 import { isRejection } from './types.js';
-import type { CellClause, DataProvider, DataProviderRejection, EvaluateResult, IntervalClause, PredicateClause, Row } from './types.js';
+import type { CellClause, DataProvider, DataProviderRejection, EvaluateResult, FindOptions, FindResult, IntervalClause, PredicateClause, Row } from './types.js';
+
+/** The HIT shape of a find — the arm that carries an ordinal, a source index and a row. */
+type FindHit = Extract<FindResult, { readonly position: number }>;
 
 // ── A realistic small cause-tagged session (mirrors src/log/log.test.ts's MAIN_LINE). ──
 const SESSION_LOG: CommitInput[] = [
@@ -696,5 +699,158 @@ describe('a paged UNSORTED window serves every row exactly once, in source order
     const before = asked.length;
     answered(await live.evaluate('wide', null, { columns: ['id'] }), 'live whole table');
     expect(asked.slice(before).some((sql) => sql.includes('ORDER BY'))).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AND THE SAME CLAIM FOR A FIND: ONE POSITION, WHICHEVER ENGINE ANSWERED.
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// A find's whole promise is that the POSITION it answers is the `offset` the
+// next window opens at — so if the two engines disagreed about it, a person
+// pressing "next" would be sent to a different row depending on how much data
+// they happened to have. The two answers come from genuinely different
+// machinery: a walk over a cached `Int32Array` permutation in JS, and
+// `ROW_NUMBER()` over an `ORDER BY` inside a DuckDB CTE.
+//
+// AT 300,000 ROWS, and for the same reason the paged-window suites above are:
+// that is the size where DuckDB answers with a parallel scan, so the tie-break
+// that makes the order TOTAL is actually load-bearing.
+//
+// WHAT IS PINNED AS AGREEMENT: a string column and an INTEGER column, sorted
+// and unsorted, forward and backward, filtered and unfiltered. Floats and
+// timestamps are NOT — a cell's text form is the engine's own there (`3` vs
+// `3.0`, an ISO instant vs a SQL timestamp), which is named as the known
+// divergence in src/data/README.md rather than papered over here.
+
+describe('a find answers the same position, ordinal and count in both engines', () => {
+  const NAMES = ['apple', 'Apple pie', 'pear', 'fig', 'pineapple'] as const;
+  const FRUIT: Row[] = Array.from({ length: 300_000 }, (_, i) => ({ name: NAMES[i % NAMES.length]!, n: i % 1000, id: i }));
+  const TABLE = 'fruit';
+  let connection: LoadingConnection;
+  let live: DataProvider;
+  const memory = memoryProvider(FRUIT, { layout: 'row', tableName: TABLE });
+
+  beforeAll(async () => {
+    const opened = await duckdbConnection()();
+    if (!canLoad(opened)) throw new Error('the shipped opener answered a connection that cannot land a table');
+    connection = opened;
+    await connection.load(TABLE, { kind: 'rows', rows: FRUIT });
+    live = wasmProvider({ sources: [TABLE], connection });
+  });
+
+  afterAll(async () => {
+    await connection?.close?.();
+  });
+
+  /** Both engines' answers to one ask — or a failure naming which engine refused. */
+  const both = async (clause: PredicateClause | null, options: FindOptions): Promise<readonly [FindResult, FindResult]> => {
+    const [real, held] = await Promise.all([live.find!(TABLE, clause, options), memory.find!(TABLE, clause, options)]);
+    if (isRejection(real)) throw new Error(`the wasm engine refused: ${JSON.stringify(real)}`);
+    if (isRejection(held)) throw new Error(`the memory engine refused: ${JSON.stringify(held)}`);
+    return [real, held];
+  };
+
+  /** The same pair, narrowed to the HIT shape — the only one that carries an ordinal, an index and a row. */
+  const bothFound = async (clause: PredicateClause | null, options: FindOptions): Promise<readonly [FindHit, FindHit]> => {
+    const [real, held] = await both(clause, options);
+    if (real.position === null || held.position === null) throw new Error(`no match where one was expected: ${JSON.stringify([real, held])}`);
+    return [real, held];
+  };
+
+  it('a STRING column, unsorted: the same position, ordinal, source index, row and count — forward and backward', async () => {
+    const ask: FindOptions = { text: 'apple', columns: ['name'], from: 0, direction: 'forward' };
+    for (const from of [0, 1, 2, 7, 299_999]) {
+      const [real, held] = await both(null, { ...ask, from });
+      expect(real, `forward from ${String(from)}`).toEqual(held);
+      // 'apple', 'Apple pie' and 'pineapple' all hold it: three of every five rows
+      expect(real.matches).toBe(180_000);
+    }
+    for (const from of [0, 3, 12, 299_999]) {
+      const [real, held] = await both(null, { ...ask, from, direction: 'backward' });
+      expect(real, `backward from ${String(from)}`).toEqual(held);
+    }
+  });
+
+  it('an INTEGER column: the digits of a number are searchable, and both engines render them the same way', async () => {
+    const ask: FindOptions = { text: '999', columns: ['n'], from: 0, direction: 'forward' };
+    const [real, held] = await bothFound(null, ask);
+    expect(real).toEqual(held);
+    expect([real.matches, real.position, real.ordinal]).toEqual([300, 999, 1]); // n = 999 once per thousand rows
+    const [backReal, backHeld] = await both(null, { ...ask, from: 250_000, direction: 'backward' });
+    expect(backReal).toEqual(backHeld);
+  });
+
+  it('a SORTED find agrees position for position — the one claim an unsorted find never makes', async () => {
+    const sort = [{ field: 'name' as const, dir: 'asc' as const }];
+    const ask: FindOptions = { text: 'pine', columns: ['name'], sort, from: 0, direction: 'forward' };
+    for (const from of [0, 1, 60_000, 240_000]) {
+      const [real, held] = await both(null, { ...ask, from });
+      expect(real, `sorted forward from ${String(from)}`).toEqual(held);
+    }
+    const [real, held] = await both(null, { ...ask, from: 299_999, direction: 'backward' });
+    expect(real).toEqual(held);
+    expect(real.matches).toBe(60_000); // 'pineapple' is one name in five
+  });
+
+  it('a FILTERED find agrees too — both engines count the position over the rows the filter kept', async () => {
+    const clause: IntervalClause = { kind: 'interval', field: 'n', value: [10, 19] };
+    const ask: FindOptions = { text: 'fig', columns: ['name'], from: 0, direction: 'forward' };
+    const [real, held] = await both(clause, ask);
+    expect(real).toEqual(held);
+    expect(real.sql).toBe(held.sql); // and the descriptor is the VIEW's, the same string `evaluate` reports
+    const [back, heldBack] = await both(clause, { ...ask, from: 1_000, direction: 'backward' });
+    expect(back).toEqual(heldBack);
+  });
+
+  it('the position a find answers IS the offset the next window opens at — in both engines', async () => {
+    const sort = [{ field: 'name' as const, dir: 'asc' as const }];
+    const ask: FindOptions = { text: 'pear', columns: ['name'], sort, from: 100_000, direction: 'forward' };
+    const [real, held] = await bothFound(null, ask);
+    expect(real).toEqual(held);
+    const window = { sort, offset: real.position, limit: 1, indices: true };
+    const [fromLive, fromMemory] = await Promise.all([live.evaluate(TABLE, null, window), memory.evaluate(TABLE, null, window)]);
+    const served = answered(fromLive, 'the wasm window at the found position');
+    expect(served.rows).toEqual(answered(fromMemory, 'the memory window at the found position').rows);
+    expect(served.indices).toEqual([real.index]); // the row the find named, and no other
+    expect(served.rows?.[0]?.['name']).toBe('pear');
+  });
+
+  // ── the KNOWN divergence, measured rather than assumed ──
+  //
+  // Case-insensitivity is not one rule. JS `toLowerCase()` is full Unicode and
+  // some of its folds CHANGE LENGTH — U+0130 (İ, the Turkish dotted capital I)
+  // becomes `i` + U+0307 (a combining dot), two code points — while DuckDB's
+  // `ILIKE` folds it to a plain `i`. So one string in a hundred thousand is
+  // found by one engine and not the other, and it is pinned here so it stays a
+  // KNOWN exception instead of becoming a surprise. Everything else probed
+  // AGREES, including the pairs one would expect to break first: `Ä`/`ä` folds
+  // in both, and `ß`/`SS` folds in neither.
+  it('agrees about every case pair EXCEPT a fold that changes length — the one divergence, named and measured', async () => {
+    const CASED = 'cased';
+    const rows: Row[] = [{ t: 'İstanbul' }, { t: 'ÄPFEL' }, { t: 'straße' }, { t: 'plain' }];
+    await connection.load(CASED, { kind: 'rows', rows });
+    const sql = wasmProvider({ sources: [CASED], connection });
+    const held = memoryProvider(rows, { layout: 'row', tableName: CASED });
+    const counts = async (text: string): Promise<readonly [number, number]> => {
+      const options: FindOptions = { text, columns: ['t'], from: 0, direction: 'forward' };
+      const [a, b] = await Promise.all([sql.find!(CASED, null, options), held.find!(CASED, null, options)]);
+      if (isRejection(a) || isRejection(b)) throw new Error(`refused: ${JSON.stringify([a, b])}`);
+      return [a.matches, b.matches];
+    };
+
+    // AGREEMENT — the ordinary case pairs, ASCII and not
+    expect(await counts('äpfel')).toEqual([1, 1]);
+    expect(await counts('ÄPFEL')).toEqual([1, 1]);
+    expect(await counts('Äp')).toEqual([1, 1]);
+    expect(await counts('ß')).toEqual([1, 1]);
+    expect(await counts('strasse')).toEqual([0, 0]); // NEITHER engine folds ß to SS
+    expect(await counts('PLAIN')).toEqual([1, 1]);
+
+    // DIVERGENCE — a fold that changes length. Written as two numbers, not as
+    // one expectation with a comment, so a future engine that closes the gap
+    // fails this test and the README is corrected with it.
+    expect(await counts('istanbul')).toEqual([1, 0]); // DuckDB folds İ→i; JS folds it to i + a combining dot
+    expect(await counts('İ')).toEqual([2, 1]); // …so the SQL needle matches every plain `i` as well
   });
 });

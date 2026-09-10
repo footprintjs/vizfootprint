@@ -29,6 +29,8 @@ export type {
   Engine,
   EvaluateOptions,
   EvaluateResult,
+  FindOptions,
+  FindResult,
   IntervalBounds,
   IntervalClause,
   MatchClause,
@@ -45,9 +47,14 @@ export type {
   Row,
   SortSpec,
 } from './types.js';
-export { PAIR_CLAUSE_KINDS, cellFieldLabel, clauseFields, clauseList, isPairClause, isPairKind, isRejection, neighbourhoodFieldLabel, reject } from './types.js';
+export { PAIR_CLAUSE_KINDS, badFindReason, cellFieldLabel, clauseFields, clauseList, isPairClause, isPairKind, isRejection, neighbourhoodFieldLabel, reject } from './types.js';
 
 export { literalToSQL, matchesClause, resolvePredicateSQL, isClearedSQL, mosaicDescriptorSQL } from './predicate.js';
+// The TEXT FORM of a cell — one owner, below every door that reads it: the
+// export writes it into a field, a copy puts it on the clipboard, and a FIND
+// matches a person's typing against it. `vizfootprint/session` re-exports it
+// under the same name (it lived there first).
+export { cellString } from './cellText.js';
 
 // The window AROUND the WHERE: one pure statement builder, no engine — the
 // columns, the order, the cap and the source-order column a window asks for,
@@ -55,6 +62,11 @@ export { literalToSQL, matchesClause, resolvePredicateSQL, isClearedSQL, mosaicD
 // `EvaluateOptions` mean. `quoteIdent` is the one quoting rule both share.
 export { windowSQL, ROW_ORDER_COLUMN, WindowRefusal } from './sqlWindow.js';
 export type { WindowRefusalReason, WindowTableFacts } from './sqlWindow.js';
+// …and the same builder's answer to "where is the next match in THIS order?":
+// two statements from ONE renderer of the order, so the position a find hands
+// back is the offset the window opens at.
+export { findSQL, FIND_ORDINAL_COLUMN, FIND_POSITION_COLUMN } from './sqlWindow.js';
+export type { FindStatements } from './sqlWindow.js';
 export { quoteIdent } from './predicate.js';
 
 // The wire triple a commit carries, read as the clause it means — the one

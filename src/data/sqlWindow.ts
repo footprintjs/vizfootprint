@@ -43,7 +43,7 @@
  * this — `wasmProvider`'s `evaluate` — and its loader, which owes this module
  * the `__row` column named below.
  */
-import type { EvaluateOptions, RejectionReason, SortSpec } from './types.js';
+import { badFindReason, type EvaluateOptions, type FindOptions, type RejectionReason, type SortSpec } from './types.js';
 import { isClearedSQL, quoteIdent } from './predicate.js';
 
 // ── The data: the convention, the one reason, the refusal, the table. ────
@@ -62,15 +62,17 @@ import { isClearedSQL, quoteIdent } from './predicate.js';
 export const ROW_ORDER_COLUMN = '__row';
 
 /**
- * The one way a window can be refused — the data port's own reason code,
- * narrowed to what a pure builder can see.
+ * The ways a statement this module builds can be refused — the data port's own
+ * reason codes, narrowed to what a pure builder can see: a malformed WINDOW
+ * (`bad-window`) and a malformed FIND (`bad-find`, judged by the port's own
+ * `badFindReason` so both engines refuse in one set of words).
  *
- * WHY only one: `unsupported-sort` used to be the other, for a sort key the
+ * WHY `unsupported-sort` is not among them: it used to be, for a sort key the
  * projection dropped. That is now legal in BOTH engines (the projection/sort law
  * in src/data/README.md), so no builder can raise it; an engine that cannot sort
  * at all still refuses in that word, from its own door (`serverProvider`).
  */
-export type WindowRefusalReason = Extract<RejectionReason, 'bad-window'>;
+export type WindowRefusalReason = Extract<RejectionReason, 'bad-window' | 'bad-find'>;
 
 /** A refused window, carrying the reason a provider will re-say as a typed `DataProviderRejection`. */
 export class WindowRefusal extends Error {
@@ -135,6 +137,118 @@ export function windowSQL(table: string, whereFragment: string, options?: Evalua
     limitClause(options?.limit),
     offsetClause(options?.offset),
   ]);
+}
+
+// ── find(): where is the next match, in THIS order. ──────────────────────
+
+/** The position column a find numbers the view with — 0-based, so it IS the `offset` the next window opens at. */
+export const FIND_POSITION_COLUMN = '__pos';
+/** The match's 1-based place among the matches, in view order — "match 3 of 12" is this and `matches`. */
+export const FIND_ORDINAL_COLUMN = '__ordinal';
+/** The CTE names the two statements share. Prefixed like every bookkeeping name this engine adds, so a real column cannot be shadowed by one. */
+const VIEW_CTE = '__view';
+const FOUND_CTE = '__found';
+
+/**
+ * The two statements one `find` call runs.
+ *
+ * WHY TWO and not one: the hit statement answers at most one row, and a
+ * direction with nothing in it answers NONE — which is exactly the case where
+ * `matches` still has to be honest ("no match ahead; there are 12 behind you").
+ * A count that rode along inside the hit row would vanish with it. This is the
+ * same shape `evaluate` already runs (its window plus its count) for the same
+ * reason: how many rows match is a property of the view, not of where you stand.
+ */
+export interface FindStatements {
+  /** One row at most: the position, the source-order index, the ordinal, and the row's columns. */
+  readonly hit: string;
+  /** `SELECT COUNT(*) AS n` over the whole view — the count a reader is told. */
+  readonly matches: string;
+}
+
+/**
+ * The statements for one `find` call: where the next match is, in the order the
+ * reader is standing in.
+ *
+ * ONE OWNER OF THE ORDER: the position is `ROW_NUMBER()` over the SAME keys
+ * `windowSQL` renders (`sortKeySQL` + {@link tieBreak}), so position N here is
+ * the row `offset: N` serves there. Anything else would send a reader to a row
+ * that is not the one they were shown.
+ *
+ * THE SOURCE-ORDER KEY IS UNCONDITIONAL. `windowSQL` may leave an order off (an
+ * unpaged read has no boundary to protect); a POSITION is nothing but a
+ * boundary, so a find over a table without {@link ROW_ORDER_COLUMN} cannot be
+ * answered at all — the provider refuses that table in its own words BEFORE
+ * calling this, exactly as it already refuses `indices: true` on one.
+ *
+ * @param whereFragment a resolved predicate (`resolvePredicateSQL`); `''` or the
+ *   cleared descriptor means no filter and no `WHERE` at all.
+ */
+export function findSQL(table: string, whereFragment: string, options: FindOptions): FindStatements {
+  // WHY judged before anything is rendered: the port's own judgement of the ask,
+  // in the words the memory engine refuses in — one vocabulary, both engines.
+  const bad = badFindReason(options);
+  if (bad !== undefined) throw new WindowRefusal('bad-find', bad);
+
+  const from = String(options.from);
+  const forward = options.direction === 'forward';
+  const tests = textTests(options.columns, options.text);
+  const view = `${VIEW_CTE} AS (SELECT (ROW_NUMBER() OVER (ORDER BY ${findOrderBy(options.sort)})) - 1 AS ${FIND_POSITION_COLUMN}, * ${joinParts([`FROM ${quoteIdent(table)}`, whereClause(whereFragment)])})`;
+  const found = `${FOUND_CTE} AS (SELECT (ROW_NUMBER() OVER (ORDER BY ${FIND_POSITION_COLUMN} ASC)) AS ${FIND_ORDINAL_COLUMN}, * FROM ${VIEW_CTE} WHERE ${tests})`;
+  return {
+    hit: `WITH ${view}, ${found} SELECT * FROM ${FOUND_CTE} WHERE ${FIND_POSITION_COLUMN} ${forward ? '>=' : '<='} ${from} ORDER BY ${FIND_POSITION_COLUMN} ${forward ? 'ASC' : 'DESC'} LIMIT 1`,
+    // the count needs no position at all, so it never pays for the window
+    // function — it is the same predicate ANDed with the same text tests
+    matches: joinParts(['SELECT COUNT(*) AS n', `FROM ${quoteIdent(table)}`, whereClause(bothOf(whereFragment, tests))]),
+  };
+}
+
+/** The order the positions are counted in: the caller's keys, then the source-order column — always, because a position without a total order is not a position. */
+function findOrderBy(sort: readonly SortSpec[] | undefined): string {
+  const keys = sort ?? [];
+  return [...keys.map(sortKeySQL), ...tieBreak(keys, true)].join(', ');
+}
+
+/**
+ * The text test over one row: any of the named columns holding the text, as a
+ * case-insensitive substring of its VARCHAR form.
+ *
+ * WHY `CAST(… AS VARCHAR)` on every column including the strings: one rendering,
+ * no schema branch — the builder is pure and never asked DuckDB what type the
+ * column is. A non-text column's text form is then the ENGINE's own, which is
+ * the documented divergence (src/data/README.md, "A find is a text question").
+ *
+ * WHY `ILIKE` and NOT a rendered `lower(…)` pair: one operator, and DuckDB's own
+ * folding. It is not byte-for-byte the memory engine's `toLowerCase()` — that
+ * one has folds which CHANGE LENGTH (`İ` → `i` + a combining dot) and this one
+ * folds a code point to a code point — which is the one measured divergence over
+ * plain strings (src/data/README.md, and pinned in `engineInvariant.test.ts`).
+ *
+ * WHY `ILIKE` and an explicit `ESCAPE`: `%` and `_` are wildcards in a LIKE
+ * pattern, so a person searching for "50%" or "a_b" would otherwise get every
+ * row. They are escaped in the needle and the escape character is named, so the
+ * pattern means the literal text that was typed.
+ */
+function textTests(columns: readonly string[], text: string): string {
+  const needle = `'%${escapeLikeText(text)}%'`;
+  return `(${columns.map((column) => `CAST(${quoteIdent(column)} AS VARCHAR) ILIKE ${needle} ESCAPE '\\'`).join(' OR ')})`;
+}
+
+/**
+ * The needle as a LIKE pattern body: the escape character first (so it is not
+ * escaped twice), then the two wildcards, then the quote doubling every SQL
+ * string literal in this package gets (`literalToSQL`'s rule, applied here
+ * because the text is spliced into a pattern rather than rendered as a bare
+ * literal).
+ */
+function escapeLikeText(text: string): string {
+  return text.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_').replaceAll(`'`, `''`);
+}
+
+/** The predicate and the text tests as one fragment — "no predicate" leaves the tests alone rather than ANDing with nothing. */
+function bothOf(whereFragment: string, tests: string): string {
+  const kept = whereClause(whereFragment);
+  return kept === '' ? tests : `${whereFragment} AND ${tests}`;
 }
 
 // ── The judgements. ──────────────────────────────────────────────────────

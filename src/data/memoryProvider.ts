@@ -19,10 +19,12 @@
  * leaks into commit semantics.
  */
 
+import { cellString } from './cellText.js';
 import { parseCSVTyped } from './csv.js';
 import { matchesClause, resolvePredicateSQL } from './predicate.js';
 import { TypeTally, columnTypes, columnar, foldOnce } from './fold.js';
 import {
+  badFindReason,
   clauseFields,
   clauseList,
   reject,
@@ -33,6 +35,8 @@ import {
   type DataProviderRejection,
   type EvaluateOptions,
   type EvaluateResult,
+  type FindOptions,
+  type FindResult,
   type PredicateClause,
   type Row,
   type SortSpec,
@@ -235,6 +239,51 @@ function collectMatches(store: TableStore, clauses: readonly PredicateClause[], 
 }
 
 /**
+ * One WALK of the view, answering both halves of a find at once: how many rows
+ * hold the text in all, and which one the reader is being sent to.
+ *
+ * ONE PASS, and that is the point — the position of the next match is what only
+ * an engine can answer cheaply, so answering it must not cost two scans. The
+ * running match count IS the ordinal: when the hit is taken, the count so far
+ * is its 1-based place among the matches.
+ *
+ * FORWARD keeps the FIRST hit at or after `from` (and never looks again);
+ * BACKWARD keeps the LAST hit at or before `from` (so it overwrites), which is
+ * why both directions are one loop and not two.
+ */
+function findInOrder(
+  store: TableStore,
+  clauses: readonly PredicateClause[],
+  order: Int32Array | undefined,
+  options: FindOptions,
+): { readonly matches: number; readonly hit: { readonly position: number; readonly ordinal: number; readonly index: number } | null } {
+  const n = storeRowCount(store);
+  const fields = [...new Set(clauses.flatMap((c) => clauseFields(c)))];
+  // the needle is NOT trimmed: a space is a character a person may be looking for.
+  // Only a search that is ENTIRELY whitespace is not a search, and `badFindReason`
+  // has already refused that one.
+  const needle = options.text.toLowerCase();
+  let matches = 0;
+  let position = -1;
+  let hit: { readonly position: number; readonly ordinal: number; readonly index: number } | null = null;
+  for (let k = 0; k < n; k++) {
+    const i = order === undefined ? k : order[k]!;
+    const probe: Row = {};
+    for (const f of fields) probe[f] = fieldAt(store, f, i);
+    if (!clauses.every((c) => matchesClause(probe, c))) continue;
+    position += 1; // the view position: counted over the rows the filter KEPT, never over the table
+    if (!options.columns.some((c) => cellString(fieldAt(store, c, i)).toLowerCase().includes(needle))) continue;
+    matches += 1;
+    if (options.direction === 'forward') {
+      if (hit === null && position >= options.from) hit = { position, ordinal: matches, index: i };
+      continue;
+    }
+    if (position <= options.from) hit = { position, ordinal: matches, index: i };
+  }
+  return { matches, hit };
+}
+
+/**
  * The D24 "memory" engine. `input` is either a single table's data (array of
  * row objects or CSV text — table name defaults to `options.tableName ??
  * 'data'`) or a map of `{ [table]: RowsInput }` for a multi-table provider
@@ -263,6 +312,9 @@ export function memoryProvider(
     canEvaluateSQL: false,
     canMaterialize: true,
     canSort: true,
+    // It answers over the SAME sort permutation a window walks, so a position a
+    // find hands back is a position the next window can be opened at.
+    canFind: true,
   };
   // one sort-permutation cache per table, keyed by the sort spec alone (see sortPermutation); least recently used evicted
   const keep = options.sortCache ?? SORT_CACHE_PER_TABLE;
@@ -367,6 +419,42 @@ export function memoryProvider(
         ...(evalOptions.offset !== undefined ? { start } : {}),
         ...(evalOptions.indices === true ? { indices: windowed } : {}),
       };
+    },
+
+    async find(
+      table: string,
+      clause: PredicateClause | readonly PredicateClause[] | null,
+      findOptions: FindOptions,
+    ): Promise<FindResult | DataProviderRejection> {
+      const store = tableMap.get(table);
+      if (!store) return reject('memory', 'find', 'unknown-table', `no such table "${table}"`);
+      const clauses = clauseList(clause);
+      const names = storeColumnNames(store);
+      // The judgements in the order `evaluate` meets them, and in its words: the
+      // clause's columns, then the columns the ask names, then the ask's own
+      // numbers, then the sort's columns. A find over a view is the same view.
+      const missing = clauses.flatMap((c) => clauseFields(c)).find((f) => !names.includes(f));
+      if (missing !== undefined) return reject('memory', 'find', 'unknown-column', `table "${table}" has no column "${missing}"`);
+      // the zero-column exception is `evaluate`'s, for its reason (see there): a
+      // row-major table with no rows knows no column names, so judging an ask
+      // against a schema this engine cannot see would refuse every column of it
+      const unsearchable = names.length === 0 ? undefined : findOptions.columns.find((c) => !names.includes(c));
+      if (unsearchable !== undefined) return reject('memory', 'find', 'unknown-column', `table "${table}" has no column "${unsearchable}" to look in`);
+      const bad = badFindReason(findOptions);
+      if (bad !== undefined) return reject('memory', 'find', 'bad-find', bad);
+      const sort = findOptions.sort ?? [];
+      const missingSort = sort.map((k) => k.field).find((f) => !names.includes(f));
+      if (missingSort !== undefined) return reject('memory', 'find', 'unknown-column', `table "${table}" has no column "${missingSort}" to sort by`);
+
+      const sql = resolvePredicateSQL(clauses);
+      const order = sort.length > 0 ? permutationFor(table, store, sort) : undefined;
+      const { matches, hit } = findInOrder(store, clauses, order, findOptions);
+      // WHY the row rides WHOLE and not projected on `columns`: `columns` says
+      // where to LOOK, not what to answer with, and the caller reads its own
+      // identity off the row (the session mints a row id from the key column,
+      // which a person searching a text column need never have named).
+      if (hit === null) return { sql, matches, position: null };
+      return { sql, matches, position: hit.position, ordinal: hit.ordinal, index: hit.index, row: rowAt(store, hit.index) };
     },
 
     async materializeColumn(table: string, name: string, values: readonly unknown[]) {

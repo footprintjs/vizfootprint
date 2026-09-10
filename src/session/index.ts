@@ -32,6 +32,10 @@ export type {
   ViewQuery,
   ViewQueryResult,
   ViewQueryRefusal,
+  // find is a READ: it moves where a person stands in one fixed order, and
+  // nothing lands on the log (see `FindQuery`).
+  FindQuery,
+  FindInViewResult,
   SaveSelectionSource,
   SaveSelectionResult,
   ApplySavedOptions,

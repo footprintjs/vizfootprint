@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { sessionSheetData, threwSentence, type SheetSessionLike } from './sessionSheetData.js';
-import type { Overview, ViewQuery, ViewQueryResult } from 'vizfootprint/session';
+import type { FindInViewResult, FindQuery, Overview, ViewQuery, ViewQueryResult } from 'vizfootprint/session';
 
 const OVERVIEW = {
   defaultTable: 'cells',
@@ -44,15 +44,24 @@ const WINDOW: ViewQueryResult = {
   clauses: [{ from: 'diseases', clause: { kind: 'point', field: 'disease', value: 'Measles' }, response: 'filter' }],
 };
 
-function fakeSession(answer: ViewQueryResult = WINDOW): { readonly session: SheetSessionLike; readonly asked: ViewQuery[] } {
+/** Where the next match is, as the session answers it. */
+const FOUND: FindInViewResult = { ok: true, position: 12, rowId: 'a', ordinal: 2, matches: 5, version: 'v1', cursor: 'c1' };
+
+function fakeSession(answer: ViewQueryResult = WINDOW, found: FindInViewResult = FOUND): { readonly session: SheetSessionLike; readonly asked: ViewQuery[]; readonly searched: FindQuery[] } {
   const asked: ViewQuery[] = [];
+  const searched: FindQuery[] = [];
   return {
     asked,
+    searched,
     session: {
       overview: () => OVERVIEW,
       viewQuery: (query: ViewQuery = {}) => {
         asked.push(query);
         return Promise.resolve(answer);
+      },
+      findInView: (query: FindQuery) => {
+        searched.push(query);
+        return Promise.resolve(found);
       },
     },
   };
@@ -106,11 +115,14 @@ describe('sessionSheetData', () => {
     expect(await sessionSheetData(session).rows({ offset: 0, limit: 10 })).toEqual({ ok: false, reason: 'unsupported-sort', rejected: 'the wasm engine cannot sort. Ask for this window without a sort' });
   });
 
-  it('capabilities: sorting is on by default, and an engine that cannot sort says why', () => {
+  it('capabilities: sorting and finding are on by default, and an engine that cannot do either says why', () => {
     const { session } = fakeSession();
-    expect(sessionSheetData(session).capabilities).toEqual({ sort: true, countKnown: true, edit: false });
+    expect(sessionSheetData(session).capabilities).toEqual({ sort: true, countKnown: true, edit: false, find: true });
     expect(sessionSheetData(session, { sort: false }).capabilities.refusal).toContain('cannot sort');
     expect(sessionSheetData(session, { sort: false, sortRefusal: 'this table is a stream' }).capabilities.refusal).toBe('this table is a stream');
+    expect(sessionSheetData(session, { find: false }).capabilities.find).toBe(false);
+    expect(sessionSheetData(session, { find: false }).capabilities.findRefusal).toContain('cannot find');
+    expect(sessionSheetData(session, { find: false, findRefusal: 'this table is a stream' }).capabilities.findRefusal).toBe('this table is a stream');
   });
 
   it('a positional window names no key, and none is invented', async () => {
@@ -121,9 +133,11 @@ describe('sessionSheetData', () => {
   });
 
   it('a data layer that THROWS is a refusal with what it threw — never a grid frozen on a rejected promise', async () => {
-    const boom: SheetSessionLike = { overview: () => OVERVIEW, viewQuery: () => { throw new Error('the provider is closed'); } };
+    const boom: SheetSessionLike = { overview: () => OVERVIEW, viewQuery: () => { throw new Error('the provider is closed'); }, findInView: () => { throw new Error('the provider is closed'); } };
     expect(await sessionSheetData(boom).rows({ offset: 0, limit: 5 })).toEqual({ ok: false, reason: 'engine', rejected: 'the data layer threw: the provider is closed' });
-    const odd: SheetSessionLike = { overview: () => OVERVIEW, viewQuery: () => Promise.reject('gone') }; // eslint-disable-line prefer-promise-reject-errors -- a session may reject with anything
+    // the find door keeps the same promise: a throw is a sentence, never a frozen strip
+    expect(await sessionSheetData(boom).find!({ text: 'a', from: 0, direction: 'forward' })).toEqual({ ok: false, reason: 'engine', rejected: 'the data layer threw: the provider is closed' });
+    const odd: SheetSessionLike = { overview: () => OVERVIEW, viewQuery: () => Promise.reject('gone'), findInView: () => Promise.reject('gone') }; // eslint-disable-line prefer-promise-reject-errors -- a session may reject with anything
     expect(await sessionSheetData(odd).rows({ offset: 0, limit: 5 })).toEqual({ ok: false, reason: 'engine', rejected: 'the data layer threw: gone' });
     expect(threwSentence(new Error('x'))).toBe('the data layer threw: x');
   });
@@ -141,8 +155,32 @@ describe('sessionSheetData', () => {
 
   it('awaits an overview a session answers as a promise', async () => {
     const overview = vi.fn(() => Promise.resolve(OVERVIEW));
-    const data = sessionSheetData({ overview, viewQuery: () => WINDOW });
+    const data = sessionSheetData({ overview, viewQuery: () => WINDOW, findInView: () => FOUND });
     expect((await data.columns()).map((c) => c.name)).toEqual(['id', 'cases', 'note']);
     expect(overview).toHaveBeenCalledTimes(1);
+  });
+
+  it('the find rides through as the session\'s own ask, and the answer comes back as the port\'s', async () => {
+    const { session, searched } = fakeSession();
+    const data = sessionSheetData(session, { table: 'cells' });
+    const found = await data.find!({ text: 'mea', from: 3, direction: 'backward', sort: [{ field: 'cases', dir: 'asc' }], viewId: 'grid', columns: ['id'] });
+    expect(searched[0]).toEqual({ table: 'cells', viewId: 'grid', columns: ['id'], sort: [{ field: 'cases', dir: 'asc' }], text: 'mea', from: 3, direction: 'backward' });
+    expect(found).toEqual({ ok: true, position: 12, rowId: 'a', ordinal: 2, matches: 5, version: 'v1', cursor: 'c1' });
+  });
+
+  it('a MISS carries the count and names no row — and a session refusal rides through with its own word', async () => {
+    const miss = fakeSession(WINDOW, { ok: true, position: null, matches: 5, version: 'v1', cursor: 'c1' });
+    expect(await sessionSheetData(miss.session).find!({ text: 'x', from: 0, direction: 'forward' })).toEqual({ ok: true, position: null, matches: 5, version: 'v1', cursor: 'c1' });
+    const refused = fakeSession(WINDOW, { ok: false, reason: 'unsupported-find', rejected: 'the server engine cannot find — filter instead' });
+    expect(await sessionSheetData(refused.session).find!({ text: 'x', from: 0, direction: 'forward' })).toEqual({ ok: false, reason: 'unsupported-find', rejected: 'the server engine cannot find — filter instead' });
+  });
+
+  it('honours the abort signal on a find too: an answer the typing has left behind is a sentence, never a jump', async () => {
+    const { session } = fakeSession();
+    const controller = new AbortController();
+    const data = sessionSheetData(session);
+    expect((await data.find!({ text: 'a', from: 0, direction: 'forward' }, { signal: controller.signal })).ok).toBe(true);
+    controller.abort();
+    expect(await data.find!({ text: 'a', from: 0, direction: 'forward' }, { signal: controller.signal })).toEqual({ ok: false, reason: 'engine', rejected: 'this find was left behind by a newer one' });
   });
 });

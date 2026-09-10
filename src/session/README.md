@@ -249,6 +249,33 @@ A sheet window is ONE call: `viewQuery({ table?, viewId?, columns?, sort?, limit
 
 Not in this version: `reencode` on a layer (refused with a sentence — a layer's bindings are declared on the layer), a layer's prose in the overview, prose DECLARED in the def under a layer address (the def's prose subjects are the declared views; a layer's words are set at runtime with `describe`), the data-version stamp of a commit on a layer (still the default table's).
 
+## Find is a read too, and it moves where you STAND (`findInView`)
+
+`findInView({ text, from, direction, table?, viewId?, sort?, columns? })` answers `{ position, rowId?, ordinal?, matches, version, cursor }` — where the next match is, in the order the reader is already in.
+
+**Nothing lands, and nothing moves.** A find is the narrowest read there is: it changes where a person STANDS in one fixed order — exactly as a scroll does — and the rows are the same before and after. No commit, no clause, no cause. That is what makes it safe to press repeatedly, and it is why the agent surface does not have it: an agent that wants fewer rows FILTERS (`dispatch`, an act with a cause on the log); a person looking for a cell wants their table left alone. `bench/surface` is byte-identical after this door was added, which is the measurement of that claim.
+
+```ts
+const found = await session.findInView({ text: 'lyme', from: 0, direction: 'forward' });
+// → { ok: true, position: 5, rowId: 'inline#4193', ordinal: 1, matches: 812, version: null, cursor: 'c7' }
+const window = await session.viewQuery({ offset: found.position, limit: 50 });   // the row is the FIRST one here
+```
+
+**One owner of whose eyes.** `viewQuery` and `findInView` resolve the view through ONE private helper (`viewClauses`): the table (a layer address defaults to the layer's own, a disagreeing `table` is `table-mismatch`), the view (`unknown-view`), the sort gate (`unsupported-sort`), the reaching clauses and the row key. Two questions about one view can therefore never disagree about what that view SEES — a find that saw one row more than the window would send a person to a row that is not on their screen. So an act changes what a find sees, and seeking back changes it back:
+
+```ts
+await session.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [60, 100], cause });
+await session.findInView({ text: 'form', from: 0, direction: 'forward' });   // matches: 4 — the filtered view
+session.seek(before);                                                        // and back again
+await session.findInView({ text: 'form', from: 0, direction: 'forward' });   // matches: 8
+```
+
+**The position IS the offset, and the identity IS the window's identity.** `position` is 0-based in the view, so it is the `offset` a window opens at to show that row; `rowId` is minted by the same two facts a window mints it from (the declared key's value, else `<version>#<source index>`), so a grid can mark the row it was sent to. `ordinal` and `rowId` are present exactly when `position` is not null — `position: null` with `matches > 0` is the honest end of a walk (no match THAT WAY, some the other way), and nothing here wraps: the CALLER asks again from the other end and says so ("wrapped to the top").
+
+**The default columns are the TEXT ones at the cursor.** A person typing letters means the columns that hold letters, so the default is the projection's `string` columns. A host may name others — a number column is searched as its digits — and a column whose type the tally never settled (`unknown`) is not searched unless named. No text column to look in at all is `no-columns` with a sentence, never a silent search of everything.
+
+**An engine that cannot answer it is refused in words.** Only an engine can say where the next match is without walking the table, so the session never scans rows on a provider's behalf: a provider without `find`/`canFind` (the stub engines) is `{ ok: false, reason: 'unsupported-find', rejected: 'the server engine cannot find — filter instead' }`. Everything else is the window's own vocabulary, plus the engine's `bad-find` for a malformed ask (`src/data/README.md`, "A find is a READ, and it is a TEXT question"). The version is read beside the provider and re-checked after the answer, exactly as a window's is: a refresh in between is `version-moved`.
+
 ## Export is a read that carries its address (`exportFromSession`, `exportWindows`)
 
 Two laws, and neither of them is about files.
@@ -293,7 +320,12 @@ three words, beside whatever code the door's own refusal carried:
 in-memory string handed to a browser download — and the receipt SAYS when it
 truncated. Omit, never deny.
 
-**A cell is text, and no cell may abort an export.** `cellString` names every
+**A cell is text, and no cell may abort an export.** `cellString` has ONE owner
+and it is one layer down — `src/data/cellText.ts`, re-exported from
+`vizfootprint/session` under the name it had here first. WHY it moved: the same
+text form is what a copy puts on the clipboard AND what a FIND matches against
+(`findInView`), and a find lives below the session — a search that read a cell
+differently from the export would be a second answer to one question. It names every
 value shape a row can hold and throws for none: an invalid `Date` reads
 *Invalid Date* (`toISOString()` on one throws), a nested `BigInt` rides as its
 digits, a circular value names itself. One throw here would escape the walk and

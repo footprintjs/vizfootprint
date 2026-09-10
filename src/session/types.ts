@@ -1004,6 +1004,80 @@ export type ViewQueryResult =
     }
   | { readonly ok: false; readonly reason: ViewQueryRefusal; readonly engineReason?: string; readonly rejected: string };
 
+// ── The find port: where the next match is, in the order this view is in. ──
+
+/**
+ * A find is a READ, and the narrowest one there is: it moves where a person
+ * STANDS in one fixed order — exactly as a scroll does — and nothing lands on
+ * the log. It never filters: the rows on screen are the same rows before and
+ * after, which is what makes it safe to press repeatedly. An AGENT that wants
+ * fewer rows filters (`dispatch`), and that is an act with a cause; a person
+ * looking for a cell wants their table left alone.
+ *
+ * WHOSE EYES is the same question `ViewQuery` asks, answered by the same code:
+ * the two compose the reaching clauses through ONE helper, so a find can never
+ * see a row the window would have hidden.
+ */
+export interface FindQuery {
+  /** Default: the dashboard's default table — or, for a LAYER address, that layer's own table. A `table` that disagrees is refused (`table-mismatch`), exactly as in `ViewQuery`. */
+  readonly table?: string;
+  /** The consumer. Absent = every live clause filters — the same "whose eyes" `ViewQuery` means by it. */
+  readonly viewId?: string;
+  /**
+   * The order the positions are counted in. Pass the SAME sort the window was
+   * read with: a position is only the offset of a row if both agree about what
+   * order the rows are in.
+   */
+  readonly sort?: readonly SortSpec[];
+  /**
+   * Which columns to look in. Default: the TEXT columns of the projection at
+   * the cursor — a person typing letters means the columns that hold letters. A
+   * host may name others (a number column is searched as its digits); a column
+   * whose type the tally never settled (`unknown`) is NOT searched by default,
+   * so it has to be named. No text column to look in at all is refused
+   * (`no-columns`) rather than silently searching everything.
+   */
+  readonly columns?: readonly string[];
+  /** What a person typed. Empty once trimmed is refused by the engine (`bad-find`). */
+  readonly text: string;
+  /** The view position to search FROM, inclusive. */
+  readonly from: number;
+  /** `'forward'` = the first match at or after `from`; `'backward'` = the last match at or before it. Neither direction WRAPS — the caller decides to ask again from the other end, and can say so. */
+  readonly direction: 'forward' | 'backward';
+}
+
+/**
+ * Where the next match is: the position to stand at, the row's identity, and
+ * how many matches the whole view holds.
+ *
+ * `position: null` with `matches > 0` is the honest end of a walk — there is no
+ * match that way, and there are still matches the other way. Nothing here is a
+ * row: a find says WHERE to look, and the window says what is there.
+ */
+export type FindInViewResult =
+  | {
+      readonly ok: true;
+      /** The view position of the match, or `null` when there is none in that direction. */
+      readonly position: number | null;
+      /** The found row's identity — the declared key's value, or `<version>#<source index>` on a positional table. Absent exactly when `position` is null. */
+      readonly rowId?: string;
+      /** 1-based among the matches, in view order — "match 3 of 12" is this and `matches`. Absent exactly when `position` is null. */
+      readonly ordinal?: number;
+      /** How many rows in the whole view hold the text. */
+      readonly matches: number;
+      /** The table's data version the find was answered at — read beside the answer and re-checked after it, the same law `ViewQueryResult` keeps. */
+      readonly version: string | null;
+      /** The cursor commit the find was answered at — a late answer can be dropped when the cursor has moved on. */
+      readonly cursor: string | null;
+    }
+  | {
+      readonly ok: false;
+      /** Every refusal a window has, plus the one only a find has: an engine that cannot answer where the next match is. */
+      readonly reason: ViewQueryRefusal | 'unsupported-find';
+      readonly engineReason?: string;
+      readonly rejected: string;
+    };
+
 /** One declared table as the def states it (see `Overview.tables`). Nothing here is inferred from the rows. */
 export interface TableInfo {
   readonly name: string;

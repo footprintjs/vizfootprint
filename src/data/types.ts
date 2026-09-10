@@ -403,6 +403,102 @@ export interface EvaluateResult {
   readonly indices?: readonly number[];
 }
 
+// ── find(): "where is the next match in THIS order?" (the sheet's Ctrl+F). ─
+
+/**
+ * ONE new question on the port, and the reason it is on the port at all: only
+ * the engine can answer "the POSITION of the next match in this order" without
+ * walking the table. A consumer that filtered instead would answer a different
+ * question — filtering REMOVES rows, and a find must leave the view exactly as
+ * it is and only say where to stand (src/data/README.md, "A find is a read").
+ *
+ * A FIND IS A TEXT QUESTION: the match is a case-insensitive SUBSTRING over the
+ * TEXT FORM of a cell (`cellString` in the memory engine, `CAST(… AS VARCHAR)`
+ * in SQL). The two engines agree on strings and integers; floats, timestamps and
+ * one class of case fold (the ones that CHANGE LENGTH, `İ` → `i` + a combining
+ * dot) are the known divergences — named in the README and pinned by a test
+ * rather than papered over.
+ */
+export interface FindOptions {
+  /** What a person typed. Empty after trimming is `bad-find` — a search for nothing is not a search. */
+  readonly text: string;
+  /** Which columns to look in. Empty is `bad-find`: the CALLER decides the default (the session uses the text columns of the projection). */
+  readonly columns: readonly string[];
+  /** The order the positions are counted in — the same `sort` the window was read with, or absent for source order. */
+  readonly sort?: readonly SortSpec[];
+  /** The view position to search FROM, inclusive. Negative or fractional is `bad-find`. */
+  readonly from: number;
+  /** `'forward'` = the first match at a position ≥ `from`; `'backward'` = the last match at a position ≤ `from`. Anything else is `bad-find`. */
+  readonly direction: 'forward' | 'backward';
+}
+
+/**
+ * The ONE judgement of a malformed find, in the ONE set of words both engines
+ * refuse in — `undefined` when the ask is well formed.
+ *
+ * WHY it lives beside the type and not inside an engine: `bad-find` is a fact
+ * about the ASK, not about a backend, so two engines must not be able to
+ * disagree about which asks are askable or say it two ways. The memory engine
+ * calls it directly; the SQL builder (`findSQL`) calls it and throws the
+ * sentence as a `WindowRefusal` its provider converts.
+ *
+ * `direction` is judged at RUNTIME even though the type pins it: this port is
+ * reached across an HTTP door (the session's `findInView` is served as JSON),
+ * and a word the compiler never saw must be refused rather than silently read
+ * as "backward".
+ */
+export function badFindReason(options: FindOptions): string | undefined {
+  if (options.text.trim() === '') return 'a find needs something to look for — the text was empty';
+  // WHY the whole-number sentence is word for word `bad-window`'s: it is the same
+  // complaint about the same kind of number, and one library says it one way.
+  if (!Number.isInteger(options.from) || options.from < 0) return `from must be a whole number at or above zero (got ${String(options.from)})`;
+  if (options.direction !== 'forward' && options.direction !== 'backward') return `direction must be "forward" or "backward" (got ${JSON.stringify(options.direction)})`;
+  if (options.columns.length === 0) return 'a find needs at least one column to look in';
+  return undefined;
+}
+
+/**
+ * Where the next match is — and how many there are in the whole view, so a
+ * reader knows what they are walking.
+ *
+ * TWO SHAPES, and the type is what keeps them apart: a MISS (`position: null`)
+ * carries no ordinal, no index and no row, because there is nothing to name;
+ * a HIT carries all three. A caller therefore cannot mint a row identity out of
+ * a match that was not found — the compiler stops it.
+ *
+ * A miss with `matches > 0` is the honest end of a walk: no match THAT WAY, and
+ * some the other way. Nothing here wraps; the caller decides to ask again from
+ * the other end, and can say so in words.
+ */
+export type FindResult =
+  | {
+      /**
+       * The RESOLVED predicate SQL for the view the find ran over — a
+       * DESCRIPTOR, exactly as `EvaluateResult.sql` is: what rows the find could
+       * see, not proof that SQL ran. The text searched for is NOT in it; the
+       * descriptor describes the VIEW, and the view is what a receipt names.
+       */
+      readonly sql: string;
+      /** How many rows in the whole view hold the text — the count a reader is told, whatever direction they walked. */
+      readonly matches: number;
+      /** No match in that direction. */
+      readonly position: null;
+    }
+  | {
+      /** The view descriptor, as above. */
+      readonly sql: string;
+      /** How many rows in the whole view hold the text. */
+      readonly matches: number;
+      /** The match's position in the view — 0-based, so it IS the `offset` a window opens at to show it. */
+      readonly position: number;
+      /** 1-based among the matches, in view order — "match 3 of 12" is this and `matches`. */
+      readonly ordinal: number;
+      /** The found row's index in the table's SOURCE order — the same fact `EvaluateResult.indices` carries, and what a positional row identity is made of. */
+      readonly index: number;
+      /** The found row, whole: `columns` says where to LOOK, not what to answer with, so the caller can read its own identity (a key column) off it. */
+      readonly row: Row;
+    }
+
 // ── R14: honest capability declaration + typed rejection. ─────────────────
 
 export interface DataProviderCapabilities {
@@ -414,6 +510,12 @@ export interface DataProviderCapabilities {
   readonly maxRows?: number;
   /** Can `evaluate` honour a `sort`? Absent = no (the stub engines); the memory engine sorts in JS over a cached permutation. */
   readonly canSort?: boolean;
+  /**
+   * Can this engine answer {@link DataProvider.find}? ABSENT = NO — a provider
+   * written before find existed declares nothing and is refused in words, never
+   * silently walked over in JavaScript by a caller filling the gap.
+   */
+  readonly canFind?: boolean;
 }
 
 /** Typed reason codes — every rejection names one; never a bare `false`/`undefined`. */
@@ -441,12 +543,14 @@ export type RejectionReason =
   /** `evaluate` was asked to sort and this engine cannot (`capabilities.canSort` is not true). */
   | 'unsupported-sort'
   /** `evaluate`'s window is malformed: a negative or fractional `offset` or `limit`. */
-  | 'bad-window';
+  | 'bad-window'
+  /** `find`'s ask is malformed: no text once trimmed, a negative or fractional `from`, a direction that is neither way, or an empty `columns` list. */
+  | 'bad-find';
 
 export interface DataProviderRejection {
   readonly ok: false;
   readonly engine: ResolvedEngine;
-  readonly operation: 'evaluate' | 'materializeColumn' | 'tables' | 'columns';
+  readonly operation: 'evaluate' | 'find' | 'materializeColumn' | 'tables' | 'columns';
   readonly reason: RejectionReason;
   /** Human-facing detail. INERT — never parsed, never dispatched on (R12 firewall reused). */
   readonly detail?: string;
@@ -513,6 +617,26 @@ export interface DataProvider {
     clause: PredicateClause | readonly PredicateClause[] | null,
     options?: EvaluateOptions,
   ): Promise<EvaluateResult | DataProviderRejection>;
+
+  /**
+   * WHERE IS THE NEXT MATCH — the one question a consumer cannot answer for
+   * itself without walking the table (see {@link FindOptions}).
+   *
+   * OPTIONAL, and the option is the honesty: a provider that cannot answer it
+   * leaves the method off and declares `capabilities.canFind` absent/false, and
+   * the caller refuses in words (`unsupported-find` at the session door). It is
+   * a READ in the strictest sense — the view is unchanged, nothing is staged,
+   * and the answer is a POSITION plus the counts a reader is owed.
+   *
+   * Refusals are the same vocabulary `evaluate` speaks: `unknown-table`,
+   * `unknown-column` for a column the table lacks, `unsupported-sort` for an
+   * engine that cannot order, and `bad-find` for a malformed ask.
+   */
+  find?(
+    table: string,
+    clause: PredicateClause | readonly PredicateClause[] | null,
+    options: FindOptions,
+  ): Promise<FindResult | DataProviderRejection>;
 
   /**
    * R11's landing spot: land a computed column (e.g. an L3 analysis output)

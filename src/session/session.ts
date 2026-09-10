@@ -53,7 +53,7 @@ import { judgeAnalysisReads, neighbourhoodEndpoints } from '../def/relations.js'
 import { egoIds } from './neighbourhood.js';
 import { isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
-import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchValue, type NeighbourhoodValue, type NeighbourhoodValueBody, type PredicateClause, type Row } from '../data/index.js';
+import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchValue, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
 import { applyLinkOverrides, edgeId, impliedKinds, validateLinks, type LinkDecl } from '../links/index.js';
 
@@ -116,6 +116,8 @@ import type {
   DispatchAction,
   DispatchResult,
   FilterRange,
+  FindQuery,
+  FindInViewResult,
   GapCode,
   GapOp,
   GapRow,
@@ -438,6 +440,22 @@ export interface InteractionSession {
   viewQuery(query?: ViewQuery): Promise<ViewQueryResult>;
 
   /**
+   * WHERE IS THE NEXT MATCH — the sheet's Ctrl+F, answered by the engine.
+   *
+   * A READ, and the narrowest one: it moves where a person STANDS in one fixed
+   * order (as a scroll does) and nothing lands on the log. It never filters —
+   * the rows are the same before and after — so it is safe to press repeatedly.
+   * An agent that wants fewer rows FILTERS, which is an act with a cause.
+   *
+   * The position it answers is the `offset` a window opens at to show that row,
+   * because both questions resolve the view through one helper (`viewClauses`)
+   * and the engine counts positions in the same order the window is read in.
+   * An engine that cannot answer it is refused (`unsupported-find`) rather than
+   * walked over row by row here.
+   */
+  findInView(query: FindQuery): Promise<FindInViewResult>;
+
+  /**
    * Every table name readable AT THE CURSOR: the declared ones, then the
    * derived ones an act cut on this branch (`src/data/derivedTables.ts`).
    *
@@ -515,6 +533,59 @@ interface ReadRefusal {
   readonly rejected: string;
   readonly rejection?: DataProviderRejection;
 }
+/**
+ * WHAT A VIEW SEES, resolved once by `viewClauses` and read by every door that
+ * asks a question ABOUT a view's rows (`viewQuery`, `findInView`).
+ *
+ * WHY the provider and the version travel together: they are read in the same
+ * instant, and the version is re-checked after the answer — a refresh that
+ * landed in between is a moved version (`version-moved`), never a misdated
+ * answer.
+ */
+interface ViewReach {
+  readonly ok: true;
+  readonly table: string;
+  readonly provider: DataProvider;
+  readonly version: string | null;
+  /** Whether the ask carries a real order — the one place that judges it, so two doors cannot disagree about what "no sort" is. */
+  readonly sorted: boolean;
+  /** Every clause that reached the consumer, with its response — what a window reports back. */
+  readonly clauses: readonly ReachingClause[];
+  /** Just the ones that RESTRICT the rows, as the engine takes them. */
+  readonly filters: readonly PredicateClause[];
+  /** The declared (or act-minted) row key, when the table has one. */
+  readonly key?: string;
+}
+
+/** …and the refusal, in `ViewQueryResult`'s own words — a vocabulary `FindInViewResult` also speaks, so either door can hand it straight back. */
+type ViewReachRefused = Extract<ViewQueryResult, { ok: false }>;
+
+/**
+ * The data port's FIND door, already bound to the provider that owns it.
+ *
+ * WHY bound and passed rather than reached through the provider inside
+ * `askFind`: the method is OPTIONAL on the port, so the only place that may
+ * decide a provider has one is the door that refuses the providers that do not
+ * (`findInView`). Binding keeps a host's own provider working whether its
+ * methods close over their state or read `this`.
+ */
+type FindDoor = (table: string, clause: PredicateClause | readonly PredicateClause[] | null, options: FindOptions) => Promise<FindResult | DataProviderRejection>;
+
+/**
+ * THE ROW IDENTITY, MINTED IN ONE PLACE — the declared key's value, or
+ * `<version>#<source index>` on a table that declares none.
+ *
+ * WHY it is a function and not the same expression at two doors: `viewQuery`
+ * names every row of a window and `findInView` names the one it found, and a
+ * find that minted identities its own way would send a grid to a row id the grid
+ * has never seen. The positional spelling carries the VERSION because a position
+ * is only an identity inside one version of the table (`ViewQueryResult.positional`
+ * is the flag that says which of the two spellings a caller is holding).
+ */
+function rowIdOf(key: string | undefined, version: string | null, row: Row, index: number | undefined): string {
+  return key !== undefined ? String(row[key]) : `${version ?? 'inline'}#${String(index)}`;
+}
+
 /** No column landed — the shared empty slot map an analysis that wrote nothing carries. */
 const EMPTY_SLOTS: ReadonlyMap<string, string> = new Map();
 
@@ -1739,6 +1810,39 @@ class InteractionSessionImpl implements InteractionSession {
     return { ...res, rows: res.rows.map((r) => renameRowSlots(r, back, slots)) };
   }
 
+  /**
+   * The same door for a FIND — the logical/physical translation `ask` owns, over
+   * the one question only an engine can answer cheaply.
+   *
+   * WHY it is a second method and not a flag on `ask`: `ask` hands back rows and
+   * a count, a find hands back a POSITION, and one function that returned either
+   * would make every caller narrow a union to find out which question it had
+   * asked. The translation itself is the same and stays a fast path: a table with
+   * nothing derived at this cursor pays no map and no rewrite.
+   */
+  private async askFind(
+    table: string,
+    find: FindDoor,
+    clauses: readonly PredicateClause[],
+    options: FindOptions,
+  ): Promise<FindResult | DataProviderRejection> {
+    const physical = this.physicalTableOf(table);
+    const slots = this.derivedSlotsOf(table);
+    if (slots.size === 0) return find(physical, clauses.length === 0 ? null : clauses, options);
+    const here = this.derivedAt(table);
+    const slot = (field: string): string => here.get(field)?.physical ?? field;
+    const asked: FindOptions = {
+      ...options,
+      columns: options.columns.map(slot),
+      ...(options.sort !== undefined ? { sort: options.sort.map((k) => ({ ...k, field: slot(k.field) })) } : {}),
+    };
+    const mapped = clauses.map((c) => renameClauseFields(c, slot));
+    const res = await find(physical, mapped.length === 0 ? null : mapped, asked);
+    if (isRejection(res) || res.position === null) return res;
+    const back = new Map([...here.values()].map((d) => [d.physical, d.name] as const));
+    return { ...res, row: renameRowSlots(res.row, back, slots) };
+  }
+
   private async columnsOf(table: string): Promise<readonly ColumnInfo[] | ReadRefusal> {
     const provider = this.providerOf(table);
     if (!provider) return { rejected: `no provider for table "${table}"` };
@@ -1891,7 +1995,22 @@ class InteractionSessionImpl implements InteractionSession {
     return clausesReaching({ viewId, graph: this.currentGraph(), live: this.activeFilters, cleared: this.clearedFilters });
   }
 
-  async viewQuery(query: ViewQuery = {}): Promise<ViewQueryResult> {
+  /**
+   * WHOSE EYES, RESOLVED ONCE — the reaching clauses and everything a read
+   * needs to be ABOUT them: which table, through which provider, at which
+   * version, under which filters, identified by which key.
+   *
+   * WHY it is one helper and not two copies (R3): `viewQuery` and `findInView`
+   * are two questions about the SAME view, and a find that saw one row more
+   * than the window would send a person to a row that is not on their screen.
+   * Table resolution, the layer/table mismatch, the sort gate and the clause
+   * list are therefore answered here, in this order, and each door adds only
+   * its own question on top.
+   *
+   * The refusal it returns is a `ViewQueryResult`'s — every word of it is in
+   * `FindInViewResult`'s vocabulary too, so a find can hand it straight back.
+   */
+  private viewClauses(query: { readonly table?: string; readonly viewId?: string; readonly sort?: readonly SortSpec[] }): ViewReach | ViewReachRefused {
     // a layer address defaults to the layer's own table — the window a layer draws is a window on what it reads
     const table = query.table ?? (query.viewId === undefined ? this.defaultTable : this.tableFor(query.viewId));
     // AT THE CURSOR, not in the def: a derived table is readable on the branch
@@ -1918,6 +2037,13 @@ class InteractionSessionImpl implements InteractionSession {
     const clauses: ReachingClause[] = query.viewId === undefined ? [...this.activeFilters].filter(([from]) => this.clauseReaches(from, table)).map(([from, clause]) => ({ from, clause: copyClause(clause), response: 'filter' as const })) : [...this.clausesFor(query.viewId)];
     const filters = clauses.filter((c) => c.response === 'filter').map((c) => c.clause);
     const key = this.keyOf(table); // the table is readable here: it has a def row or an act's minted key
+    return { ok: true, table, provider, version, sorted, clauses, filters, ...(key !== undefined ? { key } : {}) };
+  }
+
+  async viewQuery(query: ViewQuery = {}): Promise<ViewQueryResult> {
+    const reach = this.viewClauses(query);
+    if (!reach.ok) return reach;
+    const { table, provider, version, sorted, clauses, filters, key } = reach;
     let columns = query.columns;
     if (columns === undefined) {
       const cols = await this.effectiveColumnsOf(table);
@@ -1956,9 +2082,58 @@ class InteractionSessionImpl implements InteractionSession {
     const rows = res.rows ?? [];
     /* v8 ignore next -- `indices: true` always sets `indices` on the memory engine, the only engine that answers today */
     const indices = res.indices ?? [];
-    const rowIds = rows.map((row, i) => (key !== undefined ? String(row[key]) : `${version ?? 'inline'}#${indices[i]}`));
+    const rowIds = rows.map((row, i) => rowIdOf(key, version, row, indices[i]));
     /* v8 ignore next -- an offset is always sent, so `start` is always answered */
     return { ok: true, columns, rows, rowIds, positional: key === undefined, ...(key !== undefined ? { key } : {}), count: res.count, start: res.start ?? 0, version, cursor, clauses };
+  }
+
+  async findInView(query: FindQuery): Promise<FindInViewResult> {
+    const reach = this.viewClauses(query);
+    if (!reach.ok) return reach;
+    const { table, provider, version, sorted, filters, key } = reach;
+    // A find is ONE NEW QUESTION ON THE PORT, and not every engine answers it:
+    // only the engine can say where the next match is without walking the table,
+    // so a session that "helped" by scanning rows itself would be answering a
+    // different question at a different cost. Refused in words instead.
+    // bound to its provider, so a host's own provider written with `this` still works
+    const find = provider.find?.bind(provider);
+    if (find === undefined || provider.capabilities.canFind !== true) {
+      return { ok: false, reason: 'unsupported-find', rejected: `the ${provider.engine} engine cannot find — filter instead` };
+    }
+    // where to look: the caller's columns, or the TEXT ones at the cursor — a
+    // person typing letters means the columns that hold letters (a number column
+    // is searchable as its digits, but only when it is NAMED)
+    let columns = query.columns;
+    if (columns === undefined) {
+      const cols = await this.effectiveColumnsOf(table);
+      if ('rejected' in cols) return { ok: false, reason: 'no-columns', rejected: cols.rejected };
+      columns = cols.filter((c) => c.type === 'string').map((c) => c.name);
+    }
+    if (columns.length === 0) {
+      return { ok: false, reason: 'no-columns', rejected: `no text column to look in on table "${table}" — name the columns to search` };
+    }
+    const cursor = this._cursor;
+    const res = await this.askFind(table, find, filters, {
+      text: query.text,
+      columns,
+      from: query.from,
+      direction: query.direction,
+      ...(sorted ? { sort: query.sort } : {}),
+    });
+    if (isRejection(res)) {
+      /* v8 ignore next -- every provider's reject() supplies a `detail`; the `reason` fallback is unreachable through the public engines */
+      return { ok: false, reason: 'engine', engineReason: res.reason, rejected: res.detail ?? res.reason };
+    }
+    // the version law, word for word `viewQuery`'s: a refresh that landed while
+    // the engine was answering makes this a position in a table that no longer
+    // exists, so it is refused rather than handed over misdated
+    const after = this.runtime.sources[table]?.version ?? null;
+    if (after !== version) return { ok: false, reason: 'version-moved', rejected: `table "${table}" was refreshed while the find was answered — ask again` };
+    if (res.position === null) return { ok: true, position: null, matches: res.matches, version, cursor };
+    // the row identity is minted EXACTLY as a window mints it — the same
+    // function, so the two doors cannot drift (`rowIdOf`)
+    const rowId = rowIdOf(key, version, res.row, res.index);
+    return { ok: true, position: res.position, rowId, ordinal: res.ordinal, matches: res.matches, version, cursor };
   }
 
   // ── bookmarks: names on moments beside the log ────────────────────────────────────

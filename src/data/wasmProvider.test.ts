@@ -17,8 +17,8 @@
 import { describe, it, expect } from 'vitest';
 import { wasmProvider, wasmConnectionRefusal } from './wasmProvider.js';
 import { resolvePredicateSQL } from './predicate.js';
-import { windowSQL } from './sqlWindow.js';
-import { isRejection, type DataProvider, type EvaluateOptions, type EvaluateResult, type PredicateClause } from './types.js';
+import { findSQL, windowSQL } from './sqlWindow.js';
+import { isRejection, type DataProvider, type EvaluateOptions, type EvaluateResult, type FindOptions, type FindResult, type PredicateClause } from './types.js';
 import type { SqlConnection } from './sqlConnection.js';
 import { fakeSqlConnection as fake } from './sqlConnection.coverage.helpers.js';
 
@@ -106,8 +106,8 @@ describe('choosing the engine is not the same act as asking it something', () =>
     expect(provider.engine).toBe('wasm');
   });
 
-  it('declares what it DOES: real SQL, a real ORDER BY, and no write-back', () => {
-    expect(wasmProvider().capabilities).toEqual({ canEvaluateSQL: true, canSort: true, canMaterialize: false });
+  it('declares what it DOES: real SQL, a real ORDER BY, a find, and no write-back', () => {
+    expect(wasmProvider().capabilities).toEqual({ canEvaluateSQL: true, canSort: true, canFind: true, canMaterialize: false });
   });
 });
 
@@ -488,5 +488,99 @@ describe('materializeColumn is refused by a declared capability, not by a missin
     const connection = fake();
     await over(connection).materializeColumn(TABLE, 'cluster_id', []);
     expect(connection.asked).toEqual([]); // nothing was asked of the backend to find that out
+  });
+});
+
+// ── FIND: where is the next match, in SQL. ───────────────────────────────
+//
+// Judged the same way every other statement here is: by calling `findSQL` to
+// compute what SHOULD have been asked rather than by re-typing it, so this suite
+// cannot pass while the builder and the engine drift apart.
+
+const FIND: FindOptions = { text: 'lyme', columns: ['disease'], from: 0, direction: 'forward' };
+/** A hit row as DuckDB hands it back: the two bookkeeping numbers the statement added, `__row`, and the row's own columns. */
+const HIT_ROWS: readonly Record<string, unknown>[] = [{ __ordinal: 2n, __pos: 5n, week: 2n, disease: 'Lyme', cases: 8, at: 0, __row: 3n }];
+
+async function refusedFind(provider: DataProvider, table: string, options: FindOptions, clause: PredicateClause | readonly PredicateClause[] | null = null): Promise<{ readonly reason: string; readonly detail: string }> {
+  const answer = await provider.find!(table, clause, options);
+  if (!isRejection(answer)) throw new Error('the engine answered a find it should have refused');
+  const rejection = answer as { readonly reason: string; readonly detail?: string; readonly operation: string };
+  expect(rejection.operation).toBe('find');
+  return { reason: rejection.reason, detail: rejection.detail ?? '(no detail)' };
+}
+
+describe('find asks the two statements the builder renders, and answers a POSITION', () => {
+  it('declares it can find, asks the count then the hit, and reads the position, the ordinal and the source index off the answer', async () => {
+    const connection = fake({ rows: HIT_ROWS, count: [{ n: 3n }] });
+    const provider = over(connection);
+    expect(provider.capabilities.canFind).toBe(true);
+    const answer = (await provider.find!(TABLE, null, FIND)) as Extract<FindResult, { readonly position: number }>;
+    const expected = findSQL(TABLE, resolvePredicateSQL(null), FIND);
+    expect(connection.asked).toEqual([describeSQL, expected.matches, expected.hit]);
+    expect(answer.sql).toBe(resolvePredicateSQL(null)); // the DESCRIPTOR, not the statement — the same string the memory engine reports
+    expect([answer.matches, answer.position, answer.ordinal, answer.index]).toEqual([3, 5, 2, 3]);
+    // the row is the caller's own: the three bookkeeping columns gone, the date read as this library's ISO text
+    expect(answer.row).toEqual({ week: 2n, disease: 'Lyme', cases: 8, at: '1970-01-01T00:00:00.000Z' });
+  });
+
+  it('the filter rides into BOTH statements — a find sees the view, never the table', async () => {
+    const clause: PredicateClause = { kind: 'point', field: 'disease', value: 'Lyme' };
+    const connection = fake({ rows: HIT_ROWS });
+    await over(connection).find!(TABLE, clause, FIND);
+    const expected = findSQL(TABLE, resolvePredicateSQL(clause), FIND);
+    expect(connection.asked.slice(1)).toEqual([expected.matches, expected.hit]);
+  });
+
+  it('no row in that direction is `position: null` with the matches still counted — the count is a second statement for exactly this', async () => {
+    const connection = fake({ rows: [], count: [{ n: 12n }] });
+    const answer = (await over(connection).find!(TABLE, null, { ...FIND, from: 900 })) as FindResult;
+    expect(answer).toEqual({ sql: resolvePredicateSQL(null), matches: 12, position: null });
+  });
+});
+
+describe('every find failure is a typed refusal that quotes what it saw', () => {
+  it('an undeclared table, a column to look in the table lacks, a sort key it lacks, and a clause column it lacks', async () => {
+    const provider = over(fake({ rows: HIT_ROWS }));
+    expect(await refusedFind(provider, 'nope', FIND)).toMatchObject({ reason: 'unknown-table' });
+    expect(await refusedFind(provider, TABLE, { ...FIND, columns: ['ghost'] })).toEqual({ reason: 'unknown-column', detail: 'table "cases" has no column "ghost" to look in' });
+    expect(await refusedFind(provider, TABLE, { ...FIND, sort: [{ field: 'ghost', dir: 'asc' }] })).toEqual({ reason: 'unknown-column', detail: 'table "cases" has no column "ghost" to sort by' });
+    expect(await refusedFind(provider, TABLE, FIND, { kind: 'point', field: 'ghost', value: 1 })).toEqual({ reason: 'unknown-column', detail: 'table "cases" has no column "ghost"' });
+  });
+
+  it('a malformed ask is `bad-find` — the builder judges it, the engine says it, and nothing reaches the backend', async () => {
+    const connection = fake({ rows: HIT_ROWS });
+    const said = await refusedFind(over(connection), TABLE, { ...FIND, text: ' ' });
+    expect(said).toEqual({ reason: 'bad-find', detail: 'a find needs something to look for — the text was empty' });
+    expect(connection.asked).toEqual([describeSQL]); // the schema, and then nothing
+  });
+
+  it('a table this engine did not LOAD has no source-order column, so it has no honest position to answer', async () => {
+    const foreign = fake({ rows: HIT_ROWS, schema: [{ column_name: 'disease', column_type: 'VARCHAR' }] });
+    const said = await refusedFind(over(foreign), TABLE, FIND);
+    expect(said.reason).toBe('unknown-column');
+    expect(said.detail).toContain('has no column "__row" — a find answers a POSITION');
+    expect(foreign.asked).toEqual([describeSQL]);
+  });
+
+  it('a backend that refuses either statement is `no-backend-connection`, quoting the statement and its own words', async () => {
+    const expected = findSQL(TABLE, resolvePredicateSQL(null), FIND);
+    const noCount = await refusedFind(over(fake({ rows: HIT_ROWS, fail: (sql) => (sql === expected.matches ? 'Out of Memory' : undefined) })), TABLE, FIND);
+    expect(noCount).toMatchObject({ reason: 'no-backend-connection' });
+    expect(noCount.detail).toContain('Out of Memory');
+    const noHit = await refusedFind(over(fake({ rows: HIT_ROWS, fail: (sql) => (sql === expected.hit ? 'Interrupted' : undefined) })), TABLE, FIND);
+    expect(noHit).toMatchObject({ reason: 'no-backend-connection' });
+    expect(noHit.detail).toContain('Interrupted');
+  });
+
+  it('a hit row without the numbers the statement named is a backend that broke its own answer, and it is quoted', async () => {
+    const said = await refusedFind(over(fake({ rows: [{ disease: 'Lyme' }] })), TABLE, FIND);
+    expect(said.reason).toBe('no-backend-connection');
+    expect(said.detail).toContain('came back without a position');
+    expect(said.detail).toContain('"disease":"Lyme"');
+  });
+
+  it('no connection at all is the constructor sentence, before any statement is built', async () => {
+    const said = await refusedFind(wasmProvider({ sources: declared }), TABLE, FIND);
+    expect(said).toEqual({ reason: 'no-backend-connection', detail: wasmConnectionRefusal(TABLE) });
   });
 });

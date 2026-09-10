@@ -10,10 +10,10 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { render, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import type { JSX } from 'react';
-import { Sheet, canvasMetrics, cellText, nextSort, noSortWords, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_BORDERS, SHEET_CANVAS_MAX, SHEET_ENGINE_CANNOT_SORT, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './index.js';
+import { Sheet, canvasMetrics, cellText, findFrom, findWords, nextSort, noSortWords, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_BORDERS, SHEET_CANNOT_FIND, SHEET_CANVAS_MAX, SHEET_ENGINE_CANNOT_SORT, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './index.js';
 import type { SheetProps } from './index.js';
 import type { SortSpec } from 'vizfootprint/data';
-import type { SheetColumn, SheetData, SheetWindow, SheetWindowRequest } from './types.js';
+import type { SheetColumn, SheetData, SheetFindAnswer, SheetFindRequest, SheetRefusal, SheetWindow, SheetWindowRequest } from './types.js';
 
 afterEach(() => {
   cleanup();
@@ -43,19 +43,59 @@ interface FakeOptions {
   readonly shortIds?: boolean;
   readonly columns?: readonly string[];
   readonly cursor?: string | null;
+  /** False: a port that cannot find — the strip then shows a sentence and no input. */
+  readonly find?: boolean;
+  readonly findRefusal?: string;
+  /** A find door that REFUSES, with this sentence — how a refused search is staged. */
+  readonly findRefuses?: string;
+}
+
+/**
+ * The fake's own FIND: a little honest engine over the same generated rows —
+ * positions in the view, the whole view's count, and NO wrapping (that is the
+ * grid's decision, and these tests are what pin it).
+ */
+function fakeFind(count: number, refuses?: string): (ask: SheetFindRequest) => Promise<SheetFindAnswer | SheetRefusal> {
+  return (ask: SheetFindRequest) => {
+    if (refuses !== undefined) return Promise.resolve({ ok: false as const, reason: 'engine' as const, rejected: refuses });
+    const needle = ask.text.toLowerCase();
+    const hits = Array.from({ length: count }, (_, i) => i).filter((i) => `area-${String(i)}`.includes(needle));
+    const at = ask.direction === 'forward' ? hits.find((i) => i >= ask.from) : [...hits].reverse().find((i) => i <= ask.from);
+    if (at === undefined) return Promise.resolve({ ok: true as const, position: null, matches: hits.length, version: 'v1', cursor: 'c1' });
+    return Promise.resolve({ ok: true as const, position: at, rowId: `area-${String(at)}`, ordinal: hits.indexOf(at) + 1, matches: hits.length, version: 'v1', cursor: 'c1' });
+  };
 }
 
 /** A data layer over a table that is generated, not held — the shape a real engine answers. */
-function fakeData(options: FakeOptions = {}): { readonly data: SheetData; readonly asked: SheetWindowRequest[] } {
+function fakeData(options: FakeOptions = {}): { readonly data: SheetData; readonly asked: SheetWindowRequest[]; readonly searched: SheetFindRequest[] } {
   const count = options.count ?? 8;
   const names = options.columns ?? ['cases', 'jurisdiction'];
   const asked: SheetWindowRequest[] = [];
+  const searched: SheetFindRequest[] = [];
   const positional = options.positional ?? false;
   const key = options.key === null ? undefined : (options.key ?? 'jurisdiction');
+  const canFind = options.find ?? true;
+  const answerFind = fakeFind(count, options.findRefuses);
   return {
     asked,
+    searched,
     data: {
-      capabilities: { sort: options.sort ?? true, countKnown: true, edit: false, ...(options.sort === false ? { refusal: 'the wasm engine cannot sort' } : {}) },
+      capabilities: {
+        sort: options.sort ?? true,
+        countKnown: true,
+        edit: false,
+        find: canFind,
+        ...(options.sort === false ? { refusal: 'the wasm engine cannot sort' } : {}),
+        ...(options.findRefusal !== undefined ? { findRefusal: options.findRefusal } : {}),
+      },
+      ...(canFind
+        ? {
+            find: (ask: SheetFindRequest) => {
+              searched.push(ask);
+              return answerFind(ask);
+            },
+          }
+        : {}),
       columns: () => Promise.resolve(options.facets ?? FACETS),
       rows: (window: SheetWindowRequest) => {
         asked.push(window);
@@ -241,7 +281,7 @@ describe('<Sheet> — the window on screen', () => {
     let calls = 0;
     const answer = (count: number, id: string): SheetWindow => ({ ok: true, columns: ['cases', 'jurisdiction'], rows: [{ cases: 1, jurisdiction: id }], rowIds: [id], positional: false, key: 'jurisdiction', count, start: 0, version: 'v1', cursor: 'c1' });
     const slow: SheetData = {
-      capabilities: { sort: true, countKnown: true, edit: false },
+      capabilities: { sort: true, countKnown: true, edit: false, find: false },
       columns: () => Promise.resolve(FACETS),
       rows: () => {
         calls += 1;
@@ -493,7 +533,7 @@ describe('<Sheet> — sorting is an ACT the host lands', () => {
 
   it('a port that says it cannot sort without saying why still says something', async () => {
     const { data } = fakeData({ count: 2 });
-    const mute: SheetData = { ...data, capabilities: { sort: false, countKnown: true, edit: false } };
+    const mute: SheetData = { ...data, capabilities: { sort: false, countKnown: true, edit: false, find: false } };
     const { container } = render(<Sheet data={mute} height={HEIGHT} onSort={() => undefined} />);
     await waitFor(() => expect(container.querySelectorAll('[role="columnheader"]')).toHaveLength(2));
     expect(container.querySelector('.vzf-sheet-cannot')!.textContent).toBe(SHEET_ENGINE_CANNOT_SORT);
@@ -655,7 +695,7 @@ describe('<Sheet> — the keyboard', () => {
     const at = new Date('2021-05-06T00:00:00.000Z');
     // a window whose cells are the two shapes a display formats one way and an export another
     const odd: SheetData = {
-      capabilities: { sort: false, countKnown: true, edit: false },
+      capabilities: { sort: false, countKnown: true, edit: false, find: false },
       columns: () => Promise.resolve([{ name: 'seen', type: 'string' as const }, { name: 'shape', type: 'string' as const }]),
       rows: () =>
         Promise.resolve({
@@ -933,5 +973,296 @@ describe('<Sheet> — the doors and the refusals', () => {
     const { container } = render(<Sheet data={data} height={10} rowHeight={SHEET_ROW_HEIGHT} canvasMax={5000} />);
     await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
     expect(bodyOf(container).getAttribute('style')).toContain('height: 28px');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FIND (Ctrl+F) — a READ that moves where you stand.
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The strip asks the port where the next match is and then STANDS there: the
+// focused cell moves to the found row and the scroll follows it. Nothing is
+// filtered, nothing lands, and every end of the walk is said out loud.
+
+const strip = (container: HTMLElement): HTMLElement | null => container.querySelector<HTMLElement>('[data-vzf="sheet-find"]');
+const findInput = (container: HTMLElement): HTMLInputElement => container.querySelector<HTMLInputElement>('.vzf-sheet-findinput')!;
+const focusedRow = (container: HTMLElement): string | null => container.querySelector('[data-vzf-focused="true"]')?.closest('[role="row"]')?.getAttribute('data-row') ?? null;
+
+describe('<Sheet> — find', () => {
+  it('Ctrl+F opens the strip and takes the browser\'s own find out of the way; Enter stands on the next match and says which it is', async () => {
+    const { data, searched } = fakeData({ count: 500 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    const grid = container.querySelector('[role="grid"]')!;
+    expect(strip(container)).toBeNull(); // closed until it is asked for
+    expect(fireEvent.keyDown(grid, { key: 'f', ctrlKey: true })).toBe(false); // prevented: this searches the TABLE, not the page
+    await waitFor(() => expect(strip(container)).not.toBeNull());
+    expect(document.activeElement).toBe(findInput(container)); // the input is where the typing goes
+
+    fireEvent.change(findInput(container), { target: { value: 'area-7' } });
+    fireEvent.keyDown(findInput(container), { key: 'Enter' });
+    // 'area-7' is in area-7 and area-70…79, and 7 is the first at or after row 1
+    await waitFor(() => expect(said(container)).toContain('match 1 of 11 · row 8'));
+    expect(focusedRow(container)).toBe('7'); // the sheet STANDS on the found row
+    expect(document.activeElement).toBe(findInput(container)); // …and the typing still goes to the input
+    expect(searched[0]).toEqual({ text: 'area-7', from: 1, direction: 'forward' }); // "next" starts AFTER the row you are on
+    // pressing next again walks on, and never lands on the same row twice
+    fireEvent.keyDown(findInput(container), { key: 'Enter' });
+    await waitFor(() => expect(said(container)).toContain('match 2 of 11 · row 71'));
+    expect(searched[1]!.from).toBe(8);
+  });
+
+  it('the find rides in the SAME order and eyes the window was read with — or a position would not be its offset', async () => {
+    const { data, searched } = fakeData({ count: 40 });
+    const sort: readonly SortSpec[] = [{ field: 'cases', dir: 'desc' }];
+    const { container } = render(<Sheet data={data} height={HEIGHT} viewId="sheet" sort={sort} onSort={() => undefined} />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'f', ctrlKey: true });
+    fireEvent.change(findInput(container), { target: { value: 'area-3' } });
+    fireEvent.keyDown(findInput(container), { key: 'Enter' });
+    await waitFor(() => expect(searched).toHaveLength(1));
+    expect(searched[0]).toEqual({ text: 'area-3', from: 1, direction: 'forward', sort, viewId: 'sheet' });
+  });
+
+  it('Shift+Enter walks BACKWARD, and the buttons do the same two things', async () => {
+    const { data, searched } = fakeData({ count: 40 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'f', ctrlKey: true });
+    fireEvent.change(findInput(container), { target: { value: 'area-1' } });
+    // stand on a later match first, then walk back to the one before it
+    fireEvent.click(container.querySelector('.vzf-sheet-findnext')!);
+    await waitFor(() => expect(focusedRow(container)).toBe('1'));
+    fireEvent.click(container.querySelector('.vzf-sheet-findnext')!);
+    await waitFor(() => expect(focusedRow(container)).toBe('10'));
+    fireEvent.keyDown(findInput(container), { key: 'Enter', shiftKey: true });
+    await waitFor(() => expect(focusedRow(container)).toBe('1'));
+    expect(searched.at(-1)).toEqual({ text: 'area-1', from: 9, direction: 'backward' });
+    fireEvent.click(container.querySelector('.vzf-sheet-findprev')!);
+    await waitFor(() => expect(said(container)).toContain('wrapped to the bottom')); // nothing before row 1: round to the end
+    expect(focusedRow(container)).toBe('19');
+  });
+
+  it('a walk that runs out asks ONCE more from the other end, and SAYS it wrapped', async () => {
+    const { data, searched } = fakeData({ count: 40 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'f', ctrlKey: true });
+    fireEvent.change(findInput(container), { target: { value: 'area-2' } });
+    // stand on the LAST match (area-29), then ask for the next one
+    for (const at of [2, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]) {
+      fireEvent.keyDown(findInput(container), { key: 'Enter' });
+      await waitFor(() => expect(focusedRow(container)).toBe(String(at)));
+    }
+    const asks = searched.length;
+    fireEvent.keyDown(findInput(container), { key: 'Enter' });
+    await waitFor(() => expect(said(container)).toContain('wrapped to the top'));
+    expect(said(container)).toContain('match 1 of 11 · row 3');
+    expect(focusedRow(container)).toBe('2');
+    expect(searched.length - asks).toBe(2); // the miss, then ONE ask from the top — never a loop
+    expect(searched.at(-1)!.from).toBe(0);
+  });
+
+  it('a refusal on the WRAP ask is said too — the second read is as honest as the first', async () => {
+    const { data } = fakeData({ count: 40 });
+    let asks = 0;
+    // the view holds matches but none ahead; the ask that comes back round is refused
+    const flaky: SheetData = {
+      ...data,
+      find: () => {
+        asks += 1;
+        return Promise.resolve(asks === 1 ? { ok: true as const, position: null, matches: 3, version: 'v1', cursor: 'c1' } : { ok: false as const, reason: 'version-moved' as const, rejected: 'the table was refreshed while the find was answered — ask again' });
+      },
+    };
+    const { container } = render(<Sheet data={flaky} height={HEIGHT} />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'f', ctrlKey: true });
+    fireEvent.change(findInput(container), { target: { value: 'area-1' } });
+    fireEvent.keyDown(findInput(container), { key: 'Enter' });
+    await waitFor(() => expect(said(container)).toContain('the table was refreshed while the find was answered'));
+    expect(asks).toBe(2); // the miss, then the wrap — and no third try
+    expect(focusedRow(container)).toBe('0'); // a refusal never moves where a person stands
+  });
+
+  it('pressing previous on the FIRST row rounds to the bottom in ONE ask — `from: -1` is never asked of a door', async () => {
+    const { data, searched } = fakeData({ count: 40 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'f', ctrlKey: true });
+    fireEvent.change(findInput(container), { target: { value: 'area-1' } });
+    fireEvent.click(container.querySelector('.vzf-sheet-findprev')!);
+    await waitFor(() => expect(said(container)).toContain('wrapped to the bottom'));
+    expect(searched).toEqual([{ text: 'area-1', from: 39, direction: 'backward' }]); // one ask, and never a negative `from`
+    expect(focusedRow(container)).toBe('19');
+  });
+
+  it('an answer a newer press has overtaken is DROPPED — both the first read and the wrap', async () => {
+    const { data } = fakeData({ count: 40 });
+    // every held ask keeps its OWN resolver, so a late answer is released as the
+    // press that asked it — which is the whole point of the guard being tested
+    const pending: ((answer: SheetFindAnswer) => void)[] = [];
+    const asks: SheetFindRequest[] = [];
+    const held: SheetData = {
+      ...data,
+      find: (ask: SheetFindRequest) => {
+        asks.push(ask);
+        // ask 1 (press 1) and ask 3 (press 2's WRAP) are held; the others answer at once
+        if (asks.length === 1 || asks.length === 3) return new Promise<SheetFindAnswer>((resolve) => pending.push(resolve));
+        if (asks.length === 2) return Promise.resolve({ ok: true as const, position: null, matches: 3, version: 'v1', cursor: 'c1' });
+        return Promise.resolve({ ok: true as const, position: 7, rowId: 'area-7', ordinal: 1, matches: 3, version: 'v1', cursor: 'c1' });
+      },
+    };
+    const { container } = render(<Sheet data={held} height={HEIGHT} />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'f', ctrlKey: true });
+    fireEvent.change(findInput(container), { target: { value: 'area' } });
+    fireEvent.keyDown(findInput(container), { key: 'Enter' }); // press 1: held
+    await waitFor(() => expect(asks).toHaveLength(1));
+    fireEvent.keyDown(findInput(container), { key: 'Enter' }); // press 2: a miss with matches, so it wraps — and that ask is held too
+    await waitFor(() => expect(asks).toHaveLength(3));
+    // press 1's answer arrives late, naming a row nobody is walking to any more
+    pending[0]!({ ok: true, position: 31, rowId: 'area-31', ordinal: 3, matches: 3, version: 'v1', cursor: 'c1' });
+    await waitFor(() => expect(asks).toHaveLength(3));
+    expect(focusedRow(container)).toBe('0'); // dropped: the stale answer moved nothing
+    fireEvent.keyDown(findInput(container), { key: 'Enter' }); // press 3 supersedes the held WRAP
+    await waitFor(() => expect(focusedRow(container)).toBe('7'));
+    pending[1]!({ ok: true, position: 39, rowId: 'area-39', ordinal: 3, matches: 3, version: 'v1', cursor: 'c1' }); // press 2's wrap, late
+    await waitFor(() => expect(focusedRow(container)).toBe('7')); // still where press 3 put it
+  });
+
+  it('nothing in the view holding the text is a sentence with the text in it, and the focus does not move', async () => {
+    const { data } = fakeData({ count: 40 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'f', ctrlKey: true });
+    fireEvent.change(findInput(container), { target: { value: 'zebra' } });
+    fireEvent.keyDown(findInput(container), { key: 'Enter' });
+    await waitFor(() => expect(said(container)).toContain('no cell contains “zebra”'));
+    expect(focusedRow(container)).toBe('0');
+  });
+
+  it('a REFUSED find is the port\'s own sentence, never a jump — and a refusal does not move the focus', async () => {
+    const { data } = fakeData({ count: 40, findRefuses: 'a find needs something to look for — the text was empty' });
+    const { container } = render(<Sheet data={data} height={HEIGHT} />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'f', ctrlKey: true });
+    // the empty ask is NOT judged in the grid: one library says that once, at the port
+    fireEvent.keyDown(findInput(container), { key: 'Enter' });
+    await waitFor(() => expect(said(container)).toContain('a find needs something to look for'));
+    expect(focusedRow(container)).toBe('0');
+  });
+
+  it('Esc closes the strip and hands the focus to the row the find landed on', async () => {
+    const { data } = fakeData({ count: 500 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'f', ctrlKey: true });
+    fireEvent.change(findInput(container), { target: { value: 'area-4' } });
+    fireEvent.keyDown(findInput(container), { key: 'Enter' });
+    await waitFor(() => expect(focusedRow(container)).toBe('4'));
+    fireEvent.keyDown(findInput(container), { key: 'Escape' });
+    await waitFor(() => expect(strip(container)).toBeNull());
+    expect(document.activeElement!.closest('[role="row"]')!.getAttribute('data-row')).toBe('4');
+  });
+
+  it('Ctrl+F with the strip already open selects the text to type over, and never opens the browser\'s find', async () => {
+    const { data } = fakeData({ count: 40 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'f', ctrlKey: true });
+    fireEvent.change(findInput(container), { target: { value: 'area-1' } });
+    expect(fireEvent.keyDown(findInput(container), { key: 'F', metaKey: true })).toBe(false);
+    expect(findInput(container).selectionStart).toBe(0);
+    expect(findInput(container).selectionEnd).toBe('area-1'.length);
+    // a key the strip does not own is left to the input
+    expect(fireEvent.keyDown(findInput(container), { key: 'a' })).toBe(true);
+  });
+
+  it('Ctrl+F from the GRID with the strip already open puts the caret back in the input — a swallowed key always does something', async () => {
+    const { data } = fakeData({ count: 40 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    const grid = container.querySelector('[role="grid"]')!;
+    fireEvent.keyDown(grid, { key: 'f', ctrlKey: true });
+    await waitFor(() => expect(document.activeElement).toBe(findInput(container)));
+    fireEvent.change(findInput(container), { target: { value: 'area-2' } });
+    // the person goes back to the rows — the strip stays open, and the focus is theirs
+    container.querySelector<HTMLElement>('[data-vzf-focused="true"]')!.focus();
+    expect(document.activeElement).not.toBe(findInput(container));
+    fireEvent.keyDown(grid, { key: 'f', ctrlKey: true });
+    await waitFor(() => expect(document.activeElement).toBe(findInput(container)));
+    expect(findInput(container).selectionEnd).toBe('area-2'.length); // …with the text selected to type over
+  });
+
+  it('a data layer that cannot find shows the sentence and offers no input at all', async () => {
+    const mute = fakeData({ count: 40, find: false, findRefusal: 'the server engine cannot find — filter instead' });
+    const { container } = render(<Sheet data={mute.data} height={HEIGHT} />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    // NOT prevented: a strip that can only refuse must not also cost a person the
+    // find their BROWSER already gave them — the key is taken out of the way only
+    // when this port can answer instead
+    expect(fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'f', ctrlKey: true })).toBe(true);
+    await waitFor(() => expect(strip(container)).not.toBeNull());
+    expect(container.querySelector('.vzf-sheet-findinput')).toBeNull(); // an input that cannot answer is worse than none
+    expect(strip(container)!.textContent).toBe('the server engine cannot find — filter instead');
+    // …and a port that says nothing still says something
+    cleanup();
+    const bare = fakeData({ count: 40, find: false });
+    const second = render(<Sheet data={bare.data} height={HEIGHT} />);
+    await waitFor(() => expect(rowsIn(second.container).length).toBeGreaterThan(0));
+    fireEvent.keyDown(second.container.querySelector('[role="grid"]')!, { key: 'f', ctrlKey: true });
+    await waitFor(() => expect(strip(second.container)!.textContent).toBe(SHEET_CANNOT_FIND));
+  });
+
+  it('the strip works in PRESENT mode — reading is what a find is', async () => {
+    const { data } = fakeData({ count: 40 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} readOnly />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'f', ctrlKey: true });
+    fireEvent.change(findInput(container), { target: { value: 'area-5' } });
+    fireEvent.keyDown(findInput(container), { key: 'Enter' });
+    await waitFor(() => expect(focusedRow(container)).toBe('5'));
+  });
+
+  it('the found row is stood on even when the window has to be read first — the mark is kept until it arrives', async () => {
+    const { data } = fakeData({ count: 500 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'f', ctrlKey: true });
+    fireEvent.change(findInput(container), { target: { value: 'area-300' } });
+    fireEvent.keyDown(findInput(container), { key: 'Enter' });
+    // row 300 is nowhere near the first window: the scroll follows, and the row is
+    // marked when the window that holds it lands
+    await waitFor(() => expect(focusedRow(container)).toBe('300'));
+    expect(readout(container)).not.toContain('rows 1–');
+    expect(said(container)).toContain('row 301');
+  });
+});
+
+describe('findFrom — where a find starts, and which ends are wraps', () => {
+  it('next is the row after, previous the row before — and both ends round, so neither becomes a malformed ask', () => {
+    expect(findFrom(3, 'forward', 40)).toEqual({ from: 4, wrapped: false });
+    expect(findFrom(3, 'backward', 40)).toEqual({ from: 2, wrapped: false });
+    expect(findFrom(39, 'forward', 40)).toEqual({ from: 0, wrapped: true });
+    expect(findFrom(0, 'backward', 40)).toEqual({ from: 39, wrapped: true });
+    // an empty table has no row to start from either way, and `from: -1` is never asked
+    expect(findFrom(0, 'forward', 0)).toEqual({ from: 0, wrapped: true });
+    expect(findFrom(0, 'backward', 0)).toEqual({ from: 0, wrapped: true });
+  });
+});
+
+describe('findWords — the three sentences a find can say', () => {
+  const hit = { ok: true as const, position: 1203, ordinal: 3, matches: 12, rowId: 'r', version: null, cursor: null };
+  it('names the match, its place among them and the row it is on — 1-based, the way the readout counts', () => {
+    expect(findWords('lyme', hit, null)).toBe('match 3 of 12 · row 1,204');
+    expect(findWords('lyme', hit, 'top')).toBe('match 3 of 12 · row 1,204 · wrapped to the top');
+    expect(findWords('lyme', hit, 'bottom')).toContain('wrapped to the bottom');
+  });
+  it('is honestly vague when a door named a match but not which one', () => {
+    expect(findWords('lyme', { ok: true, position: 3, matches: 12, version: null, cursor: null }, null)).toBe('a match of 12 · row 4');
+  });
+  it('says the text back when nothing holds it, and stays honest when a walk ran out anyway', () => {
+    expect(findWords('zebra', { ok: true, position: null, matches: 0, version: null, cursor: null }, null)).toBe('no cell contains “zebra”');
+    expect(findWords('lyme', { ok: true, position: null, matches: 12, version: null, cursor: null }, null)).toBe('no match from here · 12 in this view');
   });
 });

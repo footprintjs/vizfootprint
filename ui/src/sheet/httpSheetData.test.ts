@@ -4,7 +4,7 @@
  * never a fabricated window.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { httpSheetData, isViewQueryResult, windowQuery, type FetchLike } from './httpSheetData.js';
+import { httpSheetData, findQueryBody, isFindInViewResult, isViewQueryResult, windowQuery, NO_FIND_DOOR, type FetchLike } from './httpSheetData.js';
 import type { SheetColumn } from './types.js';
 
 const FACETS: readonly SheetColumn[] = [
@@ -54,7 +54,8 @@ describe('httpSheetData', () => {
     expect(door.urls[0]).toBe('/api/window?table=cells&viewId=sheet&offset=0&limit=30');
     expect(answer).toEqual({ ok: true, columns: ['id', 'cases'], rows: [{ id: 'a', cases: 3 }], rowIds: ['a'], positional: false, key: 'id', count: 90_300, start: 0, version: 'v1', cursor: 'c1', clauses: [] });
     expect(await data.columns()).toEqual(FACETS);
-    expect(data.capabilities).toEqual({ sort: true, countKnown: true, edit: false });
+    // no find door was given, so the capability is false and the sentence says why
+    expect(data.capabilities).toEqual({ sort: true, countKnown: true, edit: false, find: false, findRefusal: NO_FIND_DOOR });
   });
 
   it('a door that SENDS clauses hands them to the export receipt; one that sends none says nothing rather than "none"', async () => {
@@ -134,5 +135,101 @@ describe('httpSheetData', () => {
   it('a door whose engine cannot sort says so instead of showing a toggle', () => {
     expect(httpSheetData({ endpoint: '/x', sort: false }).capabilities.refusal).toContain('cannot sort');
     expect(httpSheetData({ endpoint: '/x', sort: false, sortRefusal: 'the door serves one order' }).capabilities.refusal).toBe('the door serves one order');
+  });
+});
+
+// ── the find door: a POST, and a read all the same ───────────────────────
+
+const FOUND = { ok: true, position: 12, rowId: 'a', ordinal: 2, matches: 5, version: 'v1', cursor: 'c1' };
+
+describe('findQueryBody', () => {
+  it('carries exactly what the library\'s own find door parses, and nothing it does not', () => {
+    expect(findQueryBody({ text: 'mea', from: 3, direction: 'backward' })).toEqual({ text: 'mea', from: 3, direction: 'backward' });
+    expect(findQueryBody({ text: 'mea', from: 0, direction: 'forward', viewId: 'sheet', columns: ['id'], sort: [{ field: 'cases', dir: 'desc' }] }, 'cells')).toEqual({
+      table: 'cells',
+      viewId: 'sheet',
+      columns: ['id'],
+      sort: [{ field: 'cases', dir: 'desc' }],
+      text: 'mea',
+      from: 0,
+      direction: 'forward',
+    });
+  });
+});
+
+describe('isFindInViewResult', () => {
+  it('a miss is as valid an answer as a hit, and anything that is not an answer is not one', () => {
+    expect(isFindInViewResult(FOUND)).toBe(true);
+    expect(isFindInViewResult({ ok: true, position: null, matches: 0, version: null, cursor: null })).toBe(true);
+    expect(isFindInViewResult({ ok: false, reason: 'unsupported-find', rejected: 'no' })).toBe(true);
+    expect(isFindInViewResult({ ok: false, reason: 'unsupported-find' })).toBe(false);
+    expect(isFindInViewResult({ ok: true, matches: 3 })).toBe(false); // no position at all
+    expect(isFindInViewResult({ ok: true, position: 1 })).toBe(false); // no count
+    expect(isFindInViewResult({ position: 1, matches: 3 })).toBe(false); // no verdict
+    expect(isFindInViewResult(null)).toBe(false);
+    expect(isFindInViewResult('a match')).toBe(false);
+  });
+});
+
+describe('httpSheetData — the find door', () => {
+  it('POSTs the ask as JSON and answers the sheet\'s own shape', async () => {
+    const door = fakeDoor(FOUND);
+    const data = httpSheetData({ endpoint: '/api/window', findEndpoint: '/api/find', table: 'cells', columns: FACETS, fetch: door.call });
+    expect(data.capabilities.find).toBe(true);
+    expect(data.capabilities.findRefusal).toBeUndefined();
+    const answer = await data.find!({ text: 'mea', from: 3, direction: 'forward', viewId: 'sheet' });
+    expect(door.urls[0]).toBe('/api/find'); // a POST: the typing is in the BODY, not in a URL a proxy logs
+    expect(door.inits[0]).toEqual({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ table: 'cells', viewId: 'sheet', text: 'mea', from: 3, direction: 'forward' }) });
+    expect(answer).toEqual({ ok: true, position: 12, rowId: 'a', ordinal: 2, matches: 5, version: 'v1', cursor: 'c1' });
+  });
+
+  it('a MISS names no row, and the abort signal rides along', async () => {
+    const door = fakeDoor({ ok: true, position: null, matches: 5, version: null, cursor: null });
+    const controller = new AbortController();
+    const data = httpSheetData({ endpoint: '/api/window', findEndpoint: '/api/find', fetch: door.call });
+    expect(await data.find!({ text: 'x', from: 0, direction: 'forward' }, { signal: controller.signal })).toEqual({ ok: true, position: null, matches: 5, version: null, cursor: null });
+    expect((door.inits[0] as { signal?: AbortSignal }).signal).toBe(controller.signal);
+  });
+
+  it('a door with NO find door refuses in words — and the strip is told before it offers an input', async () => {
+    const door = fakeDoor(FOUND);
+    const data = httpSheetData({ endpoint: '/api/window', fetch: door.call });
+    expect(data.capabilities).toMatchObject({ find: false, findRefusal: NO_FIND_DOOR });
+    expect(await data.find!({ text: 'x', from: 0, direction: 'forward' })).toEqual({ ok: false, reason: 'unsupported-find', rejected: NO_FIND_DOOR });
+    expect(door.urls).toEqual([]); // nothing was asked of anything
+    // …and a host may say it in its own words
+    const own = httpSheetData({ endpoint: '/api/window', findRefusal: 'search is not enabled on this deployment', fetch: door.call });
+    expect(own.capabilities.findRefusal).toBe('search is not enabled on this deployment');
+    expect(await own.find!({ text: 'x', from: 0, direction: 'forward' })).toEqual({ ok: false, reason: 'unsupported-find', rejected: 'search is not enabled on this deployment' });
+  });
+
+  it('a refusing door, a door that answers something else, and a door that cannot be reached are three sentences — never a jump', async () => {
+    const status = httpSheetData({ endpoint: '/api/window', findEndpoint: '/api/find', fetch: fakeDoor({}, { ok: false, status: 503 }).call });
+    expect(await status.find!({ text: 'x', from: 0, direction: 'forward' })).toEqual({ ok: false, reason: 'unreachable', rejected: 'the find door answered 503 — nothing was looked for' });
+    const said = httpSheetData({ endpoint: '/api/window', findEndpoint: '/api/find', fetch: fakeDoor({ error: 'the index is rebuilding' }, { ok: false, status: 500 }).call });
+    expect(await said.find!({ text: 'x', from: 0, direction: 'forward' })).toEqual({ ok: false, reason: 'unreachable', rejected: 'the index is rebuilding' });
+    const nonsense = httpSheetData({ endpoint: '/api/window', findEndpoint: '/api/find', fetch: fakeDoor({ rows: [] }).call });
+    expect(await nonsense.find!({ text: 'x', from: 0, direction: 'forward' })).toEqual({ ok: false, reason: 'unreachable', rejected: 'the find door answered 200 with something that is not a find answer — nothing was looked for' });
+    // a body that is not JSON at all is no sentence either, and it is not a crash
+    const notJson = httpSheetData({ endpoint: '/api/window', findEndpoint: '/api/find', fetch: () => Promise.resolve({ ok: true, status: 200, json: () => Promise.reject(new Error('unexpected token')) }) });
+    expect(await notJson.find!({ text: 'x', from: 0, direction: 'forward' })).toEqual({ ok: false, reason: 'unreachable', rejected: 'the find door answered 200 with something that is not a find answer — nothing was looked for' });
+    const refused = httpSheetData({ endpoint: '/api/window', findEndpoint: '/api/find', fetch: fakeDoor({ ok: false, reason: 'version-moved', rejected: 'the table was refreshed' }).call });
+    expect(await refused.find!({ text: 'x', from: 0, direction: 'forward' })).toEqual({ ok: false, reason: 'version-moved', rejected: 'the table was refreshed' });
+    const gone = httpSheetData({ endpoint: '/api/window', findEndpoint: '/api/find', fetch: () => Promise.reject(new Error('offline')) });
+    expect(await gone.find!({ text: 'x', from: 0, direction: 'forward' })).toEqual({ ok: false, reason: 'unreachable', rejected: 'the find door could not be reached: offline' });
+    // a door may reject with something that is not an Error at all, and it still says what it was
+    const odd = httpSheetData({ endpoint: '/api/window', findEndpoint: '/api/find', fetch: () => Promise.reject('a string') }); // eslint-disable-line prefer-promise-reject-errors -- a fetch may reject with anything
+    expect(await odd.find!({ text: 'x', from: 0, direction: 'forward' })).toEqual({ ok: false, reason: 'unreachable', rejected: 'the find door could not be reached: a string' });
+  });
+
+  it('the page\'s own fetch is the default for the find door too', async () => {
+    const calls: unknown[] = [];
+    vi.stubGlobal('fetch', (url: string, init: unknown) => {
+      calls.push([url, init]);
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(FOUND) });
+    });
+    const data = httpSheetData({ endpoint: '/api/window', findEndpoint: '/api/find' });
+    expect((await data.find!({ text: 'x', from: 0, direction: 'forward' })).ok).toBe(true);
+    expect((calls[0] as [string, unknown])[0]).toBe('/api/find');
   });
 });
