@@ -127,6 +127,81 @@ await view.addAggregate('by_region', { groupBy: ['region'], measures: [{ as: 'to
 
 The table it cuts is an **ordinary table** everywhere after that: `sessionSheetData(session, { table: 'by_region' })` reads its rows through the same port, its key is the one the act minted from its group column (read off the Sources rows, not `overview.keys` — a table nobody declared is not in the def's map), and `<Workbook sheets=…>` gives it a tab of its own. Nothing versions it: the session answers `version: null`, because no carrier vouched for those rows — the CURSOR is the stamp that moves, and seeking past the act takes the table with it.
 
+## Copy and export are reads
+
+```tsx
+<ExportRows data={sheetData} table="cells" viewId="sheet" columns={visible} sort={sortAtCursor} />
+```
+
+**A copy is a READ, so nothing lands on the log — and `readOnly` does not close
+this door.** Every other door in this folder is an act: adding a column, cutting
+a table, landing a sort. This one is not. Downloading the rows does not change
+what the dashboard says, so there is no cause to stamp, no commit to write, and
+nothing to replay. Present mode is *reading*, and this is reading — which is
+exactly why Ctrl+C works in Present mode where a cell edit never will.
+
+**What leaves carries its ADDRESS.** The download is two files: the rows, and a
+receipt naming the table, the view, the version, the cursor, the sort, the
+columns, the count, how many rows actually left, whether it truncated, and the
+clauses that reached the view. The receipt is there so a reader can come back to
+the exact state the file was read at — the cursor is the address, the clauses are
+the courtesy copy. Both files, and the walk that builds them, are the LIBRARY's
+(`vizfootprint/session`'s `exportWindows`; the laws are in
+[`src/session/README.md`](../../../src/session/README.md), "Export is a read that
+carries its address"). This component places a form beside the grid, the way
+`<AddColumn>` does, and hands the files somewhere — nothing more.
+
+Two examples, and they are the two halves of the law:
+
+```tsx
+// the whole window, with its address. Nothing is written to the log; the offer says
+// what will leave BEFORE anything leaves:
+//   "Download 2,431 rows as CSV, as they read at version 12 — with the receipt that names the cursor"
+<ExportRows data={sheetData} table="cells" onDeliver={(files) => files.forEach(save)} />
+// → cells.csv + cells.receipt.json, and the sentence
+//   "downloaded cells.csv and cells.receipt.json (2,431 rows)"
+```
+
+```tsx
+// one cell, from the grid itself. Ctrl+C / Cmd+C copies the FOCUSED cell —
+// in Present mode too, because it is a read:
+//   "copied jurisdiction of row 1"
+// and when the browser says no, it says so where every other refusal is said:
+//   "the browser refused the clipboard: document is not focused"
+<Sheet data={sheetData} readOnly />
+```
+
+Two laws hold that one cell to the same standard as the window:
+
+- **What leaves is written by the LIBRARY.** The clipboard gets
+  `cellString(value)` — the same formatter the CSV body is built with — so a date
+  copies as its ISO instant and an object as its JSON, never as
+  `[object Object]`. `cellText` in `Sheet.tsx` stays the DISPLAY's formatter; a
+  display may shorten what a copy must not.
+- **The browser's own copy is never swallowed for nothing.** `preventDefault()`
+  fires only when there IS a focused cell to copy; on an empty or refused window
+  the key is left to the browser and the note says why the cell did not go. The
+  clipboard door itself is `./clipboard.ts` — `writeClipboard`, `NO_CLIPBOARD`,
+  `clipboardRefusal` — shared by the form and the grid, so a copy never reads two
+  ways and a `<Sheet>` never reaches through the export form to find a clipboard.
+
+Three more things it owns, and nothing else:
+
+- **The format choice** (CSV or TSV) for the download; a **Copy** always writes TSV,
+  because that is what a spreadsheet reads from a paste.
+- **The count before the click**, from one probe window of a single row — the
+  smallest window every door answers (`limit: 0` is legal in the library, but a
+  door on the far side of HTTP may refuse a window asking for no rows). The offer
+  is a courtesy; the receipt is the record, written from the walk's own first page.
+- **The ceiling said out loud.** Past `EXPORT_ROW_CEILING` (200,000 — a policy
+  number, not a measurement) the offer reads *"the first 200,000 of 1,285,614
+  rows"* and the receipt carries `truncated: true`. Omit, never deny.
+
+A version or cursor that moves between pages refuses the WHOLE export
+(*"the table moved while exporting (version v1 → v2) — export again"*): two
+versions never share a file. Pinned by `ExportRows.test.tsx` and, for the grid's
+one-cell copy, by `Sheet.test.tsx`.
+
 ## The port
 
 `SheetData` (`./types.ts`) is React-free and core-free at the type level — only TYPES come from `src`. It is three things: `capabilities` (each `false` naming its refusal sentence), `columns()` (name, type, role), and `rows(window, { signal })` answering a window **or** a refusal. There is no third arm: an empty grid never stands in for an answer nobody gave.
@@ -138,4 +213,4 @@ Two adapters ship. `sessionSheetData` is in process: a translation and a refusal
 - **A row on a KEYLESS table cannot be selected in this version.** The design calls for a "within-version marked point" — a selection on `<version>#<index>` that a bookmark records as valid only inside that version — and the library port does not express one yet: `ViewQueryResult` carries the positional row id but nothing consumes it as a clause. **That is a pending library decision**, not an oversight here; until it lands the sheet says so in words rather than inventing an identity.
 - **The REST of the arrangement.** `sort` lands (see "The sort is an act" above); `hidden`, `order`, `frozen` and `firstRow` do not yet. They belong under the same identity and the same prop grammar — one `navigate` note per prop on `layout:sheet:<viewId>` — so each is a small packet on a road that is already built, not a new decision. `firstRow` is the one to think twice about: a scroll position is a READ by this folder's own law, and it would be here only as a place to RESUME, never as a claim about an order.
 - **A profile per column** — the quality bar, the distribution mini-bar, the distinct count, the absence tally. They come from ONE fold per (table, version, visible overlay set), which does not exist yet; a header that guessed them from the rendered window would be lying about 90,300 rows while showing 30.
-- **Find (Ctrl+F), copy and export**, the formula bar, the why panel, cell edits, and the AG Grid adapter — each is its own packet. (Derived columns arrived: see "Add a column" above.)
+- **Find (Ctrl+F)**, the formula bar, the why panel, cell edits, and the AG Grid adapter — each is its own packet. (Derived columns arrived: see "Add a column" above; copy and export arrived: see "Copy and export are reads".)

@@ -49,6 +49,9 @@ export { AddColumn } from './sheet/AddColumn.js';
 export type { AddColumnOutcome, AddColumnProps } from './sheet/AddColumn.js';
 export { AddAggregate } from './sheet/AddAggregate.js';
 export type { AddAggregateOutcome, AddAggregateProps } from './sheet/AddAggregate.js';
+// copy and export are READS: no act, no commit — the files carry their address instead
+export { ExportRows } from './sheet/ExportRows.js';
+export type { ExportFile, ExportRowsProps } from './sheet/ExportRows.js';
 export { sessionSheetData } from './sheet/sessionSheetData.js';
 export type { SessionSheetOptions, SheetSessionLike } from './sheet/sessionSheetData.js';
 export { httpSheetData } from './sheet/httpSheetData.js';

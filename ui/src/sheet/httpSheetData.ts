@@ -87,7 +87,10 @@ export function httpSheetData(options: HttpSheetOptions): SheetData {
         if (!res.ok) return { ok: false, reason: 'unreachable', rejected: doorSentence(res.status, body) };
         if (!isViewQueryResult(body)) return { ok: false, reason: 'unreachable', rejected: 'the window door answered 200 with something that is not a window — no rows were read' };
         if (!body.ok) return { ok: false, reason: body.reason, rejected: body.rejected };
-        return { ok: true, columns: body.columns, rows: body.rows, rowIds: body.rowIds, positional: body.positional, ...(body.key !== undefined ? { key: body.key } : {}), count: body.count, start: body.start, version: body.version, cursor: body.cursor };
+        // the clauses ride through for the export receipt, and ONLY when the door
+        // actually sent a list: an absent `clauses` is a door that did not say, which
+        // this port spells as absent rather than as an empty filter story
+        return { ok: true, columns: body.columns, rows: body.rows, rowIds: body.rowIds, positional: body.positional, ...(body.key !== undefined ? { key: body.key } : {}), count: body.count, start: body.start, version: body.version, cursor: body.cursor, ...(Array.isArray(body.clauses) ? { clauses: body.clauses } : {}) };
       } catch (error: unknown) {
         return { ok: false, reason: 'unreachable', rejected: `the window door could not be reached: ${error instanceof Error ? error.message : String(error)}` };
       }

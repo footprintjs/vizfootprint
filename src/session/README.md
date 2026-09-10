@@ -249,6 +249,83 @@ A sheet window is ONE call: `viewQuery({ table?, viewId?, columns?, sort?, limit
 
 Not in this version: `reencode` on a layer (refused with a sentence — a layer's bindings are declared on the layer), a layer's prose in the overview, prose DECLARED in the def under a layer address (the def's prose subjects are the declared views; a layer's words are set at runtime with `describe`), the data-version stamp of a commit on a layer (still the default table's).
 
+## Export is a read that carries its address (`exportFromSession`, `exportWindows`)
+
+Two laws, and neither of them is about files.
+
+**Copy and export are READS, not acts.** Nothing lands on the log. Downloading
+the sheet does not change what the dashboard says, so there is no act to record
+and no commit to cite — and `readOnly` on a surface does not close this door,
+because a read was never the thing `readOnly` guards. What leaves the system
+carries its ADDRESS instead: an `ExportReceipt` naming the table, the view, the
+version, the cursor, the sort, the columns, the count, the range that actually
+left, whether it truncated, and the clauses that reached the view
+(`ViewQueryResult.clauses`, already on the session's answer). The receipt exists
+so a reader can return to the exact state the file was read at — **the cursor is
+the address, the clauses are the courtesy copy.**
+
+**The walk and the receipt live HERE, in the library.** A consumer that
+re-derived the pagination, the RFC 4180 quoting and the receipt would be a
+second author of one law. `exportWindows(ask, opts)` walks any door of the shape
+`(offset, limit) => window | refusal`; `exportFromSession(session, opts)` is that
+walk over `viewQuery`. Both are pure formatters over a read, so they ride this
+barrel and get no subpath of their own (`../../PACKAGING.md`, Law 3: a subpath is
+only for a symbol whose PRESENCE changes what the barrel costs). The UI's whole
+job is to place a form beside the grid — `ui/src/sheet/ExportRows.tsx`, on the
+`AddColumn` precedent — and hand the two files somewhere.
+
+**Two versions never share a file.** A version, a cursor or the PROJECTION that
+changed between pages refuses the WHOLE export (`reason: 'moved'`), the same
+all-or-nothing discipline Law 1 above states for acts: half of one version
+stapled to half of the next is a file no receipt can address, and page 2's rows
+written in page 1's columns would be blank cells under a receipt that names the
+wrong ones. `ExportWalkRefusal` is the whole vocabulary the WALK itself mints —
+three words, beside whatever code the door's own refusal carried:
+
+| `reason` | what happened | the sentence |
+|---|---|---|
+| `'moved'` | the version, the cursor or the projection changed between pages | *the table moved while exporting (version v1 → v2) — export again* |
+| `'misaligned'` | a page answered a window starting somewhere other than where it was asked (a door that ignores `offset`) — the rows cannot be walked in order, and a file of one page repeated is not an export | *the table answered a window starting at row 0 where row 2 was asked for …* |
+| `'short'` | a page answered no rows while rows remained: the end the count promised cannot be reached | *the table answered no rows at offset 2 while 3 of 5 remained — export again* |
+
+`EXPORT_ROW_CEILING` (200,000) is a POLICY, not a measurement — a 200k-row ×
+~10-column file is tens of megabytes of text, the practical size for one
+in-memory string handed to a browser download — and the receipt SAYS when it
+truncated. Omit, never deny.
+
+**A cell is text, and no cell may abort an export.** `cellString` names every
+value shape a row can hold and throws for none: an invalid `Date` reads
+*Invalid Date* (`toISOString()` on one throws), a nested `BigInt` rides as its
+digits, a circular value names itself. One throw here would escape the walk and
+freeze whatever awaited it over a single odd cell. Nothing is locale-formatted —
+`toLocaleString` would make the same number two different files on two machines.
+
+**A formula-shaped cell rides through as it reads.** A cell beginning `=`, `+`,
+`-` or `@` is exported unchanged, and some spreadsheets EVALUATE such a cell on
+open (the "CSV injection" class). That is the reader's concern, and it is stated
+here rather than fixed: prefixing a quote would change a person's data to protect
+their spreadsheet, and a body that no longer matches the rows its receipt
+addresses is the worse lie. A host that needs the mangling owns it — the rows are
+right there in `ExportResult.body`.
+
+```ts
+const res = await exportFromSession(session, { table: 'data', columns: ['id', 'price'], format: 'csv' });
+if (!res.ok) return res.rejected;   // 'the table moved while exporting (version v1 → v2) — export again'
+
+res.names;                          // { body: 'data.csv', receipt: 'data.receipt.json' }
+res.body.split('\n')[0];            // 'id,price' — the ENGINE's projection (a declared key rides every window)
+res.receipt.cursor;                 // 's3' — session.cursor(): seek here and the numbers come back
+res.receipt.count;                  // 17   — what the view holds
+res.receipt.exported;               // { start: 0, rows: 17 }
+res.receipt.truncated;              // false; true would mean the first 200,000 of a larger count
+res.receipt.clauses;                // [{ from: 'scatter', clause: { kind: 'interval', field: 'price', … }, response: 'filter' }]
+```
+
+Pinned by `export.test.ts` (the quoting matrix, the paged walk, the ceiling, the
+three refusals, and the cells that used to throw) and `exportSession.test.ts`
+(the same rows `viewQuery` answers, in the same order, with the session's own
+cursor on the receipt).
+
 ## One gesture on a node — the `neighbourhood` select
 
 A node-link's most ordinary gesture selects a node **and the ties inside its ego set** — the induced subgraph, which is exactly the edge set the chart brightens for that gesture. That is one act, so it lands ONE commit, over a value recorded whole (`source IN (…) AND target IN (…)` over the edges table). So it is a selection KIND of its own (`kind: 'neighbourhood'`) for the reason the `cell` is one, never two composed clauses: two clauses would be two acts and two records of half a question.

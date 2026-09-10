@@ -85,13 +85,14 @@ describe('sessionSheetData', () => {
     expect(await sessionSheetData(session, { table: 'series' }).columns()).toEqual([]);
   });
 
-  it('passes the window through verbatim and keeps the session\'s clauses with the session', async () => {
+  it('passes the window through verbatim, the reaching clauses among them — the export receipt names them', async () => {
     const { session, asked } = fakeSession();
     const data = sessionSheetData(session, { table: 'cells' });
     const answer = await data.rows({ offset: 0, limit: 50, viewId: 'sheet', columns: ['id', 'cases'], sort: [{ field: 'cases', dir: 'desc' }] });
     expect(asked[0]).toEqual({ table: 'cells', viewId: 'sheet', columns: ['id', 'cases'], sort: [{ field: 'cases', dir: 'desc' }], offset: 0, limit: 50 });
-    expect(answer).toEqual({ ok: true, columns: ['id', 'cases'], rows: [{ id: 'a', cases: 3 }], rowIds: ['a'], positional: false, key: 'id', count: 1, start: 0, version: 'v1', cursor: 'c1' });
-    expect(answer).not.toHaveProperty('clauses');
+    expect(answer).toEqual({ ok: true, columns: ['id', 'cases'], rows: [{ id: 'a', cases: 3 }], rowIds: ['a'], positional: false, key: 'id', count: 1, start: 0, version: 'v1', cursor: 'c1', clauses: WINDOW.ok === true ? WINDOW.clauses : [] });
+    // the grid draws none of this; the receipt is what reads it (`src/session/README.md`, "Export is a read that carries its address")
+    expect(answer.ok && answer.clauses).toEqual([{ from: 'diseases', clause: { kind: 'point', field: 'disease', value: 'Measles' }, response: 'filter' }]);
   });
 
   it('asks for nothing it was not given — no table, no view, no columns, no sort', async () => {

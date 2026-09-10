@@ -623,6 +623,101 @@ describe('<Sheet> — the keyboard', () => {
     expect(focused()).toBe('0:jurisdiction');
   });
 
+  it('Ctrl+C and Cmd+C copy the FOCUSED CELL and say which one went — a copy is a read, so Present mode allows it', async () => {
+    const written: string[] = [];
+    vi.stubGlobal('navigator', { clipboard: { writeText: (text: string) => { written.push(text); return Promise.resolve(); } } });
+    const { data } = fakeData({ count: 500 });
+    // readOnly: the door a copy rides is not the door an edit rides
+    const { container } = render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" readOnly />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    const grid = container.querySelector('[role="grid"]')!;
+
+    // `false` = prevented, and prevented ONLY because a cell went to the clipboard
+    expect(fireEvent.keyDown(grid, { key: 'c', ctrlKey: true })).toBe(false);
+    await waitFor(() => expect(said(container)).toContain('copied jurisdiction of row 1'));
+    expect(written).toEqual(['area-0']);
+
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: 'End' });
+    fireEvent.keyDown(grid, { key: 'C', metaKey: true }); // the same key with Shift held, on a Mac
+    await waitFor(() => expect(said(container)).toContain('copied cases of row 2'));
+    expect(written).toEqual(['area-0', '1']);
+
+    // Ctrl with any other key is not a copy: the arrow still moves the focus
+    fireEvent.keyDown(grid, { key: 'ArrowDown', ctrlKey: true });
+    expect(container.querySelector('[data-vzf-focused="true"]')?.closest('[role="row"]')?.getAttribute('data-row')).toBe('2');
+    expect(written).toHaveLength(2);
+  });
+
+  it('what LEAVES is the LIBRARY’s cell text, not the display’s: a date copies as its ISO instant, an object as its JSON', async () => {
+    const written: string[] = [];
+    vi.stubGlobal('navigator', { clipboard: { writeText: (text: string) => { written.push(text); return Promise.resolve(); } } });
+    const at = new Date('2021-05-06T00:00:00.000Z');
+    // a window whose cells are the two shapes a display formats one way and an export another
+    const odd: SheetData = {
+      capabilities: { sort: false, countKnown: true, edit: false },
+      columns: () => Promise.resolve([{ name: 'seen', type: 'string' as const }, { name: 'shape', type: 'string' as const }]),
+      rows: () =>
+        Promise.resolve({
+          ok: true as const,
+          columns: ['seen', 'shape'],
+          rows: [{ seen: at, shape: { k: 'v' } }],
+          rowIds: ['0'],
+          positional: true,
+          count: 1,
+          start: 0,
+          version: 'v1',
+          cursor: 'c1',
+        }),
+    };
+    const { container } = render(<Sheet data={odd} height={HEIGHT} version="v1" cursor="c1" />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    const grid = container.querySelector('[role="grid"]')!;
+
+    // `false` = the browser's own copy WAS prevented, because a cell is going to the clipboard
+    expect(fireEvent.keyDown(grid, { key: 'c', ctrlKey: true })).toBe(false);
+    await waitFor(() => expect(written).toEqual(['2021-05-06T00:00:00.000Z']));
+
+    fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    fireEvent.keyDown(grid, { key: 'c', metaKey: true });
+    // never "[object Object]": these are the same bytes the CSV of this cell carries
+    await waitFor(() => expect(written).toEqual(['2021-05-06T00:00:00.000Z', '{"k":"v"}']));
+  });
+
+  it('a browser that refuses the clipboard says so where every other refusal is said', async () => {
+    vi.stubGlobal('navigator', { clipboard: { writeText: () => Promise.reject(new Error('document is not focused')) } });
+    const { data } = fakeData({ count: 20 });
+    const { container } = render(<Sheet data={data} height={HEIGHT} version="v1" cursor="c1" />);
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0));
+    fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'c', ctrlKey: true });
+    await waitFor(() => expect(said(container)).toContain('the browser refused the clipboard: document is not focused'));
+
+    // and one that refuses with something that is not an Error is still said in words
+    // eslint-disable-next-line prefer-promise-reject-errors -- a browser may reject with anything
+    vi.stubGlobal('navigator', { clipboard: { writeText: () => Promise.reject('the permission prompt closed') } });
+    fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'c', ctrlKey: true });
+    await waitFor(() => expect(said(container)).toContain('the browser refused the clipboard: the permission prompt closed'));
+  });
+
+  it('a cell this window does not hold is not copied — an empty table has a column in focus and no row under it', async () => {
+    vi.stubGlobal('navigator', { clipboard: { writeText: () => Promise.resolve() } });
+    const empty = fakeData({ count: 0 });
+    const { container } = render(<Sheet data={empty.data} height={HEIGHT} version="v1" cursor="c1" />);
+    await waitFor(() => expect(readout(container)).toContain('rows 0–0 of 0'));
+    // `true` = the key was NOT prevented: with no cell to copy, the browser's own
+    // copy is left alone rather than swallowed for a copy that cannot happen
+    expect(fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'c', ctrlKey: true })).toBe(true);
+    await waitFor(() => expect(said(container)).toContain('the focused cell is not in this window yet'));
+
+    // and a window that was REFUSED names no columns either, so there is no cell at all
+    cleanup();
+    const refused = fakeData({ count: 8, refusal: 'the engine gave up' });
+    const view = render(<Sheet data={refused.data} height={HEIGHT} version="v1" cursor="c1" />);
+    await waitFor(() => expect(said(view.container)).toContain('the engine gave up'));
+    expect(fireEvent.keyDown(view.container.querySelector('[role="grid"]')!, { key: 'c', ctrlKey: true })).toBe(true);
+    await waitFor(() => expect(said(view.container)).toContain('the focused cell is not in this window yet'));
+  });
+
   it('a move onto a row the window does not hold KEEPS the intent until that row arrives, then takes the focus', async () => {
     let release: (() => void) | null = null;
     const base = fakeData({ count: 500 });

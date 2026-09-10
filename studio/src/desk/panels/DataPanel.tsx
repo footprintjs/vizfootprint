@@ -23,7 +23,7 @@
  * refusal shows is the session's own.
  */
 import { useMemo, useRef, type ReactNode } from 'react';
-import { AddAggregate, AddColumn, Sheet, Sources, Workbook, sheetSortOf, type AddColumnOutcome, type AggregatePick, type SessionView, type SessionViewState, type SheetColumn, type SheetData } from 'vizfootprint-ui';
+import { AddAggregate, AddColumn, ExportRows, Sheet, Sources, Workbook, sheetSortOf, type AddColumnOutcome, type AggregatePick, type SessionView, type SessionViewState, type SheetColumn, type SheetData } from 'vizfootprint-ui';
 import type { SortSpec } from 'vizfootprint/data';
 import { T } from '../tokens.js';
 import type { DeskData } from '../types.js';
@@ -104,6 +104,14 @@ export function DataPanel(props: {
     <div style={{ display: 'flex', flexDirection: 'column', gap: T.gap, minHeight: 0 }} data-vzf="desk-data">
       <AddColumn columns={numbers} onAdd={addColumn} readOnly={readOnly} />
       <AddAggregate columns={everyColumn} onAdd={addAggregate} readOnly={readOnly} />
+      {/*
+        The third strip is NOT an act. Taking the rows away lands no commit, so it
+        gets no `readOnly`: Present mode is reading, and a copy is a read. It reads
+        the same port, view and order the grid below is showing, so the file is the
+        rows a person is actually looking at — and the receipt beside it names the
+        cursor they were read at.
+      */}
+      <ExportRows data={here.data} table={table} viewId="sheet" sort={sheetSortOf(state.layouts, 'sheet')} />
       <Workbook
         sources={
           <Sources

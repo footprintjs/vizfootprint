@@ -92,4 +92,10 @@ export type {
 // stepper `createLordPlusPlus`) is `../def`'s. See PACKAGING.md, Law 1.
 export type { FdrStep } from '../fdr/index.js';
 export { VIEW_QUERY_DEFAULT_LIMIT } from './session.js';
+
+// Export is a READ that carries its address (see `./export.ts`, and README.md's
+// "Export is a read that carries its address"). A pure formatter + a walk over
+// `viewQuery` — no subpath of its own, per PACKAGING.md Law 3.
+export { exportWindows, exportFromSession, tabularText, cellString, EXPORT_PAGE_ROWS, EXPORT_ROW_CEILING } from './export.js';
+export type { ExportFormat, ExportWindow, ExportRefusal, ExportWalkRefusal, ExportAsk, ExportReceipt, ExportOptions, ExportResult } from './export.js';
 export type { RestorableSaved, RestorableBookmark, RestoreResult, SavedClause, SavedSelection, SavedStore, Bookmark, BookmarkStore } from '../def/types.js';

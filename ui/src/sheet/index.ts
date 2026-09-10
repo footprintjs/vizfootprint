@@ -17,6 +17,12 @@ export type { AddColumnOutcome, AddColumnProps } from './AddColumn.js';
 // the same door one level out: a TABLE of one row per group, cut from the rows visible here
 export { AddAggregate, ADD_AGGREGATE_HINT, ADD_AGGREGATE_NO_COLUMNS, ADD_AGGREGATE_PRESENTING, ADD_AGGREGATE_WHOLE_TABLE } from './AddAggregate.js';
 export type { AddAggregateOutcome, AddAggregateProps } from './AddAggregate.js';
+// and the door that is NOT an act: copy and export are READS, so nothing lands on the log —
+// what leaves carries its address instead (`src/session/README.md`, "Export is a read that carries its address")
+export { ExportRows, downloadFiles, exportRowsCopied, exportRowsDelivered, exportRowsOffer, sheetAsk, EXPORT_ROWS_HINT, EXPORT_ROWS_PROBE, EXPORT_ROWS_READING } from './ExportRows.js';
+export type { ExportFile, ExportRowsProps } from './ExportRows.js';
+// the clipboard door itself: shared by the form above and the grid's Ctrl+C, so it belongs to neither
+export { clipboardRefusal, writeClipboard, NO_CLIPBOARD } from './clipboard.js';
 export { sessionSheetData, threwSentence } from './sessionSheetData.js';
 export type { SessionSheetOptions, SheetSessionLike } from './sessionSheetData.js';
 export { httpSheetData, isViewQueryResult, windowQuery } from './httpSheetData.js';

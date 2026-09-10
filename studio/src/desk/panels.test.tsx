@@ -166,6 +166,23 @@ describe('the data workbook', () => {
     expect(screen.queryByRole('button', { name: 'sort by shelf' })).toBeNull();
   });
 
+  it('the third strip is a READ: it offers the rows with their address, and Present mode does not close it', async () => {
+    const { view, session } = openLibrary();
+    await view.refresh();
+    const port = answering();
+    const before = session.log.records.length;
+    const { container } = render(<DataPanel data={{ table: 'books', sheet: (() => port) as never }} state={view.getState()} view={view} readOnly />);
+    // the count, the format and where the rows read — said BEFORE anything leaves
+    await waitFor(() =>
+      expect(container.querySelector('[data-vzf="export-offer"]')?.textContent).toBe('Download 1 row as CSV, as they read at version v1 — with the receipt that names the cursor'),
+    );
+    // open in Present mode, unlike the two act strips above it: a copy is a read
+    expect((container.querySelector('[data-vzf="export-download"]') as HTMLButtonElement).disabled).toBe(false);
+    expect((container.querySelector('[data-vzf="export-copy"]') as HTMLButtonElement).disabled).toBe(false);
+    // and it lands NOTHING — the log is exactly where it was
+    expect(session.log.records).toHaveLength(before);
+  });
+
   it('joins the desk as a chip badged with the table count', async () => {
     const { view } = openLibrary();
     await view.refresh();

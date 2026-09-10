@@ -38,7 +38,14 @@ export interface SessionSheetOptions {
   readonly sortRefusal?: string;
 }
 
-/** The window as the sheet's port states it — the session's `clauses` stay with the session. */
+/**
+ * The window as the sheet's port states it.
+ *
+ * The `clauses` ride ALONG: the grid never draws them, but the export receipt
+ * names them, and re-asking the session for them would make the receipt a
+ * second reader of the same window (`src/session/README.md`, "Export is a read
+ * that carries its address").
+ */
 function asWindow(answer: Extract<ViewQueryResult, { ok: true }>): SheetWindow {
   return {
     ok: true,
@@ -51,6 +58,7 @@ function asWindow(answer: Extract<ViewQueryResult, { ok: true }>): SheetWindow {
     start: answer.start,
     version: answer.version,
     cursor: answer.cursor,
+    clauses: answer.clauses,
   };
 }
 

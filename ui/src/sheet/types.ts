@@ -17,7 +17,7 @@
  * answer nobody gave.
  */
 import type { ColumnRole, ColumnType, Row, SortSpec } from 'vizfootprint/data';
-import type { ViewQueryRefusal } from 'vizfootprint/session';
+import type { ReachingClause, ViewQueryRefusal } from 'vizfootprint/session';
 
 export type { SortSpec, ViewQueryRefusal };
 
@@ -84,6 +84,21 @@ export interface SheetWindow {
   readonly version: string | null;
   /** The cursor commit the window was read at — a late answer from a moved cursor is dropped, never shown. */
   readonly cursor: string | null;
+  /**
+   * The clauses that reached the view, with each one's response.
+   *
+   * WHY the grid carries something it never draws: the EXPORT RECEIPT names
+   * them (`vizfootprint/session`'s `ExportReceipt.clauses` — see
+   * `src/session/README.md`, "Export is a read that carries its address"), and
+   * the receipt is written from the window the grid already holds. The grid
+   * itself ignores them.
+   *
+   * OPTIONAL because a door may not send them: an in-process session always
+   * does, an HTTP mirror is only as good as its endpoint. Absent means "this
+   * window did not tell me", which is not the same claim as "there were none" —
+   * so the receipt records the empty list rather than inventing a filter story.
+   */
+  readonly clauses?: readonly ReachingClause[];
 }
 
 /**

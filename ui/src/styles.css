@@ -2543,6 +2543,17 @@
 :where(.vzf) .vzf-addagg-said { margin: 0; min-height: 1.2em; font-size: 11.5px; color: var(--vzf-ink-soft); }
 :where(.vzf) .vzf-addagg-refused { color: var(--vzf-clay); }
 
+/* ── Take these rows with you: a READ beside the grid — no act, so no cause and no commit ── */
+:where(.vzf) .vzf-export { display: flex; flex-direction: column; gap: 2px; padding: var(--vzf-space-2); font-size: 12.5px; color: var(--vzf-ink); background: var(--vzf-surface-2); border: 1px solid var(--vzf-line); border-radius: var(--vzf-r-md); }
+:where(.vzf) .vzf-export-row { display: flex; align-items: center; gap: var(--vzf-space-2); flex-wrap: wrap; }
+:where(.vzf) .vzf-export-field { display: flex; align-items: center; gap: 6px; min-width: 0; }
+:where(.vzf) .vzf-export-label { color: var(--vzf-ink-soft); }
+:where(.vzf) .vzf-export-format { width: 6em; }
+:where(.vzf) .vzf-export-offer { margin: 0; font-size: 11.5px; color: var(--vzf-ink); }
+:where(.vzf) .vzf-export-hint { margin: 0; font-size: 11.5px; color: var(--vzf-ink-soft); }
+:where(.vzf) .vzf-export-said { margin: 0; min-height: 1.2em; font-size: 11.5px; color: var(--vzf-ink-soft); }
+:where(.vzf) .vzf-export-refused { color: var(--vzf-clay); }
+
 /* ── the Workbook: the data layer's two tabs ── */
 :where(.vzf) .vzf-workbook { display: flex; flex-direction: column; gap: var(--vzf-space-2); min-height: 0; height: 100%; }
 :where(.vzf) .vzf-workbook-tabs { flex: none; display: flex; gap: 2px; border-bottom: 1px solid var(--vzf-line); }

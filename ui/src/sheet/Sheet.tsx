@@ -43,8 +43,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FocusEvent as ReactFocusEvent, JSX, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, UIEvent as ReactUIEvent } from 'react';
 import type { Row, SortSpec } from 'vizfootprint/data';
+// what LEAVES is formatted by the library, one cell or a whole window (see `copyFocusedCell`)
+import { cellString } from 'vizfootprint/session';
 import { sortArrow, sortedByWords } from './arrangement.js';
 import { createBlockCache, type BlockCache } from './blockCache.js';
+// the clipboard door and the one sentence for a browser that refuses it — a module of
+// its own, so the grid never reaches through the export FORM to put text on a clipboard
+import { clipboardRefusal, writeClipboard } from './clipboard.js';
 import type { SheetColumn, SheetData, SheetWindow } from './types.js';
 
 /** One row's height in pixels — fixed, so a scroll position IS a row index. */
@@ -379,7 +384,53 @@ export function Sheet(props: SheetProps): JSX.Element {
     [firstIndex, metrics, visibleRows],
   );
 
+  /** The focused cell, or null when this window does not hold it (a scroll still in flight). */
+  const focusedCell = (): { readonly column: string; readonly value: unknown } | null => {
+    const column = ordered[focus.col];
+    const row = rows[focus.row - start];
+    return column === undefined || row === undefined ? null : { column, value: row[column] };
+  };
+
+  /**
+   * Ctrl/Cmd+C puts the FOCUSED CELL on the clipboard.
+   *
+   * A copy is a READ, so `readOnly` does not close this door — Present mode is
+   * reading, and this is reading. (The same law `./ExportRows.tsx` states for a
+   * whole window: `src/session/README.md`, "Export is a read that carries its
+   * address".) One cell needs no receipt file; its address is the note, which
+   * says WHICH column of WHICH row went.
+   *
+   * The value is written with the LIBRARY's `cellString`, not this file's
+   * `cellText`: what leaves the system reads one way whether it leaves a cell at
+   * a time or a window at a time, so a copied date is the ISO instant the CSV
+   * would carry and a copied object is its JSON — never `[object Object]`.
+   * `cellText` stays what it was, the DISPLAY's formatter.
+   */
+  const copyFocusedCell = async (cell: { readonly column: string; readonly value: unknown }): Promise<void> => {
+    try {
+      await writeClipboard(cellString(cell.value));
+      // 1-based, the way the readout counts rows — one grid never numbers the same row two ways
+      setNote(`copied ${cell.column} of row ${(focus.row + 1).toLocaleString()}`);
+    } catch (error: unknown) {
+      setNote(clipboardRefusal(error));
+    }
+  };
+
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    // the copy key is not a MOVE, so it is judged before the movement switch and
+    // leaves `focus` exactly where it was
+    if ((event.ctrlKey || event.metaKey) && (event.key === 'c' || event.key === 'C')) {
+      const cell = focusedCell();
+      // nothing to copy: the browser's OWN copy is left alone rather than swallowed
+      // for a copy that cannot happen, and the note says why the cell did not go
+      if (cell === null) {
+        setNote('the focused cell is not in this window yet — nothing was copied');
+        return;
+      }
+      event.preventDefault(); // prevented only because a cell IS going to the clipboard
+      void copyFocusedCell(cell);
+      return;
+    }
     const lastRow = Math.max(0, count - 1);
     const lastCol = Math.max(0, ordered.length - 1);
     const page = Math.max(1, visibleRows - 1);

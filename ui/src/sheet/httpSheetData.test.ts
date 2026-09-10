@@ -47,14 +47,24 @@ describe('windowQuery', () => {
 });
 
 describe('httpSheetData', () => {
-  it('asks the door for one window and answers the sheet\'s own shape (the wire\'s clauses stay on the wire)', async () => {
+  it('asks the door for one window and answers the sheet\'s own shape, the wire\'s clauses among them', async () => {
     const door = fakeDoor(BODY);
     const data = httpSheetData({ endpoint: '/api/window', table: 'cells', columns: FACETS, fetch: door.call });
     const answer = await data.rows({ offset: 0, limit: 30, viewId: 'sheet' });
     expect(door.urls[0]).toBe('/api/window?table=cells&viewId=sheet&offset=0&limit=30');
-    expect(answer).toEqual({ ok: true, columns: ['id', 'cases'], rows: [{ id: 'a', cases: 3 }], rowIds: ['a'], positional: false, key: 'id', count: 90_300, start: 0, version: 'v1', cursor: 'c1' });
+    expect(answer).toEqual({ ok: true, columns: ['id', 'cases'], rows: [{ id: 'a', cases: 3 }], rowIds: ['a'], positional: false, key: 'id', count: 90_300, start: 0, version: 'v1', cursor: 'c1', clauses: [] });
     expect(await data.columns()).toEqual(FACETS);
     expect(data.capabilities).toEqual({ sort: true, countKnown: true, edit: false });
+  });
+
+  it('a door that SENDS clauses hands them to the export receipt; one that sends none says nothing rather than "none"', async () => {
+    const clauses = [{ from: 'diseases', clause: { kind: 'point', field: 'disease', value: 'Measles' }, response: 'filter' }];
+    const said = fakeDoor({ ...BODY, clauses });
+    const answer = await httpSheetData({ endpoint: '/api/window', fetch: said.call }).rows({ offset: 0, limit: 10 });
+    expect(answer.ok && answer.clauses).toEqual(clauses);
+    // an absent `clauses` is a door that did not tell us — not a door claiming there were no filters
+    const mute = fakeDoor({ ...BODY, clauses: undefined });
+    expect(await httpSheetData({ endpoint: '/api/window', fetch: mute.call }).rows({ offset: 0, limit: 10 })).not.toHaveProperty('clauses');
   });
 
   it('passes the abort signal through, and asks with no init when there is none', async () => {
