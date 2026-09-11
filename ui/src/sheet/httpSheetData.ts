@@ -72,6 +72,18 @@ export function windowQuery(window: SheetWindowRequest, table?: string): string 
   return params.toString();
 }
 
+/** Preserve endpoint filters and fragments; supplied window fields override endpoint defaults. */
+function windowUrl(endpoint: string, window: SheetWindowRequest, table?: string): string {
+  const hashAt = endpoint.indexOf('#');
+  const fragment = hashAt < 0 ? '' : endpoint.slice(hashAt);
+  const address = hashAt < 0 ? endpoint : endpoint.slice(0, hashAt);
+  const queryAt = address.indexOf('?');
+  const path = queryAt < 0 ? address : address.slice(0, queryAt);
+  const params = new URLSearchParams(queryAt < 0 ? '' : address.slice(queryAt + 1));
+  for (const [key, value] of new URLSearchParams(windowQuery(window, table))) params.set(key, value);
+  return `${path}?${params.toString()}${fragment}`;
+}
+
 /** The one sentence a door with no find door says — the grid shows it where the input would have been. */
 export const NO_FIND_DOOR = 'this door answers windows only — no find door was given';
 
@@ -135,7 +147,7 @@ export function httpSheetData(options: HttpSheetOptions): SheetData {
       return Promise.resolve(options.columns ?? []);
     },
     async rows(window: SheetWindowRequest, opts?: { readonly signal?: AbortSignal }): Promise<SheetWindow | SheetRefusal> {
-      const url = `${options.endpoint}?${windowQuery(window, options.table)}`;
+      const url = windowUrl(options.endpoint, window, options.table);
       try {
         const res = await call(url, opts?.signal !== undefined ? { signal: opts.signal } : {});
         const body: unknown = await res.json().catch(() => undefined); // a body that is not JSON is no sentence at all

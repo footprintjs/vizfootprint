@@ -522,3 +522,91 @@ describe('the walk QUESTION (protocol 1.4) — two hops, a component, and the tw
     }
   });
 });
+
+// Opt-in captions stay on the same frame and never become new interaction targets.
+describe('visible captions and node radius', () => {
+  it('preserves the default DOM when captions are not enabled', () => {
+    const original = renderNet();
+    const markup = original.container.innerHTML;
+    cleanup();
+    const labeled = renderNet({ nodes: NODES.map((node) => ({ ...node, label: 'Readable name' })), edges: EDGES.map((edge) => ({ ...edge, label: 'Observed link' })) });
+    expect(labeled.container.innerHTML).toBe(markup);
+    expect(labeled.container.querySelectorAll('text')).toHaveLength(0);
+    expect(nodeAt(labeled.container, 'flu').getAttribute('r')).toBe('5');
+  });
+
+  it('uses the shared frame, inward anchors and visible self-loop captions', () => {
+    const nodes: NetworkNode[] = [{ id: 'left', x: 0, y: 10 }, { id: 'middle', x: 5, y: 5, label: 'Middle record' }, { id: 'right', x: 10, y: 0 }];
+    const edges: NetworkEdge[] = [
+      { source: 'left', target: 'right', sx: 0, sy: 10, tx: 10, ty: 0, label: 'Recorded connection' },
+      { source: 'middle', target: 'middle', sx: 5, sy: 5, tx: 5, ty: 5, label: 'Same record' },
+    ];
+    const { container } = renderNet({ nodes, edges, width: 200, height: 200, showNodeLabels: true, showEdgeLabels: true });
+    const captions = [...container.querySelectorAll('.vzf-net-node-label')];
+    expect(captions.map((label) => label.textContent)).toEqual(['left', 'Middle record', 'right']);
+    expect(captions.map((label) => label.getAttribute('text-anchor'))).toEqual(['start', 'middle', 'end']);
+    for (const [i, label] of captions.entries()) {
+      const mark = nodeAt(container, nodes[i]!.id);
+      expect(label.getAttribute('x')).toBe(mark.getAttribute('cx'));
+      expect(Number(label.getAttribute('y'))).toBeGreaterThanOrEqual(16);
+      expect(Number(label.getAttribute('y'))).toBeLessThanOrEqual(184);
+    }
+    expect(Number(captions[0]!.getAttribute('y'))).toBeGreaterThan(Number(nodeAt(container, 'left').getAttribute('cy')));
+    expect(Number(captions[2]!.getAttribute('y'))).toBeLessThan(Number(nodeAt(container, 'right').getAttribute('cy')));
+    const edgeCaptions = [...container.querySelectorAll('.vzf-net-edge-label')];
+    expect(edgeCaptions.map((label) => label.textContent)).toEqual(['Recorded connection', 'Same record']);
+    expect(Number(edgeCaptions[0]!.getAttribute('x'))).toBe(100);
+    expect(Number(edgeCaptions[0]!.getAttribute('y'))).toBe(94);
+    expect(Number(edgeCaptions[1]!.getAttribute('y'))).toBe(70);
+  });
+
+  it('renders hostile captions only as text, skips empty captions, and leaves interaction to marks', () => {
+    const hostile = '<img src=x onerror="throw 1"><script>bad()</script>';
+    const { container } = renderNet({
+      nodes: [{ id: 'safe', x: 0, y: 0, label: hostile }, { id: 'blank', x: 1, y: 1, label: '' }],
+      edges: [
+        { source: 'safe', target: 'blank', sx: 0, sy: 0, tx: 1, ty: 1, label: hostile },
+        { source: 'safe', target: 'blank', sx: 0, sy: 0, tx: 1, ty: 1, label: ' ' },
+        { source: 'safe', target: 'blank', sx: 0, sy: 0, tx: 1, ty: 1 },
+      ],
+      showNodeLabels: true, showEdgeLabels: true,
+    });
+    const captions = [...container.querySelectorAll('text')];
+    expect(captions).toHaveLength(2);
+    for (const caption of captions) {
+      expect(caption.textContent).toBe(hostile);
+      expect(caption.getAttribute('aria-hidden')).toBe('true');
+      expect(caption.getAttribute('pointer-events')).toBe('none');
+      expect(caption.hasAttribute('tabindex')).toBe(false);
+    }
+    expect(container.querySelector('img, script')).toBeNull();
+  });
+
+  it.each([1, 9, 16])('uses valid radius %s for nodes and self-loops', (radius) => {
+    const { container } = renderNet({ nodeRadius: radius, edges: [{ source: 'flu', target: 'flu', sx: 0, sy: 0, tx: 0, ty: 0 }] });
+    expect(nodeAt(container, 'flu').getAttribute('r')).toBe(String(radius));
+    expect(container.querySelector('g.vzf-net-links circle')!.getAttribute('r')).toBe(String(radius));
+  });
+
+  it.each([NaN, Infinity, -Infinity, 0, -1, 16.1, '9' as unknown as number])('falls back to radius 5 for invalid input %s', (radius) => {
+    const { container } = renderNet({ nodeRadius: radius });
+    expect(nodeAt(container, 'flu').getAttribute('r')).toBe('5');
+  });
+
+  it('still selects by source id and dims captions with their marks on hover', () => {
+    const { container, onEmit } = renderNet({
+      nodes: NODES.map((node) => ({ ...node, label: `Caption ${node.id}` })),
+      edges: EDGES.map((edge) => ({ ...edge, label: `${edge.source} to ${edge.target}` })),
+      showNodeLabels: true, showEdgeLabels: true, nodeRadius: 9,
+    });
+    fireEvent.click(nodeAt(container, 'cold'));
+    expect(onEmit).toHaveBeenCalledWith({ rawValue: 'cold', encoding: { kind: 'point', field: 'disease' } });
+    fireEvent.keyDown(nodeAt(container, 'strep'), { key: 'Enter' });
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: 'strep', encoding: { kind: 'point', field: 'disease' } });
+    fireEvent.mouseOver(nodeAt(container, 'flu'));
+    expect([...container.querySelectorAll('.vzf-net-node-label.vzf-dim')].map((label) => label.textContent)).toEqual(['Caption strep', 'Caption lone']);
+    expect([...container.querySelectorAll('.vzf-net-edge-label.vzf-dim')].map((label) => label.textContent)).toEqual(['cold to strep']);
+    fireEvent.mouseOut(nodeAt(container, 'flu'));
+    expect(container.querySelector('.vzf-net-node-label.vzf-dim, .vzf-net-edge-label.vzf-dim')).toBeNull();
+  });
+});

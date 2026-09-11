@@ -58,6 +58,8 @@ export interface NetworkNode {
   readonly id: string;
   readonly x: number;
   readonly y: number;
+  /** Optional visible caption; omitted uses the id, and an empty string hides it. */
+  readonly label?: string;
   /** A group name for the label — the colour channel is a LAYER's to bind, not this prop's to invent. */
   readonly category?: string;
   /**
@@ -81,6 +83,8 @@ export interface NetworkEdge {
   readonly sy: number;
   readonly tx: number;
   readonly ty: number;
+  /** Optional visible caption. Edges without a nonempty label have no caption. */
+  readonly label?: string;
 }
 
 /**
@@ -139,6 +143,11 @@ export interface VizNetworkProps {
   readonly walk?: NetworkWalk;
   readonly width?: number;
   readonly height?: number;
+  /** Visible captions are opt-in and never change selection identifiers. */
+  readonly showNodeLabels?: boolean;
+  readonly showEdgeLabels?: boolean;
+  /** Radius in SVG units, from 1 through 16. Invalid values fall back to 5. */
+  readonly nodeRadius?: number;
   readonly className?: string;
   /**
    * THE FRAME'S SCALES (protocol 1.5): the x and y span this substrate is laid
@@ -166,6 +175,19 @@ export interface VizNetworkProps {
 /** The whole frame is padding: a node-link has no axis to leave room for. */
 const PAD = { l: 16, r: 16, t: 16, b: 16 };
 const NODE_R = 5;
+
+function radiusOf(value: number | undefined): number {
+  return value !== undefined && Number.isFinite(value) && value >= 1 && value <= 16 ? value : NODE_R;
+}
+
+/** Keep captions facing into the frame; this does not attempt collision layout. */
+function captionAnchor(x: number, width: number): 'start' | 'middle' | 'end' {
+  return x < width / 3 ? 'start' : x > (width * 2) / 3 ? 'end' : 'middle';
+}
+
+function captionY(y: number, above: number, below: number, height: number): number {
+  return y - above >= PAD.t ? y - above : Math.min(height - PAD.b, y + below);
+}
 
 interface FramePoint {
   readonly x: number;
@@ -328,6 +350,7 @@ function descGesture(question: NetworkWalkQuestion | undefined): string {
 export function VizNetwork(props: VizNetworkProps): JSX.Element {
   const { viewId = 'network', nodes, edges, keyField, selection, onEmit, walk, width = 420, height = 340 } = props;
   const question = walk?.question;
+  const radius = radiusOf(props.nodeRadius);
 
   // HOVER is local and unrecorded: it never leaves the component, so it needs
   // no capability and lands no commit (contract/types.ts, `RendererCallbacks.hover`).
@@ -499,7 +522,7 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
           // zero-length and paints nothing (butt linecap), so the counts would
           // report a link the frame never showed
           return e.sx === e.tx && e.sy === e.ty ? (
-            <circle {...shared} fill="none" cx={frame.x(e.sx)} cy={frame.y(e.sy) - NODE_R} r={NODE_R}>
+            <circle {...shared} fill="none" cx={frame.x(e.sx)} cy={frame.y(e.sy) - radius} r={radius}>
               <title>{pair}</title>
             </circle>
           ) : (
@@ -522,7 +545,7 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
               className={`vzf-dot${markClass(n.id, set)}${dimClass(nodeIsBright(n))}`}
               cx={frame.x(n.x)}
               cy={frame.y(n.y)}
-              r={NODE_R}
+              r={radius}
               fill="var(--vzf-brand)"
               role="button"
               tabIndex={0}
@@ -545,6 +568,48 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
           );
         })}
       </g>
+      {props.showEdgeLabels && (
+        <g className="vzf-net-edge-labels" aria-hidden="true" pointerEvents="none">
+          {edges.map((e, i) => {
+            if (!e.label?.trim()) return null;
+            const x = frame.x((e.sx + e.tx) / 2);
+            const y = frame.y((e.sy + e.ty) / 2);
+            const loop = e.sx === e.tx && e.sy === e.ty;
+            return (
+              <text
+                key={`${e.source}·${e.target}·${i}`}
+                className={`vzf-net-edge-label${dimClass(edgeIsBright(e))}`}
+                x={x}
+                y={captionY(y, loop ? radius * 2 + 20 : 6, loop ? radius + 28 : 14, height)}
+                textAnchor={captionAnchor(x, width)}
+                aria-hidden="true"
+                pointerEvents="none"
+              >{e.label}</text>
+            );
+          })}
+        </g>
+      )}
+      {props.showNodeLabels && (
+        <g className="vzf-net-node-labels" aria-hidden="true" pointerEvents="none">
+          {nodes.map((n, i) => {
+            const label = n.label ?? n.id;
+            if (!label.trim()) return null;
+            const x = frame.x(n.x);
+            const y = frame.y(n.y);
+            return (
+              <text
+                key={`${n.id}·${i}`}
+                className={`vzf-net-node-label${dimClass(nodeIsBright(n))}`}
+                x={x}
+                y={captionY(y, radius + 6, radius + 14, height)}
+                textAnchor={captionAnchor(x, width)}
+                aria-hidden="true"
+                pointerEvents="none"
+              >{label}</text>
+            );
+          })}
+        </g>
+      )}
     </svg>
   );
 }

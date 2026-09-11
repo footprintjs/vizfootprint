@@ -47,6 +47,41 @@ describe('windowQuery', () => {
 });
 
 describe('httpSheetData', () => {
+  it.each([
+    ['/api/window', '/api/window?offset=20&limit=10'],
+    ['api/window', 'api/window?offset=20&limit=10'],
+    ['/api/window?capture=sample&kind=slow', '/api/window?capture=sample&kind=slow&offset=20&limit=10'],
+    ['/api/window?', '/api/window?offset=20&limit=10'],
+    ['/api/window#records', '/api/window?offset=20&limit=10#records'],
+    ['/api/window?#records', '/api/window?offset=20&limit=10#records'],
+    ['/api/window?capture=sample#records?detail=1', '/api/window?capture=sample&offset=20&limit=10#records?detail=1'],
+    ['https://example.test/api/window?capture=sample#records', 'https://example.test/api/window?capture=sample&offset=20&limit=10#records'],
+  ])('composes a window query with endpoint %s', async (endpoint, expected) => {
+    const door = fakeDoor(BODY);
+    await httpSheetData({ endpoint, fetch: door.call }).rows({ offset: 20, limit: 10 });
+    expect(door.urls[0]).toBe(expected);
+  });
+
+  it('overrides supplied window keys once while retaining unrelated filters and optional endpoint defaults', async () => {
+    const door = fakeDoor(BODY);
+    const endpoint = '/api/window?capture=a%26b&kind=slow&tag=one&tag=two&offset=99&offset=100&limit=1&viewId=old&columns=old&sort=old&table=default#rows';
+    const window = { offset: 20, limit: 10, viewId: 'sheet', columns: ['id', 'a,b'], sort: [{ field: 'a,b', dir: 'desc' as const }] };
+    await httpSheetData({ endpoint, fetch: door.call }).rows(window);
+    const url = new URL(door.urls[0]!, 'https://example.test');
+    expect(url.hash).toBe('#rows');
+    expect(url.searchParams.get('capture')).toBe('a&b');
+    expect(url.searchParams.get('kind')).toBe('slow');
+    expect(url.searchParams.getAll('tag')).toEqual(['one', 'two']);
+    expect(url.searchParams.get('table')).toBe('default');
+    expect(url.searchParams.getAll('offset')).toEqual(['20']);
+    expect(url.searchParams.getAll('limit')).toEqual(['10']);
+    expect(url.searchParams.getAll('viewId')).toEqual(['sheet']);
+    expect(url.searchParams.getAll('columns')).toEqual([JSON.stringify(window.columns)]);
+    expect(url.searchParams.getAll('sort')).toEqual([JSON.stringify(window.sort)]);
+    await httpSheetData({ endpoint, table: 'override', fetch: door.call }).rows({ offset: 0, limit: 1 });
+    expect(new URL(door.urls[1]!, 'https://example.test').searchParams.getAll('table')).toEqual(['override']);
+  });
+
   it('asks the door for one window and answers the sheet\'s own shape, the wire\'s clauses among them', async () => {
     const door = fakeDoor(BODY);
     const data = httpSheetData({ endpoint: '/api/window', table: 'cells', columns: FACETS, fetch: door.call });
