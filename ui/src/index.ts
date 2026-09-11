@@ -43,6 +43,11 @@ export * from './notes/index.js';
 // `./sheet/index.js` for a host that builds its own renderer over the port.
 export { Sheet } from './sheet/Sheet.js';
 export type { SheetProps } from './sheet/Sheet.js';
+// the ONE sentence for a clause that reached a surface and filtered nothing
+// (`ReachingClause.narrowed`, quoted): the Sheet is its one caller inside the
+// package, and a host drawing its own surface over the same reaching answer
+// composes the same words rather than paraphrasing the library's reason
+export { narrowedSaid } from './sheet/Sheet.js';
 // a sheet's ARRANGEMENT is an act: the host lands one prop at a time and reads
 // each back at the cursor (`sort`, `hidden`, `order`, `frozen`)
 export { arrangeColumns, sheetFrozenOf, sheetHiddenOf, sheetLayoutViewId, sheetOrderOf, sheetSortOf } from './sheet/arrangement.js';

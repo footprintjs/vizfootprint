@@ -81,6 +81,16 @@
  *     hops and a path's `to` ride beside the ids as the QUESTION and are never
  *     part of the predicate — so which walk it was (protocol 1.4: two hops of
  *     ego, a path, a component) changes the ids and nothing else here.
+ *
+ * ONE thing the compiler adds that the interpreter does not carry, because the
+ * interpreter never needs it: A ROW THAT DOES NOT CARRY THE CLAUSE'S COLUMN IS
+ * KEPT (`judgeable`, below). At the library's read door `unjudgeableColumn`
+ * narrows such a clause away against the table's column list before
+ * `matchesClause` ever runs, and reports it (`ReachingClause.narrowed`). This
+ * tier folds over ROWS with no column list in hand, so the same law is applied
+ * per row, on the KEY (`field in row`) and never the value. The delegation
+ * check holds on every row that carries the column; on a row that does not,
+ * the interpreter was never meant to be asked.
  */
 
 import { cellSideClause, clauseFromWire, neighbourhoodValueFromWire } from 'vizfootprint/data';
@@ -93,6 +103,49 @@ type IntervalValue = IntervalBounds<number> | IntervalBounds<string>;
 
 /** Keeps every row — the compiled form of "no filter", the one thing a cleared clause means. */
 const KEEP_ALL = (): boolean => true;
+
+/**
+ * THE ONE OWNER OF THE MISSING-COLUMN LAW AT THIS TIER. A clause is a sentence
+ * about a column. A row that does not CARRY that column cannot answer it, so
+ * the clause does not exclude that row — it says nothing about it. This is the
+ * read door's own law (`src/session/clausesReaching.ts` · `unjudgeableColumn`:
+ * *a sentence about a column these rows do not have is not a claim about these
+ * rows*) applied one tier down, where the fold happens over ROWS instead of a
+ * table's column list — and it is the one place the compiled predicate
+ * deliberately parts from `matchesClause`, which never meets such a row because
+ * the door narrowed the clause away before it ran.
+ *
+ * THE EVIDENCE IS THE KEY, NOT THE VALUE. `field in row` is the test. A row
+ * that HAS the column holding `null` is judgeable and its answer does not
+ * change: an IS-NULL point still matches it, a walk still keeps no null
+ * endpoint (SQL's `IN (NULL)` is never true). Only a MISSING key is
+ * unjudgeable. `in` rather than `Object.hasOwn`: a row may carry a column on
+ * its prototype (a class-instance projection) and that column is still its own
+ * to answer — and `in` is the check the demo's bridge (`judgedHere`) proved
+ * before this tier learned the law.
+ *
+ * WHY a wrapper over the compiled test, not a pre-check inside each arm: every
+ * arm returns a closure and the guard composes over any of them, so the kinds
+ * cannot drift apart again. Before this, a missing column DROPPED the row for
+ * a point, an interval, an including match and a neighbourhood, but KEPT it
+ * for an IS-NULL point (`undefined == null`) and an excluding match (`!hit`) —
+ * one missing column, six kinds, two answers, and nothing had decided. The
+ * `cell` arm gets it on BOTH sides by composition (each side is compiled
+ * through `compileClause`, which wraps); the `neighbourhood` arm names its two
+ * endpoint columns, and a row missing EITHER cannot be shown to be outside the
+ * induced subgraph. The direction, for a reader coming from the map: the map
+ * removes an edge only when it can prove it unkeepable, and this tier drops a
+ * row only when it can prove the sentence false — refuse on evidence, never on
+ * ignorance.
+ */
+function judgeable(columns: readonly string[], test: (row: RenderRow) => boolean): (row: RenderRow) => boolean {
+  // decided once, closed over — the hot loop is one key check per column and the test
+  if (columns.length === 1) {
+    const column = columns[0]!;
+    return (row) => !(column in row) || test(row);
+  }
+  return (row) => !columns.every((column) => column in row) || test(row);
+}
 
 /** The interval evaluator, shared by the plain interval arm and a cell's interval side. */
 function intervalPredicate(field: string, iv: IntervalValue): (row: RenderRow) => boolean {
@@ -127,25 +180,34 @@ function intervalPredicate(field: string, iv: IntervalValue): (row: RenderRow) =
  */
 function compileClause(clause: PredicateClause | null): (row: RenderRow) => boolean {
   if (clause === null) return KEEP_ALL; // no filter
+  // Every arm below hands its test to `judgeable`: a row that does not carry the
+  // clause's column is kept by it, whatever the kind and whatever the polarity.
   switch (clause.kind) {
     case 'point': {
       const { field, value } = clause;
       if (value === undefined) return KEEP_ALL; // cleared
-      if (value === null) return (row) => row[field] == null; // IS NULL
-      return (row) => row[field] === value;
+      // IS NULL — the key present, the value null (or undefined); a missing key
+      // is the guard's to keep, not this test's, so the two are no longer conflated
+      if (value === null) return judgeable([field], (row) => row[field] == null);
+      return judgeable([field], (row) => row[field] === value);
     }
     case 'interval': {
       const iv = clause.value;
-      return iv === null ? KEEP_ALL : intervalPredicate(clause.field, iv);
+      return iv === null ? KEEP_ALL : judgeable([clause.field], intervalPredicate(clause.field, iv));
     }
     case 'match': {
       const { field, values } = clause;
       const hit = (row: RenderRow): boolean => values.some((candidate) => candidate === row[field]);
-      return clause.exclude === true ? (row) => !hit(row) : hit;
+      // the guard sits OUTSIDE the polarity: an excluding match no longer keeps a
+      // missing column by accident (`!hit`) — it keeps it by the law, like every arm
+      return judgeable([field], clause.exclude === true ? (row) => !hit(row) : hit);
     }
     case 'cell': {
       const pair = clause.value;
       if (pair === null) return KEEP_ALL; // the whole cell cleared
+      // each side is a point or an interval compiled through this very function,
+      // so each side carries its own guard — a row missing the x column is kept
+      // by the x side, and judged by the y side on its own column
       const px = compileClause(cellSideClause(clause.fields[0], pair[0]));
       const py = compileClause(cellSideClause(clause.fields[1], pair[1]));
       return (row) => px(row) && py(row);
@@ -157,10 +219,12 @@ function compileClause(clause: PredicateClause | null): (row: RenderRow) => bool
       // and no membership scan. An empty set keeps NOTHING (the library's rule:
       // to mean "no filter" a neighbourhood clause is `null`, never an empty set).
       // A nullish id is dropped from the set, as the library's own filter drops it:
-      // SQL's `IN (NULL)` is never true, so a missing endpoint is kept by no walk.
+      // SQL's `IN (NULL)` is never true, so a null endpoint is kept by no walk —
+      // a null VALUE, in a column the row has. A row missing EITHER endpoint
+      // COLUMN is the guard's: it cannot be shown to be outside the subgraph.
       const [source, target] = clause.fields;
       const ids = new Set<unknown>(clause.ids.filter((id) => id !== null && id !== undefined));
-      return (row) => ids.has(row[source]) && ids.has(row[target]);
+      return judgeable([source, target], (row) => ids.has(row[source]) && ids.has(row[target]));
     }
   }
 }
@@ -219,7 +283,7 @@ export function selectionForView(
       clauses.set(
         c.viewId,
         policy === 'leave'
-          ? { kind: c.kind, field, value: c.value, ...(fields !== undefined ? { fields } : {}), response: edge.response, predicate: clausePredicate(c.kind, field, c.value, fields) }
+          ? { kind: c.kind, field, value: c.value, ...(fields !== undefined ? { fields } : {}), response: edge.response, predicate: clausePredicate(c.kind, field, c.value, fields), ...narrowedFragment(c) }
           : { kind: 'match', field, value: { values: [] }, response: edge.response, predicate: () => false },
       );
     }
@@ -249,9 +313,23 @@ export function selectionForView(
       ...(fields !== undefined ? { fields } : {}),
       ...(response !== undefined ? { response } : {}),
       predicate: clausePredicate(s.kind, field, s.value, fields),
+      ...narrowedFragment(s),
     });
   }
   return { clauses, resolve, selfClauseId: selfViewId };
+}
+
+/**
+ * Protocol 1.7: the session's word that this clause reached its consumer and
+ * said nothing, carried through as-is — or NO key at all when the session did
+ * not say (a spread of `{}`), so a clause view without it is byte-identical to
+ * 1.6 and a 1.6 renderer never meets a `narrowed: undefined`. This tier never
+ * fills it from the rows: the predicate beside it already keeps a row that
+ * lacks the column, and the FACT that the table lacks it is the session's to
+ * state (`ReachingClause.narrowed`), not a window's to infer.
+ */
+function narrowedFragment(s: { readonly narrowed?: SelectionClauseView['narrowed'] }): { readonly narrowed?: SelectionClauseView['narrowed'] } {
+  return s.narrowed !== undefined ? { narrowed: s.narrowed } : {};
 }
 
 /**

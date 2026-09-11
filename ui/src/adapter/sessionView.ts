@@ -870,8 +870,23 @@ function mapSelections(sels: readonly unknown[] | undefined): SelectionView[] {
     const o = s as SelectionView;
     // D30: a cell selection carries its field pair through (both sources
     // serialize the same SelectionInfo shape).
-    return { viewId: o.viewId, field: o.field, kind: o.kind, value: o.value, ...(o.fields !== undefined ? { fields: o.fields } : {}), ...(typeof o.commitId === 'string' ? { commitId: o.commitId } : {}) };
+    return { viewId: o.viewId, field: o.field, kind: o.kind, value: o.value, ...(o.fields !== undefined ? { fields: o.fields } : {}), ...(typeof o.commitId === 'string' ? { commitId: o.commitId } : {}), ...narrowedOf(o) };
   });
+}
+
+/**
+ * Protocol 1.7: the session's `narrowed` word, carried through only when the
+ * wire carried it WHOLE — a column and a reason, both strings. Half a fact is
+ * no fact: a `narrowed` with the column and no sentence would make a renderer
+ * say "filtered nothing" with no reason to quote, so it is dropped rather than
+ * padded. Read structurally, as `commitId` is, so an older wire (no key) and
+ * `activeSelections` (never carries it) both yield NO key.
+ */
+function narrowedOf(o: { readonly narrowed?: unknown }): { readonly narrowed?: { readonly column: string; readonly reason: string } } {
+  const n = o.narrowed;
+  if (typeof n !== 'object' || n === null) return {};
+  const { column, reason } = n as { readonly column?: unknown; readonly reason?: unknown };
+  return typeof column === 'string' && typeof reason === 'string' ? { narrowed: { column, reason } } : {};
 }
 
 /**

@@ -325,7 +325,12 @@ describe('layer 4 — responses from the link graph decide what a clause does at
   it('a mapping renames the clause field for the target (both sides of a cell; an unmapped field keeps its name); the whole-dashboard fold (null self) keeps every clause as-is', () => {
     const mapped = selectionForView(sels, 'table', 'intersect', graph([edge('map', 'point', 'table', 'filter', { mapping: [{ from: 'region', to: 'area' }] })]));
     expect(mapped.clauses.get('map')?.field).toBe('area');
-    expect(rows.filter(keepPredicate(mapped))).toEqual([]); // no row carries `area`
+    // no row carries `area`, so the clause says nothing about them and keeps every one —
+    // the missing-column law (`judgeable`). This line used to assert `[]`: the mapped
+    // clause dropped every row, which is exactly the blank chart the law closes.
+    expect(rows.filter(keepPredicate(mapped))).toEqual(rows);
+    // …and the same mapped clause over rows that DO carry `area` is judged as ever
+    expect([{ area: 'North' }, { area: 'South' }].filter(keepPredicate(mapped))).toEqual([{ area: 'North' }]);
     const cellSel: SelectionView[] = [{ viewId: 'heat', field: 'price × region', kind: 'cell', value: [[5, 15], 'North'], fields: ['price', 'region'] }];
     const cellGraph: LinkGraphView = { default: 'none', views: [{ viewId: 'heat', voice: ['cell'] }, { viewId: 'table', voice: ['point'] }], edges: [{ id: 'heat:cell→table', source: 'heat', kind: 'cell', target: 'table', response: 'filter', origin: 'declared', mapping: [{ from: 'region', to: 'area' }] }] };
     const cellMapped = selectionForView(cellSel, 'table', 'intersect', cellGraph);
@@ -394,8 +399,15 @@ describe('the neighbourhood arm of clausePredicate — the induced ego subgraph 
   });
 
   it('the delegation check runs over the walk too — the same reading, evaluated the other way', () => {
-    sameAsInterpreted('neighbourhood', 'source ↔ target', walkBody(), ['source', 'target']);
-    sameAsInterpreted('neighbourhood', 'source ↔ target', null, ['source', 'target']);
+    // over rows that CARRY both endpoint columns (`sameAsInterpreted` walks ROWS, which carry
+    // neither — there the interpreter was never meant to be asked, see the missing-column law)
+    for (const value of [walkBody(), null]) {
+      const compiled = clausePredicate('neighbourhood', 'source ↔ target', value, ['source', 'target']);
+      const clause = clauseFromWire('neighbourhood', 'source ↔ target', value, ['source', 'target']);
+      for (const row of TIES) expect(compiled(row), `walk ${JSON.stringify(value)} on ${row.id}`).toBe(matchesClause(row, clause));
+    }
+    // and a row with NO endpoint column is kept by the walk, not dropped: it cannot be shown outside the subgraph
+    expect(ROWS.every(clausePredicate('neighbourhood', 'source ↔ target', walkBody(), ['source', 'target']))).toBe(true);
   });
 });
 

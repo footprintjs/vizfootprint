@@ -310,6 +310,15 @@ crossfilter default declining an edge whose clause could never reach the
 target's table, and the def door refusing a declared one) is
 `../links/README.md`, "A default edge is a promise the engine can keep".
 
+The RENDER tier's half is the same sentence one tier down, where a host folds
+over rows with no column list in hand: a row that does not carry a clause's
+column is never dropped by it (`ui/src/contract/README.md`, Law 6 —
+`selection.ts` · `judgeable`, judged on the KEY, `field in row`, so a row
+holding `null` is still judged), and `SelectionClauseView.narrowed` (protocol
+1.7) carries this door's `narrowed` word through to a renderer, quoted, or not
+at all. One law, three tiers: the map declines the edge, the read door narrows
+the clause, the fold keeps the row.
+
 ## Find is a read too, and it moves where you STAND (`findInView`)
 
 `findInView({ text, from, direction, table?, viewId?, sort?, columns? })` answers `{ position, rowId?, ordinal?, matches, version, cursor }` — where the next match is, in the order the reader is already in.

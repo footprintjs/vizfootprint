@@ -522,6 +522,74 @@ community detection.
 
 ---
 
+## Law 6 — a clause a row cannot answer does not drop it (protocol 1.7)
+
+**A clause is a sentence about a column. A row that does not carry that column
+cannot answer it, so the clause does not exclude that row — it says nothing
+about it.**
+
+This is the session's own law — `src/session/README.md`, "A clause a table
+cannot judge": *a sentence about a column these rows do not have is not a claim
+about these rows* — applied one tier down, where the fold happens. The read
+door narrows such a clause against the table's column list before the engine
+runs and reports it (`ReachingClause.narrowed`). A renderer's host folds over
+ROWS with no column list in hand, so the same law is applied per row, in ONE
+place: `selection.ts` · `judgeable`, which every arm of `compileClause` hands
+its test to. `keepPredicate`, `brightPredicate` and `filtersHere` fold the same
+compiled predicate, so the `filter` and `highlight` responses got the law from
+that one change; `mirror` lifts a value list and never tests a row, so it was
+never touched.
+
+**The evidence is the KEY, not the value.** `field in row` is the test. A row
+that HAS the column holding `null` is judgeable and its answer does not change:
+an IS-NULL point (a cell side with a null value) still matches it, an interval
+still refuses it (no number to place), a walk still keeps no null endpoint
+(SQL's `IN (NULL)` is never true). Only a MISSING key is unjudgeable. A
+`cell` gets the guard on both sides by composition — a row missing the x column
+is judged by the y side on its own column — and a `neighbourhood` names two
+endpoint columns, and a row missing EITHER cannot be shown to be outside the
+induced subgraph.
+
+Before this law the answer depended on the arm: a missing column DROPPED the
+row for a point, an interval, an including match, a cell and a neighbourhood,
+but KEPT it for an IS-NULL point (`undefined == null` is true when the key is
+absent) and an excluding match (`!hit`). One missing column, six kinds, two
+answers — the proof that nothing had decided it. A dashboard met it as a blank:
+a selection on `radii`, reaching a year chart whose rows have no such column,
+kept 0 of 2 and greyed every dot. The direction is the map's inverted: the map
+removes an edge only when it can prove it unkeepable
+(`src/links/README.md`), and this tier drops a row only when it can prove the
+sentence false — refuse on evidence, never on ignorance.
+
+```ts
+const sel = selectionForView([{ viewId: 'radius', field: 'radii', kind: 'interval', value: [1, 5] }], 'year');
+const keep = keepPredicate(sel);
+[{ year: 2001, count: 3 }, { year: 2002, count: 7 }].filter(keep); // both — no row carries `radii`
+[{ radii: 0.5 }, { radii: 2 }, { radii: null }].filter(keep); // [{ radii: 2 }] — judged as ever
+```
+
+**And the contract carries the fact, not only the behaviour.**
+`SelectionClauseView.narrowed?` (protocol 1.7) is the session's word that a
+clause reached this view and could not be judged on its table — the column
+and the library's sentence (`unjudgeableWords`), quoted and never re-worded.
+It rides in from the adapter's `SelectionView.narrowed` and is ABSENT whenever
+the session did not say — which is every clause on `activeSelections` (a fold
+of what each view sent, which knows no one consumer's table): a host that
+folds a reaching answer's clauses (`ViewQueryResult.clauses`) into
+`SelectionView` shape is what fills it. It is never inferred here from the
+rows: the predicate beside it already keeps a row that lacks the column, and
+which columns the TABLE lacks is a fact only the session holds. A renderer
+that wants to say so has the one sentence the Sheet already says —
+`narrowedSaid`, on the root barrel — so the receipt, `why()`, the Sheet and a
+host's own surface read one fact one way. A 1.6 renderer never reads the field
+and draws byte-identically (`capabilities.test.tsx`).
+
+The law's tests are `selection.unjudgeable.test.ts` — every kind, a row lacking
+the column beside a row holding it as `null`, the demo's exact shape, and one
+test that asserts the six kinds now agree.
+
+---
+
 ## Adding a capability — the checklist
 
 1. **Name the act.** Who performs it: the user (it rides `emit`), or the host
@@ -538,8 +606,9 @@ community detection.
    added the `cell` kind; 1.2 added layers (`RenderState.layers`, `canLayer`,
    the handshake's bundles); 1.3 added the `neighbourhood` kind and the walk
    arm; 1.4 added `walk` on a neighbourhood emission (WHICH walk); 1.5 added
-   `RenderState.frame`, the layers' shared scales already folded — all
-   optional, so every one of them stayed a minor.
+   `RenderState.frame`, the layers' shared scales already folded; 1.6 added
+   the logarithmic axis on that frame; 1.7 added `SelectionClauseView.narrowed`
+   (Law 6) — all optional, so every one of them stayed a minor.
 
 ## One more habit: the derivation helpers ship in a set
 

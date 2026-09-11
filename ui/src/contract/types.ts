@@ -80,9 +80,18 @@ import type { ResolvedChannel } from 'vizfootprint/def';
  * declared them — which is exactly why the axis has one owner. Both are
  * optional and absent unless a def declared a transform, so a 1.5 renderer
  * ignores them and draws the linear axis it always drew; the minor stays
+ * compatible. 1.7 ADDED `SelectionClauseView.narrowed` — the contract's half of
+ * omit-never-deny: a clause that REACHED this view and said nothing, because
+ * the table it reads has no such column, carries the session's own reason
+ * (`ReachingClause.narrowed`, quoted, never re-worded) so a renderer can say so
+ * where the Sheet already does (`narrowedSaid`). It rides beside the law that
+ * makes it true at the fold: a row that does not carry a clause's column is
+ * never dropped by it (`selection.ts` · `judgeable`). Optional, and absent
+ * whenever the session did not say, so a 1.6 renderer ignores it and draws
+ * byte-identically (pinned in `capabilities.test.tsx`); the minor stays
  * compatible.
  */
-export const RENDERER_PROTOCOL_VERSION = '1.6';
+export const RENDERER_PROTOCOL_VERSION = '1.7';
 
 export type { ChartEmission };
 export type { ResolvedChannel };
@@ -283,8 +292,9 @@ export type RenderRow = Readonly<Record<string, unknown>>;
 /**
  * One view's live clause in the crossfilter, addressable by its source view:
  * what kind, which field, the DATA-space value, and a ready predicate that
- * evaluates a row under it (mirrors `src/data`'s `matchesClause` semantics —
- * pinned by a parity test).
+ * evaluates a row under it (mirrors `src/data`'s `matchesClause` semantics on
+ * every row that carries the column — pinned by a parity test; a row that does
+ * not carry it is kept, see `predicate`).
  */
 export interface SelectionClauseView {
   readonly kind: EmissionKind;
@@ -302,7 +312,32 @@ export interface SelectionClauseView {
   readonly value: unknown;
   /** The two-column kinds only — a cell's x/y fields, or a neighbourhood's two edge endpoints. */
   readonly fields?: readonly [string, string];
+  /**
+   * A row test under this clause. A row that does not CARRY the clause's
+   * column (the key is absent — `field in row` is false) is never dropped by it:
+   * a sentence about a column these rows do not have is not a claim about these
+   * rows (`selection.ts` · `judgeable`, the read door's `unjudgeableColumn` one
+   * tier down). A row that carries the column holding `null` is judgeable and
+   * answers as it always did.
+   */
   readonly predicate: (row: RenderRow) => boolean;
+  /**
+   * PROTOCOL 1.7 — THE CLAUSE REACHED THIS VIEW AND SAID NOTHING. Present only
+   * when the SESSION said so (`ReachingClause.narrowed`, carried through the
+   * adapter's `SelectionView.narrowed`): the column the table it reads does not
+   * have, and the sentence saying so — the library's `unjudgeableWords`, quoted
+   * and never re-worded, so the receipt, `why()`, the Sheet and a renderer all
+   * read one fact one way. The `predicate` beside it already keeps every row
+   * lacking that column, so this is the FACT and not the behaviour: what a
+   * renderer needs to say "the selection from X filtered nothing here" the way
+   * the Sheet does (`narrowedSaid`). Absent = the session did not say — which is
+   * every clause on a source-side fold (`activeSelections` never carries it) and
+   * every clause whose table carries its columns. Never invented at this tier
+   * from the rows: the session holds the table's columns at the cursor, a render
+   * tier holds a window of them. A 1.6 renderer never reads it and draws
+   * byte-identically (pinned in `capabilities.test.tsx`).
+   */
+  readonly narrowed?: { readonly column: string; readonly reason: string };
 }
 
 /**

@@ -1082,3 +1082,31 @@ describe('mapPollState — a note ref to a SAVED selection rides the wire', () =
     ]);
   });
 });
+
+describe('protocol 1.7 — `narrowed` on a live selection rides through only when the wire carried it WHOLE', () => {
+  const said = { column: 'radii', reason: 'table "years" has no column "radii" — a sentence about a column these rows do not have is not a claim about these rows' };
+  const s = mapPollState({
+    ...RAW,
+    activeSelections: [
+      { viewId: 'whole', field: 'radii', kind: 'interval', value: [1, 5], narrowed: said },
+      { viewId: 'half', field: 'radii', kind: 'interval', value: [1, 5], narrowed: { column: 'radii' } },
+      { viewId: 'junk', field: 'radii', kind: 'interval', value: [1, 5], narrowed: 'radii' },
+      { viewId: 'none', field: 'radii', kind: 'interval', value: [1, 5] },
+    ],
+  });
+  const by = (viewId: string) => s.selections.find((x) => x.viewId === viewId)!;
+
+  it('a column AND a reason, both strings — carried as-is, the session\'s own words', () => {
+    expect(by('whole').narrowed).toEqual(said);
+  });
+
+  it('half a fact (a column with no sentence), a non-object, or nothing at all — NO key, never `undefined`', () => {
+    // a renderer that met `narrowed` with no reason would say "filtered nothing" with nothing to quote
+    for (const viewId of ['half', 'junk', 'none']) expect('narrowed' in by(viewId), viewId).toBe(false);
+  });
+
+  it('`activeSelections` as the session serializes it never carries the key — the source-side fold knows no consumer\'s table', () => {
+    // RAW's own selections are the session's shape (SelectionInfo): no `narrowed` on any of them
+    for (const sel of mapPollState(RAW).selections) expect('narrowed' in sel).toBe(false);
+  });
+});

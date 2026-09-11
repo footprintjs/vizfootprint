@@ -135,8 +135,8 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
     { layerId: 'nodes', table: 'nodes', rows: [{ id: 'flu', group: 'viral' }, { id: 'cold', group: 'viral' }], encodings: { color: 'group' } },
   ] as const;
 
-  it('the protocol this build speaks is 1.6 — the logarithmic-axis minor', () => {
-    expect(RENDERER_PROTOCOL_VERSION).toBe('1.6');
+  it('the protocol this build speaks is 1.7 — the narrowed-clause minor', () => {
+    expect(RENDERER_PROTOCOL_VERSION).toBe('1.7');
   });
 
   it('declares TRUE — and a layered frame pushed through the bind draws BOTH layers, each under its own table', () => {
@@ -211,6 +211,35 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
       }),
     ).toEqual({ ok: true });
     expect(el.innerHTML).toBe(linear);
+    res.view.unmount();
+  });
+
+  it('a 1.6 renderer IGNORES `narrowed`: the same selection with and without it binds and draws byte-identically (protocol 1.7)', () => {
+    // The bar reads the selection through `brightPredicate`/`selfSelectedSet` and knows nothing of
+    // `narrowed` — exactly the 1.6 renderer this law is about. Its hello is pinned to 1.6 here so the
+    // bind itself is the proof: same major, binds; and the field costs it nothing at all.
+    const sixteen = (r: Renderer): Renderer => ({
+      mount(el, handshake) {
+        const m = r.mount(el, handshake);
+        return { ...m, hello: { ...m.hello, protocolVersion: '1.6' } };
+      },
+    });
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const res = bindRenderer(sixteen(barRenderer()), el, { viewId: 'v', callbacks: callbacks() });
+    if (!res.ok) throw new Error('bind failed');
+    expect(res.view.protocolVersion).toBe('1.6');
+    const rows: RenderRow[] = [{ category: 'A', count: 10, region: 'North' }, { category: 'B', count: 6, region: 'South' }];
+    const plain = highlightFromOther();
+    expect(res.view.update(state(rows, plain))).toEqual({ ok: true });
+    const drawn = el.innerHTML;
+    const other = plain.clauses.get('other')!;
+    const narrowed: RenderSelection = {
+      ...plain,
+      clauses: new Map([['other', { ...other, narrowed: { column: 'region', reason: 'table "bars" has no column "region" — a sentence about a column these rows do not have is not a claim about these rows' } }]]),
+    };
+    expect(res.view.update(state(rows, narrowed))).toEqual({ ok: true });
+    expect(el.innerHTML).toBe(drawn);
     res.view.unmount();
   });
 

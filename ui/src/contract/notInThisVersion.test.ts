@@ -32,8 +32,22 @@ const holdsFrame = (): boolean => /readonly frame\?:/.test(read('types.ts'));
 /** The GENERIC frame renderer really ships: `layeredRenderer` draws the def's stack of 2D marks (R6). */
 const holdsFrameRenderer = (): boolean => /export function layeredRenderer\(/.test(read('renderers.tsx'));
 
-/** The contract really speaks the LOGARITHMIC AXIS minor (protocol 1.6) — the version the prose claims. */
-const holdsLogMinor = (): boolean => /RENDERER_PROTOCOL_VERSION = '1\.6'/.test(read('types.ts'));
+/**
+ * The contract really speaks a version AT OR PAST the logarithmic-axis minor
+ * (protocol 1.6) — the version the prose claims. 1.7 added `narrowed` on the
+ * clause view, so the pin is "1.6 or later within the major", not "exactly
+ * 1.6": the log-axis law stays true across the minors that follow it.
+ */
+const holdsLogMinor = (): boolean => {
+  const m = /RENDERER_PROTOCOL_VERSION = '1\.(\d+)'/.exec(read('types.ts'));
+  return m !== null && Number(m[1]) >= 6;
+};
+
+/** The contract really speaks the NARROWED-CLAUSE minor (protocol 1.7): the version, and the field on the clause view. */
+const holdsNarrowedMinor = (): boolean => /RENDERER_PROTOCOL_VERSION = '1\.7'/.test(read('types.ts')) && /readonly narrowed\?: \{ readonly column: string; readonly reason: string \};/.test(read('types.ts'));
+
+/** The law that makes `narrowed` true at the fold really ships: ONE owner of the missing-column guard, in the compiler. */
+const holdsJudgeable = (): boolean => /function judgeable\(/.test(read('selection.ts'));
 
 /** The chart side really owns "which scale builder for this channel" — the function the prose's example calls. */
 const holdsScaleFor = (): boolean => /export function scaleFor\(/.test(read('../primitives/scales.ts'));
@@ -57,6 +71,21 @@ const notInThisVersion = (): string => {
   const rest = read('README.md').slice(from);
   return rest.slice(0, rest.indexOf('.') + 1);
 };
+
+describe('the narrowed-clause law says only what is true (protocol 1.7)', () => {
+  it('the version the prose claims is the version the code speaks, and the field is on the clause view', () => {
+    expect(holdsNarrowedMinor()).toBe(true);
+  });
+
+  it('the guard the prose names really is ONE function in the compiler — and the README states the law by that name', () => {
+    expect(holdsJudgeable()).toBe(true);
+    const readme = read('README.md');
+    expect(readme).toContain('`judgeable`');
+    expect(readme).toContain('protocol 1.7');
+    // the distinction that carries the whole law is stated where a host will read it
+    expect(readme).toContain('`field in row`');
+  });
+});
 
 describe('the logarithmic-axis law says only what is true (protocol 1.6)', () => {
   it('the version the prose claims is the version the code speaks', () => {

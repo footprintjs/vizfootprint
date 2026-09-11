@@ -209,6 +209,19 @@ export interface SelectionView {
   readonly fields?: readonly [string, string];
   /** The commit that landed this live selection — what a note (a saved selection) or a bring-over names. Absent on an older server. */
   readonly commitId?: string;
+  /**
+   * The SESSION's word that this clause reached its consumer and could not be
+   * judged there — the column that consumer's table lacks, and the library's
+   * sentence saying so (`ReachingClause.narrowed`, quoted as-is). It rides
+   * through to the contract (`SelectionClauseView.narrowed`, protocol 1.7) so a
+   * renderer can say a clause filtered nothing. Present only when the wire
+   * carried it whole (`mapSelections` reads it structurally); ABSENT on the
+   * session's own `activeSelections`, which is a fold of what each view SENT
+   * and knows nothing of any one consumer's table — a host that folds a
+   * reaching answer (`ViewQueryResult.clauses`) into this shape is what fills
+   * it. Never inferred by the adapter from rows or columns.
+   */
+  readonly narrowed?: { readonly column: string; readonly reason: string };
 }
 
 /** Provenance of one table's source: what the carrier vouched for when it was read. */
