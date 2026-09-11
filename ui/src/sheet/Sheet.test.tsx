@@ -1506,7 +1506,13 @@ describe('a clause that filtered nothing — the one sentence that says so', () 
     expect(narrowedSaid(WIN)).toEqual([]); // a window that did not tell us its clauses claims nothing
     expect(narrowedSaid({ ...WIN, clauses: [] })).toEqual([]);
     expect(narrowedSaid({ ...WIN, clauses: [{ from: 'bar', response: 'filter', clause: { kind: 'point', field: 'cases', value: 1 } }] })).toEqual([]); // judged: no sentence
-    expect(narrowedSaid({ ...WIN, clauses: [NARROWED] })).toEqual([`the selection from hist filtered nothing here \u00b7 ${REASON}`]);
+    expect(narrowedSaid({ ...WIN, clauses: [NARROWED] })).toEqual([`the selection from hist filtered nothing here \u00b7 ${REASON}`]); // no declared label: the ADDRESS, exactly as before
+    // …and the DECLARED name when the session resolved one (`ReachingClause.fromLabel`) — pinned both ways, because
+    // `hist~agg` is what a reader met on the page before and is never what they should have met
+    expect(narrowedSaid({ ...WIN, clauses: [{ ...NARROWED, from: 'hist~agg', fromLabel: 'The histogram' }] })).toEqual([
+      `the selection from The histogram filtered nothing here \u00b7 ${REASON}`,
+    ]);
+    expect(narrowedSaid({ ...WIN, clauses: [{ ...NARROWED, from: 'hist~agg' }] })).toEqual([`the selection from hist~agg filtered nothing here \u00b7 ${REASON}`]);
     // two silent brushes on two columns are two sentences: collapsing them would hide one of them
     const other = { from: 'net', response: 'filter' as const, clause: { kind: 'point' as const, field: 'weight', value: 3 }, narrowed: { column: 'weight', reason: 'table "cells" has no column "weight" — …' } };
     expect(narrowedSaid({ ...WIN, clauses: [NARROWED, other] })).toHaveLength(2);

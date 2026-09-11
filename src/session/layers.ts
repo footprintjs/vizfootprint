@@ -62,6 +62,42 @@ export function metaOf(place: Place): ActorMeta {
 }
 
 /**
+ * THE DECLARED NAME A PERSON KNOWS THIS PLACE BY, or `undefined` when nothing
+ * declared one — the layer's label, else the view's, and no third answer.
+ *
+ * WHY it is not `metaOf(place).label`: that one falls back to the layerId
+ * because the registry refuses a source with no label at all. An ANSWER that
+ * names a place has no such duty — a consumer that gets no label falls back to
+ * the address it already holds, which is honest, where a layerId dressed as a
+ * label is a name nobody declared. And WHY the view's label answers for an
+ * unlabelled layer rather than being concatenated with the layerId: the view is
+ * the thing the person was looking at; `view.label + layerId` would manufacture
+ * a name that appears in no declaration.
+ *
+ * It takes the ADDRESS rather than a resolved `Place` (the shape `tableOf` and
+ * `metaOf` take) because its callers hold an address and nothing else — and
+ * because "no place here" is one of this question's three answers, where for
+ * those two it is the caller's error.
+ *
+ * A `label: ''` or `label: '   '` is not a name — nothing in `../def/validate.ts`
+ * refuses one, so the door leaves it declarable, and this is the one place that
+ * has to decide what it MEANS. A blank string answered as the name would put
+ * `"the selection from  filtered nothing here"` (a double space, no name at all)
+ * in front of a reader, which is worse than the address it replaced — so a blank
+ * layer label falls through to the view's, exactly as an absent one does, and a
+ * blank view label falls through to nothing, exactly as an absent one does.
+ *
+ * First customer: `ReachingClause.fromLabel` (see its own WHY — the answer names
+ * the view, so the answer carries the name).
+ */
+export function labelAt(views: ReadonlyMap<string, ViewDecl>, address: string): string | undefined {
+  const place = placeOf(views, address);
+  if (place === undefined) return undefined; // an address nothing on the map answers (an unknown view, a layer this def does not declare) has NO name — and no throw
+  const named = (label: string | undefined): string | undefined => (label !== undefined && label.trim().length > 0 ? label : undefined);
+  return named(place.layer?.label) ?? named(place.view.meta.label);
+}
+
+/**
  * The encoding surface at this place, under the address that names it: a
  * layer's OWN (`chartKind`, `channels` — a layer declares the same surface a
  * view does), or the view's when the address named no layer. Undefined where

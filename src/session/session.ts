@@ -75,7 +75,7 @@ import { GapLedger, messageOf } from './gapLedger.js';
 import { clausesReaching, mappingsInto, narrowedByDef, narrowToJudgeable, unjudgeableColumn } from './clausesReaching.js';
 import { tablesInfoOf } from './tablesInfo.js';
 import { stampCause } from './stampCause.js';
-import { layerBindingsOf, layerInfosOf, metaOf, placeOf, surfaceOf, surfacedAddressesOf, tableOf, type Place } from './layers.js';
+import { labelAt, layerBindingsOf, layerInfosOf, metaOf, placeOf, surfaceOf, surfacedAddressesOf, tableOf, type Place } from './layers.js';
 import { computeEffectiveEncodings, fitsWithFollows, followSentence } from './effectiveEncodings.js';
 import { offerStampOf, offersOf } from './offers.js';
 import { branchPathOf, commitsElsewhereThan, stepsSinceAncestor } from './branchPath.js';
@@ -2103,7 +2103,29 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   clausesFor(viewId: string): readonly ReachingClause[] {
-    return clausesReaching({ viewId, graph: this.currentGraph(), live: this.activeFilters, cleared: this.clearedFilters });
+    return this.labelledFrom(clausesReaching({ viewId, graph: this.currentGraph(), live: this.activeFilters, cleared: this.clearedFilters }));
+  }
+
+  /**
+   * THE ONE PLACE A REACHING CLAUSE IS GIVEN THE NAME OF THE VIEW IT CAME FROM
+   * (`ReachingClause.fromLabel`, whose WHY states the law and the order).
+   *
+   * The reaching list is built in TWO places — `clausesReaching` answers what
+   * the GRAPH sends one consumer, and `viewClauses`' no-view branch builds the
+   * whole-dashboard truth from every live clause — so both pass through here
+   * and neither resolves a label of its own. `clausesReaching` could not do it
+   * anyway: it is a pure function of the graph and the fold, and a declared
+   * label is a fact about the MAP.
+   *
+   * The clause objects are already this consumer's own copies (`copyClause`),
+   * so stamping the label on a shallow copy adds no second leak.
+   */
+  private labelledFrom(clauses: readonly ReachingClause[]): ReachingClause[] {
+    return clauses.map((c) => {
+      const label = labelAt(this.runtime.views, c.from); // the ONE resolver of an address and the ONE fallback order (`./layers.ts` · labelAt)
+      // no label = the clause is handed on UNTOUCHED, so a def that declares none answers exactly as it did before the field existed
+      return label === undefined ? c : { ...c, fromLabel: label };
+    });
   }
 
   /**
@@ -2152,7 +2174,8 @@ class InteractionSessionImpl implements InteractionSession {
       query.viewId === null
         ? []
         : query.viewId === undefined
-          ? [...this.activeFilters].filter(([from]) => this.clauseReaches(from, table)).map(([from, clause]) => ({ from, clause: copyClause(clause), response: 'filter' as const }))
+          ? // the SAME filler as the per-view branch (`labelledFrom`) — the whole-dashboard truth names its views the way a person knows them too
+            this.labelledFrom([...this.activeFilters].filter(([from]) => this.clauseReaches(from, table)).map(([from, clause]) => ({ from, clause: copyClause(clause), response: 'filter' as const })))
           : [...this.clausesFor(query.viewId)];
     // LAW 2 AT THE READ DOOR, from the ONE owner (`./clausesReaching.ts`): a
     // clause this table cannot judge filtered nothing, and is REPORTED with its

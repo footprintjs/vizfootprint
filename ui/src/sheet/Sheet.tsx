@@ -203,13 +203,20 @@ export function statusWords(win: SheetWindow | null, sort: readonly SortSpec[] |
  * one fact read two ways. This adds only what the library could not know — WHICH
  * view's selection it was, which is a fact about the window, not about the table.
  *
+ * And it names that view the way a PERSON knows it: `fromLabel` is the declared
+ * label the session already resolved (`ReachingClause.fromLabel` — the answer
+ * names the view, so the answer carries the name), and `from` — the raw address,
+ * `spread~buckets` and all — is the fallback for a def that declared no label.
+ * The sheet never resolves a label of its own: a second lookup here would drift
+ * from the one the receipt and every other consumer read.
+ *
  * WHY a sentence EACH and not one summary line (the `arrangementSaid`
  * precedent): two views can both reach a sheet and both be unjudgeable, on
  * different columns. Collapsing them would name one and hide the other, and the
  * hidden one is exactly the brush whose reader is already confused.
  */
 export function narrowedSaid(win: SheetWindow | null): readonly string[] {
-  return (win?.clauses ?? []).flatMap((c) => (c.narrowed === undefined ? [] : [`the selection from ${c.from} filtered nothing here \u00b7 ${c.narrowed.reason}`]));
+  return (win?.clauses ?? []).flatMap((c) => (c.narrowed === undefined ? [] : [`the selection from ${c.fromLabel ?? c.from} filtered nothing here \u00b7 ${c.narrowed.reason}`]));
 }
 
 /** The find strip's height, reserved out of the body's so the rows never sit under it. */

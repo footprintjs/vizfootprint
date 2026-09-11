@@ -66,6 +66,11 @@ describe('exportFromSession — the same rows the sheet shows, plus their addres
     expect(after.receipt.count).toBe(SAMPLE_ROWS.filter((r) => (r.price as number) >= 60 && (r.price as number) <= 100).length);
     expect(after.receipt.clauses.map((c) => [c.from, c.response])).toEqual([['scatter', 'filter']]);
     expect(after.receipt.clauses[0]?.clause).toMatchObject({ kind: 'interval', field: 'price' });
+    // `scatter` DECLARES a label ('Price × rating', dashboard.fixture.ts) — `clausesFor` would carry it (see
+    // `clauseLabel.session.test.ts`), but a receipt is a file a reader keeps, and a def's labels can be renamed;
+    // `fromLabel` never rides into the durable copy (`ExportReceipt.clauses`'s own WHY)
+    expect(after.receipt.clauses.every((c) => !('fromLabel' in c))).toBe(true);
+    expect(s.clausesFor('bar').some((c) => c.fromLabel === 'Price × rating')).toBe(true); // the live answer DOES carry it — only the receipt strips it
     // the cursor moved with the act — which is exactly why the receipt carries it
     expect(after.receipt.cursor).not.toBe(whole.receipt.cursor);
     expect(after.receipt.cursor).toBe(s.cursor());

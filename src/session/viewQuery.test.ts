@@ -227,7 +227,8 @@ describe('clausesFor — what reaches a view', () => {
     await exclude.dispatch({ verb: 'link', source: 'bar', kind: 'point', target: 'scatter', response: 'filter', onClear: 'excludeAll', mapping: [{ from: 'category', to: 'category' }], cause: userCause('nothing on clear') });
     await exclude.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick') });
     await exclude.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: null, cause: userCause('clear') });
-    expect(exclude.clausesFor('scatter')).toEqual([{ from: 'bar', response: 'filter', clause: { kind: 'match', field: 'category', values: [] } }]);
+    // the declared label rides along, from the one filler (`ReachingClause.fromLabel`)
+    expect(exclude.clausesFor('scatter')).toEqual([{ from: 'bar', fromLabel: 'Category', response: 'filter', clause: { kind: 'match', field: 'category', values: [] } }]);
     const none = await exclude.viewQuery({ viewId: 'scatter' });
     expect(none.ok && [none.count, none.rows.length]).toEqual([0, 0]);
 
@@ -245,7 +246,7 @@ describe('clausesFor — what reaches a view', () => {
     expect(s.clausesFor('bar')).toMatchObject([{ from: 'scatter', clause: { kind: 'cell', fields: ['price', 'rating'] } }]);
     await s.dispatch({ verb: 'select', viewId: 'scatter', fields: ['price', 'rating'], values: null, cause: userCause('clear the cell') });
     // the cell door remembers its own clear, live — no seek needed; the stand-in names the cell's first field
-    expect(s.clausesFor('bar')).toEqual([{ from: 'scatter', response: 'filter', clause: { kind: 'match', field: 'price', values: [] } }]);
+    expect(s.clausesFor('bar')).toEqual([{ from: 'scatter', fromLabel: 'Price × rating', response: 'filter', clause: { kind: 'match', field: 'price', values: [] } }]);
     expect((await s.overview()).clearedSelections?.map((c) => c.viewId)).toEqual(['scatter']);
     const none = await s.viewQuery({ viewId: 'bar' });
     expect(none.ok && none.count).toBe(0);

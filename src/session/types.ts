@@ -1000,8 +1000,33 @@ export type ApplySavedResult =
 
 /** A live (or remembered-on-clear) clause that reaches a view through the link graph, with the response its edge carries. */
 export interface ReachingClause {
-  /** The view whose gesture this is. */
+  /** The view whose gesture this is. An ADDRESS: `viewId`, or `viewId~layerId` when a layer of that view made it. */
   readonly from: string;
+  /**
+   * THE NAME A PERSON KNOWS `from` BY — the DECLARED label at that address,
+   * resolved once by the session, or absent when nothing declared one.
+   *
+   * The order, and it stops at the first answer:
+   * 1. `from` is a LAYER address (`view~layer`) → that layer's declared label
+   *    ({@link LayerInfo.label});
+   * 2. otherwise (or when the layer declares none) → the VIEW's declared label
+   *    ({@link ViewInfo.label});
+   * 3. otherwise → **nothing**: the key is absent, the consumer falls back to
+   *    `from`, and no name is invented. A def that declares no labels gets
+   *    byte-identical answers to before this field existed (omit, never
+   *    invent). A layer whose view alone is labelled answers with the VIEW's
+   *    label — that is the thing the person was looking at — and never with the
+   *    view's label concatenated onto a layerId, which would manufacture a name
+   *    nobody declared (contrast `./layers.ts` · `metaOf`, whose registry
+   *    contract makes it fall back to the layerId).
+   *
+   * WHY it lives on the answer rather than in each consumer: the answer NAMES a
+   * view, so the answer carries the name. `narrowed.reason` is already a
+   * rendered sentence rather than a code for the same reason — the session holds
+   * the definition, and every consumer that resolved a label for itself would
+   * repeat the lookup and drift from the next one.
+   */
+  readonly fromLabel?: string;
   /** The clause as the consumer sees it — the edge's field mapping already applied. */
   readonly clause: PredicateClause;
   readonly response: LinkResponse;

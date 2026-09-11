@@ -173,10 +173,28 @@ export interface ExportReceipt {
   /** True when the count exceeded the ceiling, so the body holds the first `ceiling` rows. */
   readonly truncated: boolean;
   readonly ceiling: number;
-  /** The clauses that reached the view — empty when the window carried none. */
+  /**
+   * The clauses that reached the view — empty when the window carried none.
+   * NEVER carries `fromLabel`: a def's declared labels can be renamed, and this
+   * file is written to a `.receipt.json` a reader may hold for a long time — a
+   * stale copy would have the receipt claim a name that no longer exists. `from`
+   * (the address) is the durable fact; the label is presentation, resolved
+   * fresh by whoever reads the receipt back through the session, never baked in.
+   */
   readonly clauses: readonly ReachingClause[];
   /** When the export was taken. Optional so a receipt from a host with no clock is still a receipt. */
   readonly at?: string;
+}
+
+/**
+ * The receipt's own copy of a clause, with `fromLabel` dropped — see
+ * `ExportReceipt.clauses`'s WHY. Everything else rides through unchanged: the
+ * receipt is the courtesy copy law B promises, not a second author of the
+ * clause's other facts.
+ */
+function addressedClause(c: ReachingClause): ReachingClause {
+  const { fromLabel: _fromLabel, ...rest } = c;
+  return rest;
 }
 
 export interface ExportOptions {
@@ -301,7 +319,7 @@ export async function exportWindows(ask: ExportAsk, opts: ExportOptions): Promis
     exported: { start: 0, rows: rows.length },
     truncated: count > ceiling,
     ceiling,
-    clauses: first.clauses ?? [],
+    clauses: (first.clauses ?? []).map(addressedClause),
     at: (opts.now ?? (() => new Date()))().toISOString(),
   };
 
