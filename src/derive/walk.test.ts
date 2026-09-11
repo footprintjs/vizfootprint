@@ -56,8 +56,23 @@ describe('the absence law', () => {
 
   it('keeps the one word the def owns', () => {
     // A drift pin, not a duplicate: the vocabulary is the def's (`AbsenceDecl.states`), and this is
-    // the single word out of it the arithmetic has an opinion about.
+    // the DEFAULT for the single word out of it the arithmetic has an opinion about.
     expect(ABSENCE_STATES[0]).toBe(PRESENT);
+  });
+
+  it('reads the DEFINITION\'S word for "reported" — a `final` row is a number, an `estimated` one is silent under present-only and read under carried', () => {
+    // The vocabulary is the definition's, both anchors included: the walker never compares to
+    // `PRESENT`, it reads the port's word — so a source whose word is `final` is not rewritten.
+    const own = { field: 'demand_state', present: 'final', unknown: 'unclear', states: ['final', 'estimated', 'unclear'], carries: ['estimated'] } as const;
+    const presentOnly = silenceOfDecl(own);
+    expect(evaluateRow(col('demand'), { demand_state: 'final', demand: 24_000 }, presentOnly)).toBe(24_000);
+    expect(evaluateRow(col('demand'), { demand_state: 'estimated', demand: 24_000 }, presentOnly)).toBeNull();
+    expect(evaluateRow(col('demand'), { demand_state: 'unclear', demand: 24_000 }, presentOnly)).toBeNull();
+    // the library's own word, undeclared in this vocabulary, is a silence like any other undeclared word
+    expect(evaluateRow(col('demand'), { demand_state: 'present', demand: 24_000 }, presentOnly)).toBeNull();
+    const carried = silenceOfDecl({ ...own, arithmetic: 'carried' });
+    expect(evaluateRow(col('demand'), { demand_state: 'estimated', demand: 24_000 }, carried)).toBe(24_000);
+    expect(evaluateRow(col('demand'), { demand_state: 'unclear', demand: 24_000 }, carried)).toBeNull();
   });
 
   it('reads every column when the table declared no absence at all', () => {

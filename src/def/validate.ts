@@ -188,10 +188,27 @@ function arithmeticOf(a: Record<string, unknown>): { readonly arithmetic?: 'pres
   return w === 'present-only' || w === 'carried' ? { arithmetic: w } : {};
 }
 
+/**
+ * A well-formed anchor word — the definition's own `present` or `unknown` — as
+ * a non-empty string, or undefined when it is unstated OR malformed (malformed
+ * is already a problem of its own, and the port then falls back to the default).
+ */
+function anchorWordOf(a: Record<string, unknown>, key: 'present' | 'unknown'): string | undefined {
+  const w = a[key];
+  return typeof w === 'string' && w.length > 0 ? w : undefined;
+}
+
+/** The two anchor keys of a well-formed entry — carried only when the definition named them (the adapter defaults the rest). */
+function anchorsOf(a: Record<string, unknown>): { readonly present?: string; readonly unknown?: string } {
+  const present = anchorWordOf(a, 'present');
+  const unknown = anchorWordOf(a, 'unknown');
+  return { ...(present === undefined ? {} : { present }), ...(unknown === undefined ? {} : { unknown }) };
+}
+
 /** One entry as a declaration, or undefined when it is malformed (already a problem of its own). */
 function wellFormedEntryOf(a: unknown): AbsenceDecl | undefined {
   if (!isObject(a) || typeof a.field !== 'string' || !Array.isArray(a.states) || !a.states.every((x) => typeof x === 'string')) return undefined;
-  return { field: a.field, states: a.states as string[], ...carriesOf(a), ...governsOf(a), ...arithmeticOf(a) };
+  return { field: a.field, states: a.states as string[], ...anchorsOf(a), ...carriesOf(a), ...governsOf(a), ...arithmeticOf(a) };
 }
 
 /**
@@ -318,14 +335,59 @@ function validateAbsence(absence: unknown, where: string, problems: string[], fi
   validateAbsenceEntry(absence, where, problems, fields, declared, false);
 }
 
+/** The keys an absence entry may carry — the five of packet J and the two anchor words. */
+const ABSENCE_KEYS: ReadonlySet<string> = new Set(['field', 'states', 'present', 'unknown', 'carries', 'governs', 'arithmetic']);
+
+/**
+ * The definition's two anchor words, resolved — its own when it named them,
+ * the library's defaults when it did not. Every check below that reads an
+ * anchor reads THESE, never the constants, so a definition whose word for
+ * "reported" is `final` is judged in its own word.
+ */
+interface AnchorWords {
+  readonly present: string;
+  readonly unknown: string;
+}
+
+/**
+ * Validate `AbsenceDecl.present` / `AbsenceDecl.unknown` — the definition's
+ * own words for "reported" and "could not tell" — and answer the words the
+ * rest of the entry is judged in.
+ *
+ * Each, if declared, must be a non-empty string; a malformed one is refused and
+ * the default stands in for it so the remaining checks still have a word to
+ * read. The two may not be ONE word: a row that reported its value and a
+ * silence the source could not tell apart cannot share a name, or `carries`
+ * and the arithmetic would be reading two laws off one cell.
+ */
+function validateAnchors(absence: Record<string, unknown>, where: string, problems: string[]): AnchorWords {
+  const wordOf = (key: 'present' | 'unknown', fallback: string, meaning: string): string => {
+    const w = absence[key];
+    if (w === undefined) return fallback;
+    if (typeof w === 'string' && w.length > 0) return w;
+    problems.push(`${where}.${key}, if declared, must be a non-empty string — this definition's own word for ${meaning} ("${fallback}" when unstated)`);
+    return fallback;
+  };
+  const present = wordOf('present', ABSENCE_PRESENT, 'a row that reported a value');
+  const unknown = wordOf('unknown', ABSENCE_UNKNOWN, 'a silence the source could not tell apart');
+  if (present === unknown) {
+    problems.push(
+      `${where}.present and ${where}.unknown may not be the same word ("${present}") — a row that reported a value and a silence the source could not tell apart cannot share one`,
+    );
+  }
+  return { present, unknown };
+}
+
 /**
  * Validate ONE `AbsenceDecl` — the STATED absence vocabulary of one set of
  * columns (never inferred). Inert data: a column name and a list of words,
- * echoed verbatim. The one semantic rule: the vocabulary MUST include
- * `unknown`, because a source that cannot tell "feature off" from "collector
- * failed" needs a word for that, or it is forced to lie with one of the others.
- * Collects the declared field into `fields` so the encodings pass can refuse
- * binding it to a numeric channel.
+ * echoed verbatim. The one semantic rule: the vocabulary MUST include its word
+ * for `unknown`, because a source that cannot tell "feature off" from
+ * "collector failed" needs a word for that, or it is forced to lie with one of
+ * the others. The vocabulary is the definition's, both anchors included: the
+ * words read here are the definition's own (`validateAnchors`), and every
+ * sentence quotes them. Collects the declared field into `fields` so the
+ * encodings pass can refuse binding it to a numeric channel.
  */
 function validateAbsenceEntry(absence: unknown, where: string, problems: string[], fields: Set<string>, declared: ReadonlySet<string> | undefined, inList: boolean): void {
   if (!isObject(absence)) {
@@ -333,7 +395,7 @@ function validateAbsenceEntry(absence: unknown, where: string, problems: string[
     return;
   }
   for (const key of Object.keys(absence)) {
-    if (key !== 'field' && key !== 'states' && key !== 'carries' && key !== 'governs' && key !== 'arithmetic') problems.push(`${where}: unknown key "${key}"`);
+    if (!ABSENCE_KEYS.has(key)) problems.push(`${where}: unknown key "${key}"`);
   }
   const field = typeof absence.field === 'string' && absence.field.length > 0 ? absence.field : undefined;
   if (field === undefined) {
@@ -341,8 +403,9 @@ function validateAbsenceEntry(absence: unknown, where: string, problems: string[
   } else {
     fields.add(field);
   }
+  const anchors = validateAnchors(absence, where, problems);
   validateGoverns(absence.governs, field, where, problems, declared, inList);
-  validateArithmetic(absence.arithmetic, where, problems);
+  validateArithmetic(absence.arithmetic, anchors, where, problems);
   const states = absence.states;
   if (!Array.isArray(states) || states.length === 0 || states.some((st) => typeof st !== 'string' || st.length === 0)) {
     problems.push(`${where}.states must be a non-empty array of non-empty strings`);
@@ -350,17 +413,17 @@ function validateAbsenceEntry(absence: unknown, where: string, problems: string[
   }
   if (new Set(states).size !== states.length) problems.push(`${where}.states must not repeat a state`);
   // WHY: the derived-column arithmetic reads this one word to know a row reported a value; a vocabulary without it blanks every cell
-  if (!states.includes(ABSENCE_PRESENT)) {
+  if (!states.includes(anchors.present)) {
     problems.push(
-      `${where}.states must include "${ABSENCE_PRESENT}" — the word a row uses to say the source reported a value; without it every cell of this table reads as absent`,
+      `${where}.states must include "${anchors.present}" — the word a row uses to say the source reported a value; without it every cell of this table reads as absent`,
     );
   }
-  if (!states.includes(ABSENCE_UNKNOWN)) {
+  if (!states.includes(anchors.unknown)) {
     problems.push(
-      `${where}.states must include "${ABSENCE_UNKNOWN}" — a source that cannot tell which silence it saw needs a word for that`,
+      `${where}.states must include "${anchors.unknown}" — a source that cannot tell which silence it saw needs a word for that`,
     );
   }
-  validateCarries(absence.carries, states as readonly string[], where, problems);
+  validateCarries(absence.carries, states as readonly string[], anchors, where, problems);
 }
 
 /**
@@ -398,12 +461,12 @@ function validateGoverns(governs: unknown, field: string | undefined, where: str
   }
 }
 
-/** Validate `AbsenceDecl.arithmetic` — the two words of `../data/silence.ts`, and no third. */
-function validateArithmetic(arithmetic: unknown, where: string, problems: string[]): void {
+/** Validate `AbsenceDecl.arithmetic` — the two words of `../data/silence.ts`, and no third. The sentence quotes the definition's `present` word, since that is what `present-only` reads. */
+function validateArithmetic(arithmetic: unknown, anchors: AnchorWords, where: string, problems: string[]): void {
   if (arithmetic === undefined) return;
   if (!(SILENCE_ARITHMETICS as readonly unknown[]).includes(arithmetic)) {
     problems.push(
-      `${where}.arithmetic, if present, must be one of ${SILENCE_ARITHMETICS.join('|')} — "present-only" reads exactly "${ABSENCE_PRESENT}" (the default, and every total this library has computed), "carried" also reads the states named in carries`,
+      `${where}.arithmetic, if present, must be one of ${SILENCE_ARITHMETICS.join('|')} — "present-only" reads exactly "${anchors.present}" (the default, and every total this library has computed), "carried" also reads the states named in carries`,
     );
   }
 }
@@ -466,22 +529,23 @@ function judgeGovernsNoStateColumn(entries: readonly unknown[], where: string, p
  * does not refuse an honest row: an estimated figure is a figure. Three rules,
  * and each of them is the vocabulary's own honesty: a state that carries a
  * value must be a word this table DECLARES (a word nobody declared would
- * silence-proof a column by a typo); it may not be `present`, which is not a
- * silence to begin with; and it may never be `unknown`, the word for a silence
- * the source could not tell apart — a source that could not tell which silence
- * it saw cannot also have carried the value.
+ * silence-proof a column by a typo); it may not be the definition's `present`
+ * word, which is not a silence to begin with; and it may never be its `unknown`
+ * word, the word for a silence the source could not tell apart — a source that
+ * could not tell which silence it saw cannot also have carried the value. Both
+ * anchors are the definition's own (`validateAnchors`), and the sentences quote them.
  */
-function validateCarries(carries: unknown, states: readonly string[], where: string, problems: string[]): void {
+function validateCarries(carries: unknown, states: readonly string[], anchors: AnchorWords, where: string, problems: string[]): void {
   if (carries === undefined) return;
   if (!Array.isArray(carries) || carries.length === 0 || carries.some((st) => typeof st !== 'string' || st.length === 0)) {
     problems.push(`${where}.carries, if present, must be a non-empty array of non-empty strings (which of the states carry a value)`);
     return;
   }
   for (const state of carries as readonly string[]) {
-    if (state === ABSENCE_PRESENT) {
-      problems.push(`${where}.carries may not name "${ABSENCE_PRESENT}" — that is the word for a row that reported its value, not for a silence that carries one`);
-    } else if (state === ABSENCE_UNKNOWN) {
-      problems.push(`${where}.carries may not name "${ABSENCE_UNKNOWN}" — a source that could not tell which silence it saw did not carry the value either`);
+    if (state === anchors.present) {
+      problems.push(`${where}.carries may not name "${anchors.present}" — that is the word for a row that reported its value, not for a silence that carries one`);
+    } else if (state === anchors.unknown) {
+      problems.push(`${where}.carries may not name "${anchors.unknown}" — a source that could not tell which silence it saw did not carry the value either`);
     } else if (!states.includes(state)) {
       problems.push(`${where}.carries names "${state}", which is not one of this table's states — a state that carries a value must be a word the vocabulary declares`);
     }

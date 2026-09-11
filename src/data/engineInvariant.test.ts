@@ -1043,3 +1043,54 @@ describe('a reland answers the SAME delta from both engines — the diff in Java
     expect(described.filter((row) => row['column_name'] === '__row')).toHaveLength(1);
   });
 });
+
+describe('a window over a table whose absence vocabulary is its OWN — the state column is data, and neither engine reads the absence port', () => {
+  // The vocabulary is the definition's, both anchors included (`../def/types.ts` · `AbsenceDecl.present`).
+  // Only the READERS of the port changed (the walker, the contradiction check); a window is not one of
+  // them — a state column is a column, and `final` is a string in it. One cross-engine window proves
+  // nothing moved beneath the data seam.
+  const HOURS: Row[] = [
+    { hour: 1, demand: 24_000, demand_state: 'final' },
+    { hour: 2, demand: 23_500, demand_state: 'estimated' },
+    { hour: 3, demand: null, demand_state: 'unclear' },
+    { hour: 4, demand: 25_100, demand_state: 'final' },
+  ];
+  let connection: LoadingConnection;
+  let live: DataProvider;
+  const held = memoryProvider(HOURS, { layout: 'row', tableName: 'hours' });
+
+  beforeAll(async () => {
+    const opened = await duckdbConnection()();
+    if (!canLoad(opened)) throw new Error('the shipped opener answered a connection that cannot land a table');
+    connection = opened;
+    await connection.load('hours', { kind: 'rows', rows: HOURS });
+    live = wasmProvider({ sources: ['hours'], connection });
+  });
+
+  afterAll(async () => {
+    await connection?.close?.();
+  });
+
+  it('a point clause on the state column, in the definition\'s word, answers the same rows from both engines', async () => {
+    const clause: PredicateClause = { kind: 'point', field: 'demand_state', value: 'final' };
+    const window = { sort: [{ field: 'hour' as const, dir: 'asc' as const }], indices: true };
+    const [overSQL, inMemory] = await Promise.all([live.evaluate('hours', clause, window), held.evaluate('hours', clause, window)]);
+    const real = answered(overSQL, 'wasm window over a final-vocabulary table');
+    const fold = answered(inMemory, 'memory window over a final-vocabulary table');
+    expect(real.sql).toBe(fold.sql);
+    expect(real.count).toBe(2);
+    expect(real.count).toBe(fold.count);
+    expect(byIndex(real)).toEqual(byIndex(fold));
+    expect(real.rows?.map((r) => r['hour'])).toEqual([1, 4]);
+  });
+
+  it('an unfiltered window serves every row — the `unclear` one included, its null intact — identically', async () => {
+    const window = { sort: [{ field: 'hour' as const, dir: 'asc' as const }], indices: true };
+    const [overSQL, inMemory] = await Promise.all([live.evaluate('hours', null, window), held.evaluate('hours', null, window)]);
+    const real = answered(overSQL, 'wasm unfiltered window');
+    const fold = answered(inMemory, 'memory unfiltered window');
+    expect(real.rows).toEqual(fold.rows);
+    expect(real.rows).toHaveLength(4);
+    expect(real.rows?.[2]).toEqual({ hour: 3, demand: null, demand_state: 'unclear' });
+  });
+});

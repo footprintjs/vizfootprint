@@ -98,7 +98,7 @@ A state column speaks for itself, so `eq(report_state, "unavailable")` still ans
 
 Strict means strict: division by zero is absent (never `Infinity`), text where a number was declared is absent, non-ISO date text is absent. **The only ops that see absence are the four whose subject IS absence** — `isAbsent`, `coalesce`, and `if`/`case` whose condition is absent (the result is absent, because nobody knows which arm the row belongs in). Those four say `strict: false` in the table itself, so the exceptions are data and can be counted; a test pins that there are exactly four and names them. Their arms arrive UNEVALUATED, so a value arm is not held to its kind: `coalesce(cases, 0)` on a row where `cases` holds text answers with the text, not the fallback — one row cannot be told which type its declaration agreed on, and only the judge knows. `walk.ts` states the limit, and a test pins it.
 
-**The vocabulary must be able to say `present`.** A table may use its own words for the silences, but the arithmetic reads exactly that one word to know a row reported a value, so the def door (`validateAbsence`) refuses a vocabulary without it — `states: ['not catalogued', 'unknown']` would read as absent in every cell of every row, with no sentence anywhere.
+**The vocabulary must be able to say its word for "reported".** A table may use its own words for the silences — and, since the anchors became the definition's, its own word for "reported" too (`AbsenceDecl.present`, `present` by default; [`../def/README.md`](../def/README.md)) — but the arithmetic reads exactly that one word, through the port (`ColumnSilence.present`), to know a row reported a value, so the def door (`validateAbsence`) refuses a vocabulary without it — `states: ['not catalogued', 'unknown']` would read as absent in every cell of every row, with no sentence anywhere.
 
 This departs from SQL's three-valued `and`/`or` deliberately — `and(absent, false)` is absent here, not `false` — which is why an engine that answers SQL's way must be wrapped rather than trusted. **The absence law is not configurable, and no engine may hold a second opinion.**
 
@@ -122,7 +122,7 @@ A bare declaration means exactly what it always meant — its one state column s
 
 ### A carried number is not a default
 
-> **The walker reads exactly `present`. A definition may opt ONE column in with `arithmetic: 'carried'`, and nothing else moves.**
+> **The walker reads exactly the definition's `present` word (`present` unless it named its own). A definition may opt ONE column in with `arithmetic: 'carried'`, and nothing else moves.**
 
 `carries` says the SOURCE published a figure beside a silence — a bound, an estimate, a replaced number — so the contradiction check stops refusing that row (`../data/README.md`). Whether the ARITHMETIC adds that figure is a second question, and the answer is not a library default:
 

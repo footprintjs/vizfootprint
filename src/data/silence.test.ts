@@ -32,8 +32,37 @@ describe('silenceOfDecl — the bare form', () => {
     expect(silenceOfDecl(BARE).silenceFor('report_state')).toBeUndefined();
   });
 
-  it('fills the defaults ONCE: no carries, present-only arithmetic', () => {
-    expect(silenceOfDecl(BARE).silenceFor('cases')).toEqual({ state: 'report_state', states: ['present', 'unavailable', 'unknown'], carries: [], arithmetic: 'present-only' });
+  it('fills the defaults ONCE: no carries, present-only arithmetic, and the library\'s two anchor words', () => {
+    expect(silenceOfDecl(BARE).silenceFor('cases')).toEqual({
+      state: 'report_state',
+      states: ['present', 'unavailable', 'unknown'],
+      present: 'present',
+      unknown: 'unknown',
+      carries: [],
+      arithmetic: 'present-only',
+    });
+  });
+
+  // ── THE VOCABULARY IS THE DEFINITION'S, both anchors included ──
+  // A source whose own word is `final` is not rewritten in ETL to say `present`: the port carries
+  // the definition's words, the adapter defaults them, and every reader reads the port.
+
+  it('carries the definition\'s OWN anchor words when it named them', () => {
+    const own: AbsenceDecl = { field: 'demand_state', present: 'final', unknown: 'unclear', states: ['final', 'estimated', 'unclear'] };
+    expect(silenceOfDecl(own).silenceFor('demand')).toEqual({
+      state: 'demand_state',
+      states: ['final', 'estimated', 'unclear'],
+      present: 'final',
+      unknown: 'unclear',
+      carries: [],
+      arithmetic: 'present-only',
+    });
+  });
+
+  it('defaults each anchor on its own — a definition may rename one and keep the other', () => {
+    const silence = silenceOfDecl({ field: 's', present: 'final', states: ['final', 'unknown'] }).silenceFor('v')!;
+    expect(silence.present).toBe('final');
+    expect(silence.unknown).toBe('unknown');
   });
 
   it('names its state column and governs no column by name', () => {
@@ -172,6 +201,15 @@ describe('silenceTestOf — did the SOURCE report anything', () => {
     expect(silenceTestOf(silenceOfDecl(entry).silenceFor('v')!)('bound')).toBe(false);
     expect(silenceTestOf(silenceOfDecl({ ...entry, arithmetic: 'present-only' }).silenceFor('v')!)('bound')).toBe(false);
   });
+
+  it('reads the DEFINITION\'S word for "reported" — `final` is not a silence, and the library\'s `present` is just another undeclared word', () => {
+    const own = silenceTestOf(silenceOfDecl({ field: 's', present: 'final', unknown: 'unclear', states: ['final', 'estimated', 'unclear'] }).silenceFor('v')!);
+    expect(own('final')).toBe(false);
+    expect(own('estimated')).toBe(true);
+    expect(own('unclear')).toBe(true);
+    // the library's own word, in a vocabulary that never declared it, is a silence like any other undeclared word
+    expect(own('present')).toBe(true);
+  });
 });
 
 describe('readsValueTestOf — does the ARITHMETIC read the cell', () => {
@@ -196,6 +234,18 @@ describe('readsValueTestOf — does the ARITHMETIC read the cell', () => {
     const reads = readsValueTestOf(silenceOfDecl({ field: 's', states: ['present', 'unknown'], arithmetic: 'carried' }).silenceFor('v')!);
     expect(reads('present')).toBe(true);
     expect(reads('unknown')).toBe(false);
+  });
+
+  it('present-only reads exactly the DEFINITION\'S word, and carried opens on that word plus `carries` — in a `final` vocabulary', () => {
+    const own: AbsenceDecl = { field: 's', present: 'final', unknown: 'unclear', states: ['final', 'estimated', 'unclear'], carries: ['estimated'] };
+    const presentOnly = readsValueTestOf(silenceOfDecl(own).silenceFor('v')!);
+    expect(presentOnly('final')).toBe(true);
+    expect(presentOnly('estimated')).toBe(false);
+    expect(presentOnly('present')).toBe(false); // the library's word is nobody's here
+    const carried = readsValueTestOf(silenceOfDecl({ ...own, arithmetic: 'carried' }).silenceFor('v')!);
+    expect(carried('final')).toBe(true);
+    expect(carried('estimated')).toBe(true);
+    expect(carried('unclear')).toBe(false);
   });
 });
 

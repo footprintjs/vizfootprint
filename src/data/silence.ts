@@ -53,13 +53,19 @@
  * ```
  */
 
-// WHY a runtime import from the def: the one word that means "reported" is the def's to own
-// (`ABSENCE_PRESENT`), and every reader below reads the same one; a copy here would be a second owner.
-import { ABSENCE_PRESENT, type AbsenceDecl } from '../def/types.js';
+// WHY a runtime import from the def: the two DEFAULT words — "reported" and "could not tell" — are
+// the def's to own (`ABSENCE_PRESENT`, `ABSENCE_UNKNOWN`); the adapter below fills them onto the port
+// ONCE, and no reader compares to the constants. A copy here would be a second owner of a default.
+import { ABSENCE_PRESENT, ABSENCE_UNKNOWN, type AbsenceDecl } from '../def/types.js';
 
 /**
  * What governs ONE column's silence — the whole answer, with no optional keys,
  * so a reader never re-derives a default the adapter already decided.
+ *
+ * The vocabulary is the DEFINITION'S, both anchors included: {@link ColumnSilence.present}
+ * and {@link ColumnSilence.unknown} are the definition's own words (or the
+ * library's defaults when it named none), and every test below compares to
+ * THEM. A source whose word is `final` is read as `final`, not rewritten.
  */
 export interface ColumnSilence {
   /** The column carrying the state word for this column. */
@@ -67,18 +73,32 @@ export interface ColumnSilence {
   /** The vocabulary that state column may hold. */
   readonly states: readonly string[];
   /**
-   * Which states hold a number besides `present` — never `present` (which is
-   * not a silence to begin with) and never `unknown` (a source that could not
-   * tell which silence it saw did not carry the value either). The def door
-   * refuses both.
+   * The word a row uses to say the source REPORTED a value — the definition's
+   * (`AbsenceDecl.present`), `'present'` when it named none. The one word
+   * {@link silenceTestOf} and {@link readsValueTestOf} read.
+   */
+  readonly present: string;
+  /**
+   * The word for a silence the source could NOT TELL apart — the definition's
+   * (`AbsenceDecl.unknown`), `'unknown'` when it named none. Carried so a
+   * reader that wants to name that state (a caption, a facet) asks the port
+   * and never the constant; it never carries a value, and the def door keeps it
+   * out of `carries`.
+   */
+  readonly unknown: string;
+  /**
+   * Which states hold a number besides {@link ColumnSilence.present} — never
+   * that word (which is not a silence to begin with) and never
+   * {@link ColumnSilence.unknown} (a source that could not tell which silence
+   * it saw did not carry the value either). The def door refuses both.
    */
   readonly carries: readonly string[];
   /**
    * Whether the ARITHMETIC reads a carried number.
    *
    * `'present-only'` (the default, and every total this library ever computed)
-   * reads exactly `present`. `'carried'` opts this one column in: a
-   * `carries` state reads as the number the cell holds. See
+   * reads exactly {@link ColumnSilence.present}. `'carried'` opts this one
+   * column in: a `carries` state reads as the number the cell holds. See
    * `../derive/README.md` for the law and why it is not a global switch.
    */
   readonly arithmetic: 'present-only' | 'carried';
@@ -128,35 +148,51 @@ export interface TableSilence {
 /**
  * Is this state a SILENCE — a row that says it has no value?
  *
- * `present` reports a value, and so does any state the table declared as one
- * that `carries` a number. Everything else is a silence, INCLUDING a word the
- * vocabulary never declared and a cell that holds no word at all — those are
- * the rows nothing else judges, and they are why the contradiction check exists.
- * Independent of `arithmetic`, which is about sums and not about the source.
+ * The definition's `present` word reports a value, and so does any state the
+ * table declared as one that `carries` a number. Everything else is a silence,
+ * INCLUDING a word the vocabulary never declared and a cell that holds no word
+ * at all — those are the rows nothing else judges, and they are why the
+ * contradiction check exists. Independent of `arithmetic`, which is about sums
+ * and not about the source.
  */
 export function silenceTestOf(silence: ColumnSilence): (state: unknown) => boolean {
+  // WHY the port's word and not the constant: the vocabulary is the definition's, both anchors included
+  const { present } = silence;
   const carries = new Set(silence.carries);
-  return (state) => state !== ABSENCE_PRESENT && !(typeof state === 'string' && carries.has(state));
+  return (state) => state !== present && !(typeof state === 'string' && carries.has(state));
 }
 
 /**
  * Does the ARITHMETIC read this row's cell in the governed column?
  *
- * `'present-only'` reads exactly `present` — the law every total in this
- * library was computed under. `'carried'` also reads the states the declaration
- * named in `carries`, so a published bound lands in the sum. A carried state
- * whose cell holds no number still reads absent, because the arithmetic edge
- * ({@link ../derive/walk.ts}) judges the CELL and this test only opens the gate.
+ * `'present-only'` reads exactly the definition's `present` word — the law
+ * every total in this library was computed under. `'carried'` also reads the
+ * states the declaration named in `carries`, so a published bound lands in the
+ * sum. A carried state whose cell holds no number still reads absent, because
+ * the arithmetic edge ({@link ../derive/walk.ts}) judges the CELL and this test
+ * only opens the gate.
  */
 export function readsValueTestOf(silence: ColumnSilence): (state: unknown) => boolean {
-  if (silence.arithmetic === 'present-only') return (state) => state === ABSENCE_PRESENT;
+  const { present } = silence;
+  if (silence.arithmetic === 'present-only') return (state) => state === present;
   const carries = new Set(silence.carries);
-  return (state) => state === ABSENCE_PRESENT || (typeof state === 'string' && carries.has(state));
+  return (state) => state === present || (typeof state === 'string' && carries.has(state));
 }
 
-/** One declaration as the port's per-column answer — the defaults decided ONCE, here. */
+/**
+ * One declaration as the port's per-column answer — the defaults decided ONCE,
+ * here: no carries, present-only arithmetic, and the library's two anchor words
+ * when the definition named none of its own.
+ */
 function columnSilenceOf(decl: AbsenceDecl): ColumnSilence {
-  return { state: decl.field, states: decl.states, carries: decl.carries ?? [], arithmetic: decl.arithmetic ?? 'present-only' };
+  return {
+    state: decl.field,
+    states: decl.states,
+    present: decl.present ?? ABSENCE_PRESENT,
+    unknown: decl.unknown ?? ABSENCE_UNKNOWN,
+    carries: decl.carries ?? [],
+    arithmetic: decl.arithmetic ?? 'present-only',
+  };
 }
 
 /**

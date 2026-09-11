@@ -201,13 +201,51 @@ export interface DataSourceDef {
  * same bytes must be able to say so, instead of the tool asserting a
  * confident `not-configured` that tells the reader to stop looking.
  *
+ * THE VOCABULARY IS THE DEFINITION'S, both anchors included. The two words
+ * every reader has an opinion about — the one that means "reported" and the
+ * one that means "could not tell" — are the definition's to name
+ * ({@link AbsenceDecl.present}, {@link AbsenceDecl.unknown}); the library's
+ * words ({@link ABSENCE_PRESENT}, {@link ABSENCE_UNKNOWN}) are the DEFAULT,
+ * never the requirement. A source whose own word is `final` or `measured` is
+ * not rewritten in ETL to say `present`. A definition naming neither is
+ * byte-identical to one written before the two keys existed.
+ *
  * Inert declarative data (R12): strings echoed verbatim, never parsed.
  */
 export interface AbsenceDecl {
   /** The column that carries the state. */
   readonly field: string;
-  /** The vocabulary that column may hold. MUST include `present` and `unknown`. */
+  /**
+   * The vocabulary that column may hold. MUST include this definition's word
+   * for "reported" ({@link AbsenceDecl.present}, `present` by default) and its
+   * word for "could not tell" ({@link AbsenceDecl.unknown}, `unknown` by default).
+   */
   readonly states: readonly string[];
+  /**
+   * This definition's OWN word for a row that reported a value. Default
+   * {@link ABSENCE_PRESENT} (`'present'`).
+   *
+   * Every reader that asks "did the source report anything?" — the arithmetic
+   * (`../derive/walk.ts`), the contradiction check
+   * (`../data/absenceContradiction.ts`), `arithmetic: 'present-only'` — reads
+   * THIS word through the port (`../data/silence.ts` · `ColumnSilence.present`),
+   * never the library's constant. It must be one of `states`, and `carries` may
+   * not name it (a row that reported its value is not a silence that carries one).
+   *
+   * ```ts
+   * { field: 'demand_state', present: 'final', unknown: 'unclear', states: ['final', 'estimated', 'unclear'] }
+   * ```
+   */
+  readonly present?: string;
+  /**
+   * This definition's OWN word for a silence the source could not tell apart.
+   * Default {@link ABSENCE_UNKNOWN} (`'unknown'`).
+   *
+   * It is still the honest state and still REQUIRED in `states`; it still may
+   * never carry a value (`carries` may not name it), and it may not be the same
+   * word as {@link AbsenceDecl.present}. Same example as above.
+   */
+  readonly unknown?: string;
   /**
    * Which of those states CARRY a number, besides `present` — because an
    * estimated figure is a figure, and a replaced one is the number the agency
@@ -224,10 +262,10 @@ export interface AbsenceDecl {
    * and "the arithmetic may add it" are two different questions and only the
    * source can answer the first.
    *
-   * `present` may not be named again (it is not a silence to begin with) and
-   * `unknown` may never be named at all: it is the word for a silence the
-   * source could not tell apart, and a vocabulary that let it hold a value
-   * would have no honest word left.
+   * The definition's `present` word may not be named again (it is not a
+   * silence to begin with) and its `unknown` word may never be named at all: it
+   * is the word for a silence the source could not tell apart, and a vocabulary
+   * that let it hold a value would have no honest word left.
    *
    * ```ts
    * { field: 'demand_state', states: ['present', 'estimated', 'replaced', 'unavailable', 'unknown'], carries: ['estimated', 'replaced'] }
@@ -256,8 +294,8 @@ export interface AbsenceDecl {
    * Whether the ARITHMETIC reads a number a silent state carries. Default
    * `'present-only'`.
    *
-   * `'present-only'` reads exactly `present` — every total this library has
-   * ever computed. `'carried'` opts THIS entry's columns in: a state named in
+   * `'present-only'` reads exactly this definition's `present` word — every
+   * total this library has ever computed. `'carried'` opts THIS entry's columns in: a state named in
    * {@link AbsenceDecl.carries} reads as the number its cell holds, so a
    * published bound lands in the sum.
    *
@@ -275,17 +313,26 @@ export interface AbsenceDecl {
 
 /**
  * The canonical absence vocabulary; a table may declare a subset, or its own
- * words for the SILENCES — but it must be able to say `present` and `unknown`,
- * and the validator refuses a vocabulary that cannot.
+ * words for the SILENCES — and, since the two anchors became the definition's
+ * ({@link AbsenceDecl.present}, {@link AbsenceDecl.unknown}), its own words for
+ * those too. What it must be able to say is ITS word for "reported" and ITS
+ * word for "could not tell", and the validator refuses a vocabulary that cannot.
  */
 export const ABSENCE_STATES: readonly string[] = Object.freeze(['present', 'not-configured', 'unavailable', 'unknown']);
 /**
- * The one state that means the source reported a value. The derived-column
- * arithmetic reads exactly this word (`../derive/walk.ts`), so a vocabulary
- * that cannot say it would read as absent in every cell of every row.
+ * THE DEFAULT word for a row that reported a value — what a definition means
+ * when it names no {@link AbsenceDecl.present} of its own, and nothing else.
+ * No reader compares to this constant: the adapter (`../data/silence.ts` ·
+ * `silenceOfDecl`) fills `ColumnSilence.present` from the declaration or from
+ * here, and every reader reads the port.
  */
 export const ABSENCE_PRESENT = 'present';
-/** The one state every absence vocabulary must be able to say for a silence it could not name. */
+/**
+ * THE DEFAULT word for a silence the source could not tell apart — what a
+ * definition means when it names no {@link AbsenceDecl.unknown} of its own.
+ * Filled onto `ColumnSilence.unknown` the same way; the validator reads the
+ * definition's word, never this one.
+ */
 export const ABSENCE_UNKNOWN = 'unknown';
 
 /**

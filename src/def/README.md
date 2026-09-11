@@ -66,6 +66,39 @@ The door refuses a `carries` that names a word the vocabulary never declared (a 
 data["hourly"].absence.carries may not name "unknown" — a source that could not tell which silence it saw did not carry the value either
 ```
 
+### The two anchors are the definition's — `present` and `unknown` name its OWN words
+
+> **The vocabulary is the definition's, both anchors included; the library's words are the default, never the requirement.**
+
+Everything above reads two anchor words — the one that means *reported* and the one that means *could not tell* — and until this packet those two were the library's: a source whose own word is `final`, `measured`, `reported` or `presente` had to be rewritten in ETL to say `present`, which is the library putting its word in the data's mouth. Now a declaration names them (`present`, `unknown`), and every law that reads an anchor reads the definition's word: `states` must include them, `carries` may name neither, `arithmetic: 'present-only'` reads exactly the definition's `present`, and the contradiction check judges a row against it. The library's words (`ABSENCE_PRESENT` = `present`, `ABSENCE_UNKNOWN` = `unknown`) are what a definition means when it names neither — and such a definition is byte-identical to one written before the keys existed, every sentence included.
+
+```ts
+data: {
+  hourly: {
+    rows,
+    absence: { field: 'demand_state', present: 'final', unknown: 'unclear', states: ['final', 'estimated', 'unclear'], carries: ['estimated'] },
+    columns: { demand: { role: 'measure' } },
+  },
+}
+// { demand_state: 'final',     demand: 24000 } reads 24000 — the source's own word for "reported"
+// { demand_state: 'estimated', demand: 24000 } is a figure (carries), absent from the sum unless arithmetic: 'carried'
+// { demand_state: 'unclear',   demand: 24000 } is refused: 'data["hourly"].rows[2]: demand_state says "unclear" — no value — and demand holds 24000; …'
+// { demand_state: 'present',   demand: 24000 } is refused too — in THIS vocabulary `present` is a word nobody declared
+```
+
+The sentences quote the definition's words. Each anchor, if declared, is a non-empty string; the two may not be one word:
+
+```
+data["hourly"].absence.states must include "final" — the word a row uses to say the source reported a value; without it every cell of this table reads as absent
+data["hourly"].absence.states must include "unclear" — a source that cannot tell which silence it saw needs a word for that
+data["hourly"].absence.carries may not name "final" — that is the word for a row that reported its value, not for a silence that carries one
+data["hourly"].absence.carries may not name "unclear" — a source that could not tell which silence it saw did not carry the value either
+data["hourly"].absence.present, if declared, must be a non-empty string — this definition's own word for a row that reported a value ("present" when unstated)
+data["hourly"].absence.present and data["hourly"].absence.unknown may not be the same word ("final") — a row that reported a value and a silence the source could not tell apart cannot share one
+```
+
+The port carries the words (`ColumnSilence.present` / `.unknown`, [`../data/README.md`](../data/README.md)); the adapter defaults them; every reader reads the port and none compares to the constants. The Sources tab and the feature card list `states` as declared and name no anchor of their own.
+
 ### Silence belongs to a COLUMN — `governs`, and one column one owner
 
 > **`absence` is one entry, or a LIST of them. An entry with no `governs` speaks for every OTHER column of the table — what a bare declaration has always meant. In a list every entry names its own, because two entries each claiming "every other column" are two answers to one question.**
@@ -100,7 +133,7 @@ data["measurements"].absence, if it is a list, must declare at least one entry �
 
 ### `arithmetic` — a carried number is not a default
 
-> **The arithmetic reads exactly `present`. A definition may opt ONE column in with `arithmetic: 'carried'` (default `'present-only'`), and nothing else moves.**
+> **The arithmetic reads exactly the definition's `present` word. A definition may opt ONE column in with `arithmetic: 'carried'` (default `'present-only'`), and nothing else moves.**
 
 ```ts
 // present-only (the default): the published bound is a figure, and it is NOT in the sum

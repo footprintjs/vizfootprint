@@ -100,13 +100,17 @@ import type { Calendar, Cell, CellReader, Expr, OpExpr } from './types.js';
 export type GroupAnswer = (node: OpExpr) => Cell;
 
 /**
- * The one state that means "the thing reported; here it is".
+ * The DEFAULT word for "the thing reported; here it is".
  *
  * The vocabulary belongs to the def (`AbsenceDecl.states`, whose canonical list
- * is `ABSENCE_STATES`); this is the single word out of it that the arithmetic
- * has an opinion about, and a test pins the two together. The arithmetic
- * REQUIRES a vocabulary to be able to say it: a table whose states cannot say
- * `present` would read as absent in every cell of every row, so the def door
+ * is `ABSENCE_STATES`), and since the anchors became the definition's so does
+ * the word itself (`AbsenceDecl.present`). The walker never compares to this
+ * constant: it reads the definition's word through the port
+ * (`readsValueTestOf` over `ColumnSilence.present`, `../data/silence.ts`).
+ * This export is the default that port fills in when a definition named none
+ * — kept as a public name, and a test pins it to the def's. The arithmetic
+ * REQUIRES a vocabulary to be able to say its word: a table whose states
+ * cannot would read as absent in every cell of every row, so the def door
  * (`../def/validate.ts`) refuses such a vocabulary before it reaches here.
  */
 export const PRESENT = ABSENCE_PRESENT;

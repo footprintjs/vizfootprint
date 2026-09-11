@@ -488,7 +488,7 @@ absenceContradictionOf([{ authority: 'CISO', demand: 24_000, demand_state: 'unav
 
 ## Silence belongs to a COLUMN — the port every reader asks
 
-> **`ColumnSilence` answers, for ONE column: which column carries its state, what vocabulary that column speaks, which of those states carry a number, and whether the arithmetic reads them. `TableSilence` answers it per column, and is total.**
+> **`ColumnSilence` answers, for ONE column: which column carries its state, what vocabulary that column speaks, which word of it means *reported* and which means *could not tell*, which of those states carry a number, and whether the arithmetic reads them. `TableSilence` answers it per column, and is total.**
 
 `AbsenceDecl` used to speak for the ROW, and the exoplanet demo found the cost: a `measurements` row carries a radius, a mass and a period, each with its own silence — measured, a published bound, or never taken — and 43 planets have a mass and no radius. Read row-wise, that honest table contradicts itself (`radius_state` says `not-measured` on a row where `pl_orbper` holds 88) and the library's own validator correctly refused it. The question was wrong, not the answer.
 
@@ -509,6 +509,17 @@ silenceOfNothing().silenceFor('anything');  // undefined — the null object, so
 ```
 
 Every reader asks the port and is written once: the arithmetic and the group fold (`../derive/`), the contradiction check beside it, the encoding plane's facets (each state column gets role `absence` with the words IT speaks), the derive and aggregate acts, `describeTable`, and the adapter's frame door. Two tests read a `ColumnSilence`, and they are two because they answer two questions — `silenceTestOf` asks *did the source report anything* (the contradiction check's), and `readsValueTestOf` asks *does the arithmetic read the cell* (the walker's, and the one `arithmetic` moves).
+
+**The two anchor words are the definition's, and the port carries them.** `ColumnSilence.present` is the word a row uses to say the source reported a value and `ColumnSilence.unknown` the word for a silence it could not tell apart — the definition's own (`AbsenceDecl.present` / `.unknown`, [`../def/README.md`](../def/README.md)), or the library's `present` / `unknown` when it named none. The adapter fills them ONCE (`silenceOfDecl`, the J precedent: no optional keys on the port), both tests compare to `silence.present` and never to a constant, and a definition naming neither reads byte-identically to before. So a source whose word is `final` is read as `final`, and in that vocabulary the library's `present` is just another word nobody declared — a silence:
+
+```ts
+const own = silenceOfDecl({ field: 'demand_state', present: 'final', unknown: 'unclear', states: ['final', 'estimated', 'unclear'], carries: ['estimated'] });
+own.silenceFor('demand');                       // { state: 'demand_state', states: [...], present: 'final', unknown: 'unclear', carries: ['estimated'], arithmetic: 'present-only' }
+silenceTestOf(own.silenceFor('demand')!)('final');       // false — reported
+silenceTestOf(own.silenceFor('demand')!)('estimated');   // false — carries a figure
+silenceTestOf(own.silenceFor('demand')!)('present');     // true  — undeclared here, so a silence
+readsValueTestOf(own.silenceFor('demand')!)('final');    // true  — present-only reads exactly the definition's word
+```
 
 The def door holds the list to **one column, one owner**: an entry must name what it `governs` (two entries each claiming "every other column" are two answers to one question), no two entries may govern the same column, `governs` may not name a column the table does not declare or the entry's own state column, and an empty list is refused. The port's own resolution order — a state column first, then the first entry naming the column, then the entry that names none — exists only so it is TOTAL, and every overlap that would make that order visible is already a sentence ([`../def/README.md`](../def/README.md)).
 

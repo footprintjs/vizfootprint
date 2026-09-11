@@ -447,6 +447,79 @@ describe('validateDashboardDef — absence (the declared silence vocabulary)', (
     );
   });
 
+  // ── THE VOCABULARY IS THE DEFINITION'S, both anchors included ──
+  // `present` and `unknown` are the definition's own words for "reported" and "could not tell"; the
+  // library's words are the default, never the requirement. Every sentence above is byte-identical
+  // for a definition naming neither — those tests are the proof, and they are untouched.
+
+  it('accepts a definition whose own words are `final` and `unclear`, and reads them everywhere the library\'s used to be', () => {
+    const own = { field: 'state', present: 'final', unknown: 'unclear', states: ['final', 'estimated', 'unclear'] };
+    expect(validateDashboardDef(withAbsence(own))).toEqual([]);
+    // `carries` may name a declared silence in that vocabulary, exactly as before
+    expect(validateDashboardDef(withAbsence({ ...own, carries: ['estimated'] }))).toEqual([]);
+    // a list entry reads its own words too
+    expect(
+      validateDashboardDef(baseDef({ data: { data: { rows: [{ n: 2, state: 'unclear' }], columns: { n: {}, state: {} }, absence: [{ ...own, governs: ['n'] }] } } })),
+    ).toEqual([]);
+  });
+
+  it('refuses `states` that lack the definition\'s OWN words — the sentence names `final`, not `present`', () => {
+    expect(validateDashboardDef(withAbsence({ field: 'state', present: 'final', unknown: 'unclear', states: ['present', 'estimated', 'unclear'] }))).toContain(
+      'data["data"].absence.states must include "final" — the word a row uses to say the source reported a value; without it every cell of this table reads as absent',
+    );
+    expect(validateDashboardDef(withAbsence({ field: 'state', present: 'final', unknown: 'unclear', states: ['final', 'estimated', 'unknown'] }))).toContain(
+      'data["data"].absence.states must include "unclear" — a source that cannot tell which silence it saw needs a word for that',
+    );
+  });
+
+  it('refuses a `carries` that names either of the definition\'s own anchors — in the definition\'s words', () => {
+    const own = { field: 'state', present: 'final', unknown: 'unclear', states: ['final', 'estimated', 'unclear'] };
+    expect(validateDashboardDef(withAbsence({ ...own, carries: ['final'] }))).toContain(
+      'data["data"].absence.carries may not name "final" — that is the word for a row that reported its value, not for a silence that carries one',
+    );
+    expect(validateDashboardDef(withAbsence({ ...own, carries: ['unclear'] }))).toContain(
+      'data["data"].absence.carries may not name "unclear" — a source that could not tell which silence it saw did not carry the value either',
+    );
+    // …and the library's word, undeclared in this vocabulary, is refused as any undeclared word is
+    expect(validateDashboardDef(withAbsence({ ...own, carries: ['present'] }))).toContain(
+      'data["data"].absence.carries names "present", which is not one of this table\'s states — a state that carries a value must be a word the vocabulary declares',
+    );
+  });
+
+  it('quotes the definition\'s `present` word in the arithmetic sentence — it is what present-only reads', () => {
+    expect(validateDashboardDef(withAbsence({ field: 'state', present: 'final', states: ['final', 'unknown'], arithmetic: 'sometimes' }))).toContain(
+      'data["data"].absence.arithmetic, if present, must be one of present-only|carried — "present-only" reads exactly "final" (the default, and every total this library has computed), "carried" also reads the states named in carries',
+    );
+  });
+
+  it('refuses a malformed anchor word and judges the rest in the default — and refuses the two anchors being ONE word', () => {
+    expect(validateDashboardDef(withAbsence({ field: 'state', present: '', states: ['present', 'unknown'] }))).toContain(
+      'data["data"].absence.present, if declared, must be a non-empty string — this definition\'s own word for a row that reported a value ("present" when unstated)',
+    );
+    const problems = validateDashboardDef(withAbsence({ field: 'state', unknown: 7, states: ['present', 'unclear'] }));
+    expect(problems).toContain(
+      'data["data"].absence.unknown, if declared, must be a non-empty string — this definition\'s own word for a silence the source could not tell apart ("unknown" when unstated)',
+    );
+    // the default stood in, so the `must include` check still had a word to read
+    expect(problems).toContain('data["data"].absence.states must include "unknown" — a source that cannot tell which silence it saw needs a word for that');
+    expect(validateDashboardDef(withAbsence({ field: 'state', present: 'final', unknown: 'final', states: ['final'] }))).toContain(
+      'data["data"].absence.present and data["data"].absence.unknown may not be the same word ("final") — a row that reported a value and a silence the source could not tell apart cannot share one',
+    );
+  });
+
+  it('the inline-row contradiction lint reads the definition\'s words too — an `unclear` row holding a number is refused, a `final` one is not', () => {
+    const own = { field: 'state', present: 'final', unknown: 'unclear', states: ['final', 'estimated', 'unclear'] };
+    const def = (rows: readonly unknown[]): unknown => baseDef({ data: { data: { rows, columns: { n: { role: 'measure' }, state: {} }, absence: own } } });
+    expect(validateDashboardDef(def([{ n: 2, state: 'final' }]))).toEqual([]);
+    expect(validateDashboardDef(def([{ n: 2, state: 'unclear' }]))).toContain(
+      'data["data"].rows[0]: state says "unclear" — no value — and n holds 2; a table cannot say both, so carry null in n where the row reports nothing',
+    );
+    // the library's word, undeclared here, is a silence: a `present` row holding a number contradicts THIS table
+    expect(validateDashboardDef(def([{ n: 2, state: 'present' }]))).toContain(
+      'data["data"].rows[0]: state says "present" — no value — and n holds 2; a table cannot say both, so carry null in n where the row reports nothing',
+    );
+  });
+
   // ── SILENCE BELONGS TO A COLUMN: the LIST form, and the two new keys ──
   // The exoplanet demo found this: `AbsenceDecl` spoke for the ROW, so an honest table (a mass
   // measured, a radius never taken, a period of 88) was refused by the library's own validator.

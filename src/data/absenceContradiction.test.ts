@@ -78,6 +78,17 @@ describe('absenceContradictionOf', () => {
     );
   });
 
+  it('judges in the DEFINITION\'S words — a `final` row may hold a number, an `unclear` row may not', () => {
+    // The check reads `silenceTestOf`, so it follows the port: the vocabulary is the definition's, both anchors included.
+    const own = silenceOfDecl({ field: 'report_state', present: 'final', unknown: 'unclear', states: ['final', 'estimated', 'unclear'] });
+    expect(absenceContradictionOf([row('final', 7)], own, ['cases'], 'data["cells"]')).toBeUndefined();
+    expect(absenceContradictionOf([row('unclear', 7)], own, ['cases'], 'data["cells"]')).toBe(
+      'data["cells"].rows[0]: report_state says "unclear" — no value — and cases holds 7; a table cannot say both, so carry null in cases where the row reports nothing',
+    );
+    // the library's own word, undeclared in this vocabulary, is a silence like any other undeclared word
+    expect(absenceContradictionOf([row('present', 7)], own, ['cases'], 'data["cells"]')).toMatch(/report_state says "present" — no value/);
+  });
+
   it('a state the declaration does NOT name still refuses in the sentence it always did, `carries` or no `carries`', () => {
     const declared = silenceOfDecl({ field: 'report_state', states: ['present', 'estimated', 'unavailable', 'unknown'], carries: ['estimated'] });
     const sentence = 'data["cells"].rows[0]: report_state says "unavailable" — no value — and cases holds 0; a table cannot say both, so carry null in cases where the row reports nothing';
