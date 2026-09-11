@@ -36,20 +36,31 @@
  *      ({@link withoutRowOrder}), so one `EvaluateResult` means one value
  *      whichever engine answered.
  *
+ *   5. A REFRESH IS COMPUTED WHERE THE ROWS LIVE. `replaceRows` lands the new
+ *      rows as a staging table through the connection's own `load`, asks SQL
+ *      for the delta (`sqlReland.ts` — the same `RefreshDelta` the memory
+ *      engine's `deltaByKey` answers, proven one answer in
+ *      `engineInvariant.test.ts`), replaces the table atomically, drops the
+ *      staging table and re-DESCRIBEs. No row comes out of the database to be
+ *      diffed in JavaScript, and the provider stays the same object.
+ *
  * What is NOT here yet, and says so at the door rather than pretending:
  * `materializeColumn` (`canMaterialize: false` — landing a column is an
- * `ALTER TABLE` a later step wires). LOADING a declared `sources` entry is not
- * this file's job either, and never will be: `loadTableSQL` in
+ * `ALTER TABLE` a later step wires). LOADING a declared `sources` entry's FIRST
+ * bytes is not this file's job either, and never will be: `loadTableSQL` in
  * `sqlConnection.ts` is the statement, and the caller that runs it is the
  * BUILD (`../def/wasmBackend.ts`, which lands a def's bytes in the connection
- * this provider shares). A table this provider was declared with but whose
- * bytes never reached the connection is refused by the backend, in the
- * backend's own words.
+ * this provider shares); a reland lands the NEW rows of a table this provider
+ * already serves, which is a different act. A table this provider was declared
+ * with but whose bytes never reached the connection is refused by the backend,
+ * in the backend's own words.
  */
 
 import { quoteIdent, resolvePredicateSQL } from './predicate.js';
 import { FIND_ORDINAL_COLUMN, FIND_POSITION_COLUMN, ROW_ORDER_COLUMN, WindowRefusal, findSQL, windowSQL } from './sqlWindow.js';
-import type { SqlConnection } from './sqlConnection.js';
+import { RELAND_KEY_COLUMN, dropStagingSQL, emptyStagingSQL, relandSQL, stagingTableOf, type RelandStatements } from './sqlReland.js';
+import { canLoad, type LoadingConnection, type SqlConnection } from './sqlConnection.js';
+import type { RefreshDelta } from './delta.js';
 import {
   clauseFields,
   clauseList,
@@ -64,6 +75,8 @@ import {
   type FindOptions,
   type FindResult,
   type PredicateClause,
+  type RelandOptions,
+  type RelandResult,
   type Row,
 } from './types.js';
 
@@ -86,10 +99,12 @@ export interface WasmProviderOptions {
    * never closed by this provider, which did not open it.
    *
    * Each table's `DESCRIBE` is asked ONCE through it and remembered for the
-   * life of the provider: a schema is read by every window and changes when a
-   * table is re-landed, which replaces the provider. A host that re-lands a
-   * table under this same connection must therefore build a new provider —
-   * this one would keep judging clauses against the columns the old bytes had.
+   * life of the provider: a schema is read by every window and changes only
+   * when a table is re-landed. The one re-landing this provider knows about is
+   * its own `replaceRows`, which forgets and re-reads the schema itself. A host
+   * that re-lands a table under this same connection BEHIND this provider must
+   * build a new one — this one would keep judging clauses against the columns
+   * the old bytes had.
    */
   readonly connection?: SqlConnection;
   /**
@@ -118,6 +133,10 @@ const capabilities: DataProviderCapabilities = {
   // yet. Declared false so a caller branches BEFORE the call, and refused in
   // those words at the door if it calls anyway.
   canMaterialize: false,
+  // A refresh is computed where the rows live: the new rows are landed as a
+  // staging table and the delta is asked of SQL (`sqlReland.ts`) — no row
+  // comes out of the database to be diffed in JavaScript.
+  canReland: true,
 };
 
 /**
@@ -137,6 +156,14 @@ const openFailedSentence = (table: string, cause: string): string =>
 /** The backend was there and said no. The statement and the engine's own words, both quoted — neither is ever parsed. */
 const backendRefusedSentence = (table: string, statement: string, cause: string): string =>
   `the backend refused this engine's query for "${table}": ${cause} — the statement was: ${statement}`;
+
+/** The connection reads fine but cannot be asked to LAND a table — the one reland refusal the party that opened the connection can fix. Word for word the build's own sentence for the same fact (`../def/wasmBackend.ts`). */
+const cannotRelandSentence = (table: string): string =>
+  `the SQL connection this engine reads through cannot re-land "${table}": it answers queries only (no load) — pass an opener that can (openSqlConnection: duckdbConnection())`;
+
+/** A reland's staging table could not be landed. The cause is quoted; the old rows are untouched. */
+const stagingFailedSentence = (table: string, cause: string): string =>
+  `re-landing "${table}" failed before any row moved: ${cause} — the table still holds its previous rows`;
 
 /** A table nobody declared. The remedy is the list, so a typo is visible without a second call. */
 const unknownTableSentence = (table: string, declared: readonly string[]): string =>
@@ -323,6 +350,31 @@ function indicesOf(rows: readonly Record<string, unknown>[]): readonly number[] 
   return indices;
 }
 
+/**
+ * A sample key as `deltaByKey` spells it: String() of the value, a date first
+ * read back as the ISO text the memory engine holds — so the two engines'
+ * sample lists are the same strings for the same rows.
+ */
+function keyTextOf(value: unknown, shape: DateShape | undefined): string {
+  return String(shape === undefined ? value : asISOText(value, shape));
+}
+
+/** The five numbers the counts statement answers (`sqlReland.ts`), in the order it names them. */
+const RELAND_COUNT_NAMES = ['added', 'updated', 'removed', 'unkeyed', 'keyed'] as const;
+type RelandCounts = Readonly<Record<(typeof RELAND_COUNT_NAMES)[number], number>>;
+
+/** The counts statement's one row, each column read as a number — or the NAME of the first one that was not. */
+function relandCountsOf(rows: readonly Record<string, unknown>[]): RelandCounts | string {
+  const row = rows[0] ?? {};
+  const counts: Partial<Record<(typeof RELAND_COUNT_NAMES)[number], number>> = {};
+  for (const name of RELAND_COUNT_NAMES) {
+    const value = numberOf(row[name]);
+    if (value === undefined) return name;
+    counts[name] = value;
+  }
+  return counts as RelandCounts;
+}
+
 // ── The provider. ────────────────────────────────────────────────────────
 
 /**
@@ -380,6 +432,66 @@ export function wasmProvider(options: WasmProviderOptions = {}): DataProvider {
     const schema = await schemaFor(opened.value, table);
     if (!schema.ok) return schema;
     return { ok: true, value: { connection: opened.value, schema: schema.value } };
+  };
+
+  /**
+   * The new rows into the staging table. Zero rows keep the old schema
+   * (`emptyStagingSQL`); any other count lands through the connection's own
+   * `load`, which is what assigns the staging table its source order.
+   */
+  const landStaging = async (connection: LoadingConnection, table: string, staging: string, rows: readonly Row[]): Promise<Asked<void>> => {
+    if (rows.length === 0) {
+      const emptied = await ask(connection, emptyStagingSQL(table, staging), table);
+      return emptied.ok ? { ok: true, value: undefined } : emptied;
+    }
+    try {
+      await connection.load(staging, { kind: 'rows', rows });
+      return { ok: true, value: undefined };
+    } catch (error) {
+      return { ok: false, detail: causeOf(error) };
+    }
+  };
+
+  /** A refusal met before the replace: the staging table is dropped (best effort — the refusal already names the cause) and the old rows stay. */
+  const refusedBeforeReplace = async (connection: SqlConnection, staging: string, detail: string): Promise<DataProviderRejection> => {
+    await ask(connection, dropStagingSQL(staging), staging);
+    return reject('wasm', 'replaceRows', 'no-backend-connection', detail);
+  };
+
+  /**
+   * The delta, asked of the backend. WHY `rowCount` is a parameter and not a
+   * statement: `replaced` and the `keyAbsent` test are about how many rows the
+   * CALLER handed over, which `deltaByKey` reads as `after.length` — the number
+   * was known before the staging table existed.
+   */
+  const deltaOf = async (
+    connection: SqlConnection,
+    table: string,
+    statements: RelandStatements,
+    rowCount: number,
+    oldDates: ReadonlyMap<string, DateShape>,
+    newDates: ReadonlyMap<string, DateShape>,
+  ): Promise<Asked<RefreshDelta>> => {
+    if (statements.delta === undefined) return { ok: true, value: { keyed: false, replaced: rowCount } };
+    const { key, samples } = statements.delta;
+    const counted = await ask(connection, statements.delta.counts, table);
+    if (!counted.ok) return counted;
+    const counts = relandCountsOf(counted.value);
+    if (typeof counts === 'string') return { ok: false, detail: `the reland delta for "${table}" came back without a number for ${counts} — the backend answered ${describeAnswer(counted.value)}` };
+    // every new row was unkeyed: the delta cannot be exact, and says so — `deltaByKey`'s own test, in its own order
+    if (counts.keyed === 0 && rowCount > 0) return { ok: true, value: { keyed: false, replaced: rowCount, keyAbsent: key } };
+    const sampleOf = async (statement: string, dates: ReadonlyMap<string, DateShape>): Promise<Asked<readonly string[]>> => {
+      const asked = await ask(connection, statement, table);
+      return asked.ok ? { ok: true, value: asked.value.map((row) => keyTextOf(row[RELAND_KEY_COLUMN], dates.get(key))) } : asked;
+    };
+    // one statement at a time: the port is one connection, not a pool (`../def/wasmBackend.ts`)
+    const added = await sampleOf(samples.added, newDates);
+    if (!added.ok) return added;
+    const updated = await sampleOf(samples.updated, newDates);
+    if (!updated.ok) return updated;
+    const removed = await sampleOf(samples.removed, oldDates);
+    if (!removed.ok) return removed;
+    return { ok: true, value: { keyed: true, key, added: counts.added, updated: counts.updated, removed: counts.removed, sample: { added: added.value, updated: updated.value, removed: removed.value }, unkeyed: counts.unkeyed } };
   };
 
   return {
@@ -534,6 +646,53 @@ export function wasmProvider(options: WasmProviderOptions = {}): DataProvider {
         return reject('wasm', 'find', 'no-backend-connection', `finding in "${table}" came back without a position — the backend answered ${describeAnswer(answered.value)}`);
       }
       return { sql, matches: counted.value, position, ordinal, index, row: foundRowOf(raw, schema.dates) };
+    },
+
+    async replaceRows(table: string, rows: readonly Row[], relandOptions: RelandOptions = {}): Promise<RelandResult | DataProviderRejection> {
+      const ready = await readyFor(table);
+      if (ready === 'unknown-table') return reject('wasm', 'replaceRows', 'unknown-table', unknownTableSentence(table, declaredTables));
+      if (!ready.ok) return reject('wasm', 'replaceRows', 'no-backend-connection', ready.detail);
+      const { connection, schema } = ready.value;
+      if (!canLoad(connection)) return reject('wasm', 'replaceRows', 'no-backend-connection', cannotRelandSentence(table));
+      // The delta compares each key's FIRST row in source order — the rule
+      // `deltaByKey` keeps — and this engine's source order IS the column its
+      // loader assigned. A table it did not load has none, refused in the words
+      // `find` and `indices: true` already refuse it in.
+      if (!schema.hasRowOrder) {
+        return reject('wasm', 'replaceRows', 'unknown-column', `${unknownColumnSentence(table, ROW_ORDER_COLUMN)} — a reland compares each key's first row in source order, and this engine's tables carry a source-order column assigned at load, so this table was not loaded by it`);
+      }
+      const staging = stagingTableOf(table);
+      const landed = await landStaging(connection, table, staging, rows);
+      if (!landed.ok) return reject('wasm', 'replaceRows', 'no-backend-connection', stagingFailedSentence(table, landed.detail));
+      // Everything from here to the replace can still leave the old rows exactly
+      // where they are — so on any refusal the staging table is dropped first.
+      const described = await ask(connection, describeSQL(staging), table);
+      if (!described.ok) return refusedBeforeReplace(connection, staging, described.detail);
+      const staged = tableFactsOf(described.value);
+      const statements = relandSQL(table, staging, relandOptions.key, { old: schema.columns, new: staged.columns });
+      const delta = await deltaOf(connection, table, statements, rows.length, schema.dates, staged.dates);
+      if (!delta.ok) return refusedBeforeReplace(connection, staging, delta.detail);
+      const replaced = await ask(connection, statements.replace, table);
+      if (!replaced.ok) return refusedBeforeReplace(connection, staging, replaced.detail);
+      // THE ROWS MOVED — a refusal from here on would break RefreshOutcome's law
+      // (`../def/buildDashboard.ts`: "why nothing moved" — a refusal promises
+      // nothing did). The remembered schema is the OLD bytes' from here, and it
+      // is forgotten unconditionally so the next read re-DESCRIBEs the real
+      // table rather than serve stale columns either way.
+      schemas.delete(table);
+      // The drop and the re-DESCRIBE below are CLEANUP, not the commit: `staged`
+      // already named the replaced table's exact schema a moment ago (`replace`
+      // is literally `SELECT * FROM staging`), so a failure here answers `ok`
+      // from that reading rather than refuse an act that already happened. A
+      // drop that fails leaks `__reland_<table>` harmlessly — the next reland's
+      // own `CREATE OR REPLACE` on that same name (`landStaging`/
+      // `emptyStagingSQL`) overwrites it without anyone needing to know it was
+      // there.
+      const dropped = await ask(connection, statements.drop, table);
+      if (!dropped.ok) return { ok: true, delta: delta.value, columns: staged.columns };
+      const fresh = await schemaFor(connection, table);
+      if (!fresh.ok) return { ok: true, delta: delta.value, columns: staged.columns };
+      return { ok: true, delta: delta.value, columns: fresh.value.columns };
     },
 
     async materializeColumn(

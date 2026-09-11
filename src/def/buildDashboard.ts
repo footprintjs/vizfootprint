@@ -76,7 +76,7 @@ import { validateProseRecord } from '../prose/index.js';
 import type { ProseProblem } from '../prose/index.js';
 import { isRejection } from '../data/index.js';
 import { DEFAULT_RELATION_KIND } from './relations.js';
-import { decodeRows, deltaByKey, inlineVersion, isSourceRefusal, isUnchanged, openSource, SourceRefusal } from '../source/index.js';
+import { decodeRows, inlineVersion, isSourceRefusal, isUnchanged, openSource, SourceRefusal } from '../source/index.js';
 import type { RefreshDelta, SourceAdapter, SourceDecl, SourceInfo, SourceRefusalReason, SourceSnapshot } from '../source/index.js';
 import type { ColumnFacet } from '../data/index.js';
 import { deepFreeze } from '../detach/index.js';
@@ -185,8 +185,10 @@ export type RefreshOutcome =
       readonly refused: true;
       /**
        * Why nothing moved: the carrier's own reason, `no-source` (nothing to
-       * re-read), or `not-reloadable` (there IS a source, but the table's rows
-       * live in an engine this builder does not re-land — see `refresh`).
+       * re-read), or `not-reloadable` (there IS a source and it was read, but
+       * the table's engine could not re-land the rows: it has no `replaceRows`
+       * at all — a stub — or its backend refused the act, in the engine's own
+       * words; see `refresh`).
        */
       readonly reason: SourceRefusalReason | 'no-source' | 'not-reloadable';
       readonly message: string;
@@ -627,7 +629,7 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
   const adapters = options.sources ?? [];
   // Which table-store slots hold TRACE-derived columns (src/data/README.md).
   // Dashboard-scoped because the stores are: two sessions write into one
-  // provider. A refresh replaces a provider, so it drops that table's slots.
+  // provider. A refresh replaces a table's ROWS, so it drops that table's slots.
   const derived = new DerivedColumnStore();
   // …and the tables an aggregate cut from them, on the same reasoning one level out.
   const derivedTables = derivedTableSlots(providers);
@@ -649,14 +651,19 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
         out[table] = { refused: true, reason: 'no-source', message: `data["${table}"] declares no source — inline rows never move` };
         continue;
       }
-      if (engines[table] === 'wasm') {
-        // A refresh swaps an ARRAY for a new one. This table's rows are not an
-        // array — they are a table in a SQL backend, and re-landing them is a
-        // different act with a different delta (read the old rows back out of the
-        // backend, re-land, re-DESCRIBE). Refused in a sentence rather than done
-        // by silently swapping the table onto the memory engine, which is what
-        // "just build a memoryProvider here" would mean.
-        out[table] = { refused: true, reason: 'not-reloadable', message: `data["${table}"] runs on the "wasm" engine — its rows were landed in a SQL backend at build, and this builder does not re-land them; close() this dashboard and build again to read the source afresh` };
+      // ONE PATH FOR EVERY ENGINE: open the source, take the snapshot, hand the
+      // rows to the engine that holds the table and let IT compute the delta
+      // (src/data/README.md, "A refresh is computed where the rows live"). The
+      // provider stays the SAME object, so nothing holding a reference goes
+      // stale; the memory engine swaps its arrays, the wasm engine re-lands in
+      // its SQL backend — never, on refresh, the wasm table rebuilt as a memory
+      // one, which would silently change the engine `dashboard.engines` names.
+      const provider = providers.get(table)!;
+      /* v8 ignore next 5 -- the port's law for an engine with no `replaceRows` (the stubs): no door reaches it today, because a source table
+       * is routed to memory or wasm by the def door and a host provider on a source table is refused by `judgeProviders` — it is here so
+       * the engine that arrives with `source` support and no reland is refused in words, never rebuilt on another engine; the sentence is pinned */
+      if (provider.replaceRows === undefined) {
+        out[table] = { refused: true, reason: 'not-reloadable', message: notReloadableMessage(table, engines[table] ?? provider.engine) };
         continue;
       }
       try {
@@ -668,23 +675,24 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
             out[table] = { unchanged: true, version: snap.version };
             continue;
           }
-          // the delta is exact only with a row key; the old rows come from the provider being replaced —
-          // compared like with like: columns an analysis materialised on them are not in the new bytes,
-          // so they are stripped before the compare and REPORTED as lost, never read as "every row updated"
-          const old = providers.get(table)!;
-          const fresh = memoryProvider(snap.rows, { tableName: table, ...(decl.layout ? { layout: decl.layout } : {}) });
-          const prior = await old.evaluate(table, null, { mode: 'rows' });
-          /* v8 ignore next -- the table being replaced is a memory provider, which never rejects a rows read and always sets `.rows`; the arms keep the type honest */
-          const before = isRejection(prior) ? [] : (prior.rows ?? []);
-          // the columns both engines list — no scan of the rows for their keys
-          const [oldCols, newCols] = await Promise.all([old.columns(table), fresh.columns(table)]);
-          /* v8 ignore next -- a memory provider always lists its columns */
-          const arrived = new Set((isRejection(newCols) ? [] : newCols).map((c) => c.name));
-          /* v8 ignore next -- a memory provider always lists its columns */
+          // the names the OLD rows carried, read before they go: the engine answers the new schema with the delta
+          const oldCols = await provider.columns(table);
+          const landed = await provider.replaceRows(table, snap.rows, decl.key !== undefined ? { key: decl.key } : {});
+          if (isRejection(landed)) {
+            // the engine's own words: nothing moved, and the registries below are left exactly as they were
+            /* v8 ignore next -- both shipped engines quote a detail on every reland refusal; the reason is the honest fallback for a host provider that does not */
+            out[table] = { refused: true, reason: 'not-reloadable', message: landed.detail ?? landed.reason };
+            continue;
+          }
+          const arrived = new Set(landed.columns.map((c) => c.name));
+          /* v8 ignore next -- the columns were listed a moment ago by the same provider; the arm keeps the type honest */
           const goneSlots = (isRejection(oldCols) ? [] : oldCols).map((c) => c.name).filter((c) => !arrived.has(c));
-          // A derived column is REPORTED by the name a person knows, not by the
-          // slot it lived in; and the registry is dropped with the provider that
-          // held it, or the session would keep resolving a name the store lacks.
+          // The SESSION's registries, not the engine's: a derived column is
+          // REPORTED by the name a person knows, not by the slot it lived in; and
+          // the registry is dropped with the rows that held it, or the session
+          // would keep resolving a name the store lacks. On the wasm engine no
+          // column was ever materialised (`canMaterialize: false`), so the list
+          // names only columns the new bytes themselves dropped.
           const spelling = derived.logicalByPhysical(table);
           const lost = goneSlots.map((c) => spelling.get(c) ?? c);
           derived.clear(table);
@@ -693,10 +701,8 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
           // version no longer exists — so it is dropped rather than left
           // serving yesterday's rows under today's name.
           const tablesLost = derivedTables.drop(table);
-          const base = goneSlots.length === 0 ? before : before.map((r) => Object.fromEntries(Object.entries(r).filter(([c]) => arrived.has(c))));
-          providers.set(table, fresh);
           sources[table] = { ...held, version: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length };
-          out[table] = { changed: true, from: held.version, to: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length, delta: deltaByKey(base, snap.rows, decl.key), ...(lost.length > 0 ? { materialisedLost: lost } : {}), ...(tablesLost.length > 0 ? { derivedLost: tablesLost } : {}) };
+          out[table] = { changed: true, from: held.version, to: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length, delta: landed.delta, ...(lost.length > 0 ? { materialisedLost: lost } : {}), ...(tablesLost.length > 0 ? { derivedLost: tablesLost } : {}) };
         } finally {
           await handle.close();
         }
@@ -755,6 +761,14 @@ function freezeDefinition(def: DashboardDef): void {
   Object.freeze(def.data); // …and `deepFreeze` below stops here, as its short-circuit promises
   deepFreeze(def);
 }
+
+/**
+ * The refusal a table meets when its engine cannot re-land rows at all — it has
+ * no `replaceRows` (the stubs). The remedy names both acts, close and build,
+ * because a second build over an unclosed one leaves the first database open.
+ */
+export const notReloadableMessage = (table: string, engine: string): string =>
+  `data["${table}"] runs on the "${engine}" engine, which cannot re-land rows — close() this dashboard and build again to read the source afresh`;
 
 /** One journal record: its own copies of what it was handed, frozen — history is never editable through a result someone still holds. */
 function journalRecord(asked: readonly string[], tables: Readonly<Record<string, RefreshOutcome>>): RefreshRecord {

@@ -218,7 +218,7 @@ const theirs = await buildDashboardAsync(def, { openSqlConnection: () => myPool.
 await theirs.close();                                   // opens nothing, closes nothing: not ours to release
 ```
 
-A dashboard with no wasm table has nothing to close and says so by doing nothing — as does a sync-door build whose lazy wasm table nobody ever read, because nothing was opened. `refresh()` on a wasm table still refuses (below), and its remedy is this pair of acts: close, then build again.
+A dashboard with no wasm table has nothing to close and says so by doing nothing — as does a sync-door build whose lazy wasm table nobody ever read, because nothing was opened. `refresh()` on a wasm table re-lands it in the same database (below); only a table on an engine that cannot re-land at all is refused, and its remedy is this pair of acts: close, then build again.
 
 ### A source table and the wasm engine
 
@@ -239,7 +239,17 @@ validateDashboardDef({ ...def, data: { cases: { source, engine: 'server' } } });
 //    (landed in the SQL backend by buildDashboardAsync) — or no engine at all' ]
 ```
 
-Two consequences, both said out loud rather than papered over. The SYNC door refuses an inline source beside `engine: 'wasm'` in a sentence (landing bytes is an await, whichever via carried them). And `refresh()` REFUSES such a table (`reason: 'not-reloadable'`): a refresh swaps an array, and this table's rows are a table in a SQL backend — re-landing them is a different act with a different delta, and quietly rebuilding it as a memory table would make `dashboard.engines` a lie. The remedy names both acts — `close()` this dashboard and build again — because a second build over an unclosed one leaves the first database open.
+Two consequences, both said out loud rather than papered over. The SYNC door refuses an inline source beside `engine: 'wasm'` in a sentence (landing bytes is an await, whichever via carried them). And `refresh()` walks ONE path for every engine — open the source, take the snapshot, hand the rows to the engine that holds the table and let IT compute the delta (`DataProvider.replaceRows`; [`../data/README.md`](../data/README.md), "A refresh is computed where the rows live"). A memory table diffs its arrays in this process; a wasm table is re-landed IN its SQL backend and the delta is asked of SQL, so no row comes out of DuckDB to be diffed in JavaScript. The provider stays the same object, `dashboard.engines` stays true, and a session opened before the refresh reads the new rows on its next query.
+
+```ts
+const dash = await buildDashboardAsync({ ...def, data: { cases: { source, engine: 'wasm', key: 'week' } } }, { sources: [http] });
+(await dash.refresh(['cases'])).tables['cases'];
+// { changed: true, from: 'v1', to: 'v2', retrievedAt, rows: 3,
+//   delta: { keyed: true, key: 'week', added: 1, updated: 1, removed: 1, sample: { added: ['4'], updated: ['2'], removed: ['3'] }, unkeyed: 0 },
+//   derivedLost: ['by_disease'] }   // a table an aggregate cut from the v1 rows — the SESSION's bookkeeping, kept at the door
+```
+
+What stays at the door is the session's own bookkeeping, not the engine's: the derived-column registry is cleared and reported as `materialisedLost` by the names a person knows (on the wasm engine nothing was ever materialised — `canMaterialize: false` — so that list names only columns the new bytes themselves dropped), and the derived TABLES cut from the old version are dropped and reported as `derivedLost`. A refusal keeps its word `not-reloadable`, now for two facts the message tells apart: the table's engine has no `replaceRows` at all (a stub — *runs on the E engine, which cannot re-land rows — close() this dashboard and build again*, the remedy naming both acts because a second build over an unclosed one leaves the first database open), or its backend refused the act, quoted in the engine's own words with the old rows left exactly where they were. Never, on refresh, is a wasm table rebuilt as a memory one — that would silently change which engine answers.
 
 **A declared engine is honoured, and never silent.** A table routed to the engine this version does NOT run still builds, every read of it is refused, and the BUILD says at the door exactly what the read will say — the same sentence, minted once by its owner ([`../data/stubEngines.ts`](../data/stubEngines.ts)) and quoted by both doors:
 

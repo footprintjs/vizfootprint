@@ -34,7 +34,7 @@ import { canLoad, type LoadingConnection } from './sqlConnection.js';
 import { mosaicDescriptorSQL } from './predicate.js';
 import { pointValueFromWire } from './clauseFromWire.js';
 import { isRejection } from './types.js';
-import type { CellClause, DataProvider, DataProviderRejection, EvaluateResult, FindOptions, FindResult, IntervalClause, PredicateClause, Row } from './types.js';
+import type { CellClause, ColumnInfo, DataProvider, DataProviderRejection, EvaluateResult, FindOptions, FindResult, IntervalClause, PredicateClause, Row } from './types.js';
 
 /** The HIT shape of a find — the arm that carries an ordinal, a source index and a row. */
 type FindHit = Extract<FindResult, { readonly position: number }>;
@@ -852,5 +852,194 @@ describe('a find answers the same position, ordinal and count in both engines', 
     // fails this test and the README is corrected with it.
     expect(await counts('istanbul')).toEqual([1, 0]); // DuckDB folds İ→i; JS folds it to i + a combining dot
     expect(await counts('İ')).toEqual([2, 1]); // …so the SQL needle matches every plain `i` as well
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// A REFRESH IS COMPUTED WHERE THE ROWS LIVE (src/data/README.md). The memory
+// engine diffs two arrays in JavaScript (`deltaByKey`); the wasm engine lands a
+// staging table and asks SQL (`sqlReland.ts`); NEITHER hands the other's rows
+// over. This describe is the proof that the two strategies are ONE answer: the
+// same rows before and after, through both engines, give the SAME
+// `RefreshDelta` — counts AND samples — keyed and unkeyed, with a repeated key
+// and a null key in the room, with a column added and one dropped, and with the
+// new version empty; and a sorted window after the replace reads the same rows
+// in the same order on both.
+
+describe('a reland answers the SAME delta from both engines — the diff in JavaScript and the diff in SQL are one answer', () => {
+  const LEDGER: Row[] = [
+    { id: 1, name: 'ann', amount: 10, day: '2026-04-05', gone: 'x' },
+    { id: 2, name: 'bob', amount: 20, day: '2026-04-06', gone: 'y' },
+    { id: 3, name: 'cy', amount: 30, day: '2026-04-07', gone: 'z' },
+    { id: 3, name: 'dup', amount: 31, day: '2026-04-07', gone: 'z' }, // a repeated key: the second is unkeyed
+    { id: null, name: 'nokey', amount: 0, day: null, gone: 'w' }, // a null key: unkeyed
+  ];
+  let connection: LoadingConnection;
+  let nth = 0;
+
+  beforeAll(async () => {
+    const opened = await duckdbConnection()();
+    if (!canLoad(opened)) throw new Error('the shipped opener answered a connection that cannot land a table');
+    connection = opened;
+  });
+
+  afterAll(async () => {
+    await connection?.close?.();
+  });
+
+  /** The same LEDGER landed in both engines under a fresh name — one pair per case, so no case reads another's replace. */
+  const both = async (): Promise<{ readonly table: string; readonly live: DataProvider; readonly held: DataProvider }> => {
+    const table = `ledger_${String(++nth)}`;
+    await connection.load(table, { kind: 'rows', rows: LEDGER });
+    return { table, live: wasmProvider({ sources: [table], connection }), held: memoryProvider(LEDGER, { layout: 'row', tableName: table }) };
+  };
+
+  /**
+   * The schema each engine answers after the replace, compared by NAME and, for
+   * every column but a date, by type. WHY the date is the exception: DuckDB
+   * infers DATE from an ISO day and the memory engine's tally calls the same
+   * string a `string` — a difference the FOURTH layout above already pins, and
+   * not one a reland makes or could unmake.
+   */
+  const sameSchema = (a: readonly ColumnInfo[], b: readonly ColumnInfo[]): void => {
+    expect(a.map((c) => c.name)).toEqual(b.map((c) => c.name));
+    expect(a.filter((c) => c.name !== 'day')).toEqual(b.filter((c) => c.name !== 'day'));
+  };
+
+  /** Both engines' answers to one reland, each checked to be an answer. */
+  const relandBoth = async (rows: readonly Row[], key?: string) => {
+    const { table, live, held } = await both();
+    const options = key === undefined ? {} : { key };
+    const [sql, js] = [await live.replaceRows!(table, rows, options), await held.replaceRows!(table, rows, options)];
+    if (isRejection(sql)) throw new Error(`the wasm engine refused: ${JSON.stringify(sql)}`);
+    if (isRejection(js)) throw new Error(`the memory engine refused: ${JSON.stringify(js)}`);
+    return { table, live, held, sql, js };
+  };
+
+  it('keyed, same columns: added, updated, removed, the three samples in source order, and the unkeyed count — identical', async () => {
+    const AFTER: Row[] = [
+      { id: 1, name: 'ann', amount: 10, day: '2026-04-05', gone: 'x' },
+      { id: 2, name: 'bob', amount: 25, day: '2026-04-06', gone: 'y' }, // amount moved
+      { id: 4, name: 'dee', amount: 40, day: '2026-04-08', gone: 'v' }, // new
+      { id: 4, name: 'dup', amount: 41, day: '2026-04-08', gone: 'v' }, // repeated: unkeyed
+    ];
+    const { sql, js } = await relandBoth(AFTER, 'id');
+    expect(sql.delta).toEqual(js.delta);
+    expect(sql.delta).toEqual({ keyed: true, key: 'id', added: 1, updated: 1, removed: 1, sample: { added: ['4'], updated: ['2'], removed: ['3'] }, unkeyed: 3 });
+    sameSchema(sql.columns, js.columns);
+  });
+
+  it('a row whose object keys arrived in a different order, bytes unchanged, is NOT updated on either engine — an object\'s key order is not a data fact', async () => {
+    const AFTER: Row[] = [
+      { day: '2026-04-05', id: 1, gone: 'x', amount: 10, name: 'ann' }, // same row, keys reordered
+      { id: 2, name: 'bob', amount: 20, day: '2026-04-06', gone: 'y' },
+      { id: 3, name: 'cy', amount: 30, day: '2026-04-07', gone: 'z' },
+      { id: 3, name: 'dup', amount: 31, day: '2026-04-07', gone: 'z' },
+      { id: null, name: 'nokey', amount: 0, day: null, gone: 'w' },
+    ];
+    const { sql, js } = await relandBoth(AFTER, 'id');
+    expect(sql.delta).toEqual(js.delta);
+    expect(sql.delta).toEqual({ keyed: true, key: 'id', added: 0, updated: 0, removed: 0, sample: { added: [], updated: [], removed: [] }, unkeyed: 4 });
+  });
+
+  it('a column whose semantic type moved for every row is a change on every shared key, on both engines — a value that changed type HAS changed', async () => {
+    const AFTER: Row[] = LEDGER.map((row) => ({ ...row, amount: String(row['amount']) }));
+    const { sql, js } = await relandBoth(AFTER, 'id');
+    expect(sql.delta).toEqual(js.delta);
+    expect(sql.delta).toEqual({ keyed: true, key: 'id', added: 0, updated: 3, removed: 0, sample: { added: [], updated: ['1', '2', '3'], removed: [] }, unkeyed: 4 });
+  });
+
+  it('a column dropped and a column added: the dropped one is stripped before the compare, the added one is a change to every shared key — identical', async () => {
+    const AFTER: Row[] = [
+      { id: 1, name: 'ann', amount: 10, day: '2026-04-05', flag: true },
+      { id: 2, name: 'bob', amount: 20, day: '2026-04-06', flag: false },
+    ];
+    const { sql, js } = await relandBoth(AFTER, 'id');
+    expect(sql.delta).toEqual(js.delta);
+    expect(sql.delta).toEqual({ keyed: true, key: 'id', added: 0, updated: 2, removed: 1, sample: { added: [], updated: ['1', '2'], removed: ['3'] }, unkeyed: 2 });
+    sameSchema(sql.columns, js.columns);
+    expect(sql.columns.map((c) => c.name)).toEqual(['id', 'name', 'amount', 'day', 'flag']);
+  });
+
+  it('a column dropped and nothing else: no row is "updated" for it, on either side', async () => {
+    const AFTER: Row[] = LEDGER.slice(0, 3).map(({ gone: _gone, ...rest }) => rest);
+    const { sql, js } = await relandBoth(AFTER, 'id');
+    expect(sql.delta).toEqual(js.delta);
+    expect(sql.delta).toEqual({ keyed: true, key: 'id', added: 0, updated: 0, removed: 0, sample: { added: [], updated: [], removed: [] }, unkeyed: 2 });
+  });
+
+  it('a DATE key: the sample keys are the ISO day the memory engine holds, not the epoch number DuckDB sends', async () => {
+    const AFTER: Row[] = [
+      { id: 1, name: 'ann', amount: 10, day: '2026-04-05', gone: 'x' },
+      { id: 9, name: 'new', amount: 90, day: '2026-04-09', gone: 'q' },
+    ];
+    const { sql, js } = await relandBoth(AFTER, 'day');
+    expect(sql.delta).toEqual(js.delta);
+    // old days: 05, 06, 07, 07 (repeat), null → three keyed, two unkeyed; new: 05 (same bytes), 09
+    expect(sql.delta).toEqual({ keyed: true, key: 'day', added: 1, updated: 0, removed: 2, sample: { added: ['2026-04-09'], updated: [], removed: ['2026-04-06', '2026-04-07'] }, unkeyed: 2 });
+  });
+
+  it('unkeyed: the table is replaced, and how many rows did it is the one number both report', async () => {
+    const { sql, js } = await relandBoth(LEDGER.slice(0, 2));
+    expect(sql.delta).toEqual(js.delta);
+    expect(sql.delta).toEqual({ keyed: false, replaced: 2 });
+  });
+
+  it('a key the new rows lack: both say the delta cannot be exact, in the same shape', async () => {
+    const { sql, js } = await relandBoth([{ name: 'zed', amount: 1, day: '2026-04-09' }], 'id');
+    expect(sql.delta).toEqual(js.delta);
+    expect(sql.delta).toEqual({ keyed: false, replaced: 1, keyAbsent: 'id' });
+  });
+
+  it('the mirror: a key column the OLD rows never carried at all — every old row is unkeyed, and every new key is added, on both engines', async () => {
+    const { sql, js } = await relandBoth(
+      [
+        { id: 1, name: 'ann', amount: 10, day: '2026-04-05', sku: 'a1' },
+        { id: 2, name: 'bob', amount: 20, day: '2026-04-06', sku: 'a2' },
+      ],
+      'sku',
+    );
+    expect(sql.delta).toEqual(js.delta);
+    expect(sql.delta).toEqual({ keyed: true, key: 'sku', added: 2, updated: 0, removed: 0, sample: { added: ['a1', 'a2'], updated: [], removed: [] }, unkeyed: 5 });
+  });
+
+  it('an empty new version removes every key on both sides — the memory engine keeps its key though zero rows show it no schema, the wasm engine keeps the old schema', async () => {
+    const { sql, js, live, held, table } = await relandBoth([], 'id');
+    expect(sql.delta).toEqual(js.delta);
+    expect(sql.delta).toEqual({ keyed: true, key: 'id', added: 0, updated: 0, removed: 3, sample: { added: [], updated: [], removed: ['1', '2', '3'] }, unkeyed: 2 });
+    const [a, b] = await Promise.all([live.evaluate(table, null, { mode: 'count' }), held.evaluate(table, null, { mode: 'count' })]);
+    expect([answered(a, 'wasm').count, answered(b, 'memory').count]).toEqual([0, 0]);
+  });
+
+  it('a SORTED window after the replace answers the same rows in the same order on both — the permutation the memory engine cached is gone, the schema the wasm engine remembered is re-read', async () => {
+    const { table, live, held } = await both();
+    const sort = [{ field: 'amount', dir: 'desc' as const }];
+    const before = await Promise.all([live.evaluate(table, null, { sort, limit: 5, indices: true }), held.evaluate(table, null, { sort, limit: 5, indices: true })]);
+    expect(answered(before[0], 'wasm').rows).toEqual(answered(before[1], 'memory').rows); // both cache something here
+    // the same five ids, the amounts reversed, one column gone: the refresh a row-count check cannot see
+    const AFTER: Row[] = LEDGER.map((row, i) => ({ id: row['id'], name: row['name'], amount: 50 - i * 10, day: row['day'] }));
+    const [sql, js] = [await live.replaceRows!(table, AFTER, { key: 'id' }), await held.replaceRows!(table, AFTER, { key: 'id' })];
+    if (isRejection(sql) || isRejection(js)) throw new Error(`refused: ${JSON.stringify([sql, js])}`);
+    expect(sql.delta).toEqual(js.delta);
+    const after = await Promise.all([live.evaluate(table, null, { sort, limit: 5, indices: true }), held.evaluate(table, null, { sort, limit: 5, indices: true })]);
+    const [real, mem] = [answered(after[0], 'wasm'), answered(after[1], 'memory')];
+    expect(real.rows).toEqual(mem.rows);
+    expect(real.indices).toEqual(mem.indices);
+    expect(real.rows?.map((r) => r['amount'])).toEqual([50, 40, 30, 20, 10]);
+    expect(real.rows?.[0]).toEqual({ id: 1, name: 'ann', amount: 50, day: '2026-04-05' }); // `gone` is gone on the wasm side too: the schema was re-read
+    const [cols, heldCols] = await Promise.all([live.columns(table), held.columns(table)]);
+    if (isRejection(cols) || isRejection(heldCols)) throw new Error('columns refused after the replace');
+    sameSchema(cols, heldCols);
+    // An UNSORTED window reads the NEW rows too, in the new source order — the
+    // replace's `SELECT * FROM staging` carries `__row` over unchanged.
+    const unsorted = await Promise.all([live.evaluate(table, null, { limit: 5, indices: true }), held.evaluate(table, null, { limit: 5, indices: true })]);
+    const [realUnsorted, memUnsorted] = [answered(unsorted[0], 'wasm'), answered(unsorted[1], 'memory')];
+    expect(realUnsorted.rows).toEqual(memUnsorted.rows);
+    expect(realUnsorted.rows?.map((r) => r['amount'])).toEqual([50, 40, 30, 20, 10]); // AFTER's own row order — the replace did not reshuffle it
+    // The replace COPIES `__row` from staging into the table — never doubles or
+    // shifts it: DESCRIBE names it exactly once.
+    const described = await connection.query(`DESCRIBE "${table}"`);
+    expect(described.filter((row) => row['column_name'] === '__row')).toHaveLength(1);
   });
 });

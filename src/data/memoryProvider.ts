@@ -21,6 +21,7 @@
 
 import { cellString } from './cellText.js';
 import { parseCSVTyped } from './csv.js';
+import { deltaByKey } from './delta.js';
 import { matchesClause, resolvePredicateSQL } from './predicate.js';
 import { TypeTally, columnTypes, columnar, foldOnce } from './fold.js';
 import {
@@ -38,6 +39,8 @@ import {
   type FindOptions,
   type FindResult,
   type PredicateClause,
+  type RelandOptions,
+  type RelandResult,
   type Row,
   type SortSpec,
 } from './types.js';
@@ -118,6 +121,29 @@ function storeColumnNames(store: TableStore): string[] {
 
 function storeRowCount(store: TableStore): number {
   return store.layout === 'row' ? store.rows.length : store.rowCount;
+}
+
+/** The schema as `columns()` answers it — one reader, so a reland reports the same names and types the next `columns()` call will. */
+function columnsOf(store: TableStore): readonly ColumnInfo[] {
+  return storeColumnNames(store).map((name): ColumnInfo => {
+    /* v8 ignore next -- the `?? 'unknown'` fallback is structurally unreachable: `storeColumnNames`
+     * and `columnTypes` are always populated in lockstep (construction derives both from the same
+     * rows/order snapshot; materializeColumn extends both together — see its two call sites below),
+     * so every name this map() sees already has a columnTypes entry. */
+    const type = store.columnTypes[name] ?? 'unknown';
+    return { name, type };
+  });
+}
+
+/** Every row of the store as a row object, in source order — the OLD side of a reland's compare. The row layout's own objects are borrowed (they are about to be let go of), the column layout's are materialised. */
+function allRowsOf(store: TableStore): readonly Row[] {
+  if (store.layout === 'row') return store.rows;
+  return Array.from({ length: store.rowCount }, (_, i) => rowAt(store, i));
+}
+
+/** A row restricted to `keep` — what an old row looks like once the columns the new rows do not carry are stripped from it. */
+function onlyColumns(row: Row, keep: ReadonlySet<string>): Row {
+  return Object.fromEntries(Object.entries(row).filter(([column]) => keep.has(column)));
 }
 
 /** Materialize a row object for index `i`, honoring an optional column projection. */
@@ -315,6 +341,9 @@ export function memoryProvider(
     // It answers over the SAME sort permutation a window walks, so a position a
     // find hands back is a position the next window can be opened at.
     canFind: true,
+    // It holds its rows as arrays, so a reland is a diff of two arrays and a swap
+    // of the store — in this process, in place, behind the same provider object.
+    canReland: true,
   };
   // one sort-permutation cache per table, keyed by the sort spec alone (see sortPermutation); least recently used evicted
   const keep = options.sortCache ?? SORT_CACHE_PER_TABLE;
@@ -351,14 +380,7 @@ export function memoryProvider(
     async columns(table) {
       const store = tableMap.get(table);
       if (!store) return reject('memory', 'columns', 'unknown-table', `no such table "${table}"`);
-      return storeColumnNames(store).map((name): ColumnInfo => {
-        /* v8 ignore next -- the `?? 'unknown'` fallback is structurally unreachable: `storeColumnNames`
-         * and `columnTypes` are always populated in lockstep (construction derives both from the same
-         * rows/order snapshot; materializeColumn extends both together — see its two call sites below),
-         * so every name this map() sees already has a columnTypes entry. */
-        const type = store.columnTypes[name] ?? 'unknown';
-        return { name, type };
-      });
+      return columnsOf(store);
     },
 
     async evaluate(
@@ -455,6 +477,35 @@ export function memoryProvider(
       // which a person searching a text column need never have named).
       if (hit === null) return { sql, matches, position: null };
       return { sql, matches, position: hit.position, ordinal: hit.ordinal, index: hit.index, row: rowAt(store, hit.index) };
+    },
+
+    async replaceRows(table: string, rows: readonly Row[], relandOptions: RelandOptions = {}): Promise<RelandResult | DataProviderRejection> {
+      const store = tableMap.get(table);
+      if (!store) return reject('memory', 'replaceRows', 'unknown-table', `no such table "${table}"`);
+      // The new store is built the way the old one was — the SAME layout, so a
+      // def that asked for columns keeps columns across a refresh (`Layout` is
+      // this provider's, not the table's) — and BEFORE the delta, so a build that
+      // throws leaves the old rows exactly where they were.
+      const fresh = build(rows);
+      const arrived = new Set(storeColumnNames(fresh));
+      const before = allRowsOf(store);
+      // Compared like with like, over the columns the new rows carry: a column the
+      // old rows had and the new do not (one an analysis materialised, or one the
+      // source dropped) is stripped before the compare — the caller reports it by
+      // name — never read as "every row updated". Stripped only when something IS
+      // gone: the common case borrows the old rows as they are. And never when the
+      // new version is EMPTY: this engine reads a schema off its rows, so zero rows
+      // know no columns at all — stripping to that would strip the KEY and report
+      // a table that was emptied as "nothing removed, every row unkeyed".
+      const gone = arrived.size > 0 && storeColumnNames(store).some((column) => !arrived.has(column));
+      const base = gone ? before.map((row) => onlyColumns(row, arrived)) : before;
+      const delta = deltaByKey(base, rows, relandOptions.key);
+      tableMap.set(table, fresh);
+      // A permutation was over the OLD rows. The cache checks a row COUNT, so a
+      // refresh that keeps the count and changes the values would otherwise
+      // serve a sorted window in the old order over the new rows.
+      sortCache.delete(table);
+      return { ok: true, delta, columns: columnsOf(fresh) };
     },
 
     async materializeColumn(table: string, name: string, values: readonly unknown[]) {

@@ -31,6 +31,8 @@
  * (a discriminated union member, `{ ok: false, reason, ... }`), never an
  * empty/undefined stand-in for "didn't work."
  */
+// WHY a type-only import from a module that imports this one: `RefreshDelta` is the answer `replaceRows` owes, and a type cycle is erased at compile time
+import type { RefreshDelta } from './delta.js';
 
 /** The three execution engines D24 names, plus the policy-driven seam. */
 export type Engine = 'memory' | 'wasm' | 'server' | 'auto';
@@ -592,6 +594,12 @@ export interface DataProviderCapabilities {
    * silently walked over in JavaScript by a caller filling the gap.
    */
   readonly canFind?: boolean;
+  /**
+   * Can this engine RE-LAND a table's rows in place ({@link DataProvider.replaceRows})
+   * and answer what changed? ABSENT = NO — the stub engines declare nothing and a
+   * refresh refuses them in words, never by rebuilding the table on another engine.
+   */
+  readonly canReland?: boolean;
 }
 
 /** Typed reason codes — every rejection names one; never a bare `false`/`undefined`. */
@@ -626,7 +634,7 @@ export type RejectionReason =
 export interface DataProviderRejection {
   readonly ok: false;
   readonly engine: ResolvedEngine;
-  readonly operation: 'evaluate' | 'find' | 'materializeColumn' | 'tables' | 'columns';
+  readonly operation: 'evaluate' | 'find' | 'materializeColumn' | 'replaceRows' | 'tables' | 'columns';
   readonly reason: RejectionReason;
   /** Human-facing detail. INERT — never parsed, never dispatched on (R12 firewall reused). */
   readonly detail?: string;
@@ -655,6 +663,30 @@ export function reject(
  */
 export function isRejection(value: unknown): value is { readonly ok: false } {
   return typeof value === 'object' && value !== null && (value as { ok?: unknown }).ok === false;
+}
+
+// ── A reland: one act, one answer, computed where the rows live. ──────────
+
+/**
+ * What {@link DataProvider.replaceRows} answers when the rows are in place.
+ *
+ * `delta` is the ONE shape every engine owes for it ({@link RefreshDelta}):
+ * counts and samples, never the rows. `columns` is the table's schema AFTER the
+ * replace, read from the new rows (the memory engine's tally; the wasm engine's
+ * re-DESCRIBE, or — when that cleanup step itself fails after the rows have
+ * already moved — the staging table's own schema, read a moment before the
+ * replace, which is byte-identical to it), so a caller that remembered the old
+ * names can say which are gone without a second call.
+ */
+export interface RelandResult {
+  readonly ok: true;
+  readonly delta: RefreshDelta;
+  readonly columns: readonly ColumnInfo[];
+}
+
+/** What a reland is told: the declared row key, if any — with it the delta is exact, without it the table is `replaced`. */
+export interface RelandOptions {
+  readonly key?: string;
 }
 
 // ── The DataProvider interface itself (D24 build step 1). ──────────────────
@@ -713,6 +745,26 @@ export interface DataProvider {
     clause: PredicateClause | readonly PredicateClause[] | null,
     options: FindOptions,
   ): Promise<FindResult | DataProviderRejection>;
+
+  /**
+   * REPLACE A TABLE'S ROWS IN PLACE, AND SAY WHAT CHANGED. The refresh law
+   * (src/data/README.md): a refresh is one act with one answer, and the engine
+   * that HOLDS the rows computes it — the memory engine diffs its arrays, the
+   * wasm engine lands a staging table and asks SQL; no row leaves either.
+   *
+   * OPTIONAL, the way `find` is: an engine that cannot re-land leaves the method
+   * off and `capabilities.canReland` absent, and the caller refuses in words.
+   * The provider stays the SAME object across the act, so nothing that holds a
+   * reference to it goes stale; every cache it keeps over the old rows (a sort
+   * permutation, a remembered schema) is dropped by the act itself.
+   *
+   * The compare runs over the columns the NEW rows carry: a column the old rows
+   * had and the new do not is stripped before the compare (a column an analysis
+   * materialised is not in the new bytes, and is reported by the caller, never
+   * read as "every row updated"); a column the new rows ADD is a change to every
+   * row that carries it.
+   */
+  replaceRows?(table: string, rows: readonly Row[], options?: RelandOptions): Promise<RelandResult | DataProviderRejection>;
 
   /**
    * R11's landing spot: land a computed column (e.g. an L3 analysis output)

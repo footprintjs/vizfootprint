@@ -22,5 +22,6 @@ export { httpSource } from './http.js';
 export type { HttpSourceOptions } from './http.js';
 export { openSource } from './open.js';
 export { fnv1a } from './hash.js';
-export { deltaByKey, DELTA_SAMPLE } from './delta.js';
-export type { RefreshDelta } from './delta.js';
+// WHY from data/: the delta is the shape the data port's `replaceRows` answers, so its owner is the folder that owns the port (`../data/delta.ts`); this barrel keeps naming it
+export { deltaByKey, DELTA_SAMPLE } from '../data/delta.js';
+export type { RefreshDelta } from '../data/delta.js';

@@ -17,7 +17,8 @@ import path from 'node:path';
 import { buildDashboard, buildDashboardAsync, validateDashboardDef, DashboardDefError } from './index.js';
 import { fakeSqlBackend, fakeSqlConnection, catalogRefusal } from '../data/sqlConnection.coverage.helpers.js';
 import { noConnectionRefusal, wasmBackend, wasmRowBytes, type WasmBackend } from './wasmBackend.js';
-import type { DashboardDef } from './index.js';
+import { notReloadableMessage } from './buildDashboard.js';
+import type { DashboardDef, SourceAdapter } from './index.js';
 import type { SqlConnection } from '../data/index.js';
 
 // ── The data: two tables, one of them on the SQL engine. ─────────────────
@@ -257,16 +258,110 @@ describe('a source table and the wasm engine — the ruling', () => {
     expect((await windowOf(dash, 'cases')).count).toBe(3);
   });
 
-  it('refresh refuses it rather than swapping the table onto the memory engine behind the reader’s back', async () => {
-    const dash = await buildDashboardAsync(sourced('wasm'), { openSqlConnection: async () => fakeSqlBackend() });
+  it('refresh re-lands it IN the SQL backend — the same provider, the same engine, never a memory table behind the reader’s back', async () => {
+    // A REAL DuckDB: the delta is SQL (`../data/sqlReland.ts`), and a fake
+    // backend that is not a SQL engine cannot answer it. No opener is passed, so
+    // this is the shipped path — `duckdbConnection()` under node — end to end.
+    let version = 'v1';
+    let rows: readonly Record<string, unknown>[] = CASES;
+    const moving: SourceAdapter = {
+      via: 'http',
+      open: async () => ({ capabilities: { live: false, pushdown: false as const }, snapshot: async () => ({ rows: [...rows], version, retrievedAt: 'now' }), close: async () => {} }),
+    };
+    const def: DashboardDef = {
+      ...defWith({ cases: { source: { format: 'rows', via: 'http', at: 'https://example.test/cases' }, engine: 'wasm', key: 'week' } } as DashboardDef['data']),
+      analyses: { by_disease: { builtin: 'aggregate', table: 'cases', name: 'by_disease', ops: 1, groupBy: ['disease'], measures: [{ as: 'n', expr: { op: 'count', args: [{ col: 'week' }] } }] } },
+      defaultTable: 'cases',
+    };
+    const dash = await buildDashboardAsync(def, { sources: [moving] });
+    try {
+      const s = dash.createSession();
+      await s.declareAnalysis('by_disease', { cause: { requestedBy: 'user', computedBy: 'user' } });
+      expect(s.tablesAt()).toEqual(['cases', 'by_disease']); // a derived table cut from the v1 rows
+
+      version = 'v2';
+      rows = [
+        { week: 1, disease: 'Lyme' },
+        { week: 2, disease: 'Zika' }, // moved
+        { week: 4, disease: 'Lyme' }, // new; week 3 is gone
+      ];
+      const answer = (await dash.refresh(['cases'])).tables['cases'];
+      expect(answer).toEqual({
+        changed: true,
+        from: 'v1',
+        to: 'v2',
+        retrievedAt: 'now',
+        rows: 3,
+        delta: { keyed: true, key: 'week', added: 1, updated: 1, removed: 1, sample: { added: ['4'], updated: ['2'], removed: ['3'] }, unkeyed: 0 },
+        derivedLost: ['by_disease'],
+      });
+      // the engine it reports is still the engine it runs on
+      expect(dash.engines).toEqual({ cases: 'wasm' });
+      expect(dash.sources['cases']?.version).toBe('v2');
+      // a window reads the NEW rows out of DuckDB, in the asked order — through the session opened BEFORE the refresh, which is the
+      // door-level face of "the provider is the same object": nothing that was holding it went stale (`../data/wasmProvider.test.ts` pins the object)
+      const after = await s.viewQuery({ table: 'cases', columns: ['week', 'disease'], sort: [{ field: 'week', dir: 'desc' }] });
+      expect(after.ok && after.rows).toEqual([
+        { week: 4, disease: 'Lyme' },
+        { week: 2, disease: 'Zika' },
+        { week: 1, disease: 'Lyme' },
+      ]);
+      // the declared tables are unchanged; the table cut from the old version is gone and was reported by name
+      expect(s.tablesAt()).toEqual(['cases']);
+      // …and the second refresh reads the same version as unchanged
+      expect((await dash.refresh(['cases'])).tables['cases']).toEqual({ unchanged: true, version: 'v2' });
+    } finally {
+      await dash.close();
+    }
+  });
+
+  it('a DECLARED column the new bytes drop is reported as materialisedLost even on wasm, where nothing was ever materialise()d — canMaterialize is false, so the list names only a column the source itself dropped', async () => {
+    let version = 'v1';
+    let rows: readonly Record<string, unknown>[] = [
+      { week: 1, disease: 'Lyme', severity: 'mild' },
+      { week: 2, disease: 'Zika', severity: 'severe' },
+    ];
+    const moving: SourceAdapter = {
+      via: 'http',
+      open: async () => ({ capabilities: { live: false, pushdown: false as const }, snapshot: async () => ({ rows: [...rows], version, retrievedAt: 'now' }), close: async () => {} }),
+    };
+    const def = defWith({ cases: { source: { format: 'rows', via: 'http', at: 'https://example.test/cases' }, engine: 'wasm', key: 'week' } } as DashboardDef['data']);
+    const dash = await buildDashboardAsync(def, { sources: [moving] });
+    try {
+      version = 'v2';
+      rows = [
+        { week: 1, disease: 'Lyme' }, // `severity` is gone — never materialize()d, just absent from the new bytes
+        { week: 2, disease: 'Zika' },
+      ];
+      const answer = (await dash.refresh(['cases'])).tables['cases'];
+      expect(answer).toMatchObject({ changed: true, materialisedLost: ['severity'] });
+    } finally {
+      await dash.close();
+    }
+  });
+
+  it('a backend that refuses the act: the door reports the engine’s own words, nothing moved, and the old rows are still served', async () => {
+    let version = 'v1';
+    const moving: SourceAdapter = {
+      via: 'http',
+      open: async () => ({ capabilities: { live: false, pushdown: false as const }, snapshot: async () => ({ rows: [...CASES], version, retrievedAt: 'now' }), close: async () => {} }),
+    };
+    const backend = fakeSqlBackend(); // not a SQL engine: it answers the delta statement with rows, never with the five numbers
+    const def = defWith({ cases: { source: { format: 'rows', via: 'http', at: 'https://example.test/cases' }, engine: 'wasm', key: 'week' } } as DashboardDef['data']);
+    const dash = await buildDashboardAsync(def, { sources: [moving], openSqlConnection: async () => backend });
+    version = 'v2';
     const answer = (await dash.refresh(['cases'])).tables['cases'];
-    expect(answer).toEqual({
-      refused: true,
-      reason: 'not-reloadable',
-      message: 'data["cases"] runs on the "wasm" engine — its rows were landed in a SQL backend at build, and this builder does not re-land them; close() this dashboard and build again to read the source afresh',
-    });
-    // the engine it reports is still the engine it runs on — the refusal is what keeps that true
-    expect(dash.engines).toEqual({ cases: 'wasm' });
+    expect(answer).toMatchObject({ refused: true, reason: 'not-reloadable' });
+    expect('refused' in answer! && answer.message).toContain('the reland delta for "cases" came back without a number for added');
+    expect(dash.sources['cases']?.version).toBe('v1'); // the version held is the one still served
+    expect(backend.asked.at(-1)).toBe('DROP TABLE IF EXISTS "__reland_cases"'); // the staging table did not outlive the refusal
+    expect((await windowOf(dash, 'cases')).count).toBe(3);
+  });
+
+  it('a stub engine is refused in the general sentence — the remedy is close() and a new build, because the rows cannot move without one', () => {
+    // No door builds a source table on a stub today (a source is routed to memory or wasm; a host provider on a source
+    // table is refused by `judgeProviders`), so the sentence is pinned at its owner: the one line the door will speak.
+    expect(notReloadableMessage('cases', 'server')).toBe('data["cases"] runs on the "server" engine, which cannot re-land rows — close() this dashboard and build again to read the source afresh');
   });
 });
 

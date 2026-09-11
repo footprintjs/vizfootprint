@@ -28,9 +28,9 @@ describe('memoryProvider — single-table construction (bare array, default tabl
     expect(await p.tables()).toEqual(['events']);
   });
 
-  it('capabilities are honest: canEvaluateSQL is false, canMaterialize is true, and it can sort AND find', () => {
+  it('capabilities are honest: canEvaluateSQL is false, canMaterialize is true, and it can sort, find AND re-land', () => {
     const p = memoryProvider(SAMPLE);
-    expect(p.capabilities).toEqual({ canEvaluateSQL: false, canMaterialize: true, canSort: true, canFind: true });
+    expect(p.capabilities).toEqual({ canEvaluateSQL: false, canMaterialize: true, canSort: true, canFind: true, canReland: true });
   });
 });
 

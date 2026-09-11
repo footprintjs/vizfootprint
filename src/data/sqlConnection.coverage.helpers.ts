@@ -105,6 +105,20 @@ function tableOf(sql: string): string | undefined {
   return found === null ? undefined : (found[1] ?? found[2]);
 }
 
+/**
+ * The two DDL shapes a RELAND runs (`sqlReland.ts`): a table becoming a copy of
+ * another (with `WHERE FALSE`, an empty copy), and a table going. Bookkeeping
+ * over the map, so the wasm engine's no-key reland — land, replace, drop,
+ * re-DESCRIBE — can be judged end to end here; the keyed delta is real SQL and
+ * is judged against a real DuckDB (`engineInvariant.test.ts`).
+ */
+function ddlOf(sql: string): { readonly kind: 'replace'; readonly table: string; readonly from: string; readonly empty: boolean } | { readonly kind: 'drop'; readonly table: string } | undefined {
+  const replaced = /^CREATE OR REPLACE TABLE "([^"]+)" AS SELECT \* FROM "([^"]+)"( WHERE FALSE)?$/.exec(sql);
+  if (replaced !== null) return { kind: 'replace', table: replaced[1]!, from: replaced[2]!, empty: replaced[3] !== undefined };
+  const dropped = /^DROP TABLE IF EXISTS "([^"]+)"$/.exec(sql);
+  return dropped === null ? undefined : { kind: 'drop', table: dropped[1]! };
+}
+
 /** The bytes as rows: what was landed, or what the CSV text says — parsed by this library's own reader, never a second one. */
 function rowsOfData(data: TableData): readonly Record<string, unknown>[] {
   return data.kind === 'rows' ? data.rows : parseCSVTyped(data.text).rows;
@@ -153,6 +167,17 @@ export function fakeSqlBackend(options: FakeBackendOptions = {}): FakeSqlBackend
       asked.push(sql);
       const failure = options.fail?.(sql);
       if (failure !== undefined) throw new Error(failure);
+      const ddl = ddlOf(sql);
+      if (ddl?.kind === 'drop') {
+        held.delete(ddl.table);
+        return [];
+      }
+      if (ddl?.kind === 'replace') {
+        const source = held.get(ddl.from);
+        if (source === undefined) throw new Error(catalogRefusal(ddl.from));
+        held.set(ddl.table, ddl.empty ? [] : source);
+        return [];
+      }
       const table = tableOf(sql);
       const rows = table === undefined ? undefined : held.get(table);
       if (rows === undefined) throw new Error(catalogRefusal(String(table)));

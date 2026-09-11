@@ -20,7 +20,8 @@ import { resolvePredicateSQL } from './predicate.js';
 import { findSQL, windowSQL } from './sqlWindow.js';
 import { isRejection, type DataProvider, type EvaluateOptions, type EvaluateResult, type FindOptions, type FindResult, type PredicateClause } from './types.js';
 import type { SqlConnection } from './sqlConnection.js';
-import { fakeSqlConnection as fake } from './sqlConnection.coverage.helpers.js';
+import { fakeSqlBackend, fakeSqlConnection as fake } from './sqlConnection.coverage.helpers.js';
+import { RELAND_KEY_COLUMN, dropStagingSQL, emptyStagingSQL, relandSQL, stagingTableOf } from './sqlReland.js';
 
 // ── The fake: one connection, a log of what it was asked. ────────────────
 //
@@ -106,8 +107,8 @@ describe('choosing the engine is not the same act as asking it something', () =>
     expect(provider.engine).toBe('wasm');
   });
 
-  it('declares what it DOES: real SQL, a real ORDER BY, a find, and no write-back', () => {
-    expect(wasmProvider().capabilities).toEqual({ canEvaluateSQL: true, canSort: true, canFind: true, canMaterialize: false });
+  it('declares what it DOES: real SQL, a real ORDER BY, a find, a reland, and no write-back', () => {
+    expect(wasmProvider().capabilities).toEqual({ canEvaluateSQL: true, canSort: true, canFind: true, canMaterialize: false, canReland: true });
   });
 });
 
@@ -488,6 +489,204 @@ describe('materializeColumn is refused by a declared capability, not by a missin
     const connection = fake();
     await over(connection).materializeColumn(TABLE, 'cluster_id', []);
     expect(connection.asked).toEqual([]); // nothing was asked of the backend to find that out
+  });
+});
+
+// ── RELAND: a refresh computed where the rows live. ──────────────────────
+//
+// The keyed delta is real SQL and is judged against a real DuckDB
+// (`engineInvariant.test.ts`). What is judged HERE is everything around it:
+// the order of the refusals, that no row is read out of the backend to be
+// diffed, that the old rows stay on every refusal, and that the no-key act —
+// land, replace, drop, re-DESCRIBE — runs through the one connection in that
+// order and leaves the SAME provider answering the new rows.
+
+const NEW_ROWS: readonly Record<string, unknown>[] = [
+  { week: 1, disease: 'Lyme', cases: 12 },
+  { week: 2, disease: 'Lyme', cases: 9 },
+];
+const STAGING = stagingTableOf(TABLE);
+
+async function refusedReland(provider: DataProvider, table: string, rows: readonly Record<string, unknown>[], key?: string): Promise<{ readonly reason: string; readonly detail: string }> {
+  const answer = await provider.replaceRows!(table, rows, key === undefined ? {} : { key });
+  if (!isRejection(answer)) throw new Error('the engine answered a reland it should have refused');
+  const rejection = answer as { readonly reason: string; readonly detail?: string; readonly operation: string };
+  expect(rejection.operation).toBe('replaceRows');
+  return { reason: rejection.reason, detail: rejection.detail ?? '(no detail)' };
+}
+
+describe('replaceRows — the refusals, in the order a caller meets them', () => {
+  it('a table nobody declared is refused before any connection is asked for', async () => {
+    let opens = 0;
+    const provider = wasmProvider({ sources: declared, open: async () => { opens += 1; return fake(); } });
+    expect(await refusedReland(provider, 'ghosts', NEW_ROWS, 'week')).toEqual({ reason: 'unknown-table', detail: 'no such table "ghosts" — this provider was declared with "cases"' });
+    expect(opens).toBe(0);
+  });
+
+  it('no connection at all is the constructor s own sentence', async () => {
+    expect((await refusedReland(wasmProvider({ sources: declared }), TABLE, NEW_ROWS)).detail).toBe(wasmConnectionRefusal(TABLE));
+  });
+
+  it('a connection that answers queries only cannot re-land: refused after the schema is read, and nothing is landed', async () => {
+    const connection = fake();
+    const rejection = await refusedReland(over(connection), TABLE, NEW_ROWS, 'week');
+    expect(rejection.reason).toBe('no-backend-connection');
+    expect(rejection.detail).toBe('the SQL connection this engine reads through cannot re-land "cases": it answers queries only (no load) — pass an opener that can (openSqlConnection: duckdbConnection())');
+    expect(connection.asked).toEqual([describeSQL]);
+  });
+
+  it('a table this engine did not load has no source order to compare first rows in — refused in the words find refuses it in', async () => {
+    const connection = { ...fake({ schema: [{ column_name: 'week', column_type: 'BIGINT' }] }), load: async () => {} };
+    const rejection = await refusedReland(over(connection), TABLE, NEW_ROWS, 'week');
+    expect(rejection.reason).toBe('unknown-column');
+    expect(rejection.detail).toBe('table "cases" has no column "__row" — a reland compares each key\'s first row in source order, and this engine\'s tables carry a source-order column assigned at load, so this table was not loaded by it');
+  });
+
+  it('a landing the backend refuses moves nothing: the cause is quoted, the old rows are still served', async () => {
+    const backend = fakeSqlBackend({ refuseLoad: (table) => (table === STAGING ? 'disk full' : undefined) });
+    await backend.load(TABLE, { kind: 'rows', rows: NEW_ROWS.slice(0, 1) });
+    const provider = over(backend);
+    const rejection = await refusedReland(provider, TABLE, NEW_ROWS, 'week');
+    expect(rejection.reason).toBe('no-backend-connection');
+    expect(rejection.detail).toBe('re-landing "cases" failed before any row moved: disk full — the table still holds its previous rows');
+    expect((await answered(provider, null, { mode: 'count' })).count).toBe(1);
+  });
+
+  it('a delta the backend answers without numbers is refused, the staging table is dropped, and the old rows are still served', async () => {
+    const backend = fakeSqlBackend(); // not a SQL engine: it answers a WITH statement with rows, never with the five numbers
+    await backend.load(TABLE, { kind: 'rows', rows: NEW_ROWS.slice(0, 1) });
+    const provider = over(backend);
+    const rejection = await refusedReland(provider, TABLE, NEW_ROWS, 'week');
+    expect(rejection.reason).toBe('no-backend-connection');
+    expect(rejection.detail).toContain('the reland delta for "cases" came back without a number for added — the backend answered');
+    expect(backend.asked.at(-1)).toBe(dropStagingSQL(STAGING));
+    expect(backend.landed.map((l) => l.table)).toEqual([TABLE, STAGING]); // landed, and never replaced
+    expect((await answered(provider, null, { mode: 'count' })).count).toBe(1);
+  });
+});
+
+// The canned fake with a loader spliced on: DESCRIBE answers the canned schema
+// (which carries `__row`), every other statement answers the canned rows — so
+// the KEYED act can be walked statement by statement and refused at any chosen
+// one. The numbers it answers are canned, which is the point: what is judged is
+// the ORDER of the statements, which one each refusal names, and that the old
+// rows and the staging table are handled the same way whichever statement broke.
+const loading = (options: Parameters<typeof fake>[0] = {}) => ({ ...fake(options), load: async () => {} });
+/** One row that answers the counts statement AND every sample statement — five numbers, and the raw key each sample reads. */
+const COUNTED: readonly Record<string, unknown>[] = [{ added: 1n, updated: 1, removed: 1, unkeyed: 0, keyed: 2, [RELAND_KEY_COLUMN]: 7 }];
+
+/** The statements a keyed reland of the canned schema renders — computed, never re-typed, so this suite cannot pass while the renderer and the engine drift apart. */
+async function keyedStatements(provider: DataProvider) {
+  const columns = await provider.columns(TABLE);
+  if (isRejection(columns)) throw new Error('the canned schema was refused');
+  return relandSQL(TABLE, STAGING, 'week', { old: columns, new: columns });
+}
+
+describe('replaceRows — the keyed act asks the renderer s statements in order, and reads the five numbers and three samples off the answers', () => {
+  it('DESCRIBE the staging table, counts, the three samples, replace, drop, re-DESCRIBE — and the delta is what the numbers said', async () => {
+    const connection = loading({ rows: COUNTED });
+    const provider = over(connection);
+    const statements = await keyedStatements(provider);
+    const before = connection.asked.length;
+    const answer = await provider.replaceRows!(TABLE, NEW_ROWS, { key: 'week' });
+    expect(answer).toMatchObject({ ok: true, delta: { keyed: true, key: 'week', added: 1, updated: 1, removed: 1, sample: { added: ['7'], updated: ['7'], removed: ['7'] }, unkeyed: 0 } });
+    expect(connection.asked.slice(before)).toEqual([
+      `DESCRIBE "${STAGING}"`,
+      statements.delta!.counts,
+      statements.delta!.samples.added,
+      statements.delta!.samples.updated,
+      statements.delta!.samples.removed,
+      statements.replace,
+      statements.drop,
+      describeSQL,
+    ]);
+  });
+
+  it('keyed 0 with rows in hand is keyAbsent — deltaByKey s own test — and no sample is asked for', async () => {
+    const connection = loading({ rows: [{ added: 0, updated: 0, removed: 3, unkeyed: 2, keyed: 0 }] });
+    const provider = over(connection);
+    const statements = await keyedStatements(provider);
+    const answer = await provider.replaceRows!(TABLE, NEW_ROWS, { key: 'week' });
+    expect(answer).toMatchObject({ ok: true, delta: { keyed: false, replaced: 2, keyAbsent: 'week' } });
+    expect(connection.asked).not.toContain(statements.delta!.samples.added);
+    expect(connection.asked.at(-2)).toBe(statements.drop);
+  });
+
+  it('a refusal BEFORE the replace — the staging DESCRIBE, the counts, any sample, the replace itself — drops the staging table and leaves the old rows', async () => {
+    const statements = await keyedStatements(over(loading({ rows: COUNTED })));
+    const breakable = [`DESCRIBE "${STAGING}"`, statements.delta!.counts, statements.delta!.samples.added, statements.delta!.samples.updated, statements.delta!.samples.removed, statements.replace];
+    for (const broken of breakable) {
+      const connection = loading({ rows: COUNTED, fail: (sql) => (sql === broken ? 'Out of Memory Error' : undefined) });
+      const provider = over(connection);
+      const rejection = await refusedReland(provider, TABLE, NEW_ROWS, 'week');
+      expect(rejection.reason).toBe('no-backend-connection');
+      expect(rejection.detail).toContain('Out of Memory Error');
+      expect(connection.asked.at(-1)).toBe(dropStagingSQL(STAGING));
+      expect(connection.asked.includes(statements.replace)).toBe(broken === statements.replace); // the replace was asked only when IT was the one that broke
+      expect(connection.asked.filter((sql) => sql === describeSQL)).toHaveLength(1); // the schema was never re-read: the old one still stands
+    }
+  });
+
+  it('a drop that fails AFTER the replace leaks the staging table but still answers ok — the rows already moved, and a refusal here would break RefreshOutcome\'s law that a refusal means nothing moved; the columns come from the staging table\'s own schema, read a moment before the replace, and the remembered schema is forgotten either way, so the next read re-DESCRIBEs the REAL table, never the leaked staging one', async () => {
+    const statements = await keyedStatements(over(loading({ rows: COUNTED })));
+    const connection = loading({ rows: COUNTED, fail: (sql) => (sql === statements.drop ? 'lock held' : undefined) });
+    const provider = over(connection);
+    const answer = await provider.replaceRows!(TABLE, NEW_ROWS, { key: 'week' });
+    expect(answer).toMatchObject({ ok: true, delta: { keyed: true, key: 'week', added: 1, updated: 1, removed: 1, sample: { added: ['7'], updated: ['7'], removed: ['7'] }, unkeyed: 0 } });
+    const before = connection.asked.length;
+    await provider.columns(TABLE);
+    expect(connection.asked.slice(before)).toEqual([describeSQL]);
+  });
+
+  it('a re-DESCRIBE that fails after the rows moved still answers ok, from the staging table\'s own schema read a moment before the replace — a refusal here would claim nothing moved when it did', async () => {
+    let described = 0;
+    const connection = loading({ rows: COUNTED, fail: (sql) => (sql === describeSQL && ++described === 2 ? 'catalog gone' : undefined) });
+    const answer = await over(connection).replaceRows!(TABLE, NEW_ROWS, { key: 'week' });
+    expect(answer).toMatchObject({ ok: true, delta: { keyed: true, key: 'week', added: 1, updated: 1, removed: 1, sample: { added: ['7'], updated: ['7'], removed: ['7'] }, unkeyed: 0 } });
+  });
+
+  it('a counts row without a number names the number it lacks — and no row at all lacks the first', async () => {
+    const connection = loading({ rows: [{ added: 1, updated: 'many' }] });
+    const rejection = await refusedReland(over(connection), TABLE, NEW_ROWS, 'week');
+    expect(rejection.detail).toContain('came back without a number for updated');
+    expect((await refusedReland(over(loading({ rows: [] })), TABLE, NEW_ROWS, 'week')).detail).toContain('came back without a number for added — the backend answered []');
+  });
+
+  it('zero rows whose empty copy the backend refuses: the cause is quoted as a landing that failed', async () => {
+    const connection = loading({ rows: COUNTED, fail: (sql) => (sql === emptyStagingSQL(TABLE, STAGING) ? 'read only' : undefined) });
+    const rejection = await refusedReland(over(connection), TABLE, [], 'week');
+    expect(rejection.detail).toMatch(/^re-landing "cases" failed before any row moved: .*read only.* — the table still holds its previous rows$/);
+  });
+});
+
+describe('replaceRows — the no-key act runs through the one connection, in order, and the same provider answers the new rows', () => {
+  it('land, DESCRIBE the staging table, replace, drop, re-DESCRIBE — and the delta is "replaced" by the count the caller handed over', async () => {
+    const backend = fakeSqlBackend();
+    await backend.load(TABLE, { kind: 'rows', rows: [{ week: 1, disease: 'Lyme' }] });
+    const provider = over(backend);
+    expect((await provider.columns(TABLE)) as unknown).toEqual([{ name: 'week', type: 'number' }, { name: 'disease', type: 'string' }]);
+    const before = backend.asked.length;
+    const answer = await provider.replaceRows!(TABLE, NEW_ROWS);
+    expect(answer).toEqual({ ok: true, delta: { keyed: false, replaced: 2 }, columns: [{ name: 'week', type: 'number' }, { name: 'disease', type: 'string' }, { name: 'cases', type: 'number' }] });
+    const statements = relandSQL(TABLE, STAGING, undefined, { old: [], new: [] });
+    expect(backend.asked.slice(before)).toEqual([`DESCRIBE "${STAGING}"`, statements.replace, statements.drop, describeSQL]);
+    expect(backend.landed.at(-1)).toEqual({ table: STAGING, data: { kind: 'rows', rows: NEW_ROWS } });
+    // the SAME object now answers the new rows: the schema was re-read, not remembered
+    expect((await answered(provider, null, { mode: 'count' })).count).toBe(2);
+    expect((await provider.columns(TABLE)) as unknown).toEqual(answer.ok ? answer.columns : []);
+  });
+
+  it('zero new rows are an EMPTY copy of the old table, so the schema is kept and nothing is landed through the loader', async () => {
+    const backend = fakeSqlBackend();
+    await backend.load(TABLE, { kind: 'rows', rows: NEW_ROWS });
+    const provider = over(backend);
+    await provider.columns(TABLE); // the schema is read once, here, so the reland's first statement is its own
+    const before = backend.asked.length;
+    const answer = await provider.replaceRows!(TABLE, []);
+    expect(answer).toMatchObject({ ok: true, delta: { keyed: false, replaced: 0 } });
+    expect(backend.asked[before]).toBe(emptyStagingSQL(TABLE, STAGING));
+    expect(backend.landed.map((l) => l.table)).toEqual([TABLE]);
+    expect((await answered(provider, null, { mode: 'count' })).count).toBe(0);
   });
 });
 

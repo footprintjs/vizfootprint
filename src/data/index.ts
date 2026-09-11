@@ -44,6 +44,8 @@ export type {
   PredicateClause,
   RejectionReason,
   ResolvedEngine,
+  RelandOptions,
+  RelandResult,
   Row,
   SortSpec,
   WalkAsk,
@@ -68,6 +70,14 @@ export type { WindowRefusalReason, WindowTableFacts } from './sqlWindow.js';
 // back is the offset the window opens at.
 export { findSQL, FIND_ORDINAL_COLUMN, FIND_POSITION_COLUMN } from './sqlWindow.js';
 export type { FindStatements } from './sqlWindow.js';
+// A refresh is computed where the rows live: the delta every engine owes
+// (`deltaByKey` is the memory engine's strategy; `vizfootprint/source` still
+// names it), and the statements the SQL engine asks it with — rendered once,
+// pinned byte for byte, no row leaving the database.
+export { deltaByKey, DELTA_SAMPLE } from './delta.js';
+export type { RefreshDelta } from './delta.js';
+export { relandSQL, emptyStagingSQL, dropStagingSQL, stagingTableOf, RELAND_KEY_COLUMN } from './sqlReland.js';
+export type { RelandColumns, RelandDeltaStatements, RelandStatements } from './sqlReland.js';
 export { quoteIdent } from './predicate.js';
 
 // The wire triple a commit carries, read as the clause it means — the one
