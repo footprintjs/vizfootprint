@@ -98,8 +98,12 @@ describe('facets', () => {
 
 describe('requirements', () => {
   it('layers def override > chart kind > by-name default > nothing', () => {
-    expect(requirementFor('line', 'x')!.scale).toBe('continuous');
+    // THE LAW (the door and the renderer agree, kind by kind): a line's x takes a category and fixes no
+    // scale — the frame draws a band line — while a scatter's x stays a number or a date, because the
+    // frame refuses a point on a band in words (both reasons sit at the entries, `CHART_REQUIREMENTS`)
+    expect(requirementFor('line', 'x')).toEqual({ channel: 'x', accepts: ['number', 'date', 'string', 'boolean'], notRoles: ['identifier'] });
     expect(requirementFor('scatter', 'x')!.accepts).toEqual(['number', 'date']);
+    expect(requirementFor('point', 'x')!.accepts).toEqual(['number', 'date']);
     expect(requirementFor('someKind', 'x')).toBe(DEFAULT_CHANNEL_REQUIREMENTS.find((r) => r.channel === 'x'));
     expect(requirementFor('bar', 'category')!.scale).toBe('discrete');
     expect(requirementFor('table', 'anything')).toBeUndefined();
@@ -112,10 +116,18 @@ describe('requirements', () => {
   it('requirementFailure judges type, scale, roles, notRoles — and stays silent on ignorance', () => {
     const view = line;
     const req = requirementFor('line', 'x')!;
-    expect(requirementFailure(facets.find((f) => f.field === 'disease')!, req, view, 'x')).toBe('"disease" is string; the x channel of a line needs a number or a date');
+    // a line's x takes a category now (the frame draws a band line), so the string passes it…
+    expect(requirementFailure(facets.find((f) => f.field === 'disease')!, req, view, 'x')).toBeUndefined();
+    expect(requirementFailure(facets.find((f) => f.field === 'flag')!, req, view, 'x')).toBeUndefined();
     expect(requirementFailure(facets.find((f) => f.field === 't')!, req, view, 'x')).toBeUndefined();
     expect(requirementFailure(facets.find((f) => f.field === 'mystery')!, req, view, 'x')).toBeUndefined();
-    expect(requirementFailure({ field: 'n', type: 'number', scale: 'discrete' }, req, view, 'x')).toBe('"n" is discrete; the x channel of a line needs a continuous column');
+    // …and the TYPE judgement is exercised where a kind still narrows it: a scatter's x is a number or a date
+    const scatter: EncodingSurface = { viewId: 'dots', chartKind: 'scatter', channels: ['x', 'y'] };
+    expect(requirementFailure(facets.find((f) => f.field === 'disease')!, requirementFor('scatter', 'x')!, scatter, 'x')).toBe('"disease" is string; the x channel of a scatter needs a number or a date');
+    // a line's x fixes no scale — a number the def declared discrete is a number to the frame (`frameScaleOf` folds by type), so the door does not refuse it either;
+    // the SCALE judgement is exercised on a requirement that carries one
+    expect(requirementFailure({ field: 'n', type: 'number', scale: 'discrete' }, req, view, 'x')).toBeUndefined();
+    expect(requirementFailure({ field: 'n', type: 'number', scale: 'discrete' }, { channel: 'x', scale: 'continuous' }, view, 'x')).toBe('"n" is discrete; the x channel of a line needs a continuous column');
     expect(requirementFailure({ field: 'id', type: 'number', role: 'identifier' }, req, view, 'x')).toBe('"id" is identifier — it cannot be the x of a line');
     expect(requirementFailure({ field: 'm', type: 'number', role: 'measure' }, { channel: 'q', roles: ['dimension', 'identifier'] }, view, 'q')).toBe('"m" is measure; the q channel of a line only takes a dimension or a identifier');
     expect(requirementFailure({ field: 'm', type: 'number' }, { channel: 'q', accepts: ['string'], sentence: 'custom {column} on {channel}' }, view, 'q')).toBe('custom m on q');
@@ -237,7 +249,8 @@ describe('fits', () => {
     expect(y.find((f) => f.field === 'report_state')!.because).toContain('absence is a category');
     expect(y.find((f) => f.field === 'disease')!.because).toContain('needs a number');
     expect(y.find((f) => f.field === 't')!.because).toBe('"t" is date; the y channel of a line needs a number');
-    expect(acceptsOf(fits)['x']).toEqual(['cases', 'ytd', 't', 'mystery']);
+    // a line's x takes a category (the frame draws a band line), so the string and the boolean fit it too; no recommender here, so the table's order
+    expect(acceptsOf(fits)['x']).toEqual(['disease', 'cases', 'ytd', 't', 'flag', 'mystery']);
     expect(Object.keys(fits)).toEqual(['x', 'y', 'color']);
   });
   it('a recommender ranks the fitting columns only; rules, others and an explainer ride through', () => {

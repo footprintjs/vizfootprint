@@ -20,7 +20,8 @@ const view: ViewView = {
   mounted: true,
   encoding: { x: 't', y: 'cases' },
   fits: {
-    x: [{ field: 't', ok: true }, { field: 'cases', ok: true }, { field: 'kind', ok: false, because: '"kind" is string; the x channel of a line needs a number or a date' }],
+    // a verdict the plane really gives: a line's x takes a category now (the band line), so the refusal a fixture can carry is the identifier's
+    x: [{ field: 't', ok: true }, { field: 'cases', ok: true }, { field: 'kind', ok: false, because: '"kind" is identifier — it cannot be the x of a line' }],
     y: [{ field: 'cases', ok: true }, { field: 'kind', ok: false, because: 'no' }],
     color: [{ field: 'kind', ok: true }],
   },
@@ -85,7 +86,7 @@ describe('ChartEditor', () => {
     const x = screen.getByRole('combobox', { name: 'x channel' }) as HTMLSelectElement;
     const kind = [...x.options].find((o) => o.value === 'kind')!;
     expect(kind.disabled).toBe(true);
-    expect(kind.textContent).toContain('needs a number or a date');
+    expect(kind.textContent).toContain('cannot be the x of a line');
     fireEvent.change(x, { target: { value: 'cases' } });
     expect(onReencode).toHaveBeenCalledWith('weeks', 'x', 'cases');
     fireEvent.change(x, { target: { value: 't' } }); // the current field: not an act

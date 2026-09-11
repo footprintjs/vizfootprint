@@ -25,8 +25,9 @@
  * the same rail via one documented cast — the src/data seam (`IntervalClause`)
  * types and evaluates `[string, string]` correctly.
  *
- * Axis labels open the {@link EncodingPicker}: x offers only DATE-capable
- * columns, y only numeric ones — disabled-with-reason via {@link lineCompat}.
+ * Axis labels open the {@link EncodingPicker}: x offers DATE-capable columns
+ * AND category columns (a string or a boolean — the band arm below), y only
+ * numeric ones — disabled-with-reason via {@link lineCompat}.
  *
  * A LINE ON A BAND (the same component, a second arm of {@link LinePoint}):
  * band versus run is a property of the x COLUMN, not of the mark. A point may
@@ -156,16 +157,24 @@ export interface VizLineProps {
 }
 
 /**
- * The line chart's channel/column compatibility: x takes only DATE-capable
- * columns (reported type `'date'`, or vouched for via `dateFields`), y takes
- * only numeric ones — each refusal names its reason (honest affordance).
- * Other channels (color …) fall through to {@link defaultCompat}.
+ * The line chart's channel/column compatibility: x takes a DATE-capable
+ * column (reported type `'date'`, or vouched for via `dateFields`) OR a
+ * CATEGORY column (`'string'`/`'boolean'`) — the door widened
+ * (`CHART_REQUIREMENTS.line.x`, `src/encoding/requirements.ts`) and this
+ * chart draws the band `lineMark` builds for one (the discriminated
+ * `LinePoint` union below), so the veto widens with it. A plain NUMBER stays
+ * refused: this chart has no numeric-run arm — every x it draws is a date
+ * (`Date.parse`) or a band, never a linear number line — so a column the
+ * session's door admits (a line's x also takes a number) can still be one
+ * this CHART cannot draw, and says so. y takes only numeric ones — each
+ * refusal names its reason (honest affordance). Other channels (color …)
+ * fall through to {@link defaultCompat}.
  */
 export function lineCompat(dateFields: readonly string[] = []) {
   return (channel: string, column: ColumnView): Compatibility => {
     if (channel === 'x') {
-      if (column.type === 'date' || dateFields.includes(column.field)) return { ok: true };
-      return { ok: false, reason: `the time axis needs a date column — "${column.field}" is ${column.type}` };
+      if (column.type === 'date' || column.type === 'string' || column.type === 'boolean' || dateFields.includes(column.field)) return { ok: true };
+      return { ok: false, reason: `the x of a line needs a date or a category column — "${column.field}" is ${column.type}` };
     }
     if (channel === 'y') {
       if (column.type === 'number') return { ok: true };

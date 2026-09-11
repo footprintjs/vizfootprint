@@ -74,7 +74,9 @@ describe('whatFits answers what the build answers', () => {
         refusals += problems.length;
       }
     }
-    expect(refusals).toBe(16); // the fixture really does refuse things; an all-ok sweep would prove nothing
+    // the fixture really does refuse things; an all-ok sweep would prove nothing. 16 before a line's x took a
+    // category: `disease` on x fits now, and `report_state` on x lost the incidental type problem it carried beside the absence law
+    expect(refusals).toBe(14);
   });
 
   it('and the same, end to end: describeTable → whatFits vs buildDashboard → lint', async () => {

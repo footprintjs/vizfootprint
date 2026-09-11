@@ -26,7 +26,7 @@
  * That split is why `assembleDef` is called by the judge itself: the honest way
  * to ask "would this be refused" is to make the thing and ask.
  */
-import { BUILTIN_ANALYSES, parseDashboardDef, proposeCharts, whatFits, type BuiltinAnalysisDecl, type BuiltinAnalysisName, type ChartProposal, type ChartProposals, type DashboardDef, type Fit, type FitColumn, type ProposalKind } from 'vizfootprint/def';
+import { BUILTIN_ANALYSES, parseDashboardDef, proposeCharts, whatFits, type BuiltinAnalysisDecl, type BuiltinAnalysisName, type ChartProposal, type ChartProposals, type DashboardDef, type EncodingRules, type Fit, type FitColumn, type ProposalKind } from 'vizfootprint/def';
 import { describeTable, parseCSV } from 'vizfootprint/data';
 import type { MakeAbsence, MakeAnalysis, MakeChartKind, MakeColumn, MakeDraft, MakeReading, MakeStepId, MakeView, StepVerdict } from './types.js';
 
@@ -52,6 +52,29 @@ export const MAKE_CHART_KINDS: Readonly<Record<MakeChartKind, { readonly channel
 
 /** The kinds in the order the picker offers them. */
 export const MAKE_CHART_KIND_NAMES: readonly MakeChartKind[] = ['bar', 'line', 'table'];
+
+/**
+ * WHAT THIS WIZARD'S OWN CHARTS TAKE, where that is narrower than the library's.
+ *
+ * The library's line takes a category on x since the def door and the frame
+ * renderer agreed on the band line (`CHART_REQUIREMENTS.line.x`,
+ * vizfootprint/src/encoding/requirements.ts). A MADE line does not draw one:
+ * `lineData` (./cells.tsx) sums the measure per bucket into DATED points, and
+ * `VizLine` skips a point whose x `Date.parse` cannot place — so a made line
+ * over `region` would draw nothing, in silence. The same law that widened the
+ * library's door narrows this one: a door and the chart behind it agree, and
+ * the seam for a host whose chart is narrower is the def's own requirement,
+ * which sits above the built-in (`encodingRules.channels`). ONE constant, read
+ * by every door this wizard walks — the offer (`proposalsFor`), the picker
+ * (`fitsForView`) and the made definition (`assembleDef`) — so the three
+ * cannot disagree about it. The day a made line learns the band (a category
+ * point beside the dated one), this entry goes and the sentence widens with it.
+ */
+export const MAKE_ENCODING_RULES: EncodingRules = {
+  channels: {
+    line: [{ channel: 'x', accepts: ['number', 'date'], notRoles: ['identifier'] }],
+  },
+};
 
 /**
  * What each builtin analysis asks for, so the picker is one loop rather than one
@@ -293,6 +316,9 @@ export function assembleDef(draft: MakeDraft): DashboardDef {
       },
     },
     actors: Object.fromEntries(draft.views.map((v) => [v.id, { actor: 'user' as const, ...(v.label.trim().length === 0 ? {} : { label: v.label.trim() }) }])),
+    // the wizard's own requirement rides on the definition, so a `reencode` against the made dashboard
+    // is judged by the same door the picker was (`MAKE_ENCODING_RULES`)
+    encodingRules: MAKE_ENCODING_RULES,
     // A view with no channels declares NO encoding surface, which is what the
     // library means by one: `channels` may not be empty, and a table binds
     // nothing. (The NNDSS demo's sheet is the same shape — an actor with no
@@ -322,6 +348,7 @@ export function fitsForView(draft: MakeDraft, view: MakeView): Readonly<Record<s
   return whatFits({
     columns: fitColumns(draft),
     ...(draft.absence === null ? {} : { absence: { field: draft.absence.field, states: [...draft.absence.states] } }),
+    rules: MAKE_ENCODING_RULES,
     chartKind: view.chartKind,
     channels: MAKE_CHART_KINDS[view.chartKind].channels,
     bindings: { ...view.bindings },
@@ -376,6 +403,7 @@ export function proposalsFor(draft: MakeDraft): ChartProposals {
   return proposeCharts({
     columns: fitColumns(draft),
     ...(draft.absence === null ? {} : { absence: { field: draft.absence.field, states: [...draft.absence.states] } }),
+    rules: MAKE_ENCODING_RULES,
     kinds: MAKE_PROPOSAL_KINDS,
     limit: MAKE_PROPOSALS,
   });

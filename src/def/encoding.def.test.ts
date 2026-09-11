@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DashboardDefError, buildDashboard, validateDashboardDef } from './index.js';
-import type { DashboardDef } from './index.js';
+import { DashboardDefError, buildDashboard, frameDomains, validateDashboardDef } from './index.js';
+import type { DashboardDef, LayerDecl } from './index.js';
 
 const rows = [
   { area: 'TX', disease: 'flu', cases: 3, ytd: 30, state: 'present', t: new Date('2026-01-04') },
@@ -61,11 +61,72 @@ describe('the def door (build throws) for the encoding plane', () => {
       'encodings[0].channels may not name "*" — it is reserved for a binding set',
     ]);
   });
-  it('types are not the def\'s to prove: a string on x passes the build door and is caught by lint() with the data', async () => {
-    const def: DashboardDef = { ...base, encodings: [{ viewId: 'line', chartKind: 'line', channels: ['x', 'y'], initial: { x: 'disease', y: 'cases' } }] };
+  it('THE LAW — the door and the renderer agree, kind by kind: a line over a string or a boolean column builds and lints clean; an identifier on it and a scatter over the string are still refused', async () => {
+    // Before this law the door refused a line over `disease` while the frame renderer drew it as a band line
+    // (a bar's slots with the line's points at their centres) — a capability hidden at declaration. Now the
+    // door accepts what the renderer draws: `CHART_REQUIREMENTS.line.x` takes a category and fixes no scale.
+    const line: DashboardDef = { ...base, encodings: [{ viewId: 'line', chartKind: 'line', channels: ['x', 'y'], initial: { x: 'disease', y: 'cases' } }] };
+    expect(validateDashboardDef(line)).toEqual([]);
+    expect(await buildDashboard(line).lint()).toEqual([]);
+    // …and with the TYPE declared, so the build door itself judges it (types the def declares are judged at build)
+    const declared: DashboardDef = { ...line, data: { cases: { ...base.data['cases']!, columns: { ...base.data['cases']!.columns, disease: { type: 'string', role: 'dimension' } } } } };
+    expect(validateDashboardDef(declared)).toEqual([]);
+    // a boolean folds as a category too (`frameScaleOf`), so it is a band line's x as well
+    const flagged: DashboardDef = {
+      ...base,
+      data: { cases: { ...base.data['cases']!, rows: rows.map((r, i) => ({ ...r, flag: i === 0 })) } },
+      encodings: [{ viewId: 'line', chartKind: 'line', channels: ['x', 'y'], initial: { x: 'flag', y: 'cases' } }],
+    };
+    expect(validateDashboardDef(flagged)).toEqual([]);
+    expect(await buildDashboard(flagged).lint()).toEqual([]);
+    // an identifier is still not a line's x — along a run it is a lie about order, and whether it makes an honest band is a question the entry does not take
+    expect(validateDashboardDef({ ...base, encodings: [{ viewId: 'line', chartKind: 'line', channels: ['x', 'y'], initial: { x: 'area', y: 'cases' } }] })).toEqual([
+      'encodings[0].initial.x: "area" is identifier — it cannot be the x of a line',
+    ]);
+    // a SCATTER over the string is still refused, in today's sentence: `VizScatter` draws no band in this version and the
+    // frame refuses a point on a band in words, so the door refusing it too is the two agreeing (`CHART_REQUIREMENTS.scatter.x`)
+    const dots: DashboardDef = { ...declared, actors: { ...base.actors, dots: { actor: 'user' } }, encodings: [{ viewId: 'dots', chartKind: 'scatter', channels: ['x', 'y'], initial: { x: 'disease', y: 'cases' } }] };
+    expect(validateDashboardDef(dots)).toEqual(['encodings[0].initial.x: "disease" is string; the x channel of a scatter needs a number or a date']);
+  });
+  it('the gallery figure, declared: a bar layer and a line layer on one frame, both binding one string column to x — builds, lints clean, and the frame folds ONE categorical x for the two bands', async () => {
+    // The figure packet U made drawable by hand (bars by year with a line of the mean over them) is now a
+    // DEFINITION: two layers, the same `year` on both x channels, and the frame's law 10 finds them agreeing
+    // (same table, same column). The fold is the one the ui adapter runs (`frameDomains`, the same door).
+    const sales = [
+      { year: '2019', count: 3, mean: 1.5 },
+      { year: '2020', count: 5, mean: 2.5 },
+      { year: '2021', count: 4, mean: 2 },
+    ];
+    const bars: LayerDecl = { layerId: 'bars', table: 'sales', chartKind: 'bar', channels: ['x', 'y'], initial: { x: 'year', y: 'count' } };
+    const mean: LayerDecl = { layerId: 'mean', table: 'sales', chartKind: 'line', channels: ['x', 'y'], initial: { x: 'year', y: 'mean' } };
+    const def: DashboardDef = {
+      data: { sales: { rows: sales, columns: { year: { type: 'string', role: 'dimension' }, count: { role: 'measure' }, mean: { role: 'measure' } } } },
+      actors: { fig: { actor: 'user' } },
+      encodings: [{ viewId: 'fig', chartKind: 'bar', channels: ['x', 'y'], layers: [bars, mean], frame: { x: { mode: 'shared' } } }],
+      defaultTable: 'sales',
+    };
+    expect(validateDashboardDef(def)).toEqual([]);
+    const built = buildDashboard(def);
+    expect(await built.lint()).toEqual([]);
+    expect(built.lintFrames()).toEqual([]);
+    // the two-bands law: two bands line up only off ONE category list, and the frame folds exactly one — the
+    // union of both layers' years in declaration order, `categorical` because a string folds as a category
+    const frame = frameDomains(
+      [bars, mean].map((layer) => ({
+        layerId: layer.layerId,
+        chartKind: layer.chartKind,
+        channels: { x: { type: 'string', values: sales.map((r) => r.year) }, y: { type: 'number', values: sales.map((r) => r[layer.initial!['y'] as 'count' | 'mean']) } },
+      })),
+      { x: { mode: 'shared' } },
+    );
+    expect(frame['x']).toMatchObject({ mode: 'shared', scale: 'categorical', domain: ['2019', '2020', '2021'] });
+    expect(frame['y']).toMatchObject({ scale: 'quantitative' });
+  });
+  it('types are not the def\'s to prove: a string on a scatter\'s x passes the build door and is caught by lint() with the data', async () => {
+    const def: DashboardDef = { ...base, actors: { ...base.actors, dots: { actor: 'user' } }, encodings: [{ viewId: 'dots', chartKind: 'scatter', channels: ['x', 'y'], initial: { x: 'disease', y: 'cases' } }] };
     expect(validateDashboardDef(def)).toEqual([]);
     const problems = await buildDashboard(def).lint();
-    expect(problems.map((p) => p.sentence)).toEqual(['"disease" is string; the x channel of a line needs a number or a date']);
+    expect(problems.map((p) => p.sentence)).toEqual(['"disease" is string; the x channel of a scatter needs a number or a date']);
     // a view that reads ANOTHER table's columns is not "missing a column" to lint — the same union the build door judges
     const twoTables: DashboardDef = {
       ...base,
@@ -82,7 +143,7 @@ describe('the def door (build throws) for the encoding plane', () => {
       encodings: [{ viewId: 'bar', chartKind: 'bar', channels: ['category'] }, { viewId: 'line', chartKind: 'line', channels: ['x', 'y'], initial: { x: 't', y: 'cases' } }],
     };
     expect(await buildDashboard(mixed).lint()).toEqual([]);
-    expect(problems[0]).toMatchObject({ viewId: 'line', channel: 'x', field: 'disease', severity: 'refused' });
+    expect(problems[0]).toMatchObject({ viewId: 'dots', channel: 'x', field: 'disease', severity: 'refused' });
     // and a lawful def lints clean, with the ports riding through
     const clean = await buildDashboard(base, { encoding: { explainer: { explain: () => 'never called' } } }).lint();
     expect(clean).toEqual([]);

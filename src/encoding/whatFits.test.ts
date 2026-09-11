@@ -20,7 +20,8 @@ describe('whatFits — what fits, before a build', () => {
     const fits = whatFits({ columns: COLUMNS, absence: ABSENCE, chartKind: 'line', channels: ['x', 'y', 'color'] });
     expect(Object.keys(fits)).toEqual(['x', 'y', 'color']);
     expect(acceptsOf(fits)).toEqual({
-      x: ['cases', 'ytd', 't', 'mystery'],
+      // a line's x takes a category (the frame draws a band line) — `disease` fits; the identifier and the absence column still do not
+      x: ['disease', 'cases', 'ytd', 't', 'mystery'],
       y: ['cases', 'ytd', 'mystery'],
       color: ['jurisdiction', 'disease', 'report_state', 'mystery'],
     });

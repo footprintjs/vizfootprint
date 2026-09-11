@@ -124,6 +124,48 @@ describe('lineRenderer', () => {
   });
 });
 
+describe('lineRenderer — a layerless line over a category (packet V, the blocking finding)', () => {
+  const CATEGORICAL_X: Readonly<Record<string, ResolvedChannel>> = {
+    x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'categorical', domain: ['TX', 'CA'] },
+  };
+  const TEMPORAL_X: Readonly<Record<string, ResolvedChannel>> = {
+    x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'temporal', domain: ['2026-05-01', '2026-05-02'] },
+  };
+
+  // THE BUG: `viewDraw` gave a layerless view `domain: {}` unconditionally — the only signal
+  // `lineMark` read for band-versus-run — so a line over a string x built DATED points no matter
+  // what the door had just accepted (`CHART_REQUIREMENTS.line.x`, widened this packet),
+  // `Date.parse` could not place "TX"/"CA", and every point was skipped: an svg with no line path.
+  it('draws a band line with the slot labels when the x column was folded as a category — no line path is the bug', () => {
+    const r = lineRenderer();
+    const { el, m } = mounted(r);
+    m.update({ ...state([{ area: 'TX', value: 3 }, { area: 'CA', value: 5 }], { x: 'area', y: 'value' }), frame: CATEGORICAL_X });
+    expect(el.querySelectorAll('path.vzf-line-path')).toHaveLength(1);
+    expect(el.querySelectorAll('.vzf-line-dot')).toHaveLength(2);
+    expect(el.textContent).toContain('TX');
+    expect(el.textContent).toContain('CA');
+    m.unmount();
+  });
+
+  // a plain view with NO frame at all (a host that folds none, or a bare `RenderState`) is
+  // completely unaffected: `sharedOn(undefined, 'x')` answers undefined, so `onBand` reduces to
+  // exactly what it always was, and a date draws the dated line byte-identically either way.
+  it('a date column still draws the dated line byte-identically, framed or not', () => {
+    const rows = [{ date: '2026-05-01', value: 1 }, { date: '2026-05-02', value: 2 }];
+    const bare = mounted(lineRenderer());
+    bare.m.update(state(rows, { x: 'date', y: 'value' }));
+    const barePath = bare.el.querySelector('path.vzf-line-path')!.getAttribute('d');
+    bare.m.unmount();
+
+    const withFrame = mounted(lineRenderer());
+    withFrame.m.update({ ...state(rows, { x: 'date', y: 'value' }), frame: TEMPORAL_X });
+    const framedPath = withFrame.el.querySelector('path.vzf-line-path')!.getAttribute('d');
+    withFrame.m.unmount();
+
+    expect(framedPath).toBe(barePath);
+  });
+});
+
 describe('barRenderer', () => {
   it('reads the category from the encoding and the count from a custom countField; non-numbers count 0', () => {
     const r = barRenderer({ countField: 'n' });

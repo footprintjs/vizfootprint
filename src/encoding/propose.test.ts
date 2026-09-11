@@ -78,7 +78,7 @@ describe('what an NNDSS-shaped table is offered', () => {
       channels: { x: 'week', y: 'cases' },
       cost: 0,
       reasons: {
-        x: 'the x of a line takes a number or a date; "week" is a date and x is an ordered axis — time is the thing an axis reads best',
+        x: 'the x of a line takes a number, a date, a string or a boolean; "week" is a date and x is an ordered axis — time is the thing an axis reads best',
         y: 'the y of a line takes a number; "cases" is a declared measure, and y carries a magnitude',
       },
     });
@@ -102,6 +102,25 @@ describe('what an NNDSS-shaped table is offered', () => {
     expect(proposals.map((p) => p.cost)).toEqual([...proposals.map((p) => p.cost)].sort((a, b) => a - b));
     expect(notEnumerated).toEqual([expect.stringContaining('proposals were found and the first 8 came back')]);
     expect(proposeCharts({ columns: COLUMNS, absence: ABSENCE, limit: 2 }).proposals.length).toBe(2);
+  });
+
+  it('a table of one category and one measure is offered its bar first and a line over the category LAST — with the reason, not by the table\'s order', () => {
+    // THE DOOR WIDENED (a line's x takes a category, `CHART_REQUIREMENTS.line.x`) and this file adds no rule of
+    // its own, so a line over the region IS proposed now — it was not before. WHERE it sits is the policy's:
+    // `an-order-on-an-axis` prefers the measure on x, so the region is the x offer at index 1 and the line
+    // costs 1, after every cost-0 kind. Pinned both with declarations and BARE, because without the rule the
+    // bare table (no roles, table order alone) was offered the line FIRST with a sentence saying nobody named it.
+    const declared = proposeCharts({ columns: [{ name: 'region', type: 'string', role: 'dimension' }, { name: 'sales', type: 'number', role: 'measure' }] });
+    expect(declared.proposals.map((p) => [p.chartKind, p.cost])).toEqual([['histogram', 0], ['bar', 0], ['boxplot', 0], ['map', 0], ['line', 1]]);
+    const line = declared.proposals.find((p) => p.chartKind === 'line')!;
+    expect(line.channels).toEqual({ x: 'region', y: 'sales' });
+    expect(line.reasons['x']).toBe('the x of a line takes a number, a date, a string or a boolean; no rule in this policy names "region" for x — it is offered among the columns no rule names, in the order the table lists them');
+    const bare = proposeCharts({ columns: [{ name: 'region', type: 'string' }, { name: 'sales', type: 'number' }] });
+    expect(bare.proposals.map((p) => [p.chartKind, p.cost])).toEqual([['histogram', 0], ['bar', 0], ['boxplot', 0], ['map', 0], ['line', 1]]);
+    // the bar's x reason is untouched: a preference for the ordered column, never a demotion of the category
+    expect(bare.proposals.find((p) => p.chartKind === 'bar')!.reasons['x']).toBe('the x of a bar takes a discrete column; no rule in this policy names "region" for x — it is offered among the columns no rule names, in the order the table lists them');
+    // and a scatter is still not offered a category: its x stays a number or a date (the frame refuses a point on a band)
+    expect(bare.proposals.some((p) => p.chartKind === 'scatter' || p.chartKind === 'point')).toBe(false);
   });
 
   it('never puts one column on two channels of one chart', () => {

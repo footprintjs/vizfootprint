@@ -442,12 +442,12 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('vizfootprint-ui ga
   }, 30_000);
 
   it("the line's axis pickers are honestly restricted; picking a numeric column re-encodes y", async () => {
-    // x: only date-capable columns — a numeric column is disabled WITH the reason
+    // x: a date or a category — a plain NUMERIC column is disabled WITH the reason (a line has no numeric-run arm)
     await page.locator('svg.vzf-line [data-axis-channel="x"]').click();
     await page.waitForSelector('[data-vzf-modal="encoding-picker"] [role="dialog"]');
     const priceOpt = page.locator('[data-vzf-modal="encoding-picker"] [data-field="price"]');
     expect(await priceOpt.isDisabled()).toBe(true);
-    expect((await priceOpt.getAttribute('title')) ?? '').toContain('needs a date column');
+    expect((await priceOpt.getAttribute('title')) ?? '').toContain('needs a date or a category column');
     const dateOpt = page.locator('[data-vzf-modal="encoding-picker"] [data-field="date"]');
     expect(await dateOpt.isDisabled()).toBe(false); // vouched for by the chart itself
     await page.keyboard.press('Escape');

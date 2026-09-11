@@ -174,7 +174,7 @@ interface Combination {
  * const { proposals } = proposeCharts({ columns, absence: { field: 'report_state', states } });
  * proposals[0];
  * // { chartKind: 'line', channels: { x: 't', y: 'cases' }, cost: 0,
- * //   reasons: { x: 'the x of a line takes a number or a date; "t" is a date and x is an ordered axis — …',
+ * //   reasons: { x: 'the x of a line takes a number, a date, a string or a boolean; "t" is a date and x is an ordered axis — …',
  * //              y: 'the y of a line takes a number; "cases" is a declared measure, and y carries a magnitude' } }
  * ```
  *

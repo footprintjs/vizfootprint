@@ -9,10 +9,11 @@
  * answers a select.
  */
 import { describe, it, expect } from 'vitest';
-import { buildDashboard, parseDashboardDef } from 'vizfootprint/def';
+import { buildDashboard, parseDashboardDef, whatFits } from 'vizfootprint/def';
 import {
   MAKE_CEILING_SENTENCE,
   MAKE_CHART_KINDS,
+  MAKE_ENCODING_RULES,
   MAKE_PROPOSALS,
   MAKE_PROPOSAL_KINDS,
   MAKE_STEPS,
@@ -171,13 +172,38 @@ describe('step 3 — visualize', () => {
     const fits = fitsForView(draft, LINE);
     // a line's x takes a magnitude OR a date, so the number column fits it too — the plane's rule, not this wizard's
     expect(fits['x']?.filter((f) => f.ok).map((f) => f.field)).toEqual(['quarter', 'sales']);
+    // …and the string does NOT — by THIS wizard's own rule (`MAKE_ENCODING_RULES`): the library's line takes a
+    // category on x (a band line), a made line draws dated points only, and a door agrees with the chart behind it
     const refusedX = fits['x']?.find((f) => f.field === 'region');
     expect(refusedX?.ok).toBe(false);
-    expect(refusedX?.because).toContain('"region"');
+    expect(refusedX?.because).toBe('"region" is string; the x channel of a line needs a number or a date');
 
     // the built-in absence law, reached through the same door
     const onY = fits['y']?.find((f) => f.field === 'report_state');
     expect(onY?.because).toContain('absence is a category, never a magnitude');
+  });
+
+  it('the wizard\'s line is a run, and it says so through the def\'s own requirement — the same rule at the offer, the picker and the made definition', () => {
+    // THE LAW (the door and the chart agree): the LIBRARY's door accepts a category on a line's x, because the
+    // frame renderer draws a band line; the wizard's `lineData` builds dated points only, so the wizard's door
+    // must not. The seam is the def's own requirement, above the built-in — one constant, three doors.
+    const draft = salesDraft();
+    expect(MAKE_ENCODING_RULES).toEqual({ channels: { line: [{ channel: 'x', accepts: ['number', 'date'], notRoles: ['identifier'] }] } });
+    // the library, asked WITHOUT the wizard's rule, would let the region through — the narrowing is deliberate and the wizard's
+    const library = whatFits({ columns: draft.columns, chartKind: 'line', channels: ['x'] });
+    expect(library['x']?.find((f) => f.field === 'region')?.ok).toBe(true);
+    // the picker refuses it in the library's sentence for the wizard's requirement
+    expect(misfit(draft, LINE, 'x', 'region')).toBe('"region" is string; the x channel of a line needs a number or a date');
+    // the offer never proposes a line over the region…
+    const { proposals } = proposalsFor({ ...draft, views: [] });
+    expect(proposals.some((p) => p.chartKind === 'line' && p.channels['x'] === 'region')).toBe(false);
+    // …and the made definition carries the rule, so a `reencode` against the built dashboard meets the same door
+    const def = assembleDef(draft);
+    expect(def.encodingRules).toEqual(MAKE_ENCODING_RULES);
+    expect(parseDashboardDef({ ...def, encodings: [{ viewId: LINE.id, chartKind: 'line', channels: ['x', 'y'], initial: { x: 'region', y: 'sales' } }] })).toMatchObject({
+      ok: false,
+      problems: ['encodings[0].initial.x: "region" is string; the x channel of a line needs a number or a date'],
+    });
   });
 
   it('a misfit is one sentence, and a column this table has not got is another', () => {

@@ -327,6 +327,15 @@ already unites every layer's own rows (`fullBandOrder`). The same line over the
 same bars with `year` typed as a `date` is the picture the frame still refuses —
 see the table below for its sentence.
 
+**The def door agrees.** A line's x takes a category at declaration too
+(`CHART_REQUIREMENTS.line.x`, `src/encoding/requirements.ts` — the door and
+the renderer agree, kind by kind), so this figure is a DEFINITION and not only
+a page built by hand: a bar layer and a line layer binding one string column to
+`x` build, lint clean, and fold one categorical x
+(`src/def/encoding.def.test.ts`). A scatter's x stays a number or a date at
+that door for the same reason — a point on a band is refused here, and the
+door refusing it too is the two agreeing.
+
 Not in this version: per-layer opacity/visible dials, annotation layers,
 re-encoding one layer of a frame, a map frame with an inset, a legend on a layer
 (a line split into series lays one inside its own box, so the frame refuses it —

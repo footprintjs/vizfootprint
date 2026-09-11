@@ -2,9 +2,17 @@
  * The built-in channel requirements — what each chart kind's channels accept
  * — and the merge that lets a def add or override them per kind. Two layers:
  * a requirement BY CHANNEL NAME that holds for any chart kind (x carries a
- * magnitude wherever it appears), and per-kind specifics on top (a line's x
- * is continuous, a heatmap's x is discrete). A def's `encodingRules.channels`
- * sits above both. A channel no layer mentions accepts anything.
+ * magnitude wherever it appears), and per-kind specifics on top (a bar's x
+ * is discrete, a scatter's is a number or a date). A def's
+ * `encodingRules.channels` sits above both. A channel no layer mentions
+ * accepts anything.
+ *
+ * THE LAW THIS TABLE KEEPS: the door and the renderer agree, kind by kind. A
+ * door that accepts what the renderer refuses sends a definition author into a
+ * refusal they cannot see at declaration; a door that refuses what the
+ * renderer draws hides a capability. So an entry here widens or narrows WITH
+ * the chart that draws the kind — never ahead of it, never behind it — and the
+ * reason sits at the entry.
  */
 import type { ChannelRequirement, ChannelRequirements } from './types.js';
 
@@ -35,7 +43,19 @@ const POSITION: Pick<ChannelRequirement, 'accepts' | 'notRoles'> = { accepts: ['
 /** Per chart kind, overriding the defaults channel by channel. `point` is the VL/Mosaic name for a scatter. */
 export const CHART_REQUIREMENTS: ChannelRequirements = Object.freeze({
   line: [
-    { channel: 'x', ...POSITION, scale: 'continuous' },
+    // A LINE'S X TAKES A CATEGORY. The frame renderer draws a line whose x is a
+    // string or a boolean as a BAND line — each point at its slot's centre, the
+    // segments connectors in slot order, claiming nothing between slots
+    // (`bandX`, ui/src/contract/renderers.tsx) — so the door accepts what the
+    // renderer draws. No `scale` is fixed here: the scale FOLLOWS THE COLUMN,
+    // continuous for a number or a date and discrete for a string or a boolean,
+    // which is exactly what the frame's fold decides on its own
+    // (`frameScaleOf`, ./frame.ts). `notRoles: ['identifier']` stays: an
+    // identifier along a run is a lie about order, and whether an identifier
+    // makes an honest BAND for a line is a separate question this entry does
+    // not take (a bar allows it; a line implies an ordering that means
+    // something).
+    { channel: 'x', accepts: ['number', 'date', 'string', 'boolean'], notRoles: ['identifier'] },
     { channel: 'y', ...QUANTITY },
     // A line draws without a colour — the colour SPLITS it into series. A
     // heatmap's colour, one entry down, is the value itself, so it is not
@@ -43,6 +63,13 @@ export const CHART_REQUIREMENTS: ChannelRequirements = Object.freeze({
     // here rather than in whoever enumerates them.
     { channel: 'color', scale: 'discrete', optional: true },
   ],
+  // A SCATTER'S X STAYS A NUMBER OR A DATE, deliberately, while a line's just
+  // widened: `VizScatter` places x on a run and draws no band in this version,
+  // and the frame refuses a point on a band in words ("a point chart draws no
+  // band in this version" — `stackRefusal`, ui/src/contract/renderers.tsx).
+  // The door refusing it too is the two AGREEING. When the scatter learns a
+  // band, this entry widens with it — and `point` is the same chart under its
+  // VL/Mosaic name, so the two entries move together.
   scatter: [
     { channel: 'x', ...POSITION },
     { channel: 'y', ...POSITION },

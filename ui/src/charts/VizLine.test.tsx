@@ -45,19 +45,28 @@ const DATA = [
 ];
 
 describe('lineCompat — the x/y channel restrictions', () => {
-  it('x accepts a reported date column, refuses others WITH the reason', () => {
+  // this chart has no numeric-run arm (every x it draws is a date or a band, never a linear
+  // number line), so a plain number stays refused even though the door's session admits it
+  it('x accepts a reported date column, refuses a NUMBER WITH the reason (this chart draws no numeric run)', () => {
     const compat = lineCompat();
     expect(compat('x', { field: 'shipped', type: 'date' }).ok).toBe(true);
     const bad = compat('x', { field: 'price', type: 'number' });
     expect(bad.ok).toBe(false);
-    expect(bad.reason).toContain('needs a date column');
+    expect(bad.reason).toContain('needs a date or a category column');
     expect(bad.reason).toContain('"price" is number');
   });
 
   it('x also accepts a column vouched for via dateFields (ISO strings report as "string")', () => {
     const compat = lineCompat(['date']);
     expect(compat('x', { field: 'date', type: 'string' }).ok).toBe(true);
-    expect(compat('x', { field: 'category', type: 'string' }).ok).toBe(false);
+  });
+
+  // THE WIDENED DOOR (a line's x takes a category, `CHART_REQUIREMENTS.line.x`): this chart draws
+  // it as a band (`lineMark`, the discriminated `LinePoint` union), so the veto widens with it
+  it('x now also accepts a category column outright — a string or a boolean — with no dateFields vouch needed', () => {
+    const compat = lineCompat();
+    expect(compat('x', { field: 'category', type: 'string' }).ok).toBe(true);
+    expect(compat('x', { field: 'flag', type: 'boolean' }).ok).toBe(true);
   });
 
   it('y accepts only numeric columns, refusing even dates WITH the reason', () => {
@@ -253,7 +262,7 @@ describe('VizLine — the time brush', () => {
 });
 
 describe('VizLine — the encoding picker', () => {
-  it('the x-axis picker enables ONLY date-capable columns (the current dateField is vouched for by default)', () => {
+  it('the x-axis picker enables date-capable AND category columns, refusing only the number (the current dateField is vouched for by default)', () => {
     const onReencode = vi.fn();
     render(<VizLine data={DATA} dateField="date" valueField="price" columns={COLS} onReencode={onReencode} />);
     fireEvent.click(screen.getByRole('button', { name: /Encode the x axis/ }));
@@ -261,19 +270,22 @@ describe('VizLine — the encoding picker', () => {
     // 'date' reports type 'string' but is vouched for; 'shipped' reports 'date'
     expect((within(dialog).getByRole('button', { name: /^date/ }) as HTMLButtonElement).disabled).toBe(false);
     expect((within(dialog).getByRole('button', { name: /shipped/ }) as HTMLButtonElement).disabled).toBe(false);
+    // 'category' (a string, the widened door) is offered now — this chart draws it as a band
+    expect((within(dialog).getByRole('button', { name: /^category/ }) as HTMLButtonElement).disabled).toBe(false);
     const price = within(dialog).getByRole('button', { name: /price/ }) as HTMLButtonElement;
     expect(price.disabled).toBe(true);
-    expect(price.getAttribute('title')).toContain('needs a date column');
+    expect(price.getAttribute('title')).toContain('needs a date or a category column');
     // picking the enabled date column fires the UI-0 verb
     fireEvent.click(within(dialog).getByRole('button', { name: /shipped/ }));
     expect(onReencode).toHaveBeenCalledWith('line', 'x', 'shipped');
   });
 
-  // REGRESSION (defect 1): the session's encoding plane admits ANY continuous
-  // column on a line's x (number or date), but this chart positions every
-  // point with Date.parse — a numeric column would be drawn as calendar years
-  // (week 12 ⇒ Dec 2001) and every value it cannot parse would be dropped in
-  // silence. When the host passes `fits`, the chart's own rule must still be
+  // REGRESSION (defect 1): the session's encoding plane admits a number, a date, a
+  // string or a boolean on a line's x (`CHART_REQUIREMENTS.line.x`), but this chart
+  // has no numeric-run arm — every x it positions is a date (`Date.parse`) or a
+  // band — so a numeric column would be drawn as calendar years (week 12 ⇒ Dec
+  // 2001) and every value it cannot parse would be dropped in silence. When the
+  // host passes `fits`, the chart's own rule must still be
   // able to veto, and say so.
   it('vetoes a NUMERIC x column the session would allow, and says who refused', () => {
     const onReencode = vi.fn();
@@ -293,7 +305,7 @@ describe('VizLine — the encoding picker', () => {
     const price = within(dialog).getByRole('button', { name: /price/ }) as HTMLButtonElement;
     expect(price.disabled, 'a number on a Date.parse axis is refused by the chart').toBe(true);
     expect(price.getAttribute('data-veto')).toBe('chart');
-    expect(price.textContent).toContain('the time axis needs a date column');
+    expect(price.textContent).toContain('the x of a line needs a date or a category column');
     expect(within(dialog).getByText(/greyed by this chart, not by the session/)).toBeTruthy();
     // the date columns the chart CAN draw are still offered and still land the verb
     fireEvent.click(within(dialog).getByRole('button', { name: /shipped/ }));

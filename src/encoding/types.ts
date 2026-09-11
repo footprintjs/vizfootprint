@@ -68,7 +68,7 @@ export interface ChannelRequirement {
   readonly channel: string;
   /** Column types the channel accepts. */
   readonly accepts?: readonly ColumnType[];
-  /** The scale the channel needs (a bar's category axis is discrete; a line's x is continuous). */
+  /** The scale the channel needs (a bar's x is discrete; a heatmap's x and y are discrete). A line's x fixes none — its scale follows the column (`requirements.ts`). */
   readonly scale?: ColumnScale;
   /** Roles the channel accepts (only checked when the column DECLARED a role). */
   readonly roles?: readonly ColumnRole[];

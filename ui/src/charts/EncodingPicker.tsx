@@ -8,10 +8,12 @@
  * verdicts (`fits`) say what the SESSION would accept; the chart's own
  * `compatible` rule says what THIS CHART can actually draw. They are not the
  * same question, and the session's answer is the wider one: the encoding plane
- * lets a line's x take any continuous column (number or date), while
- * {@link VizLine} positions every point with `Date.parse` — so a numeric
- * column the session admits would be plotted as calendar years, or dropped
- * where it cannot be parsed. The picker therefore offers the INTERSECTION:
+ * lets a line's x take a number, a date or a category (the FRAME draws a band
+ * line — `CHART_REQUIREMENTS.line.x`), while a standalone {@link VizLine}
+ * positions a DATED point with `Date.parse` and stands on a band only when
+ * its host built category points for it — so a numeric or a string column
+ * the session admits would be plotted as calendar years, or skipped where it
+ * cannot be parsed. The picker therefore offers the INTERSECTION:
  * the host's verdict first (its own sentence when it refuses), then the
  * chart's rule as a VETO over what the host allowed — and a vetoed column
  * says so in words (`data-veto="chart"` + a note under the list), never

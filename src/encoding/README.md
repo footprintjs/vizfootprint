@@ -43,7 +43,23 @@ encodingRules: {
 
 A **facet** is one column as the plane sees it: the provider's type (or a declared `type`, when the def knows an ISO string is a date), plus the declared role (`identifier | dimension | measure | absence`) and scale (`discrete | continuous`, derived from the type when not stated). A rule that needs a role does not match a column that never declared one — the validator refuses on evidence, never on ignorance.
 
-A **channel requirement** is what a chart kind's channel accepts: types, a scale, roles. The library ships one set by channel name (x carries a magnitude anywhere) and specifics per kind (a line's x is continuous, a heatmap's x is discrete). `encodingRules.channels` sits above both.
+A **channel requirement** is what a chart kind's channel accepts: types, a scale, roles. The library ships one set by channel name (x carries a magnitude anywhere) and specifics per kind (a bar's x is discrete, a scatter's is a number or a date). `encodingRules.channels` sits above both.
+
+**The door and the renderer agree, kind by kind.** A door that accepts what the renderer refuses sends a definition author into a refusal they cannot see at declaration; a door that refuses what the renderer draws hides a capability. So a requirement widens or narrows WITH the chart that draws the kind, and the reason sits at the entry (`CHART_REQUIREMENTS`, `requirements.ts`). The two entries that show the law from both sides:
+
+- **a line's x takes a category** — `accepts: ['number', 'date', 'string', 'boolean']`, and no `scale` is fixed: the frame renderer draws a line whose x is a string or a boolean as a *band line* (each point at its slot's centre, the segments connectors in slot order, claiming nothing between slots — `bandX`, `ui/src/contract/renderers.tsx`), so the scale follows the column, which is exactly what the fold decides on its own (`frameScaleOf`). `notRoles: ['identifier']` stays: an identifier along a run is a lie about order, and whether an identifier makes an honest band for a line is a question the entry does not take.
+- **a scatter's x stays a number or a date** — `VizScatter` draws no band in this version and the frame refuses a point on a band in words, so the door refusing it too is the two agreeing. When the scatter learns a band, that entry widens with it (`point` is the same chart under its VL/Mosaic name and moves with it).
+
+One door stays narrower than this table ON PURPOSE: the studio wizard's MADE line (`MAKE_ENCODING_RULES`, `studio/src/make/steps.ts`) still takes only a number or a date, because a made line sums a measure into DATED points and draws no band — the same law that widened `CHART_REQUIREMENTS.line.x` narrows the wizard's own `encodingRules.channels` above it, agreeing with the chart it actually draws. See `studio/src/make/README.md` for the full reasoning.
+
+```ts
+// the figure this makes declarable: bars by year with a line of the mean over them, one string column on both x channels
+encodings: [{ viewId: 'fig', chartKind: 'bar', channels: ['x', 'y'], frame: { x: { mode: 'shared' } }, layers: [
+  { layerId: 'bars', table: 'sales', chartKind: 'bar',  channels: ['x', 'y'], initial: { x: 'year', y: 'count' } },
+  { layerId: 'mean', table: 'sales', chartKind: 'line', channels: ['x', 'y'], initial: { x: 'year', y: 'mean' } },
+]}]
+// → builds, lints clean, and the frame folds ONE categorical x for the two bands (src/def/encoding.def.test.ts)
+```
 
 A **business rule** is a fact no chart kind can know: `never-on`, `never-together`, `only-with`. Each may carry its own sentence template.
 
@@ -57,7 +73,7 @@ One row per built-in chart kind — what it BINDS (a kind is not proposed while 
 
 | kind | binds | also takes |
 |---|---|---|
-| `line` | `x` a number or a date, continuous · `y` a number | `color`, discrete — a line draws without one |
+| `line` | `x` a number, a date, a string or a boolean — the scale follows the column (a category is a band line) · `y` a number | `color`, discrete — a line draws without one |
 | `scatter`, `point` | `x`, `y` a number or a date | — |
 | `histogram` | `x` a number or a date | — |
 | `bar`, `boxplot` | `x` discrete · `y` a number | — |
@@ -138,19 +154,20 @@ Two things are shapes, not strategies: a facet is declared on the column (a per-
 | 1 | `date-on-an-axis` | `x`, `y` | a `date` column | *"week" is a date and x is an ordered axis — time is the thing an axis reads best* |
 | 2 | `measure-on-a-magnitude` | any magnitude channel | role `measure` | *"cases" is a declared measure, and y carries a magnitude* |
 | 3 | `named-for-the-channel` | every channel | a name in the channel's own vocabulary (`CHANNEL_NAMES`) | *"jurisdiction" is named for the region channel — somebody called it that…* |
-| 4 | `dimension-on-a-category` | any category channel | role `dimension` | *"disease" is a declared dimension, and color carries a category* |
+| 4 | `an-order-on-an-axis` | `x`, `y` | a `continuous` column | *"sales" is continuous — it carries an order of its own, and x is an ordered axis; a category has no order to read along one* |
+| 5 | `dimension-on-a-category` | any category channel | role `dimension` | *"disease" is a declared dimension, and color carries a category* |
 | — | *the default* | — | everything else | *no rule in this policy names "report_state" for color — it is offered among the columns no rule names, in the order the table lists them* |
-| 5 | `an-identifier-last` | every channel | role `identifier` | *"jurisdiction" is a declared identifier, and one mark per row is a list rather than a chart…* |
+| 6 | `an-identifier-last` | every channel | role `identifier` | *"jurisdiction" is a declared identifier, and one mark per row is a list rather than a chart…* |
 
-**First match wins, and a rule either PREFERS a column or DEMOTES it** — both stated against the same middle, the columns no rule named at all. That is why the default sits between rules 4 and 5 in the table above: a rule's POSITION says who speaks first, and `place` says which side of the unnamed columns it speaks from. `placeIn(facet, channel)` returns the band as a number (negative preferred, `0` the default, positive demoted) beside the rule's id and its sentence.
+**First match wins, and a rule either PREFERS a column or DEMOTES it** — both stated against the same middle, the columns no rule named at all. That is why the default sits between rules 5 and 6 in the table above: a rule's POSITION says who speaks first, and `place` says which side of the unnamed columns it speaks from. `placeIn(facet, channel)` returns the band as a number (negative preferred, `0` the default, positive demoted) beside the rule's id and its sentence.
 
-Two consequences worth knowing. **Rule 3 reads a name, and where it sits took an argument**: below what the data and the declarations say about a column's type and its measure role, above "a dimension on a category", because nearly every discrete column is a dimension and `jurisdiction` is the more specific evidence about a map's geography. Order it the other way and an NNDSS map is offered `disease` for its region. And **a preference always beats a demotion**, which is what lets `jurisdiction` be a map's region while still being offered last on a hue.
+Three consequences worth knowing. **Rule 3 reads a name, and where it sits took an argument**: below what the data and the declarations say about a column's type and its measure role, above "a dimension on a category", because nearly every discrete column is a dimension and `jurisdiction` is the more specific evidence about a map's geography. Order it the other way and an NNDSS map is offered `disease` for its region. **Rule 4 exists because a line's x takes a category** (the door and the frame renderer agreed on the band line): membership widened, so the order had to say where a category sits on an axis — without it a bare `region + sales` table is offered a line over the region *first*, on the table's order alone. It is a preference for the ordered column and never a demotion of the category (a bar's x is made of categories, and "offered after" would be false there), which is why `proposeCharts` offers that table its bar first and the line over the category last. And **a preference always beats a demotion**, which is what lets `jurisdiction` be a map's region while still being offered last on a hue.
 
 Over an NNDSS-shaped table — `jurisdiction` (identifier), `disease` (dimension), `week` (date), `cases` and `ytd` (measures), `report_state` (the absence column):
 
 ```ts
 whatFits({ columns, absence, chartKind: 'line', channels: ['x', 'color'], ports: { recommender: policyRecommender() } });
-// x:     week, cases, ytd                    (a date, then the two measures)
+// x:     week, cases, ytd, disease           (a date, then the two measures, then the category a band line may stand on)
 // color: disease, report_state, jurisdiction (a dimension, then the unnamed, then the identifier)
 ```
 
@@ -166,7 +183,7 @@ proposals[0];
 // { chartKind: 'line',
 //   channels: { x: 'week', y: 'cases' },
 //   reasons: {
-//     x: 'the x of a line takes a number or a date; "week" is a date and x is an ordered axis — …',
+//     x: 'the x of a line takes a number, a date, a string or a boolean; "week" is a date and x is an ordered axis — …',
 //     y: 'the y of a line takes a number; "cases" is a declared measure, and y carries a magnitude' },
 //   cost: 0 }
 ```

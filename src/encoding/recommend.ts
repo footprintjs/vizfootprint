@@ -90,13 +90,28 @@ export const CHANNEL_NAMES: Readonly<Record<string, ReadonlySet<string>>> = Obje
 export const DEFAULT_RANKING_REASON = 'no rule in this policy names "{column}" for {channel} — it is offered among the columns no rule names, in the order the table lists them';
 
 /**
- * THE POLICY THIS LIBRARY SHIPS — five rules, in the order they speak.
+ * THE POLICY THIS LIBRARY SHIPS — six rules, in the order they speak.
  *
- * Four are facts about facets and the third is a fact about spelling; where
+ * Five are facts about facets and the third is a fact about spelling; where
  * that one sits is argued at {@link CHANNEL_NAMES}. Preferences first, then the
  * demotion: a rule that PREFERS a column always beats a rule that would have
  * demoted it, which is what makes "`jurisdiction` is what a map's region is"
  * survive "an identifier is a list rather than a chart".
+ *
+ * WHY the fourth rule exists (`an-order-on-an-axis`): a line's x takes a
+ * category since the door and the frame renderer agreed on the band line
+ * (`CHART_REQUIREMENTS.line.x`, `./requirements.ts`). Membership widened, so
+ * the ORDER had to say where a category sits on an axis — without this rule a
+ * bare `region + sales` table is offered a line over the region FIRST, on the
+ * table's order alone, with a sentence saying no rule named it. A column that
+ * carries an order of its own (a continuous scale: a number or a date not
+ * declared discrete) reads along an axis the way a category cannot, so it is
+ * preferred there — which is also why a line over a category is offered after
+ * the same columns' bar, never ahead of it. It sits below the name rule (a
+ * column somebody called `year` is the more specific evidence) and it is a
+ * PREFERENCE for the ordered column, not a demotion of the category: a bar's x
+ * takes categories only, and demoting every one of them would hang a false
+ * "offered after" on the column a bar is made of.
  *
  * A host may inspect this, replace it (`policyRecommender(myRules)`) or extend
  * it (`policyRecommender([...RANKING_POLICY.slice(0, 1), mine, ...])`) — it is
@@ -122,6 +137,13 @@ export const RANKING_POLICY: readonly RankingRule[] = Object.freeze([
     when: (facet, channel) => CHANNEL_NAMES[channel]?.has(facet.field.toLowerCase()) ?? false,
     place: 'first',
     because: '"{column}" is named for the {channel} channel — somebody called it that, which is the most specific thing anybody has said about it',
+  },
+  {
+    id: 'an-order-on-an-axis',
+    channels: ['x', 'y'],
+    when: (facet) => facet.scale === 'continuous',
+    place: 'first',
+    because: '"{column}" is continuous — it carries an order of its own, and {channel} is an ordered axis; a category has no order to read along one',
   },
   {
     id: 'dimension-on-a-category',

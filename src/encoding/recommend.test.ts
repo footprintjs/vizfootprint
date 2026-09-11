@@ -28,8 +28,8 @@ const ABSENCE = { field: 'report_state', states: ['present', 'unavailable', 'unk
 const facet = (over: Partial<ColumnFacet> & { readonly field: string }): ColumnFacet => ({ type: 'string', ...over });
 
 describe('the policy is data', () => {
-  it('is five rules, each with an id, a place and a sentence a person can read', () => {
-    expect(RANKING_POLICY.map((rule) => rule.id)).toEqual(['date-on-an-axis', 'measure-on-a-magnitude', 'named-for-the-channel', 'dimension-on-a-category', 'an-identifier-last']);
+  it('is six rules, each with an id, a place and a sentence a person can read', () => {
+    expect(RANKING_POLICY.map((rule) => rule.id)).toEqual(['date-on-an-axis', 'measure-on-a-magnitude', 'named-for-the-channel', 'an-order-on-an-axis', 'dimension-on-a-category', 'an-identifier-last']);
     expect(RANKING_POLICY.filter((rule) => rule.place === 'last').map((rule) => rule.id)).toEqual(['an-identifier-last']);
     for (const rule of RANKING_POLICY) expect(rule.because).toContain('{column}');
   });
@@ -38,10 +38,32 @@ describe('the policy is data', () => {
     // a preference — negative, and the earlier rule ranks lower
     expect(placeIn(facet({ field: 'week', type: 'date' }), 'x')).toEqual({
       rule: 'date-on-an-axis',
-      rank: -5,
+      rank: -6,
       reason: '"week" is a date and x is an ordered axis — time is the thing an axis reads best',
     });
-    expect(placeIn(facet({ field: 'cases', type: 'number', role: 'measure' }), 'y').rank).toBe(-4);
+    expect(placeIn(facet({ field: 'cases', type: 'number', role: 'measure' }), 'y').rank).toBe(-5);
+  });
+
+  it('prefers a column that carries an order of its own on an axis — so a line over a category is offered after the same columns\' bar, never ahead of it', () => {
+    // THE LAW behind the rule: a line's x takes a category now (the door and the frame renderer agree on
+    // the band line), so the policy has to say where a category sits on an axis. An undeclared number is
+    // continuous by its type, and it is preferred on x over an undeclared string with a sentence…
+    expect(placeIn(facet({ field: 'sales', type: 'number', scale: 'continuous' }), 'x')).toEqual({
+      rule: 'an-order-on-an-axis',
+      rank: -3,
+      reason: '"sales" is continuous — it carries an order of its own, and x is an ordered axis; a category has no order to read along one',
+    });
+    // …while the string falls to the default band (a PREFERENCE for the ordered column, never a demotion
+    // of the category — a bar's x is made of categories, and "offered after" would be false there)
+    expect(placeIn(facet({ field: 'region', type: 'string', scale: 'discrete' }), 'x')).toMatchObject({ rule: null, rank: 0 });
+    // a number the def declared DISCRETE (a zip code) carries no order to read, and is not preferred
+    expect(placeIn(facet({ field: 'zip', type: 'number', scale: 'discrete' }), 'x').rule).toBeNull();
+    // it speaks about the two axes only: a continuous column on `size` or `color` is nobody's business here
+    expect(placeIn(facet({ field: 'sales', type: 'number', scale: 'continuous' }), 'size').rule).toBeNull();
+    expect(placeIn(facet({ field: 'sales', type: 'number', scale: 'continuous' }), 'color').rule).toBeNull();
+    // and the earlier rules still speak first: a date is a date, a measure is a measure
+    expect(placeIn(facet({ field: 'week', type: 'date', scale: 'continuous' }), 'x').rule).toBe('date-on-an-axis');
+    expect(placeIn(facet({ field: 'cases', type: 'number', role: 'measure', scale: 'continuous' }), 'x').rule).toBe('measure-on-a-magnitude');
   });
 
   it('says out loud when no rule names a column', () => {
@@ -53,7 +75,7 @@ describe('the policy is data', () => {
 
   it('demotes an identifier below the columns no rule named, wherever one is allowed at all', () => {
     const placed = placeIn(facet({ field: 'jurisdiction', role: 'identifier' }), 'color');
-    expect(placed).toMatchObject({ rule: 'an-identifier-last', rank: 5 });
+    expect(placed).toMatchObject({ rule: 'an-identifier-last', rank: 6 });
     expect(placed.reason).toContain('one mark per row is a list rather than a chart');
   });
 
@@ -138,8 +160,9 @@ describe('the law: ordering only, never membership', () => {
   });
 
   it('and changes the order, which is the whole of what it is for', () => {
-    expect(acceptsOf(plain)['x']).toEqual(['week', 'cases', 'ytd']);
-    expect(acceptsOf(ranked)['x']).toEqual(['week', 'cases', 'ytd']);
+    // a line's x admits the dimension string too (the band line): the table lists it first, the policy offers it last
+    expect(acceptsOf(plain)['x']).toEqual(['disease', 'week', 'cases', 'ytd']);
+    expect(acceptsOf(ranked)['x']).toEqual(['week', 'cases', 'ytd', 'disease']);
     expect(acceptsOf(plain)['color']).toEqual(['jurisdiction', 'disease', 'report_state']);
     expect(acceptsOf(ranked)['color']).toEqual(['disease', 'report_state', 'jurisdiction']);
   });

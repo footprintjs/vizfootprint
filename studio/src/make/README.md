@@ -71,7 +71,13 @@ Four things about that offer, and none of them are this package's ideas:
   facts only the wizard knows: which kinds it can DRAW (`MAKE_PROPOSAL_KINDS` —
   a made bar binds `category` and counts rows, where the library's binds `x` and
   `y`, so a proposal it cannot draw is never asked for) and how many offers are
-  worth reading (`MAKE_PROPOSALS`).
+  worth reading (`MAKE_PROPOSALS`) — plus one requirement of its own where a
+  made chart is NARROWER than the library's (`MAKE_ENCODING_RULES`): the
+  library's line takes a category on x, because its frame renderer draws a band
+  line, and a made line sums into dated points only, so the wizard's line says
+  *a number or a date* through `encodingRules.channels`, the def's seam above
+  the built-in. The one constant rides the offer, the picker and the made
+  definition alike, so the three doors cannot disagree about it.
 - **Nothing is chosen.** No offer is selected, pre-taken or defaulted; pressing
   Next with none taken is the ordinary *this dashboard has no charts yet*.
 - **Taking one is the same act as building one.** `viewFromProposal` produces

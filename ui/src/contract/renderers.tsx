@@ -150,6 +150,17 @@ interface MarkDraw {
   readonly domain: ChartDomain;
   /** `false` while the FRAME draws one merged guide for the stack. */
   readonly axes: boolean;
+  /**
+   * PROTOCOL 1.5's fold, PASSED THROUGH RAW — `RenderState.frame`, unread by
+   * every mark but `lineMark`. A plain view binds no `layers`, so nothing here
+   * builds it a `FramedLayer` to ask `xBinding`/`bandX` the layered path's
+   * question ("is this layer's x a band?") — but a host can still fold ONE
+   * channel's scale for a plain view the same door folds it for a stack
+   * (`frameFor`, `ui/src/adapter/frame.ts` — "first customers: … the gallery
+   * page"), and when it does, this is where that answer rides to the mark
+   * that needs it, unread by the ones that don't.
+   */
+  readonly frame?: Readonly<Record<string, ResolvedChannel>>;
 }
 
 /** A whole view as one mark's material: its rows, its voice, its own extents, its own guide. */
@@ -164,6 +175,7 @@ function viewDraw(state: RenderState, handshake: HostHandshake): MarkDraw {
     callbacks: handshake.callbacks,
     domain: {},
     axes: true,
+    frame: state.frame,
   };
 }
 
@@ -252,17 +264,30 @@ export function lineRenderer(options: LineRendererOptions = {}): Renderer {
 }
 
 /**
- * One layer (or one view) of a line. Its points carry a CATEGORY when the frame
- * handed this layer a band order (`domain.categories` — `layerDomain` gives it
- * exactly when the column this layer binds to x was folded as categorical) and
- * a DATE otherwise: band versus run is the x column's, read off the fold, never
- * off a prop of the mark.
+ * One layer (or one view) of a line. Its points carry a CATEGORY when the x
+ * column was folded as one — `domain.categories` when a multi-layer FRAME
+ * merged a band order for the stack (`layerDomain` gives it exactly when the
+ * column this layer binds to x was folded as categorical), or `d.frame`'s own
+ * resolution of the `x` channel for a PLAIN view with no stack to merge one
+ * from (`sharedOn` — the SAME test the layered path asks through
+ * `xBinding`/`bandX`, so a line never answers "is my x a band" two ways) —
+ * and a DATE otherwise: band versus run is the x column's, read off the fold,
+ * never off a prop of the mark.
+ *
+ * THE BUG THIS SECOND ARM FIXES: `viewDraw` builds no band order of its own
+ * to merge (there is no stack), so a layerless view's `domain.categories` was
+ * ALWAYS undefined — a line over a category the door had just accepted built
+ * DATED points regardless, `Date.parse` could not place "flu" or "TX", and
+ * every point was silently skipped. The door and the renderer agreeing is
+ * exactly what this packet's law requires — pinned in `renderers.test.tsx`,
+ * describe('lineRenderer — a layerless line over a category (packet V, the
+ * blocking finding)').
  */
 function lineMark(d: MarkDraw, options: LineRendererOptions): JSX.Element {
   const dateField = boundField(d.encodings, 'x', 'date');
   const valueField = boundField(d.encodings, 'y', 'value');
   const seriesField = d.encodings['color'];
-  const onBand = d.domain.categories !== undefined;
+  const onBand = d.domain.categories !== undefined || sharedOn(d.frame, 'x')?.scale === 'categorical';
   const data = d.rows.map((r) => ({
     ...(onBand ? { category: String(r[dateField]) } : { date: String(r[dateField]) }),
     value: num(r[valueField]),
