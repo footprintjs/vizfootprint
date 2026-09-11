@@ -15,7 +15,7 @@
  * malformed relation is skipped here and refused by name on its own line
  * (`./relations.ts`).
  */
-import { mintedTables } from './builtinAnalyses.js';
+import { mintedColumnNames, mintedTables } from './builtinAnalyses.js';
 import type { ReachRelation, TableReach } from '../links/index.js';
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -40,8 +40,9 @@ export function tableReachOf(def: unknown): TableReach {
   const columns: Record<string, readonly string[]> = {};
   // A table an ACT mints knows its whole column list by declaration (`mintedTables`
   // — the group columns then the measures), which is the one list this reader can
-  // trust in full.
-  if (isObject(def)) for (const [table, minted] of mintedTables(def)) columns[table] = minted.columns;
+  // trust in full. NAMES only: reach is a question about which columns EXIST and
+  // which relation ties two tables, and a type has no bearing on either answer.
+  if (isObject(def)) for (const [table, minted] of mintedTables(def)) columns[table] = mintedColumnNames(minted);
   // …and a DECLARED table is judged by its declared `columns` when it has them —
   // the same conditional the relation door already applies (`./relations.ts`, law
   // 2: a table that declares no columns is judged post-build, never here).

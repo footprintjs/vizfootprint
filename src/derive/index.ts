@@ -28,6 +28,7 @@ export type { DateUnit } from './dates.js';
 export { addOf, daysInMonth, dayOf, diffOf, epochDayOf, isoOf, isoOfMoment, partsOf, truncOf, weekdayOf, weekOf, weekStartOf } from './dates.js';
 
 export { judgeDerivedColumn, judgeExpr, MAX_TREE_DEPTH, MAX_TREE_NODES } from './judge.js';
+export { resultTypeOf } from './resultType.js';
 
 export type { GroupAnswer } from './walk.js';
 // `evaluateRow` and `readerFor` keep the absence law's SECOND half — the state column GOVERNING each

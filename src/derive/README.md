@@ -38,6 +38,8 @@ mod: { category: 'arithmetic', least: 2, most: 2, takes: 'two arguments', wants:
        strict: true, of: (c) => num(c, 0) % num(c, 1) }
 ```
 
+**`yields` is load-bearing beyond the walker.** It used to be read only here — by the judge, to settle a derived column's type. It is now also read by the DEF door: `resultTypeOf` (`./resultType.ts`) applies the same rule to an aggregate's measures so a minted table's columns arrive at the encoding plane TYPED (`../def/README.md`, "Layers", law 5a). Two consequences for anybody adding or changing a row. First, a `yields` that is wrong is now wrong at the def door too — a channel would accept a binding it should refuse, or refuse one it should accept, before a single row is folded. Second, `resultTypeOf` is TOTAL where the judge refuses: it answers `'unknown'` for anything it cannot settle without running, so a new row needs no edit there, and `'args'` — "the type of what I reduce" — is resolved from the parent's declared columns, or `'unknown'` when the parent never said. The one owner of the rule is `yieldOf` in `./judge.ts`, which both readers call. `resultTypeOf` also keeps the two structural laws that sit BESIDE `yields` in the judge — an `ordered` position needs a type that has an order (a `min`/`max` over a boolean is refused, not merely disagreed with) and a reducer may not stand inside another reducer's own argument — because a type answer for a tree the judge refuses outright, whatever its type, would be exactly the confident wrong answer this reader exists to never give.
+
 The arity is written twice because neither should have to be derived from the other — the formula's own function table settled that, and it is why its refusals read like sentences. Adding an op is adding a row: the judge, the walker and the sentence writer all read the table and none of them needs an edit — plus the one edit outside the table, `OPS_VERSION` in `types.ts`, because a new row grows the vocabulary and a record written against it must not claim to be the old one. A build reads only declarations written against its own version; any other is refused by name.
 
 **Fifty-one ops, in nine categories:**
@@ -427,7 +429,7 @@ The filter's two sentences are the derived column's own (`over.where`), under th
   // the def validates; a field the act does not land is refused — `"ghost" is not a column of the table`
   // and until the act lands, a probe on that layer is the typed gap `needs-act`, naming `byDisease`
   ```
-  The columns are judged for EXISTENCE only: a minted column's TYPE is this act's to answer when it runs (the clause above), and the def has no `ColumnDecl` for it to hold it to.
+  The columns are judged for existence AND for TYPE, because the declaration already states both: a group column keeps the parent's declared type and a measure takes what its reducer `yields` — so `y: 'disease'` on that bar earns `"disease" is string; the y channel of a bar needs a number` at the DEF door. `resultTypeOf` (`./resultType.ts`) is the reader; `../def/README.md` ("Layers", law 5a) is the law and its three rules. What the def still has no `ColumnDecl` for is FACETS: no role, no scale, no unit.
 
 ## What the walker checks, and what it does not
 
@@ -452,6 +454,7 @@ A reducer node reached with NO group under it is absent, rather than a number no
 | `ops.ts` | THE op table: 51 rows, six fields each, plus the four reserved names — and `REDUCER_OPS`, the folding subset read off the table itself, which is what a measure picker offers |
 | `dates.ts` | the calendar arithmetic: ISO parsing, MMWR and ISO weeks, truncate/add/difference |
 | `judge.ts` | is this a column, and what type is it — one sentence, never a throw; and `columnsHave`, the one ending every refusal about a missing column shares |
+| `resultType.ts` | the same question the judge answers, asked by a DOOR that may not refuse: what type does this tree land over a table's DECLARED column types — total, with an honest `'unknown'` |
 | `walk.ts` | one row through one tree, and the absence law |
 | `groups.ts` | a GROUP of rows through one tree: two passes, the tallies, the broadcast — and `groupRowsOf`, pass one stopping before the broadcast: one row per group |
 | `words.ts` | the tree as a sentence, in the table's own words |

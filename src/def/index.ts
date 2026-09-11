@@ -17,7 +17,7 @@ export type { ParsedDashboardDef } from './validate.js';
 export { BUILTIN_ANALYSES, BuiltinAnalysisError, isBuiltinRecord, validateBuiltinAnalysis, buildBuiltinAnalysis } from './builtinAnalyses.js';
 // Which tables the declared ACTS land, read off the declaration — the one owner
 // every door that judges a table name reads (./README.md, "Layers", law 2).
-export { mintedTables } from './builtinAnalyses.js';
+export { mintedColumnNames, mintedTables } from './builtinAnalyses.js';
 export type { MintedTable } from './builtinAnalyses.js';
 export type { BuiltinAnalysisDecl, BuiltinAnalysisName, GroupByDecl, CorrelationDecl, RegressionDecl, ClusteringDecl, FormulaDecl, LayoutDecl, BringOverDecl, DeriveDecl, AggregateDecl, BuiltinAnalysisContext } from './builtinAnalyses.js';
 // The DECLARATION a `derive` record carries, from the barrel that owns the

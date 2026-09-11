@@ -727,7 +727,7 @@ export function validateDashboardDef(def: unknown): string[] {
         // the frame — per channel, how its scale is resolved across those layers AND what the axis itself is
         // (src/def/layers.ts, "the frame"): legal on ANY view, since a transform is not a resolution. A view with
         // no layers is judged as its own one implicit layer, which is what this last argument carries.
-        validateFrame(enc.frame, `encodings[${i}]`, encViewId, enc.layers, def.data, { chartKind: enc.chartKind, channels: enc.channels, initial: enc.initial, table: defaultTableName }, problems);
+        validateFrame(enc.frame, `encodings[${i}]`, encViewId, enc.layers, def.data, { chartKind: enc.chartKind, channels: enc.channels, initial: enc.initial, table: defaultTableName }, problems, minted);
       });
     }
   }
@@ -767,13 +767,16 @@ export function validateDashboardDef(def: unknown): string[] {
     //    bindings above are what its dashboard-scope rules read, and they span every table.
     for (const { index, at, table: layerTable, surface, minted: lands } of layerSurfaces) {
       const layerSrc = isObject(def.data[layerTable]) ? (def.data[layerTable] as Record<string, unknown>) : undefined;
-      // A MINTED table's columns ARE its act's declaration — `groupBy` in order, then the measures' `as`
-      // names — and that is the WHOLE list, so a field naming a column the act does not land is refused
-      // right here. EXISTENCE only: a minted column has no `ColumnDecl` to declare a role or a scale, and
-      // its TYPE is the act's to answer when it runs, so every facet is `unknown` — which is exactly what
-      // `requirementFailure` declines to judge. `dashboard.lint()` judges the landed table with its data.
+      // A MINTED table's columns ARE its act's declaration — `groupBy` in order, then the measures in
+      // landing order — and that is the WHOLE list, so a field naming a column the act does not land is
+      // refused right here. TYPED, too: the declaration already knows each one's type (`mintedTables`),
+      // so a channel that needs a number meets a minted string AT THE DOOR instead of when the act runs.
+      // A column the parent never declared stays `unknown`, which is exactly what `requirementFailure`
+      // declines to judge — the same not-judged this door has always given it. What a minted column still
+      // has no way to declare is FACETS: no role, no scale, no unit, because it has no `ColumnDecl`.
+      // `dashboard.lint()` judges the landed table with its data.
       const layerFacets = lands !== undefined
-        ? resolveFacets(lands.columns.map((name) => ({ name, type: 'unknown' as const })))
+        ? resolveFacets(lands.columns)
         : resolveFacets(defColumns(layerSrc, [{ surface }]), facetSourceOf(layerSrc));
       for (const p of lintEncodings({ views: [surface], facets: layerFacets, page, ...(def.encodingRules !== undefined ? { rules: def.encodingRules as EncodingRules } : {}) })) {
         problems.push(`encodings[${index}].layers[${at}].initial.${p.channel}: ${p.sentence}`);

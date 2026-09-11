@@ -186,7 +186,7 @@ const FRAME_FACTS: readonly { readonly of: (facet: ColumnFacet) => string | unde
  * the def's table map, which is where the COLUMN facts two sharing layers must
  * agree on are declared.
  */
-export function validateFrame(raw: unknown, where: string, viewId: string, layersRaw: unknown, data: unknown, view: FrameView, problems: string[]): void {
+export function validateFrame(raw: unknown, where: string, viewId: string, layersRaw: unknown, data: unknown, view: FrameView, problems: string[], minted: ReadonlyMap<string, MintedTable> = NOTHING_MINTED): void {
   if (raw === undefined) return;
   // a view that declared layers is judged against THEM (even if every one was refused on its own line); a view
   // with none is judged against ITSELF — one implicit layer, which is what makes `transform` legal on a plain chart
@@ -210,7 +210,7 @@ export function validateFrame(raw: unknown, where: string, viewId: string, layer
   for (const channel of channels) {
     const resolution = resolutionOf(raw, channel, layerless);
     if (resolution === undefined) continue; // refused on its own line above; not refused again through its laws
-    judgeChannelLaws(`${where}.frame.${channel}`, channel, resolution, binders, data, problems);
+    judgeChannelLaws(`${where}.frame.${channel}`, channel, resolution, binders, data, minted, problems);
   }
 }
 
@@ -327,7 +327,7 @@ function resolutionOf(raw: Record<string, unknown>, channel: string, layerless: 
 }
 
 /** Laws 8–11 for one channel: who may go independent, who keeps one zero, which columns may share, and what a logarithm may be asked to place. */
-function judgeChannelLaws(at: string, channel: string, resolution: Record<string, unknown>, binders: readonly FrameBinder[], data: unknown, problems: string[]): void {
+function judgeChannelLaws(at: string, channel: string, resolution: Record<string, unknown>, binders: readonly FrameBinder[], data: unknown, minted: ReadonlyMap<string, MintedTable>, problems: string[]): void {
   // the marks whose extent IS the quantity — read against a second axis, or off a cut baseline, a bar overstates by whatever was cut
   if (MAGNITUDE_CHANNELS.has(channel)) {
     for (const binder of binders.filter((b) => b.channels.includes(channel) && ZERO_ANCHORED_KINDS.includes(b.chartKind))) {
@@ -338,8 +338,8 @@ function judgeChannelLaws(at: string, channel: string, resolution: Record<string
       else if (resolution.zero === false && zeroAnchorsChannel(binder.chartKind, channel)) problems.push(`${at}.zero is false but ${binder.subject} is a ${binder.chartKind} — its ${channel} is read from zero`);
     }
   }
-  if (resolution.transform === LOG) judgeLogarithm(at, channel, resolution, binders, data, problems);
-  if (resolution.mode === 'shared') judgeSharedColumns(at, channel, binders, data, problems);
+  if (resolution.transform === LOG) judgeLogarithm(at, channel, resolution, binders, data, minted, problems);
+  if (resolution.mode === 'shared') judgeSharedColumns(at, channel, binders, data, minted, problems);
 }
 
 /**
@@ -358,7 +358,7 @@ function judgeChannelLaws(at: string, channel: string, resolution: Record<string
  *      law and the zero law cannot drift — and so a histogram's BIN axis, which
  *      is a position and not an extent, stays legitimately logarithmic.
  */
-function judgeLogarithm(at: string, channel: string, resolution: Record<string, unknown>, binders: readonly FrameBinder[], data: unknown, problems: string[]): void {
+function judgeLogarithm(at: string, channel: string, resolution: Record<string, unknown>, binders: readonly FrameBinder[], data: unknown, minted: ReadonlyMap<string, MintedTable>, problems: string[]): void {
   if (resolution.zero === true) problems.push(`${at}: a logarithmic axis has no zero — drop "zero", or draw this channel linearly`);
   for (const binder of binders.filter((b) => b.channels.includes(channel))) {
     if (zeroAnchorsChannel(binder.chartKind, channel)) {
@@ -366,19 +366,19 @@ function judgeLogarithm(at: string, channel: string, resolution: Record<string, 
     }
     const field = binder.initial?.[channel];
     if (field === undefined) continue;
-    const type = declaredFacet(data, binder.table, field).type;
+    const type = declaredFacet(data, binder.table, field, minted).type;
     if (type !== 'unknown' && type !== 'number') problems.push(`${at}: transform "log" needs a number — ${binder.subject} binds ${channel} to "${field}", a ${type}`);
   }
 }
 
 /** Law 10: a shared channel means ONE scale, so every layer binding it must bind a column that agrees on {@link FRAME_FACTS}. */
-function judgeSharedColumns(at: string, channel: string, binders: readonly FrameBinder[], data: unknown, problems: string[]): void {
+function judgeSharedColumns(at: string, channel: string, binders: readonly FrameBinder[], data: unknown, minted: ReadonlyMap<string, MintedTable>, problems: string[]): void {
   const binding = binders.filter((binder) => binder.initial?.[channel] !== undefined);
   if (binding.length < 2) return; // one layer (or none) cannot disagree with anybody
   const first = binding[0]!;
-  const reference = declaredFacet(data, first.table, first.initial![channel]!);
+  const reference = declaredFacet(data, first.table, first.initial![channel]!, minted);
   for (const binder of binding.slice(1)) {
-    const facet = declaredFacet(data, binder.table, binder.initial![channel]!);
+    const facet = declaredFacet(data, binder.table, binder.initial![channel]!, minted);
     for (const fact of FRAME_FACTS) {
       const mine = fact.of(reference);
       const theirs = fact.of(facet);
@@ -396,15 +396,27 @@ function channelsOfBinders(binders: readonly FrameBinder[]): readonly string[] {
 }
 
 /**
- * One column as the DEF ALONE knows it. Column TYPES are the provider's, so a
- * column the def says nothing about answers `unknown` for every fact and is
- * therefore never held to one — `dashboard.lint()` judges it with the data.
- * The absence vocabulary is left out on purpose: an absence column on a
- * magnitude channel is already refused by the absence law, and repeating it
- * here would say the same thing twice in different words.
+ * One column as the DEF ALONE knows it. A DECLARED table's types are the
+ * provider's, so a column the def says nothing about answers `unknown` for
+ * every fact and is therefore never held to one — `dashboard.lint()` judges it
+ * with the data. The absence vocabulary is left out on purpose: an absence
+ * column on a magnitude channel is already refused by the absence law, and
+ * repeating it here would say the same thing twice in different words.
+ *
+ * A MINTED table is the one place the def knows more than the provider has
+ * said: its columns and their types are its act's declaration
+ * (`./builtinAnalyses.ts` · `mintedTables`), so a logarithm asked to place a
+ * minted string is refused HERE rather than when the act runs. It carries no
+ * `ColumnDecl` — no role, no scale, no unit — because there is none to carry,
+ * and a column the parent never typed still answers `unknown`.
  */
-function declaredFacet(data: unknown, table: string | undefined, field: string): ColumnFacet {
+function declaredFacet(data: unknown, table: string | undefined, field: string, minted: ReadonlyMap<string, MintedTable> = NOTHING_MINTED): ColumnFacet {
   const src = table !== undefined && isObject(data) && isObject(data[table]) ? (data[table] as Record<string, unknown>) : undefined;
+  // a declared table wins the name, the same law `layerSurfacesOf` keeps below and for the same reason
+  if (src === undefined && table !== undefined) {
+    const lands = minted.get(table)?.columns.find((column) => column.name === field);
+    if (lands !== undefined) return resolveFacet(lands, {});
+  }
   const columns = src !== undefined && isObject(src.columns) && Object.values(src.columns).every(isObject) ? (src.columns as Readonly<Record<string, ColumnDecl>>) : undefined;
   return resolveFacet({ name: field, type: 'unknown' }, columns === undefined ? {} : { columns });
 }
@@ -453,8 +465,10 @@ export interface LayerSurface {
   /**
    * Present when the table is one an ACT lands rather than a declared source:
    * the caller judges this layer's fields against `minted.columns` and nothing
-   * else. A minted column has no `ColumnDecl` facets to judge — its TYPE is
-   * the act's to answer when it runs — so the judgement is EXISTENCE only.
+   * else. Those columns are TYPED off the declaration (`./builtinAnalyses.ts` ·
+   * `mintedTables`), so a channel that needs a number is judged here and not
+   * when the act runs. What a minted column still has no way to declare is
+   * FACETS — no role, no scale, no unit — because it has no `ColumnDecl`.
    */
   readonly minted?: MintedTable;
 }
@@ -494,10 +508,10 @@ export function layerSurfaceOf(viewId: string, layer: LayerDecl): EncodingSurfac
  * OVER a declared table's name (`../session/session.ts`, the landing door's own
  * refusal) — a declared `cells` and a minted `cells` can both be named in one def,
  * but only the declared one is ever the real `cells` at any cursor. Judging such a
- * layer against the act's existence-only column list instead of the table's real,
- * typed columns would silently trade a sound field check for a strictly weaker
- * (or wrongly stricter) one, purely because an unrelated analysis happens to share
- * the name — so `minted` is read only when the table is NOT also declared.
+ * layer against the ACT's column list instead of the table's own would silently
+ * trade a sound field check for a check of a different table's columns, purely
+ * because an unrelated analysis happens to share the name — so `minted` is read
+ * only when the table is NOT also declared.
  */
 export function layerSurfacesOf(encodings: readonly unknown[], data: Record<string, unknown>, minted: ReadonlyMap<string, MintedTable> = NOTHING_MINTED): LayerSurface[] {
   const out: LayerSurface[] = [];

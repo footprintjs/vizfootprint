@@ -61,8 +61,16 @@ export const MAX_TREE_DEPTH = 32;
  */
 export const MAX_TREE_NODES = 4096;
 
-/** The types that can be put in an order — the ones `lt`, `between` and their family may compare. */
-const ORDERED: readonly DeriveType[] = Object.freeze(['number', 'string', 'date']);
+/**
+ * The types that can be put in an order — the ones `lt`, `between` and their
+ * family may compare.
+ *
+ * Exported for {@link ./resultType.ts}: an `'ordered'` position's agreement is
+ * only half the law `agreedOn` below keeps — the other half is THIS, and a
+ * reader that skipped it would answer `min`/`max` over a declared `boolean`
+ * with a type that op can never actually produce (the real judge refuses it).
+ */
+export const ORDERED: readonly DeriveType[] = Object.freeze(['number', 'string', 'date']);
 
 /** The keys the three node forms are told apart by. */
 const FORMS: readonly string[] = Object.freeze(['col', 'lit', 'op']);
@@ -324,7 +332,10 @@ function judgeArgs(op: Op, name: string, args: readonly unknown[], calendar: unk
   // Every `same`/`ordered` position settles on ONE type — for `eq` and `lt` that is the whole check, and for `if` it is also the answer.
   const agreed = agreeing.length === 0 ? null : agreedOn(op, name, agreeing);
   judgeCalendar(calendar, op, name, args);
-  return yieldOf(op, args, agreed);
+  // WHY the type is always there: every row whose `yields` is 'args' (if, case, coalesce, rowMin, rowMax,
+  // min, max) has at least one `same`/`ordered` position that is always reached, so `agreedOn` ran and
+  // either settled on a type or refused — and a `cast` whose target is not a target word was refused above.
+  return yieldOf(op, args, agreed)!;
 }
 
 /** A position that takes a word written down — the unit a date op counts in, the type a cast reads as. */
@@ -378,13 +389,28 @@ function judgeCalendar(declared: unknown, op: Op, name: string, args: readonly u
   if (!CALENDARS.includes(declared as Calendar)) refuse(`${showValue(declared)} is not a calendar this version knows — the calendars are ${CALENDARS.join(', ')}`);
 }
 
-/** The type the op's result has, by the rule its row declares. */
-function yieldOf(op: Op, args: readonly unknown[], agreed: DeriveType | null): DeriveType {
-  if (op.yields === 'target') return wordOf(args[op.wants.indexOf('target')]) as DeriveType;
+/**
+ * THE ONE OWNER of "what type does this op's result have", by the rule its
+ * `yields` row declares — `'number'` and its fixed siblings answer themselves,
+ * `'target'` answers the cast target written down, and `'args'` answers the
+ * type its `same`/`ordered` arguments agreed on.
+ *
+ * `null` is "the rule could not be applied to these arguments". The judge never
+ * sees it: it has already refused every tree that would leave the rule
+ * unanswered, so its one call site takes the value. The OTHER caller
+ * ({@link ./resultType.ts}) reads a tree nobody has judged yet and cannot
+ * refuse anything, so it takes the `null` and answers `unknown` — which is why
+ * this function is total and exported rather than an assertion inside the walk.
+ */
+export function yieldOf(op: Op, args: readonly unknown[], agreed: DeriveType | null): DeriveType | null {
+  if (op.yields === 'target') {
+    // WHY re-checked here rather than trusted from judgeWord: the total reader never ran judgeWord,
+    // so the one owner of the rule has to answer for a `cast` whose target is not a target word.
+    const target = wordOf(args[op.wants.indexOf('target')]);
+    return CAST_TARGETS.includes(target as (typeof CAST_TARGETS)[number]) ? (target as DeriveType) : null;
+  }
   if (op.yields !== 'args') return op.yields;
-  // WHY safe: every row whose `yields` is 'args' (if, case, coalesce, rowMin, rowMax, min, max) has at least one
-  // `same`/`ordered` position that is always reached, so `agreedOn` ran and either settled on a type or refused.
-  return agreed!;
+  return agreed;
 }
 
 /** Every `same`/`ordered` position settles on ONE type. */

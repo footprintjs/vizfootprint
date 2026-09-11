@@ -35,7 +35,8 @@ import {
   type BringOverJoin,
   type DataRow,
 } from '../analysis/index.js';
-import { aggregateAnalysis, deriveAnalysis, type DerivedColumnDecl, type Expr, type Measure } from '../derive/index.js';
+import { aggregateAnalysis, deriveAnalysis, resultTypeOf, type DerivedColumnDecl, type Expr, type Measure } from '../derive/index.js';
+import type { ColumnInfo, ColumnType } from '../data/types.js';
 import { relationsFrom } from './relations.js';
 import type { AbsenceDecl, RelationEdge } from './types.js';
 
@@ -554,15 +555,32 @@ export function absenceByTable(data: Readonly<Record<string, { readonly absence?
  * `../derive/aggregate.ts` · `schemaOf`'s order, and the key is the one the
  * session mints the relation back to the parent from.
  *
- * What it does NOT carry: types and facets. A minted column's type is the
- * act's to answer when it runs (the judge computes it from the parent's own
- * columns), so a reader of this map judges a field for EXISTENCE only.
+ * And it carries their TYPES, because the declaration already knows them: a
+ * GROUP column keeps the parent table's declared type, and a MEASURE is a
+ * reducer tree whose `yields` row says what it lands ({@link resultTypeOf}).
+ * Where the parent declared nothing the type is `'unknown'` — the honest answer
+ * the encoding door already declines to judge, never a guess.
+ *
+ * What it still does NOT carry: FACETS. A minted column has no `ColumnDecl`, so
+ * it declares no role, no scale, no label and no unit; a rule that needs one
+ * simply does not match it.
  */
 export interface MintedTable {
   /** The analysis id under `def.analyses` whose act lands the table. */
   readonly analysisId: string;
-  /** Its columns: the group columns in declared order, then the measures' `as` names. */
-  readonly columns: readonly string[];
+  /**
+   * Its columns, TYPED: the group columns in declared order, then the measures
+   * in the order they land.
+   *
+   * WHY the typed shape won over the names-only one it replaced, rather than
+   * both living here: two lists of the same columns are two things that can
+   * disagree, and the one that would go stale is always the one fewer callers
+   * read. A reader that wants only the names derives them with
+   * {@link mintedColumnNames} — a function over this list, never a second copy
+   * of it. It is `ColumnInfo` and not a new shape because that is exactly what
+   * the encoding door's `resolveFacets` already takes.
+   */
+  readonly columns: readonly ColumnInfo[];
   /** Its key — the one group column, when there is exactly one. Absent for a grouped-by-many or whole-table aggregate. */
   readonly key?: string;
 }
@@ -582,15 +600,16 @@ export interface MintedTable {
  * mints nothing).
  *
  * ```ts
- * mintedTables({ analyses: { radiiPerPlanet: { builtin: 'aggregate', name: 'radii_per_planet', ops: 1, groupBy: ['planet'], measures: [{ as: 'radius', expr: … }] } } });
- * // Map { 'radii_per_planet' => { analysisId: 'radiiPerPlanet', columns: ['planet', 'radius'], key: 'planet' } }
+ * // `data.planets` declares planet: string, radius: number; the measure is min(radius)
+ * mintedTables({ data: { planets: { columns: { planet: { type: 'string' }, radius: { type: 'number' } } } }, analyses: { radiiPerPlanet: { builtin: 'aggregate', name: 'radii_per_planet', table: 'planets', ops: 1, groupBy: ['planet'], measures: [{ as: 'radius', expr: { op: 'min', args: [{ col: 'radius' }] } }] } } });
+ * // Map { 'radii_per_planet' => { analysisId: 'radiiPerPlanet', columns: [{ name: 'planet', type: 'string' }, { name: 'radius', type: 'number' }], key: 'planet' } }
  * ```
  */
 export function mintedTables(def: unknown): ReadonlyMap<string, MintedTable> {
   const out = new Map<string, MintedTable>();
   if (!isObject(def) || !isObject(def.analyses)) return out;
   for (const [analysisId, slot] of Object.entries(def.analyses)) {
-    const minted = mintedBy(analysisId, slot);
+    const minted = mintedBy(analysisId, slot, def);
     // WHY first-declared wins: two acts claiming one name is a question for the act door (the
     // session refuses landing a table whose name is already taken), not for a reader of the def
     if (minted !== undefined && !out.has(minted.name)) out.set(minted.name, minted.table);
@@ -601,20 +620,61 @@ export function mintedTables(def: unknown): ReadonlyMap<string, MintedTable> {
 /** A usable name in a raw record — the guard every list read here shares. */
 const isNonEmpty = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 
-/** The one analysis form that lands a table, read for the three things a reader needs. An aggregate whose `name` is unusable mints nothing nameable. */
-function mintedBy(analysisId: string, slot: unknown): { readonly name: string; readonly table: MintedTable } | undefined {
+/** A minted table's column NAMES, in landing order — the derived view for a reader that asks about EXISTENCE and not type. Never stored: see {@link MintedTable.columns}. */
+export function mintedColumnNames(table: MintedTable): readonly string[] {
+  return table.columns.map((column) => column.name);
+}
+
+/** The types a def DECLARES for one table's columns, as a plain map. The only evidence a minted column's type is read from — a column the def does not declare is simply absent here. */
+function declaredTypesOf(def: Record<string, unknown>, table: string): Readonly<Record<string, ColumnType>> {
+  const types: Record<string, ColumnType> = {};
+  const data = def['data'];
+  const src = isObject(data) ? data[table] : undefined;
+  const columns = isObject(src) ? src['columns'] : undefined;
+  if (!isObject(columns)) return types;
+  for (const [name, decl] of Object.entries(columns)) {
+    // total over `unknown` like every reader here: a malformed `columns` is refused by name on its own
+    // line (../encoding/shape.ts), and a type word this version does not know is read as no evidence
+    const declared = isObject(decl) ? decl['type'] : undefined;
+    if (typeof declared === 'string' && DECLARABLE_TYPES.has(declared)) types[name] = declared as ColumnType;
+  }
+  return types;
+}
+
+/** The type words a `ColumnDecl` may hold — the `ColumnType` vocabulary, read as data because this reader is handed a raw def. */
+const DECLARABLE_TYPES: ReadonlySet<string> = new Set(['number', 'string', 'boolean', 'date', 'unknown']);
+
+/**
+ * The one analysis form that lands a table, read for the three things a reader
+ * needs. An aggregate whose `name` is unusable mints nothing nameable.
+ *
+ * `def` is here for the TYPES and nothing else: a group column keeps the parent
+ * table's declared type, and a measure is resolved from the parent's types by
+ * the one reader that owns that rule (`../derive/resultType.ts`).
+ */
+function mintedBy(analysisId: string, slot: unknown, def: Record<string, unknown>): { readonly name: string; readonly table: MintedTable } | undefined {
   if (!isBuiltinRecord(slot) || slot.builtin !== 'aggregate') return undefined;
   const decl = slot as unknown as Record<string, unknown>;
   const name = decl['name'];
   if (typeof name !== 'string' || name.length === 0) return undefined;
   const groupBy = Array.isArray(decl['groupBy']) ? decl['groupBy'].filter(isNonEmpty) : [];
   const measures = Array.isArray(decl['measures']) ? decl['measures'] : [];
-  const landed = measures.map((measure) => (isObject(measure) ? measure['as'] : undefined)).filter(isNonEmpty);
+  // the parent the act reads — `AggregateDecl.table`, default `data`, the same default the factory keeps
+  const parent = isNonEmpty(decl['table']) ? decl['table'] : 'data';
+  const types = declaredTypesOf(def, parent);
+  const landed: ColumnInfo[] = [];
+  for (const measure of measures) {
+    if (!isObject(measure)) continue;
+    const as = measure['as'];
+    if (!isNonEmpty(as)) continue;
+    landed.push({ name: as, type: resultTypeOf(measure['expr'], types) });
+  }
   return {
     name,
     table: {
       analysisId,
-      columns: [...groupBy, ...landed],
+      // a group column IS the parent's column, so it keeps the parent's declared type; undeclared → 'unknown'
+      columns: [...groupBy.map((column) => ({ name: column, type: types[column] ?? 'unknown' })), ...landed],
       // the session mints the relation back to the parent from a SINGLE group column; two group columns are a compound nobody declared a key for
       ...(groupBy.length === 1 ? { key: groupBy[0]! } : {}),
     },
