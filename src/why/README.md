@@ -12,7 +12,7 @@ Five target kinds ride that one join. What differs is not the algorithm but the 
 | `{ kind: 'hypothesis', analysisId }` | the commit of the **invocation** the reader's position means | `no-such-target` |
 | `{ kind: 'prose', viewId, slot }` | the `describe` commit that **landed the words** | `declared-in-def` — the words are the declaration's own |
 | `{ kind: 'selection', viewId }` | the commit that **landed the live selection** | `nothing-live` — a cleared brush is not a selection |
-| `{ kind: 'chart', viewId }` | the **newest commit on this branch that shaped what it shows** | `declared-in-def` — the chart looks the way the definition says |
+| `{ kind: 'chart', viewId }` | the **newest commit on this branch that shaped what it shows** | `declared-in-def` — the chart looks the way the definition says; the miss **names what reached it** without shaping it (`reached`, below) |
 
 Every one of them is built at the **TARGET's own position** — `branchPath(anchor)`, never the reader's cursor. An id from a branch the target never saw is **dropped and disclosed** (`dropped[]`, with `off-branch` kept apart from `unverified`), never credited as provenance.
 
@@ -93,7 +93,20 @@ session.why({ kind: 'chart', viewId: 'scatter' });
 Two consequences worth stating plainly:
 
 - **Marked, not dropped.** A clause nobody mentions reads as a clause nobody sent. Omit, never deny — the same law the read door follows on `ReachingClause.narrowed`, in the same words (`src/session/clausesReaching.ts` · `unjudgeableWords`, the one owner of the sentence).
-- **Never the anchor.** When a marked clause is the *only* thing that reached a chart, the answer is `declared-in-def`: the picture really is the definition's. The clause's own silence is the READ door's to report — it rides on the window that clause reached (`ViewQueryResult.clauses`, and the sheet's status line), which is where the rows it did not filter are.
+- **Never the anchor — and the miss names it.** When a marked clause is the *only* thing that reached a chart, the answer is `declared-in-def`: the picture really is the definition's. But **a miss names what reached the target**, so a reader is told everything the door knows, not only that nothing shaped it — omit, never deny, applied to the miss. `WhyTargetMiss.reached` carries every commit that reached the chart and did *not* shape it, as the same `RelatedCommit` rows an `ok` answer would carry (never a twin type): the marked clause with its `narrowed`, and the `derived-column` act that computed a column the chart draws. They pass the same admission `why()` gives a related commit (`src/session/session.ts` · `reachedOnBranch`: validated against this branch, one row per commit, in branch order), so an act on a lineage this cursor left is dropped, never admitted. The key is **absent** when nothing reached — a chart nothing reached answers byte-identically to before the field existed. Only the `chart` miss carries it: a `selection` miss (`nothing-live`) and a `prose` miss have nothing that "reached" them in this sense. The clause's own silence — the rows it did not filter — is still the READ door's to report (`ViewQueryResult.clauses`, and the sheet's status line).
+
+  ```ts
+  // 4 · A MISS THAT NAMES WHAT REACHED IT — only the silent pick reached the scatter,
+  //     and an act computed `dense`, which the scatter colours by. Neither shaped it.
+  session.why({ kind: 'chart', viewId: 'scatter' });
+  // { ok: false, missing: 'declared-in-def', target: { kind: 'chart', viewId: 'scatter' },
+  //   reached: [ { id: 's1', kind: 'derived-column' },                       // branch order: the act landed first
+  //              { id: 's2', kind: 'reaching-clause', response: 'filter',
+  //                narrowed: { column: 'radii',
+  //                            reason: 'table "measurements" has no column "radii" — …' } } ] }
+  // …and a chart NOTHING reached is exactly what it always was:
+  // { ok: false, missing: 'declared-in-def', target: { kind: 'chart', viewId: 'scatter' } }
+  ```
 
 The whole chain stays **synchronous**: judging this needs no engine and no `await`, because a definition is a declaration.
 

@@ -21,9 +21,12 @@ import type { Cause } from '../cause/index.js';
 import type { Measure } from '../derive/index.js';
 import type { WhyResult } from '../why/index.js';
 import { makeDashboardDef } from './dashboard.fixture.js';
+import { NETWORK_RELATIONS, makeNetworkDef } from '../def/network.fixture.js';
 
 const cause: Cause = { requestedBy: 'user', computedBy: 'user', intent: 'a test' };
 const id = (r: { ok: boolean; commit?: { id: string } }): string => (r.ok && r.commit ? r.commit.id : '');
+/** The commit an `analyze` dispatch landed — it rides under `analysis`, the way every analysis answer carries its commit. */
+const actId = (r: { ok: boolean; analysis?: { commit?: { id: string } } }): string => (r.ok && r.analysis?.commit ? r.analysis.commit.id : '');
 /** The commit set as flat rows — id, role, and the narrowed column when the answer marked one. */
 const rows = (r: WhyResult): unknown[] =>
   (r.ok ? r.commits : []).map((c) => [c.id, c.kind, ...(c.response !== undefined ? [c.response] : []), ...(c.narrowed !== undefined ? [`narrowed:${c.narrowed.column}`] : [])]);
@@ -35,6 +38,9 @@ const ROWS = [
 ];
 const RADII: Measure = { as: 'radii', expr: { op: 'sum', args: [{ col: 'radius' }] } };
 const HIST = layerAddress('hist', 'agg');
+/** A scatter that COLOURS by `dense` — a column no definition declares; `DENSE` is the act that makes it. */
+const DRAWS_DENSE = { viewId: 'scatter', chartKind: 'point', channels: ['x', 'y', 'color'], initial: { x: 'radius', y: 'mass', color: 'dense' } } as const;
+const DENSE = { builtin: 'derive', table: 'measurements', name: 'dense', column: { ops: 1, kind: 'row', expr: { op: 'div', args: [{ col: 'mass' }, { col: 'radius' }] } } } as const;
 
 /**
  * The demo's shape (`./reach.session.test.ts`): two views over a table that
@@ -110,15 +116,111 @@ describe("why({ kind: 'chart' }) — a clause that filtered nothing is marked, n
     expect(res.ok && res.commits[1]?.narrowed?.reason).toBe(NO_MASS);
   });
 
-  it('nothing else shaped it: the picture really is the definition\'s, and the clause\'s silence is the READ door\'s to report', async () => {
+  it('nothing else shaped it: the picture really is the definition\'s — and the miss NAMES the clause that reached it, marked', async () => {
     const s = buildDashboard(exoplanets()).createSession();
     await s.declareAnalysis('radiiPerPlanet', { cause });
-    await s.dispatch({ verb: 'select', viewId: HIST, field: 'radii', value: 4.5, cause });
-    // A marked clause is no anchor, and there is no other candidate — so the honest
-    // answer is the one an untouched chart gets. A reader owed the clause's own story
-    // meets it on the window that clause reached (`ViewQueryResult.clauses`), which is
-    // where the rows it did not filter are.
-    expect(s.why({ kind: 'chart', viewId: 'scatter' })).toEqual({ ok: false, missing: 'declared-in-def', target: { kind: 'chart', viewId: 'scatter' } });
+    const silent = await s.dispatch({ verb: 'select', viewId: HIST, field: 'radii', value: 4.5, cause });
+    // A marked clause is no anchor, and there is no other candidate — so the code is
+    // the one an untouched chart gets. But a miss names what reached it (omit, never
+    // deny, applied to the miss): the reader asked why the picture looks as it does,
+    // and the door knows a clause reached it and said nothing about its rows.
+    expect(s.why({ kind: 'chart', viewId: 'scatter' })).toEqual({
+      ok: false,
+      missing: 'declared-in-def',
+      target: { kind: 'chart', viewId: 'scatter' },
+      reached: [{ id: id(silent), kind: 'reaching-clause', response: 'filter', narrowed: { column: 'radii', reason: NO_RADII } }],
+    });
+  });
+
+  it('a chart NOTHING reached: no `reached` key at all — byte-identical to the answer given before the field existed', async () => {
+    const s = buildDashboard(exoplanets()).createSession();
+    // an untouched chart, then one under acts that reach it not: an analysis that
+    // mints a table nobody draws here, and words on another view
+    const untouched = { ok: false, missing: 'declared-in-def', target: { kind: 'chart', viewId: 'scatter' } };
+    expect(s.why({ kind: 'chart', viewId: 'scatter' })).toEqual(untouched);
+    await s.declareAnalysis('radiiPerPlanet', { cause });
+    expect((await s.dispatch({ verb: 'describe', viewId: 'table', slot: 'title', record: { text: 'Measurements', author: { kind: 'human', by: 'sanjay' } }, cause })).ok).toBe(true);
+    expect(s.why({ kind: 'chart', viewId: 'scatter' })).toEqual(untouched);
+    expect(Object.keys(s.why({ kind: 'chart', viewId: 'scatter' }))).toEqual(['ok', 'missing', 'target']);
+  });
+
+  it('a derived-column act on the lineage AND a silent clause: both in `reached`, in branch order — the act first because it landed first', async () => {
+    // the scatter DRAWS `dense`, a column no definition declares — an act makes it
+    const s = buildDashboard(exoplanets({ encodings: [...exoplanets().encodings!, DRAWS_DENSE] })).createSession();
+    await s.declareAnalysis('radiiPerPlanet', { cause });
+    const made = await s.dispatch({ verb: 'analyze', analysisId: 'dense', def: DENSE, cause });
+    expect(made.ok).toBe(true);
+    const silent = await s.dispatch({ verb: 'select', viewId: HIST, field: 'radii', value: 4.5, cause });
+    // neither is an anchor candidate (the act made a column, the clause filtered
+    // nothing), so the picture is the definition's — and both are named. The order
+    // is the BRANCH's (root → cursor), not the order `shapingCommits` lists roles in:
+    // the clause is collected first there, and the act landed first here.
+    expect(s.why({ kind: 'chart', viewId: 'scatter' })).toEqual({
+      ok: false,
+      missing: 'declared-in-def',
+      target: { kind: 'chart', viewId: 'scatter' },
+      reached: [
+        { id: actId(made), kind: 'derived-column' },
+        { id: id(silent), kind: 'reaching-clause', response: 'filter', narrowed: { column: 'radii', reason: NO_RADII } },
+      ],
+    });
+  });
+
+  it('one act that made TWO columns the chart draws is ONE row in `reached` — one row per commit, as in `why()`', async () => {
+    // a layout act lands `x` AND `y` in one commit (`../analysis/layout.ts`), and a
+    // scatter over the nodes draws both — `shapingCommits` names the act once per column
+    const s = buildDashboard(makeNetworkDef(undefined, {
+      relations: NETWORK_RELATIONS,
+      analyses: { map: { builtin: 'layout', algo: 'stress', table: 'nodes', edges: 'edges', seed: 5, iterations: 6 } },
+      actors: { positions: { actor: 'user', label: 'The positions' } },
+      encodings: [{ viewId: 'positions', chartKind: 'point', channels: ['x', 'y'], initial: { x: 'x', y: 'y' } }],
+    })).createSession();
+    const made = await s.declareAnalysis('map', { cause });
+    expect(made.materialized).toEqual(['x', 'y']);
+    expect(s.why({ kind: 'chart', viewId: 'positions' })).toEqual({
+      ok: false,
+      missing: 'declared-in-def',
+      target: { kind: 'chart', viewId: 'positions' },
+      reached: [{ id: made.commit!.id, kind: 'derived-column' }],
+    });
+  });
+
+  it('an act on a branch this cursor LEFT is not in `reached` — the same admission `why()` gives a related commit', async () => {
+    const s = buildDashboard(exoplanets({ encodings: [...exoplanets().encodings!, DRAWS_DENSE] })).createSession();
+    await s.declareAnalysis('radiiPerPlanet', { cause });
+    // a harmless prose act, so there is a real commit to fork from (a session's own root has no id)
+    const rootCommit = await s.dispatch({ verb: 'describe', viewId: 'table', slot: 'title', record: { text: 'Measurements', author: { kind: 'human', by: 'sanjay' } }, cause });
+    const root = id(rootCommit);
+    // MAIN branch: the act that computes `dense` — the one act in this session that ever made that name
+    const made = await s.dispatch({ verb: 'analyze', analysisId: 'dense', def: DENSE, cause });
+    expect(made.ok).toBe(true);
+    // here the act IS on the lineage, and it is the only thing that reached the chart
+    expect(s.why({ kind: 'chart', viewId: 'scatter' })).toEqual({
+      ok: false,
+      missing: 'declared-in-def',
+      target: { kind: 'chart', viewId: 'scatter' },
+      reached: [{ id: actId(made), kind: 'derived-column' }],
+    });
+    // a SIBLING branch off the root: the chart still draws `dense` (the def binds it), so
+    // `shapingCommits` names the act — but it is not on this lineage, and a miss may not
+    // credit an act this picture never saw any more than `why()` may
+    expect(s.seek(root)).toEqual({ ok: true, cursor: root });
+    expect((await s.dispatch({ verb: 'fork', fromCommitId: root, cause })).ok).toBe(true);
+    const silent = await s.dispatch({ verb: 'select', viewId: HIST, field: 'radii', value: 4.5, cause });
+    expect(silent.ok).toBe(true);
+    expect(s.why({ kind: 'chart', viewId: 'scatter' })).toEqual({
+      ok: false,
+      missing: 'declared-in-def',
+      target: { kind: 'chart', viewId: 'scatter' },
+      reached: [{ id: id(silent), kind: 'reaching-clause', response: 'filter', narrowed: { column: 'radii', reason: NO_RADII } }],
+    });
+    // …and the act WAS named on this branch — a judgeable clause makes the answer an
+    // `ok` one, where `why()` discloses the same act as `off-branch`. The miss above
+    // omitted it for the same reason, not because nothing named it.
+    const real = await s.dispatch({ verb: 'select', viewId: 'table', field: 'planet', value: 'Kepler-22b', cause });
+    const res = s.why({ kind: 'chart', viewId: 'scatter' });
+    expect(res.ok && res.viz.commitId).toBe(id(real));
+    expect(res.ok && res.dropped).toEqual([{ id: actId(made), kind: 'derived-column', reason: 'off-branch' }]);
   });
 
   it('a table that declares NO columns: the definition says nothing, so neither does the answer', async () => {
@@ -208,6 +310,12 @@ describe("why({ kind: 'chart' }) — a clause that filtered nothing is marked, n
     expect((await s.dispatch({ verb: 'fork', fromCommitId: root, cause })).ok).toBe(true);
     const silentOnSibling = await s.dispatch({ verb: 'select', viewId: 'scatter', field: 'mass', value: 9.1, cause });
     expect(silentOnSibling.ok).toBe(true);
-    expect(s.why({ kind: 'chart', viewId: HIST })).toEqual({ ok: false, missing: 'declared-in-def', target: { kind: 'chart', viewId: HIST } });
+    expect(s.why({ kind: 'chart', viewId: HIST })).toEqual({
+      ok: false,
+      missing: 'declared-in-def',
+      target: { kind: 'chart', viewId: HIST },
+      // the miss names the clause that reached it — marked against the STATIC reading, as this branch judges
+      reached: [{ id: id(silentOnSibling), kind: 'reaching-clause', response: 'filter', narrowed: { column: 'mass', reason: NO_MASS } }],
+    });
   });
 });

@@ -310,6 +310,30 @@ export interface WhyTargetMiss {
   readonly ok: false;
   readonly missing: 'no-such-target' | 'declared-in-def' | 'nothing-live';
   readonly target: WhyTarget;
+  /**
+   * A MISS NAMES WHAT REACHED THE TARGET, so a reader is told everything the
+   * door knows, not only that nothing shaped it — omit, never deny, applied to
+   * the miss. Every commit that reached the target and did NOT shape it, each
+   * in the role it was named in ({@link RelatedCommit} — the one shape `why()`
+   * already uses for a related commit, never a twin): a `reaching-clause` that
+   * was `narrowed` (it reached the chart and said nothing about its rows, so it
+   * rides with its `narrowed: { column, reason }`), or a `derived-column` act
+   * that computed a column the chart draws (it made a column, it did not shape
+   * the picture). In branch order, root → cursor, one row per commit — the same
+   * admission `why()` gives a related commit: validated against this branch,
+   * so an id off it is dropped, never admitted.
+   *
+   * ABSENT (no key, never `undefined`) when nothing reached, so a chart nothing
+   * reached answers byte-identically to the answer given before this field
+   * existed. `missing` stays `declared-in-def`: the picture IS the definition's
+   * — and now the reader also sees the silent clause and the act that computed
+   * a column the chart does not draw with.
+   *
+   * Only the `chart` kind's miss carries it. A `selection` miss (`nothing-live`)
+   * and a `prose` miss have nothing that "reached" them in this sense — a
+   * cleared brush was reached by no clause, and words are landed, not reached.
+   */
+  readonly reached?: readonly RelatedCommit[];
 }
 
 export type WhyResult = CrossTierSlice | WhyTargetMiss;

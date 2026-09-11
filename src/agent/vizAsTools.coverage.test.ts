@@ -138,6 +138,27 @@ describe('viz.why — a marked (`narrowed`) commit rides through the tool unchan
       },
     ]);
   });
+
+  it('a MISS that names what reached it rides through the tool whole — `reached` is spread with the rest, never stripped', async () => {
+    const port = vizAsTools(buildDashboard(exoplanets()).createSession());
+    expect(get(await port.call('viz.declare_analysis', { analysisId: 'radiiPerPlanet' }), 'ok')).toBe(true);
+    // the ONLY thing that reached the scatter is a clause its table cannot judge: no anchor, so the
+    // picture is the definition's — and the agent is still told what reached it, marked
+    const silent = await port.call('viz.dispatch', { verb: 'select', viewId: HIST, field: 'radii', value: 4.5, intent: 'pick' });
+    expect(await port.call('viz.why', { target: { kind: 'chart', viewId: 'scatter' } })).toEqual({
+      ok: false,
+      missing: 'declared-in-def',
+      target: { kind: 'chart', viewId: 'scatter' },
+      reached: [
+        {
+          id: commitId(silent),
+          kind: 'reaching-clause',
+          response: 'filter',
+          narrowed: { column: 'radii', reason: 'table "measurements" has no column "radii" — a sentence about a column these rows do not have is not a claim about these rows' },
+        },
+      ],
+    });
+  });
 });
 
 describe('viz.dispatch — select/filter PAYLOAD_INVALID guards', () => {

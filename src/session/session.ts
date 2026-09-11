@@ -4686,6 +4686,27 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /**
+   * The rows a MISS names (`WhyTargetMiss.reached`): every commit the target
+   * named that stands on THIS branch, in branch order (root → cursor), one row
+   * per commit with the first role it was named in. This is the admission
+   * `why()` gives a related commit (`src/why/why.ts` · `addViz`: validated
+   * against the branch path, an id off it dropped and never admitted; one row
+   * per id, the first role wins), applied here because a miss makes no `why()`
+   * call to give it — and the walk `lineageTail` makes, with no anchor whose
+   * ancestry could exclude anything. An id off this branch — a derived-column
+   * act on a path this cursor has left — stays out, exactly as `why()` drops it.
+   */
+  private reachedOnBranch(named: readonly RelatedCommit[]): RelatedCommit[] {
+    const byId = new Map<string, RelatedCommit>();
+    for (const c of named) if (!byId.has(c.id)) byId.set(c.id, c); // the first role a commit was named in wins, as in `why()`
+    if (byId.size === 0) return []; // the target named nothing, so there is nothing to place on the branch
+    return this.branchPath(this._cursor).flatMap((r) => {
+      const row = byId.get(r.id);
+      return row === undefined ? [] : [row];
+    });
+  }
+
+  /**
    * R2 — what PUT this selection here. An undo names the commit it reverted
    * (`origin`, from `cause.revertOf`); everything else that landed in the same
    * batch — one `correlationId`, e.g. one `applySaved` landing several
@@ -4783,7 +4804,9 @@ class InteractionSessionImpl implements InteractionSession {
    * `why({kind:'chart'})` — R3: the anchor is the LAST commit on this branch
    * that shaped what the view shows, and every commit that shaped it rides as a
    * related one. Nothing shaped it → `declared-in-def`: the chart looks the way
-   * the definition says, which is an honest answer and not a failure.
+   * the definition says, which is an honest answer and not a failure — and the
+   * miss still NAMES what reached the chart without shaping it (`reachedOnBranch`
+   * → `WhyTargetMiss.reached`), absent when nothing did.
    *
    * The kernel tier is deliberately left an honest miss: a chart may draw
    * SEVERAL derived columns, so there is no one anchor key — the arithmetic is
@@ -4813,7 +4836,15 @@ class InteractionSessionImpl implements InteractionSession {
         anchorId = id;
       }
     }
-    if (anchorId === undefined) return { ok: false, missing: 'declared-in-def', target };
+    if (anchorId === undefined) {
+      // A MISS NAMES WHAT REACHED IT (`WhyTargetMiss.reached`): the picture is the
+      // definition's, and the reader is still told about the narrowed clause and
+      // the derived-column act that reached this chart without shaping it. The
+      // key is absent when nothing did, so an untouched chart's answer is
+      // byte-identical to before the field existed.
+      const reached = this.reachedOnBranch(shaping);
+      return { ok: false, missing: 'declared-in-def', target, ...(reached.length > 0 ? { reached } : {}) };
+    }
     const landing = this.log.records.find((r) => r.id === anchorId)!; // the anchor came off this branch path, so the log holds it
     // the derived-column acts are the one list that may stand LATER than the
     // anchor on this very lineage, so the path admits its tail — see `lineageTail`
