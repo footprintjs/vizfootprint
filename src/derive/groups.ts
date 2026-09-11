@@ -60,9 +60,9 @@
 
 import type { TableSilence } from '../data/silence.js';
 import type { Row } from '../data/types.js';
-import { opOf, wantAt, type ArgWant, type Reduce, type Tally } from './ops.js';
-import type { Cell, CellReader, ColExpr, DerivedColumnDecl, Expr, OpExpr, Over } from './types.js';
-import { evaluate, holdsWant, readerFor, type GroupAnswer } from './walk.js';
+import { opOf, wantAt, type Reduce, type Tally } from './ops.js';
+import type { Cell, CellReader, DerivedColumnDecl, Expr, OpExpr, Over } from './types.js';
+import { compile, holderOf, readerOver, type Compiled, type GroupAnswer, type Holds } from './walk.js';
 
 // ── the table, as this walk needs it ─────────────────────────────────────────
 
@@ -86,12 +86,28 @@ export interface Rows {
  * the walker takes, so the group fold and the arithmetic cannot disagree about
  * which cells the source reported. Omitted, nothing is governed.
  *
+ * ONE reader over a moving row — the shape `deriveAnalysis` builds over its
+ * columns (`./analysis.ts`) — and not a `readerFor` per row: the absence law's
+ * reader decides each column's gate once per READER (`./walk.ts` ·
+ * `readerOver`), so a reader per row decided every gate a million times and
+ * allocated a million closures doing it. `bench/derive` measured that door at
+ * twice the columnar one on a bare read; this is what `Rows.at` may hand back
+ * the same reader for.
+ *
  * ```ts
  * valuesOf(column, rowsOver(rows, silenceOfDecl(def.data.cells.absence)));
  * ```
  */
 export function rowsOver(rows: readonly Row[], silence?: TableSilence): Rows {
-  return { count: rows.length, at: (at) => readerFor(rows[at]!, silence) };
+  let row: Row = {};
+  const read = readerOver((column) => row[column], silence);
+  return {
+    count: rows.length,
+    at: (at) => {
+      row = rows[at]!;
+      return read;
+    },
+  };
 }
 
 /**
@@ -125,9 +141,9 @@ export function reducersOf(expr: Expr, into: OpExpr[] = []): OpExpr[] {
 interface Folding {
   readonly node: OpExpr;
   readonly of: Reduce;
-  /** The one argument, and what its position wants — the same pair the judge read. */
-  readonly arg: Expr;
-  readonly wants: ArgWant;
+  /** The one argument, compiled once, and the test of what its position wants — the same pair the judge read, planned before the rows. */
+  readonly arg: Compiled;
+  readonly holds: Holds;
 }
 
 /**
@@ -146,7 +162,7 @@ function foldingsFor(exprs: readonly Expr[]): Folding[] {
     for (const node of reducersOf(expr)) {
       if (byNode.has(node)) continue;
       const op = opOf(node.op)!;
-      byNode.set(node, { node, of: op.of as Reduce, arg: node.args[0]!, wants: wantAt(op, 0, node.args.length) });
+      byNode.set(node, { node, of: op.of as Reduce, arg: compile(node.args[0]!), holds: holderOf(wantAt(op, 0, node.args.length)) });
     }
   }
   return [...byNode.values()];
@@ -160,12 +176,12 @@ function foldingsFor(exprs: readonly Expr[]): Folding[] {
  * which is exactly what "the whole table" means, and needs no special case
  * anywhere below.
  */
-function keyOf(groupBy: readonly ColExpr[], read: CellReader): Cell[] | null {
+function keyOf(groupBy: readonly Compiled[], read: CellReader): Cell[] | null {
   const values: Cell[] = [];
   for (const column of groupBy) {
-    // Read through the walker, so the absence law and the arithmetic edge are
-    // the same here as in every other cell this column ever touches.
-    const cell = evaluate(column, read);
+    // Read through the walker's own compiled column node, so the absence law and
+    // the arithmetic edge are the same here as in every other cell this column ever touches.
+    const cell = column(read);
     if (cell === null) return null;
     values.push(cell);
   }
@@ -176,8 +192,8 @@ function keyOf(groupBy: readonly ColExpr[], read: CellReader): Cell[] | null {
 const idOf = (key: readonly Cell[]): string => JSON.stringify(key);
 
 /** Does this row go into its group's tallies? A `where` that is not plainly `true` — absent included — leaves it out. */
-function foldsIn(where: Expr | undefined, read: CellReader): boolean {
-  return where === undefined || evaluate(where, read) === true;
+function foldsIn(where: Compiled | undefined, read: CellReader): boolean {
+  return where === undefined || where(read) === true;
 }
 
 // ── the two passes ───────────────────────────────────────────────────────────
@@ -194,7 +210,7 @@ function startedFor(foldings: readonly Folding[]): Tally[] {
 }
 
 /** PASS ONE: every row that is in a group and passes `where`, into that group's tallies. Groups in first-seen order. */
-function tallyOver(rows: Rows, groupBy: readonly ColExpr[], where: Expr | undefined, foldings: readonly Folding[]): Map<string, Group> {
+function tallyOver(rows: Rows, groupBy: readonly Compiled[], where: Compiled | undefined, foldings: readonly Folding[]): Map<string, Group> {
   const groups = new Map<string, Group>();
   for (let at = 0; at < rows.count; at += 1) {
     const read = rows.at(at);
@@ -208,9 +224,9 @@ function tallyOver(rows: Rows, groupBy: readonly ColExpr[], where: Expr | undefi
     }
     for (let which = 0; which < foldings.length; which += 1) {
       const folding = foldings[which]!;
-      const cell = evaluate(folding.arg, read);
+      const cell = folding.arg(read);
       // THE SKIP: absence and the wrong kind both add nothing — never a zero.
-      if (cell !== null && holdsWant(cell, folding.wants)) folding.of.step(group.tallies[which]!, cell);
+      if (cell !== null && folding.holds(cell)) folding.of.step(group.tallies[which]!, cell);
     }
   }
   return groups;
@@ -237,8 +253,8 @@ function answeringOf(foldings: readonly Folding[]): { readonly answer: GroupAnsw
   };
 }
 
-/** PASS TWO: every row again, with its group's tallies answering the reducers. */
-function broadcast(expr: Expr, rows: Rows, groupBy: readonly ColExpr[], foldings: readonly Folding[], groups: ReadonlyMap<string, Group>): Cell[] {
+/** PASS TWO: every row again, with its group's tallies answering the reducers. `column` is the tree, compiled once. */
+function broadcast(column: Compiled, rows: Rows, groupBy: readonly Compiled[], foldings: readonly Folding[], groups: ReadonlyMap<string, Group>): Cell[] {
   const { answer, fill } = answeringOf(foldings);
   const empty = startedFor(foldings);
   const values: Cell[] = [];
@@ -247,19 +263,22 @@ function broadcast(expr: Expr, rows: Rows, groupBy: readonly ColExpr[], foldings
     const key = keyOf(groupBy, read);
     if (key === null) {
       // A row in no group has no group's answer, and every reducer above it is absent.
-      values.push(evaluate(expr, read));
+      values.push(column(read));
       continue;
     }
     // A group every one of whose rows `where` left out is EMPTY, not missing:
     // its reducers answer what an empty tally comes to, which they own.
     fill(groups.get(idOf(key))?.tallies ?? empty);
-    values.push(evaluate(expr, read, answer));
+    values.push(column(read, answer));
   }
   return values;
 }
 
-/** The grouping columns as NODES, made once: a walk over a million rows may not mint a million of them, and reading them any other way would be a second reader. */
-const groupNodesOf = (over: Over): readonly ColExpr[] => over.groupBy.map((col) => ({ col }));
+/** The grouping columns as compiled column NODES, made once: a walk over a million rows may not mint a million of them, and reading them any other way would be a second reader. */
+const groupKeysOf = (over: Over): readonly Compiled[] => over.groupBy.map((col) => compile({ col }));
+
+/** The group's `where`, compiled once before the rows — or nothing, when the declaration filters nothing. */
+const whereOf = (over: Over): Compiled | undefined => (over.where === undefined ? undefined : compile(over.where));
 
 // ── the doors ────────────────────────────────────────────────────────────────
 
@@ -279,14 +298,16 @@ const groupNodesOf = (over: Over): readonly ColExpr[] => over.groupBy.map((col) 
  */
 export function valuesOf(column: DerivedColumnDecl, rows: Rows): Cell[] {
   const { expr, over } = column;
+  // The plan, once — before the first row, never per row (`./walk.ts` · `compile`).
+  const tree = compile(expr);
   if (over === undefined) {
     const values: Cell[] = [];
-    for (let at = 0; at < rows.count; at += 1) values.push(evaluate(expr, rows.at(at)));
+    for (let at = 0; at < rows.count; at += 1) values.push(tree(rows.at(at)));
     return values;
   }
   const foldings = foldingsFor([expr]);
-  const groupBy = groupNodesOf(over);
-  return broadcast(expr, rows, groupBy, foldings, tallyOver(rows, groupBy, over.where, foldings));
+  const groupBy = groupKeysOf(over);
+  return broadcast(tree, rows, groupBy, foldings, tallyOver(rows, groupBy, whereOf(over), foldings));
 }
 
 /**
@@ -314,8 +335,9 @@ export function valuesOf(column: DerivedColumnDecl, rows: Rows): Cell[] {
  */
 export function groupRowsOf(exprs: readonly Expr[], over: Over, rows: Rows): GroupRow[] {
   const foldings = foldingsFor(exprs);
-  const groupBy = groupNodesOf(over);
-  const groups = tallyOver(rows, groupBy, over.where, foldings);
+  const groupBy = groupKeysOf(over);
+  const groups = tallyOver(rows, groupBy, whereOf(over), foldings);
+  const trees = exprs.map(compile);
   // The whole table, seeded: named by the declaration and not by a value, it is a group no row has to
   // reach. This is `broadcast`'s own `?? empty`, kept where the rows ARE the groups.
   if (over.groupBy.length === 0 && groups.size === 0) groups.set(idOf([]), { key: [], tallies: startedFor(foldings) });
@@ -329,7 +351,7 @@ export function groupRowsOf(exprs: readonly Expr[], over: Over, rows: Rows): Gro
       return at === -1 ? null : group.key[at];
     };
     fill(group.tallies);
-    out.push({ key: group.key, values: exprs.map((expr) => evaluate(expr, read, answer)) });
+    out.push({ key: group.key, values: trees.map((tree) => tree(read, answer)) });
   }
   return out;
 }

@@ -316,3 +316,37 @@ describe('the group fold, per column', () => {
     expect(over(PLANETS, column(op('count', col('pl_masse')), { groupBy: ['method'] }, 'aggregate'), keyed)).toEqual([1, null, null]);
   });
 });
+
+/**
+ * `rowsOver`'s READER MOVES — it does not multiply.
+ *
+ * `Rows.at`'s own doc already permitted a shape like this ("`at` may answer the
+ * SAME reader every time"); `rowsOver` now actually does, over one `row`
+ * variable it reassigns. Every caller inside this file (and `groups.ts`
+ * itself) reads through the reader it just got, in the SAME loop iteration,
+ * before asking for another — this pins the two halves of that contract: the
+ * reader really is one shared closure, and holding it across a LATER `.at()`
+ * reads the LATER row, not the one it was fetched for. A caller must never do
+ * that; this is the failure it would see if it did.
+ */
+describe('rowsOver: one reader, over a moving row', () => {
+  const ROWS: readonly Row[] = [
+    { cases: 'row-0' },
+    { cases: 'row-1' },
+  ];
+
+  it('hands back the identical function on every `.at()` — not a fresh reader per row', () => {
+    const rows = rowsOver(ROWS);
+    const first = rows.at(0);
+    const second = rows.at(1);
+    expect(second).toBe(first);
+  });
+
+  it('a reader held past a LATER `.at()` reads the LATER row — holding one across an iteration is the bug, not this', () => {
+    const rows = rowsOver(ROWS);
+    const held = rows.at(0);
+    expect(held('cases')).toBe('row-0'); // read promptly, in the same "iteration", and it is correct
+    rows.at(1); // a caller (wrongly) keeps `held` instead of using the reader THIS call returns
+    expect(held('cases')).toBe('row-1'); // …and the SAME reference now answers for row 1 — it moved under the caller
+  });
+});

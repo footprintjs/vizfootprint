@@ -436,7 +436,8 @@ The filter's two sentences are the derived column's own (`over.where`), under th
 The walker walks a tree the judge has already accepted and never re-checks what the judge settled — the division of labour `parseFormula` and `evaluateWith` already keep. What it DOES check on every row is the KIND of each value it actually finds, against the same `wants` the judge read: a column declared `number` that holds text on one row makes THAT ROW absent on every STRICT position, rather than a fabricated answer. Declarations describe; rows are what they are. The four lazy ops are the limit (law 3): their arms are unevaluated, and a `same` position agrees with the OTHER arms — the ones a lazy op must not run — so a value arm hands back what it finds.
 
 ```ts
-evaluate(expr, read)                       // one tree, one reader — a columnar engine uses the same walk
+compile(expr)                              // the tree, planned ONCE: a closure tree with the same signature as evaluate after its first argument
+evaluate(expr, read)                       // one tree, one reader — a columnar engine uses the same walk; a thin door over compile
 evaluate(expr, read, group)                // …and a reducer node answered from beside the walk (law 11)
 readerOver(read, absenceDecl)              // the absence law's second half, over any reader — the columnar walk's door
 readerFor(row, absenceDecl)                // the same law over one row
@@ -445,6 +446,20 @@ valuesOf(column, rowsOver(rows, absence))  // the whole column, grouped or not �
 ```
 
 A reducer node reached with NO group under it is absent, rather than a number nobody could account for. The judge refuses that declaration long before a walk, so the silence is the door being total and not a path a column can take.
+
+### The walker plans once per tree
+
+Everything that is a property of the TREE — the op behind each name, what each strict position wants, which positions must agree, the thunks a lazy op hands its fold — is decided by `compile` (`walk.ts`) once, before the first row; a row pays the reads and the ops themselves. `evaluate` and `evaluateRow` are thin doors over it (the plan is remembered by the tree, so a one-row caller pays it once), and every hot loop in `groups.ts` — `valuesOf`, `groupRowsOf`, the `where` filter, the reducers' argument walks, the grouping keys — compiles before its row loop and holds the closure. Compiling assumes a JUDGED tree: the judge is untouched and not re-run, and an op the grammar does not know throws where the plan is made, as the walk always threw.
+
+Measured, not claimed — `bench/derive` (`npm run bench:derive`; every walk arm is `valuesOf` over the Rows shape `deriveAnalysis` builds, best of 5 at 1,000,000 rows, node 22 on arm64, the floor being the same tree hand-written as a closure over the same reader):
+
+| expression at 1M rows | before (`67720c6`) | after | floor over the reader |
+|---|---:|---:|---:|
+| `cases` — a bare read | 30.4 ms | 31.7 ms (unchanged, within noise) | 22.8 ms |
+| `div(cases, population)` | 95.1 ms | 58.5 ms (−38%) | 33.5 ms |
+| six op nodes — a `case` over a `gt` over a `div`; a `cast` over a `round` over a `coalesce` | 284 ms | 115 ms (−60%) | 32.4 ms |
+
+The same bench found `rowsOver` building a reader — and deciding every column's gate — per ROW, at twice the columnar door's cost on a bare read (66.9 ms against 30.4 ms); it is now one reader over a moving row, the shape `deriveAnalysis` already built, and the two doors measure the same (31.5 ms). What remains between the walk and the floor is a call per node and the arithmetic edge's check per node — 3.55× on the six-op tree — and is left where it is until a brief asks for it with a threshold.
 
 ## Where the code lives
 
@@ -455,7 +470,7 @@ A reducer node reached with NO group under it is absent, rather than a number no
 | `dates.ts` | the calendar arithmetic: ISO parsing, MMWR and ISO weeks, truncate/add/difference |
 | `judge.ts` | is this a column, and what type is it — one sentence, never a throw; and `columnsHave`, the one ending every refusal about a missing column shares |
 | `resultType.ts` | the same question the judge answers, asked by a DOOR that may not refuse: what type does this tree land over a table's DECLARED column types — total, with an honest `'unknown'` |
-| `walk.ts` | one row through one tree, and the absence law |
+| `walk.ts` | one row through one tree, and the absence law — `compile` plans the tree once, `evaluate`/`evaluateRow` are thin doors over it |
 | `groups.ts` | a GROUP of rows through one tree: two passes, the tallies, the broadcast — and `groupRowsOf`, pass one stopping before the broadcast: one row per group |
 | `words.ts` | the tree as a sentence, in the table's own words |
 | `analysis.ts` | THE ACT: the record's factory — one column, judged at the cursor, landed through `analyze` |

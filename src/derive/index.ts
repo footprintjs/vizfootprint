@@ -30,11 +30,12 @@ export { addOf, daysInMonth, dayOf, diffOf, epochDayOf, isoOf, isoOfMoment, part
 export { judgeDerivedColumn, judgeExpr, MAX_TREE_DEPTH, MAX_TREE_NODES } from './judge.js';
 export { resultTypeOf } from './resultType.js';
 
-export type { GroupAnswer } from './walk.js';
+export type { Compiled, GroupAnswer } from './walk.js';
 // `evaluateRow` and `readerFor` keep the absence law's SECOND half — the state column GOVERNING each
 // column, read through the port (`../data/silence.ts` · `TableSilence`, since silence belongs to a
-// column); `evaluate` keeps only the law the reader it was handed already keeps.
-export { evaluate, evaluateRow, PRESENT, readerFor } from './walk.js';
+// column); `evaluate` keeps only the law the reader it was handed already keeps. `compile` is the
+// plan both doors are thin over: one closure tree per tree, made before the first row.
+export { compile, evaluate, evaluateRow, PRESENT, readerFor } from './walk.js';
 
 export { wordsFor } from './words.js';
 

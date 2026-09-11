@@ -107,6 +107,7 @@
     "test:vega-lite": "npm run test -w vizfootprint-vega-lite",
     "gallery:ui": "npm run gallery -w vizfootprint-ui",
     "bench:step0-wasm": "node bench/step0-wasm/run.mjs",
+    "bench:derive": "node bench/derive/run.mjs",
     "bench:surface": "node bench/surface/run.mjs",
     "bench:layout": "node bench/layout/run.mjs"
   },

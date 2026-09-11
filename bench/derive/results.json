@@ -1,0 +1,478 @@
+{
+ "node": "v22.16.0",
+ "platform": "darwin arm64",
+ "generatedAt": "2026-09-11T21:53:45.994Z",
+ "reps": {
+  "100k": 7,
+  "1M": 5
+ },
+ "sizes": {
+  "100k": {
+   "rows": 100000,
+   "reps": 7,
+   "warmup": 2
+  },
+  "1M": {
+   "rows": 1000000,
+   "reps": 5,
+   "warmup": 1
+  }
+ },
+ "gcExposed": true,
+ "expressions": {
+  "read": {
+   "col": "cases"
+  },
+  "ratio": {
+   "op": "div",
+   "args": [
+    {
+     "col": "cases"
+    },
+    {
+     "col": "population"
+    }
+   ]
+  },
+  "tree6": {
+   "op": "case",
+   "args": [
+    {
+     "op": "gt",
+     "args": [
+      {
+       "op": "div",
+       "args": [
+        {
+         "col": "cases"
+        },
+        {
+         "col": "population"
+        }
+       ]
+      },
+      {
+       "lit": 0.001
+      }
+     ]
+    },
+    {
+     "lit": "high"
+    },
+    {
+     "op": "cast",
+     "args": [
+      {
+       "op": "round",
+       "args": [
+        {
+         "op": "coalesce",
+         "args": [
+          {
+           "col": "cases"
+          },
+          {
+           "lit": 0
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "lit": "string"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "controls": {
+  "clock": {
+   "askedMs": 40,
+   "readMs": 40.00508300000001,
+   "live": true
+  },
+  "judged": [
+   {
+    "expr": "read",
+    "ok": true,
+    "type": "number",
+    "ops": 0,
+    "leaves": 1
+   },
+   {
+    "expr": "ratio",
+    "ok": true,
+    "type": "number",
+    "ops": 1,
+    "leaves": 2
+   },
+   {
+    "expr": "tree6",
+    "ok": true,
+    "type": "string",
+    "ops": 6,
+    "leaves": 7
+   }
+  ],
+  "agreement": [
+   {
+    "size": "100k",
+    "expr": "read",
+    "mismatches": 0,
+    "present": 0.54759,
+    "agree": true
+   },
+   {
+    "size": "100k",
+    "expr": "ratio",
+    "mismatches": 0,
+    "present": 0.54759,
+    "agree": true
+   },
+   {
+    "size": "100k",
+    "expr": "tree6",
+    "mismatches": 0,
+    "present": 0.54759,
+    "agree": true
+   },
+   {
+    "size": "1M",
+    "expr": "read",
+    "mismatches": 0,
+    "present": 0.550272,
+    "agree": true
+   },
+   {
+    "size": "1M",
+    "expr": "ratio",
+    "mismatches": 0,
+    "present": 0.550272,
+    "agree": true
+   },
+   {
+    "size": "1M",
+    "expr": "tree6",
+    "mismatches": 0,
+    "present": 0.550272,
+    "agree": true
+   }
+  ]
+ },
+ "results": [
+  {
+   "arm": "walk · columnar door",
+   "expr": "read",
+   "size": "100k",
+   "rows": 100000,
+   "best": 2.2147080000000017,
+   "median": 2.2569579999999974,
+   "max": 2.3117909999999995,
+   "p95": 2.3117909999999995,
+   "n": 7,
+   "warmup": 2,
+   "note": "valuesOf over ONE reader on a moving index — what deriveAnalysis runs"
+  },
+  {
+   "arm": "walk · rowsOver door",
+   "expr": "read",
+   "size": "100k",
+   "rows": 100000,
+   "best": 2.338957999999991,
+   "median": 2.3909170000000017,
+   "max": 2.529875000000004,
+   "p95": 2.529875000000004,
+   "n": 7,
+   "warmup": 2,
+   "note": "valuesOf over rowsOver(rows): the row-object door, one reader over a moving row"
+  },
+  {
+   "arm": "floor · closure over the reader",
+   "expr": "read",
+   "size": "100k",
+   "rows": 100000,
+   "best": 1.6607500000000073,
+   "median": 1.693458000000021,
+   "max": 1.8177499999999895,
+   "p95": 1.8177499999999895,
+   "n": 7,
+   "warmup": 2,
+   "note": "the hand-written closure, reading through the same gated reader"
+  },
+  {
+   "arm": "floor · closure over raw columns",
+   "expr": "read",
+   "size": "100k",
+   "rows": 100000,
+   "best": 0.7513749999999959,
+   "median": 0.7834159999999883,
+   "max": 0.7934999999999945,
+   "p95": 0.7934999999999945,
+   "n": 7,
+   "warmup": 2,
+   "note": "the hand-written closure over the column arrays, the gate inline"
+  },
+  {
+   "arm": "walk · columnar door",
+   "expr": "ratio",
+   "size": "100k",
+   "rows": 100000,
+   "best": 4.872333999999967,
+   "median": 4.901083000000028,
+   "max": 4.955000000000041,
+   "p95": 4.955000000000041,
+   "n": 7,
+   "warmup": 2,
+   "note": "valuesOf over ONE reader on a moving index — what deriveAnalysis runs"
+  },
+  {
+   "arm": "walk · rowsOver door",
+   "expr": "ratio",
+   "size": "100k",
+   "rows": 100000,
+   "best": 4.96508300000005,
+   "median": 5.017000000000053,
+   "max": 5.160708999999997,
+   "p95": 5.160708999999997,
+   "n": 7,
+   "warmup": 2,
+   "note": "valuesOf over rowsOver(rows): the row-object door, one reader over a moving row"
+  },
+  {
+   "arm": "floor · closure over the reader",
+   "expr": "ratio",
+   "size": "100k",
+   "rows": 100000,
+   "best": 2.4231250000000273,
+   "median": 2.461416999999983,
+   "max": 2.646792000000005,
+   "p95": 2.646792000000005,
+   "n": 7,
+   "warmup": 2,
+   "note": "the hand-written closure, reading through the same gated reader"
+  },
+  {
+   "arm": "floor · closure over raw columns",
+   "expr": "ratio",
+   "size": "100k",
+   "rows": 100000,
+   "best": 1.2780410000000302,
+   "median": 1.2964169999999058,
+   "max": 1.3679999999999382,
+   "p95": 1.3679999999999382,
+   "n": 7,
+   "warmup": 2,
+   "note": "the hand-written closure over the column arrays, the gate inline"
+  },
+  {
+   "arm": "walk · columnar door",
+   "expr": "tree6",
+   "size": "100k",
+   "rows": 100000,
+   "best": 11.118790999999987,
+   "median": 11.289041999999995,
+   "max": 11.399125000000026,
+   "p95": 11.399125000000026,
+   "n": 7,
+   "warmup": 2,
+   "note": "valuesOf over ONE reader on a moving index — what deriveAnalysis runs"
+  },
+  {
+   "arm": "walk · rowsOver door",
+   "expr": "tree6",
+   "size": "100k",
+   "rows": 100000,
+   "best": 11.065000000000055,
+   "median": 11.134916999999973,
+   "max": 11.601834000000053,
+   "p95": 11.601834000000053,
+   "n": 7,
+   "warmup": 2,
+   "note": "valuesOf over rowsOver(rows): the row-object door, one reader over a moving row"
+  },
+  {
+   "arm": "floor · closure over the reader",
+   "expr": "tree6",
+   "size": "100k",
+   "rows": 100000,
+   "best": 2.6887500000000273,
+   "median": 2.754750000000058,
+   "max": 2.841000000000122,
+   "p95": 2.841000000000122,
+   "n": 7,
+   "warmup": 2,
+   "note": "the hand-written closure, reading through the same gated reader"
+  },
+  {
+   "arm": "floor · closure over raw columns",
+   "expr": "tree6",
+   "size": "100k",
+   "rows": 100000,
+   "best": 1.5013750000000528,
+   "median": 1.530917000000045,
+   "max": 1.567583999999897,
+   "p95": 1.567583999999897,
+   "n": 7,
+   "warmup": 2,
+   "note": "the hand-written closure over the column arrays, the gate inline"
+  },
+  {
+   "arm": "walk · columnar door",
+   "expr": "read",
+   "size": "1M",
+   "rows": 1000000,
+   "best": 31.745084000000134,
+   "median": 32.168083000000024,
+   "max": 34.15579099999991,
+   "p95": 34.15579099999991,
+   "n": 5,
+   "warmup": 1,
+   "note": "valuesOf over ONE reader on a moving index — what deriveAnalysis runs"
+  },
+  {
+   "arm": "walk · rowsOver door",
+   "expr": "read",
+   "size": "1M",
+   "rows": 1000000,
+   "best": 31.537166999999954,
+   "median": 31.753749999999854,
+   "max": 32.50004199999967,
+   "p95": 32.50004199999967,
+   "n": 5,
+   "warmup": 1,
+   "note": "valuesOf over rowsOver(rows): the row-object door, one reader over a moving row"
+  },
+  {
+   "arm": "floor · closure over the reader",
+   "expr": "read",
+   "size": "1M",
+   "rows": 1000000,
+   "best": 22.813124999999673,
+   "median": 23.188958999999613,
+   "max": 23.402166999999736,
+   "p95": 23.402166999999736,
+   "n": 5,
+   "warmup": 1,
+   "note": "the hand-written closure, reading through the same gated reader"
+  },
+  {
+   "arm": "floor · closure over raw columns",
+   "expr": "read",
+   "size": "1M",
+   "rows": 1000000,
+   "best": 15.174833999999919,
+   "median": 15.338832999999795,
+   "max": 16.180457999999817,
+   "p95": 16.180457999999817,
+   "n": 5,
+   "warmup": 1,
+   "note": "the hand-written closure over the column arrays, the gate inline"
+  },
+  {
+   "arm": "walk · columnar door",
+   "expr": "ratio",
+   "size": "1M",
+   "rows": 1000000,
+   "best": 58.451082999999926,
+   "median": 58.860208999999486,
+   "max": 58.95870800000057,
+   "p95": 58.95870800000057,
+   "n": 5,
+   "warmup": 1,
+   "note": "valuesOf over ONE reader on a moving index — what deriveAnalysis runs"
+  },
+  {
+   "arm": "walk · rowsOver door",
+   "expr": "ratio",
+   "size": "1M",
+   "rows": 1000000,
+   "best": 56.73358399999961,
+   "median": 56.788792000000285,
+   "max": 57.49149999999918,
+   "p95": 57.49149999999918,
+   "n": 5,
+   "warmup": 1,
+   "note": "valuesOf over rowsOver(rows): the row-object door, one reader over a moving row"
+  },
+  {
+   "arm": "floor · closure over the reader",
+   "expr": "ratio",
+   "size": "1M",
+   "rows": 1000000,
+   "best": 33.45874999999978,
+   "median": 33.69195800000034,
+   "max": 33.85241599999972,
+   "p95": 33.85241599999972,
+   "n": 5,
+   "warmup": 1,
+   "note": "the hand-written closure, reading through the same gated reader"
+  },
+  {
+   "arm": "floor · closure over raw columns",
+   "expr": "ratio",
+   "size": "1M",
+   "rows": 1000000,
+   "best": 21.868915999999444,
+   "median": 21.935999999999694,
+   "max": 22.08166600000004,
+   "p95": 22.08166600000004,
+   "n": 5,
+   "warmup": 1,
+   "note": "the hand-written closure over the column arrays, the gate inline"
+  },
+  {
+   "arm": "walk · columnar door",
+   "expr": "tree6",
+   "size": "1M",
+   "rows": 1000000,
+   "best": 115.17412499999955,
+   "median": 115.6352079999997,
+   "max": 116.01574999999957,
+   "p95": 116.01574999999957,
+   "n": 5,
+   "warmup": 1,
+   "note": "valuesOf over ONE reader on a moving index — what deriveAnalysis runs"
+  },
+  {
+   "arm": "walk · rowsOver door",
+   "expr": "tree6",
+   "size": "1M",
+   "rows": 1000000,
+   "best": 110.769542,
+   "median": 111.06137500000023,
+   "max": 112.26620900000125,
+   "p95": 112.26620900000125,
+   "n": 5,
+   "warmup": 1,
+   "note": "valuesOf over rowsOver(rows): the row-object door, one reader over a moving row"
+  },
+  {
+   "arm": "floor · closure over the reader",
+   "expr": "tree6",
+   "size": "1M",
+   "rows": 1000000,
+   "best": 32.40375000000131,
+   "median": 32.63837499999863,
+   "max": 33.2160419999982,
+   "p95": 33.2160419999982,
+   "n": 5,
+   "warmup": 1,
+   "note": "the hand-written closure, reading through the same gated reader"
+  },
+  {
+   "arm": "floor · closure over raw columns",
+   "expr": "tree6",
+   "size": "1M",
+   "rows": 1000000,
+   "best": 20.656750000000102,
+   "median": 21.085791999999856,
+   "max": 21.462999999999738,
+   "p95": 21.462999999999738,
+   "n": 5,
+   "warmup": 1,
+   "note": "the hand-written closure over the column arrays, the gate inline"
+  }
+ ],
+ "head": "67720c6+dirty"
+}

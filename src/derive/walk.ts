@@ -49,7 +49,7 @@
  * one row makes that row absent rather than a fabricated answer. Declarations
  * describe; rows are what they are.
  *
- * That check is the STRICT path's, per position ({@link cellsFor}). The four
+ * That check is the STRICT path's, per position ({@link compileStrict}). The four
  * that see absence get their arms unevaluated, and an arm wanting `same` has
  * nothing to be compared against — `coalesce(cases, 0)` on a row where `cases`
  * holds text answers with the text, not the fallback, and `if`/`case` check
@@ -68,6 +68,15 @@
  * somebody edits one of them. A reducer's SKIP rule lives there too, because it
  * is about rows and this file is about one row.
  *
+ * ## Planned once per tree
+ *
+ * The tree is COMPILED before the first row ({@link compile}): the op behind
+ * each name, what each strict position wants, which positions must agree, and
+ * the thunks a lazy op hands its fold are all properties of the tree, and are
+ * decided once. A row pays the reads and the ops. `bench/derive` is the
+ * measurement that earned this — the six-op tree at 1,000,000 rows went from
+ * 284 ms to 115 ms — and `../derive/README.md` quotes it.
+ *
  * The first customers are the column verb's per-row evaluation and the
  * conformance fixture; a columnar engine walks the same tree through the same
  * {@link CellReader}, which is why the reader is a parameter and not a row.
@@ -77,8 +86,8 @@ import { readsValueTestOf, silenceOfNothing, type TableSilence } from '../data/s
 import type { Row } from '../data/types.js';
 import { ABSENCE_PRESENT } from '../def/types.js';
 import { epochDayOf, isoOfMoment } from './dates.js';
-import { opOf, wantAt, type ArgWant, type Op } from './ops.js';
-import type { Cell, CellReader, Expr, OpExpr } from './types.js';
+import { opOf, wantAt, type ArgWant, type Arm, type Op } from './ops.js';
+import type { Calendar, Cell, CellReader, Expr, OpExpr } from './types.js';
 
 /**
  * What one reducer node came to for THIS row's group — the answer
@@ -119,47 +128,194 @@ function asCell(value: unknown): Cell {
   return null;
 }
 
+/** One want's test, over a present cell — what {@link holderOf} answers, and what a fold binds before its row loop. */
+export type Holds = (cell: Cell) => boolean;
+
+const isNumber: Holds = (cell) => typeof cell === 'number';
+const isText: Holds = (cell) => typeof cell === 'string';
+const isBoolean: Holds = (cell) => typeof cell === 'boolean';
+const isDay: Holds = (cell) => typeof cell === 'string' && epochDayOf(cell) !== null;
+/** `ordered` accepts anything with an order; `any` and `same` accept any present value. */
+const hasOrder: Holds = (cell) => typeof cell !== 'boolean';
+const anything: Holds = () => true;
+
 /**
- * Is this present value the kind the position wanted?
+ * THE ONE TABLE of what each want accepts — read through {@link holderOf} by a
+ * compiled strict position and by a reducer's per-row skip alike, so the two
+ * cannot hold two opinions about one kind.
+ */
+const HOLDS: Readonly<Record<ArgWant, Holds>> = Object.freeze({
+  number: isNumber,
+  string: isText,
+  unit: isText,
+  target: isText,
+  boolean: isBoolean,
+  date: isDay,
+  ordered: hasOrder,
+  any: anything,
+  same: anything,
+});
+
+/**
+ * Is a present value the kind the position wanted? — the test, chosen ONCE for
+ * a position, so the per-row work is the test itself and never the choosing
+ * of it. {@link compile} binds one into every strict position; a reducer's
+ * fold (`./groups.ts`) binds one before its row loop.
  *
  * Read from the same `wants` the judge read, so the check a person was refused
  * by is the check their data is held to. `date` is where "non-ISO date text is
  * absent" is enforced: `2026/01/04` in a date position makes the row absent
- * rather than a date some engines would read and others would not.
- *
- * Exported for {@link ./groups.ts}, which asks it of a reducer's argument one
- * row at a time: a group fold that judged its rows by a second rule would let a
- * `sum` add something a row walk would have called absent.
+ * rather than a date some engines would read and others would not. A group
+ * fold that judged its rows by a second rule would let a `sum` add something a
+ * row walk would have called absent — which is why there is one table and one
+ * door to it.
  */
-export function holdsWant(cell: Cell, want: ArgWant): boolean {
-  if (want === 'number') return typeof cell === 'number';
-  if (want === 'string' || want === 'unit' || want === 'target') return typeof cell === 'string';
-  if (want === 'boolean') return typeof cell === 'boolean';
-  if (want === 'date') return typeof cell === 'string' && epochDayOf(cell) !== null;
-  // `ordered` accepts anything with an order; `any` and `same` accept any present value.
-  if (want === 'ordered') return typeof cell !== 'boolean';
-  return true;
+export function holderOf(want: ArgWant): Holds {
+  return HOLDS[want];
 }
 
-// ── the walk ─────────────────────────────────────────────────────────────────
+// ── the walk: planned once per tree ──────────────────────────────────────────
 
-/** Evaluate the arguments of a STRICT op, or answer `null` the moment the row cannot carry them. */
-function cellsFor(op: Op, args: readonly Expr[], read: CellReader, group: GroupAnswer | undefined): Cell[] | null {
-  const cells: Cell[] = [];
-  let shared: string | null = null;
-  for (let at = 0; at < args.length; at += 1) {
-    const cell = evaluate(args[at]!, read, group);
-    if (cell === null) return null;
-    const want = wantAt(op, at, args.length);
-    if (!holdsWant(cell, want)) return null;
-    if (want === 'same' || want === 'ordered') {
-      // The judge made the DECLARED types agree; this makes the values agree, for the row where the data did not keep the declaration's word.
-      if (shared === null) shared = typeof cell;
-      else if (shared !== typeof cell) return null;
+/**
+ * A tree compiled: what one row comes to, read through the reader, with the
+ * group answering the reducer nodes. The same signature {@link evaluate} has
+ * after its first argument — a compiled tree IS the walk with the tree already
+ * decided.
+ */
+export type Compiled = (read: CellReader, group?: GroupAnswer) => Cell;
+
+/**
+ * Names a compiled closure after the op or leaf it came from — nothing a row
+ * pays for, since it runs once at PLAN time, not per row.
+ *
+ * Every op fold in `./ops.ts` is written as an object-literal arrow, so its own
+ * `.name` is `"of"` regardless of which op it is (`{ div: { of: (c) => ... }
+ * }` infers the PROPERTY's name, `of`, not the op's) — and every node this
+ * file compiles to is itself an anonymous arrow, so an uncaught throw from a
+ * fold walked a stack of `<anonymous>` frames a person at 2am could not point
+ * at a node in the tree. This is the cheap half of the fix: a stack trace
+ * names the op. (It is not the whole fix — see "Judge first" above: every op
+ * in the table is written to be TOTAL over a judged tree and never throws, so
+ * this is for the day that law has a bug in it, not the ordinary row.)
+ */
+function named(fn: Compiled, name: string): Compiled {
+  Object.defineProperty(fn, 'name', { value: name, configurable: true });
+  return fn;
+}
+
+/**
+ * A STRICT node, compiled: each argument's want and whether it must agree with
+ * its siblings are decided here, once; the row pays the arguments and the fold.
+ *
+ * The cells array is ONE per node, refilled per row, because a strict fold
+ * reads it and returns a cell — none keeps it (`./ops.ts` is a closed table),
+ * so a fresh array per row would be an allocation for nobody.
+ */
+function compileStrict(name: string, op: Op & { readonly strict: true }, args: readonly Compiled[], calendar: Calendar | undefined): Compiled {
+  const count = args.length;
+  const wants = args.map((_, at) => wantAt(op, at, count));
+  const holds = wants.map(holderOf);
+  // The judge made the DECLARED types agree; this makes the values agree, for the row where the data did not keep the declaration's word.
+  const agrees = wants.map((want) => want === 'same' || want === 'ordered');
+  const cells: Cell[] = args.map(() => null);
+  const fold = op.of;
+  return named((read, group) => {
+    let shared: string | null = null;
+    for (let at = 0; at < count; at += 1) {
+      const cell = args[at]!(read, group);
+      if (cell === null || !holds[at]!(cell)) return null;
+      if (agrees[at]) {
+        if (shared === null) shared = typeof cell;
+        else if (shared !== typeof cell) return null;
+      }
+      cells[at] = cell;
     }
-    cells.push(cell);
+    return asCell(fold(cells, calendar));
+  }, name);
+}
+
+/**
+ * A LAZY node, compiled — one of the four that see absence. Its arms are
+ * UNEVALUATED thunks by law (`case` must not run the arm it did not pick;
+ * `coalesce` must stop at the first value there is), and they are built ONCE:
+ * each thunk reads the row from a slot this closure sets before the fold runs,
+ * so a row costs no closures. A tree is a tree — no node is its own arm — and
+ * a reader is a reader (`CellReader` answers a cell, it does not walk), so the
+ * slot is never overwritten while a fold is reading it.
+ *
+ * WHY no holderOf here: the arms are unevaluated, and a `same` position agrees
+ * with the OTHER arms — the ones a lazy op must not run. See "Judge first"
+ * above for the limit this leaves.
+ */
+function compileLazy(name: string, op: Op & { readonly strict: false }, args: readonly Compiled[]): Compiled {
+  // Definitely assigned before any arm can run: the closure below sets both before it calls the fold.
+  let read!: CellReader;
+  let group: GroupAnswer | undefined;
+  const arms: Arm[] = args.map((arg) => () => arg(read, group));
+  const fold = op.of;
+  return named((atRead, atGroup) => {
+    read = atRead;
+    group = atGroup;
+    return asCell(fold(arms));
+  }, name);
+}
+
+/**
+ * One tree into one closure tree, ONCE — the plan the walker makes per tree
+ * rather than per row.
+ *
+ * Everything that is a property of the TREE is decided here: the op behind
+ * each name, what each strict position wants, which positions must agree, the
+ * thunks a lazy op hands its fold. What is left for the row is the reads and
+ * the ops themselves ({@link compileStrict}, {@link compileLazy}). A reducer
+ * node reads no row: it asks the group, by its own node, and is absent under
+ * no group — the same silence {@link evaluate} always kept.
+ *
+ * COMPILING ASSUMES A JUDGED TREE. The judge (`./judge.ts` ·
+ * `judgeDerivedColumn`) is untouched by this and is not re-run here: an op
+ * name the grammar does not know is a tree the judge never accepted, and this
+ * throws on it the way the walk always did (`opOf(...)!`), when the tree is
+ * planned rather than at its first row.
+ *
+ * ```ts
+ * const rate = compile({ op: 'div', args: [{ col: 'cases' }, { col: 'population' }] });
+ * for (const row of rows) out.push(rate((c) => row[c]));
+ * ```
+ */
+export function compile(expr: Expr): Compiled {
+  if (expr.col !== undefined) {
+    const column = expr.col;
+    return named((read) => asCell(read(column)), `col:${column}`);
   }
-  return cells;
+  if (expr.lit !== undefined) {
+    const literal = expr.lit;
+    return named(() => literal, 'lit');
+  }
+  const op = opOf(expr.op)!;
+  if (op.reduces === true) return named((_read, group) => (group === undefined ? null : asCell(group(expr))), `reduce:${expr.op}`);
+  const args = expr.args.map(compile);
+  return op.strict ? compileStrict(expr.op, op, args, expr.calendar) : compileLazy(expr.op, op, args);
+}
+
+/**
+ * The closure tree of a tree, remembered BY THE TREE — so the two one-row
+ * doors below pay the plan once and a lookup per row, never a plan per row.
+ *
+ * Keyed by identity, which is safe because a tree is declared data with
+ * `readonly` in every position: nothing in this grammar edits a tree after it
+ * is declared, and a caller holding a tree the judge accepted holds the very
+ * object this remembers. The hot loops (`./groups.ts`) do not come through
+ * here — they compile once before the loop and hold the closure themselves.
+ */
+const planned = new WeakMap<Expr, Compiled>();
+
+function plannedOf(expr: Expr): Compiled {
+  let compiled = planned.get(expr);
+  if (compiled === undefined) {
+    compiled = compile(expr);
+    planned.set(expr, compiled);
+  }
+  return compiled;
 }
 
 /**
@@ -169,26 +325,18 @@ function cellsFor(op: Op, args: readonly Expr[], read: CellReader, group: GroupA
  * evaluate({ op: 'div', args: [{ col: 'cases' }, { col: 'population' }] }, (c) => row[c]);
  * ```
  *
- * A REDUCER node does not read this row — it reads the group this row is in,
- * and `group` is where that answer comes from ({@link ./groups.ts}). Without
- * one a reducer is absent: a tree that asks what a group came to, walked with
- * no group under it, has no answer, and inventing one would be inventing a
- * number. The judge refuses that declaration long before this, so the silence
- * here is the door being total rather than a path a column can take.
+ * A thin door over {@link compile}: the tree is planned once and remembered,
+ * so every answer this ever gave is now a compiled answer — the tests behind
+ * it are the proof the two agree. A REDUCER node does not read this row — it
+ * reads the group this row is in, and `group` is where that answer comes from
+ * ({@link ./groups.ts}). Without one a reducer is absent: a tree that asks what
+ * a group came to, walked with no group under it, has no answer, and inventing
+ * one would be inventing a number. The judge refuses that declaration long
+ * before this, so the silence here is the door being total rather than a path
+ * a column can take.
  */
 export function evaluate(expr: Expr, read: CellReader, group?: GroupAnswer): Cell {
-  if (expr.col !== undefined) return asCell(read(expr.col));
-  if (expr.lit !== undefined) return expr.lit;
-  const op = opOf(expr.op)!;
-  if (op.reduces === true) return group === undefined ? null : asCell(group(expr));
-  // The four that see absence get their arguments UNEVALUATED: a `case` must not
-  // run the arm it did not pick, and `coalesce` must stop at the first value there is.
-  // WHY no holdsWant here: the arms are unevaluated by law, and a `same` position agrees
-  // with the OTHER arms — the ones a lazy op must not run. See "Judge first" above for
-  // the limit this leaves.
-  if (!op.strict) return asCell(op.of(expr.args.map((arg) => () => evaluate(arg, read, group))));
-  const cells = cellsFor(op, expr.args, read, group);
-  return cells === null ? null : asCell(op.of(cells, expr.calendar));
+  return plannedOf(expr)(read, group);
 }
 
 // ── where a cell comes from ──────────────────────────────────────────────────
@@ -255,7 +403,7 @@ export function readerFor(row: Row, silence?: TableSilence): CellReader {
   return readerOver((column) => row[column], silence);
 }
 
-/** One ROW through the tree, absence law and all — the shortest door there is. */
+/** One ROW through the tree, absence law and all — the shortest door there is, and a thin one over {@link compile} like {@link evaluate}. */
 export function evaluateRow(expr: Expr, row: Row, silence?: TableSilence): Cell {
-  return evaluate(expr, readerFor(row, silence));
+  return plannedOf(expr)(readerFor(row, silence));
 }
