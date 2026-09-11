@@ -75,6 +75,49 @@ function sizesOf(results) {
 
 const find = (results, size, arm, engine) => results.find((r) => r.size === size && r.arm === arm && r.engine === engine);
 
+/** `a ÷ b` of two medians as the table prints a ratio, or an em dash when one side is absent. */
+function ratioText(a, b) {
+  if (!a || !b) return '—';
+  const r = a.median / b.median;
+  return `${r >= 100 ? r.toFixed(0) : r >= 10 ? r.toFixed(1) : r.toFixed(2)}×`;
+}
+
+/**
+ * The wide arm's OWN ratio, per engine: its median over the `window` arm's, on
+ * the same size — the price of the other twenty-four columns and nothing else.
+ *
+ * WHY a sentence under the table and not a fifth column: every other arm's
+ * ratio is wasm ÷ memory, and a column that meant something else on one row
+ * would be read as that on every row. `null` when a size has no wide arm at
+ * all (a results file written before it existed).
+ *
+ * WHY the arm names are read off the run (`json.arms`, the `ARMS` contract as
+ * the bench wrote it) and not spelled here: this renderer is plain `.mjs` and
+ * cannot import `measure.ts`, and a literal copied from it would silently stop
+ * matching the day the contract's wording moved.
+ */
+function wideOverWindow(results, size, arms) {
+  if (!arms?.wide || !arms?.window) return null;
+  const memory = ratioText(find(results, size, arms.wide, 'memory'), find(results, size, arms.window, 'memory'));
+  const wasm = ratioText(find(results, size, arms.wide, 'wasm'), find(results, size, arms.window, 'wasm'));
+  if (memory === '—' && wasm === '—') return null;
+  return `*wide ÷ window, per engine — the same clause and the same 100 rows, thirty columns against six: memory ${memory} · wasm ${wasm}*`;
+}
+
+/**
+ * One line naming what the wide table's columns ARE in DuckDB's own words,
+ * grouped by type — so a reader of the wide arm knows which conversions its
+ * number contains (`DESCRIBE`, recorded by the run). Absent from a results file
+ * written before the wide arm existed.
+ */
+function wideWireLine(wide) {
+  if (!wide) return null;
+  const byType = new Map();
+  for (const [name, type] of Object.entries(wide.types)) byType.set(type, [...(byType.get(type) ?? []), name]);
+  const each = [...byType].map(([type, names]) => `${type} ×${String(names.length)}`);
+  return `| wide table — what DuckDB says its ${String(wide.columns)} columns are | DESCRIBE | ${each.join(' · ')} | — |`;
+}
+
 export function tableOf(json) {
   const out = [];
   const results = json.results ?? [];
@@ -99,7 +142,18 @@ export function tableOf(json) {
       `| both engines counted the same rows — ${a.size} ${a.clause} | memory = wasm | ${a.memory.toLocaleString('en-US')} vs ${a.wasm.toLocaleString('en-US')} | ${a.agree ? 'YES' : 'NO — every number below is void'} |`,
     );
   }
+  const wire = wideWireLine(json.controls?.wide);
+  if (wire) out.push(wire);
   out.push('');
+
+  // A ceiling is a measurement (law 3): every arm an engine could not run is named here, in the backend's words, before its em dashes.
+  const failures = json.failures ?? [];
+  if (failures.length > 0) {
+    out.push('| ceiling — an arm an engine could not run | engine | size | the backend said |');
+    out.push('|---|---|---|---|');
+    for (const f of failures) out.push(`| ${f.stage} | ${f.engine} | ${f.size} | ${f.cause} |`);
+    out.push('');
+  }
 
   let section = 0;
   for (const size of sizesOf(results)) {
@@ -116,6 +170,11 @@ export function tableOf(json) {
       out.push(`| ${arm}${note ? ` <br/>*${note}*` : ''} | ${pair(memory)} | ${pair(wasm)} | ${ratioOf(memory, wasm)} |`);
     }
     out.push('');
+    const wide = wideOverWindow(results, size, json.arms);
+    if (wide) {
+      out.push(wide);
+      out.push('');
+    }
   }
   return out.join('\n');
 }

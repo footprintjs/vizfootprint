@@ -16,8 +16,8 @@
  *
  * First customers: `bench-entry.ts` (every arm) and `wasm.test.ts` (the controls).
  */
-import { stats } from '../step0/gen.js';
-import type { EvaluateOptions, PredicateClause } from '../../src/data/types.js';
+import { mulberry32, stats } from '../step0/gen.js';
+import type { EvaluateOptions, PredicateClause, Row } from '../../src/data/types.js';
 
 // ── The data: what one measurement IS. ───────────────────────────────────
 
@@ -178,12 +178,20 @@ export const SIZE_ORDER: readonly Size[] = Object.keys(SIZES) as Size[];
 // ── The contract: the arms, and the exact question each one asks. ────────
 
 /**
- * The five arms, by name.
+ * The arms, by name: the five the bench shipped with, and the two it named and
+ * deferred — a moving brush (`brush` + `brushAsk`) and a wide projection (`wide`).
  *
  * WHY the names are a constant and not literals at the call sites: the table
  * pairs the two engines by this key, and `wasm.test.ts` asks the SAME questions
  * of the live engines as its own control. A typo would silently become a
  * one-engine row with an em dash beside it.
+ *
+ * WHY the brush is TWO names: a sweep is one gesture and one number (its
+ * total), but the number a router reasons about is what ONE ask of it costs,
+ * and a per-ask median is not a total divided by twenty. `brush` times the
+ * whole sweep as one call; `brushAsk` times each ask of one sweep as its own
+ * sample — {@link BRUSH_ASKS} samples, which is also the count at which
+ * {@link spreadOf} may honestly call the spread a p95.
  */
 export const ARMS = {
   load: 'construct / load the table',
@@ -191,6 +199,9 @@ export const ARMS = {
   window: 'rows, limit 100 — point AND interval',
   sorted: 'rows, ORDER BY cases DESC, limit 100 — repeat asks',
   sortedFirst: 'rows, ORDER BY cases DESC, limit 100 — FIRST ask on a fresh table',
+  brush: 'rows, limit 100 — a MOVING brush: the whole sweep of 20 interval asks, one week apart',
+  brushAsk: 'rows, limit 100 — a MOVING brush: ONE ask of the sweep (n = the 20 asks)',
+  wide: 'rows, limit 100 — point AND interval, ALL 30 columns of the wide table',
 } as const;
 
 /** The window each arm asks for, as `EvaluateOptions` — one object, so neither engine is asked a different question. */
@@ -218,4 +229,133 @@ export function benchClauses(picked: { readonly disease: string; readonly from: 
   const point: PredicateClause = { kind: 'point', field: 'disease', value: wire(picked.disease) };
   const interval: PredicateClause = { kind: 'interval', field: 't', value: [wire(picked.from), wire(picked.to)] };
   return { point, interval, and: [point, interval] };
+}
+
+// ── The contract: the moving brush. ──────────────────────────────────────
+
+/** How many asks one sweep of the brush makes: the interval slides ONE week per ask, this many times. */
+export const BRUSH_ASKS = 20;
+
+/**
+ * The brush: the bench interval, sliding one week per ask across the table's
+ * span — {@link BRUSH_ASKS} clause pairs, each one week later than the last.
+ *
+ * WHY it is derived from {@link benchClauses} and not drawn fresh: the first
+ * ask of the sweep IS the bench interval (`bench/step0` measured the memory
+ * engine on that exact shape), so the two benches keep speaking about one
+ * question. The point clause rides unchanged beside it: a brush moves ONE
+ * clause while the rest of the gesture holds still, and holding the disease
+ * fixed keeps the match count constant across the sweep — law 4 of the README —
+ * so an ask's cost is the cost of a fresh judgement, never of a wider answer.
+ *
+ * WHY the sweep must FIT the span: an ask whose upper bound ran past the last
+ * week would be clamped into a narrower interval, which is a different
+ * question — so the sequence refuses, in words, rather than bending.
+ *
+ * WHY no cache can answer it, for either engine: the memory engine caches sort
+ * PERMUTATIONS keyed by the sort spec (`memoryProvider.ts` · `permutationFor`),
+ * never a clause's matches; DuckDB keeps no result cache across statements. So
+ * every ask of the sweep is judged from the rows — which is exactly what a
+ * real brush costs, and what no other arm of this bench measures.
+ */
+export function brushSequence(
+  picked: { readonly disease: string; readonly from: string; readonly to: string },
+  weeks: readonly string[],
+  asks: number = BRUSH_ASKS,
+): readonly (readonly PredicateClause[])[] {
+  const from = weeks.indexOf(picked.from);
+  const to = weeks.indexOf(picked.to);
+  if (from < 0 || to < 0) throw new Error(`brushSequence: the bench interval [${picked.from}, ${picked.to}] is not made of the table's weeks`);
+  if (to + asks > weeks.length) {
+    throw new Error(
+      `brushSequence: ${String(asks)} asks sliding from week ${String(to)} run past the table's ${String(weeks.length)} weeks — the sweep must fit the span, a clamped ask is a narrower question`,
+    );
+  }
+  return Array.from({ length: asks }, (_, k) => benchClauses({ disease: picked.disease, from: weeks[from + k]!, to: weeks[to + k]! }).and);
+}
+
+// ── The contract: the wide table. ────────────────────────────────────────
+
+/** The wide table's name in both engines. */
+export const WIDE_TABLE = 'wide';
+
+/** How many columns the wide table carries: the bench's six, plus four of each of the six generated families below. */
+export const WIDE_COLUMNS = 30;
+
+/**
+ * The six generated column families, each named for the wire type DuckDB gives
+ * it through the shipped rows port (`read_json_auto`), MEASURED and not
+ * assumed — two of the brief's six were not what the port lands:
+ *
+ *   int_N   BIGINT     an integer; `castBigIntToDouble` turns it back into a number on every read
+ *   dec_N   DOUBLE     a fractional number. NOT a DECIMAL: the JSON reader infers DOUBLE for
+ *                      every fraction, so `castDecimalToDouble` never fires on this path
+ *   date_N  DATE       a day, `YYYY-MM-DD` — epoch millis on the wire, read back as the day's ISO text
+ *   ts_N    TIMESTAMP  an instant, `YYYY-MM-DDTHH:MM:SSZ` — epoch millis on the wire, read back as ISO.
+ *                      WHY seconds and not `Date#toISOString()`: the reader types `…:30.000Z` as
+ *                      VARCHAR (measured 2026-09-11), and a VARCHAR converts nothing on the wire
+ *   str_N   VARCHAR    a label from a small pool
+ *   bool_N  BOOLEAN    a coin
+ *
+ * `wasm.test.ts` holds DuckDB's `DESCRIBE` to this list, so a reader of the
+ * wide arm knows which conversions the number contains.
+ */
+export const WIDE_FAMILIES = {
+  int: 'BIGINT',
+  dec: 'DOUBLE',
+  date: 'DATE',
+  ts: 'TIMESTAMP',
+  str: 'VARCHAR',
+  bool: 'BOOLEAN',
+} as const;
+
+/** How many columns each family contributes: (30 − the bench's 6) ÷ 6 families. */
+const PER_FAMILY = (WIDE_COLUMNS - 6) / Object.keys(WIDE_FAMILIES).length;
+
+/** The generated column names, in the order a wide row carries them: family-major, so `int_1 … int_4, dec_1 …`. */
+export const WIDE_GENERATED: readonly string[] = Object.keys(WIDE_FAMILIES).flatMap((family) => Array.from({ length: PER_FAMILY }, (_, i) => `${family}_${String(i + 1)}`));
+
+/** A day of 2025 as `YYYY-MM-DD`, and an instant of it as `YYYY-MM-DDTHH:MM:SSZ`. */
+const dayOf = (i: number): string => new Date(Date.UTC(2025, 0, 1) + i * 86_400_000).toISOString().slice(0, 10);
+const instantOf = (i: number): string => new Date(Date.UTC(2025, 0, 1) + i * 3_600_000).toISOString().replace('.000Z', 'Z');
+
+/**
+ * The wide table: the bench's rows, each carrying {@link WIDE_GENERATED} beside
+ * its own six columns — the same rows, so the bench clause keeps its 3,080
+ * matches, and only the width of what a window hands back changes.
+ *
+ * WHY the strings come from pools rather than one fresh string per cell: a
+ * million rows of thirty columns must fit beside the six-column table in one
+ * process, and a pooled label costs a row one pointer; the WIRE bytes DuckDB
+ * converts are the same either way. Seeded (`mulberry32`, `../step0/gen.ts`),
+ * so both engines are landed with the same cells.
+ */
+export function widen(rows: readonly Row[], seed = 7): Row[] {
+  const rnd = mulberry32(seed);
+  const days = Array.from({ length: 365 }, (_, i) => dayOf(i));
+  const instants = Array.from({ length: 24 * 365 }, (_, i) => instantOf(i));
+  const labels = Array.from({ length: 500 }, (_, i) => `Label ${String(i)}`);
+  const pick = <T>(pool: readonly T[]): T => pool[Math.floor(rnd() * pool.length)]!;
+  const cell = (family: keyof typeof WIDE_FAMILIES): unknown => {
+    switch (family) {
+      case 'int':
+        return Math.floor(rnd() * 2_147_483_647);
+      case 'dec':
+        return Math.round(rnd() * 10_000_000) / 1000;
+      case 'date':
+        return pick(days);
+      case 'ts':
+        return pick(instants);
+      case 'str':
+        return pick(labels);
+      case 'bool':
+        return rnd() < 0.5;
+    }
+  };
+  const families = WIDE_GENERATED.map((name) => name.slice(0, name.indexOf('_')) as keyof typeof WIDE_FAMILIES);
+  return rows.map((row) => {
+    const wide: Row = { ...row };
+    for (let c = 0; c < WIDE_GENERATED.length; c++) wide[WIDE_GENERATED[c]!] = cell(families[c]!);
+    return wide;
+  });
 }
