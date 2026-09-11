@@ -27,11 +27,27 @@
  *
  * Axis labels open the {@link EncodingPicker}: x offers only DATE-capable
  * columns, y only numeric ones — disabled-with-reason via {@link lineCompat}.
+ *
+ * A LINE ON A BAND (the same component, a second arm of {@link LinePoint}):
+ * band versus run is a property of the x COLUMN, not of the mark. A point may
+ * carry a `category` instead of a `date`, and when the chart is handed a band
+ * order (`domain.categories`, the frame's fold) or its points carry categories,
+ * its x IS a band: each point sits at its slot's CENTRE in the band's order
+ * (`bandOrder` — a category the order did not name is appended, never
+ * dropped), the segments between are connectors drawn in slot order, and they
+ * claim nothing between slots, because on a band there is no between — a slot
+ * with no point is a GAP, and the segments on either side stop at their own
+ * points (a line does not invent a value for an empty slot). The axis is the
+ * band's labels, fitted the way a bar chart fits its own (`fitTick`). Ticks,
+ * padding and the logarithm are y's business only; a band has none of them.
+ * The time brush and the navigate window are a run's: an interval has no
+ * meaning on a band, so a band line draws no brush.
  */
 import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
-import { linearScale, extent, ticks, epochOf, dayOf, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, type ChartDomain } from '../primitives/scales.js';
+import { linearScale, extent, ticks, epochOf, dayOf, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, bandOrder, bandWidth, bandCentre, type ChartDomain } from '../primitives/scales.js';
+import { TICK_ANGLE, fitTick } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { useReencodePicker } from '../primitives/reencode.js';
@@ -39,7 +55,8 @@ import { boundField } from './binding.js';
 import { EncodingPicker } from './EncodingPicker.js';
 import { defaultCompat, type Compatibility } from '../primitives/compat.js';
 
-export interface LinePoint {
+/** A point on a RUN of dates. */
+export interface DatedLinePoint {
   /** ISO-8601 date (or timestamp) string — lexicographic == chronological. */
   readonly date: string;
   readonly value: number;
@@ -47,11 +64,28 @@ export interface LinePoint {
   readonly series?: string;
 }
 
+/**
+ * A point on a BAND: positioned at its category's slot centre. WHY a second arm
+ * of one shape rather than a second component: band versus run is a property
+ * of the x COLUMN, not of the mark — the same line, the same series, the same
+ * mean per bucket and the same y; only WHERE a bucket sits differs.
+ */
+export interface BandLinePoint {
+  /** The category whose slot this point sits in (the band's label). */
+  readonly category: string;
+  readonly value: number;
+  /** Optional series split (coloured via `colorOf`). */
+  readonly series?: string;
+}
+
+/** One point of the line, on a date or on a category — discriminated on which it carries, never by a prop. */
+export type LinePoint = DatedLinePoint | BandLinePoint;
+
 export interface VizLineProps {
   /** The chart's accessible name — the prose plane's `altShort` lands here; absent = the chart names itself from its bindings. */
   readonly ariaLabel?: string;
   readonly viewId?: string;
-  /** RAW points, already crossfiltered by the consumer — the chart aggregates (mean per date per series). */
+  /** RAW points, already crossfiltered by the consumer — the chart aggregates (mean per date — or per category, on a band — per series). */
   readonly data: readonly LinePoint[];
   /** The DATA field the time axis encodes (also the brush emit field) — a default, overridden by `encoding.x`. */
   readonly dateField?: string;
@@ -105,6 +139,12 @@ export interface VizLineProps {
    * `transform` (protocol 1.6) is honoured on **y only**: this chart's x is a
    * date, and a date has no logarithm. A mean a logarithm cannot place has no
    * position, so it is not drawn and is counted in the chart's accessible name.
+   *
+   * `categories` — the frame's BAND ORDER — makes this chart's x a band (the
+   * same field `VizBar` reads through `bandOrder`): every point sits at its
+   * slot's centre in that order, and a bar's slot and this line's point for one
+   * category are ONE x (`bandCentre`, the one slot geometry). A run's `x` is not
+   * read on a band, and a band's `categories` is not read on a run.
    */
   readonly domain?: ChartDomain;
   /**
@@ -135,44 +175,115 @@ export function lineCompat(dateFields: readonly string[] = []) {
   };
 }
 
-interface SeriesGeom {
-  readonly name: string | undefined;
-  /** Mean value per distinct date, in chronological order. */
-  readonly points: readonly { date: string; epoch: number; mean: number; n: number }[];
+/** A band point carries a category, a dated one a date — the discriminant is what the point was given, never a prop. */
+function isBandPoint(p: LinePoint): p is BandLinePoint {
+  return 'category' in p;
 }
 
-/** Mean per (series, date) over parseable dates, series and dates both in first-seen/chronological order. */
-function aggregate(data: readonly LinePoint[]): { series: SeriesGeom[]; dates: { date: string; epoch: number }[] } {
+/** The x KEY a point is bucketed under: its category on a band, its ISO date on a run. */
+function keyOf(p: LinePoint): string {
+  return isBandPoint(p) ? p.category : p.date;
+}
+
+/**
+ * One position along x: its key, and `at` — the EPOCH of a date (placed through
+ * the linear scale) or the SLOT INDEX of a category (placed at `bandCentre`).
+ * One number in both arms so that ordering, adjacency and placement read it the
+ * same way and never ask which kind of x they are on.
+ */
+interface XPosition {
+  readonly key: string;
+  readonly at: number;
+}
+
+interface SeriesPoint extends XPosition {
+  readonly mean: number;
+  readonly n: number;
+}
+
+interface SeriesGeom {
+  readonly name: string | undefined;
+  /** Mean value per position this series has a bucket for, in position order. */
+  readonly points: readonly SeriesPoint[];
+}
+
+/**
+ * The band this chart stands on, or `undefined` for a run of dates: the frame's
+ * order first, then every key the points carry that it does not name
+ * (`bandOrder` — nothing is dropped, a dated point handed to a band becomes a
+ * slot named by its date). A band exists when the frame handed one OR any
+ * point carries a category; with neither, x is the run it always was.
+ */
+function bandOf(given: readonly string[] | undefined, data: readonly LinePoint[]): readonly string[] | undefined {
+  if (given === undefined && !data.some(isBandPoint)) return undefined;
+  return bandOrder(given, [...new Set(data.map(keyOf))]);
+}
+
+/** Sum and count per (series, x key), series and keys both in first-seen order. */
+function bucketise(data: readonly LinePoint[]): Map<string | undefined, Map<string, { sum: number; n: number }>> {
   const bySeries = new Map<string | undefined, Map<string, { sum: number; n: number }>>();
-  const epochs = new Map<string, number>();
   for (const p of data) {
-    const epoch = epochOf(p.date);
-    if (epoch === null) continue; // an unparseable date cannot be positioned — skipped, never guessed
-    epochs.set(p.date, epoch);
     let buckets = bySeries.get(p.series);
     if (!buckets) {
       buckets = new Map();
       bySeries.set(p.series, buckets);
     }
-    const b = buckets.get(p.date);
+    const key = keyOf(p);
+    const b = buckets.get(key);
     if (b) {
       b.sum += p.value;
       b.n += 1;
     } else {
-      buckets.set(p.date, { sum: p.value, n: 1 });
+      buckets.set(key, { sum: p.value, n: 1 });
     }
   }
-  const dates = [...epochs.entries()].map(([date, epoch]) => ({ date, epoch })).sort((a, b) => a.epoch - b.epoch);
-  const series: SeriesGeom[] = [...bySeries.entries()].map(([name, buckets]) => ({
+  return bySeries;
+}
+
+/** Mean per (series, position): each series' points in position order, only where it has a bucket. */
+function seriesOf(data: readonly LinePoint[], positions: readonly XPosition[]): SeriesGeom[] {
+  return [...bucketise(data).entries()].map(([name, buckets]) => ({
     name,
-    points: dates
-      .filter((d) => buckets.has(d.date))
-      .map((d) => {
-        const b = buckets.get(d.date)!;
-        return { date: d.date, epoch: d.epoch, mean: b.sum / b.n, n: b.n };
+    points: positions
+      .filter((pos) => buckets.has(pos.key))
+      .map((pos) => {
+        const b = buckets.get(pos.key)!;
+        return { key: pos.key, at: pos.at, mean: b.sum / b.n, n: b.n };
       }),
   }));
-  return { series, dates };
+}
+
+/** A RUN's geometry: every distinct parseable date, chronological, and the series over exactly those points (an unparseable date cannot be positioned — skipped, never guessed). */
+function datedGeometry(data: readonly LinePoint[]): { series: SeriesGeom[]; positions: XPosition[] } {
+  const dated = data.filter((p) => epochOf(keyOf(p)) !== null);
+  const epochs = new Map<string, number>();
+  for (const p of dated) epochs.set(keyOf(p), epochOf(keyOf(p))!);
+  const positions = [...epochs.entries()].map(([key, at]) => ({ key, at })).sort((a, b) => a.at - b.at);
+  return { series: seriesOf(dated, positions), positions };
+}
+
+/** A BAND's geometry: one position per slot, in the band's order, and the series over those slots. */
+function bandGeometry(data: readonly LinePoint[], band: readonly string[]): { series: SeriesGeom[]; positions: XPosition[] } {
+  const positions = band.map((key, at) => ({ key, at }));
+  return { series: seriesOf(data, positions), positions };
+}
+
+/**
+ * THE RUNS OF ONE SERIES' PATH. On a run of dates every consecutive pair
+ * connects — the line joins the data dates it has, as it always did. On a band a
+ * slot with no point is a GAP: the segments on either side stop at their own
+ * points, because a line does not invent a value for an empty slot, and on a
+ * band there is no between for a connector to claim. `adjacent` is that law,
+ * spelled by the caller for the x it is on.
+ */
+function segmentsOf(points: readonly SeriesPoint[], adjacent: (a: SeriesPoint, b: SeriesPoint) => boolean): readonly (readonly SeriesPoint[])[] {
+  const out: SeriesPoint[][] = [];
+  for (const p of points) {
+    const last = out[out.length - 1];
+    if (last !== undefined && adjacent(last[last.length - 1]!, p)) last.push(p);
+    else out.push([p]);
+  }
+  return out;
 }
 
 /**
@@ -182,6 +293,12 @@ function aggregate(data: readonly LinePoint[]): { series: SeriesGeom[]; dates: {
  * computed there can never drift from the box drawn here.
  */
 export const PAD = { l: 52, r: 18, t: 18, b: 44 };
+/** Extra bottom room when a band label has to slant (the plot gives it up) — `VizBar`'s law, so a band line and a bar slant alike. */
+const SLANT_PAD = 40;
+/** Bottom pixels kept for the axis label, beneath the ticks. */
+const AXIS_LABEL_ROOM = 24;
+/** The plot height a slant may never take the chart below. */
+const MIN_PLOT = 40;
 /** One legend row's height, and the width the tick font takes per character (a measure, not a rule — SVG cannot ask before it draws). */
 const LEGEND_ROW = 14;
 const LEGEND_CHAR = 6.4;
@@ -227,24 +344,34 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const xLabel = props.xLabel ?? dateField;
   const yLabel = props.yLabel ?? valueField;
 
+  // WHICH X THIS CHART DRAWS — a band or a run — read off what it was handed (the frame's band order, or
+  // points that carry a category) and never off a prop: the x column's type is a fact the definition and
+  // the fold already carry, and a prop would be a second owner that could disagree with them.
+  const givenBand = props.domain?.categories;
+  const band = useMemo(() => bandOf(givenBand, data), [givenBand, data]);
   const xDomain = props.xDomain;
-  // the navigate window: keep only the points inside it — drawn extent follows the window, the data stays whole
+  // the navigate window: keep only the points inside it — drawn extent follows the window, the data stays whole.
+  // A TIME window, so a band (no between to window) keeps every point.
   const scoped = useMemo(() => {
-    if (xDomain === undefined) return data;
+    if (xDomain === undefined || band !== undefined) return data;
     const bound = (b: string | number | null): number | null => (b === null ? null : typeof b === 'number' ? b : epochOf(b));
     const lo = bound(xDomain[0]);
     const hi = bound(xDomain[1]);
     return data.filter((p) => {
-      const e = epochOf(p.date);
+      const e = epochOf(keyOf(p));
       return e !== null && (lo === null || e >= lo) && (hi === null || e <= hi);
     });
-  }, [data, xDomain]);
-  const { series, dates } = useMemo(() => aggregate(scoped), [scoped]);
+  }, [data, xDomain, band]);
+  const { series, positions } = useMemo(() => (band === undefined ? datedGeometry(scoped) : bandGeometry(scoped, band)), [scoped, band]);
   const compat = useMemo(() => lineCompat(dateFields ?? [dateField]), [dateFields, dateField]);
 
   // the frame's domain when a frame gave one, this chart's own extent otherwise (../primitives/scales.ts)
-  const [elo, ehi] = domainOr(props.domain?.x, extent(dates, (d) => d.epoch, 0));
+  const [elo, ehi] = domainOr(props.domain?.x, extent(positions, (d) => d.at, 0));
   const x = linearScale(elo, ehi, PAD.l, width - PAD.r);
+  // ON A BAND, x is the slot geometry every mark on a band shares (`bandWidth`/`bandCentre`, ../primitives/scales.ts):
+  // a bar's slot and this line's point for one category are ONE x by construction. `at` is the slot index there.
+  const slot = band === undefined ? 0 : bandWidth(PAD.l, width - PAD.r, band.length);
+  const xOf = (at: number): number => (band === undefined ? x(at) : bandCentre(PAD.l, slot, at));
   // WHICH CURVE THE VALUE AXIS IS DRAWN ON. Only y: this chart's x is a DATE (epoch milliseconds)
   // and a date has no logarithm, so `transform.x` is ignored here — the same law ChartDomain already
   // keeps for a channel a chart has no quantitative scale for.
@@ -264,14 +391,24 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // below them, so a legend of nine regions cannot sit on top of nine spiky lines (identity is never colour-alone).
   const legend = layoutLegend(series.map((s) => s.name ?? 'all'), width - PAD.l - PAD.r);
   const top = PAD.t + legend.height;
-  const y = scaleFor(yKind)(vlo, vhi, height - PAD.b, top);
+  // A BAND'S LABELS: one tick per slot at its centre, flat when it fits its slot and slanted (with the plot
+  // giving up SLANT_PAD, never below MIN_PLOT) when any does not — `VizBar`'s own law, through the same
+  // `fitTick`. No ticks, no tick room: with `axes={false}` the guide is the FRAME's, and giving up plot for
+  // labels this chart is not drawing would move its baseline off every other layer's. A run keeps PAD.b
+  // exactly, so nothing about a dated line moves.
+  const bandLabels = axes && band !== undefined ? band : [];
+  const slanted = bandLabels.some((name) => fitTick(name, slot, 0).rotate);
+  const padB = slanted ? Math.min(PAD.b + SLANT_PAD, Math.max(PAD.b, height - top - MIN_PLOT)) : PAD.b;
+  const tickRoom = Math.max(0, padB - 12 - AXIS_LABEL_ROOM);
+  const bottom = height - padB;
+  const y = scaleFor(yKind)(vlo, vhi, bottom, top);
 
-  /** The distinct data date NEAREST an epoch (dates is chronological, monotone in its argument). */
-  const snapToDate = (epoch: number): { date: string; epoch: number } | null => {
-    if (dates.length === 0) return null;
-    let best = dates[0]!;
-    for (const d of dates) {
-      if (Math.abs(d.epoch - epoch) < Math.abs(best.epoch - epoch)) best = d;
+  /** The distinct data date NEAREST an epoch (positions are chronological on a run, monotone in their argument). */
+  const snapToDate = (epoch: number): XPosition | null => {
+    if (positions.length === 0) return null;
+    let best = positions[0]!;
+    for (const d of positions) {
+      if (Math.abs(d.at - epoch) < Math.abs(best.at - epoch)) best = d;
     }
     return best;
   };
@@ -292,10 +429,14 @@ export function VizLine(props: VizLineProps): JSX.Element {
       // ISO strings on the interval rail: src/selection/emission.ts's ChartEmission tuple is
       // typed numerically (predates date intervals); src/data's IntervalClause
       // types + evaluates [string, string] — the documented cast, nowhere else.
-      return [lo.date, hi.date] as unknown as [number, number];
+      return [lo.key, hi.key] as unknown as [number, number];
     },
     onEmit,
   });
+  // A BAND LINE DRAWS NO BRUSH: an interval has no meaning on a band (the string interval predicate compares
+  // lexicographically, not in slot order), and a run of crossed slots is `VizBar`'s match law — a kind this
+  // chart does not claim. So the handlers and the overlay ride only on a run of dates.
+  const brushHandlers = band === undefined ? handlers : {};
 
   const { pickerChannel, openPicker, closePicker } = useReencodePicker(onReencodeRequest);
 
@@ -304,20 +445,24 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // dates land where they land, so the middle can crowd an edge under uneven
   // gaps. Date labels are ~10 mono chars ≈ 62 viewBox units.
   const TICK_LABEL_W = 62;
-  const tickSpecs: { date: string; epoch: number; anchor: 'start' | 'middle' | 'end' }[] = [];
-  if (dates.length > 0) {
-    const first = dates[0]!;
-    const last = dates[dates.length - 1]!;
-    tickSpecs.push({ ...first, anchor: dates.length === 1 ? 'middle' : 'start' });
-    if (dates.length > 2) {
-      const mid = dates[Math.round((dates.length - 1) / 2)]!;
+  const tickSpecs: { key: string; at: number; anchor: 'start' | 'middle' | 'end' }[] = [];
+  if (band === undefined && positions.length > 0) {
+    const first = positions[0]!;
+    const last = positions[positions.length - 1]!;
+    tickSpecs.push({ ...first, anchor: positions.length === 1 ? 'middle' : 'start' });
+    if (positions.length > 2) {
+      const mid = positions[Math.round((positions.length - 1) / 2)]!;
       const fits =
-        x(mid.epoch) - TICK_LABEL_W / 2 > x(first.epoch) + TICK_LABEL_W + 8 &&
-        x(mid.epoch) + TICK_LABEL_W / 2 < x(last.epoch) - TICK_LABEL_W - 8;
+        x(mid.at) - TICK_LABEL_W / 2 > x(first.at) + TICK_LABEL_W + 8 &&
+        x(mid.at) + TICK_LABEL_W / 2 < x(last.at) - TICK_LABEL_W - 8;
       if (fits) tickSpecs.push({ ...mid, anchor: 'middle' });
     }
-    if (dates.length > 1) tickSpecs.push({ ...last, anchor: 'end' });
+    if (positions.length > 1) tickSpecs.push({ ...last, anchor: 'end' });
   }
+  // the gap law (`segmentsOf`): on a run every consecutive pair connects; on a band only ADJACENT slots do
+  const adjacent = band === undefined ? (): boolean => true : (a: SeriesPoint, b: SeriesPoint): boolean => b.at === a.at + 1;
+  /** What a point is called in its tooltip: its day on a run, its category on a band. */
+  const nameOf = (key: string): string => (band === undefined ? dayOf(key) : key);
   // the chart's OWN y extent is padded by 0.5, so its ticks step inside that padding; a frame's
   // domain carries no padding of ours, so its ticks span exactly what the axis claims
   const yPad = props.domain?.y === undefined ? 0.5 : 0;
@@ -336,21 +481,41 @@ export function VizLine(props: VizLineProps): JSX.Element {
         viewBox={`0 0 ${width} ${height}`}
         role="img"
         aria-label={(props.ariaLabel ?? `${yLabel} over ${xLabel}`) + excludedNote(excluded)}
-        {...handlers}
+        {...brushHandlers}
       >
         {/* axes frame — absent while the FRAME draws one merged guide for the stack */}
-        {axes && <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />}
-        {axes && <line className="vzf-axis" x1={PAD.l} y1={top} x2={PAD.l} y2={height - PAD.b} />}
-        {/* x ticks — actual data dates; the edge labels anchor inward so they
+        {axes && <line className="vzf-axis" x1={PAD.l} y1={bottom} x2={width - PAD.r} y2={bottom} />}
+        {axes && <line className="vzf-axis" x1={PAD.l} y1={top} x2={PAD.l} y2={bottom} />}
+        {/* x ticks on a RUN — actual data dates; the edge labels anchor inward so they
             never clip at the plot edges or collide with each other */}
         {axes && tickSpecs.map((d) => (
-          <g key={`xt${d.date}`}>
-            <line className="vzf-axis" x1={x(d.epoch)} y1={height - PAD.b} x2={x(d.epoch)} y2={height - PAD.b + 4} />
-            <text className="vzf-tick" x={x(d.epoch)} y={height - PAD.b + 16} textAnchor={d.anchor}>
-              {dayOf(d.date)}
+          <g key={`xt${d.key}`}>
+            <line className="vzf-axis" x1={x(d.at)} y1={bottom} x2={x(d.at)} y2={bottom + 4} />
+            <text className="vzf-tick" x={x(d.at)} y={bottom + 16} textAnchor={d.anchor}>
+              {dayOf(d.key)}
             </text>
           </g>
         ))}
+        {/* x ticks on a BAND — one per slot at its centre, the band's own labels (the markup `VizBar` draws) */}
+        {bandLabels.map((name, i) => {
+          const at = bandCentre(PAD.l, slot, i);
+          const tick = fitTick(name, slot, tickRoom, at);
+          return (
+            <g key={`xb${name}`}>
+              <line className="vzf-axis" x1={at} y1={bottom} x2={at} y2={bottom + 4} />
+              {tick.rotate ? (
+                <text className="vzf-tick" x={at} y={bottom + 12} textAnchor="end" transform={`rotate(-${String(TICK_ANGLE)} ${String(at)} ${String(bottom + 12)})`}>
+                  {tick.clipped ? <title>{name}</title> : null}
+                  {tick.text}
+                </text>
+              ) : (
+                <text className="vzf-tick" x={at} y={bottom + 16} textAnchor="middle">
+                  {name}
+                </text>
+              )}
+            </g>
+          );
+        })}
         {/* y ticks */}
         {axes && yTickVals.map((v, i) => (
           <g key={`yt${i}`}>
@@ -360,19 +525,24 @@ export function VizLine(props: VizLineProps): JSX.Element {
             </text>
           </g>
         ))}
-        {/* one path + dots per series — the placeable points; see `placed` above */}
+        {/* one path per RUN of adjacent points (a run of dates is one run; a band breaks at every empty slot —
+            `segmentsOf`) + a dot per point — the placeable points; see `placed` above. A run of one point draws
+            its dot and no path: a line needs two points. */}
         {placed.map((s) => (
           <g key={s.name ?? '__single__'} className="vzf-line-series">
-            {s.points.length > 1 && (
-              <path
-                className="vzf-line-path"
-                d={s.points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.epoch)},${y(p.mean)}`).join(' ')}
-                stroke={seriesColor(s.name)}
-              />
-            )}
+            {segmentsOf(s.points, adjacent)
+              .filter((segment) => segment.length > 1)
+              .map((segment) => (
+                <path
+                  key={`seg${segment[0]!.key}`}
+                  className="vzf-line-path"
+                  d={segment.map((p, i) => `${i === 0 ? 'M' : 'L'}${xOf(p.at)},${y(p.mean)}`).join(' ')}
+                  stroke={seriesColor(s.name)}
+                />
+              ))}
             {s.points.map((p) => (
-              <circle key={p.date} className="vzf-line-dot" cx={x(p.epoch)} cy={y(p.mean)} r={3.5} fill={seriesColor(s.name)}>
-                <title>{`${dayOf(p.date)}${s.name ? ' · ' + s.name : ''} · mean ${yLabel} ${Math.round(p.mean * 100) / 100} (${p.n} row${p.n === 1 ? '' : 's'})`}</title>
+              <circle key={p.key} className="vzf-line-dot" cx={xOf(p.at)} cy={y(p.mean)} r={3.5} fill={seriesColor(s.name)}>
+                <title>{`${nameOf(p.key)}${s.name ? ' · ' + s.name : ''} · mean ${yLabel} ${Math.round(p.mean * 100) / 100} (${p.n} row${p.n === 1 ? '' : 's'})`}</title>
               </circle>
             ))}
           </g>
@@ -390,8 +560,8 @@ export function VizLine(props: VizLineProps): JSX.Element {
             ))}
           </g>
         )}
-        {/* brush */}
-        <BrushOverlay brush={brush} y={top} height={height - top - PAD.b} />
+        {/* brush — a run's; a band draws none (see `brushHandlers`) */}
+        {band === undefined && <BrushOverlay brush={brush} y={top} height={height - top - PAD.b} />}
         {/* interactive axis labels — the re-encode affordance rides the guide, so the frame owns both or neither */}
         {axes && <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />}
         {axes && <AxisLabel x={14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={-90} onOpen={openPicker} />}
@@ -399,7 +569,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
             carries it into the accessible name for a screen reader). Bottom-right, clear of the
             legend band the top carries for ≥2 series. */}
         {excluded > 0 && (
-          <text className="vzf-excluded-note" x={width - PAD.r} y={height - PAD.b - 6} textAnchor="end">
+          <text className="vzf-excluded-note" x={width - PAD.r} y={bottom - 6} textAnchor="end">
             {excludedNote(excluded).replace(/^ — /, '')}
           </text>
         )}

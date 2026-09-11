@@ -1,14 +1,17 @@
 // @vitest-environment node
 /**
  * Playwright smoke over the FRAME page — real headless Chromium, the real
- * scripted session. It proves the four things a stack of layers has to get
+ * scripted session. It proves the five things a stack of layers has to get
  * right, and that no unit test can prove because they are about pixels:
  *
  *   - ONE guide for the stack (the frame's), and no layer drawing its own;
- *   - ONE band order: the same category is the same slot in both layers, and a
- *     slot the second layer has no rows for stays EMPTY;
- *   - ONE margin box: both layers' plot rectangles are the same rectangle, so
+ *   - ONE band order: the same category is the same slot in both bar layers, and
+ *     a slot the second layer has no rows for stays EMPTY;
+ *   - ONE margin box: the bar layers' plot rectangles are the same rectangle, so
  *     equal counts are equal heights;
+ *   - a LINE ON THE BAND: the third layer's x is the category column, so each of
+ *     its points sits at the bars' slot centre for that category — in PAGE
+ *     pixels, across two charts with different margins of their own;
  *   - a click on the SECOND layer lands a real commit through that layer's own
  *     callback bundle.
  */
@@ -25,7 +28,7 @@ const barsOf = (page: Page, layerId: string): Promise<{ label: string; x: number
     els.map((el) => ({ label: el.getAttribute('aria-label') ?? '', x: Number(el.getAttribute('x')), height: Number(el.getAttribute('height')) })),
   );
 
-describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('two layers on one frame (real headless Chromium)', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('three layers on one frame (real headless Chromium)', () => {
   let handle: Awaited<ReturnType<typeof startGallery>>;
   let browser: Browser;
   let page: Page;
@@ -72,11 +75,13 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('two layers on one 
     expect(await page.locator('.vzf-frame-words').innerText()).toContain('empty');
   });
 
-  it('measures both layers off ONE margin box: equal counts are equal heights', async () => {
+  it('measures the bar layers off ONE margin box: equal counts are equal heights', async () => {
     const boxes = await page.locator('.vzf-frame-layer').evaluateAll((els) => els.map((el) => (el as HTMLElement).getBoundingClientRect()).map((r) => ({ left: r.left, top: r.top, width: r.width, height: r.height })));
-    expect(boxes).toHaveLength(2);
-    // both layers are bars, so their pads are the same and their boxes coincide exactly
+    expect(boxes).toHaveLength(3);
+    // the two bar layers have the same pads, so their boxes coincide exactly; the line's box is offset by ITS pad
+    // (a line keeps 52px for its y ticks, a bar 38) — the frame offsets each layer so their PLOT rectangles coincide
     expect(boxes[1]).toEqual(boxes[0]);
+    expect(boxes[2]).not.toEqual(boxes[0]);
     const all = await barsOf(page, 'all');
     const top = await barsOf(page, 'top');
     const heightOf = (bars: { label: string; height: number }[], label: string): number | undefined => bars.find((b) => b.label.startsWith(`select ${label} `))?.height;
@@ -85,6 +90,35 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('two layers on one 
       const category = bar.label.split(' (')[0]!.replace('select ', '');
       if (bar.label === all.find((a) => a.label.split(' (')[0] === `select ${category}`)?.label) expect(bar.height).toBe(heightOf(all, category));
     }
+  });
+
+  it('draws the LINE ON THE BAND: each of its points sits at the bars’ slot centre for its category, in page pixels, and its connectors join adjacent slots only', async () => {
+    // the bar's slot centre per category, in page pixels — the rect's own box, not its svg attribute
+    const slots = await page.locator('[data-layer="all"] rect.vzf-barrect').evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        return { category: (el.getAttribute('aria-label') ?? '').replace(/^select (\S+).*$/, '$1'), x: r.left + r.width / 2 };
+      }),
+    );
+    // the line's dot per category, in page pixels — its <title> names the category first
+    const dots = await page.locator('[data-layer="good"] circle.vzf-line-dot').evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        return { category: (el.querySelector('title')?.textContent ?? '').split(' · ')[0] ?? '', x: r.left + r.width / 2 };
+      }),
+    );
+    expect(dots.length).toBeGreaterThan(1);
+    const slotOf = new Map(slots.map((s) => [s.category, s.x]));
+    for (const dot of dots) {
+      expect(slotOf.has(dot.category), dot.category).toBe(true);
+      // a bar's rect is 76% of its slot, centred, so its centre IS the slot centre; the dot is drawn at the same centre
+      expect(Math.abs(dot.x - slotOf.get(dot.category)!), dot.category).toBeLessThan(1);
+    }
+    // the line drew no axis of its own (the guide is the frame's), and at least one connector
+    expect(await page.locator('[data-layer="good"] .vzf-axis').count()).toBe(0);
+    expect(await page.locator('[data-layer="good"] path.vzf-line-path').count()).toBeGreaterThanOrEqual(1);
+    // the words say what a line on a band claims — and does not
+    expect(await page.locator('.vzf-frame-words').innerText()).toContain('on a band there is no between');
   });
 
   it('a click on the SECOND layer lands a real commit through that layer’s own bundle', async () => {

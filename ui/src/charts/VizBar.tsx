@@ -15,7 +15,7 @@ import type { RenderSelection } from '../contract/types.js';
 import { useRef } from 'react';
 import { TICK_ANGLE, VALUE_CHAR_PX, fitTick, fitsBand } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
-import { bandOrder, domainOr, type ChartDomain } from '../primitives/scales.js';
+import { bandOrder, bandWidth, bandStart, bandCentre, domainOr, type ChartDomain } from '../primitives/scales.js';
 import { clickEmission, matchEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
 import { inSet, markClass, selectedSet } from '../primitives/useSelection.js';
 import { useReencodePicker } from '../primitives/reencode.js';
@@ -141,7 +141,9 @@ export function VizBar(props: VizBarProps): JSX.Element {
   // NOTHING — so two bar layers on one frame put "Casual" over the same slot, and a category this layer
   // has no row for stays an EMPTY band instead of a bar claiming zero.
   const bands = bandOrder(props.domain?.categories, data.map((d) => d.category)).map((category) => ({ category, datum: data.find((d) => d.category === category) }));
-  const band = Math.max(0, (width - PAD.l - PAD.r) / Math.max(1, bands.length)); // a pushed-narrow cell never draws a negative width
+  // the slot geometry is `bandWidth`/`bandStart`/`bandCentre` (../primitives/scales.ts), the ONE owner shared with
+  // the line's band points and the frame's merged ticks — so one category is one x on every mark that stands on it
+  const band = bandWidth(PAD.l, width - PAD.r, bands.length);
   // ticks: flat when they fit their band; slanted (and the plot shorter) when any does not
   // (a short chart cannot give the slant its full room — the plot keeps MIN_PLOT and the ticks clip harder).
   // No ticks, no tick room: with `axes={false}` the guide is the FRAME's, so giving up 40px of plot for
@@ -213,11 +215,11 @@ export function VizBar(props: VizBarProps): JSX.Element {
         {/* the axis line — absent while the FRAME draws one merged guide for the stack */}
         {axes && <line className="vzf-axis" x1={PAD.l} y1={axisY} x2={width - PAD.r} y2={axisY} />}
         {bands.map(({ category, datum: d }, i) => {
-          const cx = PAD.l + band * i;
+          const cx = bandStart(PAD.l, band, i);
           const h = d === undefined ? 0 : (d.count / max) * plot;
           const barY = axisY - h;
           const isSel = inSet(category, set);
-          const tx = cx + band / 2;
+          const tx = bandCentre(PAD.l, band, i);
           const tick = fitTick(category, band, tickRoom, tx);
           return (
             <g key={category}>

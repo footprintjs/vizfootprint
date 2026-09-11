@@ -21,7 +21,9 @@ import { VizHistogram, type HistogramBinDatum } from './VizHistogram.js';
 import { VizBoxPlot, type BoxPlotDatum } from './VizBoxPlot.js';
 import { VizHeatmap, type HeatmapCellDatum } from './VizHeatmap.js';
 import { VizNetwork } from './VizNetwork.js';
-import { bandOrder, domainOr } from '../primitives/scales.js';
+import { bandOrder, bandWidth, bandStart, bandCentre, domainOr } from '../primitives/scales.js';
+import { PAD as BAR_PAD } from './VizBar.js';
+import { PAD as LINE_PAD } from './VizLine.js';
 
 afterEach(cleanup);
 
@@ -105,6 +107,31 @@ describe('bandOrder — the frame’s slots, and what a chart does with one it h
     const withoutGuide = Number(bare.querySelector('rect.vzf-barrect')?.getAttribute('height'));
     // no guide is drawn, so no room is kept for one: the bar is TALLER, on the frame's own box
     expect(withoutGuide).toBeGreaterThan(withGuide);
+  });
+});
+
+describe('the slot geometry of a band — ONE owner, so a bar’s slot and a line’s point for one category are one x', () => {
+  it('bandWidth divides the axis into equal slots (clamped at zero, never a divide-by-zero); bandStart and bandCentre place slot i', () => {
+    expect(bandWidth(38, 338, 3)).toBe(100);
+    expect(bandWidth(38, 338, 0)).toBe(300); // never read (no category, no slot), but never NaN or Infinity either
+    expect(bandWidth(338, 38, 3)).toBe(0); // a cell pushed narrower than its margins draws a zero width, not a negative one
+    expect(bandStart(38, 100, 2)).toBe(238);
+    expect(bandCentre(38, 100, 2)).toBe(288);
+  });
+
+  it('VizBar’s slot and VizLine’s point for one category sit at ONE x once each chart’s own left pad is taken off — the frame offsets each layer by its pad, and nothing else', () => {
+    const categories = ['Casual', 'Formal', 'Sporty'];
+    // the FRAME's plot box is the same rectangle for both layers; each chart is given a width of plot + its own pads
+    const plotWidth = 300;
+    const bar = render(<VizBar data={BARS} field="category" width={plotWidth + BAR_PAD.l + BAR_PAD.r} domain={{ categories }} axes={false} />).container;
+    const barCentres = Array.from(bar.querySelectorAll('rect.vzf-barrect')).map((r) => Number(r.getAttribute('x')) + Number(r.getAttribute('width')) / 2 - BAR_PAD.l);
+    cleanup();
+    const line = render(<VizLine data={[{ category: 'Casual', value: 1 }, { category: 'Formal', value: 2 }]} width={plotWidth + LINE_PAD.l + LINE_PAD.r} domain={{ categories }} axes={false} />).container;
+    const lineCentres = Array.from(line.querySelectorAll('circle.vzf-line-dot')).map((d) => Number(d.getAttribute('cx')) - LINE_PAD.l);
+    // Casual and Formal: the bar's slot centre and the line's dot, in the plot's own pixels, are the same number —
+    // both are `bandCentre(pad.l, bandWidth(pad.l, width - pad.r, 3), i)` and nothing else
+    expect(lineCentres).toEqual(barCentres);
+    expect(lineCentres).toEqual([bandCentre(0, 100, 0), bandCentre(0, 100, 1)]);
   });
 });
 

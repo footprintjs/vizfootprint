@@ -42,8 +42,9 @@ export type { ChartFrameProps, ChartSize } from './ChartFrame.js';
 export { linearScale, extent, ticks, epochOf, dayOf, rampStep, SEQ_RAMP_STEPS } from './scales.js';
 // the frame's scales (protocol 1.5): the `domain`/`axes` props every 2D chart takes, and the two
 // functions that read a given domain — a host putting a chart on a shared scale needs them
-// (`domainOr` for a run of numbers, `bandOrder` for a band's slots)
-export { bandOrder, domainOr } from './scales.js';
+// (`domainOr` for a run of numbers, `bandOrder` for a band's slots — and `bandWidth`/`bandStart`/`bandCentre`,
+// the ONE slot geometry every mark on a band places itself by)
+export { bandOrder, bandWidth, bandStart, bandCentre, domainOr } from './scales.js';
 // the logarithmic axis (protocol 1.6): `scaleFor` is the ONE owner of which builder a channel gets,
 // and the rest are what a host drawing its own guide over a logarithmic channel needs — the ticks,
 // their labels, the placeability predicate and the words for what a transform could not place

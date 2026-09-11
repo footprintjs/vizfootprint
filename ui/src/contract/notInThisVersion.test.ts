@@ -55,6 +55,14 @@ const holdsScaleFor = (): boolean => /export function scaleFor\(/.test(read('../
 /** …and the words for what a transform could not place, which `src/encoding/frame.ts` cites by name. */
 const holdsExcludedNote = (): boolean => /export function excludedNote\(/.test(read('../primitives/scales.ts'));
 
+/**
+ * A LINE ON A BAND really ships: the line's point has a band arm, the frame
+ * classifies a layer by its x COLUMN (`bandX`) rather than by a list of marks,
+ * and the two marks place a slot through the one geometry.
+ */
+const holdsBandLine = (): boolean =>
+  /export interface BandLinePoint/.test(read('../charts/VizLine.tsx')) && /function bandX\(/.test(read('renderers.tsx')) && !/BAND_X_KINDS/.test(read('renderers.tsx')) && /export function bandCentre\(/.test(read('../primitives/scales.ts'));
+
 /** The logarithmic-axis claim: from its "Not in this version" to the end of that sentence. */
 const notInThisLogVersion = (): string => {
   const readme = read('README.md');
@@ -136,7 +144,23 @@ describe('the layers law says only what is true', () => {
     // and it still names what IS missing — a list emptied to pass a test is drift of its own
     expect(claim).toContain('annotation layers');
     expect(claim).toContain('a map frame with an inset');
-    expect(claim).toContain('a line on a band');
+    // what the band-line packet left: a point on a band, and the brush on a band line
+    expect(claim).toContain('a point on a band');
+    expect(claim).toContain('a brush on a band line');
+  });
+
+  it('a line on a band really ships, so the outstanding list no longer counts it — and the README states the law by the column, not the mark', () => {
+    expect(holdsBandLine()).toBe(true);
+    const claim = notInThisVersion();
+    expect(claim).not.toContain('a line on a band');
+    const readme = read('README.md').replace(/\s+/g, ' '); // the prose wraps; the claim does not
+    expect(readme).toContain('band versus run is a property of the x COLUMN, not of the mark');
+    // the narrowed refusal's exact sentence, as the code says it
+    expect(readme).toContain('a line over bands must bind a category to x, or take a frame of its own');
+    expect(read('renderers.tsx')).toContain('over bands must bind a category to x, or take a frame of its own');
+    // the old, half-true sentence is gone from both
+    expect(readme).not.toContain('whatever the column says');
+    expect(read('renderers.tsx')).not.toContain('one frame cannot be both');
   });
 
   it('no sentence still says no first-party chart declares the capability', () => {

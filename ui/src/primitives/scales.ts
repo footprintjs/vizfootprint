@@ -208,6 +208,33 @@ export function bandOrder(given: readonly string[] | undefined, own: readonly st
   return [...given, ...own.filter((category) => !given.includes(category))];
 }
 
+/**
+ * THE SLOT GEOMETRY OF A BAND AXIS — and its ONE owner. A band axis divides its
+ * plot width into equal slots, one per category in {@link bandOrder}'s order;
+ * every mark that stands on a band places itself off these three numbers, so a
+ * bar's slot and a line's point for one category sit at ONE x by construction
+ * rather than by two charts agreeing on an arithmetic (`VizBar` draws its rect
+ * inside `bandStart`..`+bandWidth`, `VizLine` puts a band point at
+ * `bandCentre`, and `VizFrame`'s merged guide puts the tick there too).
+ *
+ * `bandWidth` is clamped at zero — a cell pushed narrower than its own margins
+ * never draws a negative width — and divides by at least 1, so an empty band has
+ * a width without a divide-by-zero (it is never read: no category, no slot).
+ */
+export function bandWidth(from: number, to: number, count: number): number {
+  return Math.max(0, (to - from) / Math.max(1, count));
+}
+
+/** Where slot `index` begins: the axis's start plus `index` slots. */
+export function bandStart(from: number, width: number, index: number): number {
+  return from + width * index;
+}
+
+/** The middle of slot `index` — where a band point sits, and where its tick is drawn. */
+export function bandCentre(from: number, width: number, index: number): number {
+  return bandStart(from, width, index) + width / 2;
+}
+
 // ── the logarithmic axis (protocol 1.6) — a transform is not a resolution ─────
 
 /**

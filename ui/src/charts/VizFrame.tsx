@@ -42,7 +42,7 @@ import { PAD as BAR_PAD } from './VizBar.js';
 import { PAD as POINT_PAD } from './VizScatter.js';
 import { PAD as HISTOGRAM_PAD } from './VizHistogram.js';
 import { PAD as BOXPLOT_PAD } from './VizBoxPlot.js';
-import { dayOf, ticks, scaleFor, logTicks, logTickLabel, type ChartDomain, type ScaleKind } from '../primitives/scales.js';
+import { dayOf, ticks, scaleFor, logTicks, logTickLabel, bandWidth, bandCentre, type ChartDomain, type ScaleKind } from '../primitives/scales.js';
 
 /** The mark kinds a frame can draw: the 2D charts, and exactly those (a map, a network, a heatmap and a table each own their own frame). */
 export type FrameChartKind = 'line' | 'bar' | 'point' | 'histogram' | 'boxplot';
@@ -212,12 +212,18 @@ function spanTicks(scale: FrameAxis['scale'], span: readonly [number, number] | 
   return values.map((value) => ({ at: at(value), text: tickText(scale, value, kind), rotate: false }));
 }
 
-/** One tick per band, at its centre, fitted to the band the way a bar chart fits its own (`fitTick` — one owner). */
+/**
+ * One tick per band, at its centre, fitted to the band the way a bar chart fits
+ * its own (`fitTick` — one owner). The centre is `bandCentre` off `bandWidth`
+ * (`../primitives/scales.ts`), the SAME slot geometry every mark on a band
+ * places itself by — so a tick and a bar's slot and a line's point for one
+ * category are one x by construction, never by three charts agreeing.
+ */
 function bandTicks(categories: readonly string[] | undefined, from: number, to: number, room: number): readonly FrameTick[] {
   const names = categories ?? [];
-  const band = names.length === 0 ? 0 : (to - from) / names.length;
+  const band = bandWidth(from, to, names.length);
   return names.map((name, i) => {
-    const at = from + band * i + band / 2;
+    const at = bandCentre(from, band, i);
     const fit = fitTick(name, band, room, at);
     return { at, text: fit.text, rotate: fit.rotate, ...(fit.clipped ? { full: name } : {}) };
   });

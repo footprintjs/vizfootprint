@@ -882,12 +882,30 @@ describe('layeredRenderer — what a stack may not be, in words', () => {
     m.unmount();
   });
 
-  it('a BAND mark over a RUN mark — one x cannot be both, whatever the column says', () => {
+  it('a RUN over bands — a line whose x COLUMN is a number or a date, over a bar — is refused, naming the column and its type (a line whose x is a category is a band, below)', () => {
     const bar: RenderLayer = { layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }], encodings: { category: 'shelf' } };
     const { el, m } = mountFrame({ layers: { a: { kind: 'bar' }, b: { kind: 'line' } } });
-    m.update(framed([bar, LINE_LAYER], XY_FRAME));
-    expect(refusalOf(el)).toContain('draws its x as a band (one slot per value) and layer "b" along a run of numbers');
+    // a NUMBER on the line's x
+    m.update(framed([bar, LINE_LAYER], { ...XY_FRAME, category: SHARED('categorical', ['Casual']) }));
+    expect(refusalOf(el)).toBe('layer "b" draws its x as a run — column "price" is a number — over layer "a"\'s bands; a line over bands must bind a category to x, or take a frame of its own.');
+    // a DATE on the line's x — the very figure the old refusal argued from
+    const dated: RenderLayer = { layerId: 'b', table: 'trend', rows: [{ when: '2026-01-01', v: 1 }], encodings: { x: 'when', y: 'v' } };
+    m.update(framed([bar, dated], { category: SHARED('categorical', ['Casual']), x: SHARED('temporal', ['2026-01-01', '2026-01-04']), y: XY_FRAME.y }));
+    expect(refusalOf(el)).toBe('layer "b" draws its x as a run — column "when" is a date — over layer "a"\'s bands; a line over bands must bind a category to x, or take a frame of its own.');
+    // an x the frame folded NOTHING for is not a band either — the sentence says what it knows
+    m.update(framed([bar, LINE_LAYER], { category: SHARED('categorical', ['Casual']) }));
+    expect(refusalOf(el)).toContain('column "price" was not folded on this frame');
+    // a line that binds NO x is a run too — a scale folded over somebody else's column says nothing about an
+    // axis this layer never declared (the `layerDomain` law), even with `x` folded as categories on the frame
+    m.update(framed([bar, { ...LINE_LAYER, encodings: { y: 'rating' } }], { category: SHARED('categorical', ['Casual']), x: SHARED('categorical', ['Casual']) }));
+    expect(refusalOf(el)).toContain('draws its x as a run — it binds no column to x — over layer "a"');
     m.unmount();
+    // a histogram is a run by its MARK (its bins sit on a number), whatever the column
+    const hist: RenderLayer = { layerId: 'h', table: 't', rows: [{ x0: 0, x1: 5, count: 2 }], encodings: { x: 'shelf' } };
+    const mixed = mountFrame({ layers: { a: { kind: 'bar' }, h: { kind: 'histogram' } } }, ['a', 'h']);
+    mixed.m.update(framed([bar, hist], { category: SHARED('categorical', ['Casual']), x: SHARED('categorical', ['Casual']) }));
+    expect(refusalOf(mixed.el)).toBe('layer "h" draws its x as a run — its bins sit on a number — over layer "a"\'s bands; a histogram over bands must bind a category to x, or take a frame of its own.');
+    mixed.m.unmount();
   });
 
   it('two bands with no category list folded for them', () => {
@@ -900,12 +918,17 @@ describe('layeredRenderer — what a stack may not be, in words', () => {
     m.update(framed([a, b], { category: SHARED('quantitative', [0, 10]) }));
     expect(refusalOf(el)).toContain('the frame folded no category list for them');
     m.unmount();
-    // nor is a stack whose two band marks name two different x CHANNELS: a bar's x is
-    // `category` and a box plot's is `x`, so the def never shared an axis between them
+    // a stack whose two band marks name two different x CHANNELS — a bar's x is `category` and a
+    // box plot's is `x` — is ONE band only when BOTH were folded as categories (`sharedAxis`: two
+    // names meet as one axis the way `fullBandOrder` unions rows); with the box plot's `x` folded as
+    // NUMBERS there is no one band, and the stack stays at this refusal
     const box: RenderLayer = { layerId: 'b', table: 'tb', rows: [{ category: 'Casual', q1: 1, median: 2, q3: 3, whiskerLo: 0, whiskerHi: 4, outliers: [], count: 3 }], encodings: { x: 'shelf', y: 'price' } };
     const mixed = mountFrame({ layers: { a: { kind: 'bar' }, b: { kind: 'boxplot' } } });
-    mixed.m.update(framed([a, box], { category: SHARED('categorical', ['Casual']), x: SHARED('categorical', ['Casual']) }));
+    mixed.m.update(framed([a, box], { category: SHARED('categorical', ['Casual']), x: SHARED('quantitative', [0, 10]) }));
     expect(refusalOf(mixed.el)).toContain('the frame folded no category list for them');
+    // …and with both folded as categories the two names ARE one band, so the stack reaches the box plot's own refusal
+    mixed.m.update(framed([a, box], { category: SHARED('categorical', ['Casual']), x: SHARED('categorical', ['Casual']) }));
+    expect(refusalOf(mixed.el)).toContain('is a box plot on a shared band');
     mixed.m.unmount();
   });
 
@@ -983,6 +1006,99 @@ describe('layeredRenderer — an INDEPENDENT channel', () => {
     expect(guidesOf(el)).toBe(0);
     // the scatter's own x extent is its rows' (10..90 padded), NOT the frame's 0..100 — its first tick says so
     expect(el.querySelector('.vzf-scatter text.vzf-tick')?.textContent).not.toBe('0');
+    m.unmount();
+  });
+});
+
+describe('layeredRenderer — a line on a BAND (band versus run is the x COLUMN’s)', () => {
+  /** A bar layer of counts per shelf, and a line of a mean per shelf — the same categories, the same table. */
+  const BARS: RenderLayer = { layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }, { shelf: 'Formal', count: 9 }, { shelf: 'Sporty', count: 2 }], encodings: { category: 'shelf' } };
+  const MEANS: RenderLayer = { layerId: 'b', table: 'tb', rows: [{ shelf: 'Formal', mean: 7 }, { shelf: 'Casual', mean: 3 }], encodings: { x: 'shelf', y: 'mean' } };
+  /** A bar's slot centre and a line's dot, each in the FRAME's pixels (its layer's own svg x plus the layer box's left offset). */
+  const slotCentresOf = (el: Element, layerId: string): Record<string, number> => {
+    const box = el.querySelector<HTMLElement>(`[data-layer="${layerId}"]`)!;
+    const left = Number.parseFloat(box.style.left);
+    const out: Record<string, number> = {};
+    for (const rect of box.querySelectorAll('rect.vzf-barrect')) {
+      const category = rect.getAttribute('aria-label')!.replace(/^select (\S+).*$/, '$1');
+      out[category] = left + Number(rect.getAttribute('x')) + Number(rect.getAttribute('width')) / 2;
+    }
+    for (const dot of box.querySelectorAll('circle.vzf-line-dot')) {
+      out[dot.querySelector('title')!.textContent!.split(' · ')[0]!] = left + Number(dot.getAttribute('cx'));
+    }
+    return out;
+  };
+
+  it('a bar and a line whose x column is CATEGORICAL are two bands on ONE x: one guide, and the line’s point for a category sits at the bar’s slot centre', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'bar' }, b: { kind: 'line' } } });
+    // the host folded the bar's `category` and the line's `x` — two channel NAMES, both categories, so one band
+    m.update(framed([BARS, MEANS], { category: SHARED('categorical', ['Casual', 'Formal', 'Sporty']), x: SHARED('categorical', ['Formal', 'Casual']), y: SHARED('quantitative', [0, 10]) }));
+    expect(refusalOf(el)).toBe('');
+    expect(guidesOf(el)).toBe(1);
+    // the merged guide's band is the frame's order, and the axis is named by the field both layers bind
+    expect(Array.from(el.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent)).toEqual(['Casual', 'Formal', 'Sporty', '0', '3.3', '6.7', '10', 'shelf', 'mean']);
+    // neither layer drew an axis of its own
+    expect(el.querySelectorAll('.vzf-frame-layer .vzf-axis')).toHaveLength(0);
+    // THE SHARED X, per category: the bar's slot centre and the line's dot are one pixel, in the frame's pixels
+    const bars = slotCentresOf(el, 'a');
+    const line = slotCentresOf(el, 'b');
+    expect(Object.keys(line).sort()).toEqual(['Casual', 'Formal']);
+    for (const category of Object.keys(line)) expect(line[category], category).toBeCloseTo(bars[category]!, 5);
+    // and the line's points are in the FRAME's order (Casual before Formal), not the line's own (Formal first)
+    const dots = Array.from(el.querySelectorAll('[data-layer="b"] circle.vzf-line-dot'));
+    expect(dots.map((d) => d.querySelector('title')!.textContent!.split(' · ')[0])).toEqual(['Casual', 'Formal']);
+    // 'Sporty' — a slot the line has no point for — is a GAP: no dot, and the one path joins only the two adjacent slots
+    expect(el.querySelectorAll('[data-layer="b"] path.vzf-line-path')).toHaveLength(1);
+    m.unmount();
+  });
+
+  it('a line’s own category the frame did not name is APPENDED to the band, and the bar’s slots move with it (one union for the guide and every layer)', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'bar' }, b: { kind: 'line' } } });
+    const extra: RenderLayer = { ...MEANS, rows: [...MEANS.rows, { shelf: 'Vintage', mean: 5 }] };
+    m.update(framed([BARS, extra], { category: SHARED('categorical', ['Casual', 'Formal', 'Sporty']), x: SHARED('categorical', ['Formal', 'Casual']), y: SHARED('quantitative', [0, 10]) }));
+    const ticks = Array.from(el.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent);
+    expect(ticks.slice(0, 4)).toEqual(['Casual', 'Formal', 'Sporty', 'Vintage']);
+    // four bands now, and the bar's Casual still sits under the line's Casual
+    const bars = slotCentresOf(el, 'a');
+    const line = slotCentresOf(el, 'b');
+    expect(line['Casual']).toBeCloseTo(bars['Casual']!, 5);
+    m.unmount();
+  });
+
+  it('two band LINES share the band order the way two bars do — and with no category list folded for them, the existing two-bands refusal', () => {
+    const other: RenderLayer = { layerId: 'a', table: 'ta', rows: [{ shelf: 'Sporty', mean: 1 }, { shelf: 'Casual', mean: 2 }], encodings: { x: 'shelf', y: 'mean' } };
+    const { el, m } = mountFrame({ layers: { a: { kind: 'line' }, b: { kind: 'line' } } });
+    m.update(framed([other, MEANS], { x: SHARED('categorical', ['Casual', 'Formal', 'Sporty']), y: SHARED('quantitative', [0, 10]) }));
+    expect(refusalOf(el)).toBe('');
+    const first = slotCentresOf(el, 'a');
+    const second = slotCentresOf(el, 'b');
+    expect(first['Casual']).toBeCloseTo(second['Casual']!, 5);
+    // the same two lines with their x folded as NOTHING: neither is a band (the column's kind is unknown to the
+    // frame), so they are two runs of dates — drawn, each on its own extent, exactly as two dated lines are
+    m.update(framed([other, MEANS], { y: SHARED('quantitative', [0, 10]) }));
+    expect(refusalOf(el)).toBe('');
+    m.unmount();
+  });
+
+  it('a POINT layer whose x column is categorical classifies as a band too — and is refused in words, because a point chart draws no band in this version', () => {
+    const points: RenderLayer = { layerId: 'b', table: 'tb', rows: [{ id: 'p', shelf: 'Casual', rating: 3 }], encodings: { x: 'shelf', y: 'rating' } };
+    const { el, m } = mountFrame({ layers: { a: { kind: 'bar' }, b: { kind: 'point' } } });
+    m.update(framed([BARS, points], { category: SHARED('categorical', ['Casual']), x: SHARED('categorical', ['Casual']), y: SHARED('quantitative', [0, 10]) }));
+    // NOT the run-over-bands refusal: the point IS a band by its column
+    expect(refusalOf(el)).toBe('layer "b" is a point on a band — column "shelf" is a category — and a point chart draws no band in this version. Draw it as a line, or give it a frame of its own.');
+    // a point whose x is a NUMBER stays the run it always was
+    m.update(framed([BARS, { ...POINTS_LAYER, layerId: 'b' }], { category: SHARED('categorical', ['Casual']), x: SHARED('quantitative', [0, 100]), y: SHARED('quantitative', [0, 10]) }));
+    expect(refusalOf(el)).toContain('draws its x as a run — column "price" is a number');
+    m.unmount();
+  });
+
+  it('a plain line VIEW (no frame) is the dated line it always was — a band exists only where the fold says the column is categorical', () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const m = lineRenderer().mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks() });
+    m.update(state([{ date: '2026-01-01', value: 1 }, { date: '2026-01-03', value: 3 }], { x: 'date', y: 'value' }));
+    // date ticks, not band labels
+    expect(Array.from(el.querySelectorAll('text.vzf-tick')).map((t) => t.textContent).slice(0, 2)).toEqual(['2026-01-01', '2026-01-03']);
     m.unmount();
   });
 });

@@ -283,11 +283,58 @@ category the frame's list does not name is APPENDED, never hidden, and a slot
 the layer has no row for stays EMPTY rather than becoming a bar of zero ("no
 rows here" and "none of them" are two different sentences).
 
+**A line on a band — band versus run is a property of the x COLUMN, not of the
+mark.** A line whose x is categorical is a band line: each point sits at its
+slot's centre, the segments between are connectors drawn in slot order, and
+they claim nothing between slots, because on a band there is no between. The
+frame classifies every layer by its x column (`bandX` in `renderers.tsx`): a
+bar or a box plot is always a band (the mark makes slots of whatever it is
+given), a histogram is always a run (its bins sit on a number), and a line or a
+point is a band exactly when the column it binds to x was folded as
+categorical — the fold's own answer (`frameScaleOf`, `src/encoding/frame.ts`,
+is the one owner of "a string or a boolean folds as categorical"), never a prop
+on the mark. Refused, with the reason: an `xKind` prop on `VizLine` to force
+the band — the x column's type is a fact the definition and the fold already
+carry, and a prop would be a second owner that could disagree with them. The
+frame hands a band line the band order exactly as it hands a
+bar (`domain.categories`), and the two place a slot through ONE geometry
+(`bandWidth`/`bandCentre`, `primitives/scales.ts`), so a bar's slot and the
+line's point for one category are one x by construction. A slot the line has no
+point for is a GAP — the segments on either side stop at their own points; a
+line does not invent a value for an empty slot. Two band lines share the band
+order the way two bars do, under the same two-bands law. A band line draws no
+brush: an interval has no meaning on a band.
+
+The ordinary figure this makes drawable — bars by year with a line of the mean
+over them:
+
+```ts
+// the bars bind `category`, the line binds `x` — the SAME column, folded as categories on both
+const bars = { layerId: 'sales', table: 'sales', rows: countsByYear, encodings: { category: 'year', y: 'count' } };
+const mean = { layerId: 'mean', table: 'sales', rows: meanByYear, encodings: { x: 'year', y: 'mean' } };
+const frame = frameDomains([
+  { layerId: 'sales', chartKind: 'bar', channels: { category: { type: 'string', values: years }, y: { type: 'number', values: counts } } },
+  { layerId: 'mean', chartKind: 'line', channels: { x: { type: 'string', values: years }, y: { type: 'number', values: means } } },
+]);
+const renderer = layeredRenderer({ layers: { sales: { kind: 'bar' }, mean: { kind: 'line' } } });
+// → ONE band axis of years, the bars in their slots and the line's points at those slots' centres
+```
+
+A bar's x is its `category` channel and a line's is `x` — two channel NAMES, and
+the frame's shared-axis door (`sharedAxis`) reads them as ONE axis when both were
+folded as categories, uniting the two lists in declaration order the way it
+already unites every layer's own rows (`fullBandOrder`). The same line over the
+same bars with `year` typed as a `date` is the picture the frame still refuses —
+see the table below for its sentence.
+
 Not in this version: per-layer opacity/visible dials, annotation layers,
 re-encoding one layer of a frame, a map frame with an inset, a legend on a layer
 (a line split into series lays one inside its own box, so the frame refuses it —
-see below), a line on a band (`VizLine` positions dates along a run of numbers;
-a band mode is its own packet), a box plot sharing a band with another layer (it
+see below), a point on a band (`VizScatter` places x on a run of numbers; a
+point whose x column is categorical is classified as a band and refused in
+words), a brush on a band line (a sweep across slots is a match over the
+categories crossed, `VizBar`'s law — a kind the line does not claim yet), a box
+plot sharing a band with another layer (it
 orders its slots by its own rows), a guide per CHANNEL (a chart draws both its
 axes or neither, so one `per-layer` channel gives every layer its own pair), a
 second axis placed on the right for per-layer guides (the honest remedy for
@@ -432,8 +479,9 @@ picture that would be drawn a lie, not one that would merely be empty:
 | the stack | the reason |
 |---|---|
 | a kind that owns its own frame (map, network, heatmap, table) | a frame draws the 2D marks; the others are frames |
-| a band mark over a run mark (a bar under a line) | one x cannot be both a set of slots and a run of numbers, whatever the column says — the line would sit over slots it has nothing to do with |
-| two band layers with no category list folded | each would order its slots by its own rows, so "Formal" would be two different slots |
+| a run over bands (a line whose x column is a date or a number, over a bar) | *layer "b" draws its x as a run — column "when" is a date — over layer "a"'s bands; a line over bands must bind a category to x, or take a frame of its own.* A line whose x column IS a category is a band and draws; a histogram is a run by its mark (its bins sit on a number) |
+| a point on a band (a point whose x column is a category) | classified as a band — that is the column's fact — and refused because `VizScatter` draws no band in this version |
+| two band layers with no category list folded | each would order its slots by its own rows, so "Formal" would be two different slots — two band LINES included |
 | a box plot sharing a band | it reads no category list in this version |
 | a line split into 2+ series | its legend sits inside its own box and moves its plot top off the frame's |
 | a layer with no mark named | a frame draws what the def declared; it never guesses |

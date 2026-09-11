@@ -251,13 +251,20 @@ export function lineRenderer(options: LineRendererOptions = {}): Renderer {
   });
 }
 
-/** One layer (or one view) of a line. */
+/**
+ * One layer (or one view) of a line. Its points carry a CATEGORY when the frame
+ * handed this layer a band order (`domain.categories` — `layerDomain` gives it
+ * exactly when the column this layer binds to x was folded as categorical) and
+ * a DATE otherwise: band versus run is the x column's, read off the fold, never
+ * off a prop of the mark.
+ */
 function lineMark(d: MarkDraw, options: LineRendererOptions): JSX.Element {
   const dateField = boundField(d.encodings, 'x', 'date');
   const valueField = boundField(d.encodings, 'y', 'value');
   const seriesField = d.encodings['color'];
+  const onBand = d.domain.categories !== undefined;
   const data = d.rows.map((r) => ({
-    date: String(r[dateField]),
+    ...(onBand ? { category: String(r[dateField]) } : { date: String(r[dateField]) }),
     value: num(r[valueField]),
     series: seriesField !== undefined ? String(r[seriesField]) : undefined,
   }));
@@ -1094,8 +1101,55 @@ const AXIS_CHANNELS: Readonly<Record<FrameChartKind, { readonly x: string; reado
   bar: { x: 'category', y: 'y' },
 });
 
-/** The marks whose x is a BAND — one slot per value — rather than a run of numbers. */
-const BAND_X_KINDS: readonly FrameChartKind[] = ['bar', 'boxplot'];
+/**
+ * BAND VERSUS RUN IS A PROPERTY OF THE X COLUMN, NOT OF THE MARK. Two marks
+ * decide it by themselves — a bar and a box plot make slots of whatever they
+ * are given, and a histogram's bins sit on a number — and the other two (a line,
+ * a point) take it from the column they bind to x: categorical means a band,
+ * a number or a date means a run. The column's kind is the FOLD's answer
+ * (`frameScaleOf` in `src/encoding/frame.ts` is the one owner of "a string or a
+ * boolean folds as categorical"; the frame carries it as `ResolvedChannel.scale`),
+ * so the classification here never re-derives a type from the rows.
+ */
+const BAND_MARKS: readonly FrameChartKind[] = ['bar', 'boxplot'];
+const RUN_MARKS: readonly FrameChartKind[] = ['histogram'];
+
+/**
+ * What this layer binds to x — the column, and the scale the frame folded it as
+ * (`undefined` where it folded none: independent, or not shared) — or nothing
+ * where the layer binds no x at all. The `layerDomain` law, read the other way
+ * round: a scale folded over somebody else's column says nothing about an axis
+ * this layer never declared.
+ */
+function xBinding(f: FramedLayer, frame: Readonly<Record<string, ResolvedChannel>> | undefined): { readonly column: string; readonly scale: SharedChannel['scale'] | undefined } | undefined {
+  const channel = AXIS_CHANNELS[f.kind].x;
+  const column = f.layer.encodings[channel];
+  if (column === undefined) return undefined;
+  const resolved = frame?.[channel];
+  return { column, scale: resolved !== undefined && resolved.mode === 'shared' ? resolved.scale : undefined };
+}
+
+/** Is this layer's x a band? Its mark's answer where the mark has one; the x column's otherwise. */
+function bandX(f: FramedLayer, frame: Readonly<Record<string, ResolvedChannel>> | undefined): boolean {
+  if (BAND_MARKS.includes(f.kind)) return true;
+  if (RUN_MARKS.includes(f.kind)) return false;
+  return xBinding(f, frame)?.scale === 'categorical';
+}
+
+/** The words for a folded scale's column type, as the fold's `frameScaleOf` reads them back. */
+const SCALE_TYPE_WORDS: Readonly<Record<SharedChannel['scale'], string>> = Object.freeze({
+  quantitative: 'a number',
+  temporal: 'a date',
+  categorical: 'a category',
+});
+
+/** Why this layer's x is a run, naming the column and its type — or the fact that the frame folded nothing for it. */
+function runXWords(f: FramedLayer, frame: Readonly<Record<string, ResolvedChannel>> | undefined): string {
+  if (f.kind === 'histogram') return 'its bins sit on a number';
+  const x = xBinding(f, frame);
+  if (x === undefined) return 'it binds no column to x';
+  return x.scale === undefined ? `column "${x.column}" was not folded on this frame` : `column "${x.column}" is ${SCALE_TYPE_WORDS[x.scale]}`;
+}
 
 /**
  * WHAT EACH FRAMED MARK REALLY DOES — the same claims its own single-mark
@@ -1162,14 +1216,23 @@ function framedLayers(layers: readonly RenderLayer[], options: LayeredRendererOp
  * next reason is the next thing the reader sees once this one is fixed.
  */
 function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | null {
-  const bands = framed.filter((f) => BAND_X_KINDS.includes(f.kind));
-  const runs = framed.filter((f) => !BAND_X_KINDS.includes(f.kind));
-  // A BAND AND A RUN CANNOT BE ONE X. A bar's slots carry no distance and a line's
-  // x does; overlaid, the line's peak would sit over a band it has nothing to do
-  // with. This is the one refusal that does not read the declaration: no
-  // resolution can make one axis both kinds of thing.
+  const bands = framed.filter((f) => bandX(f, frame));
+  const runs = framed.filter((f) => !bandX(f, frame));
+  // A BAND AND A RUN CANNOT BE ONE X. A bar's slots carry no distance and a line's x
+  // over a date or a number does; overlaid, the line's peak would sit over a band it
+  // has nothing to do with. Which side a line or a point is on is its x COLUMN's
+  // (`bandX`): a line whose x is categorical IS a band — its points sit at the slot
+  // centres — so the refusal is only for the run it names, column and type included.
   if (bands.length > 0 && runs.length > 0) {
-    return `layer "${bands[0]!.layer.layerId}" draws its x as a band (one slot per value) and layer "${runs[0]!.layer.layerId}" along a run of numbers — one frame cannot be both, so the line would sit over slots it has nothing to do with. Give each a frame of its own, or bind both to the same kind of column.`;
+    const run = runs[0]!;
+    return `layer "${run.layer.layerId}" draws its x as a run — ${runXWords(run, frame)} — over layer "${bands[0]!.layer.layerId}"'s bands; a ${run.kind} over bands must bind a category to x, or take a frame of its own.`;
+  }
+  // A POINT ON A BAND is classified as a band (that is the column's fact), and then refused: `VizScatter`
+  // places x on a run of numbers and draws no band in this version, so the picture would be drawn wrong.
+  const point = bands.find((f) => f.kind === 'point');
+  if (point !== undefined) {
+    // a point is among the bands only because `xBinding` found its column folded as categories, so the binding is there
+    return `layer "${point.layer.layerId}" is a point on a band — column "${xBinding(point, frame)!.column}" is a category — and a point chart draws no band in this version. Draw it as a line, or give it a frame of its own.`;
   }
   if (bands.length > 1) {
     // TWO BANDS LINE UP ONLY OFF ONE CATEGORY LIST. Without it each lays its slots
@@ -1219,24 +1282,45 @@ function colouredLineRefusal(framed: readonly FramedLayer[]): string | null {
 }
 
 /**
- * The ONE channel a stack's axis is bound on, as a 0-or-1 list — EMPTY when the
- * marks name two different ones (a bar's x is `category` and a box plot's is
- * `x`), which means the def never shared that axis between them and there is
- * nothing merged to draw. A list rather than an optional so the one caller that
- * needs the channel and the one that needs its resolution read it the same way.
+ * The CHANNELS a stack's axis is bound on, in declaration order, first-seen: one
+ * name when every mark agrees (`x`, or `y`), and TWO on x when a bar — whose x
+ * is its `category` channel — stands with a mark whose x is `x`. The def shares
+ * CHANNELS, and an axis is where the marks' channels MEET: `AXIS_CHANNELS` is
+ * what knows a bar's `category` is its x, so this is the one place that can say
+ * two names are one axis.
  */
 function axisChannels(framed: readonly FramedLayer[], axis: 'x' | 'y'): readonly string[] {
-  const names = new Set(framed.map((f) => AXIS_CHANNELS[f.kind][axis]));
-  return names.size === 1 ? [...names] : [];
+  return [...new Set(framed.map((f) => AXIS_CHANNELS[f.kind][axis]))];
 }
 
-/** THE ONE DOOR to a stack's shared axis: the channel it is bound on and the resolution the host folded for it — or nothing where it was not shared. */
-function sharedAxis(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, axis: 'x' | 'y'): { readonly channel: string; readonly resolved: SharedChannel } | undefined {
-  for (const channel of axisChannels(framed, axis)) {
-    const resolved = frame?.[channel];
-    if (resolved !== undefined && resolved.mode === 'shared') return { channel, resolved };
-  }
-  return undefined;
+/** The resolution the host folded for a channel, when it was shared. */
+function sharedOn(frame: Readonly<Record<string, ResolvedChannel>> | undefined, channel: string): SharedChannel | undefined {
+  const resolved = frame?.[channel];
+  return resolved !== undefined && resolved.mode === 'shared' ? resolved : undefined;
+}
+
+/**
+ * THE ONE DOOR to a stack's shared axis: the channels it is bound on and the
+ * resolution the host folded for them — or nothing where it was not shared.
+ *
+ * ONE name: that channel's resolution, as it always was. TWO names (a bar's
+ * `category` beside a line's `x`): one band, when BOTH were folded as
+ * categories — the two lists become one order the way `fullBandOrder` already
+ * folds every layer's own rows in, first name first, the second's categories
+ * appended (`bandOrder`), so a bar's "Formal" and the line's "Formal" are one
+ * slot. Anything else under two names — one not folded, one a number — is not
+ * one axis, and the stack gets the refusal that says so.
+ */
+function sharedAxis(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, axis: 'x' | 'y'): { readonly channels: readonly string[]; readonly resolved: SharedChannel } | undefined {
+  const channels = axisChannels(framed, axis);
+  const resolved = channels.map((channel) => sharedOn(frame, channel));
+  const first = resolved[0];
+  if (first === undefined) return undefined;
+  if (channels.length === 1) return { channels, resolved: first };
+  const bands = resolved.map((r) => bandsOf(r));
+  if (bands.some((b) => b === undefined)) return undefined; // two names are one axis only as one band
+  const domain = bands.slice(1).reduce<readonly string[]>((union, b) => bandOrder(union, b!), bands[0]!);
+  return { channels, resolved: { ...first, scale: 'categorical', domain } };
 }
 
 /**
@@ -1281,11 +1365,11 @@ function bandsOf(channel: SharedChannel | undefined): readonly string[] | undefi
 function fullBandOrder(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): readonly string[] | undefined {
   const given = bandsOf(sharedAxis(framed, frame, 'x')?.resolved);
   if (given === undefined) return undefined; // nothing merged on x — no union to keep, each layer keeps its own order
-  // every layer here is a BAND kind by construction: `stackRefusal`'s band-over-run check
-  // (unconditional, by mark kind alone — it "does not read the declaration") already refused
-  // any stack that mixed one in, before this function is ever called.
+  // every layer here is a BAND by construction (`bandX` — a band mark, or a line whose x column is
+  // categorical): `stackRefusal`'s band-over-run check already refused any stack that mixed a run
+  // in, before this function is ever called. The filter is the same predicate, so it cannot drift.
   return framed
-    .filter((f) => BAND_X_KINDS.includes(f.kind))
+    .filter((f) => bandX(f, frame))
     .reduce<readonly string[]>((union, f) => {
       const field = f.layer.encodings[AXIS_CHANNELS[f.kind].x];
       return field === undefined ? union : bandOrder(union, f.layer.rows.map((r) => String(r[field]))); // "this layer never declared that axis" — the same silence `layerDomain` keeps
@@ -1345,13 +1429,13 @@ function frameGuide(frame: Readonly<Record<string, ResolvedChannel>> | undefined
 function frameAxisOf(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, axis: 'x' | 'y', label: string | undefined): FrameAxis | undefined {
   const shared = sharedAxis(framed, frame, axis);
   if (shared === undefined) return undefined;
-  const named = label ?? channelLabel(framed, shared.channel);
+  const named = label ?? channelLabel(framed, shared.channels);
   return { scale: shared.resolved.scale, ...(named === undefined ? {} : { label: named }) };
 }
 
-/** The field name a merged axis carries: the one every layer binding that channel agrees on — an axis of two fields has no single name. */
-function channelLabel(framed: readonly FramedLayer[], channel: string): string | undefined {
-  const fields = new Set(framed.map((f) => f.layer.encodings[channel]).filter((field): field is string => field !== undefined));
+/** The field name a merged axis carries: the one every layer binding any of the axis's channels agrees on — an axis of two fields has no single name. */
+function channelLabel(framed: readonly FramedLayer[], channels: readonly string[]): string | undefined {
+  const fields = new Set(framed.flatMap((f) => channels.map((channel) => f.layer.encodings[channel])).filter((field): field is string => field !== undefined));
   return fields.size === 1 ? [...fields][0] : undefined;
 }
 
@@ -1391,9 +1475,10 @@ function frameRefusal(sentence: string): JSX.Element {
  * clause is "self" — a fold per layer is a protocol change, not a renderer one.
  *
  * A stack it cannot draw is REFUSED IN WORDS (`stackRefusal`) rather than drawn
- * wrong: an unframeable kind, a band mark over a run mark, two bands with no
- * category list, a box plot on a shared band, a line split into series, or
- * per-layer guides on two or more layers.
+ * wrong: an unframeable kind, a run over bands (a line whose x column is a date
+ * or a number, over a bar — a line whose x is a category IS a band and draws),
+ * a point on a band, two bands with no category list, a box plot on a shared
+ * band, a line split into series, or per-layer guides on two or more layers.
  */
 export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer {
   return reactRenderer({

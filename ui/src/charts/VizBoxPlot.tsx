@@ -46,7 +46,7 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { linearScale, extent, ticks, epochOf, dayOf, domainOr, type ChartDomain } from '../primitives/scales.js';
+import { linearScale, extent, ticks, epochOf, dayOf, domainOr, bandWidth, bandCentre, type ChartDomain } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { togglePointEmission, keyActivates } from '../primitives/pointSelect.js';
 import { selectedValue } from '../primitives/useSelection.js';
@@ -267,10 +267,12 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
   const y = linearScale(rawLo - outerPad, rawHi + outerPad, height - PAD.b, PAD.t);
   const axes = props.axes ?? true;
 
-  const band = Math.max(0, (width - PAD.l - PAD.r) / Math.max(1, geoms.length)); // a pushed-narrow cell never draws a negative width
+  // the slot geometry is `bandWidth`/`bandCentre` (../primitives/scales.ts), the ONE owner shared with the bar's
+  // slot and the band line's point — so a box plot sharing a band with another layer lines up the way both do
+  const band = bandWidth(PAD.l, width - PAD.r, geoms.length);
   const boxW = Math.max(0, Math.max(6, Math.min(band * 0.5, 64))); // a pushed-narrow cell never draws a negative width
   const capW = boxW * 0.6;
-  const cx = (i: number): number => PAD.l + band * i + band / 2;
+  const cx = (i: number): number => bandCentre(PAD.l, band, i);
 
   // explicit `selected` wins; otherwise the outline derives from the fold's own point clause
   const selected = selectedValue(props.selected, selection);

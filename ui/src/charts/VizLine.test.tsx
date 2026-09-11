@@ -358,3 +358,122 @@ describe('the accessible name (the prose plane\'s altShort)', () => {
     expect(container.querySelector('[role="img"]')!.getAttribute('aria-label')).toBe('Cases by report state');
   });
 });
+
+describe('VizLine — a line on a BAND (band versus run is the x column’s, never a prop)', () => {
+  // the SAME slot geometry every mark on a band uses (`bandWidth`/`bandCentre`, ../primitives/scales.ts):
+  // PAD.l = 52, PAD.r = 18, so at width 520 a three-slot band is 150 wide and its centres sit at 127 / 277 / 427
+  const centreOf = (index: number, count: number, width = 520): number => 52 + ((width - 52 - 18) / count) * index + (width - 52 - 18) / count / 2;
+  const dotsOf = (c: HTMLElement): { name: string; cx: number }[] =>
+    [...c.querySelectorAll('circle.vzf-line-dot')].map((d) => ({ name: d.querySelector('title')!.textContent!.split(' · ')[0]!, cx: Number(d.getAttribute('cx')) }));
+  const BAND = [
+    { category: 'Formal', value: 4 },
+    { category: 'Casual', value: 2 },
+    { category: 'Casual', value: 6 }, // mean with the row above = 4
+    { category: 'Party', value: 9 },
+  ];
+
+  it('points that carry a category make x a band: each sits at its slot’s CENTRE, in the points’ own first-seen order, with the mean per category', () => {
+    const { container } = render(<VizLine data={BAND} width={520} />);
+    expect(dotsOf(container)).toEqual([
+      { name: 'Formal', cx: centreOf(0, 3) },
+      { name: 'Casual', cx: centreOf(1, 3) },
+      { name: 'Party', cx: centreOf(2, 3) },
+    ]);
+    // the tooltip names the category, and the mean is the mean
+    expect(container.querySelectorAll('circle.vzf-line-dot')[1]!.querySelector('title')!.textContent).toBe('Casual · mean value 4 (2 rows)');
+    // one run of three adjacent slots: ONE path through all three centres
+    const paths = container.querySelectorAll('path.vzf-line-path');
+    expect(paths).toHaveLength(1);
+    expect(paths[0]!.getAttribute('d')!.startsWith(`M${centreOf(0, 3)},`)).toBe(true);
+  });
+
+  it('the frame’s band order decides the slots (`domain.categories`), and a category the frame did not name is APPENDED, never dropped', () => {
+    const { container } = render(<VizLine data={BAND} width={520} domain={{ categories: ['Casual', 'Formal', 'Work'] }} />);
+    // four slots: the frame's three in its order, then 'Party' appended — the `bandOrder` law
+    expect(dotsOf(container)).toEqual([
+      { name: 'Casual', cx: centreOf(0, 4) },
+      { name: 'Formal', cx: centreOf(1, 4) },
+      { name: 'Party', cx: centreOf(3, 4) },
+    ]);
+    // the band's labels ARE the axis: one tick per slot, in the band's order, the empty 'Work' slot included
+    expect([...container.querySelectorAll('text.vzf-tick')].map((t) => t.textContent).slice(0, 4)).toEqual(['Casual', 'Formal', 'Work', 'Party']);
+  });
+
+  it('a slot with no point is a GAP: the segments on either side stop at their own points — two paths, never one crossing the empty slot', () => {
+    const data = [
+      { category: 'a', value: 1 },
+      { category: 'b', value: 2 },
+      { category: 'd', value: 4 },
+      { category: 'e', value: 5 },
+    ];
+    const { container } = render(<VizLine data={data} width={520} domain={{ categories: ['a', 'b', 'c', 'd', 'e'] }} />);
+    const paths = [...container.querySelectorAll('path.vzf-line-path')].map((p) => p.getAttribute('d')!);
+    expect(paths).toHaveLength(2);
+    // a–b, then d–e: neither path reaches into c's slot
+    expect(paths[0]).toBe(`M${centreOf(0, 5)},${paths[0]!.split(',')[1]!.split(' ')[0]!} L${centreOf(1, 5)},${paths[0]!.split(',')[2]!}`);
+    expect(paths[1]!.startsWith(`M${centreOf(3, 5)},`)).toBe(true);
+    expect(paths[1]!.includes(`L${centreOf(4, 5)},`)).toBe(true);
+    // every dot is still drawn — a gap is in the CONNECTORS, not in the points
+    expect(container.querySelectorAll('circle.vzf-line-dot')).toHaveLength(4);
+    // a lone point between two gaps draws its dot and no path (a line needs two points)
+    const lone = render(<VizLine data={[{ category: 'a', value: 1 }, { category: 'c', value: 3 }]} width={520} domain={{ categories: ['a', 'b', 'c'] }} />);
+    expect(lone.container.querySelectorAll('path.vzf-line-path')).toHaveLength(0);
+    expect(lone.container.querySelectorAll('circle.vzf-line-dot')).toHaveLength(2);
+  });
+
+  it('y is untouched by the band: its own padded extent and ticks as on a run, and a logarithmic y still ticks at decades and excludes what it cannot place', () => {
+    const { container } = render(<VizLine data={BAND} width={520} />);
+    // the y ticks step inside the chart's own 0.5 padding, exactly as they do over dates: means 4 · 4 · 9
+    const yTicks = [...container.querySelectorAll('text.vzf-tick')].map((t) => t.textContent).slice(3);
+    expect(yTicks.slice(0, 4)).toEqual(['4', '5.7', '7.3', '9']);
+    const log = render(<VizLine data={[{ category: 'a', value: 10 }, { category: 'b', value: 0 }, { category: 'c', value: 1000 }]} width={520} domain={{ categories: ['a', 'b', 'c'], transform: { y: 'log' } }} />);
+    // the zero has no position on a logarithmic y — not drawn, and counted in the accessible name
+    expect(log.container.querySelectorAll('circle.vzf-line-dot')).toHaveLength(2);
+    expect(log.container.querySelector('svg')!.getAttribute('aria-label')).toContain('1 value is not drawn');
+    expect([...log.container.querySelectorAll('text.vzf-tick')].map((t) => t.textContent)).toEqual(['a', 'b', 'c', '10', '100', '1000']); // decade ticks, after the three band labels
+    // b's slot is empty (excluded), so a and c are two lone points: no connector across a value that was never placed
+    expect(log.container.querySelectorAll('path.vzf-line-path')).toHaveLength(0);
+  });
+
+  it('a band draws NO brush (an interval has no meaning on a band) and ignores the time window (a band has no between to window)', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={BAND} width={520} onEmit={onEmit} xDomain={['2026-01-01', null]} />);
+    const svg = container.querySelector('svg.vzf-line')!;
+    fireEvent.pointerDown(svg, { clientX: 0, pointerId: 1 });
+    fireEvent.pointerMove(svg, { clientX: 520, pointerId: 1 });
+    expect(container.querySelector('rect.vzf-brush')).toBeNull();
+    fireEvent.pointerUp(svg, { clientX: 520, pointerId: 1 });
+    expect(onEmit).not.toHaveBeenCalled();
+    // every point drawn — the window filtered nothing
+    expect(container.querySelectorAll('circle.vzf-line-dot')).toHaveLength(3);
+  });
+
+  it('a dated point handed to a band becomes a slot named by its date — nothing is dropped; and with `axes={false}` the band draws no tick and gives up no plot', () => {
+    const { container } = render(<VizLine data={[{ category: 'a', value: 1 }, { date: '2026-04-01', value: 2 }]} width={520} />);
+    expect(dotsOf(container).map((d) => d.name)).toEqual(['a', '2026-04-01']);
+    const framed = render(<VizLine data={[{ category: 'a very long category name indeed', value: 1 }, { category: 'another very long category name', value: 2 }]} width={200} height={200} axes={false} />);
+    expect(framed.container.querySelectorAll('text.vzf-tick')).toHaveLength(0);
+    // the plot bottom is PAD.b from the bottom exactly: the dots' cy for the higher value sit at the top pad of the plot,
+    // and the lower at height - PAD.b (44) minus the 0.5 padding's share — pinned via the axis-less baseline not moving
+    const cys = [...framed.container.querySelectorAll('circle.vzf-line-dot')].map((d) => Number(d.getAttribute('cy')));
+    expect(Math.max(...cys)).toBeLessThanOrEqual(200 - 44);
+  });
+
+  it('long band labels slant, and the plot gives up room for them the way a bar chart does', () => {
+    const { container } = render(<VizLine data={[{ category: 'a very long category name indeed', value: 1 }, { category: 'another very long category name', value: 2 }]} width={200} height={300} />);
+    const ticks = [...container.querySelectorAll('text.vzf-tick')].filter((t) => t.getAttribute('transform')?.startsWith('rotate(-40'));
+    expect(ticks).toHaveLength(2);
+    // clipped labels keep the whole name in a title
+    expect(ticks[0]!.querySelector('title')!.textContent).toBe('a very long category name indeed');
+    // the baseline moved up by SLANT_PAD (40): the axis line sits at 300 - (44 + 40)
+    const axis = container.querySelector('line.vzf-axis')!;
+    expect(Number(axis.getAttribute('y1'))).toBe(300 - 84);
+    // a label too wide for its slot but short enough for the slant is drawn whole on the slant — no title, nothing clipped
+    // (three slots of 70px at width 280; 12 characters × 6px = 72px does not fit flat, and 12 is what 48px of slant room holds)
+    cleanup();
+    const whole = render(<VizLine data={[{ category: 'abcdefghijkl', value: 1 }, { category: 'nopqrstuvwxy', value: 2 }, { category: 'c', value: 3 }]} width={280} height={300} />).container;
+    const slanted = [...whole.querySelectorAll('text.vzf-tick')].filter((t) => t.getAttribute('transform')?.startsWith('rotate(-40'));
+    expect(slanted.map((t) => t.textContent)).toEqual(['abcdefghijkl', 'nopqrstuvwxy']);
+    expect(slanted.every((t) => t.querySelector('title') === null)).toBe(true);
+  });
+});

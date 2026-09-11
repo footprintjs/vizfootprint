@@ -3,7 +3,8 @@ export type { VizScatterProps, ScatterDatum, RegressionGeom } from './VizScatter
 export { VizBar } from './VizBar.js';
 export type { VizBarProps, BarDatum } from './VizBar.js';
 export { VizLine, lineCompat } from './VizLine.js';
-export type { VizLineProps, LinePoint } from './VizLine.js';
+// a point on a run of dates or on a band of categories — the two arms of `LinePoint` (band versus run is the x column's)
+export type { VizLineProps, LinePoint, DatedLinePoint, BandLinePoint } from './VizLine.js';
 export { VizMap } from './VizMap.js';
 export type { VizMapProps, RegionDatum, GeoFeature, GeoFeatureCollection, GeoGeometry, GeoRing } from './VizMap.js';
 export { VizTable } from './VizTable.js';
