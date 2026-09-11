@@ -10,17 +10,29 @@
  *      the UNION of them as its own margin and then offsets each layer by ITS
  *      pad — the chart stays the one owner of its box (`PAD`, exported from
  *      each chart), and the frame never re-states it.
- *   2. ONE GUIDE. Under `guide: 'merged'` every layer is drawn with
- *      `axes={false}` and the FRAME draws the axes once, from the frame's own
- *      domain. Under `'per-layer'` each layer draws its own, inside the same
- *      box.
+ *   2. ONE GUIDE, OR TWO SIDES. Under `guide: 'merged'` every layer is drawn
+ *      with `axes={false}` and the FRAME draws the axes once, from the frame's
+ *      own domain. Under `'per-layer'` a single layer draws its own pair,
+ *      inside the same box. Two or more layers under `'per-layer'` are THE
+ *      TWO-AXIS FIGURE: the frame still draws the axes it was given (x, drawn
+ *      once — one frame has one x), and each layer whose y is its OWN scale
+ *      (`ownY`) draws only that y — the first on the LEFT edge, the second on
+ *      the RIGHT (`axes: 'y'` + `axisSide`, `FrameLayerDraw`). A frame has two
+ *      sides, so a third own y is refused upstream in words (`stackRefusal`
+ *      in `contract/renderers.tsx`, law 1); this component draws what it is
+ *      handed without knowing that happened, and hands a third the left edge
+ *      rather than hiding it. A layer with no y of its own draws no axes — the
+ *      frame's are its.
+ *   3. THE WORDS. Two scales on one frame are two claims, and the frame must
+ *      say so: `words` — the renderer's sentence, one owner — is rendered in
+ *      the frame's own CAPTION REGION (a strip inside the frame's height, below
+ *      the plot, taken from the margin the way a slanted tick takes its room)
+ *      and in the accessible label. A dual axis that says nothing is the lie.
  *
- * Because every layer's plot rectangle IS the frame's (promise 1), `'per-layer'`
- * with two or more layers would OVERPRINT their axes at the same frame pixel —
- * so the contract renderer REFUSES that stack in words before it ever reaches
- * this component (`stackRefusal` in `contract/renderers.tsx`); a single-layer
- * stack has no second axis to collide with, and this component draws whatever
- * `guide` it is handed without knowing the refusal happened upstream.
+ * The margin is still ONE union: a right axis adds its room on the right
+ * (`padOnSide` — the chart's own pad mirrored, the same object the chart draws
+ * by), and the caption adds its strip below, each ONLY when drawn — a frame
+ * with neither is byte-identical to the frame before they existed.
  *
  * WHAT THIS COMPONENT DOES NOT DO, by design:
  *   - It never reads a row. A layer arrives as a `render` callback, so the
@@ -42,7 +54,7 @@ import { PAD as BAR_PAD } from './VizBar.js';
 import { PAD as POINT_PAD } from './VizScatter.js';
 import { PAD as HISTOGRAM_PAD } from './VizHistogram.js';
 import { PAD as BOXPLOT_PAD } from './VizBoxPlot.js';
-import { dayOf, ticks, scaleFor, logTicks, logTickLabel, bandWidth, bandCentre, type ChartDomain, type ScaleKind } from '../primitives/scales.js';
+import { dayOf, ticks, scaleFor, logTicks, logTickLabel, bandWidth, bandCentre, padOnSide, type ChartDomain, type ScaleKind, type AxisSide } from '../primitives/scales.js';
 
 /** The mark kinds a frame can draw: the 2D charts, and exactly those (a map, a network, a heatmap and a table each own their own frame). */
 export type FrameChartKind = 'line' | 'bar' | 'point' | 'histogram' | 'boxplot';
@@ -80,10 +92,22 @@ export function isFrameChartKind(kind: string): kind is FrameChartKind {
  * there is nothing to keep room for.
  */
 export function framePad(kinds: readonly FrameChartKind[]): FramePad {
-  const pads = kinds.map((kind) => FRAME_PADS[kind]);
+  return unionPads(kinds.map((kind) => FRAME_PADS[kind]));
+}
+
+/** The union of margins, side by side — `framePad`'s arithmetic over pads already placed on their sides. */
+function unionPads(pads: readonly FramePad[]): FramePad {
   const side = (get: (pad: FramePad) => number): number => pads.reduce((most, pad) => Math.max(most, get(pad)), 0);
   return { l: side((p) => p.l), r: side((p) => p.r), t: side((p) => p.t), b: side((p) => p.b) };
 }
+
+/**
+ * Pixels the caption strip takes beneath the plot when the frame has words to
+ * say: two lines of the caption's small type, so a sentence that wraps once on
+ * a narrow frame is still whole. Added to the margin union ONLY when `words`
+ * is given — a wordless frame keeps its plot.
+ */
+export const CAPTION_ROOM = 32;
 
 /** The rectangle the marks are drawn in — the SAME rectangle for every layer, which is the whole promise. */
 export interface FramePlotBox {
@@ -114,14 +138,23 @@ export interface FrameLayerDraw {
   readonly height: number;
   /** The frame's domain, in the units each chart's own `domain` prop reads (`../primitives/scales.ts`). */
   readonly domain: ChartDomain;
-  /** `false` while the FRAME draws one merged guide for the whole stack. */
-  readonly axes: boolean;
+  /** `false` while the FRAME draws one merged guide for the whole stack; `'y'` when this layer draws ONLY its own y axis, on `axisSide`, and the frame draws x once. */
+  readonly axes: boolean | 'y';
+  /** Which edge this layer's own y axis stands on — set exactly when `axes` is `'y'`. */
+  readonly axisSide?: AxisSide;
 }
 
-/** One layer of a frame: which mark it is (for the margin), and how to draw it. */
+/** One layer of a frame: which mark it is (for the margin), whether its y is its own, and how to draw it. */
 export interface VizFrameLayer {
   readonly layerId: string;
   readonly kind: FrameChartKind;
+  /**
+   * This layer's y is its OWN scale — bound by the layer and not the frame's
+   * merged one. Read only under `guide: 'per-layer'` with two or more layers:
+   * the first such layer takes the left edge, the second the right (law 1).
+   * Absent = false: on such a frame the layer draws no axes of its own.
+   */
+  readonly ownY?: boolean;
   render(draw: FrameLayerDraw): JSX.Element;
 }
 
@@ -148,6 +181,13 @@ export interface VizFrameProps {
   readonly x?: FrameAxis;
   /** The merged y axis. Absent = no y guide. */
   readonly y?: FrameAxis;
+  /**
+   * THE FRAME'S OWN WORDS — the sentence that says two scales are two claims
+   * (`twoScalesSentence`, `contract/renderers.tsx`, its one owner). Rendered in
+   * the caption strip beneath the plot and in the accessible label. Absent =
+   * no strip, no words.
+   */
+  readonly words?: string;
   readonly width?: number;
   readonly height?: number;
   readonly className?: string;
@@ -240,11 +280,17 @@ function axisTicks(axis: FrameAxis, categories: readonly string[] | undefined, s
   return axis.scale === 'categorical' ? bandTicks(categories, from, to, room) : spanTicks(axis.scale, span, from, to, kind);
 }
 
-/** The merged guide: one axis line and one set of ticks per axis the frame was given, drawn in the frame's own margin. */
-function FrameGuide(props: { readonly frame: VizFrameProps; readonly plot: FramePlotBox; readonly width: number; readonly height: number }): JSX.Element {
-  const { frame, plot } = props;
+/**
+ * The merged guide: one axis line and one set of ticks per axis the frame was
+ * given, drawn in the frame's own margin. `floor` is where that margin ENDS —
+ * the frame's bottom, or the top of the caption strip when the frame has words
+ * — so the x label and a slanted tick's room are measured against the margin
+ * and never run into the caption.
+ */
+function FrameGuide(props: { readonly frame: VizFrameProps; readonly plot: FramePlotBox; readonly width: number; readonly height: number; readonly floor: number }): JSX.Element {
+  const { frame, plot, floor } = props;
   const domain = frame.domain ?? {};
-  const room = Math.max(0, props.height - plot.bottom - 12 - (frame.x?.label === undefined ? 0 : AXIS_LABEL_ROOM));
+  const room = Math.max(0, floor - plot.bottom - 12 - (frame.x?.label === undefined ? 0 : AXIS_LABEL_ROOM));
   // x runs left→right; y runs bottom→top (a value grows upwards), which is the only difference between them
   const xTicks = frame.x === undefined ? [] : axisTicks(frame.x, domain.categories, domain.x, plot.left, plot.right, room, curveOf(frame.x, domain.transform?.x));
   const yTicks = frame.y === undefined ? [] : axisTicks(frame.y, undefined, domain.y, plot.bottom, plot.top, 0, curveOf(frame.y, domain.transform?.y));
@@ -277,7 +323,7 @@ function FrameGuide(props: { readonly frame: VizFrameProps; readonly plot: Frame
         </g>
       ))}
       {frame.x?.label === undefined ? null : (
-        <text className="vzf-tick vzf-frame-axislabel" x={(plot.left + plot.right) / 2} y={props.height - 8} textAnchor="middle">
+        <text className="vzf-tick vzf-frame-axislabel" x={(plot.left + plot.right) / 2} y={floor - 8} textAnchor="middle">
           {frame.x.label}
         </text>
       )}
@@ -290,25 +336,62 @@ function FrameGuide(props: { readonly frame: VizFrameProps; readonly plot: Frame
   );
 }
 
+/** What the frame decided for one layer's guide: none (the frame's), its own pair (a single layer), or its own y on one edge (the two-axis figure). */
+type LayerGuide = { readonly axes: false } | { readonly axes: true } | { readonly axes: 'y'; readonly axisSide: AxisSide };
+
+/** The two edges, in the order own-y layers take them: the first on the left, the second on the right. A third goes round again to the left — visible, never hidden (it is refused upstream, in words). */
+const SIDES: readonly AxisSide[] = ['left', 'right'];
+
 /**
- * The stack. One box, the guide (when it is the frame's), then every layer in
- * declaration order — later layers paint over earlier ones, which is the paint
- * order the def declared.
+ * WHO DRAWS WHICH AXIS, per layer, in declaration order — the ONE place this
+ * component decides it. Merged: nobody but the frame. Per-layer on a single
+ * layer: that layer, both axes (unchanged from before sides existed). Per-layer
+ * on two or more: the frame draws what it was given (x, once), and each own-y
+ * layer draws only its y, on the next free edge.
+ */
+function layerGuides(layers: readonly VizFrameLayer[], guide: 'merged' | 'per-layer'): readonly LayerGuide[] {
+  if (guide === 'merged') return layers.map(() => ({ axes: false }));
+  if (layers.length === 1) return [{ axes: true }];
+  let taken = 0;
+  return layers.map((layer) => (layer.ownY === true ? { axes: 'y', axisSide: SIDES[taken++ % SIDES.length]! } : { axes: false }));
+}
+
+/** A layer's margin as it will draw it: its kind's pad, mirrored when its own y stands on the right (`padOnSide` — the chart reads the same). */
+function layerPad(layer: VizFrameLayer, decided: LayerGuide): FramePad {
+  return padOnSide(FRAME_PADS[layer.kind], decided.axes === 'y' ? decided.axisSide : undefined);
+}
+
+/**
+ * The stack. One box, the guide (when it is the frame's — merged, or the x of
+ * a two-axis frame), then every layer in declaration order — later layers
+ * paint over earlier ones, which is the paint order the def declared — and the
+ * caption strip beneath when the frame has words.
  */
 export function VizFrame(props: VizFrameProps): JSX.Element {
-  const { layers, width = 520, height = 340, guide = 'merged' } = props;
-  const plot = framePlotBox(framePad(layers.map((layer) => layer.kind)), width, height);
+  const { layers, width = 520, height = 340, guide = 'merged', words } = props;
+  const guides = layerGuides(layers, guide);
+  // THE MARGIN UNION, with a right pad only when a right axis is drawn and a caption strip only when
+  // there are words — so a frame with neither keeps the plot rectangle it always had
+  const union = unionPads(layers.map((layer, i) => layerPad(layer, guides[i]!)));
+  // the caption strip is BELOW the margin: the guide's floor is its top, so the x label and slant room stay above it
+  const floor = words === undefined ? height : height - CAPTION_ROOM;
+  const pad = words === undefined ? union : { ...union, b: union.b + CAPTION_ROOM };
+  const plot = framePlotBox(pad, width, height);
+  // the frame's own guide is drawn whenever it has one to draw: merged, or a two-or-more-layer stack whose x it draws once
+  const frameGuide = guide === 'merged' || layers.length > 1;
+  const name = props.ariaLabel ?? `${String(layers.length)} layers on one frame`;
   return (
     <div
       className={`vzf-frame${props.className === undefined ? '' : ' ' + props.className}`}
       style={{ position: 'relative', width, height }}
       role="group"
-      aria-label={props.ariaLabel ?? `${String(layers.length)} layers on one frame`}
+      aria-label={words === undefined ? name : `${name} — ${words}`}
       data-vzf="frame"
     >
-      {guide === 'merged' ? <FrameGuide frame={props} plot={plot} width={width} height={height} /> : null}
+      {frameGuide ? <FrameGuide frame={props} plot={plot} width={width} height={height} floor={floor} /> : null}
       {layers.map((layer, i) => {
-        const box = frameLayerBox(FRAME_PADS[layer.kind], plot);
+        const decided = guides[i]!;
+        const box = frameLayerBox(layerPad(layer, decided), plot);
         return (
           // the BOTTOM layer keeps the pointer over its whole box (nothing is beneath it to reach), and every
           // layer above it takes the pointer only where it drew a mark — so a click on blank canvas lands on
@@ -319,10 +402,17 @@ export function VizFrame(props: VizFrameProps): JSX.Element {
             data-layer={layer.layerId}
             style={{ position: 'absolute', left: box.left, top: box.top, width: box.width, height: box.height }}
           >
-            {layer.render({ width: box.width, height: box.height, domain: props.domain ?? {}, axes: guide === 'per-layer' })}
+            {layer.render({ width: box.width, height: box.height, domain: props.domain ?? {}, ...decided })}
           </div>
         );
       })}
+      {words === undefined ? null : (
+        // the caption strip: inside the frame's height, beneath the x axis label, spanning the plot — the
+        // words a sighted reader meets; the accessible label above carries the same sentence
+        <p className="vzf-frame-caption vzf-chart-caption" role="note" style={{ position: 'absolute', left: plot.left, width: plot.right - plot.left, bottom: 0, height: CAPTION_ROOM, margin: 0, overflow: 'hidden', lineHeight: 1.35 }}>
+          {words}
+        </p>
+      )}
     </div>
   );
 }

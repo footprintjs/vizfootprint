@@ -21,7 +21,7 @@
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
-import { ticks, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, type ChartDomain } from '../primitives/scales.js';
+import { ticks, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { useBrightPredicate, dimClass } from '../primitives/useSelection.js';
@@ -97,8 +97,21 @@ export interface VizScatterProps {
    * filters nothing: a point outside the domain is drawn outside it.
    */
   readonly domain?: ChartDomain;
-  /** Draw this chart's own axes (lines, ticks and the interactive axis labels). Default `true`; `false` while the FRAME draws one merged guide for the stack. */
-  readonly axes?: boolean;
+  /**
+   * Draw this chart's own axes (lines, ticks and the interactive axis labels).
+   * Default `true`; `false` while the FRAME draws one merged guide for the
+   * stack; `'y'` ONLY the y axis — this chart's y is its own scale on a frame
+   * whose x is drawn once by the frame (`VizFrame`, the two-axis figure).
+   */
+  readonly axes?: boolean | 'y';
+  /**
+   * Which side the y axis stands on. Default `'left'`. `'right'`: the axis
+   * line, its ticks (reading rightward) and its label stand on the right edge
+   * and the chart keeps its y-axis room there instead (`padOnSide` — one
+   * owner, read by `VizFrame` too), so the SECOND scale of a two-scale frame
+   * has an edge of its own. The marks are placed exactly as on the left.
+   */
+  readonly axisSide?: AxisSide;
 }
 
 /**
@@ -149,17 +162,29 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   // the chart's own breathing room, which a LOGARITHMIC axis takes none of (`padFor`); `extentFor` is
   // LOG-AWARE about an empty `drawable` — see its own doc for why `extent`'s plain [0,1] default would
   // otherwise mislead `logDomain` into lifting a low bound that was never really there
+  // THE MARGIN THIS INSTANCE DRAWS INSIDE: `PAD` with its y-axis room on the side the axis stands
+  // on (`padOnSide`, the one owner of that swap). With no side asked it IS `PAD`, so nothing moves.
+  const pad = padOnSide(PAD, props.axisSide);
   const [xlo, xhi] = domainOr(props.domain?.x, extentFor(drawable, (d) => d.x, padFor(xKind, 5), xKind));
-  const x = scaleFor(xKind)(xlo, xhi, PAD.l, width - PAD.r);
+  const x = scaleFor(xKind)(xlo, xhi, pad.l, width - pad.r);
   const [ylo, yhi] = domainOr(props.domain?.y, extentFor(drawable, (d) => d.y, padFor(yKind, 0.5), yKind));
-  const y = scaleFor(yKind)(ylo, yhi, height - PAD.b, PAD.t);
+  const y = scaleFor(yKind)(ylo, yhi, height - pad.b, pad.t);
   const axes = props.axes ?? true;
+  // WHICH AXES THIS CHART DRAWS: both (`true`), neither (`false` — the frame's merged guide), or its y
+  // alone (`'y'` — its own scale on a frame whose x is drawn once by the frame). Two flags, so the
+  // x-side markup below reads one word and the y-side another.
+  const drawX = axes === true;
+  const drawY = axes !== false;
+  // WHERE THE Y AXIS STANDS: the plot edge on its side. The ticks read away from the plot (leftward on
+  // the left, rightward on the right) and the label rotates to face its edge — the mirror, nothing else.
+  const yAxisX = props.axisSide === 'right' ? width - pad.r : pad.l;
+  const yTickDir = props.axisSide === 'right' ? 1 : -1;
 
   // drag→interval on x — the brush primitive's completion discipline (a sub-4px
   // release emits the CLEARED interval); snap = this chart's own scale invert
   const { svgRef, brush, handlers } = useHorizontalBrush({
-    plotLeft: PAD.l,
-    plotRight: width - PAD.r,
+    plotLeft: pad.l,
+    plotRight: width - pad.r,
     width,
     field: xField,
     snap: (loPx, hiPx) => [Math.round(x.invert(loPx) * 100) / 100, Math.round(x.invert(hiPx) * 100) / 100],
@@ -185,23 +210,24 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         aria-label={(props.ariaLabel ?? `scatter of ${yLabel} against ${xLabel}`) + excludedNote(excluded)}
         {...handlers}
       >
-        {/* axes frame — absent while the FRAME draws one merged guide for the stack */}
-        {axes && <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />}
-        {axes && <line className="vzf-axis" x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={height - PAD.b} />}
+        {/* axes frame — absent while the FRAME draws one merged guide for the stack; the x half absent
+            while the frame draws x once and this chart draws only its own y (`axes: 'y'`) */}
+        {drawX && <line className="vzf-axis" x1={pad.l} y1={height - pad.b} x2={width - pad.r} y2={height - pad.b} />}
+        {drawY && <line className="vzf-axis" x1={yAxisX} y1={pad.t} x2={yAxisX} y2={height - pad.b} />}
         {/* x ticks */}
-        {axes && xTicks.map((v, i) => (
+        {drawX && xTicks.map((v, i) => (
           <g key={`xt${i}`}>
-            <line className="vzf-axis" x1={x(v)} y1={height - PAD.b} x2={x(v)} y2={height - PAD.b + 4} />
-            <text className="vzf-tick" x={x(v)} y={height - PAD.b + 16} textAnchor="middle">
+            <line className="vzf-axis" x1={x(v)} y1={height - pad.b} x2={x(v)} y2={height - pad.b + 4} />
+            <text className="vzf-tick" x={x(v)} y={height - pad.b + 16} textAnchor="middle">
               {xKind === 'log' ? logTickLabel(v) : Math.round(v)}
             </text>
           </g>
         ))}
-        {/* y ticks */}
-        {axes && yTickVals.map((v, i) => (
+        {/* y ticks — on the axis's side, reading away from the plot */}
+        {drawY && yTickVals.map((v, i) => (
           <g key={`yt${i}`}>
-            <line className="vzf-axis" x1={PAD.l - 4} y1={y(v)} x2={PAD.l} y2={y(v)} />
-            <text className="vzf-tick" x={PAD.l - 8} y={y(v) + 3} textAnchor="end">
+            <line className="vzf-axis" x1={yAxisX + 4 * yTickDir} y1={y(v)} x2={yAxisX} y2={y(v)} />
+            <text className="vzf-tick" x={yAxisX + 8 * yTickDir} y={y(v) + 3} textAnchor={yTickDir < 0 ? 'end' : 'start'}>
               {yKind === 'log' ? logTickLabel(v) : v}
             </text>
           </g>
@@ -236,16 +262,16 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
           );
         })}
         {/* brush */}
-        <BrushOverlay brush={brush} y={PAD.t} height={height - PAD.t - PAD.b} />
-        {/* interactive axis labels */}
-        {axes && <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />}
-        {axes && <AxisLabel x={14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={-90} onOpen={openPicker} />}
+        <BrushOverlay brush={brush} y={pad.t} height={height - pad.t - pad.b} />
+        {/* interactive axis labels — the y label faces its edge: rotated to read upward on the left, downward on the right */}
+        {drawX && <AxisLabel x={(pad.l + width - pad.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />}
+        {drawY && <AxisLabel x={props.axisSide === 'right' ? width - 14 : 14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={props.axisSide === 'right' ? 90 : -90} onOpen={openPicker} />}
         {/* the words for what a transform could not place, IN THE PICTURE — `excludedNote` already
             carries this fact into the accessible name for a screen reader; a sighted reader meets it
             only here, so a log-log scatter that silently omits hundreds of rows does not look like one
             that has none */}
         {excluded > 0 && (
-          <text className="vzf-excluded-note" x={width - PAD.r} y={PAD.t - 6} textAnchor="end">
+          <text className="vzf-excluded-note" x={width - pad.r} y={pad.t - 6} textAnchor="end">
             {excludedNote(excluded).replace(/^ — /, '')}
           </text>
         )}

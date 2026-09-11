@@ -72,7 +72,7 @@ import {
 } from './types.js';
 import { frameDomains, type ResolvedChannel } from 'vizfootprint/def';
 import { boundField } from '../charts/binding.js';
-import { bandOrder, epochOf, type ChartDomain } from '../primitives/scales.js';
+import { bandOrder, epochOf, type ChartDomain, type AxisSide } from '../primitives/scales.js';
 import { VizFrame, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
 import { VizScatter } from '../charts/VizScatter.js';
 import { VizLine } from '../charts/VizLine.js';
@@ -148,8 +148,10 @@ interface MarkDraw {
   readonly callbacks: RendererCallbacks;
   /** The frame's scales, or `{}` for a mark on its own extents (which is byte-identical to the chart before frames existed). */
   readonly domain: ChartDomain;
-  /** `false` while the FRAME draws one merged guide for the stack. */
-  readonly axes: boolean;
+  /** `false` while the FRAME draws one merged guide for the stack; `'y'` when this mark draws only its own y, on `axisSide`, and the frame draws x once (the two-axis figure). */
+  readonly axes: boolean | 'y';
+  /** The edge this mark's own y axis stands on — set exactly when `axes` is `'y'`. Only a line or a point ever receives it (law 2). */
+  readonly axisSide?: AxisSide;
   /**
    * PROTOCOL 1.5's fold, PASSED THROUGH RAW — `RenderState.frame`, unread by
    * every mark but `lineMark`. A plain view binds no `layers`, so nothing here
@@ -229,6 +231,7 @@ function pointMark(d: MarkDraw, options: ScatterRendererOptions): JSX.Element {
       height={d.height}
       domain={d.domain}
       axes={d.axes}
+      {...(d.axisSide === undefined ? {} : { axisSide: d.axisSide })}
       onEmit={d.callbacks.emit}
       onReencodeRequest={d.callbacks.reencodeRequest}
     />
@@ -304,6 +307,7 @@ function lineMark(d: MarkDraw, options: LineRendererOptions): JSX.Element {
       height={d.height}
       domain={d.domain}
       axes={d.axes}
+      {...(d.axisSide === undefined ? {} : { axisSide: d.axisSide })}
       onEmit={d.callbacks.emit}
       onReencodeRequest={d.callbacks.reencodeRequest}
     />
@@ -384,7 +388,9 @@ function barMark(d: MarkDraw, options: BarRendererOptions): JSX.Element {
       width={d.width}
       height={d.height}
       domain={d.domain}
-      axes={d.axes}
+      // a bar, a histogram and a box plot take neither side of a two-scale frame (law 2, refused upstream by
+      // `stackRefusal`), so `'y'` never arrives here; `=== true` keeps the chart's boolean prop honest without a cast
+      axes={d.axes === true}
       onEmit={d.callbacks.emit}
       onReencodeRequest={d.callbacks.reencodeRequest}
     />
@@ -499,7 +505,9 @@ function histogramMark(d: MarkDraw, options: HistogramRendererOptions): JSX.Elem
       width={d.width}
       height={d.height}
       domain={d.domain}
-      axes={d.axes}
+      // a bar, a histogram and a box plot take neither side of a two-scale frame (law 2, refused upstream by
+      // `stackRefusal`), so `'y'` never arrives here; `=== true` keeps the chart's boolean prop honest without a cast
+      axes={d.axes === true}
       onEmit={d.callbacks.emit}
       onReencodeRequest={d.callbacks.reencodeRequest}
     />
@@ -639,7 +647,9 @@ function boxPlotMark(d: MarkDraw, options: BoxPlotRendererOptions): JSX.Element 
       width={d.width}
       height={d.height}
       domain={d.domain}
-      axes={d.axes}
+      // a bar, a histogram and a box plot take neither side of a two-scale frame (law 2, refused upstream by
+      // `stackRefusal`), so `'y'` never arrives here; `=== true` keeps the chart's boolean prop honest without a cast
+      axes={d.axes === true}
       onEmit={d.callbacks.emit}
       onReencodeRequest={d.callbacks.reencodeRequest}
     />
@@ -1275,16 +1285,113 @@ function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
   }
   const line = colouredLineRefusal(framed);
   if (line !== null) return line;
-  // PER-LAYER GUIDES OVERPRINT ON TWO OR MORE LAYERS. Every layer's plot
-  // rectangle is the SAME rectangle (`layeredRenderer`'s one margin box), so
-  // when `frameGuide` — the ONE place that decides merged vs per-layer —
-  // says each layer draws its own axes, two-or-more layers draw them at the
-  // SAME pixels: illegible, not merely doubled. A single layer has no second
-  // axis to collide with, so it stays legal.
-  if (framed.length > 1 && frameGuide(frame) === 'per-layer') {
-    return `per-layer guides overprint on one frame in this version — declare guide: 'merged', or draw one layer`;
+  return twoScalesRefusal(framed, frame);
+}
+
+/**
+ * TWO SCALES ON ONE FRAME ARE TWO CLAIMS, and the frame has two sides to make
+ * them on — the laws of the two-axis figure, in words, for a per-layer guide
+ * on two or more layers (`frameGuide`, the ONE place that decides merged vs
+ * per-layer; a single layer draws its own pair and needs none of this).
+ *
+ *   law 1 — ONE FRAME HAS ONE X: it is the frame's, drawn once; an x left to
+ *     the layers is refused by name (the band/run law already says a frame's x
+ *     is one). And TWO SIDES, so at most two own y scales: a third is refused
+ *     naming every layer that would draw one — there is no third edge.
+ *   law 2 — A BAR, A HISTOGRAM OR A BOX PLOT TAKES NEITHER SIDE: its extent is
+ *     read against one baseline. The def door already refuses BOTH shapes that
+ *     say so — `independent`, and `shared` drawn `per-layer` beside a second
+ *     layer (`validateFrame`, law 9, the SAME reason in both branches) — so a
+ *     def built through `buildDashboard` never reaches this refusal (packet W
+ *     review, finding 1: it once did, through `shared + per-layer`, before the
+ *     door's law 9 grew that second branch). This check stays as the frame's
+ *     OWN defense: `RenderState.frame` is a public shape a host may fold BY
+ *     HAND, skipping `validateFrame` entirely, and the frame must refuse what
+ *     it is handed on its own terms — it does not trust that everything
+ *     upstream went through the door.
+ *
+ * The third law — the frame SAYS the scales are unrelated — is not a refusal
+ * but a sentence, {@link twoScalesSentence}, rendered by the frame.
+ */
+function twoScalesRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | null {
+  if (framed.length < 2 || frameGuide(frame) !== 'per-layer') return null;
+  if (!mergedX(framed, frame)) {
+    return `x is per-layer on layers ${nameList(framed)} — one frame has one x, drawn once by the frame. Declare guide: 'merged' on x, or draw one layer.`;
+  }
+  const own = framed.filter((f) => ownY(f, frame));
+  if (own.length > 2) {
+    return `layers ${nameList(own)} each draw a y of their own — a frame has two sides, left and right, and no third. Draw two of them here, and the rest on a frame of their own.`;
+  }
+  const unsided = own.find((f) => !SIDED_KINDS.includes(f.kind));
+  if (unsided !== undefined) {
+    return `layer "${unsided.layer.layerId}" is a ${unsided.kind} with a y of its own — a ${unsided.kind}'s extent is read against one baseline, so it takes neither side of a two-scale frame. Declare guide: 'merged' on y, or draw it on a frame of its own.`;
   }
   return null;
+}
+
+/** The marks that can stand a y axis on either edge (`axisSide`): a line and a point — position marks, whose y may be read off any baseline. */
+const SIDED_KINDS: readonly FrameChartKind[] = Object.freeze(['line', 'point']);
+
+/** TWO OR MORE layer ids as a sentence lists them: `"a", "b" and "c"` — both refusals that call it name at least two (a stack of two, or a third own y), so there is no one-name arm. */
+function nameList(framed: readonly FramedLayer[]): string {
+  const ids = framed.map((f) => `"${f.layer.layerId}"`);
+  return `${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]!}`;
+}
+
+/** Is the stack's x the FRAME's to draw once — every channel it is bound on folded shared, with a merged guide? */
+function mergedX(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): boolean {
+  return axisChannels(framed, 'x').every((channel) => sharedOn(frame, channel)?.guide === 'merged');
+}
+
+/**
+ * Does this layer draw a y of its OWN — it binds its y channel, and the
+ * frame's fold of that channel is not the merged one (independent, shared
+ * with a per-layer guide, or never folded at all)? A layer that binds no y
+ * has none to draw: on a frame the axes are the frame's, which is the same
+ * law that gives a y-unbound bar no merged axis of its own (`layerDomain`).
+ */
+function ownY(f: FramedLayer, frame: Readonly<Record<string, ResolvedChannel>> | undefined): boolean {
+  const channel = AXIS_CHANNELS[f.kind].y;
+  if (f.layer.encodings[channel] === undefined) return false;
+  return sharedOn(frame, channel)?.guide !== 'merged';
+}
+
+/**
+ * THE FRAME'S OWN WORDS FOR TWO SCALES (law 3) — the ONE owner of the sentence,
+ * exported so a host drawing its own surface over a two-axis frame can quote
+ * it. Said only when the two y axes are two SCALES: an independent y, or one
+ * the frame never folded. A shared y drawn on both edges is one scale twice,
+ * and heights across it ARE comparable — so it says nothing, rather than
+ * something false.
+ */
+export function twoScalesSentence(left: string, right: string): string {
+  return `two scales — left is ${left}, right is ${right}; heights are not comparable across them`;
+}
+
+/**
+ * The sentence a stack earns, or nothing: exactly two own-y layers on two
+ * scales — `twoScalesSentence` over their y fields, left then right.
+ *
+ * TWO FIELDS OF ONE NAME ON TWO TABLES ("left is value, right is value") is
+ * true and useless — a reader still cannot tell which edge is which, which is
+ * the one thing this sentence exists to fix. Named only where they collide (a
+ * shared field name draws the same bare label at both edges too, so naming it
+ * everywhere a def happens to pick two well-named fields would say the layer
+ * id where nobody needed it) — the layer id beside the field, the same way
+ * {@link nameList} already quotes a layer id to tell two "the same" things
+ * apart.
+ */
+function frameWords(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | undefined {
+  if (framed.length < 2 || frameGuide(frame) !== 'per-layer') return undefined;
+  const own = framed.filter((f) => ownY(f, frame));
+  if (own.length !== 2 || sharedOn(frame, 'y') !== undefined) return undefined;
+  // both bind their y (that is what `ownY` asked first), so each has a field to name
+  const fieldOf = (f: FramedLayer): string => f.layer.encodings[AXIS_CHANNELS[f.kind].y]!;
+  const [left, right] = [own[0]!, own[1]!];
+  const [leftField, rightField] = [fieldOf(left), fieldOf(right)];
+  const collide = leftField === rightField;
+  const label = (f: FramedLayer, field: string): string => (collide ? `"${field}" on layer "${f.layer.layerId}"` : field);
+  return twoScalesSentence(label(left, leftField), label(right, rightField));
 }
 
 /**
@@ -1450,10 +1557,16 @@ function frameGuide(frame: Readonly<Record<string, ResolvedChannel>> | undefined
   return channels.length > 0 && channels.every((channel) => channel.guide === 'merged') ? 'merged' : 'per-layer';
 }
 
-/** One axis of the merged guide, or nothing when that axis was not shared — the frame draws only the axes it was given. */
+/**
+ * One axis of the merged guide, or nothing when that axis was not shared with a
+ * MERGED guide — the frame draws only the axes that are its own. A shared y
+ * whose guide is per-layer is the layers' to draw (each on its own edge of a
+ * two-axis frame), so handing it to the frame too would draw one scale three
+ * times.
+ */
 function frameAxisOf(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, axis: 'x' | 'y', label: string | undefined): FrameAxis | undefined {
   const shared = sharedAxis(framed, frame, axis);
-  if (shared === undefined) return undefined;
+  if (shared === undefined || shared.resolved.guide !== 'merged') return undefined;
   const named = label ?? channelLabel(framed, shared.channels);
   return { scale: shared.resolved.scale, ...(named === undefined ? {} : { label: named }) };
 }
@@ -1503,7 +1616,11 @@ function frameRefusal(sentence: string): JSX.Element {
  * wrong: an unframeable kind, a run over bands (a line whose x column is a date
  * or a number, over a bar — a line whose x is a category IS a band and draws),
  * a point on a band, two bands with no category list, a box plot on a shared
- * band, a line split into series, or per-layer guides on two or more layers.
+ * band, a line split into series, or — on a per-layer guide over two or more
+ * layers — an x left to the layers, a third own y, or a bar/histogram/box plot
+ * with a y of its own (`twoScalesRefusal`). Two own y scales on a line or a
+ * point are THE TWO-AXIS FIGURE: left and right, x drawn once by the frame, and
+ * the frame's own sentence beneath (`twoScalesSentence`).
  */
 export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer {
   return reactRenderer({
@@ -1521,11 +1638,15 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
       const y = frameAxisOf(framed, state.frame, 'y', options.yLabel);
       // the ONE band union every layer AND the merged guide draw off — see `fullBandOrder`
       const categories = fullBandOrder(framed, state.frame);
+      // the words for two scales (law 3), or nothing — one owner, `twoScalesSentence`
+      const words = frameWords(framed, state.frame);
       return (
         <VizFrame
           layers={framed.map((f) => ({
             layerId: f.layer.layerId,
             kind: f.kind,
+            // its own y (an independent or per-layer y it binds) takes an edge on a two-axis frame — the frame picks which
+            ownY: ownY(f, state.frame),
             render: (draw) =>
               layerMark(f, {
                 viewId: handshake.viewId,
@@ -1541,12 +1662,14 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
                 // count ceiling rather than taking somebody else's value span as its height
                 domain: layerDomain(f, state.frame, categories),
                 axes: draw.axes,
+                ...(draw.axisSide === undefined ? {} : { axisSide: draw.axisSide }),
               }),
           }))}
           domain={frameChartDomain(framed, state.frame, categories)}
           guide={frameGuide(state.frame)}
           {...(x === undefined ? {} : { x })}
           {...(y === undefined ? {} : { y })}
+          {...(words === undefined ? {} : { words })}
           width={state.size.width}
           height={state.size.height}
           ariaLabel={`${String(framed.length)} layers on one frame`}

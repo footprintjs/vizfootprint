@@ -310,6 +310,27 @@ describe('the frame — per channel, how its scale is resolved across the layers
     expect(framed({ color: { mode: 'independent' } }, [{ ...barLayer, channels: ['x', 'y', 'color'] }])).toEqual([]);
   });
 
+  it('LAW 9: the SAME reason under `shared` — a per-layer guide beside a second layer is a second axis too, and the door refuses it as it would independent (packet W review, finding 1: this closes the gap `twoScalesRefusal` used to catch alone, at render, in `contract/renderers.tsx`)', () => {
+    expect(framed({ y: { mode: 'shared', guide: 'per-layer' } }, [barLayer, edgesLayer])).toEqual([
+      'encodings[0].frame.y: layer "counts" is a bar — a bar cannot take a per-layer y on a frame of more than one layer either, its extent is read against one baseline',
+    ]);
+    expect(framed({ y: { mode: 'shared', guide: 'per-layer' } }, [{ ...barLayer, chartKind: 'histogram' }, edgesLayer])).toEqual([
+      'encodings[0].frame.y: layer "counts" is a histogram — a histogram cannot take a per-layer y on a frame of more than one layer either, its extent is read against one baseline',
+    ]);
+    expect(framed({ y: { mode: 'shared', guide: 'per-layer' } }, [{ ...barLayer, chartKind: 'boxplot' }, edgesLayer])).toEqual([
+      'encodings[0].frame.y: layer "counts" is a boxplot — a boxplot cannot take a per-layer y on a frame of more than one layer either, its extent is read against one baseline',
+    ]);
+    // a line or a point still takes it — the second axis a per-layer guide draws is exactly what law 1's two sides are for
+    expect(framed({ y: { mode: 'shared', guide: 'per-layer' } }, [nodesLayer, edgesLayer])).toEqual([]);
+    // a LONE bar under a per-layer guide has no second layer to stand beside — `VizFrame` draws its own ordinary
+    // axes for a single layer regardless of guide, so the door refuses nothing here (law 7's `plain` pins the
+    // layerless equivalent above)
+    expect(framed({ y: { mode: 'shared', guide: 'per-layer' } }, [barLayer])).toEqual([]);
+    // the MERGED guide (the default) is the whole point of `shared` — untouched
+    expect(framed({ y: { mode: 'shared', guide: 'merged' } }, [barLayer, edgesLayer])).toEqual([]);
+    expect(framed({ y: { mode: 'shared' } }, [barLayer, edgesLayer])).toEqual([]);
+  });
+
   it('LAW 9: a shared quantitative channel keeps ONE zero policy, and a bar-like layer may not be told to drop it', () => {
     expect(framed({ y: { mode: 'shared', zero: false } }, [barLayer, edgesLayer])).toEqual([
       'encodings[0].frame.y.zero is false but layer "counts" is a bar — its y is read from zero',

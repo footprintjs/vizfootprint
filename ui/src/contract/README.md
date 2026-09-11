@@ -345,12 +345,13 @@ words), a brush on a band line (a sweep across slots is a match over the
 categories crossed, `VizBar`'s law — a kind the line does not claim yet), a box
 plot sharing a band with another layer (it
 orders its slots by its own rows), a guide per CHANNEL (a chart draws both its
-axes or neither, so one `per-layer` channel gives every layer its own pair), a
-second axis placed on the right for per-layer guides (the honest remedy for
-two-or-more layers under `'per-layer'` — refused in words instead, in this
-version, see below), and a selection folded per layer (the contract carries ONE
-`selection` per frame, so a host with several interactive layers chooses whose
-clause is "self"). Sibling layers get **no implicit crossfilter**: a select on
+axes or neither, so one `per-layer` channel gives every layer its own pair —
+except on the two-axis frame, where the frame draws x once and each layer its
+own y, see "Two scales on one frame" below), a bar as one scale of a two-scale
+frame (a bar's extent is read against one baseline, so it takes neither side —
+the classic bars-plus-line dual axis is two lines here, or two frames), and a
+selection folded per layer (the contract carries ONE `selection` per frame, so
+a host with several interactive layers chooses whose clause is "self"). Sibling layers get **no implicit crossfilter**: a select on
 `net~nodes` reaches `net~edges` only through a declared link.
 
 ### The logarithmic axis — the frame owns the curve too (protocol 1.6)
@@ -460,15 +461,15 @@ What it owns:
   38), so the frame takes the UNION as its own margin and offsets each layer by
   ITS pad — each chart's `PAD` is exported and stays its one owner, so an
   alignment computed in the frame cannot drift from the box the chart draws.
-- **ONE GUIDE.** With every folded channel asking for `guide: 'merged'` the
-  frame draws the axes once, from the frame's own fold, and every layer is drawn
-  with `axes={false}`. A single `'per-layer'` channel (or an `independent` one,
-  which is per-layer by definition) gives every layer its own pair instead —
-  legal for exactly one layer. Because every layer's plot rectangle is the SAME
-  rectangle (promise 1), two-or-more layers under `'per-layer'` would land their
-  axes at the same frame pixel, so the frame REFUSES that stack in words (see
-  the table below) rather than overprint them; declare `guide: 'merged'`, or
-  draw one layer.
+- **ONE GUIDE, OR TWO SIDES.** With every folded channel asking for
+  `guide: 'merged'` the frame draws the axes once, from the frame's own fold,
+  and every layer is drawn with `axes={false}`. A single `'per-layer'` channel
+  (or an `independent` one, which is per-layer by definition) gives a SINGLE
+  layer its own pair instead. Two or more layers under `'per-layer'` are the
+  TWO-AXIS FIGURE ("Two scales on one frame", below): the frame still draws x
+  once, and each layer whose y is its own draws that y on an edge of its own —
+  the first on the left, the second on the right. There is no third edge, and
+  a bar takes neither; both are refused in words (see the table below).
 - **each layer gets only what IT binds.** A bar that binds no `y` keeps its own
   count ceiling: a value span folded over somebody else's column is not this
   bar's height. Bind `y` to the count field on both bar layers and they share
@@ -494,7 +495,75 @@ picture that would be drawn a lie, not one that would merely be empty:
 | a box plot sharing a band | it reads no category list in this version |
 | a line split into 2+ series | its legend sits inside its own box and moves its plot top off the frame's |
 | a layer with no mark named | a frame draws what the def declared; it never guesses |
-| per-layer guides on two or more layers | every layer's plot rectangle is the same rectangle, so their axes would land on the same pixels |
+| an x left to the layers, on two or more (a per-layer or independent x, or one never folded) | *x is per-layer on layers "a" and "b" — one frame has one x, drawn once by the frame. Declare guide: 'merged' on x, or draw one layer.* |
+| a THIRD y of its own | *layers "temp", "rain" and "wind" each draw a y of their own — a frame has two sides, left and right, and no third. Draw two of them here, and the rest on a frame of their own.* |
+| a bar, a histogram or a box plot with a y of its own on such a frame | *layer "counts" is a bar with a y of its own — a bar's extent is read against one baseline, so it takes neither side of a two-scale frame. Declare guide: 'merged' on y, or draw it on a frame of its own.* — the def door already refuses BOTH shapes that draw one (`independent`, and `shared` drawn `per-layer` beside a second layer — law 9, `validateFrame`); this is the frame's OWN defense, for a `RenderState.frame` a host folds by hand, skipping the door entirely |
+
+#### Two scales on one frame — the second axis on the right, and the words that keep it honest
+
+**Two scales on one frame are two claims, and the frame must say so.** A
+dual-axis figure is legitimate — temperature and rainfall over the same weeks
+— and it is also the classic way to make any two series look related by
+choosing the scales. So the second axis is allowed under three laws:
+
+1. **Two sides, so at most two independent scales.** The first layer whose y
+   is not merged draws its axis on the LEFT edge, the second on the RIGHT,
+   each labelled with its own field (`axisSide` on `VizLine`/`VizScatter`,
+   handed out by `VizFrame` in declaration order). A third own y is refused
+   naming every layer that would draw one — there are two sides and no third.
+   x is never per-layer on a frame: one frame has one x (the band/run law
+   already says so), the frame draws it once, and an x left to the layers is
+   refused by name.
+2. **A bar, a histogram or a box plot never takes the second axis.** The def
+   door already refuses both shapes that would draw one — `independent`, and a
+   `shared` channel drawn `per-layer` beside a second layer (law 9,
+   `validateFrame`) — so a def built through `buildDashboard` never reaches
+   this refusal at all; the frame keeps its own copy as a defense of its own,
+   for a `RenderState.frame` a host folds by hand, skipping the door entirely.
+   So a two-scale frame's own-y layers are lines or points — position marks,
+   the one figure that is ever honest here.
+3. **The frame says the scales are unrelated, in words a reader sees.** When
+   two y SCALES are drawn (an independent y, or one the frame never folded),
+   the frame renders `twoScalesSentence(left, right)` — *two scales — left is
+   temperature, right is rainfall; heights are not comparable across them* —
+   in its own caption strip beneath the plot and in its accessible label. ONE
+   owner (`contract/renderers.tsx`), exported so a host drawing its own
+   surface quotes it. A shared y with a per-layer guide is one scale on both
+   edges — heights across it ARE comparable — so no sentence is said rather
+   than a false one. Omit-never-deny: a dual axis that says nothing is the lie;
+   a dual axis that says this is a figure. Two fields of the SAME NAME on two
+   tables (`value` on both) would read *left is value, right is value* — true
+   and useless, since a reader still cannot tell which edge is which — so
+   `frameWords` names the LAYER too, exactly where the fields collide: *left is
+   "value" on layer "shopA", right is "value" on layer "shopB"*.
+
+```ts
+// a line of temperature and a line of rainfall over the same weeks
+const layers: RenderLayer[] = [
+  { layerId: 'temp', table: 'weather', rows: weeks, encodings: { x: 'when', y: 'temperature' } },
+  { layerId: 'rain', table: 'weather', rows: weeks, encodings: { x: 'when', y: 'rainfall' } },
+];
+const renderer = layeredRenderer({ layers: { temp: { kind: 'line' }, rain: { kind: 'line' } } });
+// the fold: x shared and merged (one x, drawn once by the frame); y left to the layers (two scales)
+const frame = { x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'temporal', domain: [first, last] }, y: { mode: 'independent', guide: 'per-layer' } };
+res.view.update({ ...state, layers, frame });
+// → temperature's axis on the left, rainfall's on the right, one x beneath, and under the plot:
+//   "two scales — left is temperature, right is rainfall; heights are not comparable across them"
+```
+
+Two remedies were REFUSED, by name: (a) **`derive: 'align-extent'`** — a
+transform that stretches both scales to the same pixels is the deception
+itself, dressed as a feature; (b) **silently merging when the two fields share
+a unit** — a merged guide is a DECLARATION (`guide: 'merged'`), never an
+inference.
+
+The geometry is one owner each: a right axis keeps its room on the right
+(`padOnSide`, `primitives/scales.ts` — the chart's own `PAD` mirrored, read by
+the chart to place its plot and by `VizFrame` to union the margins), and the
+caption strip is taken from the frame's bottom margin only when there are
+words (`CAPTION_ROOM`). A frame with neither is byte-identical to the frame
+before they existed; a chart without `axisSide` is byte-identical to the chart
+before sides existed.
 
 **The first-party layered chart has since shipped** (packet 4): `networkRenderer`
 — `<VizNetwork>` behind the bridge — is the ninth reference renderer and the

@@ -19,10 +19,12 @@ import {
   boxPlotRenderer,
   networkRenderer,
   layeredRenderer,
+  twoScalesSentence,
   NETWORK_EDGE_CEILING,
   NETWORK_NODE_CEILING,
 } from './renderers.js';
 import { emptySelection } from './selection.js';
+import { validateFrame } from 'vizfootprint/def';
 import {
   RENDERER_PROTOCOL_VERSION,
   type HostHandshake,
@@ -997,11 +999,18 @@ describe('layeredRenderer — what a stack may not be, in words', () => {
     m.unmount();
   });
 
-  it('per-layer guides on two or more layers — every layer’s plot rectangle is the SAME rectangle, so their axes would land on the SAME pixels', () => {
+  it('a per-layer x on two or more layers — one frame has one x, so an x left to the layers is refused BY NAME (law 1)', () => {
     const { el, m } = mountFrame({ layers: { a: { kind: 'point' }, b: { kind: 'line' } } });
     m.update(framed([POINTS_LAYER, LINE_LAYER], { x: { ...XY_FRAME.x, guide: 'per-layer' } as ResolvedChannel, y: XY_FRAME.y }));
-    expect(refusalOf(el)).toBe("per-layer guides overprint on one frame in this version — declare guide: 'merged', or draw one layer");
-    // a SINGLE layer under per-layer has no second axis to collide with, so it stays legal
+    expect(refusalOf(el)).toBe(`x is per-layer on layers "a" and "b" — one frame has one x, drawn once by the frame. Declare guide: 'merged' on x, or draw one layer.`);
+    // an INDEPENDENT x is per-layer by definition, and a frame that folded no x at all leaves it to the layers too
+    m.update(framed([POINTS_LAYER, LINE_LAYER], { x: { mode: 'independent', guide: 'per-layer' }, y: XY_FRAME.y }));
+    expect(refusalOf(el)).toContain('x is per-layer on layers "a" and "b"');
+    m.update(framed([POINTS_LAYER, LINE_LAYER]));
+    expect(refusalOf(el)).toContain('x is per-layer on layers "a" and "b"');
+    // the old sentence is gone with the overprint it named
+    expect(refusalOf(el)).not.toContain('overprint');
+    // a SINGLE layer under per-layer draws its own pair, as it always did
     m.update(framed([POINTS_LAYER], { x: { ...XY_FRAME.x, guide: 'per-layer' } as ResolvedChannel, y: XY_FRAME.y }));
     expect(refusalOf(el)).toBe('');
     m.unmount();
@@ -1048,6 +1057,128 @@ describe('layeredRenderer — an INDEPENDENT channel', () => {
     expect(guidesOf(el)).toBe(0);
     // the scatter's own x extent is its rows' (10..90 padded), NOT the frame's 0..100 — its first tick says so
     expect(el.querySelector('.vzf-scatter text.vzf-tick')?.textContent).not.toBe('0');
+    m.unmount();
+  });
+});
+
+describe('layeredRenderer — TWO SCALES ON ONE FRAME are two claims, and the frame has two sides to make them on', () => {
+  /** A line of temperature and a line of rainfall over the same weeks — the honest dual-axis figure. */
+  const TEMP: RenderLayer = { layerId: 'temp', table: 'weather', rows: [{ when: '2026-01-01', temperature: 3 }, { when: '2026-01-08', temperature: 9 }], encodings: { x: 'when', y: 'temperature' } };
+  const RAIN: RenderLayer = { layerId: 'rain', table: 'weather', rows: [{ when: '2026-01-01', rainfall: 40 }, { when: '2026-01-08', rainfall: 12 }], encodings: { x: 'when', y: 'rainfall' } };
+  const WIND: RenderLayer = { layerId: 'wind', table: 'weather', rows: [{ when: '2026-01-01', wind: 5 }, { when: '2026-01-08', wind: 7 }], encodings: { x: 'when', y: 'wind' } };
+  /** x folded once for the frame (merged); y left to the layers — two scales. */
+  const INDEPENDENT_Y: ResolvedChannel = { mode: 'independent', guide: 'per-layer' };
+  const DUAL = { x: SHARED('temporal', ['2026-01-01', '2026-01-08']), y: INDEPENDENT_Y };
+  const KINDS = { temp: { kind: 'line' }, rain: { kind: 'line' }, wind: { kind: 'line' } } as const;
+  /** The interactive axis labels a LAYER drew — which channels it drew an axis for, and where its y label stands. */
+  const layerAxes = (el: Element, layerId: string): { channels: string[]; yTransform: string | null } => {
+    const box = el.querySelector(`[data-layer="${layerId}"]`)!;
+    const groups = Array.from(box.querySelectorAll('.vzf-axis-group'));
+    return { channels: groups.map((g) => g.getAttribute('data-axis-channel') ?? ''), yTransform: box.querySelector('.vzf-axis-group[data-axis-channel="y"]')?.getAttribute('transform') ?? null };
+  };
+  const captionOf = (el: Element): string => el.querySelector('.vzf-frame-caption')?.textContent ?? '';
+
+  it('two per-layer lines: the first draws its y on the LEFT, the second on the RIGHT, the frame draws x ONCE, and the sentence names both fields', () => {
+    const { el, m } = mountFrame({ layers: KINDS }, ['temp', 'rain']);
+    m.update(framed([TEMP, RAIN], DUAL));
+    expect(refusalOf(el)).toBe('');
+    // x is the frame's: one guide, with the x label the two layers agree on and NO y of its own
+    expect(guidesOf(el)).toBe(1);
+    expect(Array.from(el.querySelectorAll('.vzf-frame-axislabel')).map((t) => t.textContent)).toEqual(['when']);
+    // each layer drew ONLY its y — no x axis of its own to overprint the frame's
+    const temp = layerAxes(el, 'temp');
+    const rain = layerAxes(el, 'rain');
+    expect(temp.channels).toEqual(['y']);
+    expect(rain.channels).toEqual(['y']);
+    // …the first on the left edge (the label reads upward), the second on the right (it reads downward, at the far edge)
+    expect(temp.yTransform).toMatch(/^rotate\(-90 14 /);
+    expect(rain.yTransform).toMatch(/^rotate\(90 /);
+    const rainBox = el.querySelector<HTMLElement>('[data-layer="rain"]')!;
+    expect(rain.yTransform).toContain(`rotate(90 ${String(parseFloat(rainBox.style.width) - 14)} `);
+    // the right layer's ticks read rightward, the left layer's leftward
+    expect(rainBox.querySelector('text.vzf-tick')?.getAttribute('text-anchor')).toBe('start');
+    expect(el.querySelector('[data-layer="temp"] text.vzf-tick')?.getAttribute('text-anchor')).toBe('end');
+    // law 3: the frame SAYS the scales are unrelated — in the caption a reader sees, and in the accessible label
+    const sentence = twoScalesSentence('temperature', 'rainfall');
+    expect(sentence).toBe('two scales — left is temperature, right is rainfall; heights are not comparable across them');
+    expect(captionOf(el)).toBe(sentence);
+    expect(el.querySelector('.vzf-frame')?.getAttribute('aria-label')).toContain(sentence);
+    m.unmount();
+  });
+
+  it('two fields of the SAME NAME on two tables would read "left is value, right is value" — true and useless, so the sentence names the LAYER too when the fields collide (packet W review, attack 3)', () => {
+    const priceA: RenderLayer = { layerId: 'shopA', table: 'shopA', rows: [{ when: '2026-01-01', value: 3 }, { when: '2026-01-08', value: 9 }], encodings: { x: 'when', y: 'value' } };
+    const priceB: RenderLayer = { layerId: 'shopB', table: 'shopB', rows: [{ when: '2026-01-01', value: 40 }, { when: '2026-01-08', value: 12 }], encodings: { x: 'when', y: 'value' } };
+    const { el, m } = mountFrame({ layers: { shopA: { kind: 'line' }, shopB: { kind: 'line' } } }, ['shopA', 'shopB']);
+    m.update(framed([priceA, priceB], DUAL));
+    expect(refusalOf(el)).toBe('');
+    const sentence = twoScalesSentence('"value" on layer "shopA"', '"value" on layer "shopB"');
+    expect(sentence).toBe('two scales — left is "value" on layer "shopA", right is "value" on layer "shopB"; heights are not comparable across them');
+    expect(captionOf(el)).toBe(sentence);
+    // two DIFFERENTLY named fields are untouched by this law — the bare field, exactly as the first test above pins
+    // (`twoScalesSentence('temperature', 'rainfall')`)
+    m.unmount();
+  });
+
+  it('a POINT takes a side too — the other position mark: two point layers on a merged x, one y each, and the sentence names their fields', () => {
+    const stars: RenderLayer = { layerId: 'b', table: 'reviews', rows: [{ id: 'r1', price: 15, stars: 1 }, { id: 'r2', price: 85, stars: 5 }], encodings: { x: 'price', y: 'stars' } };
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' }, b: { kind: 'point' } } });
+    m.update(framed([POINTS_LAYER, stars], { x: XY_FRAME.x, y: INDEPENDENT_Y }));
+    expect(refusalOf(el)).toBe('');
+    expect(layerAxes(el, 'a')).toEqual({ channels: ['y'], yTransform: expect.stringMatching(/^rotate\(-90 14 /) as string });
+    expect(layerAxes(el, 'b')).toEqual({ channels: ['y'], yTransform: expect.stringMatching(/^rotate\(90 /) as string });
+    // the dots are still drawn — a side is where the axis is, never where the data is
+    expect(el.querySelectorAll('[data-layer="b"] circle.vzf-dot')).toHaveLength(2);
+    expect(captionOf(el)).toBe(twoScalesSentence('rating', 'stars'));
+    m.unmount();
+  });
+
+  it('ONE per-layer line is today’s single guide: the layer draws its own pair, the frame draws nothing, and there is no sentence', () => {
+    const { el, m } = mountFrame({ layers: KINDS }, ['temp']);
+    m.update(framed([TEMP], DUAL));
+    expect(refusalOf(el)).toBe('');
+    expect(guidesOf(el)).toBe(0);
+    expect(layerAxes(el, 'temp').channels).toEqual(['x', 'y']);
+    expect(captionOf(el)).toBe('');
+    expect(el.querySelector('.vzf-frame')?.getAttribute('aria-label')).not.toContain('two scales');
+    m.unmount();
+  });
+
+  it('THREE own y scales are refused, naming all three — a frame has two sides and no third (law 1)', () => {
+    const { el, m } = mountFrame({ layers: KINDS }, ['temp', 'rain', 'wind']);
+    m.update(framed([TEMP, RAIN, WIND], DUAL));
+    expect(refusalOf(el)).toBe('layers "temp", "rain" and "wind" each draw a y of their own — a frame has two sides, left and right, and no third. Draw two of them here, and the rest on a frame of their own.');
+    m.unmount();
+  });
+
+  it('a shared y with a per-layer guide is ONE scale on both edges: each layer draws it under its own field, and the frame says nothing false', () => {
+    const { el, m } = mountFrame({ layers: KINDS }, ['temp', 'rain']);
+    m.update(framed([TEMP, RAIN], { x: DUAL.x, y: { ...SHARED('quantitative', [0, 50]), guide: 'per-layer' } as ResolvedChannel }));
+    expect(refusalOf(el)).toBe('');
+    expect(layerAxes(el, 'temp').yTransform).toMatch(/^rotate\(-90 /);
+    expect(layerAxes(el, 'rain').yTransform).toMatch(/^rotate\(90 /);
+    // the same span on both edges — the first tick of each is the frame's floor
+    expect(el.querySelector('[data-layer="temp"] text.vzf-tick')?.textContent).toBe('0');
+    expect(el.querySelector('[data-layer="rain"] text.vzf-tick')?.textContent).toBe('0');
+    // heights across ONE scale are comparable, so the "two scales" sentence would be a lie: none is said
+    expect(captionOf(el)).toBe('');
+    // and the frame does not draw that y a third time
+    expect(el.querySelectorAll('.vzf-frame-guide line.vzf-axis').length).toBe(1 + 4); // the x line and its four ticks
+    m.unmount();
+  });
+
+  it('a bar with an INDEPENDENT y is refused at the def door by law 9’s own sentence — untouched — and a bar with a y of its own reaches no edge here either (law 2)', () => {
+    // the door: the sentence the library has always said, word for word
+    const problems: string[] = [];
+    validateFrame({ y: { mode: 'independent' } }, 'encodings[0]', 'v', [{ layerId: 'counts', table: 'weather', chartKind: 'bar', channels: ['category', 'y'] }], undefined, { chartKind: 'bar', channels: ['category', 'y'], initial: undefined, table: 'weather' }, problems);
+    expect(problems).toContain('encodings[0].frame.y: layer "counts" is a bar — a bar cannot take an independent y, its extent is read against one baseline');
+    // the frame's OWN defense — for a `RenderState.frame` a host folds by hand, skipping the door entirely
+    // (a def built through `buildDashboard` never reaches this: the door refuses BOTH shapes, law 9)
+    const counts: RenderLayer = { layerId: 'counts', table: 'weather', rows: [{ week: 'w1', count: 4 }, { week: 'w2', count: 9 }], encodings: { category: 'week', y: 'count' } };
+    const means: RenderLayer = { layerId: 'means', table: 'weather', rows: [{ week: 'w1', mean: 3 }, { week: 'w2', mean: 7 }], encodings: { x: 'week', y: 'mean' } };
+    const { el, m } = mountFrame({ layers: { counts: { kind: 'bar' }, means: { kind: 'line' } } }, ['counts', 'means']);
+    m.update(framed([counts, means], { category: SHARED('categorical', ['w1', 'w2']), x: SHARED('categorical', ['w1', 'w2']), y: INDEPENDENT_Y }));
+    expect(refusalOf(el)).toBe(`layer "counts" is a bar with a y of its own — a bar's extent is read against one baseline, so it takes neither side of a two-scale frame. Declare guide: 'merged' on y, or draw it on a frame of its own.`);
     m.unmount();
   });
 });

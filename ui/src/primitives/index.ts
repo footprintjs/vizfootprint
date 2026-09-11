@@ -49,7 +49,10 @@ export { bandOrder, bandWidth, bandStart, bandCentre, domainOr } from './scales.
 // and the rest are what a host drawing its own guide over a logarithmic channel needs — the ticks,
 // their labels, the placeability predicate and the words for what a transform could not place
 export { logScale, logDomain, extentFor, scaleFor, placeable, padFor, logTicks, logTickLabel, excludedNote } from './scales.js';
-export type { LinearScale, ChartDomain, ScaleKind, ScaleBuilder } from './scales.js';
+// the second axis of a frame: `padOnSide` is the ONE owner of where a chart keeps its y-axis room
+// when that axis stands on the right, read by the chart (its plot) and by `VizFrame` (its margin union)
+export { padOnSide } from './scales.js';
+export type { LinearScale, ChartDomain, ScaleKind, ScaleBuilder, AxisSide } from './scales.js';
 
 export { AxisLabel } from './AxisLabel.js';
 export type { AxisLabelProps } from './AxisLabel.js';

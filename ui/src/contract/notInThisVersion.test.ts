@@ -63,6 +63,17 @@ const holdsExcludedNote = (): boolean => /export function excludedNote\(/.test(r
 const holdsBandLine = (): boolean =>
   /export interface BandLinePoint/.test(read('../charts/VizLine.tsx')) && /function bandX\(/.test(read('renderers.tsx')) && !/BAND_X_KINDS/.test(read('renderers.tsx')) && /export function bandCentre\(/.test(read('../primitives/scales.ts'));
 
+/**
+ * THE SECOND AXIS really ships: a side on the two charts that may stand one on
+ * the right, the ONE sentence for two scales exported beside the frame's other
+ * words, and the frame's per-layer path that hands the sides out.
+ */
+const holdsSecondAxis = (): boolean =>
+  /readonly axisSide\?: AxisSide;/.test(read('../charts/VizLine.tsx')) &&
+  /readonly axisSide\?: AxisSide;/.test(read('../charts/VizScatter.tsx')) &&
+  /export function twoScalesSentence\(/.test(read('renderers.tsx')) &&
+  /readonly ownY\?: boolean;/.test(read('../charts/VizFrame.tsx'));
+
 /** The logarithmic-axis claim: from its "Not in this version" to the end of that sentence. */
 const notInThisLogVersion = (): string => {
   const readme = read('README.md');
@@ -161,6 +172,30 @@ describe('the layers law says only what is true', () => {
     // the old, half-true sentence is gone from both
     expect(readme).not.toContain('whatever the column says');
     expect(read('renderers.tsx')).not.toContain('one frame cannot be both');
+  });
+
+  it('the second axis on the right really ships, so the outstanding list no longer counts it — and the README carries the three laws, the sentence and the two refused remedies', () => {
+    expect(holdsSecondAxis()).toBe(true);
+    const claim = notInThisVersion();
+    expect(claim).not.toContain('a second axis');
+    expect(claim).not.toContain('refused in words instead');
+    const readme = read('README.md').replace(/\s+/g, ' ');
+    // the law, by its own sentence
+    expect(readme).toContain('Two scales on one frame are two claims, and the frame must say so');
+    // the words, exactly as the code says them
+    expect(readme).toContain('two scales — left is temperature, right is rainfall; heights are not comparable across them');
+    expect(read('renderers.tsx')).toContain('heights are not comparable across them');
+    // the two refusals of law 1, as the code says them
+    for (const sentence of ['one frame has one x, drawn once by the frame', 'a frame has two sides, left and right, and no third']) {
+      expect(readme).toContain(sentence);
+      expect(read('renderers.tsx')).toContain(sentence);
+    }
+    // the two refused remedies, by name
+    expect(readme).toContain("`derive: 'align-extent'`");
+    expect(readme).toContain('a merged guide is a DECLARATION');
+    // and the old overprint sentence is gone from both
+    expect(readme).not.toContain('overprint');
+    expect(read('renderers.tsx')).not.toContain('per-layer guides overprint');
   });
 
   it('no sentence still says no first-party chart declares the capability', () => {

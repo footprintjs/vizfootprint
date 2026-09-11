@@ -72,6 +72,9 @@ export {
   // R6: the first GENERIC layered renderer — the def's stack of 2D marks over one
   // margin box, one pair of scales and one guide (`VizFrame` draws it)
   layeredRenderer,
+  // the frame's own words for two scales on one frame (law 3) — the ONE owner of the
+  // sentence, so a host drawing its own surface over a two-axis frame quotes it, never rewrites it
+  twoScalesSentence,
   // the ceiling THIS RENDERER refuses past — a size judgement about one SVG
   // frame, not a protocol limit and not the chart's: `<VizNetwork>` draws
   // whatever it is handed (renderers.tsx, "a ceiling, not a capability")

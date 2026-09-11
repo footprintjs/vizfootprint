@@ -235,6 +235,26 @@ export function bandCentre(from: number, width: number, index: number): number {
   return bandStart(from, width, index) + width / 2;
 }
 
+// ── which side a y axis stands on — the second axis of a frame ────────────────
+
+/** Where a chart's y axis stands: the left edge (every chart's default), or the right — the SECOND axis of a two-scale frame (`VizFrame`, law 1). */
+export type AxisSide = 'left' | 'right';
+
+/**
+ * A chart's margin box with its y-axis room on the side its axis stands on.
+ * A chart keeps tick-and-label room on the LEFT (`PAD.l`) and only breathing
+ * room on the right; a right axis needs the same room on the right, so the two
+ * horizontal margins swap and the vertical ones stand. ONE owner of that swap:
+ * the chart reads it to place its own plot, and the frame reads it to place
+ * the chart's svg and to union the layers' margins — so the room the frame
+ * keeps and the room the chart draws in can never be two numbers. `'left'`
+ * returns the very object it was given, so a chart without the prop is
+ * byte-identical to the chart before sides existed.
+ */
+export function padOnSide<P extends { readonly l: number; readonly r: number; readonly t: number; readonly b: number }>(pad: P, side: AxisSide | undefined): P {
+  return side === 'right' ? { ...pad, l: pad.r, r: pad.l } : pad;
+}
+
 // ── the logarithmic axis (protocol 1.6) — a transform is not a resolution ─────
 
 /**

@@ -11,20 +11,25 @@
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
-import { VizFrame, FRAME_PADS, framePad, framePlotBox, frameLayerBox, isFrameChartKind, type VizFrameLayer, type FrameLayerDraw } from './VizFrame.js';
+import { VizFrame, FRAME_PADS, CAPTION_ROOM, framePad, framePlotBox, frameLayerBox, isFrameChartKind, type VizFrameLayer, type FrameLayerDraw } from './VizFrame.js';
+import { padOnSide } from '../primitives/scales.js';
 
 afterEach(cleanup);
 
 /** A stand-in for one layer's chart: it draws nothing and reports exactly what the frame handed it. */
-function fake(layerId: string, kind: VizFrameLayer['kind']): VizFrameLayer {
+function fake(layerId: string, kind: VizFrameLayer['kind'], ownY?: boolean): VizFrameLayer {
   return {
     layerId,
     kind,
+    ...(ownY === undefined ? {} : { ownY }),
     render: (draw: FrameLayerDraw) => (
-      <svg className="vzf-chart" data-w={draw.width} data-h={draw.height} data-axes={String(draw.axes)} data-domain={JSON.stringify(draw.domain)} />
+      <svg className="vzf-chart" data-w={draw.width} data-h={draw.height} data-axes={String(draw.axes)} data-side={draw.axisSide ?? ''} data-domain={JSON.stringify(draw.domain)} />
     ),
   };
 }
+
+/** What every layer was told about its axes, in declaration order: `axes` and the edge, if any. */
+const handoutOf = (container: Element): string[] => Array.from(container.querySelectorAll('[data-axes]')).map((el) => `${el.getAttribute('data-axes') ?? ''}${el.getAttribute('data-side') ? ':' + el.getAttribute('data-side') : ''}`);
 
 /** Every layer's box, as the frame positioned it (px off the frame's own corner). */
 const boxesOf = (container: Element): Record<string, { left: number; top: number; width: number; height: number }> => {
@@ -98,10 +103,87 @@ describe('one guide, or one per layer', () => {
     expect(container.querySelectorAll('.vzf-frame-guide line.vzf-axis')).toHaveLength(2 + 4 + 4); // two axis lines + one stroke per tick
   });
 
-  it('per-layer: the frame draws NO guide and every layer draws its own', () => {
-    const { container } = render(<VizFrame layers={[fake('a', 'line'), fake('b', 'bar')]} guide="per-layer" domain={{ x: [0, 100] }} x={{ scale: 'quantitative' }} width={400} height={300} />);
+  it('per-layer on a SINGLE layer: the frame draws NO guide and the layer draws its own pair — unchanged from before sides existed', () => {
+    const { container } = render(<VizFrame layers={[fake('a', 'line', true)]} guide="per-layer" domain={{ x: [0, 100] }} x={{ scale: 'quantitative' }} width={400} height={300} />);
     expect(container.querySelectorAll('.vzf-frame-guide')).toHaveLength(0);
-    expect(Array.from(container.querySelectorAll('[data-axes]')).map((el) => el.getAttribute('data-axes'))).toEqual(['true', 'true']);
+    expect(handoutOf(container)).toEqual(['true']);
+    expect(container.querySelector('.vzf-frame-caption')).toBeNull();
+  });
+
+  it('per-layer on TWO layers is the two-axis figure: the frame draws x ONCE, the first own-y layer takes the left edge, the second the right', () => {
+    const { container } = render(<VizFrame layers={[fake('a', 'line', true), fake('b', 'point', true)]} guide="per-layer" domain={{ x: [0, 100] }} x={{ scale: 'quantitative', label: 'week' }} width={400} height={300} />);
+    // the frame's guide: its x, once — and no y (none was given)
+    expect(container.querySelectorAll('.vzf-frame-guide')).toHaveLength(1);
+    expect(ticksOf(container)).toEqual(['0', '33.3', '66.7', '100', 'week']);
+    expect(container.querySelectorAll('.vzf-frame-guide line.vzf-axis')).toHaveLength(1 + 4);
+    // each layer: ONLY its y, on its edge
+    expect(handoutOf(container)).toEqual(['y:left', 'y:right']);
+  });
+
+  it('a layer with no y of its own draws no axes on a two-layer frame — the frame’s are its; and a THIRD own y gets the left edge again, visible, never hidden', () => {
+    const { container } = render(<VizFrame layers={[fake('a', 'bar'), fake('b', 'line', true), fake('c', 'point', true), fake('d', 'line', true)]} guide="per-layer" width={400} height={300} />);
+    expect(handoutOf(container)).toEqual(['false', 'y:left', 'y:right', 'y:left']);
+  });
+
+  it('the margin union gains the RIGHT pad only when a right axis is drawn: the plot of a two-axis frame is narrower than a one-axis frame’s by exactly the mirrored room', () => {
+    const one = boxesOf(render(<VizFrame layers={[fake('a', 'line', true)]} guide="per-layer" width={400} height={300} />).container);
+    const two = boxesOf(render(<VizFrame layers={[fake('a', 'line', true), fake('b', 'line', true)]} guide="per-layer" width={400} height={300} />).container);
+    const left = FRAME_PADS.line;
+    const right = padOnSide(FRAME_PADS.line, 'right');
+    expect(right).toEqual({ l: left.r, r: left.l, t: left.t, b: left.b });
+    // one axis: the frame's plot is the line's own box
+    expect(one['a']).toEqual({ left: 0, top: 0, width: 400, height: 300 });
+    // two axes: the plot's right edge moves in by the right axis's room, and the RIGHT layer is offset by ITS mirrored pad
+    const plot = framePlotBox({ l: Math.max(left.l, right.l), r: Math.max(left.r, right.r), t: left.t, b: left.b }, 400, 300);
+    expect(plot.right).toBe(400 - left.l);
+    expect(two['a']).toEqual(frameLayerBox(left, plot));
+    expect(two['b']).toEqual(frameLayerBox(right, plot));
+    // and both layers' PLOT rectangles are still the same rectangle — the frame's one promise, with a right axis in it
+    for (const [id, pad] of [['a', left], ['b', right]] as const) {
+      const box = two[id]!;
+      expect({ left: box.left + pad.l, top: box.top + pad.t, right: box.left + box.width - pad.r, bottom: box.top + box.height - pad.b }).toEqual(plot);
+    }
+  });
+
+  it('the WORDS: rendered in the caption strip and the accessible label, and the strip is taken from the bottom margin ONLY when there are words', () => {
+    const words = 'two scales — left is temperature, right is rainfall; heights are not comparable across them';
+    const silent = render(<VizFrame layers={[fake('a', 'line', true), fake('b', 'line', true)]} guide="per-layer" width={400} height={300} />).container;
+    const spoken = render(<VizFrame layers={[fake('a', 'line', true), fake('b', 'line', true)]} guide="per-layer" words={words} width={400} height={300} />).container;
+    expect(silent.querySelector('.vzf-frame-caption')).toBeNull();
+    expect(silent.querySelector('.vzf-frame')?.getAttribute('aria-label')).toBe('2 layers on one frame');
+    const caption = spoken.querySelector<HTMLElement>('.vzf-frame-caption');
+    expect(caption?.textContent).toBe(words);
+    expect(caption?.getAttribute('role')).toBe('note');
+    expect(spoken.querySelector('.vzf-frame')?.getAttribute('aria-label')).toBe(`2 layers on one frame — ${words}`);
+    // the strip: every layer's box is shorter by CAPTION_ROOM, and the caption sits in the room freed
+    expect(boxesOf(spoken)['a']!.height).toBe(boxesOf(silent)['a']!.height - CAPTION_ROOM);
+    expect(parseFloat(caption!.style.height)).toBe(CAPTION_ROOM);
+    expect(caption!.style.bottom).toBe('0px');
+    // and the frame's own x label moves up with the margin — it sits above the strip, never inside it
+    const labelled = render(<VizFrame layers={[fake('a', 'line', true), fake('b', 'line', true)]} guide="per-layer" words={words} domain={{ x: [0, 100] }} x={{ scale: 'quantitative', label: 'week' }} width={400} height={300} />).container;
+    expect(labelled.querySelector('.vzf-frame-axislabel')?.getAttribute('y')).toBe(String(300 - CAPTION_ROOM - 8));
+  });
+
+  it('a SLANTED band tick keeps the exact same slant room with words as without — `floor` moves the caption in, never the room a tick slants into (packet W review, attack 2)', () => {
+    const many = ['Extraordinarily Long Name One', 'Extraordinarily Long Name Two', 'Extraordinarily Long Name Three', 'Extraordinarily Long Name Four'];
+    const words = 'two scales — left is temperature, right is rainfall; heights are not comparable across them';
+    const without = render(<VizFrame layers={[fake('a', 'bar')]} domain={{ categories: many }} x={{ scale: 'categorical', label: 'shelf' }} width={300} height={220} />).container;
+    const withWords = render(<VizFrame layers={[fake('a', 'bar')]} domain={{ categories: many }} x={{ scale: 'categorical', label: 'shelf' }} words={words} width={300} height={220} />).container;
+    const slantOf = (c: Element) => Array.from(c.querySelectorAll('.vzf-frame-guide text.vzf-tick'));
+    // the SAME room, so the SAME rotate decision and the SAME clip — `words` shifts the whole margin (and the
+    // pivot the rotation reads off) up by CAPTION_ROOM, never the BUDGET a tick slants into
+    expect(slantOf(withWords).map((t) => t.getAttribute('transform') !== null)).toEqual(slantOf(without).map((t) => t.getAttribute('transform') !== null));
+    expect(slantOf(withWords).map((t) => t.textContent)).toEqual(slantOf(without).map((t) => t.textContent));
+    const pivotY = (t: Element): number => Number(/rotate\(-40 [\d.]+ ([\d.]+)\)/.exec(t.getAttribute('transform') ?? '')?.[1] ?? NaN);
+    for (const [w, plain] of slantOf(withWords).map((t, i) => [t, slantOf(without)[i]!] as const)) expect(pivotY(w)).toBe(pivotY(plain) - CAPTION_ROOM);
+    // the caption strip occupies [height − CAPTION_ROOM, height]; the x label sits 8px above its top edge, exactly as
+    // it does 8px above the frame's own bottom when there is no strip — the same offset, moved with the margin
+    const captionTop = 220 - CAPTION_ROOM;
+    expect(withWords.querySelector('.vzf-frame-axislabel')?.getAttribute('y')).toBe(String(captionTop - 8));
+    expect(without.querySelector('.vzf-frame-axislabel')?.getAttribute('y')).toBe(String(220 - 8));
+    // every rotated tick's own anchor (the un-rotated y a slanted label pivots from) sits above the caption's top too
+    for (const tick of slantOf(withWords)) expect(Number(tick.getAttribute('y'))).toBeLessThan(captionTop);
+    expect(withWords.querySelector('.vzf-frame-caption')?.textContent).toBe(words);
   });
 
   it('an axis the frame was not given is not drawn — and neither is a tick of an unreadable span', () => {

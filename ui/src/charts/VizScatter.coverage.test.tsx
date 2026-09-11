@@ -109,3 +109,65 @@ describe('the accessible name (the prose plane\'s altShort)', () => {
     expect(container.querySelector('[role="img"]')!.getAttribute('aria-label')).toBe('Cases by report state');
   });
 });
+
+describe('VizScatter — the y axis on the RIGHT edge (the second axis of a frame)', () => {
+  const ROWS = [
+    { id: 'a', x: 10, y: 2 },
+    { id: 'b', x: 90, y: 8 },
+  ];
+  /** Every y tick of a chart — a tick group whose stroke is HORIZONTAL — with where its text sits and which way it reads. */
+  const yTicksOf = (container: Element): { x: number; anchor: string | null }[] =>
+    [...container.querySelectorAll('g')]
+      .filter((g) => {
+        const line = g.querySelector(':scope > line.vzf-axis');
+        return line !== null && g.querySelector(':scope > text.vzf-tick') !== null && line.getAttribute('y1') === line.getAttribute('y2');
+      })
+      .map((g) => {
+        const text = g.querySelector(':scope > text.vzf-tick')!;
+        return { x: Number(text.getAttribute('x')), anchor: text.getAttribute('text-anchor') };
+      });
+  const yLabelOf = (container: Element): Element => container.querySelector('.vzf-axis-group[data-axis-channel="y"]')!;
+  const dotsOf = (container: Element): [number, number][] => [...container.querySelectorAll('circle.vzf-dot')].map((c) => [Number(c.getAttribute('cx')), Number(c.getAttribute('cy'))]);
+
+  it('absent: byte-identical to the chart before sides existed', () => {
+    const plain = render(<VizScatter data={ROWS} width={400} height={300} />).container.innerHTML;
+    cleanup();
+    const left = render(<VizScatter data={ROWS} width={400} height={300} axisSide="left" />).container.innerHTML;
+    expect(left).toBe(plain);
+  });
+
+  it('right: the axis line, its ticks (reading rightward) and its label stand on the right edge; the marks are placed exactly as on the left', () => {
+    const left = render(<VizScatter data={ROWS} width={400} height={300} />).container;
+    const leftDots = dotsOf(left);
+    const leftTicks = yTicksOf(left);
+    const leftLabel = yLabelOf(left).getAttribute('transform');
+    cleanup();
+    const right = render(<VizScatter data={ROWS} width={400} height={300} axisSide="right" />).container;
+    // the y axis LINE is vertical at the plot's right edge (width − mirrored right pad = 400 − 52)
+    const vertical = [...right.querySelectorAll('line.vzf-axis')].filter((l) => l.getAttribute('x1') === l.getAttribute('x2') && l.getAttribute('y1') !== l.getAttribute('y2'));
+    expect(vertical.map((l) => l.getAttribute('x1'))).toContain('348');
+    // the ticks read rightward, past the edge
+    const ticks = yTicksOf(right);
+    expect(ticks.length).toBeGreaterThan(0);
+    expect(ticks.length).toBe(leftTicks.length);
+    expect(leftTicks.every((t) => t.anchor === 'end' && t.x === 52 - 8)).toBe(true);
+    expect(ticks.every((t) => t.anchor === 'start' && t.x === 348 + 8)).toBe(true);
+    // the label faces the right edge: rotated +90 at 14px in from it
+    expect(yLabelOf(right).getAttribute('transform')).toBe('rotate(90 386 150)');
+    expect(leftLabel).toBe('rotate(-90 14 150)');
+    // the marks: the same dots at the same HEIGHTS (the y scale is untouched). The plot box is [18, 348] on the right
+    // versus [52, 382] on the left — the SAME width shifted by the swapped margins — so every x moves by exactly −34;
+    // a frame undoes that shift by where it places the svg (`padOnSide`, the one owner of the swap).
+    expect(dotsOf(right)).toEqual(leftDots.map(([cx, cy]) => [cx - 34, cy]));
+  });
+
+  it("axes: 'y' draws the y axis alone — no x line, no x ticks, no x label — for the frame that draws x once", () => {
+    const { container } = render(<VizScatter data={ROWS} width={400} height={300} axes="y" axisSide="right" />);
+    expect(container.querySelector('.vzf-axis-group[data-axis-channel="x"]')).toBeNull();
+    expect(yLabelOf(container)).not.toBeNull();
+    // every axis stroke is the vertical y line or a 4px y tick — no baseline runs across the plot
+    const baseline = [...container.querySelectorAll('line.vzf-axis')].filter((l) => l.getAttribute('y1') === l.getAttribute('y2') && Math.abs(Number(l.getAttribute('x2')) - Number(l.getAttribute('x1'))) > 4);
+    expect(baseline).toHaveLength(0);
+    expect(yTicksOf(container).length).toBeGreaterThan(0);
+  });
+});

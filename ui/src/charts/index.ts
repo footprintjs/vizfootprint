@@ -18,7 +18,7 @@ export type { VizBoxPlotProps, BoxPlotDatum } from './VizBoxPlot.js';
 // THE FRAME (R6): several layers of marks over one margin box, one pair of
 // scales and one guide. Exported with its geometry doors, because a host that
 // composes its own stack aligns to the same boxes the frame does.
-export { VizFrame, FRAME_PADS, isFrameChartKind, framePad, framePlotBox, frameLayerBox } from './VizFrame.js';
+export { VizFrame, FRAME_PADS, CAPTION_ROOM, isFrameChartKind, framePad, framePlotBox, frameLayerBox } from './VizFrame.js';
 export type { VizFrameProps, VizFrameLayer, FrameChartKind, FrameAxis, FrameLayerDraw, FramePad, FramePlotBox } from './VizFrame.js';
 export { VizNetwork } from './VizNetwork.js';
 export type { VizNetworkProps, NetworkNode, NetworkEdge, NetworkWalk } from './VizNetwork.js';

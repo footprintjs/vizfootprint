@@ -332,6 +332,14 @@ function judgeChannelLaws(at: string, channel: string, resolution: Record<string
   if (MAGNITUDE_CHANNELS.has(channel)) {
     for (const binder of binders.filter((b) => b.channels.includes(channel) && ZERO_ANCHORED_KINDS.includes(b.chartKind))) {
       if (resolution.mode === 'independent') problems.push(`${at}: ${binder.subject} is a ${binder.chartKind} — a ${binder.chartKind} cannot take an independent ${channel}, its extent is read against one baseline`);
+      // …and the SAME reason under `shared`, when the guide is `per-layer` and there is a second layer to
+      // stand beside: a shared channel with a per-layer guide is what a two-axis figure declares (`VizFrame`'s
+      // OWN refusal, `contract/renderers.tsx` · `twoScalesRefusal`, law 2), and a bar-like layer takes neither
+      // of its sides for the identical reason `independent` is refused above — one baseline, not a choice of
+      // scales. Gated on more than one layer: a LONE bar under `guide: 'per-layer'` draws its own ordinary
+      // axes (`VizFrame` · `layerGuides` special-cases a single layer), so there is no second axis to refuse.
+      else if (resolution.mode === 'shared' && resolution.guide === 'per-layer' && binders.length > 1)
+        problems.push(`${at}: ${binder.subject} is a ${binder.chartKind} — a ${binder.chartKind} cannot take a per-layer ${channel} on a frame of more than one layer either, its extent is read against one baseline`);
       // …and the ZERO half only where the extent is read on a channel the layer BINDS: a histogram's bound
       // channel is the axis its bins sit on, and its count axis is counted, never bound (`zeroAnchorsChannel`,
       // the one owner — it is what the FOLD asks too, so a refusal here and a domain there cannot disagree)
