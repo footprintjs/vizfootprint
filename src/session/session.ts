@@ -69,10 +69,10 @@ import { describeRules, refuses, validateBindings } from '../encoding/index.js';
 import { ENCODING_KIND } from '../links/index.js';
 import { DASHBOARD_PROSE_ID, NOTE_PROSE_PREFIX, isNoteSubject, PROPOSAL_LANE, PROSE_SLOTS, fillProse, PROSE_SENTENCES, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
 import type { ProseProposal, ProseRecord, ProseSlot, ProseStatus, ProposalStatus, ProseWorld } from '../prose/index.js';
-import type { LinkGraph } from '../links/index.js';
+import type { LinkGraph, TableReach } from '../links/index.js';
 import type { Bindings, EncodingProblem, Fit } from '../encoding/index.js';
 import { GapLedger, messageOf } from './gapLedger.js';
-import { clausesReaching, mappingsInto, narrowToJudgeable, unjudgeableColumn } from './clausesReaching.js';
+import { clausesReaching, mappingsInto, narrowedByDef, narrowToJudgeable, unjudgeableColumn } from './clausesReaching.js';
 import { tablesInfoOf } from './tablesInfo.js';
 import { stampCause } from './stampCause.js';
 import { layerBindingsOf, layerInfosOf, metaOf, placeOf, surfaceOf, surfacedAddressesOf, tableOf, type Place } from './layers.js';
@@ -1717,6 +1717,51 @@ class InteractionSessionImpl implements InteractionSession {
    */
   private derivedSlotsOf(table: string): ReadonlySet<string> {
     return this.runtime.derived.physicalNames(this.physicalTableOf(table));
+  }
+
+  /**
+   * What the DEFINITION says about the tables AT THIS CURSOR — `tableReachOf`'s
+   * reading of the def, with two live corrections layered on top: a MINTED
+   * table's real column list (from the act that actually cut it, overriding a
+   * stale or absent static reading), then the derived columns visible on this
+   * branch added to every list now known.
+   *
+   * WHY the minted override comes FIRST, and from `derivedTablesAt()` rather
+   * than trusting `tableReachOf`'s own `mintedTables(def)` alone: an aggregate
+   * declared in `def.analyses` is only a DEFAULT — `declareAnalysis(id, {def})`
+   * may register a session-local decl for that SAME id (`registerAnalysis`,
+   * `this.localAnalyses`, which `this.analysis()` prefers over the runtime's),
+   * and the table it actually mints (`writeTable` → `mintDerivedTable` →
+   * `runtime.landDerivedTable`) is recorded in `derivedTablesAt()`, never
+   * written back into `this.runtime.def`. Reading the static def alone would
+   * judge a column that genuinely exists as `absent` — the false mark this
+   * whole packet exists to prevent — the moment an override adds a measure the
+   * def never declared. The live record is the ground truth; the static
+   * reading is only ever a fallback for a table nothing has minted yet.
+   *
+   * WHY the derived-COLUMN names must be added on top, and only to lists now
+   * known: a column an act computed is not in the definition, so a def-only
+   * reading would call it `absent` and a clause naming it would be marked as
+   * judging nothing — the same false mark, one level down. A table nothing
+   * declares and nothing mints stays unknown: adding only its derived names
+   * would make every declared column of it look absent.
+   *
+   * Cursor-scoped, like `effectiveColumnsOf` and for the same reason: a minted
+   * table or a derived column lives on the branch whose act cut it —
+   * `derivedTablesAt()`/`derivedAt()` already resolve that at the cursor, so a
+   * seek back that un-mints the target table drops its override here too.
+   */
+  private tableReachAt(): TableReach {
+    const base = tableReachOf(this.runtime.def);
+    const columns: Record<string, readonly string[]> = { ...base.columns };
+    for (const table of this.derivedTablesAt().values()) {
+      columns[table.name] = [...table.groupBy, ...table.measures.map((m) => m.as)];
+    }
+    for (const [table, declared] of Object.entries(columns)) {
+      const derived = [...this.derivedAt(table).values()].map((d) => d.name);
+      columns[table] = derived.length === 0 ? declared : [...declared, ...derived];
+    }
+    return { relations: base.relations, columns };
   }
 
   /** The provider a table NAME reads from at the cursor. Nothing else in this session asks the runtime for a provider by name. */
@@ -4650,6 +4695,14 @@ class InteractionSessionImpl implements InteractionSession {
    * what this view shows.
    */
   private reachingCommits(viewId: string): RelatedCommit[] {
+    // A clause the DEFINITION says this view's table cannot judge filtered
+    // NOTHING, and a commit that shaped nothing is not provenance. It is MARKED
+    // here rather than dropped (law 3 — omit, never deny) and `whyChart` keeps
+    // it off the anchor. Read from the def, so this whole path stays SYNCHRONOUS:
+    // a table declares its own columns, and where it declares none the marker is
+    // absent and the answer is exactly what it was before (`narrowedByDef`).
+    const table = this.tableFor(viewId);
+    const reach = this.tableReachAt();
     return this.clausesFor(viewId).flatMap((c) => {
       // the two maps are disjoint by construction (`clausesReaching` lists a
       // source that is selecting again only once, from the live map), so the
@@ -4661,7 +4714,8 @@ class InteractionSessionImpl implements InteractionSession {
       // `clausesReaching` never yields `none`/`follow` (an edge carrying either
       // does not reach a consumer), so the response is always one of the four
       // qualifiers — asserted here rather than re-checked with a dead arm.
-      return [{ id: commitId, kind: 'reaching-clause' as const, response: c.response as CommitResponse }];
+      const narrowed = narrowedByDef(c.clause, table, reach);
+      return [{ id: commitId, kind: 'reaching-clause' as const, response: c.response as CommitResponse, ...(narrowed !== undefined ? { narrowed } : {}) }];
     });
   }
 
@@ -4727,7 +4781,8 @@ class InteractionSessionImpl implements InteractionSession {
     const position = new Map(this.branchPath(this._cursor).map((r, i) => [r.id, i] as const));
     let anchorId: string | undefined;
     let newest = -1;
-    for (const id of [...shaping.filter((c) => c.kind !== 'derived-column').map((c) => c.id), ...inputSelectionCommitIds]) {
+    // …and a NARROWED reaching clause is not a candidate either: it reached this view and said nothing about its rows (`reachingCommits`), so naming it the commit that shaped the picture would be a false credit. It still rides in the answer, marked.
+    for (const id of [...shaping.filter((c) => c.kind !== 'derived-column' && c.narrowed === undefined).map((c) => c.id), ...inputSelectionCommitIds]) {
       // every candidate came from the fold of THIS branch path, so it has a place on it
       const at = position.get(id)!;
       if (at > newest) {

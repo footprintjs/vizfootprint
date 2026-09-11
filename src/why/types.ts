@@ -47,7 +47,7 @@ export type TierCommitKind =
   | 'proposal' // prose: the proposing commit the words were accepted from
   | 'basis' // prose: the commit the words state they were written at
   | 'ref' // prose: a commit the words cite by a span
-  | 'reaching-clause' // chart: a selection on ANOTHER view that reaches this one through the link graph — the {@link TierCommit.response} says what it does here
+  | 'reaching-clause' // chart: a selection on ANOTHER view that reaches this one through the link graph — the {@link TierCommit.response} says what it does here, and {@link TierCommit.narrowed} says when it did NOTHING here
   | 'binding' // chart: a `reencode` that changed which column one of this view's channels draws
   | 'arrangement' // chart: a layout note on this view's own scope (a sheet's sort, a preset)
   | 'link-edit' // chart: an edit of a link edge INTO this view (its response, mapping or onClear)
@@ -82,6 +82,24 @@ export interface TierCommit {
   readonly kind: TierCommitKind;
   /** The qualifier a `reaching-clause` needs — what the receiving view DOES with the selection. Absent on every other role. */
   readonly response?: CommitResponse;
+  /**
+   * Present exactly when this `reaching-clause` reached the view and the
+   * DEFINITION says the table it reads has no such column: the column, and the
+   * sentence saying so (`../session/clausesReaching.ts` · `unjudgeableWords`,
+   * the one owner — the same words a read door reports on
+   * `ReachingClause.narrowed`).
+   *
+   * Such a clause filtered NOTHING, so it is never the ANCHOR of a chart's
+   * answer — "the commit that shaped what you see" would be a false credit.
+   * It is still listed, because a clause nobody mentions reads as a clause
+   * nobody sent: **omit, never deny**. Absent = it was judged, or the
+   * definition does not declare the table's columns and therefore says nothing
+   * either way (`columnStanding` · `undeclared`).
+   */
+  readonly narrowed?: {
+    readonly column: string;
+    readonly reason: string;
+  };
 }
 
 /**
@@ -200,11 +218,16 @@ export interface DroppedRef {
  */
 export type RelatedCommitKind = Exclude<TierCommitKind, 'declaring' | 'input-selection' | 'kernel-stage' | 'agent-frame'>;
 
-/** One commit the target names, with the role it is named in and (for a reaching clause) its qualifier. */
+/** One commit the target names, with the role it is named in and (for a reaching clause) its qualifiers. */
 export interface RelatedCommit {
   readonly id: string;
   readonly kind: RelatedCommitKind;
   readonly response?: CommitResponse;
+  /** {@link TierCommit.narrowed} — carried through to the row unchanged, so a caller marks a clause once and `why()` never re-judges it. */
+  readonly narrowed?: {
+    readonly column: string;
+    readonly reason: string;
+  };
 }
 
 /** Per-tier honest miss — an unthreaded/unresolvable tier, typed, never dropped. */
@@ -329,7 +352,8 @@ export interface WhySources {
    * The commits the TARGET ITSELF points at — a view's words at the proposal
    * they were accepted from, a selection at the act that put it there, a chart
    * at everything that shaped it — each validated against the log before it
-   * enters the set. A `reaching-clause` may carry its `response` qualifier.
+   * enters the set. A `reaching-clause` may carry its `response` qualifier and,
+   * when it filtered nothing, its `narrowed` marker.
    */
   readonly relatedCommits?: readonly RelatedCommit[];
   /**

@@ -8,7 +8,7 @@
  * scope builder, the words, the three constants) are exported for the tests and
  * for a host building its own renderer over the same port. See ./README.md.
  */
-export { Sheet, canvasMetrics, cellText, findFrom, findWords, nextSort, noSortWords, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_ARRANGE_HEIGHT, SHEET_BORDERS, SHEET_CANNOT_FIND, SHEET_CANVAS_MAX, SHEET_COLUMN_WIDTH, SHEET_ENGINE_CANNOT_SORT, SHEET_FIND_HEIGHT, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './Sheet.js';
+export { Sheet, canvasMetrics, cellText, findFrom, findWords, narrowedSaid, nextSort, noSortWords, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_ARRANGE_HEIGHT, SHEET_BORDERS, SHEET_CANNOT_FIND, SHEET_CANVAS_MAX, SHEET_COLUMN_WIDTH, SHEET_ENGINE_CANNOT_SORT, SHEET_FIND_HEIGHT, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './Sheet.js';
 export type { SheetMetrics, SheetProps } from './Sheet.js';
 // the arrangement: a sheet's sort, hidden columns, order and frozen count as ACTS,
 // the codec both sides of them share, the projection they make, and their words

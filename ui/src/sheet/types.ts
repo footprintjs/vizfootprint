@@ -99,11 +99,13 @@ export interface SheetWindow {
   /**
    * The clauses that reached the view, with each one's response.
    *
-   * WHY the grid carries something it never draws: the EXPORT RECEIPT names
-   * them (`vizfootprint/session`'s `ExportReceipt.clauses` — see
+   * WHY the grid carries something it mostly never draws: the EXPORT RECEIPT
+   * names them (`vizfootprint/session`'s `ExportReceipt.clauses` — see
    * `src/session/README.md`, "Export is a read that carries its address"), and
    * the receipt is written from the window the grid already holds. The grid
-   * itself ignores them.
+   * itself reads only one thing off them — `narrowed`, said out loud by
+   * `narrowedSaid` — and otherwise ignores the rest of the shape (`.clause`,
+   * `.response`).
    *
    * OPTIONAL because a door may not send them: an in-process session always
    * does, an HTTP mirror is only as good as its endpoint. Absent means "this

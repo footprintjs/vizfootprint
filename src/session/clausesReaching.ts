@@ -26,7 +26,8 @@
  * it were done in place.
  */
 import { copyClause } from './wire.js';
-import type { FieldMapping, LinkEdge, LinkGraph } from '../links/index.js';
+import { columnStanding } from '../links/index.js';
+import type { FieldMapping, LinkEdge, LinkGraph, TableReach } from '../links/index.js';
 // the ONE renamer and the ONE column reader — a two-column kind is renamed and
 // read here the day it is added there, never by a second spelling of the rule
 import { clauseFields, renameClauseFields, type PredicateClause } from '../data/index.js';
@@ -147,7 +148,44 @@ export function mappingsInto(graph: LinkGraph, viewId: string | undefined): read
  * follows it can never disagree about what the table has.
  */
 export function unjudgeableColumn(clause: PredicateClause, columns: ReadonlySet<string>): string | undefined {
-  return clauseFields(clause).find((f) => !columns.has(f));
+  return firstMissing(clause, (f) => !columns.has(f));
+}
+
+/**
+ * ONE walk over a clause's columns, two ORACLES for "does the table have it".
+ *
+ * WHY the walk is factored out rather than written twice: which column a
+ * narrowing NAMES is the clause's first unjudgeable field in `clauseFields`
+ * order, and a two-column kind added there must change that answer in one
+ * place. The oracles differ only in who is being asked — the engine's
+ * description of the built table (`unjudgeableColumn`), or the DEFINITION
+ * (`narrowedByDef`, which can answer with no engine and no `await`).
+ */
+function firstMissing(clause: PredicateClause, lacks: (field: string) => boolean): string | undefined {
+  return clauseFields(clause).find(lacks);
+}
+
+/**
+ * THE SAME NARROWING LAW, asked of the DEFINITION instead of the engine — the
+ * `narrowed` marker for a clause the def says this table cannot judge, or
+ * `undefined` when it can judge every column the def speaks about.
+ *
+ * WHY a def-reading twin exists at all: `why({ kind: 'chart' })` is
+ * SYNCHRONOUS, and crediting a clause that filtered nothing as a commit that
+ * shaped the chart is a false claim in the flagship self-explain answer. A
+ * definition declares its own columns (`../def/tableReach.ts` reads them, and
+ * an act-minted table carries its whole list), so the door can answer without
+ * an engine — and where the definition is SILENT (`columnStanding` ·
+ * `undeclared`) so is this: no marker, which is byte-identical to every answer
+ * given before the marker existed. Omit, never deny.
+ *
+ * The reason is `unjudgeableWords`, the same sentence the read door reports, so
+ * a window and a `why()` answer never word one fact two ways.
+ */
+export function narrowedByDef(clause: PredicateClause, table: string, reach: TableReach): { readonly column: string; readonly reason: string } | undefined {
+  // `absent` only — never `undeclared`, which is the definition saying nothing
+  const missing = firstMissing(clause, (f) => columnStanding(table, f, reach) === 'absent');
+  return missing === undefined ? undefined : { column: missing, reason: unjudgeableWords(table, missing) };
 }
 
 /**

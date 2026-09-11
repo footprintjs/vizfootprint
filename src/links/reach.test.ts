@@ -16,7 +16,7 @@
  * narrowed at the read and reported on the clause.
  */
 import { describe, expect, it } from 'vitest';
-import { linksToMermaid, materializeLinks, tablesCanReach, unreachableWords, validateLinks, type LinkView, type TableReach } from './index.js';
+import { columnStanding, linksToMermaid, materializeLinks, tablesCanReach, unmappedColumn, unreachableWords, validateLinks, type LinkView, type TableReach } from './index.js';
 import { validateDashboardDef } from '../def/index.js';
 import { NETWORK_RELATIONS, makeNetworkDef } from '../def/network.fixture.js';
 
@@ -129,5 +129,28 @@ describe('the declared-edge door — refused by name where it is knowable at dec
         makeNetworkDef(undefined, { relations: NETWORK_RELATIONS, links: [{ source: 'net~edges', kind: 'point', target: 'net~nodes', response: 'filter', mapping: [{ from: 'weight', to: 'bogus' }] }] }),
       ),
     ).toEqual(['links[0]: table "nodes" has no column "bogus" — the link from net~edges maps weight → bogus. Name a column the table has, or write response: \'none\'']);
+  });
+});
+
+describe('columnStanding — the ONE synchronous judge, three answers and no fourth', () => {
+  it('present / absent / undeclared — and `undeclared` is the definition saying nothing, not a no', () => {
+    expect(columnStanding('measurements', 'planet', APART)).toBe('present');
+    expect(columnStanding('measurements', 'radii', APART)).toBe('absent');
+    expect(columnStanding('radii_per_planet', 'radii', APART)).toBe('present'); // a minted table's list is complete by construction
+    expect(columnStanding('radii_per_planet', 'mass', APART)).toBe('absent');
+    // no list at all: a table nothing declares, and no reading handed in
+    expect(columnStanding('nobody_declared_me', 'planet', APART)).toBe('undeclared');
+    expect(columnStanding('measurements', 'planet', undefined)).toBe('undeclared');
+    // a table declaring an EMPTY list is still a list — it says the column is absent
+    expect(columnStanding('bare', 'anything', { relations: [], columns: { bare: [] } })).toBe('absent');
+  });
+
+  it('ONE OWNER: the aimed-mapping door is this judge asked for `absent` alone', () => {
+    const miss = [{ from: 'bucket', to: 'radii' }];
+    expect(columnStanding('measurements', 'radii', APART)).toBe('absent');
+    expect(unmappedColumn(miss, 'measurements', APART)).toEqual(miss[0]); // the same fact, at the aim door
+    // and the other two answers are both "nothing to refuse on" there — a present column, and a table the def is silent about
+    expect(unmappedColumn([{ from: 'bucket', to: 'planet' }], 'measurements', APART)).toBeUndefined();
+    expect(unmappedColumn(miss, 'nobody_declared_me', APART)).toBeUndefined();
   });
 });

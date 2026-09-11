@@ -10,6 +10,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildDashboard, vizAsTools } from './index.js';
+import { layerAddress } from '../def/index.js';
+import type { DashboardDef } from '../def/index.js';
 import { makeDashboardDef, noSqlConnection, SAMPLE_ROWS } from '../session/dashboard.fixture.js';
 import type { VizToolResult } from './index.js';
 
@@ -84,6 +86,57 @@ describe('viz.why — object-form target coercion (coerceWhyTarget)', () => {
     const port = freshPort();
     const res = await port.call('viz.why', { target: 42 });
     expect(get(res, 'reason')).toBe('PAYLOAD_INVALID');
+  });
+});
+
+describe('viz.why — a marked (`narrowed`) commit rides through the tool unchanged (packet O)', () => {
+  // the demo's shape (`../session/why.narrowed.test.ts`): a declared `measurements`
+  // table and a histogram over a table an aggregate MINTS with two columns, so a
+  // pick naming the mint's own measure narrows a view reading the parent instead
+  const HIST = layerAddress('hist', 'agg');
+  function exoplanets(): DashboardDef {
+    return {
+      meta: { title: 'radii' },
+      data: {
+        measurements: {
+          rows: [
+            { id: 'm1', planet: 'Kepler-22b', radius: 2.4 },
+            { id: 'm2', planet: 'TRAPPIST-1e', radius: 0.9 },
+          ],
+          key: 'id',
+          columns: { id: { role: 'identifier' }, planet: { role: 'dimension' }, radius: { role: 'measure' } },
+        },
+      },
+      actors: { scatter: { actor: 'user', label: 'The scatter' }, table: { actor: 'user', label: 'The table' }, hist: { actor: 'user', label: 'The histogram' } },
+      analyses: { radiiPerPlanet: { builtin: 'aggregate', table: 'measurements', name: 'radii_per_planet', ops: 1, groupBy: ['planet'], measures: [{ as: 'radii', expr: { op: 'sum', args: [{ col: 'radius' }] } }] } },
+      encodings: [{ viewId: 'hist', chartKind: 'bar', channels: ['x', 'y'], layers: [{ layerId: 'agg', table: 'radii_per_planet', chartKind: 'bar', channels: ['x', 'y'], initial: { y: 'radii' } }] }],
+      defaultTable: 'measurements',
+    } as DashboardDef;
+  }
+
+  /** The id a `viz.dispatch` tool result carries, the same way the R6 tests above read it. */
+  const commitId = (r: VizToolResult): string => {
+    const commit = get(r, 'commit');
+    return commit !== undefined && commit !== null && typeof commit === 'object' && 'id' in commit ? String((commit as { id: unknown }).id) : '';
+  };
+
+  it('the tool answer carries `narrowed` verbatim — no output schema strips it, no word changes', async () => {
+    const port = vizAsTools(buildDashboard(exoplanets()).createSession());
+    expect(get(await port.call('viz.declare_analysis', { analysisId: 'radiiPerPlanet' }), 'ok')).toBe(true);
+    // a pick on the histogram's own measure reaches the scatter, whose table (`measurements`) has no `radii`
+    const silent = await port.call('viz.dispatch', { verb: 'select', viewId: HIST, field: 'radii', value: 4.5, intent: 'pick' });
+    const real = await port.call('viz.dispatch', { verb: 'select', viewId: 'table', field: 'planet', value: 'Kepler-22b', intent: 'pick' });
+    const res = await port.call('viz.why', { target: { kind: 'chart', viewId: 'scatter' } });
+    expect(get(res, 'commits')).toEqual([
+      { tier: 'viz', id: commitId(real), kind: 'declaring', response: 'filter' },
+      {
+        tier: 'viz',
+        id: commitId(silent),
+        kind: 'reaching-clause',
+        response: 'filter',
+        narrowed: { column: 'radii', reason: 'table "measurements" has no column "radii" — a sentence about a column these rows do not have is not a claim about these rows' },
+      },
+    ]);
   });
 });
 

@@ -72,7 +72,11 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
   // named in wins — a commit named twice is one commit, whether it was honoured
   // or dropped, so `seen` records the DECISION about an id, not just an entry.
   const seen = new Set<string>([viz.commitId]);
-  const addViz = (id: string, kind: TierCommit['kind'], response?: CommitResponse): void => {
+  // The qualifiers a role may carry, all optional: `response` (what the receiving
+  // view DOES with a reaching clause) and `narrowed` (it reached and filtered
+  // NOTHING). They are the CALLER's judgement, passed through verbatim — `why()`
+  // joins commits, it does not re-judge them.
+  const addViz = (id: string, kind: TierCommit['kind'], qualifiers?: { readonly response?: CommitResponse; readonly narrowed?: TierCommit['narrowed'] }): void => {
     if (seen.has(id)) return; // already decided under an earlier role — not a second loss
     seen.add(id);
     if (!sources.vizRecords.some((r) => r.id === id)) {
@@ -80,8 +84,14 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
       dropped.push({ id, kind, reason: elsewhere.has(id) ? 'off-branch' : 'unverified' });
       return;
     }
-    // the qualifier rides only when the caller gave one — an absent key keeps every pre-existing answer byte-identical
-    commits.push({ tier: 'viz', id, kind, ...(response !== undefined ? { response } : {}) });
+    // a qualifier rides only when the caller gave one — an absent key keeps every pre-existing answer byte-identical
+    commits.push({
+      tier: 'viz',
+      id,
+      kind,
+      ...(qualifiers?.response !== undefined ? { response: qualifiers.response } : {}),
+      ...(qualifiers?.narrowed !== undefined ? { narrowed: qualifiers.narrowed } : {}),
+    });
   };
 
   // Input-selection viz commits — the selects/filters that formed the analysis input.
@@ -89,7 +99,7 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
 
   // The commits the TARGET names — a proposal accepted, a basis stated, a span's
   // citation; the act that put a selection there; everything that shaped a chart.
-  for (const rel of sources.relatedCommits ?? []) addViz(rel.id, rel.kind, rel.response);
+  for (const rel of sources.relatedCommits ?? []) addViz(rel.id, rel.kind, rel); // the whole row: a related commit already carries whichever qualifiers its role has
 
   // ── agent ─────────────────────────────────────────────────────────────────────
   const agentRes = resolveAgentTier(sources.correlationId, sources.agentEventLog);

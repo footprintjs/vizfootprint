@@ -110,6 +110,42 @@ export function unreachableWords(source: LinkView, target: LinkView): string {
 }
 
 /**
+ * WHAT THE DEFINITION SAYS about one column of one table — the ONE synchronous
+ * judge, with three answers and no fourth:
+ *
+ * - `present` — the table's column list is known and the column is on it;
+ * - `absent` — the list is known and the column is NOT on it (the only answer
+ *   that is evidence of a miss);
+ * - `undeclared` — the definition does not say. A table that declares no
+ *   `columns` and that no act mints has no list here, so nothing about it is
+ *   claimed either way: **omit, never deny**. The engine may know; the
+ *   definition does not, and every caller of this judge answers from the
+ *   definition.
+ *
+ * WHY it lives in `src/links` and not beside the def readers that PRODUCE a
+ * {@link TableReach} (`../def/tableReach.ts`, `../def/builtinAnalyses.ts` ·
+ * `mintedTables`): `unmappedColumn` below asks exactly this question and must
+ * not answer it a second way, and this package knows nothing about definitions
+ * (the dependency runs `src/def` → here). So the judge sits on the CONSUMING
+ * side of the reading, where the doors that need it already hold one.
+ *
+ * WHY three answers and not a boolean: the two doors need different halves of
+ * it. A door refusing an author's aim acts on `absent` alone (a boolean that
+ * folded `undeclared` into "fine" happens to be right for it). A door deciding
+ * whether a clause filtered anything must tell `absent` from `undeclared` —
+ * crediting a clause it cannot judge is a false claim, and denying one is
+ * another. One judge, three answers, and each caller reads the answer it needs.
+ */
+export type ColumnStanding = 'present' | 'absent' | 'undeclared';
+
+/** {@link ColumnStanding} for one column of one table — see the type's WHY for the three answers and who reads which. */
+export function columnStanding(table: string, column: string, reach: TableReach | undefined): ColumnStanding {
+  const known = reach?.columns[table];
+  if (known === undefined) return 'undeclared'; // no list, no claim
+  return known.includes(column) ? 'present' : 'absent';
+}
+
+/**
  * A `mapping` entry whose `to` names a column the target table does not have
  * — the FIRST one found, in declaration order, or `undefined` when every
  * landing column named is known to exist, or when the target's column list is
@@ -125,10 +161,9 @@ export function unreachableWords(source: LinkView, target: LinkView): string {
  * tables happen to share some OTHER column.
  */
 export function unmappedColumn(mapping: readonly FieldMapping[], target: string, reach: TableReach | undefined): FieldMapping | undefined {
-  const known = reach?.columns[target];
-  if (known === undefined) return undefined; // not knowable here — the read door catches it
-  const there = new Set(known);
-  return mapping.find((m) => !there.has(m.to));
+  // `absent` ONLY — an `undeclared` table is not knowable here and the read door catches it,
+  // which is the same three-answer judge the why door reads (`columnStanding`), asked once
+  return mapping.find((m) => columnStanding(target, m.to, reach) === 'absent');
 }
 
 /**

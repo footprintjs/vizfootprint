@@ -187,6 +187,31 @@ export function statusWords(win: SheetWindow | null, sort: readonly SortSpec[] |
   return parts.join(' · ');
 }
 
+/**
+ * WHAT THE WINDOW SAYS ABOUT A CLAUSE THAT FILTERED NOTHING — one sentence per
+ * narrowed clause, and nothing at all when none was.
+ *
+ * A selection somewhere else on the dashboard can REACH this sheet and name a
+ * column this table does not have. The rows come back unfiltered and correct,
+ * which is exactly the problem: a person who brushed another view is looking at
+ * a sheet that ignored them, with nothing on screen saying so. The engine
+ * already states the fact (`ReachingClause.narrowed`) — this is the one place
+ * it is read out.
+ *
+ * The library's `reason` is QUOTED, never re-worded: it is the same sentence the
+ * export receipt and `why()` carry, and a grid that paraphrased it would make
+ * one fact read two ways. This adds only what the library could not know — WHICH
+ * view's selection it was, which is a fact about the window, not about the table.
+ *
+ * WHY a sentence EACH and not one summary line (the `arrangementSaid`
+ * precedent): two views can both reach a sheet and both be unjudgeable, on
+ * different columns. Collapsing them would name one and hide the other, and the
+ * hidden one is exactly the brush whose reader is already confused.
+ */
+export function narrowedSaid(win: SheetWindow | null): readonly string[] {
+  return (win?.clauses ?? []).flatMap((c) => (c.narrowed === undefined ? [] : [`the selection from ${c.from} filtered nothing here \u00b7 ${c.narrowed.reason}`]));
+}
+
 /** The find strip's height, reserved out of the body's so the rows never sit under it. */
 export const SHEET_FIND_HEIGHT = 30;
 
@@ -1006,6 +1031,13 @@ export function Sheet(props: SheetProps): JSX.Element {
               table does not have, an arrangement that left nothing. Said whether or not this
               sheet can arrange anything — a reader of a story page is owed them too. */}
           {arrangementSaid({ key: keyField, hidden, missing, empty: nothingLeft }).map((words) => (
+            <span key={words} className="vzf-sheet-refused"> · {words}</span>
+          ))}
+          {/* a gesture elsewhere that reached this sheet and could judge nothing here — the
+              library's own sentence, quoted (`narrowedSaid`). Said in the polite region beside
+              the refusals: it is the same register (a fact the rows themselves cannot show) and
+              it wears the same word colour, so no new token invents a fourth kind of status. */}
+          {narrowedSaid(win).map((words) => (
             <span key={words} className="vzf-sheet-refused"> · {words}</span>
           ))}
           {note !== null && <span className="vzf-sheet-refused"> · {note}</span>}

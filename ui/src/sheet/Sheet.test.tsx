@@ -10,7 +10,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { render, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import type { JSX } from 'react';
-import { Sheet, canvasMetrics, cellText, findFrom, findWords, nextSort, noSortWords, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_BORDERS, SHEET_CANNOT_FIND, SHEET_CANVAS_MAX, SHEET_COLUMN_WIDTH, SHEET_ENGINE_CANNOT_SORT, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './index.js';
+import { Sheet, canvasMetrics, cellText, findFrom, findWords, narrowedSaid, nextSort, noSortWords, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_BORDERS, SHEET_CANNOT_FIND, SHEET_CANVAS_MAX, SHEET_COLUMN_WIDTH, SHEET_ENGINE_CANNOT_SORT, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './index.js';
 import type { SheetProps } from './index.js';
 import type { SortSpec } from 'vizfootprint/data';
 import type { SheetColumn, SheetData, SheetFindAnswer, SheetFindRequest, SheetRefusal, SheetWindow, SheetWindowRequest } from './types.js';
@@ -1492,5 +1492,42 @@ describe('<Sheet> — the REST of the arrangement is the host’s too', () => {
     const win = { ok: true as const, columns: ['a'], rows: [{ a: 1 }], rowIds: ['1'], positional: false, count: 1, start: 0, version: 'v1', cursor: 'c1' };
     expect(statusWords(win, [{ field: 'a', dir: 'asc' }], 3)).toBe('rows 1–1 of 1 · version v1 · sorted by a ↑ · 3 hidden');
     expect(statusWords(win, undefined, 0)).toBe('rows 1–1 of 1 · version v1');
+  });
+});
+
+describe('a clause that filtered nothing — the one sentence that says so', () => {
+  /** The engine's own reason, quoted by the grid and never re-worded (`src/session/clausesReaching.ts` · `unjudgeableWords`). */
+  const REASON = 'table "cells" has no column "radii" — a sentence about a column these rows do not have is not a claim about these rows';
+  const WIN: SheetWindow = { ok: true, columns: ['cases'], rows: [{ cases: 1 }], rowIds: ['a'], positional: false, count: 1, start: 0, version: 'v1', cursor: 'c1' };
+  const NARROWED = { from: 'hist', response: 'filter' as const, clause: { kind: 'point' as const, field: 'radii', value: 4.5 }, narrowed: { column: 'radii', reason: REASON } };
+
+  it('the pure rule: which view reached, and the library\'s reason verbatim — nothing when nothing was narrowed', () => {
+    expect(narrowedSaid(null)).toEqual([]); // no window yet
+    expect(narrowedSaid(WIN)).toEqual([]); // a window that did not tell us its clauses claims nothing
+    expect(narrowedSaid({ ...WIN, clauses: [] })).toEqual([]);
+    expect(narrowedSaid({ ...WIN, clauses: [{ from: 'bar', response: 'filter', clause: { kind: 'point', field: 'cases', value: 1 } }] })).toEqual([]); // judged: no sentence
+    expect(narrowedSaid({ ...WIN, clauses: [NARROWED] })).toEqual([`the selection from hist filtered nothing here \u00b7 ${REASON}`]);
+    // two silent brushes on two columns are two sentences: collapsing them would hide one of them
+    const other = { from: 'net', response: 'filter' as const, clause: { kind: 'point' as const, field: 'weight', value: 3 }, narrowed: { column: 'weight', reason: 'table "cells" has no column "weight" — …' } };
+    expect(narrowedSaid({ ...WIN, clauses: [NARROWED, other] })).toHaveLength(2);
+  });
+
+  it('the grid says it, in the polite region it already refuses in — and says nothing when every clause was judged', async () => {
+    const { data: base } = fakeData({ count: 2 });
+    const withNarrowed: SheetData = { ...base, rows: async (w) => { const r = await base.rows(w); return r.ok ? { ...r, clauses: [NARROWED] } : r; } };
+    const { container } = render(<Sheet data={withNarrowed} table="cells" viewId="sheet" height={HEIGHT} version="v1" cursor="c1" />);
+    await waitFor(() => expect(said(container)).toContain('filtered nothing here'));
+    expect(said(container)).toContain('the selection from hist filtered nothing here');
+    expect(said(container)).toContain(REASON); // quoted, not paraphrased
+    // it lives in the region a screen reader is already listening to
+    const region = container.querySelector('.vzf-sheet-said')!;
+    expect(region.getAttribute('role')).toBe('status');
+    expect(region.getAttribute('aria-live')).toBe('polite');
+
+    // the same sheet whose clauses were all judged says nothing at all
+    const judged: SheetData = { ...base, rows: async (w) => { const r = await base.rows(w); return r.ok ? { ...r, clauses: [{ from: 'bar', response: 'filter' as const, clause: { kind: 'point' as const, field: 'cases', value: 1 } }] } : r; } };
+    const quiet = render(<Sheet data={judged} table="cells" viewId="sheet" height={HEIGHT} version="v1" cursor="c1" />);
+    await waitFor(() => expect(rowsIn(quiet.container)).toHaveLength(2));
+    expect(said(quiet.container)).toBe('');
   });
 });

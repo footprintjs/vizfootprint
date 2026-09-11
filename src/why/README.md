@@ -24,7 +24,7 @@ Read in the order a reader walks them: the anchor, its inputs, the other two tie
 
 `proposal` · `basis` · `ref` — the words a view carries: accepted from, written at, cited by a span.
 
-`reaching-clause` · `binding` · `arrangement` · `link-edit` · `derived-column` — what shaped a chart. A `reaching-clause` carries a **`response` qualifier** (`filter | highlight | mirror | navigate`): a clause reaching a chart plays one role with four meanings, and a role that needs a qualifier takes a **field**, not four kinds.
+`reaching-clause` · `binding` · `arrangement` · `link-edit` · `derived-column` — what shaped a chart. A `reaching-clause` carries a **`response` qualifier** (`filter | highlight | mirror | navigate`): a clause reaching a chart plays one role with four meanings, and a role that needs a qualifier takes a **field**, not four kinds. It may also carry a **`narrowed` marker** — the law below.
 
 `origin` · `replaced` · `sibling` — what put a selection there: the commit an undo took back, the clear that made room for a saved picture, and the rest of the same batch (one `correlationId`).
 
@@ -55,6 +55,47 @@ The anchor is reported **once** — one row per commit, the first role wins — 
 ## Reading a row
 
 Every row is an **id and a role**, and the role is the whole of what `why()` claims. A `reaching-clause` also carries the `response` its edge applies, because a clause that filters and a clause that highlights are two different reasons for the same picture. The other chart roles carry no qualifier on purpose: WHICH channel a `binding` rebound, WHICH prop an `arrangement` set, WHICH edge a `link-edit` changed are all facts of the commit itself — resolve the id against `session.commits('anywhere')` and the record's `field` (and `value`) say it, once, where it already lived. The same walk reads the anchor's own act when its `declaring` row carries no qualifier: the id names a record, and the record names the verb.
+
+## A clause that filtered nothing is not provenance
+
+**A definition declares its own columns, so the door can answer this synchronously — and where the definition is silent, so is the answer.**
+
+A selection on one view reaches another through the link graph. It may name a column the target's table does not have: a clause the receiving table cannot judge filtered **nothing**, and naming it *the commit that shaped what you see* is a false credit in the one answer a reader trusts most.
+
+So `why({ kind: 'chart' })` asks one synchronous judge — `columnStanding(table, column, reach)` (`src/links/reach.ts`) over the definition's own reading of its tables (`src/def/tableReach.ts`) plus the derived columns live at the cursor — and it has **three answers**:
+
+| the definition says | the answer |
+|---|---|
+| the table declares its columns and the clause's column is one | judged — credited as a `reaching-clause` like any other |
+| the table declares its columns and the column is **not** one | **marked**: the row carries `narrowed: { column, reason }`, and it is never the anchor |
+| the table declares no columns (and no act minted it) | **nothing** — no marker, and the answer is byte-identical to one given before the marker existed |
+
+One example each, over the demo's shape (a scatter over a declared `measurements`, a histogram over `radii_per_planet` which an aggregate act mints):
+
+```ts
+// 1 · JUDGED — the pick names `planet`, which `measurements` declares
+session.why({ kind: 'chart', viewId: 'scatter' });
+// commits: [ { viz, s2, 'declaring', response: 'filter' } ]
+
+// 2 · MARKED — a pick on the histogram's own measure reaches the scatter, and
+//     `measurements` has no `radii`. It is reported, with the read door's own words.
+// commits: [ { viz, s3, 'declaring', response: 'filter' },          // the clause that DID filter
+//            { viz, s2, 'reaching-clause', response: 'filter',
+//              narrowed: { column: 'radii',
+//                          reason: 'table "measurements" has no column "radii" — …' } } ]
+
+// 3 · SILENT — the same gesture on a table that declares no `columns`:
+//     nothing is claimed either way, and the row is exactly what it always was.
+// commits: [ { viz, s3, 'declaring', response: 'filter' },
+//            { viz, s2, 'reaching-clause', response: 'filter' } ]
+```
+
+Two consequences worth stating plainly:
+
+- **Marked, not dropped.** A clause nobody mentions reads as a clause nobody sent. Omit, never deny — the same law the read door follows on `ReachingClause.narrowed`, in the same words (`src/session/clausesReaching.ts` · `unjudgeableWords`, the one owner of the sentence).
+- **Never the anchor.** When a marked clause is the *only* thing that reached a chart, the answer is `declared-in-def`: the picture really is the definition's. The clause's own silence is the READ door's to report — it rides on the window that clause reached (`ViewQueryResult.clauses`, and the sheet's status line), which is where the rows it did not filter are.
+
+The whole chain stays **synchronous**: judging this needs no engine and no `await`, because a definition is a declaration.
 
 ## What it cannot yet explain
 
