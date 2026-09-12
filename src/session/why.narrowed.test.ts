@@ -224,8 +224,9 @@ describe("why({ kind: 'chart' }) — a clause that filtered nothing is marked, n
   });
 
   it('a table that declares NO columns: the definition says nothing, so neither does the answer', async () => {
-    // the shared fixture's `data` table declares no `columns` — `columnStanding` answers
-    // `undeclared`, and every row is byte-identical to the answer given before the marker existed
+    // the shared fixture's `data` table declares no `columns` — the judge reads what the engine LANDED instead
+    // (`session.ts` · `tableReachAt`, `./landedColumns.session.test.ts`), `category` landed, and every row is
+    // byte-identical to the answer given before the marker existed
     const s = buildDashboard(makeDashboardDef()).createSession();
     const older = await s.dispatch({ verb: 'select', viewId: 'cluster', field: 'category', value: 'Work', cause });
     const newest = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause });

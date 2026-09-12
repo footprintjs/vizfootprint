@@ -72,7 +72,7 @@ import type { ProseProposal, ProseRecord, ProseSlot, ProseStatus, ProposalStatus
 import type { LinkGraph, TableReach } from '../links/index.js';
 import type { Bindings, EncodingProblem, Fit } from '../encoding/index.js';
 import { GapLedger, messageOf } from './gapLedger.js';
-import { clausesReaching, mappingsInto, narrowedByDef, narrowToJudgeable, unjudgeableColumn, unjudgeableWords } from './clausesReaching.js';
+import { clausesReaching, mappingsInto, narrowedByDef, narrowToJudgeable, unjudgeableColumn } from './clausesReaching.js';
 import { tablesInfoOf } from './tablesInfo.js';
 import { stampCause } from './stampCause.js';
 import { addressesOf, labelAt, layerBindingsOf, layerInfosOf, metaOf, placeOf, surfaceOf, surfacedAddressesOf, tableOf, type Place } from './layers.js';
@@ -523,6 +523,17 @@ export const VIEW_QUERY_DEFAULT_LIMIT = 200;
 
 /** The one frozen empty map every "this view binds nothing" answer shares. */
 const EMPTY_BINDINGS: Readonly<Record<string, string>> = Object.freeze({});
+/**
+ * The reach at the cursor (`tableReachAt`): `TableReach` plus the tables whose
+ * column list here is what the engine LANDED — the definition declared none,
+ * `runtime.landedColumns` spoke. Named because one judgement differs for them
+ * (`narrowedAt`: an aim that missed stays unmarked where a landing is the only
+ * reason it was found); every other reader treats the list as any other.
+ */
+interface ReachAt extends TableReach {
+  readonly landed: ReadonlySet<string>;
+}
+
 /** No derived column on this table — the shared empty answer {@link Session.derivedAt} hands back. */
 const EMPTY_DERIVED: ReadonlyMap<string, DerivedColumn> = new Map();
 /** No derived table anywhere on this dashboard — the shared empty answer `derivedTablesAt` hands back. */
@@ -1747,22 +1758,71 @@ class InteractionSessionImpl implements InteractionSession {
    * declares and nothing mints stays unknown: adding only its derived names
    * would make every declared column of it look absent.
    *
+   * WHY what the engine LANDED stands in where the definition declares no
+   * columns (`../links/reach.ts` · `columnStanding`'s `undeclared`), and only
+   * there: declared columns are a PROMISE the def door judged, and the promise
+   * is what a reach is a claim about; landed columns are what ARRIVED
+   * (`runtime.landedColumns`, written at build and at each re-land — never a
+   * cache, `../data/landedColumns.ts`), and where the def promised nothing,
+   * what arrived is all there is. A table with declared columns is judged
+   * byte-identically to a reach read before the registry existed. So a bare
+   * `rows` table is no longer silent to `why()`: the same knowledge the read
+   * door narrows on and the overview marks with is the knowledge this reading
+   * carries — ONE knowledge, three judges. The tables that stand on a landing
+   * are NAMED in the answer (`ReachAt.landed`), because one judgement differs
+   * for them (`narrowedAt`). A table nothing landed (a stub; a landing that
+   * failed) has no entry and stays `undeclared` — ignorance narrows nothing.
+   *
    * Cursor-scoped, like `effectiveColumnsOf` and for the same reason: a minted
    * table or a derived column lives on the branch whose act cut it —
    * `derivedTablesAt()`/`derivedAt()` already resolve that at the cursor, so a
-   * seek back that un-mints the target table drops its override here too.
+   * seek back that un-mints the target table drops its override here too. The
+   * landed list is NOT cursor-scoped — a landing is a fact of the dashboard,
+   * like the version beside it — and the derived names are laid over it below
+   * exactly as over a declared list, so a column an act computed on a bare
+   * `rows` table is known here as it always was.
    */
-  private tableReachAt(): TableReach {
+  private tableReachAt(): ReachAt {
     const base = tableReachOf(this.runtime.def);
     const columns: Record<string, readonly string[]> = { ...base.columns };
     for (const table of this.derivedTablesAt().values()) {
       columns[table.name] = [...table.groupBy, ...table.measures.map((m) => m.as)];
     }
+    const landed = new Set<string>();
+    for (const table of this.runtime.tables) {
+      if (table in columns) continue; // the definition (or the act that minted it) speaks — the promise is the claim
+      const entry = this.runtime.landedColumns.get(table);
+      if (entry === undefined) continue; // nothing landed, nothing claimed
+      columns[table] = entry.columns.map((c) => c.name);
+      landed.add(table);
+    }
     for (const [table, declared] of Object.entries(columns)) {
       const derived = [...this.derivedAt(table).values()].map((d) => d.name);
       columns[table] = derived.length === 0 ? declared : [...declared, ...derived];
     }
-    return { relations: base.relations, columns };
+    return { relations: base.relations, columns, landed };
+  }
+
+  /**
+   * THE ONE JUDGEMENT of "did this clause filter nothing at this table" — asked
+   * by `why()`'s {@link reachingCommits} for one view and by the overview's
+   * {@link narrowedForBySource} at every address, over the same
+   * {@link tableReachAt} reading, so the two can never mark differently.
+   *
+   * `narrowedByDef` over the reach is the whole answer where the definition
+   * speaks. The ONE exception, where the table stands on a LANDING alone
+   * (`ReachAt.landed`): AN AIM THAT MISSED IS NOT AN ACCIDENT (`viewClauses`'s
+   * own law) — a column an edge's `mapping` named by hand is an author error
+   * the read door refuses by name, never an ordinary "filtered nothing", so it
+   * is left unmarked rather than softened into a chip's note. Where the
+   * definition itself knows the aimed column is missing (a live minted table
+   * outran its static declaration) the mark stands, as it always has: there the
+   * def door accepted the aim, and the projection may say what the def can say.
+   */
+  private narrowedAt(c: ReachingClause, table: string, reach: ReachAt): ReturnType<typeof narrowedByDef> {
+    const narrowed = narrowedByDef(c.clause, table, reach);
+    if (narrowed !== undefined && reach.landed.has(table) && c.mappedFields?.some((m) => m.to === narrowed.column) === true) return undefined;
+    return narrowed;
   }
 
   /** The provider a table NAME reads from at the cursor. Nothing else in this session asks the runtime for a provider by name. */
@@ -4767,12 +4827,13 @@ class InteractionSessionImpl implements InteractionSession {
    * what this view shows.
    */
   private reachingCommits(viewId: string): RelatedCommit[] {
-    // A clause the DEFINITION says this view's table cannot judge filtered
-    // NOTHING, and a commit that shaped nothing is not provenance. It is MARKED
-    // here rather than dropped (law 3 — omit, never deny) and `whyChart` keeps
-    // it off the anchor. Read from the def, so this whole path stays SYNCHRONOUS:
-    // a table declares its own columns, and where it declares none the marker is
-    // absent and the answer is exactly what it was before (`narrowedByDef`).
+    // A clause this view's table cannot judge filtered NOTHING, and a commit
+    // that shaped nothing is not provenance. It is MARKED here rather than
+    // dropped (law 3 — omit, never deny) and `whyChart` keeps it off the anchor.
+    // SYNCHRONOUS, with no engine in the room: the definition's columns, and
+    // where it declares none, what the engine LANDED — learned once at build
+    // (`tableReachAt`). A table nothing describes leaves the marker absent, and
+    // the answer is exactly what it was before (`narrowedByDef`).
     const table = this.tableFor(viewId);
     const reach = this.tableReachAt();
     return this.clausesFor(viewId).flatMap((c) => {
@@ -4786,7 +4847,7 @@ class InteractionSessionImpl implements InteractionSession {
       // `clausesReaching` never yields `none`/`follow` (an edge carrying either
       // does not reach a consumer), so the response is always one of the four
       // qualifiers — asserted here rather than re-checked with a dead arm.
-      const narrowed = narrowedByDef(c.clause, table, reach);
+      const narrowed = this.narrowedAt(c, table, reach);
       return [{ id: commitId, kind: 'reaching-clause' as const, response: c.response as CommitResponse, ...(narrowed !== undefined ? { narrowed } : {}) }];
     });
   }
@@ -4797,64 +4858,40 @@ class InteractionSessionImpl implements InteractionSession {
    * address (what `Overview.activeSelections` / `clearedSelections` list) and
    * then by the CONSUMER address ({@link SelectionInfo.narrowedFor}).
    *
-   * WHY it is the SAME judgement `why()` makes wherever the DEFINITION speaks:
-   * each consumer's entry starts from `narrowedByDef(clause, tableFor(consumer),
-   * reach)` — the exact call `reachingCommits` makes for the view a
-   * `why({kind:'chart'})` asks about — over `clausesFor(consumer)`, the exact
-   * list it walks. This walk merely stands at EVERY address on the map
-   * (`addressesOf`: each view, each layer under its address — a layer is a
-   * consumer gated on its own table) instead of one, and turns the answer
+   * WHY it is the SAME judgement `why()` makes, everywhere: each consumer's
+   * entry is `narrowedAt(clause, tableFor(consumer), reach)` — the exact call
+   * `reachingCommits` makes for the view a `why({kind:'chart'})` asks about —
+   * over `clausesFor(consumer)`, the exact list it walks, against ONE
+   * `tableReachAt()` reading for the whole walk (so two consumers can never be
+   * judged against two moments). This walk merely stands at EVERY address on
+   * the map (`addressesOf`: each view, each layer under its address — a layer
+   * is a consumer gated on its own table) instead of one, and turns the answer
    * inside out: grouped by who SENT the clause, because that is the row the
    * overview lists.
    *
-   * WHY `readableColumns` exists, and why it does NOT make this a second
-   * predicate: `why()` is genuinely SYNCHRONOUS (no `Promise`), so a def-only
-   * reading is the only one it can EVER give — but `overview()` is already
-   * `async` and, for the Sources projection, ALREADY awaits
-   * `effectiveColumnsOf(table)` for every table `tablesAt()` names before this
-   * walk runs (`overview()`'s `colNamesByTable`). A table declared as bare
-   * `rows` with no `columns` key (or a `csv` with none) is `undeclared` to
-   * `tableReachAt()` — the def says nothing — but the ENGINE already read its
-   * real columns for that SAME reading, at no extra cost: skipping it would
-   * make the overview say nothing about a clause the Sheet's read door already
-   * marks `narrowed` on read (`viewClauses` · `narrowToJudgeable`), over the
-   * exact same table, from a reading already sitting in memory. So a table
-   * ABSENT from `reach.columns` is judged against `readableColumns.get(table)`
-   * instead when the engine could describe it; a table the engine could NOT
-   * describe (`'rejected'` — no provider) stays `undeclared`, on the same law
-   * `clausesOn` already applies: ignorance narrows nothing.
-   *
-   * The ONE exception, kept byte-identical to `why()`: AN AIM THAT MISSED IS
-   * NOT AN ACCIDENT (`viewClauses`'s own law) — a column an edge's MAPPING
-   * named by hand is an author error the read door refuses by name, never an
-   * ordinary "filtered nothing". Where `readableColumns` is the ONLY reason a
-   * miss was found (the def stayed silent), a mapped aim is left unmarked here
-   * too, so an authoring mistake is never softened into a chip's note.
-   *
-   * One reach reading for the whole walk (`tableReachAt` plus the SAME
-   * `readableColumns` `overview()` already computed, both cursor-scoped like
-   * `effectiveColumnsOf`), so two consumers can never be judged against two
-   * moments, and no SECOND engine call is ever made for this walk.
+   * It used to take a second reading — `readableColumns`, the engine's own
+   * column list `overview()` had awaited for its Sources projection — to close
+   * the one gap `why()` could not: a table declared as bare `rows` with no
+   * `columns` key is `undeclared` to the definition, and `why()` is genuinely
+   * synchronous. That knowledge now lives in ONE place, written at build and
+   * at each re-land (`runtime.landedColumns`) and read into `tableReachAt()`
+   * itself, so this walk and `why()` judge from the same list — and the
+   * mapped-aim exemption that used to live here alone (`narrowedAt`) holds for
+   * both. NO engine call is made for this walk: the Sources projection's own
+   * per-table read is its own, and the overview asks nothing further.
    *
    * A source with no entry is not in the map at all, so a dashboard whose
    * clauses are judgeable everywhere leaves every overview row byte-identical.
    */
-  private narrowedForBySource(readableColumns: ReadonlyMap<string, ReadonlySet<string>>): Map<string, Record<string, NarrowedAt>> {
+  private narrowedForBySource(): Map<string, Record<string, NarrowedAt>> {
     const reach = this.tableReachAt();
     const out = new Map<string, Record<string, NarrowedAt>>();
     for (const consumer of addressesOf(this.runtime.views.values())) {
       const table = this.tableFor(consumer);
       // the consumer's declared name, by the ONE resolver and the ONE fallback order (`./layers.ts` · labelAt) — absent when none is declared, never invented
       const label = labelAt(this.runtime.views, consumer);
-      // the def is silent about this table AND the engine already read it (for the SAME overview()) — the one gap this walk closes over `why()`'s def-only reading
-      const known = table in reach.columns ? undefined : readableColumns.get(table);
       for (const c of this.clausesFor(consumer)) {
-        let narrowed = narrowedByDef(c.clause, table, reach);
-        if (narrowed === undefined && known !== undefined) {
-          const missing = unjudgeableColumn(c.clause, known);
-          // an aim that missed is an author error, refused by name at the read door — never credited here as an ordinary miss
-          if (missing !== undefined && c.mappedFields?.some((m) => m.to === missing) !== true) narrowed = { column: missing, reason: unjudgeableWords(table, missing) };
-        }
+        const narrowed = this.narrowedAt(c, table, reach);
         if (narrowed === undefined) continue; // judged here — nothing to say
         const entry = out.get(c.from) ?? {};
         entry[consumer] = { ...narrowed, ...(label !== undefined ? { label } : {}) };
@@ -5005,12 +5042,12 @@ class InteractionSessionImpl implements InteractionSession {
   async overview(): Promise<Overview> {
     const selCount = await this.selectedCount(this.defaultTable, await this.clausesOn(this.defaultTable)); // a layer's clause on another table is that table's, not this count's
 
-    // columns per table (schema only — VALUES never ride here; Q8).
+    // columns per table (schema only — VALUES never ride here; Q8). LIVE, from
+    // the engine: this is the Sources projection, a READ of what each table has
+    // now (a dropped connection is a fact of the read), never the build-time
+    // landing `narrowedForBySource` judges from.
     const columns: Record<string, ColumnFacet[]> = {};
     const colNamesByTable = new Map<string, Set<string>>();
-    // the tables the ENGINE could actually describe — never a rejected one (`narrowedForBySource`'s
-    // WHY: ignorance narrows nothing, so a `rejected` table is never mistaken for one with zero columns)
-    const readableColumns = new Map<string, ReadonlySet<string>>();
     for (const table of this.tablesAt()) {
       const cols = await this.effectiveColumnsOf(table); // branch-scoped: hides columns off the cursor's branch
       if ('rejected' in cols) {
@@ -5022,9 +5059,7 @@ class InteractionSessionImpl implements InteractionSession {
         // knows "unavailable" is a kind of silence, not a category like any
         // other. Names + words, never values.
         columns[table] = this.runtime.encoding.facetsOf(table, cols);
-        const names = new Set(cols.map((c) => c.name));
-        colNamesByTable.set(table, names);
-        readableColumns.set(table, names);
+        colNamesByTable.set(table, new Set(cols.map((c) => c.name)));
       }
     }
     const defaultCols = colNamesByTable.get(this.defaultTable) ?? new Set<string>();
@@ -5065,9 +5100,10 @@ class InteractionSessionImpl implements InteractionSession {
     });
     const encodingPolicy = { onInvalid: this.runtime.encoding.rules.onInvalid ?? 'refuse', ruleScope: this.runtime.encoding.rules.ruleScope ?? ('dashboard' as const) };
 
-    // where each clause filtered nothing, by consumer — ONE walk for both lists (`narrowedForBySource`),
-    // attached by source address and only when non-empty, so a judgeable-everywhere dashboard's rows do not move
-    const narrowedFor = this.narrowedForBySource(readableColumns);
+    // where each clause filtered nothing, by consumer — ONE walk for both lists (`narrowedForBySource`), from the
+    // same reading `why()` judges by (no engine in it), attached by source address and only when non-empty, so a
+    // judgeable-everywhere dashboard's rows do not move
+    const narrowedFor = this.narrowedForBySource();
     const narrowedFragment = (viewId: string): { readonly narrowedFor?: Readonly<Record<string, NarrowedAt>> } => {
       const at = narrowedFor.get(viewId);
       return at === undefined ? {} : { narrowedFor: at };

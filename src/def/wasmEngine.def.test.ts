@@ -433,6 +433,53 @@ describe('the OWNER s release path, arm by arm — the seam that makes it provab
   });
 });
 
+describe('`whenLanded()` — told when a landing happens, WITHOUT forcing one (`../data/landedColumns.ts` law: the sync door learns a LAZY table this way — `../session/landedColumns.session.test.ts`, AK review target 1)', () => {
+  it('calling it opens nothing — it is a listener, not a read', () => {
+    const asked = opener(fakeSqlBackend());
+    const wasm = wasmBackend(asked.open);
+    wasm.provider('cases', wasmRowBytes(CASES as readonly Record<string, unknown>[]));
+    void wasm.whenLanded();
+    expect(asked.opens()).toBe(0);
+  });
+
+  it('a read that pays for the lazy landing arms it — nobody ever called settle()', async () => {
+    const backend = fakeSqlBackend();
+    const wasm = wasmBackend(async () => backend);
+    const provider = wasm.provider('cases', wasmRowBytes(CASES as readonly Record<string, unknown>[]));
+    const notice = wasm.whenLanded();
+    await provider.columns('cases');
+    await expect(notice).resolves.toEqual([{ table: 'cases', loaded: true }]);
+  });
+
+  it('`settle()` arms it too — the same funnel, whichever door asks first', async () => {
+    const backend = fakeSqlBackend();
+    const wasm = wasmBackend(async () => backend);
+    wasm.provider('cases', wasmRowBytes(CASES as readonly Record<string, unknown>[]));
+    const notice = wasm.whenLanded();
+    await wasm.settle();
+    await expect(notice).resolves.toEqual([{ table: 'cases', loaded: true }]);
+  });
+
+  it('an open that FAILS resolves it with a synthetic `failed` outcome — never a rejection a caller must catch', async () => {
+    const wasm = wasmBackend(undefined, async () => {
+      throw new Error('no worker here');
+    });
+    wasm.provider('cases', wasmRowBytes(CASES as readonly Record<string, unknown>[]));
+    const notice = wasm.whenLanded();
+    await wasm.settle();
+    await expect(notice).resolves.toEqual([{ table: 'cases', failed: noConnectionRefusal('cases', 'no worker here') }]);
+  });
+
+  it('a def with no wasm table never lands — the notice stays pending, and nothing calling it forces a connection', async () => {
+    const asked = opener(fakeSqlBackend());
+    const wasm = wasmBackend(asked.open); // no table ever remembered
+    const notice = wasm.whenLanded();
+    const raced = await Promise.race([notice.then(() => 'landed' as const), Promise.resolve().then(() => 'still-pending' as const)]);
+    expect(raced).toBe('still-pending');
+    expect(asked.opens()).toBe(0);
+  });
+});
+
 describe('`auto` follows the measured threshold — and says which side of it this table fell on', () => {
   it('three rows: memory, no connection opened, and the note quotes the count it routed on', async () => {
     const asked = opener(fakeSqlBackend());

@@ -40,7 +40,7 @@ import type {
 } from '../analysis/index.js';
 import type { BuiltinAnalysisDecl } from './builtinAnalyses.js';
 import type { FdrStep, GammaSequence, HypothesisRecord } from '../fdr/index.js';
-import type { ColumnFacet, ColumnInfo, DataProvider, DerivedColumnStore, DerivedTable, DerivedTableStore, Engine, Row } from '../data/index.js';
+import type { ColumnFacet, ColumnInfo, DataProvider, DerivedColumnStore, DerivedTable, DerivedTableStore, Engine, LandedColumns, Row } from '../data/index.js';
 
 // ── The dispatch verb vocabulary (SPEC §9; Q6 — the 7-verb set was INCOMPLETE:
 // changing a view's visual encoding is a state-changing transition too, not an
@@ -880,6 +880,15 @@ export interface DashboardRuntime {
    * view outside the branch that cut it.
    */
   readonly derivedTables: DerivedTableStore;
+  /**
+   * What the engine LANDED for each declared table — learned once at build and
+   * again at each re-land, kept beside the table's version
+   * (`src/data/landedColumns.ts`). Read by the session's SYNCHRONOUS judges
+   * (`why()`, the overview's `narrowedFor`) where the definition declares no
+   * columns; never by a read that must see the engine live. Absent for a table
+   * whose engine could not describe it at the landing — omit, never invent.
+   */
+  readonly landedColumns: LandedColumns;
   /**
    * Land one derived table: mint its provider under the act's own slot and
    * register the act. THE ONE DOOR — a caller never reaches the providers map,

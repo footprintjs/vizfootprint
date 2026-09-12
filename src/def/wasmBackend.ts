@@ -115,6 +115,22 @@ export interface WasmBackend {
    */
   settle(): Promise<readonly WasmLoadOutcome[]>;
   /**
+   * Told when a landing happens — WITHOUT forcing one. Resolves once, with what
+   * that landing said, the moment EITHER `settle()` or a read that pays for a
+   * lazy table (`ready()`, reached through `provider()`'s `open`) actually lands
+   * this build's wasm tables; never resolves for a build that never reads and
+   * never calls `settle()` — which is fine, because nothing ever asked.
+   *
+   * WHY this belongs on the ONE funnel and not a second one: `landAll` is
+   * already the only place bytes reach a connection (`ready()` memoises it), so
+   * telling a caller "it happened" is a second listener on that same promise,
+   * never a second way to trigger it. First customer: the sync door
+   * (`./buildDashboard.ts` · `buildDashboard`) — it cannot await a lazy
+   * landing, but it still wants to learn what landed once something else pays
+   * for it (`learnLanded`).
+   */
+  whenLanded(): Promise<readonly WasmLoadOutcome[]>;
+  /**
    * Release the connection THIS backend opened. A no-op — and never a throw —
    * when there is nothing this backend owns to release: no wasm table was
    * declared, no read ever opened one, the host supplied its own opener, or it
@@ -162,6 +178,20 @@ export function wasmBackend(open?: () => Promise<SqlConnection>, openOwn?: () =>
   // opened, and it is the only one this backend may release.
   const ownsConnection = open === undefined;
 
+  // `whenLanded()`'s deferred: made once, up front, and cheap — nothing is
+  // opened by making it. It settles ONCE, the first time `landing` itself
+  // settles (below), whichever caller triggers that — `settle()` or the first
+  // read through `provider().open`. A failed open resolves it (never rejects
+  // it) with synthetic `failed` outcomes, the same words `settle()`'s own
+  // catch would quote, so a caller of `whenLanded()` never has to catch. No
+  // "already settled" guard is needed here: `ready()` below arms this exactly
+  // ONCE (its own `first` gate), on a `landing` promise that itself can only
+  // ever settle once — a caller cannot make it fire twice.
+  let resolveWhenLanded!: (outcomes: readonly WasmLoadOutcome[]) => void;
+  const whenLandedPromise = new Promise<readonly WasmLoadOutcome[]>((resolve) => {
+    resolveWhenLanded = resolve;
+  });
+
   const landAll = async (): Promise<Landed> => {
     // WHY the opener is resolved HERE and not at construction: `duckdbConnection()`
     // only makes the promise to import DuckDB — but a build whose wasm tables are
@@ -177,7 +207,22 @@ export function wasmBackend(open?: () => Promise<SqlConnection>, openOwn?: () =>
   // WHY the promise and not the function is what gets reused: two reads that
   // start before the first one lands must join the SAME opening, or the second
   // one races a second database into existence and queries an empty one.
-  const ready = (): Promise<Landed> => (landing ??= landAll());
+  //
+  // …and WHY `whenLanded()`'s notice is armed HERE, not in `settle()` or
+  // `provider()`: this is the one place `landing` is CREATED, whichever door
+  // asked for it first — arming it anywhere else would miss the door that
+  // didn't ask.
+  const ready = (): Promise<Landed> => {
+    const first = landing === undefined;
+    landing ??= landAll();
+    if (first) {
+      landing.then(
+        ({ outcomes }) => resolveWhenLanded(outcomes),
+        (error: unknown) => resolveWhenLanded([...bytes.keys()].map((table) => ({ table, failed: noConnectionRefusal(table, causeOf(error)) }))),
+      );
+    }
+    return landing;
+  };
 
   return {
     provider(table: string, carried: WasmBytes): DataProvider {
@@ -193,6 +238,10 @@ export function wasmBackend(open?: () => Promise<SqlConnection>, openOwn?: () =>
         const cause = causeOf(error);
         return [...bytes.keys()].map((table) => ({ table, failed: noConnectionRefusal(table, cause) }));
       }
+    },
+
+    whenLanded(): Promise<readonly WasmLoadOutcome[]> {
+      return whenLandedPromise;
     },
 
     async close(): Promise<void> {

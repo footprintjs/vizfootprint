@@ -326,17 +326,21 @@ address on the map (`layers.ts` · `addressesOf`) and asks `narrowedByDef` over
 `tableReachAt()` reading for the whole walk, so a dashboard whose clauses are
 judgeable everywhere gets a byte-identical overview. Where the definition is
 SILENT about a table's columns (a bare `rows` or `csv` source with no
-`columns` key — `tableReachOf`'s `undeclared`), the entry falls back to the
-same real columns the READ DOOR already narrows against
-(`viewClauses`/`narrowToJudgeable` · `effectiveColumnsOf`) — not a second
-engine call, but the exact reading `overview()` already awaited for its own
-Sources projection before this walk runs, so the overview and the Sheet can
-never disagree about the same clause on the same table for want of the
-overview asking. `why()` cannot take this path (it is genuinely synchronous,
-no `Promise`), which is the one place `narrowedForBySource` and `why()` part
-ways — an aim that missed (a `mapping`-named column, next paragraph) is
-exempted from this fallback, so an author's error is never softened by it into
-an ordinary miss. WHY per consumer: a selection row is one entry per SOURCE, and
+`columns` key — `tableReachOf`'s `undeclared`), that one reading carries what
+the engine LANDED for the table — `runtime.landedColumns`, learned once at
+build and again at each re-land, kept beside the table's version
+(`../data/README.md`, "What the engine landed is learned once") — so the
+overview, `why()` and the Sheet's read door (`viewClauses`/`narrowToJudgeable`
+· `effectiveColumnsOf`, which still asks the engine live, because a read must
+see its current state) judge the same clause on the same table from ONE
+knowledge. `why()` is synchronous and reads it as easily as the overview does:
+the three judges no longer part ways, and `session.ts` · `narrowedAt` is the
+one judgement both synchronous doors ask — including the exemption for an aim
+that missed (a `mapping`-named column, next paragraph), which holds wherever a
+landing is the only reason a miss was found, so an author's error is never
+softened into an ordinary miss by either door. The overview makes no engine
+call for this walk: its Sources projection's per-table read is its own, and it
+asks nothing further. WHY per consumer: a selection row is one entry per SOURCE, and
 "could not be judged" is a fact about that clause AT ONE TABLE — the same
 brush is narrowed on a histogram over a minted table and judged on the scatter
 beside it — so a per-source flag could never hold it, which is why nothing
@@ -393,14 +397,15 @@ An AIM that missed is different, and stays different on purpose: a column an
 edge's `mapping` named BY HAND is an author error, not an ordinary "filtered
 nothing" — the read door refuses it by name (`viewClauses`, "AN AIM THAT
 MISSED IS NOT AN ACCIDENT") whether or not the target's columns are declared,
-and the overview never credits a mapped miss with `narrowedFor`, even where
-the `readableColumns` fallback above would otherwise have found the same
-missing column — an authoring mistake is never softened into a chip's note.
-Where the definition knows the column is missing (a live minted table outran
-its static declaration), both name it — the projection marks, the read
-refuses (`narrowedFor.session.test.ts`, (e)); where NEITHER the definition nor
-the engine can describe the table at all (no provider — ignorance, not
-evidence), both stay silent, the same law `clausesOn` already applies.
+and neither the overview nor `why()` credits a mapped miss with a mark where
+the landed list is the only reason it was found — an authoring mistake is
+never softened into a chip's note (`narrowedAt`). Where the definition knows
+the column is missing (a live minted table outran its static declaration),
+both name it — the projection marks, the read refuses
+(`narrowedFor.session.test.ts`, (e)); where NEITHER the definition nor the
+engine could describe the table (a stub; a landing that failed — no entry in
+`landedColumns`: ignorance, not evidence), both stay silent, the same law
+`clausesOn` already applies.
 
 The RENDER tier's half is the same sentence one tier down, where a host folds
 over rows with no column list in hand: a row that does not carry a clause's

@@ -123,6 +123,12 @@ export type { DerivedColumn } from './derivedColumns.js';
 export { DerivedTableStore, derivedTableName, mintDerivedTable } from './derivedTables.js';
 export type { DerivedTable, DerivedTableAct } from './derivedTables.js';
 
+// Landed columns — what the engine landed for a table, learned once (at build, and again at each
+// re-land), kept beside the table's version, read by every judge that must answer synchronously.
+// Not a cache: written only by the acts that land rows, never consulted by a read that must see the engine live.
+export { LandedColumns } from './landedColumns.js';
+export type { LandedEntry } from './landedColumns.js';
+
 export { memoryProvider, SORT_CACHE_PER_TABLE } from './memoryProvider.js';
 export type { Layout, MemoryProviderOptions, RowsInput } from './memoryProvider.js';
 

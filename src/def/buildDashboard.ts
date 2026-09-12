@@ -20,6 +20,7 @@ import {
   DerivedTableStore,
   isPairKind,
   isStubEngine,
+  LandedColumns,
   memoryProvider,
   serverProvider,
   stubEngineRefusal,
@@ -463,6 +464,38 @@ function clampNote(seen: CountedStats, picked: ResolvedEngine, available: readon
   return `; the measured threshold said ${measured}, which this build was not told is available — pass availableEngines: ${JSON.stringify([...available, measured])} to allow it`;
 }
 
+/**
+ * LEARN WHAT LANDED — the ONE `columns()` call per table a build makes, at the
+ * moment the table's rows are in its engine, recorded beside the version the
+ * source vouched for (`../data/landedColumns.ts`, the law: learned once at build
+ * and again at each re-land, read by every judge that must answer synchronously).
+ *
+ * A provider that refuses to describe its table (a stub engine; a wasm landing
+ * that failed and answers `no-backend-connection`) writes NOTHING, and so does
+ * one that throws: the entry stays absent and every synchronous judge answers
+ * from the definition alone, exactly as it did before the registry existed —
+ * omit, never invent. WHY a throw is swallowed here and not raised past the
+ * door: the build's own law is that a landing that failed is a note and a
+ * refused read, never a throw that loses the tables that did land
+ * (`./wasmBackend.ts`, law 3) — and a host provider whose `columns()` throws
+ * will throw again on its first read, where the read reports it in the
+ * engine's own words. The sync door cannot await this at all, so it SCHEDULES
+ * it (see `buildDashboard`), and a rejected promise there would be an unhandled
+ * rejection with no reader to hear it.
+ */
+async function learnLanded(landedColumns: LandedColumns, table: string, provider: DataProvider, version: string | undefined): Promise<void> {
+  try {
+    const cols = await provider.columns(table);
+    if (!isRejection(cols)) landedColumns.set(table, version, cols);
+  } catch {
+    // the engine could not describe what it holds: nothing landed as far as a judge may claim
+  }
+}
+
+/** The version a table's source vouched for at this landing — absent for a table nothing versions (own keys only: `toString` is not a table). */
+const versionOf = (sources: Readonly<Record<string, SourceInfo>>, table: string): string | undefined =>
+  Object.prototype.hasOwnProperty.call(sources, table) ? sources[table]!.version : undefined;
+
 function buildProvider(
   engine: ResolvedEngine,
   table: string,
@@ -533,6 +566,7 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
   // ── resolve data → one provider per table (D24) ──
   const providers = new Map<string, DataProvider>();
   const engines: Record<string, Engine> = {};
+  const lazy = new Set<string>(); // the wasm tables this door could not land: nothing to learn until a read pays for the landing
   for (const [table, source] of Object.entries(def.data)) {
     const host = options.providers?.[table];
     if (host !== undefined) {
@@ -557,9 +591,36 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
     engines[table] = engine;
     providers.set(table, buildProvider(engine, table, source, wasm));
     // the one thing this door cannot do for the engine that runs: land the bytes
-    if (engine === 'wasm') notes.push(wasmLazyNote(table));
+    if (engine === 'wasm') {
+      notes.push(wasmLazyNote(table));
+      lazy.add(table);
+    }
   }
-  return assemble(def, options, providers, engines, sources, notes, journal, new DerivedColumnStore(), derivedTableSlots(providers), wasm);
+  // What the engine landed, learned at the door (`learnLanded`). This door cannot
+  // await, so the learning is SCHEDULED: the memory engine answers on the next
+  // microtask — before any dispatch, which is an await, could commit a clause for
+  // `why()` to judge — and in that window a judge answers from the definition
+  // alone: absent, never invented. A LAZY wasm table is not ASKED here: nothing
+  // has landed yet (`wasmLazyNote` — the first read pays for the landing), and
+  // asking would make THIS build that read, opening the connection the note
+  // says it does not open. But a lazy landing is still a landing — this door
+  // WAITS to be TOLD of it (`WasmBackend.whenLanded`, a deferred that never
+  // forces one), and learns it exactly as an eager table the moment something
+  // else pays: the entry stays absent until then, and every synchronous judge
+  // answers def-only in that window, exactly as it did before this registry
+  // existed.
+  const landedColumns = new LandedColumns();
+  for (const [table, provider] of providers) {
+    if (!lazy.has(table)) void learnLanded(landedColumns, table, provider, versionOf(sources, table));
+  }
+  if (lazy.size > 0) {
+    void wasm.whenLanded().then((outcomes) => {
+      for (const outcome of outcomes) {
+        if ('loaded' in outcome) void learnLanded(landedColumns, outcome.table, providers.get(outcome.table)!, versionOf(sources, outcome.table));
+      }
+    });
+  }
+  return assemble(def, options, providers, engines, sources, notes, journal, new DerivedColumnStore(), derivedTableSlots(providers), landedColumns, wasm);
 }
 
 /**
@@ -626,6 +687,13 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
   for (const outcome of await wasm.settle()) {
     if ('failed' in outcome) notes.push(wasmFailedNote(outcome.table, outcome.failed));
   }
+  // …and with every table landed, what each engine holds is learned ONCE, here
+  // (`learnLanded`): one `columns()` call per table, beside the version its
+  // source vouched for. Sequential on purpose — the wasm tables share one
+  // connection, and a build is not the place to find out how it likes concurrent
+  // describes; a table whose landing failed answers a refusal and writes nothing.
+  const landedColumns = new LandedColumns();
+  for (const [table, provider] of providers) await learnLanded(landedColumns, table, provider, versionOf(sources, table));
   const adapters = options.sources ?? [];
   // Which table-store slots hold TRACE-derived columns (src/data/README.md).
   // Dashboard-scoped because the stores are: two sessions write into one
@@ -702,6 +770,10 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
           // serving yesterday's rows under today's name.
           const tablesLost = derivedTables.drop(table);
           sources[table] = { ...held, version: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length };
+          // the re-land is the second act that writes the registry (`../data/landedColumns.ts`): the NEW version
+          // beside the schema the engine answered WITH the delta — no second `columns()` call, and the old list is
+          // replaced whole, because the old rows are gone. `unchanged` and a refused re-land never reach this line.
+          landedColumns.set(table, snap.version, landed.columns);
           out[table] = { changed: true, from: held.version, to: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length, delta: landed.delta, ...(lost.length > 0 ? { materialisedLost: lost } : {}), ...(tablesLost.length > 0 ? { derivedLost: tablesLost } : {}) };
         } finally {
           await handle.close();
@@ -722,7 +794,7 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
     queue = next.catch(() => undefined);
     return next;
   };
-  return assemble(def, options, providers, engines, sources, notes, journal, derived, derivedTables, wasm, refresh);
+  return assemble(def, options, providers, engines, sources, notes, journal, derived, derivedTables, landedColumns, wasm, refresh);
 }
 
 /**
@@ -940,7 +1012,7 @@ function derivedTableSlots(providers: Map<string, DataProvider>): DerivedTableSl
  * never saw a refresh again. One object literal, built once, cannot go wrong
  * that way.
  */
-function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[], derived: DerivedColumnStore, derivedTables: DerivedTableSlots, wasm: WasmBackend, refresh?: Dashboard['refresh']): Dashboard {
+function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[], derived: DerivedColumnStore, derivedTables: DerivedTableSlots, landedColumns: LandedColumns, wasm: WasmBackend, refresh?: Dashboard['refresh']): Dashboard {
   freezeDefinition(def);
   const saved: SavedStore = { list: [], minted: 0 }; // saved selections: logic beside the log, shared by every session (the counter rides the store: it outlives every session)
   const bookmarks: BookmarkStore = { list: [], minted: 0 }; // bookmarks: names on moments beside the log, shared by every session
@@ -1038,6 +1110,7 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     commitIds,
     derived,
     derivedTables: derivedTables.store,
+    landedColumns, // written by the two doors above and the refresh door; read by the session's synchronous judges (`../session/session.ts` · `tableReachAt`)
     landDerivedTable: (table, rows) => derivedTables.land(table, rows),
     makeFdrStepper,
     fdrProcedure: def.fdr?.procedure ?? 'LORD++',
