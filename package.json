@@ -109,7 +109,8 @@
     "bench:step0-wasm": "node bench/step0-wasm/run.mjs",
     "bench:derive": "node bench/derive/run.mjs",
     "bench:surface": "node bench/surface/run.mjs",
-    "bench:layout": "node bench/layout/run.mjs"
+    "bench:layout": "node bench/layout/run.mjs",
+    "bench:via": "node bench/via/run.mjs"
   },
   "devDependencies": {
     "@duckdb/duckdb-wasm": "1.33.1-dev45.0",

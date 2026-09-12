@@ -1,0 +1,310 @@
+{
+ "head": "1cc5b13+dirty",
+ "ranAt": "2026-09-12T15:30:38.643Z",
+ "node": "v22.16.0",
+ "measures": [
+  {
+   "engine": "memory",
+   "arm": "control: 40 ms block",
+   "size": "—",
+   "rows": 0,
+   "median": 40.02674999999999,
+   "p95": 40.028583999999995,
+   "min": 40.0155,
+   "n": 3,
+   "max": 40.028583999999995,
+   "warmup": 0
+  },
+  {
+   "engine": "memory",
+   "arm": "dispatch, no relation (100 planets picked)",
+   "size": "20,598 planets",
+   "rows": 20598,
+   "median": 0.24654199999997672,
+   "p95": 0.43250000000000455,
+   "min": 0.18616700000001174,
+   "n": 7,
+   "max": 0.43250000000000455,
+   "warmup": 1
+  },
+  {
+   "engine": "memory",
+   "arm": "dispatch, travels (1 planets picked)",
+   "size": "20,598 planets",
+   "rows": 20598,
+   "median": 0.5299999999999727,
+   "p95": 1.6582089999999994,
+   "min": 0.34995799999995825,
+   "n": 7,
+   "max": 1.6582089999999994,
+   "warmup": 1
+  },
+  {
+   "engine": "memory",
+   "arm": "dispatch, travels (100 planets picked)",
+   "size": "20,598 planets",
+   "rows": 20598,
+   "median": 2.0777499999999804,
+   "p95": 2.2417089999999575,
+   "min": 2.0355840000000285,
+   "n": 7,
+   "max": 2.2417089999999575,
+   "warmup": 1
+  },
+  {
+   "engine": "memory",
+   "arm": "dispatch, travels (1,000 planets picked)",
+   "size": "20,598 planets",
+   "rows": 20598,
+   "median": 16.60374999999999,
+   "p95": 16.721124999999972,
+   "min": 16.318040999999994,
+   "n": 7,
+   "max": 16.721124999999972,
+   "warmup": 1
+  },
+  {
+   "engine": "memory",
+   "arm": "dispatch, travels (10,000 planets picked)",
+   "size": "20,598 planets",
+   "rows": 20598,
+   "median": 184.6517920000001,
+   "p95": 209.761125,
+   "min": 181.5948749999999,
+   "n": 7,
+   "max": 209.761125,
+   "warmup": 1
+  },
+  {
+   "engine": "memory",
+   "arm": "dispatch, travels (brush over every planet)",
+   "size": "20,598 planets",
+   "rows": 20598,
+   "median": 1.4985830000000533,
+   "p95": 4.247457999999824,
+   "min": 1.4140000000002146,
+   "n": 7,
+   "max": 4.247457999999824,
+   "warmup": 1
+  },
+  {
+   "engine": "wasm",
+   "arm": "dispatch, no relation (100 planets picked)",
+   "size": "20,598 planets",
+   "rows": 20598,
+   "median": 0.18754200000012133,
+   "p95": 0.2356249999997999,
+   "min": 0.15470800000002782,
+   "n": 7,
+   "max": 0.2356249999997999,
+   "warmup": 1
+  },
+  {
+   "engine": "wasm",
+   "arm": "dispatch, travels (1 planets picked)",
+   "size": "20,598 planets",
+   "rows": 20598,
+   "median": 2.107792000000245,
+   "p95": 2.1695420000000922,
+   "min": 1.638209000000188,
+   "n": 7,
+   "max": 2.1695420000000922,
+   "warmup": 1
+  },
+  {
+   "engine": "wasm",
+   "arm": "dispatch, travels (100 planets picked)",
+   "size": "20,598 planets",
+   "rows": 20598,
+   "median": 3.2398749999997563,
+   "p95": 3.3493750000002365,
+   "min": 3.098707999999988,
+   "n": 7,
+   "max": 3.3493750000002365,
+   "warmup": 1
+  },
+  {
+   "engine": "wasm",
+   "arm": "dispatch, travels (1,000 planets picked)",
+   "size": "20,598 planets",
+   "rows": 20598,
+   "median": 9.094082999999955,
+   "p95": 10.143458999999893,
+   "min": 8.809333000000152,
+   "n": 7,
+   "max": 10.143458999999893,
+   "warmup": 1
+  },
+  {
+   "engine": "wasm",
+   "arm": "dispatch, travels (10,000 planets picked)",
+   "size": "20,598 planets",
+   "rows": 20598,
+   "median": 62.35237499999994,
+   "p95": 62.788332999999966,
+   "min": 61.868834000000334,
+   "n": 7,
+   "max": 62.788332999999966,
+   "warmup": 1
+  },
+  {
+   "engine": "wasm",
+   "arm": "dispatch, travels (brush over every planet)",
+   "size": "20,598 planets",
+   "rows": 20598,
+   "median": 14.153792000000067,
+   "p95": 14.567125000000487,
+   "min": 13.733458000000155,
+   "n": 7,
+   "max": 14.567125000000487,
+   "warmup": 1
+  },
+  {
+   "engine": "memory",
+   "arm": "dispatch, no relation (one disease picked)",
+   "size": "1,000,000 cells",
+   "rows": 1000000,
+   "median": 0.14883299999928568,
+   "p95": 0.47454099999959,
+   "min": 0.10854199999994307,
+   "n": 3,
+   "max": 0.47454099999959,
+   "warmup": 1
+  },
+  {
+   "engine": "memory",
+   "arm": "dispatch, travels (one disease picked)",
+   "size": "1,000,000 cells",
+   "rows": 1000000,
+   "median": 26.331208999999944,
+   "p95": 27.167333000000326,
+   "min": 26.024333999999726,
+   "n": 3,
+   "max": 27.167333000000326,
+   "warmup": 1
+  },
+  {
+   "engine": "wasm",
+   "arm": "dispatch, no relation (one disease picked)",
+   "size": "1,000,000 cells",
+   "rows": 1000000,
+   "median": 0.1328749999993306,
+   "p95": 0.2114579999997659,
+   "min": 0.10637499999938882,
+   "n": 3,
+   "max": 0.2114579999997659,
+   "warmup": 1
+  },
+  {
+   "engine": "wasm",
+   "arm": "dispatch, travels (one disease picked)",
+   "size": "1,000,000 cells",
+   "rows": 1000000,
+   "median": 20.261500000000524,
+   "p95": 21.535917000001064,
+   "min": 17.922833999999057,
+   "n": 3,
+   "max": 21.535917000001064,
+   "warmup": 1
+  }
+ ],
+ "wire": [
+  {
+   "engine": "memory",
+   "size": "20,598 planets",
+   "arm": "dispatch, travels (1 planets picked)",
+   "values": 1,
+   "bytes": 294
+  },
+  {
+   "engine": "memory",
+   "size": "20,598 planets",
+   "arm": "dispatch, travels (100 planets picked)",
+   "values": 97,
+   "bytes": 1305
+  },
+  {
+   "engine": "memory",
+   "size": "20,598 planets",
+   "arm": "dispatch, travels (1,000 planets picked)",
+   "values": 791,
+   "bytes": 8560
+  },
+  {
+   "engine": "memory",
+   "size": "20,598 planets",
+   "arm": "dispatch, travels (10,000 planets picked)",
+   "values": 1989,
+   "bytes": 21064
+  },
+  {
+   "engine": "memory",
+   "size": "20,598 planets",
+   "arm": "dispatch, travels (brush over every planet)",
+   "values": 2000,
+   "bytes": 21179
+  },
+  {
+   "engine": "wasm",
+   "size": "20,598 planets",
+   "arm": "dispatch, travels (1 planets picked)",
+   "values": 1,
+   "bytes": 294
+  },
+  {
+   "engine": "wasm",
+   "size": "20,598 planets",
+   "arm": "dispatch, travels (100 planets picked)",
+   "values": 97,
+   "bytes": 1305
+  },
+  {
+   "engine": "wasm",
+   "size": "20,598 planets",
+   "arm": "dispatch, travels (1,000 planets picked)",
+   "values": 791,
+   "bytes": 8560
+  },
+  {
+   "engine": "wasm",
+   "size": "20,598 planets",
+   "arm": "dispatch, travels (10,000 planets picked)",
+   "values": 1989,
+   "bytes": 21064
+  },
+  {
+   "engine": "wasm",
+   "size": "20,598 planets",
+   "arm": "dispatch, travels (brush over every planet)",
+   "values": 2000,
+   "bytes": 21179
+  },
+  {
+   "engine": "memory",
+   "size": "1,000,000 cells",
+   "arm": "dispatch, travels (one disease picked)",
+   "values": 70,
+   "bytes": 969
+  },
+  {
+   "engine": "wasm",
+   "size": "1,000,000 cells",
+   "arm": "dispatch, travels (one disease picked)",
+   "values": 70,
+   "bytes": 969
+  }
+ ],
+ "failures": [],
+ "shapes": {
+  "exo": {
+   "planets": 20598,
+   "references": 2000,
+   "consumer": "by_year~references"
+  },
+  "cells": {
+   "rows": 1000000,
+   "places": 70,
+   "consumer": "map~places"
+  }
+ }
+}
