@@ -764,6 +764,19 @@
   stroke-width: 2;
 }
 /* the node-link's walk picker: one labelled select above the frame (networkRenderer) */
+/* The network's opt-in captions: decoration beside a mark, in the tick's own ink so a
+   caption never outshines the dot it names, and dimmed with its mark under a brush. */
+:where(.vzf) .vzf-net-node-label,
+:where(.vzf) .vzf-net-edge-label {
+  fill: var(--vzf-ink-soft);
+  font-family: var(--vzf-font-mono);
+  font-size: 10px;
+  transition: opacity 0.15s ease;
+}
+:where(.vzf) .vzf-net-node-label.vzf-dim,
+:where(.vzf) .vzf-net-edge-label.vzf-dim {
+  opacity: 0.12;
+}
 :where(.vzf) .vzf-net-walk {
   display: flex;
   gap: var(--vzf-space-2);

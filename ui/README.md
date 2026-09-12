@@ -222,9 +222,17 @@ a small legend). The mean, not the sum: under a crossfilter the number of rows
 per date changes, and a sum would confuse "fewer rows" with "smaller values".
 
 Both axis labels are pickers, and they are honest about what fits: the **x
-picker offers only date columns** and the **y picker only numeric ones** — an
+picker offers a date or a category** (a line on a band connects slot centres
+and claims nothing between them) and the **y picker only numeric ones** — an
 incompatible column is disabled with the reason written on it, exactly like
 the scatter's pickers.
+
+The dated tick labels and the point tooltips can be spelled in the host's own
+time format: `<VizLine formatDate={(iso) => …}>`. Formatting is words only —
+it never moves a point, changes a date's identity or what a brush emits, and a
+formatter's output is rendered as text, never as markup. Category labels keep
+their literal names. The frame's merged time axis still spells the default,
+so a host's format does not yet reach a layered line.
 
 ![the time series](gallery/screenshots/gallery-line.png)
 

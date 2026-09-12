@@ -157,6 +157,15 @@ by a grep over this folder too). This barrel re-exports `layerAddress`,
 `splitLayerAddress`, `holdsLayerMarker` and `LAYER_MARKER` so a host never
 spells it.
 
+**Captions are opt-in decoration.** `<VizNetwork showNodeLabels showEdgeLabels
+nodeRadius={n}>` draws a node's `label` (its id when none is declared; an empty
+label hides it) and an edge's `label` beside the mark, facing into the frame,
+hidden from assistive technology and ignoring the pointer, and dimmed with the
+mark it names under a brush. A caption never changes a selection's identifier
+— the gesture still lands on the id — and a hostile caption renders only as
+text. The radius is clamped to 1–16 and falls back to the default outside it.
+
+
 The contract carries layers as three optional additions — which is why 1.2 is a
 MINOR, and why a 1.1 renderer binds byte-identically:
 

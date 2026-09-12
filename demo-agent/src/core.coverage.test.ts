@@ -402,5 +402,10 @@ describe('the per-turn activity ring buffer caps at 60 entries (core.ts:120-123)
     const state = await analyst.state();
     expect(state.activity.length).toBe(60); // yet the retained buffer never exceeds the cap
     expect(state.activity.every((step) => step.tool === 'whats_here')).toBe(true);
-  }, 30_000);
+    // WHY 120 s and not the file's 30: this test's only claim is the CAP, and it earns it with
+    // seventy REAL tool round-trips through a live session. Alone that is a few seconds; under
+    // the full suite's parallelism it crossed 30 s three times in one day on an otherwise quiet
+    // machine, which is a fact about the load, not about the buffer. A budget that fits the
+    // work keeps a true test from being re-rolled until it passes.
+  }, 120_000);
 });
