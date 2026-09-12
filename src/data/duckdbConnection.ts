@@ -18,16 +18,25 @@
  *             package ships for node: no worker, the `.wasm` read off disk.
  *
  * NOTHING IS FETCHED AFTER THE BUNDLE, IN EITHER HOST. Landing `rows` writes
- * CSV text with every column's type declared (`landing.ts`), and DuckDB's
- * CSV reader is statically linked; a `csv` landing is CSV already, its types
- * declared by the same law. The JSON
- * carrier this adapter used to write made the bundle autoload its `json`
- * extension from the vendor's extension repository — one request off the
- * origin, in both hosts — so an offline or CSP-restricted page could not land
- * rows. `ui/gallery/wasm.smoke.test.ts` pins the count of requests that leave
- * the origin at ZERO. And where the bundle itself comes from is the caller's
- * to say: `bundles` ({@link DuckDBConnectionOptions}) hands the browser arm a
- * self-hosted map in place of the CDN's.
+ * CSV with every column's type declared (`landing.ts`), and DuckDB's CSV
+ * reader is statically linked; a `csv` landing is CSV already, its types
+ * declared by the same law. The JSON carrier this adapter used to write made
+ * the bundle autoload its `json` extension from the vendor's extension
+ * repository — one request off the origin, in both hosts — so an offline or
+ * CSP-restricted page could not land rows. `ui/gallery/wasm.smoke.test.ts`
+ * pins the count of requests that leave the origin at ZERO. And where the
+ * bundle itself comes from is the caller's to say: `bundles`
+ * ({@link DuckDBConnectionOptions}) hands the browser arm a self-hosted map in
+ * place of the CDN's.
+ *
+ * THE CARRIER IS BYTES. What a landing registers is ONE `Uint8Array`
+ * (`registerFileBuffer`, in both hosts — the engine's `registerFileText` is
+ * nothing but `TextEncoder.encode` and then that), never a string: a string
+ * is capped by V8 at ~512 MiB and the rows writer used to build one, so the
+ * port refused tables the engine could hold (`landing.ts`, the header —
+ * the CSV is now encoded in chunks of whole lines and concatenated once). The
+ * browser arm TRANSFERS that array's buffer to the worker, so the array holds
+ * the CSV and nothing else.
  *
  * WHY the blocking bundle and not `dist/duckdb-node.cjs`: the
  *             async node bundle wants a `worker_threads` worker per database,
@@ -69,7 +78,8 @@ export interface DuckDBHandle {
 
 /** The database behind it (`AsyncDuckDB`), structurally — it owns the virtual file system and the worker. */
 export interface DuckDBDatabase {
-  registerFileText(name: string, text: string): Promise<void>;
+  /** The one door a landing goes through: the CSV's bytes under a file name. (`AsyncDuckDB` transfers the buffer to its worker.) */
+  registerFileBuffer(name: string, bytes: Uint8Array): Promise<void>;
   terminate(): Promise<void>;
 }
 
@@ -88,7 +98,8 @@ export interface DuckDBNodeBindings {
   /** The database's own configuration door — where {@link READ_CONFIG} is set, before the first connection. */
   open(config: DuckDBReadConfig): void;
   connect(): DuckDBNodeConnection;
-  registerFileText(name: string, text: string): void;
+  /** The same door, synchronous: the bytes are copied into the wasm heap before this returns. */
+  registerFileBuffer(name: string, bytes: Uint8Array): void;
   reset(): void;
 }
 
@@ -157,10 +168,10 @@ export interface DuckDBReadConfig {
  */
 export const READ_CONFIG: DuckDBReadConfig = { query: { castBigIntToDouble: true, castDecimalToDouble: true } };
 
-/** What one table's landing registers and reads: the file name, the text under it, and the reader `loadTableSQL` selects from. */
+/** What one table's landing registers and reads: the file name, the bytes under it, and the reader `loadTableSQL` selects from. */
 export interface Landing {
   readonly file: string;
-  readonly text: string;
+  readonly bytes: Uint8Array;
   readonly from: string;
 }
 
@@ -173,17 +184,17 @@ export interface Landing {
  * `rows` are written as CSV with every column typed (`landing.ts` ·
  * `rowsLandingOf`); a `csv` text is registered as it came — DuckDB reads the
  * def's own bytes and detects their dialect — with its types declared from the
- * memory engine's own sniff of the same text (`csvLandingOf`). Both are CSV,
- * so both register `<table>.csv`.
+ * memory engine's own sniff of the same text (`csvLandingOf`). Both are CSV
+ * bytes, so both register `<table>.csv`.
  */
 export function landingOf(table: string, data: TableData): Landing {
   const file = `${table}.csv`;
   if (data.kind === 'csv') {
-    const { text, columns } = csvLandingOf(data.text);
-    return { file, text, from: csvReaderSQL(file, columns) };
+    const { bytes, columns } = csvLandingOf(data.text);
+    return { file, bytes, from: csvReaderSQL(file, columns) };
   }
-  const { text, columns } = rowsLandingOf(data.rows);
-  return { file, text, from: rowsReaderSQL(file, columns) };
+  const { bytes, columns } = rowsLandingOf(data.rows);
+  return { file, bytes, from: rowsReaderSQL(file, columns) };
 }
 
 // ── The judgement: which host can open a database HERE. ──────────────────
@@ -262,7 +273,7 @@ export function rowsOf(result: DuckDBResult): readonly Record<string, unknown>[]
  * The port over an already-open DuckDB handle: read, load, close.
  *
  * WHY `load` lands the bytes through the virtual file system rather than a
- * `VALUES` list: a table of any size becomes ONE registered text and one
+ * `VALUES` list: a table of any size becomes ONE registered buffer and one
  * `CREATE TABLE … AS SELECT`, and the source order the rows are read in is the
  * order the reader hands them over — which is the order `loadTableSQL` writes
  * into `__row`, in that same statement.
@@ -274,8 +285,8 @@ export function sqlConnectionOver(database: DuckDBDatabase, handle: DuckDBHandle
     },
 
     async load(table: string, data: TableData): Promise<void> {
-      const { file, text, from } = landingOf(table, data);
-      await database.registerFileText(file, text);
+      const { file, bytes, from } = landingOf(table, data);
+      await database.registerFileBuffer(file, bytes);
       await handle.query(loadTableSQL(table, from));
     },
 
@@ -300,8 +311,8 @@ export function nodeConnectionOver(bindings: DuckDBNodeBindings): LoadingConnect
   const connection = bindings.connect();
   return sqlConnectionOver(
     {
-      async registerFileText(name: string, text: string): Promise<void> {
-        bindings.registerFileText(name, text);
+      async registerFileBuffer(name: string, bytes: Uint8Array): Promise<void> {
+        bindings.registerFileBuffer(name, bytes);
       },
       async terminate(): Promise<void> {
         // WHY `reset` is what "terminate" means here: the blocking bindings own no

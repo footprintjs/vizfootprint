@@ -27,7 +27,11 @@
  * THREE SIZES: 90,300 rows (the CDC cell shape `bench/step0/gen.ts` is calibrated
  * to), 300,000 and 1,000,000. Three and not two because a threshold placed
  * BETWEEN two measured points is a guess wearing a number's clothes — the middle
- * size exists so `chooseEngine`'s row threshold is a size that was RUN.
+ * size exists so `chooseEngine`'s row threshold is a size that was RUN. The
+ * WIDE pass runs two more — 1,500,000 and 2,000,000 rows of thirty columns
+ * (`WIDE_SIZES`) — past the string cap the rows port used to have, because the
+ * landing is bytes now and "no ceiling" is a claim only a landing past the old
+ * one can make; the six-column arms do not run there.
  *
  * Every number is the wall time of ONE call, `performance.now()` around it,
  * warm-ups discarded, median / p95 over the repetitions. `globalThis.gc()` runs
@@ -45,14 +49,17 @@ import { duckdbConnection } from '../../src/data/duckdbConnection.js';
 import { canLoad, isRejection } from '../../src/data/index.js';
 import type { DataProvider, LoadingConnection, PredicateClause, Row } from '../../src/data/index.js';
 import { FALLBACK_SHAPE, synthesize, stats } from '../step0/gen.js';
-import { ARMS, BRUSH_ASKS, SIZES, SIZE_ORDER, WIDE_COLUMNS, WIDE_TABLE, WINDOWS, benchClauses, brushSequence, createHarness, gc, spin, widen, type BenchEngine, type Size } from './measure.js';
+import { ARMS, BRUSH_ASKS, SIZES, SIZE_ORDER, WIDE_COLUMNS, WIDE_SIZE_ORDER, WIDE_TABLE, WINDOWS, benchClauses, brushSequence, createHarness, gc, spin, wideBudgetOf, widen, type BenchEngine, type Size, type WideSize } from './measure.js';
 
 // ── The data: budgets, and the two ways an arm can end. ─────────────────
+
+/** A size's name as an environment variable can carry it: `90K`, `1M`, `1_5M` — a dot is not a name character. */
+const envKeyOf = (size: string): string => size.toUpperCase().replace('.', '_');
 
 /** One size's budget, the contract's numbers unless the environment says otherwise. */
 function budgetOf(size: Size): { readonly reps: number; readonly loadReps: number; readonly loadWarmup: number } {
   const base = SIZES[size];
-  const key = size.toUpperCase();
+  const key = envKeyOf(size);
   return {
     reps: Number(process.env[`STEP0W_REPS_${key}`] ?? base.reps),
     loadReps: Number(process.env[`STEP0W_REPS_LOAD_${key}`] ?? base.loadReps),
@@ -60,20 +67,25 @@ function budgetOf(size: Size): { readonly reps: number; readonly loadReps: numbe
   };
 }
 
-const REPS = Object.fromEntries(SIZE_ORDER.map((size) => [size, budgetOf(size).reps]));
+/** A wide size's read repetitions — the six-column budget where the size is shared, the wide contract's past the cap; the same override. */
+function wideRepsOf(size: WideSize): number {
+  return Number(process.env[`STEP0W_REPS_${envKeyOf(size)}`] ?? wideBudgetOf(size).reps);
+}
+
+const REPS = Object.fromEntries(WIDE_SIZE_ORDER.map((size) => [size, wideRepsOf(size)]));
 const WARMUP = 2;
 
 /** An engine that could not do an arm at all, in the backend's own words. A ceiling, recorded. */
 interface Failure {
   readonly engine: BenchEngine;
-  readonly size: Size;
+  readonly size: WideSize;
   readonly stage: string;
   readonly cause: string;
 }
 
 /** The control every arm below it depends on: the two engines counted the same rows. */
 interface Agreement {
-  readonly size: Size;
+  readonly size: WideSize;
   readonly clause: string;
   readonly memory: number;
   readonly wasm: number;
@@ -175,39 +187,71 @@ async function brushArms(engine: BenchEngine, provider: DataProvider, size: Size
  * already holding one shape — which is also what a dashboard with more than
  * one table pays.
  *
- * WHY the wide landing is NOT a timed arm: the load arm is the six-column
- * table's, and this packet measures reads; the landing's wall time goes to the
- * log, and a landing the port refuses is a ceiling in `failures[]` — which is
- * a measurement too (law 3). At 1,000,000 rows the JSON carrier met one (a
- * `JSON.stringify` past V8's string cap); whether the typed-CSV carrier does is
- * what this arm measures now, and `wasm-table.md` says which.
+ * WHY the wide landing IS a timed arm now (`ARMS.wideLoad`, both engines, n = 1)
+ * where it used to be a log line: the sizes past the old string cap
+ * (`WIDE_SIZES`) exist to measure exactly it — whether a 30-column table LANDS
+ * at 1,500,000 and 2,000,000 rows now that the port carries bytes, and what
+ * it costs — and a number the report does not carry is a number nobody can
+ * hold it to. Once per size, because a fresh database per repetition at
+ * 2,000,000 × 30 is a minute each. A landing the port or the engine refuses
+ * is a ceiling in `failures[]`, in the backend's words — a measurement too
+ * (law 3); and the memory engine's construction is caught the same way, since
+ * at these sizes the JS heap is the more likely limit.
  */
-async function wideArms(size: Size, rows: readonly Row[], and: readonly PredicateClause[]): Promise<void> {
+async function wideArms(size: WideSize, rows: readonly Row[], and: readonly PredicateClause[]): Promise<void> {
   const n = rows.length;
-  let t0 = performance.now();
+  const reps = wideRepsOf(size);
+  const t0 = performance.now();
   const wideRows = widen(rows);
   say(`  wide: ${String(WIDE_COLUMNS)}-column rows generated in ${(performance.now() - t0).toFixed(0)} ms`);
-  t0 = performance.now();
-  const memory = memoryProvider(wideRows, { layout: 'row', tableName: WIDE_TABLE });
-  say(`  wide: the memory engine constructed the ${String(WIDE_COLUMNS)}-column table in ${(performance.now() - t0).toFixed(0)} ms`);
 
-  let live: LoadingConnection | null = null;
+  // 1. the memory engine: construction IS its load — once, and caught: past 1M rows of thirty columns the JS heap is the likely ceiling.
+  const built: DataProvider[] = [];
+  try {
+    await harness.timed(
+      { engine: 'memory', arm: ARMS.wideLoad, size, rows: n, reps: 1, warmup: 0, note: `memoryProvider(rows, { layout: "row" }) over ${String(WIDE_COLUMNS)} columns: every row cloned + a columnTypes fold — once (n = 1)` },
+      () => {
+        built.push(memoryProvider(wideRows, { layout: 'row', tableName: WIDE_TABLE }));
+      },
+    );
+  } catch (error) {
+    failures.push({ engine: 'memory', size, stage: `${WIDE_TABLE}: construct ${String(WIDE_COLUMNS)} columns in memory`, cause: causeOf(error) });
+    say(`  !! the memory engine could not construct the ${String(WIDE_COLUMNS)}-column table at ${size}: ${causeOf(error)}`);
+  }
+  const memory = built.pop() ?? null;
+  gc();
+
+  // 2. the wasm engine: one landing through the rows port — bytes, chunk-encoded (`src/data/landing.ts`) — timed, and caught in the backend's words.
+  const opened: LoadingConnection[] = [];
   let wasm: DataProvider | null = null;
   try {
-    t0 = performance.now();
-    live = await openLoaded(WIDE_TABLE, wideRows);
-    say(`  wide: DuckDB opened and landed the ${String(WIDE_COLUMNS)}-column table in ${(performance.now() - t0).toFixed(0)} ms`);
-    wasm = wasmProvider({ sources: [WIDE_TABLE], connection: live });
-    wideWire ??= await describeWide(live);
+    await harness.timed(
+      {
+        engine: 'wasm',
+        arm: ARMS.wideLoad,
+        size,
+        rows: n,
+        reps: 1,
+        warmup: 0,
+        note: `a fresh database: instantiate the wasm module + registerFileBuffer(rows as typed CSV bytes, chunk-encoded, \`landing.ts\`) + CREATE TABLE AS SELECT … row_number() over ${String(WIDE_COLUMNS)} columns — once (n = 1)`,
+      },
+      async () => {
+        opened.push(await openLoaded(WIDE_TABLE, wideRows));
+      },
+    );
   } catch (error) {
     failures.push({ engine: 'wasm', size, stage: `${WIDE_TABLE}: land ${String(WIDE_COLUMNS)} columns through the rows port`, cause: causeOf(error) });
     say(`  !! wasm could not land the ${String(WIDE_COLUMNS)}-column table at ${size}: ${causeOf(error)}`);
-    wasm = null;
+  }
+  const live = opened.pop() ?? null;
+  if (live) {
+    wasm = wasmProvider({ sources: [WIDE_TABLE], connection: live });
+    wideWire ??= await describeWide(live);
   }
   gc();
 
-  // the control again, on THIS table: the same clause keeps the same rows in both engines, or the arm means nothing.
-  if (wasm) {
+  // 3. the control again, on THIS table: the same clause keeps the same rows in both engines, or the arm means nothing.
+  if (memory && wasm) {
     try {
       const [inMemory, overSQL] = [await countOf(memory, and, WIDE_TABLE), await countOf(wasm, and, WIDE_TABLE)];
       agreement.push({ size, clause: `point AND interval, ${WIDE_TABLE} (${String(WIDE_COLUMNS)} columns)`, memory: inMemory, wasm: overSQL, agree: inMemory === overSQL });
@@ -218,11 +262,13 @@ async function wideArms(size: Size, rows: readonly Row[], and: readonly Predicat
     }
   }
 
-  const { reps } = budgetOf(size);
-  await harness.timed(
-    { engine: 'memory', arm: ARMS.wide, size, rows: n, reps, note: 'the same 100 rows as the window arm, thirty columns wide: the memory engine hands each row back BY REFERENCE, so what it pays for the width is the predicate scan over heavier rows, not the rows it returns' },
-    () => memory.evaluate(WIDE_TABLE, and, WINDOWS.window),
-  );
+  // 4. the wide window, both engines, the same ask.
+  if (memory) {
+    await harness.timed(
+      { engine: 'memory', arm: ARMS.wide, size, rows: n, reps, note: 'the same 100 rows as the window arm, thirty columns wide: the memory engine hands each row back BY REFERENCE, so what it pays for the width is the predicate scan over heavier rows, not the rows it returns' },
+      () => memory.evaluate(WIDE_TABLE, and, WINDOWS.window),
+    );
+  }
   if (wasm) {
     await harness.timed(
       { engine: 'wasm', arm: ARMS.wide, size, rows: n, reps, note: 'DuckDB converts every cell on the wire (BIGINT/DOUBLE → number, DATE/TIMESTAMP → ISO text) — two statements: the window, then a COUNT of the selection' },
@@ -273,7 +319,7 @@ async function runSize(size: Size, rows: Row[], weeks: readonly string[], picked
         rows: n,
         reps: loadReps,
         warmup: loadWarmup,
-        note: 'a fresh database per rep: instantiate the wasm module + registerFileText(rows as typed CSV, `landing.ts`) + CREATE TABLE AS SELECT … row_number()',
+        note: 'a fresh database per rep: instantiate the wasm module + registerFileBuffer(rows as typed CSV bytes, chunk-encoded, `landing.ts`) + CREATE TABLE AS SELECT … row_number()',
       },
       async () => {
         opened.push(await openLoaded('data', rows));
@@ -367,9 +413,10 @@ for (const size of SIZE_ORDER) {
 // The wide pass — the LAST shape this process learns (see `wideArms` for why). The rows are
 // synthesised again rather than kept: the generator is seeded, so they are the same rows, and
 // keeping a million six-column rows alive through the first pass would be a cost of its own.
+// It runs the three shared sizes and then the two PAST the old string cap (`WIDE_SIZES`).
 say(`\n== the wide pass: the same rows, ${String(WIDE_COLUMNS)} columns, both engines ==`);
-for (const size of SIZE_ORDER) {
-  const synthetic = synthesize(SIZES[size].rows, FALLBACK_SHAPE);
+for (const size of WIDE_SIZE_ORDER) {
+  const synthetic = synthesize(wideBudgetOf(size).rows, FALLBACK_SHAPE);
   say(`-- ${size}: ${synthetic.rows.length.toLocaleString('en-US')} rows --`);
   await wideArms(size, synthetic.rows, benchClauses(pickOf(synthetic)).and);
   gc();
@@ -385,6 +432,7 @@ process.stdout.write(
       reps: REPS,
       warmup: WARMUP,
       sizes: SIZES,
+      wideSizes: WIDE_SIZE_ORDER,
       // WHY the contract's arm names ride in the report: `table.mjs` pairs the wide arm with the window arm BY NAME, and it cannot import `measure.ts`.
       arms: ARMS,
       gcExposed,

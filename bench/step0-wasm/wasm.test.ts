@@ -33,6 +33,13 @@
  *   `DESCRIBE` says the wire types the wide arm claims to convert), part B
  *   reads them off the report by the SAME `ARMS` names the bench wrote.
  *
+ *   The wide pass's two sizes PAST the old string cap (`WIDE_SIZES`: 1,500,000
+ *   and 2,000,000 rows × 30 columns) and the landing arm (`ARMS.wideLoad`) join
+ *   part B: both sizes must have RUN, both engines must carry the landing and
+ *   the window there (or a ceiling in the backend's words), and NO ceiling
+ *   anywhere in the report may be the string cap's (`Invalid string length`)
+ *   — the port carries bytes now, so whatever stops a landing, it is not that.
+ *
  * Nothing here writes to `src/`. It opens ONE small DuckDB (a few thousand rows,
  * a few hundred milliseconds) — the big sizes live in `run.mjs`, which is a
  * report, not a gate.
@@ -40,7 +47,7 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { ARMS, BRUSH_ASKS, SIZE_ORDER, WIDE_COLUMNS, WIDE_FAMILIES, WIDE_GENERATED, WIDE_TABLE, WINDOWS, benchClauses, brushSequence, createHarness, spin, widen, type Measure } from './measure.js';
+import { ARMS, BRUSH_ASKS, SIZE_ORDER, WIDE_COLUMNS, WIDE_FAMILIES, WIDE_GENERATED, WIDE_SIZES, WIDE_SIZE_ORDER, WIDE_TABLE, WINDOWS, benchClauses, brushSequence, createHarness, spin, wideBudgetOf, widen, type Measure } from './measure.js';
 import { FALLBACK_SHAPE, synthesize } from '../step0/gen.js';
 import { memoryProvider } from '../../src/data/memoryProvider.js';
 import { wasmProvider } from '../../src/data/wasmProvider.js';
@@ -138,6 +145,25 @@ describe('step0-wasm bench · part A · the instruments are alive', () => {
     const before = tableOf({ node: 'v22', platform: 'test', generatedAt: 'now', reps: {}, warmup: 2, gcExposed: true, controls: { clock: { askedMs: 40, readMs: 40.1, live: true }, agreement: [] }, results: [at('memory', ARMS.window, 2)] }) as string;
     expect(before).not.toContain('wide ÷ window');
     expect(before).not.toContain('DESCRIBE');
+  });
+
+  it('positive control: a size only the wide pass ran prints as its own section with the landing row for both engines — and no `wide ÷ window` line, since it has no window arm', () => {
+    const at = (engine: 'memory' | 'wasm', arm: string, median: number): Measure => ({ engine, arm, size: '1.5M', rows: 1_500_000, median, p95: median, max: median, min: median, n: 1, warmup: 0 });
+    const table = tableOf({
+      node: 'v22',
+      platform: 'test',
+      generatedAt: 'now',
+      reps: { '1.5M': 3 },
+      warmup: 2,
+      gcExposed: true,
+      arms: ARMS,
+      controls: { clock: { askedMs: 40, readMs: 40.1, live: true }, agreement: [{ size: '1.5M', clause: `point AND interval, ${WIDE_TABLE} (30 columns)`, memory: 3_080, wasm: 3_080, agree: true }] },
+      results: [at('memory', ARMS.wideLoad, 1_200), at('wasm', ARMS.wideLoad, 9_600), at('memory', ARMS.wide, 80), at('wasm', ARMS.wide, 12)],
+    }) as string;
+    expect(table).toContain('### 1 · 1.5M — 1,500,000 rows');
+    expect(table).toContain(`| ${ARMS.wideLoad} | 1200 / 1200 | 9600 / 9600 | 8.00× |`);
+    expect(table).toContain('1.5M point AND interval, wide (30 columns) | memory = wasm | 3,080 vs 3,080 | YES');
+    expect(table).not.toContain('wide ÷ window');
   });
 
   it('the brush is the bench interval sliding one week per ask: twenty asks, the point clause held still, the first ask the bench clause itself — and a sweep past the span is refused, never clamped', () => {
@@ -280,13 +306,17 @@ describe('step0-wasm bench · part A · the instruments are alive', () => {
 // PART B — the report. Skipped until a run writes one; armed the moment it does.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The report's shape, as far as part B reads it. `failures`, `arms` and `controls.wide` are absent from a report written before the two later arms existed. */
+/** The report's shape, as far as part B reads it. `failures`, `arms`, `controls.wide` and `wideSizes` are absent from a report written before the later arms existed. */
 interface Report {
   readonly controls: { readonly clock: { readonly live: boolean }; readonly agreement: readonly { readonly agree: boolean }[]; readonly wide?: { readonly columns: number } };
   readonly failures?: readonly { readonly engine: string; readonly size: string; readonly stage: string; readonly cause: string }[];
   readonly arms?: Readonly<Record<string, string>>;
+  readonly wideSizes?: readonly string[];
   readonly results: readonly Measure[];
 }
+
+/** The two sizes only the wide pass runs — past the old string cap. */
+const PAST_THE_CAP = Object.keys(WIDE_SIZES);
 
 describe.skipIf(!existsSync(RESULTS))('step0-wasm bench · part B · the report a run wrote', () => {
   const json: Report = existsSync(RESULTS) ? (JSON.parse(readFileSync(RESULTS, 'utf8')) as Report) : { controls: { clock: { live: false }, agreement: [] }, results: [] };
@@ -295,11 +325,13 @@ describe.skipIf(!existsSync(RESULTS))('step0-wasm bench · part B · the report 
   /**
    * Whether a recorded ceiling explains an engine's absence from an arm at a
    * size: a landing that failed (`open + load`) explains every arm; a wide
-   * landing that failed explains the wide arm alone. Nothing else does — an
-   * absence with no ceiling beside it is a hole in the report.
+   * landing (or, for the memory engine, a wide construction) that failed
+   * explains the two wide arms alone. Nothing else does — an absence with no
+   * ceiling beside it is a hole in the report.
    */
+  const isWideArm = (arm: string): boolean => arm === ARMS.wide || arm === ARMS.wideLoad;
   const ceilingCovers = (engine: string, size: string, arm: string): boolean =>
-    failures.some((f) => f.engine === engine && f.size === size && (f.stage === 'open + load' || (arm === ARMS.wide && f.stage.startsWith(WIDE_TABLE))));
+    failures.some((f) => f.engine === engine && f.size === size && (f.stage === 'open + load' || (isWideArm(arm) && f.stage.startsWith(WIDE_TABLE))));
 
   it('the controls say the instruments were alive when these numbers were taken', () => {
     expect(json.controls.clock.live).toBe(true);
@@ -307,8 +339,9 @@ describe.skipIf(!existsSync(RESULTS))('step0-wasm bench · part B · the report 
     expect(json.controls.agreement.every((a) => a.agree)).toBe(true);
   });
 
-  it('every size in the contract ran, and every measurement carries real samples', () => {
-    expect([...new Set(json.results.map((r) => r.size))]).toEqual([...SIZE_ORDER]);
+  it('every size in the contract ran — the three shared sizes, then the two only the wide pass runs — and every measurement carries real samples', () => {
+    expect([...new Set(json.results.map((r) => r.size))]).toEqual([...WIDE_SIZE_ORDER]);
+    expect(json.wideSizes).toEqual([...WIDE_SIZE_ORDER]);
     for (const r of json.results) {
       expect(r.n, `${r.engine} ${r.size} ${r.arm}`).toBeGreaterThan(0);
       expect(r.median, `${r.engine} ${r.size} ${r.arm}`).toBeGreaterThan(0);
@@ -318,7 +351,7 @@ describe.skipIf(!existsSync(RESULTS))('step0-wasm bench · part B · the report 
 
   it('every arm the contract names was measured for BOTH engines — except the one only the memory engine has, which says so, and a cell whose ceiling is recorded in the backend\'s words', () => {
     for (const size of SIZE_ORDER) {
-      for (const arm of [ARMS.load, ARMS.count, ARMS.window, ARMS.sorted, ARMS.brush, ARMS.brushAsk, ARMS.wide]) {
+      for (const arm of [ARMS.load, ARMS.count, ARMS.window, ARMS.sorted, ARMS.brush, ARMS.brushAsk, ARMS.wideLoad, ARMS.wide]) {
         const engines = json.results.filter((r) => r.size === size && r.arm === arm).map((r) => r.engine);
         expect(engines, `${size} · ${arm} · the memory engine has no ceiling`).toContain('memory');
         if (!engines.includes('wasm')) expect(ceilingCovers('wasm', size, arm), `${size} · ${arm} · wasm is absent with no ceiling recorded`).toBe(true);
@@ -327,6 +360,34 @@ describe.skipIf(!existsSync(RESULTS))('step0-wasm bench · part B · the report 
       expect(first.map((r) => r.engine)).toEqual(['memory']);
       expect(first[0]?.note ?? '').toMatch(/permutation|fresh/);
     }
+  });
+
+  it('the sizes PAST the old string cap: both wide arms for both engines — or a ceiling in the backend\'s words, the memory engine\'s included, since the JS heap is the likely limit there — and the six-column arms absent by design', () => {
+    for (const size of PAST_THE_CAP) {
+      expect(wideBudgetOf(size as '1.5M' | '2M').rows, `${size} is past the old cap at ~364 bytes a row`).toBeGreaterThan(1_400_000);
+      for (const arm of [ARMS.wideLoad, ARMS.wide]) {
+        for (const engine of ['memory', 'wasm'] as const) {
+          const measured = json.results.some((r) => r.size === size && r.arm === arm && r.engine === engine);
+          if (!measured) expect(ceilingCovers(engine, size, arm), `${size} · ${arm} · ${engine} is absent with no ceiling recorded`).toBe(true);
+        }
+      }
+      for (const arm of [ARMS.load, ARMS.count, ARMS.window, ARMS.sorted, ARMS.sortedFirst, ARMS.brush, ARMS.brushAsk]) {
+        expect(json.results.filter((r) => r.size === size && r.arm === arm), `${size} · ${arm} · the six-column arms do not run past the cap`).toEqual([]);
+      }
+    }
+  });
+
+  it('the landing arm: once per size for both engines, and NO ceiling in the report is the string cap\'s — the port carries bytes, so whatever stops a landing, it is not `Invalid string length`', () => {
+    const landings = json.results.filter((r) => r.arm === ARMS.wideLoad);
+    expect(landings.length).toBeGreaterThan(0);
+    for (const r of landings) {
+      expect(r.n, `${r.engine} ${r.size} · one landing`).toBe(1);
+      expect(r.warmup, `${r.engine} ${r.size} · no warm-up landing`).toBe(0);
+      expect(r.note ?? '').toMatch(/once/);
+    }
+    for (const f of failures) expect(f.cause, `${f.engine} ${f.size} · ${f.stage}`).not.toContain('Invalid string length');
+    // the REQUIRED size: 1,500,000 × 30 is over the old cap (≈ 546 MB of CSV against 536,870,888 characters) and the wasm engine landed it
+    expect(landings.find((r) => r.size === '1.5M' && r.engine === 'wasm'), 'the wasm landing at 1.5M — the claim "no string ceiling" rests on this cell').toBeDefined();
   });
 
   it('the moving brush: the sweep arm is a total and the per-ask arm has exactly the sweep\'s asks as its samples — so its spread is a p95 and not a max', () => {
@@ -351,11 +412,21 @@ describe.skipIf(!existsSync(RESULTS))('step0-wasm bench · part B · the report 
     expect(json.arms).toEqual(ARMS);
     const wideOverSQL = json.results.filter((m) => m.arm === ARMS.wide && m.engine === 'wasm');
     if (wideOverSQL.length > 0) expect(json.controls.wide?.columns).toBe(WIDE_COLUMNS);
+    /** The control row for a size — the wide table's or the six-column one's — read as the bench wrote it. */
+    const controlOf = (size: string, wide: boolean): { readonly memory?: number } | undefined =>
+      (json.controls.agreement as readonly { readonly size?: string; readonly clause?: string; readonly memory?: number }[]).find(
+        (a) => a.size === size && (a.clause?.includes(WIDE_TABLE) ?? false) === wide,
+      );
     for (const size of SIZE_ORDER) {
       // the wide table is the same rows, so its control row counts the same matches as the six-column one
-      const wideControl = json.controls.agreement.find((a) => (a as { size?: string; clause?: string }).size === size && (a as { clause?: string }).clause?.includes(WIDE_TABLE));
-      const baseControl = json.controls.agreement.find((a) => (a as { size?: string; clause?: string }).size === size && !(a as { clause?: string }).clause?.includes(WIDE_TABLE));
-      if (wideControl && baseControl) expect((wideControl as { memory?: number }).memory).toBe((baseControl as { memory?: number }).memory);
+      const [wideControl, baseControl] = [controlOf(size, true), controlOf(size, false)];
+      if (wideControl && baseControl) expect(wideControl.memory).toBe(baseControl.memory);
+    }
+    // …and past the cap the match count is STILL the bench clause's (law 4: the generator scales the disease axis, so every size keeps it)
+    const smallest = controlOf(SIZE_ORDER[0]!, false);
+    for (const size of PAST_THE_CAP) {
+      const wideControl = controlOf(size, true);
+      if (wideControl && smallest) expect(wideControl.memory, `${size} keeps the bench clause's match count`).toBe(smallest.memory);
     }
   });
 });

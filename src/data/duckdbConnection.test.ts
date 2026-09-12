@@ -42,8 +42,16 @@ import { ROW_ORDER_COLUMN } from './sqlWindow.js';
 /** An Arrow row as `Table.toArray()` hands it over: fields reachable only through `toJSON`. */
 const arrowRow = (fields: Record<string, unknown>): unknown => ({ toJSON: () => fields });
 
+/**
+ * What a fake was handed, DECODED: the port registers bytes, and a pin on a
+ * registered file compares the text those bytes decode to — strictly, so a
+ * byte that is not UTF-8 fails here rather than reading as U+FFFD.
+ */
+const decoded = (registered: readonly (readonly [string, Uint8Array])[]): (readonly [string, string])[] =>
+  registered.map(([name, bytes]) => [name, new TextDecoder('utf-8', { fatal: true }).decode(bytes)] as const);
+
 interface FakeDatabase extends DuckDBDatabase {
-  readonly registered: readonly (readonly [string, string])[];
+  readonly registered: readonly (readonly [string, Uint8Array])[];
   readonly terminated: () => number;
 }
 
@@ -53,13 +61,13 @@ interface FakeHandle extends DuckDBHandle {
 }
 
 function fakeDatabase(): FakeDatabase {
-  const registered: [string, string][] = [];
+  const registered: [string, Uint8Array][] = [];
   let terminated = 0;
   return {
     registered,
     terminated: () => terminated,
-    async registerFileText(name: string, text: string): Promise<void> {
-      registered.push([name, text]);
+    async registerFileBuffer(name: string, bytes: Uint8Array): Promise<void> {
+      registered.push([name, bytes]);
     },
     async terminate(): Promise<void> {
       terminated += 1;
@@ -108,11 +116,12 @@ describe('the port over an open handle', () => {
     expect(handle.asked).toEqual(['SELECT COUNT(*) AS n FROM "cases"']);
   });
 
-  it('loads rows: registered as CSV text with every column typed, under the table s own name, then landed WITH the source-order column', async () => {
+  it('loads rows: registered as CSV BYTES with every column typed, under the table s own name, then landed WITH the source-order column', async () => {
     const database = fakeDatabase();
     const handle = fakeHandle();
     await sqlConnectionOver(database, handle).load('cases', { kind: 'rows', rows: [{ id: 1 }, { id: 2 }] });
-    expect(database.registered).toEqual([['cases.csv', '"id"\n1\n2\n']]);
+    expect(database.registered[0]![1]).toBeInstanceOf(Uint8Array); // bytes, never a string — the engine's own door, with no string cap in front of it
+    expect(decoded(database.registered)).toEqual([['cases.csv', '"id"\n1\n2\n']]);
     expect(handle.asked[0]).toBe(
       `CREATE OR REPLACE TABLE "cases" AS SELECT *, (row_number() OVER ()) - 1 AS "${ROW_ORDER_COLUMN}" FROM ${rowsReaderSQL('cases.csv', [{ name: 'id', type: 'BIGINT' }])}`,
     );
@@ -132,7 +141,7 @@ describe('the port over an open handle', () => {
     const database = fakeDatabase();
     const handle = fakeHandle();
     await sqlConnectionOver(database, handle).load('weeks', { kind: 'csv', text: 'id,day\n1,2026-04-05' });
-    expect(database.registered).toEqual([['weeks.csv', 'id,day\n1,2026-04-05']]);
+    expect(decoded(database.registered)).toEqual([['weeks.csv', 'id,day\n1,2026-04-05']]);
     // the dialect is DuckDB's to detect; the types are the memory engine's words — the day is a string, never a sniffed DATE
     expect(handle.asked[0]).toContain(`FROM read_csv('weeks.csv', header=true, types={'id': 'BIGINT', 'day': 'VARCHAR'})`);
   });
@@ -144,9 +153,10 @@ describe('the port over an open handle', () => {
     expect(database.registered).toEqual([]);
   });
 
-  it('both kinds are ONE landing: the same file name, the same shape, the same type law, decided in one place', () => {
-    expect(landingOf('t', { kind: 'csv', text: 'a\n1' })).toEqual({ file: 't.csv', text: 'a\n1', from: csvReaderSQL('t.csv', [{ name: 'a', type: 'BIGINT' }]) });
-    expect(landingOf('t', { kind: 'rows', rows: [{ a: 1 }] })).toEqual({ file: 't.csv', text: '"a"\n1\n', from: rowsReaderSQL('t.csv', [{ name: 'a', type: 'BIGINT' }]) });
+  it('both kinds are ONE landing: the same file name, the same shape — bytes — the same type law, decided in one place', () => {
+    const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
+    expect(landingOf('t', { kind: 'csv', text: 'a\n1' })).toEqual({ file: 't.csv', bytes: bytes('a\n1'), from: csvReaderSQL('t.csv', [{ name: 'a', type: 'BIGINT' }]) });
+    expect(landingOf('t', { kind: 'rows', rows: [{ a: 1 }] })).toEqual({ file: 't.csv', bytes: bytes('"a"\n1\n'), from: rowsReaderSQL('t.csv', [{ name: 'a', type: 'BIGINT' }]) });
   });
 
   it('closes the connection before it terminates the database — the other order leaves a worker running', async () => {
@@ -225,9 +235,9 @@ describe('the node bundle is four files, named once', () => {
 
 describe('the port over the node bundle is the SAME port, promised', () => {
   /** The blocking bindings, faked: every call synchronous, and each one written down. */
-  function fakeBindings(result: readonly unknown[] = []): DuckDBNodeBindings & { readonly asked: string[]; readonly registered: [string, string][]; readonly ended: () => string[] } {
+  function fakeBindings(result: readonly unknown[] = []): DuckDBNodeBindings & { readonly asked: string[]; readonly registered: [string, Uint8Array][]; readonly ended: () => string[] } {
     const asked: string[] = [];
-    const registered: [string, string][] = [];
+    const registered: [string, Uint8Array][] = [];
     const ended: string[] = [];
     return {
       asked,
@@ -248,8 +258,8 @@ describe('the port over the node bundle is the SAME port, promised', () => {
           },
         };
       },
-      registerFileText: (name: string, text: string): void => {
-        registered.push([name, text]);
+      registerFileBuffer: (name: string, bytes: Uint8Array): void => {
+        registered.push([name, bytes]);
       },
       reset: (): void => {
         ended.push('reset');
@@ -269,7 +279,7 @@ describe('the port over the node bundle is the SAME port, promised', () => {
   it('lands a table through the same registered file and the same one statement as the browser port', async () => {
     const bindings = fakeBindings();
     await nodeConnectionOver(bindings).load('cases', { kind: 'rows', rows: [{ id: 1 }] });
-    expect(bindings.registered).toEqual([['cases.csv', '"id"\n1\n']]);
+    expect(decoded(bindings.registered)).toEqual([['cases.csv', '"id"\n1\n']]);
     expect(bindings.asked[0]).toBe(
       `CREATE OR REPLACE TABLE "cases" AS SELECT *, (row_number() OVER ()) - 1 AS "${ROW_ORDER_COLUMN}" FROM ${rowsReaderSQL('cases.csv', [{ name: 'id', type: 'BIGINT' }])}`,
     );

@@ -175,6 +175,46 @@ export type Size = keyof typeof SIZES;
 /** The sizes in the order the bench runs them and the table prints them: smallest first. */
 export const SIZE_ORDER: readonly Size[] = Object.keys(SIZES) as Size[];
 
+/**
+ * The WIDE pass's two sizes PAST the old string cap, where the six-column
+ * arms do not run.
+ *
+ * WHY they exist: the rows port used to hand the engine ONE string, and V8
+ * caps a string at 2²⁹ − 24 characters (~512 MiB); at ~364 bytes a row of
+ * this width that cap was ~1.4 M rows, and the 1M wide cell was once a
+ * recorded ceiling (`Invalid string length`) rather than a number. The landing
+ * is BYTES now, chunk-encoded (`src/data/landing.ts`), so the cap is gone —
+ * and "gone" is a claim only a landing PAST it can make. 1,500,000 × 30
+ * (≈ 546 MB of CSV, over the cap) is that landing; 2,000,000 × 30 (≈ 728 MB)
+ * asks what stops one when nothing in the port does — the engine's heap, the
+ * page's, or nothing on this machine.
+ *
+ * WHY the six-column arms do not run at these sizes: they exist to place a
+ * ROW threshold, and the crossing is between the three sizes above; two more
+ * would cost minutes to say what the 1M row already says. Both engines still
+ * run the wide arms here, so the control (the same count out of both) and the
+ * ratio hold at every wide size.
+ *
+ * WHY `reps` only: the landing is timed ONCE per size (`ARMS.wideLoad`, n = 1)
+ * — a fresh database per repetition at 2,000,000 × 30 is a minute each, and
+ * the number a reader wants from it is whether it landed and what it cost.
+ */
+export const WIDE_SIZES = {
+  '1.5M': { rows: 1_500_000, reps: 3 },
+  '2M': { rows: 2_000_000, reps: 3 },
+} as const;
+
+/** A size the wide pass runs: one of the three shared with the six-column pass, or one of the two past the cap. */
+export type WideSize = Size | keyof typeof WIDE_SIZES;
+
+/** The sizes the wide pass runs, in order: the three shared with the six-column pass, then the two past the old cap. */
+export const WIDE_SIZE_ORDER: readonly WideSize[] = [...SIZE_ORDER, ...(Object.keys(WIDE_SIZES) as (keyof typeof WIDE_SIZES)[])];
+
+/** A wide size's rows and read repetitions — `SIZES` for the shared three, `WIDE_SIZES` for the two past the cap. */
+export function wideBudgetOf(size: WideSize): { readonly rows: number; readonly reps: number } {
+  return size === '1.5M' || size === '2M' ? WIDE_SIZES[size] : SIZES[size];
+}
+
 // ── The contract: the arms, and the exact question each one asks. ────────
 
 /**
@@ -192,6 +232,12 @@ export const SIZE_ORDER: readonly Size[] = Object.keys(SIZES) as Size[];
  * whole sweep as one call; `brushAsk` times each ask of one sweep as its own
  * sample — {@link BRUSH_ASKS} samples, which is also the count at which
  * {@link spreadOf} may honestly call the spread a p95.
+ *
+ * WHY the wide table has TWO names too: `wideLoad` is the landing of the
+ * 30-column table (both engines, once per size — {@link WIDE_SIZES} says why
+ * once), `wide` is the window read from it. The landing used to go to the log
+ * only; it is an arm now because the sizes past the old string cap exist to
+ * measure exactly it.
  */
 export const ARMS = {
   load: 'construct / load the table',
@@ -201,6 +247,9 @@ export const ARMS = {
   sortedFirst: 'rows, ORDER BY cases DESC, limit 100 — FIRST ask on a fresh table',
   brush: 'rows, limit 100 — a MOVING brush: the whole sweep of 20 interval asks, one week apart',
   brushAsk: 'rows, limit 100 — a MOVING brush: ONE ask of the sweep (n = the 20 asks)',
+  // WHY the wide landing is an arm and not a log line: whether a 30-column table LANDS past the old
+  // string cap, and what it cost, is the measurement `WIDE_SIZES` exists for — a number the report must carry.
+  wideLoad: 'construct / land the wide table, ALL 30 columns — ONE landing per size (n = 1)',
   wide: 'rows, limit 100 — point AND interval, ALL 30 columns of the wide table',
 } as const;
 

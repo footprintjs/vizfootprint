@@ -125,22 +125,52 @@ finding: a dashboard that builds two tables of different shapes in one page pays
 the same polymorphism on the second one, and this bench's wide memory numbers
 are taken in exactly that state.
 
-**10. The rows port has a ceiling, and the wide arm found it — then the carrier
-moved it.** At 1,000,000 rows × 30 columns the wasm cell WAS a recorded
-ceiling, in the backend's words: `Invalid string length`. The port then
-serialised `{ kind: 'rows' }` as ONE `JSON.stringify` of the whole table, and
-V8 caps a string at 2²⁹ − 24 characters (≈ 512 MiB); a wide row was ~620 bytes
-of JSON, so a million of them were ~593 MiB and the port threw before DuckDB
-saw a byte. Rows now land as typed CSV (`src/data/landing.ts`), and the
-same million wide rows are **346.7 MiB of text — 363,570,540 characters, under
-the cap — ~364 bytes a row, written in 2.3 s** (measured 2026-09-11 with the
-bench's own generator), so the landing goes through and the cell is a number:
-the wide arm at 1M is measured, not recorded as a refusal. The ceiling is
-moved, not gone: the text is still ONE string, so a table whose CSV passes the
-cap would fail in the same words, one `join` earlier — at ~364 bytes a row that
-is ~1.4 M rows of this width. `chooseEngine` still routes any table past
-300,000 rows to this port, so the threshold question written down in
-`src/data/README.md` stands; only its byte number has moved.
+**10. The rows port HAD a ceiling, the wide arm found it, the carrier moved
+it — and the port now carries bytes, so it is gone; two sizes past it prove
+that.** At 1,000,000 rows × 30 columns the wasm cell WAS a recorded ceiling,
+in the backend's words: `Invalid string length`. The port then serialised
+`{ kind: 'rows' }` as ONE `JSON.stringify` of the whole table, and V8 caps a
+string at 2²⁹ − 24 characters (536,870,888, ≈ 512 MiB); a wide row was ~620
+bytes of JSON, so a million of them were ~593 MiB and the port threw before
+DuckDB saw a byte. Typed CSV (`src/data/landing.ts`) brought the same million
+wide rows under the cap — 363,570,540 characters, ~364 bytes a row — but as
+ONE string still, so the same cap waited at ~1.4 M rows of this width. The
+engine never wanted a string: in both bundles `registerFileText` is
+`TextEncoder.encode` and then `registerFileBuffer`, and a byte array's cap is
+2⁵³ − 1. So the writer now joins the CSV in chunks of whole lines (2²⁴
+characters each) and encodes them into ONE `Uint8Array` after the loop, and
+the port registers that (`registerFileBuffer`, both hosts). The wide pass
+gained two sizes PAST the old cap to prove it (`WIDE_SIZES`; the six-column
+arms do not run there), and the landing became a timed arm (`wideLoad`, once
+per size) so the report carries it. *Measured 2026-09-12 (node v22.16.0,
+darwin arm64, Apple M5 Pro, 48 GiB; 1-minute load 3.15 at the run's start):*
+**1,500,000 × 30 — ≈ 546 MB of CSV, over the cap — landed in 7.3 s; 2,000,000 ×
+30 — ≈ 728 MB — in 10.6 s**; `failures[]` is empty, the control counts 3,080
+in both engines at both sizes, and the wide window there is 15.4 / 18.1 ms in
+DuckDB against 118 / 182 ms in memory. The one-string carrier, built against
+the same bench and run in the same hour as a control, refused both sizes in
+V8's words — `Invalid string length`, at 1.5M and at 2M, recorded as ceilings
+exactly as law 3 says — while every six-column cell it produced sat within
+noise of the byte carrier's (its wasm load 350 / 482 / 932 ms against 328 /
+474 / 967; its memory load 6.23 / 22.4 / 74.1 against 6.25 / 21.4 / 75.2).
+**The load arm did not move with the carrier.** Against the checked-in
+2026-09-12 02:47 report it reads ~10% slower on every wasm load cell (296 / 418
+/ 879 then) — and so does the memory load arm's 1M cell and the old-carrier
+control, in the same hour, so that is the machine's day (load 2.3 then, 3.2–4.4
+now), not the bytes. The carrier's own cost was held to the old writer's
+directly too: the same rows, alternating in one process, 1M × 30 in 2.54 s
+against 2.58 s and 1M × 6 in 533 ms against 521 ms, identical bytes. That
+parity took one correction, written down at `landing.ts` · `encodeChunks`:
+the first cut encoded each chunk as it was joined, and each `encode`'s
+ArrayBuffer landed on a heap the row loop had just dirtied with a million dead
+line strings, so V8's external-memory accounting answered twenty-two
+allocations with twenty-two full collections — 1.5 s of encode for 363 MB
+against 77 ms for the one-string writer's single `encode`. Encoding after the
+loop, into one buffer, by two passes of `encodeInto` (a measure over one
+scratch, then the write) costs 40–50 ms. What remains for a landing is
+memory — the engine's wasm32 heap and the page's — and on this machine it was
+not reached at 2,000,000 × 30; `chooseEngine` keeps `maxWasmBytes` at
+`Infinity` as the host's own seam, for the reason its doc gives.
 
 ## The files
 
@@ -148,11 +178,12 @@ is ~1.4 M rows of this width. `chooseEngine` still routes any table past
   median + spread over the repetitions, `gc()` between samples), `spin()` for the
   positive control, and the CONTRACT both the bench and its acceptance test read:
   `ARMS` (the arm names the table pairs engines by — the five it shipped with,
-  plus `brush`, `brushAsk` and `wide`), `WINDOWS` (the exact `EvaluateOptions`
-  each arm asks), `benchClauses()` (one point + one interval, values off the
-  wire), `brushSequence()` (that interval sliding one week per ask, `BRUSH_ASKS`
-  times) and `widen()` (the same rows at `WIDE_COLUMNS` = 30, `WIDE_FAMILIES`
-  naming what DuckDB calls each generated family).
+  plus `brush`, `brushAsk`, `wideLoad` and `wide`), `SIZES` and `WIDE_SIZES`
+  (the three sizes, and the two only the wide pass runs), `WINDOWS` (the exact
+  `EvaluateOptions` each arm asks), `benchClauses()` (one point + one interval,
+  values off the wire), `brushSequence()` (that interval sliding one week per
+  ask, `BRUSH_ASKS` times) and `widen()` (the same rows at `WIDE_COLUMNS` = 30,
+  `WIDE_FAMILIES` naming what DuckDB calls each generated family).
 - `bench-entry.ts` — the arms. Bundled by esbuild, run with `--expose-gc`.
 - `run.mjs` — bundle + spawn + `wasm-results.json` + `wasm-table.md`.
 - `table.mjs` — the renderer, its own module so it can be checked in a second.
@@ -169,7 +200,10 @@ is ~1.4 M rows of this width. `chooseEngine` still routes any table past
   engines (and whose `DESCRIBE` says the wire types `WIDE_FAMILIES` claims);
   part B accepts a wasm cell's absence only beside a ceiling in `failures[]`
   that covers it — a base landing that failed covers every arm, a wide landing
-  that failed covers the wide arm alone.
+  that failed covers the two wide arms alone. It also holds the two sizes past
+  the old cap to having RUN, and every recorded ceiling to NOT being the string
+  cap's (`Invalid string length`) — the port carries bytes, so whatever stops a
+  landing, it is not that.
 
 ## Sizes and repetitions
 
@@ -185,6 +219,19 @@ Any of them can be overridden per size: `STEP0W_REPS_90K`, `STEP0W_REPS_300K`,
 discarded per arm otherwise. The load arm has its own budget because it opens a
 **fresh database per repetition** — serialising 1,000,000 rows seven times is
 minutes, not seconds. Every measurement records its own `n`.
+
+The WIDE pass runs those three and two more, **1,500,000** and **2,000,000**
+rows of thirty columns (`WIDE_SIZES`, read repetitions 3 / 3, override
+`STEP0W_REPS_1_5M` / `STEP0W_REPS_2M` — a dot is not an environment-variable
+character), both PAST the string cap the rows port used to have (law 10). The
+six-column arms do not run there: they exist to place a row threshold, and the
+crossing is between the three sizes above. The wide landing itself is an arm
+(`wideLoad`), timed ONCE per size for both engines (n = 1, so its spread is the
+sample), because a fresh database per repetition at 2,000,000 × 30 is a minute
+each and the number wanted from it is whether it landed and what it cost.
+`run.mjs` gives the child `--max-old-space-size=8192`: the JS side of the 2M wide
+pass holds the rows, their thirty-column widening and the memory engine's clone
+of it at once — a bench's budget, never a library default.
 
 ## The re-run of 2026-09-11, and what moved
 
@@ -216,4 +263,7 @@ in this section rather than a claim that the numbers are the same. The memory
   checked for the memory engine.
 - **Memory.** Neither engine's footprint is sampled here. A row-count threshold
   set from these numbers is a LATENCY threshold; the byte thresholds in
-  `chooseEngine` remain unmeasured and say so.
+  `chooseEngine` remain unmeasured and say so. What the wide pass's two extra
+  sizes say is narrower than a footprint: a 2,000,000 × 30 landing (≈ 728 MB of
+  CSV) fits this machine's wasm32 heap and JS heap — where it stops was not
+  found, and would be a machine fact if it were.

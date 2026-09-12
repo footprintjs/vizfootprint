@@ -141,7 +141,8 @@ export type { LoadingConnection, SqlConnection, SqlLoader, TableData } from './s
 // which one is judged when the opener is called, by `duckdbHostOf`.
 // A self-hosting page hands the browser arm its own `bundles` (`DuckDBBundles`) in
 // place of the CDN's map; rows reach the engine as typed CSV and a def's CSV is typed by the same law (`landing.ts`),
-// so no landing fetches anything — the reader is statically linked.
+// so no landing fetches anything — the reader is statically linked. What reaches it is BYTES, chunk-encoded
+// (`TypedBytes`): the landing has no string ceiling, only the engine's memory.
 export { browserBundlesOf, duckdbConnection, duckdbHostOf, hostFactsOf, landingOf, nodeBundles, nodeConnectionOver, nodeLoggerOf, nodeModuleOf, rowOf, rowsOf, sqlConnectionOver, NO_DUCKDB_HOST } from './duckdbConnection.js';
 export type {
   DuckDBBundle,
@@ -162,7 +163,7 @@ export type {
   Landing,
 } from './duckdbConnection.js';
 export { csvLandingOf, csvReaderSQL, landedColumnsOf, landedTypeOf, rowsLandingOf, rowsReaderSQL, NO_CSV_HEADER, NO_ROWS_TO_LAND, NULL_TOKEN } from './landing.js';
-export type { LandedColumn, LandedType, TypedText } from './landing.js';
+export type { LandedColumn, LandedType, TypedBytes } from './landing.js';
 
 export { serverProvider } from './serverProvider.js';
 export type { ServerProviderOptions } from './serverProvider.js';

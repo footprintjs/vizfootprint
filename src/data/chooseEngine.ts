@@ -31,9 +31,12 @@
  *     ran a third size precisely so this number would be a measurement.
  *
  * WHAT IS STILL UNMEASURED, and says so rather than routing on a guess: no
- * memory FOOTPRINT was sampled, and the bench never found DuckDB's ceiling (it
- * landed 1,000,000 rows without complaint). Both byte thresholds and the wasm
- * row ceiling are therefore `Infinity` — see {@link DEFAULT_ENGINE_THRESHOLDS}.
+ * memory FOOTPRINT was sampled, and the bench found no ceiling of DuckDB's
+ * own — it landed 1,000,000 rows of six columns, and 1,000,000, 1,500,000
+ * and 2,000,000 rows of thirty (the wide pass, 2026-09-12; the last two past
+ * the string cap the rows port USED to have) without complaint. Both byte
+ * thresholds and the wasm row ceiling are therefore `Infinity` — see
+ * {@link DEFAULT_ENGINE_THRESHOLDS}.
  *
  * Router, not a coordination layer (D24: "Keysets stay eliminated as
  * coordination; the VizAdapter small-data insight lives as the memory ENGINE"):
@@ -64,7 +67,14 @@ export interface EngineThresholds {
   readonly maxMemoryBytes: number;
   /** Rows above which `wasm` defers to `server`. */
   readonly maxWasmRows: number;
-  /** Bytes above which `wasm` defers to `server`. */
+  /**
+   * Bytes above which `wasm` defers to `server` — the host's own budget seam,
+   * the same shape as `maxMemoryBytes`. Not a ceiling of the landing's: the rows
+   * port carries bytes, never one string, so no table is refused for its size
+   * before the engine sees it; what a byte number here stands for is the
+   * memory a host knows its page and the engine's heap can hold, which is a
+   * machine fact this library does not guess ({@link DEFAULT_ENGINE_THRESHOLDS}).
+   */
   readonly maxWasmBytes: number;
 }
 
@@ -85,11 +95,27 @@ export interface EngineThresholds {
  * 300,000-row table is comfortably past any plausible 25 MB guess). A host that
  * knows its own byte budget passes `thresholds`.
  *
- * `maxWasmRows` / `maxWasmBytes: Infinity` — UNMEASURED, and deliberately never
- * escalating: the bench never found DuckDB-WASM's ceiling, and `serverProvider`
- * is still a typed stub that answers nothing. A number nobody measured must not
- * be what sends a table to an engine that cannot answer it. A host with a real
- * backend passes its own `thresholds` (or declares `engine: 'server'`).
+ * `maxWasmRows` / `maxWasmBytes: Infinity` — NO CEILING WAS FOUND, and
+ * deliberately never escalating. The landing has NO string ceiling: the rows
+ * port carries BYTES to the engine, chunk-encoded (`landing.ts` ·
+ * `rowsLandingOf`), so the cap V8 puts on one string (~512 MiB — it once
+ * refused 1,000,000 rows × 30 columns as JSON, `Invalid string length`, and
+ * would have refused ~1.4 M rows of that width as one CSV string) is not in
+ * front of the engine any more. What remains is MEMORY — the engine's wasm
+ * heap and the page's own — and `bench/step0-wasm` measured where that
+ * stands on one machine (node v22.16.0, darwin arm64, an Apple M5 Pro with
+ * 48 GiB, 2026-09-12, `wasm-table.md`): 1,500,000 rows × 30 columns (≈ 546 MB
+ * of CSV, over the old cap) landed in 7.3 s and 2,000,000 × 30 (≈ 728 MB) in
+ * 10.6 s, neither heap refusing, and a 100-row window over the 2M table
+ * answered in 18 ms. That is a MACHINE fact — this RAM, this node, a 4 GiB
+ * wasm32 heap — not a library default: a number nobody measured on the
+ * host's own machine must not be what sends a table to `serverProvider`, a
+ * typed stub that answers nothing. A host that knows its budget passes
+ * `thresholds` (or declares `engine: 'server'`). And the byte axis is live
+ * only when a caller FILLS it: the def door counts rows and never bytes
+ * (`../def/buildDashboard.ts` · `statsOf`), so `maxWasmBytes` cannot fire
+ * from a definition today — the field is the host's seam, the same shape as
+ * `maxMemoryBytes`, kept for the host that has a byte to put in it.
  */
 export const DEFAULT_ENGINE_THRESHOLDS: EngineThresholds = {
   maxMemoryRows: 300_000,

@@ -12,6 +12,23 @@
  * rows at all, and a node landing with that repository unreachable hung. The
  * CSV reader is statically linked: a CSV landing needs nothing.
  *
+ * WHAT A LANDING IS: BYTES, never one string. The engine only ever takes bytes
+ * (`registerFileBuffer`; its `registerFileText` is `TextEncoder.encode` and
+ * then that), and a JS string is capped — V8 refuses one past 2²⁹ − 24
+ * characters (`buffer.constants.MAX_STRING_LENGTH`, ~512 MiB) — while a byte
+ * array is not (2⁵³ − 1). The rows writer used to `join` every line into one
+ * string, so the port had a ceiling the engine does not: 1,000,000 rows of 30
+ * columns met it as JSON (`Invalid string length`, before DuckDB saw a byte),
+ * and the CSV carrier merely moved it to ~1.4 M rows of that width. So
+ * {@link rowsLandingOf} writes the CSV in CHUNKS of whole lines
+ * ({@link LANDING_CHUNK_CHARS}) and encodes them into ONE `Uint8Array`
+ * ({@link encodeChunks}) — no string ever holds more than a chunk, and the
+ * bytes decode to exactly the text the one-string writer produced (pinned in
+ * `landing.test.ts`). What remains is memory — the engine's heap and the
+ * page's — which `bench/step0-wasm` measured (1,500,000 and 2,000,000 rows ×
+ * 30 columns, past the old cap, both landed; see `wasm-table.md`) and which
+ * is a machine fact, not a ceiling this module can know.
+ *
  * THE ONE LAW: a column's DuckDB type is the memory engine's own word for its
  * values, in DuckDB's spelling — never the engine's sniff of their bytes.
  *
@@ -88,10 +105,74 @@ export interface LandedColumn {
   readonly type: LandedType;
 }
 
-/** A text and the columns declared over it — what either kind of landing registers, and what its reader is told. */
-export interface TypedText {
-  readonly text: string;
+/**
+ * The BYTES of a landing and the columns declared over them — what either kind
+ * of landing registers, and what its reader is told. Bytes and not text: the
+ * engine takes a `Uint8Array` (`registerFileBuffer`), and a string would put
+ * V8's cap on a table the engine could hold (the header of this file).
+ */
+export interface TypedBytes {
+  readonly bytes: Uint8Array;
   readonly columns: readonly LandedColumn[];
+}
+
+/**
+ * How many CHARACTERS of CSV one chunk holds before it is joined — 2²⁴,
+ * 16,777,216; V8's string cap (2²⁹ − 24) is just short of thirty-two of them.
+ *
+ * WHY a bound by characters and not by rows: a row's width is the data's
+ * (six columns or thirty, a label or a paragraph), and the thing being kept
+ * under a cap is a string's length. WHY this far under the cap: a chunk is
+ * one `join` over whole lines, so the longest string that exists is a chunk
+ * plus its last line, and nothing about a table's width can push that near
+ * the cap — while the chunk is still large enough that a million-row table
+ * is a few dozen of them, not thousands. Injectable (`rowsLandingOf`'s
+ * `chunkChars`) so a test can force a boundary onto a non-ASCII cell and
+ * prove the encoder never splits a character.
+ */
+export const LANDING_CHUNK_CHARS = 1 << 24;
+
+/** The one encoder both kinds of landing use: UTF-8, which is what DuckDB reads a CSV as. */
+const UTF8 = new TextEncoder();
+
+/**
+ * The chunks, encoded into ONE `Uint8Array`: two passes of `encodeInto` — a
+ * measure over one scratch buffer, then the write into a buffer of exactly
+ * the measured total — and never one `encode` per chunk.
+ *
+ * WHY not `encode` each chunk and concatenate (measured 2026-09-12, 1M rows ×
+ * 30 columns, 22 chunks of 16 MB): every `encode` allocates its own
+ * ArrayBuffer, and each allocation lands on a heap the row loop has just
+ * dirtied with a million dead line strings, so V8's external-memory
+ * accounting answered the twenty-two allocations with as many full
+ * collections — 1.5 s for 363 MB, against 77 ms for the one-string writer's
+ * single `encode`. Two buffers is what that writer allocated too (its string,
+ * its bytes): here the scratch is sized for the longest chunk (three bytes is
+ * the most one UTF-16 unit encodes to, so a whole chunk always fits and
+ * `written` is its exact UTF-8 length), and the write pass lands each chunk
+ * at its offset in the exact buffer — 40–50 ms for the same 363 MB. The
+ * array holds the CSV and nothing else, which the browser arm relies on: it
+ * transfers the array's whole buffer to the worker.
+ */
+function encodeChunks(chunks: readonly string[]): Uint8Array {
+  let longest = 0;
+  for (const chunk of chunks) longest = Math.max(longest, chunk.length);
+  const scratch = new Uint8Array(longest * 3);
+  let total = 0;
+  for (const chunk of chunks) total += UTF8.encodeInto(chunk, scratch).written;
+  const bytes = new Uint8Array(total);
+  let at = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i]!;
+    const { read, written } = UTF8.encodeInto(chunk, bytes.subarray(at));
+    // WHY this check: the 3-bytes-per-unit bound above is what guarantees `bytes` is exactly
+    // large enough — if it were ever wrong, `encodeInto` would stop short of the chunk's end
+    // (`read` < the chunk's length) and the rest of this chunk would silently vanish into the
+    // next chunk's span, landing a truncated table with no error. Cheap to catch here.
+    if (read !== chunk.length) throw new Error(`rowsLandingOf: chunk ${i} of ${chunks.length} was truncated mid-encode (${read} of ${chunk.length} code units) — the CSV would have landed silently wrong`);
+    at += written;
+  }
+  return bytes;
 }
 
 /** The bare field that means NULL in a ROWS landing. Any string cell, this one included, is quoted — so the token is never mistaken for it. */
@@ -201,32 +282,58 @@ const FIELD_WRITERS: Readonly<Record<LandedType, (value: unknown) => string>> = 
 // ── Rows: the text and its reader. ───────────────────────────────────────
 
 /**
- * The CSV text for these rows, and the columns it was written under.
+ * The CSV bytes for these rows, and the columns they were written under.
  *
  * Two passes: one to tally each column's type (a cell is written by its
  * column's type, which is not known until every value has been seen), one to
- * write. The header names the columns in the first row's key order; every row
- * ends in a newline.
+ * write. The header names the columns in the first row's key order; every
+ * line — the header too — ends in a newline.
+ *
+ * Written in CHUNKS: lines accumulate until their character count passes
+ * `chunkChars`, then they are joined into one chunk string and let go, and
+ * the next chunk begins; after the loop the chunks are encoded into one
+ * `Uint8Array` ({@link encodeChunks} — after, not during: an ArrayBuffer
+ * allocated mid-loop costs a full collection each). A chunk boundary falls
+ * only at a line end — a line is joined whole, so a multi-byte character can
+ * never be split between two chunks — and every line is `\n`-terminated in
+ * whichever chunk it lands in (the empty last element the join is handed),
+ * so the bytes decode to exactly the text a single `join` would have
+ * produced. The header is the first chunk's first line, never a chunk of its
+ * own. No string ever holds more than a chunk plus one line; together the
+ * chunks hold what the one string used to.
+ *
+ * @param chunkChars the bound, {@link LANDING_CHUNK_CHARS} unless a test forces a boundary.
  */
-export function rowsLandingOf(rows: readonly Row[]): TypedText {
+export function rowsLandingOf(rows: readonly Row[], chunkChars: number = LANDING_CHUNK_CHARS): TypedBytes {
   const first = rows[0];
   if (first === undefined) throw new Error(NO_ROWS_TO_LAND);
   const names = Object.keys(first);
   const columns = landedColumnsOf(names, rows);
   const writers = columns.map((column) => FIELD_WRITERS[column.type]);
-  const lines = new Array<string>(rows.length + 1);
-  lines[0] = names.map((name) => `"${name.replaceAll('"', '""')}"`).join(',');
+  const chunks: string[] = [];
+  let lines: string[] = [names.map((name) => `"${name.replaceAll('"', '""')}"`).join(',')];
+  let chars = lines[0]!.length + 1;
+  const flush = (): void => {
+    lines.push(''); // so the join ends the last line with `\n` too — one flat string, no trailing concat
+    chunks.push(lines.join('\n'));
+    lines = [];
+    chars = 0;
+  };
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]!;
     const fields = new Array<string>(names.length);
     for (let j = 0; j < names.length; j++) fields[j] = writers[j]!(row[names[j]!]);
-    lines[i + 1] = fields.join(',');
+    const line = fields.join(',');
+    lines.push(line);
+    chars += line.length + 1;
+    if (chars >= chunkChars) flush();
   }
-  return { text: `${lines.join('\n')}\n`, columns };
+  if (lines.length > 0) flush();
+  return { bytes: encodeChunks(chunks), columns };
 }
 
 /**
- * The reader that lands the text {@link rowsLandingOf} wrote: every option
+ * The reader that lands the bytes {@link rowsLandingOf} wrote: every option
  * spelled out, none detected. `columns={…}` names and types the columns (and
  * turns detection off); `header=true` skips the line that repeats the names;
  * the delimiter, quote and escape are what the writer wrote; `nullstr` is the
@@ -239,16 +346,20 @@ export function rowsReaderSQL(file: string, columns: readonly LandedColumn[]): s
 // ── CSV text: the def's bytes, the library's types. ──────────────────────
 
 /**
- * A def's CSV text as a landing: the text untouched, and the columns the
- * memory engine's own sniffer says it holds (`parseCSVTyped` — the first line
- * is the header, an empty field is null, a column is a number or a boolean
- * only when every non-empty cell is one, and text is never a date), tallied
- * into DuckDB's words by the same rule as rows. Two engines, one reading.
+ * A def's CSV text as a landing: the text's own bytes, untouched, and the
+ * columns the memory engine's own sniffer says it holds (`parseCSVTyped` — the
+ * first line is the header, an empty field is null, a column is a number or a
+ * boolean only when every non-empty cell is one, and text is never a date),
+ * tallied into DuckDB's words by the same rule as rows. Two engines, one reading.
+ *
+ * Encoded ONCE, whole: the def's string already exists — whatever cap a string
+ * has, this one is already under it — so there is nothing to chunk, only the
+ * one `encode` the engine's own `registerFileText` would have done.
  */
-export function csvLandingOf(text: string): TypedText {
+export function csvLandingOf(text: string): TypedBytes {
   const { header, rows } = parseCSVTyped(text);
   if (header.length === 0) throw new Error(NO_CSV_HEADER);
-  return { text, columns: landedColumnsOf(header, rows) };
+  return { bytes: UTF8.encode(text), columns: landedColumnsOf(header, rows) };
 }
 
 /**
