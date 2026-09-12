@@ -2,11 +2,13 @@
 /**
  * Playwright smoke over the WASM page — real headless Chromium, a real Worker,
  * the real `@duckdb/duckdb-wasm` bundle instantiated from this server's own
- * `/duckdb/*` mirror. It proves the one thing no node test can: that the
- * BROWSER arm of `src/data/duckdbConnection.ts` — `duckdbHostOf` answering
- * `browser`, `selectBundle`, a Worker off a blob, `AsyncDuckDB.instantiate`,
- * `open(READ_CONFIG)` — opens, lands a table, and answers the library's own
- * questions with the same values a recount of the same rows gives:
+ * `/duckdb/*` mirror, handed to the opener through the library's `bundles`
+ * option. It proves the one thing no node test can: that the BROWSER arm of
+ * `src/data/duckdbConnection.ts` — `duckdbHostOf` answering `browser`,
+ * `selectBundle` over the caller's map, a Worker off a blob,
+ * `AsyncDuckDB.instantiate`, `open(READ_CONFIG)` — opens, lands a table, and
+ * answers the library's own questions with the same values a recount of the
+ * same rows gives:
  *
  *   - the page's host judgement is `browser`, and a `Worker` exists;
  *   - the sorted window's first ten keys, in amount order;
@@ -16,14 +18,17 @@
  *   - the count under an interval clause landed through the session;
  *   - the refresh's delta (`replaceRows` over the async connection), and a
  *     window after it reading the new rows;
- *   - the bundle came from `/duckdb/*` (this origin, not a CDN), a dedicated
- *     Worker really ran, and no console or page error;
- *   - and THE FINDING this proof made: landing `rows` (`read_json_auto`) makes
- *     the bundle fetch the `json` extension from DuckDB's own extension
- *     repository over the network — the one request that leaves this origin —
- *     while the CSV landing (`read_csv_auto`) fetches nothing. Pinned, so a
- *     bundle that stops needing it (or a landing that starts needing more) is
- *     noticed rather than silently accepted.
+ *   - the bundle came from `/duckdb/*` (this origin, not a CDN) — the flavour
+ *     read off the REQUEST LOG, which is the only witness of what
+ *     `selectBundle` chose — a dedicated Worker really ran, and no console or
+ *     page error;
+ *   - and THE PIN this proof carries: ZERO requests leave this origin. Landing
+ *     `rows` used to make the bundle fetch its `json` extension from DuckDB's
+ *     own extension repository (the JSON carrier, `read_json_auto`); rows now
+ *     land as typed CSV (`src/data/landing.ts`), whose reader is statically
+ *     linked, and the `csv` landing never needed anything. Pinned at zero, so a
+ *     landing that starts needing the network again is noticed rather than
+ *     silently accepted.
  *
  * Every expected value is computed HERE from `wasmRows.ts`, the module the
  * page landed — never read back from another engine.
@@ -112,26 +117,27 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('the browser opens 
     expect(await text(page, 'engine')).toBe('wasm');
   });
 
-  it('the host judgement is `browser`, made from a real `Worker`, and the bundle came from this server’s /duckdb/* mirror', async () => {
+  it('the host judgement is `browser`, made from a real `Worker`, and the bundle came from this server’s /duckdb/* mirror through the `bundles` option', async () => {
     expect(await text(page, 'worker')).toBe('function');
     expect(await text(page, 'host')).toBe('browser');
-    const bundle = await json<{ mainModule: string; mainWorker: string | null }>(page, 'bundle');
-    // one of the two browser bundles, and the worker script of the SAME flavour
-    expect(bundle.mainModule).toMatch(/^\/duckdb\/duckdb-(eh|mvp)\.wasm$/);
-    const flavour = /duckdb-(eh|mvp)\.wasm$/.exec(bundle.mainModule)?.[1];
-    expect(bundle.mainWorker).toBe(`/duckdb/duckdb-browser-${String(flavour)}.worker.js`);
+    // the map the page handed the opener: both flavours, at this origin
+    const bundles = await json<{ mvp: { mainModule: string; mainWorker: string }; eh: { mainModule: string; mainWorker: string } }>(page, 'bundles');
+    expect(bundles.mvp).toEqual({ mainModule: `${handle.url}/duckdb/duckdb-mvp.wasm`, mainWorker: `${handle.url}/duckdb/duckdb-browser-mvp.worker.js` });
+    expect(bundles.eh).toEqual({ mainModule: `${handle.url}/duckdb/duckdb-eh.wasm`, mainWorker: `${handle.url}/duckdb/duckdb-browser-eh.worker.js` });
+    // which flavour `selectBundle` chose is read off the REQUEST LOG: exactly one `.wasm` module was fetched, from HERE
+    const modules = requests.filter((url) => /\/duckdb\/duckdb-(eh|mvp)\.wasm$/.test(url));
+    expect(modules, modules.join('\n')).toHaveLength(1);
+    expect(modules[0]!.startsWith(`${handle.url}/duckdb/`)).toBe(true);
+    const flavour = /duckdb-(eh|mvp)\.wasm$/.exec(modules[0]!)![1]!;
+    // …and the worker script of the SAME flavour, from here too — never a CDN
+    expect(requests).toContain(`${handle.url}/duckdb/duckdb-browser-${flavour}.worker.js`);
     // a dedicated Worker really ran: Chromium reported one, spawned off a blob as the opener does it
     expect(workers.length).toBeGreaterThanOrEqual(1);
     expect(workers[0]!.url()).toMatch(/^blob:/);
-    // the module and the worker script were fetched from HERE, never a CDN
-    expect(requests).toContain(`${handle.url}${bundle.mainModule}`);
-    expect(requests).toContain(`${handle.url}${String(bundle.mainWorker)}`);
-    // THE FINDING: exactly ONE request left this origin, and it is not a bundle — it is DuckDB autoloading its
-    // `json` extension (the flavour of the bundle it chose) for `read_json_auto`, the reader `rows` land through.
-    // The CSV table landed on the same connection and added nothing: `read_csv_auto` is core.
+    // THE PIN: ZERO requests left this origin. The rows table landed as typed CSV and the CSV table as CSV —
+    // both through the statically linked reader — so nothing was autoloaded from DuckDB's extension repository.
     const left = requests.filter((url) => !url.startsWith(handle.url) && !url.startsWith('blob:'));
-    expect(left, left.join('\n')).toHaveLength(1);
-    expect(left[0]).toMatch(new RegExp(`^https://extensions\\.duckdb\\.org/v[\\d.]+/wasm_${String(flavour)}/json\\.duckdb_extension\\.wasm$`));
+    expect(left, left.join('\n')).toHaveLength(0);
   });
 
   it('the CSV table landed through the opener’s other reader: three rows, an integer and a text column', async () => {
@@ -217,5 +223,52 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('the browser opens 
   it('no console error, no page error — the Worker, the fetches and the casts all went quietly', () => {
     expect(consoleErrors).toEqual([]);
     expect(pageErrors).toEqual([]);
+  });
+});
+
+/**
+ * A SEPARATE page and browser from the suite above: this one 404s the very
+ * bundle module the page asks for, standing in for a self-hosting site whose
+ * `{ bundles }` map has a wrong path. Before `BUNDLE_INSTANTIATE_TIMEOUT_MS`
+ * (`duckdbConnection.ts`), a 404'd module threw INSIDE the worker — a
+ * `WebAssembly.compile` error the worker's own uncaught-exception path never
+ * turns into a rejection of the `instantiate()` promise the main thread holds
+ * — so the page hung past this file's own 150s wait, forever in a real
+ * deployment. This proves the bound: the page reaches `data-wasm-done` (never
+ * throws — `wasmBackend`'s law) with a NAMED sentence in `notes`, not a hang.
+ */
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('a wrong bundle path gets a sentence, not a hang', () => {
+  let handle: Awaited<ReturnType<typeof startGallery>>;
+  let browser: Browser;
+  let page: Page;
+
+  beforeAll(async () => {
+    handle = await startGallery({ port: 0 });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
+    page = await browser.newPage({ viewport: { width: 1000, height: 720 } });
+    // every `.wasm` module this origin serves under /duckdb/*, 404'd — whichever flavour `selectBundle` picks meets it
+    await page.route('**/duckdb/duckdb-*.wasm', async (route) => route.fulfill({ status: 404, body: 'not found' }));
+    await page.goto(`${handle.url}/wasm`);
+    // BOUNDED: the timeout this test exists to prove, plus room for the page's own work either side of it
+    await page.waitForSelector('[data-wasm-done], [data-wasm-error]', { timeout: 30_000 });
+  }, 40_000);
+
+  afterAll(async () => {
+    await browser.close();
+    await handle.close();
+  });
+
+  it('settles — never a page error — and names the wrong path in the build notes, for BOTH wasm tables', async () => {
+    expect(await page.locator('[data-wasm-error]').count(), 'the page threw instead of noting the failure').toBe(0);
+    expect(await page.locator('[data-wasm-done]').count(), 'the proof never reached the end').toBe(1);
+    const notes = await json<string[]>(page, 'notes');
+    expect(notes, notes.join('\n')).toHaveLength(2); // the rows table and the csv table both waited on the one connection that never opened
+    for (const note of notes) expect(note).toMatch(/DuckDB-WASM did not open within 20000ms.*duckdb-(mvp|eh)\.wasm.*duckdb-browser-(mvp|eh)\.worker\.js.*may not be reachable there/s);
+  });
+
+  it('every read of the table answers the SAME cause, as a rejection — never a value guessed at', async () => {
+    const window = await json<Window>(page, 'sorted');
+    expect(window.ok).toBe(false);
+    expect(window.rejected, 'a stuck connection must still name itself on every later read').toMatch(/DuckDB-WASM did not open within 20000ms/);
   });
 });

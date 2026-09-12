@@ -178,7 +178,9 @@ async function brushArms(engine: BenchEngine, provider: DataProvider, size: Size
  * WHY the wide landing is NOT a timed arm: the load arm is the six-column
  * table's, and this packet measures reads; the landing's wall time goes to the
  * log, and a landing the port refuses is a ceiling in `failures[]` — which is
- * a measurement too (law 3), and at 1,000,000 rows it is the one this arm found.
+ * a measurement too (law 3). At 1,000,000 rows the JSON carrier met one (a
+ * `JSON.stringify` past V8's string cap); whether the typed-CSV carrier does is
+ * what this arm measures now, and `wasm-table.md` says which.
  */
 async function wideArms(size: Size, rows: readonly Row[], and: readonly PredicateClause[]): Promise<void> {
   const n = rows.length;
@@ -271,7 +273,7 @@ async function runSize(size: Size, rows: Row[], weeks: readonly string[], picked
         rows: n,
         reps: loadReps,
         warmup: loadWarmup,
-        note: 'a fresh database per rep: instantiate the wasm module + registerFileText(rows as JSON) + CREATE TABLE AS SELECT … row_number()',
+        note: 'a fresh database per rep: instantiate the wasm module + registerFileText(rows as typed CSV, `landing.ts`) + CREATE TABLE AS SELECT … row_number()',
       },
       async () => {
         opened.push(await openLoaded('data', rows));

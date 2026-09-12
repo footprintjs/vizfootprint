@@ -245,7 +245,7 @@ describe('step0-wasm bench · part A · the instruments are alive', () => {
       // DuckDB's own words for its columns are the wire types the wide arm claims
       // to convert, both engines count the same rows in it, and the same window's
       // first row means the same thing out of both — a BIGINT back as a number, a
-      // DATE and a TIMESTAMP back as the instant the memory engine holds.
+      // day and an instant back as the very strings the memory engine holds.
       const wideRows = widen(rows);
       await connection.load(WIDE_TABLE, { kind: 'rows', rows: wideRows });
       const described = (await connection.query(`DESCRIBE "${WIDE_TABLE}"`)).filter((row) => row['column_name'] !== '__row');
@@ -265,10 +265,11 @@ describe('step0-wasm bench · part A · the instruments are alive', () => {
       const [liveFirst, foldFirst] = [wideOverSQL.rows![0]!, wideInMemory.rows![0]!];
       expect(Object.keys(liveFirst)).toHaveLength(WIDE_COLUMNS);
       expect(Object.keys(foldFirst)).toHaveLength(WIDE_COLUMNS);
-      for (const family of ['int', 'dec', 'str', 'bool', 'date'] as const) expect(liveFirst[`${family}_1`], `${family}_1 reads the same out of both engines`).toBe(foldFirst[`${family}_1`]);
+      for (const family of ['int', 'dec', 'str', 'bool', 'date', 'ts'] as const) expect(liveFirst[`${family}_1`], `${family}_1 reads the same out of both engines`).toBe(foldFirst[`${family}_1`]);
       expect(typeof liveFirst['int_1'], 'a BIGINT comes back as a number, never a bigint').toBe('number');
-      expect(typeof liveFirst['ts_1'], 'a TIMESTAMP comes back as ISO text').toBe('string');
-      expect(new Date(liveFirst['ts_1'] as string).getTime(), 'the same instant, whichever engine spelled it').toBe(new Date(foldFirst['ts_1'] as string).getTime());
+      // the instant is a VARCHAR on the wire (a string was landed), so it comes back as the SAME text — not merely the same instant
+      expect(typeof liveFirst['ts_1'], 'an ISO instant comes back as text').toBe('string');
+      expect(liveFirst['ts_1'], 'the same spelling, whichever engine answered').toBe(foldFirst['ts_1']);
     } finally {
       await connection.close?.();
     }

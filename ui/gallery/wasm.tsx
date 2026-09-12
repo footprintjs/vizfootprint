@@ -3,10 +3,11 @@
  *
  * `src/data/duckdbConnection.ts` opens DuckDB-WASM two ways, and every test the
  * library runs takes the node arm. This page is the browser arm's only run:
- * `duckdbConnection()` with NO arguments, so the host judgement
+ * `duckdbConnection({ bundles })` with NO host named, so the host judgement
  * (`duckdbHostOf`) is what is proven — a page with a `Worker` is judged
- * `browser`, and the opener then selects a bundle, spawns a Worker off a blob,
- * instantiates an `AsyncDuckDB` and opens it with `READ_CONFIG`.
+ * `browser`, and the opener then selects a bundle from the map it was handed,
+ * spawns a Worker off a blob, instantiates an `AsyncDuckDB` and opens it with
+ * `READ_CONFIG`.
  *
  * Everything after that is the library's own machinery over that connection —
  * a def whose tables are declared `engine: 'wasm'` (one landed as rows, one as
@@ -19,19 +20,37 @@
  * notes), and anything thrown lands under `data-wasm-error`. Nothing is
  * swallowed.
  *
- * The bundles are NOT fetched from a CDN: the page's build resolves the
- * package to `duckdbLocal.ts`, whose bundle map points at this server's own
- * `/duckdb/*` mirror of the package's `dist/` (see `build.mjs`, `serve.mjs`).
+ * The bundles are NOT fetched from a CDN: the page hands the opener its own
+ * map through the library's `bundles` option — this server's `/duckdb/*`
+ * mirror of the package's `dist/` (`serve.mjs`) — which is the seam a
+ * self-hosting site uses. Nothing else leaves this origin: rows land as typed
+ * CSV (`src/data/landing.ts`), and the smoke counts the requests that do.
  */
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { buildDashboardAsync } from '../../src/def/index.js';
 import type { DashboardDef } from '../../src/def/index.js';
 import { duckdbConnection, duckdbHostOf, hostFactsOf } from '../../src/data/index.js';
+import type { DuckDBBundles } from '../../src/data/index.js';
 import type { SourceAdapter } from '../../src/source/index.js';
 import type { Cause } from '../../src/cause/index.js';
-import { chosenBundle } from './duckdbLocal.js';
 import { WASM_CSV, WASM_CSV_TABLE, WASM_TABLE, wasmRows, wasmRowsAfter } from './wasmRows.js';
+
+/** Where `serve.mjs` mirrors `node_modules/@duckdb/duckdb-wasm/dist/` (its `DUCKDB_ROUTE`, spelled once more here because a page cannot import a server). */
+const DUCKDB_ROUTE = '/duckdb/';
+
+/**
+ * The bundle map the opener selects from: the two browser flavours, at THIS
+ * origin. Absolute URLs, because the opener runs the worker off a `blob:` URL,
+ * which is no base for a relative `importScripts`.
+ */
+function localBundles(): DuckDBBundles {
+  const at = (file: string): string => new URL(`${DUCKDB_ROUTE}${file}`, globalThis.location.href).href;
+  return {
+    mvp: { mainModule: at('duckdb-mvp.wasm'), mainWorker: at('duckdb-browser-mvp.worker.js') },
+    eh: { mainModule: at('duckdb-eh.wasm'), mainWorker: at('duckdb-browser-eh.worker.js') },
+  };
+}
 
 /** One answer: the attribute suffix it is written under, and its text. */
 type Answer = readonly [key: string, text: string];
@@ -73,9 +92,9 @@ function pageSource(): SourceAdapter {
 const DEF: DashboardDef = {
   meta: { title: 'vizfootprint-ui — wasm' },
   data: {
-    // the proof table: rows, landed as JSON text (`read_json_auto`)
+    // the proof table: rows, landed as typed CSV text (`landing.ts`)
     [WASM_TABLE]: { source: { format: 'rows', via: 'http', at: 'page://ledger' }, engine: 'wasm', key: 'id' },
-    // the opener's other reader: CSV text (`read_csv_auto`) — three rows, so what THIS landing fetched can be told from the first's
+    // the opener's other kind: the def's own CSV text (`read_csv(…, types={…})`) — three rows, so what THIS landing fetched can be told from the first's
     [WASM_CSV_TABLE]: { csv: WASM_CSV, engine: 'wasm' },
   },
   actors: { brush: { actor: 'user', label: 'Amount brush' } },
@@ -88,12 +107,13 @@ async function prove(report: (key: string, value: unknown) => void): Promise<voi
   report('worker', typeof Worker);
   report('host', duckdbHostOf(hostFactsOf(globalThis)));
 
-  // `duckdbConnection()` with NO arguments: the host is judged, never named
-  const dashboard = await buildDashboardAsync(DEF, { openSqlConnection: duckdbConnection(), sources: [pageSource()] });
+  // `duckdbConnection({ bundles })`: the host is judged, never named; only WHERE the bundles are is said
+  const bundles = localBundles();
+  const dashboard = await buildDashboardAsync(DEF, { openSqlConnection: duckdbConnection({ bundles }), sources: [pageSource()] });
   report('notes', dashboard.notes);
   report('engine', dashboard.engines[WASM_TABLE]);
-  const bundle = chosenBundle();
-  report('bundle', bundle === null ? null : { mainModule: new URL(bundle.mainModule).pathname, mainWorker: bundle.mainWorker === null ? null : new URL(bundle.mainWorker).pathname });
+  // the map the opener was handed — which flavour it chose is a fact the smoke reads off the request log, not off this page
+  report('bundles', bundles);
 
   const session = dashboard.createSession({ as: 'user' });
   const sort = [{ field: 'amount', dir: 'desc' as const }];

@@ -81,10 +81,11 @@ export const noConnectionRefusal = (table: string, cause: string): string =>
 /**
  * What a def's inline table hands this engine.
  *
- * WHY `csv` keeps its text instead of being decoded here: DuckDB reads CSV
- * itself, and a text this library parsed into objects and re-serialised for the
- * backend would be two parsers' guesses about the same bytes, only one of which
- * ran the query.
+ * WHY `csv` keeps its text instead of being decoded here: DuckDB reads the
+ * def's own bytes and detects their dialect; only the TYPES are the library's
+ * (`../data/landing.ts` · `csvLandingOf`, the memory engine's own sniff of the
+ * same text), so both engines describe one table without this library
+ * re-serialising anything.
  */
 export function wasmBytesOf(source: { rows?: readonly unknown[]; csv?: string }): WasmBytes {
   if (typeof source.csv === 'string') return { data: { kind: 'csv', text: source.csv } };

@@ -139,8 +139,13 @@ export type { LoadingConnection, SqlConnection, SqlLoader, TableData } from './s
 // opener the factory returns is (`duckdbConnection.ts` holds the dynamic import).
 // It opens in EITHER host — a browser's Worker or node's blocking bundle — and
 // which one is judged when the opener is called, by `duckdbHostOf`.
-export { duckdbConnection, duckdbHostOf, hostFactsOf, nodeBundles, nodeConnectionOver, nodeLoggerOf, nodeModuleOf, rowOf, rowsOf, sqlConnectionOver, NO_DUCKDB_HOST } from './duckdbConnection.js';
+// A self-hosting page hands the browser arm its own `bundles` (`DuckDBBundles`) in
+// place of the CDN's map; rows reach the engine as typed CSV and a def's CSV is typed by the same law (`landing.ts`),
+// so no landing fetches anything — the reader is statically linked.
+export { browserBundlesOf, duckdbConnection, duckdbHostOf, hostFactsOf, landingOf, nodeBundles, nodeConnectionOver, nodeLoggerOf, nodeModuleOf, rowOf, rowsOf, sqlConnectionOver, NO_DUCKDB_HOST } from './duckdbConnection.js';
 export type {
+  DuckDBBundle,
+  DuckDBBundles,
   DuckDBConnectionOptions,
   DuckDBDatabase,
   DuckDBHandle,
@@ -154,7 +159,10 @@ export type {
   FileResolver,
   HostFacts,
   HostGlobals,
+  Landing,
 } from './duckdbConnection.js';
+export { csvLandingOf, csvReaderSQL, landedColumnsOf, landedTypeOf, rowsLandingOf, rowsReaderSQL, NO_CSV_HEADER, NO_ROWS_TO_LAND, NULL_TOKEN } from './landing.js';
+export type { LandedColumn, LandedType, TypedText } from './landing.js';
 
 export { serverProvider } from './serverProvider.js';
 export type { ServerProviderOptions } from './serverProvider.js';

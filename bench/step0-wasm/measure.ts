@@ -284,27 +284,33 @@ export const WIDE_COLUMNS = 30;
 
 /**
  * The six generated column families, each named for the wire type DuckDB gives
- * it through the shipped rows port (`read_json_auto`), MEASURED and not
- * assumed — two of the brief's six were not what the port lands:
+ * it through the shipped rows port, MEASURED and not assumed. The port lands
+ * rows as CSV with every column's type DECLARED from the rows' own tally
+ * (`src/data/landing.ts`), so a family's wire type is the tally's word for
+ * its JS values, not a sniffer's guess about their spelling:
  *
  *   int_N   BIGINT     an integer; `castBigIntToDouble` turns it back into a number on every read
- *   dec_N   DOUBLE     a fractional number. NOT a DECIMAL: the JSON reader infers DOUBLE for
- *                      every fraction, so `castDecimalToDouble` never fires on this path
- *   date_N  DATE       a day, `YYYY-MM-DD` — epoch millis on the wire, read back as the day's ISO text
- *   ts_N    TIMESTAMP  an instant, `YYYY-MM-DDTHH:MM:SSZ` — epoch millis on the wire, read back as ISO.
- *                      WHY seconds and not `Date#toISOString()`: the reader types `…:30.000Z` as
- *                      VARCHAR (measured 2026-09-11), and a VARCHAR converts nothing on the wire
+ *   dec_N   DOUBLE     a fractional number. NOT a DECIMAL: a decimal column is declared DOUBLE,
+ *                      so `castDecimalToDouble` never fires on this path
+ *   date_N  VARCHAR    a day, `YYYY-MM-DD` — a STRING in JS, so a VARCHAR on the wire, read back
+ *                      byte for byte; nothing is converted. (The JSON reader this port used to
+ *                      write sniffed it into a DATE and converted epoch millis back to the day —
+ *                      measured 2026-09-11, before and after.)
+ *   ts_N    VARCHAR    an instant, `YYYY-MM-DDTHH:MM:SSZ` — the same: a string in, the same string
+ *                      out. (The JSON reader typed THIS spelling a TIMESTAMP and `…:30.000Z` a
+ *                      VARCHAR — the drift the declared types removed.)
  *   str_N   VARCHAR    a label from a small pool
  *   bool_N  BOOLEAN    a coin
  *
  * `wasm.test.ts` holds DuckDB's `DESCRIBE` to this list, so a reader of the
- * wide arm knows which conversions the number contains.
+ * wide arm knows which conversions the number contains: BIGINT and BOOLEAN
+ * cells are converted on the wire, DOUBLE and VARCHAR cells are copied.
  */
 export const WIDE_FAMILIES = {
   int: 'BIGINT',
   dec: 'DOUBLE',
-  date: 'DATE',
-  ts: 'TIMESTAMP',
+  date: 'VARCHAR',
+  ts: 'VARCHAR',
   str: 'VARCHAR',
   bool: 'BOOLEAN',
 } as const;

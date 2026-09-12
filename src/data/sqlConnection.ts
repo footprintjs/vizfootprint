@@ -71,8 +71,10 @@ export function canLoad(connection: SqlConnection): connection is LoadingConnect
 /**
  * The statement that lands a table WITH its source order.
  *
- * @param from the reader the rows come out of, already rendered — e.g.
- *   `read_csv('cases.csv', auto_detect=true)` or `read_json_auto('cases.json')`.
+ * @param from the reader the rows come out of, already rendered — the typed
+ *   `read_csv('cases.csv', …, columns={…})` a rows landing writes, or the
+ *   `read_csv('cases.csv', header=true, types={…})` a def's CSV text is read by
+ *   (`landing.ts` · `rowsReaderSQL`, `csvReaderSQL`).
  *
  * WHY `row_number() OVER ()` and not a later `ALTER TABLE`: the number has to
  * be assigned by the SAME statement that reads the source, while the reader is

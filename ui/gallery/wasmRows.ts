@@ -66,11 +66,13 @@ export function wasmRowsAfter(): readonly WasmRow[] {
 }
 
 /**
- * A second, tiny table landed through the opener's OTHER reader. `rows` land as
- * JSON text read by `read_json_auto`; `csv` lands as CSV text read by
- * `read_csv_auto`. The smoke watches what each landing fetched — the two
- * readers are not alike in what they need from the network, and that is a
- * fact this page measures rather than assumes.
+ * A second, tiny table landed through the opener's OTHER kind. `rows` land as
+ * CSV text the library writes, read by `read_csv(…, columns={…})`; `csv` lands
+ * as the def's own text, read by `read_csv(…, header=true, types={…})` — both
+ * typed by one law (`src/data/landing.ts`). The smoke watches what each
+ * landing fetched — neither needs anything from the network, and that is a
+ * fact this page measures rather than assumes (the JSON carrier `rows` used to
+ * ride fetched an extension).
  */
 export const WASM_CSV_TABLE = 'csvbit';
 export const WASM_CSV = 'code,qty\nA,1\nB,2\nC,3\n';

@@ -13,23 +13,29 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  browserBundlesOf,
+  bundleTimeoutSentence,
   duckdbConnection,
   duckdbHostOf,
   hostFactsOf,
+  landingOf,
   nodeBundles,
   nodeConnectionOver,
   nodeLoggerOf,
+  withTimeout,
   nodeModuleOf,
   rowOf,
   rowsOf,
   sqlConnectionOver,
   NO_DUCKDB_HOST,
+  type DuckDBBundles,
   type DuckDBDatabase,
   type DuckDBHandle,
   type DuckDBNodeBindings,
   type DuckDBNodeModule,
   type DuckDBResult,
 } from './duckdbConnection.js';
+import { csvReaderSQL, rowsReaderSQL, NO_CSV_HEADER, NO_ROWS_TO_LAND } from './landing.js';
 import { canLoad } from './sqlConnection.js';
 import { ROW_ORDER_COLUMN } from './sqlWindow.js';
 
@@ -102,20 +108,45 @@ describe('the port over an open handle', () => {
     expect(handle.asked).toEqual(['SELECT COUNT(*) AS n FROM "cases"']);
   });
 
-  it('loads rows: registered as JSON text under the table s own name, then landed WITH the source-order column', async () => {
+  it('loads rows: registered as CSV text with every column typed, under the table s own name, then landed WITH the source-order column', async () => {
     const database = fakeDatabase();
     const handle = fakeHandle();
     await sqlConnectionOver(database, handle).load('cases', { kind: 'rows', rows: [{ id: 1 }, { id: 2 }] });
-    expect(database.registered).toEqual([['cases.json', '[{"id":1},{"id":2}]']]);
-    expect(handle.asked[0]).toBe(`CREATE OR REPLACE TABLE "cases" AS SELECT *, (row_number() OVER ()) - 1 AS "${ROW_ORDER_COLUMN}" FROM read_json_auto('cases.json')`);
+    expect(database.registered).toEqual([['cases.csv', '"id"\n1\n2\n']]);
+    expect(handle.asked[0]).toBe(
+      `CREATE OR REPLACE TABLE "cases" AS SELECT *, (row_number() OVER ()) - 1 AS "${ROW_ORDER_COLUMN}" FROM ${rowsReaderSQL('cases.csv', [{ name: 'id', type: 'BIGINT' }])}`,
+    );
+    // the reader is the statically linked CSV one, its options spelled out and its columns declared — nothing for the engine to detect, nothing for it to fetch
+    expect(handle.asked[0]).toContain(`FROM read_csv('cases.csv', header=true, delim=',', quote='"', escape='"', new_line='\\n', nullstr='\\N', allow_quoted_nulls=false, columns={'id': 'BIGINT'})`);
   });
 
-  it('loads CSV text the same way, through the CSV reader', async () => {
+  it('refuses to land zero rows, in the carrier s own words — the JSON reader used to land a phantom column', async () => {
     const database = fakeDatabase();
     const handle = fakeHandle();
-    await sqlConnectionOver(database, handle).load('weeks', { kind: 'csv', text: 'id\n1' });
-    expect(database.registered).toEqual([['weeks.csv', 'id\n1']]);
-    expect(handle.asked[0]).toContain("FROM read_csv_auto('weeks.csv')");
+    await expect(sqlConnectionOver(database, handle).load('cases', { kind: 'rows', rows: [] })).rejects.toThrow(NO_ROWS_TO_LAND);
+    expect(database.registered).toEqual([]);
+    expect(handle.asked).toEqual([]);
+  });
+
+  it('loads CSV text as it came — the def s bytes are the def s — with its types declared by the library s own sniff of it', async () => {
+    const database = fakeDatabase();
+    const handle = fakeHandle();
+    await sqlConnectionOver(database, handle).load('weeks', { kind: 'csv', text: 'id,day\n1,2026-04-05' });
+    expect(database.registered).toEqual([['weeks.csv', 'id,day\n1,2026-04-05']]);
+    // the dialect is DuckDB's to detect; the types are the memory engine's words — the day is a string, never a sniffed DATE
+    expect(handle.asked[0]).toContain(`FROM read_csv('weeks.csv', header=true, types={'id': 'BIGINT', 'day': 'VARCHAR'})`);
+  });
+
+  it('refuses a CSV text with no header, in the carrier s own words', async () => {
+    const database = fakeDatabase();
+    const handle = fakeHandle();
+    await expect(sqlConnectionOver(database, handle).load('weeks', { kind: 'csv', text: '' })).rejects.toThrow(NO_CSV_HEADER);
+    expect(database.registered).toEqual([]);
+  });
+
+  it('both kinds are ONE landing: the same file name, the same shape, the same type law, decided in one place', () => {
+    expect(landingOf('t', { kind: 'csv', text: 'a\n1' })).toEqual({ file: 't.csv', text: 'a\n1', from: csvReaderSQL('t.csv', [{ name: 'a', type: 'BIGINT' }]) });
+    expect(landingOf('t', { kind: 'rows', rows: [{ a: 1 }] })).toEqual({ file: 't.csv', text: '"a"\n1\n', from: rowsReaderSQL('t.csv', [{ name: 'a', type: 'BIGINT' }]) });
   });
 
   it('closes the connection before it terminates the database — the other order leaves a worker running', async () => {
@@ -238,8 +269,10 @@ describe('the port over the node bundle is the SAME port, promised', () => {
   it('lands a table through the same registered file and the same one statement as the browser port', async () => {
     const bindings = fakeBindings();
     await nodeConnectionOver(bindings).load('cases', { kind: 'rows', rows: [{ id: 1 }] });
-    expect(bindings.registered).toEqual([['cases.json', '[{"id":1}]']]);
-    expect(bindings.asked[0]).toBe(`CREATE OR REPLACE TABLE "cases" AS SELECT *, (row_number() OVER ()) - 1 AS "${ROW_ORDER_COLUMN}" FROM read_json_auto('cases.json')`);
+    expect(bindings.registered).toEqual([['cases.csv', '"id"\n1\n']]);
+    expect(bindings.asked[0]).toBe(
+      `CREATE OR REPLACE TABLE "cases" AS SELECT *, (row_number() OVER ()) - 1 AS "${ROW_ORDER_COLUMN}" FROM ${rowsReaderSQL('cases.csv', [{ name: 'id', type: 'BIGINT' }])}`,
+    );
     expect(canLoad(nodeConnectionOver(bindings))).toBe(true);
   });
 
@@ -247,6 +280,52 @@ describe('the port over the node bundle is the SAME port, promised', () => {
     const bindings = fakeBindings();
     await nodeConnectionOver(bindings).close?.();
     expect(bindings.ended()).toEqual(['connected', 'closed', 'reset']);
+  });
+});
+
+describe('where the browser arm s bundles come from is the caller s to say', () => {
+  const own: DuckDBBundles = {
+    mvp: { mainModule: 'https://example.test/duckdb/duckdb-mvp.wasm', mainWorker: 'https://example.test/duckdb/duckdb-browser-mvp.worker.js' },
+    eh: { mainModule: 'https://example.test/duckdb/duckdb-eh.wasm', mainWorker: 'https://example.test/duckdb/duckdb-browser-eh.worker.js' },
+  };
+
+  it('a given map is the map, and the CDN s is never even computed', () => {
+    const cdn = vi.fn(() => ({ mvp: { mainModule: 'cdn', mainWorker: 'cdn' }, eh: { mainModule: 'cdn', mainWorker: 'cdn' } }));
+    expect(browserBundlesOf(own, cdn)).toBe(own);
+    expect(cdn).not.toHaveBeenCalled();
+  });
+
+  it('no map given, the CDN s is asked for — today s behaviour, untouched', () => {
+    const cdn = vi.fn(() => ({ mvp: { mainModule: 'cdn-mvp', mainWorker: 'cdn-mvp-worker' }, eh: { mainModule: 'cdn-eh', mainWorker: 'cdn-eh-worker' } }));
+    expect(browserBundlesOf(undefined, cdn)).toEqual({ mvp: { mainModule: 'cdn-mvp', mainWorker: 'cdn-mvp-worker' }, eh: { mainModule: 'cdn-eh', mainWorker: 'cdn-eh-worker' } });
+    expect(cdn).toHaveBeenCalledTimes(1);
+  });
+
+  it('the option is carried by the opener without being read until the browser arm runs — the node arm never consults it', async () => {
+    // built with a map, opened in node: the map is not what the node arm reads (it resolves the peer off disk), so the open still succeeds
+    const connection = await duckdbConnection({ host: 'node', bundles: own })();
+    expect(await connection.query('SELECT 1 AS one')).toEqual([{ one: 1 }]);
+    await connection.close?.();
+  });
+});
+
+describe('a bundle that never opens gets a sentence, not a hang — a caller s wrong path is named', () => {
+  // real, short timeouts throughout: fake timers and a bare `Promise.reject` raced each other in this
+  // suite's runner and tripped an unhandled-rejection warning even though `withTimeout` DID handle it —
+  // a few real milliseconds sidesteps that entirely and is still an instant test.
+
+  it('the fast side wins: a promise that resolves before the clock does answers', async () => {
+    await expect(withTimeout(Promise.resolve('ok'), 50, 'never')).resolves.toBe('ok');
+  });
+
+  it('the fast side wins the other way too: a promise that REJECTS before the clock still answers with ITS OWN reason', async () => {
+    await expect(withTimeout(Promise.reject(new Error('real cause')), 50, 'never')).rejects.toThrow('real cause');
+  });
+
+  it('a promise that never settles — the worker-hang this guards against — loses to the clock, in the named sentence', async () => {
+    const stuck = new Promise<never>(() => {}); // exactly what a 404'd module's worker leaves `instantiate()` holding
+    const sentence = bundleTimeoutSentence({ mainModule: 'https://example.test/duckdb-mvp.wasm', mainWorker: 'https://example.test/duckdb-browser-mvp.worker.js' }, 10);
+    await expect(withTimeout(stuck, 10, sentence)).rejects.toThrow(/did not open within 10ms.*duckdb-mvp\.wasm.*duckdb-browser-mvp\.worker\.js/s);
   });
 });
 

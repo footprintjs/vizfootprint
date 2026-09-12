@@ -85,15 +85,18 @@ the cold single ask, and never divide one by twenty to get the other.
 table of thirty columns — `widen()` (`measure.ts`) adds four of each of six
 generated families to the bench's six columns, named for the type DuckDB's
 `DESCRIBE` gives them through the shipped rows port, MEASURED and not assumed:
-`int_N` BIGINT, `dec_N` DOUBLE, `date_N` DATE, `ts_N` TIMESTAMP, `str_N` VARCHAR,
-`bool_N` BOOLEAN. Two of the brief's six were not what the port lands, and both
-are findings, not fixes: a fractional JSON number is a **DOUBLE, never a
-DECIMAL** (`castDecimalToDouble` never fires on this path), and a
-`Date#toISOString()` value — `2025-03-04T10:20:30.000Z` — lands as **VARCHAR**,
-not TIMESTAMP (`read_json_auto` types `…T10:20:30Z` and `… 10:20:30.123` as
-TIMESTAMP, and the millisecond-plus-`Z` form as text; the CSV reader types that
-same form TIMESTAMP WITH TIME ZONE), so the bench's instants are written at
-second precision to have a TIMESTAMP on the wire at all. The wide arm's own ratio
+`int_N` BIGINT, `dec_N` DOUBLE, `date_N` VARCHAR, `ts_N` VARCHAR, `str_N`
+VARCHAR, `bool_N` BOOLEAN. The port lands rows as CSV with every column's type
+DECLARED from the rows' own tally (`src/data/landing.ts`), so a family's
+wire type is the tally's word for its JS values: a fractional number is a
+**DOUBLE, never a DECIMAL** (`castDecimalToDouble` never fires on this path),
+and a day or an instant written as a STRING is a **VARCHAR** — the same bytes
+out as in, nothing converted on the wire. (The JSON carrier this port used to
+write sniffed those strings — `…T10:20:30Z` a TIMESTAMP, `…T10:20:30.000Z` a
+VARCHAR, a day a DATE — and converted epoch millis back to text on every read;
+measured 2026-09-11 on both carriers, the drift is what the declared types
+removed.) So the wide arm's thirty columns cost DuckDB a wire conversion on the
+eight BIGINT and BOOLEAN cells and a copy on the rest. The wide arm's own ratio
 is printed under each size — `wide ÷ window`, per engine — because that is the
 number the arm exists for: the price of twenty-four more columns, everything
 else held equal. The memory engine hands a row back BY REFERENCE
@@ -122,18 +125,22 @@ finding: a dashboard that builds two tables of different shapes in one page pays
 the same polymorphism on the second one, and this bench's wide memory numbers
 are taken in exactly that state.
 
-**10. The rows port has a ceiling, and the wide arm found it.** At 1,000,000
-rows × 30 columns the wasm cell is a recorded ceiling, in the backend's words:
-`Invalid string length`. `sqlConnectionOver.load` (`duckdbConnection.ts`)
-serialises `{ kind: 'rows' }` as ONE `JSON.stringify` of the whole table, and V8
-caps a string at 2²⁹ − 24 characters (≈ 512 MiB); a wide row is ~620 bytes of
-JSON, so a million of them are ~593 MiB and the port throws before DuckDB sees
-a byte. The six-column table (~130 MiB) never met it. Two things follow, and
-neither is this packet's to change: `{ kind: 'csv' }` registers its text as-is
-and would not hit it; and `chooseEngine` routes any table past 300,000 rows to
-this very port, so a wide row-object table that `auto` sends to wasm cannot be
-landed there today — the threshold question that raises is written down in
-`src/data/README.md` and left for its own packet.
+**10. The rows port has a ceiling, and the wide arm found it — then the carrier
+moved it.** At 1,000,000 rows × 30 columns the wasm cell WAS a recorded
+ceiling, in the backend's words: `Invalid string length`. The port then
+serialised `{ kind: 'rows' }` as ONE `JSON.stringify` of the whole table, and
+V8 caps a string at 2²⁹ − 24 characters (≈ 512 MiB); a wide row was ~620 bytes
+of JSON, so a million of them were ~593 MiB and the port threw before DuckDB
+saw a byte. Rows now land as typed CSV (`src/data/landing.ts`), and the
+same million wide rows are **346.7 MiB of text — 363,570,540 characters, under
+the cap — ~364 bytes a row, written in 2.3 s** (measured 2026-09-11 with the
+bench's own generator), so the landing goes through and the cell is a number:
+the wide arm at 1M is measured, not recorded as a refusal. The ceiling is
+moved, not gone: the text is still ONE string, so a table whose CSV passes the
+cap would fail in the same words, one `join` earlier — at ~364 bytes a row that
+is ~1.4 M rows of this width. `chooseEngine` still routes any table past
+300,000 rows to this port, so the threshold question written down in
+`src/data/README.md` stands; only its byte number has moved.
 
 ## The files
 

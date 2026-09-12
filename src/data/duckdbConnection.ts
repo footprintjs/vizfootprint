@@ -17,15 +17,19 @@
  *   node    — `@duckdb/duckdb-wasm/blocking`, the BLOCKING bindings the same
  *             package ships for node: no worker, the `.wasm` read off disk.
  *
- * ONE FETCH HAPPENS IN BOTH HOSTS, AND IT IS NOT THE BUNDLE: landing `rows`
- * goes through `read_json_auto` (`sqlConnection.ts` · `loadTableSQL`), and
- * this bundle autoloads DuckDB's `json` extension from the vendor's extension
- * repository the first time it is asked — one request off the origin, proven
- * by `ui/gallery/wasm.smoke.test.ts`, which pins it as exactly one. A CSV
- * landing needs nothing (its reader is statically linked). So an offline or
- * CSP-restricted page can land CSV and cannot land `rows` on this engine
- * today; the remedy is a library decision (land rows as CSV, or self-host the
- * extension) and is named in `./README.md`, not hidden here. WHY the blocking bundle and not `dist/duckdb-node.cjs`: the
+ * NOTHING IS FETCHED AFTER THE BUNDLE, IN EITHER HOST. Landing `rows` writes
+ * CSV text with every column's type declared (`landing.ts`), and DuckDB's
+ * CSV reader is statically linked; a `csv` landing is CSV already, its types
+ * declared by the same law. The JSON
+ * carrier this adapter used to write made the bundle autoload its `json`
+ * extension from the vendor's extension repository — one request off the
+ * origin, in both hosts — so an offline or CSP-restricted page could not land
+ * rows. `ui/gallery/wasm.smoke.test.ts` pins the count of requests that leave
+ * the origin at ZERO. And where the bundle itself comes from is the caller's
+ * to say: `bundles` ({@link DuckDBConnectionOptions}) hands the browser arm a
+ * self-hosted map in place of the CDN's.
+ *
+ * WHY the blocking bundle and not `dist/duckdb-node.cjs`: the
  *             async node bundle wants a `worker_threads` worker per database,
  *             and this engine asks one statement at a time through a port that
  *             is already a promise — a second thread would buy nothing and cost
@@ -40,12 +44,14 @@
  * How the file is arranged so it can be judged without a database in the room:
  * everything that can be tested is a small pure adapter over a structural
  * handle ({@link sqlConnectionOver}, {@link nodeConnectionOver}, {@link rowsOf},
- * {@link nodeBundles}, {@link duckdbHostOf}) and is; the one part that cannot —
- * instantiating a real database — is a dozen lines per host that do nothing but
- * hand those adapters a real handle.
+ * {@link landingOf}, {@link nodeBundles}, {@link browserBundlesOf},
+ * {@link duckdbHostOf}) and is; the one part that cannot — instantiating a real
+ * database — is a dozen lines per host that do nothing but hand those adapters
+ * a real handle.
  */
 
 import { loadTableSQL, type LoadingConnection, type SqlConnection, type TableData } from './sqlConnection.js';
+import { csvLandingOf, csvReaderSQL, rowsLandingOf, rowsReaderSQL } from './landing.js';
 import { literalToSQL } from './predicate.js';
 
 // ── The data: the sliver of DuckDB-WASM this adapter actually touches. ───
@@ -86,17 +92,30 @@ export interface DuckDBNodeBindings {
   reset(): void;
 }
 
-/** One bundle the node bindings choose between: the wasm module, and the worker script that ships beside it. */
-export interface DuckDBNodeBundle {
+/**
+ * One bundle a host chooses between: the wasm module, and the worker script
+ * that ships beside it. In the browser both are URLs; in node both are paths.
+ */
+export interface DuckDBBundle {
   readonly mainModule: string;
   readonly mainWorker: string;
 }
 
-/** Both of them — what `createDuckDB` is handed, and what it runs its own platform-feature check over. */
-export interface DuckDBNodeBundles {
-  readonly mvp: DuckDBNodeBundle;
-  readonly eh: DuckDBNodeBundle;
+/**
+ * Both flavours — the shape the package's own `selectBundle` (browser) and
+ * `createDuckDB` (node) run their platform-feature check over: `eh` where
+ * WebAssembly exceptions are available, `mvp` otherwise. Both entries are
+ * needed to choose between; a missing one is a resolution error at open time,
+ * not a fallback.
+ */
+export interface DuckDBBundles {
+  readonly mvp: DuckDBBundle;
+  readonly eh: DuckDBBundle;
 }
+
+/** The node arm's names for the same two shapes — kept, so nothing that named them moves. */
+export type DuckDBNodeBundle = DuckDBBundle;
+export type DuckDBNodeBundles = DuckDBBundles;
 
 /** The node bundle's own module surface, narrowed to the four names this adapter reads. */
 export interface DuckDBNodeModule {
@@ -120,9 +139,9 @@ export interface DuckDBReadConfig {
 /**
  * THE CONFIG EVERY DATABASE HERE IS OPENED WITH, in both hosts.
  *
- * WHY it is not a default anyone can live with: `read_json_auto` and
- * `read_csv_auto` infer BIGINT for every integer column, and HUGEINT/DECIMAL for
- * the wider ones. Unset, DuckDB then answers `amount: 15` as the JS bigint `15n`
+ * WHY it is not a default anyone can live with: a landing declares BIGINT for
+ * every integer column (`landing.ts`), and a host's own tables hold whatever
+ * they hold — HUGEINT, DECIMAL. Unset, DuckDB then answers `amount: 15` as the JS bigint `15n`
  * — while `columns()` reports that column as a `number`. A bigint is a value
  * `JSON.stringify` THROWS on, `equalWidthBins` and `boxSummary` read as absent
  * (they test `typeof value === 'number'`), and no `===` in a predicate matches.
@@ -138,11 +157,34 @@ export interface DuckDBReadConfig {
  */
 export const READ_CONFIG: DuckDBReadConfig = { query: { castBigIntToDouble: true, castDecimalToDouble: true } };
 
-/** Which reader a table's bytes are landed through, and under what name they are registered. */
-const READERS = {
-  rows: { suffix: '.json', reader: (file: string): string => `read_json_auto(${literalToSQL(file)})` },
-  csv: { suffix: '.csv', reader: (file: string): string => `read_csv_auto(${literalToSQL(file)})` },
-} as const;
+/** What one table's landing registers and reads: the file name, the text under it, and the reader `loadTableSQL` selects from. */
+export interface Landing {
+  readonly file: string;
+  readonly text: string;
+  readonly from: string;
+}
+
+/**
+ * The landing for a table's bytes — the ONE place both kinds are decided, so
+ * the first landing of a def's table and a reland's staging landing
+ * (`wasmProvider.replaceRows`, through the same `load`) carry rows one way,
+ * and a `csv` table and the rows that later refresh it are typed by one law.
+ *
+ * `rows` are written as CSV with every column typed (`landing.ts` ·
+ * `rowsLandingOf`); a `csv` text is registered as it came — DuckDB reads the
+ * def's own bytes and detects their dialect — with its types declared from the
+ * memory engine's own sniff of the same text (`csvLandingOf`). Both are CSV,
+ * so both register `<table>.csv`.
+ */
+export function landingOf(table: string, data: TableData): Landing {
+  const file = `${table}.csv`;
+  if (data.kind === 'csv') {
+    const { text, columns } = csvLandingOf(data.text);
+    return { file, text, from: csvReaderSQL(file, columns) };
+  }
+  const { text, columns } = rowsLandingOf(data.rows);
+  return { file, text, from: rowsReaderSQL(file, columns) };
+}
 
 // ── The judgement: which host can open a database HERE. ──────────────────
 
@@ -232,10 +274,9 @@ export function sqlConnectionOver(database: DuckDBDatabase, handle: DuckDBHandle
     },
 
     async load(table: string, data: TableData): Promise<void> {
-      const { suffix, reader } = READERS[data.kind];
-      const file = `${table}${suffix}`;
-      await database.registerFileText(file, data.kind === 'csv' ? data.text : JSON.stringify(data.rows));
-      await handle.query(loadTableSQL(table, reader(file)));
+      const { file, text, from } = landingOf(table, data);
+      await database.registerFileText(file, text);
+      await handle.query(loadTableSQL(table, from));
     },
 
     async close(): Promise<void> {
@@ -283,14 +324,11 @@ export function nodeConnectionOver(bindings: DuckDBNodeBindings): LoadingConnect
 export type FileResolver = (specifier: string) => string;
 
 /**
- * The two bundles the node bindings choose between, as paths on disk.
- *
- * WHY both, when only one is ever instantiated: `createDuckDB` runs the same
- * platform-feature check the browser's `selectBundle` runs and picks `eh` where
- * WebAssembly exceptions are available — it needs both entries to choose
- * between, and a missing one is a resolution error at open time, not a fallback.
+ * The two bundles the node bindings choose between, as paths on disk — the
+ * node arm's own map, resolved off the installed peer (see {@link DuckDBBundles}
+ * for why both are needed when one is instantiated).
  */
-export function nodeBundles(resolve: FileResolver): DuckDBNodeBundles {
+export function nodeBundles(resolve: FileResolver): DuckDBBundles {
   const at = (file: string): string => resolve(`@duckdb/duckdb-wasm/dist/${file}`);
   return {
     mvp: { mainModule: at('duckdb-mvp.wasm'), mainWorker: at('duckdb-node-mvp.worker.cjs') },
@@ -328,6 +366,31 @@ export interface DuckDBConnectionOptions {
    * is an assertion, and a wrong one fails inside the bundle it named.
    */
   readonly host?: Exclude<DuckDBHost, 'neither'>;
+  /**
+   * Where the BROWSER arm's bundles are, when they are not on the CDN: a map
+   * of the two flavours, each a wasm module URL and a worker script URL, read
+   * by `openInBrowser` in place of the package's jsDelivr map. Omitted, the
+   * CDN's. The node arm reads the peer off disk and never consults it.
+   *
+   * WHY absolute URLs: the worker is spawned off a `blob:` URL that
+   * `importScripts` the worker script, and a `blob:` URL is no base for a
+   * relative one — spell `mainWorker` out in full.
+   *
+   *   duckdbConnection({ bundles: {
+   *     mvp: { mainModule: `${origin}/duckdb/duckdb-mvp.wasm`, mainWorker: `${origin}/duckdb/duckdb-browser-mvp.worker.js` },
+   *     eh:  { mainModule: `${origin}/duckdb/duckdb-eh.wasm`,  mainWorker: `${origin}/duckdb/duckdb-browser-eh.worker.js` },
+   *   } })
+   */
+  readonly bundles?: DuckDBBundles;
+}
+
+/**
+ * The map the browser arm selects from: the caller's, or the CDN's asked for
+ * only when the caller gave none — so a self-hosting page never computes a
+ * jsDelivr URL it will not use.
+ */
+export function browserBundlesOf<Cdn>(given: DuckDBBundles | undefined, cdn: () => Cdn): DuckDBBundles | Cdn {
+  return given ?? cdn();
 }
 
 /** What node lends this adapter through `process`, narrowed to the one call it makes. */
@@ -351,22 +414,77 @@ interface NodeBuiltins {
  */
 const NODE_BUNDLE = '@duckdb/duckdb-wasm/dist/duckdb-node-blocking.cjs';
 
+/**
+ * How long a browser bundle is given to instantiate before its worker is
+ * presumed stuck. Not a network budget — a "this will never load" backstop: a
+ * worker that throws while compiling a 404'd module (measured: a
+ * `WebAssembly.compile` `TypeError`, thrown INSIDE the worker) never rejects
+ * the `instantiate()` promise the main thread is holding — the worker's own
+ * uncaught exception does not cross that boundary, so `instantiate()` hangs
+ * FOREVER, not merely slowly, on a self-hosted `bundles` path that is wrong.
+ * Twenty seconds is generous beside every measured instantiate in this suite
+ * (low hundreds of milliseconds, `bench/step0-wasm`) and short beside a person
+ * watching a blank page.
+ */
+export const BUNDLE_INSTANTIATE_TIMEOUT_MS = 20_000;
+
+/**
+ * The sentence a stuck `instantiate()` is refused in — the bundle's own two
+ * paths, so a wrong one is named, not guessed at. `mainWorker` is typed
+ * nullable here (and only here) because that is how the package's own
+ * `selectBundle` answers it — every bundle THIS adapter builds or accepts
+ * ({@link DuckDBBundle}) always has one.
+ */
+export function bundleTimeoutSentence(bundle: { readonly mainModule: string; readonly mainWorker: string | null }, ms: number): string {
+  return `DuckDB-WASM did not open within ${String(ms)}ms — the module ("${bundle.mainModule}") or the worker ("${String(bundle.mainWorker)}") a self-hosted bundles map named may not be reachable there`;
+}
+
+/**
+ * `promise`, or `sentence` — whichever answers first.
+ *
+ * WHY this exists at all: {@link BUNDLE_INSTANTIATE_TIMEOUT_MS}'s doc names the
+ * hang this races against. A timeout that fires AFTER `promise` settled would
+ * leak a timer for the life of the page, so the winning side always clears it.
+ */
+export function withTimeout<T>(promise: Promise<T>, ms: number, sentence: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(sentence)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error as Error);
+      },
+    );
+  });
+}
+
 /* v8 ignore start -- fetching a CDN bundle and spawning a browser Worker: unrunnable in this suite by
  * design (a node process has no `Worker`, which is the very fact the judgement above reads). It is kept
  * to a dozen lines that hand a real handle to `sqlConnectionOver`, which IS tested, so the unrun part
  * holds no rules. Its node twin below carries NO such comment: that one the suite really runs. */
 
-/** DuckDB-WASM in a browser: a bundle off the CDN, a worker off a blob, an async database. */
+/** DuckDB-WASM in a browser: a bundle off the caller's map or the CDN's, a worker off a blob, an async database. */
 async function openInBrowser(options: DuckDBConnectionOptions): Promise<SqlConnection> {
   const duckdb = await import('@duckdb/duckdb-wasm');
-  const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+  const bundle = await duckdb.selectBundle(browserBundlesOf(options.bundles, duckdb.getJsDelivrBundles));
   // The worker is loaded from a blob that imports the bundle's own script — the recipe
   // DuckDB-WASM documents and Mosaic's own connector uses (`connectors/wasm.js`, `initDatabase`).
   const workerUrl = URL.createObjectURL(new Blob([`importScripts("${String(bundle.mainWorker)}");`], { type: 'text/javascript' }));
   const worker = new Worker(workerUrl);
   const logger = options.log === true ? new duckdb.ConsoleLogger() : new duckdb.VoidLogger();
   const database = new duckdb.AsyncDuckDB(logger, worker);
-  await database.instantiate(bundle.mainModule, bundle.pthreadWorker);
+  try {
+    await withTimeout(database.instantiate(bundle.mainModule, bundle.pthreadWorker), BUNDLE_INSTANTIATE_TIMEOUT_MS, bundleTimeoutSentence(bundle, BUNDLE_INSTANTIATE_TIMEOUT_MS));
+  } catch (error) {
+    // the worker never finished opening: nothing to close but the worker and the blob that named it
+    worker.terminate();
+    URL.revokeObjectURL(workerUrl);
+    throw error;
+  }
   // BEFORE the first connection, exactly where Mosaic's own connector sets its
   // config (`@uwdata/mosaic-core`, `connectors/wasm.ts`): a query config is read
   // when a statement runs, and a connection opened first would already be running them.

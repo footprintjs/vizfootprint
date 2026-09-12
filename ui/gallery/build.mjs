@@ -4,7 +4,9 @@
  * The DuckDB-WASM stub mirrors the repo demos' trick — footprintjs's data layer
  * only lazily imports it (the memory engine never touches it), the stub just
  * keeps the browser bundle clean. ONE page is built without it: the WASM page,
- * whose whole point is the real package — see `localDuckDb` below.
+ * whose whole point is the real package, bundled as it is — where its bundles
+ * are served from is the page's to say, through the library's own `bundles`
+ * option (`src/data/duckdbConnection.ts`), not a build-time wrapper.
  */
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -20,21 +22,6 @@ const stubDuckDb = {
   setup(build) {
     build.onResolve({ filter: /^@duckdb\/duckdb-wasm$/ }, (args) => ({ path: args.path, namespace: 'duckdb-stub' }));
     build.onLoad({ filter: /.*/, namespace: 'duckdb-stub' }, () => ({ contents: 'export default {};', loader: 'js' }));
-  },
-};
-
-/**
- * The WASM page's twin of the stub: the bare specifier resolves to
- * `duckdbLocal.ts`, which re-exports the REAL package and answers its bundle
- * map from this server's `/duckdb/*` route instead of a CDN. The wrapper's own
- * import of the package is let through to the real file (an importer check, or
- * the wrapper would resolve to itself forever).
- */
-const LOCAL_DUCKDB = path.join(__dirname, 'duckdbLocal.ts');
-const localDuckDb = {
-  name: 'local-duckdb-wasm',
-  setup(build) {
-    build.onResolve({ filter: /^@duckdb\/duckdb-wasm$/ }, (args) => (args.importer === LOCAL_DUCKDB ? undefined : { path: LOCAL_DUCKDB }));
   },
 };
 
@@ -54,10 +41,10 @@ export async function buildGallery() {
   // chart-count assertion its smoke makes. Development mode, for the same warnings.
   await bundle('frame.tsx', 'frame.js', 'development');
   // the WASM page: DuckDB-WASM opened in the browser over a Worker, the one page built
-  // with the real package (the stub would hand the opener `{}`). Its own page for the
-  // same reason as the two above, and also because its bundle carries the engine: the
-  // other three stay stub-built and their sizes stay what they were.
-  await bundle('wasm.tsx', 'wasm.js', 'development', [localDuckDb]);
+  // with the real package (the stub would hand the opener `{}`) and NO plugin. Its own
+  // page for the same reason as the two above, and also because its bundle carries the
+  // engine: the other three stay stub-built and their sizes stay what they were.
+  await bundle('wasm.tsx', 'wasm.js', 'development', []);
   return OUT;
 }
 

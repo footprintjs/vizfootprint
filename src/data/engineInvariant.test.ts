@@ -28,7 +28,7 @@ import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import { CauseSelectionSession, causeHistogram, replayLog, serializeLog, type CommitInput, type CommitRecord } from '../log/index.js';
 import { memoryProvider } from './memoryProvider.js';
 import { wasmProvider } from './wasmProvider.js';
-import { windowSQL } from './sqlWindow.js';
+import { ROW_ORDER_COLUMN, windowSQL } from './sqlWindow.js';
 import { duckdbConnection, duckdbHostOf, hostFactsOf } from './duckdbConnection.js';
 import { canLoad, type LoadingConnection } from './sqlConnection.js';
 import { mosaicDescriptorSQL } from './predicate.js';
@@ -457,16 +457,52 @@ describe('D24 invariant — the FOURTH layout: a REAL DuckDB, opened in node by 
     await connection?.close?.();
   });
 
-  it('the schema comes back through DESCRIBE as this library’s five types — and the bookkeeping column is not one of them', async () => {
-    // Pinned against a REAL DuckDB's own type words (BIGINT, DATE, VARCHAR),
-    // which is what `TYPE_WORDS` was written for and what a fake DESCRIBE cannot prove.
-    expect(await live.columns('data')).toEqual([
+  it('the schema comes back through DESCRIBE as this library’s five types — the SAME five words the memory engine says — and the bookkeeping column is not one of them', async () => {
+    // Pinned against a REAL DuckDB's own type words (BIGINT, VARCHAR), which is what
+    // `TYPE_WORDS` was written for and what a fake DESCRIBE cannot prove. The `date`
+    // column holds ISO STRINGS, and a rows landing declares every column's type from
+    // the values (`landing.ts`): a string is a VARCHAR, so it is a `string` here
+    // exactly as the memory engine has always called it. (The JSON carrier's sniffer
+    // used to call it a DATE — one engine saying `date` for a value the other called
+    // `string`.) A real DATE word is proven two tests down, on a table a HOST made by SQL.
+    const columns = await live.columns('data');
+    expect(columns).toEqual([
       { name: 'category', type: 'string' },
       { name: 'amount', type: 'number' },
-      { name: 'date', type: 'date' },
+      { name: 'date', type: 'string' },
       { name: 'source', type: 'string' },
       { name: 'target', type: 'string' },
     ]);
+    expect(columns).toEqual(await memory.columns('data'));
+  });
+
+  it('a `csv` landing is typed by the SAME law as rows and as the memory engine: the same five words for the same text', async () => {
+    // The same four rows as CSV TEXT, landed as they came — DuckDB reads the def's own bytes and
+    // detects the dialect — with the types declared from the memory engine's own sniff of that
+    // text (`landing.ts` · `csvLandingOf`): the ISO day is a string on every engine, whichever way
+    // it arrived. (DuckDB's own sniffer used to make it a DATE here, and a refresh — which lands
+    // ROWS — a VARCHAR: one table, two type words, and a reland that reported a phantom update.)
+    await connection.load('data_csv', { kind: 'csv', text: CSV_TEXT });
+    const overCSV = wasmProvider({ sources: ['data_csv'], connection });
+    expect(await overCSV.columns('data_csv')).toEqual(await memory.columns('data'));
+    expect(await overCSV.columns('data_csv')).toEqual(await live.columns('data'));
+    const window = answered(await overCSV.evaluate('data_csv', null, { sort: [{ field: 'date', dir: 'asc' }], indices: true }), 'csv-landed window');
+    expect(window.rows).toEqual(answered(await memory.evaluate('data', null, { sort: [{ field: 'date', dir: 'asc' }], indices: true }), 'memory window').rows);
+  });
+
+  it('a HOST’s own table with a real DATE and a real TIMESTAMP: the type words map to `date`, and each reads back as the ISO text the memory engine would hold', async () => {
+    // Nothing this engine LANDS carries a DATE any more (an ISO string is a VARCHAR by the one
+    // law), but a host's own table can — and `TYPE_WORDS` and `withoutRowOrder`'s two shapes exist
+    // for it. Proven on real DuckDB types, made by SQL, not by a landing.
+    await connection.query(`CREATE OR REPLACE TABLE host_dates AS SELECT DATE '2026-04-05' AS d, TIMESTAMP '2026-04-05 10:20:30.123' AS t, 1 AS n`);
+    const host = wasmProvider({ sources: ['host_dates'], connection });
+    expect(await host.columns('host_dates')).toEqual([
+      { name: 'd', type: 'date' },
+      { name: 't', type: 'date' },
+      { name: 'n', type: 'number' },
+    ]);
+    const window = answered(await host.evaluate('host_dates', null, {}), 'host-table window');
+    expect(window.rows).toEqual([{ d: '2026-04-05', t: '2026-04-05T10:20:30.123Z', n: 1 }]);
   });
 
   it('the landed table carries its SOURCE order, and index 0 is the row that was written first', async () => {
@@ -896,15 +932,13 @@ describe('a reland answers the SAME delta from both engines — the diff in Java
   };
 
   /**
-   * The schema each engine answers after the replace, compared by NAME and, for
-   * every column but a date, by type. WHY the date is the exception: DuckDB
-   * infers DATE from an ISO day and the memory engine's tally calls the same
-   * string a `string` — a difference the FOURTH layout above already pins, and
-   * not one a reland makes or could unmake.
+   * The schema each engine answers after the replace: name AND type, every
+   * column. (The ISO-day column used to be the one exception — DuckDB's sniffer
+   * called it a DATE, the memory engine's tally a `string`; one type law now,
+   * `landing.ts`, so there is none.)
    */
   const sameSchema = (a: readonly ColumnInfo[], b: readonly ColumnInfo[]): void => {
-    expect(a.map((c) => c.name)).toEqual(b.map((c) => c.name));
-    expect(a.filter((c) => c.name !== 'day')).toEqual(b.filter((c) => c.name !== 'day'));
+    expect(a).toEqual(b);
   };
 
   /** Both engines' answers to one reland, each checked to be an answer. */
@@ -978,6 +1012,53 @@ describe('a reland answers the SAME delta from both engines — the diff in Java
     expect(sql.delta).toEqual(js.delta);
     // old days: 05, 06, 07, 07 (repeat), null → three keyed, two unkeyed; new: 05 (same bytes), 09
     expect(sql.delta).toEqual({ keyed: true, key: 'day', added: 1, updated: 0, removed: 2, sample: { added: ['2026-04-09'], updated: [], removed: ['2026-04-06', '2026-04-07'] }, unkeyed: 2 });
+  });
+
+  it('a csv-landed table refreshed with ROWS, keyed by its day column: one type law, so no phantom update — the delta the memory engine answers, key for key', async () => {
+    // The one place the two kinds of landing meet. When DuckDB's own sniffer typed a `csv`
+    // table, its `day` was a DATE while the refresh's staging table (rows, tallied) carried a
+    // VARCHAR — and `differPredicate` rightly read a moved type as a change on every shared key,
+    // reporting `updated: 1` where the memory engine, typing both with one rule, said 0. Now both
+    // landings declare the memory engine's word (`landing.ts`), and the two engines are one answer.
+    const CSV = 'id,name,amount,day,gone\n1,ann,10,2026-04-05,x\n2,bob,20,2026-04-06,y\n3,cy,30,2026-04-07,z\n3,dup,31,2026-04-07,z\n,nokey,0,,w\n';
+    const table = `ledger_${String(++nth)}`;
+    await connection.load(table, { kind: 'csv', text: CSV });
+    const live = wasmProvider({ sources: [table], connection });
+    const held = memoryProvider(CSV, { layout: 'row', tableName: table });
+    expect(await live.columns(table)).toEqual(await held.columns(table));
+    const AFTER: Row[] = [
+      { id: 1, name: 'ann', amount: 10, day: '2026-04-05', gone: 'x' },
+      { id: 9, name: 'new', amount: 90, day: '2026-04-09', gone: 'q' },
+    ];
+    const [sql, js] = [await live.replaceRows!(table, AFTER, { key: 'day' }), await held.replaceRows!(table, AFTER, { key: 'day' })];
+    if (isRejection(sql)) throw new Error(`the wasm engine refused: ${JSON.stringify(sql)}`);
+    if (isRejection(js)) throw new Error(`the memory engine refused: ${JSON.stringify(js)}`);
+    expect(sql.delta).toEqual(js.delta);
+    expect(sql.delta).toEqual({ keyed: true, key: 'day', added: 1, updated: 0, removed: 2, sample: { added: ['2026-04-09'], updated: [], removed: ['2026-04-06', '2026-04-07'] }, unkeyed: 2 });
+    expect(sql.columns).toEqual(js.columns);
+    const window = { sort: [{ field: 'id' as const, dir: 'asc' as const }], indices: true };
+    const [overSQL, inMemory] = await Promise.all([live.evaluate(table, null, window), held.evaluate(table, null, window)]);
+    expect(answered(overSQL, 'wasm window after the reland').rows).toEqual(answered(inMemory, 'memory window after the reland').rows);
+  });
+
+  it('a HOST’s own table keyed by a real DATE, refreshed through the port: the removed keys are spelled as ISO days, and a type that moved is a change on every shared key', async () => {
+    // A host may hand this engine a connection whose tables it made itself — with a DATE column,
+    // and with the source-order column a reland needs. The refresh lands rows, whose day is a
+    // VARCHAR: the REMOVED sample keys are read off the old DATE side and spelled the way
+    // `deltaByKey` would (`wasmProvider` · `keyTextOf`: epoch millis → the ISO day); the shared key
+    // IS reported updated, because its type moved (DATE → VARCHAR) and a value that changed type has
+    // changed — the law `differPredicate` states, honest here because the host's column really was a DATE.
+    await connection.query(
+      `CREATE OR REPLACE TABLE host_ledger AS SELECT * FROM (VALUES (1, DATE '2026-04-05', 0), (2, DATE '2026-04-06', 1), (3, DATE '2026-04-07', 2)) v("id", "day", "${ROW_ORDER_COLUMN}")`,
+    );
+    const host = wasmProvider({ sources: ['host_ledger'], connection });
+    const answer = await host.replaceRows!('host_ledger', [{ id: 1, day: '2026-04-05' }, { id: 9, day: '2026-04-09' }], { key: 'day' });
+    if (isRejection(answer)) throw new Error(`the wasm engine refused: ${JSON.stringify(answer)}`);
+    expect(answer.delta).toEqual({ keyed: true, key: 'day', added: 1, updated: 1, removed: 2, sample: { added: ['2026-04-09'], updated: ['2026-04-05'], removed: ['2026-04-06', '2026-04-07'] }, unkeyed: 0 });
+    expect(answer.columns).toEqual([
+      { name: 'id', type: 'number' },
+      { name: 'day', type: 'string' },
+    ]);
   });
 
   it('unkeyed: the table is replaced, and how many rows did it is the one number both report', async () => {
@@ -1092,5 +1173,202 @@ describe('a window over a table whose absence vocabulary is its OWN — the stat
     expect(real.rows).toEqual(fold.rows);
     expect(real.rows).toHaveLength(4);
     expect(real.rows?.[2]).toEqual({ hour: 3, demand: null, demand_state: 'unclear' });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// THE FIDELITY TABLE — the judge of how `rows` are CARRIED to the engine.
+//
+// The port lands ROWS (`SqlLoader.load`); how the adapter carries them to
+// DuckDB — the bytes it registers and the reader it names — is the adapter's
+// business (`duckdbConnection.ts` · `sqlConnectionOver`), and a carrier is
+// judged by ONE thing: every value the memory engine holds reads back from the
+// wasm engine as the same value. One cell per kind of value a row can hold, in
+// a column of that kind, landed through the shipped opener and read back
+// through a window. A cell the wasm engine is KNOWN to answer differently —
+// because no SQL engine has that value, not because of how it was carried —
+// says so on its row, with the reason; every other cell must agree byte for
+// byte, `Object.is`, both engines. A carrier that loses a cell this table
+// holds today is a carrier this table refuses.
+//
+// WHY the columns are typed by kind and not one `value` column: a column
+// holding a number AND a string is a string column on both engines
+// (`TypeTally`), and a number read back as its text would be judging the
+// column, not the carrier.
+
+/** A row of the table: which cell is under test, and one value per typed column — every other column null. */
+interface FidelityCase {
+  readonly cell: string;
+  /**
+   * The columns: `i` integers, `f` decimals, `b` booleans, `s` text, `d` ISO days, `t` ISO instants with
+   * milliseconds, `u` ISO instants without, `o` Date objects. WHY the two instant columns: a column is
+   * typed as a whole, and a sniffer handed both spellings in one column gives up and calls it text —
+   * which would hide what it does to each spelling on its own.
+   */
+  readonly holds: Readonly<Partial<Record<'i' | 'f' | 'b' | 's' | 'd' | 't' | 'u' | 'o', unknown>>>;
+  /** Only where the wasm engine answers ANOTHER value by its nature: that value, and the sentence that says why. */
+  readonly wasm?: { readonly answers: unknown; readonly because: string };
+}
+
+const FIDELITY_COLUMNS = ['i', 'f', 'b', 's', 'd', 't', 'u', 'o'] as const;
+
+const NULL_TOKEN = '\\N';
+
+const FIDELITY: readonly FidelityCase[] = [
+  { cell: 'null in every column', holds: {} },
+  { cell: 'the empty string', holds: { s: '' } },
+  { cell: 'zero', holds: { i: 0 } },
+  { cell: 'negative zero', holds: { f: -0 } },
+  {
+    cell: 'negative zero in an integer column',
+    holds: { i: -0 },
+    wasm: { answers: 0, because: 'a column of safe integers lands as a BIGINT, which has no negative zero — and no text the memory engine shows for -0 (`String(-0)` in a find, an export, a copy) shows the sign either' },
+  },
+  {
+    cell: 'NaN, as null',
+    holds: { f: Number.NaN },
+    wasm: {
+      answers: null,
+      because:
+        'DuckDB CAN hold a real NaN (the literal `nan`), so this is a choice, not a limitation: a stored one SORTS as the LARGEST DOUBLE, while the memory engine\'s own sort law reads NaN as absent — a landing that kept it would agree on this cell and disagree on every sorted window over the column',
+    },
+  },
+  { cell: 'true', holds: { b: true } },
+  { cell: 'false', holds: { b: false } },
+  { cell: 'a BIGINT-range integer', holds: { i: Number.MAX_SAFE_INTEGER } },
+  { cell: 'a negative BIGINT-range integer', holds: { i: Number.MIN_SAFE_INTEGER } },
+  { cell: 'a decimal', holds: { f: 12.5 } },
+  { cell: 'a decimal that needs every one of its 17 digits', holds: { f: 0.1 + 0.2 } },
+  { cell: 'a DATE (an ISO day)', holds: { d: '2026-04-05' } },
+  { cell: 'a TIMESTAMP with milliseconds', holds: { t: '2026-04-05T10:20:30.123Z' } },
+  { cell: 'a TIMESTAMP without milliseconds', holds: { u: '2026-04-05T10:20:30Z' } },
+  {
+    cell: 'a Date object',
+    holds: { o: new Date('2026-04-05T10:20:30.123Z') },
+    wasm: { answers: '2026-04-05T10:20:30.123Z', because: 'the wasm engine reads a TIMESTAMP back as the ISO text a def declares one with (`wasmProvider` · `withoutRowOrder`); a Date object is the memory engine\'s own shape and no SQL cell is one' },
+  },
+  { cell: 'a comma', holds: { s: 'a,b' } },
+  { cell: 'a double quote', holds: { s: 'say "hi"' } },
+  { cell: 'an embedded newline', holds: { s: 'line one\nline two' } },
+  { cell: 'an embedded CRLF', holds: { s: 'line one\r\nline two' } },
+  { cell: 'leading and trailing spaces', holds: { s: '  padded  ' } },
+  { cell: 'the null token itself', holds: { s: NULL_TOKEN } },
+  { cell: 'the word NULL', holds: { s: 'NULL' } },
+  { cell: 'a string of digits', holds: { s: '007' } },
+  { cell: 'a string that spells a boolean', holds: { s: 'true' } },
+  { cell: 'a string outside ASCII', holds: { s: 'naïve — 日本 🙂' } },
+];
+
+/** One row per case: the id is the sort key, the cell is its name, every typed column null unless the case holds it. */
+function fidelityRows(): Row[] {
+  return FIDELITY.map((c, id) => ({ id, cell: c.cell, ...Object.fromEntries(FIDELITY_COLUMNS.map((column) => [column, c.holds[column] ?? null])) }));
+}
+
+/** The row the wasm engine is expected to answer: the memory engine's row, with the named exceptions applied. */
+function fidelityExpected(): Row[] {
+  return fidelityRows().map((row, id) => {
+    const c = FIDELITY[id]!;
+    if (c.wasm === undefined) return row;
+    const held = FIDELITY_COLUMNS.find((column) => c.holds[column] !== undefined)!;
+    return { ...row, [held]: c.wasm.answers };
+  });
+}
+
+/** A value as the table prints it — a string in quotes so its spaces and newlines are visible, a Date by its ISO text, -0 as `-0`. */
+function fidelityText(value: unknown): string {
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (value instanceof Date) return `Date(${value.toISOString()})`;
+  if (Object.is(value, -0)) return '-0';
+  return String(value);
+}
+
+describe('FIDELITY — every kind of value lands on the wasm engine and reads back as the memory engine holds it', () => {
+  const TABLE = 'fidelity';
+  const ROWS = fidelityRows();
+  const held = memoryProvider(ROWS, { layout: 'row', tableName: TABLE });
+  let connection: LoadingConnection;
+  let live: DataProvider;
+
+  beforeAll(async () => {
+    const opened = await duckdbConnection()();
+    if (!canLoad(opened)) throw new Error('the shipped opener answered a connection that cannot land a table');
+    connection = opened;
+    await connection.load(TABLE, { kind: 'rows', rows: ROWS });
+    live = wasmProvider({ sources: [TABLE], connection });
+  });
+
+  afterAll(async () => {
+    await connection?.close?.();
+  });
+
+  it('every cell: the memory engine answers what it was handed, the wasm engine answers the same value — or the one named exception, for the named reason', async () => {
+    const window = { sort: [{ field: 'id' as const, dir: 'asc' as const }], indices: true };
+    const [overSQL, inMemory] = await Promise.all([live.evaluate(TABLE, null, window), held.evaluate(TABLE, null, window)]);
+    const real = answered(overSQL, 'wasm fidelity window');
+    const fold = answered(inMemory, 'memory fidelity window');
+    expect(fold.rows).toHaveLength(FIDELITY.length);
+    expect(real.rows).toHaveLength(FIDELITY.length);
+
+    const expected = fidelityExpected();
+    const disagreements: string[] = [];
+    const lines: string[] = [];
+    FIDELITY.forEach((c, id) => {
+      const column = FIDELITY_COLUMNS.find((name) => c.holds[name] !== undefined) ?? 'i';
+      const holds = fold.rows![id]![column];
+      const answers = real.rows![id]![column];
+      const want = expected[id]![column];
+      // the memory engine holds exactly what it was handed — the half of the invariant the carrier cannot touch
+      const memoryAgrees = holds instanceof Date ? holds.getTime() === (ROWS[id]![column] as Date).getTime() : Object.is(holds, ROWS[id]![column]);
+      const wasmAgrees = Object.is(answers, want);
+      const verdict = memoryAgrees && wasmAgrees ? (c.wasm === undefined ? 'agree' : 'agree (named exception)') : 'DISAGREE';
+      lines.push(`${c.cell.padEnd(48)} ${column}  memory ${fidelityText(holds).padEnd(34)} wasm ${fidelityText(answers).padEnd(34)} ${verdict}`);
+      if (verdict === 'DISAGREE') disagreements.push(`${c.cell}: memory ${fidelityText(holds)}, wasm ${fidelityText(answers)}, expected ${fidelityText(want)}`);
+    });
+    console.info(`[fidelity table]\n${lines.join('\n')}`);
+    expect(disagreements, disagreements.join('\n')).toEqual([]);
+  });
+
+  it('the null token is a STRING where a string holds it, and a NULL where the cell was null — the two are told apart on both engines', async () => {
+    const clause: PredicateClause = { kind: 'point', field: 's', value: NULL_TOKEN };
+    const window = { sort: [{ field: 'id' as const, dir: 'asc' as const }], indices: true };
+    const [overSQL, inMemory] = await Promise.all([live.evaluate(TABLE, clause, window), held.evaluate(TABLE, clause, window)]);
+    const real = answered(overSQL, 'wasm null-token point');
+    const fold = answered(inMemory, 'memory null-token point');
+    expect(fold.count).toBe(1);
+    expect(real.count).toBe(fold.count);
+    expect(byIndex(real)).toEqual(byIndex(fold));
+    // …and an empty string is not a null either: exactly one row holds ''
+    const empty: PredicateClause = { kind: 'point', field: 's', value: '' };
+    const [emptySQL, emptyMemory] = await Promise.all([live.evaluate(TABLE, empty, { mode: 'count' }), held.evaluate(TABLE, empty, { mode: 'count' })]);
+    expect(answered(emptySQL, 'wasm empty-string count').count).toBe(1);
+    expect(answered(emptyMemory, 'memory empty-string count').count).toBe(1);
+  });
+
+  it('an integer column renders its digits the same way in a find on both engines — `15`, never `15.0`', async () => {
+    // `findSQL` casts every searched column to VARCHAR (`sqlWindow.ts`); the memory engine
+    // renders `String(value)`. An integer landed as a DOUBLE would render `0.0` and match
+    // a find for `.0` on every integer row — the memory engine matches none.
+    const ask: FindOptions = { text: '.0', columns: ['i'], from: 0, direction: 'forward' };
+    const [real, heldFind] = await Promise.all([live.find!(TABLE, null, ask), held.find!(TABLE, null, ask)]);
+    if (isRejection(real)) throw new Error(`the wasm engine refused: ${JSON.stringify(real)}`);
+    if (isRejection(heldFind)) throw new Error(`the memory engine refused: ${JSON.stringify(heldFind)}`);
+    expect(heldFind.matches).toBe(0);
+    expect(real).toEqual(heldFind);
+    // and the digits themselves ARE found, the same number of times
+    const digits: FindOptions = { text: '0', columns: ['i'], from: 0, direction: 'forward' };
+    const [realDigits, heldDigits] = await Promise.all([live.find!(TABLE, null, digits), held.find!(TABLE, null, digits)]);
+    expect(realDigits).toEqual(heldDigits);
+    expect(isRejection(heldDigits) ? -1 : heldDigits.matches).toBe(4); // 0, -0 (`String(-0)` is `0`), MAX_SAFE_INTEGER (…740991 holds a 0), MIN_SAFE_INTEGER
+  });
+
+  it('the columns the two engines describe: the same five words for the same values', async () => {
+    const [real, fold] = await Promise.all([live.columns(TABLE), held.columns(TABLE)]);
+    if (isRejection(real)) throw new Error(`the wasm engine refused DESCRIBE: ${JSON.stringify(real)}`);
+    if (isRejection(fold)) throw new Error(`the memory engine refused columns: ${JSON.stringify(fold)}`);
+    console.info(`[fidelity columns] memory ${JSON.stringify(fold)}\n[fidelity columns] wasm   ${JSON.stringify(real)}`);
+    // name AND type, every column: an ISO string is a string on both, a Date object a date on both —
+    // the JSON carrier's sniffer used to call `d` and `u` dates and `o` a string
+    expect(real).toEqual(fold);
   });
 });

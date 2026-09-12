@@ -28,8 +28,8 @@
  *   4. The VALUES come back as this library's own, not as DuckDB's wire types.
  *      Two halves, and both of them are load-bearing rather than cosmetic: the
  *      database is opened with `castBigIntToDouble`/`castDecimalToDouble`
- *      (`duckdbConnection.ts`), because `read_json_auto` infers BIGINT for
- *      every integer column and a `15n` where `columns()` promised a `number`
+ *      (`duckdbConnection.ts`), because a rows landing declares BIGINT for
+ *      every integer column (`landing.ts`) and a `15n` where `columns()` promised a `number`
  *      is a value `JSON.stringify` throws on and every fold in `bins.ts` /
  *      `boxSummary.ts` reads as ABSENT; and a date column's epoch number is
  *      read back as the ISO string the memory engine holds

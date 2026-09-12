@@ -120,10 +120,12 @@ export interface RelandStatements {
 
 /**
  * The staging table for ZERO new rows: the old table's schema with none of its
- * rows. WHY not `load` with an empty array: `read_json_auto` over `[]` infers a
- * single JSON column named `json`, and a refresh that emptied a table would
- * have replaced its columns with a phantom. An empty version keeps the schema;
- * the delta then says every key was removed, exactly as `deltaByKey` does.
+ * rows. WHY not `load` with an empty array: zero rows name no columns, so the
+ * rows landing refuses them (`landing.ts` · `NO_ROWS_TO_LAND`) — and the
+ * JSON reader it replaced used to land a phantom column named `json`, which a
+ * refresh that emptied a table would have replaced its columns with. An empty
+ * version keeps the schema; the delta then says every key was removed, exactly
+ * as `deltaByKey` does.
  */
 export function emptyStagingSQL(table: string, staging: string): string {
   return `CREATE OR REPLACE TABLE ${quoteIdent(staging)} AS SELECT * FROM ${quoteIdent(table)} WHERE FALSE`;
