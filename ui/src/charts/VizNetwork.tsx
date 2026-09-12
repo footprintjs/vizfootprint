@@ -146,6 +146,12 @@ export interface VizNetworkProps {
   /** Visible captions are opt-in and never change selection identifiers. */
   readonly showNodeLabels?: boolean;
   readonly showEdgeLabels?: boolean;
+  /** Optional node fill. Returning undefined preserves the theme's default. */
+  readonly colorOfNode?: (node: NetworkNode) => string | undefined;
+  /** Optional edge stroke. Returning undefined preserves the theme's default. */
+  readonly colorOfEdge?: (edge: NetworkEdge) => string | undefined;
+  /** Optional SVG stroke-dasharray. Returning undefined preserves the default solid line. */
+  readonly edgeDashOf?: (edge: NetworkEdge) => string | undefined;
   /** Radius in SVG units, from 1 through 16. Invalid values fall back to 5. */
   readonly nodeRadius?: number;
   readonly className?: string;
@@ -517,7 +523,11 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
           // no arrowhead, the neighbourhood adds both ways, the degree folds in
           // and out into one number, and the layout read an UNDIRECTED graph
           const pair = `${e.source} — ${e.target}`;
-          const shared = { key: `${e.source}·${e.target}·${i}`, className: `vzf-net-link${dimClass(edgeIsBright(e))}`, role: 'img', 'aria-label': pair };
+          const stroke = props.colorOfEdge?.(e);
+          const strokeDasharray = props.edgeDashOf?.(e);
+          // Inline paint overrides the theme without replacing selection or dimming styles.
+          const style = stroke === undefined && strokeDasharray === undefined ? undefined : { stroke, strokeDasharray };
+          const shared = { key: `${e.source}·${e.target}·${i}`, className: `vzf-net-link${dimClass(edgeIsBright(e))}`, role: 'img', 'aria-label': pair, style };
           // a coincident-endpoint edge is a SELF-LOOP: drawn as a segment it is
           // zero-length and paints nothing (butt linecap), so the counts would
           // report a link the frame never showed
@@ -536,6 +546,7 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
         {nodes.map((n, i) => {
           const isSel = inSet(n.id, set);
           const label = nodeLabel(n, degree.get(n.id) ?? 0);
+          const fill = props.colorOfNode?.(n);
           return (
             <circle
               // the index is the same defence the links carry: a nodes table
@@ -547,6 +558,7 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
               cy={frame.y(n.y)}
               r={radius}
               fill="var(--vzf-brand)"
+              style={fill === undefined ? undefined : { fill }}
               role="button"
               tabIndex={0}
               aria-pressed={isSel && !set.exclude}

@@ -94,6 +94,13 @@ export interface VizLineProps {
   readonly valueField?: string;
   readonly xLabel?: string;
   readonly yLabel?: string;
+  /**
+   * Display a dated x tick and point tooltip in the host's chosen time format.
+   * Default: the ISO date only. Use compact labels that fit the chart width.
+   * Formatting never changes positions, date identities or brush emissions;
+   * category/band labels keep their literal names.
+   */
+  readonly formatDate?: (iso: string) => string;
   readonly colorOf?: (series: string | undefined) => string;
   /** Columns offered by the encoding picker (from adapter state). */
   readonly columns?: readonly ColumnView[];
@@ -363,6 +370,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const valueField = boundField(encoding, 'y', props.valueField ?? 'value');
   const xLabel = props.xLabel ?? dateField;
   const yLabel = props.yLabel ?? valueField;
+  const formatDate = props.formatDate ?? dayOf;
 
   // WHICH X THIS CHART DRAWS — a band or a run — read off what it was handed (the frame's band order, or
   // points that carry a category) and never off a prop: the x column's type is a fact the definition and
@@ -494,7 +502,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // the gap law (`segmentsOf`): on a run every consecutive pair connects; on a band only ADJACENT slots do
   const adjacent = band === undefined ? (): boolean => true : (a: SeriesPoint, b: SeriesPoint): boolean => b.at === a.at + 1;
   /** What a point is called in its tooltip: its day on a run, its category on a band. */
-  const nameOf = (key: string): string => (band === undefined ? dayOf(key) : key);
+  const nameOf = (key: string): string => (band === undefined ? formatDate(key) : key);
   // the chart's OWN y extent is padded by 0.5, so its ticks step inside that padding; a frame's
   // domain carries no padding of ours, so its ticks span exactly what the axis claims
   const yPad = props.domain?.y === undefined ? 0.5 : 0;
@@ -525,7 +533,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
           <g key={`xt${d.key}`}>
             <line className="vzf-axis" x1={x(d.at)} y1={bottom} x2={x(d.at)} y2={bottom + 4} />
             <text className="vzf-tick" x={x(d.at)} y={bottom + 16} textAnchor={d.anchor}>
-              {dayOf(d.key)}
+              {formatDate(d.key)}
             </text>
           </g>
         ))}

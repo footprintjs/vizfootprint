@@ -190,6 +190,47 @@ describe('VizLine — aggregation and rendering', () => {
   });
 });
 
+describe('VizLine — date display formatting', () => {
+  const intraday = [
+    { date: '2026-04-01T16:00:00.000Z', value: 10 },
+    { date: '2026-04-01T16:05:00.000Z', value: 20 },
+  ];
+
+  it('keeps the date-only default markup unchanged', () => {
+    const plain = render(<VizLine data={intraday} />).container.innerHTML;
+    const explicit = render(<VizLine data={intraday} formatDate={(iso) => iso.slice(0, 10)} />).container.innerHTML;
+    expect(explicit).toBe(plain);
+    expect(plain).toContain('2026-04-01 · mean value 10 (1 row)');
+  });
+
+  it('formats intraday ticks and tooltips without changing positions or emitted ISO bounds', () => {
+    const base = render(<VizLine data={intraday} width={520} />).container;
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={intraday} width={520} formatDate={(iso) => iso.slice(11, 19) + ' UTC'} onEmit={onEmit} />);
+    const ticks = [...container.querySelectorAll('text.vzf-tick')].map((t) => t.textContent);
+    expect(ticks).toContain('16:00:00 UTC');
+    expect(ticks).toContain('16:05:00 UTC');
+    expect(container.querySelector('circle.vzf-line-dot title')!.textContent).toBe('16:00:00 UTC · mean value 10 (1 row)');
+    const positions = (root: HTMLElement) => [...root.querySelectorAll('circle.vzf-line-dot')].map((dot) => [dot.getAttribute('cx'), dot.getAttribute('cy')]);
+    expect(positions(container)).toEqual(positions(base));
+    const svg = container.querySelector('svg.vzf-line')!;
+    fireEvent.pointerDown(svg, { clientX: 0, pointerId: 1 });
+    fireEvent.pointerUp(svg, { clientX: 520, pointerId: 1 });
+    expect(onEmit).toHaveBeenCalledWith({ rawValue: [intraday[0]!.date, intraday[1]!.date], encoding: { kind: 'interval', field: 'date' } });
+  });
+
+  it('keeps formatter output as literal text and never formats category labels', () => {
+    const label = '<img src=x onerror=alert(1)>';
+    const dated = render(<VizLine data={intraday} formatDate={() => label} />).container;
+    expect(dated.querySelector('text.vzf-tick')!.textContent).toBe(label);
+    expect(dated.querySelector('img')).toBeNull();
+    const formatDate = vi.fn(() => 'wrong');
+    const band = render(<VizLine data={[{ category: 'queue', value: 1 }]} formatDate={formatDate} />).container;
+    expect(formatDate).not.toHaveBeenCalled();
+    expect(band.querySelector('circle.vzf-line-dot title')!.textContent).toBe('queue · mean value 1 (1 row)');
+  });
+});
+
 describe('VizLine — the time brush', () => {
   it('a horizontal drag emits an ISO interval SNAPPED to the data dates, on the date field', () => {
     const onEmit = vi.fn();

@@ -34,6 +34,89 @@ const EDGES: NetworkEdge[] = [
 const W = 200;
 const H = 100;
 
+describe('optional per-mark paint', () => {
+  it('paints one mark by one property alone and leaves its siblings unpainted, in ONE render', () => {
+    // WHY one render: the paint law is decided per mark, so a dashed edge with no colour and a
+    // coloured node beside an uncoloured one must each take their own arm of the same ternaries.
+    const { container } = renderNet({
+      colorOfEdge: () => undefined,
+      edgeDashOf: (edge) => (edge === EDGES[0] ? '4 1' : undefined),
+      colorOfNode: (node) => (node.id === 'flu' ? '#123456' : undefined),
+    });
+    const [dashed, plain] = links(container);
+    expect(dashed!.style.strokeDasharray).toBe('4 1'); // dash alone: the style object exists with no stroke
+    expect(dashed!.style.stroke).toBe('');
+    expect(plain!.getAttribute('style')).toBeNull(); // neither: no style attribute at all
+    const dots = [...container.querySelectorAll('g.vzf-net-nodes circle.vzf-dot')] as SVGCircleElement[];
+    const painted = dots.filter((d) => d.getAttribute('style') !== null);
+    expect(painted).toHaveLength(1);
+    expect(painted[0]!.style.fill).toBe('#123456'); // jsdom keeps the literal
+    expect(dots.length - painted.length).toBe(NODES.length - 1); // every other node keeps the theme's fill
+  });
+
+  it('preserves default markup when callbacks return undefined', () => {
+    const original = renderNet();
+    const markup = original.container.innerHTML;
+    cleanup();
+    const fallback = renderNet({ colorOfNode: () => undefined, colorOfEdge: () => undefined, edgeDashOf: () => undefined });
+    expect(fallback.container.innerHTML).toBe(markup);
+    expect(fallback.container.querySelector('[style]')).toBeNull();
+  });
+
+  it('passes complete source marks and styles both segments and self-loops independently', () => {
+    const loop: NetworkEdge = { source: 'flu', target: 'flu', sx: 0, sy: 0, tx: 0, ty: 0, label: 'Inferred' };
+    const colorOfNode = vi.fn((node: NetworkNode) => node.id === 'flu' ? '#336699' : undefined);
+    const colorOfEdge = vi.fn((edge: NetworkEdge) => edge === loop ? '#aa6600' : undefined);
+    const edgeDashOf = vi.fn((edge: NetworkEdge) => edge === loop ? '5 3' : edge === EDGES[0] ? '2 2' : undefined);
+    const { container } = renderNet({ edges: [...EDGES, loop], colorOfNode, colorOfEdge, edgeDashOf });
+    expect(colorOfNode.mock.calls.map(([node]) => node)).toEqual(NODES);
+    expect(colorOfNode.mock.calls[0]![0]).toBe(NODES[0]);
+    expect(colorOfEdge.mock.calls.map(([edge]) => edge)).toEqual([...EDGES, loop]);
+    expect(edgeDashOf.mock.calls.at(-1)![0]).toBe(loop);
+    expect(nodeAt(container, 'flu').style.fill).toBe('#336699');
+    expect(nodeAt(container, 'cold').hasAttribute('style')).toBe(false);
+    expect(nodeAt(container, 'flu').getAttribute('fill')).toBe('var(--vzf-brand)');
+    expect(links(container)[0]!.style.strokeDasharray).toBe('2 2');
+    expect(links(container)[0]!.style.stroke).toBe('');
+    expect(links(container)[1]!.hasAttribute('style')).toBe(false);
+    const loopMark = container.querySelector('g.vzf-net-links circle') as SVGCircleElement;
+    expect(loopMark.style.stroke).toBe('#aa6600');
+    expect(loopMark.style.strokeDasharray).toBe('5 3');
+    expect(loopMark.getAttribute('fill')).toBe('none');
+    expect(loopMark.getAttribute('aria-label')).toBe('flu — flu');
+  });
+
+  it('keeps selection, hover dimming, and click emissions independent of paint', () => {
+    const { container, onEmit, rerender } = renderNet({
+      selection: ownSelection('flu'), colorOfNode: () => '#336699', colorOfEdge: () => '#aa6600', edgeDashOf: () => '5 3',
+    });
+    expect(nodeAt(container, 'flu').getAttribute('class')).toBe('vzf-dot vzf-selected');
+    expect(nodeAt(container, 'flu').getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(nodeAt(container, 'cold'));
+    expect(onEmit).toHaveBeenCalledWith({ rawValue: 'cold', encoding: { kind: 'point', field: 'disease' } });
+    fireEvent.mouseOver(nodeAt(container, 'flu'));
+    expect(dimmed(container).sort()).toEqual(['cold — strep', 'lone', 'strep']);
+    expect(nodeAt(container, 'strep').style.fill).toBe('#336699');
+    expect(links(container)[1]!.style.stroke).toBe('#aa6600');
+    for (const mark of container.querySelectorAll<SVGElement>('[style]')) expect(mark.style.opacity).toBe('');
+    fireEvent.mouseOut(nodeAt(container, 'flu'));
+    rerender(<VizNetwork viewId="net" nodes={NODES} edges={EDGES} keyField="disease" selection={fromOther()} colorOfNode={() => '#336699'} colorOfEdge={() => '#aa6600'} />);
+    expect(dimmed(container).sort()).toEqual(['cold', 'cold — strep', 'flu — cold']);
+    expect(links(container)[0]!.style.strokeDasharray).toBe('');
+  });
+
+  it('removes previous inline paint when the callbacks are removed', () => {
+    const { container, rerender } = renderNet({ colorOfNode: () => '#336699', colorOfEdge: () => '#aa6600', edgeDashOf: () => '5 3' });
+    rerender(<VizNetwork viewId="net" nodes={NODES} edges={EDGES} keyField="disease" width={W} height={H} />);
+    expect(nodeAt(container, 'flu').style.fill).toBe('');
+    expect(nodeAt(container, 'flu').getAttribute('fill')).toBe('var(--vzf-brand)');
+    for (const link of links(container)) {
+      expect(link.style.stroke).toBe('');
+      expect(link.style.strokeDasharray).toBe('');
+    }
+  });
+});
+
 function renderNet(over: Partial<Parameters<typeof VizNetwork>[0]> = {}) {
   const onEmit = vi.fn<(e: ChartEmission) => void>();
   const utils = render(
