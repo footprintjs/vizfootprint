@@ -10,7 +10,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { render, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import type { JSX } from 'react';
-import { Sheet, canvasMetrics, cellText, findFrom, findWords, narrowedSaid, nextSort, noSortWords, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_BORDERS, SHEET_CANNOT_FIND, SHEET_CANVAS_MAX, SHEET_COLUMN_WIDTH, SHEET_ENGINE_CANNOT_SORT, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './index.js';
+import { Sheet, canvasMetrics, cellText, findFrom, findWords, narrowedSaid, travelledSaid, nextSort, noSortWords, rowAtScroll, scrollForRow, statusWords, POSITIONAL_REFUSAL, SHEET_BORDERS, SHEET_CANNOT_FIND, SHEET_CANVAS_MAX, SHEET_COLUMN_WIDTH, SHEET_ENGINE_CANNOT_SORT, SHEET_ROW_HEIGHT, SHEET_STATUS_HEIGHT } from './index.js';
 import type { SheetProps } from './index.js';
 import type { SortSpec } from 'vizfootprint/data';
 import type { SheetColumn, SheetData, SheetFindAnswer, SheetFindRequest, SheetRefusal, SheetWindow, SheetWindowRequest } from './types.js';
@@ -1535,5 +1535,34 @@ describe('a clause that filtered nothing — the one sentence that says so', () 
     const quiet = render(<Sheet data={judged} table="cells" viewId="sheet" height={HEIGHT} version="v1" cursor="c1" />);
     await waitFor(() => expect(rowsIn(quiet.container)).toHaveLength(2));
     expect(said(quiet.container)).toBe('');
+  });
+});
+
+describe('a clause that TRAVELLED a relation — the twin sentence (`travelledSaid`)', () => {
+  const WIN: SheetWindow = { ok: true, columns: ['ref'], rows: [{ ref: 'ref-A' }], rowIds: ['a'], positional: false, count: 1, start: 0, version: 'v1', cursor: 'c1' };
+  const RADIUS_REF = { from: { table: 'planets', column: 'radius_ref' }, to: { table: 'references', column: 'ref' } };
+  const LABEL = 'where the composite took its accepted radius from';
+  const MADE = { kind: 'match' as const, field: 'pl_name', values: ['Kepler-22b', 'TRAPPIST-1e', 'HD 209458 b'] };
+  const TRAVELLED = { from: 'mass_radius~planets', response: 'filter' as const, clause: { kind: 'match' as const, field: 'ref', values: ['ref-A', 'ref-B'] }, via: { path: [RADIUS_REF], label: LABEL, rows: 3, from: MADE } };
+
+  it('the pure rule: which view reached, the relation by its declared label or its spelling, and the size of the set — nothing when nothing travelled', () => {
+    expect(travelledSaid(null)).toEqual([]);
+    expect(travelledSaid(WIN)).toEqual([]);
+    expect(travelledSaid({ ...WIN, clauses: [{ from: 'bar', response: 'filter', clause: { kind: 'point', field: 'ref', value: 'ref-A' } }] })).toEqual([]); // arrived as made: no sentence
+    expect(travelledSaid({ ...WIN, clauses: [TRAVELLED] })).toEqual([`the selection from mass_radius~planets reached these rows through ${LABEL} \u00b7 2 ref values`]);
+    expect(travelledSaid({ ...WIN, clauses: [{ ...TRAVELLED, fromLabel: 'Mass–radius' }] })).toEqual([`the selection from Mass–radius reached these rows through ${LABEL} \u00b7 2 ref values`]);
+    // no declared label on the relation: spelled as the def door spells an edge — the chip's `travelledWords` makes the same choice
+    expect(travelledSaid({ ...WIN, clauses: [{ ...TRAVELLED, via: { path: [RADIUS_REF], rows: 3, from: MADE } }] })).toEqual(['the selection from mass_radius~planets reached these rows through planets.radius_ref → references.ref \u00b7 2 ref values']);
+  });
+
+  it('the grid says it in the polite region, beside a narrowed sentence when both reached', async () => {
+    const { data: base } = fakeData({ count: 2 });
+    const NARROWED = { from: 'hist', response: 'filter' as const, clause: { kind: 'point' as const, field: 'radii', value: 4.5 }, narrowed: { column: 'radii', reason: 'table "cells" has no column "radii" — …' } };
+    const withBoth: SheetData = { ...base, rows: async (w) => { const r = await base.rows(w); return r.ok ? { ...r, clauses: [NARROWED, TRAVELLED] } : r; } };
+    const { container } = render(<Sheet data={withBoth} table="cells" viewId="sheet" height={HEIGHT} version="v1" cursor="c1" />);
+    await waitFor(() => expect(said(container)).toContain('reached these rows through'));
+    expect(said(container)).toContain(`the selection from mass_radius~planets reached these rows through ${LABEL} · 2 ref values`);
+    expect(said(container)).toContain('the selection from hist filtered nothing here');
+    expect(container.querySelector('.vzf-sheet-said')!.getAttribute('aria-live')).toBe('polite');
   });
 });

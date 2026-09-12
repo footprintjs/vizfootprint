@@ -613,8 +613,11 @@ export interface DashboardDef {
   /**
    * The RELATIONS between tables: a column of one table points at the declared
    * `key` of another (see {@link RelationDecl} and src/def/README.md,
-   * "Relations"). Data on the map — the overview echoes them; nothing in a
-   * session acts on them yet.
+   * "Relations"). Data on the map — the overview echoes them; a session acts
+   * on them in three places: an analysis reads across one (law 6), a
+   * `neighbourhood` walks a pair (law 7), and a clause TRAVELS one to a view
+   * whose table lacks its column (`../session/README.md`, "A clause travels
+   * a relation").
    */
   readonly relations?: readonly RelationDecl[];
   /** The encoding plane's rule set as data: channel requirements per chart kind, business rules, and the policy (see src/encoding/README.md). */

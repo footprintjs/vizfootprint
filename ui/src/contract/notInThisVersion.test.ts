@@ -60,8 +60,19 @@ const minorSpoken = (): number | null => {
  */
 const holdsNarrowedMinor = (): boolean => (minorSpoken() ?? 0) >= 7 && /readonly narrowed\?: \{ readonly column: string; readonly reason: string \};/.test(read('types.ts'));
 
-/** The contract really speaks the FOLD-PER-LAYER minor (protocol 1.8): the version, and the fold on the layer. */
-const holdsPerLayerMinor = (): boolean => minorSpoken() === 8 && /readonly selection\?: RenderSelection;/.test(read('types.ts'));
+/**
+ * The contract really speaks a version AT OR PAST the fold-per-layer minor
+ * (protocol 1.8), and the fold is on the layer. 1.9 added `via` on the clause
+ * view, so — the `holdsLogMinor` precedent again — the pin is "1.8 or later
+ * within the major", not "exactly 1.8".
+ */
+const holdsPerLayerMinor = (): boolean => (minorSpoken() ?? 0) >= 8 && /readonly selection\?: RenderSelection;/.test(read('types.ts'));
+
+/** The contract really speaks the CLAUSE-TRAVELS-A-RELATION minor (protocol 1.9): the version, and `via` on the clause view. */
+const holdsTravelledMinor = (): boolean => minorSpoken() === 9 && /readonly via\?: \{/.test(read('types.ts'));
+
+/** The law that makes `via` true at the fold really ships: ONE picker of the consumer's travelled clause, beside `narrowedAt`. */
+const holdsTravelledAt = (): boolean => /function travelledAt\(/.test(read('selection.ts')) && /function narrowedAt\(/.test(read('selection.ts'));
 
 /** The law that makes `narrowed` true at the fold really ships: ONE owner of the missing-column guard, in the compiler. */
 const holdsJudgeable = (): boolean => /function judgeable\(/.test(read('selection.ts'));
@@ -133,6 +144,22 @@ describe('the fold-per-layer law says only what is true (protocol 1.8)', () => {
     expect(readme).toContain('A layer reads the clauses that reached ITS address, folded with ITS clause as self');
     // the old host rule is now the fallback's WHY, not the rule
     expect(readme).not.toContain('must be folded for the LAYER whose marks it draws');
+  });
+});
+
+describe('the clause-travels-a-relation law says only what is true (protocol 1.9)', () => {
+  it('the version the prose claims is the version the code speaks, and the field is on the clause view', () => {
+    expect(holdsTravelledMinor()).toBe(true);
+  });
+
+  it('the picker the prose names really is ONE function in the fold, beside the narrowed one — and the README states the law by that name', () => {
+    expect(holdsTravelledAt()).toBe(true);
+    const readme = read('README.md').replace(/\s+/g, ' ');
+    expect(readme).toContain('`travelledAt`');
+    expect(readme).toContain('protocol 1.9');
+    expect(readme).toContain('`SelectionClauseView.via`');
+    // the law, by its own sentence: the tier folds what the session travelled, and never joins
+    expect(readme).toContain('The fold takes the session\'s travelled clause and never joins');
   });
 });
 

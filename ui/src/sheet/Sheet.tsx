@@ -60,7 +60,9 @@
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FocusEvent as ReactFocusEvent, JSX, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, UIEvent as ReactUIEvent } from 'react';
-import type { Row, SortSpec } from 'vizfootprint/data';
+import type { MatchClause, Row, SortSpec } from 'vizfootprint/data';
+// the ONE spelling of a relation — the def door's own, so the sheet, the chip and a refusal name an edge the same way
+import { relationEdgeId } from 'vizfootprint/def';
 // what LEAVES is formatted by the library, one cell or a whole window (see `copyFocusedCell`) —
 // and it is the DATA layer's function, the same text a FIND matches against
 import { cellString } from 'vizfootprint/data';
@@ -217,6 +219,27 @@ export function statusWords(win: SheetWindow | null, sort: readonly SortSpec[] |
  */
 export function narrowedSaid(win: SheetWindow | null): readonly string[] {
   return (win?.clauses ?? []).flatMap((c) => (c.narrowed === undefined ? [] : [`the selection from ${c.fromLabel ?? c.from} filtered nothing here \u00b7 ${c.narrowed.reason}`]));
+}
+
+/**
+ * `narrowedSaid`'s twin for a clause that REACHED THIS SHEET THROUGH A
+ * RELATION (`ReachingClause.via`): "the selection from X reached these rows
+ * through <relation> · N <far> values" — the consumer's vantage, where the
+ * thing to name is the source and the way it got here. The relation is named
+ * by the def's own `label` when it declares one and otherwise spelled as the
+ * def door spells an edge (`relationEdgeId`) — the chip's `travelledWords`
+ * makes the same choice from the source's side, so one fact reads one way.
+ * The source is named as `narrowedSaid` names it: the declared label, else
+ * the address. One sentence per travelled clause, for `narrowedSaid`'s reason.
+ */
+export function travelledSaid(win: SheetWindow | null): readonly string[] {
+  return (win?.clauses ?? []).flatMap((c) => {
+    if (c.via === undefined) return [];
+    const through = c.via.label ?? c.via.path.map((hop) => relationEdgeId(hop.from, hop.to)).join(', ');
+    // `via` rides only a travelled `match` (`src/session/clausesReaching.ts` · `travelledTo`), so the values are the set the pick became
+    const set = c.clause as MatchClause;
+    return [`the selection from ${c.fromLabel ?? c.from} reached these rows through ${through} \u00b7 ${set.values.length} ${set.field} values`];
+  });
 }
 
 /** The find strip's height, reserved out of the body's so the rows never sit under it. */
@@ -1045,6 +1068,10 @@ export function Sheet(props: SheetProps): JSX.Element {
               the refusals: it is the same register (a fact the rows themselves cannot show) and
               it wears the same word colour, so no new token invents a fourth kind of status. */}
           {narrowedSaid(win).map((words) => (
+            <span key={words} className="vzf-sheet-refused"> · {words}</span>
+          ))}
+          {/* …and a gesture that reached this sheet THROUGH A RELATION, said the same way (`travelledSaid`) */}
+          {travelledSaid(win).map((words) => (
             <span key={words} className="vzf-sheet-refused"> · {words}</span>
           ))}
           {note !== null && <span className="vzf-sheet-refused"> · {note}</span>}

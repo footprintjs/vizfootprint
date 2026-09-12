@@ -135,8 +135,8 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
     { layerId: 'nodes', table: 'nodes', rows: [{ id: 'flu', group: 'viral' }, { id: 'cold', group: 'viral' }], encodings: { color: 'group' } },
   ] as const;
 
-  it('the protocol this build speaks is 1.8 — the fold-per-layer minor', () => {
-    expect(RENDERER_PROTOCOL_VERSION).toBe('1.8');
+  it('the protocol this build speaks is 1.9 — the clause-travels-a-relation minor', () => {
+    expect(RENDERER_PROTOCOL_VERSION).toBe('1.9');
   });
 
   it('declares TRUE — and a layered frame pushed through the bind draws BOTH layers, each under its own table', () => {
@@ -264,6 +264,37 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
     // the SAME frame, each layer now carrying the fold at its own address
     const folded = LAYERS.map((layer) => ({ ...layer, selection: { ...highlightFromOther(), selfClauseId: layerAddress('net', layer.layerId) } }));
     expect(res.view.update({ ...frame, layers: folded })).toEqual({ ok: true });
+    expect(el.innerHTML).toBe(drawn);
+    res.view.unmount();
+  });
+
+  it('a 1.8 renderer IGNORES `via`: the same selection with and without it binds and draws byte-identically (protocol 1.9)', () => {
+    // The bar reads the selection through `brightPredicate`/`selfSelectedSet` and knows nothing of
+    // `via` — exactly the 1.8 renderer this law is about. Its hello is pinned to 1.8 here so the
+    // bind itself is the proof: same major, binds; and the key costs it nothing at all. The clause
+    // beside the key is the SAME match either way — a travelled clause is one the session already
+    // re-phrased, so the field only says how it got there.
+    const eighteen = (r: Renderer): Renderer => ({
+      mount(el, handshake) {
+        const m = r.mount(el, handshake);
+        return { ...m, hello: { ...m.hello, protocolVersion: '1.8' } };
+      },
+    });
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const res = bindRenderer(eighteen(barRenderer()), el, { viewId: 'v', callbacks: callbacks() });
+    if (!res.ok) throw new Error('bind failed');
+    expect(res.view.protocolVersion).toBe('1.8');
+    const rows: RenderRow[] = [{ category: 'A', count: 10, region: 'North' }, { category: 'B', count: 6, region: 'South' }];
+    const plain = highlightFromOther();
+    expect(res.view.update(state(rows, plain))).toEqual({ ok: true });
+    const drawn = el.innerHTML;
+    const other = plain.clauses.get('other')!;
+    const travelled: RenderSelection = {
+      ...plain,
+      clauses: new Map([['other', { ...other, via: { path: [{ from: { table: 'regions', column: 'code' }, to: { table: 'bars', column: 'region' } }], label: 'the region a bar stands in', rows: 3 } }]]),
+    };
+    expect(res.view.update(state(rows, travelled))).toEqual({ ok: true });
     expect(el.innerHTML).toBe(drawn);
     res.view.unmount();
   });

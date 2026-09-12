@@ -49,11 +49,12 @@ describe('ReachingClause.fromLabel — the declared name, or nothing', () => {
     expect(named(s.clausesFor(NODES_ADDRESS))).toEqual([[EDGES_ADDRESS, 'Disease network']]);
   });
 
-  it('NEITHER labelled: the key is ABSENT and the clause is byte-identical to the answer given before the field existed', async () => {
+  it('NEITHER labelled: the key is ABSENT — the clause answers exactly as it did before the field existed, with no name invented', async () => {
     const bare: LayerDecl = { layerId: 'nodes', table: 'nodes', chartKind: 'point', channels: ['x', 'y'] }; // no label
     const s = linked([bare, edgesLayer], { actors: { net: { actor: 'user' } } }); // …and no view label either
     await s.dispatch({ verb: 'select', viewId: NODES_ADDRESS, field: 'group', value: 'viral', cause });
-    expect(s.clausesFor(EDGES_ADDRESS)).toEqual([{ from: NODES_ADDRESS, response: 'filter', clause: { kind: 'point', field: 'group', value: 'viral' } }]);
+    // (the clause reaches the edges layer TRAVELLED — `edges` has no `group`, and a declared relation joins the tables — which `./via.session.test.ts` pins; the name is this test's point)
+    expect(s.clausesFor(EDGES_ADDRESS).map((c) => [c.from, c.response, c.via?.from])).toEqual([[NODES_ADDRESS, 'filter', { kind: 'point', field: 'group', value: 'viral' }]]);
     expect(s.clausesFor(EDGES_ADDRESS).every((c) => !('fromLabel' in c))).toBe(true); // absent, not `undefined` — omit, never invent
   });
 
@@ -90,12 +91,13 @@ describe('ReachingClause.fromLabel — the declared name, or nothing', () => {
     expect(labelAt(blankView, 'net')).toBeUndefined();
   });
 
-  it('the label rides the window the SHEET reads, beside the narrowing that makes it a sentence', async () => {
+  it('the label rides the window the SHEET reads, beside the travel that makes it a sentence', async () => {
     const s = linked([nodesLayer, edgesLayer]);
-    // `group` is a nodes column; the edges table has no such column, so this clause reaches the edges window and filters nothing
+    // `group` is a nodes column; the edges table has no such column, so this clause reaches the edges window through the
+    // first declared relation (`edges.source → nodes.id`, labelled) as `source IN {flu, cold}` — both edges start at a viral node
     await s.dispatch({ verb: 'select', viewId: NODES_ADDRESS, field: 'group', value: 'viral', cause });
     const q = await s.viewQuery({ viewId: EDGES_ADDRESS });
-    expect(q.ok && [q.count, q.clauses.map((c) => [c.fromLabel, c.narrowed?.column])]).toEqual([EDGES.length, [['Diseases', 'group']]]);
+    expect(q.ok && [q.count, q.clauses.map((c) => [c.fromLabel, c.narrowed, c.via?.label])]).toEqual([EDGES.length, [['Diseases', undefined, 'one end of the tie']]]);
     // and the nodes window, whose own clause never reaches it, is unfiltered by nobody
     const own = await s.viewQuery({ viewId: NODES_ADDRESS });
     expect(own.ok && [own.count, own.clauses]).toEqual([NODES.length, []]);

@@ -100,9 +100,19 @@ import type { ResolvedChannel } from 'vizfootprint/def';
  * judges each edge against the LAYER's table) and the render tier agree kind
  * by kind. Optional, and absent on every 1.7 frame, so a 1.7 renderer never
  * reads it and draws byte-identically (pinned in `capabilities.test.tsx`);
- * the minor stays compatible.
+ * the minor stays compatible. 1.9 ADDED `SelectionClauseView.via` — A CLAUSE
+ * TRAVELS A RELATION: a clause that reached this view through a declared
+ * relation, because the table it reads lacks the clause's column, arrives at
+ * the fold as the session's own `match` on the relation's far column
+ * (`SelectionView.travelled`, picked by this view's address — `selection.ts`
+ * · `travelledAt`), and `via` says how — the relation, its declared label, the
+ * source rows it was folded from. The `predicate` beside it judges the far
+ * column with no join at this tier (project, never re-derive). Optional, and
+ * absent whenever the session did not say, so a 1.8 renderer ignores it and
+ * draws byte-identically (pinned in `capabilities.test.tsx`); the minor stays
+ * compatible.
  */
-export const RENDERER_PROTOCOL_VERSION = '1.8';
+export const RENDERER_PROTOCOL_VERSION = '1.9';
 
 export type { ChartEmission };
 export type { ResolvedChannel };
@@ -353,6 +363,32 @@ export interface SelectionClauseView {
    * it and draws byte-identically (pinned in `capabilities.test.tsx`).
    */
   readonly narrowed?: { readonly column: string; readonly reason: string };
+  /**
+   * PROTOCOL 1.9 — THE CLAUSE REACHED THIS VIEW THROUGH A DECLARED RELATION.
+   * FILLED by the fold (`selection.ts` · `travelledAt`) from the SESSION's own
+   * word: the overview's `activeSelections[i].travelled`, one entry per
+   * consumer the clause travelled to, keyed by the consumer's address — the
+   * fold picks THIS view's entry and no other. When it is present, `kind`,
+   * `field` and `value` on this row are the TRAVELLED clause's — a `match` on
+   * the relation's far column, the set of far values the source's pick became
+   * (`{ values }`) — and `predicate` judges that column, so a renderer folds
+   * the rows it holds and never joins. `via` is the relation travelled
+   * (`path`, one hop today), the def's own `label` for it when it declares
+   * one (never invented), and how many source rows the original clause
+   * matched (`rows`) — what a renderer needs to say "the pick on X reached
+   * these rows through planets.radius_ref → references.ref · N values" the
+   * way the Sheet does (`travelledSaid`). `narrowed` and `via` never ride one
+   * row: a travelled clause was judged. Absent = the clause arrived as its
+   * source made it. Never invented at this tier: which tables a relation
+   * joins, and what the source's rows held, are facts only the session's
+   * engines hold. A 1.8 renderer never reads it and draws byte-identically
+   * (pinned in `capabilities.test.tsx`).
+   */
+  readonly via?: {
+    readonly path: readonly { readonly from: { readonly table: string; readonly column: string }; readonly to: { readonly table: string; readonly column: string } }[];
+    readonly label?: string;
+    readonly rows: number;
+  };
 }
 
 /**

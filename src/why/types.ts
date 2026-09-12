@@ -26,7 +26,7 @@ import type { CommitRecord } from '../log/index.js';
 import type { FdrStep } from '../fdr/index.js';
 // type-only: the response vocabulary is the LINK layer's (one owner), so a fifth
 // response there widens this type instead of being cast into a lie here
-import type { LINK_RESPONSES } from '../links/index.js';
+import type { LINK_RESPONSES, ReachRelation } from '../links/index.js';
 
 // Re-exported so downstream types resolve without a footprintjs import here.
 import type { RuntimeSnapshot } from 'footprintjs';
@@ -100,6 +100,26 @@ export interface TierCommit {
     readonly column: string;
     readonly reason: string;
   };
+  /**
+   * Present exactly when this `reaching-clause` TRAVELLED a declared relation
+   * to reach the view (`../session/types.ts` · `ClauseVia`): the relation
+   * (`path`), its declared label when it has one, how many source rows the
+   * clause matched (`rows`) and how many far-column values it became
+   * (`values`) — "the pick on the scatter reached the years through
+   * planets.radius_ref → references.ref: 3 planets → 7 references". Such a
+   * clause was JUDGED on the far column, so it may anchor the answer like any
+   * other; `narrowed` and `via` never ride one row together. Absent = the
+   * clause arrived as its source made it.
+   */
+  readonly via?: ClauseTravel;
+}
+
+/** {@link TierCommit.via}'s shape, named once for the three rows that carry it (`TierCommit`, `RelatedCommit`). */
+export interface ClauseTravel {
+  readonly path: readonly ReachRelation[];
+  readonly label?: string;
+  readonly rows: number;
+  readonly values: number;
 }
 
 /**
@@ -228,6 +248,8 @@ export interface RelatedCommit {
     readonly column: string;
     readonly reason: string;
   };
+  /** {@link TierCommit.via} — carried through unchanged, for the same reason: the session travelled the clause once, and `why()` only reports it. */
+  readonly via?: ClauseTravel;
 }
 
 /** Per-tier honest miss — an unthreaded/unresolvable tier, typed, never dropped. */
@@ -360,6 +382,8 @@ export interface WhySources {
    * byte-identical.
    */
   readonly declaringResponse?: CommitResponse;
+  /** {@link declaringResponse}'s twin for a travelled clause: the anchor's `via`, so the one row a travelled anchor gets does not lose HOW it reached the chart. Absent for every other target. */
+  readonly declaringVia?: ClauseTravel;
   /** Viz select/filter commits that formed the analysis input (empty for a full-table transform). */
   readonly inputSelectionCommitIds: readonly string[];
   /** The footprintjs run that computed the target (the kernel tier). Absent → `no-kernel-snapshot`. */

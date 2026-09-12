@@ -230,12 +230,49 @@ export interface SelectionView {
    * from rows or columns.
    */
   readonly narrowedFor?: Readonly<Record<string, NarrowedAtView>>;
+  /**
+   * THE CONSUMERS THIS CLAUSE REACHED THROUGH A DECLARED RELATION — the
+   * session's own word (`SelectionInfo.travelled`, `src/session/types.ts`),
+   * keyed by the consumer's ADDRESS like `narrowedFor`: the `match` on the
+   * relation's far column that consumer judges (the pick became a set of far
+   * values), and the relation it travelled, with its declared `label` when it
+   * has one. Carried through only when the wire carried an entry WHOLE
+   * (`sessionView.ts` · `travelledOf`, structural, `narrowedForOf`'s twin);
+   * absent when the session did not say — nothing travelled, or an older
+   * server. The fold picks the consuming view's own entry and judges the far
+   * column with no join of its own (`contract/selection.ts` · `travelledAt`);
+   * the chip says every entry. A consumer is under `travelled` OR under
+   * `narrowedFor`, never both. Never inferred by the adapter from rows.
+   */
+  readonly travelled?: Readonly<Record<string, TravelledAtView>>;
 }
 
 /** One consumer's entry of {@link SelectionView.narrowedFor}: `ReachingClause.narrowed`'s two words, plus the consumer's declared name when it has one. */
 export interface NarrowedAtView {
   readonly column: string;
   readonly reason: string;
+  readonly label?: string;
+}
+
+/** One end of a relation as the wire carries it (`src/links` · `ReachEnd`, verbatim JSON). */
+export interface RelationEndView {
+  readonly table: string;
+  readonly column: string;
+}
+
+/** One consumer's entry of {@link SelectionView.travelled}: the clause as it arrived there, how, and the consumer's declared name (`src/session/types.ts` · `TravelledAt`). */
+export interface TravelledAtView {
+  /** The `match` on the far column — what the consumer judges. */
+  readonly clause: { readonly kind: 'match'; readonly field: string; readonly values: readonly unknown[] };
+  readonly via: {
+    /** The relation travelled — one hop today, listed as a path. */
+    readonly path: readonly { readonly from: RelationEndView; readonly to: RelationEndView }[];
+    /** The RELATION's declared label, when the def declares one — never invented. */
+    readonly label?: string;
+    /** How many source rows the original clause matched. */
+    readonly rows: number;
+  };
+  /** The CONSUMER's declared label (`NarrowedAtView.label`'s twin) — absent when the map declares none; the chip falls back to the address. */
   readonly label?: string;
 }
 
@@ -625,6 +662,8 @@ export interface LinkEdgeView {
   readonly onClear?: 'leave' | 'showAll' | 'excludeAll';
   readonly fold?: string;
   readonly label?: string;
+  /** WHY the edge crosses tables: the declared relation(s) joining the two views' tables (`src/links` · `LinkEdge.via`, verbatim JSON). Absent = same table, or a shared column name. */
+  readonly via?: readonly { readonly from: RelationEndView; readonly to: RelationEndView }[];
 }
 /** One node of the link graph as the wire carries it (src/links `LinkView`, verbatim JSON). */
 export interface LinkNodeView {

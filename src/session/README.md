@@ -22,7 +22,7 @@ apart, and each file's own header carries the reasoning:
 |---|---|
 | `wire.ts` | the translations between a clause, a commit's flat triple, a saved condition and the act that lands one. The reason walk-equals-replay (law 3) holds: `doProbe` writes through one of these and `rebuildFold` reads back through another |
 | `branchPath.ts` | the parent chain, read three ways — law 5's substrate. Each takes the whole log first and the position second, so a caller has to name the position it means |
-| `clausesReaching.ts` | which gestures reach a view through the link graph, and what a mapping renamed them to — the engine-side twin of the renderer's crossfilter law |
+| `clausesReaching.ts` | which gestures reach a view through the link graph, what a mapping renamed them to, and which arrive TRAVELLED (the session's sets, `travelledTo`) — the engine-side twin of the renderer's crossfilter law |
 | `effectiveEncodings.ts` | what a view SHOWS once the encoding edges are read through, and the ONE-HOP law that keeps two views pointing at each other from becoming a solver |
 | `offers.ts` | the offers list and the position stamp — and the line between them, which is why `offers` stopped churning on every act |
 | `layers.ts` | a layer address (`viewId~layerId`) resolved against the map — which view, which layer, which TABLE an act is gated on, whose meta it lands with. Every guard that read `this.defaultTable` reads `tableFor(address)`; every reader of a view's SURFACE reads `surfaceOf(place)` (the prose plane's construction line and staleness); a plain viewId resolves to what it always did ([`../def/README.md`](../def/README.md), "Layers") |
@@ -320,7 +320,7 @@ keyed by the CONSUMER's address — a viewId, or `view~layer` — and holds
 `ReachingClause.narrowed`'s own two words plus the consumer's declared name
 (`label`, by `labelAt`'s order, absent when nothing declares one — omit, never
 invent). It is the SAME judgement `why({ kind: 'chart' })` makes wherever the
-DEFINITION speaks: `session.ts` · `narrowedForBySource` stands at every
+DEFINITION speaks: `session.ts` · `reachedBySource` stands at every
 address on the map (`layers.ts` · `addressesOf`) and asks `narrowedByDef` over
 `clausesFor(address)`, exactly as `reachingCommits` does for one view — one
 `tableReachAt()` reading for the whole walk, so a dashboard whose clauses are
@@ -416,6 +416,139 @@ holding `null` is still judged), and `SelectionClauseView.narrowed` (protocol
 view's address (`selection.ts` · `narrowedAt`), quoted, or not at all. One
 law, three tiers: the map declines the edge, the read door narrows the
 clause, the fold keeps the row — and the overview says where.
+
+### A clause travels a relation
+
+**A clause reaching a table that lacks its column, over an edge a declared
+relation explains, travels the relation as a semi-join — computed by the
+engine that holds the source's rows — and arrives as a `match` on the
+relation's far column, the shape every tier already judges.** Where the
+consumer's table has the column, the direct path (unchanged); where no
+relation end reaches it, the narrowed reading above (unchanged). The relation
+is the permission AND the join — `../analysis/bringOver.ts` says it for a
+bring-over; the crossfilter says it now. Before this, the map's second ground
+(`../links/README.md`, "A default edge is a promise the engine can keep") was
+kept at the read only by the first: the edge existed because a relation joined
+the tables, and then nothing carried the clause across, so the years chart on
+the exoplanet desk "heard" a planet pick and filtered nothing — a promise
+half-kept, and exactly what the map law forbids.
+
+**Where it runs, and what it costs.** At dispatch — the three probe doors
+(`session.ts` · `doProbe`, `doCellProbe`, `doNeighbourhoodProbe`), through
+ONE step (`travelFor` → `travelOf`), AFTER the clause is judged and BEFORE
+the commit is written, so the log's cursor and the sets move together and
+`clausesFor` is right the moment the act's promise resolves. Per edge out of
+the source at the cursor that carries `LinkEdge.via`, reaches (a response
+other than `none`) and renamed none of the clause's fields (a `mapping` is the
+author's aim, and the aim stands hit or miss — "an aim that missed" above):
+where the consumer's table lacks a column the clause names by the ONE
+knowledge every synchronous judge reads (`tableReachAt` · `columnStanding` =
+`absent`; `undeclared` is ignorance, and ignorance travels nothing), the FIRST
+relation on the edge whose far column the table HAS is travelled. The source
+table's provider is asked ONCE per near column — `evaluate(source, clause, {
+columns: [near] })`, through the same door every read takes (`ask`) — and the
+rows' near values, deduplicated with `null`/`undefined` dropped (a null key
+joins nothing), are the far column's IN-list; the engine's own `count` rides
+as `via.rows`. Two consumers over one far table share one ask. So one gesture
+costs one projection per near column on the source's engine — the number the
+bench in `bench/via/README.md` produced, quoted there and nowhere else.
+
+**What every reader sees.** `clausesFor(consumer)` answers the travelled
+clause with `ReachingClause.via` — the relation (`path`, one hop today),
+its declared `label` when it has one, `rows`, and `from`, the clause the
+source actually made (omit-never-deny: the consumer's window says the pick
+became a set of far values, and how). `narrowed` is ABSENT for it — it was
+judged, on a column the table has by construction, which `narrowedAt` asserts
+rather than re-checks. `viewQuery`/`findInView` judge it as any match. The
+overview states it in the SAME walk that states `narrowedFor`
+(`reachedBySource`, one reach reading, `addressesOf`):
+`activeSelections[i].travelled` / `clearedSelections[i].travelled`, keyed by
+the consumer's address, each entry the travelled clause, its `via` and the
+consumer's declared `label` (`labelAt`'s answer, `NarrowedAt.label`'s twin)
+— a consumer is under `travelled` OR `narrowedFor`, never both, and the key
+is absent when nothing travelled, so every overview before it is
+byte-identical. `why({ kind: 'chart' })` carries `via` on the reaching-clause
+row — and on the anchor row when the travelled clause is the newest thing
+that shaped the chart (`WhySources.declaringVia`, the `declaringResponse`
+precedent) — with the relation, `rows` and `values`: *the pick on the scatter
+reached the years through planets.radius_ref → references.ref: 3 planets → 2
+references*. The render tier folds the travelled clause and never joins
+(`../../ui/src/contract/README.md`, Law 8); the chip and the Sheet say it
+(`travelledWords`, `travelledSaid`).
+
+```ts
+// five planets, four references, one declared relation planets.radius_ref → references.ref
+await s.dispatch({ verb: 'select', viewId: 'mass_radius~planets', field: 'pl_name', values: ['Kepler-22b', 'TRAPPIST-1e', 'HD 209458 b'], cause });
+s.clausesFor('by_year~references');
+// [{ from: 'mass_radius~planets', fromLabel: 'Mass–radius', response: 'filter',
+//    clause: { kind: 'match', field: 'ref', values: ['ref-A', 'ref-B'] },          ← Kepler-22b and HD 209458 b both cite ref-A: 3 rows, 2 values
+//    via: { path: [{ from: { table: 'planets', column: 'radius_ref' }, to: { table: 'references', column: 'ref' } }],
+//           label: 'where the composite took its accepted radius from', rows: 3,
+//           from: { kind: 'match', field: 'pl_name', values: ['Kepler-22b', 'TRAPPIST-1e', 'HD 209458 b'] } } }]
+(await s.viewQuery({ viewId: 'by_year~references' })).count; // 2
+(await s.overview()).activeSelections[0].travelled;
+// { 'by_year~references': { clause: { kind: 'match', field: 'ref', values: ['ref-A', 'ref-B'] }, via: { path: […], label: '…', rows: 3 }, label: 'Discoveries by year' } }
+```
+
+**The sets move with the log, and no synchronous read asks an engine.** The
+sets are held per LANDING COMMIT (`session.ts` · `travelledByCommit`, a
+`TravelRecord`), and the live sets are simply the records of the live commits
+(`travelledSets`: a live source through `activeFilterCommits`, a cleared one
+an edge still `leave`s in force through `ClearedSelection.landedBy`). So a
+clear drops the set with the commit, a second pick replaces it, and a seek
+reads the earlier set back exactly as `rebuildFold` reads the clauses back —
+no engine in the room, and `clausesFor`/`why()` stay synchronous. That is WHY
+the sets are kept by commit rather than recomputed at a seek: the fold is
+synchronous, and an answer that needed an engine to seek would be a second
+live cursor.
+
+**The rows move: folded again at the next door that can ask an engine.** A
+record carries the data versions it was folded at (`TravelRecord.at`, every
+declared table's `sources[table].version`, `null` for inline rows that never
+move). A re-land through the refresh door (`../def/buildDashboard.ts` ·
+`refresh`, which bumps the version — and moves the near values, or brings a
+column the consumer lacked) makes the record stale, and a record that is
+missing (a replayed log lands records with no sets) is stale by definition.
+`retravelStale` folds every stale LIVE record again, and it runs at the doors
+that can ask an engine: `overview()` (which is also how `replay` closes),
+the read door `viewClauses` (so a window never judges a set folded over rows
+that are gone), and every probe door before its own travel. The WINDOW: a
+synchronous read between a re-land and the next such door serves the record
+as it stood — stated here because it is a fact, not a bug. WHY a version
+stamp and not a registry of open sessions the refresh door would call:
+`createSession` returns and forgets, and the version is already the one fact
+a re-land moves and every read door reads (`version-moved`) — one owner.
+
+**The far (consumer) side counts too, and costs an ask it does not need.**
+`TravelRecord.at` stamps EVERY declared table's version, not only the
+source's — so a re-land of the CONSUMER's table stales the record exactly as
+a re-land of the source's does, even though the far table's rows cannot move
+the near values: the set is IN-list of near values folded from the SOURCE's
+rows, and the far table only supplies the column those values are matched
+against. The next engine-side door re-asks the source anyway and folds the
+same IN-list back — correct (the read is live, never stale in what it
+answers), but one avoidable ask per re-land of a table that was never on the
+near side. One stamp for both sides is the simpler law, and the packet did
+not spend a second one chasing an ask that costs nothing when it is wrong.
+
+**The engine would not answer.** A rejection or a throw on the travel's ask
+leaves that consumer's set absent: the narrowed reading stands, the chip
+still says "filtered nothing" with its reason unchanged (omit, never deny),
+the act lands, and the refusal is filed beside it as a `needs-backend-data`
+gap naming the relation and the consumer — *the match on
+"mass_radius~planets" could not travel planets.radius_ref → references.ref to
+"by_year~references" — the engine went away*. Never a throw out of a door. A
+fold at a read door files nothing: a projection does not spend the ledger.
+
+**Not this packet, said plainly.** ONE HOP: a path through a third table is
+not on `LinkEdge.via` and is not travelled. ONE RELATION per edge: a pair
+joined by several (an edge table's two ends to one identity) travels the
+FIRST whose far column the target has, so a neighbourhood on the edges reaches
+the nodes through `source` alone and a target-only node is not on that path —
+a union over both ends is its own packet. The SET RIDES THE WIRE whole; no
+ceiling is implemented, and `bench/via/README.md` states the measured size and
+the honest alternative (the engine keeps the set, the wire carries its count
+and a handle) that the number decides later.
 
 ## Find is a read too, and it moves where you STAND (`findInView`)
 

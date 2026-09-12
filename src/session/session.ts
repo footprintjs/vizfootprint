@@ -47,7 +47,7 @@ import { NO_RELATED_ROWS, type AnalysisRunInput, type ColumnsOutput, type Relate
 // where a declared relation joins the two (`../def/README.md`, "Relations").
 // Imported from the module that OWNS relations, not the def barrel — the same
 // rule `registerAnalysisSlot` follows, so no layer edge is added by a judge.
-import { judgeAnalysisReads, neighbourhoodEndpoints } from '../def/relations.js';
+import { judgeAnalysisReads, neighbourhoodEndpoints, relationEdgeId } from '../def/relations.js';
 // The walks themselves — rows in, ids out (`./neighbourhood.ts`): `walkRefusal`
 // owns which questions are askable and `walkNeighbourhood` runs the one asked
 // (with the id ceiling), so the door below judges and lands while the walking
@@ -55,9 +55,9 @@ import { judgeAnalysisReads, neighbourhoodEndpoints } from '../def/relations.js'
 import { walkNeighbourhood, walkRefusal } from './neighbourhood.js';
 import { isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
-import { canNameSlot, cellFieldLabel, derivedColumnName, isPairKind, isRejection, mintDerivedTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchValue, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
+import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchClause, type MatchValue, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
-import { applyLinkOverrides, edgeId, impliedKinds, unmappedColumnWords, validateLinks, type LinkDecl } from '../links/index.js';
+import { applyLinkOverrides, columnStanding, edgeId, impliedKinds, unmappedColumnWords, validateLinks, type LinkDecl, type ReachRelation } from '../links/index.js';
 
 import type { ActorMeta, CauseClause } from '../selection/index.js';
 import { absenceByTable, mintedTables, type AggregateDecl, type BuiltinAnalysisContext } from '../def/builtinAnalyses.js';
@@ -143,6 +143,8 @@ import type {
   NoteInfo,
   NarrowedAt,
   ReachingClause,
+  TravelledAt,
+  TravelledClause,
   ViewQuery,
   ViewQueryResult,
   WalkAsk,
@@ -534,6 +536,23 @@ interface ReachAt extends TableReach {
   readonly landed: ReadonlySet<string>;
 }
 
+/**
+ * WHAT ONE LANDED CLAUSE BECAME AT EVERY CONSUMER IT TRAVELLED TO
+ * (`InteractionSessionImpl.travelledByCommit`): the sets, keyed by consumer
+ * address, and the data versions they were folded at.
+ *
+ * WHY the versions ride the record: a set is a fact about ROWS — the near
+ * values the source's rows held under the clause, judged against the columns
+ * the consumer's table had — and a re-land moves both. The record carries every
+ * declared table's version as of the fold (`versionsNow`), and a record whose
+ * versions have moved is folded again at the next door that can ask an engine
+ * (`retravelStale`), never re-judged by a synchronous read.
+ */
+interface TravelRecord {
+  readonly at: Readonly<Record<string, string | null>>;
+  readonly sets: Readonly<Record<string, TravelledClause>>;
+}
+
 /** No derived column on this table — the shared empty answer {@link Session.derivedAt} hands back. */
 const EMPTY_DERIVED: ReadonlyMap<string, DerivedColumn> = new Map();
 /** No derived table anywhere on this dashboard — the shared empty answer `derivedTablesAt` hands back. */
@@ -615,6 +634,27 @@ function rowIdOf(key: string | undefined, version: string | null, row: Row, inde
 /** No column landed — the shared empty slot map an analysis that wrote nothing carries. */
 const EMPTY_SLOTS: ReadonlyMap<string, string> = new Map();
 
+/**
+ * A relation's two ends as ONE side sees them: `near` is the column on `table`,
+ * `far` the column on the other table. A relation on an edge's `via` always has
+ * exactly one end on each of the edge's tables (`../links/reach.ts` ·
+ * `relationPath`), whichever way round it was declared — so this is total.
+ */
+function relationEnds(r: ReachRelation, table: string): { readonly near: string; readonly far: string } {
+  return r.from.table === table ? { near: r.from.column, far: r.to.column } : { near: r.to.column, far: r.from.column };
+}
+
+/** The same relation, end for end — how a `via` entry (two ends, nothing else) finds its declaration (`RelationEdge`, which carries the `label`). */
+function sameRelation(a: ReachRelation, b: ReachRelation): boolean {
+  return a.from.table === b.from.table && a.from.column === b.from.column && a.to.table === b.to.table && a.to.column === b.to.column;
+}
+
+/** What the engine folded a clause to over the source's rows: the distinct near-column values, and how many rows they came from. */
+interface NearFold {
+  readonly values: readonly unknown[];
+  readonly rows: number;
+}
+
 /** The subject-independent half of a prose record's staleness world at the cursor. */
 interface ProseWorldNow {
   readonly filters: Readonly<Record<string, unknown>>;
@@ -655,8 +695,21 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly activeLinkCommits = new Map<string, string>();
   /** Layer 4 offers: when true, a select/filter must name a current asOf (the act door enforces what whats_here served). */
   private readonly requireOffer: boolean;
-  /** Layer 4 `onClear`: each view whose last selection was CLEARED, with what it was and the clearing commit — a target edge's policy reads it. */
-  private readonly clearedFilters = new Map<string, { readonly clause: PredicateClause; readonly clearedBy: string }>();
+  /** Layer 4 `onClear`: each view whose last selection was CLEARED, with what it was, the clearing commit and the landing one — a target edge's policy reads it. */
+  private readonly clearedFilters = new Map<string, { readonly clause: PredicateClause; readonly clearedBy: string; readonly landedBy: string }>();
+  /**
+   * A CLAUSE TRAVELS A RELATION — the landing commit of a selection → what it
+   * became at each consumer it travelled to ({@link TravelRecord}). Written
+   * once per landed selection (the three probe doors, before the commit is
+   * written, so the log's cursor and the sets move together) and folded again
+   * where the rows moved ({@link retravelStale}); never cleared — a record is
+   * keyed like a commit and read back by a seek exactly as the log is, so the
+   * synchronous fold (`rebuildFold`, `clausesFor`, `why()`) needs no engine.
+   * The LIVE sets are simply the records of the live commits
+   * ({@link travelledSets}): a clear drops the commit from the fold, and the
+   * sets go with it; a `leave` edge keeps them under `ClearedSelection.landedBy`.
+   */
+  private readonly travelledByCommit = new Map<string, TravelRecord>();
   /** layout scope → its current prop→value arrangement map (the LY-1 layout fold — see LAYOUT_SOURCE_META). */
   private readonly activeLayouts = new Map<string, Record<string, string>>();
   /** R4 — layout scope → prop → the commit that landed the live arrangement (the {@link activeLayouts} twin). */
@@ -1149,7 +1202,10 @@ class InteractionSessionImpl implements InteractionSession {
 
   private noteCleared(viewId: string, clearedBy: string): void {
     const prev = this.activeFilters.get(viewId);
-    if (prev !== undefined) this.clearedFilters.set(viewId, { clause: prev, clearedBy });
+    if (prev === undefined) return;
+    // the two live maps are written together (every door, and `rebuildFold`), so a live clause always has its landing commit — read
+    // here, BEFORE every caller drops it, so an edge that `leave`s the clause in force finds its travelled sets under the same key
+    this.clearedFilters.set(viewId, { clause: prev, clearedBy, landedBy: this.activeFilterCommits.get(viewId)! });
   }
 
   /** This position's own lineage, root→cursor — the read law 5 is about. See `./branchPath.ts`. */
@@ -1806,7 +1862,7 @@ class InteractionSessionImpl implements InteractionSession {
   /**
    * THE ONE JUDGEMENT of "did this clause filter nothing at this table" — asked
    * by `why()`'s {@link reachingCommits} for one view and by the overview's
-   * {@link narrowedForBySource} at every address, over the same
+   * {@link reachedBySource} at every address, over the same
    * {@link tableReachAt} reading, so the two can never mark differently.
    *
    * `narrowedByDef` over the reach is the whole answer where the definition
@@ -1820,6 +1876,9 @@ class InteractionSessionImpl implements InteractionSession {
    * def door accepted the aim, and the projection may say what the def can say.
    */
   private narrowedAt(c: ReachingClause, table: string, reach: ReachAt): ReturnType<typeof narrowedByDef> {
+    // A TRAVELLED CLAUSE IS NEVER NARROWED: it was re-phrased onto a column this table HAS — the far end of the relation,
+    // chosen by `travelOf` as `present` by the same reading — so it was judged. Asserted, not re-checked: one owner of the choice.
+    if (c.via !== undefined) return undefined;
     const narrowed = narrowedByDef(c.clause, table, reach);
     if (narrowed !== undefined && reach.landed.has(table) && c.mappedFields?.some((m) => m.to === narrowed.column) === true) return undefined;
     return narrowed;
@@ -2175,7 +2234,7 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   clausesFor(viewId: string): readonly ReachingClause[] {
-    return this.labelledFrom(clausesReaching({ viewId, graph: this.currentGraph(), live: this.activeFilters, cleared: this.clearedFilters }));
+    return this.labelledFrom(clausesReaching({ viewId, graph: this.currentGraph(), live: this.activeFilters, cleared: this.clearedFilters, travelled: this.travelledSets() }));
   }
 
   /**
@@ -2198,6 +2257,174 @@ class InteractionSessionImpl implements InteractionSession {
       // no label = the clause is handed on UNTOUCHED, so a def that declares none answers exactly as it did before the field existed
       return label === undefined ? c : { ...c, fromLabel: label };
     });
+  }
+
+  // ── a clause travels a relation (`./README.md`, "A clause travels a relation") ──
+
+  /**
+   * THE LIVE TRAVELLED SETS — source address → what its clause became at each
+   * consumer it travelled to — read off the records of the LIVE commits and
+   * nothing else, so the sets are the cursor's exactly as the clauses are: a
+   * seek rebuilds the two commit maps (`rebuildFold`), and this reads them. A
+   * live source answers from its landing commit (`activeFilterCommits`); a
+   * cleared one an edge may still `leave` in force answers from the commit
+   * that landed the remembered clause (`ClearedSelection.landedBy`). A commit
+   * with no record yet — a replayed log — contributes nothing until
+   * {@link retravelStale} folds it at the next door that can ask an engine.
+   */
+  private travelledSets(): ReadonlyMap<string, Readonly<Record<string, TravelledClause>>> {
+    const out = new Map<string, Readonly<Record<string, TravelledClause>>>();
+    const take = (from: string, commitId: string): void => {
+      const sets = this.travelledByCommit.get(commitId)?.sets;
+      if (sets !== undefined && Object.keys(sets).length > 0) out.set(from, sets);
+    };
+    for (const [from, commitId] of this.activeFilterCommits) take(from, commitId);
+    for (const [from, rec] of this.clearedFilters) take(from, rec.landedBy);
+    return out;
+  }
+
+  /** Every declared table's data version now — `null` for one with no source (inline rows never move). The stamp a {@link TravelRecord} is folded at. */
+  private versionsNow(): Readonly<Record<string, string | null>> {
+    return Object.fromEntries(this.runtime.tables.map((t) => [t, this.runtime.sources[t]?.version ?? null] as const));
+  }
+
+  /**
+   * THE TRAVEL — what `clause`, landed at `from`, becomes at every consumer it
+   * reaches whose table LACKS a column the clause names but is JOINED to the
+   * source's by a declared relation: a semi-join, computed by the engine that
+   * holds the source's rows, arriving as a `match` on the relation's far
+   * column ({@link TravelledClause}; `./README.md`, "A clause travels a
+   * relation"). The relation is the permission AND the join — the same law
+   * `../analysis/bringOver.ts` applies to a bring-over.
+   *
+   * Per edge out of `from` at the cursor that carries `LinkEdge.via`, reaches
+   * (a response other than `none`) and renamed NONE of the clause's fields (a
+   * `mapping` is the author's aim, and the aim stands hit or miss —
+   * `viewClauses`'s own law): where the consumer's table lacks one of the
+   * clause's columns by the ONE knowledge every synchronous judge reads
+   * (`tableReachAt` · `columnStanding` = `absent`; `undeclared` is ignorance,
+   * and ignorance travels nothing), the FIRST relation on the edge whose far
+   * column that table HAS is travelled. The source table's provider is asked
+   * ONCE per near column — `evaluate(source, clause, { columns: [near] })`,
+   * through the same door every read takes ({@link nearValues}) — and the
+   * rows' near values, deduplicated, are the far column's IN-list. A consumer
+   * whose table has every column takes the direct path (no set); one no
+   * listed relation end reaches keeps the narrowed reading it has today.
+   *
+   * A REJECTION OR A THROW from the engine leaves that consumer's set absent
+   * — the narrowed reading stands, the chip still says "filtered nothing"
+   * with its reason unchanged (omit, never deny) — and is said through `note`
+   * when the caller gave one (the probe doors file it beside the act, which
+   * still lands; a re-fold at a read door gives none, since a projection does
+   * not spend the ledger). Never a throw out of a door.
+   *
+   * A relation joining a table to itself is never on an edge's `via`
+   * (`../links/reach.ts` · `relationPath`), so a relation here always has one
+   * end on the source's table and one on the consumer's (`relationEnds`).
+   */
+  private async travelOf(from: string, clause: PredicateClause, note?: (sentence: string) => void): Promise<TravelRecord> {
+    const at = this.versionsNow();
+    const sets: Record<string, TravelledClause> = {};
+    const sourceTable = this.tableFor(from);
+    const reach = this.tableReachAt();
+    const fields = clauseFields(clause);
+    const asked = new Map<string, Promise<NearFold | ReadRefusal>>(); // one engine ask per near column, shared by every consumer that relation end serves
+    for (const edge of this.currentGraph().edges) {
+      if (edge.source !== from || edge.kind !== clause.kind || edge.via === undefined || edge.response === 'none') continue;
+      if (edge.mapping?.some((m) => fields.includes(m.from) && m.to !== m.from) === true) continue; // an aim that was named stands, hit or miss
+      const table = this.tableFor(edge.target);
+      if (!fields.some((f) => columnStanding(table, f, reach) === 'absent')) continue; // the consumer judges the clause itself — the direct path
+      const relation = edge.via.find((r) => columnStanding(table, relationEnds(r, sourceTable).far, reach) === 'present');
+      if (relation === undefined) continue; // no listed relation end this table has — the narrowed reading stands
+      const { near, far } = relationEnds(relation, sourceTable);
+      let ask = asked.get(near);
+      if (ask === undefined) {
+        ask = this.nearValues(sourceTable, clause, near);
+        asked.set(near, ask);
+      }
+      const folded = await ask;
+      if ('rejected' in folded) {
+        note?.(`the ${clause.kind} on "${from}" could not travel ${relationEdgeId(relation.from, relation.to)} to "${edge.target}" — ${folded.rejected}`);
+        continue;
+      }
+      const label = this.runtime.relations.find((r) => sameRelation(r, relation))?.label; // the declaration's own words, when it has them — never invented
+      sets[edge.target] = { clause: { kind: 'match', field: far, values: folded.values }, via: { path: [relation], ...(label !== undefined ? { label } : {}), rows: folded.rows } };
+    }
+    return { at, sets };
+  }
+
+  /**
+   * The distinct values of `near` over `table`'s rows under `clause` — the ONE
+   * engine ask a travel makes, through the same door every read takes
+   * (`ask`, so a derived source table answers under its act's slot). A
+   * `null`/`undefined` near value is dropped: a null key joins nothing, and
+   * SQL's `IN (NULL)` is never true. A refusal or a throw is answered as a
+   * `ReadRefusal` in the engine's words, never thrown on.
+   */
+  private async nearValues(table: string, clause: PredicateClause, near: string): Promise<NearFold | ReadRefusal> {
+    const provider = this.providerOf(table);
+    /* v8 ignore next -- the act's own door read this table's columns through the same provider a moment ago (`effectiveColumnsOf`), so it resolves here too */
+    if (provider === undefined) return { rejected: `no provider for table "${table}"` };
+    let res: EvaluateResult | DataProviderRejection;
+    try {
+      res = await this.ask(table, provider, [clause], { mode: 'rows', columns: [near] });
+    } catch (error) {
+      return { rejected: `the ${provider.engine} engine threw: ${messageOf(error)}` };
+    }
+    /* v8 ignore next -- every provider's reject() (memory/wasm/server, src/data/*Provider.ts) always supplies a `detail`; `res.reason` fallback is unreachable via the public API */
+    if (isRejection(res)) return { rejected: res.detail ?? res.reason, rejection: res };
+    const values = new Set<unknown>();
+    /* v8 ignore next -- the ask is `{ mode: 'rows' }`, and every shipped provider sets `.rows` in that mode; the `?? []` fallback is unreachable via the public API */
+    for (const row of res.rows ?? []) {
+      const v = row[near];
+      if (v !== null && v !== undefined) values.add(v);
+    }
+    return { values: [...values], rows: res.count };
+  }
+
+  /**
+   * FOLD AGAIN WHAT THE ROWS MOVED FROM UNDER: every live commit
+   * ({@link travelledSets}'s own two lists) whose record is missing (a replayed
+   * log) or was folded at data versions that have since moved (a re-land
+   * through the refresh door, `../def/buildDashboard.ts` · `refresh`, which
+   * bumps `sources[table].version`) is travelled again, now. Called by the
+   * doors that can ask an engine — `overview`, the read door `viewClauses`,
+   * and every probe door before its own travel ({@link travelFor}) — and never
+   * by a synchronous read: `clausesFor` and `why()` serve the record as it
+   * stands, which is the window `./README.md` states. WHY a version stamp and
+   * not a registry of open sessions the refresh door would call: the dashboard
+   * keeps none (`createSession` returns and forgets), and the version is
+   * already the one fact a re-land moves and every read door already reads
+   * (`viewClauses` · `version-moved`). Notes nothing: a fold at a read door is
+   * a projection, and a projection does not spend the ledger.
+   */
+  private async retravelStale(): Promise<void> {
+    const now = this.versionsNow();
+    const stale = (commitId: string): boolean => {
+      const rec = this.travelledByCommit.get(commitId);
+      return rec === undefined || Object.keys(now).some((t) => rec.at[t] !== now[t]);
+    };
+    const live: (readonly [from: string, commitId: string, clause: PredicateClause])[] = [];
+    for (const [from, commitId] of this.activeFilterCommits) live.push([from, commitId, this.activeFilters.get(from)!]); // the two live maps are written together
+    for (const [from, rec] of this.clearedFilters) live.push([from, rec.landedBy, rec.clause]);
+    for (const [from, commitId, clause] of live) if (stale(commitId)) this.travelledByCommit.set(commitId, await this.travelOf(from, clause));
+  }
+
+  /**
+   * The probe doors' one travel step, BEFORE the commit is written: fold again
+   * whatever the rows moved from under, then travel THIS clause — so the
+   * log's cursor and the sets move together, and `clausesFor` is right the
+   * moment the act's promise resolves. A refusal is filed beside the act,
+   * which still lands (`needs-backend-data`, the door's own code for an engine
+   * that would not answer), never returned as the act's rejection: what could
+   * not travel is one consumer's reading, not the gesture.
+   */
+  private async travelFor(viewId: string, clause: PredicateClause, verb: DispatchVerb): Promise<{ readonly clause: PredicateClause; readonly travel: TravelRecord }> {
+    await this.retravelStale();
+    const travel = await this.travelOf(viewId, clause, (sentence) => {
+      this.gapLedger.file('needs-backend-data', verb, sentence, viewId);
+    });
+    return { clause, travel };
   }
 
   /**
@@ -2239,6 +2466,9 @@ class InteractionSessionImpl implements InteractionSession {
     if (!provider) return { ok: false, reason: 'engine', rejected: `no provider for table "${table}"` };
     const sorted = query.sort !== undefined && query.sort.length > 0;
     if (sorted && provider.capabilities.canSort !== true) return { ok: false, reason: 'unsupported-sort', rejected: `the ${provider.engine} engine cannot sort. Ask for this window without a sort` };
+    // a travelled set the rows moved from under is folded again here, where an engine can be asked, before the
+    // consumer's clauses are read (`retravelStale`) — a window never judges a set folded over rows that are gone
+    await this.retravelStale();
     // whose eyes: a view sees what reaches it; no view = the whole-dashboard truth, every live clause filtering
     // (what selectedRowCount counts); an EXPLICIT null = nobody's clause — the table as it stands, which is what
     // a fixed axis is folded from (`ChannelResolution.basis: 'table'`).
@@ -3047,6 +3277,9 @@ class InteractionSessionImpl implements InteractionSession {
     if (!cols.some((c) => c.name === field)) {
       return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${field}" in table "${table}"`, field));
     }
+    // 3b. the clause TRAVELS the relations its edges carry, BEFORE the commit is written (`travelFor`): an engine
+    //     read, like step 3's, that cannot fail the act — a refusal is filed beside it. Nothing to travel for a clear.
+    const landing = isClearedSelection({ kind, value }) ? null : await this.travelFor(viewId, probeClause(kind, field, value), verb);
     // 4. land the cause-tagged clause commit (commit-on-intent) + update the active filter set.
     //    Parent is the CURSOR: a probe from a past cursor branches (R8 branch-on-act).
     const stamped = stampCause(cause, verb, as);
@@ -3062,14 +3295,15 @@ class InteractionSessionImpl implements InteractionSession {
       cause: stamped,
     });
     this.landed(record);
-    if (isClearedSelection({ kind, value })) {
+    if (landing === null) {
       if (record.cause.revertOf === undefined && record.cause.replacedBy === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it; nor does a clear that makes room for a saved picture
       this.activeFilters.delete(viewId);
       this.activeFilterCommits.delete(viewId); // a cleared selection is no longer an input dependency
     } else {
       this.clearedFilters.delete(viewId);
-      this.activeFilters.set(viewId, probeClause(kind, field, value));
+      this.activeFilters.set(viewId, landing.clause);
       this.activeFilterCommits.set(viewId, record.id); // a superseded select on the same view drops out here
+      this.travelledByCommit.set(record.id, landing.travel); // what the clause became elsewhere, keyed like the commit that landed it
     }
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
     // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
@@ -3129,6 +3363,8 @@ class InteractionSessionImpl implements InteractionSession {
         return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${field}" in table "${table}"`, field));
       }
     }
+    // 3b. the cell TRAVELS the relations its edges carry, before the commit — the point door's step, the same law
+    const landing = values === null ? null : await this.travelFor(viewId, { kind: 'cell', fields: [fields[0], fields[1]], value: values } satisfies CellClause, verb);
     // 4. land ONE cause-tagged compound commit (commit-on-intent). Parent is
     //    the CURSOR: a cell select from a past cursor branches (R8), like doProbe.
     const stamped = stampCause(cause, verb, as);
@@ -3145,15 +3381,15 @@ class InteractionSessionImpl implements InteractionSession {
       cause: stamped,
     });
     this.landed(record);
-    if (values === null) {
+    if (landing === null) {
       if (record.cause.revertOf === undefined && record.cause.replacedBy === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it; nor does a clear that makes room for a saved picture — the same rule as the point door
       this.activeFilters.delete(viewId); // a cleared cell releases the view's filter
       this.activeFilterCommits.delete(viewId);
     } else {
       this.clearedFilters.delete(viewId); // a live cell speaks for itself: nothing cleared is remembered beside it
-      const cell: CellClause = { kind: 'cell', fields: [fields[0], fields[1]], value: values };
-      this.activeFilters.set(viewId, cell);
+      this.activeFilters.set(viewId, landing.clause);
       this.activeFilterCommits.set(viewId, record.id);
+      this.travelledByCommit.set(record.id, landing.travel);
     }
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
     // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
@@ -3267,6 +3503,8 @@ class InteractionSessionImpl implements InteractionSession {
       }
       value = walked.body;
     }
+    // 5b. the walk's clause TRAVELS the relations its edges carry, before the commit — the point door's step, the same law
+    const landing = value === null ? null : await this.travelFor(viewId, probeClause('neighbourhood', neighbourhoodFieldLabel(fields), value, fields), verb);
     // 6. land ONE cause-tagged commit (commit-on-intent), parented at the CURSOR
     //    (R8 branch-on-act) — the question and its answer in one value.
     const stamped = stampCause(cause, verb, as);
@@ -3283,14 +3521,15 @@ class InteractionSessionImpl implements InteractionSession {
       cause: stamped,
     });
     this.landed(record);
-    if (value === null) {
+    if (landing === null) {
       if (record.cause.revertOf === undefined && record.cause.replacedBy === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it — the same rule as the point door
       this.activeFilters.delete(viewId);
       this.activeFilterCommits.delete(viewId);
     } else {
       this.clearedFilters.delete(viewId);
-      this.activeFilters.set(viewId, probeClause('neighbourhood', record.field, value, fields));
+      this.activeFilters.set(viewId, landing.clause);
       this.activeFilterCommits.set(viewId, record.id);
+      this.travelledByCommit.set(record.id, landing.travel);
     }
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
     // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
@@ -3713,7 +3952,8 @@ class InteractionSessionImpl implements InteractionSession {
 
   /** The link graph at the cursor: the def's materialized graph with the edited edges laid over it. */
   private currentGraph(): LinkGraph {
-    return applyLinkOverrides(this.runtime.links, this.activeLinks);
+    // the relations ride along so an EDITED edge says why it crosses tables exactly as the base's do (`LinkEdge.via`)
+    return applyLinkOverrides(this.runtime.links, this.activeLinks, this.runtime.relations);
   }
 
   /**
@@ -4848,24 +5088,33 @@ class InteractionSessionImpl implements InteractionSession {
       // does not reach a consumer), so the response is always one of the four
       // qualifiers — asserted here rather than re-checked with a dead arm.
       const narrowed = this.narrowedAt(c, table, reach);
-      return [{ id: commitId, kind: 'reaching-clause' as const, response: c.response as CommitResponse, ...(narrowed !== undefined ? { narrowed } : {}) }];
+      // …and a clause that TRAVELLED a relation says so (`ClauseTravel`): the relation, and the size of the set the pick became —
+      // the count is taken here, where the clause is in hand, and nowhere else
+      // (`via` rides only the travelled `match` — `clausesReaching` · `travelledTo` — so the clause beside it is one)
+      const via = c.via === undefined ? undefined : { path: c.via.path, ...(c.via.label !== undefined ? { label: c.via.label } : {}), rows: c.via.rows, values: (c.clause as MatchClause).values.length };
+      return [{ id: commitId, kind: 'reaching-clause' as const, response: c.response as CommitResponse, ...(narrowed !== undefined ? { narrowed } : {}), ...(via !== undefined ? { via } : {}) }];
     });
   }
 
   /**
-   * THE `narrowedFor` PRODUCER — for every live and remembered clause, the
-   * consumers it reached and could not be judged on, keyed by the SOURCE
-   * address (what `Overview.activeSelections` / `clearedSelections` list) and
-   * then by the CONSUMER address ({@link SelectionInfo.narrowedFor}).
+   * THE `narrowedFor` AND `travelled` PRODUCER — for every live and remembered
+   * clause, what became of it at each consumer it reached: the ones it could
+   * not be judged on ({@link SelectionInfo.narrowedFor}) and the ones it
+   * TRAVELLED a relation to ({@link SelectionInfo.travelled}), each keyed by
+   * the SOURCE address (what `Overview.activeSelections` / `clearedSelections`
+   * list) and then by the CONSUMER address. One walk, two maps: a consumer is
+   * in one of them or in neither, never both — a travelled clause was judged.
    *
    * WHY it is the SAME judgement `why()` makes, everywhere: each consumer's
    * entry is `narrowedAt(clause, tableFor(consumer), reach)` — the exact call
    * `reachingCommits` makes for the view a `why({kind:'chart'})` asks about —
-   * over `clausesFor(consumer)`, the exact list it walks, against ONE
-   * `tableReachAt()` reading for the whole walk (so two consumers can never be
-   * judged against two moments). This walk merely stands at EVERY address on
-   * the map (`addressesOf`: each view, each layer under its address — a layer
-   * is a consumer gated on its own table) instead of one, and turns the answer
+   * over `clausesFor(consumer)`, the exact list it walks (which answers a
+   * travelled clause with `ReachingClause.via`, so the travelled map is that
+   * answer grouped, never a second fold), against ONE `tableReachAt()` reading
+   * for the whole walk (so two consumers can never be judged against two
+   * moments). This walk merely stands at EVERY address on the map
+   * (`addressesOf`: each view, each layer under its address — a layer is a
+   * consumer gated on its own table) instead of one, and turns the answer
    * inside out: grouped by who SENT the clause, because that is the row the
    * overview lists.
    *
@@ -4880,25 +5129,35 @@ class InteractionSessionImpl implements InteractionSession {
    * both. NO engine call is made for this walk: the Sources projection's own
    * per-table read is its own, and the overview asks nothing further.
    *
-   * A source with no entry is not in the map at all, so a dashboard whose
-   * clauses are judgeable everywhere leaves every overview row byte-identical.
+   * A source with no entry is not in either map at all, so a dashboard whose
+   * clauses are judgeable everywhere, over tables no relation joins, leaves
+   * every overview row byte-identical.
    */
-  private narrowedForBySource(): Map<string, Record<string, NarrowedAt>> {
+  private reachedBySource(): { readonly narrowedFor: ReadonlyMap<string, Record<string, NarrowedAt>>; readonly travelled: ReadonlyMap<string, Record<string, TravelledAt>> } {
     const reach = this.tableReachAt();
-    const out = new Map<string, Record<string, NarrowedAt>>();
+    const narrowedFor = new Map<string, Record<string, NarrowedAt>>();
+    const travelled = new Map<string, Record<string, TravelledAt>>();
     for (const consumer of addressesOf(this.runtime.views.values())) {
       const table = this.tableFor(consumer);
       // the consumer's declared name, by the ONE resolver and the ONE fallback order (`./layers.ts` · labelAt) — absent when none is declared, never invented
       const label = labelAt(this.runtime.views, consumer);
       for (const c of this.clausesFor(consumer)) {
+        if (c.via !== undefined) {
+          // it travelled: the clause as it arrived and how — `from` stays off the row (the row IS the source's clause)
+          const { from: _made, ...via } = c.via;
+          const entry = travelled.get(c.from) ?? {};
+          entry[consumer] = { clause: c.clause as MatchClause, via, ...(label !== undefined ? { label } : {}) }; // a travelled clause is the `match` (`clausesReaching` · `travelledTo`)
+          travelled.set(c.from, entry);
+          continue;
+        }
         const narrowed = this.narrowedAt(c, table, reach);
         if (narrowed === undefined) continue; // judged here — nothing to say
-        const entry = out.get(c.from) ?? {};
+        const entry = narrowedFor.get(c.from) ?? {};
         entry[consumer] = { ...narrowed, ...(label !== undefined ? { label } : {}) };
-        out.set(c.from, entry);
+        narrowedFor.set(c.from, entry);
       }
     }
-    return out;
+    return { narrowedFor, travelled };
   }
 
   /**
@@ -4988,15 +5247,17 @@ class InteractionSessionImpl implements InteractionSession {
     // anchor on this very lineage, so the path admits its tail — see `lineageTail`
     const path = [...this.branchPath(landing.id), ...this.lineageTail(landing.id, shaping)];
     // the anchor is reported ONCE (one row per commit), so when it is itself a
-    // reaching clause its qualifier travels on the anchor row — see
-    // `WhySources.declaringResponse`
-    const anchorResponse = shaping.find((c) => c.id === anchorId && c.kind === 'reaching-clause')?.response;
+    // reaching clause its qualifiers travel on the anchor row — see
+    // `WhySources.declaringResponse` and, for a clause that travelled a
+    // relation, `declaringVia`
+    const anchor = shaping.find((c) => c.id === anchorId && c.kind === 'reaching-clause');
     return why(target, {
       vizRecords: path,
       // never admitted — only so a dropped id can say "another branch" instead of the untrue "the log does not hold it"
       commitsElsewhere: commitsElsewhereThan(this.log.records, path),
       declaringCommitId: landing.id,
-      ...(anchorResponse !== undefined ? { declaringResponse: anchorResponse } : {}),
+      ...(anchor?.response !== undefined ? { declaringResponse: anchor.response } : {}),
+      ...(anchor?.via !== undefined ? { declaringVia: anchor.via } : {}),
       inputSelectionCommitIds,
       relatedCommits: shaping,
       ...(landing.correlationId !== undefined ? { correlationId: landing.correlationId } : {}),
@@ -5040,12 +5301,13 @@ class InteractionSessionImpl implements InteractionSession {
 
   // ── the whats_here projection ────────────────────────────────────────────────
   async overview(): Promise<Overview> {
+    await this.retravelStale(); // a set the rows moved from under is folded again here, where an engine can be asked — before any row below reads it
     const selCount = await this.selectedCount(this.defaultTable, await this.clausesOn(this.defaultTable)); // a layer's clause on another table is that table's, not this count's
 
     // columns per table (schema only — VALUES never ride here; Q8). LIVE, from
     // the engine: this is the Sources projection, a READ of what each table has
     // now (a dropped connection is a fact of the read), never the build-time
-    // landing `narrowedForBySource` judges from.
+    // landing `reachedBySource` judges from.
     const columns: Record<string, ColumnFacet[]> = {};
     const colNamesByTable = new Map<string, Set<string>>();
     for (const table of this.tablesAt()) {
@@ -5100,20 +5362,21 @@ class InteractionSessionImpl implements InteractionSession {
     });
     const encodingPolicy = { onInvalid: this.runtime.encoding.rules.onInvalid ?? 'refuse', ruleScope: this.runtime.encoding.rules.ruleScope ?? ('dashboard' as const) };
 
-    // where each clause filtered nothing, by consumer — ONE walk for both lists (`narrowedForBySource`), from the
-    // same reading `why()` judges by (no engine in it), attached by source address and only when non-empty, so a
-    // judgeable-everywhere dashboard's rows do not move
-    const narrowedFor = this.narrowedForBySource();
-    const narrowedFragment = (viewId: string): { readonly narrowedFor?: Readonly<Record<string, NarrowedAt>> } => {
-      const at = narrowedFor.get(viewId);
-      return at === undefined ? {} : { narrowedFor: at };
+    // where each clause filtered nothing, and where it travelled a relation, by consumer — ONE walk for both lists and
+    // both keys (`reachedBySource`), from the same reading `why()` judges by (no engine in it), attached by source
+    // address and only when non-empty, so a judgeable-everywhere dashboard's rows do not move
+    const reached = this.reachedBySource();
+    const reachedFragment = (viewId: string): { readonly narrowedFor?: Readonly<Record<string, NarrowedAt>>; readonly travelled?: Readonly<Record<string, TravelledAt>> } => {
+      const narrowedFor = reached.narrowedFor.get(viewId);
+      const travelled = reached.travelled.get(viewId);
+      return { ...(narrowedFor === undefined ? {} : { narrowedFor }), ...(travelled === undefined ? {} : { travelled }) };
     };
-    const activeSelections = [...this.activeFilters.entries()].map(([viewId, clause]) => ({ ...selectionInfoOf(viewId, clause, this.activeFilterCommits.get(viewId), this.liveQuestionOf(viewId)), ...narrowedFragment(viewId) }));
+    const activeSelections = [...this.activeFilters.entries()].map(([viewId, clause]) => ({ ...selectionInfoOf(viewId, clause, this.activeFilterCommits.get(viewId), this.liveQuestionOf(viewId)), ...reachedFragment(viewId) }));
     const offers = this.offersNow();
     const asOf = this.offerStamp();
     // layer 4 `onClear`: what each cleared view LAST selected, for the edges whose policy keeps it in force — and,
-    // for a `leave` edge, where that remembered clause filters nothing (the same walk; `clausesReaching` lists it)
-    const clearedSelections = [...this.clearedFilters.entries()].map(([viewId, { clause, clearedBy }]) => ({ ...selectionInfoOf(viewId, clause), clearedBy, ...narrowedFragment(viewId) }));
+    // for a `leave` edge, where that remembered clause filters nothing or travelled (the same walk; `clausesReaching` lists it)
+    const clearedSelections = [...this.clearedFilters.entries()].map(([viewId, { clause, clearedBy }]) => ({ ...selectionInfoOf(viewId, clause), clearedBy, ...reachedFragment(viewId) }));
 
     const analyses = this.analysisIds().map((id) => {
       const a = this.analysis(id)!;

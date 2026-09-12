@@ -24,6 +24,14 @@
  * [`../detach/README.md`](../detach/README.md) exists to prevent — and a
  * mapping REWRITES field names, which would corrupt the session's own fold if
  * it were done in place.
+ *
+ * A fifth rule, the one that is NOT about the graph alone: a clause that
+ * TRAVELLED a declared relation (`travelled` — the session's sets, folded by
+ * the engine at dispatch, `session.ts` · `travelOf`) arrives at that consumer
+ * as the `match` on the relation's far column, with `via` saying how. This is
+ * still the one place a clause is re-phrased for a consumer — a mapping
+ * renames, a relation re-phrases — and the two never apply to one clause: a
+ * mapped field is the author's aim, and the aim stands (`authorMapped`).
  */
 import { copyClause } from './wire.js';
 import { columnStanding } from '../links/index.js';
@@ -31,12 +39,20 @@ import type { FieldMapping, LinkEdge, LinkGraph, TableReach } from '../links/ind
 // the ONE renamer and the ONE column reader — a two-column kind is renamed and
 // read here the day it is added there, never by a second spelling of the rule
 import { clauseFields, renameClauseFields, type PredicateClause } from '../data/index.js';
-import type { ReachingClause } from './types.js';
+import type { ReachingClause, TravelledClause } from './types.js';
 
 /** A view whose last selection was CLEARED, with what it was and the clearing commit. */
 export interface ClearedSelection {
   readonly clause: PredicateClause;
   readonly clearedBy: string;
+  /**
+   * The commit that LANDED the remembered clause — the key its travelled sets
+   * are held under (`session.ts` · `travelledByCommit`), so a `leave` edge that
+   * keeps the clause in force keeps it travelled too. Absent for a clause the
+   * fold could not name a landing for (none today: every cleared record is
+   * noted while the live commit is still known, `session.ts` · `noteCleared`).
+   */
+  readonly landedBy?: string;
 }
 
 /**
@@ -50,8 +66,10 @@ export function clausesReaching(input: {
   readonly graph: LinkGraph;
   readonly live: ReadonlyMap<string, PredicateClause>;
   readonly cleared: ReadonlyMap<string, ClearedSelection>;
+  /** Source address → consumer address → the clause as it TRAVELLED a relation to that consumer. Absent = nothing travelled (every caller before the sets existed). */
+  readonly travelled?: ReadonlyMap<string, Readonly<Record<string, TravelledClause>>>;
 }): ReachingClause[] {
-  const { viewId, graph, live, cleared } = input;
+  const { viewId, graph, live, cleared, travelled } = input;
   // one lookup per (source, kind) INTO this consumer — the same law the renderer contract applies (ui/src/contract/selection.ts)
   const into = new Map<string, LinkEdge>();
   for (const e of graph.edges) if (e.target === viewId) into.set(`${e.source}|${e.kind}`, e);
@@ -81,6 +99,19 @@ export function clausesReaching(input: {
     });
     return out.length > 0 ? out : undefined;
   };
+  // A CLAUSE THAT TRAVELLED arrives as the session folded it — the `match` on
+  // the far column, its own copy, and `via` naming the relation and the clause
+  // the source made. Read only where the edge AT THIS CURSOR still carries the
+  // relation (`LinkEdge.via` — a `link` edit may have moved the edge since the
+  // set was folded) and no mapping renamed a field (the aim stands). Everything
+  // else about the set — which consumer lacks which column, which relation end
+  // the consumer has — was judged when it was folded, and a set that is no
+  // longer true of the tables is re-folded by the session, not re-judged here.
+  const travelledTo = (edge: LinkEdge, from: string, clause: PredicateClause, mappedFields: readonly FieldMapping[] | undefined): Pick<ReachingClause, 'clause' | 'via'> | undefined => {
+    const set = travelled?.get(from)?.[viewId];
+    if (set === undefined || edge.via === undefined || mappedFields !== undefined) return undefined;
+    return { clause: copyClause(set.clause), via: { ...set.via, from: copyClause(clause) } };
+  };
   const out: ReachingClause[] = [];
   // a source that CLEARED still reaches a consumer whose edge says so: `leave` keeps the last clause, `excludeAll` keeps nothing, `showAll` (the default) = gone
   for (const [from, rec] of cleared) {
@@ -92,19 +123,21 @@ export function clausesReaching(input: {
     if (policy === 'showAll') continue;
     const clause = mapped(edge, rec.clause);
     const mappedFields = authorMapped(edge, rec.clause);
-    // `excludeAll` keeps nothing: an empty IN-list on the clause's first column — whatever kind it was, asked once (`clauseFields`)
+    // `excludeAll` keeps nothing: an empty IN-list on the clause's first column — whatever kind it was, asked once (`clauseFields`).
+    // A `leave` keeps the clause AS IT REACHED: travelled where it travelled (the set is held under its landing commit).
     out.push({
       from,
       response: edge.response,
       clause: policy === 'leave' ? clause : { kind: 'match', field: clauseFields(clause)[0]!, values: [] },
       ...(mappedFields !== undefined ? { mappedFields } : {}),
+      ...(policy === 'leave' ? travelledTo(edge, from, rec.clause, mappedFields) : {}),
     });
   }
   for (const [from, clause] of live) {
     const edge = reaches(from, clause.kind);
     if (edge === undefined) continue;
     const mappedFields = authorMapped(edge, clause);
-    out.push({ from, response: edge.response, clause: mapped(edge, clause), ...(mappedFields !== undefined ? { mappedFields } : {}) });
+    out.push({ from, response: edge.response, clause: mapped(edge, clause), ...(mappedFields !== undefined ? { mappedFields } : {}), ...travelledTo(edge, from, clause, mappedFields) });
   }
   return out;
 }

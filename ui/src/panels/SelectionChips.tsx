@@ -6,8 +6,10 @@
  * of it away — as a commit, like any act. Words come from `formatCommitValue`
  * (the same spelling the commit log uses), never a second vocabulary.
  */
-import type { ClearedSelectionView, LinkGraphView, NarrowedAtView, SelectionView } from '../adapter/types.js';
+import type { ClearedSelectionView, LinkGraphView, NarrowedAtView, SelectionView, TravelledAtView } from '../adapter/types.js';
 import { formatCommitValue, isSelfDescribing } from './format.js';
+// the ONE spelling of a relation (`edges.source → nodes.disease`) — the def door's own, so a chip and a refusal name an edge the same way
+import { relationEdgeId } from 'vizfootprint/def';
 
 export interface SelectionChipsProps {
   readonly selections: readonly SelectionView[];
@@ -56,6 +58,23 @@ export function narrowedWords(address: string, at: NarrowedAtView): string {
   return `filtered nothing on ${at.label ?? address} \u00b7 ${at.reason}`;
 }
 
+/**
+ * `narrowedWords`' twin for a consumer this selection REACHED THROUGH A
+ * RELATION: `reached <label ?? address> through <relation> · N <far> values`.
+ * The relation is named by its DECLARED label when the def gave it one
+ * (`TravelledAtView.via.label` — "where the composite took its accepted
+ * radius from") and otherwise spelled as the def door spells an edge
+ * (`relationEdgeId`: `planets.radius_ref → references.ref`) — never a
+ * parenthetical invented here. The consumer's name is the session's declared
+ * label riding the wire (`TravelledAtView.label`), the address when none is
+ * declared, exactly as `narrowedWords` falls back. The count is the set the
+ * pick became, counted where the set is in hand — the far column's values.
+ */
+export function travelledWords(address: string, at: TravelledAtView): string {
+  const through = at.via.label ?? at.via.path.map((hop) => relationEdgeId(hop.from, hop.to)).join(', ');
+  return `reached ${at.label ?? address} through ${through} \u00b7 ${at.clause.values.length} ${at.clause.field} values`;
+}
+
 /** Whether a selection has a polarity to flip (a live point or match — `live` already dropped the cleared ones). */
 function flippable(s: SelectionView): boolean {
   return s.kind === 'point' || s.kind === 'match';
@@ -92,6 +111,21 @@ function narrowedNotes(s: SelectionView): JSX.Element[] | null {
   ));
 }
 
+/**
+ * `narrowedNotes`' twin: one `role="note"` line per consumer this selection
+ * reached THROUGH A RELATION (`SelectionView.travelled`), beneath the chip's
+ * words and after the narrowed lines — the same register, the same wrap rule
+ * (`.vzf-selchip-travelled`). Nothing when the wire carried no key.
+ */
+function travelledNotes(s: SelectionView): JSX.Element[] | null {
+  if (s.travelled === undefined) return null;
+  return Object.entries(s.travelled).map(([address, at]) => (
+    <span key={`travelled:${address}`} role="note" className="vzf-selchip-travelled" data-consumer={address}>
+      {travelledWords(address, at)}
+    </span>
+  ));
+}
+
 export function SelectionChips({ selections, cleared = [], links, labels = {}, onClear, onClearAll, onSetPolarity, onSave, readOnly = false, className }: SelectionChipsProps): JSX.Element {
   // a cleared clause is not a chip, and cleared has ONE spelling for every kind: `null` (src/session/README.md, beside law 6)
   const live = selections.filter((s) => s.value !== null);
@@ -111,6 +145,7 @@ export function SelectionChips({ selections, cleared = [], links, labels = {}, o
           <span className="vzf-selchip-view">{labels[c.viewId] ?? c.viewId}</span>
           <span className="vzf-selchip-words">{chipWords(c)} — kept after clearing for {edges.map((k) => labels[k.target] ?? k.target).join(', ')}</span>
           {narrowedNotes(c)}
+          {travelledNotes(c)}
           <span className="vzf-sr-only">
             {' '}cleared by commit {c.clearedBy}; {edges.map((k) => `${labels[k.target] ?? k.target} ${k.policy === 'leave' ? 'keeps it' : 'shows nothing'}`).join(', ')}. To release it, select on {labels[c.viewId] ?? c.viewId} again or change the edge in the matrix.
           </span>
@@ -126,6 +161,7 @@ export function SelectionChips({ selections, cleared = [], links, labels = {}, o
               <span className="vzf-selchip-view">{labels[s.viewId] ?? s.viewId}</span>
               <span className="vzf-selchip-words">{chipWords(s)}</span>
               {narrowedNotes(s)}
+              {travelledNotes(s)}
               {onSetPolarity !== undefined && flippable(s) && (
                 <button
                   type="button"

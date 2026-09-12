@@ -60,6 +60,9 @@ export type {
   SelectionView,
   // one consumer's entry of `SelectionView.narrowedFor` — where a selection filtered nothing, by address
   NarrowedAtView,
+  // …and its twin `SelectionView.travelled` — where a selection reached a consumer through a declared relation, and how
+  TravelledAtView,
+  RelationEndView,
   BranchView,
   PathView,
   PathEventView,

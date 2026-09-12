@@ -50,6 +50,10 @@ export type {
   SelectionInfo,
   // where a live clause filtered nothing, said per consumer on the overview's rows (`SelectionInfo.narrowedFor`)
   NarrowedAt,
+  // …and where it TRAVELLED a declared relation instead, and how (`SelectionInfo.travelled`, `ReachingClause.via`)
+  TravelledAt,
+  TravelledClause,
+  ClauseVia,
   Offer,
   AnalysisReadiness,
   FdrSummary,

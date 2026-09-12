@@ -13,11 +13,12 @@
 import type { SourceInfo } from '../source/types.js';
 import type { Actor, Cause } from '../cause/index.js';
 import type { EmissionKind, FieldMapping, LinkEdge, LinkGraph, LinkOnClear, LinkResponse, LinkKind, ChannelPair } from '../links/types.js';
+import type { ReachRelation } from '../links/reach.js';
 import type { CommitRecord } from '../log/index.js';
 import type { CauseClause, SelectionPort } from '../selection/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
 import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
-import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause, PredicateClause, Row, SortSpec, WalkAsk } from '../data/index.js';
+import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause, MatchClause, PredicateClause, Row, SortSpec, WalkAsk } from '../data/index.js';
 import type { EncodingProblem, Fit, RuleLine, RuleScope } from '../encoding/index.js';
 import type { ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
 import type { ChannelResolution, DispatchVerb, IntentClass, SeriesGrain, SavedClause, SavedSelection, Bookmark, RelationEdge } from '../def/types.js';
@@ -906,6 +907,51 @@ export interface NarrowedAt {
   readonly label?: string;
 }
 
+/**
+ * HOW A CLAUSE REACHED A CONSUMER WHOSE TABLE LACKS ITS COLUMN: it travelled a
+ * declared relation. The engine that holds the source's rows folded the
+ * clause to the distinct values of the relation's NEAR column (the end on the
+ * source's table), and the clause arrives at the consumer as a `match` on the
+ * relation's FAR column (the end on the consumer's table) — the shape every
+ * tier already judges (`../session/README.md`, "A clause travels a relation").
+ */
+export interface ClauseVia {
+  /**
+   * The relation travelled — the first of the edge's `LinkEdge.via` whose far
+   * column the consumer's table has. ONE element today; an array because a
+   * path through a third table is the same shape, and its own packet.
+   */
+  readonly path: readonly ReachRelation[];
+  /** The relation's declared `label` (`RelationDecl.label`), when it declares one — never invented, so the key is absent otherwise. */
+  readonly label?: string;
+  /** How many SOURCE rows the original clause matched — what the far values were folded from (the engine's own `count`, from the same ask). */
+  readonly rows: number;
+}
+
+/**
+ * A clause AS IT ARRIVED at one consumer through a relation: the `match` on
+ * the far column the consumer judges, and how it got there. Held by the
+ * session per (landing commit, consumer address) and served on the overview
+ * ({@link SelectionInfo.travelled}), in `clausesFor` ({@link ReachingClause.via})
+ * and in `why()`.
+ */
+export interface TravelledClause {
+  readonly clause: MatchClause;
+  readonly via: ClauseVia;
+}
+
+/**
+ * One consumer's entry of {@link SelectionInfo.travelled}: the travelled
+ * clause, plus the CONSUMER's declared name — {@link NarrowedAt.label}'s twin,
+ * resolved by the same owner (`./layers.ts` · `labelAt`) and absent when
+ * nothing on the map declares one (omit, never invent). Two names may ride
+ * one entry and they name two things: `label` is the consumer's, `via.label`
+ * the relation's.
+ */
+export interface TravelledAt extends TravelledClause {
+  readonly label?: string;
+}
+
 /** An active DATA-space selection (never pixels; R5). */
 export interface SelectionInfo {
   readonly viewId: string;
@@ -951,6 +997,24 @@ export interface SelectionInfo {
    * the session, and never a second time by any other tier.
    */
   readonly narrowedFor?: Readonly<Record<string, NarrowedAt>>;
+  /**
+   * THE CONSUMERS THIS CLAUSE REACHED THROUGH A RELATION — keyed by the
+   * consumer's ADDRESS like {@link narrowedFor}, one {@link TravelledAt}
+   * each: the `match` on the far column that consumer judges, the relation
+   * it travelled, and the consumer's declared name. Stated by the session in the SAME walk that states
+   * `narrowedFor` (`session.ts` · `reachedBySource`), from `clausesFor`
+   * (which answers the travelled clause with `ReachingClause.via`); the wire
+   * carries it whole; a renderer's fold takes its own consumer's entry
+   * (`SelectionClauseView.via`) and judges the far column with no join of its
+   * own; the chip says it (omit, never deny: the pick became a set of far
+   * values, and the reader is told how).
+   *
+   * A consumer is under `travelled` OR under `narrowedFor`, never both: a
+   * travelled clause was judged. ABSENT when nothing travelled — a dashboard
+   * with no relation, or none whose consumers lack a column — so every
+   * overview before this key is byte-identical.
+   */
+  readonly travelled?: Readonly<Record<string, TravelledAt>>;
 }
 
 /**
@@ -1101,6 +1165,17 @@ export interface ReachingClause {
    * this clause's fields.
    */
   readonly mappedFields?: readonly FieldMapping[];
+  /**
+   * Present exactly when this clause TRAVELLED a declared relation to reach
+   * the consumer: `clause` is then the `match` on the relation's far column
+   * (a column the consumer's table HAS — which is why `narrowed` is absent for
+   * it, it was judged), and `via` says how — the relation ({@link ClauseVia})
+   * and `from`, the clause the source actually made, so a window can say "the
+   * pick on the scatter reached these rows through planets.radius_ref →
+   * references.ref". Absent = the clause arrived as the source made it, which
+   * is every clause on a table that carries its columns.
+   */
+  readonly via?: ClauseVia & { readonly from: PredicateClause };
 }
 
 /**

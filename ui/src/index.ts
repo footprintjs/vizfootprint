@@ -47,7 +47,7 @@ export type { SheetProps } from './sheet/Sheet.js';
 // (`ReachingClause.narrowed`, quoted): the Sheet is its one caller inside the
 // package, and a host drawing its own surface over the same reaching answer
 // composes the same words rather than paraphrasing the library's reason
-export { narrowedSaid } from './sheet/Sheet.js';
+export { narrowedSaid, travelledSaid } from './sheet/Sheet.js';
 // a sheet's ARRANGEMENT is an act: the host lands one prop at a time and reads
 // each back at the cursor (`sort`, `hidden`, `order`, `frozen`)
 export { arrangeColumns, sheetFrozenOf, sheetHiddenOf, sheetLayoutViewId, sheetOrderOf, sheetSortOf } from './sheet/arrangement.js';

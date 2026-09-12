@@ -105,8 +105,10 @@ describe('layers — an address is a viewId, gated on the layer table', () => {
     // so the fixture states that relation, exactly as the def door requires.
     const linked = fresh({ relations: NETWORK_RELATIONS, links: [{ source: NODES_ADDRESS, kind: 'point', target: EDGES_ADDRESS, response: 'highlight' }] });
     await linked.dispatch({ verb: 'select', viewId: NODES_ADDRESS, field: 'group', value: 'viral', cause: userCause() });
-    // `fromLabel` = the NODES LAYER's own declared label — the name the person knows the thing they brushed by (see `./clauseLabel.session.test.ts`)
-    expect(linked.clausesFor(EDGES_ADDRESS)).toEqual([{ from: NODES_ADDRESS, fromLabel: 'Diseases', response: 'highlight', clause: { kind: 'point', field: 'group', value: 'viral' } }]);
+    // `fromLabel` = the NODES LAYER's own declared label — the name the person knows the thing they brushed by (see `./clauseLabel.session.test.ts`).
+    // The clause TRAVELS the first declared relation (`edges` has no `group`; `edges.source → nodes.id` is on the edge's `via`), so it
+    // arrives as the `match` on `source` — pinned in full by `./via.session.test.ts`; here only the route and the name are the point
+    expect(linked.clausesFor(EDGES_ADDRESS)).toMatchObject([{ from: NODES_ADDRESS, fromLabel: 'Diseases', response: 'highlight', clause: { kind: 'match', field: 'source', values: ['flu', 'cold'] }, via: { from: { kind: 'point', field: 'group', value: 'viral' } } }]);
     expect(linked.clausesFor('net')).toEqual([]);
     const q = await linked.viewQuery({ viewId: EDGES_ADDRESS });
     expect(q.ok && [q.count, q.clauses.map((c) => [c.from, c.response])]).toEqual([EDGES.length, [[NODES_ADDRESS, 'highlight']]]);

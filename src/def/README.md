@@ -318,7 +318,7 @@ And what a host provider ANSWERS is public too: a rejection may carry no `detail
 
 ## Relations — the edges between tables
 
-A def declares its tables as `data: Record<string, DataSourceDef>`, and each table may name its row identity (`key`). `relations` is the one place two tables are joined: an edge from a column of one table to the **key** of another. Relations are data on the MAP — the overview echoes them (`overview().relations`, the `relations` part of `whats_here`), and two things in the session act on them: an analysis may read across a declared edge and no other way (law 6), and the `neighbourhood` selection kind walks a pair of them (law 7) rather than inferring a join from the rows.
+A def declares its tables as `data: Record<string, DataSourceDef>`, and each table may name its row identity (`key`). `relations` is the one place two tables are joined: an edge from a column of one table to the **key** of another. Relations are data on the MAP — the overview echoes them (`overview().relations`, the `relations` part of `whats_here`), and three things in the session act on them: an analysis may read across a declared edge and no other way (law 6), the `neighbourhood` selection kind walks a pair of them (law 7) rather than inferring a join from the rows, and a clause reaching a view whose table lacks its column TRAVELS the edge as a semi-join — the map writes the relation on the link edge (`../links/README.md`, `LinkEdge.via`) and the session folds it (`../session/README.md`, "A clause travels a relation").
 
 ```ts
 data: {

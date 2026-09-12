@@ -42,7 +42,7 @@ that share no column name cannot filter one another — the edge would be a
 promise nothing can keep, and an engine asked to judge `radii = 4.5` against a
 table with no `radii` refuses the *whole* read.
 
-`reach.ts` is the one owner. `tablesCanReach(source, target, reach)` answers
+`reach.ts` is the one owner (`relationPath` finds the relation both it and the edge’s `via` read). `tablesCanReach(source, target, reach)` answers
 `true` on the three grounds — one table judges its own sentences, a declared
 relation is a permission to read across, one shared column name is a sentence
 both sides hear — and `true` on **every kind of ignorance**: no reach handed in,
@@ -55,6 +55,27 @@ on evidence, never on ignorance).
 const g = materializeLinks([hist, scatter], [], 'crossfilter', tableReachOf(def));
 g.edges;    // []
 g.declined; // [{ id: 'hist:point→scatter', source: 'hist', kind: 'point', target: 'scatter', reason: 'view "hist" draws table "radii_per_planet" and view "scatter" draws table "measurements" — no relation joins those tables and they share no column, so nothing this edge carries could be judged there' }]
+```
+
+**The map says WHY an edge crosses tables (`LinkEdge.via`).** The second
+ground — a declared relation — is written on the edge it explains, for
+default, declared and edited edges alike: `via` is the relation path
+`reach.ts` · `relationPath` found between the two views' tables, in
+declaration order, one hop only. It is absent when the two views draw one
+table, when the tables share only a column name (the edge stands on that
+ground, and no relation is the reason), or when the graph was judged by no
+reach — so every graph built before the key existed is byte-identical. A
+reader of the map sees which relation joins the two, and the session's travel
+strategy (`../session/README.md`, "A clause travels a relation") takes the
+first listed whose far column the target has, instead of finding the relation
+a second time: the permission and the path can never disagree.
+
+```ts
+// a scatter over `planets` and a year chart over `references`, joined by one declared relation
+const reach = { relations: [{ from: { table: 'planets', column: 'radius_ref' }, to: { table: 'references', column: 'ref' } }], columns: { planets: ['pl_name', 'radius_ref'], references: ['ref', 'year'] } };
+const g = materializeLinks([scatter, years], [], 'crossfilter', reach);
+g.edges[0]; // { id: 'mass_radius~planets:point→by_year~references', …, origin: 'default', via: [{ from: { table: 'planets', column: 'radius_ref' }, to: { table: 'references', column: 'ref' } }] }
+applyLinkOverrides(g, edits, reach.relations); // an edited edge over the same tables carries the same `via`
 ```
 
 **A declined edge is a fact, not a silence.** "Declared === drawn" cuts both
@@ -120,7 +141,7 @@ the edge's policy — one rule for a chart; an analysis input stays the live set
 |---|---|
 | `types.ts` | the vocabulary and the `LinkGraph` shape; `edgeId` |
 | `voice.ts` | `voiceOf(capability, { hasEncodingSurface })` / `impliedKinds` — the ONE owner of "what can this view emit" (selection kinds from the capability; the `encoding` voice from having a surface) |
-| `materialize.ts` | default rule → edges (none within a frame: a view and its layers — `sharesFrame`; none into or out of a FRAME that reads no rows — `isFrame`); declared edges override in place; `edgesInto` / `edgesFrom` |
+| `materialize.ts` | default rule → edges (none within a frame: a view and its layers — `sharesFrame`; none into or out of a FRAME that reads no rows — `isFrame`; `via` written on every edge a declared relation explains — `viaOf`); declared edges override in place; `edgesInto` / `edgesFrom` |
 | `validate.ts` | the refusals, as sentences, for `validateDashboardDef` |
 | `mermaid.ts` | `linksToMermaid(graph)` — declared === drawn |
 

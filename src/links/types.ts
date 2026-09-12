@@ -13,6 +13,8 @@
  * Every edge is data: the cockpit renders it, a person edits it, the agent
  * reads it. Charts never see edges; the host applies them.
  */
+// type-only, so the cycle with `./reach.ts` (which reads `LinkView` from here) never runs
+import type { ReachRelation } from './reach.js';
 
 /**
  * The emission kinds a view can produce — its voice. THE one array literal:
@@ -92,6 +94,23 @@ export interface LinkEdge extends LinkDecl {
   /** `${source}:${kind}→${target}` — one edge per (source, kind, target). */
   readonly id: string;
   readonly origin: 'declared' | 'default' | 'edited';
+  /**
+   * WHY THIS EDGE EXISTS ACROSS TWO TABLES: the one-hop relation path the reach
+   * law found between the source's table and the target's (`./reach.ts` ·
+   * `relationPath`) — present exactly when a DECLARED RELATION joins them,
+   * whichever direction it was declared in; absent when the two views draw the
+   * same table, or when the tables share only column names (the edge then
+   * stands on the shared-column ground, and no relation is the reason).
+   * Written at materialize time for default, declared AND edited edges alike:
+   * the map says what is true, not who asked.
+   *
+   * When more than one relation joins the pair, ALL are listed in declaration
+   * order; the strategy that travels a clause over the edge takes the FIRST
+   * whose far column the target's table actually has
+   * (`../session/session.ts` · `travelOf`). One hop only — a path through a
+   * third table is its own packet.
+   */
+  readonly via?: readonly ReachRelation[];
 }
 
 /** A view as the graph sees it: its id and its voice. */

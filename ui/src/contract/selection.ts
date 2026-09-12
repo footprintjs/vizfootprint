@@ -280,10 +280,11 @@ export function selectionForView(
       const to = (f: string): string => edge.mapping?.find((m) => m.from === f)?.to ?? f;
       const field = to(c.field);
       const fields = c.fields !== undefined ? ([to(c.fields[0]), to(c.fields[1])] as const) : undefined;
+      // a `leave` keeps the clause AS IT REACHED this view — travelled where the session says it travelled (`travelledAt`)
       clauses.set(
         c.viewId,
         policy === 'leave'
-          ? { kind: c.kind, field, value: c.value, ...(fields !== undefined ? { fields } : {}), response: edge.response, predicate: clausePredicate(c.kind, field, c.value, fields), ...narrowedAt(c, selfViewId) }
+          ? (travelledAt(c, selfViewId, edge.response) ?? { kind: c.kind, field, value: c.value, ...(fields !== undefined ? { fields } : {}), response: edge.response, predicate: clausePredicate(c.kind, field, c.value, fields), ...narrowedAt(c, selfViewId) })
           : { kind: 'match', field, value: { values: [] }, response: edge.response, predicate: () => false },
       );
     }
@@ -306,17 +307,48 @@ export function selectionForView(
         if (fields !== undefined) fields = [to(fields[0]), to(fields[1])];
       }
     }
-    clauses.set(s.viewId, {
-      kind: s.kind,
-      field,
-      value: s.value,
-      ...(fields !== undefined ? { fields } : {}),
-      ...(response !== undefined ? { response } : {}),
-      predicate: clausePredicate(s.kind, field, s.value, fields),
-      ...narrowedAt(s, selfViewId),
-    });
+    clauses.set(
+      s.viewId,
+      // the session's travelled clause for THIS consumer, when it said so — else the clause as the source made it (mapped, judged as ever)
+      travelledAt(s, selfViewId, response) ?? {
+        kind: s.kind,
+        field,
+        value: s.value,
+        ...(fields !== undefined ? { fields } : {}),
+        ...(response !== undefined ? { response } : {}),
+        predicate: clausePredicate(s.kind, field, s.value, fields),
+        ...narrowedAt(s, selfViewId),
+      },
+    );
   }
   return { clauses, resolve, selfClauseId: selfViewId };
+}
+
+/**
+ * Protocol 1.9: the session's word that this clause TRAVELLED a declared
+ * relation to reach THIS consumer — picked out of the source's per-consumer
+ * map (`SelectionView.travelled`, keyed by the consumer's address, exactly as
+ * `narrowedAt` picks `narrowedFor`) by the consuming view's own id, and
+ * returned as the WHOLE clause row: the `match` on the relation's far column,
+ * a predicate over that column, the edge's response, and `via`. Nothing (so
+ * the caller folds the clause as the source made it) for a whole-dashboard
+ * fold — `selfViewId === null` names no consumer — and for every consumer the
+ * session did not name. The tier never joins: the set of far values IS the
+ * session's answer, and `judgeable` keeps a row that lacks the far column as
+ * it keeps any other.
+ */
+function travelledAt(s: Pick<SelectionView, 'travelled'>, selfViewId: string | null, response: SelectionClauseView['response'] | undefined): SelectionClauseView | undefined {
+  const at = selfViewId === null ? undefined : s.travelled?.[selfViewId];
+  if (at === undefined) return undefined;
+  const value = { values: at.clause.values };
+  return {
+    kind: 'match',
+    field: at.clause.field,
+    value,
+    ...(response !== undefined ? { response } : {}),
+    predicate: clausePredicate('match', at.clause.field, value),
+    via: { path: at.via.path, ...(at.via.label !== undefined ? { label: at.via.label } : {}), rows: at.via.rows },
+  };
 }
 
 /**

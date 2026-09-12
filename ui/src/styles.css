@@ -2454,6 +2454,18 @@
   font-size: 10px;
   opacity: 0.8;
 }
+/* …and a consumer it reached THROUGH A RELATION (the session's `travelled`): the same register, the same
+   wrap rule — a twin of the rule above, kept as its own rule so each line's law can be read on its own. */
+:where(.vzf) .vzf-selchip:has(.vzf-selchip-travelled) {
+  flex-wrap: wrap;
+}
+:where(.vzf) .vzf-selchip-travelled {
+  flex-basis: 100%;
+  color: var(--vzf-ink-soft);
+  font-family: var(--vzf-font-mono);
+  font-size: 10px;
+  opacity: 0.8;
+}
 
 /* saved selections */
 .vzf-saved-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }

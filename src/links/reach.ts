@@ -57,9 +57,24 @@ export interface TableReach {
   readonly columns: Readonly<Record<string, readonly string[]>>;
 }
 
-/** True iff a relation joins these two tables, either way round — a relation is undirected as a PERMISSION to read across. */
-function joined(a: string, b: string, relations: readonly ReachRelation[]): boolean {
-  return relations.some((r) => (r.from.table === a && r.to.table === b) || (r.from.table === b && r.to.table === a));
+/**
+ * THE ONE FINDER of the relation path between two tables: every declared
+ * relation whose two ends are exactly {source, target}, either way round — a
+ * relation is undirected as a PERMISSION to read across — in declaration
+ * order, or `undefined` when none joins them. It is the second ground of
+ * {@link tablesCanReach} and the fact the map writes on the edge
+ * (`LinkEdge.via`), so the permission and the path can never disagree.
+ *
+ * One hop only. A pair joined by more than one relation lists them ALL; the
+ * strategy that travels a clause across takes the first whose far column the
+ * target actually has (`LinkEdge.via`'s own doc). A relation joining a table to
+ * itself can never be on this path — its two ends name one table, and this is
+ * asked only of two different ones (`tablesCanReach` answers `source ===
+ * target` before it gets here; the def door refuses a self-join anyway).
+ */
+export function relationPath(source: string, target: string, relations: readonly ReachRelation[]): readonly ReachRelation[] | undefined {
+  const found = relations.filter((r) => (r.from.table === source && r.to.table === target) || (r.from.table === target && r.to.table === source));
+  return found.length === 0 ? undefined : found;
 }
 
 /**
@@ -73,7 +88,7 @@ function joined(a: string, b: string, relations: readonly ReachRelation[]): bool
 export function tablesCanReach(source: string | undefined, target: string | undefined, reach: TableReach | undefined): boolean {
   if (reach === undefined || source === undefined || target === undefined) return true; // nothing to judge it with
   if (source === target) return true; // one table judges its own sentences
-  if (joined(source, target, reach.relations)) return true; // a declared relation is the permission to read across
+  if (relationPath(source, target, reach.relations) !== undefined) return true; // a declared relation is the permission to read across
   const from = reach.columns[source];
   const to = reach.columns[target];
   if (from === undefined || to === undefined) return true; // a column list nobody declared proves no disjointness

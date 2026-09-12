@@ -1,6 +1,6 @@
 /**
  * A CLAUSE THAT FILTERED NOTHING SAYS SO WHERE IT WAS SENT — the overview's
- * `SelectionInfo.narrowedFor` (`session.ts` · `narrowedForBySource`).
+ * `SelectionInfo.narrowedFor` (`session.ts` · `reachedBySource`).
  *
  * The law: the session states, once and per consumer, where a live clause
  * filtered nothing; the wire carries it whole; a renderer's fold picks its
@@ -308,11 +308,13 @@ describe('(f) judged everywhere → the key is ABSENT, and the overview is byte-
  * `table`'s only column list is what the ENGINE reads off its rows — the def
  * states none, which is exactly `tableReachOf`'s `undeclared` gap. `main`
  * carries the brushed column; `table`'s layer does not, and no `mapping` is
- * involved (an ordinary miss, not an aimed one) — so this is the case
- * `narrowedForBySource`'s `readableColumns` fallback exists for: the read door
- * already knows `table`'s real columns from a build the overview's own
- * `tablesAt()` walk already read (`overview()`'s `readableColumns`), and the
- * two must not disagree about the SAME clause on the SAME table.
+ * involved (an ordinary miss, not an aimed one) — so this is the case the
+ * LANDED REGISTRY closes: the engine's own column list, read once at build
+ * and at each re-land (`runtime.landedColumns`) and folded into
+ * `tableReachAt()` itself, so `reachedBySource` and the read door judge this
+ * ordinary miss from the SAME list with no engine call of its own (this used
+ * to be a second reading, `readableColumns`, taken here alone — see
+ * `session.ts` · `reachedBySource`'s own WHY for the fold that replaced it).
  */
 function bareRowsBeside(): DashboardDef {
   return {
@@ -352,7 +354,7 @@ describe('(g) a bare `rows` table with NO declared `columns`: an ordinary miss a
     await s.dispatch({ verb: 'link', source: 'bar', kind: 'point', target: 'scatter', response: 'filter', mapping: [{ from: 'category', to: 'nonexistent' }], cause });
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause });
     const row = (await s.overview()).activeSelections[0]!;
-    expect('narrowedFor' in row).toBe(false); // an author's aim, not an ordinary miss — `readableColumns` finds it too, but the mapped-aim exemption still applies
+    expect('narrowedFor' in row).toBe(false); // an author's aim, not an ordinary miss — the landed registry finds it too, but the mapped-aim exemption still applies
     expect(await s.viewQuery({ viewId: 'scatter' })).toMatchObject({ ok: false, reason: 'engine', engineReason: 'unknown-column' });
   });
 });

@@ -60,7 +60,13 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
 
   // the anchor keeps its qualifier when it has one (see WhySources.declaringResponse); absent, the row is byte-identical to before
   const commits: TierCommit[] = [
-    { tier: 'viz', id: viz.commitId, kind: 'declaring', ...(sources.declaringResponse !== undefined ? { response: sources.declaringResponse } : {}) },
+    {
+      tier: 'viz',
+      id: viz.commitId,
+      kind: 'declaring',
+      ...(sources.declaringResponse !== undefined ? { response: sources.declaringResponse } : {}),
+      ...(sources.declaringVia !== undefined ? { via: sources.declaringVia } : {}),
+    },
   ];
   const misses: CrossTierMiss[] = [];
   // A commit the target named that this answer may not report as provenance is
@@ -73,10 +79,11 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
   // or dropped, so `seen` records the DECISION about an id, not just an entry.
   const seen = new Set<string>([viz.commitId]);
   // The qualifiers a role may carry, all optional: `response` (what the receiving
-  // view DOES with a reaching clause) and `narrowed` (it reached and filtered
-  // NOTHING). They are the CALLER's judgement, passed through verbatim — `why()`
-  // joins commits, it does not re-judge them.
-  const addViz = (id: string, kind: TierCommit['kind'], qualifiers?: { readonly response?: CommitResponse; readonly narrowed?: TierCommit['narrowed'] }): void => {
+  // view DOES with a reaching clause), `narrowed` (it reached and filtered
+  // NOTHING) and `via` (it reached THROUGH a relation). They are the CALLER's
+  // judgement, passed through verbatim — `why()` joins commits, it does not
+  // re-judge them.
+  const addViz = (id: string, kind: TierCommit['kind'], qualifiers?: { readonly response?: CommitResponse; readonly narrowed?: TierCommit['narrowed']; readonly via?: TierCommit['via'] }): void => {
     if (seen.has(id)) return; // already decided under an earlier role — not a second loss
     seen.add(id);
     if (!sources.vizRecords.some((r) => r.id === id)) {
@@ -91,6 +98,7 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
       kind,
       ...(qualifiers?.response !== undefined ? { response: qualifiers.response } : {}),
       ...(qualifiers?.narrowed !== undefined ? { narrowed: qualifiers.narrowed } : {}),
+      ...(qualifiers?.via !== undefined ? { via: qualifiers.via } : {}),
     });
   };
 

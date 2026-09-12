@@ -60,6 +60,8 @@ import {
   type ColumnView,
   type SelectionView,
   type NarrowedAtView,
+  type TravelledAtView,
+  type RelationEndView,
   type BranchView,
   type PathView,
   type PathsView,
@@ -871,8 +873,55 @@ function mapSelections(sels: readonly unknown[] | undefined): SelectionView[] {
     const o = s as SelectionView;
     // D30: a cell selection carries its field pair through (both sources
     // serialize the same SelectionInfo shape).
-    return { viewId: o.viewId, field: o.field, kind: o.kind, value: o.value, ...(o.fields !== undefined ? { fields: o.fields } : {}), ...(typeof o.commitId === 'string' ? { commitId: o.commitId } : {}), ...narrowedForOf(o) };
+    return { viewId: o.viewId, field: o.field, kind: o.kind, value: o.value, ...(o.fields !== undefined ? { fields: o.fields } : {}), ...(typeof o.commitId === 'string' ? { commitId: o.commitId } : {}), ...narrowedForOf(o), ...travelledOf(o) };
   });
+}
+
+/** A relation end as the wire carries it — both names strings — or nothing. */
+function relationEndOf(raw: unknown): RelationEndView | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const { table, column } = raw as { readonly table?: unknown; readonly column?: unknown };
+  return typeof table === 'string' && typeof column === 'string' ? { table, column } : undefined;
+}
+
+/**
+ * The session's `travelled` word (`SelectionInfo.travelled`) — where this
+ * clause reached a consumer THROUGH A DECLARED RELATION, by consumer address —
+ * carried through entry by entry, each only when WHOLE (`narrowedForOf`'s
+ * twin, read structurally like it): a `match` clause with a string `field` and
+ * an array `values`, and a `via` whose `path` is an array of two-ended
+ * relations (a hop with an end missing is no relation) and whose `rows` is a
+ * number. Half an entry is no fact — a set with no field is nothing a fold
+ * could judge, a path with no ends is nothing a chip could name — so it is
+ * dropped rather than padded. The two labels are the entry's OPTIONAL halves
+ * (the relation's on `via`, the consumer's on the entry): a string rides,
+ * absent stays absent, anything else degrades to absent (a malformed label is
+ * not grounds to drop the set the entry exists to carry). When
+ * nothing survives the key is absent, never `{}`. Both hosts pass through
+ * `mapSelections`, so both come through here.
+ */
+function travelledOf(o: { readonly travelled?: unknown }): { readonly travelled?: Readonly<Record<string, TravelledAtView>> } {
+  const t = o.travelled;
+  if (typeof t !== 'object' || t === null || Array.isArray(t)) return {};
+  const out: Record<string, TravelledAtView> = {};
+  for (const [address, entry] of Object.entries(t as Record<string, unknown>)) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const { clause, via, label } = entry as { readonly clause?: { readonly kind?: unknown; readonly field?: unknown; readonly values?: unknown }; readonly via?: { readonly path?: unknown; readonly label?: unknown; readonly rows?: unknown }; readonly label?: unknown };
+    if (clause?.kind !== 'match' || typeof clause.field !== 'string' || !Array.isArray(clause.values)) continue; // no set to judge: dropped, never padded
+    if (!Array.isArray(via?.path) || typeof via.rows !== 'number') continue;
+    const path = via.path.map((hop) => {
+      const h = hop as { readonly from?: unknown; readonly to?: unknown };
+      const from = relationEndOf(h.from);
+      const to = relationEndOf(h.to);
+      return from !== undefined && to !== undefined ? { from, to } : undefined;
+    });
+    if (path.length === 0 || path.some((hop) => hop === undefined)) continue; // a hop with an end missing is no relation to name
+    // both labels are OPTIONAL halves — the relation's on `via`, the consumer's on the entry — and each degrades to absent alone
+    const relationLabel = typeof via.label === 'string' ? { label: via.label } : {};
+    const consumerLabel = typeof label === 'string' ? { label } : {};
+    out[address] = { clause: { kind: 'match', field: clause.field, values: clause.values as readonly unknown[] }, via: { path: path as { from: RelationEndView; to: RelationEndView }[], ...relationLabel, rows: via.rows }, ...consumerLabel };
+  }
+  return Object.keys(out).length > 0 ? { travelled: out } : {};
 }
 
 /**

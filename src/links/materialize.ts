@@ -11,7 +11,7 @@
  */
 import { ENCODING_KIND, edgeId, type ChannelPair, type DeclinedEdge, type LinkDecl, type LinkDefault, type LinkEdge, type LinkGraph, type LinkView } from './types.js';
 import { DEFAULT_FOLD, crossesGrain } from './grain.js';
-import { unreachableWords, viewsCanReach, type TableReach } from './reach.js';
+import { relationPath, unreachableWords, viewsCanReach, type ReachRelation, type TableReach } from './reach.js';
 import { deepFreeze } from '../detach/index.js';
 import { splitLayerAddress } from '../def/layerAddress.js';
 
@@ -58,6 +58,23 @@ function isFrame(view: LinkView): boolean {
 }
 
 /**
+ * THE MAP SAYS WHY AN EDGE CROSSES TABLES: `LinkEdge.via` for one edge — the
+ * relation path between the two views' tables, or nothing. Asked of every
+ * edge written here, whoever asked for it (the default rule, a declaration,
+ * a run-time edit), so a reader of the graph meets the same fact on each.
+ * Nothing when either table is unstated (nothing to judge), when the two are
+ * one table (a view judges its own sentences), or when no relation joins
+ * them — a shared column name is not a relation, and the key is absent, so a
+ * graph over tables nothing joins is byte-identical to one built before the
+ * key existed.
+ */
+function viaOf(source: LinkView | undefined, target: LinkView | undefined, relations: readonly ReachRelation[] | undefined): { readonly via?: readonly ReachRelation[] } {
+  if (relations === undefined || source?.table === undefined || target?.table === undefined || source.table === target.table) return {};
+  const via = relationPath(source.table, target.table, relations);
+  return via === undefined ? {} : { via };
+}
+
+/**
  * @param reach - What the TABLES say about reaching one another (`./reach.ts`).
  *   Handed in rather than read off a def, because this package knows nothing
  *   about definitions. Omitted = nothing is judged, and the default rule mints
@@ -91,14 +108,18 @@ export function materializeLinks(views: readonly LinkView[], declared: readonly 
             origin: 'default',
             // the rule written out states its fold where it crosses grains — never an implicit crossing
             ...(crossesGrain(source, target) ? { fold: DEFAULT_FOLD } : {}),
+            // …and WHY it crosses tables, when a declared relation is the reason (`viaOf`)
+            ...viaOf(source, target, reach?.relations),
           });
         }
       }
     }
   }
+  const byId = new Map(views.map((v) => [v.viewId, v] as const));
   for (const raw of declared) {
     const decl = writtenOut(raw, views);
-    const edge: LinkEdge = { ...decl, id: edgeId(decl.source, decl.kind, decl.target), origin: 'declared' };
+    // a declared edge over joined tables carries the same `via` a default one would — the map says what is true, not who asked
+    const edge: LinkEdge = { ...decl, id: edgeId(decl.source, decl.kind, decl.target), origin: 'declared', ...viaOf(byId.get(decl.source), byId.get(decl.target), reach?.relations) };
     const at = edges.findIndex((e) => e.id === edge.id);
     if (at >= 0) edges[at] = edge;
     else edges.push(edge);
@@ -116,8 +137,14 @@ export function materializeLinks(views: readonly LinkView[], declared: readonly 
  * commits folded over it (one override per edge id, last-wins). An override
  * replaces its base edge IN PLACE (same evaluation position) or appends when
  * the base had none (a declared `none` default); its origin is `edited`.
+ *
+ * @param relations - The declared relations, so an EDITED edge over joined
+ *   tables carries the same `via` the base's edges do (`viaOf`): a run-time
+ *   edit of an edge's response must not make the map forget why the edge
+ *   crosses tables. Omitted = no edited edge carries one, which is every
+ *   caller that folds a graph with no relations to judge by.
  */
-export function applyLinkOverrides(base: LinkGraph, overrides: ReadonlyMap<string, LinkDecl>): LinkGraph {
+export function applyLinkOverrides(base: LinkGraph, overrides: ReadonlyMap<string, LinkDecl>, relations?: readonly ReachRelation[]): LinkGraph {
   // DETACHED, both ways out. With no overrides the base is handed back BY
   // REFERENCE — which used to be the bug (a reader pushed a forged edge into
   // what `overview().links` returned, and the next `overview()` reported it
@@ -127,8 +154,9 @@ export function applyLinkOverrides(base: LinkGraph, overrides: ReadonlyMap<strin
   // paid on a call that happens several times per gesture.
   if (overrides.size === 0) return deepFreeze(base);
   const edges = [...base.edges];
+  const byId = new Map(base.views.map((v) => [v.viewId, v] as const));
   for (const [id, raw] of overrides) {
-    const edge: LinkEdge = { ...writtenOut(raw, base.views), id, origin: 'edited' };
+    const edge: LinkEdge = { ...writtenOut(raw, base.views), id, origin: 'edited', ...viaOf(byId.get(raw.source), byId.get(raw.target), relations) };
     const at = edges.findIndex((e) => e.id === id);
     if (at >= 0) edges[at] = edge;
     else edges.push(edge);

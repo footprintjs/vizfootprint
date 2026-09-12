@@ -808,6 +808,62 @@ click-again, on a real session).
 
 ---
 
+## Law 8 — a clause travels a relation (protocol 1.9)
+
+**The fold takes the session's travelled clause and never joins.** A clause
+that reached this view through a declared relation — because the table it
+reads lacks the clause's column, and a relation joins that table to the
+source's — arrives as the session's own `match` on the relation's far column,
+and this tier judges that column with the predicate every match already gets.
+Which tables a relation joins, and what the source's rows held under the
+clause, are facts only the session's engines hold (`src/session/README.md`,
+"A clause travels a relation"); a render tier that folded a join of its own
+over the rows it happens to hold would be re-deriving the library's answer,
+which is the third law of `../adapter/README.md` broken one tier down.
+
+The session states it per consumer on the overview's own rows
+(`activeSelections[i].travelled`, keyed by the consumer's address — the
+`narrowedFor` shape, with the far-column `match`, the relation and the
+consumer's declared label); the adapter carries it whole
+(`SelectionView.travelled`, each entry kept only when whole — a match with a
+field and a values list, a path of two-ended relations, a number of rows); and
+`selection.ts` · `travelledAt` picks THIS view's entry into the clause view
+at the fold, beside `narrowedAt`. When it does, the row IS the travelled
+clause — `kind: 'match'`, `field` the far column, `value: { values }`, a
+`predicate` over that column — and `SelectionClauseView.via` says how: the
+relation (`path`), the def's own `label` for it when it declares one, and
+the source rows it was folded from (`rows`). A whole-dashboard fold names no
+consumer and carries none; a view's own clause never travels to itself; a
+`leave`-kept cleared clause keeps the travelled reading it had. `narrowed`
+and `via` never ride one row — a travelled clause was judged.
+
+```ts
+// the exoplanet desk: a pick of three planets on the scatter, travelled to the years as two references
+const pick = { viewId: 'mass_radius~planets', field: 'pl_name', kind: 'match', value: { values: ['Kepler-22b', 'TRAPPIST-1e', 'HD 209458 b'] },
+  travelled: { 'by_year~references': { clause: { kind: 'match', field: 'ref', values: ['ref-A', 'ref-B'] }, via: { path: [{ from: { table: 'planets', column: 'radius_ref' }, to: { table: 'references', column: 'ref' } }], label: 'where the composite took its accepted radius from', rows: 3 }, label: 'Discoveries by year' } } };
+const sel = selectionForView([pick], 'by_year~references', 'intersect', links);
+sel.clauses.get('mass_radius~planets'); // { kind: 'match', field: 'ref', value: { values: ['ref-A', 'ref-B'] }, response: 'filter', predicate, via: { path: […], label: '…', rows: 3 } }
+[{ ref: 'ref-A', year: 2011 }, { ref: 'ref-C', year: 2009 }, { year: 1999 }].filter(keepPredicate(sel)); // ref-A stays, ref-C goes, the row lacking `ref` is kept (Law 6)
+```
+
+A renderer that wants to say so has the chip's and the Sheet's sentences —
+`travelledWords` (`panels/SelectionChips.tsx`: *reached Discoveries by year
+through where the composite took its accepted radius from · 2 ref values*)
+and `travelledSaid` (on the root barrel, the consumer's vantage) — which name
+the relation by its declared label or, when none, by the def door's own
+spelling (`relationEdgeId`, `vizfootprint/def`), so a chip, a sheet and a
+refusal name an edge one way. A 1.8 renderer never reads the field and draws
+byte-identically (`capabilities.test.tsx`); the `notInThisVersion` pins hold
+the version to the prose.
+
+The law's tests: `selection.travelled.test.ts` (the fold on the far column,
+under `filter` and `highlight`, the unnamed consumer, the whole-dashboard
+fold, the `leave`-kept clause), `../adapter/sessionView.travelled.test.ts`
+(whole-or-dropped on both hosts), `../panels/SelectionChips.travelled.test.tsx`
+and `../sheet/Sheet.test.tsx` (the sentences).
+
+---
+
 ## Adding a capability — the checklist
 
 1. **Name the act.** Who performs it: the user (it rides `emit`), or the host
@@ -826,7 +882,9 @@ click-again, on a real session).
    arm; 1.4 added `walk` on a neighbourhood emission (WHICH walk); 1.5 added
    `RenderState.frame`, the layers' shared scales already folded; 1.6 added
    the logarithmic axis on that frame; 1.7 added `SelectionClauseView.narrowed`
-   (Law 6) — all optional, so every one of them stayed a minor.
+   (Law 6); 1.8 added `RenderLayer.selection` (Law 7); 1.9 added
+   `SelectionClauseView.via` (Law 8) — all optional, so every one of them
+   stayed a minor.
 
 ## One more habit: the derivation helpers ship in a set
 
