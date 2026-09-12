@@ -48,6 +48,8 @@ export type {
   LayerInfo,
   EffectiveEncoding,
   SelectionInfo,
+  // where a live clause filtered nothing, said per consumer on the overview's rows (`SelectionInfo.narrowedFor`)
+  NarrowedAt,
   Offer,
   AnalysisReadiness,
   FdrSummary,

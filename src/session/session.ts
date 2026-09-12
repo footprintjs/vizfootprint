@@ -72,10 +72,10 @@ import type { ProseProposal, ProseRecord, ProseSlot, ProseStatus, ProposalStatus
 import type { LinkGraph, TableReach } from '../links/index.js';
 import type { Bindings, EncodingProblem, Fit } from '../encoding/index.js';
 import { GapLedger, messageOf } from './gapLedger.js';
-import { clausesReaching, mappingsInto, narrowedByDef, narrowToJudgeable, unjudgeableColumn } from './clausesReaching.js';
+import { clausesReaching, mappingsInto, narrowedByDef, narrowToJudgeable, unjudgeableColumn, unjudgeableWords } from './clausesReaching.js';
 import { tablesInfoOf } from './tablesInfo.js';
 import { stampCause } from './stampCause.js';
-import { labelAt, layerBindingsOf, layerInfosOf, metaOf, placeOf, surfaceOf, surfacedAddressesOf, tableOf, type Place } from './layers.js';
+import { addressesOf, labelAt, layerBindingsOf, layerInfosOf, metaOf, placeOf, surfaceOf, surfacedAddressesOf, tableOf, type Place } from './layers.js';
 import { computeEffectiveEncodings, fitsWithFollows, followSentence } from './effectiveEncodings.js';
 import { offerStampOf, offersOf } from './offers.js';
 import { branchPathOf, commitsElsewhereThan, stepsSinceAncestor } from './branchPath.js';
@@ -141,6 +141,7 @@ import type {
   ViewAdapter,
   EffectiveEncoding,
   NoteInfo,
+  NarrowedAt,
   ReachingClause,
   ViewQuery,
   ViewQueryResult,
@@ -4764,6 +4765,79 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /**
+   * THE `narrowedFor` PRODUCER — for every live and remembered clause, the
+   * consumers it reached and could not be judged on, keyed by the SOURCE
+   * address (what `Overview.activeSelections` / `clearedSelections` list) and
+   * then by the CONSUMER address ({@link SelectionInfo.narrowedFor}).
+   *
+   * WHY it is the SAME judgement `why()` makes wherever the DEFINITION speaks:
+   * each consumer's entry starts from `narrowedByDef(clause, tableFor(consumer),
+   * reach)` — the exact call `reachingCommits` makes for the view a
+   * `why({kind:'chart'})` asks about — over `clausesFor(consumer)`, the exact
+   * list it walks. This walk merely stands at EVERY address on the map
+   * (`addressesOf`: each view, each layer under its address — a layer is a
+   * consumer gated on its own table) instead of one, and turns the answer
+   * inside out: grouped by who SENT the clause, because that is the row the
+   * overview lists.
+   *
+   * WHY `readableColumns` exists, and why it does NOT make this a second
+   * predicate: `why()` is genuinely SYNCHRONOUS (no `Promise`), so a def-only
+   * reading is the only one it can EVER give — but `overview()` is already
+   * `async` and, for the Sources projection, ALREADY awaits
+   * `effectiveColumnsOf(table)` for every table `tablesAt()` names before this
+   * walk runs (`overview()`'s `colNamesByTable`). A table declared as bare
+   * `rows` with no `columns` key (or a `csv` with none) is `undeclared` to
+   * `tableReachAt()` — the def says nothing — but the ENGINE already read its
+   * real columns for that SAME reading, at no extra cost: skipping it would
+   * make the overview say nothing about a clause the Sheet's read door already
+   * marks `narrowed` on read (`viewClauses` · `narrowToJudgeable`), over the
+   * exact same table, from a reading already sitting in memory. So a table
+   * ABSENT from `reach.columns` is judged against `readableColumns.get(table)`
+   * instead when the engine could describe it; a table the engine could NOT
+   * describe (`'rejected'` — no provider) stays `undeclared`, on the same law
+   * `clausesOn` already applies: ignorance narrows nothing.
+   *
+   * The ONE exception, kept byte-identical to `why()`: AN AIM THAT MISSED IS
+   * NOT AN ACCIDENT (`viewClauses`'s own law) — a column an edge's MAPPING
+   * named by hand is an author error the read door refuses by name, never an
+   * ordinary "filtered nothing". Where `readableColumns` is the ONLY reason a
+   * miss was found (the def stayed silent), a mapped aim is left unmarked here
+   * too, so an authoring mistake is never softened into a chip's note.
+   *
+   * One reach reading for the whole walk (`tableReachAt` plus the SAME
+   * `readableColumns` `overview()` already computed, both cursor-scoped like
+   * `effectiveColumnsOf`), so two consumers can never be judged against two
+   * moments, and no SECOND engine call is ever made for this walk.
+   *
+   * A source with no entry is not in the map at all, so a dashboard whose
+   * clauses are judgeable everywhere leaves every overview row byte-identical.
+   */
+  private narrowedForBySource(readableColumns: ReadonlyMap<string, ReadonlySet<string>>): Map<string, Record<string, NarrowedAt>> {
+    const reach = this.tableReachAt();
+    const out = new Map<string, Record<string, NarrowedAt>>();
+    for (const consumer of addressesOf(this.runtime.views.values())) {
+      const table = this.tableFor(consumer);
+      // the consumer's declared name, by the ONE resolver and the ONE fallback order (`./layers.ts` · labelAt) — absent when none is declared, never invented
+      const label = labelAt(this.runtime.views, consumer);
+      // the def is silent about this table AND the engine already read it (for the SAME overview()) — the one gap this walk closes over `why()`'s def-only reading
+      const known = table in reach.columns ? undefined : readableColumns.get(table);
+      for (const c of this.clausesFor(consumer)) {
+        let narrowed = narrowedByDef(c.clause, table, reach);
+        if (narrowed === undefined && known !== undefined) {
+          const missing = unjudgeableColumn(c.clause, known);
+          // an aim that missed is an author error, refused by name at the read door — never credited here as an ordinary miss
+          if (missing !== undefined && c.mappedFields?.some((m) => m.to === missing) !== true) narrowed = { column: missing, reason: unjudgeableWords(table, missing) };
+        }
+        if (narrowed === undefined) continue; // judged here — nothing to say
+        const entry = out.get(c.from) ?? {};
+        entry[consumer] = { ...narrowed, ...(label !== undefined ? { label } : {}) };
+        out.set(c.from, entry);
+      }
+    }
+    return out;
+  }
+
+  /**
    * R3 — every commit that shaped what `viewId` SHOWS, in the order a reader
    * walks them: the clauses reaching it, the bindings on its channels, the
    * arrangements of its own layout scope, the edits of links into it, and the
@@ -4907,6 +4981,9 @@ class InteractionSessionImpl implements InteractionSession {
     // columns per table (schema only — VALUES never ride here; Q8).
     const columns: Record<string, ColumnFacet[]> = {};
     const colNamesByTable = new Map<string, Set<string>>();
+    // the tables the ENGINE could actually describe — never a rejected one (`narrowedForBySource`'s
+    // WHY: ignorance narrows nothing, so a `rejected` table is never mistaken for one with zero columns)
+    const readableColumns = new Map<string, ReadonlySet<string>>();
     for (const table of this.tablesAt()) {
       const cols = await this.effectiveColumnsOf(table); // branch-scoped: hides columns off the cursor's branch
       if ('rejected' in cols) {
@@ -4918,7 +4995,9 @@ class InteractionSessionImpl implements InteractionSession {
         // knows "unavailable" is a kind of silence, not a category like any
         // other. Names + words, never values.
         columns[table] = this.runtime.encoding.facetsOf(table, cols);
-        colNamesByTable.set(table, new Set(cols.map((c) => c.name)));
+        const names = new Set(cols.map((c) => c.name));
+        colNamesByTable.set(table, names);
+        readableColumns.set(table, names);
       }
     }
     const defaultCols = colNamesByTable.get(this.defaultTable) ?? new Set<string>();
@@ -4959,11 +5038,19 @@ class InteractionSessionImpl implements InteractionSession {
     });
     const encodingPolicy = { onInvalid: this.runtime.encoding.rules.onInvalid ?? 'refuse', ruleScope: this.runtime.encoding.rules.ruleScope ?? ('dashboard' as const) };
 
-    const activeSelections = [...this.activeFilters.entries()].map(([viewId, clause]) => selectionInfoOf(viewId, clause, this.activeFilterCommits.get(viewId), this.liveQuestionOf(viewId)));
+    // where each clause filtered nothing, by consumer — ONE walk for both lists (`narrowedForBySource`),
+    // attached by source address and only when non-empty, so a judgeable-everywhere dashboard's rows do not move
+    const narrowedFor = this.narrowedForBySource(readableColumns);
+    const narrowedFragment = (viewId: string): { readonly narrowedFor?: Readonly<Record<string, NarrowedAt>> } => {
+      const at = narrowedFor.get(viewId);
+      return at === undefined ? {} : { narrowedFor: at };
+    };
+    const activeSelections = [...this.activeFilters.entries()].map(([viewId, clause]) => ({ ...selectionInfoOf(viewId, clause, this.activeFilterCommits.get(viewId), this.liveQuestionOf(viewId)), ...narrowedFragment(viewId) }));
     const offers = this.offersNow();
     const asOf = this.offerStamp();
-    // layer 4 `onClear`: what each cleared view LAST selected, for the edges whose policy keeps it in force
-    const clearedSelections = [...this.clearedFilters.entries()].map(([viewId, { clause, clearedBy }]) => ({ ...selectionInfoOf(viewId, clause), clearedBy }));
+    // layer 4 `onClear`: what each cleared view LAST selected, for the edges whose policy keeps it in force — and,
+    // for a `leave` edge, where that remembered clause filters nothing (the same walk; `clausesReaching` lists it)
+    const clearedSelections = [...this.clearedFilters.entries()].map(([viewId, { clause, clearedBy }]) => ({ ...selectionInfoOf(viewId, clause), clearedBy, ...narrowedFragment(viewId) }));
 
     const analyses = this.analysisIds().map((id) => {
       const a = this.analysis(id)!;

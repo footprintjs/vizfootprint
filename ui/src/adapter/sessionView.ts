@@ -59,6 +59,7 @@ import {
   type LayerView,
   type ColumnView,
   type SelectionView,
+  type NarrowedAtView,
   type BranchView,
   type PathView,
   type PathsView,
@@ -870,23 +871,40 @@ function mapSelections(sels: readonly unknown[] | undefined): SelectionView[] {
     const o = s as SelectionView;
     // D30: a cell selection carries its field pair through (both sources
     // serialize the same SelectionInfo shape).
-    return { viewId: o.viewId, field: o.field, kind: o.kind, value: o.value, ...(o.fields !== undefined ? { fields: o.fields } : {}), ...(typeof o.commitId === 'string' ? { commitId: o.commitId } : {}), ...narrowedOf(o) };
+    return { viewId: o.viewId, field: o.field, kind: o.kind, value: o.value, ...(o.fields !== undefined ? { fields: o.fields } : {}), ...(typeof o.commitId === 'string' ? { commitId: o.commitId } : {}), ...narrowedForOf(o) };
   });
 }
 
 /**
- * Protocol 1.7: the session's `narrowed` word, carried through only when the
- * wire carried it WHOLE — a column and a reason, both strings. Half a fact is
- * no fact: a `narrowed` with the column and no sentence would make a renderer
- * say "filtered nothing" with no reason to quote, so it is dropped rather than
- * padded. Read structurally, as `commitId` is, so an older wire (no key) and
- * `activeSelections` (never carries it) both yield NO key.
+ * The session's `narrowedFor` word (`SelectionInfo.narrowedFor`) — where this
+ * clause filtered nothing, by consumer address — carried through entry by
+ * entry, and each entry only when its REQUIRED half is whole: a `column` and a
+ * `reason`, both strings. Half an entry is no fact (a column with no sentence
+ * would make a chip say "filtered nothing" with no reason to quote), so it is
+ * dropped rather than padded. `label` is the entry's OPTIONAL half
+ * (`NarrowedAtView.label?`) — a string rides through, absent stays absent, and
+ * anything else degrades to absent too: a malformed label is not grounds to
+ * drop the column/reason the entry exists to carry. When nothing survives the
+ * key is absent, never `{}`. Read structurally, as `commitId` is, so an older
+ * wire (no key) yields NO key. Both hosts — `overview.activeSelections` and
+ * the http `raw.activeSelections` — pass through `mapSelections`, so both
+ * come through here.
  */
-function narrowedOf(o: { readonly narrowed?: unknown }): { readonly narrowed?: { readonly column: string; readonly reason: string } } {
-  const n = o.narrowed;
-  if (typeof n !== 'object' || n === null) return {};
-  const { column, reason } = n as { readonly column?: unknown; readonly reason?: unknown };
-  return typeof column === 'string' && typeof reason === 'string' ? { narrowed: { column, reason } } : {};
+function narrowedForOf(o: { readonly narrowedFor?: unknown }): { readonly narrowedFor?: Readonly<Record<string, NarrowedAtView>> } {
+  const n = o.narrowedFor;
+  if (typeof n !== 'object' || n === null || Array.isArray(n)) return {};
+  const out: Record<string, NarrowedAtView> = {};
+  for (const [address, entry] of Object.entries(n as Record<string, unknown>)) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const { column, reason, label } = entry as { readonly column?: unknown; readonly reason?: unknown; readonly label?: unknown };
+    if (typeof column !== 'string' || typeof reason !== 'string') continue; // half an entry: dropped, never padded
+    // `label` is OPTIONAL on the entry (`NarrowedAtView.label?`) — a malformed one degrades to
+    // absent, the same state an undeclared label already is; it is not grounds to drop `column`/`reason`,
+    // the two REQUIRED words the entry exists to carry
+    const hasLabel = typeof label === 'string';
+    out[address] = { column, reason, ...(hasLabel ? { label } : {}) };
+  }
+  return Object.keys(out).length > 0 ? { narrowedFor: out } : {};
 }
 
 /**

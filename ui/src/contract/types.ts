@@ -322,20 +322,24 @@ export interface SelectionClauseView {
    */
   readonly predicate: (row: RenderRow) => boolean;
   /**
-   * PROTOCOL 1.7 — THE CLAUSE REACHED THIS VIEW AND SAID NOTHING. Present only
-   * when the SESSION said so (`ReachingClause.narrowed`, carried through the
-   * adapter's `SelectionView.narrowed`): the column the table it reads does not
-   * have, and the sentence saying so — the library's `unjudgeableWords`, quoted
-   * and never re-worded, so the receipt, `why()`, the Sheet and a renderer all
-   * read one fact one way. The `predicate` beside it already keeps every row
-   * lacking that column, so this is the FACT and not the behaviour: what a
-   * renderer needs to say "the selection from X filtered nothing here" the way
-   * the Sheet does (`narrowedSaid`). Absent = the session did not say — which is
-   * every clause on a source-side fold (`activeSelections` never carries it) and
-   * every clause whose table carries its columns. Never invented at this tier
-   * from the rows: the session holds the table's columns at the cursor, a render
-   * tier holds a window of them. A 1.6 renderer never reads it and draws
-   * byte-identically (pinned in `capabilities.test.tsx`).
+   * PROTOCOL 1.7 — THE CLAUSE REACHED THIS VIEW AND SAID NOTHING. FILLED by
+   * the fold (`selection.ts` · `narrowedAt`) from the SESSION's own word: the
+   * overview's `activeSelections[i].narrowedFor`, one entry per consumer the
+   * clause reached and could not be judged on, keyed by the consumer's address
+   * — the fold picks THIS view's entry, and no other. It is the column the
+   * table this view reads does not have, and the sentence saying so — the
+   * library's `unjudgeableWords`, quoted and never re-worded, so the receipt,
+   * `why()`, the Sheet, the chip and a renderer all read one fact one way. The
+   * `predicate` beside it already keeps every row lacking that column, so this
+   * is the FACT and not the behaviour: what a renderer needs to say "the
+   * selection from X filtered nothing here" the way the Sheet does
+   * (`narrowedSaid`). Absent = the session did not say — every clause judged
+   * on this view's table, a whole-dashboard fold (which names no consumer),
+   * and a view's own clause. Never invented at this tier from the rows: the
+   * session holds the table's columns at the cursor, a render tier holds a
+   * window of them. The consumer's declared `label` rides the adapter's entry
+   * and stops there — this shape is unchanged, so a 1.6 renderer never reads
+   * it and draws byte-identically (pinned in `capabilities.test.tsx`).
    */
   readonly narrowed?: { readonly column: string; readonly reason: string };
 }

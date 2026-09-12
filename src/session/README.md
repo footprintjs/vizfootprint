@@ -310,14 +310,68 @@ crossfilter default declining an edge whose clause could never reach the
 target's table, and the def door refusing a declared one) is
 `../links/README.md`, "A default edge is a promise the engine can keep".
 
+**A clause that filtered nothing says so where it was sent.** The session
+states, once and per consumer, where a live clause filtered nothing; the wire
+carries it whole; the fold picks the consumer's entry; the chip says it. No
+tier infers it from rows or columns, and no consumer resolves a name for
+itself. `Overview.activeSelections[i].narrowedFor` (and the same key on
+`clearedSelections`, for a cleared source an edge still `leave`s in force) is
+keyed by the CONSUMER's address — a viewId, or `view~layer` — and holds
+`ReachingClause.narrowed`'s own two words plus the consumer's declared name
+(`label`, by `labelAt`'s order, absent when nothing declares one — omit, never
+invent). It is the SAME judgement `why({ kind: 'chart' })` makes wherever the
+DEFINITION speaks: `session.ts` · `narrowedForBySource` stands at every
+address on the map (`layers.ts` · `addressesOf`) and asks `narrowedByDef` over
+`clausesFor(address)`, exactly as `reachingCommits` does for one view — one
+`tableReachAt()` reading for the whole walk, so a dashboard whose clauses are
+judgeable everywhere gets a byte-identical overview. Where the definition is
+SILENT about a table's columns (a bare `rows` or `csv` source with no
+`columns` key — `tableReachOf`'s `undeclared`), the entry falls back to the
+same real columns the READ DOOR already narrows against
+(`viewClauses`/`narrowToJudgeable` · `effectiveColumnsOf`) — not a second
+engine call, but the exact reading `overview()` already awaited for its own
+Sources projection before this walk runs, so the overview and the Sheet can
+never disagree about the same clause on the same table for want of the
+overview asking. `why()` cannot take this path (it is genuinely synchronous,
+no `Promise`), which is the one place `narrowedForBySource` and `why()` part
+ways — an aim that missed (a `mapping`-named column, next paragraph) is
+exempted from this fallback, so an author's error is never softened by it into
+an ordinary miss. WHY per consumer: a selection row is one entry per SOURCE, and
+"could not be judged" is a fact about that clause AT ONE TABLE — the same
+brush is narrowed on a histogram over a minted table and judged on the scatter
+beside it — so a per-source flag could never hold it, which is why nothing
+ever filled the renderer's `SelectionClauseView.narrowed` until this key
+existed. So with a brush on `radius~bins` (the `radius` view's layer over
+`measurements`, which has `radii`) reaching `planets_sheet` through the
+crossfilter default, whose table `planets` has no `radii`:
+
+```ts
+(await s.overview()).activeSelections[0].narrowedFor;
+// { planets_sheet: { column: 'radii', reason: 'table "planets" has no column "radii" — a sentence about a column these rows do not have is not a claim about these rows', label: 'Planets' } }
+```
+
+An AIM that missed is different, and stays different on purpose: a column an
+edge's `mapping` named BY HAND is an author error, not an ordinary "filtered
+nothing" — the read door refuses it by name (`viewClauses`, "AN AIM THAT
+MISSED IS NOT AN ACCIDENT") whether or not the target's columns are declared,
+and the overview never credits a mapped miss with `narrowedFor`, even where
+the `readableColumns` fallback above would otherwise have found the same
+missing column — an authoring mistake is never softened into a chip's note.
+Where the definition knows the column is missing (a live minted table outran
+its static declaration), both name it — the projection marks, the read
+refuses (`narrowedFor.session.test.ts`, (e)); where NEITHER the definition nor
+the engine can describe the table at all (no provider — ignorance, not
+evidence), both stay silent, the same law `clausesOn` already applies.
+
 The RENDER tier's half is the same sentence one tier down, where a host folds
 over rows with no column list in hand: a row that does not carry a clause's
 column is never dropped by it (`ui/src/contract/README.md`, Law 6 —
 `selection.ts` · `judgeable`, judged on the KEY, `field in row`, so a row
 holding `null` is still judged), and `SelectionClauseView.narrowed` (protocol
-1.7) carries this door's `narrowed` word through to a renderer, quoted, or not
-at all. One law, three tiers: the map declines the edge, the read door narrows
-the clause, the fold keeps the row.
+1.7) is the consumer's own entry of `narrowedFor`, picked at the fold by the
+view's address (`selection.ts` · `narrowedAt`), quoted, or not at all. One
+law, three tiers: the map declines the edge, the read door narrows the
+clause, the fold keeps the row — and the overview says where.
 
 ## Find is a read too, and it moves where you STAND (`findInView`)
 

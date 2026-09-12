@@ -283,7 +283,7 @@ export function selectionForView(
       clauses.set(
         c.viewId,
         policy === 'leave'
-          ? { kind: c.kind, field, value: c.value, ...(fields !== undefined ? { fields } : {}), response: edge.response, predicate: clausePredicate(c.kind, field, c.value, fields), ...narrowedFragment(c) }
+          ? { kind: c.kind, field, value: c.value, ...(fields !== undefined ? { fields } : {}), response: edge.response, predicate: clausePredicate(c.kind, field, c.value, fields), ...narrowedAt(c, selfViewId) }
           : { kind: 'match', field, value: { values: [] }, response: edge.response, predicate: () => false },
       );
     }
@@ -313,23 +313,30 @@ export function selectionForView(
       ...(fields !== undefined ? { fields } : {}),
       ...(response !== undefined ? { response } : {}),
       predicate: clausePredicate(s.kind, field, s.value, fields),
-      ...narrowedFragment(s),
+      ...narrowedAt(s, selfViewId),
     });
   }
   return { clauses, resolve, selfClauseId: selfViewId };
 }
 
 /**
- * Protocol 1.7: the session's word that this clause reached its consumer and
- * said nothing, carried through as-is — or NO key at all when the session did
- * not say (a spread of `{}`), so a clause view without it is byte-identical to
- * 1.6 and a 1.6 renderer never meets a `narrowed: undefined`. This tier never
- * fills it from the rows: the predicate beside it already keeps a row that
- * lacks the column, and the FACT that the table lacks it is the session's to
- * state (`ReachingClause.narrowed`), not a window's to infer.
+ * Protocol 1.7: the session's word that this clause reached THIS consumer and
+ * said nothing — picked out of the source's per-consumer map
+ * (`SelectionView.narrowedFor`, keyed by the consumer's address; a layer
+ * address is a key like any other) by the consuming view's own id, as
+ * `{ column, reason }`. The consumer's `label` stays on the adapter side: the
+ * contract's shape is unchanged, so the protocol stays 1.7 and a 1.6 renderer
+ * never reads it and draws byte-identically (`capabilities.test.tsx`). NO key
+ * at all when the session did not say (a spread of `{}`) — a whole-dashboard
+ * fold (`selfViewId === null`) names no consumer and so carries none, and a
+ * view's OWN clause never reaches itself. This tier never fills it from the
+ * rows: the predicate beside it already keeps a row that lacks the column,
+ * and the FACT that the table lacks it is the session's to state, not a
+ * window's to infer.
  */
-function narrowedFragment(s: { readonly narrowed?: SelectionClauseView['narrowed'] }): { readonly narrowed?: SelectionClauseView['narrowed'] } {
-  return s.narrowed !== undefined ? { narrowed: s.narrowed } : {};
+function narrowedAt(s: Pick<SelectionView, 'narrowedFor'>, selfViewId: string | null): { readonly narrowed?: SelectionClauseView['narrowed'] } {
+  const at = selfViewId === null ? undefined : s.narrowedFor?.[selfViewId];
+  return at === undefined ? {} : { narrowed: { column: at.column, reason: at.reason } };
 }
 
 /**

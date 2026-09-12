@@ -136,6 +136,24 @@ export function surfacedAddressesOf(views: Iterable<ViewDecl>): Set<string> {
   return out;
 }
 
+/**
+ * EVERY address on the map — each view, then each of its layers under its
+ * address — in map order. The set of CONSUMERS a clause can reach: a layer is
+ * a link view of its own (`../links/materialize.ts`), gated on its own table,
+ * so a walk over "where did this clause filter nothing" must stand at every
+ * one of these and ask its table (`Session.tableFor` answers both shapes).
+ * The twin of `surfacedAddressesOf`, minus the surface test — a sheet-like
+ * view with no encoding is still a consumer.
+ */
+export function addressesOf(views: Iterable<ViewDecl>): string[] {
+  const out: string[] = [];
+  for (const view of views) {
+    out.push(view.viewId);
+    for (const layer of view.layers ?? []) out.push(layerAddress(view.viewId, layer.layerId));
+  }
+  return out;
+}
+
 /** The overview's projection of a view's layers — the declared facts, nothing judged; undefined when the view declares none (the key stays absent). */
 export function layerInfosOf(view: ViewDecl): readonly LayerInfo[] | undefined {
   return view.layers?.map((l) => ({

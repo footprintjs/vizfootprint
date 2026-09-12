@@ -210,18 +210,33 @@ export interface SelectionView {
   /** The commit that landed this live selection — what a note (a saved selection) or a bring-over names. Absent on an older server. */
   readonly commitId?: string;
   /**
-   * The SESSION's word that this clause reached its consumer and could not be
-   * judged there — the column that consumer's table lacks, and the library's
-   * sentence saying so (`ReachingClause.narrowed`, quoted as-is). It rides
-   * through to the contract (`SelectionClauseView.narrowed`, protocol 1.7) so a
-   * renderer can say a clause filtered nothing. Present only when the wire
-   * carried it whole (`mapSelections` reads it structurally); ABSENT on the
-   * session's own `activeSelections`, which is a fold of what each view SENT
-   * and knows nothing of any one consumer's table — a host that folds a
-   * reaching answer (`ViewQueryResult.clauses`) into this shape is what fills
-   * it. Never inferred by the adapter from rows or columns.
+   * THE CONSUMERS THIS CLAUSE REACHED AND COULD NOT BE JUDGED ON — the
+   * session's own word (`SelectionInfo.narrowedFor`, `src/session/types.ts`),
+   * keyed by the consumer's ADDRESS (a viewId, or `view~layer`): the column
+   * that consumer's table lacks, the library's sentence saying so
+   * (`unjudgeableWords`, quoted as-is), and the consumer's declared `label`
+   * when the map declares one. Carried through only when the wire carried an
+   * entry WHOLE (`sessionView.ts` · `narrowedForOf` reads it structurally,
+   * like `commitId`); the key is absent when the session did not say — every
+   * selection judged everywhere it reached, and every older server. The fold
+   * picks the consuming view's own entry into `SelectionClauseView.narrowed`
+   * (`contract/selection.ts` · `narrowedAt`); the chip says every entry.
+   *
+   * This REPLACES a `narrowed?: { column, reason }` that nothing ever filled:
+   * one word per selection was the WRONG SHAPE, since a selection is one entry
+   * per SOURCE and "could not be judged" is a fact about that clause at ONE
+   * CONSUMER's table (the same brush is narrowed on one chart and judged on the
+   * next), so no host could keep the promise. Never inferred by the adapter
+   * from rows or columns.
    */
-  readonly narrowed?: { readonly column: string; readonly reason: string };
+  readonly narrowedFor?: Readonly<Record<string, NarrowedAtView>>;
+}
+
+/** One consumer's entry of {@link SelectionView.narrowedFor}: `ReachingClause.narrowed`'s two words, plus the consumer's declared name when it has one. */
+export interface NarrowedAtView {
+  readonly column: string;
+  readonly reason: string;
+  readonly label?: string;
 }
 
 /** Provenance of one table's source: what the carrier vouched for when it was read. */

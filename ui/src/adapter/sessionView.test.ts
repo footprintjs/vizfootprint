@@ -1083,30 +1083,62 @@ describe('mapPollState — a note ref to a SAVED selection rides the wire', () =
   });
 });
 
-describe('protocol 1.7 — `narrowed` on a live selection rides through only when the wire carried it WHOLE', () => {
-  const said = { column: 'radii', reason: 'table "years" has no column "radii" — a sentence about a column these rows do not have is not a claim about these rows' };
-  const s = mapPollState({
-    ...RAW,
-    activeSelections: [
-      { viewId: 'whole', field: 'radii', kind: 'interval', value: [1, 5], narrowed: said },
-      { viewId: 'half', field: 'radii', kind: 'interval', value: [1, 5], narrowed: { column: 'radii' } },
-      { viewId: 'junk', field: 'radii', kind: 'interval', value: [1, 5], narrowed: 'radii' },
-      { viewId: 'none', field: 'radii', kind: 'interval', value: [1, 5] },
-    ],
-  });
+describe('`narrowedFor` on a live selection rides through entry by entry, each only when the wire carried it WHOLE', () => {
+  const reason = 'table "years" has no column "radii" — a sentence about a column these rows do not have is not a claim about these rows';
+  const whole = { year: { column: 'radii', reason, label: 'Years' }, 'net~edges': { column: 'radii', reason } };
+  const selections = [
+    { viewId: 'whole', field: 'radii', kind: 'interval', value: [1, 5], narrowedFor: whole },
+    // one whole entry beside three half ones: only the whole one survives
+    { viewId: 'mixed', field: 'radii', kind: 'interval', value: [1, 5], narrowedFor: { year: { column: 'radii', reason }, half: { column: 'radii' }, junk: 'radii', named: { column: 'radii', reason, label: 7 } } },
+    // nothing whole at all: the key itself is absent, never `{}`
+    { viewId: 'empty', field: 'radii', kind: 'interval', value: [1, 5], narrowedFor: { half: { column: 'radii' } } },
+    { viewId: 'junk', field: 'radii', kind: 'interval', value: [1, 5], narrowedFor: 'radii' },
+    { viewId: 'list', field: 'radii', kind: 'interval', value: [1, 5], narrowedFor: [{ column: 'radii', reason }] },
+    { viewId: 'none', field: 'radii', kind: 'interval', value: [1, 5] },
+  ];
+  const s = mapPollState({ ...RAW, activeSelections: selections });
   const by = (viewId: string) => s.selections.find((x) => x.viewId === viewId)!;
 
-  it('a column AND a reason, both strings — carried as-is, the session\'s own words', () => {
-    expect(by('whole').narrowed).toEqual(said);
+  it('every entry with a column AND a reason (and a label that is a string, or none) — carried as-is, keyed by the consumer\'s address', () => {
+    expect(by('whole').narrowedFor).toEqual(whole);
+    expect('label' in by('whole').narrowedFor!['net~edges']!).toBe(false); // no label on the wire = no label here, never invented
   });
 
-  it('half a fact (a column with no sentence), a non-object, or nothing at all — NO key, never `undefined`', () => {
-    // a renderer that met `narrowed` with no reason would say "filtered nothing" with nothing to quote
-    for (const viewId of ['half', 'junk', 'none']) expect('narrowed' in by(viewId), viewId).toBe(false);
+  it('half an entry (a column with no sentence) or a non-object — that ENTRY is dropped; a label that is not a name only drops the LABEL', () => {
+    // a chip that met an entry with no reason would say "filtered nothing" with nothing to quote — `half`/`junk` are gone;
+    // `named`'s label (7, not a string) degrades to absent — the SAME state an undeclared label already is — and its column/reason stand
+    expect(by('mixed').narrowedFor).toEqual({ year: { column: 'radii', reason }, named: { column: 'radii', reason } });
+    expect('label' in by('mixed').narrowedFor!['named']!).toBe(false);
   });
 
-  it('`activeSelections` as the session serializes it never carries the key — the source-side fold knows no consumer\'s table', () => {
-    // RAW's own selections are the session's shape (SelectionInfo): no `narrowed` on any of them
-    for (const sel of mapPollState(RAW).selections) expect('narrowed' in sel).toBe(false);
+  it('nothing whole, a non-object, a list, or nothing at all — NO key, never `undefined` and never `{}`', () => {
+    for (const viewId of ['empty', 'junk', 'list', 'none']) expect('narrowedFor' in by(viewId), viewId).toBe(false);
+  });
+
+  it('the in-process session host comes through the same reader — both hosts, one law', async () => {
+    const session = {
+      commits: () => [],
+      overview: () => ({ defaultTable: 'data', views: [], activeSelections: selections, clearedSelections: [{ ...selections[0], viewId: 'gone', clearedBy: 's9' }, { ...selections[2], viewId: 'gone-empty', clearedBy: 's9' }], analyses: [], fdr: { procedure: 'LORD++', alpha: 0.05, tests: 0, discoveries: 0, wealth: 0, ledger: [] }, columns: {}, encodings: {}, gaps: 0, currentView: null, engines: {}, time: { cursor: null, head: null, branches: 0, bookmarks: 0, cursorTests: 0, viewingPast: false }, paths: { current: 'main', detachedAt: null, list: [], events: [] } }),
+      gaps: () => [],
+      branches: () => [],
+      bookmarkViews: () => [],
+      paths: () => [],
+    } as unknown as SessionLike;
+    const view = createSessionView(sessionSource(session));
+    await view.refresh();
+    const state = view.getState();
+    const at = (viewId: string) => state.selections.find((x) => x.viewId === viewId)!;
+    expect(at('whole').narrowedFor).toEqual(whole);
+    expect(at('mixed').narrowedFor).toEqual({ year: { column: 'radii', reason }, named: { column: 'radii', reason } });
+    for (const viewId of ['empty', 'junk', 'list', 'none']) expect('narrowedFor' in at(viewId), viewId).toBe(false);
+    // …and a CLEARED source carries it the same way (`mapCleared` rides `mapSelections`)
+    expect(state.cleared!.find((c) => c.viewId === 'gone')!.narrowedFor).toEqual(whole);
+    expect('narrowedFor' in state.cleared!.find((c) => c.viewId === 'gone-empty')!).toBe(false);
+    view.dispose();
+  });
+
+  it('`activeSelections` of a fixture whose clauses were judged everywhere never carries the key', () => {
+    // RAW's own selections are the session's shape with no `narrowedFor` — the key is absent, not `undefined`
+    for (const sel of mapPollState(RAW).selections) expect('narrowedFor' in sel).toBe(false);
   });
 });

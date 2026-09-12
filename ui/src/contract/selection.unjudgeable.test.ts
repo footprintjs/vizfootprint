@@ -178,17 +178,54 @@ describe('the six kinds now agree with each other on a missing column — the in
   });
 });
 
-describe('protocol 1.7 — `narrowed` rides through the fold as the session said it, or not at all', () => {
-  it('a SelectionView carrying `narrowed` lands it on the clause view; one without it has NO key (not `undefined`)', () => {
-    const said = { column: 'radii', reason: 'table "years" has no column "radii" — a sentence about a column these rows do not have is not a claim about these rows' };
-    const sels: SelectionView[] = [
-      { viewId: 'radius', field: 'radii', kind: 'interval', value: [1, 5], narrowed: said },
-      { viewId: 'bar', field: 'category', kind: 'point', value: 'A' },
-    ];
+describe('protocol 1.7 — `narrowed` is the CONSUMER\'s own entry of the session\'s `narrowedFor`, picked at the fold, or no key at all', () => {
+  const reason = (table: string) => `table "${table}" has no column "radii" — a sentence about a column these rows do not have is not a claim about these rows`;
+  // the session's word: the brush filtered nothing on `year` (a view) and on `net~edges` (a layer address) — and was judged on `scatter`
+  const narrowedFor = { year: { column: 'radii', reason: reason('years'), label: 'Years' }, 'net~edges': { column: 'radii', reason: reason('edges') } };
+  const sels: SelectionView[] = [
+    { viewId: 'radius', field: 'radii', kind: 'interval', value: [1, 5], narrowedFor },
+    { viewId: 'bar', field: 'category', kind: 'point', value: 'A' },
+  ];
+
+  it('the consuming view picks ITS entry — `{ column, reason }` only, the label stays on the adapter side (the contract\'s shape is unchanged)', () => {
     const sel = selectionForView(sels, 'year');
-    expect(sel.clauses.get('radius')?.narrowed).toEqual(said);
+    expect(sel.clauses.get('radius')?.narrowed).toEqual({ column: 'radii', reason: reason('years') });
+    expect('label' in sel.clauses.get('radius')!.narrowed!).toBe(false);
+    // a clause the session said nothing about has NO key (not `undefined`)
     expect('narrowed' in sel.clauses.get('bar')!).toBe(false);
     // and the predicate beside it keeps the row that lacks the column — the fact and the behaviour agree
     expect(sel.clauses.get('radius')!.predicate({ year: 2001 })).toBe(true);
+  });
+
+  it('a layer address is a key like any other', () => {
+    expect(selectionForView(sels, 'net~edges').clauses.get('radius')?.narrowed).toEqual({ column: 'radii', reason: reason('edges') });
+  });
+
+  it('a DIFFERENT consumer gets none: the same brush was judged on the scatter, so its clause view carries no key there', () => {
+    const sel = selectionForView(sels, 'scatter');
+    expect('narrowed' in sel.clauses.get('radius')!).toBe(false);
+    expect(sel.clauses.get('radius')!.predicate({ radii: 2 })).toBe(true); // judged as ever
+  });
+
+  it('the whole-dashboard fold (`selfViewId === null`) names no consumer and carries none', () => {
+    const sel = selectionForView(sels, null);
+    expect('narrowed' in sel.clauses.get('radius')!).toBe(false);
+  });
+
+  it('the `leave` branch: a cleared source an edge keeps in force picks its consumer\'s entry the same way', () => {
+    const links: LinkGraphView = {
+      default: 'none',
+      views: [{ viewId: 'radius', voice: ['interval'] }, { viewId: 'year', voice: [] }, { viewId: 'scatter', voice: [] }],
+      edges: [
+        { id: 'radius:interval→year', source: 'radius', kind: 'interval', target: 'year', response: 'filter', origin: 'declared', onClear: 'leave' },
+        { id: 'radius:interval→scatter', source: 'radius', kind: 'interval', target: 'scatter', response: 'filter', origin: 'declared', onClear: 'leave' },
+      ],
+    };
+    const cleared = [{ viewId: 'radius', field: 'radii', kind: 'interval' as const, value: [1, 5], clearedBy: 's2', narrowedFor }];
+    const onYear = selectionForView([], 'year', 'intersect', links, cleared);
+    expect(onYear.clauses.get('radius')?.narrowed).toEqual({ column: 'radii', reason: reason('years') });
+    const onScatter = selectionForView([], 'scatter', 'intersect', links, cleared);
+    expect(onScatter.clauses.has('radius')).toBe(true); // remembered there too…
+    expect('narrowed' in onScatter.clauses.get('radius')!).toBe(false); // …and judged there
   });
 });

@@ -707,17 +707,24 @@ const keep = keepPredicate(sel);
 `SelectionClauseView.narrowed?` (protocol 1.7) is the session's word that a
 clause reached this view and could not be judged on its table — the column
 and the library's sentence (`unjudgeableWords`), quoted and never re-worded.
-It rides in from the adapter's `SelectionView.narrowed` and is ABSENT whenever
-the session did not say — which is every clause on `activeSelections` (a fold
-of what each view sent, which knows no one consumer's table): a host that
-folds a reaching answer's clauses (`ViewQueryResult.clauses`) into
-`SelectionView` shape is what fills it. It is never inferred here from the
-rows: the predicate beside it already keeps a row that lacks the column, and
-which columns the TABLE lacks is a fact only the session holds. A renderer
-that wants to say so has the one sentence the Sheet already says —
-`narrowedSaid`, on the root barrel — so the receipt, `why()`, the Sheet and a
-host's own surface read one fact one way. A 1.6 renderer never reads the field
-and draws byte-identically (`capabilities.test.tsx`).
+The session states it once and per consumer on the overview's own rows
+(`activeSelections[i].narrowedFor`, keyed by the consumer's address —
+`src/session/README.md`, "A clause that filtered nothing says so where it was
+sent"); the adapter carries it whole (`SelectionView.narrowedFor`, each entry
+kept only when whole); and `selection.ts` · `narrowedAt` picks THIS view's
+entry into the clause view at the fold — a whole-dashboard fold names no
+consumer and carries none. It is per consumer and not one word per selection
+because a selection is one entry per SOURCE while "could not be judged" is a
+fact about that clause at ONE consumer's table (the same brush is narrowed on
+one chart and judged on the next), which is why the old per-source
+`SelectionView.narrowed` could never be filled and is gone. It is never
+inferred here from the rows: the predicate beside it already keeps a row that
+lacks the column, and which columns the TABLE lacks is a fact only the session
+holds. A renderer that wants to say so has the one sentence the Sheet already
+says — `narrowedSaid`, on the root barrel — and the chips say it from the
+source's side (`panels/SelectionChips.tsx`), so the receipt, `why()`, the
+Sheet, the chip and a host's own surface read one fact one way. A 1.6 renderer
+never reads the field and draws byte-identically (`capabilities.test.tsx`).
 
 The law's tests are `selection.unjudgeable.test.ts` — every kind, a row lacking
 the column beside a row holding it as `null`, the demo's exact shape, and one

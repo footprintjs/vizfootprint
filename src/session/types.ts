@@ -891,6 +891,21 @@ export interface EffectiveEncoding {
   readonly refused: Readonly<Record<string, { readonly edge: string; readonly field: string; readonly sentence: string }>>;
 }
 
+/**
+ * WHERE ONE CLAUSE FILTERED NOTHING, at one consumer: `ReachingClause.narrowed`'s
+ * own two words — the column that consumer's table lacks and the sentence
+ * saying so (`unjudgeableWords`, quoted, never re-worded) — plus the consumer's
+ * declared name. `label` follows {@link ReachingClause.fromLabel}'s rule and
+ * order, resolved by the same owner (`./layers.ts` · `labelAt`): ABSENT when
+ * nothing on the map declares one — omit, never invent. A consumer without a
+ * name is known by its address, which is the key this value sits under.
+ */
+export interface NarrowedAt {
+  readonly column: string;
+  readonly reason: string;
+  readonly label?: string;
+}
+
 /** An active DATA-space selection (never pixels; R5). */
 export interface SelectionInfo {
   readonly viewId: string;
@@ -909,6 +924,33 @@ export interface SelectionInfo {
   readonly fields?: readonly [string, string];
   /** The commit that landed this selection (a live selection only) — what a note, a bring-over or a saved selection names. */
   readonly commitId?: string;
+  /**
+   * THE CONSUMERS THIS CLAUSE REACHED AND COULD NOT BE JUDGED ON — keyed by the
+   * consumer's ADDRESS (a viewId, or `view~layer`), one {@link NarrowedAt} each.
+   * The session states it, once per overview and per consumer, with the SAME
+   * judgement `why({ kind: 'chart' })` makes (`narrowedByDef`, read from the
+   * definition at the cursor): where a live clause filtered nothing, said where
+   * it was sent. The wire carries it whole; a renderer's fold picks its own
+   * consumer's entry (`SelectionClauseView.narrowed`) and the chip says it.
+   *
+   * WHY per consumer and not one word per selection: this is one entry per
+   * SOURCE, and "could not be judged" is a fact about the clause AT ONE TABLE —
+   * the same brush is narrowed on a histogram over a minted table and judged
+   * on the scatter beside it. A per-source flag could not hold that, which is
+   * why nothing ever filled the renderer's field before this key existed.
+   *
+   * ABSENT when the clause was judged everywhere it reached — every dashboard
+   * whose clauses are judgeable everywhere gets a byte-identical overview.
+   * Where the definition is silent about a table's columns (a bare `rows` or
+   * `csv` source with no `columns` key), the answer falls back to the SAME
+   * columns reading the read door already narrows a window against — the one
+   * `overview()` already awaited for its own Sources projection, never a
+   * second engine call and never a tier guessing from rows it happens to hold
+   * (that fallback is exempted for an author's aimed `mapping` miss, which the
+   * read door refuses by name instead — see `./README.md`). Resolved ONLY by
+   * the session, and never a second time by any other tier.
+   */
+  readonly narrowedFor?: Readonly<Record<string, NarrowedAt>>;
 }
 
 /**
@@ -922,7 +964,12 @@ export interface Offer {
   readonly kind: EmissionKind;
 }
 
-/** A view whose last selection was CLEARED, and what it was — read by a target edge's `onClear` policy (layer 4). */
+/**
+ * A view whose last selection was CLEARED, and what it was — read by a target
+ * edge's `onClear` policy (layer 4). Inherits `narrowedFor`: a cleared source
+ * an edge still keeps in force (`onClear: 'leave'`) still reaches, and where
+ * the remembered clause filters nothing the same key says so, by consumer.
+ */
 export interface ClearedSelectionInfo extends SelectionInfo {
   /** The commit that cleared it. */
   readonly clearedBy: string;

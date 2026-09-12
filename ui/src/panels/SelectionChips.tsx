@@ -6,7 +6,7 @@
  * of it away — as a commit, like any act. Words come from `formatCommitValue`
  * (the same spelling the commit log uses), never a second vocabulary.
  */
-import type { ClearedSelectionView, LinkGraphView, SelectionView } from '../adapter/types.js';
+import type { ClearedSelectionView, LinkGraphView, NarrowedAtView, SelectionView } from '../adapter/types.js';
 import { formatCommitValue, isSelfDescribing } from './format.js';
 
 export interface SelectionChipsProps {
@@ -38,6 +38,24 @@ export function chipWords(s: SelectionView): string {
   return `${s.field} = ${formatCommitValue(s)}`;
 }
 
+/**
+ * The chip's own sentence for ONE consumer this selection filtered nothing on:
+ * `filtered nothing on <label ?? address> · <reason>`. The `reason` is the
+ * session's `unjudgeableWords`, quoted verbatim — one owner of the sentence,
+ * never re-worded here. The PREFIX is the chip's, and it differs from the
+ * Sheet's `narrowedSaid` ("the selection from X filtered nothing here · …")
+ * on purpose: two vantage points on ONE fact. The Sheet stands on the
+ * CONSUMER's side, where "here" is its own table and the thing to name is the
+ * source; the chip stands on the SOURCE's side, where the selection is already
+ * named by the chip and the thing to name is the consumer. The name is the
+ * session's declared label riding the wire (`NarrowedAtView.label`, absent
+ * when none is declared), so the chip resolves nothing for itself and falls
+ * back to the address exactly as the Sheet falls back to `from`.
+ */
+export function narrowedWords(address: string, at: NarrowedAtView): string {
+  return `filtered nothing on ${at.label ?? address} \u00b7 ${at.reason}`;
+}
+
 /** Whether a selection has a polarity to flip (a live point or match — `live` already dropped the cleared ones). */
 function flippable(s: SelectionView): boolean {
   return s.kind === 'point' || s.kind === 'match';
@@ -58,6 +76,22 @@ export function keptClauses(cleared: readonly ClearedSelectionView[], links: Lin
   });
 }
 
+/**
+ * One `role="note"` line per consumer a selection filtered nothing on, beneath
+ * the chip's words — nothing at all when the wire carried no `narrowedFor`, so
+ * a chip without it renders byte-identically to before the key existed.
+ * `chipWords` itself is untouched: the demo's agent reads it as `onScreen`,
+ * and a fact about a consumer is not part of the words that name the clause.
+ */
+function narrowedNotes(s: SelectionView): JSX.Element[] | null {
+  if (s.narrowedFor === undefined) return null;
+  return Object.entries(s.narrowedFor).map(([address, at]) => (
+    <span key={`narrowed:${address}`} role="note" className="vzf-selchip-narrowed" data-consumer={address}>
+      {narrowedWords(address, at)}
+    </span>
+  ));
+}
+
 export function SelectionChips({ selections, cleared = [], links, labels = {}, onClear, onClearAll, onSetPolarity, onSave, readOnly = false, className }: SelectionChipsProps): JSX.Element {
   // a cleared clause is not a chip, and cleared has ONE spelling for every kind: `null` (src/session/README.md, beside law 6)
   const live = selections.filter((s) => s.value !== null);
@@ -76,6 +110,7 @@ export function SelectionChips({ selections, cleared = [], links, labels = {}, o
         >
           <span className="vzf-selchip-view">{labels[c.viewId] ?? c.viewId}</span>
           <span className="vzf-selchip-words">{chipWords(c)} — kept after clearing for {edges.map((k) => labels[k.target] ?? k.target).join(', ')}</span>
+          {narrowedNotes(c)}
           <span className="vzf-sr-only">
             {' '}cleared by commit {c.clearedBy}; {edges.map((k) => `${labels[k.target] ?? k.target} ${k.policy === 'leave' ? 'keeps it' : 'shows nothing'}`).join(', ')}. To release it, select on {labels[c.viewId] ?? c.viewId} again or change the edge in the matrix.
           </span>
@@ -90,6 +125,7 @@ export function SelectionChips({ selections, cleared = [], links, labels = {}, o
             <span key={s.viewId} className={`vzf-selchip${excluded ? ' vzf-selchip-exclude' : ''}`} data-view={s.viewId} data-kind={s.kind}>
               <span className="vzf-selchip-view">{labels[s.viewId] ?? s.viewId}</span>
               <span className="vzf-selchip-words">{chipWords(s)}</span>
+              {narrowedNotes(s)}
               {onSetPolarity !== undefined && flippable(s) && (
                 <button
                   type="button"

@@ -58,6 +58,8 @@ export type {
   LayerView,
   ColumnView,
   SelectionView,
+  // one consumer's entry of `SelectionView.narrowedFor` — where a selection filtered nothing, by address
+  NarrowedAtView,
   BranchView,
   PathView,
   PathEventView,

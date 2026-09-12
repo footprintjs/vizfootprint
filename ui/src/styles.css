@@ -2440,6 +2440,20 @@
 
 /* layer 4 onClear: a cleared clause an edge still keeps in force — visible, not removable from here */
 .vzf-selchip-kept { border-style: dashed; opacity: 0.85; }
+/* a consumer this selection filtered nothing on (the session's `narrowedFor`, one line each, beneath the
+   words): the caption register — the tick's own ink, mono, small, dimmed — so a fact the rows cannot show
+   never outshines the clause it qualifies (the `.vzf-net-node-label` precedent). The chip only wraps when
+   it HAS such a line, so every chip without one keeps the layout it always had. */
+:where(.vzf) .vzf-selchip:has(.vzf-selchip-narrowed) {
+  flex-wrap: wrap;
+}
+:where(.vzf) .vzf-selchip-narrowed {
+  flex-basis: 100%;
+  color: var(--vzf-ink-soft);
+  font-family: var(--vzf-font-mono);
+  font-size: 10px;
+  opacity: 0.8;
+}
 
 /* saved selections */
 .vzf-saved-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
