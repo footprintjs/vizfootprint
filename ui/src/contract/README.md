@@ -243,6 +243,17 @@ through the first layer's bundle, fails the arm in plain words. It runs on a
 real two-table session (`adapter/network.fixture.ts`) against a pure-DOM
 `canLayer` renderer (`layered.fixture.ts`).
 
+THE FRAME IS ITS LAYERS (`vizfootprint` "Layers" law 6a) reaches the kit too:
+the GENERIC arm (`gesture-emits`/`commit-lands`/`crossfilter-returns`) drives
+and expects the plan's own gesture to land at `viewId`, UNLESS the MAP itself
+says the view is a frame — `view.getState().links.views` carries `LinkNodeView.
+frame` (present exactly when the address reads no rows of its own), read off
+the session, never asked of the host. On a frame the kit drives that gesture
+through the FIRST address the map names for it instead (the same list the
+layers arm reads for the SECOND) and expects the commit there. One owner: a
+host cannot set this wrong, because the kit never takes its word for it — it
+reads the same fact the session's own refusal is judged against.
+
 ### The frame — the layers' shared scales, already folded (protocol 1.5)
 
 A stack of layers is one picture only if it is read on one set of scales. The
@@ -489,7 +500,11 @@ What it owns:
 - **the layer's own voice.** A gesture speaks through
   `handshake.layers[layerId]`, so the commit lands under `viewId~layerId` (the
   1.2 law). With no bundle for it the view speaks and the ADDRESS is lost, not
-  the gesture.
+  the gesture — and on a frame with no own binding (a layered view with no
+  view-level `initial`: the frame is its layers, `src/def/README.md` "Layers",
+  law 6a) the session then refuses that gesture by name, listing the layers it
+  should have landed under, because the frame's address reads no rows. Register
+  the bundles.
 - **the pointer law of a stack.** The BOTTOM layer keeps the pointer over its
   whole box (nothing is beneath it to reach); every layer above takes the
   pointer only where it drew a mark, so a click on blank canvas falls through

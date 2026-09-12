@@ -917,12 +917,46 @@ describe('SET-1 — emit(match), clear, clearAll, setPolarity', () => {
 
 describe('layer 4 — the link graph rides the wire into state', () => {
   it('a well-shaped links object is carried; a malformed or absent one leaves links undefined (the old rule)', async () => {
-    const graph = { default: 'crossfilter', views: [{ viewId: 'bar', voice: ['point', 'match'] }], edges: [{ id: 'bar:point→scatter', source: 'bar', kind: 'point', target: 'scatter', response: 'highlight', origin: 'declared' }] };
+    // `frame` (THE FRAME IS ITS LAYERS — vizfootprint/def "Layers" law 6a) is not
+    // field-by-field projected here, so it rides verbatim like every other
+    // `LinkNodeView` field — proof for the POLL host (`mapPollState`).
+    const graph = { default: 'crossfilter', views: [{ viewId: 'bar', voice: ['point', 'match'] }, { viewId: 'net', voice: ['point'], frame: ['net~edges', 'net~nodes'] }], edges: [{ id: 'bar:point→scatter', source: 'bar', kind: 'point', target: 'scatter', response: 'highlight', origin: 'declared' }] };
     const state = mapPollState({ ...RAW, links: graph });
     expect(state.links).toEqual(graph);
+    expect(state.links!.views.find((v) => v.viewId === 'net')!.frame).toEqual(['net~edges', 'net~nodes']);
     expect(mapPollState(RAW).links).toBeUndefined();
     expect(mapPollState({ ...RAW, links: { default: 'sometimes', views: [], edges: [] } }).links).toBeUndefined();
     expect(mapPollState({ ...RAW, links: 'nope' }).links).toBeUndefined();
+  });
+
+  it('…and it rides the LIVE session host (`mapSession`) the same way — one owner, `session.overview().links` cast, never re-derived', async () => {
+    const graph = { default: 'crossfilter' as const, views: [{ viewId: 'net', voice: ['point' as const], frame: ['net~edges', 'net~nodes'] }], edges: [] };
+    const live = {
+      commits: () => [],
+      overview: () => ({
+        defaultTable: 'data',
+        views: [],
+        activeSelections: [],
+        analyses: [],
+        fdr: { procedure: 'LORD++', alpha: 0.05, tests: 0, discoveries: 0, wealth: 0, ledger: [] },
+        columns: { data: [] },
+        encodings: {},
+        gaps: 0,
+        currentView: null,
+        engines: {},
+        time: { cursor: null, head: null, branches: 0, bookmarks: 0, cursorTests: 0, viewingPast: false },
+        paths: { current: 'main', detachedAt: null, list: [{ name: 'main', tip: '1', steps: 1, lastTs: 0, active: true }], events: [] },
+        links: graph,
+      }),
+      gaps: () => [],
+      branches: () => [],
+      paths: () => [],
+      bookmarkViews: () => [],
+    } as unknown as SessionLike;
+    const view = createSessionView(sessionSource(live));
+    await view.refresh();
+    expect(view.getState().links!.views.find((v) => v.viewId === 'net')!.frame).toEqual(['net~edges', 'net~nodes']);
+    view.dispose();
   });
 });
 

@@ -626,10 +626,27 @@ export interface LinkEdgeView {
   readonly fold?: string;
   readonly label?: string;
 }
+/** One node of the link graph as the wire carries it (src/links `LinkView`, verbatim JSON). */
+export interface LinkNodeView {
+  readonly viewId: string;
+  readonly voice: readonly ('point' | 'interval' | 'cell' | 'match' | 'neighbourhood' | 'encoding')[];
+  readonly channels?: readonly string[];
+  /**
+   * THE FRAME IS ITS LAYERS (`vizfootprint/def` "Layers" law 6a) — NOT the
+   * channel-resolution `ViewView.frame` (a different field of a different
+   * row: that one is `Record<channel, ChannelResolution>` on a VIEW's own
+   * projection; this one is a plain address list on its LINK-GRAPH node).
+   * Present, non-empty, exactly when this address reads no rows of its own
+   * (a layered view with no view-level `initial`) — the layer addresses that
+   * read for it, in declaration order. Absent on every plain or own-bound
+   * view, byte-identical to before this field existed.
+   */
+  readonly frame?: readonly string[];
+}
 /** The materialized link graph (layer 4): what each view's emission does to every other view. */
 export interface LinkGraphView {
   readonly default: 'crossfilter' | 'none';
-  readonly views: readonly { readonly viewId: string; readonly voice: readonly ('point' | 'interval' | 'cell' | 'match' | 'neighbourhood' | 'encoding')[]; readonly channels?: readonly string[] }[];
+  readonly views: readonly LinkNodeView[];
   readonly edges: readonly LinkEdgeView[];
 }
 

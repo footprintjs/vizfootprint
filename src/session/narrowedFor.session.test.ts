@@ -146,7 +146,10 @@ describe('(b) a LAYER consumer is keyed by its address, named by the layer', () 
     await s.declareAnalysis('radiiPerPlanet', { cause });
     const pick = await s.dispatch({ verb: 'select', viewId: 'scatter', field: 'mass', value: 9.1, cause });
     const row = (await s.overview()).activeSelections[0]!;
-    // `table` and the frame `hist` read `measurements`, which has `mass` — judged, so not keys; only the layer over the minted table is
+    // STALE COMMENT FIXED (the frame is its layers, ../def/README.md "Layers" law 6a): `hist` has one
+    // layer and no view-level `initial`, so it is a FRAME — no edge reaches its bare address at all,
+    // never mind judged (`clausesFor('hist')` is `[]`). `table` genuinely reads `measurements`, which
+    // has `mass` — judged, so not a key. Either way only the layer over the minted table is one.
     expect(row.narrowedFor).toEqual({ [HIST]: { column: 'mass', reason: NO_MASS, label: 'Radii per planet' } });
     // the same judgement `why()` makes for that layer — one law, asked twice
     const why = s.why({ kind: 'chart', viewId: HIST });

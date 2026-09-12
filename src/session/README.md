@@ -350,6 +350,45 @@ crossfilter default, whose table `planets` has no `radii`:
 // { planets_sheet: { column: 'radii', reason: 'table "planets" has no column "radii" — a sentence about a column these rows do not have is not a claim about these rows', label: 'Planets' } }
 ```
 
+A FRAME reads nothing, so nothing reaches it and nothing is narrowed there: the
+`radius` view above — one layer, no view-level `initial` — is listed on the map
+as a frame (`LinkView.frame: ['radius~bins']`, `../def/README.md` "Layers", law
+6a), the default rule mints no edge into or out of it, and so `clausesFor('radius')`
+is `[]`, `why({ kind: 'chart', viewId: 'radius' })` credits no reaching-clause
+commit, and `radius` is never a `narrowedFor` key — the same walk, the same map,
+nothing inferred. The ONE thing the session ADDS for a frame is the emission
+door: a gesture landed AT a frame is refused (`session.ts` · `probeGuard`, before
+the capability, under `guard-failed` — what refuses it is what the view
+DECLARES) in words naming the layers that read for it, because the address
+would hold a clause no edge can carry and no fold reads — a gesture the desk
+shows and nothing hears. The three probe paths, `applySaved` and a runtime
+`link` edit all meet it, so a mounted renderer with no bundle for its layers
+(one whose view speaks at the frame's address) is refused by name, not landed.
+For the same reason `offersOf` (`./offers.ts`) never offers a frame's own
+address — every offer the door would refuse is a broken promise (the map
+law) — and lists its layers' offers instead, each carrying the frame's own
+voice under its own address:
+
+```ts
+await s.dispatch({ verb: 'select', viewId: 'radius', field: 'radii', value: 2.4, cause });
+// { ok: false, rejection: { code: 'guard-failed', detail: 'view "radius" reads only through its layers — a gesture lands under one of them: radius~bins' } }
+```
+
+**A read at a frame's bare address is a NAMED GAP, not yet refused.**
+`viewQuery`/`findInView` share ONE table resolver (`viewClauses`), and it does
+not yet ask whether the address is a frame: `viewId: 'radius'` resolves through
+`tableFor` exactly as a plain view would, so the window is served over the
+DEFAULT table — rows the frame itself never draws (its layer reads a table of
+its own) — with `clauses: []` (correctly empty; nothing reaches a frame,
+above). None of `ViewQueryRefusal`'s codes (`unknown-table` / `unknown-view` /
+`table-mismatch` / `unsupported-sort` / `no-columns` / `version-moved` /
+`engine`) honestly names this — `table-mismatch` is for two tables that
+disagree, not an address that reads none — and minting one is a
+tool-vocabulary change, its own packet (the emission door's `guard-failed`
+precedent above, by contrast, is an EXISTING code whose meaning already fits).
+Ask at the layer's own address (`radius~bins`) for the window it actually
+serves.
+
 An AIM that missed is different, and stays different on purpose: a column an
 edge's `mapping` named BY HAND is an author error, not an ordinary "filtered
 nothing" — the read door refuses it by name (`viewClauses`, "AN AIM THAT

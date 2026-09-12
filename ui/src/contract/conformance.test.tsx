@@ -63,7 +63,7 @@ import {
   type RenderState,
 } from './types.js';
 import type { GeoFeatureCollection } from '../charts/VizMap.js';
-import { buildNetworkFixture, EDGES, WALKABLE } from '../adapter/network.fixture.js';
+import { buildNetworkFixture, EDGES, WALKABLE, edgesLayer, nodesLayer } from '../adapter/network.fixture.js';
 import { layeredRenderer, networkState, networkLayers, clickMark, clickWalk, type LayeredRendererOptions } from './layered.fixture.js';
 
 // ── the scripted fixture ────────────────────────────────────────────────────────
@@ -666,13 +666,31 @@ describe('conformance — hostile renderers are caught at the exact step', () =>
 
 // ── protocol 1.2: the layers arm on a REAL two-table session ───────────────────
 
+/**
+ * RE-PINNED (the frame is its layers — src/def/README.md "Layers", law 6a): the
+ * kit's GENERIC arm (steps 5–7) drives the view's OWN voice at `net` and needs
+ * the commit to land THERE. A layered view reads rows at its own address only
+ * when it binds something of its own (a view-level `initial`); without one
+ * `net` is a FRAME and the session refuses that gesture by name, listing its
+ * layers. Most runs below build `net` with a view-level binding on the
+ * default table's column — which is what makes its own address read the nodes
+ * (or, with `defaultTable: 'edges'`, the edges) exactly as these runs always
+ * assumed; the layers arm and the walk arm are byte-identical either way. ONE
+ * run (below, "a FRAME has no voice at its own address") instead restores the
+ * canonical no-own-binding shape — no hint needed: the kit reads `net`'s own
+ * `LinkNodeView.frame` off the MAP (`view.getState().links`, `../conformance.ts`)
+ * and drives the generic arm through the first address it names, proving the
+ * round trip on a genuinely frame-only host too.
+ */
+const ownBinding = (field: string): { encodings: unknown[] } => ({ encodings: [{ viewId: 'net', chartKind: 'network', channels: ['x', 'y'], initial: { x: field }, layers: [nodesLayer, edgesLayer] }] });
+
 describe('conformance — the layers arm (one frame, two tables, a gesture on the second layer)', () => {
   const clickProbeButton = (el: HTMLElement): void => {
     fireEvent.click(el.querySelector('button.probe')!);
   };
 
   async function runNet(options: LayeredRendererOptions, extras: Partial<ConformancePlan> = {}): Promise<ConformanceReport> {
-    const { view } = await buildNetworkFixture();
+    const { view } = await buildNetworkFixture(ownBinding('size'));
     return runConformance({
       renderer: layeredRenderer(options),
       viewId: 'net',
@@ -699,8 +717,21 @@ describe('conformance — the layers arm (one frame, two tables, a gesture on th
     ]);
   });
 
-  it('the layer commit lands with the layer as its own source — the address as viewId, the layer label as its name', async () => {
-    const { view } = await buildNetworkFixture();
+  /**
+   * RESTORED TO CANONICAL (the frame is its layers — src/def/README.md "Layers"
+   * law 6a): this is the design's own shape — no view-level `initial` — so
+   * `net` is a FRAME with no voice at its own address, and BOTH commits below
+   * must land under a LAYER, never under `net`. No hint on the plan: the kit
+   * reads `net`'s own `LinkNodeView.frame` off `view.getState().links`
+   * (`../conformance.ts`) — the ONE owner, the same map fact the session's own
+   * refusal is judged against — and the generic arm (steps 5-7) drives and
+   * expects the FIRST address it names, exactly as the layers arm (step 10)
+   * already does for the second — proving the round trip on a genuinely
+   * frame-only host, which the other five runs in this file (view-level
+   * `initial`) do not exercise.
+   */
+  it('the generic arm and the layers arm land under a layer each — a FRAME has no voice at its own address', async () => {
+    const { view } = await buildNetworkFixture(); // canonical: no view-level `initial`
     const report = await runConformance({
       renderer: layeredRenderer(),
       viewId: 'net',
@@ -709,17 +740,17 @@ describe('conformance — the layers arm (one frame, two tables, a gesture on th
       buildState: (st) => networkState(st),
       gesture: clickProbeButton,
       verifyUpdate: () => true,
-      layers: { layerIds: ['edges', 'nodes'], gesture: clickMark('nodes') },
+      layers: { layerIds: ['nodes', 'edges'], gesture: clickMark('edges') },
     });
     expect(report.ok, explain(report)).toBe(true);
     const commits = view.getState().commits;
     expect(commits.map((c) => [c.viewId, c.field, c.value])).toEqual([
-      ['net', 'size', 12],
-      ['net~nodes', 'group', 'viral'],
+      ['net~nodes', 'size', 12],
+      ['net~edges', 'weight', 5],
     ]);
-    // the fold keys the layer's clause under its address — a layer finds its own by the address, never by the viewId
-    const sel = selectionForView(view.getState().selections, 'net~nodes');
-    expect(sel.clauses.get('net~nodes')?.value).toBe('viral');
+    // the fold keys each layer's clause under its own address — a layer finds its own by the address, never by the viewId
+    const sel = selectionForView(view.getState().selections, 'net~edges');
+    expect(sel.clauses.get('net~edges')?.value).toBe(5);
     expect(view.getState().views[0]!.layers!.map((l) => l.layerId)).toEqual(['nodes', 'edges']);
   });
 
@@ -892,7 +923,7 @@ const shiftClickNode = (id: string) => (el: HTMLElement): void => {
 };
 
 describe.each(NET_HOSTS)('conformance — the node-link under %s, and the one thing the kit cannot hold', (_host, buildState) => {
-  it('the LAYERS arm is exactly what a node-link is: two tables on one frame, the node gesture under net~nodes', async () => {
+  it('the generic arm now passes at net~nodes (the frame-map fix); the match arm is the one thing the kit still cannot hold', async () => {
     const view = await buildNetSession();
     const report = await runConformance({
       renderer: networkRenderer(),
@@ -904,25 +935,31 @@ describe.each(NET_HOSTS)('conformance — the node-link under %s, and the one th
       matchGesture: shiftClickNode('cold'),
       layers: { layerIds: ['edges', 'nodes'], gesture: clickNode('strep'), verify: (el) => el.querySelectorAll('g.vzf-net-links line').length === 2 && el.querySelectorAll('g.vzf-net-nodes circle').length === 3 },
     });
-    // The kit stops at `commit-lands`, and the sentence says precisely why: a
-    // node-link has NO view-level mark. Every circle on the frame belongs to
-    // the nodes LAYER, so every gesture speaks through that layer's bundle and
-    // lands under `net~nodes` — which is the 1.2 law working, not breaking.
-    // The kit's steps 5-8 model a VIEW that also has layers (its synthetic
-    // fixture keeps a view-level probe button beside two layers, three mark
-    // sources in all); a two-table node-link has only two, and both are
-    // layers. Nothing is weakened here to hide that: the run is pinned as it
-    // stands, and the direct proof below covers what those steps would have
-    // proven. Resolving it is a kit decision — either the arm learns that a
-    // renderer may be layers-only, or a node-link's nodes ride the view's own
-    // rows and give up the layer address.
+    // RE-PINNED (the frame-map fix, `../conformance.ts` · `runConformance`): a
+    // node-link has NO view-level mark — `net` here is a FRAME (no view-level
+    // `initial`) and every circle belongs to the nodes LAYER, so the gesture
+    // speaks through that layer's bundle and lands under `net~nodes`. The kit
+    // used to stop at `commit-lands`, expecting the bare `viewId`; now it
+    // reads `net`'s own `LinkNodeView.frame` off the map and drives/expects
+    // the SAME address the gesture actually lands at — commit-lands and
+    // crossfilter-returns both pass. This is exactly the resolution the prior
+    // comment named ("the arm learns that a renderer may be layers-only").
+    // ONE THING THE KIT STILL CANNOT HOLD, one step later: `match`'s own
+    // self-addressability check (`selectionForView(st.selections, viewId)`)
+    // was never touched by the frame-map fix — out of scope here, same as
+    // `cell`/`neighbourhood` — so a match gesture that ALSO speaks through the
+    // nodes layer bundle still reads as `self-missing` at the bare `viewId`.
     expect(report.ok).toBe(false);
     const last = report.steps[report.steps.length - 1]!;
-    expect([last.step, last.ok]).toEqual(['commit-lands', false]);
-    expect(last.detail).toBe("the landed commit's origin is wrong: net~nodes · user · conformance: net~nodes gesture");
-    // everything up to it passed — version guard, transforms, handshake, first frame, the gesture's emission
+    expect([last.step, last.ok]).toEqual(['match', false]);
+    expect(last.detail).toBe('the match arm misbehaved: match-kind · many-values · self-missing');
+    // everything up to it passed — including commit-lands and crossfilter-returns, now at net~nodes
     expect(report.steps.slice(0, -1).every((step) => step.ok)).toBe(true);
-    expect(report.emissions).toEqual([{ rawValue: 'flu', encoding: { kind: 'point', field: 'disease' } }]);
+    expect(report.steps.find((s) => s.step === 'commit-lands')!.detail).toBe("commit #s1 carries its origin in the cause (net~nodes · user · conformance: net~nodes gesture)");
+    expect(report.emissions).toEqual([
+      { rawValue: 'flu', encoding: { kind: 'point', field: 'disease' } },
+      { rawValue: { values: ['flu', 'cold'] }, encoding: { kind: 'match', field: 'disease' } },
+    ]);
   });
 
   it('bound by hand over the same session, the whole loop closes: both tables drawn, ONE commit per gesture, under the LAYER address', async () => {
@@ -1047,7 +1084,7 @@ describe('conformance — the walk arm (one gesture on a node, one commit, the i
     // WALKABLE, not the plain fixture: a walk needs the two relations that say
     // `edges` is an edge table AND the capability that declares the voice — a
     // neighbourhood is never assumed (src/links/voice.ts).
-    const { view } = await buildNetworkFixture(WALKABLE);
+    const { view } = await buildNetworkFixture({ ...WALKABLE, ...ownBinding('size') });
     return runConformance({
       renderer: layeredRenderer(options),
       viewId: 'net',
@@ -1078,7 +1115,7 @@ describe('conformance — the walk arm (one gesture on a node, one commit, the i
   });
 
   it('the landed commit carries the answer BESIDE the question, under the edges address', async () => {
-    const { view } = await buildNetworkFixture(WALKABLE);
+    const { view } = await buildNetworkFixture({ ...WALKABLE, ...ownBinding('size') });
     const report = await runConformance({
       renderer: layeredRenderer({ walk: { field: 'source', seed: 'flu' } }),
       viewId: 'net',
@@ -1105,7 +1142,7 @@ describe('conformance — the walk arm (one gesture on a node, one commit, the i
   });
 
   it('protocol 1.4: a renderer that says WHICH walk gets that walk — and the 1.3 emission still binds and lands the ego one', async () => {
-    const { view } = await buildNetworkFixture(WALKABLE);
+    const { view } = await buildNetworkFixture({ ...WALKABLE, ...ownBinding('size') });
     const report = await runConformance({
       renderer: layeredRenderer({ walk: { field: 'source', seed: 'flu', ask: { derivation: 'path', to: 'strep' } } }),
       viewId: 'net',
@@ -1158,7 +1195,7 @@ describe('conformance — the walk arm (one gesture on a node, one commit, the i
   it('a PLAIN VIEW can walk too: with the edges as its own table the ask goes through the view\'s voice and lands there', async () => {
     // the one shape a layer address is NOT part of: the view's table IS the
     // edges, so the walk is the VIEW's act and the arm judges it at `net`
-    const { view } = await buildNetworkFixture({ ...WALKABLE, defaultTable: 'edges' });
+    const { view } = await buildNetworkFixture({ ...WALKABLE, ...ownBinding('weight'), defaultTable: 'edges' });
     const report = await runConformance({
       renderer: layeredRenderer({ walk: { field: 'source', seed: 'flu', through: 'view' }, viewField: 'weight' }),
       viewId: 'net',

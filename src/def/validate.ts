@@ -14,7 +14,7 @@ import { validateAnalysisDef } from '../analysis/index.js';
 import { isBuiltinRecord, validateBuiltinAnalysis } from './builtinAnalyses.js';
 import { validateRelations } from './relations.js';
 import { mintedTables } from './builtinAnalyses.js';
-import { layerLinkViewsOf, layerSurfacesOf, markerRefusal, validateFrame, validateLayers } from './layers.js';
+import { layerLinkViewsOf, layerSurfacesOf, markerRefusal, ownRowsOf, validateFrame, validateLayers } from './layers.js';
 import { tableReachOf } from './tableReach.js';
 import { holdsLayerMarker } from './layerAddress.js';
 import { EMISSION_KINDS, validateLinks, voiceOf, type EmissionKind } from '../links/index.js';
@@ -734,13 +734,17 @@ export function validateDashboardDef(def: unknown): string[] {
     validateGrains(def.grains, def.actors, problems);
     // a view's encoding surface gives it the `encoding` voice and tells an encoding edge which channels exist
     const surfaceByView = new Map(Array.isArray(def.encodings) ? wellFormedSurfaces(def.encodings).map((s) => [s.surface.viewId, s.surface] as const) : []);
+    // the DECLARED layer list per view, as written — `ownRowsOf` reads it raw (a malformed layer is refused on its own line and is nobody's reader)
+    const layersByView = new Map<string, unknown>();
+    if (Array.isArray(def.encodings)) for (const enc of def.encodings) if (isObject(enc) && typeof enc.viewId === 'string') layersByView.set(enc.viewId, enc.layers);
     const grainByView = new Map(wellFormedGrains(def.grains).map((g) => [g.viewId, g.keys] as const));
     const linkViews = Object.keys(def.actors).map((viewId) => {
       const surface = surfaceByView.get(viewId);
       const grain = grainByView.get(viewId);
-      // the TABLE the node draws — a layerless view draws the default one, resolved by the ONE expression
-      // `defaultTableName` below, so the door and the build door judge reach against the same rows
-      return { viewId, voice: voiceOf(capabilityByView.get(viewId), { hasEncodingSurface: surface !== undefined }), ...(defaultTableName !== undefined ? { table: defaultTableName } : {}), ...(surface !== undefined ? { channels: surface.channels } : {}), ...(grain !== undefined ? { grain } : {}) };
+      // the ROWS the node reads — the default table, resolved by the ONE expression `defaultTableName` above, so the
+      // door and the build door judge reach against the same rows; or NONE, when the frame is its layers (`./layers.ts`
+      // · `readsOwnTable`, the ONE owner both twins ask through `ownRowsOf`)
+      return { viewId, voice: voiceOf(capabilityByView.get(viewId), { hasEncodingSurface: surface !== undefined }), ...ownRowsOf(viewId, { layers: layersByView.get(viewId), initial: surface?.initial }, defaultTableName), ...(surface !== undefined ? { channels: surface.channels } : {}), ...(grain !== undefined ? { grain } : {}) };
     });
     // a layer is a node of the graph under its address, so a declared edge may name one (src/def/layers.ts)
     const layerViews = Array.isArray(def.encodings) ? layerLinkViewsOf(def.encodings, (viewId) => linkViews.find((v) => v.viewId === viewId)?.voice) : [];

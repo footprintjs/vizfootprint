@@ -64,7 +64,7 @@ import {
 } from './types.js';
 import { COMMIT_ID_PREFIX, PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, raiseMinted, restoredRecordId } from './recordIds.js';
 import { defRevision } from './revision.js';
-import { layerLinkViewOf, layerSurfaceOf } from './layers.js';
+import { layerLinkViewOf, layerSurfaceOf, ownRowsOf } from './layers.js';
 import { tableReachOf } from './tableReach.js';
 import { createInteractionSession, type InteractionSession } from '../session/session.js';
 import type { SessionOptions } from '../session/types.js';
@@ -999,8 +999,10 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
   const linkViews = [...views.values()].map((v) => ({
     viewId: v.viewId,
     voice: voiceOf(v.capability, { hasEncodingSurface: v.encoding !== undefined }),
-    // a layerless view draws the DEFAULT table — the rows the reach law judges an edge into it against
-    table: defaultTable,
+    // the ROWS this address reads: the DEFAULT table (a layerless view, or a layered one that binds something of
+    // its own) — the rows the reach law judges an edge into it against — or NONE, and then the frame is its layers
+    // (`./layers.ts` · `readsOwnTable`, the ONE owner; `frame` lists the readers, and no default edge touches it)
+    ...ownRowsOf(v.viewId, { layers: v.layers, initial: v.encoding?.initial }, defaultTable),
     ...(v.encoding !== undefined ? { channels: v.encoding.channels } : {}),
     ...(v.grain !== undefined ? { grain: v.grain } : {}),
   }));

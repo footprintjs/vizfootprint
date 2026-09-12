@@ -126,7 +126,10 @@ describe('one gesture, one commit', () => {
   });
 
   it('a clause about ANOTHER table\'s column is not judged here — one selection elsewhere cannot make every walk impossible', async () => {
-    const s = fresh();
+    // RE-PINNED (the frame is its layers, ../def/README.md "Layers", law 6a): with no view-level `initial`, `net`
+    // is a FRAME and a gesture at it is refused by name — so the VIEW's clause this test needs is landed on a
+    // `net` that binds something of its own, which reads the default table at its own address exactly as before.
+    const s = fresh({ encodings: [{ viewId: 'net', chartKind: 'network', channels: ['x', 'y'], initial: { x: 'size' }, layers: [nodesLayer, edgesLayer] }] });
     // `net` is a VIEW, so its clause reaches every table (`clauseReaches`) — and
     // "size" is a NODES column. Judged against the edges table the engine would
     // refuse the whole read, and with it the walk; a sentence about a column
@@ -235,7 +238,10 @@ describe('every refusal is a sentence, and lands nothing', () => {
     );
     // and the offers say the same thing — the act door and the voice never differ
     expect((await silent.overview()).offers.some((o) => o.kind === 'neighbourhood')).toBe(false);
-    expect((await fresh().overview()).offers.filter((o) => o.kind === 'neighbourhood').map((o) => o.viewId)).toEqual(['net', NODES_ADDRESS, EDGES_ADDRESS]);
+    // RE-PINNED (review fix, `offersOf`/../session/offers.ts): `net` here has no view-level `initial`, so it is
+    // a FRAME (the frame is its layers, ../def/README.md "Layers" law 6a) — its own address is no longer offered
+    // (an offer the door refuses is a broken promise); its layers offer the same voice under their own addresses.
+    expect((await fresh().overview()).offers.filter((o) => o.kind === 'neighbourhood').map((o) => o.viewId)).toEqual([NODES_ADDRESS, EDGES_ADDRESS]);
   });
 
   it('a view whose declared voice does not include the walk', async () => {

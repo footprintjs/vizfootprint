@@ -12,9 +12,12 @@
  *   5. gesture-emits        — the plan's gesture produces R3 emissions, only
  *                             of the DECLARED kinds
  *   6. commit-lands         — the emission landed a commit with its ORIGIN in
- *                             the cause (viewId · actor · intent)
- *   7. crossfilter-returns  — the view's own clause is now ADDRESSABLE in the
- *                             derived selection and the renderer visibly
+ *                             the cause (viewId · actor · intent) — or, on a
+ *                             FRAME (the MAP's own `LinkNodeView.frame` says
+ *                             so; the view has no voice of its own), the
+ *                             FIRST layer's address the map names for it
+ *   7. crossfilter-returns  — the same address's clause is now ADDRESSABLE in
+ *                             the derived selection and the renderer visibly
  *                             re-rendered under the new state
  *   8. cell                 — D30 (protocol 1.1): a renderer DECLARING the
  *                             cell emission kind drives the plan's cellGesture
@@ -177,7 +180,18 @@ function flag(cond: boolean, yes: string, no: string): string {
 
 export async function runConformance(plan: ConformancePlan): Promise<ConformanceReport> {
   const { renderer, viewId, el, view } = plan;
-  const originIntent = `conformance: ${viewId} gesture`;
+  // THE FRAME IS ITS LAYERS: the generic arm's own address, read off the MAP —
+  // `LinkNodeView.frame` on `view.getState().links.views` is the ONE owner of
+  // "does this address read rows of its own" (`vizfootprint/def` "Layers" law
+  // 6a); the kit never asks the host, because a host could set a hint wrong
+  // and it would become public API nobody could remove. A frame's own address
+  // has no voice, so the arm drives the FIRST reader the map names for it —
+  // the same address a host's first layer bundle answers to, and the same
+  // address the session itself would accept (the session's `probeGuard`
+  // refuses `viewId` under this SAME map fact, never a second derivation).
+  const frame = view.getState().links?.views.find((v) => v.viewId === viewId)?.frame;
+  const genericAddress = frame !== undefined && frame.length > 0 ? frame[0]! : viewId;
+  const originIntent = `conformance: ${genericAddress} gesture`;
   const expectedActor = plan.expectedActor ?? 'user';
 
   const gaps: ContractGap[] = [];
@@ -207,7 +221,7 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
       pending.push(view.navigate(address, viewState));
     },
   });
-  const callbacks = callbacksFor(viewId);
+  const callbacks = callbacksFor(genericAddress);
   // bound at the handshake whenever the plan names layers — a renderer that
   // declares canLayer must be handed its bundles at mount, not after
   const layerBindings = plan.layers === undefined ? {} : { layers: { layerIds: plan.layers.layerIds, callbacksFor } };
@@ -330,7 +344,7 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
         const landed = st.commits[st.commits.length - 1]!;
         const origin = `${landed.viewId} · ${landed.actor} · ${String(landed.intent)}`;
         return check(
-          origin === `${viewId} · ${expectedActor} · ${originIntent}`,
+          origin === `${genericAddress} · ${expectedActor} · ${originIntent}`,
           `commit #${landed.id} carries its origin in the cause (${origin})`,
           `the landed commit's origin is wrong: ${origin}`,
         );
@@ -341,14 +355,14 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
       async run() {
         await settle(); // the gesture's own render must have landed before the DOM comparison
         const st = view.getState();
-        const selection = selectionForView(st.selections, viewId);
+        const selection = selectionForView(st.selections, genericAddress);
         bound!.update(plan.buildState(st));
         const updated = flag(
           plan.verifyUpdate ? plan.verifyUpdate(el) : el.innerHTML !== htmlBeforeGesture,
           'renderer-updated',
           'renderer-static',
         );
-        const descriptor = `${flag(selection.clauses.has(viewId), 'self-addressable', 'self-missing')} · ${updated}`;
+        const descriptor = `${flag(selection.clauses.has(genericAddress), 'self-addressable', 'self-missing')} · ${updated}`;
         return check(
           descriptor === 'self-addressable · renderer-updated',
           `the view's own clause is addressable in the derived selection (${selection.clauses.size} clause(s)) and the renderer re-rendered`,

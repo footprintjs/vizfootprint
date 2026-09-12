@@ -39,9 +39,12 @@ export function fnv1a(text: string): string {
 
 /**
  * Layer 4, the OFFER (ruling 8): every (view, emission kind) of this
- * dashboard — a view's voice is declared, it does not move. The tool list
- * stays byte-stable: the offer is data in the answer, never a new tool. The
- * view's `does` sentence rides once, on `views[]`, not per offer.
+ * dashboard that reads rows of its own — a view's voice is declared, it does
+ * not move. A FRAME (`LinkView.frame`) is skipped: its own address reads
+ * nothing and the door would refuse a dispatch there, so its layers offer its
+ * voice instead, each under its own address. The tool list stays byte-stable:
+ * the offer is data in the answer, never a new tool. The view's `does`
+ * sentence rides once, on `views[]`, not per offer.
  *
  * This list does NOT move with the cursor. The POSITION rides once, beside
  * it, as {@link offerStampOf} — see the note there for why.
@@ -49,6 +52,13 @@ export function fnv1a(text: string): string {
 export function offersOf(views: LinkGraph['views']): Offer[] {
   const out: Offer[] = [];
   for (const view of views) {
+    // THE FRAME IS ITS LAYERS (../def/README.md "Layers" law 6a): a frame's OWN
+    // address reads no rows, so the session refuses a dispatch there — an
+    // offer at it would be a promise the door breaks. Its `voice` is not lost:
+    // each layer carries the SAME voice under its own address (`../def/layers.ts`
+    // · `layerLinkViewOf`), and that entry's own pass through this loop already
+    // lists it — this is a skip, never a narrowing of what gets offered.
+    if (view.frame !== undefined) continue;
     for (const kind of view.voice) {
       if (kind === ENCODING_KIND) continue; // a binding is followed through an edge, never acted on as an emission
       out.push({ viewId: view.viewId, kind });

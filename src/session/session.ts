@@ -2042,6 +2042,17 @@ class InteractionSessionImpl implements InteractionSession {
     return place === undefined ? this.defaultTable : tableOf(place, this.defaultTable);
   }
 
+  /**
+   * The layer addresses that read for a FRAME — a view whose own address reads
+   * no rows (`LinkView.frame`) — or undefined for every address that reads:
+   * a plain view, a layered view with its own binding, a layer. Read off the
+   * MAP (`runtime.links.views`, the base graph; a `link` edit moves edges,
+   * never nodes) so the session never re-derives what the def door decided.
+   */
+  private frameOf(address: string): readonly string[] | undefined {
+    return this.runtime.links.views.find((v) => v.viewId === address)?.frame;
+  }
+
   /** The registry meta a commit at this address lands with — the view's, or the layer's own (a layer is its own source under its address). */
   private metaFor(address: string): ActorMeta {
     return metaOf(this.placeOf(address)!); // every door judged the address before landing
@@ -2723,10 +2734,26 @@ class InteractionSessionImpl implements InteractionSession {
    * `guard-failed` (a definition to re-read), and whether the table it draws
    * is here yet is `needs-act` (an act to perform). One door, so the three
    * probe paths cannot come to different conclusions.
+   *
+   * THE FRAME IS ITS LAYERS, judged FIRST: a gesture landed at an address that
+   * reads no rows itself (`LinkView.frame` — a layered view with no view-level
+   * `initial`; the MAP says so, `../def/layers.ts` · `readsOwnTable`, and
+   * nothing is re-derived here) is refused in words naming the layers that
+   * read for it. WHY refuse and not silently land: the address would hold a
+   * clause no edge can carry (the default rule mints none into or out of a
+   * frame) and no fold reads — a gesture the desk shows and nothing hears.
+   * WHY `guard-failed` and not a new code: what refuses it is what the view
+   * DECLARES (layers, and nothing bound at its own level) — a definition to
+   * re-read, which is exactly this code's meaning; nothing about the cursor
+   * or an act changes the answer. WHY before the capability: the frame's
+   * voice is its layers' voice, so what it emits is moot at its own address,
+   * and the layer list is the one repair that is true whatever kind was asked.
    */
   private probeGuard(viewId: string, kind: EmissionKind): { readonly code: GapCode; readonly detail: string } | null {
-    const cap = this.probeCapability(viewId);
     const refuse = (detail: string): { readonly code: GapCode; readonly detail: string } => ({ code: 'guard-failed', detail });
+    const frame = this.frameOf(viewId);
+    if (frame !== undefined) return refuse(`view "${viewId}" reads only through its layers — a gesture lands under one of them: ${frame.join(', ')}`);
+    const cap = this.probeCapability(viewId);
     if (!cap) {
       // No capability declared → the ASSUMED voice, read from the one helper
       // that answers "what can this view emit" everywhere else (`voiceOf`), so

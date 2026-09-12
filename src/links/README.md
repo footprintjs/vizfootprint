@@ -120,7 +120,7 @@ the edge's policy — one rule for a chart; an analysis input stays the live set
 |---|---|
 | `types.ts` | the vocabulary and the `LinkGraph` shape; `edgeId` |
 | `voice.ts` | `voiceOf(capability, { hasEncodingSurface })` / `impliedKinds` — the ONE owner of "what can this view emit" (selection kinds from the capability; the `encoding` voice from having a surface) |
-| `materialize.ts` | default rule → edges (none within a frame: a view and its layers — `sharesFrame`); declared edges override in place; `edgesInto` / `edgesFrom` |
+| `materialize.ts` | default rule → edges (none within a frame: a view and its layers — `sharesFrame`; none into or out of a FRAME that reads no rows — `isFrame`); declared edges override in place; `edgesInto` / `edgesFrom` |
 | `validate.ts` | the refusals, as sentences, for `validateDashboardDef` |
 | `mermaid.ts` | `linksToMermaid(graph)` — declared === drawn |
 
@@ -161,6 +161,29 @@ links: [{ source: 'net~nodes', kind: 'point', target: 'net~edges', response: 'hi
 
 A graph with no layers is written exactly as before: a plain viewId is its own
 frame, so "shares a frame" is "is the same node".
+
+**The frame is its layers — a view's own address is a node only when it reads
+rows there.** A node of the link graph is a place that reads rows. A layered
+view's own address reads the default table only when the view binds something
+at its own level (a non-empty view-level `initial`); otherwise the map lists it
+as a FRAME — `LinkView.frame`, the layer addresses that read for it, never
+beside `table` — the default rule mints no edge into or out of it (and records
+nothing under `declined`: a frame is not a refused edge, it is not a node that
+reads), and a declared edge naming it is refused by THAT name, with the layers
+to use — never as "not a declared view", because it is declared. The question
+has ONE owner, [`../def/layers.ts`](../def/README.md) · `readsOwnTable` (law 6a
+there, with the exoplanet-shaped example); this package only reads the answer
+off the node. WHY the node is listed rather than dropped: the map says what a
+view IS, and a reader of the graph still finds the view under its own id with
+its readers beside it.
+
+```ts
+// a scatter with ONE layer over `planets` and no view-level `initial`, beside a sheet over the default table
+views: [{ viewId: 'mass_radius', voice: […], frame: ['mass_radius~planets'] }, { viewId: 'sheet', voice: […], table: 'measurements' }, { viewId: 'mass_radius~planets', voice: […], table: 'planets' }]
+// materialized: sheet ↔ mass_radius~planets only — nothing into or out of mass_radius, nothing declined for it
+// links[0].target "mass_radius" is a frame that reads only through its layers — name one: mass_radius~planets   ← a declared edge into it
+// links[0].source "mass_radius" is a frame that reads only through its layers — name one: mass_radius~planets   ← …or out of it
+```
 
 **Edited at run time — the `link` verb.** A person (the matrix) or the agent
 (`dispatch` with `verb: 'link'`) lands one edge as a commit: `{ source, kind,

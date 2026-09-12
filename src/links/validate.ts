@@ -33,6 +33,20 @@ export function validateLinks(links: unknown, linkDefault: unknown, views: reado
   const voices = new Map(views.map((v) => [v.viewId, v.voice]));
   const channelsOf = new Map(views.map((v) => [v.viewId, v.channels]));
   const viewById = new Map(views.map((v) => [v.viewId, v]));
+  /**
+   * One END of an edge, judged in order: named, declared, and a place that
+   * READS ROWS. THE FRAME IS ITS LAYERS: an endpoint that IS a declared view
+   * but reads nothing at its own address (`LinkView.frame`) is refused by THAT
+   * name, never as "not a declared view" — it is declared; what it lacks is
+   * rows for an edge to carry anything to or from. The remedy is the list the
+   * map already holds: the layer addresses that read for it. One judge for
+   * both ends, so an author meets the same words whichever end named a frame.
+   */
+  const judgeEnd = (where: string, end: 'source' | 'target', address: unknown): void => {
+    if (!nonEmpty(address)) problems.push(`${where}.${end} must be a declared view id`);
+    else if (!voices.has(address)) problems.push(`${where}.${end} "${address}" is not a declared view`);
+    else if (viewById.get(address)!.frame !== undefined) problems.push(`${where}.${end} "${address}" is a frame that reads only through its layers — name one: ${viewById.get(address)!.frame!.join(', ')}`);
+  };
   const seen = new Set<string>();
   links.forEach((link, i) => {
     const where = `links[${i}]`;
@@ -44,10 +58,8 @@ export function validateLinks(links: unknown, linkDefault: unknown, views: reado
       if (!['source', 'kind', 'target', 'response', 'mapping', 'channels', 'onClear', 'fold', 'label'].includes(key)) problems.push(`${where}: unknown key "${key}"`);
     }
     const isEncodingEdge = link.kind === ENCODING_KIND;
-    if (!nonEmpty(link.source)) problems.push(`${where}.source must be a declared view id`);
-    else if (!voices.has(link.source)) problems.push(`${where}.source "${link.source}" is not a declared view`);
-    if (!nonEmpty(link.target)) problems.push(`${where}.target must be a declared view id`);
-    else if (!voices.has(link.target)) problems.push(`${where}.target "${link.target}" is not a declared view`);
+    judgeEnd(where, 'source', link.source);
+    judgeEnd(where, 'target', link.target);
     if (nonEmpty(link.source) && link.source === link.target) problems.push(`${where}: a view cannot link to itself (self-exclusion is the rule)`);
     if (!(LINK_KINDS as readonly unknown[]).includes(link.kind)) {
       problems.push(`${where}.kind must be one of ${LINK_KINDS.join('|')}`);

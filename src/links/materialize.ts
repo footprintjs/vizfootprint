@@ -41,6 +41,23 @@ function sharesFrame(a: string, b: string): boolean {
 }
 
 /**
+ * THE FRAME IS ITS LAYERS: a node that reads no rows at its own address
+ * (`LinkView.frame` — a layered view with no view-level `initial`, judged once
+ * by `../def/layers.ts` · `readsOwnTable`). WHY the default rule mints no edge
+ * into OR out of one: a default edge is a promise the engine can keep, and an
+ * edge into a frame would hand a clause to an address that draws no table —
+ * a clause no fold reads and `why()` would still list; an edge out of one
+ * would carry a gesture that can never land there (the session refuses it by
+ * name). The layers that read for it are nodes of their own and take the
+ * rule as before. A frame is NOT pushed to `declined`: `declined` records an
+ * edge the reach law refused between two places that read rows, and a frame
+ * is not a refused edge — it is not a node that reads.
+ */
+function isFrame(view: LinkView): boolean {
+  return view.frame !== undefined;
+}
+
+/**
  * @param reach - What the TABLES say about reaching one another (`./reach.ts`).
  *   Handed in rather than read off a def, because this package knows nothing
  *   about definitions. Omitted = nothing is judged, and the default rule mints
@@ -55,6 +72,7 @@ export function materializeLinks(views: readonly LinkView[], declared: readonly 
         if (kind === ENCODING_KIND) continue; // no default encoding edge: absent is a silence (law 1, amended)
         for (const target of views) {
           if (sharesFrame(source.viewId, target.viewId)) continue; // self excluded — the one cycle-breaker; and a frame's layers, which are one place
+          if (isFrame(source) || isFrame(target)) continue; // a frame reads no rows at its own address — nothing to carry in, nothing to carry out (`isFrame`)
           // A DEFAULT EDGE IS A PROMISE THE ENGINE CAN KEEP: the rule may only
           // mint an edge whose clause could be judged where it lands. Two views
           // over tables no relation joins and no column shares cannot filter one

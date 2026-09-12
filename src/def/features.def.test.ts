@@ -49,9 +49,12 @@ const RICH = (): DashboardDef => ({
     },
   ],
   grains: [{ viewId: 'bar', keys: ['disease'] }],
+  // RE-PINNED (the frame is its layers, ../def/README.md "Layers" law 6a): `net` binds nothing at its own level, so it is
+  // a FRAME that reads only through its layers and a declared edge naming it is refused at the door by that name. The
+  // edges name the layer that reads (`net~nodes`); every card fact asserted below (counts, kinds, responses) is unchanged.
   links: [
-    { source: 'bar', kind: 'point', target: 'net', response: 'highlight', onClear: 'leave', fold: 'cases of the lit diseases' },
-    { source: 'net', kind: 'neighbourhood', target: 'bar', response: 'none' },
+    { source: 'bar', kind: 'point', target: 'net~nodes', response: 'highlight', onClear: 'leave', fold: 'cases of the lit diseases' },
+    { source: 'net~nodes', kind: 'neighbourhood', target: 'bar', response: 'none' },
   ],
   linkDefault: 'none',
   relations: [

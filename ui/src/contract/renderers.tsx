@@ -1627,7 +1627,12 @@ function frameRefusal(sentence: string): JSX.Element {
  * A gesture on a layer speaks through THAT layer's callback bundle
  * (`handshake.layers[layerId]`), so the commit lands under `viewId~layerId` —
  * the 1.2 law. With no bundle for it the view speaks and the ADDRESS is lost,
- * not the gesture.
+ * not the gesture — and on a frame with no own binding (a layered view with
+ * no view-level `initial`: THE FRAME IS ITS LAYERS, `src/def/README.md`
+ * "Layers", law 6a) the session then REFUSES that gesture by name, listing the
+ * layers it should have landed under (`session.ts` · `probeGuard`), because
+ * the frame's address reads no rows for a clause to filter. Register the
+ * bundles: a 1.1 host that mounts a frame without them loses the gesture too.
  *
  * THE FRAME FOLDS PER LAYER (protocol 1.8): a layer reads the clauses that
  * reached ITS address, folded with ITS clause as self (`RenderLayer.selection`

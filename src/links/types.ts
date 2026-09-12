@@ -106,6 +106,25 @@ export interface LinkView {
    * the law needs.
    */
   readonly table?: string;
+  /**
+   * THE FRAME IS ITS LAYERS: present exactly when this address reads NO rows
+   * itself — the layer addresses that read for it, in declaration order. Never
+   * beside `table`: a node of the graph is a place that reads rows, and this
+   * one reads them only through the addresses listed here.
+   *
+   * A layered view binds nothing at its own level unless it declares a
+   * non-empty view-level `initial` (`../def/layers.ts` · `readsOwnTable` is
+   * the ONE owner of that question); the default rule mints no edge into or
+   * out of a frame (`./materialize.ts`), and a declared edge naming one is
+   * refused at the door with these addresses as the remedy (`./validate.ts`).
+   *
+   * WHY the node is LISTED rather than omitted: the map says what a view IS.
+   * A reader of the graph — the grammar panel, the agent's `links` menu —
+   * still finds the view under its own id, and finds its readers beside it;
+   * a view that vanished from `views` would look undeclared, which is a
+   * different (and false) sentence.
+   */
+  readonly frame?: readonly string[];
   /** The channels the view's encoding surface declares — present exactly when it has one (so an encoding edge can be judged). */
   readonly channels?: readonly string[];
   /** The GRAIN: the group keys the view's marks stand for ([] = one mark per row); absent = unknown, never judged. */

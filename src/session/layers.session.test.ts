@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildDashboard, LAYER_MARKER, layerAddress } from '../def/index.js';
 import type { DashboardDef } from '../def/index.js';
-import { EDGES, NETWORK_RELATIONS, NODES, makeNetworkDef, nodesLayer } from '../def/network.fixture.js';
+import { EDGES, NETWORK_RELATIONS, NODES, edgesLayer, makeNetworkDef, nodesLayer } from '../def/network.fixture.js';
 import { makeDashboardDef } from './dashboard.fixture.js';
 import { RESERVED_ID_MARKER } from './namespaces.js';
 import type { Cause } from '../cause/index.js';
@@ -22,6 +22,16 @@ const userCause = (intent?: string): Cause => ({ requestedBy: 'user', computedBy
 const fresh = (extra: Partial<DashboardDef> = {}) => buildDashboard(makeNetworkDef(undefined, extra)).createSession();
 const NODES_ADDRESS = layerAddress('net', 'nodes');
 const EDGES_ADDRESS = layerAddress('net', 'edges');
+/**
+ * RE-PINNED (the frame is its layers, ../def/README.md "Layers", law 6a): `net`
+ * declares layers and NO view-level `initial`, so it is a FRAME — its own
+ * address reads no rows and a gesture there is refused by name. The fact these
+ * tests used to pin at `net` ("the view itself is still gated on the default
+ * table") holds for a layered view that BINDS something of its own, so it is
+ * pinned on this def, where `net` carries a view-level `initial`.
+ */
+const withOwnBinding = () => buildDashboard(makeNetworkDef(undefined, { encodings: [{ viewId: 'net', chartKind: 'network', channels: ['x', 'y'], initial: { x: 'size' }, layers: [nodesLayer, edgesLayer] }] })).createSession();
+const FRAME_REFUSAL = `view "net" reads only through its layers — a gesture lands under one of them: ${NODES_ADDRESS}, ${EDGES_ADDRESS}`;
 
 describe('layers — an address is a viewId, gated on the layer table', () => {
   it('a select on the edges layer lands ONE commit under the address, as the layer own source; the nodes count ignores it', async () => {
@@ -70,8 +80,12 @@ describe('layers — an address is a viewId, gated on the layer table', () => {
     const ghost = await s.dispatch({ verb: 'select', viewId: layerAddress('net', 'ghost'), field: 'weight', value: 5, cause: userCause() });
     expect(JSON.stringify(ghost)).toMatch(/needs-view/);
     expect(s.log.records).toHaveLength(0);
-    // the view itself is still gated on the default table
-    const view = await s.dispatch({ verb: 'select', viewId: 'net', field: 'group', value: 'viral', cause: userCause() });
+    // the view's own address is a FRAME here (no view-level `initial`): a gesture at it is refused by name, naming its layers (law 6a)
+    const atFrame = await s.dispatch({ verb: 'select', viewId: 'net', field: 'group', value: 'viral', cause: userCause() });
+    expect(atFrame).toMatchObject({ ok: false, rejection: { code: 'guard-failed', detail: FRAME_REFUSAL } });
+    expect(s.log.records).toHaveLength(0);
+    // …and a layered view that BINDS something of its own is still gated on the default table at its own address, as before
+    const view = await withOwnBinding().dispatch({ verb: 'select', viewId: 'net', field: 'group', value: 'viral', cause: userCause() });
     expect(view.ok && view.commit?.actorMeta).toEqual({ actor: 'user', label: 'Disease network' });
     const okCell = await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, fields: ['source', 'target'], values: ['flu', 'cold'], cause: userCause() });
     expect(okCell.ok && okCell.commit?.viewId).toBe(EDGES_ADDRESS);
@@ -179,13 +193,14 @@ describe('layers — an address is a viewId, gated on the layer table', () => {
     expect(s.mountView(layerAddress('net', 'ghost'), { capabilities: { canProbe: true } }).ok).toBe(false);
     await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'weight', value: 5, cause: userCause() });
     await s.dispatch({ verb: 'select', viewId: NODES_ADDRESS, field: 'group', value: 'viral', cause: userCause() });
-    await s.dispatch({ verb: 'select', viewId: 'net', field: 'size', value: 12, cause: userCause() });
+    // RE-PINNED (law 6a): `net` is a frame, so the gesture at it is refused and lands no clause — the picture holds the two layers
+    expect(await s.dispatch({ verb: 'select', viewId: 'net', field: 'size', value: 12, cause: userCause() })).toMatchObject({ ok: false, rejection: { detail: FRAME_REFUSAL } });
     const saved = s.saveSelection('the tie', { live: 'all' });
-    expect(saved.ok && saved.saved.conditions.map((c) => c.viewId)).toEqual([EDGES_ADDRESS, NODES_ADDRESS, 'net']);
+    expect(saved.ok && saved.saved.conditions.map((c) => c.viewId)).toEqual([EDGES_ADDRESS, NODES_ADDRESS]);
     const one = s.saveSelection('nodes only', { viewId: NODES_ADDRESS });
     expect(one.ok).toBe(true);
     const applied = await s.applySaved('the tie', userCause('back'));
-    expect(applied.ok && [applied.applied.map((c) => c.viewId), applied.refused]).toEqual([[EDGES_ADDRESS, NODES_ADDRESS, 'net'], []]);
+    expect(applied.ok && [applied.applied.map((c) => c.viewId), applied.refused]).toEqual([[EDGES_ADDRESS, NODES_ADDRESS], []]);
     const prose = await s.dispatch({ verb: 'describe', viewId: NODES_ADDRESS, slot: 'title', record: { text: 'The diseases', author: { kind: 'human' } }, cause: userCause() });
     expect(prose.ok && prose.commit).toMatchObject({ viewId: `prose:${NODES_ADDRESS}`, actorMeta: { actor: 'user', label: 'Diseases' } });
     const proposal = await s.dispatch({ verb: 'describe', viewId: EDGES_ADDRESS, slot: 'caption', record: { text: 'Ties', author: { kind: 'agent', model: 'm' }, levels: ['trend'], basis: { filters: {}, columns: ['weight'] } }, proposal: true, cause: userCause() });

@@ -445,6 +445,53 @@ export function layerLinkViewOf(viewId: string, layer: LayerDecl, voice: LinkVie
   return { viewId: layerAddress(viewId, layer.layerId), voice: voice.filter((k) => k !== ENCODING_KIND), table: layer.table };
 }
 
+/**
+ * THE FRAME IS ITS LAYERS — does this view read rows at its OWN address?
+ *
+ * The ONE owner of the question, asked by both twins that write a view's node
+ * of the link graph (`./buildDashboard.ts` · `linkViews` and `./validate.ts`'s
+ * `linkViews`, through `ownRowsOf`). A node of the link graph is a place that
+ * reads rows. A view with no layers reads the default table at its own address
+ * — byte-identical to a view built before layers existed. A layered view reads
+ * it there ONLY when it binds something at its own level: a non-empty
+ * view-level `initial` (law 5, ./README.md "Layers": "the view-level `initial`
+ * is judged against the default table exactly as before"). Otherwise the frame
+ * is its layers — each reads its own table under its own address, and the
+ * view's own address draws nothing (the accepted ruling: "the frame is NOT a
+ * layer — no voice of its own, only the domain commit"). Law 6a there.
+ *
+ * WHY it is judged from the declaration and never at read time: the map says
+ * what a view is, once; `clausesFor`, `why()` and `narrowedFor` follow the map
+ * and infer nothing. Both inputs are `unknown` so the raw door and the built
+ * def ask in the same words: an absent or EMPTY layer list declares no layers
+ * (`validateFrame`'s own reading of "declared"), and an absent or empty
+ * `initial` binds nothing.
+ */
+export function readsOwnTable(view: { readonly layers?: unknown; readonly initial?: unknown }): boolean {
+  const layered = Array.isArray(view.layers) && view.layers.length > 0;
+  const binds = isObject(view.initial) && Object.keys(view.initial).length > 0;
+  return !layered || binds;
+}
+
+/**
+ * The ROWS half of a VIEW's own node of the link graph — `{ table }` when the
+ * view reads the default table at its own address, `{ frame }` (the addresses
+ * of its well-formed layers, in declaration order) when it reads only through
+ * them, and never both. The default table is `undefined` only at the raw door
+ * over a malformed table map, where a node's table was always left unstated.
+ * ONE spelling for both twins, so the door and the build can never write a
+ * different node for the same view.
+ */
+export function ownRowsOf(viewId: string, view: { readonly layers?: unknown; readonly initial?: unknown }, defaultTable: string | undefined): Pick<LinkView, 'table' | 'frame'> {
+  if (readsOwnTable(view)) return defaultTable !== undefined ? { table: defaultTable } : {};
+  // `readsOwnTable` is false only when `layers` is a non-empty array; a malformed layer was refused on its own line and is nobody's reader
+  const readers = (view.layers as readonly unknown[]).flatMap((raw) => {
+    const layer = wellFormedLayer(raw);
+    return layer === undefined ? [] : [layerAddress(viewId, layer.layerId)];
+  });
+  return { frame: readers };
+}
+
 /** The link-graph nodes of every well-formed layer on `encodings` (the door's twin of `layerSurfacesOf`), each with its view's voice. */
 export function layerLinkViewsOf(encodings: readonly unknown[], voiceOfView: (viewId: string) => LinkView['voice'] | undefined): LinkView[] {
   const out: LinkView[] = [];
