@@ -135,8 +135,8 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
     { layerId: 'nodes', table: 'nodes', rows: [{ id: 'flu', group: 'viral' }, { id: 'cold', group: 'viral' }], encodings: { color: 'group' } },
   ] as const;
 
-  it('the protocol this build speaks is 1.7 — the narrowed-clause minor', () => {
-    expect(RENDERER_PROTOCOL_VERSION).toBe('1.7');
+  it('the protocol this build speaks is 1.8 — the fold-per-layer minor', () => {
+    expect(RENDERER_PROTOCOL_VERSION).toBe('1.8');
   });
 
   it('declares TRUE — and a layered frame pushed through the bind draws BOTH layers, each under its own table', () => {
@@ -239,6 +239,31 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
       clauses: new Map([['other', { ...other, narrowed: { column: 'region', reason: 'table "bars" has no column "region" — a sentence about a column these rows do not have is not a claim about these rows' } }]]),
     };
     expect(res.view.update(state(rows, narrowed))).toEqual({ ok: true });
+    expect(el.innerHTML).toBe(drawn);
+    res.view.unmount();
+  });
+
+  it('a 1.7 renderer IGNORES `layer.selection`: the same layered frame with and without the per-layer folds binds and draws byte-identically (protocol 1.8)', () => {
+    // `layeredRenderer` (the pure-DOM fixture) reads `layers` and knows nothing of a fold per
+    // layer — exactly the 1.7 renderer this law is about. Its hello is pinned to 1.7 here so the
+    // bind itself is the proof: same major, binds; and the key costs it nothing at all.
+    const seventeen = (r: Renderer): Renderer => ({
+      mount(el, handshake) {
+        const m = r.mount(el, handshake);
+        return { ...m, hello: { ...m.hello, protocolVersion: '1.7' } };
+      },
+    });
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const res = bindRenderer(seventeen(layeredRenderer()), el, { viewId: 'net', callbacks: callbacks() });
+    if (!res.ok) throw new Error('bind failed');
+    expect(res.view.protocolVersion).toBe('1.7');
+    const frame = { ...state([{ id: 'flu' }], highlightFromOther()), layers: LAYERS };
+    expect(res.view.update(frame)).toEqual({ ok: true });
+    const drawn = el.innerHTML;
+    // the SAME frame, each layer now carrying the fold at its own address
+    const folded = LAYERS.map((layer) => ({ ...layer, selection: { ...highlightFromOther(), selfClauseId: layerAddress('net', layer.layerId) } }));
+    expect(res.view.update({ ...frame, layers: folded })).toEqual({ ok: true });
     expect(el.innerHTML).toBe(drawn);
     res.view.unmount();
   });

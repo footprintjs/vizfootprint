@@ -15,7 +15,12 @@
  * WRAPPER's judgement (`networkRenderer`), never a fact about this component.
  *
  * Selection is the contract's clause-addressable fold, read exactly as
- * `<VizScatter>` reads it (dim-not-hide, self-excluded) — plus ONE reading no
+ * `<VizScatter>` reads it (dim-not-hide, self-excluded) — and since the frame
+ * folds PER LAYER (protocol 1.8) it arrives as TWO props, because two tables
+ * are judged here: `selection` is the NODES layer's fold, judged on the node
+ * rows, and `edgeSelection` is the EDGES layer's, judged on the edge rows
+ * beside the two-ends rule (absent = a 1.7 host, and the links are judged by
+ * their ends alone, as they always were) — plus ONE reading no
  * other chart has: the WALK (protocol 1.3). Alt/option on a node asks for that
  * node and everything it links to; the SESSION walks the edges and records the
  * ids, and this chart reads them back to light the walked set. The ask goes out
@@ -85,6 +90,13 @@ export interface NetworkEdge {
   readonly ty: number;
   /** Optional visible caption. Edges without a nonempty label have no caption. */
   readonly label?: string;
+  /**
+   * The SOURCE row this link was derived from — what the EDGES layer's own fold
+   * (`edgeSelection`, protocol 1.8) judges. A link without a row is never
+   * dimmed by that fold (no evidence, no dimming — the `NetworkNode.row` rule),
+   * so a hand-built edge draws exactly as it did before the row existed.
+   */
+  readonly row?: RenderRow;
 }
 
 /**
@@ -133,11 +145,24 @@ export interface VizNetworkProps {
   /** The DATA field a node click emits on — the nodes table's key. */
   readonly keyField: string;
   /**
-   * The clause-addressable crossfilter selection (RP-1): nodes whose source
-   * `row` fails the non-self clauses are dimmed, and an edge is only as bright
-   * as its two ends. The chart's OWN clause never dims it.
+   * The clause-addressable crossfilter selection (RP-1) — the NODES layer's
+   * fold: nodes whose source `row` fails the non-self clauses are dimmed, and
+   * an edge is only as bright as its two ends. The chart's OWN clause never
+   * dims it.
    */
   readonly selection?: RenderSelection;
+  /**
+   * PROTOCOL 1.8 — THE EDGES LAYER'S OWN FOLD, judged on the edge ROWS: a link
+   * whose `row` fails this fold's non-self clauses is dimmed, on top of the
+   * two-ends rule above. The walk is this fold's SELF (it lands under the
+   * edges address), so it never dims a link here — the ego set reaches the
+   * links through their ends, as it always did. What this prop makes possible
+   * is a declared link INTO the edges address: a `highlight` edge from the
+   * nodes layer, mapped onto an endpoint column, dims every link the clicked
+   * node is not the named end of — which one fold could never say. Absent = a
+   * 1.7 host: the links are judged by their ends alone, byte-identically.
+   */
+  readonly edgeSelection?: RenderSelection;
   readonly onEmit?: (emission: ChartEmission) => void;
   /** Protocol 1.3: the walk door. Absent = no edges layer, so no walk to ask for. */
   readonly walk?: NetworkWalk;
@@ -354,7 +379,7 @@ function descGesture(question: NetworkWalkQuestion | undefined): string {
 }
 
 export function VizNetwork(props: VizNetworkProps): JSX.Element {
-  const { viewId = 'network', nodes, edges, keyField, selection, onEmit, walk, width = 420, height = 340 } = props;
+  const { viewId = 'network', nodes, edges, keyField, selection, edgeSelection, onEmit, walk, width = 420, height = 340 } = props;
   const question = walk?.question;
   const radius = radiusOf(props.nodeRadius);
 
@@ -379,6 +404,11 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
   // does not have and dim the whole frame. The nodes READ the set instead
   // (`ego` above); the links are narrowed by the host, which owns the rows.
   const bright = useBrightPredicate(useMemo(() => withoutWalks(selection), [selection]));
+  // THE EDGES' OWN FOLD (protocol 1.8), judged on the edge rows. No `withoutWalks` here: the
+  // walk is a clause over THESE rows' columns, and on this fold it is the SELF clause
+  // (`brightPredicate` skips it) — a walk that reached here from another frame is a
+  // judgement the edge rows can answer. `null` for a 1.7 host, and then no row is asked.
+  const edgeBright = useBrightPredicate(edgeSelection);
   const set = selectedSet(undefined, selection);
 
   // The frame is render-INVARIANT — it depends on the rows and the box, never
@@ -442,8 +472,11 @@ export function VizNetwork(props: VizNetworkProps): JSX.Element {
    * with no named seed (`liveSeed === null`) matches no node.
    */
   const walkedFrom = (id: string): SelfSelectedNeighbourhood | null => (liveSeed === id ? walked : null);
+  /** Does this link's OWN row survive the edges layer's fold? No fold, or no row, is no evidence — it stays bright (the `survivesById` rule, on the other table). */
+  const survivesOwnFold = (edge: NetworkEdge): boolean => edgeBright === null || edge.row === undefined || edgeBright(edge.row);
+
   const edgeIsBright = (edge: NetworkEdge): boolean =>
-    survivesById(edge.source) && survivesById(edge.target) && (hovered === null || edge.source === hovered || edge.target === hovered);
+    survivesById(edge.source) && survivesById(edge.target) && survivesOwnFold(edge) && (hovered === null || edge.source === hovered || edge.target === hovered);
 
   const emit = (id: string, additive: boolean): void => {
     // the VizMap rule: a plain click selects (and clears on the selected one),

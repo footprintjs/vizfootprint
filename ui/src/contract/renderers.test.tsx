@@ -23,8 +23,9 @@ import {
   NETWORK_EDGE_CEILING,
   NETWORK_NODE_CEILING,
 } from './renderers.js';
-import { emptySelection } from './selection.js';
-import { validateFrame } from 'vizfootprint/def';
+import { emptySelection, selectionForView } from './selection.js';
+import { validateFrame, layerAddress } from 'vizfootprint/def';
+import type { LinkGraphView, SelectionView } from '../adapter/types.js';
 import {
   RENDERER_PROTOCOL_VERSION,
   type HostHandshake,
@@ -607,6 +608,159 @@ describe('networkRenderer — whose voice a node click is', () => {
   });
 });
 
+// ── networkRenderer — the fold per layer (protocol 1.8) ───────────────────────
+
+/** The two layers, each carrying the fold at ITS address — what a 1.8 host pushes. */
+function netFolded(selections: readonly SelectionView[], links?: LinkGraphView): RenderState {
+  const at = (layerId: string) => selectionForView(selections, layerAddress('net', layerId), 'intersect', links);
+  return { ...layered([{ ...EDGES_LAYER, selection: at('edges') }, { ...NODES_LAYER, selection: at('nodes') }]), selection: selectionForView(selections, 'net', 'intersect', links) };
+}
+
+const classOf = (el: Element, selector: string): string | null => el.querySelector(selector)?.getAttribute('class') ?? null;
+
+describe('networkRenderer — the fold per layer (protocol 1.8)', () => {
+  const clicked: SelectionView = { viewId: 'net~nodes', field: 'disease', kind: 'point', value: 'flu' };
+
+  it('with no link crossing the siblings, per-layer folds draw byte-identically to the one fold at the nodes address (the 1.7 host)', () => {
+    const { el, m } = mountNet();
+    // the nodes' own click, and another view's clause reaching BOTH layers (only the node rows carry `grp`)
+    const selections: SelectionView[] = [clicked, { viewId: 'other', field: 'grp', kind: 'point', value: 'viral' }];
+    const links: LinkGraphView = {
+      default: 'crossfilter',
+      views: [],
+      edges: [
+        { id: 'o-n', source: 'other', kind: 'point', target: 'net~nodes', response: 'filter', origin: 'default' },
+        { id: 'o-e', source: 'other', kind: 'point', target: 'net~edges', response: 'filter', origin: 'default' },
+      ],
+    };
+    // the 1.7 host: ONE fold, at the nodes address — the rule the header used to require
+    m.update({ ...layered([EDGES_LAYER, NODES_LAYER]), selection: selectionForView(selections, 'net~nodes') });
+    const oneFold = el.innerHTML;
+    // flu is outlined (self), strep dims (bacterial), and the link into strep is as bright as its ends
+    expect(classOf(el, 'circle[data-node="flu"]')).toBe('vzf-dot vzf-selected');
+    expect(classOf(el, 'circle[data-node="strep"]')).toBe('vzf-dot vzf-dim');
+    expect(classOf(el, 'line[aria-label="cold — strep"]')).toBe('vzf-net-link vzf-dim');
+    expect(classOf(el, 'line[aria-label="flu — cold"]')).toBe('vzf-net-link');
+    // the 1.8 host: the edges' fold carries `other` (unjudgeable on the edge rows) and NOT the nodes' click —
+    // sibling layers hold no default edge between them, which is exactly what the one fold's self-skip drew
+    m.update(netFolded(selections, links));
+    expect(el.innerHTML).toBe(oneFold);
+    m.unmount();
+  });
+
+  it('a declared highlight edge from net~nodes into net~edges is honoured at the links — which one fold could never say', () => {
+    const { el, m } = mountNet();
+    const links: LinkGraphView = {
+      default: 'crossfilter',
+      views: [],
+      // the clicked node's id, read as the link's SOURCE end
+      edges: [{ id: 'n-e', source: 'net~nodes', kind: 'point', target: 'net~edges', response: 'highlight', origin: 'declared', mapping: [{ from: 'disease', to: 'src' }] }],
+    };
+    m.update(netFolded([clicked], links));
+    // the nodes: flu outlined, nobody dimmed (the click is the nodes layer's own clause)
+    expect(classOf(el, 'circle[data-node="flu"]')).toBe('vzf-dot vzf-selected');
+    expect(el.querySelectorAll('circle.vzf-dim')).toHaveLength(0);
+    // the links: judged by THEIR rows under THEIR fold — the one flu is the source of stays bright, the other dims, though both its ends are bright
+    expect(classOf(el, 'line[aria-label="flu — cold"]')).toBe('vzf-net-link');
+    expect(classOf(el, 'line[aria-label="cold — strep"]')).toBe('vzf-net-link vzf-dim');
+    // the 1.7 host, one fold at the nodes: the same declared edge reaches nothing, and neither link dims
+    m.update({ ...layered([EDGES_LAYER, NODES_LAYER]), selection: selectionForView([clicked], 'net~nodes', 'intersect', links) });
+    expect(el.querySelectorAll('line.vzf-dim')).toHaveLength(0);
+    m.unmount();
+  });
+
+  // REVIEW (packet AI, FIRST TARGET b): the sibling mapping above lands on `src`
+  // (flu is the SOURCE it dims by); the OTHER endpoint must work exactly the same
+  // way, off the very same NetworkEdge.row (`tgt`) — proving `row` is the edge
+  // TABLE's own row (it carries both endpoint columns, not just the one `src` used).
+  it('the sibling mapping to the OTHER endpoint (disease → tgt) is honoured too — the row backing it is the edge table row, not a synthesized one', () => {
+    const { el, m } = mountNet();
+    const links: LinkGraphView = {
+      default: 'crossfilter',
+      views: [],
+      edges: [{ id: 'n-e', source: 'net~nodes', kind: 'point', target: 'net~edges', response: 'highlight', origin: 'declared', mapping: [{ from: 'disease', to: 'tgt' }] }],
+    };
+    m.update(netFolded([clicked], links)); // clicked names 'flu'
+    // flu is never a TARGET in either edge (tgt is 'cold' or 'strep') — both dim, the mirror of the `src` mapping's result
+    expect(classOf(el, 'line[aria-label="flu — cold"]')).toBe('vzf-net-link vzf-dim');
+    expect(classOf(el, 'line[aria-label="cold — strep"]')).toBe('vzf-net-link vzf-dim');
+    // mapped onto the end that DOES read 'flu' as a tgt (`cold — strep`'s tgt is 'strep', so pick a clause that reads it)
+    const stripClicked: SelectionView = { viewId: 'net~nodes', field: 'disease', kind: 'point', value: 'strep' };
+    m.update(netFolded([stripClicked], links));
+    expect(classOf(el, 'line[aria-label="cold — strep"]')).toBe('vzf-net-link'); // strep IS this row's tgt
+    expect(classOf(el, 'line[aria-label="flu — cold"]')).toBe('vzf-net-link vzf-dim'); // this row's tgt is 'cold', not 'strep'
+    m.unmount();
+  });
+
+  it('a layer that carries no fold reads the frame\'s — the nodes on their own, the links by their ends alone', () => {
+    const { el, m } = mountNet();
+    const selections: SelectionView[] = [clicked, { viewId: 'other', field: 'grp', kind: 'point', value: 'viral' }];
+    // only the edges layer carries a fold — a clause on a column only the edge rows carry
+    const edgesOnly: SelectionView[] = [{ viewId: 'other', field: 'target_x', kind: 'interval', value: [3, 5] }];
+    m.update({ ...layered([{ ...EDGES_LAYER, selection: selectionForView(edgesOnly, 'net~edges') }, NODES_LAYER]), selection: selectionForView(selections, 'net~nodes') });
+    // the nodes read the frame's fold: flu outlined, strep dimmed (bacterial)
+    expect(classOf(el, 'circle[data-node="flu"]')).toBe('vzf-dot vzf-selected');
+    expect(classOf(el, 'circle[data-node="cold"]')).toBe('vzf-dot');
+    expect(classOf(el, 'circle[data-node="strep"]')).toBe('vzf-dot vzf-dim');
+    // the links read their own: flu — cold dims by its ROW (target_x 10 fails [3, 5]) with both ends bright; cold — strep by its END
+    expect(classOf(el, 'line[aria-label="flu — cold"]')).toBe('vzf-net-link vzf-dim');
+    expect(classOf(el, 'line[aria-label="cold — strep"]')).toBe('vzf-net-link vzf-dim');
+    m.unmount();
+  });
+
+  // REVIEW (packet AI, FIRST TARGET a): a neighbourhood clause is only ever really
+  // sourced at net~edges (`VizNetwork`'s walk emits on the edges' own voice), so it
+  // is always self there and `edgeBright` never runs it. This is the synthetic case
+  // the law must still answer: a walk-kind clause sourced at net~nodes, reaching
+  // net~edges over a DECLARED edge. Self means `viewId === selfClauseId`, so this
+  // clause is NOT self at the edges' fold — it is judged there like any other.
+  it('a neighbourhood clause sourced at net~nodes is NOT self at net~edges — the edges\' own fold judges it independently of the ego the nodes side already drew, and the two never disagree where both have evidence', () => {
+    const { el, m } = mountNet();
+    const walked: SelectionView = { viewId: 'net~nodes', field: 'disease', kind: 'neighbourhood', fields: ['src', 'tgt'], value: { seed: 'flu', derivation: 'ego', hops: 1, ids: ['flu', 'cold'] } };
+    const links: LinkGraphView = {
+      default: 'crossfilter',
+      views: [],
+      edges: [{ id: 'n-e', source: 'net~nodes', kind: 'neighbourhood', target: 'net~edges', response: 'highlight', origin: 'declared' }],
+    };
+    m.update(netFolded([walked], links));
+    // the nodes: this clause IS the nodes' own (self at net~nodes) — the ego lights flu+cold, strep dims;
+    // `withoutWalks` keeps it out of the row fold too, so nobody is dimmed twice on this side
+    expect(classOf(el, 'circle[data-node="flu"]')).toBe('vzf-dot');
+    expect(classOf(el, 'circle[data-node="cold"]')).toBe('vzf-dot');
+    expect(classOf(el, 'circle[data-node="strep"]')).toBe('vzf-dot vzf-dim');
+    // the links: both mechanisms agree where both have evidence — flu–cold's ends are both walked
+    // (bright by `survivesById` already) AND its row is in the walked ids (bright by `survivesOwnFold`
+    // too); cold–strep dims by its END (strep outside ego) AND independently by its ROW (tgt "strep"
+    // outside ids) — redundant, not contradictory, and never a double-DIM of an otherwise-bright link
+    expect(classOf(el, 'line[aria-label="flu — cold"]')).toBe('vzf-net-link');
+    expect(classOf(el, 'line[aria-label="cold — strep"]')).toBe('vzf-net-link vzf-dim');
+    m.unmount();
+  });
+
+  // A case where the two mechanisms are NOT redundant: with `strep` filtered out of the
+  // NODES layer's own rows, `survivesById('strep')` has no row to judge and defaults bright
+  // ("no evidence" — the law `survivesById`'s own comment states for a node the frame does
+  // not carry). The edges' OWN fold still has the edge ROW, and judges it correctly — proving
+  // the edges' fold is not a mere echo of the nodes' ego, and never draws a WRONG answer.
+  it('with the far node missing from the nodes layer, the edges\' own fold still dims what the nodes-side ego cannot see', () => {
+    const { el, m } = mountNet();
+    const walked: SelectionView = { viewId: 'net~nodes', field: 'disease', kind: 'neighbourhood', fields: ['src', 'tgt'], value: { seed: 'flu', derivation: 'ego', hops: 1, ids: ['flu', 'cold'] } };
+    const links: LinkGraphView = {
+      default: 'crossfilter',
+      views: [],
+      edges: [{ id: 'n-e', source: 'net~nodes', kind: 'neighbourhood', target: 'net~edges', response: 'highlight', origin: 'declared' }],
+    };
+    const at = (layerId: string) => selectionForView([walked], layerAddress('net', layerId), 'intersect', links);
+    // strep dropped from the NODES layer's own rows — its edge still carries the row (the edges table is untouched)
+    m.update({ ...layered([{ ...EDGES_LAYER, selection: at('edges') }, { ...NODES_LAYER, rows: NET_NODES.slice(0, 2), selection: at('nodes') }]), selection: selectionForView([walked], 'net', 'intersect', links) });
+    expect(el.querySelectorAll('circle[data-node="strep"]')).toHaveLength(0); // gone from the nodes layer, as set up
+    // cold — strep: `survivesById('strep')` is `true` by default (no row, no evidence) — the edges'
+    // own fold is what actually catches it (row.tgt "strep" is outside the walked ids)
+    expect(classOf(el, 'line[aria-label="cold — strep"]')).toBe('vzf-net-link vzf-dim');
+    m.unmount();
+  });
+});
+
 describe('networkRenderer — the WALK PICKER (protocol 1.4): the reader chooses which walk an alt-click asks for', () => {
   it('the picker is drawn only where there is a walk to choose — and it offers the four walks by name', () => {
     const { el, m } = mountNet();
@@ -907,6 +1061,55 @@ describe('layeredRenderer — whose voice a gesture is', () => {
     m.update(framed([{ layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }], encodings: { category: 'shelf' } }]));
     fireEvent.click(el.querySelector('rect.vzf-barrect')!);
     expect(view.emit).toHaveBeenCalledTimes(1);
+    m.unmount();
+  });
+});
+
+describe('layeredRenderer — the fold per layer (protocol 1.8)', () => {
+  /** A second point layer over the same x, so a brush on it has rows of its own to be self to. */
+  const SECOND: RenderLayer = { layerId: 'b', table: 'trend', rows: [{ id: 'q1', price: 30, rating: 3 }, { id: 'q2', price: 70, rating: 7 }], encodings: { x: 'price', y: 'rating' } };
+  /** Whether each dot of a layer is dimmed, in row order. */
+  const dimsOf = (el: Element, layerId: string): boolean[] => [...el.querySelectorAll(`[data-layer="${layerId}"] circle.vzf-dot`)].map((dot) => dot.classList.contains('vzf-dim'));
+  /** A brush on layer b: prices up to 50. */
+  const brushOnB: SelectionView[] = [{ viewId: 'v~b', field: 'price', kind: 'interval', value: [0, 50] }];
+  const at = (layerId: string) => selectionForView(brushOnB, layerAddress('v', layerId));
+
+  it('a brush on layer b is b\'s SELF (never dimmed by it) and a\'s FOREIGN (dimmed) — two folds, one frame', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' }, b: { kind: 'point' } } });
+    m.update({ ...framed([{ ...POINTS_LAYER, selection: at('a') }, { ...SECOND, selection: at('b') }], XY_FRAME), selection: selectionForView(brushOnB, 'v') });
+    // b: its own brush dims nothing of its own — q2 at 70 is outside the brush and stays bright
+    expect(dimsOf(el, 'b')).toEqual([false, false]);
+    // a: the brush reached it as a foreign clause — p2 at 90 dims, p1 at 10 does not
+    expect(dimsOf(el, 'a')).toEqual([false, true]);
+    m.unmount();
+  });
+
+  it('a 1.7 host pushes no fold per layer, so every layer reads the frame\'s ONE fold — folded at a\'s address, b dims under its own brush', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' }, b: { kind: 'point' } } });
+    // the old host's choice: the first layer is "self", and the second line's own brush is foreign to itself
+    m.update({ ...framed([POINTS_LAYER, SECOND], XY_FRAME), selection: at('a') });
+    expect(dimsOf(el, 'b')).toEqual([false, true]);
+    expect(dimsOf(el, 'a')).toEqual([false, true]);
+    const fallback = el.innerHTML;
+    // the fallback IS the frame's fold: handing each layer that same fold draws byte-identically
+    m.update({ ...framed([{ ...POINTS_LAYER, selection: at('a') }, { ...SECOND, selection: at('a') }], XY_FRAME), selection: at('a') });
+    expect(el.innerHTML).toBe(fallback);
+    m.unmount();
+  });
+
+  // REVIEW (packet AI, persona 2 — host author): the two tests above fold BOTH
+  // layers or NEITHER; a host that folds only one is the documented mixed case
+  // ("ABSENT = the layer reads RenderState.selection") and was untested for the
+  // generic frame (only the network's nodes/edges pairing exercised it).
+  it('layer a folds at its own address, layer b carries none — a is self-excluded from its own brush, b is not (it reads the frame\'s)', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' }, b: { kind: 'point' } } });
+    const frameSelection = selectionForView(brushOnB, 'v'); // the view's own address — b's fallback, not a's
+    m.update({ ...framed([{ ...POINTS_LAYER, selection: at('a') }, SECOND], XY_FRAME), selection: frameSelection });
+    // a: its OWN fold — the brush (sourced 'v~b') is foreign at 'v~a', so it dims a's own rows, same as the two-folds test
+    expect(dimsOf(el, 'a')).toEqual([false, true]);
+    // b: NO `layer.selection` — falls back to `frameSelection` (self = 'v', not 'v~b'), so
+    // b's OWN brush now reads as FOREIGN to itself too (today's pre-1.8 law, for the layer that opted out)
+    expect(dimsOf(el, 'b')).toEqual([false, true]);
     m.unmount();
   });
 });

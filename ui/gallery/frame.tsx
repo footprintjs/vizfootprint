@@ -67,6 +67,32 @@ function countsOf(rows: readonly GalleryRow[]): readonly RenderRow[] {
 }
 
 /**
+ * THE FOLD PER LAYER (protocol 1.8): each layer of a frame carries the
+ * selection folded at ITS address, so its own clause is its self and nobody
+ * else's is — the host no longer picks a first layer whose clause every layer
+ * reads as "self". One call per layer, the same call the frame's own
+ * `selection` is folded with, at the layer's address instead of the view's.
+ *
+ * On THIS page the scripted session declares `bar` and `line` with no layers,
+ * so every gesture lands under the VIEW (`view.emit(VIEW_ID, …)`) and no
+ * `bar~<layerId>` address ever holds a clause: each layer's fold holds exactly
+ * the clauses the one fold held, foreign to every layer as they were, and the
+ * picture is byte-identical to the one-fold page (the smoke pins it). What
+ * changed is that the page no longer chooses whose clause is self. A session
+ * that declares the layers lands each gesture under its layer's address, and
+ * the same line folds it as that layer's own.
+ *
+ * WHY the two-argument fold and not the graph: this page never read the link
+ * graph (the one fold was `selectionForView(selections, address)`), and an
+ * address the map does not declare is no node of that graph — folding through
+ * it would empty every layer's fold and call that "unchanged". The graph form
+ * is the one a host whose map declares the layers uses (`adapter/frame.ts`).
+ */
+function foldPerLayer(layers: readonly RenderLayer[], viewId: string, state: SessionViewState): readonly RenderLayer[] {
+  return layers.map((layer) => ({ ...layer, selection: selectionForView(state.selections, layerAddress(viewId, layer.layerId)) }));
+}
+
+/**
  * The three layers over the same table: every row, the 4★+ rows (bars), and the
  * 3★+ rows (a line). The bars bind `category` — a bar's x channel — and the line
  * binds `x`, both to the SAME column; the fold folds each channel as categories
@@ -148,7 +174,9 @@ function TwoScalesFigure(props: { readonly view: SessionView; readonly rows: rea
   const boundRef = useRef<BoundRenderer | null>(null);
   const layers = useMemo(() => scaleLayersOf(rows), [rows]);
   const frame = useMemo(() => scaleFrameOf(layers), [layers]);
-  const selection = selectionForView(state.selections, layerAddress(LINE_VIEW_ID, SCALE_FIELDS[0]));
+  // the frame's own fold is the view's (the frame is not a layer); each line reads its own — protocol 1.8
+  const selection = selectionForView(state.selections, LINE_VIEW_ID);
+  const folded = useMemo(() => foldPerLayer(layers, LINE_VIEW_ID, state), [layers, state]);
 
   useEffect(() => {
     const el = hostRef.current;
@@ -196,11 +224,11 @@ function TwoScalesFigure(props: { readonly view: SessionView; readonly rows: rea
         hover: null,
         theme: {},
         size: { width: 760, height: 380 },
-        layers,
+        layers: folded,
         frame,
       }),
     );
-  }, [layers, frame, selection]);
+  }, [layers, folded, frame, selection]);
 
   const run = frame['x'];
   return (
@@ -230,7 +258,9 @@ function FramePage(props: { readonly view: SessionView; readonly rows: readonly 
 
   const layers = useMemo(() => layersOf(rows), [rows]);
   const frame = useMemo(() => frameOf(layers), [layers]);
-  const selection = selectionForView(state.selections, layerAddress(VIEW_ID, 'all'));
+  // the frame's own fold is the view's (the frame is not a layer); each layer reads its own — protocol 1.8
+  const selection = selectionForView(state.selections, VIEW_ID);
+  const folded = useMemo(() => foldPerLayer(layers, VIEW_ID, state), [layers, state]);
 
   useEffect(() => {
     const el = hostRef.current;
@@ -288,11 +318,11 @@ function FramePage(props: { readonly view: SessionView; readonly rows: readonly 
         hover: null,
         theme: {},
         size: { width: 760, height: 380 },
-        layers,
+        layers: folded,
         frame,
       }),
     );
-  }, [layers, frame, selection]);
+  }, [layers, folded, frame, selection]);
 
   const band = frame['category'];
   const ceiling = frame['y'];

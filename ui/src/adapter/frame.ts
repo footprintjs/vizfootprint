@@ -110,8 +110,21 @@ const COLUMN_TYPES: readonly ColumnType[] = ['number', 'string', 'boolean', 'dat
  *
  * ```ts
  * const frame = await frameFor(session, { viewId, layers, frame: view.frame, columns });
+ * // each RenderLayer carries the fold at ITS address (protocol 1.8) — one call per layer, the
+ * // same `selectionForView` the frame's own `selection` is folded with, at the layer's address
+ * const renderLayers = layers.map((layer) => ({
+ *   ...layer,
+ *   rows: rowsOf(layer),
+ *   selection: selectionForView(state.selections, layerAddress(viewId, layer.layerId), 'intersect', state.links, state.cleared),
+ * }));
  * bound.view.update({ ...state, layers: renderLayers, ...(Object.keys(frame).length > 0 ? { frame } : {}) });
  * ```
+ *
+ * There is no helper for the per-layer fold beside this door on purpose: it is
+ * the one-argument difference (`layerAddress(viewId, layerId)` for `viewId`)
+ * from the call every host already makes for a view, and a second spelling of
+ * "fold the selections for this address" is the copy nobody tests when the
+ * fold moves (`../contract/README.md`, Law 7).
  *
  * A read the session REFUSES (an unknown table, a moved version) contributes no
  * values, so the channel it fed carries no domain rather than a stale one.

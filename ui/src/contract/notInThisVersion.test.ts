@@ -3,12 +3,14 @@
  * notInThisVersion.test.ts — WHAT THE CONTRACT SAYS IT HAS NOT BUILT MUST STILL
  * BE UNBUILT.
  *
- * `README.md`'s layers law has now outlived two of its own outstanding items.
+ * `README.md`'s layers law has now outlived three of its own outstanding items.
  * It once ended with "… and any first-party layered chart — the network view is
  * the next packet"; the network view shipped as packet 4 (`networkRenderer`, the
  * first `canLayer` renderer). It then said the RENDERER that draws several 2D
  * layers on one folded frame was the next packet; that shipped as
- * `layeredRenderer` (R6) with `<VizFrame>` behind it. A "not in this version"
+ * `layeredRenderer` (R6) with `<VizFrame>` behind it. It then counted "a
+ * selection folded per layer" among what was missing; that shipped as
+ * `RenderLayer.selection` (protocol 1.8). A "not in this version"
  * that outlives the work sends a host to build what the library already hands
  * them, so this pins the sentence against the CODE that falsifies it.
  *
@@ -43,8 +45,23 @@ const holdsLogMinor = (): boolean => {
   return m !== null && Number(m[1]) >= 6;
 };
 
-/** The contract really speaks the NARROWED-CLAUSE minor (protocol 1.7): the version, and the field on the clause view. */
-const holdsNarrowedMinor = (): boolean => /RENDERER_PROTOCOL_VERSION = '1\.7'/.test(read('types.ts')) && /readonly narrowed\?: \{ readonly column: string; readonly reason: string \};/.test(read('types.ts'));
+/** The minor the contract speaks, as a number — `null` when the constant is not the `'1.<n>'` this file reads. */
+const minorSpoken = (): number | null => {
+  const m = /RENDERER_PROTOCOL_VERSION = '1\.(\d+)'/.exec(read('types.ts'));
+  return m === null ? null : Number(m[1]);
+};
+
+/**
+ * The contract really speaks a version AT OR PAST the narrowed-clause minor
+ * (protocol 1.7), and the field is on the clause view. 1.8 added the fold per
+ * layer, so — the `holdsLogMinor` precedent — the pin is "1.7 or later within
+ * the major", not "exactly 1.7": the narrowed-clause law stays true across the
+ * minors that follow it.
+ */
+const holdsNarrowedMinor = (): boolean => (minorSpoken() ?? 0) >= 7 && /readonly narrowed\?: \{ readonly column: string; readonly reason: string \};/.test(read('types.ts'));
+
+/** The contract really speaks the FOLD-PER-LAYER minor (protocol 1.8): the version, and the fold on the layer. */
+const holdsPerLayerMinor = (): boolean => minorSpoken() === 8 && /readonly selection\?: RenderSelection;/.test(read('types.ts'));
 
 /** The law that makes `narrowed` true at the fold really ships: ONE owner of the missing-column guard, in the compiler. */
 const holdsJudgeable = (): boolean => /function judgeable\(/.test(read('selection.ts'));
@@ -90,6 +107,34 @@ const notInThisVersion = (): string => {
   const rest = read('README.md').slice(from);
   return rest.slice(0, rest.indexOf('.') + 1);
 };
+
+describe('the fold-per-layer law says only what is true (protocol 1.8)', () => {
+  it('the version the prose claims is the version the code speaks, and the fold is on the layer', () => {
+    expect(holdsPerLayerMinor()).toBe(true);
+  });
+
+  it('the frame renderer reads each layer\'s own fold and falls back to the frame\'s — and the old one-fold sentence is gone', () => {
+    const renderers = read('renderers.tsx');
+    expect(renderers).toContain('f.layer.selection ?? state.selection');
+    expect(renderers).toContain('THE FRAME FOLDS PER LAYER (protocol 1.8)');
+    // the sentence that named this packet ("a fold per layer is a protocol change, not a renderer one") is gone — its promise was kept
+    expect(renderers).not.toContain("Every layer reads the frame's ONE `selection`");
+    expect(renderers).not.toContain('a fold per layer is a protocol change, not a renderer one');
+  });
+
+  it('so the outstanding list no longer counts a selection folded per layer — and the README states the law by the field\'s name', () => {
+    const claim = notInThisVersion();
+    expect(claim).not.toContain('a selection folded per layer');
+    expect(claim).not.toContain('chooses whose clause is "self"');
+    const readme = read('README.md').replace(/\s+/g, ' ');
+    expect(readme).toContain('`RenderLayer.selection`');
+    expect(readme).toContain('protocol 1.8');
+    // the law, by its own sentence
+    expect(readme).toContain('A layer reads the clauses that reached ITS address, folded with ITS clause as self');
+    // the old host rule is now the fallback's WHY, not the rule
+    expect(readme).not.toContain('must be folded for the LAYER whose marks it draws');
+  });
+});
 
 describe('the narrowed-clause law says only what is true (protocol 1.7)', () => {
   it('the version the prose claims is the version the code speaks, and the field is on the clause view', () => {

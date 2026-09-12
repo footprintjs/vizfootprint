@@ -399,6 +399,47 @@ describe('the clauses — dim, never hide; an edge is only as bright as its ends
   });
 });
 
+// ── protocol 1.8: the EDGES layer's own fold, judged on the edge rows ─────────
+
+/** The edges with their SOURCE rows — what `edgesOf` hands the chart from a layered frame; the ghost link keeps none. */
+const EDGES_WITH_ROWS: NetworkEdge[] = [
+  { ...EDGES[0]!, row: { src: 'flu', tgt: 'cold', weight: 5 } },
+  { ...EDGES[1]!, row: { src: 'cold', tgt: 'strep', weight: 1 } },
+  EDGES[2]!,
+];
+
+/** A clause that reached the EDGES address from another view, on a column only the edge rows carry. */
+function edgesFromOther(): ReturnType<typeof selectionForView> {
+  const rows: SelectionView[] = [{ viewId: 'other', field: 'weight', kind: 'interval', value: [4, 6] }];
+  return selectionForView(rows, 'net~edges');
+}
+
+describe('the edges layer\'s own fold (protocol 1.8) — a link is judged by its row, beside its two ends', () => {
+  it('a link whose row fails the edges fold dims while both its ends stay bright; a link with no row is never dimmed by it', () => {
+    const { container } = renderNet({ edges: EDGES_WITH_ROWS, edgeSelection: edgesFromOther() });
+    // weight 1 fails [4, 6]: cold — strep dims; its ends do not (no clause reached the nodes); the ghost link carries no row
+    expect(dimmed(container)).toEqual(['cold — strep']);
+    expect(links(container)[0]!.getAttribute('class')).toBe('vzf-net-link');
+    expect(links(container)[2]!.getAttribute('class')).toBe('vzf-net-link');
+  });
+
+  it('the walk is the edges fold\'s SELF and never dims a link there — the ego set still reaches the links through their ends', () => {
+    const rows: SelectionView[] = [
+      { viewId: 'net~edges', field: 'source ↔ target', kind: 'neighbourhood', value: { seed: 'flu', derivation: 'ego', hops: 1, ids: ['flu', 'cold'] }, fields: ['source', 'target'] },
+    ];
+    const { container } = renderNet({ edges: EDGES_WITH_ROWS, selection: selectionForView(rows, 'net~nodes'), edgeSelection: selectionForView(rows, 'net~edges') });
+    // strep and lone are outside the walked set, so they and the link into strep dim — by the NODES' reading of the walk, not by the edge rows
+    expect(dimmed(container).sort()).toEqual(['cold — strep', 'lone', 'strep']);
+  });
+
+  it('a 1.7 host pushes no edges fold, and the links are judged by their ends alone — byte-identical with rows on the edges or not', () => {
+    const bare = renderNet({ edges: EDGES, selection: fromOther() }).container.innerHTML;
+    cleanup();
+    const withRows = renderNet({ edges: EDGES_WITH_ROWS, selection: fromOther() }).container.innerHTML;
+    expect(withRows).toBe(bare);
+  });
+});
+
 // ── protocol 1.3: the WALK — asked on the edges, drawn on the nodes ───────────
 
 /** The walk door: the endpoint column it asks on, and a spy for the edges layer's voice. */

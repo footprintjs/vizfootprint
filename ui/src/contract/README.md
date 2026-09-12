@@ -191,13 +191,17 @@ handshake.layers!['edges']!.emit({ rawValue: 5, encoding: { kind: 'point', field
 // → ONE commit, viewId 'net~edges', judged against the edges table; the fold keys its clause under that address
 ```
 
-**The fold follows the address.** A layer's clause is keyed by the address that
-holds it, so a layered renderer's `RenderState.selection` must be folded for the
-LAYER whose marks it draws — `selectionForView(selections, layerAddress(viewId,
-layerId))` — and not for the view. Folded for the view, that layer's own clause
-reads as FOREIGN: the mark it selected loses its outline, its neighbours dim by
-the chart's own clause, and click-again never clears. `netState` in
-`conformance.test.tsx` is the worked example.
+**The fold follows the address — one per layer (protocol 1.8).** A layer's
+clause is keyed by the address that holds it, so each `RenderLayer` carries
+`selection`, the fold at ITS address — `selectionForView(selections,
+layerAddress(viewId, layerId), resolve, links, cleared)` — and a layered
+renderer reads that for the layer's marks (Law 7 below). A layer that carries
+none reads the frame's `RenderState.selection`, and for a frame whose every
+mark belongs to one layer (the node-link) that fallback must itself be folded
+for THAT layer and not for the view: folded for the view, the layer's own
+clause reads as FOREIGN — the mark it selected loses its outline, its
+neighbours dim by the chart's own clause, and click-again never clears.
+`netState` in `conformance.test.tsx` is the worked example of both hosts.
 
 Two halves of the law, pinned together in `capabilities.test.tsx` the way the
 bar's `canHighlight` is. **The flag is the promise, not the ability.** The
@@ -358,9 +362,8 @@ axes or neither, so one `per-layer` channel gives every layer its own pair —
 except on the two-axis frame, where the frame draws x once and each layer its
 own y, see "Two scales on one frame" below), a bar as one scale of a two-scale
 frame (a bar's extent is read against one baseline, so it takes neither side —
-the classic bars-plus-line dual axis is two lines here, or two frames), and a
-selection folded per layer (the contract carries ONE `selection` per frame, so
-a host with several interactive layers chooses whose clause is "self"). Sibling layers get **no implicit crossfilter**: a select on
+the classic bars-plus-line dual axis is two lines here, or two frames). A
+selection folded per layer shipped as protocol 1.8 (Law 7 below). Sibling layers get **no implicit crossfilter**: a select on
 `net~nodes` reaches `net~edges` only through a declared link.
 
 ### The logarithmic axis — the frame owns the curve too (protocol 1.6)
@@ -729,6 +732,64 @@ never reads the field and draws byte-identically (`capabilities.test.tsx`).
 The law's tests are `selection.unjudgeable.test.ts` — every kind, a row lacking
 the column beside a row holding it as `null`, the demo's exact shape, and one
 test that asserts the six kinds now agree.
+
+---
+
+## Law 7 — the frame folds per layer (protocol 1.8)
+
+**A layer reads the clauses that reached ITS address, folded with ITS clause as
+self; the frame's one selection is the fallback a 1.7 host still gets,
+byte-identical.**
+
+A self-exclusion fold names ONE address (`RenderSelection.selfClauseId`). Until
+1.8 the contract carried one fold per frame, so a host with several interactive
+layers had to choose whose clause was "self" — and every other layer's own
+brush read as foreign to itself: the gallery's two-line figure folded at the
+first line's address, so the second line's own brush was foreign to itself —
+invisible on a line, which reads no fold, and wrong on every mark that does (a
+second point layer dimmed under its own brush). The
+session's reach law never had that problem — it judges each edge against the
+LAYER's table (`src/def/layers.ts` · `layerLinkViewOf`) — so door and renderer
+agreed kind by kind only on a one-layer frame. This is the protocol change the
+renderer's own header used to name.
+
+`RenderLayer.selection` — optional — is the fold at the layer's address, built by the host
+exactly the way a view's is:
+
+```ts
+const at = (layerId: string) => selectionForView(state.selections, layerAddress(viewId, layerId), 'intersect', state.links, state.cleared);
+bound.view.update({
+  ...frame,
+  selection: selectionForView(state.selections, viewId, 'intersect', state.links, state.cleared), // the frame's own — the fallback
+  layers: layers.map((layer) => ({ ...layer, selection: at(layer.layerId) })),
+});
+```
+
+`layeredRenderer` reads `f.layer.selection ?? state.selection` for each mark, so
+a brush on layer `b` is `b`'s self (never dimmed by it) and `a`'s foreign
+(dimmed where a link lets it reach). The node-link reads TWO: the nodes layer's
+fold is judged on the node rows and the edges layer's on the edge rows
+(`VizNetwork.edgeSelection`), beside the two-ends rule — so a declared
+`highlight` edge from `net~nodes` to `net~edges`, mapped onto an endpoint
+column, dims every link the clicked node is not the named end of, which one
+fold could never say. Sibling layers hold no default edge between them
+(`src/links/materialize.ts`), so with nothing declared the edges' fold carries
+no clause of the nodes' and the picture is exactly what the one fold drew.
+
+Two things the field does NOT change. `selfClauseId` stays singular: the
+layering design's plural was for several layers reading one fold, and a fold
+per layer has exactly one self each. And the frame's `RenderState.selection`
+stays required: it is what a 1.7 host pushes and what a layer with no fold of
+its own reads — for the node-link that fallback must be folded at the NODES
+address (Law 4), as it always had to be. A 1.7 renderer never reads the key
+and draws byte-identically (`capabilities.test.tsx`); the `notInThisVersion`
+pins hold the version to the prose.
+
+The law's tests: `renderers.test.tsx` (the two-layer self/foreign frame, the
+1.7 fallback, the node-link under per-layer folds and the declared highlight
+between siblings), `VizNetwork.test.tsx` (a link judged by its own row), and
+`conformance.test.tsx` · `netState` (both hosts: outline, dim, clear on
+click-again, on a real session).
 
 ---
 

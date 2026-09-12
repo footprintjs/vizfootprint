@@ -820,7 +820,7 @@ async function buildNetSession(): Promise<SessionView> {
       nodes: { rows: NET_NODES, key: 'disease', columns: { disease: { role: 'identifier' }, nx: { role: 'measure' }, ny: { role: 'measure' }, grp: { role: 'dimension' } } },
       edges: { rows: NET_EDGES, columns: { src: { role: 'dimension' }, tgt: { role: 'dimension' }, source_x: { role: 'measure' }, source_y: { role: 'measure' }, target_x: { role: 'measure' }, target_y: { role: 'measure' } } },
     },
-    actors: { net: { actor: 'user', label: 'The disease network' } },
+    actors: { net: { actor: 'user', label: 'The disease network' }, other: { actor: 'user', label: 'The groups' } },
     encodings: [
       {
         viewId: 'net',
@@ -831,6 +831,9 @@ async function buildNetSession(): Promise<SessionView> {
           { layerId: 'edges', table: 'edges', chartKind: 'network', channels: ['sourceX', 'sourceY', 'targetX', 'targetY'], initial: { sourceX: 'source_x', sourceY: 'source_y', targetX: 'target_x', targetY: 'target_y' }, label: 'Co-occurrences' },
         ],
       },
+      // ANOTHER view over the nodes table — the voice whose clause reaches the nodes layer and dims (the default
+      // crossfilter reaches `net~nodes` over the shared table, and never `net~edges`: no column joins them)
+      { viewId: 'other', chartKind: 'bar', channels: ['category'], initial: { category: 'grp' } },
     ],
     defaultTable: 'nodes',
   });
@@ -839,14 +842,17 @@ async function buildNetSession(): Promise<SessionView> {
   return view;
 }
 
+/**
+ * The 1.7 host: ONE fold per frame, and the fold is for the LAYER and not the
+ * view — every mark on this frame belongs to the nodes layer, so the nodes
+ * layer's clause is the SELF one — the clause a chart must never dim itself
+ * by, and the one it outlines (types.ts, RenderLayer: "a layer finds its own
+ * under viewId~layerId"). No `layer.selection`: every layer reads this.
+ */
 function netState(st: SessionViewState): RenderState {
   return {
     rows: NET_NODES,
     encodings: {},
-    // WHY the fold is for the LAYER and not the view: every mark on this frame
-    // belongs to the nodes layer, so the nodes layer's clause is the SELF one —
-    // the clause a chart must never dim itself by, and the one it outlines
-    // (types.ts, RenderLayer: "a layer finds its own under viewId~layerId").
     selection: selectionForView(st.selections, layerAddress('net', 'nodes')),
     hover: null,
     theme: {},
@@ -855,6 +861,29 @@ function netState(st: SessionViewState): RenderState {
   };
 }
 
+/**
+ * The 1.8 host: a fold PER LAYER, each at its own address and through the
+ * session's own link graph, and the frame's fold at the view — the fallback
+ * nobody on this frame reads, since both layers carry their own. Sibling
+ * layers hold no default edge between them, so the edges' fold never carries
+ * the nodes' click, and `other`'s clause reaches the nodes (one table) and
+ * not the edges (no column joins them).
+ */
+function netStateFolded(st: SessionViewState): RenderState {
+  const at = (address: string) => selectionForView(st.selections, address, 'intersect', st.links, st.cleared);
+  return {
+    ...netState(st),
+    selection: at('net'),
+    layers: NET_LAYERS.map((layer) => ({ ...layer, selection: at(layerAddress('net', layer.layerId)) })) as unknown as RenderState['layers'],
+  };
+}
+
+/** The two hosts the node-link's pin runs under — the same assertions, the same real session. */
+const NET_HOSTS: readonly [string, (st: SessionViewState) => RenderState][] = [
+  ['the 1.7 host, one fold at the nodes address', netState],
+  ['the 1.8 host, a fold per layer', netStateFolded],
+];
+
 const clickNode = (id: string) => (el: HTMLElement): void => {
   fireEvent.click(el.querySelector(`circle[data-node="${id}"]`)!);
 };
@@ -862,7 +891,7 @@ const shiftClickNode = (id: string) => (el: HTMLElement): void => {
   fireEvent.click(el.querySelector(`circle[data-node="${id}"]`)!, { shiftKey: true });
 };
 
-describe('conformance — the node-link, and the one thing the kit cannot hold', () => {
+describe.each(NET_HOSTS)('conformance — the node-link under %s, and the one thing the kit cannot hold', (_host, buildState) => {
   it('the LAYERS arm is exactly what a node-link is: two tables on one frame, the node gesture under net~nodes', async () => {
     const view = await buildNetSession();
     const report = await runConformance({
@@ -870,7 +899,7 @@ describe('conformance — the node-link, and the one thing the kit cannot hold',
       viewId: 'net',
       el: mountEl(),
       view,
-      buildState: netState,
+      buildState,
       gesture: clickNode('flu'),
       matchGesture: shiftClickNode('cold'),
       layers: { layerIds: ['edges', 'nodes'], gesture: clickNode('strep'), verify: (el) => el.querySelectorAll('g.vzf-net-links line').length === 2 && el.querySelectorAll('g.vzf-net-nodes circle').length === 3 },
@@ -916,7 +945,7 @@ describe('conformance — the node-link, and the one thing the kit cannot hold',
       layers: { layerIds: ['edges', 'nodes'], callbacksFor: (address) => bundles.get(address)! },
     });
     if (!res.ok) throw new Error('bind failed');
-    expect(res.view.update(netState(view.getState()))).toEqual({ ok: true });
+    expect(res.view.update(buildState(view.getState()))).toEqual({ ok: true });
     // both tables are on the one frame, links under nodes
     expect(el.querySelectorAll('g.vzf-net-links line')).toHaveLength(2);
     expect(el.querySelectorAll('g.vzf-net-nodes circle')).toHaveLength(3);
@@ -930,7 +959,7 @@ describe('conformance — the node-link, and the one thing the kit cannot hold',
     // the layer finds its own clause by its own address — never by the view's
     expect(selectionForView(afterPoint.selections, 'net~nodes').clauses.get('net~nodes')?.value).toBe('flu');
     // …and the loop returns: the re-pushed frame outlines the selected node
-    res.view.update(netState(afterPoint));
+    res.view.update(buildState(afterPoint));
     expect(el.querySelector('circle[data-node="flu"]')!.getAttribute('class')).toBe('vzf-dot vzf-selected');
 
     // a shift-click promotes it to the view's own SET (SET-1) — still ONE commit
@@ -941,6 +970,60 @@ describe('conformance — the node-link, and the one thing the kit cannot hold',
     expect(afterMatch.commits).toHaveLength(2);
     const landed = afterMatch.commits[1]!;
     expect([landed.viewId, landed.kind, landed.value]).toEqual(['net~nodes', 'match', { values: ['flu', 'cold'] }]);
+    res.view.unmount();
+  });
+
+  it('the three readings the fold owes the frame — the OUTLINE is the layer\'s own clause, the DIM is another view\'s, and click-again CLEARS', async () => {
+    const view = await buildNetSession();
+    const el = mountEl();
+    const pending: Promise<void>[] = [];
+    const callbacksFor = (address: string): RendererCallbacks => ({
+      emit: (emission) => {
+        pending.push(view.emit(address, emission, `a click on ${address}`));
+      },
+      hover: () => undefined,
+      reencodeRequest: () => undefined,
+      navigate: () => undefined,
+    });
+    const res = bindRenderer(networkRenderer(), el, {
+      viewId: 'net',
+      callbacks: callbacksFor('net'),
+      layers: { layerIds: ['edges', 'nodes'], callbacksFor },
+    });
+    if (!res.ok) throw new Error('bind failed');
+    const push = async (): Promise<void> => {
+      await Promise.all(pending);
+      await view.refresh();
+      expect(res.view.update(buildState(view.getState()))).toEqual({ ok: true });
+    };
+    const classOf = (selector: string): string | null => el.querySelector(selector)?.getAttribute('class') ?? null;
+    await push();
+    // ANOTHER view's clause lands (the groups bar): the bacterial node dims, and only it — the links keep their ends' brightness
+    await view.emit('other', { rawValue: 'viral', encoding: { kind: 'point', field: 'grp' } }, 'the groups bar');
+    await push();
+    expect(classOf('circle[data-node="strep"]')).toBe('vzf-dot vzf-dim');
+    expect(classOf('circle[data-node="flu"]')).toBe('vzf-dot');
+    expect(classOf('line[aria-label="cold — strep"]')).toBe('vzf-net-link vzf-dim');
+    expect(classOf('line[aria-label="flu — cold"]')).toBe('vzf-net-link');
+    // the nodes layer's OWN click: outlined, and it dims nothing of its own — cold stays bright beside the selected flu
+    fireEvent.click(el.querySelector('circle[data-node="flu"]')!);
+    await push();
+    expect(classOf('circle[data-node="flu"]')).toBe('vzf-dot vzf-selected');
+    expect(classOf('circle[data-node="cold"]')).toBe('vzf-dot');
+    expect(classOf('line[aria-label="flu — cold"]')).toBe('vzf-net-link');
+    // click-again CLEARS: the chart read its own clause off the fold as SELF, so the second click is the clearing one
+    fireEvent.click(el.querySelector('circle[data-node="flu"]')!);
+    await push();
+    const st = view.getState();
+    expect(selectionForView(st.selections, 'net~nodes').clauses.get('net~nodes')).toBeUndefined();
+    expect(el.querySelector('circle.vzf-selected')).toBeNull();
+    expect(st.commits.map((c) => [c.viewId, c.kind, c.value])).toEqual([
+      ['other', 'point', 'viral'],
+      ['net~nodes', 'point', 'flu'],
+      ['net~nodes', 'point', null],
+    ]);
+    // …and the other view's clause is still in force: strep is still dim
+    expect(classOf('circle[data-node="strep"]')).toBe('vzf-dot vzf-dim');
     res.view.unmount();
   });
 });

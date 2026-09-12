@@ -8,6 +8,7 @@
  * and which field a layer emits on.
  */
 import { selectionForView } from './selection.js';
+import { layerAddress } from 'vizfootprint/def';
 import { RENDERER_PROTOCOL_VERSION, type Renderer, type RendererCallbacks, type RendererCapabilities, type RenderLayer, type RenderState } from './types.js';
 import type { SessionViewState } from '../adapter/types.js';
 import type { WalkAsk } from 'vizfootprint/data';
@@ -122,7 +123,13 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
 
 export const SIZE = { width: 400, height: 300 };
 
-/** The host's frame for `net`: the view's rows are the nodes; edges under nodes as two layers, each over its own table. The view binds no channel of its own (x and y are the layout's), so its fold is empty. */
+/**
+ * The host's frame for `net`: the view's rows are the nodes; edges under nodes
+ * as two layers, each over its own table. The view binds no channel of its own
+ * (x and y are the layout's), so its fold is empty. Each layer carries the fold
+ * at ITS address (protocol 1.8) — the stub reads none of them, which is the
+ * point: a 1.7 renderer given the 1.8 frame draws what it always drew.
+ */
 export function networkState(st: SessionViewState, layers: readonly RenderLayer[] = networkLayers()): RenderState {
   return {
     rows: NODES,
@@ -131,7 +138,7 @@ export function networkState(st: SessionViewState, layers: readonly RenderLayer[
     hover: null,
     theme: {},
     size: SIZE,
-    layers,
+    layers: layers.map((layer) => ({ ...layer, selection: selectionForView(st.selections, layerAddress('net', layer.layerId), 'intersect', st.links, st.cleared) })),
   };
 }
 

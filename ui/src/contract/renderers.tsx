@@ -818,7 +818,12 @@ function endpointKeysOf(layer: RenderLayer): readonly [string, string] {
   return [boundField(layer.encodings, 'source', 'source'), boundField(layer.encodings, 'target', 'target')];
 }
 
-/** The edges of the endpoint layer's rows — both ends already carried over by `bringOver`, and a row missing either end is an absence rather than a link. */
+/**
+ * The edges of the endpoint layer's rows — both ends already carried over by
+ * `bringOver`, and a row missing either end is an absence rather than a link.
+ * Each link keeps its SOURCE row, the way `nodesOf` keeps a node's: it is what
+ * the edges layer's own fold judges (protocol 1.8, `VizNetwork.edgeSelection`).
+ */
 function edgesOf(layer: RenderLayer, endpoints: EndpointFields): NetworkEdge[] {
   const [sourceField, targetField] = endpointKeysOf(layer);
   const edges: NetworkEdge[] = [];
@@ -828,7 +833,7 @@ function edgesOf(layer: RenderLayer, endpoints: EndpointFields): NetworkEdge[] {
     const tx = coordinateAt(row, endpoints.tx);
     const ty = coordinateAt(row, endpoints.ty);
     if (sx === null || sy === null || tx === null || ty === null) continue;
-    edges.push({ source: String(row[sourceField]), target: String(row[targetField]), sx, sy, tx, ty });
+    edges.push({ source: String(row[sourceField]), target: String(row[targetField]), sx, sy, tx, ty, row });
   }
   return edges;
 }
@@ -924,12 +929,25 @@ function layersRefusal(layers: readonly RenderLayer[]): JSX.Element {
  * `state.rows`: honest, and exactly what a host that has laid its nodes out
  * but carried no edges over has to show.
  *
- * WHY THE HOST MUST FOLD FOR THE LAYER: pass `RenderState.selection` as
- * `selectionForView(selections, layerAddress(viewId, <the nodes layerId>))`.
- * Folded for the VIEW instead — the way the other eight are wired — the nodes
+ * THE HOST FOLDS PER LAYER (protocol 1.8): each layer carries
+ * `RenderLayer.selection`, the fold at its own address —
+ * `selectionForView(selections, layerAddress(viewId, layerId), …)`. The nodes
+ * layer reads its own (its click clause is self: outlined, never dimmed by,
+ * click-again clears) and the edges layer reads ITS own, judged on the edge
+ * ROWS beside the two-ends rule — so a declared `highlight` edge from
+ * `viewId~nodes` to `viewId~edges` is honoured at the links, which one fold
+ * could never do. Sibling layers hold no default edge between them, so with
+ * nothing declared the edges' fold carries no clause of the nodes' and the
+ * picture is exactly what the one fold drew.
+ *
+ * WHY THE FALLBACK IS THE NODES' FOLD (a 1.7 host, no `layer.selection`):
+ * `RenderState.selection` is read for both layers then, and it must be
+ * `selectionForView(selections, layerAddress(viewId, <the nodes layerId>))` —
+ * folded for the VIEW instead, the way the other eight are wired, the nodes
  * layer's own clause reads as FOREIGN, so the clicked node loses its outline,
- * its neighbours dim by this chart's own clause, and click-again never clears
- * (`netState` in conformance.test.tsx pins the right fold).
+ * its neighbours dim by this chart's own clause, and click-again never clears.
+ * The edges are then judged by their two ends alone, as they always were
+ * (`netState` in conformance.test.tsx pins both hosts).
  *
  * Point select on a node (click-again clears) · shift-click toggles it in this
  * view's own set (SET-1) · ALT-CLICK asks the WALK (protocol 1.3: the node and
@@ -1057,7 +1075,10 @@ export function networkRenderer(options: NetworkRendererOptions = {}): Renderer 
           nodes={marks.nodes}
           edges={marks.edges}
           keyField={keyField}
-          selection={state.selection}
+          // each layer's own fold (1.8), the frame's where a layer carries none (1.7); the edges' fold
+          // is a SECOND prop because the chart judges edge rows by it and node rows by the other
+          selection={nodeLayer?.selection ?? state.selection}
+          {...(edge?.layer.selection === undefined ? {} : { edgeSelection: edge.layer.selection })}
           width={state.size.width}
           height={state.size.height}
           onEmit={voice.emit}
@@ -1608,9 +1629,17 @@ function frameRefusal(sentence: string): JSX.Element {
  * the 1.2 law. With no bundle for it the view speaks and the ADDRESS is lost,
  * not the gesture.
  *
- * Every layer reads the frame's ONE `selection`. A self-exclusion fold can only
- * name one address, so a host with several interactive layers chooses whose
- * clause is "self" — a fold per layer is a protocol change, not a renderer one.
+ * THE FRAME FOLDS PER LAYER (protocol 1.8): a layer reads the clauses that
+ * reached ITS address, folded with ITS clause as self (`RenderLayer.selection`
+ * — `selectionForView(selections, layerAddress(viewId, layerId), …)`, the
+ * host's fold); the frame's one `RenderState.selection` is the fallback a 1.7
+ * host still gets, byte-identical. So on a frame of two point layers a brush on
+ * the second is that layer's SELF (never dimmed by it) and the first layer's
+ * FOREIGN (dimmed where a link lets it reach) — which one fold could never
+ * say, since a self-exclusion fold names one address and the host had to
+ * choose whose clause was "self". (A line reads no fold of its own — its shape
+ * moves with its rows — so a two-line frame folds per layer and shows no
+ * difference on screen; the other four marks read theirs.)
  *
  * A stack it cannot draw is REFUSED IN WORDS (`stackRefusal`) rather than drawn
  * wrong: an unframeable kind, a run over bands (a line whose x column is a date
@@ -1652,7 +1681,8 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
                 viewId: handshake.viewId,
                 rows: f.layer.rows,
                 encodings: f.layer.encodings,
-                selection: state.selection,
+                // the fold at THIS layer's address (1.8); the frame's one fold where the host pushed none (1.7)
+                selection: f.layer.selection ?? state.selection,
                 width: draw.width,
                 height: draw.height,
                 // the LAYER speaks whenever it has a bundle; with none the view speaks and the address is lost, not the gesture

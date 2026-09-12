@@ -89,9 +89,20 @@ import type { ResolvedChannel } from 'vizfootprint/def';
  * never dropped by it (`selection.ts` · `judgeable`). Optional, and absent
  * whenever the session did not say, so a 1.6 renderer ignores it and draws
  * byte-identically (pinned in `capabilities.test.tsx`); the minor stays
- * compatible.
+ * compatible. 1.8 ADDED `RenderLayer.selection` — THE FRAME FOLDS PER LAYER:
+ * a layer reads the clauses that reached ITS address, folded with ITS clause
+ * as self (`selectionForView(selections, layerAddress(viewId, layerId), …)`),
+ * and the frame's one `RenderState.selection` is the fallback a 1.7 host still
+ * gets, byte-identical. A self-exclusion fold names one address, so a host
+ * with several interactive layers used to choose whose clause was "self" and
+ * every other layer's own brush read as foreign to itself; now each layer
+ * carries the fold at its own address and the session's reach law (which
+ * judges each edge against the LAYER's table) and the render tier agree kind
+ * by kind. Optional, and absent on every 1.7 frame, so a 1.7 renderer never
+ * reads it and draws byte-identically (pinned in `capabilities.test.tsx`);
+ * the minor stays compatible.
  */
-export const RENDERER_PROTOCOL_VERSION = '1.7';
+export const RENDERER_PROTOCOL_VERSION = '1.8';
 
 export type { ChartEmission };
 export type { ResolvedChannel };
@@ -349,6 +360,12 @@ export interface SelectionClauseView {
  * keep-predicate. Keyed by source viewId so a renderer can implement "dim
  * under everyone's brush but my own" without side channels: skip the
  * `selfClauseId` entry, fold the rest under `resolve`.
+ *
+ * `selfClauseId` is SINGULAR on purpose, and stays so under protocol 1.8. The
+ * layering design named a plural (`selfClauseIds`) for a frame whose several
+ * layers all read ONE fold; a fold per layer (`RenderLayer.selection`) makes
+ * the plural unnecessary — each layer's fold has exactly one self, its own
+ * address, and the frame's own fold has the view's.
  */
 export interface RenderSelection {
   /** sourceViewId → its live clause. One clause per view (the session's own rule). */
@@ -366,9 +383,10 @@ export type RenderEncodings = Readonly<Record<string, string>>;
  * Protocol 1.2: one layer of a frame — its own table's rows (host-prepared,
  * exactly like `RenderState.rows`) under its own encodings. The layer's
  * gesture goes through `HostHandshake.layers[layerId]`, never the view's
- * `callbacks`; its selection is the frame's `RenderState.selection`, whose
- * clauses are keyed by source address, so a layer finds its own under
- * `viewId~layerId`.
+ * `callbacks`; its selection is its own `selection` (protocol 1.8, the fold
+ * at its address) and, where the host pushed none, the frame's
+ * `RenderState.selection`, whose clauses are keyed by source address, so a
+ * layer finds its own under `viewId~layerId`.
  */
 export interface RenderLayer {
   readonly layerId: string;
@@ -376,6 +394,22 @@ export interface RenderLayer {
   readonly table: string;
   readonly rows: readonly RenderRow[];
   readonly encodings: RenderEncodings;
+  /**
+   * PROTOCOL 1.8 — THE FOLD AT THIS LAYER'S ADDRESS. The host builds it with
+   * `selectionForView(selections, layerAddress(viewId, layerId), resolve, links,
+   * cleared)`, so `selfClauseId` IS the layer's address: the layer's own clause
+   * is the one it outlines and never dims itself by, and the clauses it folds
+   * are exactly the ones the link graph let REACH this address — the same
+   * table the session's reach law judged each edge against. Sibling layers
+   * hold no default edge between them, so a clause on one reaches another
+   * only through a declared link.
+   *
+   * ABSENT = the layer reads `RenderState.selection`, the frame's one fold —
+   * today's law, byte-identical for a 1.7 host that never pushes this key. A
+   * 1.7 renderer never reads it and draws byte-identically either way
+   * (`capabilities.test.tsx`).
+   */
+  readonly selection?: RenderSelection;
 }
 
 /**
@@ -391,6 +425,12 @@ export interface RenderLayer {
 export interface RenderState {
   readonly rows: readonly RenderRow[];
   readonly encodings: RenderEncodings;
+  /**
+   * The frame's one fold (RP-1). On a layered frame it is the FALLBACK: a layer
+   * that carries its own `RenderLayer.selection` (protocol 1.8) reads that, and
+   * a layer that carries none reads this — so a 1.7 host, which pushes only
+   * this, draws exactly what it drew.
+   */
   readonly selection: RenderSelection;
   /**
    * The host's coordinated hover (row ids), or null. Transient by nature: it
