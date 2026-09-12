@@ -6,7 +6,8 @@
  */
 import http from 'node:http';
 import path from 'node:path';
-import { readFileSync } from 'node:fs';
+import { createReadStream, readFileSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { buildGallery } from './build.mjs';
 
@@ -36,12 +37,41 @@ const PAGE = page('vizfootprint-ui — gallery', '/gallery.js');
 const SHEET_PAGE = page('vizfootprint-ui — sheet', '/sheet.js');
 /* the FRAME — two layers of marks on one frame — on its own page */
 const FRAME_PAGE = page('vizfootprint-ui — frame', '/frame.js');
+/* the WASM page — DuckDB-WASM opened in the browser over a Worker, its answers in the DOM */
+const WASM_PAGE = page('vizfootprint-ui — wasm', '/wasm.js');
+
+/**
+ * `/duckdb/<file>` mirrors `node_modules/@duckdb/duckdb-wasm/dist/` for the four
+ * files a BROWSER bundle is made of — the `eh` and `mvp` wasm modules and their
+ * worker scripts — so the WASM page selects its bundle from this origin and never
+ * a CDN. An allowlist, resolved through the package's own exports map (the way the
+ * library's node arm finds the same `dist/`): nothing else under `dist/` is served,
+ * and no path is joined from the request.
+ *
+ * WHY `application/wasm` is spelled out: the worker instantiates the module with
+ * `WebAssembly.instantiateStreaming`, which REFUSES a response of any other type.
+ * The worker then logs "wasm streaming compile failed … falling back to
+ * ArrayBuffer instantiation" and fetches the module a SECOND time to compile it
+ * from bytes (those words are in `duckdb-browser-eh.worker.js`) — twice the
+ * ~35 MB and an error in the console, on a page that otherwise looks fine.
+ */
+const DUCKDB_ROUTE = '/duckdb/';
+const DUCKDB_TYPES = { '.wasm': 'application/wasm', '.js': 'text/javascript; charset=utf-8' };
+const duckdbFiles = (() => {
+  const resolve = createRequire(import.meta.url).resolve;
+  const files = new Map();
+  for (const file of ['duckdb-eh.wasm', 'duckdb-mvp.wasm', 'duckdb-browser-eh.worker.js', 'duckdb-browser-mvp.worker.js']) {
+    files.set(file, resolve(`@duckdb/duckdb-wasm/dist/${file}`));
+  }
+  return files;
+})();
 
 export async function startGallery({ port = 5177 } = {}) {
   const out = await buildGallery();
   const bundle = readFileSync(path.join(out, 'gallery.js'));
   const sheetBundle = readFileSync(path.join(out, 'sheet.js'));
   const frameBundle = readFileSync(path.join(out, 'frame.js'));
+  const wasmBundle = readFileSync(path.join(out, 'wasm.js'));
   const css = readFileSync(path.join(out, 'vizfootprint-ui.css'));
   const server = http.createServer((req, res) => {
     const url = (req.url ?? '/').split('?')[0];
@@ -54,6 +84,17 @@ export async function startGallery({ port = 5177 } = {}) {
     } else if (url === '/frame.js') {
       res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
       res.end(frameBundle);
+    } else if (url === '/wasm.js') {
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
+      res.end(wasmBundle);
+    } else if (url === '/wasm' || url === '/wasm.html') {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(WASM_PAGE);
+    } else if (url.startsWith(DUCKDB_ROUTE) && duckdbFiles.has(url.slice(DUCKDB_ROUTE.length))) {
+      // streamed, not read at boot: the `eh` module alone is ~35 MB
+      const file = duckdbFiles.get(url.slice(DUCKDB_ROUTE.length));
+      res.writeHead(200, { 'content-type': DUCKDB_TYPES[path.extname(file)], 'content-length': statSync(file).size });
+      createReadStream(file).pipe(res);
     } else if (url === '/sheet' || url === '/sheet.html') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       res.end(SHEET_PAGE);

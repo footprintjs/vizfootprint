@@ -15,8 +15,17 @@
  *
  *   browser — `@duckdb/duckdb-wasm`, an `AsyncDuckDB` over a Worker off a blob.
  *   node    — `@duckdb/duckdb-wasm/blocking`, the BLOCKING bindings the same
- *             package ships for node: no worker, no fetch, the `.wasm` read off
- *             disk. WHY the blocking bundle and not `dist/duckdb-node.cjs`: the
+ *             package ships for node: no worker, the `.wasm` read off disk.
+ *
+ * ONE FETCH HAPPENS IN BOTH HOSTS, AND IT IS NOT THE BUNDLE: landing `rows`
+ * goes through `read_json_auto` (`sqlConnection.ts` · `loadTableSQL`), and
+ * this bundle autoloads DuckDB's `json` extension from the vendor's extension
+ * repository the first time it is asked — one request off the origin, proven
+ * by `ui/gallery/wasm.smoke.test.ts`, which pins it as exactly one. A CSV
+ * landing needs nothing (its reader is statically linked). So an offline or
+ * CSP-restricted page can land CSV and cannot land `rows` on this engine
+ * today; the remedy is a library decision (land rows as CSV, or self-host the
+ * extension) and is named in `./README.md`, not hidden here. WHY the blocking bundle and not `dist/duckdb-node.cjs`: the
  *             async node bundle wants a `worker_threads` worker per database,
  *             and this engine asks one statement at a time through a port that
  *             is already a promise — a second thread would buy nothing and cost
