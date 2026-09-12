@@ -909,22 +909,37 @@ export interface NarrowedAt {
 
 /**
  * HOW A CLAUSE REACHED A CONSUMER WHOSE TABLE LACKS ITS COLUMN: it travelled a
- * declared relation. The engine that holds the source's rows folded the
- * clause to the distinct values of the relation's NEAR column (the end on the
- * source's table), and the clause arrives at the consumer as a `match` on the
- * relation's FAR column (the end on the consumer's table) — the shape every
- * tier already judges (`../session/README.md`, "A clause travels a relation").
+ * declared relation, by the strategy its KIND has (`../session/README.md`,
+ * "A clause travels a relation"). A point, interval, match or cell clause
+ * travels by SEMI-JOIN: the engine that holds the source's rows folded it to
+ * the distinct values of the relation's NEAR column (the end on the source's
+ * table). A neighbourhood clause travels by IDENTITY: its walked `ids` are
+ * already keys of the far table, so nothing was asked. Either way the clause
+ * arrives at the consumer as a `match` on the relation's FAR column (the end
+ * on the consumer's table) — the shape every tier already judges.
  */
 export interface ClauseVia {
   /**
-   * The relation travelled — the first of the edge's `LinkEdge.via` whose far
-   * column the consumer's table has. ONE element today; an array because a
-   * path through a third table is the same shape, and its own packet.
+   * The relations travelled, in declaration order. ONE for a semi-join — the
+   * first of the edge's `LinkEdge.via` whose far column the consumer's table
+   * has; TWO for a walk — the pair the walk was taken over, one per endpoint
+   * column, both landing on the consumer's key. A path through a third table
+   * would be the same shape, and is its own packet.
    */
   readonly path: readonly ReachRelation[];
-  /** The relation's declared `label` (`RelationDecl.label`), when it declares one — never invented, so the key is absent otherwise. */
+  /**
+   * The declared words for the path (`RelationDecl.label`): the one
+   * relation's label, or for a walk's pair both labels in path order joined
+   * as the path is spelled (`, `) — present only when EVERY relation on the
+   * path declares one. Never invented, never half-said: absent otherwise.
+   */
   readonly label?: string;
-  /** How many SOURCE rows the original clause matched — what the far values were folded from (the engine's own `count`, from the same ask). */
+  /**
+   * For a semi-join, how many SOURCE rows the original clause matched — what
+   * the far values were folded from (the engine's own `count`, from the same
+   * ask). For a walk, the recorded set's size: nothing was asked, so there is
+   * no count but that.
+   */
   readonly rows: number;
 }
 

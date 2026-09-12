@@ -364,23 +364,136 @@ describe('one ask per near column, and the two-column kinds travel too', () => {
     expect(cleared.ok && s.clausesFor(YEARS)).toEqual([]);
   });
 
-  it('a NEIGHBOURHOOD on the edges travels to the nodes over the FIRST relation on the edge — `source`, so the node set is the sources of the ego\'s ties', async () => {
-    const EDGES_ADDRESS = layerAddress('net', 'edges');
-    const NODES_ADDRESS = layerAddress('net', 'nodes');
-    const s = buildDashboard(
-      makeNetworkDef([nodesLayer, edgesLayer], {
-        relations: NETWORK_RELATIONS,
-        capabilities: [{ viewId: 'net', canProbe: true, encodings: ['point', 'neighbourhood'] }],
-        links: [{ source: EDGES_ADDRESS, kind: 'neighbourhood', target: NODES_ADDRESS, response: 'filter' }],
-      }),
-    ).createSession();
-    const walk = await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'cold', cause });
+});
+
+// ── a walk travels by its ids (packet AN) ──────────────────────────────────────
+
+const EDGES_ADDRESS = layerAddress('net', 'edges');
+const NODES_ADDRESS = layerAddress('net', 'nodes');
+/** The two relations as an edge's `via` carries them — two ends, nothing else (the declared `label` stays on the declaration). */
+const BOTH_ENDS = NETWORK_RELATIONS.map(({ from, to }) => ({ from, to }));
+const BOTH_LABELS = 'one end of the tie, the other end';
+/**
+ * The fixture, counted by hand: nodes flu, cold, strep; ties flu→cold and
+ * cold→strep. A one-hop ego from `cold` reaches both — the walk records the
+ * seed first, then its neighbours in row order: cold, flu, strep. Under the
+ * semi-join arm the nodes would have received the distinct SOURCES of the
+ * kept ties ({flu, cold}) and strep, only ever a target, would be dropped.
+ */
+const COLD_EGO = ['cold', 'flu', 'strep'];
+/** A one-hop ego from `flu` reaches cold alone; the only tie inside the set is flu→cold, whose source is flu — under a semi-join cold would be dropped. */
+const FLU_EGO = ['flu', 'cold'];
+/** The demo's own edge: the edges layer's walk is MIRRORED onto the nodes layer (the layers of one view crossfilter by declaration, not by default). */
+const walkEdge = (response: 'filter' | 'mirror' = 'filter') => ({ source: EDGES_ADDRESS, kind: 'neighbourhood' as const, target: NODES_ADDRESS, response });
+const WALKABLE = [{ viewId: 'net', canProbe: true, encodings: ['point', 'neighbourhood'] as const }];
+
+function network(extra: Partial<DashboardDef> = {}): ReturnType<ReturnType<typeof buildDashboard>['createSession']> {
+  return buildDashboard(makeNetworkDef([nodesLayer, edgesLayer], { relations: NETWORK_RELATIONS, capabilities: WALKABLE, links: [walkEdge()], ...extra })).createSession();
+}
+const walkFrom = (s: ReturnType<typeof network>, seed: string | null) => s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed, cause });
+
+describe('a walk travels by its ids: the nodes receive the recorded set, whole, with no engine ask', () => {
+  it('a walk from `cold`: the nodes\' clause is `id IN` the walked ids in the walk\'s own order, `via` names BOTH relations and the set\'s size, and NO `narrowed`', async () => {
+    const s = network();
+    const walk = await walkFrom(s, 'cold');
     expect(walk.ok).toBe(true);
-    // cold's ego is {cold, flu, strep}; both ties keep both ends in it; their SOURCES are flu and cold — strep, a target only, is not on this path
-    expect(s.clausesFor(NODES_ADDRESS)).toMatchObject([{ clause: { kind: 'match', field: 'id', values: ['flu', 'cold'] }, via: { path: [NETWORK_RELATIONS[0]!].map(({ from, to }) => ({ from, to })), label: 'one end of the tie', rows: EDGES.length } }]);
-    const q = await s.viewQuery({ viewId: NODES_ADDRESS });
-    expect(q.ok && [q.count, NODES.length]).toEqual([2, 3]);
-    const cleared = await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: null, cause });
+    const recorded = (walk.ok && walk.commit ? (walk.commit.value as { ids: readonly unknown[] }).ids : []) as readonly string[];
+    expect(recorded).toEqual(COLD_EGO); // the hand count and the commit agree
+    expect(s.clausesFor(NODES_ADDRESS)).toEqual([
+      {
+        from: EDGES_ADDRESS,
+        fromLabel: 'Disease network',
+        response: 'filter',
+        clause: { kind: 'match', field: 'id', values: COLD_EGO },
+        via: { path: BOTH_ENDS, label: BOTH_LABELS, rows: COLD_EGO.length, from: { kind: 'neighbourhood', fields: ['source', 'target'], ids: recorded } },
+      },
+    ]);
+    expect('narrowed' in s.clausesFor(NODES_ADDRESS)[0]!).toBe(false);
+    // the window over the nodes judges the match: every walked node, in the TABLE's order — and a walk from `flu` keeps `cold`, the node a semi-join would have dropped
+    const all = await s.viewQuery({ viewId: NODES_ADDRESS });
+    expect(all.ok && [all.count, all.rows.map((r) => r['id'])]).toEqual([COLD_EGO.length, NODES.map((n) => n.id)]);
+    await walkFrom(s, 'flu');
+    expect(s.clausesFor(NODES_ADDRESS)[0]?.clause).toEqual({ kind: 'match', field: 'id', values: FLU_EGO });
+    const two = await s.viewQuery({ viewId: NODES_ADDRESS });
+    expect(two.ok && [two.count, two.rows.map((r) => r['id'])]).toEqual([2, FLU_EGO]);
+  });
+
+  it('`why()` on the nodes and the overview\'s `travelled[net~nodes]` carry the same `via` — both relations, the set\'s size', async () => {
+    const s = network();
+    const walk = await walkFrom(s, 'cold');
+    const r: WhyResult = s.why({ kind: 'chart', viewId: NODES_ADDRESS });
+    expect(r.ok && r.commits).toEqual([{ tier: 'viz', id: id(walk), kind: 'declaring', response: 'filter', via: { path: BOTH_ENDS, label: BOTH_LABELS, rows: 3, values: 3 } }]);
+    const o = await s.overview();
+    expect(o.activeSelections[0]?.travelled).toEqual({ [NODES_ADDRESS]: { clause: { kind: 'match', field: 'id', values: COLD_EGO }, via: { path: BOTH_ENDS, label: BOTH_LABELS, rows: 3 }, label: 'Diseases' } });
+    expect('narrowedFor' in o.activeSelections[0]!).toBe(false);
+  });
+
+  it('under the demo\'s `mirror` edge the same set arrives with that response', async () => {
+    const s = network({ links: [walkEdge('mirror')] });
+    await walkFrom(s, 'cold');
+    expect(s.clausesFor(NODES_ADDRESS)).toMatchObject([{ response: 'mirror', clause: { kind: 'match', field: 'id', values: COLD_EGO }, via: { path: BOTH_ENDS } }]);
+  });
+
+  it('a seek to before the walk drops it; a seek forward reads it back; a clear drops it', async () => {
+    const s = network();
+    const first = await s.dispatch({ verb: 'select', viewId: NODES_ADDRESS, field: 'group', value: 'viral', cause });
+    const walk = await walkFrom(s, 'cold');
+    expect(s.clausesFor(NODES_ADDRESS).map((c) => c.from)).toEqual([EDGES_ADDRESS]);
+    expect(s.seek(id(first)).ok).toBe(true);
+    expect(s.clausesFor(NODES_ADDRESS)).toEqual([]);
+    expect(s.seek(id(walk)).ok).toBe(true);
+    expect(s.clausesFor(NODES_ADDRESS)[0]?.clause).toEqual({ kind: 'match', field: 'id', values: COLD_EGO });
+    const cleared = await walkFrom(s, null);
     expect(cleared.ok && s.clausesFor(NODES_ADDRESS)).toEqual([]);
+  });
+
+  it('the label is both declarations\' words in path order — and ABSENT when either relation declares none (never half-said)', async () => {
+    const half = network({ relations: [NETWORK_RELATIONS[0]!, { from: NETWORK_RELATIONS[1]!.from, to: NETWORK_RELATIONS[1]!.to }] });
+    await walkFrom(half, 'cold');
+    expect(half.clausesFor(NODES_ADDRESS)[0]?.via).toEqual({ path: BOTH_ENDS, rows: 3, from: { kind: 'neighbourhood', fields: ['source', 'target'], ids: COLD_EGO } });
+    expect((await half.overview()).activeSelections[0]?.travelled?.[NODES_ADDRESS]?.via).toEqual({ path: BOTH_ENDS, rows: 3 });
+  });
+});
+
+describe('where a walk does NOT travel: the narrowed reading stands, and a walk is never semi-joined', () => {
+  it('only ONE of the two relations declared (a replayed walk): the nodes are narrowed, with the reason', async () => {
+    // the walk itself needs both relations to be asked at all (law 7), so the one-relation session receives it by replay
+    const source = network();
+    await walkFrom(source, 'cold');
+    const s = network({ relations: [NETWORK_RELATIONS[0]!] });
+    expect((await s.replay(source.log.records)).ok).toBe(true);
+    expect(s.clausesFor(NODES_ADDRESS)).toEqual([{ from: EDGES_ADDRESS, fromLabel: 'Disease network', response: 'filter', clause: { kind: 'neighbourhood', fields: ['source', 'target'], ids: COLD_EGO } }]);
+    const o = await s.overview();
+    expect(o.activeSelections[0]?.narrowedFor).toEqual({ [NODES_ADDRESS]: { column: 'source', reason: unjudgeableWords('nodes', 'source'), label: 'Diseases' } });
+    expect('travelled' in o.activeSelections[0]!).toBe(false);
+  });
+
+  it('a third table joined by ONE endpoint is narrowed while the nodes still travel — and nothing was asked, so nothing could refuse', async () => {
+    const def = makeNetworkDef([nodesLayer, edgesLayer]);
+    const REGIONS = layerAddress('regions', 'r');
+    const s = buildDashboard({
+      ...def,
+      data: { ...def.data, regions: { rows: [{ code: 'flu', name: 'North' }], key: 'code', columns: { code: { role: 'identifier' }, name: { role: 'dimension' } } } },
+      // the walk's own pair first, so law 7 reads the nodes' identity; the third relation joins the regions by the source end alone
+      relations: [...NETWORK_RELATIONS, { from: { table: 'edges', column: 'source' }, to: { table: 'regions', column: 'code' } }],
+      actors: { ...def.actors, regions: { actor: 'user', label: 'Regions' } },
+      encodings: [...def.encodings!, { viewId: 'regions', chartKind: 'bar', channels: ['x'], layers: [{ layerId: 'r', table: 'regions', chartKind: 'bar', channels: ['x'], initial: { x: 'code' } }] }],
+      capabilities: WALKABLE,
+      links: [walkEdge(), { source: EDGES_ADDRESS, kind: 'neighbourhood', target: REGIONS, response: 'filter' }],
+    } as DashboardDef).createSession();
+    await walkFrom(s, 'cold');
+    const o = await s.overview();
+    expect(o.activeSelections[0]?.travelled).toEqual({ [NODES_ADDRESS]: { clause: { kind: 'match', field: 'id', values: COLD_EGO }, via: { path: BOTH_ENDS, label: BOTH_LABELS, rows: 3 }, label: 'Diseases' } });
+    expect(o.activeSelections[0]?.narrowedFor).toEqual({ [REGIONS]: { column: 'source', reason: unjudgeableWords('regions', 'source'), label: 'Regions' } });
+    expect(s.clausesFor(REGIONS)).toEqual([{ from: EDGES_ADDRESS, fromLabel: 'Disease network', response: 'filter', clause: { kind: 'neighbourhood', fields: ['source', 'target'], ids: COLD_EGO } }]);
+    expect(s.gaps()).toEqual([]);
+  });
+
+  it('a key the rows never carried (an empty landing under a declared key): narrowed', async () => {
+    const def = makeNetworkDef([nodesLayer, edgesLayer]);
+    const s = buildDashboard({ ...def, data: { ...def.data, nodes: { rows: [], key: 'id' } }, relations: NETWORK_RELATIONS, capabilities: WALKABLE, links: [walkEdge()] } as DashboardDef).createSession();
+    await walkFrom(s, 'cold');
+    expect(s.clausesFor(NODES_ADDRESS)[0]?.via).toBeUndefined();
+    expect((await s.overview()).activeSelections[0]?.narrowedFor).toEqual({ [NODES_ADDRESS]: { column: 'source', reason: unjudgeableWords('nodes', 'source'), label: 'Diseases' } });
   });
 });

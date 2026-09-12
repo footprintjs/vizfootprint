@@ -106,10 +106,13 @@ import type { ResolvedChannel } from 'vizfootprint/def';
  * the fold as the session's own `match` on the relation's far column
  * (`SelectionView.travelled`, picked by this view's address — `selection.ts`
  * · `travelledAt`), and `via` says how — the relation, its declared label, the
- * source rows it was folded from. The `predicate` beside it judges the far
- * column with no join at this tier (project, never re-derive). Optional, and
- * absent whenever the session did not say, so a 1.8 renderer ignores it and
- * draws byte-identically (pinned in `capabilities.test.tsx`); the minor stays
+ * source rows it was folded from, and `from`, the source's own clause as the
+ * fold saw it (amended into 1.9 in the same unreleased train, so no consumer
+ * ever spoke a 1.9 without it: a walk that travelled by its ids is still the
+ * walk on the nodes). The `predicate` beside it judges the far column with no
+ * join at this tier (project, never re-derive). Optional, and absent whenever
+ * the session did not say, so a 1.8 renderer ignores it and draws
+ * byte-identically (pinned in `capabilities.test.tsx`); the minor stays
  * compatible.
  */
 export const RENDERER_PROTOCOL_VERSION = '1.9';
@@ -383,11 +386,21 @@ export interface SelectionClauseView {
    * joins, and what the source's rows held, are facts only the session's
    * engines hold. A 1.8 renderer never reads it and draws byte-identically
    * (pinned in `capabilities.test.tsx`).
+   *
+   * `from` is the SOURCE's own clause as the fold saw it — the `SelectionView`
+   * row's `kind`, `field`, `value` and `fields`, which the wire already
+   * carries (1.9, amended in the same unreleased train; nothing new crosses
+   * the adapter). It is what tells a walk from a pick once both have become a
+   * `match`: a `via.from.kind` of `'neighbourhood'` IS the walk, and its
+   * `value` the recorded body — how `selfSelectedNeighbourhood` still answers
+   * seed, derivation, hops and ids on the nodes after the walk travelled by
+   * its ids (`selection.ts` · `walkClause`).
    */
   readonly via?: {
     readonly path: readonly { readonly from: { readonly table: string; readonly column: string }; readonly to: { readonly table: string; readonly column: string } }[];
     readonly label?: string;
     readonly rows: number;
+    readonly from: { readonly kind: EmissionKind; readonly field: string; readonly value: unknown; readonly fields?: readonly [string, string] };
   };
 }
 

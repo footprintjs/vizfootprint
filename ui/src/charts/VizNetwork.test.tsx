@@ -13,7 +13,7 @@ import { render, fireEvent, cleanup } from '@testing-library/react';
 import { VizNetwork, type NetworkEdge, type NetworkNode } from './VizNetwork.js';
 import { selectionForView } from '../contract/selection.js';
 import type { ChartEmission } from 'vizfootprint/selection';
-import type { SelectionView } from '../adapter/types.js';
+import type { LinkGraphView, SelectionView } from '../adapter/types.js';
 
 afterEach(cleanup);
 
@@ -526,6 +526,80 @@ describe('the walk — alt-click asks the edges, and the answer lights the nodes
     const plain = renderNet().container;
     expect(plain.querySelector('desc')!.textContent).not.toContain('alt-click');
     expect(nodeAt(plain, 'flu').querySelector('title')!.textContent).not.toContain('alt-click');
+  });
+});
+
+// ── a walk travels by its ids (packet AN): the session hands the nodes `key IN ids`, and the picture is the walk's ──
+
+const TIES = [
+  { from: { table: 'edges', column: 'source' }, to: { table: 'nodes', column: 'disease' } },
+  { from: { table: 'edges', column: 'target' }, to: { table: 'nodes', column: 'disease' } },
+];
+/** The disease desk's map: the edges layer's walk reaches the nodes layer over one declared edge — `mirror` on the real desk, `filter` in the library's own session test. */
+const netGraph = (response: 'mirror' | 'filter'): LinkGraphView => ({
+  default: 'crossfilter',
+  views: [{ viewId: 'net~edges', voice: ['neighbourhood'] }, { viewId: 'net~nodes', voice: ['point'] }],
+  edges: [{ id: `net~edges:neighbourhood→net~nodes`, source: 'net~edges', kind: 'neighbourhood', target: 'net~nodes', response, origin: 'declared', via: TIES }],
+});
+/**
+ * The same landed walk two ways: as the session hands it since it travels by its ids (`travelled`, the nodes' entry
+ * = `disease IN ids`, `src/session` · `travelByIdentity`), and as every fold before that saw it (the walk
+ * narrowed-but-present at the nodes) — the picture must not move between them.
+ */
+function walkedBothWays(ids: readonly string[], response: 'mirror' | 'filter', seed = 'flu'): { travelled: ReturnType<typeof selectionForView>; before: ReturnType<typeof selectionForView> } {
+  const row: SelectionView = { viewId: 'net~edges', field: 'source ↔ target', kind: 'neighbourhood', value: { seed, derivation: 'ego', hops: 1, ids }, fields: ['source', 'target'] };
+  const withSet: SelectionView = { ...row, travelled: { 'net~nodes': { clause: { kind: 'match', field: 'disease', values: ids }, via: { path: TIES, rows: ids.length } } } };
+  return { travelled: selectionForView([withSet], 'net~nodes', 'intersect', netGraph(response)), before: selectionForView([row], 'net~nodes', 'intersect', netGraph(response)) };
+}
+/** Every node's classes, by id — the whole picture of the nodes group in one comparable shape. */
+const nodeClasses = (c: HTMLElement): Record<string, string> =>
+  Object.fromEntries([...c.querySelectorAll('g.vzf-net-nodes circle')].map((el) => [el.getAttribute('data-node')!, el.getAttribute('class') ?? '']));
+
+describe('the walk that TRAVELLED — the nodes receive `disease IN ids` from the session and still draw the ego net the walk recorded', () => {
+  it('lights exactly the ids: the seed is the focus, the nodes outside the set dim, and the alt-click-to-clear affordance is on the seed', () => {
+    const { travelled } = walkedBothWays(['flu', 'cold'], 'mirror');
+    expect(travelled.clauses.get('net~edges')).toMatchObject({ kind: 'match', field: 'disease', response: 'mirror', via: { from: { kind: 'neighbourhood' } } }); // the row IS the match now
+    const { container } = renderNet({ walk: walkDoor().walk, selection: travelled });
+    expect(dimmed(container).sort()).toEqual(['cold — strep', 'lone', 'strep'].sort());
+    expect(container.querySelectorAll('g.vzf-net-nodes circle')).toHaveLength(4); // dim, never hide
+    expect(nodeAt(container, 'flu').querySelector('title')!.textContent).toContain('alt-click to clear its neighbourhood');
+    expect(nodeAt(container, 'cold').querySelector('title')!.textContent).toContain('alt-click for its neighbourhood');
+  });
+
+  it('alt-clicking the seed clears the walk — the affordance the semi-join lost, because the nodes no longer saw a walk', () => {
+    const { walk, emit } = walkDoor();
+    const { container } = renderNet({ walk, selection: walkedBothWays(['cold', 'flu', 'strep'], 'mirror', 'cold').travelled });
+    fireEvent.click(nodeAt(container, 'cold'), { altKey: true });
+    expect(emit).toHaveBeenCalledWith({ rawValue: null, encoding: { kind: 'neighbourhood', field: 'source' } });
+  });
+
+  it('the same picture as the fold before the clause travelled — under the desk\'s `mirror` edge and under a `filter` edge alike', () => {
+    for (const response of ['mirror', 'filter'] as const) {
+      const { travelled, before } = walkedBothWays(['flu', 'cold'], response);
+      const now = renderNet({ selection: travelled });
+      const drawnNow = nodeClasses(now.container);
+      const dimNow = dimmed(now.container).sort();
+      cleanup();
+      const then = renderNet({ selection: before });
+      expect(drawnNow).toEqual(nodeClasses(then.container));
+      expect(dimNow).toEqual(dimmed(then.container).sort());
+      cleanup();
+    }
+  });
+
+  it('a walk of the frame\'s own is preferred over one that travelled in; a travelled PICK is no walk', () => {
+    const { walk } = walkDoor();
+    const own: SelectionView = { viewId: 'net~nodes', field: 'a ↔ b', kind: 'neighbourhood', value: { seed: 'strep', derivation: 'ego', hops: 1, ids: ['strep'] }, fields: ['a', 'b'] };
+    const row: SelectionView = { viewId: 'net~edges', field: 'source ↔ target', kind: 'neighbourhood', value: { seed: 'flu', derivation: 'ego', hops: 1, ids: ['flu', 'cold'] }, fields: ['source', 'target'], travelled: { 'net~nodes': { clause: { kind: 'match', field: 'disease', values: ['flu', 'cold'] }, via: { path: TIES, rows: 2 } } } };
+    const { container } = renderNet({ walk, selection: selectionForView([own, row], 'net~nodes', 'intersect', netGraph('mirror')) });
+    expect(nodeAt(container, 'strep').querySelector('title')!.textContent).toContain('alt-click to clear its neighbourhood');
+    cleanup();
+    const pick: SelectionView = { viewId: 'other', field: 'code', kind: 'point', value: 'N', travelled: { 'net~nodes': { clause: { kind: 'match', field: 'region', values: ['North'] }, via: { path: [{ from: { table: 'regions', column: 'code' }, to: { table: 'nodes', column: 'region' } }], rows: 1 } } } };
+    const graph: LinkGraphView = { default: 'crossfilter', views: [{ viewId: 'other', voice: ['point'] }, { viewId: 'net~nodes', voice: ['point'] }], edges: [{ id: 'other:point→net~nodes', source: 'other', kind: 'point', target: 'net~nodes', response: 'filter', origin: 'default' }] };
+    const picked = renderNet({ walk, selection: selectionForView([pick], 'net~nodes', 'intersect', graph) });
+    expect(dimmed(picked.container).sort()).toEqual(['cold', 'flu — cold', 'cold — strep'].sort()); // judged as a match on `region`: South dims, and the ties touching it
+    expect(picked.container.querySelector('title[data-seed]')).toBeNull();
+    for (const id of ['flu', 'cold', 'strep']) expect(nodeAt(picked.container, id).querySelector('title')!.textContent).not.toContain('clear its neighbourhood');
   });
 });
 

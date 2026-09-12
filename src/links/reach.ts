@@ -66,8 +66,9 @@ export interface TableReach {
  * (`LinkEdge.via`), so the permission and the path can never disagree.
  *
  * One hop only. A pair joined by more than one relation lists them ALL; the
- * strategy that travels a clause across takes the first whose far column the
- * target actually has (`LinkEdge.via`'s own doc). A relation joining a table to
+ * strategy that travels a clause across is the clause kind's — a semi-join
+ * takes the first whose far column the target actually has, a walk the pair
+ * its endpoints declare (`LinkEdge.via`'s own doc). A relation joining a table to
  * itself can never be on this path — its two ends name one table, and this is
  * asked only of two different ones (`tablesCanReach` answers `source ===
  * target` before it gets here; the def door refuses a self-join anyway).

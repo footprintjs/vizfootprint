@@ -336,18 +336,27 @@ export function selectionForView(
  * session did not name. The tier never joins: the set of far values IS the
  * session's answer, and `judgeable` keeps a row that lacks the far column as
  * it keeps any other.
+ *
+ * `via.from` is the source's own clause as this fold saw it — the row's
+ * `kind`, `field`, `value` and `fields`, unmapped (a mapped clause never
+ * travels: the session's `travelOf` lets an aim stand). WHY it rides here and
+ * not only on the session: once a walk has become `id IN ids` at the nodes,
+ * the row alone cannot say it was a walk, and the nodes must still light the
+ * ego net from the recorded body (`walkClause`). The wire already carried it;
+ * nothing new crosses the adapter.
  */
-function travelledAt(s: Pick<SelectionView, 'travelled'>, selfViewId: string | null, response: SelectionClauseView['response'] | undefined): SelectionClauseView | undefined {
+function travelledAt(s: Pick<SelectionView, 'travelled' | 'kind' | 'field' | 'value' | 'fields'>, selfViewId: string | null, response: SelectionClauseView['response'] | undefined): SelectionClauseView | undefined {
   const at = selfViewId === null ? undefined : s.travelled?.[selfViewId];
   if (at === undefined) return undefined;
   const value = { values: at.clause.values };
+  const from = { kind: s.kind, field: s.field, value: s.value, ...(s.fields !== undefined ? { fields: s.fields } : {}) };
   return {
     kind: 'match',
     field: at.clause.field,
     value,
     ...(response !== undefined ? { response } : {}),
     predicate: clausePredicate('match', at.clause.field, value),
-    via: { path: at.via.path, ...(at.via.label !== undefined ? { label: at.via.label } : {}), rows: at.via.rows },
+    via: { path: at.via.path, ...(at.via.label !== undefined ? { label: at.via.label } : {}), rows: at.via.rows, from },
   };
 }
 
@@ -482,7 +491,9 @@ export function selfSelectedSet(selection: RenderSelection): SelfSelectedSet {
 function setOf(clause: SelectionClauseView): SelfSelectedSet | null {
   // a point's one value. A cleared point cannot reach here: the fold never lists one, and the own-clause guard above drops a `null`.
   if (clause.kind === 'point') return { values: [clause.value], exclude: false };
-  if (clause.kind !== 'match' || clause.value === null) return null;
+  // a walk is never a keep-set — not as the `neighbourhood` it was made, and not as the `match` it travelled into (`isWalk`):
+  // its picture is the ego net a node-link READS (`selfSelectedNeighbourhood`), and a mirror edge outlines nothing for it
+  if (clause.kind !== 'match' || clause.value === null || isWalk(clause)) return null;
   const body = clause.value as { readonly values: readonly unknown[]; readonly exclude?: boolean };
   return { values: body.values, exclude: body.exclude === true };
 }
@@ -558,6 +569,20 @@ export interface SelfSelectedNeighbourhood {
 }
 
 /**
+ * IS THIS ROW A WALK — the ONE reader of that question, for every consumer
+ * that forks on it (`walkClause`, `setOf`, a node-link's `withoutWalks`). A
+ * walk is a `neighbourhood` clause as its source made it, AND the `match` on
+ * the nodes' key it becomes when it travels by its ids (`travelledAt` keeps
+ * the source's clause on `via.from`; `src/session/README.md`, "A clause
+ * travels a relation"). One owner, so a walk that travelled cannot be a walk
+ * to the reader that lights the ego net and a keep-set to the one that
+ * outlines a mirrored pick.
+ */
+export function isWalk(clause: SelectionClauseView): boolean {
+  return clause.kind === 'neighbourhood' || clause.via?.from.kind === 'neighbourhood';
+}
+
+/**
  * The WALK in force on this frame: the view's own if it has one, else the one
  * that REACHED it.
  *
@@ -569,11 +594,24 @@ export interface SelfSelectedNeighbourhood {
  * reader that only ever looked at its own address would find nothing on the
  * one frame the kind exists for. Arrival is the permission: `selectionForView`
  * has already dropped every clause a `none` or absent link edge blocks.
+ *
+ * A walk that TRAVELLED to this frame arrives as a `match` on the nodes' key
+ * (`travelledAt`; the session travels a walk by its ids — `src/session/README.md`,
+ * "A clause travels a relation") and is still the walk: `via.from` carries
+ * the clause the source made, and when that is a neighbourhood the row is
+ * answered with the SOURCE's `fields` and `value` — the recorded body — so
+ * the seed, derivation, hops and ids are read exactly as before it travelled.
  */
 function walkClause(selection: RenderSelection): SelectionClauseView | null {
   const own = selection.selfClauseId === null ? undefined : selection.clauses.get(selection.selfClauseId);
   if (own !== undefined && own.kind === 'neighbourhood') return own;
-  for (const [viewId, clause] of selection.clauses) if (viewId !== selection.selfClauseId && clause.kind === 'neighbourhood') return clause;
+  for (const [viewId, clause] of selection.clauses) {
+    if (viewId === selection.selfClauseId || !isWalk(clause)) continue;
+    if (clause.kind === 'neighbourhood') return clause;
+    // travelled: the row's `fields` and `value` are the source's — the recorded body, read as before it travelled
+    const from = clause.via!.from;
+    return { ...clause, ...(from.fields !== undefined ? { fields: from.fields } : {}), value: from.value };
+  }
   return null;
 }
 

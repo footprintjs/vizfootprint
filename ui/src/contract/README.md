@@ -659,7 +659,10 @@ the clause being over the EDGES table:
   instead — which is what `selfSelectedNeighbourhood` is for. It answers about
   the FRAME rather than one address: the view's own walk if it has one, else
   the one that reached it (arrival is the permission — `selectionForView` has
-  already dropped what a `none` or absent link edge blocks).
+  already dropped what a `none` or absent link edge blocks) — and a walk that
+  reached it TRAVELLED, as the `match` on the nodes' key the session made of
+  its ids, is read the same way (`isWalk`; Law 8, "A walk that travelled is
+  still the walk").
 - **the answer is recorded because a read at a cursor answers about that
   cursor.** The walk is over rows a later act may change, so a commit carrying
   only the seed would re-walk today's rows and answer a question nobody asked.
@@ -831,18 +834,39 @@ field and a values list, a path of two-ended relations, a number of rows); and
 at the fold, beside `narrowedAt`. When it does, the row IS the travelled
 clause — `kind: 'match'`, `field` the far column, `value: { values }`, a
 `predicate` over that column — and `SelectionClauseView.via` says how: the
-relation (`path`), the def's own `label` for it when it declares one, and
-the source rows it was folded from (`rows`). A whole-dashboard fold names no
-consumer and carries none; a view's own clause never travels to itself; a
-`leave`-kept cleared clause keeps the travelled reading it had. `narrowed`
-and `via` never ride one row — a travelled clause was judged.
+relation (`path`), the def's own `label` for it when it declares one, the
+source rows it was folded from (`rows`), and `from`, the SOURCE's own clause
+as this fold saw it — the row's `kind`, `field`, `value` and `fields`, which
+the wire already carried (1.9, amended in this same unreleased train; no
+consumer ever spoke a 1.9 without it, and a 1.8 renderer still draws
+byte-identically). A whole-dashboard fold names no consumer and carries none;
+a view's own clause never travels to itself; a `leave`-kept cleared clause
+keeps the travelled reading it had. `narrowed` and `via` never ride one row —
+a travelled clause was judged.
+
+**A walk that travelled is still the walk.** The session travels a
+neighbourhood clause by its IDS (`src/session/README.md`, "A clause travels a
+relation": the walk recorded the node keys it reached, so the nodes receive
+`key IN ids` with no engine ask), and at this tier the row is then a `match`
+— which alone could not say it was a walk. `via.from` says it: `selection.ts`
+· `isWalk` is the ONE reader of "is this row a walk" (a `neighbourhood` as
+made, or a `match` whose `via.from.kind` is `neighbourhood`), and
+`walkClause` answers a travelled walk with the source's `fields` and `value`,
+so `selfSelectedNeighbourhood` reads seed, derivation, hops and ids exactly
+as before the clause travelled and a node-link lights the ego net the walk
+RECORDED (Law 5). The same reader keeps it out of every keep-set (`setOf`: a
+mirrored walk outlines nothing — its picture is the ego net, read) and out of
+a node-link's row predicate (`VizNetwork` · `withoutWalks`: the nodes READ
+the set, and reading it and judging it would be one answer twice). Pinned
+against the pre-travel fold in `VizNetwork.test.tsx`: the same node classes
+under the desk's `mirror` edge and under a `filter` edge.
 
 ```ts
 // the exoplanet desk: a pick of three planets on the scatter, travelled to the years as two references
 const pick = { viewId: 'mass_radius~planets', field: 'pl_name', kind: 'match', value: { values: ['Kepler-22b', 'TRAPPIST-1e', 'HD 209458 b'] },
   travelled: { 'by_year~references': { clause: { kind: 'match', field: 'ref', values: ['ref-A', 'ref-B'] }, via: { path: [{ from: { table: 'planets', column: 'radius_ref' }, to: { table: 'references', column: 'ref' } }], label: 'where the composite took its accepted radius from', rows: 3 }, label: 'Discoveries by year' } } };
 const sel = selectionForView([pick], 'by_year~references', 'intersect', links);
-sel.clauses.get('mass_radius~planets'); // { kind: 'match', field: 'ref', value: { values: ['ref-A', 'ref-B'] }, response: 'filter', predicate, via: { path: […], label: '…', rows: 3 } }
+sel.clauses.get('mass_radius~planets'); // { kind: 'match', field: 'ref', value: { values: ['ref-A', 'ref-B'] }, response: 'filter', predicate, via: { path: […], label: '…', rows: 3, from: { kind: 'match', field: 'pl_name', value: { values: [...] } } } }
 [{ ref: 'ref-A', year: 2011 }, { ref: 'ref-C', year: 2009 }, { year: 1999 }].filter(keepPredicate(sel)); // ref-A stays, ref-C goes, the row lacking `ref` is kept (Law 6)
 ```
 
@@ -858,9 +882,12 @@ the version to the prose.
 
 The law's tests: `selection.travelled.test.ts` (the fold on the far column,
 under `filter` and `highlight`, the unnamed consumer, the whole-dashboard
-fold, the `leave`-kept clause), `../adapter/sessionView.travelled.test.ts`
-(whole-or-dropped on both hosts), `../panels/SelectionChips.travelled.test.tsx`
-and `../sheet/Sheet.test.tsx` (the sentences).
+fold, the `leave`-kept clause, `via.from` byte for byte, the travelled walk
+read back through `selfSelectedNeighbourhood` and `isWalk`),
+`../adapter/sessionView.travelled.test.ts` (whole-or-dropped on both hosts),
+`../panels/SelectionChips.travelled.test.tsx` and `../sheet/Sheet.test.tsx`
+(the sentences), `../charts/VizNetwork.test.tsx` (the travelled walk: the
+ids lit, the seed's focus and clear affordance, the picture unchanged).
 
 ---
 
@@ -883,8 +910,9 @@ and `../sheet/Sheet.test.tsx` (the sentences).
    `RenderState.frame`, the layers' shared scales already folded; 1.6 added
    the logarithmic axis on that frame; 1.7 added `SelectionClauseView.narrowed`
    (Law 6); 1.8 added `RenderLayer.selection` (Law 7); 1.9 added
-   `SelectionClauseView.via` (Law 8) — all optional, so every one of them
-   stayed a minor.
+   `SelectionClauseView.via` (Law 8), amended in the same unreleased train
+   with `via.from` (the source's clause, so a travelled walk is still the
+   walk) — all optional, so every one of them stayed a minor.
 
 ## One more habit: the derivation helpers ship in a set
 

@@ -13,6 +13,7 @@ import { buildDashboard, layerAddress } from '../def/index.js';
 import type { DashboardDef } from '../def/index.js';
 import type { Cause } from '../cause/index.js';
 import { memoryProvider, type DataProvider, type EvaluateOptions } from '../data/index.js';
+import { EDGES, NETWORK_RELATIONS, edgesLayer, makeNetworkDef, nodesLayer } from '../def/network.fixture.js';
 
 const cause: Cause = { requestedBy: 'user', computedBy: 'user', intent: 'a test' };
 const id = (r: { ok: boolean; commit?: { id: string } }): string => (r.ok && r.commit ? r.commit.id : '');
@@ -154,5 +155,48 @@ describe('a re-land of the CONSUMER (far) table alone', () => {
     const q = await s.viewQuery({ viewId: YEARS });
     expect(q.ok && q.clauses[0]?.clause).toEqual(TRAVELLED); // the IN-list is unchanged — the near values never moved
     expect(near()).toBe(2); // …but the SOURCE was re-asked anyway: staleness is keyed to EVERY declared table's version, not just the near side's
+  });
+});
+
+describe('a walk travels by IDENTITY: the nodes receive the recorded ids with no engine ask at all', () => {
+  /** An `edges` provider that counts every `evaluate` ask carrying a projection (`columns`) — the semi-join's own signature; the walk's own read of the rows carries none. */
+  function countingEdges(): { provider: DataProvider; projections: () => number; reads: () => number } {
+    const real = memoryProvider(EDGES, { tableName: 'edges' });
+    let projections = 0;
+    let reads = 0;
+    const provider: DataProvider = {
+      ...real,
+      evaluate: async (table, clause, options?: EvaluateOptions) => {
+        reads++;
+        if (options?.columns !== undefined) projections++;
+        return real.evaluate(table, clause, options);
+      },
+    };
+    return { provider, projections: () => projections, reads: () => reads };
+  }
+  const EDGES_ADDRESS = layerAddress('net', 'edges');
+  const NODES_ADDRESS = layerAddress('net', 'nodes');
+
+  it('one walk, then a replay of it into a fresh session: the edges engine is never projected — the walk itself is the only read', async () => {
+    const { provider, projections, reads } = countingEdges();
+    const def = makeNetworkDef([nodesLayer, edgesLayer], {
+      relations: NETWORK_RELATIONS,
+      capabilities: [{ viewId: 'net', canProbe: true, encodings: ['point', 'neighbourhood'] }],
+      links: [{ source: EDGES_ADDRESS, kind: 'neighbourhood', target: NODES_ADDRESS, response: 'filter' }],
+    });
+    const s = buildDashboard(def, { providers: { edges: provider } }).createSession();
+    const walk = await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'source', seed: 'cold', cause });
+    expect(walk.ok).toBe(true);
+    expect(s.clausesFor(NODES_ADDRESS)[0]?.clause).toEqual({ kind: 'match', field: 'id', values: ['cold', 'flu', 'strep'] });
+    expect([reads(), projections()]).toEqual([1, 0]); // the walk read the ties once; the travel asked nothing
+    await s.viewQuery({ viewId: NODES_ADDRESS });
+    await s.overview();
+    expect([reads(), projections()]).toEqual([1, 0]);
+    // a replayed log holds no record; the closing overview folds it again — by identity, so still no ask
+    const { provider: again, projections: laterProjections, reads: laterReads } = countingEdges();
+    const fresh = buildDashboard(def, { providers: { edges: again } }).createSession();
+    const replayed = await fresh.replay(s.log.records);
+    expect(replayed.ok && replayed.overview.activeSelections[0]?.travelled?.[NODES_ADDRESS]?.clause).toEqual({ kind: 'match', field: 'id', values: ['cold', 'flu', 'strep'] });
+    expect([laterReads(), laterProjections()]).toEqual([0, 0]);
   });
 });

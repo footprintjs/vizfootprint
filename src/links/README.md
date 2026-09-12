@@ -66,9 +66,10 @@ table, when the tables share only a column name (the edge stands on that
 ground, and no relation is the reason), or when the graph was judged by no
 reach — so every graph built before the key existed is byte-identical. A
 reader of the map sees which relation joins the two, and the session's travel
-strategy (`../session/README.md`, "A clause travels a relation") takes the
-first listed whose far column the target has, instead of finding the relation
-a second time: the permission and the path can never disagree.
+strategy (`../session/README.md`, "A clause travels a relation") reads the
+list instead of finding the relation a second time — a semi-join takes the
+first listed whose far column the target has, a walk takes the pair its two
+endpoint columns declare: the permission and the path can never disagree.
 
 ```ts
 // a scatter over `planets` and a year chart over `references`, joined by one declared relation

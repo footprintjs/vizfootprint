@@ -443,19 +443,65 @@ other than `none`) and renamed none of the clause's fields (a `mapping` is the
 author's aim, and the aim stands hit or miss — "an aim that missed" above):
 where the consumer's table lacks a column the clause names by the ONE
 knowledge every synchronous judge reads (`tableReachAt` · `columnStanding` =
-`absent`; `undeclared` is ignorance, and ignorance travels nothing), the FIRST
-relation on the edge whose far column the table HAS is travelled. The source
-table's provider is asked ONCE per near column — `evaluate(source, clause, {
-columns: [near] })`, through the same door every read takes (`ask`) — and the
-rows' near values, deduplicated with `null`/`undefined` dropped (a null key
-joins nothing), are the far column's IN-list; the engine's own `count` rides
-as `via.rows`. Two consumers over one far table share one ask. So one gesture
-costs one projection per near column on the source's engine — the number the
-bench in `bench/via/README.md` produced, quoted there and nowhere else.
+`absent`; `undeclared` is ignorance, and ignorance travels nothing), the
+clause travels — by the strategy its KIND has (below). The semi-join: the
+FIRST relation on the edge whose far column the table HAS is travelled. The
+source table's provider is asked ONCE per near column — `evaluate(source,
+clause, { columns: [near] })`, through the same door every read takes
+(`ask`) — and the rows' near values, deduplicated with `null`/`undefined`
+dropped (a null key joins nothing), are the far column's IN-list; the
+engine's own `count` rides as `via.rows`. Two consumers over one far table
+share one ask. So one gesture costs one projection per near column on the
+source's engine — the number the bench in `bench/via/README.md` produced,
+quoted there and nowhere else.
+
+**The travel is a strategy per clause kind, and a walk's is identity.** A
+point, interval, match or cell clause travels by SEMI-JOIN (`session.ts` ·
+`travelBySemiJoin`, the paragraph above). A NEIGHBOURHOOD clause travels by
+IDENTITY (`travelByIdentity`): its `ids` are already keys of the far table —
+the walk was taken over the edge two declared relations make
+(`../def/relations.ts` · `neighbourhoodEndpoints`, law 7) and RECORDED the
+node keys it reached — so where the edge's `via` holds the relations FROM the
+source table on the clause's two endpoint columns (both, either order; their
+far end is the consumer's declared key, the one column a relation may point
+at) and that key is on the table's own list, the consumer receives `{ kind:
+'match', field: <key>, values: ids }` with NO engine ask: `via.path` names
+both relations in declaration order, `via.rows` is the recorded set's size
+(nothing was asked, so there is no count but that), and `via.label` is both
+declarations' words joined as the path is spelled (`, `) — present only when
+both declare one, never half-said. Where that fails — an endpoint with no
+relation onto this table (a third table joined by one end), or a key the rows
+never carried (an empty landing) — the narrowed reading stands, exactly as it
+did before any clause travelled. A walk over a bipartite pair (two endpoint
+columns naming two different identities) cannot be asked in this version at
+all — law 7 refuses it at the door — so it has nothing to travel and is not
+this packet. WHY a walk is never semi-joined: a semi-join would re-derive
+from today's rows the set the walk recorded, and truncate it to ONE endpoint
+— on the disease desk an ego from Mumps ({Mumps, Measles, Rubella}) reached
+the nodes as the distinct `source` of its two ties, {Measles, Mumps}, and
+Rubella, only ever a target, was dropped; and because the nodes then saw a
+`match` and not a walk, the seed focus and the alt-click-to-clear affordance
+went with it. The record is the answer; the picture and the record cannot
+drift. Nothing about the record changes for it: a record with zero asks is
+still a record — `at` stamps apply, a re-land of the far table refolds it for
+free, a seek reads it back.
+
+```ts
+// the node-link fixture (`../def/network.fixture.ts`): nodes flu, cold, strep; ties flu→cold, cold→strep;
+// both relations declared — edges.source → nodes.id ('one end of the tie'), edges.target → nodes.id ('the other end')
+await s.dispatch({ verb: 'select', viewId: 'net~edges', field: 'source', seed: 'cold', cause }); // records ids: ['cold', 'flu', 'strep']
+s.clausesFor('net~nodes');
+// [{ from: 'net~edges', fromLabel: 'Disease network', response: 'filter',
+//    clause: { kind: 'match', field: 'id', values: ['cold', 'flu', 'strep'] },      ← the recorded set, whole, in the walk's own order
+//    via: { path: [edges.source → nodes.id, edges.target → nodes.id], label: 'one end of the tie, the other end', rows: 3,
+//           from: { kind: 'neighbourhood', fields: ['source', 'target'], ids: ['cold', 'flu', 'strep'] } } }]
+// a semi-join over `source` would have answered ['flu', 'cold'] — strep, a target only, dropped
+```
 
 **What every reader sees.** `clausesFor(consumer)` answers the travelled
-clause with `ReachingClause.via` — the relation (`path`, one hop today),
-its declared `label` when it has one, `rows`, and `from`, the clause the
+clause with `ReachingClause.via` — the relations (`path`, one hop today: one
+relation for a semi-join, a walk's pair for identity), the declared `label`
+when every one of them has one, `rows`, and `from`, the clause the
 source actually made (omit-never-deny: the consumer's window says the pick
 became a set of far values, and how). `narrowed` is ABSENT for it — it was
 judged, on a column the table has by construction, which `narrowedAt` asserts
@@ -541,14 +587,15 @@ gap naming the relation and the consumer — *the match on
 fold at a read door files nothing: a projection does not spend the ledger.
 
 **Not this packet, said plainly.** ONE HOP: a path through a third table is
-not on `LinkEdge.via` and is not travelled. ONE RELATION per edge: a pair
-joined by several (an edge table's two ends to one identity) travels the
-FIRST whose far column the target has, so a neighbourhood on the edges reaches
-the nodes through `source` alone and a target-only node is not on that path —
-a union over both ends is its own packet. The SET RIDES THE WIRE whole; no
-ceiling is implemented, and `bench/via/README.md` states the measured size and
-the honest alternative (the engine keeps the set, the wire carries its count
-and a handle) that the number decides later.
+not on `LinkEdge.via` and is not travelled. ONE RELATION per SEMI-JOIN: a
+pair joined by several travels the FIRST whose far column the target has — a
+point, interval, match or cell clause on an edge table reaches the nodes
+through `source` alone; a union over both ends for THOSE kinds is its own
+packet (the walk is the one kind that does not need it: it travels by its ids,
+above, and names both relations). The SET RIDES THE WIRE whole; no ceiling is
+implemented, and `bench/via/README.md` states the measured size and the
+honest alternative (the engine keeps the set, the wire carries its count and
+a handle) that the number decides later.
 
 ## Find is a read too, and it moves where you STAND (`findInView`)
 

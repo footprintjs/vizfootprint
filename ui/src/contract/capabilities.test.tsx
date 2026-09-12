@@ -273,7 +273,7 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
     // `via` — exactly the 1.8 renderer this law is about. Its hello is pinned to 1.8 here so the
     // bind itself is the proof: same major, binds; and the key costs it nothing at all. The clause
     // beside the key is the SAME match either way — a travelled clause is one the session already
-    // re-phrased, so the field only says how it got there.
+    // re-phrased, so the field only says how it got there (and `from`, the clause the source made).
     const eighteen = (r: Renderer): Renderer => ({
       mount(el, handshake) {
         const m = r.mount(el, handshake);
@@ -292,7 +292,9 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
     const other = plain.clauses.get('other')!;
     const travelled: RenderSelection = {
       ...plain,
-      clauses: new Map([['other', { ...other, via: { path: [{ from: { table: 'regions', column: 'code' }, to: { table: 'bars', column: 'region' } }], label: 'the region a bar stands in', rows: 3 } }]]),
+      clauses: new Map([
+        ['other', { ...other, via: { path: [{ from: { table: 'regions', column: 'code' }, to: { table: 'bars', column: 'region' } }], label: 'the region a bar stands in', rows: 3, from: { kind: 'point', field: 'code', value: 'N' } } }],
+      ]),
     };
     expect(res.view.update(state(rows, travelled))).toEqual({ ok: true });
     expect(el.innerHTML).toBe(drawn);

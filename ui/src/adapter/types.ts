@@ -265,11 +265,11 @@ export interface TravelledAtView {
   /** The `match` on the far column — what the consumer judges. */
   readonly clause: { readonly kind: 'match'; readonly field: string; readonly values: readonly unknown[] };
   readonly via: {
-    /** The relation travelled — one hop today, listed as a path. */
+    /** The relations travelled — one hop today, listed as a path: one for a semi-join, a walk's pair for a neighbourhood that travelled by its ids. */
     readonly path: readonly { readonly from: RelationEndView; readonly to: RelationEndView }[];
-    /** The RELATION's declared label, when the def declares one — never invented. */
+    /** The RELATIONS' declared label — one relation's, or a walk's pair joined as the path is spelled — when every one declares it; never invented. */
     readonly label?: string;
-    /** How many source rows the original clause matched. */
+    /** How many source rows the original clause matched — for a walk, the recorded set's size. */
     readonly rows: number;
   };
   /** The CONSUMER's declared label (`NarrowedAtView.label`'s twin) — absent when the map declares none; the chip falls back to the address. */

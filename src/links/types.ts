@@ -105,10 +105,11 @@ export interface LinkEdge extends LinkDecl {
    * the map says what is true, not who asked.
    *
    * When more than one relation joins the pair, ALL are listed in declaration
-   * order; the strategy that travels a clause over the edge takes the FIRST
-   * whose far column the target's table actually has
-   * (`../session/session.ts` · `travelOf`). One hop only — a path through a
-   * third table is its own packet.
+   * order; the strategy that travels a clause over the edge is the clause
+   * KIND's (`../session/session.ts` · `travelOf`): a semi-join takes the FIRST
+   * whose far column the target's table actually has, a walk takes the PAIR
+   * its two endpoint columns declare. One hop only — a path through a third
+   * table is its own packet.
    */
   readonly via?: readonly ReachRelation[];
 }

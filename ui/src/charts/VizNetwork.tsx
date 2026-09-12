@@ -56,7 +56,7 @@ import type { RenderRow, RenderSelection } from '../contract/types.js';
 import { linearScale, extent, domainOr, type ChartDomain } from '../primitives/scales.js';
 import { dimClass, useBrightPredicate, selectedSet, inSet, markClass } from '../primitives/useSelection.js';
 import { clickEmission, toggleInSetEmission, toggleWalkEmission, walkEmission } from '../primitives/pointSelect.js';
-import { selfSelectedNeighbourhood, type SelfSelectedNeighbourhood } from '../contract/selection.js';
+import { isWalk, selfSelectedNeighbourhood, type SelfSelectedNeighbourhood } from '../contract/selection.js';
 
 /** One node: its key, the position the layout act wrote, and the source row the clauses judge. */
 export interface NetworkNode {
@@ -291,12 +291,15 @@ function nearOf(hovered: string | null, edges: readonly NetworkEdge[]): Readonly
 
 /**
  * The fold as the NODE rows can honestly be judged by: every clause but the
- * walk. Returns the SAME object when there is nothing to drop, so the frame's
- * memos do not churn on the common case.
+ * walk — the one made on the edges AND the `match` on the key it travels into
+ * (`isWalk`, the contract's one reader); the nodes READ that set (`ego`), and
+ * reading it and judging it would be one answer twice. Returns the SAME
+ * object when there is nothing to drop, so the frame's memos do not churn on
+ * the common case.
  */
 function withoutWalks(selection: RenderSelection | undefined): RenderSelection | undefined {
   if (selection === undefined) return undefined;
-  const kept = [...selection.clauses].filter(([, clause]) => clause.kind !== 'neighbourhood');
+  const kept = [...selection.clauses].filter(([, clause]) => !isWalk(clause));
   return kept.length === selection.clauses.size ? selection : { ...selection, clauses: new Map(kept) };
 }
 

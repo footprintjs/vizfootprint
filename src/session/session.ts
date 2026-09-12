@@ -55,7 +55,7 @@ import { judgeAnalysisReads, neighbourhoodEndpoints, relationEdgeId } from '../d
 import { walkNeighbourhood, walkRefusal } from './neighbourhood.js';
 import { isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
-import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchClause, type MatchValue, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
+import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchClause, type MatchValue, type NeighbourhoodClause, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
 import { applyLinkOverrides, columnStanding, edgeId, impliedKinds, unmappedColumnWords, validateLinks, type LinkDecl, type ReachRelation } from '../links/index.js';
 
@@ -143,6 +143,7 @@ import type {
   NoteInfo,
   NarrowedAt,
   ReachingClause,
+  ClauseVia,
   TravelledAt,
   TravelledClause,
   ViewQuery,
@@ -653,6 +654,21 @@ function sameRelation(a: ReachRelation, b: ReachRelation): boolean {
 interface NearFold {
   readonly values: readonly unknown[];
   readonly rows: number;
+}
+
+/**
+ * ONE EDGE'S CROSSING as the two travel strategies see it (`travelBySemiJoin`,
+ * `travelByIdentity`): the source's address and table, the consumer's address
+ * and table, and the relations the edge carries (`LinkEdge.via`). Cut out of
+ * the edge once by `travelOf`, after the gates both arms share, so an arm
+ * reads five named facts rather than a `LinkEdge` and two table lookups.
+ */
+interface Crossing {
+  readonly from: string;
+  readonly target: string;
+  readonly sourceTable: string;
+  readonly table: string;
+  readonly via: readonly ReachRelation[];
 }
 
 /** The subject-independent half of a prose record's staleness world at the cursor. */
@@ -2291,32 +2307,27 @@ class InteractionSessionImpl implements InteractionSession {
   /**
    * THE TRAVEL — what `clause`, landed at `from`, becomes at every consumer it
    * reaches whose table LACKS a column the clause names but is JOINED to the
-   * source's by a declared relation: a semi-join, computed by the engine that
-   * holds the source's rows, arriving as a `match` on the relation's far
-   * column ({@link TravelledClause}; `./README.md`, "A clause travels a
-   * relation"). The relation is the permission AND the join — the same law
-   * `../analysis/bringOver.ts` applies to a bring-over.
+   * source's by a declared relation ({@link TravelledClause}; `./README.md`,
+   * "A clause travels a relation"). The relation is the permission AND the
+   * join — the same law `../analysis/bringOver.ts` applies to a bring-over.
    *
-   * Per edge out of `from` at the cursor that carries `LinkEdge.via`, reaches
-   * (a response other than `none`) and renamed NONE of the clause's fields (a
-   * `mapping` is the author's aim, and the aim stands hit or miss —
-   * `viewClauses`'s own law): where the consumer's table lacks one of the
-   * clause's columns by the ONE knowledge every synchronous judge reads
-   * (`tableReachAt` · `columnStanding` = `absent`; `undeclared` is ignorance,
-   * and ignorance travels nothing), the FIRST relation on the edge whose far
-   * column that table HAS is travelled. The source table's provider is asked
-   * ONCE per near column — `evaluate(source, clause, { columns: [near] })`,
-   * through the same door every read takes ({@link nearValues}) — and the
-   * rows' near values, deduplicated, are the far column's IN-list. A consumer
-   * whose table has every column takes the direct path (no set); one no
-   * listed relation end reaches keeps the narrowed reading it has today.
+   * THE STRATEGY IS PER CLAUSE KIND. A point, interval, match or cell clause
+   * travels by SEMI-JOIN ({@link travelBySemiJoin}): the engine that holds the
+   * source's rows folds it to the relation's near values, and it arrives as a
+   * `match` on the far column. A neighbourhood clause travels by IDENTITY
+   * ({@link travelByIdentity}): its `ids` are already keys of the far table —
+   * the walk recorded them — so it arrives as `far IN ids` with no engine ask.
+   * A walk is never semi-joined (the arm says why).
    *
-   * A REJECTION OR A THROW from the engine leaves that consumer's set absent
-   * — the narrowed reading stands, the chip still says "filtered nothing"
-   * with its reason unchanged (omit, never deny) — and is said through `note`
-   * when the caller gave one (the probe doors file it beside the act, which
-   * still lands; a re-fold at a read door gives none, since a projection does
-   * not spend the ledger). Never a throw out of a door.
+   * The gates both arms share, per edge out of `from` at the cursor: it
+   * carries `LinkEdge.via`, reaches (a response other than `none`), renamed
+   * NONE of the clause's fields (a `mapping` is the author's aim, and the aim
+   * stands hit or miss — `viewClauses`'s own law), and the consumer's table
+   * lacks one of the clause's columns by the ONE knowledge every synchronous
+   * judge reads (`tableReachAt` · `columnStanding` = `absent`; `undeclared` is
+   * ignorance, and ignorance travels nothing). A consumer whose table has
+   * every column takes the direct path (no set); one the arm declines keeps
+   * the narrowed reading it has today. Never a throw out of a door.
    *
    * A relation joining a table to itself is never on an edge's `via`
    * (`../links/reach.ts` · `relationPath`), so a relation here always has one
@@ -2334,23 +2345,100 @@ class InteractionSessionImpl implements InteractionSession {
       if (edge.mapping?.some((m) => fields.includes(m.from) && m.to !== m.from) === true) continue; // an aim that was named stands, hit or miss
       const table = this.tableFor(edge.target);
       if (!fields.some((f) => columnStanding(table, f, reach) === 'absent')) continue; // the consumer judges the clause itself — the direct path
-      const relation = edge.via.find((r) => columnStanding(table, relationEnds(r, sourceTable).far, reach) === 'present');
-      if (relation === undefined) continue; // no listed relation end this table has — the narrowed reading stands
-      const { near, far } = relationEnds(relation, sourceTable);
-      let ask = asked.get(near);
-      if (ask === undefined) {
-        ask = this.nearValues(sourceTable, clause, near);
-        asked.set(near, ask);
-      }
-      const folded = await ask;
-      if ('rejected' in folded) {
-        note?.(`the ${clause.kind} on "${from}" could not travel ${relationEdgeId(relation.from, relation.to)} to "${edge.target}" — ${folded.rejected}`);
-        continue;
-      }
-      const label = this.runtime.relations.find((r) => sameRelation(r, relation))?.label; // the declaration's own words, when it has them — never invented
-      sets[edge.target] = { clause: { kind: 'match', field: far, values: folded.values }, via: { path: [relation], ...(label !== undefined ? { label } : {}), rows: folded.rows } };
+      const crossing: Crossing = { from, target: edge.target, sourceTable, table, via: edge.via };
+      const set = await (clause.kind === 'neighbourhood' ? this.travelByIdentity(clause, crossing, reach) : this.travelBySemiJoin(clause, crossing, reach, asked, note));
+      if (set !== undefined) sets[edge.target] = set;
     }
     return { at, sets };
+  }
+
+  /**
+   * THE SEMI-JOIN ARM — a point, interval, match or cell clause. The FIRST
+   * relation on the edge whose far column the consumer's table HAS is
+   * travelled. The source table's provider is asked ONCE per near column —
+   * `evaluate(source, clause, { columns: [near] })`, through the same door
+   * every read takes ({@link nearValues}), the promise shared by every
+   * consumer that relation end serves (`asked`) — and the rows' near values,
+   * deduplicated, are the far column's IN-list; the engine's own `count`
+   * rides as `via.rows`. No listed relation end the table has: nothing, and
+   * the narrowed reading stands.
+   *
+   * A REJECTION OR A THROW from the engine leaves that consumer's set absent
+   * — the narrowed reading stands, the chip still says "filtered nothing"
+   * with its reason unchanged (omit, never deny) — and is said through `note`
+   * when the caller gave one (the probe doors file it beside the act, which
+   * still lands; a re-fold at a read door gives none, since a projection does
+   * not spend the ledger).
+   */
+  private async travelBySemiJoin(
+    clause: PredicateClause,
+    x: Crossing,
+    reach: ReachAt,
+    asked: Map<string, Promise<NearFold | ReadRefusal>>,
+    note?: (sentence: string) => void,
+  ): Promise<TravelledClause | undefined> {
+    const relation = x.via.find((r) => columnStanding(x.table, relationEnds(r, x.sourceTable).far, reach) === 'present');
+    if (relation === undefined) return undefined; // no listed relation end this table has — the narrowed reading stands
+    const { near, far } = relationEnds(relation, x.sourceTable);
+    let ask = asked.get(near);
+    if (ask === undefined) {
+      ask = this.nearValues(x.sourceTable, clause, near);
+      asked.set(near, ask);
+    }
+    const folded = await ask;
+    if ('rejected' in folded) {
+      note?.(`the ${clause.kind} on "${x.from}" could not travel ${relationEdgeId(relation.from, relation.to)} to "${x.target}" — ${folded.rejected}`);
+      return undefined;
+    }
+    return { clause: { kind: 'match', field: far, values: folded.values }, via: this.viaOf([relation], folded.rows) };
+  }
+
+  /**
+   * THE IDENTITY ARM — a neighbourhood clause. Its `ids` are ALREADY keys of
+   * the far table: the walk was taken over the edge two declared relations
+   * make (`../def/relations.ts` · `neighbourhoodEndpoints`, law 7) and
+   * RECORDED the node keys it reached, so the consumer receives `far IN ids`
+   * with NO engine ask — `nearValues` is never called here. The condition is
+   * law 7's own reading: the relations FROM the source table on the clause's
+   * two endpoint columns both sit on this edge (both point at the consumer's
+   * table), and their far column — the consumer's declared key, which is the
+   * one column a relation may point at (`judgeTo`) — is on the table's own
+   * list. `via.path` names both relations in declaration order; `via.rows`
+   * is the recorded set's size — nothing was asked, so there is no count but
+   * that.
+   *
+   * Where the condition fails — an endpoint with no relation onto this table
+   * (a third table joined by one end), or a key the rows never carried (an
+   * empty landing) — the narrowed reading stands. A walk is NEVER
+   * semi-joined: a semi-join would re-derive from today's rows the set the
+   * walk recorded, and truncate it to ONE endpoint — a node only ever a
+   * target is dropped, and the consumer's clause is no longer a walk, so the
+   * nodes lose their seed focus (the finding that made this an arm).
+   */
+  private travelByIdentity(clause: NeighbourhoodClause, x: Crossing, reach: ReachAt): TravelledClause | undefined {
+    const path = x.via.filter((r) => r.from.table === x.sourceTable && clause.fields.includes(r.from.column)); // law 7's pair, in declaration order
+    if (path.length !== 2) return undefined; // an endpoint with no relation onto this table — the narrowed reading stands
+    // both relations point at the consumer's declared key (`../def/relations.ts` · `judgeTo`: a relation points at an
+    // identity) — path[1]'s far column is provably path[0]'s too, so there is no second column to guard against; the
+    // def door owns this question and this arm trusts it, undefended, on purpose
+    const far = path[0]!.to.column;
+    if (columnStanding(x.table, far, reach) !== 'present') return undefined; // a key the rows never carried — the narrowed reading stands
+    return { clause: { kind: 'match', field: far, values: [...clause.ids] }, via: this.viaOf(path, clause.ids.length) };
+  }
+
+  /**
+   * The {@link ClauseVia} for a travelled path: the relations, their declared
+   * words, the rows. `label` is the declaration's own (`RelationDecl.label`,
+   * found end for end — `sameRelation`): the one relation's when the path is
+   * one, and for a walk's pair both labels in path order, joined as the path
+   * itself is spelled (`, `) — present only when EVERY relation on the path
+   * declares one. Never invented, and never half-said: a pair with one label
+   * is spelled by its relation ids, which the chip and the Sheet already do.
+   */
+  private viaOf(path: readonly ReachRelation[], rows: number): ClauseVia {
+    const labels = path.map((hop) => this.runtime.relations.find((r) => sameRelation(r, hop))?.label);
+    const label = labels.every((l) => l !== undefined) ? labels.join(', ') : undefined;
+    return { path, ...(label !== undefined ? { label } : {}), rows };
   }
 
   /**

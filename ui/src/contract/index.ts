@@ -51,6 +51,10 @@ export {
   // clause the barrel gives it no way to read (README, "the derivation helpers
   // ship in a set")
   selfSelectedNeighbourhood,
+  // the ONE reader of "is this row a walk" — a `neighbourhood` clause, or the `match` on the
+  // nodes' key it travels into (`via.from`); a host that takes the walk out of its own row
+  // predicate, as `VizNetwork` does, must fork on the same answer
+  isWalk,
   brightPredicate, navigateDomain } from './selection.js';
 export type { SelfSelectedCell, SelfSelectedSet, SelfSelectedNeighbourhood } from './selection.js';
 
