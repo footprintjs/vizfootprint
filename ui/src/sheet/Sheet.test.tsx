@@ -1093,7 +1093,7 @@ describe('<Sheet> — find', () => {
     fireEvent.click(container.querySelector('.vzf-sheet-findprev')!);
     await waitFor(() => expect(said(container)).toContain('wrapped to the bottom'));
     expect(searched).toEqual([{ text: 'area-1', from: 39, direction: 'backward' }]); // one ask, and never a negative `from`
-    expect(focusedRow(container)).toBe('19');
+    await waitFor(() => expect(focusedRow(container)).toBe('19'));
   });
 
   it('an answer a newer press has overtaken is DROPPED — both the first read and the wrap', async () => {
