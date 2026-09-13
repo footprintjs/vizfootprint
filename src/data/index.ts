@@ -197,3 +197,14 @@ export type { ChooseEngineOptions, DatasetStats, EnginePolicy, EngineThresholds 
 // One pass, many recorders — bring the questions you need; the rows are walked once.
 export { foldOnce, rowCount, total, extent, distinct, groupCount, numbers, columnar, columnTypes, keyedIndex, TypeTally } from './fold.js';
 export type { RowRecorder, Recorders, FoldResult } from './fold.js';
+
+// Analytics over a selected snapshot, separate from data organization and rendering.
+export { profileData } from './profile/run.js';
+export { createArrayProfileProvider } from './profile/memory.js';
+export { ProfileError } from './profile/error.js';
+export { PROFILE_DEFAULT_LIMITS } from './profile/validate.js';
+export type {
+  ProfileColumn, ProfileEvent, ProfileEventStatus, ProfileFieldRequest, ProfileFieldResult,
+  ProfileFrequency, ProfileLimits, ProfileOptions, ProfilePlan, ProfileProvider,
+  ProfileQuantileMethod, ProfileResult, ProfileSchema, ProfileSourceRef, ProfileStatistic,
+} from './profile/types.js';

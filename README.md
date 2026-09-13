@@ -18,6 +18,17 @@ crosses out of this package. Which symbol belongs on a barrel, which earns a
 subpath, and why the two resolutions (`dist/` outside, `src/` in a test run) are
 one list twice: [`PACKAGING.md`](PACKAGING.md).
 
+## Analytics without a dashboard
+
+`profileData` and `createArrayProfileProvider`, exported from `vizfootprint/data`,
+profile a selected snapshot with explicit field meaning, units, coverage and
+resource limits. This is descriptive analytics over organized data; building
+relationships and rendering views remain separate responsibilities. See the
+[profiling guide](src/data/profile/README.md) and the
+[public API example](examples/profile-data.mjs). From the source checkout, run
+`npm run check:profile-package` to verify the packed import and the standalone
+dependency boundary; this development check requires the checkout's dev dependencies.
+
 ## The foottrail core
 
 Underneath the branching paths below sits a small, standalone pattern:
