@@ -36,6 +36,13 @@ examples for [profiling](examples/profile-data.mjs) and
 run `npm run check:profile-package` to verify the packed import and standalone
 dependency boundary; this development check requires the checkout's dev dependencies.
 
+Progressive semantic discovery uses `listProfileOperations`,
+`describeProfileOperation` and `summarizeProfileResult`. One set of definitions
+produces tool descriptions and UI explanations; bounded result summaries retain
+scope, units, methods, coverage and saved references. See the
+[semantic context guide](src/data/profile/semantics.README.md). Agent hosts can
+serve these through their existing skill state and context ledger.
+
 ## The foottrail core
 
 Underneath the branching paths below sits a small, standalone pattern:

@@ -8,13 +8,15 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { ProfilePlan, ProfileResult, ProfileSchema } from './types.js';
 import type { GroupProfilePlan, GroupProfileResult } from './groups.types.js';
+import type { ProfileOperationDescriptor, ProfileOperationSummary } from './operations.types.js';
+import type { ProfileResultSummary } from './summary.js';
 
 // Like demo/smoke.test.ts and bench/x4/runner.mjs: an explicit local Chrome
 // override, otherwise Playwright's matching installed headless shell. No download.
 const executablePath = process.env['VZF_CHROME'];
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const entry = `
-import { profileData, profileGroups, createArrayProfileProvider } from 'vizfootprint/data';
+import { profileData, profileGroups, createArrayProfileProvider, listProfileOperations, describeProfileOperation, summarizeProfileResult } from 'vizfootprint/data';
 export async function executeProfile({ schema, rows, plan }) {
   const events = [];
   const provider = createArrayProfileProvider(schema, rows);
@@ -34,6 +36,7 @@ export async function executeProfile({ schema, rows, plan }) {
   }
   return {
     result: { ...result, execution }, events, drilldowns,
+    semantics: { catalog: listProfileOperations(), descriptor: describeProfileOperation(schema, plan.kind, schema.columns.map(column => column.name)), summary: summarizeProfileResult(result) },
     runtime: {
       worker: typeof WorkerGlobalScope !== 'undefined' && globalThis instanceof WorkerGlobalScope,
       document: typeof document, window: typeof window,
@@ -68,6 +71,7 @@ type Answer = {
   result: (Omit<ProfileResult, 'execution'> | Omit<GroupProfileResult, 'execution'>) & { execution: Omit<ProfileResult['execution'], 'elapsedMs'> };
   events: { status: string; scanned: number; selected: number; resultRef?: string }[];
   drilldowns: { ref: { resultRef: string; index: number }; rowCount: number; fields: ProfileResult['fields'] }[];
+  semantics: { catalog: readonly ProfileOperationSummary[]; descriptor: ProfileOperationDescriptor; summary: ProfileResultSummary };
   runtime: { worker: boolean; document: string; window: string };
 };
 
@@ -146,6 +150,10 @@ describe('profile public API in Node and a real browser Worker', () => {
         expect(worker.result).toEqual(node.result);
         expect(worker.events).toEqual(node.events);
         expect(worker.drilldowns).toEqual(node.drilldowns);
+        expect(worker.semantics).toEqual(node.semantics);
+        expect(worker.semantics.descriptor.ui.inputGrain).toBe(schema.grain);
+        expect(worker.semantics.summary.fieldDefinitions[0]).toMatchObject({ name: 'duration', unit: 'ms' });
+        expect(worker.semantics.summary.resultRef).toBe('parity:result');
         if (worker.result.kind === 'profile') {
           expect(worker.result.population).toEqual({ scanned: 6, selected: 4, excluded: 2, predicateUnknown: 1 });
           expect(worker.result.fields[0]).toMatchObject({

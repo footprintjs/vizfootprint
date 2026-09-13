@@ -2,14 +2,15 @@ import { judgeExpr } from '../../derive/judge.js';
 import { OPS_VERSION } from '../../derive/types.js';
 import { ProfileError } from './error.js';
 import type { ProfilePlan, ProfileSchema, ProfileSourceRef } from './types.js';
+import { PROFILE_QUANTILE_METHODS, PROFILE_STATISTICS } from './operations.types.js';
 
 export const PROFILE_DEFAULT_LIMITS = Object.freeze({
   maxScannedRows: 1_000_000, maxExactValues: 100_000, maxDistinctValues: 128,
   maxRetainedValues: 1_000_000, maxRetainedCharacters: 1_000_000,
 });
-const maximums = { maxScannedRows: 10_000_000, maxExactValues: 1_000_000, maxDistinctValues: 4096,
-  maxRetainedValues: 2_000_000, maxRetainedCharacters: 8_000_000 };
-const statistics = ['sum', 'min', 'max', 'mean', 'stddevPopulation', 'stddevSample', 'median', 'p95'];
+export const PROFILE_MAXIMUM_LIMITS = Object.freeze({ maxScannedRows: 10_000_000, maxExactValues: 1_000_000, maxDistinctValues: 4096,
+  maxRetainedValues: 2_000_000, maxRetainedCharacters: 8_000_000 });
+const statistics: readonly string[] = PROFILE_STATISTICS;
 
 export function invalid(message: string): never { throw new ProfileError('INVALID_PROFILE', message); }
 
@@ -99,14 +100,14 @@ export function normalizePlan(input: ProfilePlan): ProfilePlan {
       }
     }
   }
-  if ('quantileMethod' in obj && obj.quantileMethod !== 'nearest-rank' && obj.quantileMethod !== 'linear') invalid('Unsupported quantile method');
+  if ('quantileMethod' in obj && !(PROFILE_QUANTILE_METHODS as readonly unknown[]).includes(obj.quantileMethod)) invalid('Unsupported quantile method');
   if (quantiles && !obj.quantileMethod) invalid('median and p95 require an explicit quantileMethod');
   const limits: Record<keyof typeof PROFILE_DEFAULT_LIMITS, number> = { ...PROFILE_DEFAULT_LIMITS };
   if ('limits' in obj) {
     const overrides = record(obj.limits, Object.keys(limits), 'limits');
     for (const key of Object.keys(overrides) as (keyof typeof limits)[]) {
       const value = overrides[key];
-      positiveLimit(value, key, maximums[key]); limits[key] = value;
+      positiveLimit(value, key, PROFILE_MAXIMUM_LIMITS[key]); limits[key] = value;
     }
   }
   return Object.freeze({ ...plan, limits: Object.freeze(limits) });

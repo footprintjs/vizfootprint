@@ -211,3 +211,9 @@ export type {
   ProfileFrequency, ProfileLimits, ProfileOptions, ProfilePlan, ProfileProvider,
   ProfileQuantileMethod, ProfileResult, ProfileSchema, ProfileSourceRef, ProfileStatistic,
 } from './profile/types.js';
+
+// Semantic discovery and bounded result context, generated from the same data contracts.
+export { listProfileOperations, describeProfileOperation } from './profile/operations.js';
+export type { ProfileOperationKind, ProfileOperationSummary, ProfileOperationInputSchema, ProfileOperationDescriptor } from './profile/operations.types.js';
+export { summarizeProfileResult } from './profile/summary.js';
+export type { ProfileSummaryOptions, ProfileSummaryValue, ProfileResultSummary } from './profile/summary.js';

@@ -1,11 +1,10 @@
 import { profileCell } from './cell.js';
 import { ProfileError } from './error.js';
+import { PROFILE_QUANTILE_METHODS, PROFILE_STATISTICS } from './operations.types.js';
 import type { ProfileColumn, ProfileFieldRequest, ProfileFieldResult, ProfileFrequency,
   ProfileQuantileMethod, ProfileStatistic } from './types.js';
 
-const STATISTICS = new Set<ProfileStatistic>([
-  'sum', 'min', 'max', 'mean', 'stddevPopulation', 'stddevSample', 'median', 'p95',
-]);
+const STATISTICS = new Set<ProfileStatistic>(PROFILE_STATISTICS);
 
 /** Neumaier summation on ordinary inputs. If a partial sum would overflow,
  * retain the same two-term expansion relative to a finite scale instead.
@@ -120,7 +119,7 @@ export function createFieldAccumulator(
   if (reserve !== undefined && typeof reserve !== 'function')
     throw new ProfileError('INVALID_PROFILE', 'Retention reservation must be a function.');
   const method = options.quantileMethod;
-  if (method !== undefined && method !== 'linear' && method !== 'nearest-rank')
+  if (method !== undefined && !(PROFILE_QUANTILE_METHODS as readonly unknown[]).includes(method))
     throw new ProfileError('INVALID_PROFILE', 'Unsupported quantile method.');
   const needsQuantiles = statistics.includes('median') || statistics.includes('p95');
   if (needsQuantiles && method === undefined)

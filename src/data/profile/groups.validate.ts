@@ -3,6 +3,7 @@ import type { ProfilePlan } from './types.js';
 import { declaration, invalid, normalizePlan, positiveLimit, PROFILE_DEFAULT_LIMITS, record, textId } from './validate.js';
 
 export const GROUP_PROFILE_DEFAULT_LIMITS = Object.freeze({ ...PROFILE_DEFAULT_LIMITS, maxGroups: 128, maxGroupFields: 4096 });
+export const GROUP_PROFILE_MAXIMUM_LIMITS = Object.freeze({ maxGroups: 4096, maxGroupFields: 16_384 });
 
 /** Translate only the operation envelope; expression, source and field semantics stay identical. */
 export function groupBasePlan(plan: GroupProfilePlan): ProfilePlan {
@@ -28,8 +29,8 @@ export function normalizeGroupPlan(input: GroupProfilePlan): GroupProfilePlan {
   let maxGroupFields: number = GROUP_PROFILE_DEFAULT_LIMITS.maxGroupFields;
   if ('limits' in obj) {
     const limits = record(obj.limits, Object.keys(GROUP_PROFILE_DEFAULT_LIMITS), 'group limits');
-    if ('maxGroups' in limits) { positiveLimit(limits.maxGroups, 'maxGroups', 4096); maxGroups = limits.maxGroups; }
-    if ('maxGroupFields' in limits) { positiveLimit(limits.maxGroupFields, 'maxGroupFields', 16_384); maxGroupFields = limits.maxGroupFields; }
+    if ('maxGroups' in limits) { positiveLimit(limits.maxGroups, 'maxGroups', GROUP_PROFILE_MAXIMUM_LIMITS.maxGroups); maxGroups = limits.maxGroups; }
+    if ('maxGroupFields' in limits) { positiveLimit(limits.maxGroupFields, 'maxGroupFields', GROUP_PROFILE_MAXIMUM_LIMITS.maxGroupFields); maxGroupFields = limits.maxGroupFields; }
   }
   const base = normalizePlan(groupBasePlan(plan));
   return Object.freeze({ ...base, kind: 'group-profile', groupBy: plan.groupBy, unknownKeys: plan.unknownKeys,
