@@ -31,10 +31,14 @@ try {
   await writeFile(join(consumer, 'example.mjs'), example);
   const direct = JSON.parse(run(process.execPath, ['example.mjs', '--sqlite'], consumer));
   assert.equal(direct.examples.length, 3);
-  console.log('PASS packed public import: vizfootprint/data; zero installed runtime/optional dependencies; three synthetic examples');
+  const groupedExample = await readFile(join(packageDir, 'examples/group-profile-data.mjs'), 'utf8');
+  await writeFile(join(consumer, 'group-example.mjs'), groupedExample);
+  const groupedDirect = JSON.parse(run(process.execPath, ['group-example.mjs', '--sqlite'], consumer));
+  assert.equal(groupedDirect.examples.length, 4);
+  console.log('PASS packed public import: vizfootprint/data; zero installed runtime/optional dependencies; seven synthetic profile/group fixtures');
 
   const entry = join(consumer, 'profile-entry.mjs');
-  await writeFile(entry, "export { profileData, createArrayProfileProvider } from 'vizfootprint/data';\n");
+  await writeFile(entry, "export { profileData, profileGroups, createArrayProfileProvider } from 'vizfootprint/data';\n");
   const bundled = await build({
     absWorkingDir: consumer, entryPoints: [entry], outfile: join(consumer, 'profile-only.mjs'),
     bundle: true, format: 'esm', platform: 'neutral', target: 'es2022', treeShaking: true, metafile: true,
@@ -53,18 +57,25 @@ try {
   const forbidden = /(?:^|\/)(?:ui|renderer|session|agent|mcp|mosaic)\/|(?:react|sqlite|duckdb|wasmProvider|serverProvider|footprintjs)/i;
   for (const path of retained) assert(!forbidden.test(path), `Profile bundle retained a forbidden dependency: ${path}`);
   assert([...retained].some((path) => path.endsWith('/data/profile/run.js')));
+  assert([...retained].some((path) => path.endsWith('/data/profile/groups.js')));
   await writeFile(join(consumer, 'bundle-example.mjs'), example.replace("from 'vizfootprint/data'", "from './profile-only.mjs'"));
+  await writeFile(join(consumer, 'bundle-group-example.mjs'), groupedExample.replace("from 'vizfootprint/data'", "from './profile-only.mjs'"));
   // Remove even the packed package: this execution has no node_modules directory at all.
   await rm(join(consumer, 'node_modules'), { recursive: true });
   const standalone = JSON.parse(run(process.execPath, ['bundle-example.mjs'], consumer));
   assert.equal(standalone.examples.length, 2);
   assert.deepEqual(standalone.examples, direct.examples.slice(0, 2));
+  const groupedStandalone = JSON.parse(run(process.execPath, ['bundle-group-example.mjs'], consumer));
+  assert.equal(groupedStandalone.examples.length, 3);
+  assert.deepEqual(groupedStandalone.examples, groupedDirect.examples.slice(0, 3));
   console.log('PASS standalone profile bundle: no renderer, session, agent, React, MCP, SQLite, WASM, or external runtime imports');
   console.log(JSON.stringify({
     packedFiles: packed[0].files.length,
     bundleBytes: outputs.reduce((sum, output) => sum + output.bytes, 0),
     retainedModules: [...retained].map((path) => path.replace(/^node_modules\/vizfootprint\//, '')).sort(),
-    checks: ['packed-public-import', 'synthetic-requests', 'synthetic-inventory', 'sqlite-iterator-parity', 'bundle-dependency-boundary', 'dependency-free-bundle-execution'],
+    checks: ['packed-public-import', 'synthetic-requests', 'synthetic-inventory', 'sqlite-iterator-parity',
+      'packed-group-example', 'grouped-requests-include-exclude', 'grouped-inventory', 'group-scope-reconstruction',
+      'grouped-sqlite-iterator-parity', 'bundle-dependency-boundary', 'dependency-free-bundle-execution'],
   }, null, 2));
 } finally {
   await rm(scratch, { recursive: true, force: true });

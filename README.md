@@ -18,15 +18,22 @@ crosses out of this package. Which symbol belongs on a barrel, which earns a
 subpath, and why the two resolutions (`dist/` outside, `src/` in a test run) are
 one list twice: [`PACKAGING.md`](PACKAGING.md).
 
-## Analytics without a dashboard
+## Data analysis without a dashboard
 
-`profileData` and `createArrayProfileProvider`, exported from `vizfootprint/data`,
-profile a selected snapshot with explicit field meaning, units, coverage and
-resource limits. This is descriptive analytics over organized data; building
-relationships and rendering views remain separate responsibilities. See the
-[profiling guide](src/data/profile/README.md) and the
-[public API example](examples/profile-data.mjs). From the source checkout, run
-`npm run check:profile-package` to verify the packed import and the standalone
+`profileData` and `profileGroups`, exported from `vizfootprint/data`, calculate
+descriptive statistics over a selected snapshot. Grouped profiling partitions
+that selection by declared fields, preserves missing-key coverage, and returns
+a replayable filter for each group's contributing records. Both operations use
+one shared streaming scanner with explicit field meaning, units and resource
+limits, and run in Node.js or a browser Worker.
+
+Structural organization (records into relations or an evidence graph), data
+analysis and UI rendering have separate responsibilities. See the
+[profiling guide](src/data/profile/README.md),
+[grouped profiling guide](src/data/profile/groups.README.md), and public API
+examples for [profiling](examples/profile-data.mjs) and
+[grouped profiling](examples/group-profile-data.mjs). From the source checkout,
+run `npm run check:profile-package` to verify the packed import and standalone
 dependency boundary; this development check requires the checkout's dev dependencies.
 
 ## The foottrail core

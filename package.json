@@ -79,6 +79,7 @@
     "dist",
     "src",
     "examples/profile-data.mjs",
+    "examples/group-profile-data.mjs",
     "README.md",
     "PACKAGING.md",
     "LICENSE"

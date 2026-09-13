@@ -198,8 +198,11 @@ export type { ChooseEngineOptions, DatasetStats, EnginePolicy, EngineThresholds 
 export { foldOnce, rowCount, total, extent, distinct, groupCount, numbers, columnar, columnTypes, keyedIndex, TypeTally } from './fold.js';
 export type { RowRecorder, Recorders, FoldResult } from './fold.js';
 
-// Analytics over a selected snapshot, separate from data organization and rendering.
+// Data analysis over a selected snapshot, separate from data organization and rendering.
 export { profileData } from './profile/run.js';
+export { profileGroups } from './profile/groups.js';
+export { GROUP_PROFILE_DEFAULT_LIMITS } from './profile/groups.validate.js';
+export type { GroupProfileEvent, GroupProfileLimits, GroupProfileOptions, GroupProfilePlan, GroupProfileResult, ProfileGroup } from './profile/groups.types.js';
 export { createArrayProfileProvider } from './profile/memory.js';
 export { ProfileError } from './profile/error.js';
 export { PROFILE_DEFAULT_LIMITS } from './profile/validate.js';

@@ -53,7 +53,7 @@ export function declaration<T>(value: T): T {
   return copy(value, 0) as T;
 }
 
-function record(value: unknown, allowed: readonly string[], label: string): Record<string, unknown> {
+export function record(value: unknown, allowed: readonly string[], label: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) invalid(`${label} must be an object`);
   const obj = value as Record<string, unknown>;
   for (const key of Object.keys(obj)) if (!allowed.includes(key)) invalid(`Unknown ${label} property: ${key}`);

@@ -1,6 +1,6 @@
 # Profiling organized data
 
-Profiling belongs to **Analytics**. It asks descriptive questions of data that
+Profiling belongs to the **Data Analysis** layer. It asks descriptive questions of data that
 already has a schema, grain, identity and meaning. Structural organization—such
 as linking flat records into requests, relations or an evidence graph—belongs
 before this API, in the source adapter or its preparation step. A chart, table,
@@ -13,6 +13,11 @@ change the existing interaction grammar or derived-column vocabulary. The
 optional `where` tree uses Viz's existing `Expr` operations and `ops` version.
 This profile plan is one analytical operation, not a general transformation or
 runbook language.
+
+To partition a selection by client, operation or another declared field and
+profile each group, use [`profileGroups`](groups.README.md). This is grouped
+data profiling: a grouping step followed by descriptive aggregation in the
+same source scan. Each group carries its own replayable selection predicate.
 
 ## Public use
 
@@ -159,25 +164,26 @@ does not prove that an uncooperative provider has released that resource.
 ## Package boundary check
 
 The development check `node scripts/check-profile-package.mjs` builds and packs this checkout, extracts
-only the package into a fresh consumer, and runs all three synthetic examples
-through `vizfootprint/data` with no installed runtime or optional dependencies.
-The example is read from the packed archive, so a missing shipped example fails
+only the package into a fresh consumer, and runs both shipped example files
+(seven synthetic profiling/grouping cases, including SQLite) through `vizfootprint/data` with no installed runtime or optional dependencies.
+The examples are read from the packed archive, so a missing shipped example fails
 the check. The development checker itself requires the source checkout and its
 development dependencies.
 The check uses an isolated offline npm cache and removes its temporary files.
 
-It also bundles only `profileData` and `createArrayProfileProvider` from that
+It also bundles only `profileData`, `profileGroups` and `createArrayProfileProvider` from that
 public entry point. The esbuild metafile must show no emitted renderer, session,
 agent, React, MCP, SQLite or WASM dependency and no retained external import.
-Finally it removes the packed package and runs the two array examples using
+Finally it removes the packed package and runs the array-based examples using
 only that standalone bundle. Optional peer declarations in the broad data
 barrel may be visited by the bundler but must contribute no emitted runtime
 code. This verifies computational separation; it does not validate a future UI
 integration or benchmark a large source.
 
 `browser.test.ts` additionally executes the same standalone public-API bundle in
-Node.js and in a real Chromium module Worker. Both quantile methods must give
+Node.js and in a real Chromium module Worker. Both quantile methods and both grouped missing-key policies must give
 the same selected population, coverage, statistics, frequencies and operation
-events (apart from elapsed time). The Worker has no `document` or `window`.
+events (apart from elapsed time). Group filters also reconstruct their exact contributing
+rows through `profileData`. The Worker has no `document` or `window`.
 This verifies the small-data execution path in both hosts; it does not transfer
 large captures into a browser or provide a production Worker job service.
