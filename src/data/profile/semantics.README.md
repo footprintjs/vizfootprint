@@ -36,6 +36,28 @@ The summaries count source rows and known values, not inferred distinct entities
 They describe computed observations; interpreting causation belongs to the
 investigation with additional evidence.
 
+## Writing a predicate and grouped field requests
+
+The descriptor's `where.examples` demonstrates the existing `Expr` shape with
+focused column names and correctly typed placeholder literals. The same examples
+appear in the shared tool description and UI notes. A node is exactly one of
+`{col}`, `{lit}` or `{op,args}`: comparison operands belong in `args`, not beside
+`op`. Multiple conditions use an `and` operation over predicate nodes. These
+examples add no expression vocabulary or validation rules. Their sample values
+are neither source observations nor default filters; use the user's criteria,
+and omit `where` when selecting all source rows.
+
+For a grouped profile, `groupBy` chooses the keys that partition rows. Those
+values are already returned in each group's `keys`. The separate `fields` list
+asks for coverage, statistics or frequencies. Include a grouping column in that
+list only when its separate summary is requested; the engine still permits that
+valid use. A request for the mean of one measure by one category therefore needs
+the category in `groupBy` and only the measure in `fields`.
+
+The operation metadata tests execute the advertised equality and conjunction
+examples through `profileData` and `profileGroups`, exercise numeric, string and
+boolean literals, and verify that grouping keys need no redundant field summary.
+
 ## Result projection
 
 The input must be an engine-produced receipt belonging to the host's authorized

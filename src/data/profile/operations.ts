@@ -1,4 +1,5 @@
 import { OPS_VERSION } from '../../derive/types.js';
+import type { Expr } from '../../derive/types.js';
 import { ProfileError } from './error.js';
 import { GROUP_PROFILE_DEFAULT_LIMITS, GROUP_PROFILE_MAXIMUM_LIMITS } from './groups.validate.js';
 import { PROFILE_QUANTILE_METHODS, PROFILE_STATISTICS } from './operations.types.js';
@@ -7,6 +8,8 @@ import type { ProfileColumn, ProfileSchema } from './types.js';
 import { declaration, normalizeSchema, PROFILE_DEFAULT_LIMITS, PROFILE_MAXIMUM_LIMITS, textId } from './validate.js';
 
 const MAX_DESCRIPTOR_CHARACTERS = 60_000;
+const WHERE_SHAPE_NOTE = 'where uses the existing Viz Expr vocabulary. Each node has exactly one of col, lit or op. A column node is {"col":"columnName"}; a literal node is {"lit":value}; an operation node is {"op":"eq","args":[columnNode,literalNode]}. Never combine col, lit and op in the same node. Combine predicates with {"op":"and","args":[predicate1,predicate2]}. Literal values must match the compared column type.';
+const GROUP_FIELDS_NOTE = 'groupBy keys are already returned in each group\'s keys. fields requests separate coverage, statistics or frequencies; include a grouping key in fields only when its separate summary is requested. Request only the field summaries needed to answer the question.';
 
 interface Definition {
   readonly summary: ProfileOperationSummary;
@@ -22,6 +25,7 @@ const COMMON_NOTES = Object.freeze([
   'sum adds known values; min and max select extremes; mean is their arithmetic average. stddevPopulation divides squared deviations by n; stddevSample uses n - 1. All requested statistics are null with no known values; sample deviation is also null for n < 2.',
   'median and p95 require an explicit quantileMethod. nearest-rank selects one-based rank ceil(p * n); linear uses Hyndman-Fan type 7 at zero-based position (n - 1) * p. Arithmetic is IEEE 754, not arbitrary precision.',
   'where uses the existing Viz Expr vocabulary and selects only rows whose answer is true. Predicate-unknown rows and excluded rows remain visible in population coverage. Existing runtime validators and the expression judge remain authoritative.',
+  WHERE_SHAPE_NOTE,
   'Focused fields limit this metadata and the offered field/groupBy choices; they are not read authorization. Hosts enforce access and reference ownership, including any allowed where columns.',
   'Execution scans once. Exact quantiles and frequencies retain values under per-field and combined budgets; one pass does not mean constant memory. Exceeding a limit refuses a complete result without silent truncation or an approximate fallback. These budgets do not cap provider buffers or total process memory.',
   'The host supplies selectionRef in the plan and operationId/resultRef as execution options. Receipts retain the actual plan, source version, schema, coverage and methods. These APIs do not persist artifacts or authorize reference reads; providers must preserve the declared snapshot.',
@@ -39,6 +43,7 @@ const DEFINITIONS: readonly Definition[] = declaration([
     toolName: 'profile_groups', outputGrain: 'One group entry per observed key tuple, with field summaries over that group\'s source rows.',
     notes: [
       'Choose one to four distinct grouping fields. Groups preserve typed tuples, including an explicit null key when included, and appear in first-seen order; this is not ranking or sorting.',
+      GROUP_FIELDS_NOTE,
       'unknownKeys must explicitly be include or exclude. A selected row with any unknown key is counted in withUnknownKeys; exclude removes it only from grouping. selected = grouped + excludedUnknownKeys.',
       'Each group reports rowCount, per-field known/unknown counts and statistics from known selected values within that group. An unweighted average of group means does not recover the source mean when group populations differ.',
       'Group ref {resultRef,index} identifies a position in this result, not a stable entity or cross-result join key. Replay group.where with the same source snapshot, field requests and quantile method to reconstruct the group.',
@@ -88,7 +93,15 @@ function fieldSchema(column: ProfileColumn): Record<string, unknown> {
   return { type: 'object', properties, required: ['field'], additionalProperties: false };
 }
 
-function inputSchema(schema: ProfileSchema, definition: Definition, fields: readonly ProfileColumn[]): ProfileOperationInputSchema {
+/** Illustrative values, never inferred source values or default predicates. */
+function predicateExamples(fields: readonly ProfileColumn[]): readonly Expr[] {
+  const equalities = fields.slice(0, 2).map((field): Expr => ({ op: 'eq', args: [
+    { col: field.name }, { lit: field.type === 'number' ? 1 : field.type === 'boolean' ? true : 'example' },
+  ] }));
+  return equalities.length === 1 ? equalities : [equalities[0]!, { op: 'and', args: equalities }];
+}
+
+function inputSchema(schema: ProfileSchema, definition: Definition, fields: readonly ProfileColumn[], examples: readonly Expr[]): ProfileOperationInputSchema {
   const grouped = definition.summary.id === 'group-profile';
   const properties: Record<string, unknown> = {
     kind: { type: 'string', const: definition.summary.id },
@@ -100,11 +113,11 @@ function inputSchema(schema: ProfileSchema, definition: Definition, fields: read
       description: 'Bound to this source snapshot. A version label does not itself stabilize a changing provider.',
     },
     selectionRef: { type: 'string', minLength: 1, maxLength: 4096, pattern: '\\S', description: 'Host-owned selection identity. The result also retains the actual where predicate; this reference does not replace the filter.' },
-    where: { type: 'object', description: 'Optional existing Viz Expr object ({col}, {lit}, or {op,args,...}); the existing runtime judge validates vocabulary, types, boolean result, columns, depth and node limits. Only true selects a row. This schema does not define a second expression grammar.' },
+    where: { type: 'object', examples, description: `Optional predicate. ${WHERE_SHAPE_NOTE} Examples illustrate shape with placeholder values; replace them with the requested criteria, or omit where to select all rows. The existing runtime judge validates vocabulary, types, boolean result, columns, depth and node limits. Only true selects a row. This schema does not define a second expression grammar.` },
     fields: {
       type: 'array', minItems: 1, maxItems: fields.length, uniqueItems: true,
       items: { oneOf: fields.map(fieldSchema) },
-      description: 'Choose focused fields to profile. Each field name must occur once, even if its requested outputs differ; the runtime validator enforces this. Coverage is returned without requiring statistics or frequencies.',
+      description: 'Choose focused fields to profile. Each field name must occur once, even if its requested outputs differ; the runtime validator enforces this. Coverage is returned without requiring statistics or frequencies.' + (grouped ? ` ${GROUP_FIELDS_NOTE}` : ''),
     },
     quantileMethod: {
       type: 'string', enum: PROFILE_QUANTILE_METHODS,
@@ -143,11 +156,13 @@ export function describeProfileOperation(schemaInput: ProfileSchema, kind: Profi
       throw new ProfileError('INVALID_PROFILE', `Operation metadata does not support ${column.type} field: ${name}`);
     return column;
   });
-  const notes = [...COMMON_NOTES, ...definition.notes];
+  const examples = predicateExamples(fields);
+  const notes = [...COMMON_NOTES, ...definition.notes,
+    `Predicate shape examples with placeholder values, not source facts or defaults; replace the values with the requested criteria: ${examples.map(example => JSON.stringify(example)).join('; ')}. Omit where to select all source rows.`];
   const descriptor: ProfileOperationDescriptor = {
     definitionVersion: 1, operation: definition.summary, source: schema.source, table: schema.table, grain: schema.grain, fields,
     tool: { name: definition.toolName, description: [definition.summary.description,
-      `Input grain: ${schema.grain}. Output grain: ${definition.outputGrain}`, ...notes].join('\n\n'), inputSchema: inputSchema(schema, definition, fields) },
+      `Input grain: ${schema.grain}. Output grain: ${definition.outputGrain}`, ...notes].join('\n\n'), inputSchema: inputSchema(schema, definition, fields, examples) },
     ui: { title: definition.summary.title, description: definition.summary.description,
       inputGrain: schema.grain, outputGrain: definition.outputGrain, notes },
   };

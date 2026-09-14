@@ -5,9 +5,11 @@ import type { ProfileOperationDescriptor, ProfileOperationKind } from './operati
 import { PROFILE_DEFAULT_LIMITS, PROFILE_MAXIMUM_LIMITS, normalizePlan } from './validate.js';
 import { GROUP_PROFILE_DEFAULT_LIMITS, GROUP_PROFILE_MAXIMUM_LIMITS, normalizeGroupPlan } from './groups.validate.js';
 import { profileData } from './run.js';
+import { profileGroups } from './groups.js';
 import { createArrayProfileProvider } from './memory.js';
 import { ProfileError } from './error.js';
 import type { ProfilePlan, ProfileSchema } from './types.js';
+import type { Expr } from '../../derive/types.js';
 
 const schema: ProfileSchema = {
   source: { id: 'capture:requests', version: 'capture-version-1' }, table: 'requests', grain: 'One observed request',
@@ -25,6 +27,7 @@ type Shape = {
   properties?: Record<string, Shape>; items?: Shape; required?: readonly string[];
   minimum?: number; maximum?: number; minItems?: number; maxItems?: number;
   description?: string; uniqueItems?: boolean; default?: unknown; additionalProperties?: boolean;
+  examples?: readonly Expr[];
 };
 function property(descriptor: ProfileOperationDescriptor, name: string): Shape {
   return descriptor.tool.inputSchema.properties[name] as Shape;
@@ -150,6 +153,59 @@ describe('profile operation catalog: existing executable envelopes', () => {
     expect(descriptor.ui.notes.join(' ')).toContain('selected = grouped + excludedUnknownKeys');
     const larger = describeProfileOperation(schema, 'group-profile', ['duration', 'client', 'success', 'port']);
     expect(property(larger, 'groupBy').maxItems).toBe(4);
+  });
+
+  it.each(['profile', 'group-profile'] as const)('executes the %s advertised equality and conjunction through the existing expression engine', async kind => {
+    const descriptor = describeProfileOperation(schema, kind, ['duration', 'client']);
+    const where = property(descriptor, 'where');
+    expect(where.description).toContain('exactly one of');
+    expect(where.examples).toHaveLength(2);
+    const source = createArrayProfileProvider(schema, [
+      { duration: 1, client: 'example' }, { duration: 1, client: 'other' },
+      { duration: 2, client: 'example' }, { duration: null, client: 'example' },
+    ]);
+    for (const [index, predicate] of where.examples!.entries()) {
+      expect(descriptor.ui.notes.join('\n')).toContain(JSON.stringify(predicate));
+      expect(descriptor.tool.description).toContain(JSON.stringify(predicate));
+      const base: ProfilePlan = { kind: 'profile', version: 1, ops: 1, source: schema.source, selectionRef: 'example-shape',
+        where: predicate, fields: [{ field: 'duration', statistics: ['mean'] }] };
+      const result = kind === 'profile'
+        ? await profileData(source, base, { operationId: 'example', resultRef: 'example-result' })
+        : await profileGroups(source, { ...base, kind, groupBy: ['client'], unknownKeys: 'include' }, { operationId: 'example', resultRef: 'example-result' });
+      expect(result.population.selected).toBe(index === 0 ? 2 : 1);
+      const summaries = result.kind === 'profile' ? [result.fields] : result.groups.map(group => group.fields);
+      for (const fields of summaries) expect(fields).toMatchObject([{ field: 'duration', statistics: { mean: 1 } }]);
+    }
+  });
+
+  it.each([
+    ['duration', 1, 2], ['client', 'example', 'other'], ['success', true, false],
+  ] as const)('advertises a correctly typed predicate for focused %s alone', async (name, included, excluded) => {
+    const descriptor = describeProfileOperation(schema, 'profile', [name]);
+    const examples = property(descriptor, 'where').examples;
+    expect(examples).toHaveLength(1);
+    const result = await profileData(createArrayProfileProvider(schema, [{ [name]: included }, { [name]: excluded }, { [name]: null }]), {
+      kind: 'profile', version: 1, ops: 1, source: schema.source, selectionRef: 'typed-example',
+      where: examples![0], fields: [{ field: name }],
+    }, { operationId: 'typed-example', resultRef: 'typed-example-result' });
+    expect(result.population).toMatchObject({ selected: 1, excluded: 2, predicateUnknown: 1 });
+    expect(result.fields[0]).toMatchObject({ field: name, known: 1, unknown: 0 });
+  });
+
+  it('shares the group-key versus measured-field distinction with tool and UI and returns keys without redundant field summaries', async () => {
+    const descriptor = describeProfileOperation(schema, 'group-profile', ['client', 'duration']);
+    const note = descriptor.ui.notes.find(note => note.includes('groupBy keys are already returned'));
+    expect(note).toBeDefined();
+    expect(note).toContain('only when');
+    expect(descriptor.tool.description).toContain(note);
+    expect(property(descriptor, 'fields').description).toContain(note);
+    const result = await profileGroups(createArrayProfileProvider(schema, [{ client: 'a', duration: 2 }, { client: 'a', duration: 4 }]), {
+      kind: 'group-profile', version: 1, ops: 1, source: schema.source, selectionRef: 'group-example',
+      groupBy: ['client'], unknownKeys: 'include', fields: [{ field: 'duration', statistics: ['mean'] }],
+    }, { operationId: 'group-example', resultRef: 'group-example-result' });
+    expect(result.groups[0]!.keys).toEqual({ client: 'a' });
+    expect(result.groups[0]!.fields).toMatchObject([{ field: 'duration', statistics: { mean: 3 } }]);
+    expect(result.groups[0]!.fields).toHaveLength(1);
   });
 
   it('derives default and hard limit values from the same constants as the executors', () => {

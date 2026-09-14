@@ -43,6 +43,11 @@ scope, units, methods, coverage and saved references. See the
 [semantic context guide](src/data/profile/semantics.README.md). Agent hosts can
 serve these through their existing skill state and context ledger.
 
+The optional [semantic evaluation harness](scripts/profile-semantics-eval/README.md)
+checks this path through a real SkillGraph and recorded model requests. See the
+[first controlled Haiku result](docs/PROFILE_SEMANTICS_EVALUATION_2026-09-13.md)
+for measured outcomes, experiment corrections and limits.
+
 ## The foottrail core
 
 Underneath the branching paths below sits a small, standalone pattern:
