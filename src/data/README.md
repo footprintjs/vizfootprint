@@ -1,5 +1,58 @@
 # data — the rows, the engine, and one walk over them
 
+## Qualified fields over the native column port
+
+`createFieldNamespace` is a standalone metadata compiler from `vizfootprint/data`.
+It binds an immutable dataset snapshot, a table and each declared field to a
+native column name. It reads no rows and starts no engine, session or browser UI.
+
+```ts
+const nodes = createFieldNamespace({
+  datasetRef: 'snapshot:cluster-6:revision-2', table: 'nodes', fields: ['p95_us'],
+});
+const latency = nodes.field('p95_us');
+latency.reference; // { datasetRef: 'snapshot:cluster-6:revision-2', table: 'nodes', field: 'p95_us' }
+nodes.resolve(latency.nativeField) === latency; // exact declared membership
+```
+
+The host uses `nativeField` in backing rows, column declarations, selection
+clauses and mappings. The original field stays available for labels and the
+source records. Consequently, `nodes.p95_us` and `clients.p95_us` cannot be
+mistaken for the same generated column. With an existing declared relation,
+the session can travel the selection by its join keys instead of comparing
+two unrelated latency fields. Explicit shared dimensions or mapped fields
+remain available; this compiler changes no legacy crossfilter defaults.
+Adding only the reference to an explanation without changing the backing
+columns does **not** isolate the predicates.
+
+The frozen result has `bindings`, `field(originalName)` and
+`resolve(nativeField)`. Both lookups throw `FieldNamespaceError` for undeclared
+members; `resolve` never decodes and accepts an arbitrary token. Equivalent
+declarations intentionally issue the same names. Bounds are 256 fields and
+512 UTF-16 code units per dataset, table or field component; empty field lists
+are valid. Empty strings, duplicates, unknown option keys and invalid inputs
+are refused. Whitespace, case and Unicode code units are preserved exactly.
+
+Names use `FIELD_NAMESPACE_PREFIX` followed by lowercase fixed-width UTF-16
+hex of the complete JSON tuple. Raw JSON would collide in SQL engines that
+compare quoted identifiers case-insensitively (`x` and `X`); the ASCII encoding
+preserves this distinction. There is no delimiter concatenation or lossy hash.
+It costs four ASCII characters per serialized tuple code unit, plus the prefix;
+serve canonical references to a model rather than these backing-column tokens.
+Use `quoteIdent` when
+passing them to SQL, as with every native identifier. The host must reserve
+the exported prefix against unqualified backing names and check its final
+schema for collisions. Guarantees apply to generated names, not arbitrary
+legacy columns that deliberately imitate them.
+
+`datasetRef` is an opaque **immutable snapshot reference** supplied by the host.
+A persistent dataset name alone is insufficient: refreshes need a new
+reference, and stale references must be checked against the host's current
+scope. Namespace membership proves neither access rights nor the provenance
+or freshness of rows. A field address identifies a column; it is not a row,
+observation, causal link or claim that two measures share meaning or units.
+See the packed public example `examples/field-namespace.mjs`.
+
 The query port (`DataProvider`: tables, columns, `evaluate(table, clause | clause[] | null)`, `materializeColumn`) is OUR shape; the memory engine answers it in this process, the wasm engine answers it out of DuckDB-WASM over a `SqlConnection`, and the server engine is a typed stub that renders the same SQL descriptor. A clause list is its AND, so the whole live selection is one question.
 
 ## The engine this version does not run

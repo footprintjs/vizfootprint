@@ -17,7 +17,13 @@ import type { RankResultSummary } from '../rank/summary.js';
 const executablePath = process.env['VZF_CHROME'];
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const entry = `
-import { profileData, profileGroups, createArrayProfileProvider, listProfileOperations, describeProfileOperation, summarizeProfileResult, rankData, summarizeRankResult, summarizeDataResult, listDataOperations } from 'vizfootprint/data';
+import { profileData, profileGroups, createArrayProfileProvider, listProfileOperations, describeProfileOperation, summarizeProfileResult, rankData, summarizeRankResult, summarizeDataResult, listDataOperations, createFieldNamespace } from 'vizfootprint/data';
+export function executeNamespace(packet) {
+  const namespace = createFieldNamespace(packet.options);
+  let rejected;
+  try { namespace.resolve(packet.foreign); } catch (error) { rejected = error.code; }
+  return { bindings: namespace.bindings, sameMember: namespace.resolve(namespace.bindings[0].nativeField) === namespace.field(packet.options.fields[0]), rejected };
+}
 export async function executeRank({ schema, rows, plan }) {
   const result = await rankData(createArrayProfileProvider(schema, rows), plan, { operationId: 'parity:rank', resultRef: 'parity:rank-result' });
   return { catalog: listDataOperations(), first: summarizeRankResult(result, { rowLimit: 1 }), second: summarizeDataResult(result, { rowOffset: 1, rowLimit: 1 }) };
@@ -50,7 +56,7 @@ export async function executeProfile({ schema, rows, plan }) {
 }
 if (typeof WorkerGlobalScope !== 'undefined' && globalThis instanceof WorkerGlobalScope) {
   self.onmessage = async ({ data }) => {
-    try { self.postMessage({ value: await (data.plan.kind === 'rank' ? executeRank(data) : executeProfile(data)) }); }
+    try { self.postMessage({ value: await (data.operation === 'namespace' ? executeNamespace(data) : data.plan.kind === 'rank' ? executeRank(data) : executeProfile(data)) }); }
     catch (error) { self.postMessage({ error: String(error?.message ?? error) }); }
   };
 }
@@ -104,6 +110,36 @@ describe('profile public API in Node and a real browser Worker', () => {
   afterAll(async () => {
     try { await browser?.close(); }
     finally { if (directory) await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it('compiles identical qualified field addresses and refuses foreign members in Node and a real Worker', async () => {
+    const packet = { operation: 'namespace', options: { datasetRef: 'snapshot:1/雪', table: 'a.b_c', fields: ['p95_us', '"],"', '\ud800', '__proto__', 'x', 'X'] }, foreign: '__vzf_field_v1_not-a-member' };
+    const nodeCode = `import { executeNamespace } from ${JSON.stringify(pathToFileURL(bundleFile).href)};
+      let input = ''; for await (const chunk of process.stdin) input += chunk;
+      console.log(JSON.stringify(executeNamespace(JSON.parse(input))));`;
+    const node = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '--eval', nodeCode], {
+      cwd: directory, encoding: 'utf8', input: JSON.stringify(packet), timeout: 10_000,
+    }));
+    const page = await browser!.newPage();
+    try {
+      await page.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Namespace worker fixture</title>' }));
+      await page.goto('https://namespace-fixture.test/');
+      const worker = await page.evaluate(async ({ source, packet }) => {
+        const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+        const worker = new Worker(url, { type: 'module' });
+        try {
+          return await new Promise((resolve, reject) => {
+            worker.onmessage = ({ data }) => data.error ? reject(new Error(data.error)) : resolve(data.value);
+            worker.onerror = error => reject(new Error(error.message));
+            worker.postMessage(packet);
+          });
+        } finally { worker.terminate(); URL.revokeObjectURL(url); }
+      }, { source: bundle, packet });
+      expect(worker).toEqual(node);
+      expect(node).toMatchObject({ sameMember: true, rejected: 'unknown-native-field' });
+      expect(new Set(node.bindings.map((binding: { nativeField: string }) => binding.nativeField.toLowerCase())).size).toBe(6);
+      expect(node.bindings[2].reference.field).toBe('\ud800');
+    } finally { await page.close(); }
   });
 
   it('preserves the same rank pages, complete references, meanings and discovery in Node and a real Worker', async () => {

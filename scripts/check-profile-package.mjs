@@ -44,8 +44,13 @@ try {
   assert.equal(semanticDirect.rankPages.length, 2);
   assert.equal(semanticDirect.rankPages[0].rowPage.total, 2);
   assert.equal(semanticDirect.rankPages[0].ranking.total, 3);
+  const namespaceExample = await readFile(join(packageDir, 'examples/field-namespace.mjs'), 'utf8');
+  await writeFile(join(consumer, 'namespace.mjs'), namespaceExample);
+  const namespaceDirect = JSON.parse(run(process.execPath, ['namespace.mjs'], consumer));
+  assert.equal(namespaceDirect.bindings.length, 2);
+  assert.notEqual(namespaceDirect.bindings[0].nativeField, namespaceDirect.distinctTableAddress);
   const entry = join(consumer, 'profile-entry.mjs');
-  await writeFile(entry, "export { profileData, profileGroups, createArrayProfileProvider, listProfileOperations, describeProfileOperation, summarizeProfileResult, rankData, summarizeRankResult, summarizeDataResult, listDataOperations } from 'vizfootprint/data';\n");
+  await writeFile(entry, "export { profileData, profileGroups, createArrayProfileProvider, listProfileOperations, describeProfileOperation, summarizeProfileResult, rankData, summarizeRankResult, summarizeDataResult, listDataOperations, createFieldNamespace, FIELD_NAMESPACE_PREFIX } from 'vizfootprint/data';\n");
   const bundled = await build({
     absWorkingDir: consumer, entryPoints: [entry], outfile: join(consumer, 'profile-only.mjs'),
     bundle: true, format: 'esm', platform: 'neutral', target: 'es2022', treeShaking: true, metafile: true,
@@ -66,9 +71,11 @@ try {
   assert([...retained].some((path) => path.endsWith('/data/profile/run.js')));
   assert([...retained].some((path) => path.endsWith('/data/profile/groups.js')));
   assert([...retained].some((path) => path.endsWith('/data/rank/summary.js')));
+  assert([...retained].some((path) => path.endsWith('/data/fieldNamespace.js')));
   await writeFile(join(consumer, 'bundle-example.mjs'), example.replace("from 'vizfootprint/data'", "from './profile-only.mjs'"));
   await writeFile(join(consumer, 'bundle-group-example.mjs'), groupedExample.replace("from 'vizfootprint/data'", "from './profile-only.mjs'"));
   await writeFile(join(consumer, 'bundle-semantics.mjs'), semanticExample.replace("from 'vizfootprint/data'", "from './profile-only.mjs'"));
+  await writeFile(join(consumer, 'bundle-namespace.mjs'), namespaceExample.replace("from 'vizfootprint/data'", "from './profile-only.mjs'"));
   // Remove even the packed package: this execution has no node_modules directory at all.
   await rm(join(consumer, 'node_modules'), { recursive: true });
   const standalone = JSON.parse(run(process.execPath, ['bundle-example.mjs'], consumer));
@@ -79,6 +86,8 @@ try {
   assert.deepEqual(groupedStandalone.examples, groupedDirect.examples.slice(0, 3));
   const semanticStandalone = JSON.parse(run(process.execPath, ['bundle-semantics.mjs'], consumer));
   assert.deepEqual(semanticStandalone, semanticDirect);
+  const namespaceStandalone = JSON.parse(run(process.execPath, ['bundle-namespace.mjs'], consumer));
+  assert.deepEqual(namespaceStandalone, namespaceDirect);
   console.log('PASS standalone profile bundle: no renderer, session, agent, React, MCP, SQLite, WASM, or external runtime imports');
   console.log(JSON.stringify({
     packedFiles: packed[0].files.length,
@@ -86,7 +95,7 @@ try {
     retainedModules: [...retained].map((path) => path.replace(/^node_modules\/vizfootprint\//, '')).sort(),
     checks: ['packed-public-import', 'synthetic-requests', 'synthetic-inventory', 'sqlite-iterator-parity',
       'packed-group-example', 'grouped-requests-include-exclude', 'grouped-inventory', 'group-scope-reconstruction',
-      'grouped-sqlite-iterator-parity', 'semantic-discovery-ui-tool-parity', 'bounded-result-context', 'rank-paged-context', 'shared-data-discovery', 'bundle-dependency-boundary', 'dependency-free-bundle-execution'],
+      'grouped-sqlite-iterator-parity', 'semantic-discovery-ui-tool-parity', 'bounded-result-context', 'rank-paged-context', 'shared-data-discovery', 'qualified-field-namespace', 'bundle-dependency-boundary', 'dependency-free-bundle-execution'],
   }, null, 2));
 } finally {
   await rm(scratch, { recursive: true, force: true });

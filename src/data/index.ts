@@ -59,6 +59,10 @@ export { literalToSQL, matchesClause, resolvePredicateSQL, isClearedSQL, mosaicD
 // under the same name (it lived there first).
 export { cellString } from './cellText.js';
 
+// Complete field identities compiled to native column names; metadata only.
+export { createFieldNamespace, FieldNamespaceError, FIELD_NAMESPACE_PREFIX } from './fieldNamespace.js';
+export type { QualifiedFieldReference, FieldBinding, FieldNamespace, FieldNamespaceOptions, FieldNamespaceErrorCode } from './fieldNamespace.js';
+
 // The window AROUND the WHERE: one pure statement builder, no engine — the
 // columns, the order, the cap and the source-order column a window asks for,
 // rendered once so two engines cannot disagree about what the same

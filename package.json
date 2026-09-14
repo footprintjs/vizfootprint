@@ -81,6 +81,7 @@
     "examples/profile-data.mjs",
     "examples/group-profile-data.mjs",
     "examples/profile-semantics.mjs",
+    "examples/field-namespace.mjs",
     "README.md",
     "PACKAGING.md",
     "LICENSE"
