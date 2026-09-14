@@ -35,13 +35,14 @@ import {
   type BringOverJoin,
   type DataRow,
 } from '../analysis/index.js';
+import { rankAnalysis, normalizeRankAnalysisOptions, type RankAnalysisOptions } from '../analysis/rank.js';
 import { aggregateAnalysis, deriveAnalysis, resultTypeOf, type DerivedColumnDecl, type Expr, type Measure } from '../derive/index.js';
 import type { ColumnInfo, ColumnType } from '../data/types.js';
 import { relationsFrom } from './relations.js';
 import type { AbsenceDecl, RelationEdge } from './types.js';
 
 /** The builtin analyses a def may name. */
-export const BUILTIN_ANALYSES = ['groupBy', 'correlation', 'regression', 'clustering', 'formula', 'layout', 'bringOver', 'derive', 'aggregate'] as const;
+export const BUILTIN_ANALYSES = ['groupBy', 'correlation', 'regression', 'clustering', 'formula', 'layout', 'bringOver', 'derive', 'aggregate', 'rank'] as const;
 export type BuiltinAnalysisName = (typeof BUILTIN_ANALYSES)[number];
 
 /** A group-by summary as a new queryable table (`groupByAnalysis`). */
@@ -249,6 +250,8 @@ export interface AggregateDecl {
   readonly id?: string;
 }
 
+export interface RankDecl extends RankAnalysisOptions { readonly builtin: 'rank' }
+
 /** An analysis named as data — the third form of {@link import('./types.js').AnalysisSlot}. */
 export type BuiltinAnalysisDecl =
   | GroupByDecl
@@ -259,7 +262,8 @@ export type BuiltinAnalysisDecl =
   | LayoutDecl
   | BringOverDecl
   | DeriveDecl
-  | AggregateDecl;
+  | AggregateDecl
+  | RankDecl;
 
 /** Thrown when a builtin record is malformed. Carries every problem at once. */
 export class BuiltinAnalysisError extends Error {
@@ -298,6 +302,12 @@ interface BuiltinSpec {
  * validator accepts is a record the constructor can build.
  */
 const SPECS: Readonly<Record<BuiltinAnalysisName, BuiltinSpec>> = Object.freeze({
+  rank: { required: { schema: 'node', plan: 'node', operationId: 'string', resultRef: 'string' }, optional: { name: 'string', id: 'string' },
+    judge: (decl, where, problems) => {
+      try { normalizeRankAnalysisOptions(decl as unknown as RankAnalysisOptions); }
+      catch (error) { problems.push(`${where}: ${error instanceof Error ? error.message : 'invalid rank declaration'}`); }
+    },
+  },
   groupBy: { required: { by: 'string', measure: 'string' }, optional: { name: 'string', id: 'string' } },
   correlation: { required: { x: 'string', y: 'string' }, optional: { id: 'string', branchId: 'string' } },
   regression: { required: { x: 'string', y: 'string' }, optional: { layer: 'string', minPoints: 'count', id: 'string' } },
@@ -721,6 +731,8 @@ export function buildBuiltinAnalysis(decl: BuiltinAnalysisDecl, context: Builtin
       const absence = context.absence?.[decl.table ?? 'data'];
       return deriveAnalysis({ ...optionsOf(decl), ...(absence !== undefined ? { absence } : {}) });
     }
+    case 'rank':
+      return rankAnalysis(optionsOf(decl));
     case 'aggregate': {
       const absence = context.absence?.[decl.table ?? 'data'];
       return aggregateAnalysis({ ...optionsOf(decl), ...(absence !== undefined ? { absence } : {}) });

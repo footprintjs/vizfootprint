@@ -83,6 +83,7 @@ export async function profileScan<T, O extends ProfileOperation>(provider: Profi
         // Validate declared dependencies even if an expression takes a lazy branch.
         for (const field of predicateReads) read(field);
         const passes = test ? test(read) : true;
+        consumer.visit?.(read);
         if (passes === null) predicateUnknown++;
         if (passes === true) {
           consumer.push(read);
@@ -103,14 +104,17 @@ export async function profileScan<T, O extends ProfileOperation>(provider: Profi
       }
     }
     abort();
-    const value = consumer.finish();
-    emit('completed');
-    return {
+    const value = await profileAwait(consumer.finish(), signal);
+    abort();
+    const result: ProfileScanResult<T> = {
       resultRef, operationId, schema,
       population: { scanned, selected, excluded: scanned - selected, predicateUnknown }, value,
       execution: { strategy: 'stream', passes: 1, exact: true, retainedValues, retainedCharacters, observerFailures, elapsedMs: elapsed() },
       conventions: { missing: 'null-or-undefined', invalid: 'refuse', predicate: 'only-true', statisticsPopulation: 'known-selected-values' },
     };
+    setup.validateResult?.(result);
+    emit('completed');
+    return { ...result, execution: { ...result.execution, observerFailures } };
   } catch (cause) {
     const error = signal?.aborted ? new ProfileError('CANCELLED', 'Profile was cancelled')
       : cause instanceof ProfileError ? cause : new ProfileError('PROVIDER_FAILURE', 'Profile provider failed; no complete result is available');

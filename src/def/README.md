@@ -36,6 +36,7 @@ The record's keys **are** the factory's own options, so there is one vocabulary 
 | `layout` | **a seeded stress layout, as `x` and `y` columns on the nodes table** | `algo` |
 | `bringOver` | **a related table's columns, fetched across the declared relations** | `table`, `from`, `columns` |
 | `derive` | **a declared column: the closed op grammar, as a new column** | `name`, `column` |
+| `rank` | a bounded ranking receipt over existing numeric observations | `schema`, `plan`, `operationId`, `resultRef` |
 | `aggregate` | **a derived TABLE: one row per group, its measures the derive reducers** | `name`, `ops`, `groupBy`, `measures` |
 
 `formula` is the one whose content is a sentence a PERSON typed rather than options a developer chose, so it is the one this door judges twice: the grammar reads `expression` here, at validation, and refuses a token it has no rule for by naming it and its position (`analyses["rate"].expression is not a formula: the formula has no rule for "%" at position 7`); the SESSION then judges the columns it names against the table it will read, before the act exists. The grammar, the five functions it knows and every refusal either judge makes are in [`../analysis/README.md`](../analysis/README.md).

@@ -99,3 +99,6 @@ export type {
 // beside its own. It never means "a named table came back empty" — a table that
 // could not be read stops the whole act.
 export { ANALYSIS_KINDS, INPUT_ROLES, NO_RELATED_ROWS, OUTPUT_CHANNELS } from './types.js';
+
+export { rankAnalysis } from './rank.js';
+export type { RankAnalysisOptions, RankTableOutput } from './rank.js';

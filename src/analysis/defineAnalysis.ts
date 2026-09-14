@@ -56,6 +56,7 @@ const DEF_KEYS = new Set([
   'inputs',
   'reads',
   'produces',
+  'requiresCompleteInput',
   'build',
   'toRunInput',
   'readOutput',
@@ -131,6 +132,8 @@ export function validateAnalysisDef(def: unknown): string[] {
       });
     }
   }
+
+  if (d.requiresCompleteInput !== undefined && typeof d.requiresCompleteInput !== 'boolean') problems.push('requiresCompleteInput must be boolean');
 
   if (!isFn(d.build)) problems.push('build must be a function');
   if (!isFn(d.toRunInput)) problems.push('toRunInput must be a function');

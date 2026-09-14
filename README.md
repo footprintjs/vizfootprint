@@ -48,6 +48,11 @@ checks this path through a real SkillGraph and recorded model requests. See the
 [first controlled Haiku result](docs/PROFILE_SEMANTICS_EVALUATION_2026-09-13.md)
 for measured outcomes, experiment corrections and limits.
 
+`rankData` ranks a declared numeric observation over a bounded selected snapshot,
+with exact source keys, units and missing-value counts. The native `rank`
+analysis uses the same operation through the existing session commit lifecycle.
+See [ranking existing observations](src/data/rank/README.md).
+
 ## The foottrail core
 
 Underneath the branching paths below sits a small, standalone pattern:

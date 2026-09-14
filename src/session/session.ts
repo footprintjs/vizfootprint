@@ -1110,7 +1110,7 @@ class InteractionSessionImpl implements InteractionSession {
       // table (its values must align to the row order), and every other channel —
       // an aggregate's table among them — over the selection folded HERE. Reading a
       // table act whole would rebuild it from rows the act never folded in.
-      const input = await this.resolveAnalysisInput(performing.def.produces === 'columns', act.table, performing.def.reads ?? []);
+      const input = await this.resolveAnalysisInput(performing.def.produces === 'columns', act.table, performing.def.reads ?? [], performing.def.requiresCompleteInput);
       if ('rejected' in input) {
         this.gapLedger.file('needs-backend-data', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but its input could not be read back: ${input.rejected}`, analysisId);
         continue;
@@ -1991,7 +1991,7 @@ class InteractionSessionImpl implements InteractionSession {
   // Both readers surface a provider REJECTION as a typed `{ rejected }` (never a
   // misleading empty array) so a REQUEST-boundary caller (doProbe / declareAnalysis)
   // can file a `needs-backend-data` gap rather than silently dropping (R14).
-  private async allRows(table: string, clauses: readonly PredicateClause[] = []): Promise<readonly Row[] | ReadRefusal> {
+  private async allRows(table: string, clauses: readonly PredicateClause[] = [], requireComplete = false): Promise<readonly Row[] | ReadRefusal> {
     const provider = this.providerOf(table);
     if (!provider) return { rejected: `no provider for table "${table}"` };
     // the whole live selection is ONE query to the engine — the session never folds rows in JS after the answer
@@ -2002,6 +2002,9 @@ class InteractionSessionImpl implements InteractionSession {
     // none — nothing rejected it; there was nothing to ask.
     /* v8 ignore next -- every provider's reject() (memory/wasm/server, src/data/*Provider.ts) always supplies a `detail`; `res.reason` fallback is unreachable via the public API */
     if (isRejection(res)) return { rejected: res.detail ?? res.reason, rejection: res };
+    if (requireComplete && (!res.rows || !Number.isSafeInteger(res.count) || res.count !== res.rows.length)) {
+      return { rejected: `analysis requires complete input for table ${table}; provider returned ${res.rows?.length ?? 0} of ${res.count} rows` };
+    }
     /* v8 ignore next -- allRows always requests { mode: 'rows' }, and the only non-rejecting provider (memory) always sets `.rows` in that mode; the `?? []` fallback is unreachable via the public API */
     return res.rows ?? [];
   }
@@ -3044,13 +3047,14 @@ class InteractionSessionImpl implements InteractionSession {
     producesColumns: boolean,
     table: string,
     reads: readonly string[] = [],
+    requireComplete = false,
   ): Promise<AnalysisRunInput | ReadRefusal> {
     // Columns-channel analyses run over the FULL table (materialized values must
     // align to the row order); every other channel runs over the selection — one query either way.
     // The selection is the clauses that REACH this table (`clausesOn`), the rule every other own-table
     // read keeps: a layer's clause on another table names columns this table has not, and a provider
     // handed one refuses the read — reported as a degenerate fit, a claim about the data.
-    const rows = await this.allRows(table, producesColumns ? [] : await this.clausesOn(table));
+    const rows = await this.allRows(table, producesColumns ? [] : await this.clausesOn(table), requireComplete);
     if ('rejected' in rows) return rows;
     const beside = await this.resolveRelatedRows(reads);
     if ('rejected' in beside) return beside;
@@ -4586,6 +4590,7 @@ class InteractionSessionImpl implements InteractionSession {
     let input: readonly Row[];
     let related: RelatedRows = NO_RELATED_ROWS;
     if (opts.input !== undefined) {
+      if (analysis.def.requiresCompleteInput) return refused(this.gapLedger.file('guard-failed', 'declareAnalysis', 'This analysis requires the complete native selection; explicit input cannot vouch for it', id));
       input = opts.input;
       // WHY the related tables are still read: `reads` is a promise about the
       // ACT, not about where the own rows came from. A caller that brings its
@@ -4596,7 +4601,7 @@ class InteractionSessionImpl implements InteractionSession {
       if ('rejected' in beside) return couldNotRead(beside, 'needs-backend-data');
       related = beside.related;
     } else {
-      const resolved = await this.resolveAnalysisInput(analysis.def.produces === 'columns', table, reads);
+      const resolved = await this.resolveAnalysisInput(analysis.def.produces === 'columns', table, reads, analysis.def.requiresCompleteInput);
       if ('rejected' in resolved) return couldNotRead(resolved, this.gapCodeFor(id, 'source'));
       input = resolved.rows;
       related = resolved.related;

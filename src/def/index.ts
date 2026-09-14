@@ -19,7 +19,7 @@ export { BUILTIN_ANALYSES, BuiltinAnalysisError, isBuiltinRecord, validateBuilti
 // every door that judges a table name reads (./README.md, "Layers", law 2).
 export { mintedColumnNames, mintedTables } from './builtinAnalyses.js';
 export type { MintedTable } from './builtinAnalyses.js';
-export type { BuiltinAnalysisDecl, BuiltinAnalysisName, GroupByDecl, CorrelationDecl, RegressionDecl, ClusteringDecl, FormulaDecl, LayoutDecl, BringOverDecl, DeriveDecl, AggregateDecl, BuiltinAnalysisContext } from './builtinAnalyses.js';
+export type { BuiltinAnalysisDecl, BuiltinAnalysisName, GroupByDecl, CorrelationDecl, RegressionDecl, ClusteringDecl, FormulaDecl, LayoutDecl, BringOverDecl, DeriveDecl, AggregateDecl, RankDecl, BuiltinAnalysisContext } from './builtinAnalyses.js';
 // The DECLARATION a `derive` record carries, from the barrel that owns the
 // record. WHY here and not a subpath of its own: the grammar is consumed as ONE
 // act, never op by op, so what a def author has to be able to NAME is the tree

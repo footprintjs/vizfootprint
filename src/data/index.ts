@@ -217,3 +217,7 @@ export { listProfileOperations, describeProfileOperation } from './profile/opera
 export type { ProfileOperationKind, ProfileOperationSummary, ProfileOperationInputSchema, ProfileOperationDescriptor } from './profile/operations.types.js';
 export { summarizeProfileResult } from './profile/summary.js';
 export type { ProfileSummaryOptions, ProfileSummaryValue, ProfileResultSummary } from './profile/summary.js';
+
+// Bounded numeric ranking over an existing, explicitly scoped population.
+export { rankData, RANK_DEFAULT_LIMITS } from './rank/run.js';
+export type { RankPlan, RankLimits, RankOptions, RankProvider, RankResult, RankRow, RankEvent } from './rank/types.js';

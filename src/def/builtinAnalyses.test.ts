@@ -35,13 +35,13 @@ describe('the builtin analysis record — what it refuses', () => {
 
   it('refuses a record whose `builtin` is not a name', () => {
     expect(problemsOf({ builtin: 7 })).toEqual([
-      'analyses["a"].builtin must name a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver | derive | aggregate',
+      'analyses["a"].builtin must name a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver | derive | aggregate | rank',
     ]);
   });
 
   it('refuses an unknown builtin name, and says which names there are', () => {
     expect(problemsOf({ builtin: 'kmeans', column: 'cases' })).toEqual([
-      'analyses["a"].builtin "kmeans" is not a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver | derive | aggregate',
+      'analyses["a"].builtin "kmeans" is not a builtin analysis — one of groupBy | correlation | regression | clustering | formula | layout | bringOver | derive | aggregate | rank',
     ]);
   });
 
@@ -83,7 +83,7 @@ describe('the builtin analysis record — what it refuses', () => {
   });
 
   it('accepts every builtin at its plainest', () => {
-    expect(BUILTIN_ANALYSES).toEqual(['groupBy', 'correlation', 'regression', 'clustering', 'formula', 'layout', 'bringOver', 'derive', 'aggregate']);
+    expect(BUILTIN_ANALYSES).toEqual(['groupBy', 'correlation', 'regression', 'clustering', 'formula', 'layout', 'bringOver', 'derive', 'aggregate', 'rank']);
     expect(problemsOf({ builtin: 'groupBy', by: 'disease', measure: 'cases' })).toEqual([]);
     expect(problemsOf({ builtin: 'correlation', x: 'cases', y: 'ytd' })).toEqual([]);
     expect(problemsOf({ builtin: 'regression', x: 'cases', y: 'ytd' })).toEqual([]);

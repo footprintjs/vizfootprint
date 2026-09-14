@@ -251,6 +251,8 @@ export interface AnalysisDef<I = unknown, O extends AnalysisOutput = AnalysisOut
   readonly reads?: readonly string[];
   /** The output CHANNEL this analysis re-enters through (R11 discriminant). */
   readonly produces: O['as'];
+  /** Refuse provider-capped input before running an analysis that claims population completeness. */
+  readonly requiresCompleteInput?: boolean;
   /** Build the footprintjs flowchart. Developer function — NOT a model code string. */
   build(): import('footprintjs').FlowChart;
   /**
