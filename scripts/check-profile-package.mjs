@@ -41,8 +41,11 @@ try {
   await writeFile(join(consumer, 'semantics.mjs'), semanticExample);
   const semanticDirect = JSON.parse(run(process.execPath, ['semantics.mjs'], consumer));
   assert.equal(semanticDirect.pages.length, 2);
+  assert.equal(semanticDirect.rankPages.length, 2);
+  assert.equal(semanticDirect.rankPages[0].rowPage.total, 2);
+  assert.equal(semanticDirect.rankPages[0].ranking.total, 3);
   const entry = join(consumer, 'profile-entry.mjs');
-  await writeFile(entry, "export { profileData, profileGroups, createArrayProfileProvider, listProfileOperations, describeProfileOperation, summarizeProfileResult } from 'vizfootprint/data';\n");
+  await writeFile(entry, "export { profileData, profileGroups, createArrayProfileProvider, listProfileOperations, describeProfileOperation, summarizeProfileResult, rankData, summarizeRankResult, summarizeDataResult, listDataOperations } from 'vizfootprint/data';\n");
   const bundled = await build({
     absWorkingDir: consumer, entryPoints: [entry], outfile: join(consumer, 'profile-only.mjs'),
     bundle: true, format: 'esm', platform: 'neutral', target: 'es2022', treeShaking: true, metafile: true,
@@ -62,6 +65,7 @@ try {
   for (const path of retained) assert(!forbidden.test(path), `Profile bundle retained a forbidden dependency: ${path}`);
   assert([...retained].some((path) => path.endsWith('/data/profile/run.js')));
   assert([...retained].some((path) => path.endsWith('/data/profile/groups.js')));
+  assert([...retained].some((path) => path.endsWith('/data/rank/summary.js')));
   await writeFile(join(consumer, 'bundle-example.mjs'), example.replace("from 'vizfootprint/data'", "from './profile-only.mjs'"));
   await writeFile(join(consumer, 'bundle-group-example.mjs'), groupedExample.replace("from 'vizfootprint/data'", "from './profile-only.mjs'"));
   await writeFile(join(consumer, 'bundle-semantics.mjs'), semanticExample.replace("from 'vizfootprint/data'", "from './profile-only.mjs'"));
@@ -82,7 +86,7 @@ try {
     retainedModules: [...retained].map((path) => path.replace(/^node_modules\/vizfootprint\//, '')).sort(),
     checks: ['packed-public-import', 'synthetic-requests', 'synthetic-inventory', 'sqlite-iterator-parity',
       'packed-group-example', 'grouped-requests-include-exclude', 'grouped-inventory', 'group-scope-reconstruction',
-      'grouped-sqlite-iterator-parity', 'semantic-discovery-ui-tool-parity', 'bounded-result-context', 'bundle-dependency-boundary', 'dependency-free-bundle-execution'],
+      'grouped-sqlite-iterator-parity', 'semantic-discovery-ui-tool-parity', 'bounded-result-context', 'rank-paged-context', 'shared-data-discovery', 'bundle-dependency-boundary', 'dependency-free-bundle-execution'],
   }, null, 2));
 } finally {
   await rm(scratch, { recursive: true, force: true });

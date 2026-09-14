@@ -34,6 +34,8 @@ import { SURFACE_PARTS, SURFACE_PART_NAMES } from './surfaceParts.js';
 import { basisOf } from './basis.js';
 import { narrowParts } from './narrow.js';
 import type { Omission, SinceDisclosure } from './narrow.js';
+import { analysisResultProjector } from './compactAnalysis.js';
+import type { CompactAnalysisOptions, VizCompactAnalysisResult } from './compactAnalysis.js';
 
 /** One tool descriptor (shape-compatible with footprintjs `MCPToolDescription` / the MCP SDK `Tool`). */
 export interface VizTool {
@@ -71,8 +73,11 @@ export type VizDispatchRefusal = Omit<Extract<DispatchResult, { ok: false }>, 'r
 /** What `dispatch` (and `declare_analysis`, `fork`, `bookmark`, which route through it) answers. */
 export type VizDispatchResult = VizDispatchOk | VizDispatchRefusal;
 
-/** What an analysis answers — the session's own {@link AnalysisCommit}, absent keys omitted rather than carried as `undefined`. */
+/** The default/full analysis answer — the session's own {@link AnalysisCommit}. Compact readers use VizCompactAnalysisResult or VizServedAnalysisResult. */
 export type VizAnalysisResult = AnalysisCommit;
+/** Mode-aware readers use this union; the default/full aliases above remain source-compatible. */
+export type VizServedAnalysisResult = Omit<AnalysisCommit, 'result'> & { readonly result: AnalysisCommit['result'] | VizCompactAnalysisResult['result'] };
+export type VizServedDispatchResult = (Omit<VizDispatchOk, 'analysis'> & { readonly analysis?: VizServedAnalysisResult }) | VizDispatchRefusal;
 
 /**
  * What `propose_chart` answers. `commitId`, not the commit: the
@@ -107,6 +112,8 @@ export interface VizToolsOptions {
   namespace?: string;
   /** Acting principal stamped on dispatches made through this port. Default: the session's default actor. */
   as?: Actor;
+  /** Optional compact successful-analysis output; default preserves the complete native result. */
+  analysisResults?: CompactAnalysisOptions;
 }
 
 // ── authored-constant descriptions (never interpolate runtime data — Q8) ───────
@@ -630,6 +637,7 @@ function isValidCellFields(fields: unknown): fields is readonly [string, string]
 }
 
 export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions): VizToolsPort {
+  const projectAnalysisResult = analysisResultProjector(session.id, opts?.analysisResults);
   const ns = opts?.namespace ?? 'viz';
   const source: Actor = opts?.as ?? session.defaultActor;
 
@@ -863,7 +871,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
    * truthiness one: a describe that goes back to the def's own words answers
    * `described: null`, and `null` is the answer, not an absence.
    */
-  function projectDispatch(result: DispatchResult): VizDispatchResult {
+  function projectDispatch(result: DispatchResult): VizServedDispatchResult {
     if (!result.ok) {
       return { ok: false, verb: result.verb, intent: result.intent, gap: result.rejection };
     }
@@ -884,11 +892,11 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     };
   }
 
-  function projectAnalysis(a: AnalysisCommit): VizAnalysisResult {
+  function projectAnalysis(a: AnalysisCommit): VizServedAnalysisResult {
     return {
       analysisId: a.analysisId,
       kind: a.kind,
-      result: a.result,
+      result: projectAnalysisResult(a),
       ...(a.commit ? { commit: a.commit } : {}),
       ...(a.hypothesis ? { hypothesis: a.hypothesis } : {}),
       ...(a.fdrStep ? { fdrStep: a.fdrStep } : {}),
@@ -897,7 +905,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     };
   }
 
-  async function callDispatch(args: Record<string, unknown>): Promise<VizDispatchResult | VizPortRefusal> {
+  async function callDispatch(args: Record<string, unknown>): Promise<VizServedDispatchResult | VizPortRefusal> {
     const action = buildAction(args);
 
     if ('error' in action) return { ok: false, reason: 'PAYLOAD_INVALID', detail: action.error };

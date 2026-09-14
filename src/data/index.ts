@@ -221,3 +221,7 @@ export type { ProfileSummaryOptions, ProfileSummaryValue, ProfileResultSummary }
 // Bounded numeric ranking over an existing, explicitly scoped population.
 export { rankData, RANK_DEFAULT_LIMITS } from './rank/run.js';
 export type { RankPlan, RankLimits, RankOptions, RankProvider, RankResult, RankRow, RankEvent } from './rank/types.js';
+export { summarizeRankResult } from './rank/summary.js';
+export type { RankResultSummary, RankSummaryOptions } from './rank/summary.js';
+export { listDataOperations, summarizeDataResult } from './summary.js';
+export type { DataOperationSummary, DataResult, DataResultSummary, DataSummaryOptions } from './summary.js';

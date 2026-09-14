@@ -10,13 +10,18 @@ import type { ProfilePlan, ProfileResult, ProfileSchema } from './types.js';
 import type { GroupProfilePlan, GroupProfileResult } from './groups.types.js';
 import type { ProfileOperationDescriptor, ProfileOperationSummary } from './operations.types.js';
 import type { ProfileResultSummary } from './summary.js';
+import type { RankResultSummary } from '../rank/summary.js';
 
 // Like demo/smoke.test.ts and bench/x4/runner.mjs: an explicit local Chrome
 // override, otherwise Playwright's matching installed headless shell. No download.
 const executablePath = process.env['VZF_CHROME'];
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const entry = `
-import { profileData, profileGroups, createArrayProfileProvider, listProfileOperations, describeProfileOperation, summarizeProfileResult } from 'vizfootprint/data';
+import { profileData, profileGroups, createArrayProfileProvider, listProfileOperations, describeProfileOperation, summarizeProfileResult, rankData, summarizeRankResult, summarizeDataResult, listDataOperations } from 'vizfootprint/data';
+export async function executeRank({ schema, rows, plan }) {
+  const result = await rankData(createArrayProfileProvider(schema, rows), plan, { operationId: 'parity:rank', resultRef: 'parity:rank-result' });
+  return { catalog: listDataOperations(), first: summarizeRankResult(result, { rowLimit: 1 }), second: summarizeDataResult(result, { rowOffset: 1, rowLimit: 1 }) };
+}
 export async function executeProfile({ schema, rows, plan }) {
   const events = [];
   const provider = createArrayProfileProvider(schema, rows);
@@ -45,7 +50,7 @@ export async function executeProfile({ schema, rows, plan }) {
 }
 if (typeof WorkerGlobalScope !== 'undefined' && globalThis instanceof WorkerGlobalScope) {
   self.onmessage = async ({ data }) => {
-    try { self.postMessage({ value: await executeProfile(data) }); }
+    try { self.postMessage({ value: await (data.plan.kind === 'rank' ? executeRank(data) : executeProfile(data)) }); }
     catch (error) { self.postMessage({ error: String(error?.message ?? error) }); }
   };
 }
@@ -99,6 +104,43 @@ describe('profile public API in Node and a real browser Worker', () => {
   afterAll(async () => {
     try { await browser?.close(); }
     finally { if (directory) await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it('preserves the same rank pages, complete references, meanings and discovery in Node and a real Worker', async () => {
+    const packet = { schema, rows: [
+      { client: 'client-a', operation: 'read', duration: 50, successful: true },
+      { client: 'client-b', operation: 'read', duration: 50, successful: true },
+      { client: 'client-c', operation: 'read', duration: 0, successful: true },
+      { client: 'missing', operation: 'read', duration: null, successful: true },
+    ], plan: { kind: 'rank', version: 1, ops: 1, source: schema.source, selectionRef: 'parity:all',
+      keys: ['client', 'operation'], metric: 'duration', direction: 'desc', limit: 2, missing: 'exclude', ties: 'keys-ascending' } };
+    const nodeCode = `import { executeRank } from ${JSON.stringify(pathToFileURL(bundleFile).href)};
+      let input = ''; for await (const chunk of process.stdin) input += chunk;
+      console.log(JSON.stringify(await executeRank(JSON.parse(input))));`;
+    const node = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '--eval', nodeCode], {
+      cwd: directory, encoding: 'utf8', input: JSON.stringify(packet), timeout: 10_000,
+    }));
+    const page = await browser!.newPage();
+    try {
+      await page.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Rank worker fixture</title>' }));
+      await page.goto('https://profile-fixture.test/');
+      const worker = await page.evaluate(async ({ source, packet }) => {
+        const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+        const worker = new Worker(url, { type: 'module' });
+        try {
+          return await new Promise<{ first: RankResultSummary; second: RankResultSummary }>((resolve, reject) => {
+            worker.onmessage = ({ data }) => data.error ? reject(new Error(data.error)) : resolve(data.value);
+            worker.onerror = error => reject(new Error(error.message));
+            worker.postMessage(packet);
+          });
+        } finally { worker.terminate(); URL.revokeObjectURL(url); }
+      }, { source: bundle, packet });
+      expect(worker).toEqual(node);
+      expect(worker.first.fieldDefinitions.find(field => field.name === 'duration')!.unit).toBe('ms');
+      expect(worker.first.ranking).toMatchObject({ shown: 2, total: 3, complete: false, omitted: 1 });
+      expect(worker.first.rowPage).toMatchObject({ returned: 1, total: 2, omitted: 1, nextOffset: 1 });
+      expect(worker.second.rows[0]!.sourceRef.keys).toEqual({ client: 'client-b', operation: 'read' });
+    } finally { await page.close(); }
   });
 
   it('has matching selected coverage, values and events in both hosts', async () => {

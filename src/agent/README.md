@@ -10,6 +10,58 @@ projection did not carry does not exist as far as the model is concerned, and
 it does not fail loudly: the answer still parses, still reads confident, and is
 simply missing the thing that would have changed what the model did next.
 
+### Optional compact analysis output
+
+Full native analysis output remains the default. A host that needs a bounded
+first page of a saved native rank can opt in without changing any tool descriptor:
+
+```ts
+const port = vizAsTools(session, {
+  analysisResults: { mode: 'compact', rowLimit: 3, maxCharacters: 16_000 },
+});
+const answer = await port.call('viz.declare_analysis', { analysisId: 'nodeLatencyRank' });
+// answer.analysis.result.projection.status: 'summarized' | 'omitted'
+// answer.analysis.commit, hypothesis, fdrStep, materialized and gap still ride.
+// whatLanded(answer) still names the actual landed commit.
+```
+
+This mode recognizes a committed `builtin: 'rank'` declaration and its matching
+`output.ranking` receipt. It delegates to `summarizeDataResult`; it does not read
+rows, rerun an analysis, calculate statistics, or register a derived table. The
+summary includes source/selection/result/operation references, complete row keys,
+units and meanings, known/missing population counts, ranking conventions, and
+separate top-N and summary-page omission counts. The output channel/name remain
+under `projection.output`. The full `result.output` is replaced, not duplicated.
+
+An arbitrary module's property named `ranking` is **not** proof that it implements
+this contract. Other native analyses return `status: 'omitted'` with
+`reason: 'unsupported-analysis'`; invalid or mismatched receipts use
+`invalid-receipt`, and a supported summary exceeding the host's limit uses
+`summary-limit`. These are presentation outcomes **after execution**:
+`result.ok` stays true, `projection.executed` and `projection.committed` say what
+happened, and all decision receipts remain. Native failed/degenerate results are
+unchanged. Direct profile/group-profile callers can use the shared `/data`
+`summarizeDataResult` API; those are not automatically recognized native analysis
+outputs today.
+
+`maxCharacters` limits the supported summary's serialized JSON UTF-16 length,
+not tokens, bytes, the complete tool response, or its decision receipts. Defaults
+are 3 ranked rows and 16,000 characters; maxima are 16 rows and 64,000 characters.
+Invalid host options throw before any act. Budget the complete returned envelope
+separately before passing it to a model.
+
+`projection.retrieval` names the session, analysis and committed invocation when
+one exists. It is a **host-managed reference**, not a new retrieval tool or an
+automatic output store. A host needing later full-result pages must capture and
+retain the native result under its own authorization rules. Existing session
+reads only cover their documented data; re-running the analysis creates a new
+invocation and may spend FDR budget. No fallback rerun is performed here.
+
+The existing `VizAnalysisResult` and `VizDispatchResult` aliases keep their full
+native shapes. Opt-in consumers use `VizCompactAnalysisResult`; code reading
+either mode uses `VizServedAnalysisResult` / `VizServedDispatchResult` and narrows
+successful results on `'projection' in result` before accessing the output.
+
 **The trace is tamper-evident** ([`../log`](../log/README.md)), **the fold is
 detached** ([`../session`](../session/README.md)), and this folder is the third
 leg: **the served answer is honest and lean.** One law, five clauses. Each is a

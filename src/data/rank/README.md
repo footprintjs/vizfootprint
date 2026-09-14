@@ -87,3 +87,66 @@ claim it is a newly registered Viz layer. Native replay keeps the declaration
 and reruns against the available source, following the existing session policy.
 Rank neither creates cohorts nor groups source rows; use existing `profileGroups`
 or aggregate declarations when those are the intended operations.
+
+## Progressive result context
+
+`summarizeRankResult` projects a trusted `RankResult` through the same public
+`vizfootprint/data` door. It reads no source rows and performs no new ranking.
+The host retains the original result under its authorized `resultRef` and serves
+successive pages from that same immutable receipt.
+
+```js
+import { summarizeRankResult, summarizeDataResult, listDataOperations } from 'vizfootprint/data';
+const first = summarizeRankResult(result, { rowLimit: 3, maxCharacters: 16_000 });
+if (first.rowPage.nextOffset !== null) {
+  const next = summarizeDataResult(result, {
+    rowOffset: first.rowPage.nextOffset, rowLimit: 3, maxCharacters: 16_000,
+  });
+}
+// Shared discovery names profile, group-profile and rank; the old profile-only list stays unchanged.
+const operations = listDataOperations();
+```
+
+The summary preserves the source version/table, operation/result references,
+selection reference and actual predicate, input/output grain, full population
+counts and rank conventions. `fieldDefinitions` declares each complete key, the
+measure, and any additional predicate field once, with its meaning and unit.
+Every returned row retains its exact ordinal position, value and complete
+`sourceRef`; names and key components are never abbreviated. Other source
+columns and raw source rows are not included. Ranking an existing percentile
+still ranks those reported values; the summary performs no aggregation,
+percentile calculation, unit conversion, or causal interpretation.
+
+Two levels of omission are separate:
+
+- `ranking.total` is the known selected population; `ranking.shown` is the saved
+  top-N result size. `ranking.omitted = total - shown`. `ranking.complete` means
+  every known selected value was saved, regardless of the summary page.
+- `rowPage.total` is that saved result size. `returned` counts this page, and
+  `omitted = total - returned` includes both earlier and later saved rows.
+  `nextOffset` addresses the next row in this result, never a source-scan offset.
+  An offset beyond the saved rows returns an empty page with `nextOffset: null`.
+
+`rowOffset` defaults to 0 and must be a nonnegative safe integer; `rowLimit`
+defaults to 3 and accepts 1–16. `maxCharacters` defaults to 16,000 and accepts
+1–64,000. The exact budget is `JSON.stringify(summary).length` (UTF-16 code
+units), not bytes, model tokens, or the size of an enclosing tool response.
+Overflow throws `ProfileError` with `PROFILE_LIMIT`; request fewer rows instead
+of clipping identities or dropping scope and limitations. A too-small budget
+for required metadata also refuses. Malformed controls and result structures
+refuse, including nonfinite values, inconsistent counts, and broken references
+on rows outside the requested page. Source/version mismatches retain the
+existing `SOURCE_MISMATCH` error. Results are detached and deeply frozen;
+the caller's receipt is untouched.
+
+This is structural validation of a trusted computed receipt, not independent
+verification of source facts or authentication of references. The host still
+owns source availability, result lookup, authorization and persistence.
+`summarizeDataResult` adds dispatch over profile/group/rank and rejects options
+for the wrong result family; existing `summarizeProfileResult` remains unchanged.
+There is no new model SDK, tool executor, source store or package subpath.
+
+The public example `examples/profile-semantics.mjs` includes two rank pages.
+The packed-package check runs it with only the unpacked package and again as a
+standalone dependency-free bundle. The existing real browser Worker test checks
+that its rank metadata and pages equal the Node output.

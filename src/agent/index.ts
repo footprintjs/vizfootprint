@@ -23,10 +23,14 @@ export type {
   VizDispatchOk,
   VizDispatchRefusal,
   VizAnalysisResult,
+  VizServedAnalysisResult,
+  VizServedDispatchResult,
   VizProposeChartResult,
   VizPortRefusal,
 } from './vizAsTools.js';
 export { whatLanded } from './landed.js';
+export type { CompactAnalysisOptions, CompactAnalysisProjection, CompactAnalysisOutput, VizCompactAnalysisResult,
+  AnalysisOutputDescriptor, AnalysisRetrievalReference } from './compactAnalysis.js';
 export type { VizLanded } from './landed.js';
 
 // ── clause 5: the reader's control over how much of the answer they get ────────

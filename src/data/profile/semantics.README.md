@@ -9,6 +9,15 @@ operations to software, UI explanations and model tools using shared definitions
 - `summarizeProfileResult(result, options)` projects a computed result into a
   bounded, detached context with explicit field/group/frequency omissions.
 
+The additive `listDataOperations()` catalog includes these two operations plus
+rank. `summarizeDataResult(result, options)` dispatches profile/group receipts to
+the existing summary and rank receipts to `summarizeRankResult`, rejecting
+options for the wrong result family. The original profile-only APIs retain
+their contracts. See [rank result context](../rank/README.md#progressive-result-context)
+for row paging, complete supporting keys, and the distinction between a summary
+page and the saved top-N result. Rank discovery shares the same operation
+meaning used in its summary; no rank plan-descriptor grammar is added here.
+
 The analytical vocabulary remains `ProfilePlan`, `GroupProfilePlan` and `Expr`.
 The generated JSON Schema describes existing plans; the runtime validators and
 expression judge still decide whether a plan is valid. Descriptions do not
