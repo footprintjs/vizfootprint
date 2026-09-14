@@ -21,6 +21,8 @@ try {
   run('npm', ['run', 'build']);
   const packed = JSON.parse(run('npm', ['pack', '--ignore-scripts', '--json', '--workspaces=false', '--pack-destination', scratch]));
   assert.equal(packed.length, 1);
+  assert(packed[0].files.some(file => file.path === 'node_modules/contextfootprint/package.json'),
+    'The profile assertion consumer must receive the reviewed bundled core');
   const consumer = join(scratch, 'consumer');
   const packageDir = join(consumer, 'node_modules', 'vizfootprint');
   await mkdir(packageDir, { recursive: true });
@@ -35,7 +37,7 @@ try {
   await writeFile(join(consumer, 'group-example.mjs'), groupedExample);
   const groupedDirect = JSON.parse(run(process.execPath, ['group-example.mjs', '--sqlite'], consumer));
   assert.equal(groupedDirect.examples.length, 4);
-  console.log('PASS packed public import: vizfootprint/data; zero installed runtime/optional dependencies; seven synthetic profile/group fixtures');
+  console.log('PASS packed public import: vizfootprint/data; no separately installed optional engines; seven synthetic profile/group fixtures');
 
   const semanticExample = await readFile(join(packageDir, 'examples/profile-semantics.mjs'), 'utf8');
   await writeFile(join(consumer, 'semantics.mjs'), semanticExample);
@@ -49,6 +51,26 @@ try {
   const namespaceDirect = JSON.parse(run(process.execPath, ['namespace.mjs'], consumer));
   assert.equal(namespaceDirect.bindings.length, 2);
   assert.notEqual(namespaceDirect.bindings[0].nativeField, namespaceDirect.distinctTableAddress);
+  const assertionExample = join(packageDir, 'examples/profile-assertion.mjs');
+  const assertionDirect = JSON.parse(run(process.execPath, [assertionExample], consumer));
+  assert.equal(assertionDirect.observedValue, 10);
+  assert.equal(assertionDirect.mismatchConflicts, 1);
+  assert.equal(assertionDirect.unknownParticipates, false);
+  const assertionBundle = await build({
+    absWorkingDir: consumer, entryPoints: [assertionExample], outfile: join(consumer, 'assertion-only.mjs'),
+    bundle: true, format: 'esm', platform: 'neutral', target: 'es2022', treeShaking: true, metafile: true,
+    external: ['node:*', '@duckdb/*', '@modelcontextprotocol/*', '@uwdata/*', 'footprintjs', 'agentfootprint', 'react', 'react-dom'],
+    logLevel: 'silent',
+  });
+  const assertionInputs = new Set();
+  for (const output of Object.values(assertionBundle.metafile.outputs)) {
+    assert.deepEqual(output.imports, [], 'An external dependency escaped the assertion bundle');
+    for (const [path, contribution] of Object.entries(output.inputs)) if (contribution.bytesInOutput > 0) assertionInputs.add(path.replaceAll('\\', '/'));
+  }
+  assert([...assertionInputs].some(path => path.endsWith('/contextfootprint/dist/esm/conflicts.js')),
+    'The example must use the shared comparator');
+  assert([...assertionInputs].some(path => path.endsWith('/data/profile/assertion.js')),
+    'The example must use the Viz observation adapter');
   const entry = join(consumer, 'profile-entry.mjs');
   await writeFile(entry, "export { profileData, profileGroups, createArrayProfileProvider, listProfileOperations, describeProfileOperation, summarizeProfileResult, rankData, summarizeRankResult, summarizeDataResult, listDataOperations, createFieldNamespace, FIELD_NAMESPACE_PREFIX } from 'vizfootprint/data';\n");
   const bundled = await build({
@@ -68,6 +90,9 @@ try {
   }
   const forbidden = /(?:^|\/)(?:ui|renderer|session|agent|mcp|mosaic)\/|(?:react|sqlite|duckdb|wasmProvider|serverProvider|footprintjs)/i;
   for (const path of retained) assert(!forbidden.test(path), `Profile bundle retained a forbidden dependency: ${path}`);
+  for (const path of assertionInputs) assert(!forbidden.test(path), `Assertion bundle retained a forbidden dependency: ${path}`);
+  assert(![...retained].some(path => path.includes('/contextfootprint/')),
+    'Using ordinary profile operations must not retain the shared comparator');
   assert([...retained].some((path) => path.endsWith('/data/profile/run.js')));
   assert([...retained].some((path) => path.endsWith('/data/profile/groups.js')));
   assert([...retained].some((path) => path.endsWith('/data/rank/summary.js')));
@@ -86,6 +111,8 @@ try {
   assert.deepEqual(groupedStandalone.examples, groupedDirect.examples.slice(0, 3));
   const semanticStandalone = JSON.parse(run(process.execPath, ['bundle-semantics.mjs'], consumer));
   assert.deepEqual(semanticStandalone, semanticDirect);
+  const assertionStandalone = JSON.parse(run(process.execPath, ['assertion-only.mjs'], consumer));
+  assert.deepEqual(assertionStandalone, assertionDirect);
   const namespaceStandalone = JSON.parse(run(process.execPath, ['bundle-namespace.mjs'], consumer));
   assert.deepEqual(namespaceStandalone, namespaceDirect);
   console.log('PASS standalone profile bundle: no renderer, session, agent, React, MCP, SQLite, WASM, or external runtime imports');
@@ -95,7 +122,7 @@ try {
     retainedModules: [...retained].map((path) => path.replace(/^node_modules\/vizfootprint\//, '')).sort(),
     checks: ['packed-public-import', 'synthetic-requests', 'synthetic-inventory', 'sqlite-iterator-parity',
       'packed-group-example', 'grouped-requests-include-exclude', 'grouped-inventory', 'group-scope-reconstruction',
-      'grouped-sqlite-iterator-parity', 'semantic-discovery-ui-tool-parity', 'bounded-result-context', 'rank-paged-context', 'shared-data-discovery', 'qualified-field-namespace', 'bundle-dependency-boundary', 'dependency-free-bundle-execution'],
+      'grouped-sqlite-iterator-parity', 'semantic-discovery-ui-tool-parity', 'bounded-result-context', 'rank-paged-context', 'shared-data-discovery', 'qualified-field-namespace', 'shared-profile-assertion', 'standalone-assertion-comparison', 'bundle-dependency-boundary', 'dependency-free-bundle-execution'],
   }, null, 2));
 } finally {
   await rm(scratch, { recursive: true, force: true });

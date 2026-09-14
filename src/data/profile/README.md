@@ -59,6 +59,54 @@ imports use the package's public entry point.
 
 ## Scope and numerical meaning
 
+### Comparing a referenced statistic
+
+`profileStatisticAssertion(result, { field, statistic, scope, epoch, stratum })`
+projects one already computed scalar into a ContextFootprint assertion. It is
+exported from `vizfootprint/data`; comparison uses `conflictsOf` from
+`contextfootprint`. Run `node examples/profile-assertion.mjs` after building for
+the complete synthetic example. The local pre-alpha package includes the pinned
+ContextFootprint dependency; a consumer directly importing its comparator should
+also declare the matching ContextFootprint dependency. There is no npm release
+claim for these local packages.
+
+The host must explicitly supply an investigation scope, nonnegative integer
+epoch and `stratum: 'asserted' | 'quoted'`. An epoch is the host's comparison
+boundary, not an inferred timestamp. Use `asserted` for a current observation
+and `quoted` when retaining an earlier observation for reference. The adapter
+does not establish whether an observation is current or authorized.
+
+Comparison identity retains the source ID and immutable snapshot version,
+table, selection reference **and actual predicate**, field, statistic, unit,
+row grain, meaning, known-selected-value population and applicable computation
+method. Quantile methods distinguish median and p95; they do not split mean
+observations just because the same plan also requested a quantile. Object key
+ordering in a predicate does not change identity; logically equivalent but
+differently written predicates are not algebraically normalized. Result and
+operation references identify provenance, separately from the measure being
+compared. Keys are opaque tuple encodings, not a public parseable wire grammar.
+
+Zero remains a known numeric observation. A null estimate becomes structural
+`{ kind: 'unknown', reason }`, preserving that no estimate exists; it never
+becomes zero. Unknown statistics and unrequested or missing fields/statistics
+are distinct: missing declarations are rejected. Unknown, quoted and
+differently scoped assertions do not contradict one another. Therefore an empty
+`conflictsOf` result **does not mean verified**. The host still decides whether
+the required current evidence and comparisons exist before presenting an answer.
+
+This is a bounded metadata projection from a trusted `ProfileResult`, not a
+second row scan, evidence store, model response parser or answer validator. Shape
+checks cannot authenticate a fabricated receipt, prove source freshness or
+recompute its arithmetic. No rows, UI commands, model prompts or server calls
+are added. Returned observations are detached and frozen.
+
+Only copy an observation's comparison stamp onto a claim that explicitly refers
+to **that exact measure**, such as a referenced numeric value with units rendered
+from the evidence. When a claimant independently supplies units, scope, grain
+or statistic, preserve and validate those declarations. Do not relabel a claim
+of “10 seconds” as “10 milliseconds” by borrowing the evidence stamp. This first
+adapter emits observations; claim interpretation and delivery remain host-owned.
+
 - A schema names the source snapshot, table, row grain, column types, roles,
   meanings and optional units. Row counts stay row counts; the profiler does
   not infer a distinct-entity population from an identifier or graph edge.
@@ -164,18 +212,23 @@ does not prove that an uncooperative provider has released that resource.
 ## Package boundary check
 
 The development check `node scripts/check-profile-package.mjs` builds and packs this checkout, extracts
-only the package into a fresh consumer, and runs both shipped example files
-(seven synthetic profiling/grouping cases, including SQLite) through `vizfootprint/data` with no installed runtime or optional dependencies.
+the package into a fresh consumer, and runs the shipped profiling, grouping and
+statistic-assertion examples through `vizfootprint/data`. The assertion example
+uses the bundled ContextFootprint comparator; no separately installed optional
+engines are required. The SQLite profiling example uses Node's built-in module.
 The examples are read from the packed archive, so a missing shipped example fails
 the check. The development checker itself requires the source checkout and its
 development dependencies.
 The check uses an isolated offline npm cache and removes its temporary files.
 
 It also bundles only `profileData`, `profileGroups` and `createArrayProfileProvider` from that
-public entry point. The esbuild metafile must show no emitted renderer, session,
-agent, React, MCP, SQLite or WASM dependency and no retained external import.
-Finally it removes the packed package and runs the array-based examples using
-only that standalone bundle. Optional peer declarations in the broad data
+public entry point. This profiling bundle must retain no ContextFootprint runtime
+when its comparator is unused. The separate assertion example is bundled for a
+neutral JavaScript host and deliberately retains the shared comparator. The
+checks exclude renderer, session, agent, React, MCP, SQLite and WASM runtime
+dependencies and retained external imports. Finally, the checks remove installed
+packages and run the array-based examples and assertion example using standalone
+bundles. Optional peer declarations in the broad data
 barrel may be visited by the bundler but must contribute no emitted runtime
 code. This verifies computational separation; it does not validate a future UI
 integration or benchmark a large source.

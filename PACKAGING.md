@@ -381,3 +381,22 @@ step 6 is done by hand when a door is added.
 6. **Prove it resolves**, from the demo and not from here: `import.meta.resolve`
    should name a file under `dist/`, and the symbol should come back off the
    module. The alias makes an in-repo test a poor witness, on purpose.
+
+
+## Shared assertion dependency
+
+`profileStatisticAssertion` is exported through the existing `vizfootprint/data`
+entry. It projects one computed profile statistic into ContextFootprint's
+`Assertion` shape; it does not collect data, infer claims or enforce answers.
+See `src/data/profile/README.md` and `examples/profile-assertion.mjs`.
+
+ContextFootprint 0.1.0 is pinned in the manifest. The tracked lockfile resolves it
+to the reviewed archive under `vendor/contextfootprint`; preserve that lockfile
+while the package remains unpublished on npm. The installed dependency is bundled
+in Viz's packed archive. Its source commit, integrity and update procedure are in
+`vendor/contextfootprint/README.md`.
+
+The package check runs the observation/comparison example against the actual
+packed archive, then bundles and runs it without any installed packages. Ordinary
+profile operations do not retain the shared comparator in their browser bundle.
+No renderer, Node, agent or optional engine dependency may survive either bundle.

@@ -84,7 +84,8 @@
     "examples/field-namespace.mjs",
     "README.md",
     "PACKAGING.md",
-    "LICENSE"
+    "LICENSE",
+    "examples/profile-assertion.mjs"
   ],
   "sideEffects": false,
   "workspaces": [
@@ -136,6 +137,7 @@
     "vitest": "^4.0.0"
   },
   "dependencies": {
+    "contextfootprint": "0.1.0",
     "footprintjs": "^9.11.0"
   },
   "peerDependencies": {
@@ -161,5 +163,8 @@
     "agentfootprint": {
       "optional": true
     }
-  }
+  },
+  "bundleDependencies": [
+    "contextfootprint"
+  ]
 }

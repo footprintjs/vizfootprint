@@ -204,6 +204,8 @@ export type { RowRecorder, Recorders, FoldResult } from './fold.js';
 
 // Data analysis over a selected snapshot, separate from data organization and rendering.
 export { profileData } from './profile/run.js';
+export { profileStatisticAssertion } from './profile/assertion.js';
+export type { ProfileStatisticAssertionOptions } from './profile/assertion.js';
 export { profileGroups } from './profile/groups.js';
 export { GROUP_PROFILE_DEFAULT_LIMITS } from './profile/groups.validate.js';
 export type { GroupProfileEvent, GroupProfileLimits, GroupProfileOptions, GroupProfilePlan, GroupProfileResult, ProfileGroup } from './profile/groups.types.js';
