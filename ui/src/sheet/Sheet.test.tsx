@@ -1550,6 +1550,9 @@ describe('a clause that TRAVELLED a relation — the twin sentence (`travelledSa
     const walked = { from: 'net~edges', fromLabel: 'Ties', response: 'mirror' as const, clause: { kind: 'match' as const, field: 'disease', values: ['Mumps', 'Measles', 'Rubella'] },
       via: { path: [END('source'), END('target')], label: 'one end of the tie, the other end', rows: 3, from: { kind: 'neighbourhood' as const, fields: ['source', 'target'] as const, ids: ['Mumps', 'Measles', 'Rubella'] } } };
     expect(travelledSaid({ ...WIN, clauses: [walked] })).toEqual(['the walk from Ties reached these rows as its walked set · 3 disease values']);
+    // no declared label on the source: the address, exactly as `narrowedSaid` falls back — never a name invented here
+    const { fromLabel: _unnamed, ...bare } = walked; void _unnamed;
+    expect(travelledSaid({ ...WIN, clauses: [bare] })).toEqual(['the walk from net~edges reached these rows as its walked set · 3 disease values']);
   });
 
   it('the pure rule: which view reached, the relation by its declared label or its spelling, and the size of the set — nothing when nothing travelled', () => {
