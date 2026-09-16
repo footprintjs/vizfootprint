@@ -2408,6 +2408,10 @@
 :where(.vzf) .vzf-editor-status { font-size: 11px; opacity: 0.7; }
 :where(.vzf) .vzf-editor-stale { color: #a8661a; opacity: 1; }
 :where(.vzf) .vzf-editor-origin { font-size: 11px; opacity: 0.6; }
+/* an edge the map DECLINED, said beneath the rows that exist: the caption register the selection chips'
+   own notes use (soft ink, mono, small, dimmed) — a fact about an edge that is NOT here must never read
+   as loud as the edges that are, and it carries no control because there is nothing here to edit. */
+:where(.vzf) .vzf-editor-declined { color: var(--vzf-ink-soft); font-family: var(--vzf-font-mono); font-size: 10px; opacity: 0.8; }
 
 /* ── the cockpit's push-aside: reserves its width beside the charts and animates it ── */
 :where(.vzf).vzf-cockpit-root,

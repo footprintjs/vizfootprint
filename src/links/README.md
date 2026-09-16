@@ -84,7 +84,10 @@ ways: a reader who counts the default's n² edges and finds fewer is owed the
 reason, so every declined edge is recorded on the graph (`LinkGraph.declined`)
 and `linksToMermaid` writes each as a note beside the graph it drew. The key is
 absent when nothing was declined, so a graph judged by no reach is byte-identical
-to one built before this law.
+to one built before this law. The cockpit says it in the same place a person
+would look for the edge: the chart editor prints each decline touching the chart
+being edited as a note beneath its rows, in this `reason` verbatim and with no
+control beside it (`ui/src/editor/README.md`).
 
 **A DECLARED edge is the author's claim, and the door judges it separately.**
 `links: [{ source, kind, target, response: 'filter' }]` between two such views is

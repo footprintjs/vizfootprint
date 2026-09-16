@@ -698,11 +698,32 @@ export interface LinkNodeView {
    */
   readonly frame?: readonly string[];
 }
+/**
+ * One default edge the reach law DECLINED to mint, as the wire carries it
+ * (src/links `DeclinedEdge`, verbatim JSON).
+ *
+ * WHY the cockpit is handed these at all: "declared === drawn" cuts both ways,
+ * so a reader who sees a brush reach nothing at a chart is owed the map's own
+ * reason rather than a silence (`src/links/README.md`, "A declined edge is a
+ * fact, not a silence"). The editor prints one as a NOTE, never as a row with
+ * controls — there is no edge here to edit.
+ */
+export interface DeclinedEdgeView {
+  /** `${source}:${kind}→${target}` — the id the edge WOULD have had. */
+  readonly id: string;
+  readonly source: string;
+  readonly kind: LinkEdgeView['kind'];
+  readonly target: string;
+  /** The map's own sentence (`src/links` · `unreachableWords`) — quoted verbatim, never re-worded. */
+  readonly reason: string;
+}
 /** The materialized link graph (layer 4): what each view's emission does to every other view. */
 export interface LinkGraphView {
   readonly default: 'crossfilter' | 'none';
   readonly views: readonly LinkNodeView[];
   readonly edges: readonly LinkEdgeView[];
+  /** The default edges the reach law declined, each with its reason. Absent = none were, so a graph judged by no reach reads exactly as it did before this key existed. */
+  readonly declined?: readonly DeclinedEdgeView[];
 }
 
 export interface SessionViewState {

@@ -49,7 +49,7 @@ import { OPS_VERSION, layerAddress } from 'vizfootprint/def';
 import type { Cause } from 'vizfootprint/cause';
 import type { ChartEmission } from 'vizfootprint/selection';
 import {
-  ClearedSelectionView, LinkGraphView,
+  ClearedSelectionView, LinkGraphView, type DeclinedEdgeView,
   HONESTY_LINE,
   emptyState,
   emptyPaths,
@@ -809,9 +809,32 @@ function mapPolicy(raw: unknown): SessionViewState['encodingPolicy'] {
 /** The link graph, when the wire carries one with the shape src/links serves; anything else = absent (the old rule). */
 function mapLinks(raw: unknown): LinkGraphView | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
-  const g = raw as { default?: unknown; views?: unknown; edges?: unknown };
+  const g = raw as { default?: unknown; views?: unknown; edges?: unknown; declined?: unknown };
   if ((g.default !== 'crossfilter' && g.default !== 'none') || !Array.isArray(g.views) || !Array.isArray(g.edges)) return undefined;
-  return { default: g.default, views: g.views as LinkGraphView['views'], edges: g.edges as LinkGraphView['edges'] };
+  const declined = mapDeclined(g.declined);
+  // Law 1 — the key stays absent where the wire carries none, so a graph judged by no reach
+  // projects byte-identically to one mapped before `declined` existed (`./README.md`)
+  return { default: g.default, views: g.views as LinkGraphView['views'], edges: g.edges as LinkGraphView['edges'], ...(declined.length > 0 ? { declined } : {}) };
+}
+
+/**
+ * The default edges the reach law DECLINED (`src/links` · `LinkGraph.declined`),
+ * each carried WHOLE or dropped alone.
+ *
+ * Whole-or-dropped rather than the wholesale cast `views` and `edges` get,
+ * because this entry is shown as a SENTENCE and nothing else: an entry missing
+ * its `reason` would print the map's refusal with the reason blank, which reads
+ * as a refusal nobody could explain. A malformed entry is dropped by itself,
+ * the well-formed ones beside it standing (the `mapSources` rule).
+ */
+function mapDeclined(raw: unknown): DeclinedEdgeView[] {
+  if (!Array.isArray(raw)) return [];
+  const KINDS = ['point', 'interval', 'cell', 'match', 'neighbourhood', 'encoding']; // the vocabulary `LinkEdgeView.kind` states (`mapProposals`' local-list pattern)
+  return raw.flatMap((d) => {
+    const x = d as { id?: unknown; source?: unknown; kind?: unknown; target?: unknown; reason?: unknown } | null;
+    if (typeof x?.id !== 'string' || typeof x.source !== 'string' || typeof x.target !== 'string' || typeof x.reason !== 'string' || typeof x.kind !== 'string' || !KINDS.includes(x.kind)) return [];
+    return [{ id: x.id, source: x.source, kind: x.kind as DeclinedEdgeView['kind'], target: x.target, reason: x.reason }];
+  });
 }
 
 /** A commit true of a data version the table has since left is marked, so a number it shows is not mistaken for reproducible. */

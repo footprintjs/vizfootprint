@@ -5,8 +5,10 @@
  * the analyst's basis kept when a person edits its draft), channels as
  * reencode (refused columns greyed, a followed channel locked), links as link.
  */
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { layerAddress } from 'vizfootprint/def';
 import { ChartEditor, EditorDrawer, EDITOR_SLOTS, editedRecord } from './index.js';
 import type { LinkGraphView, ViewView } from '../adapter/types.js';
 
@@ -210,5 +212,114 @@ describe('proposals in the editor', () => {
     render(<ChartEditor view={v} onDecline={onDecline} />);
     expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Decline' })).toBeTruthy();
+  });
+});
+
+/**
+ * THE MAP'S REFUSALS ARE SHOWN, and a FRAME's editor lists its layers' edges.
+ *
+ * Two halves of one law (packet AW): what the map says, the editor shows. A
+ * layered view that binds nothing at its own level is a FRAME — no edge lands
+ * at its bare address, its layers' edges live at `viewId~layerId` — and an
+ * editor that asked only about `view.viewId` showed a node-link an empty list.
+ * And an edge the reach law DECLINED is a fact the map records
+ * (`LinkGraph.declined`): here it is a note in the map's own words, never a row
+ * with controls, because nothing on this panel could mint it.
+ */
+describe('a frame\'s layers\' edges, and the edges the map declined', () => {
+  const NODES_AT = layerAddress('net', 'nodes');
+  const EDGES_AT = layerAddress('net', 'edges');
+  /** `src/links` · `unreachableWords` for this pair, quoted — the note must print it and never re-word it. */
+  const REASON = `view "${EDGES_AT}" draws table "edges" and view "sheet" draws table "measurements" — no relation joins those tables and they share no column, so nothing this edge carries could be judged there`;
+  /** A node-link: two layers, each its own table, and nothing bound at the view's own level. */
+  const frame: ViewView = {
+    viewId: 'net',
+    actor: 'user',
+    selectionKinds: ['point'],
+    canProbe: true,
+    mounted: true,
+    encoding: {},
+    layers: [
+      { layerId: 'nodes', table: 'nodes', chartKind: 'point', channels: ['x', 'y'], initial: { x: 'id' }, label: 'Diseases' },
+      { layerId: 'edges', table: 'edges', chartKind: 'line', channels: ['x', 'y'] },
+    ],
+  };
+  const frameLinks: LinkGraphView = {
+    default: 'crossfilter',
+    views: [
+      { viewId: 'net', voice: ['point'], frame: [NODES_AT, EDGES_AT] },
+      { viewId: NODES_AT, voice: ['point'] },
+      { viewId: EDGES_AT, voice: ['point'] },
+      { viewId: 'sheet', voice: ['point'] },
+    ],
+    edges: [
+      { id: `${NODES_AT}:point→sheet`, source: NODES_AT, kind: 'point', target: 'sheet', response: 'filter', origin: 'default' },
+      { id: `sheet:point→${EDGES_AT}`, source: 'sheet', kind: 'point', target: EDGES_AT, response: 'highlight', origin: 'edited' },
+      { id: 'other:point→sheet', source: 'other', kind: 'point', target: 'sheet', response: 'filter', origin: 'default' },
+    ],
+    declined: [
+      { id: `${EDGES_AT}:point→sheet`, source: EDGES_AT, kind: 'point', target: 'sheet', reason: REASON },
+      { id: 'other:point→elsewhere', source: 'other', kind: 'point', target: 'elsewhere', reason: 'about two charts that are not this one' },
+    ],
+  };
+  const labels = { [NODES_AT]: 'Diseases', [EDGES_AT]: 'The ties', sheet: 'Every published value' };
+
+  it('the frame\'s list covers BOTH layer addresses, each row named by its own ends, and an edge touching neither is absent', () => {
+    const onLink = vi.fn();
+    render(<ChartEditor view={frame} links={frameLinks} labels={labels} onLink={onLink} />);
+    // out of the nodes layer, and INTO the edges layer — one row each, at the address that owns it
+    expect(screen.getByRole('combobox', { name: `${NODES_AT} point → sheet` })).toBeTruthy();
+    const into = screen.getByRole('combobox', { name: `sheet point → ${EDGES_AT}` }) as HTMLSelectElement;
+    expect([...into.options][0]!.textContent).toBe('back to the rule');
+    // …and nothing about two other charts
+    expect(screen.queryByRole('combobox', { name: 'other point → sheet' })).toBeNull();
+    // the labels the rows use are the layers' own
+    expect(screen.getAllByText(/The ties/).length).toBeGreaterThan(0);
+    fireEvent.change(into, { target: { value: 'filter' } });
+    expect(onLink).toHaveBeenCalledWith({ source: 'sheet', kind: 'point', target: EDGES_AT, response: 'filter' });
+  });
+
+  it('one note per declined edge touching those addresses, the map\'s reason VERBATIM, and none for an edge about other charts', () => {
+    const { container } = render(<ChartEditor view={frame} links={frameLinks} labels={labels} onLink={vi.fn()} />);
+    const notes = container.querySelectorAll('[role="note"].vzf-editor-declined');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.textContent).toBe(`the map declined The ties → Every published value (point): ${REASON}`);
+    expect(notes[0]!.getAttribute('data-declined')).toBe(`${EDGES_AT}:point→sheet`);
+    // the note is a SIBLING of the rows, never inside a control — clicking it can change nothing
+    expect(notes[0]!.closest('button')).toBeNull();
+    expect(notes[0]!.querySelector('select, button, input, textarea')).toBeNull();
+    // unlabelled, the note names the addresses themselves
+    cleanup();
+    render(<ChartEditor view={frame} links={frameLinks} />);
+    expect(screen.getByRole('note').textContent).toBe(`the map declined ${EDGES_AT} → sheet (point): ${REASON}`);
+  });
+
+  it('clicking the note fires no handler, and a declined edge alone still opens the Links section', () => {
+    const onLink = vi.fn();
+    const onReencode = vi.fn();
+    const declinedOnly: LinkGraphView = { ...frameLinks, edges: [], declined: [frameLinks.declined![0]!] };
+    const { container } = render(<ChartEditor view={frame} links={declinedOnly} labels={labels} onLink={onLink} onReencode={onReencode} />);
+    expect(screen.getByRole('region', { name: 'links' })).toBeTruthy();
+    expect(screen.queryByRole('combobox')).toBeNull();
+    const note = container.querySelector('[role="note"].vzf-editor-declined')!;
+    fireEvent.click(note);
+    expect(onLink).not.toHaveBeenCalled();
+    expect(onReencode).not.toHaveBeenCalled();
+  });
+
+  it('nothing at all when the map declined nothing — the panel reads as it did before the key existed', () => {
+    const { container } = render(<ChartEditor view={frame} links={{ ...frameLinks, declined: undefined }} labels={labels} onLink={vi.fn()} />);
+    expect(container.querySelectorAll('[role="note"]')).toHaveLength(0);
+    cleanup();
+    // …and a plain view, whose editor asked about one address all along, is untouched
+    const { container: plain } = render(<ChartEditor view={view} links={links} onLink={vi.fn()} />);
+    expect(plain.querySelectorAll('[role="note"]')).toHaveLength(0);
+  });
+
+  it('the note is styled in the caption register beside the editor\'s own status line', () => {
+    const css = readFileSync(process.cwd().endsWith('/ui') ? 'src/styles.css' : 'ui/src/styles.css', 'utf8');
+    const rule = /\.vzf-editor-declined \{([^}]*)\}/.exec(css)![1]!;
+    expect(rule).toContain('color: var(--vzf-ink-soft)');
+    expect(rule).toContain('font-family: var(--vzf-font-mono)');
   });
 });

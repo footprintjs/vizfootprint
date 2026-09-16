@@ -10,11 +10,15 @@
  *   - CHANNELS (the encoding plane): each channel with the columns that fit
  *     it, refused ones greyed with the session's sentence; a followed channel
  *     belongs to its edge and says so.
- *   - LINKS (the data plane): the edges into and out of this chart, each with
- *     the responses its kind allows; null = back to the rule.
+ *   - LINKS (the data plane): the edges into and out of this chart — at its own
+ *     address AND at its layers' (a layered view with no own binding is a
+ *     FRAME, so its layers' edges are the only ones it has) — each with the
+ *     responses its kind allows; null = back to the rule. Beneath them, the
+ *     edges the map DECLINED, said as notes in the map's own words.
  */
 import { useState } from 'react';
-import type { LinkGraphView, ProposalView, ProseStatusView, ViewView } from '../adapter/types.js';
+import { layerAddress } from 'vizfootprint/def';
+import type { DeclinedEdgeView, LinkGraphView, ProposalView, ProseStatusView, ViewView } from '../adapter/types.js';
 import type { LinkEdit } from '../adapter/sessionView.js';
 import { responsesFor } from '../links/LinkMatrix.js';
 
@@ -54,7 +58,14 @@ export function ChartEditor({ view, links, labels = {}, by, readOnly = false, on
   const prose = new Map((view.prose ?? []).map((p) => [p.slot, p] as const));
   const channels = Object.keys(view.fits ?? view.encoding);
   const shown = view.effective?.bindings ?? view.encoding;
-  const edges = (links?.edges ?? []).filter((e) => e.source === view.viewId || e.target === view.viewId);
+  // EVERY ADDRESS THIS CHART DRAWS AT: its own, and one per layer. A layered view
+  // that binds nothing at its own level is a FRAME on the link graph — no edge
+  // lands there, and its layers' do (`vizfootprint/def` "Layers" law 6a), so an
+  // editor that asked only about `view.viewId` listed nothing for a node-link.
+  const addresses = new Set([view.viewId, ...(view.layers ?? []).map((l) => layerAddress(view.viewId, l.layerId))]);
+  const touches = (e: { readonly source: string; readonly target: string }): boolean => addresses.has(e.source) || addresses.has(e.target);
+  const edges = (links?.edges ?? []).filter(touches);
+  const declined = (links?.declined ?? []).filter(touches);
   return (
     <div className={`vzf vzf-editor${className ? ' ' + className : ''}`} data-vzf="chart-editor">
       <section className="vzf-editor-section" aria-label="words">
@@ -114,7 +125,7 @@ export function ChartEditor({ view, links, labels = {}, by, readOnly = false, on
           })}
         </section>
       ) : null}
-      {edges.length > 0 ? (
+      {edges.length > 0 || declined.length > 0 ? (
         <section className="vzf-editor-section" aria-label="links">
           <h4 className="vzf-editor-h">Links</h4>
           {edges.map((e) => (
@@ -140,10 +151,30 @@ export function ChartEditor({ view, links, labels = {}, by, readOnly = false, on
               <span className={`vzf-editor-origin vzf-editor-${e.origin}`}>{e.origin}</span>
             </div>
           ))}
+          {declined.map((d) => (
+            <div key={d.id} role="note" className="vzf-editor-declined" data-declined={d.id}>
+              {declinedWords(d, name)}
+            </div>
+          ))}
         </section>
       ) : null}
     </div>
   );
+}
+
+/**
+ * The map's own refusal, as the one line a reader gets: which default edge the
+ * reach law declined, and — after the colon — the map's `reason` VERBATIM.
+ *
+ * WHY a note and not a row: a declined edge is not an edge to edit. Nothing on
+ * this panel could mint it; a relation or a shared column would
+ * (`src/links/README.md`, "A declined edge is a fact, not a silence"). So the
+ * line states the fact and offers no control beside it — the reader who sees a
+ * brush reach nothing at a chart learns here that the map declined that edge,
+ * instead of reading the absence as a silence.
+ */
+function declinedWords(d: DeclinedEdgeView, name: (id: string) => string): string {
+  return `the map declined ${name(d.source)} → ${name(d.target)} (${d.kind}): ${d.reason}`;
 }
 
 function ProposalRow({ viewId, proposal: p, readOnly, onAccept, onDecline }: { viewId: string; proposal: ProposalView; readOnly: boolean; onAccept?: ChartEditorProps['onAccept']; onDecline?: ChartEditorProps['onDecline'] }): JSX.Element {

@@ -325,6 +325,28 @@ port cannot ask N questions as one, so a refresh landing between two reads
 folds one frame over two table versions until the next update. It is written at
 `frameFor`, next to the `version` every answer already carries.
 
+### Law 1 again: the map's REFUSALS are part of the map
+
+`src/links` records every default edge the reach law declined, each with its
+reason (`LinkGraph.declined` — "declared === drawn" cuts both ways, so an
+absence is owed an explanation). The overview served that list and `mapLinks`
+dropped it, which is Law 1's failure read backwards: not a fact re-derived, a
+fact thrown away — and a cockpit that watches a brush reach nothing at a chart
+then has nothing to say about why.
+
+```ts
+state.links!.declined;
+// [{ id: 'spread~buckets:interval→by_year~references', source: 'spread~buckets', kind: 'interval',
+//    target: 'by_year~references', reason: 'view "spread~buckets" draws table "radii_per_planet" and … could be judged there' }]
+```
+
+`LinkGraphView.declined` carries it off both hosts. Two rules, both visible in
+`mapDeclined`: each entry is kept **whole or dropped alone** (an entry missing
+its `reason` would print the map's refusal with the reason blank, which reads as
+a refusal nobody could explain), and the key stays **absent** when nothing was
+declined, so a graph judged by no reach projects exactly as it did before the
+key existed. The chart editor is what shows it (`../editor/README.md`).
+
 ---
 
 ## Adding a field to `SessionViewState` — the checklist
