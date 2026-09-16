@@ -69,10 +69,21 @@ export function narrowedWords(address: string, at: NarrowedAtView): string {
  * label riding the wire (`TravelledAtView.label`), the address when none is
  * declared, exactly as `narrowedWords` falls back. The count is the set the
  * pick became, counted where the set is in hand — the far column's values.
+ *
+ * A WALK travels by identity, not through a relation (`src/session/session.ts`
+ * · `travelByIdentity`): its recorded ids ARE the far keys, nothing was
+ * joined, and the two relations on `via.path` are the permission, not the
+ * route — so a walk's line quotes no relation and says what happened instead:
+ * `reached <label ?? address> as the walked set · N <far> values`. Quoting
+ * the two endpoint labels joined ("one end of the tie, the other end") named
+ * a route the clause never took.
  */
-export function travelledWords(address: string, at: TravelledAtView): string {
+export function travelledWords(address: string, at: TravelledAtView, walked = false): string {
+  const who = at.label ?? address;
+  const set = `\u00b7 ${at.clause.values.length} ${at.clause.field} values`;
+  if (walked) return `reached ${who} as the walked set ${set}`;
   const through = at.via.label ?? at.via.path.map((hop) => relationEdgeId(hop.from, hop.to)).join(', ');
-  return `reached ${at.label ?? address} through ${through} \u00b7 ${at.clause.values.length} ${at.clause.field} values`;
+  return `reached ${who} through ${through} ${set}`;
 }
 
 /** Whether a selection has a polarity to flip (a live point or match — `live` already dropped the cleared ones). */
@@ -121,7 +132,7 @@ function travelledNotes(s: SelectionView): JSX.Element[] | null {
   if (s.travelled === undefined) return null;
   return Object.entries(s.travelled).map(([address, at]) => (
     <span key={`travelled:${address}`} role="note" className="vzf-selchip-travelled" data-consumer={address}>
-      {travelledWords(address, at)}
+      {travelledWords(address, at, s.kind === 'neighbourhood')}
     </span>
   ));
 }

@@ -30,6 +30,14 @@ const pick: SelectionView = {
   },
 };
 const plain: SelectionView = { viewId: 'bar', field: 'category', kind: 'point', value: 'Formal' };
+// a WALK: the ids arrived at the nodes as themselves — two relations are the permission, and their joined labels name no route
+const SOURCE_END = { from: { table: 'edges', column: 'source' }, to: { table: 'nodes', column: 'disease' } };
+const TARGET_END = { from: { table: 'edges', column: 'target' }, to: { table: 'nodes', column: 'disease' } };
+const walk: SelectionView = {
+  viewId: 'net~edges', field: 'source ↔ target', kind: 'neighbourhood', fields: ['source', 'target'],
+  value: { seed: 'Mumps', derivation: 'ego', hops: 1, ids: ['Mumps', 'Measles', 'Rubella'] },
+  travelled: { 'net~nodes': { clause: { kind: 'match', field: 'disease', values: ['Mumps', 'Measles', 'Rubella'] }, via: { path: [SOURCE_END, TARGET_END], label: 'one end of the tie, the other end', rows: 3 }, label: 'Diseases' } },
+};
 
 describe('SelectionChips — a clause that travelled a relation says so, per consumer, beneath its words', () => {
   it('the sentence: `reached <label ?? address> through <relation label ?? relation> · N <far> values`', () => {
@@ -49,6 +57,14 @@ describe('SelectionChips — a clause that travelled a relation says so, per con
     expect(chip.querySelector('.vzf-selchip-words')!.compareDocumentPosition(notes[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(chipWords(pick)).toBe('pl_name in {Kepler-22b, TRAPPIST-1e, HD 209458 b}');
     expect(chip.querySelectorAll('.vzf-selchip-narrowed')).toHaveLength(0); // it travelled, so it was judged: no narrowed line
+  });
+
+  it('a WALK quotes no relation: `reached <label> as the walked set · N <far> values` — the joined endpoint labels name a route it never took', () => {
+    const at = walk.travelled!['net~nodes']!;
+    expect(travelledWords('net~nodes', at, true)).toBe('reached Diseases as the walked set · 3 disease values');
+    expect(travelledWords('net~nodes', at)).toBe('reached Diseases through one end of the tie, the other end · 3 disease values'); // the pure rule, unasked
+    const { container } = render(<SelectionChips selections={[walk]} />);
+    expect([...container.querySelectorAll('[role="note"]')].map((n) => n.textContent)).toEqual(['reached Diseases as the walked set · 3 disease values']);
   });
 
   it('a chip without the key renders NO travelled note — byte-identical to before the key existed', () => {

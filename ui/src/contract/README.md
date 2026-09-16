@@ -876,7 +876,11 @@ through where the composite took its accepted radius from · 2 ref values*)
 and `travelledSaid` (on the root barrel, the consumer's vantage) — which name
 the relation by its declared label or, when none, by the def door's own
 spelling (`relationEdgeId`, `vizfootprint/def`), so a chip, a sheet and a
-refusal name an edge one way. A 1.8 renderer never reads the field and draws
+refusal name an edge one way. A WALK travelled by identity (Law 8 above:
+`via.from` is the neighbourhood) quotes no relation, because nothing was
+joined — *reached Diseases as the walked set · 3 disease values* / *the walk
+from Ties reached these rows as its walked set · 3 disease values*: the two
+relations on `via.path` are the permission, not the route. A 1.8 renderer never reads the field and draws
 byte-identically (`capabilities.test.tsx`); the `notInThisVersion` pins hold
 the version to the prose.
 

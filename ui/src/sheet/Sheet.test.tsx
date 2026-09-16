@@ -1545,6 +1545,13 @@ describe('a clause that TRAVELLED a relation — the twin sentence (`travelledSa
   const MADE = { kind: 'match' as const, field: 'pl_name', values: ['Kepler-22b', 'TRAPPIST-1e', 'HD 209458 b'] };
   const TRAVELLED = { from: 'mass_radius~planets', response: 'filter' as const, clause: { kind: 'match' as const, field: 'ref', values: ['ref-A', 'ref-B'] }, via: { path: [RADIUS_REF], label: LABEL, rows: 3, from: MADE } };
 
+  it('a WALK that travelled by identity quotes no relation — the walk from X reached these rows as its walked set', () => {
+    const END = (column: string) => ({ from: { table: 'edges', column }, to: { table: 'nodes', column: 'disease' } });
+    const walked = { from: 'net~edges', fromLabel: 'Ties', response: 'mirror' as const, clause: { kind: 'match' as const, field: 'disease', values: ['Mumps', 'Measles', 'Rubella'] },
+      via: { path: [END('source'), END('target')], label: 'one end of the tie, the other end', rows: 3, from: { kind: 'neighbourhood' as const, fields: ['source', 'target'] as const, ids: ['Mumps', 'Measles', 'Rubella'] } } };
+    expect(travelledSaid({ ...WIN, clauses: [walked] })).toEqual(['the walk from Ties reached these rows as its walked set · 3 disease values']);
+  });
+
   it('the pure rule: which view reached, the relation by its declared label or its spelling, and the size of the set — nothing when nothing travelled', () => {
     expect(travelledSaid(null)).toEqual([]);
     expect(travelledSaid(WIN)).toEqual([]);

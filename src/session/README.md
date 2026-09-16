@@ -520,7 +520,9 @@ precedent) — with the relation, `rows` and `values`: *the pick on the scatter
 reached the years through planets.radius_ref → references.ref: 3 planets → 2
 references*. The render tier folds the travelled clause and never joins
 (`../../ui/src/contract/README.md`, Law 8); the chip and the Sheet say it
-(`travelledWords`, `travelledSaid`).
+(`travelledWords`, `travelledSaid`) — and for a walk, which travelled by
+identity, they quote no relation: *reached Diseases as the walked set · 3
+disease values*.
 
 ```ts
 // five planets, four references, one declared relation planets.radius_ref → references.ref

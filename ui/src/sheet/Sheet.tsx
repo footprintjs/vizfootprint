@@ -231,14 +231,21 @@ export function narrowedSaid(win: SheetWindow | null): readonly string[] {
  * makes the same choice from the source's side, so one fact reads one way.
  * The source is named as `narrowedSaid` names it: the declared label, else
  * the address. One sentence per travelled clause, for `narrowedSaid`'s reason.
+ * A WALK travelled by identity (`via.from` is the neighbourhood itself —
+ * `src/session/session.ts` · `travelByIdentity`): nothing was joined, so no
+ * relation is quoted — "the walk from X reached these rows as its walked set
+ * · N <far> values" — the chip's `travelledWords` says the same from the
+ * source's side.
  */
 export function travelledSaid(win: SheetWindow | null): readonly string[] {
   return (win?.clauses ?? []).flatMap((c) => {
     if (c.via === undefined) return [];
-    const through = c.via.label ?? c.via.path.map((hop) => relationEdgeId(hop.from, hop.to)).join(', ');
     // `via` rides only a travelled `match` (`src/session/clausesReaching.ts` · `travelledTo`), so the values are the set the pick became
     const set = c.clause as MatchClause;
-    return [`the selection from ${c.fromLabel ?? c.from} reached these rows through ${through} \u00b7 ${set.values.length} ${set.field} values`];
+    const size = `\u00b7 ${set.values.length} ${set.field} values`;
+    if (c.via.from.kind === 'neighbourhood') return [`the walk from ${c.fromLabel ?? c.from} reached these rows as its walked set ${size}`];
+    const through = c.via.label ?? c.via.path.map((hop) => relationEdgeId(hop.from, hop.to)).join(', ');
+    return [`the selection from ${c.fromLabel ?? c.from} reached these rows through ${through} ${size}`];
   });
 }
 
