@@ -14,7 +14,7 @@ import { validateAnalysisDef } from '../analysis/index.js';
 import { isBuiltinRecord, validateBuiltinAnalysis } from './builtinAnalyses.js';
 import { validateRelations } from './relations.js';
 import { mintedTables } from './builtinAnalyses.js';
-import { layerLinkViewsOf, layerSurfacesOf, markerRefusal, ownRowsOf, validateFrame, validateLayers } from './layers.js';
+import { declaredLayerAddresses, layerLinkViewsOf, layerSurfacesOf, markerRefusal, ownRowsOf, validateFrame, validateLayers } from './layers.js';
 import { tableReachOf } from './tableReach.js';
 import { holdsLayerMarker } from './layerAddress.js';
 import { EMISSION_KINDS, validateLinks, voiceOf, type EmissionKind } from '../links/index.js';
@@ -122,8 +122,21 @@ function wellFormedGrains(raw: unknown): { viewId: string; keys: readonly string
   return raw.flatMap((g) => (isObject(g) && typeof g.viewId === 'string' && Array.isArray(g.keys) && g.keys.every((k) => typeof k === 'string' && k.length > 0) ? [{ viewId: g.viewId, keys: g.keys as string[] }] : []));
 }
 
-/** `grains[i]` — a view and the group keys its marks stand for. */
-function validateGrains(raw: unknown, actors: unknown, problems: string[]): void {
+/**
+ * WHERE a grain may be declared, as the two facts the door judges a
+ * `grains[i].viewId` against: the ADDRESSES the def's layers declare
+ * (`./layers.ts` · `declaredLayerAddresses`), and — for a declared view — the
+ * layer addresses it reads through when it is a FRAME (undefined when it reads
+ * rows at its own address, which is every view that declared a grain before
+ * layers existed).
+ */
+interface GrainPlaces {
+  readonly layers: ReadonlySet<string>;
+  readonly frameOf: (viewId: string) => readonly string[] | undefined;
+}
+
+/** `grains[i]` — a place and the group keys the marks THERE stand for. */
+function validateGrains(raw: unknown, actors: unknown, places: GrainPlaces, problems: string[]): void {
   if (raw === undefined) return;
   if (!Array.isArray(raw)) {
     problems.push('grains, if present, must be an array of { viewId, keys }');
@@ -137,13 +150,43 @@ function validateGrains(raw: unknown, actors: unknown, problems: string[]): void
       return;
     }
     for (const key of Object.keys(g)) if (key !== 'viewId' && key !== 'keys') problems.push(`${where}.${key} is not a grain key`);
-    if (typeof g.viewId !== 'string' || g.viewId.length === 0) problems.push(`${where}.viewId must be a non-empty string`);
-    else if (!isObject(actors) || !(g.viewId in actors)) problems.push(`${where}.viewId "${g.viewId}" is not a declared view`);
-    else if (seen.has(g.viewId)) problems.push(`${where} repeats the grain of "${g.viewId}" — one grain per view`);
-    else seen.add(g.viewId);
+    judgeGrainPlace(where, g.viewId, actors, places, seen, problems);
     if (!Array.isArray(g.keys) || g.keys.some((k) => typeof k !== 'string' || k.length === 0)) problems.push(`${where}.keys must be an array of column names ([] = one mark per row)`);
     else if (new Set(g.keys).size !== g.keys.length) problems.push(`${where}.keys repeats a column`);
   });
+}
+
+/**
+ * A GRAIN IS DECLARED WHERE THE MARKS ARE (./README.md, law 6c): the place a
+ * grain names must be declared, must DRAW, and may be named once.
+ *
+ * An address is a viewId everywhere a viewId is accepted, so a layer's is
+ * judged here beside a view's — and a FRAME is refused by that name with the
+ * addresses of the layers that do draw, the remedy `../links/validate.ts` ·
+ * `judgeEnd` gives an edge that named one (law 6a's precedent). WHY a frame's
+ * grain is refused rather than handed down to its layers: the network's
+ * `['disease']` describes the circles, and the ties layer's marks are ties —
+ * inheritance would invent a claim about the edges, and picking one layer to
+ * give it to would be arbitrary. A view that binds at its own level draws marks
+ * of its own, so its grain is unchanged.
+ */
+function judgeGrainPlace(where: string, address: unknown, actors: unknown, places: GrainPlaces, seen: Set<string>, problems: string[]): void {
+  if (typeof address !== 'string' || address.length === 0) {
+    problems.push(`${where}.viewId must be a non-empty string`);
+    return;
+  }
+  const isView = isObject(actors) && address in actors;
+  if (!isView && !places.layers.has(address)) {
+    problems.push(`${where}.viewId "${address}" is not a declared view`);
+    return;
+  }
+  const frame = isView ? places.frameOf(address) : undefined;
+  if (frame !== undefined) {
+    problems.push(`${where}.viewId "${address}" is a frame that draws no marks of its own — declare the grain where the marks are: ${frame.join(', ')}`);
+    return;
+  }
+  if (seen.has(address)) problems.push(`${where} repeats the grain of "${address}" — one grain per address`);
+  else seen.add(address);
 }
 
 /** `data[t].source` — three tags and a locator; the laws each carrier adds are the adapter's, at open. */
@@ -731,23 +774,29 @@ export function validateDashboardDef(def: unknown): string[] {
         }
       }
     }
-    validateGrains(def.grains, def.actors, problems);
+    const actors = def.actors;
     // a view's encoding surface gives it the `encoding` voice and tells an encoding edge which channels exist
     const surfaceByView = new Map(Array.isArray(def.encodings) ? wellFormedSurfaces(def.encodings).map((s) => [s.surface.viewId, s.surface] as const) : []);
     // the DECLARED layer list per view, as written — `ownRowsOf` reads it raw (a malformed layer is refused on its own line and is nobody's reader)
     const layersByView = new Map<string, unknown>();
-    if (Array.isArray(def.encodings)) for (const enc of def.encodings) if (isObject(enc) && typeof enc.viewId === 'string') layersByView.set(enc.viewId, enc.layers);
-    const grainByView = new Map(wellFormedGrains(def.grains).map((g) => [g.viewId, g.keys] as const));
-    const linkViews = Object.keys(def.actors).map((viewId) => {
+    const encodingsRaw = Array.isArray(def.encodings) ? def.encodings : [];
+    for (const enc of encodingsRaw) if (isObject(enc) && typeof enc.viewId === 'string') layersByView.set(enc.viewId, enc.layers);
+    // the ROWS a view's own address reads — the default table, resolved by the ONE expression `defaultTableName` above,
+    // so the door and the build door judge reach against the same rows; or NONE, when the frame is its layers
+    // (`./layers.ts` · `readsOwnTable`, the ONE owner both twins ask through `ownRowsOf`). Asked ONCE per view, by the
+    // grains door (which views DRAW) and by the node below (which rows an edge into it is judged against).
+    const ownRowsAt = (viewId: string) => ownRowsOf(viewId, { layers: layersByView.get(viewId), initial: surfaceByView.get(viewId)?.initial }, defaultTableName);
+    validateGrains(def.grains, actors, { layers: new Set(declaredLayerAddresses(encodingsRaw, (viewId) => viewId in actors)), frameOf: (viewId) => ownRowsAt(viewId).frame }, problems);
+    // a grain is declared WHERE THE MARKS ARE, so `grains[]` is keyed by ADDRESS: a view's own id, or a layer's (law 6c)
+    const grainAt = new Map(wellFormedGrains(def.grains).map((g) => [g.viewId, g.keys] as const));
+    const linkViews = Object.keys(actors).map((viewId) => {
       const surface = surfaceByView.get(viewId);
-      const grain = grainByView.get(viewId);
-      // the ROWS the node reads — the default table, resolved by the ONE expression `defaultTableName` above, so the
-      // door and the build door judge reach against the same rows; or NONE, when the frame is its layers (`./layers.ts`
-      // · `readsOwnTable`, the ONE owner both twins ask through `ownRowsOf`)
-      return { viewId, voice: voiceOf(capabilityByView.get(viewId), { hasEncodingSurface: surface !== undefined }), ...ownRowsOf(viewId, { layers: layersByView.get(viewId), initial: surface?.initial }, defaultTableName), ...(surface !== undefined ? { channels: surface.channels } : {}), ...(grain !== undefined ? { grain } : {}) };
+      // …and a FRAME carries none: it draws no marks, so the door above refused any grain declared at its address
+      const grain = grainAt.get(viewId);
+      return { viewId, voice: voiceOf(capabilityByView.get(viewId), { hasEncodingSurface: surface !== undefined }), ...ownRowsAt(viewId), ...(surface !== undefined ? { channels: surface.channels } : {}), ...(grain !== undefined ? { grain } : {}) };
     });
-    // a layer is a node of the graph under its address, so a declared edge may name one (src/def/layers.ts)
-    const layerViews = Array.isArray(def.encodings) ? layerLinkViewsOf(def.encodings, (viewId) => linkViews.find((v) => v.viewId === viewId)?.voice) : [];
+    // a layer is a node of the graph under its address, so a declared edge may name one — and the grain declared THERE rides it (src/def/layers.ts)
+    const layerViews = layerLinkViewsOf(encodingsRaw, (viewId) => linkViews.find((v) => v.viewId === viewId)?.voice, (address) => grainAt.get(address));
     // the reach law's evidence, read off the def ONCE by the owner both doors share (./tableReach.ts)
     validateLinks(def.links, def.linkDefault, [...linkViews, ...layerViews], problems, tableReachOf(def));
   }

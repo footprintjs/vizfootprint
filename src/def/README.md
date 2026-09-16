@@ -494,6 +494,21 @@ Six laws.
    //                                            — the EDGES table's columns, judged on the edges layer's own channels; `views[0].fits` is absent (a frame)
    ```
 
+6c. **A GRAIN IS DECLARED WHERE THE MARKS ARE — a frame declares none, and each of its layers declares its own at its address.** A grain is the group keys a node's MARKS stand for (`../links/README.md`, "Grain and fold"), so it belongs to the place that draws them: `grains[].viewId` may be a LAYER's address — an address is a viewId everywhere a viewId is accepted — one grain per address, and a view that binds at its own level draws marks of its own and keeps its view-level grain exactly as before. A FRAME draws nothing, so it declares nothing: a grain there is refused at this door with the addresses that DO draw, the same remedy law 6a gives an edge that named one. WHY not "a layer inherits its frame's grain": the network's `['disease']` describes the CIRCLES, and the ties layer's marks are ties — inheritance would invent a claim about the edges, and choosing one layer to hand it to would be arbitrary. Nothing is inferred at read time either: the grain rides the layer's own node of the link graph (`layers.ts` · `layerLinkViewOf`), `../links/grain.ts` · `crossesGrain` reads the nodes as it always did, and the feature card reads the same address (`features.ts` · `layerFeatureOf`). So a default edge from a map over jurisdictions into a nodes layer over diseases is written out with `fold: 'crossfilter'`, while one into the ties layer beside it — where nothing is declared — carries none (refuse on evidence, never on ignorance). Found on the real disease desk: the map used to state that crossing on `map:point→net`, and once law 6a made `net` a frame no edge touched it any more — so the crossing the picture really makes was stated nowhere.
+   ```ts
+   encodings: [{ viewId: 'net', chartKind: 'network', channels: ['x', 'y'],   // no view-level `initial`: `net` is a FRAME
+     layers: [{ layerId: 'edges', table: 'edges', chartKind: 'network', channels: ['source', 'target'], … },
+              { layerId: 'nodes', table: 'nodes', chartKind: 'network', channels: ['x', 'y', 'key'], … }] }],
+   grains: [{ viewId: 'map', keys: ['jurisdiction'] },            // a bar per place — a view that draws its own marks, unchanged
+            { viewId: 'net~edges', keys: ['source', 'target'] },  // one tie per pair of diseases
+            { viewId: 'net~nodes', keys: ['disease'] }],          // one circle per disease
+   // overview().links.views → { viewId: 'net', voice: [...], frame: ['net~edges', 'net~nodes'], channels: ['x', 'y'] }   — no `grain`: a frame declares none
+   //                          { viewId: 'net~nodes', voice: [...], table: 'nodes', grain: ['disease'] }
+   // overview().links.edges → `map:point→net~nodes` carries fold: 'crossfilter'; an edge from a view over ['disease'] into it carries none
+   grains: [{ viewId: 'net', keys: ['disease'] }]
+   // grains[0].viewId "net" is a frame that draws no marks of its own — declare the grain where the marks are: net~edges, net~nodes
+   ```
+
 ### The frame — layers share their scales, and the frame owns them
 
 A stack of layers is one picture only if it is read on one set of scales ("scales are common across layers" — Wickham). `frame` on the view's encoding says how, **per channel**, and says it in words: `{ mode: 'shared' | 'independent' }`, plus `domain: 'union'`, `basis: 'table' | 'rows'`, `guide: 'merged' | 'per-layer'` and `zero` on a shared one, and `transform: 'linear' | 'log'` on either (law 11 — a transform is not a resolution, and it is legal on a view with no layers at all). **No number can be typed into it.** The domains are folded from the rows by `frameDomains` (`vizfootprint/def` — the door that re-exports the encoding plane, PACKAGING.md, Law 1) at every update, so an axis can never disagree with the data under it, and a channel the frame does not name is `shared / union / table / merged` — the default that makes a stack one picture.

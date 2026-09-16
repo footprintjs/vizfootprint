@@ -73,7 +73,36 @@ describe('layers — nodes of the link graph', () => {
     expect(validateDashboardDef(makeNetworkDef(undefined, { links: [{ source: 'net~ghost', kind: 'point', target: 'net~edges', response: 'filter' }] }))).toEqual(['links[0].source "net~ghost" is not a declared view']);
   });
 
-  it('layerLinkViewsOf skips a malformed entry, a malformed layer, and a view the door refused by name', () => {
+  it('a grain declared at a layer\'s address rides its node, and the default rule states the fold where it crosses', () => {
+    const nodes = layerLinkViewOf('net', nodesLayer, VOICE, ['disease']);
+    expect(nodes.grain).toEqual(['disease']);
+    expect(NODES).not.toHaveProperty('grain'); // nothing declared at that address: absent, never `[]`
+    const map: LinkView = { viewId: 'map', voice: ['point'], grain: ['jurisdiction'] };
+    const cases: LinkView = { viewId: 'cases', voice: ['point'], grain: ['disease'] };
+    const sheet: LinkView = { viewId: 'sheet', voice: ['point'], grain: [] };
+    const g = materializeLinks([NET, nodes, EDGES, map, cases, sheet]);
+    const fold = (id: string): string | undefined => g.edges.find((e) => e.id === id)?.fold;
+    expect(fold('map:point→net~nodes')).toBe('crossfilter'); // jurisdictions emitted onto marks that stand for diseases
+    expect(fold('cases:point→net~nodes')).toBeUndefined(); // the same grain — nothing folds
+    expect(fold('map:point→net~edges')).toBeUndefined(); // that layer declares no grain: judged on evidence, never on ignorance
+    expect(fold('sheet:point→net~nodes')).toBeUndefined(); // a view over ROWS emits rows — it crosses nothing
+  });
+
+  it('a DECLARED edge across grains must state its fold at a layer address — the layer as source and as target', () => {
+    const nodes = layerLinkViewOf('net', nodesLayer, VOICE, ['disease']);
+    const map: LinkView = { viewId: 'map', voice: ['point'], grain: ['jurisdiction'] };
+    const sheet: LinkView = { viewId: 'sheet', voice: ['point'], grain: [] };
+    const judge = (link: unknown): string[] => {
+      const problems: string[] = [];
+      validateLinks([link], undefined, [NET, nodes, map, sheet], problems);
+      return problems;
+    };
+    expect(judge({ source: 'net~nodes', kind: 'point', target: 'sheet', response: 'filter' })).toEqual(['links[0]: view "net~nodes" emits over disease and view "sheet" shows rows — an edge that crosses grains must state its fold']);
+    expect(judge({ source: 'map', kind: 'point', target: 'net~nodes', response: 'highlight' })).toEqual(['links[0]: view "map" emits over jurisdiction and view "net~nodes" shows disease — an edge that crosses grains must state its fold']);
+    expect(judge({ source: 'net~nodes', kind: 'point', target: 'sheet', response: 'filter', fold: 'every case of the picked disease' })).toEqual([]);
+  });
+
+  it('layerLinkViewsOf reads the grain declared at each address, and skips a malformed entry, a malformed layer, and a view the door refused by name', () => {
     const voiceOfView = (viewId: string) => (viewId === 'net' ? VOICE : undefined);
     const encodings = [
       'nope',
@@ -82,5 +111,6 @@ describe('layers — nodes of the link graph', () => {
       { viewId: 'net', layers: [{ layerId: 'bad' }, nodesLayer] },
     ];
     expect(layerLinkViewsOf(encodings, voiceOfView)).toEqual([NODES]);
+    expect(layerLinkViewsOf(encodings, voiceOfView, (address) => (address === layerAddress('net', 'nodes') ? ['disease'] : undefined))).toEqual([layerLinkViewOf('net', nodesLayer, VOICE, ['disease'])]);
   });
 });

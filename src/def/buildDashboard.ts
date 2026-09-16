@@ -66,6 +66,7 @@ import {
 import { COMMIT_ID_PREFIX, PICTURE_ID_PREFIX, BOOKMARK_ID_PREFIX, raiseMinted, restoredRecordId } from './recordIds.js';
 import { defRevision } from './revision.js';
 import { layerLinkViewOf, layerSurfaceOf, ownRowsOf } from './layers.js';
+import { layerAddress } from './layerAddress.js';
 import { tableReachOf } from './tableReach.js';
 import { createInteractionSession, type InteractionSession } from '../session/session.js';
 import type { SessionOptions } from '../session/types.js';
@@ -1046,14 +1047,15 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
   for (const cap of def.capabilities ?? []) capabilityByView.set(cap.viewId, cap);
   const encodingByView = new Map<string, ViewEncodingDecl>();
   for (const enc of def.encodings ?? []) encodingByView.set(enc.viewId, enc);
-  const grainByView = new Map((def.grains ?? []).map((g) => [g.viewId, g.keys] as const));
+  // a grain is declared WHERE THE MARKS ARE, so `grains[]` is keyed by ADDRESS: a view's own id, or a layer's (./README.md, law 6c)
+  const grainAt = new Map((def.grains ?? []).map((g) => [g.viewId, g.keys] as const));
   const views = new Map<string, ViewDecl>();
   for (const [viewId, meta] of Object.entries(def.actors)) {
     views.set(viewId, {
       viewId,
       meta,
       ...(capabilityByView.has(viewId) ? { capability: capabilityByView.get(viewId)! } : {}),
-      ...(grainByView.has(viewId) ? { grain: grainByView.get(viewId)! } : {}),
+      ...(grainAt.has(viewId) ? { grain: grainAt.get(viewId)! } : {}),
       ...(encodingByView.has(viewId) ? { encoding: encodingByView.get(viewId)! } : {}),
       // WHY: the def is deep-frozen at build, so the declared list IS the frozen resolved list; the key is absent on a view that declared none (byte-identical to a view built before layers existed)
       ...(encodingByView.get(viewId)?.layers !== undefined ? { layers: encodingByView.get(viewId)!.layers! } : {}),
@@ -1076,10 +1078,11 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     // (`./layers.ts` · `readsOwnTable`, the ONE owner; `frame` lists the readers, and no default edge touches it)
     ...ownRowsOf(v.viewId, { layers: v.layers, initial: v.encoding?.initial }, defaultTable),
     ...(v.encoding !== undefined ? { channels: v.encoding.channels } : {}),
+    // …and the GRAIN declared at this address, which a FRAME never has: it draws no marks, so the def door refused one there
     ...(v.grain !== undefined ? { grain: v.grain } : {}),
   }));
   const voiceByView = new Map(linkViews.map((lv) => [lv.viewId, lv.voice] as const)); // read once per layer: the voice is already computed, never re-derived
-  const layerViews = [...views.values()].flatMap((v) => (v.layers ?? []).map((layer) => layerLinkViewOf(v.viewId, layer, voiceByView.get(v.viewId)!)));
+  const layerViews = [...views.values()].flatMap((v) => (v.layers ?? []).map((layer) => layerLinkViewOf(v.viewId, layer, voiceByView.get(v.viewId)!, grainAt.get(layerAddress(v.viewId, layer.layerId)))));
   // the reach law's evidence, read off the def ONCE by the owner both doors share (./tableReach.ts)
   const links = materializeLinks([...linkViews, ...layerViews], def.links ?? [], def.linkDefault ?? 'crossfilter', tableReachOf(def));
 

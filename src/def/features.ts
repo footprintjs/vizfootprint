@@ -42,6 +42,7 @@ import type { SourceFormat, SourceVia } from '../source/index.js';
 import type { BuiltinAnalysisName } from './builtinAnalyses.js';
 import { isBuiltinRecord } from './builtinAnalyses.js';
 import type { Dashboard } from './buildDashboard.js';
+import { layerAddress } from './layerAddress.js';
 import { registerAnalysisSlot } from './register.js';
 import { DEFAULT_RELATION_KIND } from './relations.js';
 import type { AnalysisSlot, DashboardDef, RelationEdge, RelationKind } from './types.js';
@@ -66,12 +67,19 @@ export interface TableFeature {
   readonly absence?: readonly (readonly string[])[];
 }
 
-/** One layer of a view — the table it reads and the surface it draws with. */
+/** One layer of a view — the table it reads, the surface it draws with, and what its marks stand for. */
 export interface LayerFeature {
   readonly layerId: string;
   readonly table: string;
   readonly chartKind: string;
   readonly channels: readonly string[];
+  /**
+   * The group keys THIS LAYER's marks stand for (`[]` = one mark per row);
+   * absent = undeclared. A grain is declared where the marks are (`./README.md`,
+   * law 6c), so a frame's layers carry their own and the frame carries none —
+   * which is why the card reads `grains[]` by ADDRESS and not by viewId.
+   */
+  readonly grain?: readonly string[];
 }
 
 /** One view: who drives it, what it draws, and what it can SAY (its voice). */
@@ -211,15 +219,16 @@ function tablesOf(dashboard: Dashboard): readonly TableFeature[] {
 function viewsOf(def: DashboardDef): readonly ViewFeature[] {
   const capabilityByView = new Map((def.capabilities ?? []).map((c) => [c.viewId, c] as const));
   const encodingByView = new Map((def.encodings ?? []).map((e) => [e.viewId, e] as const));
-  const grainByView = new Map((def.grains ?? []).map((g) => [g.viewId, g.keys] as const));
+  // a grain is declared WHERE THE MARKS ARE, so `grains[]` is keyed by ADDRESS: a view's own id, or a layer's (./README.md, law 6c)
+  const grainAt = new Map((def.grains ?? []).map((g) => [g.viewId, g.keys] as const));
   return Object.entries(def.actors).map(([viewId, meta]) => {
     const encoding = encodingByView.get(viewId);
-    const grain = grainByView.get(viewId);
+    const grain = grainAt.get(viewId);
     return {
       viewId,
       actor: meta.actor,
       ...(encoding === undefined ? {} : { chartKind: encoding.chartKind, channels: encoding.channels }),
-      ...(encoding?.layers === undefined ? {} : { layers: encoding.layers.map(layerFeatureOf) }),
+      ...(encoding?.layers === undefined ? {} : { layers: encoding.layers.map((layer) => layerFeatureOf(viewId, layer, grainAt)) }),
       ...(grain === undefined ? {} : { grain }),
       // WHY `voiceOf` and not a rule of our own: it is the ONE answer to "what can
       // this view emit" — the probe guard, the overview and the link graph all read
@@ -229,8 +238,10 @@ function viewsOf(def: DashboardDef): readonly ViewFeature[] {
   });
 }
 
-function layerFeatureOf(layer: { readonly layerId: string; readonly table: string; readonly chartKind: string; readonly channels: readonly string[] }): LayerFeature {
-  return { layerId: layer.layerId, table: layer.table, chartKind: layer.chartKind, channels: layer.channels };
+function layerFeatureOf(viewId: string, layer: { readonly layerId: string; readonly table: string; readonly chartKind: string; readonly channels: readonly string[] }, grainAt: ReadonlyMap<string, readonly string[]>): LayerFeature {
+  // the grain declared at THIS layer's address, spelled through the one owner of the marker (`./layerAddress.ts`)
+  const grain = grainAt.get(layerAddress(viewId, layer.layerId));
+  return { layerId: layer.layerId, table: layer.table, chartKind: layer.chartKind, channels: layer.channels, ...(grain === undefined ? {} : { grain }) };
 }
 
 /** A surface draws with its own chart kind AND every layer's — a network view is a `network` over a `link` and a `point`. */

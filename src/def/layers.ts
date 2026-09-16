@@ -433,16 +433,24 @@ function declaredFacet(data: unknown, table: string | undefined, field: string, 
 
 /**
  * A layer as the link graph sees it: its own node under its address, speaking
- * its VIEW's voice (the frame's capability is the layers' capability). WHY no
- * `channels` and no `grain`: an encoding edge follows a binding the `reencode`
- * fold holds per VIEW, and a layer's bindings are declared on the layer in
- * this version — so an encoding edge naming a layer is refused by the existing
- * "declares no encoding surface" sentences; a grain is a view's, judged there.
+ * its VIEW's voice (the frame's capability is the layers' capability), over its
+ * own table, with the GRAIN declared at its address when one is.
+ *
+ * A GRAIN IS DECLARED WHERE THE MARKS ARE (./README.md, law 6c): the marks are
+ * the layer's, so the grain is too, and it arrives here the way every other
+ * declared fact does — read off `grains[]` by ADDRESS and handed in. `grain` is
+ * absent when nothing declares one, which is the same silence a view with no
+ * grain keeps: `../links/grain.ts` refuses on evidence, never on ignorance.
+ *
+ * WHY still no `channels`: an encoding edge follows a binding the `reencode`
+ * fold holds per VIEW, and a layer's bindings are declared on the layer in this
+ * version — so an encoding edge naming a layer is refused by the existing
+ * "declares no encoding surface" sentences.
  */
-export function layerLinkViewOf(viewId: string, layer: LayerDecl, voice: LinkView['voice']): LinkView {
+export function layerLinkViewOf(viewId: string, layer: LayerDecl, voice: LinkView['voice'], grain?: readonly string[]): LinkView {
   // the layer's own TABLE rides the node: it is the rows every edge into this
   // address lands on, and the reach law (`../links/reach.ts`) asks for it first
-  return { viewId: layerAddress(viewId, layer.layerId), voice: voice.filter((k) => k !== ENCODING_KIND), table: layer.table };
+  return { viewId: layerAddress(viewId, layer.layerId), voice: voice.filter((k) => k !== ENCODING_KIND), table: layer.table, ...(grain !== undefined ? { grain } : {}) };
 }
 
 /**
@@ -492,19 +500,51 @@ export function ownRowsOf(viewId: string, view: { readonly layers?: unknown; rea
   return { frame: readers };
 }
 
-/** The link-graph nodes of every well-formed layer on `encodings` (the door's twin of `layerSurfacesOf`), each with its view's voice. */
-export function layerLinkViewsOf(encodings: readonly unknown[], voiceOfView: (viewId: string) => LinkView['voice'] | undefined): LinkView[] {
+/** The link-graph nodes of every well-formed layer on `encodings` (the door's twin of `layerSurfacesOf`), each with its view's voice and the grain declared at its own address (none, for a caller that reads no grains). */
+export function layerLinkViewsOf(encodings: readonly unknown[], voiceOfView: (viewId: string) => LinkView['voice'] | undefined, grainAt: (address: string) => readonly string[] | undefined = () => undefined): LinkView[] {
   const out: LinkView[] = [];
+  for (const [viewId, layer] of declaredLayers(encodings)) {
+    const voice = voiceOfView(viewId);
+    if (voice === undefined) continue; // an undeclared view was refused by name; its layers are nobody's nodes
+    out.push(layerLinkViewOf(viewId, layer, voice, grainAt(layerAddress(viewId, layer.layerId))));
+  }
+  return out;
+}
+
+/**
+ * EVERY DECLARED LAYER of a raw `encodings` list, as `[viewId, layer]` pairs in
+ * declaration order — the ONE walk over that list, so the two readers that ask
+ * which layers exist (the link-graph nodes above, and the addresses a grain may
+ * name below) can never disagree about the answer. A malformed entry, an entry
+ * with no viewId and a malformed layer are each refused on their own line and
+ * are nobody's layer.
+ */
+function declaredLayers(encodings: readonly unknown[]): (readonly [string, LayerDecl])[] {
+  const out: (readonly [string, LayerDecl])[] = [];
   for (const enc of encodings) {
     if (!isObject(enc) || !nonEmpty(enc.viewId) || !Array.isArray(enc.layers)) continue;
-    const voice = voiceOfView(enc.viewId);
-    if (voice === undefined) continue; // an undeclared view was refused by name; its layers are nobody's nodes
     for (const raw of enc.layers) {
       const layer = wellFormedLayer(raw);
-      if (layer !== undefined) out.push(layerLinkViewOf(enc.viewId, layer, voice));
+      if (layer !== undefined) out.push([enc.viewId, layer] as const);
     }
   }
   return out;
+}
+
+/**
+ * Their ADDRESSES, in the same order — the places a `grains[]` entry may name
+ * beside a plain viewId (./README.md, law 6c: a grain is declared where the
+ * marks are). The door asks this and nothing else about a layer: a grain names
+ * a place, and the keys it declares are judged as any view's are.
+ *
+ * `isDeclaredView` is the same question `layerLinkViewsOf` asks through
+ * `voiceOfView` — a layer of a view the def never declared is nobody's node,
+ * so it is nobody's place to declare a grain at either, and the door says "is
+ * not a declared view" about the whole address rather than inventing a second
+ * sentence for a half-declared one.
+ */
+export function declaredLayerAddresses(encodings: readonly unknown[], isDeclaredView: (viewId: string) => boolean): readonly string[] {
+  return declaredLayers(encodings).flatMap(([viewId, layer]) => (isDeclaredView(viewId) ? [layerAddress(viewId, layer.layerId)] : []));
 }
 
 // ── the surfaces the build door judges ────────────────────────────────────────

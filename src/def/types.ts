@@ -604,7 +604,7 @@ export interface DashboardDef {
   readonly agent?: AgentDecl;
   /** The default table `select`/`filter`/`analyze` operate over. Default: the first `data` key. */
   readonly defaultTable?: string;
-  /** Layer 4: each view's GRAIN — the group keys its marks stand for (`[]` = one mark per row); an edge that crosses grains must state its `fold`. */
+  /** Layer 4: the GRAIN at each ADDRESS — the group keys the marks there stand for (`[]` = one mark per row), declared where the marks are (a view's id, or a layer's address); an edge that crosses grains must state its `fold`. */
   readonly grains?: readonly GrainDecl[];
   /** Layer 4: the declared LINKS between views — what one view's emission does to another (see src/links/README.md). */
   readonly links?: readonly LinkDecl[];
@@ -647,8 +647,19 @@ export interface RegisteredAnalysis {
 }
 
 /** One declared view: its actor identity + resolved capability envelope. */
-/** A view's grain, declared: the group keys its marks aggregate over (`[]` = rows). */
+/**
+ * A grain, declared: the group keys the marks at ONE ADDRESS aggregate over
+ * (`[]` = rows).
+ *
+ * A GRAIN IS DECLARED WHERE THE MARKS ARE (./README.md, law 6c): `viewId` names
+ * the place that draws them — a view's own id, or a LAYER's address
+ * (`./layerAddress.ts` · `layerAddress`, since an address reads as a viewId
+ * everywhere a viewId is accepted), one grain per address. A FRAME declares
+ * none: it draws nothing of its own, and the door refuses a grain there with
+ * the addresses of the layers that do.
+ */
 export interface GrainDecl {
+  /** The place whose marks these keys describe: a view's id, or a layer's address. */
   readonly viewId: string;
   readonly keys: readonly string[];
 }
@@ -691,7 +702,7 @@ export interface ViewDecl {
   readonly viewId: string;
   readonly meta: ActorMeta;
   readonly capability?: CapabilityDecl;
-  /** The view's declared grain (layer 4), if any. */
+  /** The view's OWN declared grain (layer 4), if any — a frame has none, because a grain is declared where the marks are ({@link GrainDecl}), and its layers' ride the link graph. */
   readonly grain?: readonly string[];
   /** This view's declared encoding surface (chart kind + valid channels + initial mapping), if any. */
   readonly encoding?: ViewEncodingDecl;

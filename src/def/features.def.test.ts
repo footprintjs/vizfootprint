@@ -48,7 +48,9 @@ const RICH = (): DashboardDef => ({
       ],
     },
   ],
-  grains: [{ viewId: 'bar', keys: ['disease'] }],
+  // a grain is declared WHERE THE MARKS ARE: `bar` draws its own marks, `net` is a frame that
+  // draws none, and the circles the nodes layer draws stand for diseases (../def/README.md, law 6c)
+  grains: [{ viewId: 'bar', keys: ['disease'] }, { viewId: 'net~nodes', keys: ['disease'] }],
   // RE-PINNED (the frame is its layers, ../def/README.md "Layers" law 6a): `net` binds nothing at its own level, so it is
   // a FRAME that reads only through its layers and a declared edge naming it is refused at the door by that name. The
   // edges name the layer that reads (`net~nodes`); every card fact asserted below (counts, kinds, responses) is unchanged.
@@ -144,10 +146,12 @@ describe('defFeatures — the views, and the VOICE the link graph reads', () => 
     const views = richCard().views;
     expect(views.map((v) => v.viewId)).toEqual(['bar', 'net', 'readout']);
     expect(views[0]).toEqual({ viewId: 'bar', actor: 'user', chartKind: 'bar', channels: ['category'], grain: ['disease'], voice: voiceOf(undefined, { hasEncodingSurface: true }) });
+    // the LAYER carries the grain declared at its own address; the layer nothing declares for carries none, and so does the frame
     expect(views[1]!.layers).toEqual([
       { layerId: 'edges', table: 'edges', chartKind: 'network', channels: ['source', 'target'] },
-      { layerId: 'nodes', table: 'nodes', chartKind: 'network', channels: ['x', 'y', 'key'] },
+      { layerId: 'nodes', table: 'nodes', chartKind: 'network', channels: ['x', 'y', 'key'], grain: ['disease'] },
     ]);
+    expect(views[1]).not.toHaveProperty('grain');
     // a view with no encoding, no grain and no layers carries none of those keys
     expect(views[2]).toEqual({ viewId: 'readout', actor: 'agent', voice: [] });
   });

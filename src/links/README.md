@@ -125,12 +125,21 @@ aim that misses is an error, not a coincidence to omit quietly.
 
 **Grain and fold (enforced).** A view may declare its GRAIN on the def
 (`grains: [{ viewId, keys }]`): the group keys its marks stand for, `[]` for one
-mark per row. An edge whose source emits over an aggregate (a non-empty grain)
-and whose target shows another grain CROSSES grains, and must state its `fold`
-in words — the def door and the `link` verb refuse it otherwise, with the same
-sentence. The default rule's crossing edges carry `fold: 'crossfilter'` when
-written out, so no crossing is ever implicit. A view with no grain is never
-judged, and only `filter` and `highlight` edges are: a `navigate` moves a
+mark per row. **A grain is declared where the marks are:** `viewId` may be a
+LAYER's address, and a FRAME declares none at all — it draws nothing, so the def
+door refuses a grain there and names the layer addresses to use
+(`../def/README.md`, law 6c). A layer node therefore carries its own `grain`
+(`../def/layers.ts` · `layerLinkViewOf`), and the rule below reads it exactly as
+it reads a view's: a default edge from a map over `['jurisdiction']` into the
+nodes layer of a network over `['disease']` is written out with
+`fold: 'crossfilter'`, and one into the ties layer beside it — where nothing is
+declared — carries none. An edge whose source emits over an aggregate (a
+non-empty grain) and whose target shows another grain CROSSES grains, and must
+state its `fold` in words — the def door and the `link` verb refuse it
+otherwise, with the same sentence. The default rule's crossing edges carry
+`fold: 'crossfilter'` when written out, so no crossing is ever implicit. An
+address with no grain is never judged, and only `filter` and `highlight` edges
+are: a `navigate` moves a
 viewport, a `mirror` outlines a value, a `none` carries nothing — no rows fold. **`onClear` (enforced where responses run):** `showAll` (the default)
 drops the clause when the source clears; `leave` keeps the last emission in
 force on that edge until the source selects again; `excludeAll` keeps nothing.
