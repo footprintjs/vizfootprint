@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { conflictsOf, participates } from 'contextfootprint';
+import type { Assertion as TheirAssertion } from 'contextfootprint';
+import type { ProfileAssertion } from './assertion.types.js';
 import { profileStatisticAssertion } from './assertion.js';
 import { createArrayProfileProvider } from './memory.js';
 import { profileData } from './run.js';
@@ -26,6 +28,12 @@ const fixture = (values: (number | null)[] = [0, null, 20], s = schema, p = plan
 const observed = (result: ProfileResult) => profileStatisticAssertion(result, stamp);
 
 describe('profile statistic assertions', () => {
+  it('is ContextFootprint\'s shape, structurally, in both directions — the port is OUR shape, pinned at compile time', async () => {
+    const ours: ProfileAssertion = observed(await fixture());
+    const theirs: TheirAssertion = ours; // a host hands our record to `conflictsOf` untouched
+    const back: ProfileAssertion = theirs; // and could hand one of theirs to us
+    expect(back).toBe(ours);
+  });
   it('projects the computed value, then shares exact conflict witnesses with the core', async () => {
     const result = await fixture();
     const observation = observed(result);

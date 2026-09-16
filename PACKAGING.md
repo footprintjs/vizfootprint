@@ -390,10 +390,15 @@ entry. It projects one computed profile statistic into ContextFootprint's
 `Assertion` shape; it does not collect data, infer claims or enforce answers.
 See `src/data/profile/README.md` and `examples/profile-assertion.mjs`.
 
-ContextFootprint 0.1.0 is pinned in the manifest. The tracked lockfile resolves it
-to the reviewed archive under `vendor/contextfootprint`; preserve that lockfile
-while the package remains unpublished on npm. The installed dependency is bundled
-in Viz's packed archive. Its source commit, integrity and update procedure are in
+ContextFootprint is NOT a dependency of the packed library. `profileStatisticAssertion`
+returns the library's own `ProfileAssertion` (`src/data/profile/assertion.types.ts`),
+which is structurally ContextFootprint's `Assertion` — the port is our shape, and a
+host that uses ContextFootprint hands the record to its comparator untouched. The
+package is pinned at 0.1.0 as a dev-time dependency of this repository only, for
+the compile-time pin that the two shapes stay assignable and for the comparison
+example; the tracked lockfile resolves it to the reviewed archive under
+`vendor/contextfootprint` (preserve that lockfile while the package remains
+unpublished on npm). Its source commit, integrity and update procedure are in
 `vendor/contextfootprint/README.md`.
 
 The package check runs the observation/comparison example against the actual

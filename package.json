@@ -119,6 +119,7 @@
     "bench:via": "node bench/via/run.mjs"
   },
   "devDependencies": {
+    "contextfootprint": "0.1.0",
     "@duckdb/duckdb-wasm": "1.33.1-dev45.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@trrack/core": "^1.6.1",
@@ -137,7 +138,6 @@
     "vitest": "^4.0.0"
   },
   "dependencies": {
-    "contextfootprint": "0.1.0",
     "footprintjs": "^9.11.0"
   },
   "peerDependencies": {
@@ -163,8 +163,5 @@
     "agentfootprint": {
       "optional": true
     }
-  },
-  "bundleDependencies": [
-    "contextfootprint"
-  ]
+  }
 }

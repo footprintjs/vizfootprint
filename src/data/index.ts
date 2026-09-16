@@ -213,6 +213,7 @@ export type { RowRecorder, Recorders, FoldResult } from './fold.js';
 export { profileData } from './profile/run.js';
 export { profileStatisticAssertion } from './profile/assertion.js';
 export type { ProfileStatisticAssertionOptions } from './profile/assertion.js';
+export type { AssertionStratum, AssertionSubject, ProfileAssertion } from './profile/assertion.types.js';
 export { profileGroups } from './profile/groups.js';
 export { GROUP_PROFILE_DEFAULT_LIMITS } from './profile/groups.validate.js';
 export type { GroupProfileEvent, GroupProfileLimits, GroupProfileOptions, GroupProfilePlan, GroupProfileResult, ProfileGroup } from './profile/groups.types.js';

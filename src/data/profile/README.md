@@ -62,13 +62,15 @@ imports use the package's public entry point.
 ### Comparing a referenced statistic
 
 `profileStatisticAssertion(result, { field, statistic, scope, epoch, stratum })`
-projects one already computed scalar into a ContextFootprint assertion. It is
-exported from `vizfootprint/data`; comparison uses `conflictsOf` from
-`contextfootprint`. Run `node examples/profile-assertion.mjs` after building for
-the complete synthetic example. The local pre-alpha package includes the pinned
-ContextFootprint dependency; a consumer directly importing its comparator should
-also declare the matching ContextFootprint dependency. There is no npm release
-claim for these local packages.
+projects one already computed scalar into the library's own assertion shape,
+`ProfileAssertion` (`assertion.types.ts`; exported from `vizfootprint/data`) —
+one subject, one predicate, one value, an epoch, a stratum, a provenance. It is
+structurally ContextFootprint's `Assertion`, so a host that compares with
+`conflictsOf` from `contextfootprint` hands the record over untouched; the
+library itself imports nothing from that package and the packed archive carries
+no dependency on it. Run `node examples/profile-assertion.mjs` after building,
+with ContextFootprint installed beside the library, for the complete synthetic
+example. There is no npm release claim for these local packages.
 
 The host must explicitly supply an investigation scope, nonnegative integer
 epoch and `stratum: 'asserted' | 'quoted'`. An epoch is the host's comparison
@@ -213,9 +215,11 @@ does not prove that an uncooperative provider has released that resource.
 
 The development check `node scripts/check-profile-package.mjs` builds and packs this checkout, extracts
 the package into a fresh consumer, and runs the shipped profiling, grouping and
-statistic-assertion examples through `vizfootprint/data`. The assertion example
-uses the bundled ContextFootprint comparator; no separately installed optional
-engines are required. The SQLite profiling example uses Node's built-in module.
+statistic-assertion examples through `vizfootprint/data`. The packed archive
+must bundle no dependency; for the assertion example the check installs
+ContextFootprint beside the library from the reviewed archive under `vendor/`,
+offline, exactly as a host would — no separately installed optional engines are
+required. The SQLite profiling example uses Node's built-in module.
 The examples are read from the packed archive, so a missing shipped example fails
 the check. The development checker itself requires the source checkout and its
 development dependencies.
@@ -224,7 +228,7 @@ The check uses an isolated offline npm cache and removes its temporary files.
 It also bundles only `profileData`, `profileGroups` and `createArrayProfileProvider` from that
 public entry point. This profiling bundle must retain no ContextFootprint runtime
 when its comparator is unused. The separate assertion example is bundled for a
-neutral JavaScript host and deliberately retains the shared comparator. The
+neutral JavaScript host and deliberately retains the host-installed comparator. The
 checks exclude renderer, session, agent, React, MCP, SQLite and WASM runtime
 dependencies and retained external imports. Finally, the checks remove installed
 packages and run the array-based examples and assertion example using standalone

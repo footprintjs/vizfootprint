@@ -1,4 +1,4 @@
-import type { Assertion, AssertionStratum } from 'contextfootprint';
+import type { AssertionStratum, ProfileAssertion } from './assertion.types.js';
 import type { ProfileResult, ProfileStatistic } from './types.js';
 import { PROFILE_STATISTICS } from './operations.types.js';
 import { declaration, invalid, normalizePlan, normalizeSchema, record, sameSource, textId, validateSelection } from './validate.js';
@@ -34,7 +34,7 @@ function count(value: unknown, label: string): asserts value is number {
  * freshness check, claim extraction, unit conversion or answer enforcement occurs here.
  * A comparator finding no conflict does not establish that an answer is verified.
  */
-export function profileStatisticAssertion(result: ProfileResult, options: ProfileStatisticAssertionOptions): Assertion {
+export function profileStatisticAssertion(result: ProfileResult, options: ProfileStatisticAssertionOptions): ProfileAssertion {
   const input = declaration(options);
   const config = record(input, ['field', 'statistic', 'scope', 'epoch', 'stratum'], 'statistic assertion options');
   textId(config.field, 'field'); textId(config.scope, 'scope'); count(config.epoch, 'epoch');

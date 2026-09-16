@@ -1,4 +1,6 @@
 import { createArrayProfileProvider, profileData, profileStatisticAssertion } from 'vizfootprint/data';
+// ContextFootprint is the HOST's install, not a dependency of vizfootprint: install it beside the
+// library to run this example (`npm install contextfootprint`, or the reviewed archive under vendor/).
 import { conflictsOf, participates } from 'contextfootprint';
 
 // Synthetic records. This example uses no model, server, file or browser API.

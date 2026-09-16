@@ -21,8 +21,8 @@ try {
   run('npm', ['run', 'build']);
   const packed = JSON.parse(run('npm', ['pack', '--ignore-scripts', '--json', '--workspaces=false', '--pack-destination', scratch]));
   assert.equal(packed.length, 1);
-  assert(packed[0].files.some(file => file.path === 'node_modules/contextfootprint/package.json'),
-    'The profile assertion consumer must receive the reviewed bundled core');
+  assert(!packed[0].files.some(file => file.path.startsWith('node_modules/')),
+    'The packed library bundles no dependency: ContextFootprint is a host\'s install, never ours');
   const consumer = join(scratch, 'consumer');
   const packageDir = join(consumer, 'node_modules', 'vizfootprint');
   await mkdir(packageDir, { recursive: true });
@@ -51,6 +51,15 @@ try {
   const namespaceDirect = JSON.parse(run(process.execPath, ['namespace.mjs'], consumer));
   assert.equal(namespaceDirect.bindings.length, 2);
   assert.notEqual(namespaceDirect.bindings[0].nativeField, namespaceDirect.distinctTableAddress);
+  // The comparison example needs ContextFootprint, which the LIBRARY does not depend on (its assertion
+  // is the library's own shape, `src/data/profile/assertion.types.ts`): install it as a host would —
+  // the reviewed archive under vendor/, offline, beside the packed library.
+  const vendorDir = join(root, 'vendor', 'contextfootprint');
+  const archive = (await readdir(vendorDir)).find(name => name.endsWith('.tgz'));
+  assert(archive, 'vendor/contextfootprint holds the reviewed archive');
+  const comparatorDir = join(consumer, 'node_modules', 'contextfootprint');
+  await mkdir(comparatorDir, { recursive: true });
+  run('tar', ['-xzf', join(vendorDir, archive), '--strip-components=1', '-C', comparatorDir]);
   const assertionExample = join(packageDir, 'examples/profile-assertion.mjs');
   const assertionDirect = JSON.parse(run(process.execPath, [assertionExample], consumer));
   assert.equal(assertionDirect.observedValue, 10);
