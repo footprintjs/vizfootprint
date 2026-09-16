@@ -613,3 +613,57 @@ describe('VizLine — the y axis on the RIGHT edge (the second axis of a frame)'
     expect(decadeTicks.every((t) => t.anchor === 'start' && t.x === 468 + 8)).toBe(true);
   });
 });
+
+describe('VizLine — the ink of its scale (one edge of a two-scale frame)', () => {
+  const ROWS = [
+    { date: '2026-04-01', value: 10 },
+    { date: '2026-04-10', value: 40 },
+  ];
+  const HUE = 'var(--vzf-scale-left)';
+  /** Every element the hue is meant to reach: the y axis line, each y tick's group, the axis label's group. */
+  const hued = (container: Element): string[] => [...container.querySelectorAll('[style*="--vzf-scale-hue"]')].map((el) => el.getAttribute('style') ?? '');
+
+  it('absent: byte-identical to the chart before hues existed — and a hue reaches EXACTLY the axis and the ink, nothing else', () => {
+    const withHue = render(<VizLine data={ROWS} width={400} height={300} axes="y" scaleHue={HUE} />).container.innerHTML;
+    cleanup();
+    const plain = render(<VizLine data={ROWS} width={400} height={300} axes="y" />).container.innerHTML;
+    // take the hue back out — the variable off the axis parts, the brand back on the marks — and the
+    // markup IS the markup this chart drew before the prop existed: the hue moved no pixel and no attribute
+    const stripped = withHue
+      .replaceAll(` style="--vzf-scale-hue: ${HUE};"`, '')
+      .replaceAll(`; --vzf-scale-hue: ${HUE};`, ';')
+      .replaceAll(HUE, 'var(--vzf-brand)');
+    expect(stripped).toBe(plain);
+  });
+
+  it('present: the y axis line, every one of its ticks, its label AND the unsplit marks are drawn in it', () => {
+    const { container } = render(<VizLine data={ROWS} width={400} height={300} axes="y" scaleHue={HUE} />);
+    // the axis line itself
+    const axisLine = [...container.querySelectorAll('line.vzf-axis')].find((l) => l.getAttribute('x1') === l.getAttribute('x2'))!;
+    expect(axisLine.getAttribute('style')).toBe(`--vzf-scale-hue: ${HUE};`);
+    // one hued group per y tick (4 ticks), plus the axis label's own group — the stylesheet spends the
+    // variable per element (`.vzf-axis` on its stroke, `.vzf-tick`/`.vzf-axis-label` on their fill)
+    expect(hued(container)).toHaveLength(1 + 4 + 1);
+    expect(container.querySelector('.vzf-axis-group[data-axis-channel="y"]')?.getAttribute('style')).toBe(`cursor: pointer; --vzf-scale-hue: ${HUE};`);
+    // the marks: this layer's line and its dots, in the same hue as the axis they are read against
+    expect(container.querySelector('path.vzf-line-path')?.getAttribute('stroke')).toBe(HUE);
+    expect([...container.querySelectorAll('circle.vzf-line-dot')].map((c) => c.getAttribute('fill'))).toEqual([HUE, HUE]);
+  });
+
+  it('a chart SPLIT into series keeps its series colours and takes the hue on its axis alone — identity is never colour-alone', () => {
+    const split = [
+      { date: '2026-04-01', value: 10, series: 'north' },
+      { date: '2026-04-10', value: 40, series: 'north' },
+      { date: '2026-04-01', value: 30, series: 'south' },
+      { date: '2026-04-10', value: 20, series: 'south' },
+    ];
+    const colorOf = (name: string | undefined): string => (name === 'north' ? '#111111' : '#222222');
+    const { container } = render(<VizLine data={split} width={400} height={300} axes="y" scaleHue={HUE} colorOf={colorOf} />);
+    // the marks answer to `colorOf`, not to the frame: a hue that already names a series may not be overwritten
+    expect([...container.querySelectorAll('path.vzf-line-path')].map((pth) => pth.getAttribute('stroke'))).toEqual(['#111111', '#222222']);
+    expect([...container.querySelectorAll('.vzf-line-legend rect')].map((r) => r.getAttribute('fill'))).toEqual(['#111111', '#222222']);
+    // …and the axis is still the scale's: the hue says WHICH EDGE these series are read against
+    const axisLine = [...container.querySelectorAll('line.vzf-axis')].find((l) => l.getAttribute('x1') === l.getAttribute('x2'))!;
+    expect(axisLine.getAttribute('style')).toBe(`--vzf-scale-hue: ${HUE};`);
+  });
+});

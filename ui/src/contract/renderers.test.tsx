@@ -1309,6 +1309,25 @@ describe('layeredRenderer — TWO SCALES ON ONE FRAME are two claims, and the fr
     m.unmount();
   });
 
+  it('the INK MATCHES THE SCALE (law 4): the left line and its axis are drawn in the left hue, the right line and its axis in the right one — through the whole consumer path', () => {
+    const { el, m } = mountFrame({ layers: KINDS }, ['temp', 'rain']);
+    m.update(framed([TEMP, RAIN], DUAL));
+    expect(refusalOf(el)).toBe('');
+    /** The vertical stroke of one layer's own y axis — the element the stylesheet paints with the hue. */
+    const axisOf = (layerId: string): Element =>
+      [...el.querySelectorAll(`[data-layer="${layerId}"] line.vzf-axis`)].find((l) => l.getAttribute('x1') === l.getAttribute('x2'))!;
+    for (const [layerId, hue] of [['temp', 'var(--vzf-scale-left)'], ['rain', 'var(--vzf-scale-right)']] as const) {
+      expect(axisOf(layerId).getAttribute('style')).toBe(`--vzf-scale-hue: ${hue};`);
+      // …and the marks read against that axis wear the same hue, which is the whole point: a reader can
+      // see which line belongs to which edge without reading the sentence first
+      expect(el.querySelector(`[data-layer="${layerId}"] path.vzf-line-path`)?.getAttribute('stroke')).toBe(hue);
+      expect(el.querySelector(`[data-layer="${layerId}"] .vzf-axis-group[data-axis-channel="y"]`)?.getAttribute('style')).toBe(`cursor: pointer; --vzf-scale-hue: ${hue};`);
+    }
+    // the frame's own x — the axis BOTH scales stand over — stays the ink: it belongs to neither
+    expect(el.querySelectorAll('.vzf-frame-guide [style]')).toHaveLength(0);
+    m.unmount();
+  });
+
   it('two fields of the SAME NAME on two tables would read "left is value, right is value" — true and useless, so the sentence names the LAYER too when the fields collide (packet W review, attack 3)', () => {
     const priceA: RenderLayer = { layerId: 'shopA', table: 'shopA', rows: [{ when: '2026-01-01', value: 3 }, { when: '2026-01-08', value: 9 }], encodings: { x: 'when', y: 'value' } };
     const priceB: RenderLayer = { layerId: 'shopB', table: 'shopB', rows: [{ when: '2026-01-01', value: 40 }, { when: '2026-01-08', value: 12 }], encodings: { x: 'when', y: 'value' } };
@@ -1365,6 +1384,8 @@ describe('layeredRenderer — TWO SCALES ON ONE FRAME are two claims, and the fr
     expect(el.querySelector('[data-layer="rain"] text.vzf-tick')?.textContent).toBe('0');
     // heights across ONE scale are comparable, so the "two scales" sentence would be a lie: none is said
     expect(captionOf(el)).toBe('');
+    // and the ink says nothing either (law 4): two hues over one scale would claim two of them
+    expect(el.querySelectorAll('[style*="--vzf-scale-hue"]')).toHaveLength(0);
     // and the frame does not draw that y a third time
     expect(el.querySelectorAll('.vzf-frame-guide line.vzf-axis').length).toBe(1 + 4); // the x line and its four ticks
     m.unmount();

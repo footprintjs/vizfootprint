@@ -50,6 +50,7 @@ import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import { linearScale, extent, ticks, epochOf, dayOf, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, bandOrder, bandWidth, bandCentre, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
 import { TICK_ANGLE, fitTick } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
+import { scaleHueStyle } from '../primitives/scaleHue.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { useReencodePicker } from '../primitives/reencode.js';
 import { boundField } from './binding.js';
@@ -172,6 +173,17 @@ export interface VizLineProps {
    * has an edge of its own. The marks are placed exactly as on the left.
    */
   readonly axisSide?: AxisSide;
+  /**
+   * THE INK OF THIS SCALE — the hue a two-scale frame handed this layer
+   * (`FrameLayerDraw.scaleHue`, `VizFrame` its one owner; a CSS variable
+   * reference such as `var(--vzf-scale-left)`). This chart's OWN y axis — its
+   * line, its ticks and its label — is drawn in it, and so are its marks WHEN
+   * THEY ARE UNSPLIT: a chart split into series by `colorOf` keeps its series
+   * colours, because identity is never colour-alone and a scale may not take a
+   * hue that already names something. Absent = the ink token and
+   * `var(--vzf-brand)`, byte-identical to this chart before the prop existed.
+   */
+  readonly scaleHue?: string;
 }
 
 /**
@@ -427,6 +439,12 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // the left, rightward on the right) and the label rotates to face its edge — the mirror, nothing else.
   const yAxisX = props.axisSide === 'right' ? width - pad.r : pad.l;
   const yTickDir = props.axisSide === 'right' ? 1 : -1;
+  // THE INK OF THIS SCALE, on the parts of the y axis this chart draws: one inherited variable the
+  // stylesheet spends per element (`scaleHueStyle`), and nothing at all when no hue was handed
+  const hueStyle = scaleHueStyle(props.scaleHue);
+  // what an UNSPLIT mark is drawn with: the hue its scale was handed, the brand where there is none
+  // (a chart split into series keeps `colorOf`'s answer — identity is never colour-alone)
+  const markInk = props.scaleHue ?? 'var(--vzf-brand)';
   // ≥2 series carry a legend ABOVE the plot, never over it: the band's rows are laid out first and the plot starts
   // below them, so a legend of nine regions cannot sit on top of nine spiky lines (identity is never colour-alone).
   const legend = layoutLegend(series.map((s) => s.name ?? 'all'), width - pad.l - pad.r);
@@ -510,7 +528,8 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // (the span the marks were actually placed on) rather than the raw pair
   const yTickVals = yKind === 'log' ? logTicks(y.domain[0], y.domain[1], 4) : ticks(vlo + yPad, vhi - yPad, 3);
 
-  const seriesColor = (name: string | undefined): string => (colorOf ? colorOf(name) : 'var(--vzf-brand)');
+  // one answer, read by path, dot and legend swatch alike: the series' colour where the chart is split, `markInk` where it is not
+  const seriesColor = (name: string | undefined): string => (colorOf ? colorOf(name) : markInk);
   const showLegend = series.length >= 2;
 
   return (
@@ -526,7 +545,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
         {/* axes frame — absent while the FRAME draws one merged guide for the stack; the x half absent
             while the frame draws x once and this chart draws only its own y (`axes: 'y'`) */}
         {drawX && <line className="vzf-axis" x1={pad.l} y1={bottom} x2={width - pad.r} y2={bottom} />}
-        {drawY && <line className="vzf-axis" x1={yAxisX} y1={top} x2={yAxisX} y2={bottom} />}
+        {drawY && <line className="vzf-axis" x1={yAxisX} y1={top} x2={yAxisX} y2={bottom} style={hueStyle} />}
         {/* x ticks on a RUN — actual data dates; the edge labels anchor inward so they
             never clip at the plot edges or collide with each other */}
         {drawX && tickSpecs.map((d) => (
@@ -559,7 +578,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
         })}
         {/* y ticks — on the axis's side, reading away from the plot */}
         {drawY && yTickVals.map((v, i) => (
-          <g key={`yt${i}`}>
+          <g key={`yt${i}`} style={hueStyle}>
             <line className="vzf-axis" x1={yAxisX + 4 * yTickDir} y1={y(v)} x2={yAxisX} y2={y(v)} />
             <text className="vzf-tick" x={yAxisX + 8 * yTickDir} y={y(v) + 3} textAnchor={yTickDir < 0 ? 'end' : 'start'}>
               {yKind === 'log' ? logTickLabel(v) : Math.round(v * 10) / 10}
@@ -606,7 +625,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
         {/* interactive axis labels — the re-encode affordance rides the guide, so the frame owns both or neither;
             the y label faces its edge: rotated to read upward on the left, downward on the right */}
         {drawX && <AxisLabel x={(pad.l + width - pad.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />}
-        {drawY && <AxisLabel x={props.axisSide === 'right' ? width - 14 : 14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={props.axisSide === 'right' ? 90 : -90} onOpen={openPicker} />}
+        {drawY && <AxisLabel x={props.axisSide === 'right' ? width - 14 : 14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={props.axisSide === 'right' ? 90 : -90} hue={props.scaleHue} onOpen={openPicker} />}
         {/* the words for what a transform could not place, IN THE PICTURE (`excludedNote` already
             carries it into the accessible name for a screen reader). Bottom-right, clear of the
             legend band the top carries for ≥2 series. */}

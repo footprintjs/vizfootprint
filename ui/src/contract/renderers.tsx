@@ -152,6 +152,8 @@ interface MarkDraw {
   readonly axes: boolean | 'y';
   /** The edge this mark's own y axis stands on — set exactly when `axes` is `'y'`. Only a line or a point ever receives it (law 2). */
   readonly axisSide?: AxisSide;
+  /** The hue this mark draws its own y axis (and its unsplit marks) in — set exactly when the frame draws TWO y scales and this mark is one of them (law 4, `VizFrame` its one owner). */
+  readonly scaleHue?: string;
   /**
    * PROTOCOL 1.5's fold, PASSED THROUGH RAW — `RenderState.frame`, unread by
    * every mark but `lineMark`. A plain view binds no `layers`, so nothing here
@@ -232,6 +234,7 @@ function pointMark(d: MarkDraw, options: ScatterRendererOptions): JSX.Element {
       domain={d.domain}
       axes={d.axes}
       {...(d.axisSide === undefined ? {} : { axisSide: d.axisSide })}
+      {...(d.scaleHue === undefined ? {} : { scaleHue: d.scaleHue })}
       onEmit={d.callbacks.emit}
       onReencodeRequest={d.callbacks.reencodeRequest}
     />
@@ -308,6 +311,7 @@ function lineMark(d: MarkDraw, options: LineRendererOptions): JSX.Element {
       domain={d.domain}
       axes={d.axes}
       {...(d.axisSide === undefined ? {} : { axisSide: d.axisSide })}
+      {...(d.scaleHue === undefined ? {} : { scaleHue: d.scaleHue })}
       onEmit={d.callbacks.emit}
       onReencodeRequest={d.callbacks.reencodeRequest}
     />
@@ -1332,7 +1336,9 @@ function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
  *     upstream went through the door.
  *
  * The third law — the frame SAYS the scales are unrelated — is not a refusal
- * but a sentence, {@link twoScalesSentence}, rendered by the frame.
+ * but a sentence, {@link twoScalesSentence}, rendered by the frame. Nor is the
+ * fourth: the ink MATCHES the scale, one hue per edge, handed out by `VizFrame`
+ * wherever that sentence is said and drawn by the layer (`scaleHue`).
  */
 function twoScalesRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | null {
   if (framed.length < 2 || frameGuide(frame) !== 'per-layer') return null;
@@ -1653,8 +1659,10 @@ function frameRefusal(sentence: string): JSX.Element {
  * band, a line split into series, or — on a per-layer guide over two or more
  * layers — an x left to the layers, a third own y, or a bar/histogram/box plot
  * with a y of its own (`twoScalesRefusal`). Two own y scales on a line or a
- * point are THE TWO-AXIS FIGURE: left and right, x drawn once by the frame, and
- * the frame's own sentence beneath (`twoScalesSentence`).
+ * point are THE TWO-AXIS FIGURE: left and right, x drawn once by the frame,
+ * the frame's own sentence beneath (`twoScalesSentence`), and each of the two
+ * layers drawing its axis — and its unsplit marks — in the hue the frame hands
+ * it (`FrameLayerDraw.scaleHue`, law 4: the ink matches the scale).
  */
 export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer {
   return reactRenderer({
@@ -1698,6 +1706,8 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
                 domain: layerDomain(f, state.frame, categories),
                 axes: draw.axes,
                 ...(draw.axisSide === undefined ? {} : { axisSide: draw.axisSide }),
+                // the ink of this layer's scale, when the frame decided there are two of them (law 4)
+                ...(draw.scaleHue === undefined ? {} : { scaleHue: draw.scaleHue }),
               }),
           }))}
           domain={frameChartDomain(framed, state.frame, categories)}

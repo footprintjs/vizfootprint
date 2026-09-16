@@ -16,8 +16,11 @@
  *     callback bundle;
  *
  * and, on the page's SECOND figure, the two-axis frame: two y axes, one at
- * each edge, x drawn once, and the frame's own sentence naming both fields —
- * the words that make two scales a figure and not a trick.
+ * each edge, x drawn once, the frame's own sentence naming both fields — the
+ * words that make two scales a figure and not a trick — and the INK matching
+ * the scale: each line and its own axis painted in one hue the frame handed
+ * them, which only a real browser can confirm (the hue travels as a CSS
+ * variable the stylesheet spends, so nothing but a computed style sees it).
  *
  * Every selector is scoped to its figure (`[data-figure=…]`): the two frames
  * share one page, and a count over the whole page would be a count of neither.
@@ -175,6 +178,43 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('three layers on on
     expect(await page.locator(`${TWO} .vzf-frame`).getAttribute('aria-label')).toContain(caption);
     // and the page's own words say why
     expect(await page.locator(`${TWO} .vzf-frame-words-two`).innerText()).toContain('declaration, never an inference');
+    expect(consoleErrors).toEqual([]);
+    expect(pageErrors).toEqual([]);
+  });
+
+  it('the SECOND figure draws each line and its own axis in ONE hue the frame handed it — two hues, matched, resolved from the shipped stylesheet', async () => {
+    /** What one layer's axis, its label and its marks are actually PAINTED — computed, so every `var()` is resolved. */
+    const inkOf = (layerId: string): Promise<{ axis: string; tick: string; label: string; mark: string }> =>
+      page.locator(`${TWO} [data-layer="${layerId}"]`).evaluate((box) => {
+        const vertical = [...box.querySelectorAll('line.vzf-axis')].find((l) => l.getAttribute('x1') === l.getAttribute('x2'))!;
+        const tick = [...box.querySelectorAll('text.vzf-tick')][0]!;
+        return {
+          axis: getComputedStyle(vertical).stroke,
+          tick: getComputedStyle(tick).fill,
+          label: getComputedStyle(box.querySelector('text.vzf-axis-label')!).fill,
+          mark: getComputedStyle(box.querySelector('path.vzf-line-path')!).stroke,
+        };
+      });
+    const price = await inkOf('price');
+    const rating = await inkOf('rating');
+    // ONE hue per scale: the axis, its ticks, its label and the marks read against it are the same colour
+    for (const ink of [price, rating]) {
+      expect(ink.axis).toMatch(/^rgb\(/); // a real colour, so the token really ships in the stylesheet
+      expect([ink.tick, ink.label, ink.mark]).toEqual([ink.axis, ink.axis, ink.axis]);
+    }
+    // …and the two scales are two colours, so which line belongs to which edge is on the plot
+    expect(price.axis).not.toBe(rating.axis);
+    // they are the frame's tokens, not this page's choice: the values `styles.css` defines for the two edges
+    const tokens = await page.locator(`${TWO}`).evaluate((el) => {
+      const root = el.closest('.vzf') ?? document.documentElement;
+      const read = (name: string): string => getComputedStyle(root).getPropertyValue(name).trim();
+      return { left: read('--vzf-scale-left'), right: read('--vzf-scale-right') };
+    });
+    expect(tokens.left).not.toBe('');
+    expect(tokens.right).not.toBe(tokens.left);
+    // the frame's own x — the axis both scales stand over — stays the ink token, hued by neither
+    const xInk = await page.locator(`${TWO} .vzf-frame-guide line.vzf-axis`).first().evaluate((el) => getComputedStyle(el).stroke);
+    expect([price.axis, rating.axis]).not.toContain(xInk);
     expect(consoleErrors).toEqual([]);
     expect(pageErrors).toEqual([]);
   });

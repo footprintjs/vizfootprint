@@ -23,7 +23,7 @@ function fake(layerId: string, kind: VizFrameLayer['kind'], ownY?: boolean): Viz
     kind,
     ...(ownY === undefined ? {} : { ownY }),
     render: (draw: FrameLayerDraw) => (
-      <svg className="vzf-chart" data-w={draw.width} data-h={draw.height} data-axes={String(draw.axes)} data-side={draw.axisSide ?? ''} data-domain={JSON.stringify(draw.domain)} />
+      <svg className="vzf-chart" data-w={draw.width} data-h={draw.height} data-axes={String(draw.axes)} data-side={draw.axisSide ?? ''} data-hue={draw.scaleHue ?? ''} data-domain={JSON.stringify(draw.domain)} />
     ),
   };
 }
@@ -41,6 +41,9 @@ const boxesOf = (container: Element): Record<string, { left: number; top: number
 };
 
 const ticksOf = (container: Element): (string | null)[] => Array.from(container.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent);
+
+/** The hue every layer was handed, in declaration order — `''` for a layer the frame handed none. */
+const huesOf = (container: Element): string[] => Array.from(container.querySelectorAll('[data-hue]')).map((el) => el.getAttribute('data-hue') ?? '');
 
 describe('the framed kinds', () => {
   it('names the five 2D marks and nothing else — the same list the renderer refuses off', () => {
@@ -257,6 +260,46 @@ describe('what a layer is handed', () => {
     const { container } = render(<VizFrame layers={[]} />);
     expect(container.querySelectorAll('[data-layer]')).toHaveLength(0);
     expect(container.querySelector('.vzf-frame')?.getAttribute('aria-label')).toBe('0 layers on one frame');
+  });
+});
+
+describe('the ink matches the scale (law 4)', () => {
+  const WORDS = 'two scales — left is temperature, right is rainfall; heights are not comparable across them';
+
+  it('TWO own y scales and the words to say so: the left layer is handed the left hue, the right layer the right one', () => {
+    const { container } = render(<VizFrame layers={[fake('a', 'line', true), fake('b', 'point', true)]} guide="per-layer" words={WORDS} domain={{ x: [0, 100] }} x={{ scale: 'quantitative', label: 'week' }} width={400} height={300} />);
+    expect(handoutOf(container)).toEqual(['y:left', 'y:right']);
+    expect(huesOf(container)).toEqual(['var(--vzf-scale-left)', 'var(--vzf-scale-right)']);
+    // the frame's OWN guide — the x both scales stand over — is drawn in the ink, not in either hue: a
+    // shared axis belongs to neither scale, and hueing it would claim it belonged to one
+    expect(container.querySelectorAll('.vzf-frame-guide [style]')).toHaveLength(0);
+    expect(container.querySelector('.vzf-frame-guide')?.getAttribute('style')).toBeNull();
+  });
+
+  it('a frame with ONE scale hands out NO hue — there is nothing for the ink to match', () => {
+    // merged: the frame draws the one guide, and no layer draws an axis at all
+    const merged = render(<VizFrame layers={[fake('a', 'line'), fake('b', 'point')]} width={400} height={300} />).container;
+    expect(huesOf(merged)).toEqual(['', '']);
+    // per-layer on a SINGLE layer: its own pair, its own ink — unchanged from before hues existed
+    const alone = render(<VizFrame layers={[fake('a', 'line', true)]} guide="per-layer" width={400} height={300} />).container;
+    expect(handoutOf(alone)).toEqual(['true']);
+    expect(huesOf(alone)).toEqual(['']);
+  });
+
+  it('two edges of ONE shared scale get no hue: the frame says nothing (no words), so the ink says nothing either', () => {
+    // the shape `frameWords` withholds its sentence for — two per-layer axes of a y the frame folded shared.
+    // The hue rides with the words, so it is withheld with them: two hues would claim two scales.
+    const { container } = render(<VizFrame layers={[fake('a', 'line', true), fake('b', 'line', true)]} guide="per-layer" width={400} height={300} />);
+    expect(handoutOf(container)).toEqual(['y:left', 'y:right']);
+    expect(huesOf(container)).toEqual(['', '']);
+    expect(container.querySelector('.vzf-frame-caption')).toBeNull();
+  });
+
+  it('a THIRD own y takes an edge but NO hue — there are two hues and no third, and repeating one would say two scales are one', () => {
+    const { container } = render(<VizFrame layers={[fake('a', 'bar'), fake('b', 'line', true), fake('c', 'point', true), fake('d', 'line', true)]} guide="per-layer" words={WORDS} width={400} height={300} />);
+    // the sides still go round (visible, never hidden — it is refused upstream, in words)
+    expect(handoutOf(container)).toEqual(['false', 'y:left', 'y:right', 'y:left']);
+    expect(huesOf(container)).toEqual(['', '', '', '']);
   });
 });
 

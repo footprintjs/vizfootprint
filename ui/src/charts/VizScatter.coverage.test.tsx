@@ -171,3 +171,40 @@ describe('VizScatter — the y axis on the RIGHT edge (the second axis of a fram
     expect(yTicksOf(container).length).toBeGreaterThan(0);
   });
 });
+
+describe('VizScatter — the ink of its scale (one edge of a two-scale frame)', () => {
+  const ROWS = [
+    { id: 'a', x: 10, y: 1, category: 'Casual' },
+    { id: 'b', x: 80, y: 5, category: 'Formal' },
+  ];
+  const HUE = 'var(--vzf-scale-right)';
+
+  it('absent: byte-identical to the chart before hues existed — a hue reaches EXACTLY the axis and the ink', () => {
+    const withHue = render(<VizScatter data={ROWS} width={400} height={300} axes="y" axisSide="right" scaleHue={HUE} />).container.innerHTML;
+    cleanup();
+    const plain = render(<VizScatter data={ROWS} width={400} height={300} axes="y" axisSide="right" />).container.innerHTML;
+    const stripped = withHue
+      .replaceAll(` style="--vzf-scale-hue: ${HUE};"`, '')
+      .replaceAll(`; --vzf-scale-hue: ${HUE};`, ';')
+      .replaceAll(HUE, 'var(--vzf-brand)');
+    expect(stripped).toBe(plain);
+  });
+
+  it('present: the y axis line, its ticks, its label and the unsplit dots are drawn in it', () => {
+    const { container } = render(<VizScatter data={ROWS} width={400} height={300} axes="y" axisSide="right" scaleHue={HUE} />);
+    const axisLine = [...container.querySelectorAll('line.vzf-axis')].find((l) => l.getAttribute('x1') === l.getAttribute('x2'))!;
+    expect(axisLine.getAttribute('style')).toBe(`--vzf-scale-hue: ${HUE};`);
+    // one hued group per y tick, plus the label's own group, plus the axis line
+    expect(container.querySelectorAll('[style*="--vzf-scale-hue"]').length).toBe(1 + container.querySelectorAll('g > text.vzf-tick').length + 1);
+    expect(container.querySelector('.vzf-axis-group[data-axis-channel="y"]')?.getAttribute('style')).toBe(`cursor: pointer; --vzf-scale-hue: ${HUE};`);
+    expect([...container.querySelectorAll('circle.vzf-dot')].map((c) => c.getAttribute('fill'))).toEqual([HUE, HUE]);
+  });
+
+  it('dots coloured BY CATEGORY keep those colours and the axis takes the hue alone — identity is never colour-alone', () => {
+    const colorOf = (category: string | undefined): string => (category === 'Casual' ? '#111111' : '#222222');
+    const { container } = render(<VizScatter data={ROWS} width={400} height={300} axes="y" axisSide="right" scaleHue={HUE} colorOf={colorOf} />);
+    expect([...container.querySelectorAll('circle.vzf-dot')].map((c) => c.getAttribute('fill'))).toEqual(['#111111', '#222222']);
+    const axisLine = [...container.querySelectorAll('line.vzf-axis')].find((l) => l.getAttribute('x1') === l.getAttribute('x2'))!;
+    expect(axisLine.getAttribute('style')).toBe(`--vzf-scale-hue: ${HUE};`);
+  });
+});

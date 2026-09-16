@@ -16,6 +16,9 @@
  *                             affordance) + `useReencodePicker` (host-mode vs
  *                             built-in-picker dispatch) + `defaultCompat`
  *                             (honest disabled-with-reason).
+ *   • `scaleHueStyle`       — the ink of ONE scale: what a layer of a
+ *                             two-scale frame does with the hue the frame
+ *                             handed it (`scaleHue`).
  *   • `useHorizontalBrush`  — drag→interval with the completion discipline
  *                             (sub-4px = clear/tap; snap-to-data or nothing)
  *                             + `<BrushOverlay>`.
@@ -56,6 +59,11 @@ export type { LinearScale, ChartDomain, ScaleKind, ScaleBuilder, AxisSide } from
 
 export { AxisLabel } from './AxisLabel.js';
 export type { AxisLabelProps } from './AxisLabel.js';
+
+// the ink of one scale (`scaleHue` on a two-scale frame's layer): the ONE owner of the custom
+// property the hue is inherited on, so a consumer-built chart put on such a frame draws its own
+// axis in the hue the frame handed it instead of guessing which property to paint
+export { scaleHueStyle, SCALE_HUE_VAR } from './scaleHue.js';
 
 export { defaultCompat } from './compat.js';
 export type { Compatibility } from './compat.js';

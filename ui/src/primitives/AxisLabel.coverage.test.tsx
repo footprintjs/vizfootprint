@@ -59,6 +59,25 @@ describe('AxisLabel', () => {
     expect(ok).toBe(true); // not prevented
   });
 
+  it('wears its SCALE\'s ink when a two-scale frame handed the layer a hue — and nothing but the cursor without one', () => {
+    const plain = render(
+      <svg>
+        <AxisLabel x={10} y={10} text="price" channel="y" onOpen={() => {}} />
+      </svg>,
+    ).container;
+    expect(plain.querySelector('.vzf-axis-group')?.getAttribute('style')).toBe('cursor: pointer;');
+    cleanup();
+    const hued = render(
+      <svg>
+        <AxisLabel x={10} y={10} text="price" channel="y" hue="var(--vzf-scale-left)" onOpen={() => {}} />
+      </svg>,
+    ).container;
+    // the hue rides on the group as ONE variable the stylesheet spends (`scaleHueStyle`) — the label's
+    // fill reads it, while the affordance ring and its hover cue stay the brand's
+    expect(hued.querySelector('.vzf-axis-group')?.getAttribute('style')).toBe('cursor: pointer; --vzf-scale-hue: var(--vzf-scale-left);');
+    expect(hued.querySelector('.vzf-axis-label')?.getAttribute('style')).toBeNull();
+  });
+
   it('opens on click', () => {
     const onOpen = vi.fn();
     render(

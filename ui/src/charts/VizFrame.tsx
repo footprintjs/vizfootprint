@@ -28,6 +28,12 @@
  *      the frame's own CAPTION REGION (a strip inside the frame's height, below
  *      the plot, taken from the margin the way a slanted tick takes its room)
  *      and in the accessible label. A dual axis that says nothing is the lie.
+ *   4. THE INK MATCHES THE SCALE. On that same two-scale frame the frame hands
+ *      each own-y layer one of two HUES (`SIDE_HUES`, `FrameLayerDraw.scaleHue`)
+ *      and the layer draws its own axis and its unsplit marks in it — so which
+ *      marks belong to which edge is on the plot, not only in the words. The
+ *      frame owns the hues for the same reason it owns the sides: only it knows
+ *      there are two. A one-scale frame hands out none.
  *
  * The margin is still ONE union: a right axis adds its room on the right
  * (`padOnSide` — the chart's own pad mirrored, the same object the chart draws
@@ -142,6 +148,13 @@ export interface FrameLayerDraw {
   readonly axes: boolean | 'y';
   /** Which edge this layer's own y axis stands on — set exactly when `axes` is `'y'`. */
   readonly axisSide?: AxisSide;
+  /**
+   * THE HUE THIS SCALE IS DRAWN IN — a CSS variable reference (`SIDE_HUES`) —
+   * set exactly when this frame draws TWO y scales and this layer draws one of
+   * them. Absent on every other frame, so a layer that is handed none draws in
+   * the ink it always did.
+   */
+  readonly scaleHue?: string;
 }
 
 /** One layer of a frame: which mark it is (for the margin), whether its y is its own, and how to draw it. */
@@ -336,24 +349,48 @@ function FrameGuide(props: { readonly frame: VizFrameProps; readonly plot: Frame
   );
 }
 
-/** What the frame decided for one layer's guide: none (the frame's), its own pair (a single layer), or its own y on one edge (the two-axis figure). */
-type LayerGuide = { readonly axes: false } | { readonly axes: true } | { readonly axes: 'y'; readonly axisSide: AxisSide };
+/** What the frame decided for one layer's guide: none (the frame's), its own pair (a single layer), or its own y on one edge — and, on a two-scale frame, the hue that y is drawn in (the two-axis figure). */
+type LayerGuide = { readonly axes: false } | { readonly axes: true } | { readonly axes: 'y'; readonly axisSide: AxisSide; readonly scaleHue?: string };
 
 /** The two edges, in the order own-y layers take them: the first on the left, the second on the right. A third goes round again to the left — visible, never hidden (it is refused upstream, in words). */
 const SIDES: readonly AxisSide[] = ['left', 'right'];
+
+/** The hue each edge's scale is drawn in — the frame's to hand out, the layer's only to draw with; the values are in `styles.css` beside the other tokens, for both grounds. */
+const SIDE_HUES: Readonly<Record<AxisSide, string>> = Object.freeze({ left: 'var(--vzf-scale-left)', right: 'var(--vzf-scale-right)' });
+
+/**
+ * DOES THIS FRAME DRAW TWO Y SCALES — the one question the hues hang on, and
+ * the only place it is asked. TWO layers whose y is their own, and the frame's
+ * own WORDS to say so: the sentence is what decides that two axes are two
+ * SCALES rather than one scale drawn on both edges (`twoScalesSentence`'s
+ * owner, `contract/renderers.tsx` · `frameWords`, says nothing for a shared y
+ * — heights across it ARE comparable), so the hue rides with the words and is
+ * never the cue on its own. A third own y would have no third hue, so a frame
+ * drawing three hands out none rather than repeating one.
+ */
+function twoScaleInk(layers: readonly VizFrameLayer[], words: string | undefined): boolean {
+  return words !== undefined && layers.filter((layer) => layer.ownY === true).length === SIDES.length;
+}
 
 /**
  * WHO DRAWS WHICH AXIS, per layer, in declaration order — the ONE place this
  * component decides it. Merged: nobody but the frame. Per-layer on a single
  * layer: that layer, both axes (unchanged from before sides existed). Per-layer
  * on two or more: the frame draws what it was given (x, once), and each own-y
- * layer draws only its y, on the next free edge.
+ * layer draws only its y, on the next free edge — in that edge's hue when this
+ * is the two-scale figure (`twoScaleInk`), and in the ink otherwise.
  */
-function layerGuides(layers: readonly VizFrameLayer[], guide: 'merged' | 'per-layer'): readonly LayerGuide[] {
+function layerGuides(layers: readonly VizFrameLayer[], guide: 'merged' | 'per-layer', words: string | undefined): readonly LayerGuide[] {
   if (guide === 'merged') return layers.map(() => ({ axes: false }));
   if (layers.length === 1) return [{ axes: true }];
+  const hued = twoScaleInk(layers, words);
   let taken = 0;
-  return layers.map((layer) => (layer.ownY === true ? { axes: 'y', axisSide: SIDES[taken++ % SIDES.length]! } : { axes: false }));
+  return layers.map((layer) => {
+    if (layer.ownY !== true) return { axes: false };
+    const axisSide = SIDES[taken++ % SIDES.length]!;
+    // the key is ABSENT where there is no hue, so what an unhued layer is handed is what it was always handed
+    return { axes: 'y', axisSide, ...(hued ? { scaleHue: SIDE_HUES[axisSide] } : {}) };
+  });
 }
 
 /** A layer's margin as it will draw it: its kind's pad, mirrored when its own y stands on the right (`padOnSide` — the chart reads the same). */
@@ -369,7 +406,7 @@ function layerPad(layer: VizFrameLayer, decided: LayerGuide): FramePad {
  */
 export function VizFrame(props: VizFrameProps): JSX.Element {
   const { layers, width = 520, height = 340, guide = 'merged', words } = props;
-  const guides = layerGuides(layers, guide);
+  const guides = layerGuides(layers, guide, words);
   // THE MARGIN UNION, with a right pad only when a right axis is drawn and a caption strip only when
   // there are words — so a frame with neither keeps the plot rectangle it always had
   const union = unionPads(layers.map((layer, i) => layerPad(layer, guides[i]!)));

@@ -72,6 +72,23 @@
   --vzf-seq-5: #1d5f63;
   --vzf-map-empty: var(--vzf-surface-2);
 
+  /* ── the two y scales of a two-scale frame ─────────────────
+     THE INK MATCHES THE SCALE. On a frame that draws TWO y scales the frame
+     hands each own-y layer one of these two hues (`VizFrame` · `SIDE_HUES`,
+     its one owner) and the layer draws its own y axis — and its unsplit marks
+     — in it, so a reader can see which marks belong to which edge. A second,
+     redundant cue beside the frame's words (`twoScalesSentence`), never a
+     replacement for them, and never handed out on a one-scale frame.
+     Mode-agnostic like the accents above — ONE definition for both grounds,
+     because both hues sit inside the light AND the dark lightness band.
+     Deliberately neither the brand (an unhued mark's own ink) nor an identity
+     accent, so a hued axis never impersonates a series. Validator-checked
+     (dataviz six-checks, `--pairs all`, light #ffffff + #f5f7fa and dark
+     #131924 + #0b0f16): the pair stands ΔE 26.2 apart under simulated CVD and
+     33.3 under normal vision, and each clears 3:1 on all four grounds. */
+  --vzf-scale-left: #8a7a14;
+  --vzf-scale-right: #b03ad6;
+
   /* contrast-aware foregrounds over coloured fills */
   --vzf-on-brand: #ffffff;
   --vzf-on-user: #ffffff;
@@ -711,12 +728,17 @@
   font-size: 0.8em;
   color: var(--vzf-ink-faint);
 }
+/* THE SCALE HUE arrives as ONE inherited variable (`--vzf-scale-hue`, set by the chart on the
+   parts of its OWN y axis when a two-scale frame handed it a hue — `VizLine`/`VizScatter`) and each
+   element below spends it on the property it paints with: the axis on its stroke, a tick and the
+   axis label on their fill. Unset — every chart that is not one scale of a two-scale frame — falls
+   back to the ink token it always wore, so nothing else moves. */
 :where(.vzf) .vzf-axis {
-  stroke: var(--vzf-line);
+  stroke: var(--vzf-scale-hue, var(--vzf-line));
   stroke-width: 1;
 }
 :where(.vzf) .vzf-tick {
-  fill: var(--vzf-ink-faint);
+  fill: var(--vzf-scale-hue, var(--vzf-ink-faint));
   font-family: var(--vzf-font-mono);
   font-size: 10px;
 }
@@ -1056,12 +1078,14 @@
   outline-offset: -2px;
 }
 
-/* axis label = an interactive affordance (opens the encoding picker) */
+/* axis label = an interactive affordance (opens the encoding picker); its hue is the scale's when
+   the frame handed one (see `--vzf-scale-hue` above), and the HOVER rule below still wins — the
+   affordance ring and its hover cue stay the brand's, because they are about the click, not the scale */
 :where(.vzf) .vzf-axis-label {
   font-family: var(--vzf-font-display);
   font-size: 12px;
   font-weight: 600;
-  fill: var(--vzf-ink-soft);
+  fill: var(--vzf-scale-hue, var(--vzf-ink-soft));
   cursor: pointer;
 }
 :where(.vzf) .vzf-axis-label:hover,

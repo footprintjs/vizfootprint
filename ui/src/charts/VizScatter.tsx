@@ -23,6 +23,7 @@ import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
 import { ticks, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
+import { scaleHueStyle } from '../primitives/scaleHue.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { useBrightPredicate, dimClass } from '../primitives/useSelection.js';
 import { useReencodePicker } from '../primitives/reencode.js';
@@ -112,6 +113,17 @@ export interface VizScatterProps {
    * has an edge of its own. The marks are placed exactly as on the left.
    */
   readonly axisSide?: AxisSide;
+  /**
+   * THE INK OF THIS SCALE — the hue a two-scale frame handed this layer
+   * (`FrameLayerDraw.scaleHue`, `VizFrame` its one owner; a CSS variable
+   * reference such as `var(--vzf-scale-right)`). This chart's OWN y axis — its
+   * line, its ticks and its label — is drawn in it, and so are its dots WHEN
+   * THEY ARE UNSPLIT: a chart coloured by category through `colorOf` keeps
+   * those colours, because identity is never colour-alone and a scale may not
+   * take a hue that already names something. Absent = the ink token and
+   * `var(--vzf-brand)`, byte-identical to this chart before the prop existed.
+   */
+  readonly scaleHue?: string;
 }
 
 /**
@@ -179,6 +191,12 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   // the left, rightward on the right) and the label rotates to face its edge — the mirror, nothing else.
   const yAxisX = props.axisSide === 'right' ? width - pad.r : pad.l;
   const yTickDir = props.axisSide === 'right' ? 1 : -1;
+  // THE INK OF THIS SCALE, on the parts of the y axis this chart draws: one inherited variable the
+  // stylesheet spends per element (`scaleHueStyle`), and nothing at all when no hue was handed
+  const hueStyle = scaleHueStyle(props.scaleHue);
+  // what an UNSPLIT mark is filled with: the hue its scale was handed, the brand where there is none
+  // (a chart coloured by category keeps `colorOf`'s answer — identity is never colour-alone)
+  const markInk = props.scaleHue ?? 'var(--vzf-brand)';
 
   // drag→interval on x — the brush primitive's completion discipline (a sub-4px
   // release emits the CLEARED interval); snap = this chart's own scale invert
@@ -213,7 +231,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         {/* axes frame — absent while the FRAME draws one merged guide for the stack; the x half absent
             while the frame draws x once and this chart draws only its own y (`axes: 'y'`) */}
         {drawX && <line className="vzf-axis" x1={pad.l} y1={height - pad.b} x2={width - pad.r} y2={height - pad.b} />}
-        {drawY && <line className="vzf-axis" x1={yAxisX} y1={pad.t} x2={yAxisX} y2={height - pad.b} />}
+        {drawY && <line className="vzf-axis" x1={yAxisX} y1={pad.t} x2={yAxisX} y2={height - pad.b} style={hueStyle} />}
         {/* x ticks */}
         {drawX && xTicks.map((v, i) => (
           <g key={`xt${i}`}>
@@ -225,7 +243,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         ))}
         {/* y ticks — on the axis's side, reading away from the plot */}
         {drawY && yTickVals.map((v, i) => (
-          <g key={`yt${i}`}>
+          <g key={`yt${i}`} style={hueStyle}>
             <line className="vzf-axis" x1={yAxisX + 4 * yTickDir} y1={y(v)} x2={yAxisX} y2={y(v)} />
             <text className="vzf-tick" x={yAxisX + 8 * yTickDir} y={y(v) + 3} textAnchor={yTickDir < 0 ? 'end' : 'start'}>
               {yKind === 'log' ? logTickLabel(v) : v}
@@ -255,7 +273,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
               cx={x(d.x)}
               cy={y(d.y)}
               r={4}
-              fill={colorOf ? colorOf(d.category) : 'var(--vzf-brand)'}
+              fill={colorOf ? colorOf(d.category) : markInk}
             >
               <title>{`${d.id}${d.category ? ' · ' + d.category : ''} · ${xLabel} ${d.x} · ${yLabel} ${d.y}`}</title>
             </circle>
@@ -265,7 +283,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         <BrushOverlay brush={brush} y={pad.t} height={height - pad.t - pad.b} />
         {/* interactive axis labels — the y label faces its edge: rotated to read upward on the left, downward on the right */}
         {drawX && <AxisLabel x={(pad.l + width - pad.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />}
-        {drawY && <AxisLabel x={props.axisSide === 'right' ? width - 14 : 14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={props.axisSide === 'right' ? 90 : -90} onOpen={openPicker} />}
+        {drawY && <AxisLabel x={props.axisSide === 'right' ? width - 14 : 14} y={height / 2} text={yLabel} channel="y" anchor="middle" rotate={props.axisSide === 'right' ? 90 : -90} hue={props.scaleHue} onOpen={openPicker} />}
         {/* the words for what a transform could not place, IN THE PICTURE — `excludedNote` already
             carries this fact into the accessible name for a screen reader; a sighted reader meets it
             only here, so a log-log scatter that silently omits hundreds of rows does not look like one

@@ -102,6 +102,18 @@ const holdsSecondAxis = (): boolean =>
   /export function twoScalesSentence\(/.test(read('renderers.tsx')) &&
   /readonly ownY\?: boolean;/.test(read('../charts/VizFrame.tsx'));
 
+/**
+ * THE INK really matches the scale (law 4): the hue on both marks that may
+ * stand a y axis on an edge, the frame's own table of which edge gets which,
+ * and the two tokens the stylesheet defines them as.
+ */
+const holdsScaleInk = (): boolean =>
+  /readonly scaleHue\?: string;/.test(read('../charts/VizLine.tsx')) &&
+  /readonly scaleHue\?: string;/.test(read('../charts/VizScatter.tsx')) &&
+  /const SIDE_HUES:/.test(read('../charts/VizFrame.tsx')) &&
+  /--vzf-scale-left:/.test(read('../styles.css')) &&
+  /--vzf-scale-right:/.test(read('../styles.css'));
+
 /** The logarithmic-axis claim: from its "Not in this version" to the end of that sentence. */
 const notInThisLogVersion = (): string => {
   const readme = read('README.md');
@@ -268,6 +280,20 @@ describe('the layers law says only what is true', () => {
     // and the old overprint sentence is gone from both
     expect(readme).not.toContain('overprint');
     expect(read('renderers.tsx')).not.toContain('per-layer guides overprint');
+  });
+
+  it('the INK MATCHES THE SCALE really ships (law 4), so the README may claim four laws and name the two hue tokens', () => {
+    expect(holdsScaleInk()).toBe(true);
+    const readme = read('README.md').replace(/\s+/g, ' ');
+    expect(readme).toContain('the second axis is allowed under four laws');
+    expect(readme).toContain('**The ink matches the scale.**');
+    // the tokens the prose names are the tokens the stylesheet defines
+    for (const token of ['--vzf-scale-left', '--vzf-scale-right']) {
+      expect(readme).toContain(token);
+      expect(read('../styles.css')).toContain(`${token}:`);
+    }
+    // the hue rides with the words: the frame asks for BOTH before it hands one out
+    expect(read('../charts/VizFrame.tsx')).toContain('function twoScaleInk(');
   });
 
   it('no sentence still says no first-party chart declares the capability', () => {

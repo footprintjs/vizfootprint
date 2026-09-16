@@ -526,12 +526,12 @@ picture that would be drawn a lie, not one that would merely be empty:
 | a THIRD y of its own | *layers "temp", "rain" and "wind" each draw a y of their own — a frame has two sides, left and right, and no third. Draw two of them here, and the rest on a frame of their own.* |
 | a bar, a histogram or a box plot with a y of its own on such a frame | *layer "counts" is a bar with a y of its own — a bar's extent is read against one baseline, so it takes neither side of a two-scale frame. Declare guide: 'merged' on y, or draw it on a frame of its own.* — the def door already refuses BOTH shapes that draw one (`independent`, and `shared` drawn `per-layer` beside a second layer — law 9, `validateFrame`); this is the frame's OWN defense, for a `RenderState.frame` a host folds by hand, skipping the door entirely |
 
-#### Two scales on one frame — the second axis on the right, and the words that keep it honest
+#### Two scales on one frame — the second axis on the right, the words that keep it honest, and the ink that matches the scale
 
 **Two scales on one frame are two claims, and the frame must say so.** A
 dual-axis figure is legitimate — temperature and rainfall over the same weeks
 — and it is also the classic way to make any two series look related by
-choosing the scales. So the second axis is allowed under three laws:
+choosing the scales. So the second axis is allowed under four laws:
 
 1. **Two sides, so at most two independent scales.** The first layer whose y
    is not merged draws its axis on the LEFT edge, the second on the RIGHT,
@@ -563,6 +563,24 @@ choosing the scales. So the second axis is allowed under three laws:
    and useless, since a reader still cannot tell which edge is which — so
    `frameWords` names the LAYER too, exactly where the fields collide: *left is
    "value" on layer "shopA", right is "value" on layer "shopB"*.
+4. **The ink matches the scale.** On the frame that says those words, each
+   own-y layer is also handed one of two HUES — `--vzf-scale-left` and
+   `--vzf-scale-right` (`styles.css`, one definition for both grounds, neither
+   of them the brand) — and the layer draws its OWN y axis (its line, its ticks,
+   its label) and its unsplit marks in it (`FrameLayerDraw.scaleHue` →
+   `scaleHue` on `VizLine`/`VizScatter`). So a reader can see which marks belong
+   to which edge before reading a word, which the field labels alone never said.
+   ONE owner: `VizFrame` · `SIDE_HUES`, the same place that hands out the sides,
+   because only the frame knows there are two scales. A layer that splits its
+   marks by series (`colorOf`) keeps its series colours and takes the hue on its
+   AXIS alone — identity is never colour-alone, and a hue that already names
+   something may not be taken over. The frame's own x, the axis both scales
+   stand over, stays the ink token: it belongs to neither. And the hue rides
+   WITH the words, never instead of them — it is handed out exactly where law 3
+   says the sentence, so a shared y drawn on both edges (one scale twice) gets
+   no hue any more than it gets a sentence, and the redundant cue can never
+   become the only one. A frame with ONE scale renders byte-identically to the
+   frame before hues existed.
 
 ```ts
 // a line of temperature and a line of rainfall over the same weeks
@@ -576,6 +594,7 @@ const frame = { x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'te
 res.view.update({ ...state, layers, frame });
 // → temperature's axis on the left, rainfall's on the right, one x beneath, and under the plot:
 //   "two scales — left is temperature, right is rainfall; heights are not comparable across them"
+// → and each line drawn in its own axis's hue: temperature in --vzf-scale-left, rainfall in --vzf-scale-right
 ```
 
 Two remedies were REFUSED, by name: (a) **`derive: 'align-extent'`** — a
@@ -590,7 +609,13 @@ the chart to place its plot and by `VizFrame` to union the margins), and the
 caption strip is taken from the frame's bottom margin only when there are
 words (`CAPTION_ROOM`). A frame with neither is byte-identical to the frame
 before they existed; a chart without `axisSide` is byte-identical to the chart
-before sides existed.
+before sides existed. The INK has one owner too, on both sides of the line
+between markup and stylesheet: the hue travels to the CSS on ONE inherited
+custom property (`scaleHueStyle`, `primitives/scaleHue.ts` — the only place
+`--vzf-scale-hue` is spelled) and each rule spends it on the property IT paints
+with (`.vzf-axis` on its stroke, `.vzf-tick` and `.vzf-axis-label` on their
+fill), which is also what leaves the axis label's hover cue to the brand — an
+affordance is about the click, not about the scale.
 
 **The first-party layered chart has since shipped** (packet 4): `networkRenderer`
 — `<VizNetwork>` behind the bridge — is the ninth reference renderer and the

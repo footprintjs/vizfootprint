@@ -2,8 +2,13 @@
  * An interactive axis label (SVG): hovering/focusing shows a dashed affordance
  * ring, and click / Enter / Space opens the encoding picker for its channel.
  * Honest affordance — the label LOOKS actionable because it is.
+ *
+ * With a `hue` it wears its SCALE's ink (one edge of a two-scale frame,
+ * `scaleHueStyle`); the ring and the hover cue stay the brand's either way,
+ * because they are about the click and not about the scale.
  */
 import { keyActivates } from './pointSelect.js';
+import { scaleHueStyle } from './scaleHue.js';
 
 export interface AxisLabelProps {
   readonly x: number;
@@ -16,6 +21,8 @@ export interface AxisLabelProps {
   readonly boxHeight?: number;
   /** Rotate the whole affordance around (x, y) — e.g. -90 for a vertical y-axis label. */
   readonly rotate?: number;
+  /** The hue of the SCALE this label names, when a two-scale frame handed its layer one (`FrameLayerDraw.scaleHue`). Absent = the ink token it always wore. */
+  readonly hue?: string;
   readonly onOpen: (channel: string) => void;
 }
 
@@ -33,7 +40,7 @@ export function AxisLabel(props: AxisLabelProps): JSX.Element {
       transform={rotate ? `rotate(${rotate} ${x} ${y})` : undefined}
       onClick={() => onOpen(channel)}
       onKeyDown={onKey}
-      style={{ cursor: 'pointer' }}
+      style={{ cursor: 'pointer', ...scaleHueStyle(props.hue) }}
     >
       <rect className="vzf-axis-affordance" x={bx} y={y - boxHeight + 3} width={boxWidth} height={boxHeight} rx={5} />
       <rect className="vzf-axis-hit" x={bx} y={y - boxHeight + 3} width={boxWidth} height={boxHeight} />

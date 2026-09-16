@@ -25,7 +25,10 @@
  * on the right, x drawn once by the frame — and the frame's own sentence under
  * the plot saying the two are not comparable by height. Two scales are two
  * claims, and the frame says so (`twoScalesSentence`, the renderer's one
- * owner); this page adds nothing to it but the words around it.
+ * owner); this page adds nothing to it but the words around it. The two lines
+ * are not painted by this page either: the frame hands each own-y layer a HUE
+ * and the layer draws its axis and its marks in it (law 4, the ink matches the
+ * scale), so the page declares two lines and gets two colours it never chose.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -181,13 +184,11 @@ function TwoScalesFigure(props: { readonly view: SessionView; readonly rows: rea
   useEffect(() => {
     const el = hostRef.current;
     if (!el) return;
-    const renderer = layeredRenderer({
-      layers: {
-        price: { kind: 'line', colorOf: () => 'var(--vzf-brand)' },
-        rating: { kind: 'line', colorOf: () => 'var(--vzf-ink)' },
-      },
-      xLabel: 'week',
-    });
+    // NO `colorOf` on either line: this page used to paint the two lines apart by hand (brand and
+    // ink), which is the frame's own job — on a two-scale frame it hands each own-y layer a hue and
+    // the layer draws its axis and its marks in it, so the ink matches the scale without the page
+    // deciding anything (`VizFrame` · `SIDE_HUES`, law 4)
+    const renderer = layeredRenderer({ layers: { price: { kind: 'line' }, rating: { kind: 'line' } }, xLabel: 'week' });
     const verbs = (layerId: string) => ({
       emit: (emission: ChartEmission) => {
         setLast(`the "${layerId}" line emitted a ${emission.encoding.kind}`);
@@ -238,7 +239,8 @@ function TwoScalesFigure(props: { readonly view: SessionView; readonly rows: rea
         The mean <strong>price</strong> and the mean <strong>rating</strong> per week, two lines on <strong>one frame</strong>. The frame folded <strong>one run of weeks</strong> (
         {run !== undefined && run.mode === 'shared' && run.scale === 'temporal' ? `${run.domain[0]} – ${run.domain[1]}` : 'nothing'}) and drew it <strong>once</strong>; each line’s y is{' '}
         <strong>its own scale</strong> — price on the <strong>left</strong> edge, rating on the <strong>right</strong> — because the fold declared y independent, and a dollar and a star share
-        no ceiling. Two scales are two claims, so the frame says so under the plot: the heights are not comparable across them. Nothing stretched the two to fit, and nothing merged them
+        no ceiling. Each line and its own axis are drawn in <strong>one hue the frame handed them</strong>, so which marks belong to which edge is on the plot and not only in the words.
+        Two scales are two claims, so the frame says so under the plot: the heights are not comparable across them. Nothing stretched the two to fit, and nothing merged them
         because they looked alike — a merged guide is a declaration, never an inference.
       </p>
       <div ref={hostRef} style={{ width: 760, height: 380 }} />
