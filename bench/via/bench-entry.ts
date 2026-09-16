@@ -158,11 +158,14 @@ for (const engine of ['memory', 'wasm'] as const) {
       const dash = buildDashboard(exoDef(exo, engine, related), opts);
       for (const k of related ? [1, 100, 1_000, 10_000] : [100]) {
         const arm = related ? `dispatch, travels (${k.toLocaleString('en-US')} planets picked)` : `dispatch, no relation (100 planets picked)`;
-        const values = Array.from({ length: k }, (_, i) => `p${i}`);
         // a fresh session per arm: the log's growth is not the gesture's cost
         const s = dash.createSession();
         // the first read pays the lazy wasm landing — a warm-up, never a sample (`warmup: 1`)
         await harness.timed({ engine, arm, size, rows: EXO_ROWS, ...BUDGET.exo }, async () => {
+          // a fresh list per gesture, as a chart mints one per click: the memory engine builds its
+          // membership set once per ARRAY (`src/data/predicate.ts` · `membershipOf`), so a list reused
+          // across repetitions would pay the build once and quote the cache seven times
+          const values = Array.from({ length: k }, (_, i) => `p${i}`);
           const r = await s.dispatch({ verb: 'select', viewId: PLANETS, field: 'pl_name', values, cause });
           if (!r.ok) throw new Error(JSON.stringify(r.rejection));
         });

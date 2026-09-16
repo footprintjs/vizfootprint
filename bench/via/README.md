@@ -32,19 +32,19 @@ places.code`. Both engines are opened the way a session opens them
 opener), so the 1M row on the wasm engine IS the step0-wasm table through the
 real engine, not a memory stand-in.
 
-## The numbers (2026-09-12, `1cc5b13+dirty`, node v22.16.0, `node bench/via/run.mjs`; n = 7 at 20k, 3 at 1M — the spread is the MAX, `bench/step0-wasm/README.md` law 6)
+## The numbers (2026-09-16, `5173859+dirty`, node v22.16.0, `node bench/via/run.mjs`, alone on the machine; n = 7 at 20k, 3 at 1M — the spread is the MAX, `bench/step0-wasm/README.md` law 6)
 
 Dispatch latency in ms, median (max):
 
 | engine | rows | no relation, 100 picked | travels, 1 picked | 100 picked | 1,000 picked | 10,000 picked | brush over every row |
 |---|---|---|---|---|---|---|---|
-| memory | 20,598 planets | 0.2 (0.4) | 0.5 (1.7) | 2.1 (2.2) | 16.6 (16.7) | 184.7 (209.8) | 1.5 (4.2) |
-| wasm | 20,598 planets | 0.2 (0.2) | 2.1 (2.2) | 3.2 (3.3) | 9.1 (10.1) | 62.4 (62.8) | 14.2 (14.6) |
+| memory | 20,598 planets | 0.2 (0.2) | 0.6 (1.9) | 0.6 (0.7) | 1.0 (1.1) | 3.8 (4.2) | 1.3 (2.6) |
+| wasm | 20,598 planets | 0.1 (0.2) | 1.7 (1.9) | 3.2 (3.3) | 8.7 (9.3) | 61.0 (62.2) | 13.4 (13.9) |
 
 | engine | rows | no relation, one disease picked | travels, one disease picked |
 |---|---|---|---|
-| memory | 1,000,000 cells | 0.1 (0.5) | 26.3 (27.2) |
-| wasm | 1,000,000 cells | 0.1 (0.2) | 20.3 (21.5) |
+| memory | 1,000,000 cells | 0.1 (0.2) | 24.7 (24.7) |
+| wasm | 1,000,000 cells | 0.1 (0.2) | 18.2 (18.5) |
 
 The set on the wire:
 
@@ -65,16 +65,17 @@ The set on the wire:
   "no relation" control is the dispatch's own cost (guards, commit): 0.1–0.2 ms.
   Everything above it is the source engine evaluating the clause with the near
   column projected — which is why the 1M row costs 20–26 ms (one scan of a
-  million rows for one disease) and a one-planet pick at 20k costs 0.5 ms in
-  memory and 2.1 ms in DuckDB (two statements, the rows and the count).
-- **The memory engine's IN-list is the cost, not the travel.** 10,000 picked
-  planets cost 185 ms in memory and 62 ms in DuckDB — the clause itself
-  (`memoryProvider`'s match tests every row against every value), paid once
-  by the travel's ask. A brush over every planet — one interval test per row
-  — folds the same 2,000 references in 1.5 ms. So a wide IN-list is expensive
-  wherever it is judged; the travel merely judges it one more time on the
-  source. That is a fact about the match predicate, and its packet is the
-  memory engine's, not this one.
+  million rows for one disease) and a one-planet pick at 20k costs 0.6 ms in
+  memory and 1.7 ms in DuckDB (two statements, the rows and the count).
+- **A wide IN-list is no longer the memory engine's cost.** The first run of
+  this bench (`1cc5b13+dirty`, 2026-09-12) put 10,000 picked planets at
+  184.7 ms in memory: `matchesClause`'s match arm tested every row against
+  every value (`values.some`). The IN-list is now a SET built once per
+  borrowed list (`src/data/predicate.ts` · `membershipOf`, the membership the
+  walk already used), and the same gesture costs 3.8 ms — under the wasm
+  engine's 61 ms, which renders the list as SQL `IN (…)` and is unchanged.
+  `bench/via/match-micro.mjs` isolates the predicate alone. The 1M-row travel
+  is one scan of a million rows for one disease on either engine (18–25 ms).
 - **The set's weight is the far column's cardinality, capped by the pick.**
   ~10.5 bytes per reference id on this desk; 2,000 distinct references is 21 KB
   on the wire whatever the gesture, and 70 places is under 1 KB at a million
