@@ -1,15 +1,15 @@
 {
  "node": "v22.16.0",
  "platform": "darwin arm64",
- "generatedAt": "2026-09-11T15:29:55.904Z",
+ "generatedAt": "2026-09-16T17:23:00.954Z",
  "unit": "UTF-8 bytes of the JSON serialization (Buffer.byteLength). Tokens only ever come from the optional --tokens pass.",
  "menu": {
-  "bytes": 21830,
+  "bytes": 21946,
   "tools": [
    {
     "name": "viz.whats_here",
-    "bytes": 2516,
-    "descriptionBytes": 1483,
+    "bytes": 2632,
+    "descriptionBytes": 1599,
     "schemaBytes": 978
    },
    {
@@ -68,9 +68,9 @@
    "ok": true,
    "note": "byte-identical across all three shapes and across a session that acted — the documented claim holds",
    "perShapeBytes": {
-    "small": 21830,
-    "realistic": 21830,
-    "large": 21830
+    "small": 21946,
+    "realistic": 21946,
+    "large": 21946
    }
   }
  },
