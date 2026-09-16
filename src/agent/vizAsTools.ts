@@ -120,8 +120,9 @@ export interface VizToolsOptions {
 
 const WHATS_HERE_DESCRIPTION =
   'Describe the current analytical position: the declared views and their current channel->field visual ' +
-  'encodings, the columns you may name (`columns`, keyed by table — every view reads ' +
-  '`columns[defaultTable]`, so that is the list a select, a filter or a rebind must come from), ' +
+  'encodings, the columns you may name (`columns`, keyed by table — a plain view reads ' +
+  '`columns[defaultTable]`, so that is the list a select, a filter or a rebind must come from; ' +
+  'a LAYER reads its own table, `views[].layers[].table`, and its `accepts` names the columns that fit ITS channels), ' +
   'the active selections in DATA space, the ' +
   'declared analyses with their readiness, the online-FDR ledger, the count of unmet requests ' +
   '(gaps), the encoding plane (per view, `accepts`: the column names that FIT each channel right now — an empty list on a ' +
