@@ -13,8 +13,9 @@
  *
  * THE EVIDENCE IS THE KEY, NOT THE VALUE — so every kind gets two rows here:
  * one LACKING the column (kept, whatever the clause) and one CARRYING it as
- * `null` (judged exactly as before — an IS-NULL point matches it, everything
- * else refuses it, a walk keeps no null endpoint). `selection.test.ts`'s
+ * `null` (judged — an IS-NULL point matches it, everything else refuses it, an
+ * excluding match included since a NULL is a member of nothing and `NOT IN` is
+ * never TRUE of it, a walk keeps no null endpoint). `selection.test.ts`'s
  * delegation check is the proof that a row carrying a real value is unchanged;
  * this file does not repeat it.
  */
@@ -67,10 +68,13 @@ describe('the missing-column law, kind by kind — the key is the evidence, neve
     expect(p(HOLDS)).toBe(true);
   });
 
-  it('match (excluding): a row lacking the column is kept BY THE LAW, not by `!hit`; one holding null is kept as before (not in the list); a listed value is refused', () => {
+  it('match (excluding): a row lacking the column is kept BY THE LAW, not by `!hit`; one holding null is REFUSED (`NULL NOT IN (…)` is not TRUE — the library\'s law); a listed value is refused', () => {
     const p = clausePredicate('match', 'category', { values: ['Formal'], exclude: true });
     expect(p(LACKS)).toBe(true);
-    expect(p(HOLDS_NULL)).toBe(true);
+    // a null VALUE in a column the row HAS is judgeable, and SQL's three-valued NOT IN judges it out —
+    // the SQL engine never kept it, and the memory engine now agrees (`src/data/predicate.ts` · `matchesClause`);
+    // only a MISSING column is the guard's to keep
+    expect(p(HOLDS_NULL)).toBe(false);
     expect(p(HOLDS)).toBe(false);
     // the guard sits OUTSIDE the polarity: an empty keep-list still matches nothing on a row that HAS the column…
     expect(clausePredicate('match', 'category', { values: [] })(HOLDS)).toBe(false);

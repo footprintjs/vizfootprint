@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { clauseInterval, clausePoint } from '@uwdata/mosaic-core';
 import { and, column, isIn, literal, not, or } from '@uwdata/mosaic-sql';
-import { isClearedSQL, literalToSQL, matchesClause, mosaicDescriptorSQL, resolvePredicateSQL } from './predicate.js';
+import { isClearedSQL, isSQLNull, literalToSQL, matchesClause, membershipOf, mosaicDescriptorSQL, resolvePredicateSQL } from './predicate.js';
 import type { CellClause, IntervalClause, MatchClause, NeighbourhoodClause, PointClause, Row } from './types.js';
 
 /** The exact SQL string a real Mosaic clause resolves to — the ground truth. */
@@ -340,6 +340,91 @@ describe('match — exclude flips the IN-list to NOT IN (SET-1)', () => {
     expect(resolvePredicateSQL({ kind: 'match', field: 'category', values: ['Data', 'Ops'], exclude: true })).toBe(`("category" NOT IN ('Data', 'Ops'))`);
     expect(resolvePredicateSQL({ kind: 'match', field: 'category', values: [], exclude: true })).toBe('(TRUE)');
     expect(resolvePredicateSQL({ kind: 'match', field: 'category', values: [] })).toBe('(FALSE)');
+  });
+});
+
+// ── an IN-list is a SET, and the memory engine agrees with the SQL engine on every value it can hold ──
+//
+// The SQL engine's law is DuckDB's, measured (engineInvariant.test.ts runs the
+// same matrix against a real database): a value that `literalToSQL` renders as
+// `NULL` — NaN, ±Infinity, null, undefined — is a NULL in the list, and a row
+// holding one is NULL to the engine too (the landing writes it as one). `x IN
+// (…)` is TRUE only for a non-NULL x equal to a non-NULL entry; `x NOT IN (…)`
+// is TRUE only for a non-NULL x that equals no entry of a list holding no NULL.
+// Before this section the memory engine answered `===`: `[null]` kept the null
+// row, `[undefined]` the undefined row, `[Infinity]` the Infinity row, every
+// exclude-list kept every NULL row and an exclude-list holding a NULL kept the
+// rest — five answers the SQL engine never gave.
+describe('an IN-list is a SET — the three odd values, and the rows that hold them, answer as the SQL engine answers', () => {
+  const rows: Row[] = [
+    { id: 'one', v: 1 },
+    { id: 'nan', v: Number.NaN },
+    { id: 'inf', v: Number.POSITIVE_INFINITY },
+    { id: 'null', v: null },
+    { id: 'undef', v: undefined },
+    { id: 'two', v: 2 },
+  ];
+  const ODD: readonly unknown[] = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, null, undefined];
+  const over = (values: readonly unknown[], exclude?: boolean): MatchClause => ({ kind: 'match', field: 'v', values, ...(exclude === true ? { exclude: true } : {}) });
+  const kept = (clause: MatchClause): unknown[] => rows.filter((r) => matchesClause(r, clause)).map((r) => r['id']);
+
+  it('isSQLNull is the ONE verdict literalToSQL renders as NULL — pinned value by value, so the membership and the renderer cannot part', () => {
+    const matrix: readonly unknown[] = [...ODD, new Date(Number.NaN), 0, -0, 1, '', 'x', 'NaN', 'null', true, false, new Date(0)];
+    for (const value of matrix) expect(isSQLNull(value), String(value)).toBe(literalToSQL(value) === 'NULL');
+  });
+
+  it('a list holding ONE odd value renders `IN (NULL)` and keeps NO row — not even the row holding that very value', () => {
+    for (const odd of ODD) {
+      expect(resolvePredicateSQL(over([odd]))).toBe('("v" IN (NULL))');
+      expect(kept(over([odd])), String(odd)).toEqual([]);
+    }
+  });
+
+  it('an odd value BESIDE a real one is ignored, as SQL ignores the NULL in `IN (1, NULL)`', () => {
+    expect(resolvePredicateSQL(over([1, null]))).toBe('("v" IN (1, NULL))');
+    for (const odd of ODD) expect(kept(over([1, odd])), String(odd)).toEqual(['one']);
+  });
+
+  it('exclude: a NULL anywhere in the list keeps NOTHING — `NOT IN (1, NULL)` is never TRUE (three-valued logic)', () => {
+    expect(resolvePredicateSQL(over([1, null], true))).toBe('("v" NOT IN (1, NULL))');
+    for (const odd of ODD) {
+      expect(kept(over([odd], true)), String(odd)).toEqual([]);
+      expect(kept(over([1, odd], true)), String(odd)).toEqual([]);
+    }
+  });
+
+  it('exclude: a row whose OWN value is NULL to SQL is kept by no non-empty exclude-list — `NULL NOT IN (1)` is NULL, not TRUE', () => {
+    expect(resolvePredicateSQL(over([1], true))).toBe('("v" NOT IN (1))');
+    expect(kept(over([1], true))).toEqual(['two']);
+    expect(kept(over(['x'], true))).toEqual(['one', 'two']); // no coercion: a string excludes no number, and the NULL rows stay out
+  });
+
+  it('an EMPTY list is the renderer\'s own rule and untouched: `(FALSE)` keeps nothing, `(TRUE)` keeps everything, NULL rows included', () => {
+    expect(kept(over([]))).toEqual([]);
+    expect(kept(over([], true))).toEqual(['one', 'nan', 'inf', 'null', 'undef', 'two']);
+  });
+
+  it('membership is SameValueZero over a set built ONCE per borrowed array — two clauses over one array meet one set, and a twin array builds its own', () => {
+    const list: unknown[] = ['a', null, 'b'];
+    const first = membershipOf(list);
+    expect(membershipOf(list)).toBe(first);
+    expect(first.holdsNull).toBe(true);
+    expect([...first.set]).toEqual(['a', 'b']);
+    const twin = membershipOf(['a', null, 'b']);
+    expect(twin).not.toBe(first);
+    expect(twin.holdsNull).toBe(true);
+    const clean = membershipOf(['a', 0]);
+    expect(clean.holdsNull).toBe(false);
+    expect(clean.set.has(-0)).toBe(true); // SameValueZero: -0 is 0, as `0 IN (0)` is TRUE
+    expect(clean.set.has('0')).toBe(false); // and no coercion, as ever
+  });
+
+  it('the neighbourhood asks the SAME membership: a NaN id renders NULL beside a null one, and keeps no endpoint', () => {
+    const walk: NeighbourhoodClause = { kind: 'neighbourhood', fields: ['from', 'to'], ids: ['Lyme', Number.NaN, null] };
+    expect(resolvePredicateSQL(walk)).toBe(`(("from" IN ('Lyme', NULL, NULL)) AND ("to" IN ('Lyme', NULL, NULL)))`);
+    expect(matchesClause({ from: 'Lyme', to: 'Lyme' }, walk)).toBe(true);
+    expect(matchesClause({ from: 'Lyme', to: Number.NaN }, walk)).toBe(false);
+    expect(matchesClause({ from: Number.NaN, to: Number.NaN }, walk)).toBe(false);
   });
 });
 

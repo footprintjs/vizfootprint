@@ -194,6 +194,20 @@ Outside that shape the two differ in exactly four ways, all on values no commit 
 
 One duplicate is still open and is named rather than hidden: `probeClause` in `src/session/wire.ts` is the library's own internal twin of this reading (point/interval/match), and the `rec.kind === 'cell' ? {…} : probeClause(…)` ternaries in `src/session/session.ts` restate the cell lift. They are unchanged, and folding them into `clauseFromWire` is a session-side decision, not a data-side one.
 
+**An IN-list is a set, and the two engines agree on what a NULL in it means.** A `match` (and a walk's `ids`) is answered per row against ONE membership built once per list (`predicate.ts` · `membershipOf`, a `WeakMap` keyed by the borrowed array — the array is minted once and never mutated after; the session's live clause is built over the log's frozen record, never the dispatcher's own array, so a caller that keeps pushing into what it passed moves nothing). Membership is the Set's SameValueZero, which is DuckDB's equality on every value a list can carry, and no coercion (`"5"` is not `5`). Both engines read the same four values as NULL — NaN, ±Infinity, null, undefined (`isSQLNull`, the verdict `literalToSQL` renders as `NULL` and the landing writes as `\N`) — in the list and in the row, and answer SQL's three-valued way, measured against a real DuckDB (`engineInvariant.test.ts`):
+
+```ts
+import { matchesClause } from 'vizfootprint/data';
+
+const rows = [{ v: 1 }, { v: 2 }, { v: null }, { v: Number.NaN }];
+rows.filter((r) => matchesClause(r, { kind: 'match', field: 'v', values: [1, null] }));            // [{ v: 1 }]   — `IN (1, NULL)` ignores the NULL; the null row is a member of nothing
+rows.filter((r) => matchesClause(r, { kind: 'match', field: 'v', values: [1], exclude: true }));   // [{ v: 2 }]   — `NULL NOT IN (1)` is NULL, not TRUE: the null and NaN rows stay out
+rows.filter((r) => matchesClause(r, { kind: 'match', field: 'v', values: [1, null], exclude: true })); // []       — `NOT IN (1, NULL)` is never TRUE
+rows.filter((r) => matchesClause(r, { kind: 'match', field: 'v', values: [], exclude: true }));    // all four   — the empty exclude-list renders `(TRUE)`, the renderer's own rule
+```
+
+Before this the memory engine answered `===` over the raw list, row by row: `[null]` kept the null row where the database keeps none, every exclude-list kept the NULL rows the database drops, and an exclude-list holding a NULL kept the rest — and a match with 10,000 values over 20,598 rows cost 185 ms (`bench/via/README.md`). The ui contract tier's compiler closes over the same `membershipOf` set, so the two evaluators still differ only in speed. A person who means "the null rows" has the point clause's `IS NULL` (`value: null`); a NULL in an IN-list keeps nothing, on both engines.
+
 ## One gesture on a node: the `neighbourhood` clause
 
 One gesture on a node selects the ties INSIDE the set it walked to: a row of the edges table is kept when BOTH endpoint columns name a node in that set — the INDUCED subgraph, which is the edge set the network chart brightens for that same gesture, and what a depth-1 ego filter returns in Cytoscape, Gephi and Bloom. "Either endpoint" would reach one edge-hop further, keeping a neighbour's tie to a stranger the seed never touches, and a gesture's rows must be the ones its own highlight promised.
@@ -234,7 +248,7 @@ clauseFromWire('neighbourhood', 'from ↔ to', record.value, record.fields);
 
 **The two-column kinds are data, not a fork.** `PAIR_CLAUSE_KINDS` (`['cell', 'neighbourhood']`) is the one array literal, with `isPairKind(kind)` for the slots that ask about a KIND before a clause exists — a wire triple's arm, a saved condition, a `CommitInput` the log judges — and `isPairClause(clause)` for the narrowed question over a built one. `clauseFields` reads it too, so the third pair kind lands in one place.
 
-**An empty walked set keeps nothing, and says so.** `(FALSE)` in the honest SQL, the real `literal(false)`'s bare `FALSE` in the engine's byte — the same always-false an empty match keep-list already renders, and never "no filter": clearing is `clause === null`, one spelling. The ids go through the real `isIn` and not the point factory's null-safe `isInDistinct`, because a walk MATERIALIZED them — a `null` that reached the list renders as the literal `NULL` the engine itself would render rather than being quietly rewritten into an `IS NULL`. The in-process filter keeps the same law: `IN (NULL)` is never true, so a nullish id is dropped from the membership set and a row with a missing endpoint is kept by no walk — the two readings of one clause answer alike.
+**An empty walked set keeps nothing, and says so.** `(FALSE)` in the honest SQL, the real `literal(false)`'s bare `FALSE` in the engine's byte — the same always-false an empty match keep-list already renders, and never "no filter": clearing is `clause === null`, one spelling. The ids go through the real `isIn` and not the point factory's null-safe `isInDistinct`, because a walk MATERIALIZED them — a `null` that reached the list renders as the literal `NULL` the engine itself would render rather than being quietly rewritten into an `IS NULL`. The in-process filter keeps the same law: `IN (NULL)` is never true, so an id that is NULL to the engine (`isSQLNull` — nullish, NaN, ±Infinity) is dropped from the membership set (`membershipOf`, the one set the match arm asks too) and a row with a missing endpoint is kept by no walk — the two readings of one clause answer alike.
 
 ## Two descriptors, two jobs: the honest SQL and the engine's byte
 

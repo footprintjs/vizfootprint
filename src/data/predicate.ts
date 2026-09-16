@@ -56,6 +56,23 @@ import { cellSideClause } from './clauseFromWire.js';
 const CLEARED_SQL = 'null';
 
 /**
+ * THE ONE VERDICT "this value is NULL to the SQL engine": null, undefined, a
+ * number that is not finite (NaN, ±Infinity), a Date that is not a date. It
+ * is `literalToSQL`'s own `NULL` arm (below, and Mosaic's `literalToSQL` rule
+ * for the same four), and it is what the landing writes as `\N` for a value
+ * of the column's own type (`landing.ts` · `numberField` / `instantField`) —
+ * so a row holding one of these IS a NULL row once it reaches the database.
+ * `membershipOf` asks it for a list's entries and `matchesClause`'s match arm
+ * for the row's own value, which is how the memory engine answers an IN-list
+ * as the database does (three-valued logic, said at `matchesClause`).
+ * EXPORTED so the ui contract tier's compiler asks the same verdict rather
+ * than keeping a twin (`ui/src/contract/selection.ts`).
+ */
+export function isSQLNull(value: unknown): boolean {
+  return value == null || (typeof value === 'number' && !Number.isFinite(value)) || (value instanceof Date && Number.isNaN(value.getTime()));
+}
+
+/**
  * Replicates `literalToSQL` (`ast/literal.js`, cited in the file header)
  * exactly for the value types this package's clauses actually carry
  * (number/string/boolean/null/Date). Anything else throws — an HONEST
@@ -63,20 +80,21 @@ const CLEARED_SQL = 'null';
  * literal for a type this replica does not cover (RegExp / plain-object
  * literals are Mosaic-supported but never appear in a `PredicateClause`
  * here, since L1/L2 only ever carry JSON-serializable commit values).
+ * The `NULL` arm is asked FIRST and asked of {@link isSQLNull}, so the
+ * membership a list builds and the literal a list renders cannot part.
  */
 export function literalToSQL(value: unknown): string {
+  if (isSQLNull(value)) return 'NULL';
   switch (typeof value) {
     case 'number':
-      return Number.isFinite(value) ? `${value}` : 'NULL';
+      return `${value}`;
     case 'string':
       return `'${value.replaceAll(`'`, `''`)}'`;
     case 'boolean':
       return value ? 'TRUE' : 'FALSE';
     default:
-      if (value == null) return 'NULL';
       if (value instanceof Date) {
         const ts = +value;
-        if (Number.isNaN(ts)) return 'NULL';
         const y = value.getUTCFullYear();
         const m = value.getUTCMonth();
         const d = value.getUTCDate();
@@ -424,35 +442,65 @@ function isStringBounds(
 }
 
 /**
- * The id set of ONE neighbourhood clause, built once and kept for as long as
- * the clause's own `ids` array is alive. `matchesClause` is asked per ROW, and
- * a neighbourhood asks the same membership question twice per row (once per
- * endpoint), so building the set inside the call would rebuild it 2n times for
- * an n-row table — the clause is the question, and the question does not
- * change between rows.
- *
- * Keyed by the `ids` ARRAY and not the clause object: the two doors that build
- * a clause from one commit (`clauseFromWire`, and a session's own live clause)
- * hand back different clause objects over the SAME borrowed ids array, and
- * both should meet the set the first of them built.
- *
- * THE BORROW LAW this rests on: an `ids` array is the recorded ANSWER of a
- * walk, minted once and never mutated — the log deep-freezes its records, and
- * a hand-built clause must build a NEW array rather than push into a live one.
- * The set is read ONCE per array; a later push would be seen by
- * `resolvePredicateSQL` (which re-reads the array) and not by this filter, and
- * one clause would have two readings.
+ * THE MEMBERSHIP OF ONE IN-LIST — the set the memory engine asks per row, in
+ * place of the list. `set` holds the list's entries that are values to the SQL
+ * engine, under the Set's own SameValueZero (which is DuckDB's equality on
+ * every value a list can carry: `0` and `-0` are one member, a string and a
+ * number are two); `holdsNull` says whether an entry the engine reads as NULL
+ * rode in the list ({@link isSQLNull}), because `NOT IN (…, NULL)` is never
+ * TRUE and the exclude arm has to know.
  */
-const idSets = new WeakMap<readonly unknown[], ReadonlySet<unknown>>();
+export interface Membership {
+  readonly set: ReadonlySet<unknown>;
+  readonly holdsNull: boolean;
+}
 
-function idSetOf(ids: readonly unknown[]): ReadonlySet<unknown> {
-  const known = idSets.get(ids);
+/**
+ * The membership of ONE list, built once and kept for as long as the list's
+ * own array is alive. `matchesClause` is asked per ROW, and the question does
+ * not change between rows — a match with 10,000 values over 20,598 rows cost
+ * 185 ms when every row scanned the list (`bench/via/README.md`), and a
+ * neighbourhood asks the same membership twice per row (once per endpoint) —
+ * so the set is built outside the per-row call, once per array. TWO arms, ONE
+ * membership: the match arm and the neighbourhood arm both ask here.
+ *
+ * Keyed by the ARRAY and not the clause object: the two doors that build a
+ * clause from one commit (`clauseFromWire`, and a session's own live clause)
+ * hand back different clause objects over the SAME borrowed array, and both
+ * should meet the set the first of them built.
+ *
+ * THE BORROW LAW this rests on: a `values` or `ids` array is minted once and
+ * never mutated after — a walk's recorded answer, a travel's folded near
+ * values (`../session/session.ts` · `nearValues`, `travelByIdentity`, both a
+ * fresh array), the log's deep-frozen record. The session's live clause is
+ * built over the RECORD's array, never the dispatcher's (`session.ts` ·
+ * `doProbe`), so a caller that keeps mutating the array it passed changes
+ * nothing. A hand-built clause must build a NEW array rather than push into a
+ * live one: the set is read ONCE per array; a later push would be seen by
+ * `resolvePredicateSQL` (which re-reads the array) and not by this filter,
+ * and one clause would have two readings.
+ *
+ * WHY NULL entries are dropped from the set and remembered beside it: SQL's
+ * `IN (NULL)` is never TRUE, so the renderers keep no row for one — a Set
+ * carrying `null` would instead keep every row whose value is missing, which
+ * is the very hazard `../session/neighbourhood.ts`'s walk refuses at the
+ * producer; and the same is true of NaN and ±Infinity, which `literalToSQL`
+ * renders as `NULL` too. EXPORTED for the ui contract tier's compiler, which
+ * closes over the same set (`ui/src/contract/selection.ts`).
+ */
+const memberships = new WeakMap<readonly unknown[], Membership>();
+
+export function membershipOf(list: readonly unknown[]): Membership {
+  const known = memberships.get(list);
   if (known !== undefined) return known;
-  // WHY nullish ids are dropped: SQL's `IN (NULL)` is never TRUE, so the renderers keep no row
-  // for one — a Set carrying `null` would instead keep every row whose endpoint is missing,
-  // which is the very hazard `../session/neighbourhood.ts`'s walk refuses at the producer.
-  const built: ReadonlySet<unknown> = new Set<unknown>(ids.filter((id) => id !== null && id !== undefined));
-  idSets.set(ids, built);
+  const set = new Set<unknown>();
+  let holdsNull = false;
+  for (const entry of list) {
+    if (isSQLNull(entry)) holdsNull = true;
+    else set.add(entry);
+  }
+  const built: Membership = { set, holdsNull };
+  memberships.set(list, built);
   return built;
 }
 
@@ -464,17 +512,29 @@ function idSetOf(ids: readonly unknown[]): ReadonlySet<unknown> {
  *     clears it) matches every row;
  *   - point `IS NULL` matches `row[field] == null` (null OR undefined —
  *     SQL NULL has no undefined/missing distinction);
- *   - point `IN (v)` / interval `BETWEEN` / match `IN (...)` use strict
- *     JS equality / numeric comparison — documented simplification: no
- *     SQL-style implicit type coercion between e.g. `"5"` and `5`. A string
- *     interval (ISO-8601 date bounds) therefore only ever matches STRING row
- *     values, and a numeric interval only numeric ones — never across.
+ *   - point `IN (v)` / interval `BETWEEN` use strict JS equality / numeric
+ *     comparison — documented simplification: no SQL-style implicit type
+ *     coercion between e.g. `"5"` and `5`. A string interval (ISO-8601 date
+ *     bounds) therefore only ever matches STRING row values, and a numeric
+ *     interval only numeric ones — never across.
+ *   - match `IN (...)` / `NOT IN (...)` is SQL's own three-valued answer over
+ *     ONE set built per list ({@link membershipOf}, SameValueZero — DuckDB's
+ *     equality on every value a list can carry, and no coercion either). The
+ *     odd values — NaN, ±Infinity, null, undefined — are NULL to the engine in
+ *     the list AND in the row ({@link isSQLNull}): `IN (…)` keeps a row only
+ *     when its value is a member, so a NULL entry keeps no row and a NULL row
+ *     is kept by no list; `NOT IN (…)` keeps a row only when its value is NOT
+ *     NULL, is no member, and the list holds no NULL — `NULL NOT IN (1)` and
+ *     `2 NOT IN (1, NULL)` are both NULL, never TRUE. Measured against a real
+ *     DuckDB (engineInvariant.test.ts): the two engines answer alike on every
+ *     one. An EMPTY list is the renderer's rule, untouched: `(FALSE)` keeps
+ *     nothing, `(TRUE)` keeps everything, NULL rows included.
  *   - a NEIGHBOURHOOD keeps a row when BOTH endpoint columns hold one of the
  *     walked ids (the AND its SQL renders — the induced ego subgraph); an
  *     empty id set keeps nothing, and "no filter" is the absent clause, never
  *     an empty set. A nullish endpoint is kept by NO neighbourhood, even one
  *     whose recorded set carries a null: `IN (NULL)` is not `IS NULL`. Its
- *     `ids` array is read ONCE per array (see the borrow law at `idSets`);
+ *     `ids` array is read ONCE per array (the borrow law at `membershipOf`);
  *   - a HALF-OPEN interval (one bound `null`) only tests the side that is
  *     present — `[150, null]` matches every row `>= 150`, `[null, hi]` every
  *     row `<= hi` — never a fabricated opposite bound.
@@ -504,11 +564,15 @@ export function matchesClause(row: Row, clause: PredicateClause | null): boolean
       return true;
     }
     case 'match': {
+      // an EMPTY list is the renderer's own rule (`resolveMatchSQL`): keep matches nothing
+      // (real FALSE, not "cleared"), exclude excludes nothing — every row kept, NULL rows too
+      if (clause.values.length === 0) return clause.exclude === true;
+      const { set, holdsNull } = membershipOf(clause.values);
       const v = row[clause.field];
-      const hit = clause.values.some((candidate) => candidate === v);
-      // keep: an empty list matches nothing (real FALSE, not "cleared");
-      // exclude: an empty list excludes nothing — everything is kept
-      return clause.exclude === true ? !hit : hit;
+      // IN: the set holds no NULL entry, so a NULL row is a member of no list — `NULL IN (…)` is never TRUE
+      if (clause.exclude !== true) return set.has(v);
+      // NOT IN: three-valued — a NULL in the list or in the row makes the whole test NULL, never TRUE
+      return !holdsNull && !isSQLNull(v) && !set.has(v);
     }
     case 'cell': {
       if (clause.value === null) return true; // whole cell cleared -> matches everything
@@ -525,11 +589,10 @@ export function matchesClause(row: Row, clause: PredicateClause | null): boolean
     }
     case 'neighbourhood': {
       // BOTH endpoints in the set — the AND the SQL renders, over the prebuilt set (which
-      // carries no nullish id, so a missing endpoint is kept by no walk, exactly as
-      // `IN (NULL)` keeps no row). Membership is the Set's SameValueZero, which parts from
-      // the match arm's `===` on exactly one value, NaN, and no node table keys its rows by one.
-      const ids = idSetOf(clause.ids);
-      return ids.has(row[clause.fields[0]]) && ids.has(row[clause.fields[1]]);
+      // carries no NULL id, so a missing endpoint is kept by no walk, exactly as `IN (NULL)`
+      // keeps no row). The SAME membership the match arm asks: one law for the two IN-lists.
+      const { set } = membershipOf(clause.ids);
+      return set.has(row[clause.fields[0]]) && set.has(row[clause.fields[1]]);
     }
   }
 }

@@ -53,6 +53,13 @@ export type {
 export { PAIR_CLAUSE_KINDS, badFindReason, cellFieldLabel, clauseFields, clauseList, isPairClause, isPairKind, isRejection, neighbourhoodFieldLabel, reject } from './types.js';
 
 export { literalToSQL, matchesClause, resolvePredicateSQL, isClearedSQL, mosaicDescriptorSQL } from './predicate.js';
+// An IN-list's membership has ONE owner: the set `membershipOf` builds once per
+// borrowed array, and the NULL verdict `isSQLNull` gives to a list's entries
+// and a row's value alike — the memory engine's match and neighbourhood arms
+// ask it, and so does the ui contract tier's compiler, so the two evaluators
+// cannot part on NaN, ±Infinity, null or undefined.
+export { isSQLNull, membershipOf } from './predicate.js';
+export type { Membership } from './predicate.js';
 // The TEXT FORM of a cell — one owner, below every door that reads it: the
 // export writes it into a field, a copy puts it on the clipboard, and a FIND
 // matches a person's typing against it. `vizfootprint/session` re-exports it

@@ -1372,3 +1372,75 @@ describe('FIDELITY — every kind of value lands on the wasm engine and reads ba
     expect(real).toEqual(fold);
   });
 });
+
+// ── An IN-list holds the SAME members in both engines ─────────────────────
+//
+// The odd values a list or a row can hold — NaN, ±Infinity, null, undefined —
+// are NULL to the SQL engine twice over: `literalToSQL` renders each as `NULL`
+// in the list, and the landing writes each as `\N` in the row (`landing.ts`).
+// DuckDB then answers with SQL's three-valued logic: `IN (NULL)` is never
+// TRUE, `NOT IN (…, NULL)` is never TRUE, and a NULL row is kept by no
+// non-empty list of either polarity. The memory engine's match arm used to
+// answer `===` over the raw values, and parted from the database on five of
+// the twelve clauses below — measured here on 2026-09-12 BEFORE the set:
+// `[null]` kept the null row and `[undefined]` the undefined row, `[Infinity]`
+// kept the Infinity row, an exclude-list holding a NULL kept every other row,
+// and a plain `exclude [1]` kept the four NULL rows the database drops.
+// `predicate.ts` · `membershipOf` and `isSQLNull` are the one answer now;
+// this describe is the proof against the real engine, not a fake.
+describe('D24 invariant — an IN-list holds the same members in both engines: NaN, ±Infinity, null and undefined are NULL to both, in the list and in the row', () => {
+  const TABLE = 'odd_values';
+  const ODD_ROWS: Row[] = [
+    { id: 'one', v: 1 },
+    { id: 'nan', v: Number.NaN },
+    { id: 'inf', v: Number.POSITIVE_INFINITY },
+    { id: 'neg', v: Number.NEGATIVE_INFINITY },
+    { id: 'null', v: null },
+    { id: 'undef', v: undefined },
+    { id: 'two', v: 2 },
+  ];
+  const held = memoryProvider(ODD_ROWS, { layout: 'row', tableName: TABLE });
+  let connection: LoadingConnection;
+  let live: DataProvider;
+
+  beforeAll(async () => {
+    const opened = await duckdbConnection()();
+    if (!canLoad(opened)) throw new Error('the shipped opener answered a connection that cannot land a table');
+    connection = opened;
+    await connection.load(TABLE, { kind: 'rows', rows: ODD_ROWS });
+    live = wasmProvider({ sources: [TABLE], connection });
+  });
+
+  afterAll(async () => {
+    await connection?.close?.();
+  });
+
+  /** The ids a clause keeps on one engine, in source order — a SELECT with no ORDER BY may hand rows back in any order. */
+  async function keptBy(engine: DataProvider, clause: PredicateClause): Promise<{ readonly sql: string; readonly ids: readonly unknown[] }> {
+    const res = answered(await engine.evaluate(TABLE, clause, { mode: 'rows', indices: true }), `${engine.engine} ${JSON.stringify(clause.kind === 'match' ? clause.values.map(String) : clause)}`);
+    return { sql: res.sql, ids: byIndex(res).map(([, row]) => row['id']) };
+  }
+
+  const over = (values: readonly unknown[], exclude?: boolean): PredicateClause => ({ kind: 'match', field: 'v', values, ...(exclude === true ? { exclude: true } : {}) });
+  const ODD: readonly unknown[] = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, null, undefined];
+  const MATRIX: readonly { readonly name: string; readonly clause: PredicateClause; readonly expected: readonly string[] }[] = [
+    { name: 'IN (1)', clause: over([1]), expected: ['one'] },
+    ...ODD.map((odd) => ({ name: `IN (${String(odd)})`, clause: over([odd]), expected: [] })),
+    ...ODD.map((odd) => ({ name: `IN (1, ${String(odd)})`, clause: over([1, odd]), expected: ['one'] })),
+    { name: 'NOT IN (1)', clause: over([1], true), expected: ['two'] },
+    ...ODD.map((odd) => ({ name: `NOT IN (${String(odd)})`, clause: over([odd], true), expected: [] })),
+    ...ODD.map((odd) => ({ name: `NOT IN (1, ${String(odd)})`, clause: over([1, odd], true), expected: [] })),
+    { name: 'IN () — the empty keep-list', clause: over([]), expected: [] },
+    { name: 'NOT IN () — the empty exclude-list keeps every row, NULL rows included', clause: over([], true), expected: ['one', 'nan', 'inf', 'neg', 'null', 'undef', 'two'] },
+    { name: 'a walk over a NaN and a null id', clause: { kind: 'neighbourhood', fields: ['v', 'v'], ids: [1, Number.NaN, null] }, expected: ['one'] },
+  ];
+
+  for (const { name, clause, expected } of MATRIX) {
+    it(`${name}: the same descriptor, the same rows, from the database and from memory`, async () => {
+      const [real, fold] = await Promise.all([keptBy(live, clause), keptBy(held, clause)]);
+      expect(fold.sql).toBe(real.sql);
+      expect(fold.ids).toEqual(real.ids);
+      expect(fold.ids).toEqual(expected);
+    });
+  }
+});

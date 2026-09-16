@@ -140,4 +140,27 @@ describe('SET-1 — select with values (a match)', () => {
     expect(spread.ok).toBe(false);
     expect(s.log.records).toHaveLength(0);
   });
+
+  it('the live clause is the RECORD\'s, never the dispatcher\'s array: a push into `values` after the act moves nothing', async () => {
+    // Before this pin the session kept the probe's clause, whose `values` was the array the caller
+    // passed — a `push` after the act widened the live selection (16 rows) while the record still
+    // said one category (8): two readings of one commit. The memory engine now builds one set per
+    // array (`predicate.ts` · `membershipOf`), so a borrowed, still-mutating array would also have put
+    // the set and the SQL descriptor at odds. The live clause is built over the log's copied,
+    // frozen value (`session.ts` · `doProbe`), the same way a seek rebuilds it.
+    const s = freshSession();
+    const values: string[] = [A];
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', values, cause: userCause() });
+    const before = (await s.selectedRows()).length;
+    expect(before).toBe(countOf((c) => c === A));
+    values.push(B);
+    expect((await s.selectedRows()).length).toBe(before);
+    expect((await s.overview()).activeSelections).toMatchObject([{ viewId: 'bar', kind: 'match', value: { values: [A] } }]);
+    // the same rule for a brush: the range pair a caller keeps is not the live interval
+    const range: [number, number] = [100, 150];
+    await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range, cause: userCause() });
+    const brushed = (await s.selectedRows()).length;
+    range[1] = 10_000;
+    expect((await s.selectedRows()).length).toBe(brushed);
+  });
 });

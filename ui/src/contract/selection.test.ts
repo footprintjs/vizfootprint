@@ -82,6 +82,19 @@ describe('clausePredicate = clauseFromWire, compiled (the delegation check)', ()
     { kind: 'match', field: 'category', value: { values: ['Formal'], exclude: true } },
     { kind: 'match', field: 'category', value: { values: [] } },
     { kind: 'match', field: 'category', value: { values: [], exclude: true } },
+    // the odd values, both polarities, over the rows that hold them (`price` NaN on r4, `note` null on r1 and undefined
+    // on r3): NULL to the engine in the list and in the row, three-valued — the library's law, compiled here
+    { kind: 'match', field: 'price', value: { values: [Number.NaN] } },
+    { kind: 'match', field: 'price', value: { values: [40, Number.NaN] } },
+    { kind: 'match', field: 'price', value: { values: [40], exclude: true } }, // keeps r2, r3 — never the NaN row
+    { kind: 'match', field: 'price', value: { values: [40, Number.NaN], exclude: true } }, // keeps nothing
+    { kind: 'match', field: 'price', value: { values: [Number.POSITIVE_INFINITY], exclude: true } },
+    { kind: 'match', field: 'note', value: { values: [null] } },
+    { kind: 'match', field: 'note', value: { values: [undefined] } },
+    { kind: 'match', field: 'note', value: { values: ['x', null] } },
+    { kind: 'match', field: 'note', value: { values: ['x'], exclude: true } }, // keeps r4 only — the null and undefined rows are NULL
+    { kind: 'match', field: 'note', value: { values: ['x', null], exclude: true } },
+    { kind: 'match', field: 'note', value: { values: [null], exclude: true } },
     { kind: 'cell', field: 'price × category', value: [[50, 200], 'Formal'], fields: ['price', 'category'] },
     { kind: 'cell', field: 'price × category', value: null, fields: ['price', 'category'] },
     { kind: 'cell', field: 'price × note', value: [[0, 300], null], fields: ['price', 'note'] },
@@ -90,6 +103,15 @@ describe('clausePredicate = clauseFromWire, compiled (the delegation check)', ()
 
   it('answers what the library answers, on every case × every row', () => {
     for (const c of CASES) sameAsInterpreted(c.kind, c.field, c.value, c.fields);
+  });
+
+  it('the odd values are the SQL engine\'s answer, not `===`: a NULL row is kept by no non-empty list, and an exclude-list holding a NULL keeps nothing', () => {
+    const kept = (value: unknown, field: string): string[] => ROWS.filter((r) => clausePredicate('match', field, value)(r)).map((r) => r.id);
+    expect(kept({ values: [40], exclude: true }, 'price')).toEqual(['r2', 'r3']); // r4's NaN is NULL: `NULL NOT IN (40)` is not TRUE
+    expect(kept({ values: [Number.NaN] }, 'price')).toEqual([]); // `IN (NULL)` keeps no row, not even the NaN row
+    expect(kept({ values: [40, Number.NaN], exclude: true }, 'price')).toEqual([]); // `NOT IN (40, NULL)` is never TRUE
+    expect(kept({ values: ['x'], exclude: true }, 'note')).toEqual(['r4']); // r1's null and r3's undefined are NULL rows
+    expect(kept({ values: ['x', null] }, 'note')).toEqual(['r2']); // the NULL entry is ignored beside a real one
   });
 
   it('a value the wire\'s shape does not cover is CLEARED at both ends, and neither throws', () => {

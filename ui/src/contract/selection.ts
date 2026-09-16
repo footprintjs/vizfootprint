@@ -65,8 +65,12 @@
  *     dates, lexicographic == chronological) only ever match string cells;
  *     numeric bounds only numeric non-NaN cells; a `null` bound is half-open
  *     (only the present side is tested).
- *   - match (SET-1): `null` value = cleared (keep all); otherwise strict
- *     equality against the list — `exclude` keeps everything NOT in it. An
+ *   - match (SET-1): `null` value = cleared (keep all); otherwise membership
+ *     in the ONE set the library builds per list (`membershipOf`, SameValueZero
+ *     — DuckDB's equality, no coercion) with SQL's three-valued answer: an
+ *     entry or a row value that is NULL to the engine (NaN, ±Infinity, null,
+ *     undefined — `isSQLNull`) is a member of nothing, and `exclude` keeps
+ *     only a non-NULL value that is no member of a list holding no NULL. An
  *     empty keep-list matches nothing, an empty exclude-list keeps all.
  *   - cell (D30): the AND of both sides, each side lifted by the library's own
  *     `cellSideClause` — an array side is an interval, anything else a point.
@@ -93,7 +97,7 @@
  * the interpreter was never meant to be asked.
  */
 
-import { cellSideClause, clauseFromWire, neighbourhoodValueFromWire } from 'vizfootprint/data';
+import { cellSideClause, clauseFromWire, isSQLNull, membershipOf, neighbourhoodValueFromWire } from 'vizfootprint/data';
 import type { IntervalBounds, NeighbourhoodValueBody, PredicateClause } from 'vizfootprint/data';
 import type { ClearedSelectionView, LinkGraphView, SelectionView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection, SelectionClauseView, EmissionKind } from './types.js';
@@ -197,10 +201,17 @@ function compileClause(clause: PredicateClause | null): (row: RenderRow) => bool
     }
     case 'match': {
       const { field, values } = clause;
-      const hit = (row: RenderRow): boolean => values.some((candidate) => candidate === row[field]);
+      // an empty list is the library's own rule, decided once: keep matches nothing, exclude keeps all
+      if (values.length === 0) return clause.exclude === true ? KEEP_ALL : judgeable([field], () => false);
+      // the library's ONE membership per list — built once, before a row is seen, so the hot loop is
+      // a Set lookup and no scan of the list; the answer is `matchesClause`'s, three-valued logic included
+      const { set, holdsNull } = membershipOf(values);
       // the guard sits OUTSIDE the polarity: an excluding match no longer keeps a
       // missing column by accident (`!hit`) — it keeps it by the law, like every arm
-      return judgeable([field], clause.exclude === true ? (row) => !hit(row) : hit);
+      if (clause.exclude !== true) return judgeable([field], (row) => set.has(row[field]));
+      // NOT IN over a list holding a NULL is never TRUE — decided once, not per row
+      if (holdsNull) return judgeable([field], () => false);
+      return judgeable([field], (row) => !isSQLNull(row[field]) && !set.has(row[field]));
     }
     case 'cell': {
       const pair = clause.value;
@@ -218,13 +229,15 @@ function compileClause(clause: PredicateClause | null): (row: RenderRow) => bool
       // Set is built once, before a row is seen, so the hot loop is two lookups
       // and no membership scan. An empty set keeps NOTHING (the library's rule:
       // to mean "no filter" a neighbourhood clause is `null`, never an empty set).
-      // A nullish id is dropped from the set, as the library's own filter drops it:
-      // SQL's `IN (NULL)` is never true, so a null endpoint is kept by no walk —
-      // a null VALUE, in a column the row has. A row missing EITHER endpoint
-      // COLUMN is the guard's: it cannot be shown to be outside the subgraph.
+      // The set is the library's own (`membershipOf` — the one the match arm asks
+      // too): an id that is NULL to the engine is dropped from it, as the library's
+      // filter drops it, because SQL's `IN (NULL)` is never true, so a null
+      // endpoint is kept by no walk — a null VALUE, in a column the row has. A row
+      // missing EITHER endpoint COLUMN is the guard's: it cannot be shown to be
+      // outside the subgraph.
       const [source, target] = clause.fields;
-      const ids = new Set<unknown>(clause.ids.filter((id) => id !== null && id !== undefined));
-      return judgeable([source, target], (row) => ids.has(row[source]) && ids.has(row[target]));
+      const { set } = membershipOf(clause.ids);
+      return judgeable([source, target], (row) => set.has(row[source]) && set.has(row[target]));
     }
   }
 }

@@ -3393,7 +3393,14 @@ class InteractionSessionImpl implements InteractionSession {
       this.activeFilterCommits.delete(viewId); // a cleared selection is no longer an input dependency
     } else {
       this.clearedFilters.delete(viewId);
-      this.activeFilters.set(viewId, landing.clause);
+      // THE LIVE CLAUSE IS THE RECORD'S. The travel above judged the probe over the DISPATCHER's own
+      // value (a match's `values` array, an interval's `range` pair), and the log has since copied
+      // and deep-frozen it into `record.value`. Keeping the probe's clause would keep the caller's
+      // array: a `push` after the act moved the live selection while the record stood still (pinned
+      // in matchSelect.test.ts), and the memory engine's set, built once per array (`predicate.ts` ·
+      // `membershipOf`), would then read one thing while `resolvePredicateSQL` re-read another. The
+      // seek/fold path (`rebuildFold`'s live-clause ternary) builds from the record; so does this.
+      this.activeFilters.set(viewId, probeClause(kind, field, record.value));
       this.activeFilterCommits.set(viewId, record.id); // a superseded select on the same view drops out here
       this.travelledByCommit.set(record.id, landing.travel); // what the clause became elsewhere, keyed like the commit that landed it
     }
@@ -3479,7 +3486,8 @@ class InteractionSessionImpl implements InteractionSession {
       this.activeFilterCommits.delete(viewId);
     } else {
       this.clearedFilters.delete(viewId); // a live cell speaks for itself: nothing cleared is remembered beside it
-      this.activeFilters.set(viewId, landing.clause);
+      // the record's own (copied, frozen) pair, never the dispatcher's — the point door's rule, and the fold path's shape
+      this.activeFilters.set(viewId, { kind: 'cell', fields: [fields[0], fields[1]], value: record.value as CellClause['value'] });
       this.activeFilterCommits.set(viewId, record.id);
       this.travelledByCommit.set(record.id, landing.travel);
     }
@@ -3619,7 +3627,8 @@ class InteractionSessionImpl implements InteractionSession {
       this.activeFilterCommits.delete(viewId);
     } else {
       this.clearedFilters.delete(viewId);
-      this.activeFilters.set(viewId, landing.clause);
+      // the record's own (copied, frozen) walk, never the payload's — the point door's rule
+      this.activeFilters.set(viewId, probeClause('neighbourhood', neighbourhoodFieldLabel(fields), record.value, fields));
       this.activeFilterCommits.set(viewId, record.id);
       this.travelledByCommit.set(record.id, landing.travel);
     }
