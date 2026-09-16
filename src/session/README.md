@@ -378,18 +378,26 @@ await s.dispatch({ verb: 'select', viewId: 'radius', field: 'radii', value: 2.4,
 // { ok: false, rejection: { code: 'guard-failed', detail: 'view "radius" reads only through its layers — a gesture lands under one of them: radius~bins' } }
 ```
 
-**A read at a frame's bare address is a NAMED GAP, not yet refused.**
-`viewQuery`/`findInView` share ONE table resolver (`viewClauses`), and it does
-not yet ask whether the address is a frame: `viewId: 'radius'` resolves through
-`tableFor` exactly as a plain view would, so the window is served over the
-DEFAULT table — rows the frame itself never draws (its layer reads a table of
-its own) — with `clauses: []` (correctly empty; nothing reaches a frame,
-above). None of `ViewQueryRefusal`'s codes (`unknown-table` / `unknown-view` /
-`table-mismatch` / `unsupported-sort` / `no-columns` / `version-moved` /
-`engine`) honestly names this — `table-mismatch` is for two tables that
-disagree, not an address that reads none — and minting one is a
-tool-vocabulary change, its own packet (the emission door's `guard-failed`
-precedent above, by contrast, is an EXISTING code whose meaning already fits).
+**A read at a frame's bare address is refused by name, under `frame`.**
+`viewQuery`/`findInView` share ONE table resolver (`viewClauses`), and it asks
+the map (`frameOf` — `LinkView.frame`, law 6a of `../def/README.md`) before it
+resolves a table: a layered view with no view-level binding reads no rows at
+its own address, so a window asked there would be served over the DEFAULT
+table — rows the frame never draws — with `clauses: []`, a picture of a table
+under the name of a chart that never reads it. It is refused instead, with the
+addresses that read, in the emission door's own words (`probeGuard`, above):
+
+```ts
+await s.viewQuery({ viewId: 'mass_radius', limit: 1 });
+// { ok: false, reason: 'frame', rejected: 'view "mass_radius" reads only through its layers — a window is read under one of them: mass_radius~planets' }
+await s.viewQuery({ viewId: 'mass_radius~planets', limit: 1 }); // the layer's window, as before
+```
+
+`frame` is the eighth `ViewQueryRefusal` code (a tool-vocabulary change, made
+here rather than borrowed: `table-mismatch` is for two tables that disagree,
+`unknown-view` for a name nobody declared — neither names an address that
+reads none). A host that read at a frame's bare address — the demo's
+two-doors walk did — now sees the refusal and reads under the layer.
 Ask at the layer's own address (`radius~bins`) for the window it actually
 serves.
 

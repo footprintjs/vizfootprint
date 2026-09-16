@@ -185,3 +185,29 @@ describe('the emission door — a gesture at a frame is refused by name, under `
     expect(applied.refused).toEqual([{ viewId: 'mass_radius', rejected: FRAME_REFUSAL }]);
   });
 });
+
+describe('the read door — a window at a frame\'s bare address is refused by name, under `frame`', () => {
+  const REFUSED = `view "mass_radius" reads only through its layers — a window is read under one of them: ${MR_PLANETS}`;
+  it('viewQuery at the frame: the code, the sentence, the layers named — never the default table\'s rows under a name that draws none', async () => {
+    const s = buildDashboard(exoplanets()).createSession();
+    expect(await s.viewQuery({ viewId: 'mass_radius', limit: 1 })).toEqual({ ok: false, reason: 'frame', rejected: REFUSED });
+  });
+  it('findInView shares the one resolver, so it refuses in the same words', async () => {
+    const s = buildDashboard(exoplanets()).createSession();
+    const found = await s.findInView({ viewId: 'mass_radius', from: 0, where: { field: 'planet', value: 'b' } } as never);
+    expect(found).toMatchObject({ ok: false, reason: 'frame', rejected: REFUSED });
+  });
+  it('a layered view that BINDS at its own level is not a frame: its window is served over the default table, as before', async () => {
+    const def = exoplanets();
+    const own: DashboardDef = { ...def, encodings: [{ ...def.encodings![0]!, initial: { x: 'mass' } }, def.encodings![1]!] };
+    const window = await buildDashboard(own).createSession().viewQuery({ viewId: 'mass_radius', limit: 1 });
+    expect(window.ok && window.count).toBe(MEASUREMENTS.length);
+  });
+  it('the layer that reads for it, and a read that names no view, are served as before', async () => {
+    const s = buildDashboard(exoplanets()).createSession();
+    const layer = await s.viewQuery({ viewId: MR_PLANETS, limit: 1 });
+    expect(layer.ok && layer.count).toBe(PLANETS.length);
+    const bare = await s.viewQuery({ viewId: null, limit: 1 });
+    expect(bare.ok && bare.count).toBe(MEASUREMENTS.length);
+  });
+});

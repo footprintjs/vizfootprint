@@ -2544,6 +2544,11 @@ class InteractionSessionImpl implements InteractionSession {
     const here = this.tablesAt();
     if (!here.includes(table)) return { ok: false, reason: 'unknown-table', rejected: `no table "${table}" here — the tables at this point are ${here.join(', ')}` };
     if (query.viewId !== undefined && query.viewId !== null && !this.holdsView(query.viewId)) return { ok: false, reason: 'unknown-view', rejected: `no declared view "${query.viewId}" — the views are ${[...this.runtime.views.keys()].join(', ')}` };
+    // a FRAME reads no rows itself (`LinkView.frame`, ../def/README.md law 6a): a window asked at its bare address would be
+    // served over the DEFAULT table — rows the frame never draws — so it is refused by name, with the addresses that read,
+    // in the emission door's own words (`probeGuard`): the map decides once, and both doors say the same sentence.
+    const frame = query.viewId === undefined || query.viewId === null ? undefined : this.frameOf(query.viewId);
+    if (frame !== undefined) return { ok: false, reason: 'frame', rejected: `view "${query.viewId}" reads only through its layers — a window is read under one of them: ${frame.join(', ')}` };
     // an address and a table that disagree are two answers to one question: a layer is gated on ITS table (../def/README.md, "Layers"), so serving the
     // other table's rows under the layer's address would be a second resolver of the address — refused by name instead, saying which two tables disagree
     const place = query.viewId === undefined || query.viewId === null ? undefined : this.placeOf(query.viewId);

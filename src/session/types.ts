@@ -1234,8 +1234,14 @@ export interface ViewQuery {
   readonly offset?: number;
 }
 
-/** Why a window was refused — a code to branch on beside the sentence. `engine` carries the provider's own reason. */
-export type ViewQueryRefusal = 'unknown-table' | 'unknown-view' | 'table-mismatch' | 'unsupported-sort' | 'no-columns' | 'version-moved' | 'engine';
+/**
+ * Why a window was refused — a code to branch on beside the sentence. `engine`
+ * carries the provider's own reason. `frame`: the address reads no rows itself
+ * — a layered view with no view-level binding (`LinkView.frame`, law 6a of
+ * `../def/README.md`) — so a window is read under one of its layers, which the
+ * sentence names; the emission door refuses a gesture there in the same words.
+ */
+export type ViewQueryRefusal = 'unknown-table' | 'unknown-view' | 'table-mismatch' | 'unsupported-sort' | 'no-columns' | 'version-moved' | 'engine' | 'frame';
 
 export type ViewQueryResult =
   | {

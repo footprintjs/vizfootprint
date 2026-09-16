@@ -123,8 +123,12 @@ describe('layers — an address is a viewId, gated on the layer table', () => {
     expect(edges.ok && [edges.columns, edges.rows, edges.count]).toEqual([['source', 'target', 'weight'], EDGES, EDGES.length]);
     const nodes = await s.viewQuery({ viewId: NODES_ADDRESS, columns: ['group'] });
     expect(nodes.ok && [nodes.columns, nodes.key, nodes.count]).toEqual([['group', 'id'], 'id', NODES.length]);
+    // the VIEW is a frame — it reads no rows at its own address — so a window asked there is refused by name with its readers
+    // (`../session/README.md`, "A read at a frame's bare address"); a view that BINDS at its own level is served over the default table
     const view = await s.viewQuery({ viewId: 'net' });
-    expect(view.ok && view.count).toBe(NODES.length);
+    expect(view.ok === false && [view.reason, view.rejected]).toEqual(['frame', `view "net" reads only through its layers — a window is read under one of them: ${NODES_ADDRESS}, ${EDGES_ADDRESS}`]);
+    const own = await withOwnBinding().viewQuery({ viewId: 'net' });
+    expect(own.ok && own.count).toBe(NODES.length);
     const ghost = await s.viewQuery({ viewId: layerAddress('net', 'ghost') });
     expect(ghost.ok === false && ghost.reason).toBe('unknown-view');
     await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'weight', value: 5, cause: userCause() });
@@ -142,9 +146,11 @@ describe('layers — an address is a viewId, gated on the layer table', () => {
     expect(clash.ok === false && clash.rejected).toBe(`layer "${EDGES_ADDRESS}" reads table "edges", not "nodes" — ask for its window without a table, or ask table "nodes" without the layer`);
     const agree = await s.viewQuery({ viewId: EDGES_ADDRESS, table: 'edges' });
     expect(agree.ok && agree.rows).toEqual(EDGES);
-    // a VIEW declares no table of its own, so an explicit table still names the window it reads — only a layer can disagree
+    // a FRAME reads nothing at its own address, and an explicit table does not rescue it: the window is the layer's (`net~edges`) or the table's alone
     const view = await s.viewQuery({ viewId: 'net', table: 'edges' });
-    expect(view.ok && view.count).toBe(EDGES.length);
+    expect(view.ok === false && view.reason).toBe('frame');
+    const alone = await s.viewQuery({ table: 'edges' });
+    expect(alone.ok && alone.count).toBe(EDGES.length);
   });
 
   it('a layer carries prose of its own: derived words read the LAYER surface, and stated bindings are current the moment they are written', async () => {
