@@ -130,6 +130,10 @@ export const ANALYSIS_OPTIONS: Readonly<Record<BuiltinAnalysisName, readonly Ana
   // and neither is a relation: the session MINTS an aggregate's relation back to
   // its parent from the group column. The desk is where a tree gets written.
   aggregate: null,
+  // A rank is a profile plan over a declared schema with an operation id and a
+  // result reference (`vizfootprint` · `src/def/builtinAnalyses.ts` · `rank`) —
+  // nodes the picker's column/number/text options cannot fill; not offered here.
+  rank: null,
 };
 
 /**

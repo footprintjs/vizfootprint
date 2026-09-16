@@ -305,7 +305,7 @@ const SPECS: Readonly<Record<BuiltinAnalysisName, BuiltinSpec>> = Object.freeze(
   rank: { required: { schema: 'node', plan: 'node', operationId: 'string', resultRef: 'string' }, optional: { name: 'string', id: 'string' },
     judge: (decl, where, problems) => {
       try { normalizeRankAnalysisOptions(decl as unknown as RankAnalysisOptions); }
-      catch (error) { problems.push(`${where}: ${error instanceof Error ? error.message : 'invalid rank declaration'}`); }
+      catch (error) { problems.push(`${where}: ${(error as Error).message}`); } // every refusal on this path is an Error (`../data/profile/validate.ts` · `invalid`, `../analysis/rank.ts`)
     },
   },
   groupBy: { required: { by: 'string', measure: 'string' }, optional: { name: 'string', id: 'string' } },

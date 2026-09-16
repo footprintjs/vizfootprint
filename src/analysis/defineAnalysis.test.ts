@@ -47,6 +47,9 @@ describe('validateAnalysisDef — happy path', () => {
 });
 
 describe('validateAnalysisDef — rejects malformed', () => {
+  it('requiresCompleteInput, if present, must be a boolean', () => {
+    expect(validateAnalysisDef({ ...minimalDef(), requiresCompleteInput: 'yes' as unknown as boolean })).toContain('requiresCompleteInput must be boolean');
+  });
   const bad: Array<[string, unknown]> = [
     ['null', null],
     ['array', []],
