@@ -22,7 +22,10 @@
  *      in `contract/renderers.tsx`, law 1); this component draws what it is
  *      handed without knowing that happened, and hands a third the left edge
  *      rather than hiding it. A layer with no y of its own draws no axes — the
- *      frame's are its.
+ *      frame's are its. WHICH MARKS may hold an edge is upstream's law too
+ *      (law 2): a line or a point either side, a BAR the first one only — the
+ *      classic bars-left, line-right figure — so the edge this component hands
+ *      out in declaration order is the edge that law was written against.
  *   3. THE WORDS. Two scales on one frame are two claims, and the frame must
  *      say so: `words` — the renderer's sentence, one owner — is rendered in
  *      the frame's own CAPTION REGION (a strip inside the frame's height, below
@@ -164,7 +167,11 @@ export interface VizFrameLayer {
   /**
    * This layer's y is its OWN scale — bound by the layer and not the frame's
    * merged one. Read only under `guide: 'per-layer'` with two or more layers:
-   * the first such layer takes the left edge, the second the right (law 1).
+   * the first such layer takes the left edge, the second the right (law 1). A
+   * BAR may only ever be the FIRST of them, and a histogram or a box plot
+   * neither — a law about the MARKS, refused in words upstream (law 2); this
+   * component reads the flag and counts, and knows nothing about which mark it
+   * belongs to.
    * Absent = false: on such a frame the layer draws no axes of its own.
    */
   readonly ownY?: boolean;

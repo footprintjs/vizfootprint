@@ -8,6 +8,14 @@
  * builds a clause. The category axis label is an interactive affordance:
  * `onReencodeRequest` asks the HOST (contract mode); otherwise it opens the
  * built-in {@link EncodingPicker} for the categorical channel.
+ *
+ * ON A FRAME it draws the guide it is told to (`axes`): both its own, none at
+ * all while the frame draws one merged guide — or, with `axes="y"`, its COUNT
+ * axis alone on the LEFT edge, from zero, in the hue the frame handed it. That
+ * last one is the two-scale figure a bar may stand in: bars of a count on the
+ * left with a line of a rate on the right (a bar takes the FIRST scale and
+ * never the second — `mayTakeFirstScale`, the one predicate the def door and
+ * the frame both ask).
  */
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
@@ -15,7 +23,8 @@ import type { RenderSelection } from '../contract/types.js';
 import { useRef } from 'react';
 import { TICK_ANGLE, VALUE_CHAR_PX, fitTick, fitsBand } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
-import { bandOrder, bandWidth, bandStart, bandCentre, domainOr, type ChartDomain } from '../primitives/scales.js';
+import { bandOrder, bandWidth, bandStart, bandCentre, domainOr, ticks, type ChartDomain } from '../primitives/scales.js';
+import { scaleHueStyle } from '../primitives/scaleHue.js';
 import { clickEmission, matchEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
 import { inSet, markClass, selectedSet } from '../primitives/useSelection.js';
 import { useReencodePicker } from '../primitives/reencode.js';
@@ -84,8 +93,40 @@ export interface VizBarProps {
    * here; this is only the second fence.
    */
   readonly domain?: ChartDomain;
-  /** Draw this chart's own axis line, category ticks and axis label. Default `true`; `false` while the FRAME draws one merged guide for the stack. */
-  readonly axes?: boolean;
+  /**
+   * Draw this chart's own axis line, category ticks and axis label. Default
+   * `true`; `false` while the FRAME draws one merged guide for the stack.
+   *
+   * `'y'`: ONLY the COUNT axis, on the LEFT edge — this bar's counts are one
+   * scale of a two-scale frame whose x is the frame's, drawn once by it
+   * (`VizFrame`, the two-axis figure; a bar may take the FIRST scale and never
+   * the second, `mayTakeFirstScale` — so there is no `axisSide` here, the one
+   * edge a bar can be handed being the one it draws on). Its BASELINE is the
+   * frame's x axis: a bar's count is read from zero, so the two are the same
+   * line and this chart never draws a second one.
+   *
+   * WHY `true` draws no count axis when `'y'` does: on its own this chart puts
+   * its numbers ON the bars (`showValues`) and keeps the plot for them, which
+   * is the picture it has always drawn. On a two-scale frame those labels are
+   * not a scale — a reader has to be able to read this layer's heights off an
+   * EDGE, and the left edge is the one a bar's extent may be read from. The
+   * axis carries no label of its own: this chart's margin (`PAD.l`) is the
+   * room the frame aligns every layer's plot by and may not grow, so it holds
+   * the ticks and nothing more — the frame's own sentence is what NAMES both
+   * scales (`twoScalesSentence`, law 3).
+   */
+  readonly axes?: boolean | 'y';
+  /**
+   * THE INK OF THIS SCALE — the hue a two-scale frame handed this layer
+   * (`FrameLayerDraw.scaleHue`, `VizFrame` its one owner; a CSS variable
+   * reference such as `var(--vzf-scale-left)`). This chart's OWN count axis —
+   * its line and its ticks — is drawn in it, and so are its BARS when nothing
+   * else names them: a chart given `colorOf` keeps those colours, because
+   * identity is never colour-alone and a scale may not take a hue that already
+   * names something. Absent = `var(--vzf-brand)`, byte-identical to this chart
+   * before the prop existed.
+   */
+  readonly scaleHue?: string;
 }
 
 /**
@@ -101,6 +142,8 @@ const SLANT_PAD = 40;
 const AXIS_LABEL_ROOM = 24;
 /** The plot height a slant may never take the chart below. */
 const MIN_PLOT = 40;
+/** How many steps this chart's own COUNT axis takes when it draws one (`axes="y"`) — 3 steps, 4 labels, the same as every other axis in the library. */
+const COUNT_TICK_STEPS = 3;
 
 export function VizBar(props: VizBarProps): JSX.Element {
   const {
@@ -135,7 +178,18 @@ export function VizBar(props: VizBarProps): JSX.Element {
   // maximum otherwise. Through `domainOr` like every other axis, because it holds the guard: a ceiling that is
   // not a finite number is not a ceiling, and dividing by it would draw every bar at NaN.
   const max = Math.max(1, domainOr(props.domain?.y, [0, Math.max(...data.map((d) => d.count))])[1]);
+  // WHICH AXES THIS CHART DRAWS: both (`true`), neither (`false` — the frame's merged guide), or its COUNT
+  // axis alone (`'y'` — one scale of a two-scale frame whose x the frame draws once). Two flags, so the
+  // category-side markup below reads one word and the count-side another.
   const axes = props.axes ?? true;
+  const drawX = axes === true;
+  const drawY = axes === 'y';
+  // THE INK OF THIS SCALE, on the parts of the count axis this chart draws: one inherited variable the
+  // stylesheet spends per element (`scaleHueStyle`), and nothing at all when no hue was handed
+  const hueStyle = scaleHueStyle(props.scaleHue);
+  // what a bar is drawn with when nothing else names it: the hue its scale was handed, the brand where
+  // there is none (a chart given `colorOf` keeps its answer — identity is never colour-alone)
+  const markInk = props.scaleHue ?? 'var(--vzf-brand)';
   // THE BANDS, left to right: the FRAME's order when a frame gave one, this chart's own otherwise
   // (`bandOrder`, ../primitives/scales.ts). One slot per category, holding this layer's datum for it or
   // NOTHING — so two bar layers on one frame put "Casual" over the same slot, and a category this layer
@@ -146,13 +200,16 @@ export function VizBar(props: VizBarProps): JSX.Element {
   const band = bandWidth(PAD.l, width - PAD.r, bands.length);
   // ticks: flat when they fit their band; slanted (and the plot shorter) when any does not
   // (a short chart cannot give the slant its full room — the plot keeps MIN_PLOT and the ticks clip harder).
-  // No ticks, no tick room: with `axes={false}` the guide is the FRAME's, so giving up 40px of plot for
-  // labels this chart is not drawing would move its baseline off every other layer's.
-  const slanted = axes && bands.some((b) => fitTick(b.category, band, 0).rotate);
+  // No ticks, no tick room: with `axes={false}` the guide is the FRAME's — and with `axes="y"` the
+  // CATEGORY ticks are the frame's too — so giving up 40px of plot for labels this chart is not drawing
+  // would move its baseline off every other layer's.
+  const slanted = drawX && bands.some((b) => fitTick(b.category, band, 0).rotate);
   const padB = slanted ? Math.min(PAD.b + SLANT_PAD, Math.max(PAD.b, height - PAD.t - MIN_PLOT)) : PAD.b;
   const tickRoom = Math.max(0, padB - 12 - AXIS_LABEL_ROOM);
   const plot = Math.max(0, height - PAD.t - padB);
   const axisY = height - padB;
+  /** Where a COUNT lands on the count axis — the BARS' own arithmetic (`h` below), so a tick and a bar can never be folded from two different numbers. */
+  const countY = (value: number): number => axisY - (value / max) * plot;
   // value labels are all-or-nothing: omitting only the wide ones would keep the small numbers and drop the large
   const showValues = data.every((d) => fitsBand(String(d.count), band, VALUE_CHAR_PX));
 
@@ -212,8 +269,22 @@ export function VizBar(props: VizBarProps): JSX.Element {
         onPointerCancel={cancelRun}
         onPointerLeave={cancelRun}
       >
-        {/* the axis line — absent while the FRAME draws one merged guide for the stack */}
-        {axes && <line className="vzf-axis" x1={PAD.l} y1={axisY} x2={width - PAD.r} y2={axisY} />}
+        {/* the axis line — absent while the FRAME draws one merged guide for the stack, and while the
+            frame draws the x of a two-scale figure once (`axes="y"`): a bar's zero baseline IS that x */}
+        {drawX && <line className="vzf-axis" x1={PAD.l} y1={axisY} x2={width - PAD.r} y2={axisY} />}
+        {/* THE COUNT AXIS, on the LEFT edge and from ZERO — this layer's own scale on a two-scale frame,
+            in the hue that frame handed it. Its ticks step from the baseline to the ceiling the bars are
+            drawn against (`max`), so a tick and a bar can never be folded from two different numbers. */}
+        {drawY && <line className="vzf-axis" x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={axisY} style={hueStyle} />}
+        {drawY &&
+          ticks(0, max, COUNT_TICK_STEPS).map((v, i) => (
+            <g key={`ct${String(i)}`} style={hueStyle}>
+              <line className="vzf-axis" x1={PAD.l - 4} y1={countY(v)} x2={PAD.l} y2={countY(v)} />
+              <text className="vzf-tick" x={PAD.l - 8} y={countY(v) + 3} textAnchor="end">
+                {Math.round(v * 10) / 10}
+              </text>
+            </g>
+          ))}
         {bands.map(({ category, datum: d }, i) => {
           const cx = bandStart(PAD.l, band, i);
           const h = d === undefined ? 0 : (d.count / max) * plot;
@@ -235,7 +306,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
                 width={band * 0.76}
                 height={h}
                 rx={3}
-                fill={colorOf ? colorOf(category) : 'var(--vzf-brand)'}
+                fill={colorOf ? colorOf(category) : markInk}
                 role="button"
                 tabIndex={0}
                 aria-pressed={isSel && !set.exclude}
@@ -256,7 +327,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
                   {d.count}
                 </text>
               ) : null}
-              {!axes ? null : tick.rotate ? (
+              {!drawX ? null : tick.rotate ? (
                 <text className="vzf-tick" x={tx} y={axisY + 12} textAnchor="end" transform={`rotate(-${String(TICK_ANGLE)} ${String(tx)} ${String(axisY + 12)})`}>
                   {tick.clipped ? <title>{category}</title> : null}
                   {tick.text}
@@ -269,7 +340,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
             </g>
           );
         })}
-        {axes && <AxisLabel x={width / 2} y={height - 8} text={label} channel="category" onOpen={openPicker} />}
+        {drawX && <AxisLabel x={width / 2} y={height - 8} text={label} channel="category" onOpen={openPicker} />}
       </svg>
       <EncodingPicker
         open={pickerChannel !== null}

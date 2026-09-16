@@ -545,11 +545,27 @@ Four more laws.
    ```
    encodings[0].frame.z: unknown channel — the layers bind x, y, size, color
    ```
-9. **A bar, a histogram and a boxplot may not take an independent magnitude channel — nor a SHARED one drawn `per-layer` where a second layer stands beside them — and a bar or a box may not be told to drop zero.** Their extent IS the quantity: measured against a second axis, or off a cut baseline, a bar overstates a difference by exactly what was taken away. A line or a point encodes POSITION and may honestly zoom, which is why the law is about the marks and not about the channel — and why it holds for `per-layer` the identical reason it holds for `independent`: an axis of a bar-like layer's own, wherever the guide sends it, is a second baseline. The `per-layer` half is gated on a SECOND layer: a lone bar under a per-layer guide draws its own ordinary axes (there is no second axis to refuse), which is why the same shape on a **one**-layer view is legal (law 7's `plain`, above):
+9. **A BAR MAY TAKE THE FIRST SCALE — the frame's LEFT edge, in declaration order — and nothing else zero-anchored may take a scale of its own at all.** The marks whose extent IS the quantity are read from one baseline: measured against a second axis, or off a cut one, a bar overstates a difference by exactly what was taken away. A line or a point encodes POSITION and may honestly zoom, which is why the law is about the marks and not about the channel — and why it holds for a `shared` channel drawn `per-layer` the identical reason it holds for `independent`: an axis of a layer's own, wherever the guide sends it, is a second scale. The `per-layer` half is gated on a SECOND layer: a lone bar under a per-layer guide draws its own ordinary axes (there is no second axis to refuse), which is why the same shape on a **one**-layer view is legal (law 7's `plain`, above).
+
+   **The bar's promotion**, and its two edges: bars of a count on the left with a line of a rate on the right is the commonest two-scale figure there is, and it is honest in that ONE arrangement — the left axis is where a reader reads an extent from a baseline. So a `bar` layer may hold a y of its own when it is the FIRST layer declaring that channel; the SECOND scale, the right edge, stays a line's or a point's. Declaration order and not a `side` option, because the frame already hands its sides out in declaration order (`vizfootprint-ui/charts/VizFrame.tsx` · `layerGuides`) and a second knob would be a second owner. The promotion is the bar's alone: a **histogram** and a **boxplot** summarise a distribution on an axis of their own, neither reads as "this much, from zero" beside a second scale, and neither draws a y on a frame's edge in this version — so they keep the refusal they always had, word for word. One predicate owns which marks may do which (`mayTakeFirstScale`, `../encoding/frame.ts`) and one function owns the second-scale sentence (`firstScaleTakenRefusal`), because the frame that has to draw the figure refuses it in the SAME words (`vizfootprint-ui/contract/renderers.tsx` · `twoScalesRefusal`, law 2): a def the door accepts is never a frame the renderer refuses.
    ```
-   encodings[0].frame.y: layer "counts" is a bar — a bar cannot take an independent y, its extent is read against one baseline
-   encodings[0].frame.y: layer "counts" is a bar — a bar cannot take a per-layer y on a frame of more than one layer either, its extent is read against one baseline
+   encodings[0].frame.y: layer "counts" is a bar with a y of its own, but layer "means" already takes the first scale — a bar reads its extent from the LEFT baseline, so declare it first, or give the line the independent y
+   encodings[0].frame.y: layer "counts" is a histogram — a histogram cannot take an independent y, its extent is read against one baseline
+   encodings[0].frame.y: layer "counts" is a boxplot — a boxplot cannot take a per-layer y on a frame of more than one layer either, its extent is read against one baseline
    encodings[0].frame.y.zero is false but layer "counts" is a bar — its y is read from zero
+   ```
+   A bar's own magnitude channel that is NOT the frame's y — an independent `size`, an independent `x` — is no edge of anything (left and right are y edges), and keeps the original refusal too: *layer "counts" is a bar — a bar cannot take an independent x, its extent is read against one baseline*. The ZERO law stands whichever scale a bar takes: its own axis is anchored at zero even where the line's on the right is not, and `zero: false` beside it is still refused.
+
+   ```ts
+   // the classic figure, declared: bars of a count on the left, a line of a rate on the right
+   layers: [
+     { layerId: 'counts', table: 'weeks', chartKind: 'bar', channels: ['category', 'y'], initial: { category: 'week', y: 'count' } },
+     { layerId: 'rate', table: 'weeks', chartKind: 'line', channels: ['x', 'y'], initial: { x: 'week', y: 'rate' } },
+   ],
+   frame: { category: { mode: 'shared', guide: 'merged' }, x: { mode: 'shared', guide: 'merged' }, y: { mode: 'independent' } }
+   // → the bars' count axis on the LEFT, from zero; the rate on the RIGHT; one band of weeks beneath,
+   //   drawn once; and the frame's own sentence under the plot: the heights are not comparable across them.
+   // Reverse the two layers and the door refuses it, in the sentence above.
    ```
    The zero half stops at the marks whose extent is read on a channel a layer BINDS (`zeroAnchorsChannel`, the one predicate the def door and the fold BOTH ask, so a refusal here and a domain there cannot disagree). A **histogram** is the exception it names: the channel a histogram layer binds is the axis its BINS sit on — a position — and its count axis is counted from the rows and never bound, so a histogram's bound channel is neither refused a `zero: false` nor anchored by default. Anchoring it would stretch an axis of ages from 30 down to 0 and leave a third of the plot empty; the count baseline stays at zero in the CHART that draws it.
 

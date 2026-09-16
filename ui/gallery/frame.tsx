@@ -29,6 +29,16 @@
  * are not painted by this page either: the frame hands each own-y layer a HUE
  * and the layer draws its axis and its marks in it (law 4, the ink matches the
  * scale), so the page declares two lines and gets two colours it never chose.
+ *
+ * THE THIRD FIGURE is the classic one: BARS ON THE LEFT, a line on the RIGHT —
+ * the rows counted per category as bars, their mean RATING as a line, two
+ * scales on one frame over one band. A bar may take the FIRST scale and never
+ * the second (the def door's law 9 and the frame's law 2, one sentence between
+ * them), because the left axis is where a reader reads an extent from a
+ * baseline: the bars' own count axis stands at their zero — which is the
+ * frame's x — and the rating keeps the right edge. No colour is declared here
+ * either, so the hues are the frame's: the bars in the left one, the line in
+ * the right.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -61,6 +71,16 @@ const VIEW_ID = 'bar';
 const LINE_VIEW_ID = 'line';
 /** The two scales of the second figure — a layer per field, each its own y. */
 const SCALE_FIELDS = ['price', 'rating'] as const;
+/**
+ * The third figure's two layers and their marks, spelled ONCE (the fold reads
+ * the mark for the zero policy, the renderer is told the same kind): the COUNT
+ * as bars, which take the first scale — the left edge — and the mean rating as
+ * a line on the right. Declaration order IS which edge each one gets, so the
+ * bar is first here because the law says it may be nowhere else.
+ */
+const BAR_LEFT_KINDS = { count: 'bar', rating: 'line' } as const;
+type BarLeftId = keyof typeof BAR_LEFT_KINDS;
+const BAR_LEFT_IDS = Object.keys(BAR_LEFT_KINDS) as readonly BarLeftId[];
 
 /** One row per category, its count — the HOST's aggregation (the transform-ownership rule: the chart never counts). */
 function countsOf(rows: readonly GalleryRow[]): readonly RenderRow[] {
@@ -251,6 +271,135 @@ function TwoScalesFigure(props: { readonly view: SessionView; readonly rows: rea
   );
 }
 
+/**
+ * One row per category, the MEAN rating over its rows — the HOST's second
+ * aggregate for the third figure, beside `countsOf`'s first. A category with no
+ * rows is absent, not zero: "no rows here" is not "rated 0".
+ */
+function meanRatingOf(rows: readonly GalleryRow[]): readonly RenderRow[] {
+  return CATEGORIES.map((category) => ({ category, own: rows.filter((r) => r.category === category) }))
+    .filter((slot) => slot.own.length > 0)
+    .map(({ category, own }) => ({ category, rating: Math.round((own.reduce((sum, r) => sum + r.rating, 0) / own.length) * 100) / 100 }));
+}
+
+/**
+ * The third figure's layers: the COUNT as bars FIRST — the left edge, because
+ * a bar may take the first scale and no other — and the mean rating as a line
+ * over the same bands. Both bind the same `category` column, under the two
+ * names an axis has (a bar's `category`, a line's `x`), which is what makes the
+ * frame read them as ONE band.
+ */
+function barLeftLayersOf(rows: readonly GalleryRow[]): readonly RenderLayer[] {
+  return [
+    { layerId: 'count', table: 'gallery', rows: countsOf(rows), encodings: { category: 'category', y: 'count' } },
+    { layerId: 'rating', table: 'gallery', rows: meanRatingOf(rows), encodings: { x: 'category', y: 'rating' } },
+  ];
+}
+
+/**
+ * THE FOLD of the third figure: the band of categories shared and merged (one
+ * order, the frame's to draw once beneath both marks) and y DECLARED
+ * independent — two scales, a count and a star rating, which share no ceiling.
+ * The bars are still read from ZERO, and not because this fold said so: an
+ * independent channel carries no domain at all, so each layer keeps its own
+ * scale and the BAR is what anchors its own baseline (`VizBar` · `domain`,
+ * whose baseline stays zero whatever it is handed). Declared `shared` with a
+ * per-layer guide instead, the fold would anchor the one it folds — a bar is in
+ * the stack, and `zeroPolicyFor` is the one owner of that.
+ */
+function barLeftFrameOf(layers: readonly RenderLayer[]): Readonly<Record<string, ResolvedChannel>> {
+  return frameDomains(
+    layers.map((layer) => ({
+      layerId: layer.layerId,
+      chartKind: BAR_LEFT_KINDS[layer.layerId as BarLeftId],
+      channels: Object.fromEntries(
+        Object.entries(layer.encodings).map(([channel, field]) => [channel, { type: channel === 'y' ? ('number' as const) : ('string' as const), values: layer.rows.map((row) => row[field]) }]),
+      ),
+    })),
+    { y: { mode: 'independent' } },
+  );
+}
+
+/** The third figure: bars on the left, a line on the right, one band beneath, the frame's sentence under the plot. */
+function BarsLeftFigure(props: { readonly view: SessionView; readonly rows: readonly GalleryRow[] }): JSX.Element {
+  const { view, rows } = props;
+  const state: SessionViewState = useSessionView(view);
+  const [last, setLast] = useState<string>('nothing yet — click a bar');
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const boundRef = useRef<BoundRenderer | null>(null);
+  const layers = useMemo(() => barLeftLayersOf(rows), [rows]);
+  const frame = useMemo(() => barLeftFrameOf(layers), [layers]);
+  const selection = selectionForView(state.selections, VIEW_ID);
+  const folded = useMemo(() => foldPerLayer(layers, VIEW_ID, state), [layers, state]);
+
+  useEffect(() => {
+    const el = hostRef.current;
+    if (!el) return;
+    // NO `colorOf` on either layer: on a two-scale frame the frame hands each own-y layer a hue and the
+    // layer draws its own axis and its marks in it (law 4) — including a BAR, whose bars take the left
+    // hue exactly because nothing else here names them
+    const renderer = layeredRenderer({ layers: { count: { kind: BAR_LEFT_KINDS.count }, rating: { kind: BAR_LEFT_KINDS.rating } }, xLabel: 'category' });
+    const verbs = (layerId: string) => ({
+      emit: (emission: ChartEmission) => {
+        setLast(`the "${layerId}" layer emitted a ${emission.encoding.kind}`);
+        void view.emit(VIEW_ID, emission, `bars-left gesture on the "${layerId}" layer`);
+      },
+      hover: () => {},
+      reencodeRequest: () => {},
+      navigate: () => {},
+    });
+    const res = bindRenderer(renderer, el, {
+      viewId: VIEW_ID,
+      callbacks: verbs(BAR_LEFT_IDS[0] ?? 'count'),
+      layers: { layerIds: [...BAR_LEFT_IDS], callbacksFor: (address) => verbs(address.split('~')[1] ?? 'count') },
+      onGap: (gap) => {
+        console.error('frame page: contract gap at bind (bars left)', gap);
+      },
+    });
+    if (!res.ok) return;
+    boundRef.current = res.view;
+    return () => {
+      res.view.unmount();
+      boundRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // the same microtask the first figure needs — see `FramePage`
+    queueMicrotask(() =>
+      boundRef.current?.update({
+        rows: layers[0]?.rows ?? [],
+        encodings: { category: 'category', y: 'count' },
+        selection,
+        hover: null,
+        theme: {},
+        size: { width: 760, height: 380 },
+        layers: folded,
+        frame,
+      }),
+    );
+  }, [layers, folded, frame, selection]);
+
+  const band = frame['category'];
+  return (
+    <section data-figure="bar-left" style={{ marginTop: 40 }}>
+      <h2 style={{ fontSize: 18, margin: '0 0 4px' }}>Bars on the left, a line on the right</h2>
+      <p className="vzf-frame-words-three" style={{ margin: '0 0 16px', lineHeight: 1.5 }}>
+        The rows <strong>counted</strong> per category as bars, and their <strong>mean rating</strong> as a line — two scales on <strong>one frame</strong>, over{' '}
+        <strong>one band</strong> ({band !== undefined && band.mode === 'shared' && band.scale === 'categorical' ? band.domain.join(' · ') : 'nothing'}) drawn <strong>once</strong> beneath both.
+        The bars take the <strong>left</strong> edge and read from <strong>zero</strong>, because a bar’s length IS its quantity and the left axis is where an extent is read from a baseline; the
+        rating keeps the <strong>right</strong>. Declared the other way round — the line first, the bars second — the def is <strong>refused in words</strong>, since a bar read against a second
+        baseline behind a line overstates by whatever was cut. Two scales are two claims, so the frame says so under the plot: a count and a star rating are not comparable by height.
+      </p>
+      <div ref={hostRef} style={{ width: 760, height: 380 }} />
+      <p className="vzf-frame-readout-three" style={{ marginTop: 12 }}>
+        {last} · {String(state.commits.length)} commits
+      </p>
+    </section>
+  );
+}
+
 function FramePage(props: { readonly view: SessionView; readonly rows: readonly GalleryRow[] }): JSX.Element {
   const { view, rows } = props;
   const state: SessionViewState = useSessionView(view);
@@ -347,6 +496,7 @@ function FramePage(props: { readonly view: SessionView; readonly rows: readonly 
       </p>
       </section>
       <TwoScalesFigure view={view} rows={rows} />
+      <BarsLeftFigure view={view} rows={rows} />
     </div>
   );
 }

@@ -23,7 +23,7 @@
  */
 import type { ColumnFacet } from '../data/types.js';
 import type { ColumnDecl, EncodingSurface } from '../encoding/index.js';
-import { MAGNITUDE_CHANNELS, ZERO_ANCHORED_KINDS, resolveFacet, zeroAnchorsChannel } from '../encoding/index.js';
+import { MAGNITUDE_CHANNELS, ZERO_ANCHORED_KINDS, firstScaleTakenRefusal, mayTakeFirstScale, resolveFacet, zeroAnchorsChannel } from '../encoding/index.js';
 import { ENCODING_KIND, type LinkView } from '../links/index.js';
 import type { MintedTable } from './builtinAnalyses.js';
 import { LAYER_MARKER, holdsLayerMarker, layerAddress } from './layerAddress.js';
@@ -326,28 +326,79 @@ function resolutionOf(raw: Record<string, unknown>, channel: string, layerless: 
   return decl;
 }
 
-/** Laws 8–11 for one channel: who may go independent, who keeps one zero, which columns may share, and what a logarithm may be asked to place. */
+/** Laws 8–11 for one channel: who may take a scale of their own, who keeps one zero, which columns may share, and what a logarithm may be asked to place. */
 function judgeChannelLaws(at: string, channel: string, resolution: Record<string, unknown>, binders: readonly FrameBinder[], data: unknown, minted: ReadonlyMap<string, MintedTable>, problems: string[]): void {
-  // the marks whose extent IS the quantity — read against a second axis, or off a cut baseline, a bar overstates by whatever was cut
-  if (MAGNITUDE_CHANNELS.has(channel)) {
-    for (const binder of binders.filter((b) => b.channels.includes(channel) && ZERO_ANCHORED_KINDS.includes(b.chartKind))) {
-      if (resolution.mode === 'independent') problems.push(`${at}: ${binder.subject} is a ${binder.chartKind} — a ${binder.chartKind} cannot take an independent ${channel}, its extent is read against one baseline`);
-      // …and the SAME reason under `shared`, when the guide is `per-layer` and there is a second layer to
-      // stand beside: a shared channel with a per-layer guide is what a two-axis figure declares (`VizFrame`'s
-      // OWN refusal, `contract/renderers.tsx` · `twoScalesRefusal`, law 2), and a bar-like layer takes neither
-      // of its sides for the identical reason `independent` is refused above — one baseline, not a choice of
-      // scales. Gated on more than one layer: a LONE bar under `guide: 'per-layer'` draws its own ordinary
-      // axes (`VizFrame` · `layerGuides` special-cases a single layer), so there is no second axis to refuse.
-      else if (resolution.mode === 'shared' && resolution.guide === 'per-layer' && binders.length > 1)
-        problems.push(`${at}: ${binder.subject} is a ${binder.chartKind} — a ${binder.chartKind} cannot take a per-layer ${channel} on a frame of more than one layer either, its extent is read against one baseline`);
-      // …and the ZERO half only where the extent is read on a channel the layer BINDS: a histogram's bound
-      // channel is the axis its bins sit on, and its count axis is counted, never bound (`zeroAnchorsChannel`,
-      // the one owner — it is what the FOLD asks too, so a refusal here and a domain there cannot disagree)
-      else if (resolution.zero === false && zeroAnchorsChannel(binder.chartKind, channel)) problems.push(`${at}.zero is false but ${binder.subject} is a ${binder.chartKind} — its ${channel} is read from zero`);
-    }
-  }
+  if (MAGNITUDE_CHANNELS.has(channel)) judgeZeroAnchoredMarks(at, channel, resolution, binders, problems);
   if (resolution.transform === LOG) judgeLogarithm(at, channel, resolution, binders, data, minted, problems);
   if (resolution.mode === 'shared') judgeSharedColumns(at, channel, binders, data, minted, problems);
+}
+
+/**
+ * LAW 9, on a magnitude channel: the marks whose extent IS the quantity — read
+ * against a second axis, or off a cut baseline, a bar overstates by whatever
+ * was cut. Each of them gets at most ONE sentence here, which is why the arms
+ * are a chain: the next thing a reader has to fix is the next thing they see.
+ *
+ * A BAR MAY TAKE THE FIRST SCALE ({@link mayTakeFirstScale}, the predicate
+ * both twins of this law ask): bars of a count on the LEFT with a line of a
+ * rate on the right is the figure, and the left edge is where an extent is
+ * read from a baseline. Who is FIRST is the DECLARATION's answer, read here
+ * off the declared channel list — the same list this law has always filtered
+ * on, because a layer's BINDINGS may still be the host's to make and a layer
+ * that says it draws a y will. The frame reads the same order off what each
+ * layer bound, which is what it has to draw (`twoScalesRefusal` · `ownY`).
+ *
+ * The ZERO half stands whichever scale a bar takes: its own axis is anchored
+ * at zero even where the line's on the right is not.
+ */
+function judgeZeroAnchoredMarks(at: string, channel: string, resolution: Record<string, unknown>, binders: readonly FrameBinder[], problems: string[]): void {
+  const owners = binders.filter((b) => b.channels.includes(channel));
+  const shape = ownScaleShapeOf(resolution, binders.length);
+  for (const binder of owners.filter((b) => ZERO_ANCHORED_KINDS.includes(b.chartKind))) {
+    const refusal = shape === undefined ? undefined : refuseOwnScale(at, channel, binder, owners, shape);
+    if (refusal !== undefined) problems.push(refusal);
+    // …and the ZERO half only where the extent is read on a channel the layer BINDS: a histogram's bound
+    // channel is the axis its bins sit on, and its count axis is counted, never bound (`zeroAnchorsChannel`,
+    // the one owner — it is what the FOLD asks too, so a refusal here and a domain there cannot disagree)
+    else if (resolution.zero === false && zeroAnchorsChannel(binder.chartKind, channel)) problems.push(`${at}.zero is false but ${binder.subject} is a ${binder.chartKind} — its ${channel} is read from zero`);
+  }
+}
+
+/**
+ * THE TWO SHAPES THAT GIVE A BINDING LAYER A SCALE OF ITS OWN on this channel,
+ * or nothing where the frame keeps one merged scale for the stack — named by
+ * the word each one's refusal uses.
+ *
+ * `independent` is one per layer by definition. `shared` with a `per-layer`
+ * GUIDE is the same picture declared the other way round (`VizFrame`'s own
+ * refusal, `contract/renderers.tsx` · `twoScalesRefusal`, law 2), and it is
+ * gated on a SECOND layer: a lone bar under `guide: 'per-layer'` draws its own
+ * ordinary axes (`VizFrame` · `layerGuides` special-cases a single layer), so
+ * there is no second axis to refuse.
+ */
+function ownScaleShapeOf(resolution: Record<string, unknown>, layers: number): 'independent' | 'per-layer' | undefined {
+  if (resolution.mode === 'independent') return 'independent';
+  return resolution.mode === 'shared' && resolution.guide === 'per-layer' && layers > 1 ? 'per-layer' : undefined;
+}
+
+/**
+ * What a zero-anchored layer is told when the frame would hand it a scale of
+ * its own — or NOTHING where the law lets it keep one (a bar, first, on the
+ * frame's y). Two refusals: the mark that takes NEITHER edge, in the words it
+ * has always been told them in, and the bar that would take the SECOND one,
+ * in the sentence both twins of this law say ({@link firstScaleTakenRefusal}).
+ */
+function refuseOwnScale(at: string, channel: string, binder: FrameBinder, owners: readonly FrameBinder[], shape: 'independent' | 'per-layer'): string | undefined {
+  if (!mayTakeFirstScale(binder.chartKind, channel)) {
+    return shape === 'independent'
+      ? `${at}: ${binder.subject} is a ${binder.chartKind} — a ${binder.chartKind} cannot take an independent ${channel}, its extent is read against one baseline`
+      : `${at}: ${binder.subject} is a ${binder.chartKind} — a ${binder.chartKind} cannot take a per-layer ${channel} on a frame of more than one layer either, its extent is read against one baseline`;
+  }
+  // `owners` holds this binder, so it holds a first one; `subject` is how each twin names a layer, and
+  // the only binder that can be first here is a layer (a LAYERLESS view is one binder, and one binder is
+  // never handed a scale of its own — `ownScaleShapeOf` answers nothing for it)
+  const holder = owners[0]!;
+  return holder === binder ? undefined : `${at}: ${firstScaleTakenRefusal(binder.subject, binder.chartKind, holder.subject)}`;
 }
 
 /**

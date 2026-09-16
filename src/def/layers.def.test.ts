@@ -9,6 +9,8 @@ import { describe, it, expect } from 'vitest';
 import { buildDashboard, validateDashboardDef, layerAddress } from './index.js';
 import type { DashboardDef, LayerDecl } from './index.js';
 import { layerSurfaceOf, layerSurfacesOf } from './layers.js';
+// law 9's own sentence for a bar that would take the SECOND scale — one owner, quoted by the frame's twin too
+import { firstScaleTakenRefusal } from '../encoding/index.js';
 import { mintedTables } from './builtinAnalyses.js';
 import { makeDashboardDef } from '../session/dashboard.fixture.js';
 import { edgesLayer, makeNetworkDef, nodesLayer } from './network.fixture.js';
@@ -294,10 +296,7 @@ describe('the frame — per channel, how its scale is resolved across the layers
     expect(framed({ z: { mode: 'shared' } }, [edgesLayer, nodesLayer])).toEqual(['encodings[0].frame.z: unknown channel — the layers bind x, y, size, color']);
   });
 
-  it('LAW 9: a bar, a histogram and a boxplot may not take an independent magnitude channel — extent IS the quantity', () => {
-    expect(framed({ y: { mode: 'independent' } }, [barLayer, edgesLayer])).toEqual([
-      'encodings[0].frame.y: layer "counts" is a bar — a bar cannot take an independent y, its extent is read against one baseline',
-    ]);
+  it('LAW 9: a histogram and a boxplot may not take an independent magnitude channel — extent IS the quantity', () => {
     expect(framed({ y: { mode: 'independent' } }, [{ ...barLayer, chartKind: 'histogram' }])).toEqual([
       'encodings[0].frame.y: layer "counts" is a histogram — a histogram cannot take an independent y, its extent is read against one baseline',
     ]);
@@ -308,12 +307,48 @@ describe('the frame — per channel, how its scale is resolved across the layers
     expect(framed({ y: { mode: 'independent' } }, [nodesLayer, edgesLayer])).toEqual([]);
     // …and the law is about the MAGNITUDE channel: a bar's colour may resolve independently
     expect(framed({ color: { mode: 'independent' } }, [{ ...barLayer, channels: ['x', 'y', 'color'] }])).toEqual([]);
+    // …and a BAR keeps the identical refusal on a magnitude channel that is NOT the frame's y: left and
+    // right are y edges, so an independent `x` or `size` of a bar's own is no edge of anything
+    expect(framed({ x: { mode: 'independent' } }, [barLayer, edgesLayer])).toEqual([
+      'encodings[0].frame.x: layer "counts" is a bar — a bar cannot take an independent x, its extent is read against one baseline',
+    ]);
+    expect(framed({ size: { mode: 'independent' } }, [{ ...barLayer, channels: ['x', 'y', 'size'] }])).toEqual([
+      'encodings[0].frame.size: layer "counts" is a bar — a bar cannot take an independent size, its extent is read against one baseline',
+    ]);
+  });
+
+  it('LAW 9: a BAR MAY TAKE THE FIRST SCALE — the LEFT edge, in declaration order — and a SECOND scale of its own is refused in the sentence the frame says too', () => {
+    // THE LAW: bars of a count on the left with a line of a rate on the right is the classic two-scale
+    // figure, and it is honest in that ONE arrangement — the left axis is where an extent is read from a
+    // baseline. Both shapes that declare it: an independent y, and a shared y drawn per-layer.
+    expect(framed({ y: { mode: 'independent' } }, [barLayer, edgesLayer])).toEqual([]);
+    expect(framed({ y: { mode: 'shared', guide: 'per-layer' } }, [barLayer, edgesLayer])).toEqual([]);
+    // the bar SECOND: the line already holds the first scale, so this bar would be read off the RIGHT edge
+    expect(framed({ y: { mode: 'independent' } }, [edgesLayer, barLayer])).toEqual([
+      'encodings[0].frame.y: layer "counts" is a bar with a y of its own, but layer "edges" already takes the first scale — a bar reads its extent from the LEFT baseline, so declare it first, or give the line the independent y',
+    ]);
+    expect(framed({ y: { mode: 'shared', guide: 'per-layer' } }, [edgesLayer, barLayer])).toEqual([
+      'encodings[0].frame.y: layer "counts" is a bar with a y of its own, but layer "edges" already takes the first scale — a bar reads its extent from the LEFT baseline, so declare it first, or give the line the independent y',
+    ]);
+    // TWO BARS is two baselines: the second is refused for the same reason, naming the one that holds the scale
+    expect(framed({ y: { mode: 'independent' } }, [barLayer, { ...barLayer, layerId: 'top' }])).toEqual([
+      'encodings[0].frame.y: layer "top" is a bar with a y of its own, but layer "counts" already takes the first scale — a bar reads its extent from the LEFT baseline, so declare it first, or give the line the independent y',
+    ]);
+    // ONE OWNER for that sentence, shared with the frame that has to draw the figure — the door says it
+    // with its address in front, the renderer's twin says it as it stands (`twoScalesRefusal`, law 2)
+    expect(firstScaleTakenRefusal('layer "counts"', 'bar', 'layer "edges"')).toBe(
+      'layer "counts" is a bar with a y of its own, but layer "edges" already takes the first scale — a bar reads its extent from the LEFT baseline, so declare it first, or give the line the independent y',
+    );
+    // the promotion is the BAR's alone: a histogram and a boxplot summarise a distribution on an axis of
+    // their own and neither draws one on a frame's edge, so first or not they keep law 9's own words
+    expect(framed({ y: { mode: 'independent' } }, [{ ...barLayer, chartKind: 'boxplot' }, edgesLayer])).toEqual([
+      'encodings[0].frame.y: layer "counts" is a boxplot — a boxplot cannot take an independent y, its extent is read against one baseline',
+    ]);
+    // a MERGED y is one scale for the stack, and a bar on it was never in question
+    expect(framed({ y: { mode: 'shared' } }, [edgesLayer, barLayer])).toEqual([]);
   });
 
   it('LAW 9: the SAME reason under `shared` — a per-layer guide beside a second layer is a second axis too, and the door refuses it as it would independent (packet W review, finding 1: this closes the gap `twoScalesRefusal` used to catch alone, at render, in `contract/renderers.tsx`)', () => {
-    expect(framed({ y: { mode: 'shared', guide: 'per-layer' } }, [barLayer, edgesLayer])).toEqual([
-      'encodings[0].frame.y: layer "counts" is a bar — a bar cannot take a per-layer y on a frame of more than one layer either, its extent is read against one baseline',
-    ]);
     expect(framed({ y: { mode: 'shared', guide: 'per-layer' } }, [{ ...barLayer, chartKind: 'histogram' }, edgesLayer])).toEqual([
       'encodings[0].frame.y: layer "counts" is a histogram — a histogram cannot take a per-layer y on a frame of more than one layer either, its extent is read against one baseline',
     ]);
@@ -346,6 +381,11 @@ describe('the frame — per channel, how its scale is resolved across the layers
     // a boxplot's extent IS on the channel it binds, so it keeps the refusal a bar gets
     expect(framed({ y: { mode: 'shared', zero: false } }, [{ ...barLayer, chartKind: 'boxplot' }])).toEqual([
       'encodings[0].frame.y.zero is false but layer "counts" is a boxplot — its y is read from zero',
+    ]);
+    // …and the zero law stands over the bar that MAY take the first scale: its own left axis is anchored at
+    // zero even where the line's on the right is not, so `zero: false` beside it is still refused
+    expect(framed({ y: { mode: 'shared', guide: 'per-layer', zero: false } }, [barLayer, edgesLayer])).toEqual([
+      'encodings[0].frame.y.zero is false but layer "counts" is a bar — its y is read from zero',
     ]);
   });
 

@@ -70,7 +70,7 @@ import {
   type RenderSelection,
   type RenderState,
 } from './types.js';
-import { frameDomains, type ResolvedChannel } from 'vizfootprint/def';
+import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, type ResolvedChannel } from 'vizfootprint/def';
 import { boundField } from '../charts/binding.js';
 import { bandOrder, epochOf, type ChartDomain, type AxisSide } from '../primitives/scales.js';
 import { VizFrame, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
@@ -150,7 +150,7 @@ interface MarkDraw {
   readonly domain: ChartDomain;
   /** `false` while the FRAME draws one merged guide for the stack; `'y'` when this mark draws only its own y, on `axisSide`, and the frame draws x once (the two-axis figure). */
   readonly axes: boolean | 'y';
-  /** The edge this mark's own y axis stands on — set exactly when `axes` is `'y'`. Only a line or a point ever receives it (law 2). */
+  /** The edge this mark's own y axis stands on — set exactly when `axes` is `'y'`. Only a line or a point ever READS it: a bar draws its own y on the left edge and no other (law 2). */
   readonly axisSide?: AxisSide;
   /** The hue this mark draws its own y axis (and its unsplit marks) in — set exactly when the frame draws TWO y scales and this mark is one of them (law 4, `VizFrame` its one owner). */
   readonly scaleHue?: string;
@@ -392,9 +392,11 @@ function barMark(d: MarkDraw, options: BarRendererOptions): JSX.Element {
       width={d.width}
       height={d.height}
       domain={d.domain}
-      // a bar, a histogram and a box plot take neither side of a two-scale frame (law 2, refused upstream by
-      // `stackRefusal`), so `'y'` never arrives here; `=== true` keeps the chart's boolean prop honest without a cast
-      axes={d.axes === true}
+      // a bar takes the FIRST scale — the LEFT edge — and never the second (law 2, refused upstream by
+      // `stackRefusal`), so `'y'` reaches this chart and `d.axisSide` with it is always `'left'`: not
+      // forwarded, because `VizBar` has no side to read — the only edge it can be handed is the one it draws on
+      axes={d.axes}
+      {...(d.scaleHue === undefined ? {} : { scaleHue: d.scaleHue })}
       onEmit={d.callbacks.emit}
       onReencodeRequest={d.callbacks.reencodeRequest}
     />
@@ -509,7 +511,7 @@ function histogramMark(d: MarkDraw, options: HistogramRendererOptions): JSX.Elem
       width={d.width}
       height={d.height}
       domain={d.domain}
-      // a bar, a histogram and a box plot take neither side of a two-scale frame (law 2, refused upstream by
+      // a histogram and a box plot take neither side of a two-scale frame (law 2, refused upstream by
       // `stackRefusal`), so `'y'` never arrives here; `=== true` keeps the chart's boolean prop honest without a cast
       axes={d.axes === true}
       onEmit={d.callbacks.emit}
@@ -651,7 +653,7 @@ function boxPlotMark(d: MarkDraw, options: BoxPlotRendererOptions): JSX.Element 
       width={d.width}
       height={d.height}
       domain={d.domain}
-      // a bar, a histogram and a box plot take neither side of a two-scale frame (law 2, refused upstream by
+      // a histogram and a box plot take neither side of a two-scale frame (law 2, refused upstream by
       // `stackRefusal`), so `'y'` never arrives here; `=== true` keeps the chart's boolean prop honest without a cast
       axes={d.axes === true}
       onEmit={d.callbacks.emit}
@@ -1323,17 +1325,26 @@ function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
  *     the layers is refused by name (the band/run law already says a frame's x
  *     is one). And TWO SIDES, so at most two own y scales: a third is refused
  *     naming every layer that would draw one — there is no third edge.
- *   law 2 — A BAR, A HISTOGRAM OR A BOX PLOT TAKES NEITHER SIDE: its extent is
- *     read against one baseline. The def door already refuses BOTH shapes that
- *     say so — `independent`, and `shared` drawn `per-layer` beside a second
- *     layer (`validateFrame`, law 9, the SAME reason in both branches) — so a
- *     def built through `buildDashboard` never reaches this refusal (packet W
+ *   law 2 — A BAR MAY TAKE THE FIRST SCALE, AND ONLY THE FIRST: bars of a
+ *     count on the LEFT with a line of a rate on the right is the commonest
+ *     two-scale figure there is, and the left edge is where a reader reads an
+ *     extent from a baseline. A bar SECOND — read against a second baseline
+ *     behind a line — is the overstatement this law exists to prevent, and a
+ *     histogram or a box plot takes NEITHER edge: each summarises a
+ *     distribution on an axis of its own, and neither draws one on a frame's
+ *     edge in this version. Which marks may do which is one predicate both
+ *     twins ask (`mayTakeFirstScale`, `src/encoding/frame.ts`), and the second
+ *     scale's refusal is one sentence both twins say
+ *     (`firstScaleTakenRefusal`). The def door refuses the same shapes —
+ *     `independent`, and `shared` drawn `per-layer` beside a second layer
+ *     (`validateFrame`, law 9, the SAME reason in both branches) — so a def
+ *     built through `buildDashboard` never reaches these refusals (packet W
  *     review, finding 1: it once did, through `shared + per-layer`, before the
- *     door's law 9 grew that second branch). This check stays as the frame's
- *     OWN defense: `RenderState.frame` is a public shape a host may fold BY
- *     HAND, skipping `validateFrame` entirely, and the frame must refuse what
- *     it is handed on its own terms — it does not trust that everything
- *     upstream went through the door.
+ *     door's law 9 grew that second branch). They stay as the frame's OWN
+ *     defense: `RenderState.frame` is a public shape a host may fold BY HAND,
+ *     skipping `validateFrame` entirely, and the frame must refuse what it is
+ *     handed on its own terms — it does not trust that everything upstream
+ *     went through the door.
  *
  * The third law — the frame SAYS the scales are unrelated — is not a refusal
  * but a sentence, {@link twoScalesSentence}, rendered by the frame. Nor is the
@@ -1349,14 +1360,22 @@ function twoScalesRefusal(framed: readonly FramedLayer[], frame: Readonly<Record
   if (own.length > 2) {
     return `layers ${nameList(own)} each draw a y of their own — a frame has two sides, left and right, and no third. Draw two of them here, and the rest on a frame of their own.`;
   }
-  const unsided = own.find((f) => !SIDED_KINDS.includes(f.kind));
-  if (unsided !== undefined) {
-    return `layer "${unsided.layer.layerId}" is a ${unsided.kind} with a y of its own — a ${unsided.kind}'s extent is read against one baseline, so it takes neither side of a two-scale frame. Declare guide: 'merged' on y, or draw it on a frame of its own.`;
+  // WHO MAY DRAW A Y OF ITS OWN, and WHERE (law 2), in the order the frame hands its edges out: a position
+  // mark on either edge, a BAR on the first — the left — alone, and nothing else at all. Both halves of
+  // the bar's answer are the DEF DOOR's own (`mayTakeFirstScale` for which marks, `firstScaleTakenRefusal`
+  // for the words), so the two twins of law 9 cannot drift; `own` holds at most two here (a third
+  // returned above), which is why the second one's index is all "would take the second scale" needs.
+  for (const [index, f] of own.entries()) {
+    if (SIDED_KINDS.includes(f.kind)) continue;
+    if (!mayTakeFirstScale(f.kind, AXIS_CHANNELS[f.kind].y)) {
+      return `layer "${f.layer.layerId}" is a ${f.kind} with a y of its own — a ${f.kind}'s extent is read against one baseline, so it takes neither side of a two-scale frame. Declare guide: 'merged' on y, or draw it on a frame of its own.`;
+    }
+    if (index > 0) return firstScaleTakenRefusal(`layer "${f.layer.layerId}"`, f.kind, `layer "${own[0]!.layer.layerId}"`);
   }
   return null;
 }
 
-/** The marks that can stand a y axis on either edge (`axisSide`): a line and a point — position marks, whose y may be read off any baseline. */
+/** The marks that can stand a y axis on either edge (`axisSide`): a line and a point — position marks, whose y may be read off any baseline. A BAR stands on the left edge alone (`mayTakeFirstScale`), which is why it is not one of these. */
 const SIDED_KINDS: readonly FrameChartKind[] = Object.freeze(['line', 'point']);
 
 /** TWO OR MORE layer ids as a sentence lists them: `"a", "b" and "c"` — both refusals that call it name at least two (a stack of two, or a third own y), so there is no one-name arm. */
@@ -1657,12 +1676,15 @@ function frameRefusal(sentence: string): JSX.Element {
  * or a number, over a bar — a line whose x is a category IS a band and draws),
  * a point on a band, two bands with no category list, a box plot on a shared
  * band, a line split into series, or — on a per-layer guide over two or more
- * layers — an x left to the layers, a third own y, or a bar/histogram/box plot
- * with a y of its own (`twoScalesRefusal`). Two own y scales on a line or a
- * point are THE TWO-AXIS FIGURE: left and right, x drawn once by the frame,
- * the frame's own sentence beneath (`twoScalesSentence`), and each of the two
- * layers drawing its axis — and its unsplit marks — in the hue the frame hands
- * it (`FrameLayerDraw.scaleHue`, law 4: the ink matches the scale).
+ * layers — an x left to the layers, a third own y, a histogram or box plot
+ * with a y of its own, or a BAR that would take the second scale rather than
+ * the first (`twoScalesRefusal`). Two own y scales are THE TWO-AXIS FIGURE:
+ * left and right, x drawn once by the frame, the frame's own sentence beneath
+ * (`twoScalesSentence`), and each of the two layers drawing its axis — and its
+ * unsplit marks — in the hue the frame hands it (`FrameLayerDraw.scaleHue`,
+ * law 4: the ink matches the scale). A bar may be the LEFT one of the two: it
+ * draws its count axis from its zero baseline and the line keeps the right
+ * edge (law 2).
  */
 export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer {
   return reactRenderer({

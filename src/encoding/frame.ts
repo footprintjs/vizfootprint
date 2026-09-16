@@ -145,6 +145,71 @@ export function zeroAnchorsChannel(chartKind: string | undefined, channel: strin
   return chartKind !== undefined && EXTENT_ON_A_BOUND_CHANNEL.includes(chartKind) && MAGNITUDE_CHANNELS.has(channel);
 }
 
+/**
+ * THE MARKS THAT MAY TAKE A SCALE OF THEIR OWN ON A FRAME — and only the FIRST
+ * one. A bar of a count on the LEFT with a line of a rate on the right is the
+ * commonest two-scale figure there is, and it is honest in that one
+ * arrangement: the left axis is where a reader reads an extent from a
+ * baseline. A bar on the RIGHT, read against a second baseline behind a line,
+ * is exactly the overstatement law 9 exists to prevent — so the right edge
+ * stays a position mark's (a line, a point).
+ *
+ * WHY only a bar, when three kinds are zero-anchored ({@link
+ * ZERO_ANCHORED_KINDS}): a box plot and a histogram summarise a DISTRIBUTION
+ * on an axis of their own — neither reads as "this much, from zero" beside a
+ * second scale — and neither draws a y axis on a frame's edge in this version,
+ * so a def that declared one would be refused by the frame that has to draw
+ * it. Their half of law 9 is untouched, in the words it always said. Kept as
+ * its own list rather than as a `=== 'bar'` for the reason {@link
+ * EXTENT_ON_A_BOUND_CHANNEL} is: the two lists differ, and a reader has to be
+ * able to see which marks each one names.
+ */
+const MAY_TAKE_THE_FIRST_SCALE: readonly string[] = Object.freeze(['bar']);
+
+/**
+ * The channel a frame's two edges ARE: its y. Left and right are y edges
+ * (`AxisSide`, `vizfootprint-ui/primitives/scales.ts`), so a bar's own scale
+ * on any OTHER magnitude channel — a `size` legend, an independent x — is no
+ * edge of anything and keeps law 9's original refusal.
+ */
+const FIRST_SCALE_CHANNEL = 'y';
+
+/**
+ * MAY THIS MARK TAKE A SCALE OF ITS OWN HERE, as the FIRST one? The one owner
+ * of that question, asked by BOTH twins of law 9 — the def door
+ * (`../def/layers.ts` · `judgeChannelLaws`) and the frame that draws it
+ * (`vizfootprint-ui/contract/renderers.tsx` · `twoScalesRefusal`) — so a def
+ * the door accepts is never a frame the renderer refuses.
+ *
+ * The kind is not optional here, where {@link zeroAnchorsChannel}'s is: that
+ * one is asked by the FOLD, over layers a host may hand in with no mark named
+ * at all; this one is asked by the two doors, and a layer that named no mark
+ * was refused for that on its own line.
+ *
+ * It answers about the MARK and the CHANNEL only. WHICH layer is first is the
+ * DECLARATION's answer, and each twin reads it where it stands: the door off
+ * the declared channel list, the frame off what a layer bound (the frame hands
+ * its sides out in declaration order, so both are the same order).
+ */
+export function mayTakeFirstScale(chartKind: string, channel: string): boolean {
+  return MAY_TAKE_THE_FIRST_SCALE.includes(chartKind) && channel === FIRST_SCALE_CHANNEL;
+}
+
+/**
+ * THE WORDS FOR A BAR THAT WOULD TAKE THE SECOND SCALE — one sentence, one
+ * owner, said by the def door with its address in front of it and by the frame
+ * exactly as it stands (the two twins of law 9 say the same thing, so a reader
+ * who fixes the def and a reader who fixes a hand-folded `RenderState.frame`
+ * read one sentence, not two spellings of it).
+ *
+ * `subject` and `holder` arrive already named the way each twin names a layer
+ * (`layer "counts"`), and the refusal ends in the two ways out: declare the bar
+ * first, or leave the second scale to the line.
+ */
+export function firstScaleTakenRefusal(subject: string, chartKind: string, holder: string): string {
+  return `${subject} is a ${chartKind} with a y of its own, but ${holder} already takes the first scale — a ${chartKind} reads its extent from the LEFT baseline, so declare it first, or give the line the independent y`;
+}
+
 /** Past this many layers on one frame a reader cannot tell the marks apart — a LINT, never a refusal (a legitimate small-multiple of five exists). */
 export const FRAME_LAYER_LINT = 4;
 

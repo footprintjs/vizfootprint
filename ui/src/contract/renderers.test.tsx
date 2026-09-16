@@ -24,7 +24,7 @@ import {
   NETWORK_NODE_CEILING,
 } from './renderers.js';
 import { emptySelection, selectionForView } from './selection.js';
-import { validateFrame, layerAddress } from 'vizfootprint/def';
+import { validateFrame, layerAddress, firstScaleTakenRefusal } from 'vizfootprint/def';
 import type { LinkGraphView, SelectionView } from '../adapter/types.js';
 import {
   RENDERER_PROTOCOL_VERSION,
@@ -38,6 +38,8 @@ import {
   type ResolvedChannel,
 } from './types.js';
 import type { GeoFeatureCollection } from '../charts/VizMap.js';
+// the bar's own margin — its plot's left edge is where its count axis stands (`VizBar` · `PAD`, the one owner)
+import { PAD as BAR_PAD } from '../charts/VizBar.js';
 
 afterEach(() => {
   document.body.innerHTML = '';
@@ -1391,18 +1393,86 @@ describe('layeredRenderer — TWO SCALES ON ONE FRAME are two claims, and the fr
     m.unmount();
   });
 
-  it('a bar with an INDEPENDENT y is refused at the def door by law 9’s own sentence — untouched — and a bar with a y of its own reaches no edge here either (law 2)', () => {
-    // the door: the sentence the library has always said, word for word
+  // ── a BAR MAY TAKE THE FIRST SCALE (law 2) ──────────────────────────────────
+  /** Counts per week (bars) and a mean per week (a line) over the same band — the classic bars-left, line-right figure. */
+  const COUNTS: RenderLayer = { layerId: 'counts', table: 'weather', rows: [{ week: 'w1', count: 4 }, { week: 'w2', count: 9 }], encodings: { category: 'week', y: 'count' } };
+  const MEANS: RenderLayer = { layerId: 'means', table: 'weather', rows: [{ week: 'w1', mean: 3 }, { week: 'w2', mean: 7 }], encodings: { x: 'week', y: 'mean' } };
+  /** The fold that declares it: one band of weeks, drawn once by the frame (both names — the bar's `category` and the line's `x`), and y left to the layers. */
+  const BAND_DUAL = { category: SHARED('categorical', ['w1', 'w2']), x: SHARED('categorical', ['w1', 'w2']), y: INDEPENDENT_Y };
+  const barFrame = (layers: readonly RenderLayer[], layerIds: readonly string[]) =>
+    mountFrame({ layers: { counts: { kind: 'bar' }, means: { kind: 'line' } } }, layerIds);
+
+  it('BARS ON THE LEFT, A LINE ON THE RIGHT: the bar takes the FIRST scale — its own count axis, from ZERO, in the left hue — and the def door accepts the same declaration', () => {
+    // the door: the figure is DECLARABLE now, and says nothing about it
     const problems: string[] = [];
-    validateFrame({ y: { mode: 'independent' } }, 'encodings[0]', 'v', [{ layerId: 'counts', table: 'weather', chartKind: 'bar', channels: ['category', 'y'] }], undefined, { chartKind: 'bar', channels: ['category', 'y'], initial: undefined, table: 'weather' }, problems);
-    expect(problems).toContain('encodings[0].frame.y: layer "counts" is a bar — a bar cannot take an independent y, its extent is read against one baseline');
+    validateFrame({ y: { mode: 'independent' } }, 'encodings[0]', 'v', [
+      { layerId: 'counts', table: 'weather', chartKind: 'bar', channels: ['category', 'y'] },
+      { layerId: 'means', table: 'weather', chartKind: 'line', channels: ['x', 'y'] },
+    ], undefined, { chartKind: 'bar', channels: ['category', 'y'], initial: undefined, table: 'weather' }, problems);
+    expect(problems).toEqual([]);
+    const { el, m } = barFrame([COUNTS, MEANS], ['counts', 'means']);
+    m.update(framed([COUNTS, MEANS], BAND_DUAL));
+    expect(refusalOf(el)).toBe('');
+    // the frame draws x once (the band both layers stand on) and neither layer draws an x of its own
+    expect(guidesOf(el)).toBe(1);
+    expect(el.querySelectorAll('[data-layer="counts"] .vzf-axis-group')).toHaveLength(0); // a bar's count axis carries no label — the frame's sentence names it
+    expect(layerAxes(el, 'means').channels).toEqual(['y']);
+    // the BAR's own count axis: a vertical line at its plot's left edge, ticked from ZERO to its ceiling
+    const barBox = el.querySelector('[data-layer="counts"]')!;
+    const vertical = [...barBox.querySelectorAll('line.vzf-axis')].filter((l) => l.getAttribute('x1') === l.getAttribute('x2') && Math.abs(Number(l.getAttribute('y2')) - Number(l.getAttribute('y1'))) > 4);
+    expect(vertical).toHaveLength(1);
+    expect(Number(vertical[0]!.getAttribute('x1'))).toBe(BAR_PAD.l);
+    expect([...barBox.querySelectorAll('text.vzf-tick')].map((t) => t.textContent)).toEqual(['0', '3', '6', '9']);
+    // …and no baseline of its own across the plot: a bar's zero IS the frame's x axis, drawn once above
+    const baseline = [...barBox.querySelectorAll('line.vzf-axis')].filter((l) => l.getAttribute('y1') === l.getAttribute('y2') && Math.abs(Number(l.getAttribute('x2')) - Number(l.getAttribute('x1'))) > 4);
+    expect(baseline).toHaveLength(0);
+    // law 3 and law 4 ride as they do on any two-scale frame: the sentence names both scales, left first …
+    expect(captionOf(el)).toBe(twoScalesSentence('count', 'mean'));
+    // … and the ink matches the scale — the bar's axis and its bars in the LEFT hue, the line in the right
+    expect(vertical[0]!.getAttribute('style')).toBe('--vzf-scale-hue: var(--vzf-scale-left);');
+    expect([...barBox.querySelectorAll('rect.vzf-barrect')].map((r) => r.getAttribute('fill'))).toEqual(['var(--vzf-scale-left)', 'var(--vzf-scale-left)']);
+    expect(el.querySelector('[data-layer="means"] path.vzf-line-path')?.getAttribute('stroke')).toBe('var(--vzf-scale-right)');
+    m.unmount();
+  });
+
+  it('a SHARED y drawn per-layer puts the FRAME’s own ceiling on the bar’s left axis — one scale on two edges, so no sentence and no hue', () => {
+    const { el, m } = barFrame([COUNTS, MEANS], ['counts', 'means']);
+    m.update(framed([COUNTS, MEANS], { ...BAND_DUAL, y: { ...SHARED('quantitative', [0, 20]), guide: 'per-layer' } as ResolvedChannel }));
+    expect(refusalOf(el)).toBe('');
+    // the bar's ticks are the FOLD's span, not its own rows' maximum (`layerDomain` → `domain.y`), still from zero
+    expect([...el.querySelectorAll('[data-layer="counts"] text.vzf-tick')].map((t) => t.textContent)).toEqual(['0', '6.7', '13.3', '20']);
+    // one scale drawn on both edges is comparable by height, so the frame says nothing and hands out no hue
+    expect(captionOf(el)).toBe('');
+    expect(el.querySelectorAll('[style*="--vzf-scale-hue"]')).toHaveLength(0);
+    m.unmount();
+  });
+
+  it('THE SAME TWO LAYERS DECLARED THE OTHER WAY ROUND are refused — a bar reads its extent from the LEFT baseline — and the door and the frame say ONE sentence (law 2)', () => {
+    const { el, m } = barFrame([MEANS, COUNTS], ['means', 'counts']);
+    m.update(framed([MEANS, COUNTS], BAND_DUAL));
+    const sentence = `layer "counts" is a bar with a y of its own, but layer "means" already takes the first scale — a bar reads its extent from the LEFT baseline, so declare it first, or give the line the independent y`;
+    expect(refusalOf(el)).toBe(sentence);
+    // THE TWINS SAY ONE SENTENCE: the def door's is this one with its address in front of it, nothing else
+    const problems: string[] = [];
+    validateFrame({ y: { mode: 'independent' } }, 'encodings[0]', 'v', [
+      { layerId: 'means', table: 'weather', chartKind: 'line', channels: ['x', 'y'] },
+      { layerId: 'counts', table: 'weather', chartKind: 'bar', channels: ['category', 'y'] },
+    ], undefined, { chartKind: 'line', channels: ['x', 'y'], initial: undefined, table: 'weather' }, problems);
+    expect(problems).toEqual([`encodings[0].frame.y: ${sentence}`]);
+    // one owner for it, quoted by both (`firstScaleTakenRefusal`, `src/encoding/frame.ts`)
+    expect(firstScaleTakenRefusal('layer "counts"', 'bar', 'layer "means"')).toBe(sentence);
+    m.unmount();
+  });
+
+  it('a HISTOGRAM or a BOX PLOT with a y of its own still reaches NEITHER edge — the promotion is the bar’s alone, and its words are untouched', () => {
     // the frame's OWN defense — for a `RenderState.frame` a host folds by hand, skipping the door entirely
     // (a def built through `buildDashboard` never reaches this: the door refuses BOTH shapes, law 9)
-    const counts: RenderLayer = { layerId: 'counts', table: 'weather', rows: [{ week: 'w1', count: 4 }, { week: 'w2', count: 9 }], encodings: { category: 'week', y: 'count' } };
-    const means: RenderLayer = { layerId: 'means', table: 'weather', rows: [{ week: 'w1', mean: 3 }, { week: 'w2', mean: 7 }], encodings: { x: 'week', y: 'mean' } };
-    const { el, m } = mountFrame({ layers: { counts: { kind: 'bar' }, means: { kind: 'line' } } }, ['counts', 'means']);
-    m.update(framed([counts, means], { category: SHARED('categorical', ['w1', 'w2']), x: SHARED('categorical', ['w1', 'w2']), y: INDEPENDENT_Y }));
-    expect(refusalOf(el)).toBe(`layer "counts" is a bar with a y of its own — a bar's extent is read against one baseline, so it takes neither side of a two-scale frame. Declare guide: 'merged' on y, or draw it on a frame of its own.`);
+    // both marks on a RUN of numbers here, so the band/run law has nothing to say first and this refusal is the one under test
+    const bins: RenderLayer = { layerId: 'counts', table: 'weather', rows: [{ x0: 0, x1: 5, count: 4 }], encodings: { x: 'x0', y: 'count' } };
+    const trend: RenderLayer = { layerId: 'means', table: 'weather', rows: [{ x0: 1, mean: 3 }, { x0: 4, mean: 7 }], encodings: { x: 'x0', y: 'mean' } };
+    const { el, m } = mountFrame({ layers: { counts: { kind: 'histogram' }, means: { kind: 'line' } } }, ['counts', 'means']);
+    m.update(framed([bins, trend], { x: SHARED('quantitative', [0, 10]), y: INDEPENDENT_Y }));
+    expect(refusalOf(el)).toBe(`layer "counts" is a histogram with a y of its own — a histogram's extent is read against one baseline, so it takes neither side of a two-scale frame. Declare guide: 'merged' on y, or draw it on a frame of its own.`);
     m.unmount();
   });
 });

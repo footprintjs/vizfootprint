@@ -22,8 +22,15 @@
  * them, which only a real browser can confirm (the hue travels as a CSS
  * variable the stylesheet spends, so nothing but a computed style sees it).
  *
- * Every selector is scoped to its figure (`[data-figure=…]`): the two frames
- * share one page, and a count over the whole page would be a count of neither.
+ * and, on the page's THIRD figure, the bars-plus-line one: the bars holding the
+ * FIRST scale (their count axis on the LEFT, ticked from ZERO, its baseline the
+ * frame's own x) with the mean rating on the right, the band drawn once beneath
+ * both, the sentence naming both scales, and the ink matching them here too —
+ * the bars in the left hue because nothing else names them.
+ *
+ * Every selector is scoped to its figure (`[data-figure=…]`): the three frames
+ * share one page, and a count over the whole page would be a count of none of
+ * them.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { chromium, type Browser, type Page } from 'playwright-core';
@@ -36,6 +43,8 @@ const CHROME = process.env['VZF_CHROME']; // unset ⇒ playwright-core launches 
 const ONE = '[data-figure="one-guide"]';
 /** The second figure — two lines, two scales. */
 const TWO = '[data-figure="two-scales"]';
+/** The third figure — bars on the left, a line on the right. */
+const THREE = '[data-figure="bar-left"]';
 
 /** Every bar of one layer: its accessible name (category + count) and where it sits. */
 const barsOf = (page: Page, layerId: string): Promise<{ label: string; x: number; height: number }[]> =>
@@ -61,6 +70,7 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('three layers on on
     await page.goto(`${handle.url}/frame`);
     await page.waitForSelector(`${ONE} .vzf-frame [data-layer="top"] rect.vzf-barrect`);
     await page.waitForSelector(`${TWO} .vzf-frame-caption`);
+    await page.waitForSelector(`${THREE} [data-layer="count"] rect.vzf-barrect`);
   }, 180_000);
 
   afterAll(async () => {
@@ -234,6 +244,79 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('three layers on on
     // twelve weeks in, one dot each — the host aggregated to ONE row per week, never left it for the chart to guess
     expect(await page.locator(`${TWO} [data-layer="price"] circle.vzf-line-dot`).count()).toBe(12);
     expect(await page.locator(`${TWO} [data-layer="rating"] circle.vzf-line-dot`).count()).toBe(12);
+    expect(consoleErrors).toEqual([]);
+    expect(pageErrors).toEqual([]);
+  });
+
+  it('the THIRD figure gives the BARS the first scale: their count axis on the LEFT, the rating on the RIGHT, the band drawn once beneath both', async () => {
+    // the figure was drawn, not refused — a stack this renderer will not draw says so in words instead
+    expect(await page.locator(`${THREE} .vzf-chart-refusal`).count()).toBe(0);
+    // the frame's own guide, once: the band of categories and its label, and no y of its own (both are the layers')
+    expect(await page.locator(`${THREE} .vzf-frame-guide`).count()).toBe(1);
+    const guideTicks = await page.locator(`${THREE} .vzf-frame-guide text.vzf-tick`).evaluateAll((els) => els.map((el) => el.textContent));
+    expect(guideTicks).toContain('Casual');
+    expect(guideTicks).toContain('category');
+    // the BARS' own axis: a vertical stroke inside the bar layer, left of the plot, ticked from ZERO
+    const barAxis = await page.locator(`${THREE} [data-layer="count"] line.vzf-axis`).evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        return { vertical: el.getAttribute('x1') === el.getAttribute('x2'), left: r.left, width: r.width, height: r.height };
+      }),
+    );
+    // one vertical axis line, and nothing running ACROSS the plot: a bar's zero baseline IS the frame's x
+    expect(barAxis.filter((a) => a.vertical && a.height > 4)).toHaveLength(1);
+    expect(barAxis.filter((a) => !a.vertical && a.width > 4)).toHaveLength(0);
+    const barTicks = await page.locator(`${THREE} [data-layer="count"] text.vzf-tick`).evaluateAll((els) =>
+      els.map((el) => ({ text: el.textContent ?? '', y: el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2 })),
+    );
+    expect(barTicks[0]!.text).toBe('0');
+    // READ FROM ZERO, in page pixels: the zero tick sits on the frame's own x axis — the two are one line
+    const frameX = await page.locator(`${THREE} .vzf-frame-guide line.vzf-axis`).first().evaluate((el) => el.getBoundingClientRect().top);
+    expect(Math.abs(barTicks[0]!.y - frameX)).toBeLessThan(4);
+    // the RATING keeps the right edge: its axis label group stands right of the frame's middle, the bars' axis left of it
+    const mid = await page.locator(`${THREE} .vzf-frame`).evaluate((el) => el.getBoundingClientRect().left + el.getBoundingClientRect().width / 2);
+    const ratingAxis = await page.locator(`${THREE} [data-layer="rating"] .vzf-axis-group[data-axis-channel="y"]`).evaluate((el) => ({ left: el.getBoundingClientRect().left, text: el.textContent ?? '' }));
+    expect(ratingAxis.left).toBeGreaterThan(mid);
+    expect(ratingAxis.text).toContain('rating');
+    expect(barAxis.find((a) => a.vertical && a.height > 4)!.left).toBeLessThan(mid);
+    // …and the bar layer draws NO axis label of its own — the frame's sentence is what names the left scale
+    expect(await page.locator(`${THREE} [data-layer="count"] .vzf-axis-group`).count()).toBe(0);
+    const caption = await page.locator(`${THREE} .vzf-frame-caption`).innerText();
+    expect(caption).toBe('two scales — left is count, right is rating; heights are not comparable across them');
+    expect(await page.locator(`${THREE} .vzf-frame`).getAttribute('aria-label')).toContain(caption);
+    // the page's own words say why the bars may have the left edge and nothing else
+    expect(await page.locator(`${THREE} .vzf-frame-words-three`).innerText()).toContain('refused in words');
+    expect(consoleErrors).toEqual([]);
+    expect(pageErrors).toEqual([]);
+  });
+
+  it('the THIRD figure matches the ink to the scale here too — the BARS in the left hue, the line in the right — and a click on a bar lands under its own layer', async () => {
+    const ink = await page.locator(THREE).evaluate((section) => {
+      const barBox = section.querySelector('[data-layer="count"]')!;
+      const vertical = [...barBox.querySelectorAll('line.vzf-axis')].find((l) => l.getAttribute('x1') === l.getAttribute('x2'))!;
+      return {
+        barAxis: getComputedStyle(vertical).stroke,
+        barTick: getComputedStyle(barBox.querySelector('text.vzf-tick')!).fill,
+        bar: getComputedStyle(barBox.querySelector('rect.vzf-barrect')!).fill,
+        line: getComputedStyle(section.querySelector('[data-layer="rating"] path.vzf-line-path')!).stroke,
+        lineAxis: getComputedStyle([...section.querySelectorAll('[data-layer="rating"] line.vzf-axis')].find((l) => l.getAttribute('x1') === l.getAttribute('x2'))!).stroke,
+      };
+    });
+    // ONE hue per scale: the bars, their axis and its ticks are one colour — the bars take it because
+    // nothing else names them (no `colorOf` on this figure), which is law 4 reaching a BAR
+    expect(ink.barAxis).toMatch(/^rgb\(/);
+    expect([ink.barTick, ink.bar]).toEqual([ink.barAxis, ink.barAxis]);
+    // …and the line's scale is the other hue, on its own axis and its own marks
+    expect(ink.line).toBe(ink.lineAxis);
+    expect(ink.line).not.toBe(ink.barAxis);
+    // a click on a bar speaks through the "count" layer's own bundle and lands a commit
+    const readout = () => page.locator('.vzf-frame-readout-three').innerText();
+    const commitsNow = async (): Promise<number> => Number((/(\d+) commits/.exec(await readout()) ?? ['', '0'])[1]);
+    const before = await commitsNow();
+    await page.locator(`${THREE} [data-layer="count"] rect.vzf-barrect`).first().click();
+    await page.waitForFunction(() => (document.querySelector('.vzf-frame-readout-three')?.textContent ?? '').includes('"count" layer'));
+    await page.waitForFunction((n) => Number((/(\d+) commits/.exec(document.querySelector('.vzf-frame-readout-three')?.textContent ?? '') ?? ['', '0'])[1]) > n, before);
+    expect(await commitsNow()).toBe(before + 1);
     expect(consoleErrors).toEqual([]);
     expect(pageErrors).toEqual([]);
   });

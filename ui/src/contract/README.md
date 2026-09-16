@@ -371,9 +371,11 @@ plot sharing a band with another layer (it
 orders its slots by its own rows), a guide per CHANNEL (a chart draws both its
 axes or neither, so one `per-layer` channel gives every layer its own pair —
 except on the two-axis frame, where the frame draws x once and each layer its
-own y, see "Two scales on one frame" below), a bar as one scale of a two-scale
-frame (a bar's extent is read against one baseline, so it takes neither side —
-the classic bars-plus-line dual axis is two lines here, or two frames). A
+own y, see "Two scales on one frame" below), a bar as the SECOND scale of a
+two-scale frame (its extent is read from the LEFT baseline, so it may take the
+first scale and no other — the classic bars-plus-line figure is bars first,
+line second; reversed, it is refused in words), a histogram or a box plot as
+either scale (each summarises a distribution on an axis of its own). A
 selection folded per layer shipped as protocol 1.8 (Law 7 below). Sibling layers get **no implicit crossfilter**: a select on
 `net~nodes` reaches `net~edges` only through a declared link.
 
@@ -524,7 +526,8 @@ picture that would be drawn a lie, not one that would merely be empty:
 | a layer with no mark named | a frame draws what the def declared; it never guesses |
 | an x left to the layers, on two or more (a per-layer or independent x, or one never folded) | *x is per-layer on layers "a" and "b" — one frame has one x, drawn once by the frame. Declare guide: 'merged' on x, or draw one layer.* |
 | a THIRD y of its own | *layers "temp", "rain" and "wind" each draw a y of their own — a frame has two sides, left and right, and no third. Draw two of them here, and the rest on a frame of their own.* |
-| a bar, a histogram or a box plot with a y of its own on such a frame | *layer "counts" is a bar with a y of its own — a bar's extent is read against one baseline, so it takes neither side of a two-scale frame. Declare guide: 'merged' on y, or draw it on a frame of its own.* — the def door already refuses BOTH shapes that draw one (`independent`, and `shared` drawn `per-layer` beside a second layer — law 9, `validateFrame`); this is the frame's OWN defense, for a `RenderState.frame` a host folds by hand, skipping the door entirely |
+| a histogram or a box plot with a y of its own on such a frame | *layer "counts" is a histogram with a y of its own — a histogram's extent is read against one baseline, so it takes neither side of a two-scale frame. Declare guide: 'merged' on y, or draw it on a frame of its own.* — the def door already refuses BOTH shapes that draw one (`independent`, and `shared` drawn `per-layer` beside a second layer — law 9, `validateFrame`); this is the frame's OWN defense, for a `RenderState.frame` a host folds by hand, skipping the door entirely |
+| a BAR that would take the SECOND scale (the right edge) | *layer "counts" is a bar with a y of its own, but layer "rate" already takes the first scale — a bar reads its extent from the LEFT baseline, so declare it first, or give the line the independent y* — a bar may hold the FIRST scale (bars left, line right) and no other; ONE owner for the sentence, quoted from the def door (`firstScaleTakenRefusal`), so the two twins of law 9 say the same words |
 
 #### Two scales on one frame — the second axis on the right, the words that keep it honest, and the ink that matches the scale
 
@@ -541,14 +544,27 @@ choosing the scales. So the second axis is allowed under four laws:
    x is never per-layer on a frame: one frame has one x (the band/run law
    already says so), the frame draws it once, and an x left to the layers is
    refused by name.
-2. **A bar, a histogram or a box plot never takes the second axis.** The def
-   door already refuses both shapes that would draw one — `independent`, and a
-   `shared` channel drawn `per-layer` beside a second layer (law 9,
-   `validateFrame`) — so a def built through `buildDashboard` never reaches
-   this refusal at all; the frame keeps its own copy as a defense of its own,
-   for a `RenderState.frame` a host folds by hand, skipping the door entirely.
-   So a two-scale frame's own-y layers are lines or points — position marks,
-   the one figure that is ever honest here.
+2. **A bar may take the FIRST scale, and only the first.** Bars of a count on
+   the LEFT with a line of a rate on the right is the commonest two-scale
+   figure there is, and it is honest in that one arrangement: the left axis is
+   where a reader reads an extent from a baseline. A bar SECOND — read against
+   a second baseline behind a line — is the overstatement the law exists to
+   prevent, and it is refused in the def door's own words (`mayTakeFirstScale`
+   and `firstScaleTakenRefusal`, `src/encoding/frame.ts`: ONE predicate and ONE
+   sentence, asked and said by both twins, so a def the door accepts is never a
+   frame this renderer refuses). A **histogram** and a **box plot** take
+   NEITHER edge: each summarises a distribution on an axis of its own, neither
+   reads as "this much, from zero" beside a second scale, and neither draws a y
+   on a frame's edge in this version. The def door refuses the same shapes —
+   `independent`, and a `shared` channel drawn `per-layer` beside a second
+   layer (law 9, `validateFrame`) — so a def built through `buildDashboard`
+   never reaches these refusals at all; the frame keeps its own as a defense of
+   its own, for a `RenderState.frame` a host folds by hand, skipping the door
+   entirely. The bar draws its own count axis on the left, from ZERO, with the
+   frame's x as its baseline (`axes: 'y'` on `VizBar`, which reads no
+   `axisSide` — the only edge it can be handed is the one it draws on) and no
+   label of its own: its 38px margin is the room the frame aligns every layer's
+   plot by, so it holds the ticks and law 3's sentence NAMES both scales.
 3. **The frame says the scales are unrelated, in words a reader sees.** When
    two y SCALES are drawn (an independent y, or one the frame never folded),
    the frame renders `twoScalesSentence(left, right)` — *two scales — left is
@@ -568,7 +584,8 @@ choosing the scales. So the second axis is allowed under four laws:
    `--vzf-scale-right` (`styles.css`, one definition for both grounds, neither
    of them the brand) — and the layer draws its OWN y axis (its line, its ticks,
    its label) and its unsplit marks in it (`FrameLayerDraw.scaleHue` →
-   `scaleHue` on `VizLine`/`VizScatter`). So a reader can see which marks belong
+   `scaleHue` on `VizLine`/`VizScatter`/`VizBar` — on a bar, its count axis and,
+   where no `colorOf` names them, its bars). So a reader can see which marks belong
    to which edge before reading a word, which the field labels alone never said.
    ONE owner: `VizFrame` · `SIDE_HUES`, the same place that hands out the sides,
    because only the frame knows there are two scales. A layer that splits its
@@ -595,6 +612,26 @@ res.view.update({ ...state, layers, frame });
 // → temperature's axis on the left, rainfall's on the right, one x beneath, and under the plot:
 //   "two scales — left is temperature, right is rainfall; heights are not comparable across them"
 // → and each line drawn in its own axis's hue: temperature in --vzf-scale-left, rainfall in --vzf-scale-right
+```
+
+```ts
+// the classic figure: bars of a count on the LEFT, a line of a rate on the right, over one band
+const layers: RenderLayer[] = [
+  { layerId: 'counts', table: 'weeks', rows: perWeek, encodings: { category: 'week', y: 'count' } },
+  { layerId: 'rate', table: 'weeks', rows: perWeek, encodings: { x: 'week', y: 'rate' } },
+];
+const renderer = layeredRenderer({ layers: { counts: { kind: 'bar' }, rate: { kind: 'line' } }, xLabel: 'week' });
+// the fold: the band shared and merged under BOTH names an axis has (a bar's `category`, a line's `x`),
+// y left to the layers. The bars are FIRST, which is the only place a bar may be.
+const frame = {
+  category: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'categorical', domain: weeks },
+  x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'categorical', domain: weeks },
+  y: { mode: 'independent', guide: 'per-layer' },
+};
+res.view.update({ ...state, layers, frame });
+// → the bars' count axis on the left, ticked from zero (its baseline IS the frame's x); the rate's on
+//   the right; and under the plot: "two scales — left is count, right is rate; heights are not
+//   comparable across them". Declare `rate` first and the frame refuses it in the def door's words.
 ```
 
 Two remedies were REFUSED, by name: (a) **`derive: 'align-extent'`** — a

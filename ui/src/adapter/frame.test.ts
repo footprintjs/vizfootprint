@@ -78,7 +78,8 @@ describe('frameFor — over a real session', () => {
   });
 
   it('a declared INDEPENDENT channel comes back with no domain at all, and the union is not folded for it', async () => {
-    // no bar here: the def door refuses an independent magnitude channel to a bar, which is law 9 and is pinned in the def suite
+    // points, not bars: a bar may take an independent y only as the FIRST scale and a second bar-like layer is
+    // refused (law 9's bar half, pinned in the def suite) — the fold under test here is about the domain, not the marks
     const def = {
       ...weeklyDef({ y: { mode: 'independent' } }),
       encodings: [

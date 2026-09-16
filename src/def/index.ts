@@ -145,6 +145,9 @@ export {
   frameScaleOf,
   resolutionFor,
   zeroPolicyFor,
+  // law 9's own two: which marks may take a scale of their own here, and the words for one that may not
+  mayTakeFirstScale,
+  firstScaleTakenRefusal,
   FRAME_LAYER_LINT,
   ZERO_ANCHORED_KINDS,
 } from '../encoding/index.js';

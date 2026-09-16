@@ -7,7 +7,7 @@
  * a refusal.
  */
 import { describe, it, expect } from 'vitest';
-import { frameDomains, frameLint, frameScaleOf, resolutionFor, zeroAnchorsChannel, zeroPolicyFor, FRAME_LAYER_LINT, ZERO_ANCHORED_KINDS, type FrameLayer } from './frame.js';
+import { frameDomains, frameLint, frameScaleOf, resolutionFor, zeroAnchorsChannel, zeroPolicyFor, mayTakeFirstScale, firstScaleTakenRefusal, FRAME_LAYER_LINT, ZERO_ANCHORED_KINDS, type FrameLayer } from './frame.js';
 import type { ChannelResolution } from '../def/types.js';
 
 /** One layer, spelled the short way: `layer('a', 'line', { y: ['number', [1, 2]] })`. */
@@ -142,6 +142,29 @@ describe('frameDomains — the resolution is obeyed, never re-decided', () => {
   it('a per-layer guide folds ONE domain and still lets each layer draw its own axis', () => {
     const frame = frameDomains([layer('a', 'line', { y: ['number', [1, 4]] }), layer('b', 'point', { y: ['number', [0, 9]] })], { y: { mode: 'shared', guide: 'per-layer' } });
     expect(frame['y']).toEqual({ mode: 'shared', basis: 'table', guide: 'per-layer', scale: 'quantitative', domain: [0, 9] });
+  });
+});
+
+describe('WHICH MARKS MAY TAKE A SCALE OF THEIR OWN has one owner too (law 9’s bar half)', () => {
+  it('a BAR may take the first scale — the frame’s y, its LEFT edge — and nothing else may take one at all', () => {
+    expect(mayTakeFirstScale('bar', 'y')).toBe(true);
+    // left and right are Y edges: a bar's own scale on any other magnitude channel is no edge of anything
+    expect(mayTakeFirstScale('bar', 'x')).toBe(false);
+    expect(mayTakeFirstScale('bar', 'size')).toBe(false);
+    // the promotion is the bar's alone — the other two zero-anchored marks summarise a distribution on an axis of their own
+    expect(mayTakeFirstScale('histogram', 'y')).toBe(false);
+    expect(mayTakeFirstScale('boxplot', 'y')).toBe(false);
+    // and a position mark never asks this question: it takes EITHER edge (`SIDED_KINDS`, the renderer's)
+    expect(mayTakeFirstScale('line', 'y')).toBe(false);
+    expect(mayTakeFirstScale('point', 'y')).toBe(false);
+    // every kind it answers for is one of the zero-anchored marks — the two lists cannot drift
+    expect(ZERO_ANCHORED_KINDS).toContain('bar');
+  });
+
+  it('the SECOND scale’s refusal is one sentence, said by the def door and by the frame alike', () => {
+    expect(firstScaleTakenRefusal('layer "counts"', 'bar', 'layer "rate"')).toBe(
+      'layer "counts" is a bar with a y of its own, but layer "rate" already takes the first scale — a bar reads its extent from the LEFT baseline, so declare it first, or give the line the independent y',
+    );
   });
 });
 

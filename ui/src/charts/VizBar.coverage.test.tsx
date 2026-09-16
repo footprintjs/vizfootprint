@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
-import { VizBar } from './VizBar.js';
+import { VizBar, PAD } from './VizBar.js';
 import type { ColumnView } from '../adapter/types.js';
 import { selectionForView } from '../contract/selection.js';
 
@@ -267,5 +267,90 @@ describe('the accessible name (the prose plane\'s altShort)', () => {
   it('takes ariaLabel over its own construction line', () => {
     const { container } = render(<VizBar data={data} field="category" ariaLabel="Cases by report state" />);
     expect(container.querySelector('[role="group"]')!.getAttribute('aria-label')).toBe('Cases by report state'); // a group: its marks are buttons, and must stay reachable
+  });
+});
+
+describe("VizBar — its own COUNT axis, the FIRST scale of a two-scale frame (axes: 'y')", () => {
+  /** The vertical stroke of the count axis — the element the stylesheet paints with the scale's hue. */
+  const axisLineOf = (container: Element): Element | undefined =>
+    [...container.querySelectorAll('line.vzf-axis')].find((l) => l.getAttribute('x1') === l.getAttribute('x2'));
+  /** A baseline is a HORIZONTAL axis stroke running across the plot (a 4px tick is not one). */
+  const baselinesOf = (container: Element): Element[] =>
+    [...container.querySelectorAll('line.vzf-axis')].filter((l) => l.getAttribute('y1') === l.getAttribute('y2') && Math.abs(Number(l.getAttribute('x2')) - Number(l.getAttribute('x1'))) > 4);
+  const ticksOf = (container: Element): (string | null)[] => [...container.querySelectorAll('text.vzf-tick')].map((t) => t.textContent);
+
+  it("draws the count axis on the LEFT, ticked from ZERO to the ceiling the bars are drawn against — and no category axis, no label, no baseline of its own", () => {
+    const { container } = render(<VizBar data={data} field="category" width={360} height={340} axes="y" />);
+    const axis = axisLineOf(container)!;
+    // at the plot's left edge — this chart's own margin, which the frame aligns every layer's plot by
+    expect(axis.getAttribute('x1')).toBe(String(PAD.l));
+    expect(Number(axis.getAttribute('y1'))).toBeLessThan(Number(axis.getAttribute('y2')));
+    // 3 steps, 4 labels, from zero to the tallest bar's count (9) — the SAME ceiling the bars use
+    expect(ticksOf(container)).toEqual(['0', '3', '6', '9']);
+    expect([...container.querySelectorAll('text.vzf-tick')].every((t) => t.getAttribute('text-anchor') === 'end')).toBe(true);
+    // the zero tick sits on the plot floor, the ceiling tick on its top — the bars' own geometry
+    const at = (label: string): number => Number([...container.querySelectorAll('text.vzf-tick')].find((t) => t.textContent === label)!.getAttribute('y'));
+    expect(at('0')).toBeGreaterThan(at('9'));
+    expect(at('0')).toBeCloseTo(Number(axis.getAttribute('y2')) + 3, 5);
+    // the category axis is the FRAME's: no baseline, no category ticks, no interactive axis label
+    expect(baselinesOf(container)).toHaveLength(0);
+    expect(container.querySelectorAll('.vzf-axis-group')).toHaveLength(0);
+    expect(ticksOf(container)).not.toContain('Casual');
+  });
+
+  it("a bar on its own draws NO count axis — `axes: true` is the picture it always drew, and `axes: 'y'` only ADDS the edge a two-scale frame needs", () => {
+    const own = render(<VizBar data={data} field="category" width={360} height={340} />).container;
+    expect(axisLineOf(own)).toBeUndefined(); // its numbers ride ON the bars (`showValues`); the plot is theirs
+    expect(baselinesOf(own)).toHaveLength(1); // its own category baseline, as ever
+    expect(own.querySelectorAll('.vzf-axis-group')).toHaveLength(1);
+    cleanup();
+    // …and `false` still draws neither: the frame's merged guide is the whole stack's
+    const none = render(<VizBar data={data} field="category" width={360} height={340} axes={false} />).container;
+    expect(axisLineOf(none)).toBeUndefined();
+    expect(baselinesOf(none)).toHaveLength(0);
+  });
+
+  it("gives up no plot room for category labels it does not draw: with axes: 'y' the bars are the ones axes={false} draws, slanted labels or not", () => {
+    // long names that WOULD slant (and take 40px of plot) if this chart were drawing its category ticks
+    const long = [{ category: 'Extremely Formal Wear', count: 4 }, { category: 'Weekend Casual Wear', count: 9 }];
+    const bars = (container: Element): string[] => [...container.querySelectorAll('rect.vzf-barrect')].map((r) => `${r.getAttribute('y') ?? ''}/${r.getAttribute('height') ?? ''}`);
+    const own = render(<VizBar data={long} field="category" width={240} height={340} axes="y" />).container;
+    const withY = bars(own);
+    cleanup();
+    const bare = render(<VizBar data={long} field="category" width={240} height={340} axes={false} />).container;
+    expect(withY).toEqual(bars(bare));
+  });
+});
+
+describe('VizBar — the ink of its scale (the left edge of a two-scale frame)', () => {
+  const HUE = 'var(--vzf-scale-left)';
+  /** Every element the hue is meant to reach: the count axis line and each of its ticks' groups. */
+  const hued = (container: Element): string[] => [...container.querySelectorAll('[style*="--vzf-scale-hue"]')].map((el) => el.getAttribute('style') ?? '');
+
+  it('absent: byte-identical to the chart before hues existed — and a hue reaches EXACTLY the axis and the bars, nothing else', () => {
+    const withHue = render(<VizBar data={data} field="category" width={360} height={340} axes="y" scaleHue={HUE} />).container.innerHTML;
+    cleanup();
+    const plain = render(<VizBar data={data} field="category" width={360} height={340} axes="y" />).container.innerHTML;
+    // take the hue back out — off the axis parts, and the brand back on the bars — and the markup IS the
+    // markup this chart drew before the prop existed: the hue moved no pixel and no attribute
+    const stripped = withHue.replaceAll(` style="--vzf-scale-hue: ${HUE};"`, '').replaceAll(HUE, 'var(--vzf-brand)');
+    expect(stripped).toBe(plain);
+  });
+
+  it('present: the count axis line, every one of its ticks AND the bars are drawn in it', () => {
+    const { container } = render(<VizBar data={data} field="category" width={360} height={340} axes="y" scaleHue={HUE} />);
+    const axis = [...container.querySelectorAll('line.vzf-axis')].find((l) => l.getAttribute('x1') === l.getAttribute('x2'))!;
+    expect(axis.getAttribute('style')).toBe(`--vzf-scale-hue: ${HUE};`);
+    // the axis line plus one hued group per tick (4) — the stylesheet spends the variable per element
+    expect(hued(container)).toHaveLength(1 + 4);
+    expect([...container.querySelectorAll('rect.vzf-barrect')].map((r) => r.getAttribute('fill'))).toEqual([HUE, HUE, HUE]);
+  });
+
+  it('a chart whose bars are already NAMED by a colour keeps those colours and takes the hue on its axis alone — identity is never colour-alone', () => {
+    const colorOf = (category: string): string => (category === 'Casual' ? '#111111' : '#222222');
+    const { container } = render(<VizBar data={data} field="category" width={360} height={340} axes="y" scaleHue={HUE} colorOf={colorOf} />);
+    expect([...container.querySelectorAll('rect.vzf-barrect')].map((r) => r.getAttribute('fill'))).toEqual(['#111111', '#222222', '#222222']);
+    const axis = [...container.querySelectorAll('line.vzf-axis')].find((l) => l.getAttribute('x1') === l.getAttribute('x2'))!;
+    expect(axis.getAttribute('style')).toBe(`--vzf-scale-hue: ${HUE};`);
   });
 });
