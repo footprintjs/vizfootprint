@@ -113,15 +113,6 @@ export function surfaceOf(place: Place, address: string): ProseSurface | undefin
 }
 
 /**
- * The bindings shown at this place. A layer's are its declared `initial` and
- * stay so: `reencode` refuses a layer (its fold is the view's), so the
- * declaration IS what is on screen — there is no later commit to read.
- */
-export function layerBindingsOf(layer: LayerDecl): Readonly<Record<string, string>> {
-  return layer.initial ?? {};
-}
-
-/**
  * Every address on the map that declares an encoding surface — a view with an
  * `encoding`, and EVERY layer of every view (a layer always declares one).
  * The set a `derived` author is judged against: prose the library wrote itself
@@ -154,13 +145,48 @@ export function addressesOf(views: Iterable<ViewDecl>): string[] {
   return out;
 }
 
-/** The overview's projection of a view's layers — the declared facts, nothing judged; undefined when the view declares none (the key stays absent). */
-export function layerInfosOf(view: ViewDecl): readonly LayerInfo[] | undefined {
-  return view.layers?.map((l) => ({
+/**
+ * EACH LAYER OF ONE VIEW WITH THE ADDRESS IT LIVES UNDER, in declaration order.
+ *
+ * The twin of `addressesOf`, which asks the same question of the whole map and
+ * hands back addresses alone: a projection that must READ the layer as well as
+ * name it (its declared `initial`, its surface, its table) needs both halves,
+ * and pairing them here is what keeps `../def/layerAddress.ts` — the marker's
+ * owner — from being reached around by every caller that wants one.
+ *
+ * First customers: the session's encoding-fold seed (a layer's declared
+ * `initial` seeds the fold under its address) and the overview's per-layer
+ * `fits`.
+ */
+export function layerAddressesOf(view: ViewDecl): readonly (readonly [string, LayerDecl])[] {
+  return layersOf(view).map((layer) => [layerAddress(view.viewId, layer.layerId), layer] as const);
+}
+
+/** A view's layers, or none — the ONE place `ViewDecl.layers` is read off a view, so both readers here walk the same list. */
+function layersOf(view: ViewDecl): readonly LayerDecl[] {
+  return view.layers ?? [];
+}
+
+/**
+ * The overview's projection of a view's layers — the declared facts, nothing
+ * judged; EMPTY for a view that declares none. Whether the `layers` key
+ * appears at all is the overview's call (it asks `view.layers !== undefined`
+ * before building it), so this answers only what the layers ARE.
+ *
+ * `initial` is one of those facts: a layer's axes are DECLARED on the layer
+ * and no act moves them (`reencode` at a layer is refused), so the declaration
+ * is what is on screen. It rides here as well as in the encoding fold under
+ * the layer's address, for the reason `ViewInfo.encodings` rides beside
+ * `Overview.encodings`: a reader holding one layer should not have to go
+ * looking for a second map to learn what it draws.
+ */
+export function layerInfosOf(view: ViewDecl): readonly LayerInfo[] {
+  return layersOf(view).map((l) => ({
     layerId: l.layerId,
     table: l.table,
     chartKind: l.chartKind,
     channels: l.channels,
+    ...(l.initial !== undefined ? { initial: l.initial } : {}),
     ...(l.label !== undefined ? { label: l.label } : {}),
   }));
 }

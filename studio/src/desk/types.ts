@@ -52,12 +52,15 @@ export interface DeskProjection {
   /** The session view itself: every act a host cell lands (`emit`, `reencode`, `seek`) goes through it. */
   readonly view: SessionView;
   /**
-   * WHICH FIELD A VIEW'S CHANNEL ENCODES, at the cursor — the session's answer,
-   * never a constant written at build time. Both halves of a chart must read
-   * through this: the aggregation that makes the marks AND the field the chart
-   * names on its axis. An axis that changed while the marks did not is a lie.
+   * WHICH FIELD AN ADDRESS'S CHANNEL ENCODES, at the cursor — the session's
+   * answer, never a constant written at build time. Both halves of a chart must
+   * read through this: the aggregation that makes the marks AND the field the
+   * chart names on its axis. An axis that changed while the marks did not is a
+   * lie. A LAYER is asked by its own address (`viewId~layerId`): its axes are
+   * declared on the layer and the session's fold carries them there, so a cell
+   * that draws a layer reads them here and not from a literal of its own.
    */
-  bound(viewId: string, channel: string, fallback: string): string;
+  bound(address: string, channel: string, fallback: string): string;
   /**
    * The clause-addressable selection as it reaches `self` THROUGH THE LINK
    * GRAPH — the only honest way to ask what a view is showing. Reading
@@ -66,9 +69,16 @@ export interface DeskProjection {
    * Pass `null` for the whole-dashboard truth.
    */
   selFor(self: string | null): RenderSelection;
-  /** The encoding plane's verdicts for a view — the picker greys with the session's own sentences. */
-  fitsOf(viewId: string): Readonly<Record<string, readonly FitView[]>> | undefined;
-  /** What each view SHOWS: followed channels laid over its own (`effectiveEncodings`, else `encodings`). */
+  /**
+   * The encoding plane's verdicts at an ADDRESS — the picker greys with the
+   * session's own sentences. A view's own, or a LAYER's under
+   * `viewId~layerId`, judged against the table that layer reads. Undefined
+   * where nothing is judged: an unknown address, a view with no encoding
+   * surface, or a FRAME's bare address (it draws no rows — its layers carry
+   * the verdicts).
+   */
+  fitsOf(address: string): Readonly<Record<string, readonly FitView[]>> | undefined;
+  /** What each view SHOWS: followed channels laid over its own (`effectiveEncodings`, else `encodings`) — keyed by ADDRESS, so a layer's declared axes are read here too. */
   readonly shown: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /** The default table's columns — what a picker may offer. */
   readonly columns: readonly ColumnView[];

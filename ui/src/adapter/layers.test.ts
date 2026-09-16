@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { layerAddress } from 'vizfootprint/def';
 import { mapPollState, type RawPollState } from './sessionView.js';
+import { boundField } from '../charts/binding.js';
 import { layerRowsFor } from './layerRows.js';
 import { buildNetworkFixture, EDGES, NODES } from './network.fixture.js';
 import { buildDashboard } from 'vizfootprint/agent';
@@ -18,9 +19,10 @@ describe('ViewView.layers — projected, never derived', () => {
   it('over a REAL two-table session the view carries its two layers, each with ITS table, in declared order', async () => {
     const { view } = await buildNetworkFixture();
     const net = view.getState().views.find((v) => v.viewId === 'net')!;
-    expect(net.layers).toEqual([
-      { layerId: 'nodes', table: 'nodes', chartKind: 'point', channels: ['x', 'y', 'size', 'color'], label: 'Diseases' },
-      { layerId: 'edges', table: 'edges', chartKind: 'line', channels: ['x', 'y', 'size'] },
+    // the DECLARED facts (the plane's per-layer verdicts are pinned in their own block below)
+    expect(net.layers!.map(({ fits, ...declared }) => declared)).toEqual([
+      { layerId: 'nodes', table: 'nodes', chartKind: 'point', channels: ['x', 'y', 'size', 'color'], initial: { size: 'size', color: 'group' }, label: 'Diseases' },
+      { layerId: 'edges', table: 'edges', chartKind: 'line', channels: ['x', 'y', 'size'], initial: { size: 'weight' } },
     ]);
   });
 
@@ -127,5 +129,73 @@ describe('layerRowsFor — the one door for a layer\'s rows', () => {
     // a synchronous fake serves too — the door is structural
     const sync = await layerRowsFor({ viewQuery: () => ({ ok: false as const, reason: 'engine' as const, rejected: 'no' }) }, 'x');
     expect(sync).toEqual({ ok: false, reason: 'engine', rejected: 'no' });
+  });
+});
+
+/**
+ * A LAYER'S BINDINGS ON THE WIRE: `LayerView.initial` is the
+ * map the layer declares and draws, and the adapter's fold carries it under
+ * the layer's ADDRESS — the same key the library's own fold uses, which is
+ * where `boundField` reads it. `LayerView.fits` is the plane's judgement over
+ * the LAYER's table, mirrored from `ViewView.fits`.
+ */
+describe("LayerView.initial / .fits — the layer's bindings and verdicts ride", () => {
+  it('over a REAL session each layer carries its declared map and its own verdicts, and the fold is keyed by address', async () => {
+    const { view } = await buildNetworkFixture();
+    const state = view.getState();
+    const [nodes, edges] = state.views.find((v) => v.viewId === 'net')!.layers!;
+    expect([nodes!.initial, edges!.initial]).toEqual([{ size: 'size', color: 'group' }, { size: 'weight' }]);
+    // the verdicts are the LAYER's table's: no edges column is a candidate for a nodes channel
+    expect(Object.keys(nodes!.fits!)).toEqual(['x', 'y', 'size', 'color']);
+    expect(nodes!.fits!['color']!.map((f) => f.field)).toEqual(['id', 'size', 'group']);
+    expect(edges!.fits!['y']!.find((f) => f.field === 'source')!.because).toBe('"source" is string; the y channel of a line needs a number');
+    // and the same maps ride in the fold under `viewId~layerId`, which is what a chart resolves through
+    expect(state.encodings[layerAddress('net', 'nodes')]).toEqual({ size: 'size', color: 'group' });
+    expect(state.effectiveEncodings![layerAddress('net', 'edges')]).toEqual({ size: 'weight' });
+    expect(boundField(state.encodings[layerAddress('net', 'edges')] ?? {}, 'size', 'WRONG')).toBe('weight');
+  });
+
+  it('the poll mapper keeps a well-formed map and drops a malformed one ALONE — the layer still names its table and channels', () => {
+    const raw = {
+      records: [],
+      views: [
+        {
+          viewId: 'net',
+          actor: 'user',
+          layers: [
+            { layerId: 'nodes', table: 'nodes', chartKind: 'point', channels: ['x'], initial: { x: 'size', y: 7 }, fits: { x: [{ field: 'size', ok: true }, { field: 'id', ok: false, because: 'no' }, 'nonsense'] } },
+            { layerId: 'edges', table: 'edges', chartKind: 'line', channels: ['x'], initial: 'not a map', fits: 'not a map' },
+            { layerId: 'bare', table: 'edges', chartKind: 'line', channels: ['x'], initial: null, fits: null },
+            { layerId: 'listy', table: 'edges', chartKind: 'line', channels: ['x'], initial: [], fits: [] },
+          ],
+        },
+      ],
+      cursor: null,
+      head: null,
+    } as unknown as RawPollState;
+    const layers = mapPollState(raw).views[0]!.layers!;
+    // a non-string field inside the map is dropped, the rest of the map stands
+    expect(layers[0]!.initial).toEqual({ x: 'size' });
+    expect(layers[0]!.fits).toEqual({ x: [{ field: 'size', ok: true }, { field: 'id', ok: false, because: 'no' }] });
+    // a map that is not a map at all is dropped on its own line, and the declared facts survive
+    expect(layers[1]).toEqual({ layerId: 'edges', table: 'edges', chartKind: 'line', channels: ['x'] });
+    expect(layers[2]).toEqual({ layerId: 'bare', table: 'edges', chartKind: 'line', channels: ['x'] });
+    // a LIST is not a map: `initial` is dropped, and an empty verdict map is honest — nothing was judged
+    expect(layers[3]).toEqual({ layerId: 'listy', table: 'edges', chartKind: 'line', channels: ['x'], fits: {} });
+  });
+
+  it("a thin wire with no top-level `encodings` still folds a layer's axes under its address — and one with no layers is byte-identical", () => {
+    const withLayers = {
+      records: [],
+      views: [
+        { viewId: 'net', actor: 'user', encodings: {}, layers: [{ layerId: 'nodes', table: 'nodes', chartKind: 'point', channels: ['size'], initial: { size: 'size' } }, { layerId: 'bare', table: 'edges', chartKind: 'line', channels: ['x'] }] },
+        { viewId: 'sheet', actor: 'user', encodings: { x: 'id' } },
+      ],
+      cursor: null,
+      head: null,
+    } as unknown as RawPollState;
+    expect(mapPollState(withLayers).encodings).toEqual({ sheet: { x: 'id' }, [layerAddress('net', 'nodes')]: { size: 'size' } });
+    const plain = { records: [], views: [{ viewId: 'sheet', actor: 'user', encodings: { x: 'id' } }], cursor: null, head: null } as unknown as RawPollState;
+    expect(mapPollState(plain).encodings).toEqual({ sheet: { x: 'id' } });
   });
 });

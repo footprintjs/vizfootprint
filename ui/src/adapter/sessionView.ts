@@ -43,8 +43,9 @@ import type {
 } from 'vizfootprint/session';
 import type { ChannelResolution, OpName, SavedSelection } from 'vizfootprint/def';
 // the op-vocabulary version a declaration is written against — read from the
-// library and never restated, so a build that moved on refuses this act by name
-import { OPS_VERSION } from 'vizfootprint/def';
+// library and never restated, so a build that moved on refuses this act by name;
+// and `layerAddress`, the layer marker's one owner — an address is JOINED here, never spelled
+import { OPS_VERSION, layerAddress } from 'vizfootprint/def';
 import type { Cause } from 'vizfootprint/cause';
 import type { ChartEmission } from 'vizfootprint/selection';
 import {
@@ -538,16 +539,26 @@ function mapLayers(raw: unknown): readonly LayerView[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((l) => {
     if (typeof l !== 'object' || l === null) return [];
-    const x = l as { layerId?: unknown; table?: unknown; chartKind?: unknown; channels?: unknown; label?: unknown };
+    const x = l as { layerId?: unknown; table?: unknown; chartKind?: unknown; channels?: unknown; initial?: unknown; fits?: unknown; label?: unknown };
     if (typeof x.layerId !== 'string' || typeof x.table !== 'string' || typeof x.chartKind !== 'string' || !Array.isArray(x.channels)) return [];
     return [{
       layerId: x.layerId,
       table: x.table,
       chartKind: x.chartKind,
       channels: x.channels.filter((c): c is string => typeof c === 'string'),
+      // the declared bindings and the plane's verdicts, each kept only when the wire
+      // carries the shape it claims — a malformed one is dropped ALONE, so a layer
+      // whose axes arrive garbled still names its table and its channels
+      ...(mapInitial(x.initial) ?? {}),
+      ...(typeof x.fits === 'object' && x.fits !== null ? { fits: mapFits(x.fits) } : {}),
       ...(typeof x.label === 'string' ? { label: x.label } : {}),
     }];
   });
+}
+/** A layer's declared channel→field map off the wire, as the `initial` key to spread — or nothing at all when the wire carries no usable object there. */
+function mapInitial(raw: unknown): { readonly initial: ViewEncoding } | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
+  return { initial: Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter(([, f]) => typeof f === 'string')) as ViewEncoding };
 }
 /**
  * The frame as the wire serves it — per channel, a resolution is kept only when
@@ -1145,10 +1156,21 @@ export function summarizeAdopt(name: string, raw: RawAdoptResult): AdoptSummaryV
   };
 }
 
-/** viewId → channel→field, derived from the views when no top-level record rides. */
+/**
+ * ADDRESS → channel→field, derived from the views when no top-level record
+ * rides. A view under its id, and each of its LAYERS under `viewId~layerId`
+ * with the map that layer declares — the same keys the library's own fold
+ * uses, so a host on a thin wire reads a layer's axes exactly where a host on
+ * a full one does.
+ */
 function encodingsFromViews(views: readonly ViewView[]): Record<string, ViewEncoding> {
   const out: Record<string, ViewEncoding> = {};
-  for (const v of views) if (Object.keys(v.encoding).length > 0) out[v.viewId] = v.encoding;
+  for (const v of views) {
+    if (Object.keys(v.encoding).length > 0) out[v.viewId] = v.encoding;
+    for (const layer of v.layers ?? []) {
+      if (layer.initial !== undefined && Object.keys(layer.initial).length > 0) out[layerAddress(v.viewId, layer.layerId)] = layer.initial;
+    }
+  }
   return out;
 }
 

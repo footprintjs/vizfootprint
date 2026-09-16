@@ -872,13 +872,34 @@ export interface ViewInfo {
   readonly frame?: Readonly<Record<string, ChannelResolution>>;
 }
 
-/** One layer of a view as the overview projects it: its address parts, its table and its encoding surface. */
+/** One layer of a view as the overview projects it: its address parts, its table, its encoding surface and the plane's verdicts for it. */
 export interface LayerInfo {
   readonly layerId: string;
   /** The table the layer reads — what a select on `viewId~layerId` is judged against. */
   readonly table: string;
   readonly chartKind: string;
   readonly channels: readonly string[];
+  /**
+   * The channel→field map the layer DECLARES (`LayerDecl.initial`) — which is
+   * also what it shows: a layer's axes are declared on the layer and no act
+   * moves them (`reencode` at a layer is refused), so there is no later commit
+   * to read. The same map rides in the encoding fold under the layer's address
+   * (`Overview.encodings['viewId~layerId']`); this is where a reader holding
+   * one layer finds it. Absent when the layer declares none.
+   */
+  readonly initial?: Readonly<Record<string, string>>;
+  /**
+   * The encoding plane for this LAYER: per channel, every column of the
+   * LAYER's table judged as if bound there now, with the sentence for each
+   * refusal — the per-view {@link ViewInfo.fits} asked of the layer's own
+   * surface and its own columns, never the default table's.
+   *
+   * Absent when this cursor has no columns for the layer's table at all (a
+   * MINTED table before the act that mints it has landed): a verdict list
+   * judged against nothing would say every column is refused, when the truth
+   * is that nothing has been judged.
+   */
+  readonly fits?: Readonly<Record<string, readonly Fit[]>>;
   readonly label?: string;
 }
 
@@ -1444,14 +1465,24 @@ export interface Overview {
   readonly fdr: FdrSummary;
   readonly columns: Readonly<Record<string, readonly ColumnFacet[]>>;
   /**
-   * viewId → the same channel→field map as `views[].encodings` (SPEC Q6 8th
-   * verb), flattened to a lookup for a caller that wants one view's mapping
+   * ADDRESS → the same channel→field map as `views[].encodings` (SPEC Q6 8th
+   * verb), flattened to a lookup for a caller that wants one place's mapping
    * without scanning `views`. Redundant with `views[].encodings` by design —
    * a convenience projection, not a second source of truth (both are read
    * off the identical `activeEncodings` fold in the same `overview()` call).
+   *
+   * One entry per address, in map order: a view under its id, then each of its
+   * LAYERS under `viewId~layerId` with the `initial` that layer declares
+   * (`LayerInfo.initial` says the same thing beside the layer). A def with no
+   * layers has exactly the rows it always had.
    */
   readonly encodings: Readonly<Record<string, Readonly<Record<string, string>>>>;
-  /** viewId → the bindings on screen under the link graph (`views[].effective.bindings`, flattened). Render these; edit `encodings`. */
+  /**
+   * ADDRESS → the bindings on screen under the link graph
+   * (`views[].effective.bindings`, flattened). Render these; edit `encodings`.
+   * A layer's entry is its own declared map: no encoding edge reaches a layer,
+   * so there is nothing for a follow to lay over.
+   */
   readonly effectiveEncodings: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /**
    * LY-1: scope → prop → value — the cockpit-layout fold (`navigate` verb,

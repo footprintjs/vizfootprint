@@ -211,3 +211,80 @@ describe('the read door — a window at a frame\'s bare address is refused by na
     expect(bare.ok && bare.count).toBe(MEASUREMENTS.length);
   });
 });
+
+/**
+ * THE ENCODING PLANE FOLLOWS THE MAP TOO. A frame draws no rows of its own, so
+ * it has no verdicts of its own — its LAYERS carry them, each judged against
+ * the table it reads. The exoplanet shape is the proof: `mass_radius`'s layer
+ * reads `planets`, `radius`'s reads the MINTED `radii_per_planet`, and neither
+ * is judged against the default table `measurements`.
+ */
+describe('the encoding plane — a frame has no verdicts, and a layer is judged against its own table', () => {
+  it("the frame carries no `fits`; its layer's name only the `planets` columns, never the default table's", async () => {
+    const s = buildDashboard(exoplanets()).createSession();
+    const scatter = (await s.overview()).views.find((v) => v.viewId === 'mass_radius')!;
+    expect('fits' in scatter).toBe(false);
+    const planets = scatter.layers![0]!;
+    expect([planets.table, planets.initial]).toEqual(['planets', { x: 'mass', y: 'radius' }]);
+    expect(Object.keys(planets.fits!)).toEqual(['x', 'y']);
+    expect(planets.fits!['x']!.map((f) => f.field).sort()).toEqual(['mass', 'planet', 'radius']);
+    expect(JSON.stringify(planets.fits)).not.toContain('"id"'); // `measurements` has one; `planets` has not
+  });
+
+  it('a layer over a MINTED table has no verdicts until the act that mints it lands — nothing is judged against a table with no columns here', async () => {
+    const s = buildDashboard(exoplanets()).createSession();
+    const before = (await s.overview()).views.find((v) => v.viewId === 'radius')!.layers![0]!;
+    expect(before.initial).toEqual({ x: 'radii' }); // the DECLARATION is there from the start
+    expect('fits' in before).toBe(false); // …the judgement is not: `radii_per_planet` has no columns at this cursor
+    await s.declareAnalysis('radiiPerPlanet', { cause });
+    const after = (await s.overview()).views.find((v) => v.viewId === 'radius')!.layers![0]!;
+    expect(after.fits!['x']).toEqual([
+      { field: 'radii', ok: true },
+      { field: 'planet', ok: false, because: '"planet" is string; the x channel of a histogram needs a number or a date' },
+    ]);
+  });
+
+  it('the two flattened lookups carry every layer address, so a host draws a layer from the same map it draws a view from', async () => {
+    const s = buildDashboard(exoplanets()).createSession();
+    const o = await s.overview();
+    expect(o.encodings).toEqual({ mass_radius: {}, [MR_PLANETS]: { x: 'mass', y: 'radius' }, sheet: {}, radius: {}, [BINS]: { x: 'radii' } });
+    expect(o.effectiveEncodings).toEqual(o.encodings); // no encoding edge reaches a layer, so nothing lies over its own map
+  });
+});
+
+/**
+ * WHY, AT A LAYER OVER A MINTED TABLE (step 4 of the packet, verified then
+ * pinned). `shapingCommits` credits the act behind each column a place BINDS,
+ * and with the fold keyed by address it now reads a layer's bindings like any
+ * other. What it finds for `radii` is nothing — and that is a fact about the
+ * COLUMN channel, not about the fold.
+ */
+describe('why() at a layer — the fold carries its bound column, and no act is invented for it', () => {
+  it("credits nothing for a minted measure, because no act ever indexed one; a plain view over that table cannot even bind it", async () => {
+    const s = buildDashboard(exoplanets()).createSession();
+    await s.declareAnalysis('radiiPerPlanet', { cause });
+    expect(s.viewEncodings(BINS)).toEqual({ x: 'radii' }); // what `shapingCommits` now reads at the layer
+    // An AGGREGATE lands a derived TABLE: the column channel (`why({kind:'column'})`) is written
+    // only by an analysis that produces COLUMNS, so `radii` has no act to name — the same answer
+    // any reader gets, layer or not.
+    expect(s.why({ kind: 'column', column: 'radii' })).toEqual({ ok: false, missing: 'no-such-target', target: { kind: 'column', column: 'radii' } });
+    expect(s.why({ kind: 'chart', viewId: BINS })).toMatchObject({ ok: false, missing: 'declared-in-def' });
+  });
+
+  it('a PLAIN view binding the same minted column answers the same thing — the layer is equal in kind, not worse off', async () => {
+    const def = exoplanets();
+    const plain: DashboardDef = {
+      ...def,
+      actors: { ...def.actors, bins: { actor: 'user', label: 'Bins' } },
+      encodings: [...def.encodings!, { viewId: 'bins', chartKind: 'histogram', channels: ['x'], initial: { x: 'radii' } }],
+    };
+    const s = buildDashboard(plain).createSession();
+    await s.declareAnalysis('radiiPerPlanet', { cause });
+    expect([s.viewEncodings('bins'), s.viewEncodings(BINS)]).toEqual([{ x: 'radii' }, { x: 'radii' }]);
+    const asView = s.why({ kind: 'chart', viewId: 'bins' });
+    const asLayer = s.why({ kind: 'chart', viewId: BINS });
+    expect(asView).toMatchObject({ ok: false, missing: 'declared-in-def' });
+    expect(asLayer).toMatchObject({ ok: false, missing: 'declared-in-def' });
+    expect(asView.ok === false && asView.missing).toBe(asLayer.ok === false && asLayer.missing);
+  });
+});

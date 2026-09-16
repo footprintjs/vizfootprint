@@ -29,7 +29,7 @@ import type { Actor, Cause } from '../cause/index.js';
 import { DISPATCH_VERBS } from '../def/index.js';
 import { acceptsOf } from '../encoding/index.js';
 import type { InteractionSession } from '../session/index.js';
-import type { CellValues, DispatchAction, DispatchResult, AnalysisCommit, FilterRange, ProposeChartResult, WalkAsk, WhyTarget } from '../session/index.js';
+import type { CellValues, DispatchAction, DispatchResult, AnalysisCommit, FilterRange, LayerInfo, ProposeChartResult, WalkAsk, WhyTarget } from '../session/index.js';
 import { SURFACE_PARTS, SURFACE_PART_NAMES } from './surfaceParts.js';
 import { basisOf } from './basis.js';
 import { narrowParts } from './narrow.js';
@@ -399,6 +399,18 @@ function coerceWhyTarget(raw: unknown): WhyTarget | { error: string } {
       'why requires target: a column name (string), { column }, { analysisId }, { viewId, slot } for a view\'s words, ' +
       '{ kind: "selection", viewId } for what a view holds, or { kind: "chart", viewId } for what a view shows',
   };
+}
+
+/**
+ * One LAYER, token-lean: the declared facts as the overview states them, with
+ * every column's verdict reduced to the NAMES that fit — the same trade
+ * `fullAnswer` makes for a view's own `fits`, and made here too because a
+ * layer's verdicts are judged over a whole table of its own. A refusal's
+ * sentence arrives with the refusal, when the agent tries the binding.
+ */
+function leanLayer(layer: LayerInfo): Record<string, unknown> {
+  const { fits, ...declared } = layer;
+  return { ...declared, ...(fits === undefined ? {} : { accepts: acceptsOf(fits) }) };
 }
 
 const FORK_SCHEMA = {
@@ -1076,6 +1088,9 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
       ...o,
       views: o.views.map(({ fits, effective, ...view }) => ({
         ...view,
+        // a LAYER's verdicts are reduced the same way the view's are, for the same reason
+        // — the spread keeps `layers` where it was, so only the value changes
+        ...(view.layers === undefined ? {} : { layers: view.layers.map(leanLayer) }),
         ...(fits === undefined ? {} : { accepts: acceptsOf(fits) }),
         ...(effective === undefined ? {} : { effective: { followed: effective.followed, refused: effective.refused } }),
       })),

@@ -64,7 +64,7 @@ import { absenceByTable, mintedTables, type AggregateDecl, type BuiltinAnalysisC
 import { registerAnalysisSlot } from '../def/register.js';
 import { tableReachOf } from '../def/tableReach.js';
 import { copyValue, deepFreeze } from '../detach/index.js';
-import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RelationEdge, RestorableSaved, RestorableBookmark, RestoreResult, ViewEncodingDecl, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
+import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RelationEdge, RestorableSaved, RestorableBookmark, RestoreResult, ViewDecl, ViewEncodingDecl, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
 import { describeRules, refuses, validateBindings } from '../encoding/index.js';
 import { ENCODING_KIND } from '../links/index.js';
 import { DASHBOARD_PROSE_ID, NOTE_PROSE_PREFIX, isNoteSubject, PROPOSAL_LANE, PROSE_SLOTS, fillProse, PROSE_SENTENCES, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
@@ -75,7 +75,7 @@ import { GapLedger, messageOf } from './gapLedger.js';
 import { clausesReaching, mappingsInto, narrowedByDef, narrowToJudgeable, unjudgeableColumn } from './clausesReaching.js';
 import { tablesInfoOf } from './tablesInfo.js';
 import { stampCause } from './stampCause.js';
-import { addressesOf, labelAt, layerBindingsOf, layerInfosOf, metaOf, placeOf, surfaceOf, surfacedAddressesOf, tableOf, type Place } from './layers.js';
+import { addressesOf, labelAt, layerAddressesOf, layerInfosOf, metaOf, placeOf, surfaceOf, surfacedAddressesOf, tableOf, type Place } from './layers.js';
 import { computeEffectiveEncodings, fitsWithFollows, followSentence } from './effectiveEncodings.js';
 import { offerStampOf, offersOf } from './offers.js';
 import { branchPathOf, commitsElsewhereThan, stepsSinceAncestor } from './branchPath.js';
@@ -124,6 +124,7 @@ import type {
   GapCode,
   GapOp,
   GapRow,
+  LayerInfo,
   NewPathResult,
   Overview,
   PathInfo,
@@ -510,12 +511,15 @@ export interface InteractionSession {
   restoreBookmarks(list: readonly RestorableBookmark[]): RestoreResult;
 
   /**
-   * The current channel→field visual-encoding map for one view, branch-scoped
-   * at the cursor (the `reencode` verb's fold — SPEC Q6 8th verb). Empty if
-   * the view declares no encoding surface or is unknown. Synchronous — no
-   * backend read, unlike `overview()` (which also exposes this per-view).
+   * The current channel→field visual-encoding map at one ADDRESS,
+   * branch-scoped at the cursor (the `reencode` verb's fold — SPEC Q6 8th
+   * verb). A view under its id; a LAYER under `viewId~layerId`, whose answer
+   * is the `initial` its declaration states (nothing can re-encode a layer, so
+   * nothing moves it). Empty if the place declares no bindings or is unknown.
+   * Synchronous — no backend read, unlike `overview()` (which also exposes
+   * this per view and per layer).
    */
-  viewEncodings(viewId: string): Readonly<Record<string, string>>;
+  viewEncodings(address: string): Readonly<Record<string, string>>;
 
   /** The structured `whats_here` projection (views/selections/analyses+readiness/fdr/gaps). */
   overview(): Promise<Overview>;
@@ -692,7 +696,13 @@ class InteractionSessionImpl implements InteractionSession {
   private readonly activeFilters = new Map<string, PredicateClause>();
   /** viewId → the latest still-active select/filter commit id (the L6 input-selection provenance). */
   private readonly activeFilterCommits = new Map<string, string>();
-  /** viewId → its current channel→field visual-encoding map (the `reencode` fold; SPEC Q6 8th verb). */
+  /**
+   * ADDRESS → its current channel→field visual-encoding map (the `reencode`
+   * fold; SPEC Q6 8th verb). Keyed by the same addresses every other fold and
+   * the map itself are (`./layers.ts` · `addressesOf`): a view under its id, a
+   * LAYER under `viewId~layerId` — see {@link rebuildFold} for why a layer's
+   * declared `initial` seeds it.
+   */
   private readonly activeEncodings = new Map<string, Record<string, string>>();
   /**
    * R4 — viewId → channel → the commit that landed the binding live there.
@@ -1249,9 +1259,11 @@ class InteractionSessionImpl implements InteractionSession {
    * cleared interval drops the view's filter, exactly as `doProbe` does live.
    *
    * Also rebuilds `activeEncodings` (the `reencode` verb's fold, SPEC Q6 8th
-   * verb): seeded from each declared view's `initial` map, then overridden by
-   * every `encoding:` commit on the path, in order — so `seek` restores
-   * whatever channel→field mapping was live at that point in history.
+   * verb): seeded from each declared view's `initial` map AND from each of its
+   * LAYERS' (under the layer's address), then overridden by every `encoding:`
+   * commit on the path, in order — so `seek` restores whatever channel→field
+   * mapping was live at that point in history, and a declared layer binding is
+   * still there afterwards because no commit ever moved it.
    */
   private rebuildFold(cursorId: string | null): void {
     this.activeFilters.clear();
@@ -1265,6 +1277,16 @@ class InteractionSessionImpl implements InteractionSession {
     this.activeLayoutCommits.clear();
     for (const view of this.runtime.views.values()) {
       if (view.encoding?.initial) this.activeEncodings.set(view.viewId, Object.freeze({ ...view.encoding.initial }));
+      // THE FRAME IS ITS LAYERS, for the encoding plane too. The fold is keyed by
+      // ADDRESS — the same addresses `activeSelections` and `addressesOf` use — so
+      // a layer's declared axes seed it under the layer's address exactly as a
+      // view's do under the view's id. WHY: a layer's bindings ARE declared on the
+      // layer, and the desk that draws the layer must read them where every other
+      // binding is read; before this, a layered view with no view-level `initial`
+      // (a frame) answered nothing at all and each host carried the axes as
+      // literals of its own. `activeEncodingCommits` stays unseeded, as it always
+      // was: a declared binding has no commit, and a layer has no later one either.
+      for (const [address, layer] of layerAddressesOf(view)) if (layer.initial) this.activeEncodings.set(address, Object.freeze({ ...layer.initial }));
     }
     this.activeProse.clear();
     this.activeProposals.clear();
@@ -2153,8 +2175,8 @@ class InteractionSessionImpl implements InteractionSession {
    * are frozen where they are stored, and handing out the object itself is
    * free and safe.
    */
-  viewEncodings(viewId: string): Readonly<Record<string, string>> {
-    return this.activeEncodings.get(viewId) ?? EMPTY_BINDINGS;
+  viewEncodings(address: string): Readonly<Record<string, string>> {
+    return this.activeEncodings.get(address) ?? EMPTY_BINDINGS;
   }
 
   // ── layers: an address resolved against the map (./layers.ts) ───────────────
@@ -3998,8 +4020,10 @@ class InteractionSessionImpl implements InteractionSession {
   private proseEncodingsNow(viewId: string, facets: readonly ColumnFacet[]): Readonly<Record<string, string>> {
     const place = this.placeOf(viewId);
     if (place === undefined) return {}; // the dashboard or a note — both bind nothing, so neither has a surface to read (proseGuards admits no other unknown id)
-    // a LAYER's bindings are declared on it and never re-encoded: reading the view's fold here would report every layer's words stale the instant they were written
-    if (place.layer !== undefined) return layerBindingsOf(place.layer);
+    // a LAYER's bindings are the ones the fold carries under ITS address — the declared `initial`,
+    // which no `reencode` can move. Reading the VIEW's fold here (the line below) would report every
+    // layer's words stale the instant they were written.
+    if (place.layer !== undefined) return this.viewEncodings(viewId);
     return place.view.encoding !== undefined ? this.effectiveEncodings(facets).get(viewId)!.bindings : this.viewEncodings(viewId);
   }
 
@@ -4090,21 +4114,74 @@ class InteractionSessionImpl implements InteractionSession {
     return out;
   }
 
-  /** The last verdicts per view, keyed by what they depend on — a poll between acts costs nothing. */
+  /** The last verdicts per ADDRESS (a view, or one of its layers), keyed by what they depend on — a poll between acts costs nothing. */
   private readonly fitsMemo = new Map<string, { readonly key: string; readonly fits: Readonly<Record<string, readonly Fit[]>> }>();
+
+  /** What a set of verdicts depends on, spelled once for the view's and the layer's: the bindings judged, the other places' bindings, the graph, the columns. */
+  private fitsKey(bindings: Bindings, others: Record<string, Bindings>, facets: readonly ColumnFacet[]): string {
+    return JSON.stringify([bindings, others, [...this.activeLinks.entries()], facets.map((f) => [f.field, f.type, f.role, f.scale])]);
+  }
 
   /** One view's verdicts, recomputed only when its bindings, the other views' bindings, or the columns changed. */
   private fitsOfView(viewId: string, surface: ViewEncodingDecl, facets: readonly ColumnFacet[]): Readonly<Record<string, readonly Fit[]>> {
     const effective = this.effectiveEncodings(facets).get(viewId)!; // every view with a surface has an entry
     const bindings = effective.bindings;
     const others = this.bindingsOfOthers(viewId, facets);
-    const key = JSON.stringify([bindings, others, [...this.activeLinks.entries()], facets.map((f) => [f.field, f.type, f.role, f.scale])]);
+    const key = this.fitsKey(bindings, others, facets);
     const hit = this.fitsMemo.get(viewId);
     if (hit !== undefined && hit.key === key) return hit.fits;
     const { rules, ports } = this.runtime.encoding;
     const fits = fitsWithFollows({ viewId, view: surface, bindings, facets, others, rules, ports, followed: effective.followed });
     this.fitsMemo.set(viewId, { key, fits });
     return fits;
+  }
+
+  /**
+   * ONE LAYER's verdicts — the twin above asked of a layer, memoized under the
+   * layer's ADDRESS. Three things differ, each because a layer is a PLACE and
+   * not a node of the encoding graph:
+   *
+   *   - the facets are the LAYER's table's, handed in by the caller: a column
+   *     the layer cannot draw is not a candidate for its channels, and judging
+   *     it against `columns[defaultTable]` was the bug this closes;
+   *   - its bindings are the ones the fold now carries under its address — its
+   *     declared `initial`, which no `reencode` can move;
+   *   - nothing is FOLLOWED (`followed: {}`): an encoding edge reaches a view,
+   *     never a layer, so no channel here belongs to an edge.
+   */
+  private fitsOfLayer(address: string, surface: ViewEncodingDecl, facets: readonly ColumnFacet[], others: Record<string, Bindings>): Readonly<Record<string, readonly Fit[]>> {
+    const bindings = this.viewEncodings(address);
+    const key = this.fitsKey(bindings, others, facets);
+    const hit = this.fitsMemo.get(address);
+    if (hit !== undefined && hit.key === key) return hit.fits;
+    const { rules, ports } = this.runtime.encoding;
+    const fits = fitsWithFollows({ viewId: address, view: surface, bindings, facets, others, rules, ports, followed: {} });
+    this.fitsMemo.set(address, { key, fits });
+    return fits;
+  }
+
+  /**
+   * The layers one view carries, as the overview serves them: the declared
+   * facts from their one owner (`./layers.ts` · `layerInfosOf`, `initial`
+   * among them) with the encoding plane's verdicts for each beside them —
+   * judged against the LAYER's own table, and absent when this cursor has no
+   * columns for that table at all (a minted table before its act lands; see
+   * {@link LayerInfo.fits}).
+   *
+   * `others` stays the VIEWS' bindings: `bindingsOfOthers` is per view because
+   * a dashboard-scoped two-column rule is about the cockpit, and a layer is one
+   * more place on it — asked at an address no view answers to, it names every
+   * one of them.
+   */
+  private layerInfosAt(view: ViewDecl, columns: Readonly<Record<string, readonly ColumnFacet[]>>, defaultFacets: readonly ColumnFacet[]): readonly LayerInfo[] {
+    const declared = layerInfosOf(view); // the declared facts, from their one owner
+    // index-aligned with `declared` by construction: both are maps over `view.layers`, in declaration order
+    return layerAddressesOf(view).map(([address, layer], i) => {
+      const facets = columns[layer.table];
+      if (facets === undefined) return declared[i]!; // nothing to judge against — and nothing claimed
+      const surface: ViewEncodingDecl = { viewId: address, chartKind: layer.chartKind, channels: layer.channels };
+      return { ...declared[i]!, fits: this.fitsOfLayer(address, surface, facets, this.bindingsOfOthers(address, defaultFacets)) };
+    });
   }
 
   /** The other views' bindings ON SCREEN (effective under the link graph) — what a dashboard-scoped rule must read. */
@@ -5432,6 +5509,10 @@ class InteractionSessionImpl implements InteractionSession {
       }
     }
     const defaultCols = colNamesByTable.get(this.defaultTable) ?? new Set<string>();
+    // the facets every VIEW-level judgement is made against — a view declares no table of its own,
+    // so the plane, the prose and the encoding links all read the default table's columns. Read once:
+    // a layer's are its own (`layerInfosAt`), and this is the world its `others` are judged in.
+    const defaultFacets = columns[this.defaultTable] ?? [];
 
     const views = [...this.runtime.views.values()].map((view) => {
       const cap = this.probeCapability(view.viewId);
@@ -5452,21 +5533,40 @@ class InteractionSessionImpl implements InteractionSession {
         // it; the agent's whats_here projects it to the names that fit).
         ...(view.encoding !== undefined
           ? {
-              fits: this.fitsOfView(view.viewId, view.encoding, columns[this.defaultTable] ?? []),
+              // NOT a frame's: a view that reads no rows of its own (`frameOf`) has
+              // nothing to judge against the default table — it draws none of it — and
+              // judging it there is what used to offer a frame the wrong table's columns.
+              // Its LAYERS carry the verdicts instead, each against the table it reads.
+              ...(this.frameOf(view.viewId) === undefined ? { fits: this.fitsOfView(view.viewId, view.encoding, defaultFacets) } : {}),
               // encoding links: what the view SHOWS — own bindings with followed channels laid over, refusals named
-              effective: this.effectiveEncodings(columns[this.defaultTable] ?? []).get(view.viewId)!,
+              effective: this.effectiveEncodings(defaultFacets).get(view.viewId)!,
             }
           : {}),
         // the prose plane: every slot at the cursor, its staleness judged against what is on screen
-        prose: this.proseOf(view.viewId, columns[this.defaultTable] ?? []),
+        prose: this.proseOf(view.viewId, defaultFacets),
         proposals: this.proposalsOf(view.viewId),
-        // the layers, projected from the MAP: absent on a view that declares none (byte-identical to before layers existed)
-        ...(view.layers !== undefined ? { layers: layerInfosOf(view) } : {}),
+        // the layers, projected from the MAP with the plane's verdicts per layer: absent on a view that declares none (byte-identical to before layers existed)
+        ...(view.layers !== undefined ? { layers: this.layerInfosAt(view, columns, defaultFacets) } : {}),
         // the FRAME, projected verbatim off the view's encoding: words, never numbers — a host folds
         // them into domains with `frameDomains` over rows it reads at the same cursor (src/def/README.md, "The frame")
         ...(view.encoding?.frame !== undefined ? { frame: view.encoding.frame } : {}),
       };
     });
+    // ONE ENTRY PER ADDRESS, in map order (`./layers.ts` · `addressesOf`): each
+    // view under its id, then each of its layers under `viewId~layerId`. The
+    // encoding fold is keyed by address and a layer's declared `initial` seeds
+    // it, so the flattened lookups carry a layer's axes beside a view's — which
+    // is what lets a host draw a layer from the same map it draws a view from.
+    // A def with no layers gets exactly the rows it always did.
+    const projected = new Map(views.map((v) => [v.viewId, v] as const));
+    const encodings: Record<string, Readonly<Record<string, string>>> = {};
+    const effectiveEncodings: Record<string, Readonly<Record<string, string>>> = {};
+    for (const address of addressesOf(this.runtime.views.values())) {
+      encodings[address] = this.viewEncodings(address);
+      // a LAYER follows no encoding edge — an edge reaches a VIEW (`../links/materialize.ts`) —
+      // so what a layer shows is what it declares, and its two entries are the same map
+      effectiveEncodings[address] = projected.get(address)?.effective?.bindings ?? encodings[address];
+    }
     const encodingPolicy = { onInvalid: this.runtime.encoding.rules.onInvalid ?? 'refuse', ruleScope: this.runtime.encoding.rules.ruleScope ?? ('dashboard' as const) };
 
     // where each clause filtered nothing, and where it travelled a relation, by consumer — ONE walk for both lists and
@@ -5565,9 +5665,9 @@ class InteractionSessionImpl implements InteractionSession {
       encodingPolicy,
       views,
       // the prose plane's one non-view subject: the cockpit's own words (its caption = the summary of what it shows now)
-      dashboard: { prose: this.proseOf(DASHBOARD_PROSE_ID, columns[this.defaultTable] ?? []), proposals: this.proposalsOf(DASHBOARD_PROSE_ID) },
+      dashboard: { prose: this.proseOf(DASHBOARD_PROSE_ID, defaultFacets), proposals: this.proposalsOf(DASHBOARD_PROSE_ID) },
       // the notes on the dashboard (the Text tool): every note subject with words at the cursor, in the order they were first written
-      notes: this.notesInfo(columns[this.defaultTable] ?? []),
+      notes: this.notesInfo(defaultFacets),
       saved: this.saved(),
       bookmarks: this.bookmarks(),
       activeSelections,
@@ -5601,8 +5701,8 @@ class InteractionSessionImpl implements InteractionSession {
         ledger: this.ledger(),
       },
       columns,
-      encodings: Object.fromEntries(views.map((v) => [v.viewId, v.encodings])),
-      effectiveEncodings: Object.fromEntries(views.map((v) => [v.viewId, v.effective?.bindings ?? v.encodings])),
+      encodings,
+      effectiveEncodings,
       // LY-1: the layout fold (scope → prop → value), branch-scoped at the
       // cursor like `encodings` — cloned so a caller can never mutate the fold.
       layouts: Object.fromEntries([...this.activeLayouts.entries()].map(([scope, props]) => [scope, { ...props }])),

@@ -82,6 +82,22 @@ export interface LayerView {
   readonly table: string;
   readonly chartKind: string;
   readonly channels: readonly string[];
+  /**
+   * The channel→field map the layer DECLARES — which is also what it draws:
+   * nothing can re-encode a layer, so the declaration is the binding. The same
+   * map rides in `SessionViewState.encodings` under this layer's address, which
+   * is where `boundField` reads it; this is where a host holding one layer
+   * finds it. Absent when the layer declares none, and on an older wire.
+   */
+  readonly initial?: ViewEncoding;
+  /**
+   * The encoding plane for this layer: per channel, every column of the
+   * LAYER's table judged as if bound there now — the picker greys with
+   * `because`, exactly as it does from `ViewView.fits`. Absent on an older
+   * wire, and when the cursor has no columns for the layer's table yet (a
+   * minted table before its act lands).
+   */
+  readonly fits?: Readonly<Record<string, readonly FitView[]>>;
   readonly label?: string;
 }
 

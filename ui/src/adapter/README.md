@@ -269,6 +269,29 @@ of the address, and the second one is the copy nobody tests when the rule moves.
 The door is in-process, like `sessionSheetData`; a polled host needs its own
 endpoint for it (Law 2).
 
+### And a layer's AXES, in the one place axes are read
+
+A layer's bindings are declared on the layer, and the session's encoding fold is
+keyed by ADDRESS — so `SessionViewState.encodings['net~edges']` is the layer's
+own channel→field map, exactly as `encodings['net']` is the view's. That is the
+map `boundField` resolves through, so a host draws a layer through the one
+resolution every chart already uses instead of passing the axes it typed itself:
+
+```ts
+const address = layerAddress('net', 'edges');
+boundField(state.encodings[address] ?? {}, 'size', 'weight'); // 'weight' — from the declaration, not from here
+```
+
+`ViewView.layers[i].initial` says the same thing beside the layer, for a host
+that holds one layer and not the whole fold, and `ViewView.layers[i].fits` is
+the plane's judgement over the LAYER's table (mirroring `ViewView.fits`, so the
+built-in picker greys a layer's channel with the session's own sentence). Both
+are projected, never derived: `encodingsFromViews` — the fallback for a wire
+with no top-level `encodings` — seeds a layer's map under `layerAddress(viewId,
+layerId)` so a thin wire folds to the same keys a full one does, and the poll
+mapper drops a malformed `initial` or `fits` ALONE, leaving the layer's declared
+facts standing.
+
 ### The same law, one layer up: a frame's SCALES
 
 The frame (protocol 1.5) needed the same judgement and got the same answer. A

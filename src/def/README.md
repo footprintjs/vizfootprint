@@ -483,6 +483,17 @@ Six laws.
    // with a view-level `initial` the scatter reads `measurements` at its own address: `table: 'measurements'`, no `frame`, and the edges as before
    ```
 
+6b. **A layer's declared bindings RIDE THE FOLD, under the layer's address.** The frame is its layers for the encoding plane too: the session's `reencode` fold is keyed by ADDRESS, and a layer's `initial` seeds it under `viewId~layerId` exactly as a view's does under the view's id — so the host that draws the layer reads its axes where every other binding is read, instead of carrying them as literals of its own. Nothing moves them afterwards (`reencode` at a layer is refused, and no commit is ever seeded for a declared binding), so a seek restores them by leaving them alone. Beside them the plane's verdicts are judged against the LAYER's table, and a frame carries none of its own — it draws no rows to be judged (`../session/README.md`, "The fold knows the layers' bindings").
+   ```ts
+   encodings: [{ viewId: 'net', chartKind: 'network', channels: ['x', 'y'],
+     layers: [{ layerId: 'nodes', table: 'nodes', chartKind: 'point', channels: ['x', 'y', 'size', 'color'], initial: { size: 'size', color: 'group' } },
+              { layerId: 'edges', table: 'edges', chartKind: 'line', channels: ['x', 'y', 'size'], initial: { size: 'weight' } }] }]
+   // session.viewEncodings('net~edges')       → { size: 'weight' }        (and 'net' → {}: a frame binds nothing of its own)
+   // overview().encodings                     → { net: {}, 'net~nodes': { size: 'size', color: 'group' }, 'net~edges': { size: 'weight' } }
+   // overview().views[0].layers[1].fits.y     → [{ field: 'weight', ok: true }, { field: 'source', ok: false, because: '"source" is string; the y channel of a line needs a number' }, …]
+   //                                            — the EDGES table's columns, judged on the edges layer's own channels; `views[0].fits` is absent (a frame)
+   ```
+
 ### The frame — layers share their scales, and the frame owns them
 
 A stack of layers is one picture only if it is read on one set of scales ("scales are common across layers" — Wickham). `frame` on the view's encoding says how, **per channel**, and says it in words: `{ mode: 'shared' | 'independent' }`, plus `domain: 'union'`, `basis: 'table' | 'rows'`, `guide: 'merged' | 'per-layer'` and `zero` on a shared one, and `transform: 'linear' | 'log'` on either (law 11 — a transform is not a resolution, and it is legal on a view with no layers at all). **No number can be typed into it.** The domains are folded from the rows by `frameDomains` (`vizfootprint/def` — the door that re-exports the encoding plane, PACKAGING.md, Law 1) at every update, so an axis can never disagree with the data under it, and a channel the frame does not name is `shared / union / table / merged` — the default that makes a stack one picture.

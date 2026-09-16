@@ -159,6 +159,27 @@ describe('viz.why — a marked (`narrowed`) commit rides through the tool unchan
       ],
     });
   });
+
+  /**
+   * The agent surface is token-lean about the encoding plane: a view's `fits`
+   * become `accepts` (the NAMES that fit, not every column's verdict), and a
+   * LAYER's are reduced the same way — a layer is judged over a whole table of
+   * its own, so the untrimmed list would be the larger of the two.
+   */
+  it("whats_here states a layer's declared bindings always, and reduces its verdicts to `accepts` once its table has columns here", async () => {
+    const port = vizAsTools(buildDashboard(exoplanets()).createSession());
+    const layerOf = async (): Promise<Record<string, unknown>> => {
+      const views = get(await port.call('viz.whats_here'), 'views') as readonly { viewId: string; layers?: readonly Record<string, unknown>[] }[];
+      return views.find((v) => v.viewId === 'hist')!.layers![0]!;
+    };
+    // before the act that mints `radii_per_planet`: the DECLARATION is served, and nothing is judged
+    const before = await layerOf();
+    expect(before).toEqual({ layerId: 'agg', table: 'radii_per_planet', chartKind: 'bar', channels: ['x', 'y'], initial: { y: 'radii' } });
+    expect(get(await port.call('viz.declare_analysis', { analysisId: 'radiiPerPlanet' }), 'ok')).toBe(true);
+    const after = await layerOf();
+    expect(after['accepts']).toEqual({ x: ['planet'], y: ['radii'] }); // the MINTED table's two columns, each where a bar accepts it
+    expect(after['fits']).toBeUndefined(); // the whole verdict list never rides the surface
+  });
 });
 
 describe('viz.dispatch — select/filter PAYLOAD_INVALID guards', () => {

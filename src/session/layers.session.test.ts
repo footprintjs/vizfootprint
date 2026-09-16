@@ -179,9 +179,10 @@ describe('layers — an address is a viewId, gated on the layer table', () => {
     const s = fresh();
     const o = await s.overview();
     expect(o.views).toHaveLength(1);
-    expect(o.views[0]!.layers).toEqual([
-      { layerId: 'nodes', table: 'nodes', chartKind: 'point', channels: ['x', 'y', 'size', 'color'], label: 'Diseases' },
-      { layerId: 'edges', table: 'edges', chartKind: 'line', channels: ['x', 'y', 'size'] },
+    // the DECLARED facts (the verdicts beside them are the encoding plane's, pinned in their own block below)
+    expect(o.views[0]!.layers!.map(({ fits, ...declared }) => declared)).toEqual([
+      { layerId: 'nodes', table: 'nodes', chartKind: 'point', channels: ['x', 'y', 'size', 'color'], initial: { size: 'size', color: 'group' }, label: 'Diseases' },
+      { layerId: 'edges', table: 'edges', chartKind: 'line', channels: ['x', 'y', 'size'], initial: { size: 'weight' } },
     ]);
     expect(o.links.views.map((v) => v.viewId)).toEqual(['net', NODES_ADDRESS, EDGES_ADDRESS]);
     const a = await s.dispatch({ verb: 'select', viewId: EDGES_ADDRESS, field: 'weight', value: 5, cause: userCause() });
@@ -230,6 +231,14 @@ describe('layers — an address is a viewId, gated on the layer table', () => {
     expect(RESERVED_ID_MARKER).toBe(LAYER_MARKER);
   });
 
+  it('byte identity: the two flattened encoding lookups hold exactly the view ids when a def declares no layers', async () => {
+    const s = buildDashboard(makeDashboardDef()).createSession();
+    const o = await s.overview();
+    expect(Object.keys(o.encodings)).toEqual(['scatter', 'bar', 'cluster', 'display']);
+    expect(Object.keys(o.effectiveEncodings)).toEqual(['scatter', 'bar', 'cluster', 'display']);
+    expect(JSON.stringify(o.encodings)).not.toContain(LAYER_MARKER);
+  });
+
   it('byte identity: a dashboard with no layers carries no layers anywhere, and its guards speak of the default table as before', async () => {
     const s = buildDashboard(makeDashboardDef()).createSession();
     const o = await s.overview();
@@ -243,5 +252,123 @@ describe('layers — an address is a viewId, gated on the layer table', () => {
     const whole = await s.viewQuery();
     expect(whole.ok && [whole.count, whole.clauses.map((c) => c.from)]).toEqual([8, ['bar']]);
     expect((await s.overview()).selectedRowCount).toBe(8);
+  });
+});
+
+/**
+ * THE FOLD KNOWS THE LAYERS' BINDINGS — the encoding fold is keyed by ADDRESS,
+ * and a layer's declared `initial` seeds it under the layer's address exactly
+ * as a view's does under the view's id. Before this, a layered view with no
+ * view-level `initial` (a frame) answered nothing at all, and every host that
+ * drew a layer carried its axes as literals of its own.
+ */
+describe("the encoding fold is keyed by address — a layer's declared bindings ride it", () => {
+  it("viewEncodings answers a layer's declared initial; the frame itself binds nothing, and a view-level initial still seeds the view id", async () => {
+    const s = fresh();
+    expect(s.viewEncodings(NODES_ADDRESS)).toEqual({ size: 'size', color: 'group' });
+    expect(s.viewEncodings(EDGES_ADDRESS)).toEqual({ size: 'weight' });
+    expect(s.viewEncodings('net')).toEqual({}); // a frame binds nothing of its own — law 6a
+    expect(s.viewEncodings(layerAddress('net', 'ghost'))).toEqual({}); // an address the map does not answer to
+    const own = withOwnBinding();
+    expect([own.viewEncodings('net'), own.viewEncodings(NODES_ADDRESS)]).toEqual([{ x: 'size' }, { size: 'size', color: 'group' }]);
+  });
+
+  it('the overview carries one entry per ADDRESS in map order, and a layer follows no edge so its effective bindings are its own', async () => {
+    const s = fresh();
+    const o = await s.overview();
+    expect(o.encodings).toEqual({ net: {}, [NODES_ADDRESS]: { size: 'size', color: 'group' }, [EDGES_ADDRESS]: { size: 'weight' } });
+    expect(Object.keys(o.encodings)).toEqual(['net', NODES_ADDRESS, EDGES_ADDRESS]); // the view, then its layers in declaration order
+    expect(o.effectiveEncodings).toEqual(o.encodings);
+    // and the same map rides beside the layer it belongs to, so a reader holding one layer needs no second lookup
+    expect(o.views[0]!.layers!.map((l) => l.initial)).toEqual([{ size: 'size', color: 'group' }, { size: 'weight' }]);
+  });
+
+  it('a declared layer binding has NO commit: a select, an undo and a seek back leave it exactly where it was', async () => {
+    const s = fresh();
+    const before = s.viewEncodings(NODES_ADDRESS);
+    const pick = await s.dispatch({ verb: 'select', viewId: NODES_ADDRESS, field: 'group', value: 'viral', cause: userCause() });
+    expect(pick.ok).toBe(true);
+    expect(s.viewEncodings(NODES_ADDRESS)).toEqual(before);
+    const undone = await s.undo(pick.ok ? pick.commit!.id : '');
+    expect(undone.ok).toBe(true);
+    expect(s.viewEncodings(NODES_ADDRESS)).toEqual(before);
+    s.seek(pick.ok ? pick.commit!.id : ''); // back to before the undo — the declaration is still the declaration
+    expect([s.viewEncodings(NODES_ADDRESS), s.viewEncodings(EDGES_ADDRESS)]).toEqual([before, { size: 'weight' }]);
+    // nothing landed under the layer's encoding identity — there is no act to undo
+    expect(s.log.records.some((r) => r.viewId.includes('encoding:'))).toBe(false);
+  });
+
+  it("a reencode at a layer is still refused, so nothing can ever move a layer's declared axes", async () => {
+    const s = fresh();
+    const re = await s.dispatch({ verb: 'reencode', viewId: NODES_ADDRESS, channel: 'size', field: 'size', cause: userCause() });
+    expect(re.ok).toBe(false);
+    expect(JSON.stringify(re)).toContain('is a layer — its bindings are declared on the layer and cannot be re-encoded');
+    expect(s.viewEncodings(NODES_ADDRESS)).toEqual({ size: 'size', color: 'group' });
+  });
+});
+
+/**
+ * THE PLANE JUDGES A LAYER AGAINST ITS OWN TABLE. `views[].fits` used to be
+ * filled for every surfaced view from `columns[defaultTable]` — including a
+ * FRAME, which draws none of that table. Now a frame has no verdicts of its
+ * own and each layer carries them, over the columns it actually reads.
+ */
+describe("the encoding plane per layer — every column of the LAYER's table, judged", () => {
+  it("a layer's verdicts name only its own table's columns, on each of its own channels", async () => {
+    const s = fresh();
+    const [nodes, edges] = (await s.overview()).views[0]!.layers!;
+    expect(Object.keys(nodes!.fits!)).toEqual(['x', 'y', 'size', 'color']);
+    expect(nodes!.fits!['color']).toEqual([{ field: 'id', ok: true }, { field: 'size', ok: true }, { field: 'group', ok: true }]);
+    expect(nodes!.fits!['size']).toEqual([
+      { field: 'size', ok: true },
+      { field: 'id', ok: false, because: '"id" is string; the size channel of a point needs a number' },
+      { field: 'group', ok: false, because: '"group" is string; the size channel of a point needs a number' },
+    ]);
+    // the edges table's columns are NOT candidates for a nodes channel, and the sentences name the LAYER's chart kind
+    expect(JSON.stringify(nodes!.fits)).not.toMatch(/weight|source|target/);
+    expect(Object.keys(edges!.fits!)).toEqual(['x', 'y', 'size']);
+    expect(edges!.fits!['y']).toEqual([
+      { field: 'weight', ok: true },
+      { field: 'source', ok: false, because: '"source" is string; the y channel of a line needs a number' },
+      { field: 'target', ok: false, because: '"target" is string; the y channel of a line needs a number' },
+    ]);
+    expect(JSON.stringify(edges!.fits)).not.toMatch(/\bid\b|group/);
+  });
+
+  it('a FRAME has no verdicts of its own — it draws no rows, so there is no table to judge it against; it still says what it shows', async () => {
+    const s = fresh();
+    const net = (await s.overview()).views[0]!;
+    expect('fits' in net).toBe(false);
+    expect(net.effective).toEqual({ bindings: {}, followed: {}, refused: {} }); // the encoding-link answer is unchanged
+  });
+
+  it("a layered view that BINDS at its own level keeps its view-level verdicts, byte for byte — judged against the default table as before", async () => {
+    const own = withOwnBinding();
+    const net = (await own.overview()).views[0]!;
+    // pinned literal: what this view's `fits` were before the fold learned about layers (the same call, the same inputs)
+    const because = (field: string, channel: string): string => `"${field}" is string; the ${channel} channel of a network needs a number or a date`;
+    expect(net.fits).toEqual({
+      x: [{ field: 'size', ok: true }, { field: 'id', ok: false, because: because('id', 'x') }, { field: 'group', ok: false, because: because('group', 'x') }],
+      y: [{ field: 'size', ok: true }, { field: 'id', ok: false, because: because('id', 'y') }, { field: 'group', ok: false, because: because('group', 'y') }],
+    });
+    // and its layers are judged separately, each against its own table
+    expect(Object.keys((await own.overview()).views[0]!.layers![1]!.fits!)).toEqual(['x', 'y', 'size']);
+  });
+
+  it('a layer that declares no bindings carries no `initial` key and folds to nothing — its verdicts are judged all the same', async () => {
+    const bare = buildDashboard(makeNetworkDef([nodesLayer, { layerId: 'edges', table: 'edges', chartKind: 'line', channels: ['x', 'y', 'size'] }])).createSession();
+    const layer = (await bare.overview()).views[0]!.layers![1]!;
+    expect('initial' in layer).toBe(false);
+    expect(bare.viewEncodings(EDGES_ADDRESS)).toEqual({});
+    expect((await bare.overview()).encodings[EDGES_ADDRESS]).toEqual({});
+    expect(layer.fits!['size']!.map((f) => f.field)).toEqual(['weight', 'source', 'target']); // still every column of ITS table, judged
+  });
+
+  it('the verdicts are memoized per ADDRESS: a second poll between acts hands back the identical objects', async () => {
+    const s = fresh();
+    const first = (await s.overview()).views[0]!.layers!;
+    const again = (await s.overview()).views[0]!.layers!;
+    expect(again[0]!.fits).toBe(first[0]!.fits);
+    expect(again[1]!.fits).toBe(first[1]!.fits);
   });
 });

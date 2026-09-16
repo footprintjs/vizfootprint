@@ -25,6 +25,8 @@ import {
   type SessionView,
   type SessionViewState,
 } from 'vizfootprint-ui';
+// the layer marker's one owner — an address is JOINED, never spelled here
+import { layerAddress } from 'vizfootprint/def';
 import { ProseLines, type ProseAnchors } from './prose.js';
 import type { DeskProjection } from './types.js';
 
@@ -58,9 +60,25 @@ export function useDeskProjection(input: {
   const shown = state.effectiveEncodings ?? state.encodings;
   const columns = state.columns[state.defaultTable] ?? [];
 
-  const bound = (viewId: string, channel: string, fallback: string): string => boundField(shown[viewId] ?? {}, channel, fallback);
+  // asked by ADDRESS: `shown` is keyed by one (`Overview.encodings`), so a LAYER's declared axes are read here too
+  const bound = (address: string, channel: string, fallback: string): string => boundField(shown[address] ?? {}, channel, fallback);
   const selFor = (self: string | null): RenderSelection => selectionForView(state.selections, self, 'intersect', state.links, state.cleared);
-  const fitsOf = (viewId: string): Readonly<Record<string, readonly FitView[]>> | undefined => state.views.find((v) => v.viewId === viewId)?.fits;
+  /**
+   * The plane's verdicts at an ADDRESS — a view's own, or a LAYER's, which the
+   * wire carries beside the layer (`ViewView.layers[].fits`, judged against the
+   * layer's own table). Asked by address because that is what a cell holds: the
+   * desk emits, binds and now greys at one id. A FRAME has no verdicts of its
+   * own (it draws no rows), so asking at its bare address is `undefined` and
+   * the picker falls back to its own compatibility test — the layer is where
+   * the answer is.
+   */
+  const fitsOf = (address: string): Readonly<Record<string, readonly FitView[]>> | undefined => {
+    for (const v of state.views) {
+      if (v.viewId === address) return v.fits;
+      for (const l of v.layers ?? []) if (layerAddress(v.viewId, l.layerId) === address) return l.fits;
+    }
+    return undefined;
+  };
   const proseOf = (viewId: string): readonly ProseStatusView[] => state.views.find((v) => v.viewId === viewId)?.prose ?? [];
   const altShort = (viewId: string): string | undefined => proseOf(viewId).find((p) => p.slot === 'altShort')?.text;
 
