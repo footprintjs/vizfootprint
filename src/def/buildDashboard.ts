@@ -37,6 +37,8 @@ import {
 } from '../data/index.js';
 // This build's ONE wasm backend: where a def's bytes meet a SQL connection (./wasmBackend.ts).
 import { wasmBackend, wasmBytesOf, wasmRowBytes, type WasmBackend } from './wasmBackend.js';
+// GUARD 2 of "a document is never a table by accident": the declaration a landing is judged against (./declaredTable.ts).
+import { notTheDeclaredTable, unlandedProvider } from './declaredTable.js';
 import { createAlphaInvesting, createLordPlusPlus } from '../fdr/index.js';
 import { absenceByTable } from './builtinAnalyses.js';
 import { DashboardDefError, validateDashboardDef } from './validate.js';
@@ -187,12 +189,14 @@ export type RefreshOutcome =
       readonly refused: true;
       /**
        * Why nothing moved: the carrier's own reason, `no-source` (nothing to
-       * re-read), or `not-reloadable` (there IS a source and it was read, but
+       * re-read), `not-reloadable` (there IS a source and it was read, but
        * the table's engine could not re-land the rows: it has no `replaceRows`
        * at all — a stub — or its backend refused the act, in the engine's own
-       * words; see `refresh`).
+       * words; see `refresh`), or `not-the-declared-table` (the source answered,
+       * and what it answered carries none of the columns this table declares —
+       * `./declaredTable.ts`; the rows in place are untouched).
        */
-      readonly reason: SourceRefusalReason | 'no-source' | 'not-reloadable';
+      readonly reason: SourceRefusalReason | 'no-source' | 'not-reloadable' | 'not-the-declared-table';
       readonly message: string;
     };
 
@@ -642,6 +646,11 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
   const wasm = wasmBackend(options.openSqlConnection);
   const providers = new Map<string, DataProvider>();
   const engines: Record<string, Engine> = {};
+  // Table → the sentence its landing was refused in (`./declaredTable.ts`, guard 2).
+  // The ONE thing the refresh door needs from this loop: a table with a source and no
+  // `sources` entry is a refused landing, and it must be refused again in those words
+  // rather than described as a table that declares no source.
+  const refusedLanding = new Map<string, string>();
   for (const [table, source] of Object.entries(def.data)) {
     const host = options.providers?.[table];
     if (host !== undefined) {
@@ -659,7 +668,20 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
       // A source table's rows go wherever its engine reads them: into this process,
       // or into the SQL backend — which is why a source may declare "wasm" at all
       // (../def/README.md, "A source table and the wasm engine").
-      engines[table] = source.engine === 'wasm' ? 'wasm' : 'memory';
+      const resolved: ResolvedEngine = source.engine === 'wasm' ? 'wasm' : 'memory';
+      engines[table] = resolved;
+      // …but FIRST, are these the DECLARED table's bytes at all (`./declaredTable.ts`,
+      // guard 2)? Judged before they land anywhere: no engine receives them, nothing
+      // vouches for them (`sources[table]` stays absent), the note carries the whole
+      // sentence and this table's provider refuses every read in it. Never a throw —
+      // that would lose the tables that did land (`./wasmBackend.ts`, law 3).
+      const notThisTable = notTheDeclaredTable(table, source, snap.rows);
+      if (notThisTable !== undefined) {
+        notes.push(`data["${table}"]: ${notThisTable}`);
+        refusedLanding.set(table, notThisTable);
+        providers.set(table, unlandedProvider(resolved, notThisTable));
+        continue;
+      }
       providers.set(
         table,
         source.engine === 'wasm'
@@ -717,7 +739,15 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
         continue;
       }
       if (decl.source === undefined || held === undefined) {
-        out[table] = { refused: true, reason: 'no-source', message: `data["${table}"] declares no source — inline rows never move` };
+        // A declared source with nothing held is a landing this build REFUSED (guard 2,
+        // `./declaredTable.ts`) — the only way a source table has no version. It is
+        // refused again in the words the build note said, because "declares no source"
+        // would be a false sentence about a table that declares one.
+        const refused = refusedLanding.get(table);
+        out[table] =
+          refused !== undefined
+            ? { refused: true, reason: 'not-the-declared-table', message: `data["${table}"]: ${refused}` }
+            : { refused: true, reason: 'no-source', message: `data["${table}"] declares no source — inline rows never move` };
         continue;
       }
       // ONE PATH FOR EVERY ENGINE: open the source, take the snapshot, hand the
@@ -742,6 +772,15 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
           // a carrier that cannot answer conditionally but vouches for the same version moved nothing either
           if (isUnchanged(snap) || snap.version === held.version) {
             out[table] = { unchanged: true, version: snap.version };
+            continue;
+          }
+          // GUARD 2 AT THE SECOND LANDING (`./declaredTable.ts`): bytes that are not
+          // this table are refused BEFORE the engine is handed them, so the rows in
+          // place stay exactly where they are — a route that started answering an
+          // error page never replaces yesterday's data with it.
+          const notThisTable = notTheDeclaredTable(table, decl, snap.rows);
+          if (notThisTable !== undefined) {
+            out[table] = { refused: true, reason: 'not-the-declared-table', message: `data["${table}"]: ${notThisTable}` };
             continue;
           }
           // the names the OLD rows carried, read before they go: the engine answers the new schema with the delta

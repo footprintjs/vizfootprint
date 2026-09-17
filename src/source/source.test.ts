@@ -28,6 +28,22 @@ describe('decodeRows — a format never knows a carrier', () => {
     expect(decodeRows('csv', 'a;b\n1;x', { delimiter: ';' })).toEqual([{ a: 1, b: 'x' }]);
     expect(decodeRows('csv', 42)).toEqual({ rejected: 'format csv needs text' });
   });
+  it('csv: a DOCUMENT parses too, and that is the decoder\'s honest limit — one column named after the first line, no rule broken', () => {
+    // The claim `./decode.ts`'s doc makes, pinned: text, a header row and a consistent
+    // field count is all this arm knows, and a protein structure file, an HTML page and
+    // a log all satisfy it. The decoder is NOT the judge — the two guards that are hold
+    // evidence it does not (`./http.ts` · `documentForATable`, `../def/declaredTable.ts`
+    // · `notTheDeclaredTable`), and this test exists so a later packet does not "fix"
+    // this arm with a syntactic rule that would refuse a legitimate one-column table.
+    const pdb = 'HEADER    COMPLEX (ENZYME/INHIBITOR)              14-NOV-97   1AY7\nATOM      1  N   ILE A   1\nATOM      2  CA  ILE A   1\n';
+    const parsed = decodeRows('csv', pdb) as readonly Record<string, unknown>[];
+    expect(parsed).toHaveLength(2);
+    expect(Object.keys(parsed[0]!)).toEqual(['HEADER    COMPLEX (ENZYME/INHIBITOR)              14-NOV-97   1AY7']);
+    expect(decodeRows('csv', '<!doctype html>\n<html><body>Cannot GET /data</body></html>\n')).toHaveLength(1);
+    // …and the same page IS refused by the two formats that can tell, exactly as before
+    expect(decodeRows('json', '<!doctype html>')).toEqual({ rejected: 'format json: the text is not JSON' });
+    expect(decodeRows('rows', '<!doctype html>')).toEqual({ rejected: 'format rows needs a list of row objects' });
+  });
   it('json: a list, an object with rows, an object as one row, and text of any of those', () => {
     expect(decodeRows('json', [{ a: 1 }])).toEqual([{ a: 1 }]);
     expect(decodeRows('json', { rows: [{ a: 2 }] })).toEqual([{ a: 2 }]);

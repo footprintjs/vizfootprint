@@ -85,7 +85,17 @@ function inferType(values: readonly unknown[]): ColumnType {
   return t.type();
 }
 
-function columnNamesOf(rows: readonly Row[]): string[] {
+/**
+ * THE RULE FOR "WHICH COLUMNS DID THESE ROWS BRING" — one owner, because a
+ * second copy of it could name a column this engine cannot read, or miss one it
+ * can. Exported since the build door began judging a LANDING against the def's
+ * declaration (`../def/declaredTable.ts`): that judgement quotes the arrived
+ * names, and quoting names the engine does not agree with would be a refusal
+ * about a table nobody has. `../data/landing.ts` · `rowsLandingOf` reads the
+ * same rule for the wasm engine's header, spelled where a landing may not
+ * import this engine.
+ */
+export function columnNamesOf(rows: readonly Row[]): string[] {
   // Homogeneous-rows assumption (documented): column set comes from the
   // first row. Typical tabular/CSV data satisfies this; a caller loading
   // ragged objects should materialize missing keys as `null` up front.

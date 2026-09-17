@@ -5,7 +5,12 @@
  * pays for it (PACKAGING.md Law 3 — a subpath is for a symbol whose PRESENCE
  * changes what the barrel costs). The
  * version is what the server vouches for (an ETag exactly as sent, weak marker
- * and quotes included, else Last-Modified), else a hash of the bytes. Every way a request can fail has a name from the
+ * and quotes included, else Last-Modified), else a hash of the bytes.
+ *
+ * IT ALSO JUDGES WHAT THE SERVER SAID: a response whose content type is an HTML
+ * document, answered for a source declared as a table, is `malformed` before a
+ * row exists ({@link documentForATable}) — guard 1 of "a document is never a
+ * table by accident" (./README.md). Every way a request can fail has a name from the
  * closed vocabulary: cancelled (the caller's signal), timeout (no answer in
  * time), disconnected (no connection), unauthorized (401/403), unavailable
  * (any other non-2xx, or a 2xx with an empty body), too-large (over the byte
@@ -14,7 +19,7 @@
 import { decodeRows } from './decode.js';
 import { fnv1a } from './hash.js';
 import { SourceRefusal, isSourceRefusal } from './types.js';
-import type { SourceAdapter, SourceDecl, SourceSnapshot, SourceUnchanged } from './types.js';
+import type { SourceAdapter, SourceDecl, SourceFormat, SourceSnapshot, SourceUnchanged } from './types.js';
 
 export interface HttpSourceOptions {
   /** The fetch to use (a host may pass a wrapped one); default = the global fetch, read at call time. */
@@ -38,6 +43,49 @@ export interface HttpSourceOptions {
  */
 function etagHeader(stored: string): string {
   return stored;
+}
+
+/**
+ * The content types that are a DOCUMENT — a page a browser renders, not a table.
+ * Two spellings of the one thing, compared by ESSENCE: `text/html; charset=utf-8`
+ * is `text/html`, because a parameter says how the page is encoded and never what
+ * it is.
+ */
+const DOCUMENT_TYPES: readonly string[] = ['text/html', 'application/xhtml+xml'];
+
+/**
+ * …and the declared formats a document CONTRADICTS.
+ *
+ * WHY `rows` is not one: `snapshot`'s own `rows` arm already refuses an HTML body
+ * by name ("format rows needs a JSON list of row objects, and the body is not
+ * JSON"), so this guard would only change which of two refusals a caller reads.
+ * `csv` has no such backstop at all — a document parses into a one-column table —
+ * and `json` has one whose sentence never says what the server answered.
+ */
+const DOCUMENT_CONTRADICTS: readonly SourceFormat[] = ['csv', 'json'];
+
+/** The essence of a content type: the media type alone, without its parameters. */
+const essenceOf = (contentType: string): string => contentType.split(';')[0]!.trim().toLowerCase();
+
+/**
+ * GUARD 1 — THE CARRIER JUDGES WHAT THE SERVER SAID. The sentence for a document
+ * answered where a table was declared, or `undefined` when there is nothing to
+ * refuse.
+ *
+ * NARROW ON PURPOSE: a server may legitimately serve CSV as `text/csv`,
+ * `text/plain` or `application/octet-stream`, and many serve no content type at
+ * all — so this refuses a CONTRADICTION (the server named a document) and never a
+ * non-match. Refuse on evidence, never on ignorance: a missing header is
+ * ignorance, and a table is not refused for it.
+ *
+ * WHY the header is quoted AS RECEIVED while the comparison drops its
+ * parameters: the essence is what decides, and the whole string is what the
+ * reader has to go and look at.
+ */
+function documentForATable(contentType: string | null, format: SourceFormat): string | undefined {
+  if (contentType === null || !DOCUMENT_CONTRADICTS.includes(format)) return undefined;
+  if (!DOCUMENT_TYPES.includes(essenceOf(contentType))) return undefined;
+  return `the server answered content-type "${contentType}" for a source declared ${format} — a document is never a table by accident; point \`at\` at the data route, or find out why this one answers a page (an error page, an SPA's index.html)`;
 }
 
 /** Release a body we will not read. Cleanup never changes the diagnosis: a cancel that rejects is swallowed. */
@@ -95,6 +143,13 @@ export function httpSource(options: HttpSourceOptions = {}): SourceAdapter {
             if (Number.isFinite(declared) && declared > maxBytes) {
               await drain(res);
               throw refuse('too-large', `too-large — the server declares ${String(declared)} bytes, the cap is ${String(maxBytes)}`);
+            }
+            // the last thing the HEADERS can settle: a document answered where a table
+            // was declared is refused before a byte of it is read, let alone parsed
+            const document = documentForATable(res.headers.get('content-type'), decl.format);
+            if (document !== undefined) {
+              await drain(res);
+              throw refuse('malformed', document);
             }
             text = await res.text();
           } catch (e) {

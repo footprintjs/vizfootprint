@@ -313,6 +313,41 @@ buildDashboard(def, { providers: { data: { engine: 'memory', tables, columns, ev
 
 And what a host provider ANSWERS is public too: a rejection may carry no `detail` (it is optional), so every lint door falls back to the typed `reason` rather than printing `undefined` where a sentence belongs.
 
+### A landing is judged against the declaration — a document is never a table by accident
+
+**A def that names columns for a table has said what that table is. Bytes that arrive carrying NONE of them are not a missing column — they are not this table**, and the door that landed them says so instead of building a dashboard over them (`./declaredTable.ts` · `notTheDeclaredTable`). The measured defect: a `csv` source pointed at a protein structure file built a 2,090-row table whose one column was named after the file's `HEADER` line, and nothing anywhere refused it. The carrier's half of the law — what the server SAID about the bytes — is in [`../source/README.md`](../source/README.md); this is the half the declaration can answer, and it is the only real evidence there is, because a decoder cannot tell a one-column CSV from a text file.
+
+It follows the landing law this file already keeps ([`./wasmBackend.ts`](./wasmBackend.ts), law 3): **a failure is a sentence and a refused read, never a throw that loses the tables that did land.**
+
+```ts
+const def = { data: { cells: { source: { format: 'csv', via: 'http', at: url }, columns: { state: …, cases: …, /* nine of them */ } } }, actors: { … } };
+const dash = await buildDashboardAsync(def, { sources: [httpSource()] });
+
+dash.notes;
+// [ 'data["cells"]: the csv source landed 2,090 rows and none of the columns this table declares —
+//    declared "state", "disease", …, arrived "HEADER    COMPLEX (ENZYME/INHIBITOR)              14-NOV-97   1AY7              ".
+//    A document is never a table by accident, so nothing vouches for these bytes: every read of "cells" is
+//    refused in these words. Point the source at this table's own data, or declare the columns these bytes carry.' ]
+dash.sources['cells'];                      // undefined — nothing vouches for bytes that are not the declared table
+dash.engines['cells'];                      // 'memory' — the def's own routing is still reported
+await session.viewQuery({ table: 'cells' }); // { ok: false, reason: 'engine', engineReason: 'unknown-table', rejected: <that sentence> }
+(await dash.refresh(['cells'])).tables['cells'];
+// { refused: true, reason: 'not-the-declared-table', message: 'data["cells"]: <that sentence>' }
+```
+
+The refusal is judged BEFORE the rows reach an engine, so no backend is opened for them and a refresh that meets a route which started answering another table leaves yesterday's rows exactly where they are. The read refuses through `unlandedProvider` — a provider this folder owns, because no engine could produce this verdict.
+
+**Four things it deliberately does not judge**, each the same reason — refuse a contradiction, never ignorance:
+
+| what arrives | the verdict | why |
+|---|---|---|
+| SOME of the declared columns | accepted, byte-identical | today's law: the read door narrows a clause over a column the table lacks (`../session/clausesReaching.ts` · `narrowedByDef`) and `learnLanded` records what actually arrived |
+| a def that declares NO columns | accepted, byte-identical | nothing was said, so nothing is contradicted; the landed registry learns whatever came (`../data/landedColumns.ts`) |
+| no columns at all (no rows) | accepted | a header-only CSV IS this table with nothing in it; "no columns" is this library not seeing them |
+| an INLINE source | never judged | the payload is the def's own text, judged with the rest of the def — and `buildDashboard` refuses every non-inline source, so a rule that fired on inline bytes would make the two doors answer one def differently |
+
+The arrived names are the engine's own rule for them and never a second copy (`../data/memoryProvider.ts` · `columnNamesOf`): a refusal that quoted names the engine disagrees with would be a refusal about a table nobody has.
+
 ## What fits, before a build
 
 `whatFits` (the encoding plane's door, re-exported here beside `fitsFor`) answers "which column may sit on which channel" without building anything. `whatFits.def.test.ts` pins it against this door's own lint, column by column and channel by channel. See [`../encoding/README.md`](../encoding/README.md).
@@ -654,6 +689,7 @@ And two things stay hand-written, because no declaration holds them: **which ges
 | `tableReach.ts` | `tableReachOf(def)` — the ONE reader of what this definition says about its tables reaching one another (the relations, and the columns of every table whose list is known), so the def door and the build door judge a link's reach off one reading (`../links/README.md`, "A default edge is a promise the engine can keep") |
 | `register.ts` | the one registry boundary |
 | `buildDashboard.ts` | the build — resolves engines (and notes, in the engine's own words, a table routed to one this version does not run), keys, relations and each view's layers onto the runtime; owns the DERIVED-TABLE slots (`landDerivedTable` mints a provider under an act's own name; a refresh drops that parent's tables and every table cut from those, reported as `derivedLost`); `lintData` judges keys and relations against the engine; `lint()` judges every layer against its own table's columns; `lintFrames()` reports the frame's own advice (`frameLint`) per view |
+| `declaredTable.ts` | the LANDING judged against the DECLARATION — `notTheDeclaredTable` (the verdict and its one sentence) and `unlandedProvider`, the provider that refuses every read of a table whose bytes were not this table |
 | `wasmBackend.ts` | this build's ONE SQL backend: a def's bytes (`rows`, `csv`, or the rows a carrier decoded) landed in one connection opened at most once — with a sentence for each way a landing fails, and never a throw past the door |
 | `revision.ts` | the definition's revision, digested once at build |
 | `features.ts` | `defFeatures` — the feature card of a BUILT dashboard, read off the build so a demo's tags cannot drift |

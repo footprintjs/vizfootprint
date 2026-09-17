@@ -5,6 +5,17 @@
  * an object carrying `rows`, or — only when the def says `options: { as: 'one-row' }` —
  * one object as one row (a FeatureCollection is one row, not zero; an error
  * envelope is never a table by accident).
+ *
+ * WHAT THE `csv` ARM CANNOT KNOW, said here because it looks like an omission.
+ * It knows text, a header row and a consistent field count — and a protein
+ * structure file, an HTML error page and a log satisfy all three: they decode
+ * into a one-column table named after their first line, with no rule broken.
+ * NO SYNTACTIC RULE IS HONEST HERE, because a legitimate one-column table
+ * exists and this arm cannot tell the two apart. The two judges that CAN each
+ * hold evidence a decoder does not (./README.md, "A document is never a table
+ * by accident"): the http carrier holds what the server SAID about the bytes
+ * (`./http.ts` · `documentForATable`), and the build door holds what the def
+ * DECLARED about the table (`../def/declaredTable.ts` · `notTheDeclaredTable`).
  */
 import { parseCSVTyped } from '../data/csv.js';
 import type { Row } from '../data/types.js';
@@ -18,6 +29,8 @@ export function decodeRows(format: SourceFormat, payload: unknown, options: Read
       if (!Array.isArray(payload) || !payload.every(isObject)) return { rejected: 'format rows needs a list of row objects' };
       return payload as Row[];
     case 'csv': {
+      // text, a header row, a consistent field count — and nothing about whether
+      // this text is a TABLE: see the module doc, and the two guards that judge that
       if (typeof payload !== 'string') return { rejected: 'format csv needs text' };
       const delimiter = typeof options['delimiter'] === 'string' ? options['delimiter'] : undefined;
       return parseCSVTyped(payload, delimiter !== undefined ? { delimiter } : undefined).rows;

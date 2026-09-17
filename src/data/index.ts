@@ -141,6 +141,11 @@ export { LandedColumns } from './landedColumns.js';
 export type { LandedEntry } from './landedColumns.js';
 
 export { memoryProvider, SORT_CACHE_PER_TABLE } from './memoryProvider.js';
+// …and the one rule for which columns a set of rows brought (the first row's keys).
+// On the barrel because the build door judges a LANDING against the def's declaration
+// and quotes the arrived names (`../def/declaredTable.ts`): two copies of the rule
+// could refuse a table over a column the engine reads perfectly well.
+export { columnNamesOf } from './memoryProvider.js';
 export type { Layout, MemoryProviderOptions, RowsInput } from './memoryProvider.js';
 
 export { wasmProvider, wasmConnectionRefusal } from './wasmProvider.js';
