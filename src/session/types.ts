@@ -1367,11 +1367,33 @@ export interface TableInfo {
   /**
    * Where the rows come from: a declared source (`format · via · at`, the
    * locator only when it is a string), inline rows / CSV text carried by the
-   * def, or COMPUTED — an act cut them, and no carrier holds them. The third
-   * arm is not an inline table said differently: nothing can refresh it, and
-   * `derived` below says which act to ask instead.
+   * def, or COMPUTED — an act made them, and no carrier holds them. The
+   * computed arms are not an inline table said differently: nothing can refresh
+   * one, and each says which act to ask instead.
+   *
+   * COMPUTED has two arms, because a computed table has two doors
+   * (`../def/actFilled.ts`). `aggregate` is a table nobody declared, MINTED
+   * from the act's record — `derived` below carries its parent, its grouping
+   * and the commit that cut it. `act` is a DECLARED table with no carrier,
+   * FILLED by an act: everything else on this row — the key, the grain, the
+   * absence vocabulary, the declared column count — is the def's, exactly as a
+   * sourced table's is, and the facts the carrier arms would have given are
+   * replaced by the ones that are true of it: `by`, the act that fills it;
+   * `landed`, whether that act has landed at this cursor; and `at`, the COMMIT
+   * that filled it, present exactly when it has.
+   *
+   * `at` is the row's DATING FACT, and it is here because without it a reader
+   * could not tell which run landed the rows they are reading — a carrier arm
+   * dates itself with a version and the minted row with `derived.at`, and this
+   * row had neither. It is a commit id, like `derived.at` and unlike the
+   * carrier arm's `at` (a locator): the arms are discriminated, and a reader
+   * who has narrowed to `computed: 'act'` cannot reach the other meaning.
    */
-  readonly source: { readonly format: string; readonly via: string; readonly at?: string } | { readonly inline: 'rows' | 'csv'; readonly rows?: number } | { readonly computed: 'aggregate' };
+  readonly source:
+    | { readonly format: string; readonly via: string; readonly at?: string }
+    | { readonly inline: 'rows' | 'csv'; readonly rows?: number }
+    | { readonly computed: 'aggregate' }
+    | { readonly computed: 'act'; readonly by: string; readonly landed: boolean; readonly at?: string };
   /** The engine the table routed to. */
   readonly engine: Engine;
   /** The declared row key, when the def states one — without it a refresh replaces the table and no row is addressable. */

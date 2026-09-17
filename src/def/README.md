@@ -422,6 +422,86 @@ Seven laws. The door does not judge them in this order: per end it first asks th
 
 The shape sentences, for completeness: `relations, if present, must be an array of { from, to }` · `relations[i] must be an object { from, to, kind?, label? }` · `relations[i]: unknown key "x"` · `relations[i].from must be { table, column } with non-empty strings` · `relations[i].from: unknown key "x"` (an end is exactly those two keys, and an extra one is named, the way a relation's is). A table refused on its own line (`data["bad"] must be an object …`) is not refused again through a relation at either end; the empty table map is refused on its own line and no relation is judged against it.
 
+## A table filled by an act — two doors for a computed table
+
+A `data` entry with no `rows`, no `csv` and no `source` used to be refused — right for a table that will never have rows, wrong for a table whose rows come from a computation. `filledBy` is the fourth way rows arrive, and the only one with no carrier:
+
+```ts
+data: {
+  nodes: { rows: NODES, key: 'id', columns: { id: { role: 'identifier' }, size: { role: 'measure' }, group: { role: 'dimension' } } },
+  edges: { filledBy: 'buildEdges', columns: { source: { role: 'dimension' }, target: { role: 'dimension' }, weight: { role: 'measure' } } },
+},
+analyses: { buildEdges: /* any declared analysis whose channel is `table` */ },
+relations: [
+  { from: { table: 'edges', column: 'source' }, to: { table: 'nodes', column: 'id' }, label: 'one end of the tie' },
+  { from: { table: 'edges', column: 'target' }, to: { table: 'nodes', column: 'id' }, label: 'the other end' },
+],
+```
+
+> **A table may be declared with no carrier and filled by an act. Its columns, its key, its absence vocabulary, its grain and its relations are declared exactly like any other table's; the only thing it gets from the computation is rows. Until the act lands them it is unlanded, and a read of it is refused in the words the library already has. Nothing about it is inferred from the rows that arrive.**
+
+**Its `columns` are REQUIRED**, and they are the only thing this door asks for that a carrier table may leave out. Three questions are deferred from this door to a post-build one exactly WHEN a table declares no columns — its `key`, a relation's `from.column` (law 2 above) and a binding on it (`dashboard.lint()`) — and all three are then judged against the columns the ENGINE lists. A table with no carrier has no rows to ask, so that door can never answer: requiring the declaration is what makes this one their single owner, and what makes the arrived-columns guard below real evidence.
+
+That def is the whole edge-table capability: `edges` is related to `nodes` **twice**, once per endpoint, which is law 7's pair — so a clause on the nodes view travels into the computed table as a semi-join, a `neighbourhood` walked over the computed edges travels back to the nodes by identity, `viewQuery` reads it, and a click on one of its rows means something. None of that is new code; all of it follows from the table being DECLARED.
+
+**The two relations are not used the same way, and this is the one thing to know before you declare them.** A clause travels **the first declared relation whose far column the table has** (`../session/README.md` · the semi-join) — *one* of them, not both. So selecting a node narrows `edges` to the rows where that node sits at **that one end**, and a row where it sits at the other end is filtered OUT rather than kept: pick `cold`, and `{ source: 'warm', target: 'cold' }` does not survive. Swap the two relations in the declaration and the same click answers differently. A `neighbourhood` is the opposite — it travels the **pair** together, in declaration order, which is why a walk over the edges reaches the nodes at both ends.
+
+Declare first, therefore, the endpoint you want a selection to MEAN. If what you want is "every edge this node touches", that is one clause over two columns and this door does not spell it — say so where the reader is, and treat it as a gap rather than assuming the semi-join covers it.
+
+**Two doors, two questions.** A derived table has another door, and it answers something else:
+
+| | the act's table is | its relation to the parent is | reach for it when |
+|---|---|---|---|
+| `analyses: { agg: { builtin: 'aggregate', name: 'by_disease', groupBy: ['disease'], measures: […] } }` | **minted** — the library names it, keys it by the one group column and mints `cells.disease → by_disease.disease` from the grouping | **minted** | the table is a fold of one parent and nobody needs to name it: a summary you group, read and throw away |
+| `data: { edges: { filledBy: 'buildEdges', columns, key } }` | **declared** — you name it, its columns, its key and its absence vocabulary | **declared**, in `relations`, judged at this door like every other | the table has a shape a person has to be able to name — more than one relation, a key that is not a group column, an absence vocabulary, a grain, a layer drawing it |
+
+The aggregate's own declaration states the objection this door has to answer: *a record that could name its own relation could name one nobody declared.* It is correct, and `filledBy` does not weaken it — it answers it. The relation is not on the record. It is in the def, beside every other relation, judged by the same validator. What arrives from the act is rows and nothing else.
+
+**Unlanded is a state, not an error.** Before the act runs the table has a provider that refuses every read in one sentence, and the sentence names the act, because the act is the repair:
+
+```
+"edges" declares no carrier — the act "buildEdges" fills it, and it has not landed on this path: every read of
+  "edges" is refused in these words. Perform "buildEdges" to fill it — it takes the act's rows only if they
+  carry the columns this table declares; its columns, its key and its relations are declared, and do not
+  wait for it.
+```
+
+The repair is stated as what it is and not as a promise: an act whose answer carries none of this table's columns is refused at the landing (below), so "perform it and the rows arrive" would be a sentence that can be wrong.
+
+The same sentence answers a read at a cursor the act's commit is not on — "on this path" is doing real work. A fill gets a **slot per act** (`../data/filledTables.ts`), like a derived column and a derived table, so two branches that filled one name keep their own rows; the declared name resolves to the slot on the branch whose act landed it, and to the refusing provider everywhere else.
+
+And a table whose rows **landed and were withdrawn** says that instead, because it is a different history with a different repair:
+
+```
+"edges" declares no carrier — the act "buildEdges" filled it, and the rows it landed were withdrawn when
+  "nodes" was refreshed: every read of "edges" is refused in these words. They were computed from data that
+  no longer exists, so nothing serves them; perform "buildEdges" again to fill it from the data as it stands.
+```
+
+The def door's seven refusals, each naming both sides:
+
+```
+data["edges"] must set only one of rows, csv, source, filledBy
+data["edges"].filledBy must be the id of a declared analysis — it is "42"
+data["edges"].filledBy "buildEdges" — declare data["edges"].columns first; a table with no carrier has nothing but its declaration, and its columns are what its key, its relations and every binding on it are judged against
+data["edges"].filledBy "ghost" is not a declared analysis — the analyses are buildEdges, summary
+data["edges"].filledBy "pull" produces the columns channel, not a table — only a table-channel act can fill a table
+data["edges"].filledBy "agg" is an aggregate — an aggregate mints the table it lands, with its own key and its own relation to its parent, so it never fills a declared one
+data["other"].filledBy "buildEdges" already fills data["edges"] — an analysis fills at most one table
+data["edges"] is filled by the act "buildEdges", and the aggregate "agg" mints a table of the same name — one name, one owner
+data["edges"] sets engine "wasm" with filledBy; an act's rows are computed in this process, so an act-filled table declares "memory" — or no engine at all
+```
+
+The channel is read before anything is built, off the one spec table for a builtin record and off the def for a module or a raw `AnalysisDef` (`./actFilled.ts` · `channelOf`; the column is pinned to the factories by `builtinAnalyses.test.ts`). A slot this door cannot read says nothing here — it is already refused on its own line, and a second sentence about the same slot would be noise.
+
+And the rest of the law, in the three places it shows up:
+
+- **What arrives is judged.** The rows the act lands are measured against the declaration by the guard that already answers this for a carrier (`./declaredTable.ts` · `notTheDeclaredTable`): zero overlap is *not the declared table*, the rows are not landed, and the act files the sentence as its own gap. A partial mismatch is today's law, unchanged. Only the ROWS are judged, never the answer's `schema`: a `schema` is optional on a table answer, so judging it would give two acts landing byte-identical rows two different verdicts. The answer's own `name` is ignored for the same reason the rest is — the def says which table this act fills, and nothing about the table is inferred from what arrives. (Which is also what lets an analysis written for nobody in particular fill a table it has never heard of.)
+- **A refresh does not move it.** `dashboard.refresh()` moves carriers, and there is none: `{ refused: true, reason: 'no-source', message: 'data["edges"] declares no source — the act "buildEdges" fills it, and an act is performed, never refreshed' }`. A refresh of its PARENT is different: the rows were computed from bytes that no longer exist, so they are dropped and reported (`RefreshOutcome.filledLost`, the twin of `derivedLost`) and the table is unlanded again, saying so at every read. **Every generation goes, whichever registry it lives in** — a fill of a fill, a fill of an aggregate, an aggregate cut from a fill — because the two stores are cleared as a FIXPOINT and not level by level (`./buildDashboard.ts` · `dropComputedFrom`; the three shapes are pinned in `../session/actFilledTable.test.ts`).
+- **A replay rebuilds the rows, which were never in the log.** The commit carries the act and the table it read; the rows are recomputed from the declaration over the parent as it stands (`landsOutsideTheLog`). A recomputation that produces another channel refuses in the replay's existing words.
+
+The Sources rows (`overview().tables`) say what is true of it and claim no carrier — no `via`, no `version`, no locator — and say the three things that are: `source: { computed: 'act', by: 'buildEdges', landed: true, at: 's7' }`. `landed` moves with the cursor, for the reason a derived row appears and disappears: a fill belongs to the branch whose act made it. `at` is the COMMIT that filled it, present exactly when it has landed — the row's dating fact, without which a reader could not tell which run landed the rows they are reading (a carrier arm dates itself with a version, and the minted row with `derived.at`).
+
 ## Layers — a view over more than one table
 
 A view has no table of its own: the session gates every act on its single default table. A node-link is two marks on one frame — edges under nodes — and each reads a **different** table. `layers` on a view's encoding declares that: each layer names its table, its own encoding surface, and an act on a layer lands under the address `viewId~layerId`. A view that declares no layers is byte-identical to a view built before layers existed — no key appears anywhere.

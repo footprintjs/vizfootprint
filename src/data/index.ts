@@ -133,6 +133,9 @@ export type { DerivedColumn } from './derivedColumns.js';
 // the same slot grammar as the columns; its relation back to the parent is minted, never typed.
 export { DerivedTableStore, derivedTableName, mintDerivedTable } from './derivedTables.js';
 export type { DerivedTable, DerivedTableAct } from './derivedTables.js';
+// …and the OTHER door to a computed table: a DECLARED table whose rows arrive from an act (./filledTables.ts).
+export { FilledTableStore, filledTableName, mintFilledTable } from './filledTables.js';
+export type { FilledTable, FilledTableAct } from './filledTables.js';
 
 // Landed columns — what the engine landed for a table, learned once (at build, and again at each
 // re-land), kept beside the table's version, read by every judge that must answer synchronously.

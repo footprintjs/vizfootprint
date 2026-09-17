@@ -549,6 +549,30 @@ A derived table can be a parent in turn (`of` is a logical name). Clearing a par
 store.clear('cells');   // [by_disease@s1, by_disease_totals@s3 (cut from by_disease), by_disease@s4]
 ```
 
+## …and a DECLARED table an act FILLS keeps the same slot law, and mints nothing
+
+The section above is one of the two doors to a computed table, and it is the one where the table is not declared: the library mints its name, its key and its edge to the parent from the act's record, because *a record that could name its own relation could name one nobody declared*. The other door starts from a DECLARATION (`data[t].filledBy`, [`../def/README.md`](../def/README.md), "A table filled by an act"), so there is nothing to mint — the columns, the key, the absence vocabulary and every relation are the def's, judged at the def door — and `filledTables.ts` holds only the one fact a declaration cannot state: **where the rows went, and at which commit.**
+
+Which is still a fact worth a slot per act, for the derived column's reason: a table filled on one branch and filled again on another is two sets of rows.
+
+```ts
+mintFilledTable({ name: 'edges', analysisId: 'buildEdges', commitId: 's7', of: 'nodes', dataVersion: 'etag:"a"' });
+// { name: 'edges', analysisId: 'buildEdges', commitId: 's7', of: 'nodes', dataVersion: 'etag:"a"', physical: 'edges@s7' }
+resolveDerived(store.all(), pathIds).get('edges');   // the fill at this cursor, or undefined
+store.clear('nodes');                                // [edges@s7] — the parent's bytes moved, so the rows computed from them go
+```
+
+Two things differ from the derived store, each because the table is declared:
+
+- **Nothing is minted** — `FilledTableAct` carries no grouping, no measures and no filter, because none of them would be what this table's name, key or relation came from.
+- **A dropped fill does not remove a table.** The declared name keeps a refusing provider, so the instant a slot goes the name resolves back to it — and the sentence it answers with is REPLACED, because the rows landed and were withdrawn rather than never having come (`../def/actFilled.ts` · `withdrawnTableRefusal`). **Unlanded is a state, not an error**, and a dropped fill returns to it.
+
+`clear(of)` is GENERATIONAL, exactly like its twin — and that was a defect before it was a law. The generations were left to the caller, the caller walked one level, and **a fill computed from a fill survived the refresh that destroyed its parent**, answering as `landed` over rows computed from bytes that no longer existed. A registry that answers "what died with this parent" must answer it WHOLE.
+
+What NEITHER store can answer is the crossing: an aggregate cut from an act-filled table, a fill computed from an aggregate. Each store can only see its own entries, so the cascade belongs to the door that holds both — as a **fixpoint**, never a level count (`../def/buildDashboard.ts` · `dropComputedFrom`): drop from both, and every name that falls is a parent to ask both about again, until nothing new falls. That is what makes `derivedLost` and `filledLost` true by construction.
+
+`resolveDerived` is shared, unchanged: it is generic over `{ name, commitId }`, which is exactly what both records are.
+
 ## What the engine landed is learned once
 
 **What the engine landed for a table is learned once — at build, and again at each re-land — kept beside the table's data version, and read by every judge that must answer synchronously.** The engine is still asked live by the reads that must see its current state: a dropped connection is a fact of the read, not of the landing.
@@ -632,6 +656,7 @@ The def door holds the list to **one column, one owner**: an entry must name wha
 | `silence.ts` | THE PORT for absence: `ColumnSilence` / `TableSilence`, the two adapters (`silenceOfDecl`, `silenceOfNothing`) and the two tests every reader shares (`silenceTestOf`, `readsValueTestOf`) |
 | `derivedColumns.ts` | the ONE slot grammar (`slotNameOf`, its marker, `canNameSlot`), the column store, `resolveDerived` (generic: columns AND tables), the two renamers |
 | `derivedTables.ts` | the table store keyed by parent, `mintDerivedTable` (slot, key, relation — minted, never typed), the generational `clear` |
+| `filledTables.ts` | the OTHER door's registry: which DECLARED table an act filled and at which commit (`mintFilledTable` — the slot, and nothing else, because everything else is declared), keyed by parent so a refresh drops it |
 | `landedColumns.ts` | what the engine LANDED for each table — learned once at build and again at each re-land, kept beside the table's version, read by every judge that must answer synchronously (`why()`, the overview's `narrowedFor`); not a cache: written only by the acts that land rows, never consulted by a read that must see the engine live |
 | `absenceContradiction.ts` | the one sentence for a table whose state columns and value columns disagree — judged per governed column, against the port |
 | `describeTable.ts` | what is in a table before there is a dashboard — and, given a vocabulary, whether it keeps its word |

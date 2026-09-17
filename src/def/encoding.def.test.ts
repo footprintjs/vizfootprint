@@ -159,12 +159,36 @@ describe('the def door (build throws) for the encoding plane', () => {
     const problems = await buildDashboard(def, { encoding: { coercers: [discreteCoercer] } }).lint();
     expect(problems.map((p) => [p.field, p.severity])).toEqual([['cases', 'coerced']]);
   });
-  it('lint() throws when the provider cannot list columns (a stub engine): nothing to judge is not nothing wrong', async () => {
-    const def: DashboardDef = { ...base, data: { cases: { rows, engine: 'wasm' } }, encodings: [] };
+  it('lint() SAYS SO when the provider cannot list columns and the def declares none: nothing to judge is not nothing wrong', async () => {
     // the engine is real (it opens a DuckDB where it finds a host), so the thing this
     // test needs — a provider that cannot list columns — is made by refusing the OPEN
     const cannotOpen = { availableEngines: ['memory' as const, 'wasm' as const], openSqlConnection: () => Promise.reject(new Error('no database in this test')) };
-    await expect(buildDashboard(def, cannotOpen).lint()).rejects.toThrow(/cannot list its columns/);
+    // A SENTENCE IN THE LIST, NEVER A THROW (`../def/buildDashboard.ts` · `columnsToJudge`): this
+    // door used to throw here, which is the one thing the build door's own law forbids — a
+    // landing that failed is a sentence and a refused read, never a throw that loses the rest of
+    // the report. One row per binding it was about to judge, carrying the engine's own reason.
+    const bare: DashboardDef = { ...base, data: { cases: { rows, engine: 'wasm' } }, encodings: [{ viewId: 'bar', chartKind: 'bar', channels: ['x', 'y'], initial: { x: 'area', y: 'cases' } }] };
+    const problems = await buildDashboard(bare, cannotOpen).lint();
+    expect(problems.map((p) => [p.rule, p.viewId, p.channel, p.field, p.severity])).toEqual([
+      ['table', 'bar', 'x', 'area', 'refused'],
+      ['table', 'bar', 'y', 'cases', 'refused'],
+    ]);
+    for (const problem of problems) {
+      expect(problem.sentence).toBe(
+        'the "cases" provider cannot list its columns and the def declares none, so nothing was judged against it — opening a connection for "cases" failed: no database in this test — the open function is asked ONCE per provider; fix the cause and construct a new provider',
+      );
+    }
+    // …and a surface that BINDS NOTHING has nothing that went unjudged, and says nothing: the
+    // rows are per binding, so a def with none reports none (`unjudgedBindings`)
+    const unbound: DashboardDef = { ...base, data: { cases: { rows, engine: 'wasm' } }, encodings: [{ viewId: 'bar', chartKind: 'bar', channels: ['x', 'y'] }] };
+    expect(await buildDashboard(unbound, cannotOpen).lint()).toEqual([]);
+    // …and where the def DOES declare the columns, they are the evidence and the bindings are
+    // judged against them: a table whose rows have not arrived still said what it is
+    const declared: DashboardDef = { ...base, data: { cases: { ...base.data['cases']!, engine: 'wasm' } }, encodings: [{ viewId: 'bar', chartKind: 'bar', channels: ['x', 'y'], initial: { x: 'area', y: 'cases' } }] };
+    expect(await buildDashboard(declared, cannotOpen).lint()).toEqual([]);
+    // (a VIEW's binding on a name nothing declares is never a missing column at this door — the
+    // law three tests up, unchanged. Where the declaration IS judged by name is a LAYER, against
+    // its own table: `layers.def.test.ts`.)
   });
   it('a malformed encodings entry is refused structurally and not judged again; a def with no default-table data still validates', () => {
     const problems = validateDashboardDef({ ...base, encodings: [{ viewId: 'bar', chartKind: 'bar', channels: ['category'], initial: { category: 1 } }] } as unknown as DashboardDef);

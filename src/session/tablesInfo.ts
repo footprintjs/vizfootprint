@@ -18,7 +18,7 @@
  * confident answer about a table nobody declared that way, and the shape of it
  * would look exactly like the declared one.
  */
-import type { DerivedTable } from '../data/index.js';
+import type { DerivedTable, FilledTable } from '../data/index.js';
 import type { DashboardRuntime } from '../def/types.js';
 import type { TableInfo } from './types.js';
 
@@ -53,17 +53,38 @@ function derivedInfoOf(table: DerivedTable): TableInfo {
  * Every declared table as the def states it, then every DERIVED table the
  * caller says is visible — read off the def, the runtime and the act, never
  * inferred from the rows.
+ *
+ * `filled` names the act-filled tables that have LANDED at the caller's cursor
+ * (`../data/filledTables.ts`). They are not rows of their own: an act-filled
+ * table is a DECLARED table, so it is one of the declared rows below and only
+ * its carrier differs — which is the law itself, said in the shape of the
+ * projection (`../def/actFilled.ts`).
  */
-export function tablesInfoOf(runtime: DashboardRuntime, derived: readonly DerivedTable[] = []): TableInfo[] {
+export function tablesInfoOf(runtime: DashboardRuntime, derived: readonly DerivedTable[] = [], filled: readonly FilledTable[] = []): TableInfo[] {
+  /** name → the fill visible at the caller's cursor, for `landed` and for the commit that made it. */
+  const landedFills = new Map(filled.map((table) => [table.name, table] as const));
   const declared = runtime.tables.map((name) => {
     const decl = runtime.def.data[name]!; // every runtime table is a def table
     const read = runtime.sources[name];
     const source: TableInfo['source'] =
-      decl.source !== undefined && read !== undefined
-        ? { format: read.format, via: read.via, ...(read.at !== undefined ? { at: read.at } : {}) }
-        : decl.csv !== undefined
-          ? { inline: 'csv' }
-          : { inline: 'rows', rows: decl.rows!.length }; // the def door admits a table only with rows, csv or a source
+      // A TABLE WITH NO CARRIER, and the row says exactly that: no `format`, no
+      // `via`, no `at` and no `version`, because nothing carried these rows and
+      // an entry claiming one would be the only untrue field on this tab. What
+      // it DOES say is the two things that are true — which act fills it, and
+      // whether that act has landed at this cursor — so a reader who finds no
+      // rows is never left guessing what would bring them. `landed` moves with
+      // the walker for the reason a derived row appears and disappears: a fill
+      // belongs to the branch whose act made it — and when it has landed, the
+      // COMMIT that filled it, which is this row's only way to say which run
+      // the rows a reader is looking at came from (the minted row's `derived.at`,
+      // said in the arm that has no carrier to date itself by).
+      decl.filledBy !== undefined
+        ? { computed: 'act', by: decl.filledBy, landed: landedFills.has(name), ...(landedFills.has(name) ? { at: landedFills.get(name)!.commitId } : {}) }
+        : decl.source !== undefined && read !== undefined
+          ? { format: read.format, via: read.via, ...(read.at !== undefined ? { at: read.at } : {}) }
+          : decl.csv !== undefined
+            ? { inline: 'csv' }
+            : { inline: 'rows', rows: decl.rows!.length }; // the def door admits a table only with rows, csv, a source or an act
     return {
       name,
       source,

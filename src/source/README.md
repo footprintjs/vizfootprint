@@ -90,6 +90,28 @@ dashboard.resource('structure') // { format: 'text', body: '<the file>', version
 
 One more thing it is not, because a reader will look for it: **`resources` has no row in the agent surface's parts table** (`../agent/surfaceParts.ts` · `SURFACE_PARTS`), so `whats_here { of: ['resources'] }` is refused by name. It rides an unnarrowed answer and it takes part in a `since` delta correctly — `narrowParts` walks the answer's own keys, not that table — but it cannot be ASKED for on its own, because every row of that table is a part the no-argument answer always carries, and this key is deliberately absent when a def declares no resource. Giving the table a notion of a part that may be absent is an agent-surface change with its own measured cost, not a line in this one.
 
+## A table with no carrier — what the overview says, and what it does not
+
+A table may be declared with **no carrier at all** and filled by a declared act: `data: { edges: { filledBy: 'buildEdges', columns, key } }` ([`../def/README.md`](../def/README.md), "A table filled by an act"). Nothing in this folder carries it — there is no `format`, no `via`, no `at`, no adapter, no version, and no `sources` entry, because **nothing vouched for rows that a computation produced in this process**. A `SourceInfo` minted for it would be the one untrue record on the tab.
+
+What the Sources row says instead is the two things that ARE true of it:
+
+```ts
+(await session.overview()).tables.at(-1);
+// before the act: { name: 'edges', source: { computed: 'act', by: 'buildEdges', landed: false }, engine: 'memory', declaredColumns: 3 }
+// after it:       { name: 'edges', source: { computed: 'act', by: 'buildEdges', landed: true, at: 's7' }, … }
+```
+
+`by` is the act that fills it — the repair, if a reader finds no rows — `landed` is whether that act has landed at this cursor, and `at` is the COMMIT that filled it, present exactly when it has. Everything else on the row is the def's, exactly as a sourced table's is: its key, its grain, its absence vocabulary, its declared column count. `computed` is the discriminant the two carrier arms do not have, and it is shared with the aggregate's minted row (`{ computed: 'aggregate' }`), so a reader branches once on "no carrier" and then on which door.
+
+**The row CAN date its rows, and it has to.** A carrier arm dates itself with a `version` and the minted row with `derived.at`; without `at` this row said only that rows were there, and two runs of one act land two different tables under one name (a slot per act, on a branch). The commit is the one fact that says which run a reader is looking at. It is a commit id, like `derived.at` — the arms are discriminated, so it cannot be read as the carrier arm's locator — and the parent's own data version stays on the record rather than on this row, where a reader would have to ask which table it belonged to.
+
+Three consequences that belong here rather than in the def folder:
+
+- **`refresh()` has nothing to move**, and says so in the `no-source` reason with a tail that is true of this table: `data["edges"] declares no source — the act "buildEdges" fills it, and an act is performed, never refreshed`. (A refresh of its PARENT does move it — the rows were computed from bytes that no longer exist, so they are dropped, reported as `filledLost`, and every read then says they were WITHDRAWN rather than never landed.)
+- **The version a commit stamps for it is its PARENT's** — the version the act's input was true of, recorded on the fill and read back by the same `dataVersionOf` a derived table's is. A table nothing versions (an inline parent) stamps nothing, which is the honest answer.
+- **Guard 2 still applies, at the other landing.** The rows an act lands are judged against the declaration by the same rule a carrier's bytes are (`../def/declaredTable.ts` · `notTheDeclaredTable`) — zero overlap is not this table — with its own sentence, because there is no document, no bytes to vouch for and no source to re-point.
+
 ## Provenance on the wire
 
 `overview().sources` carries each declared table's `SourceInfo` (format, via, locator, version, retrieval time, row count), so `whats_here` and a cockpit can say what the data is and when it was read.

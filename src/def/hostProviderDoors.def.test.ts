@@ -57,8 +57,19 @@ describe('a rejection with no `detail` still says something at every lint door',
 
   it('lint() and lintProse() fall back to the REASON — never "undefined" where a sentence belongs', async () => {
     const dash = buildDashboard(makeDashboardDef(), { providers: { data: bareRefuser() } });
-    await expect(dash.lint()).rejects.toThrow('lint: the "data" provider cannot list its columns — unknown-table');
-    await expect(dash.lintProse()).rejects.toThrow('lintProse: the "data" provider cannot list its columns — unknown-table');
+    // A SENTENCE IN THE LIST, NEVER A THROW (`./buildDashboard.ts` · `columnsToJudge`): one row per
+    // binding this door was about to judge, and the reason is the rejection's `reason` where it
+    // carries no `detail` — which is the whole point of this test, unchanged.
+    const problems = await dash.lint();
+    expect(problems.length).toBeGreaterThan(0);
+    for (const problem of problems) expect(problem.sentence).toBe('the "data" provider cannot list its columns and the def declares none, so nothing was judged against it — unknown-table');
+    expect(new Set(problems.map((p) => [p.rule, p.severity].join(':')))).toEqual(new Set(['table:refused']));
+    // …and the prose door says it per RECORD, on the same reasoning — a def with no prose has
+    // nothing that went unjudged, so this one declares one
+    const withProse = buildDashboard({ ...makeDashboardDef(), prose: [{ viewId: 'scatter', slots: { title: { text: 'Prices', author: { kind: 'human' as const } } } }] }, { providers: { data: bareRefuser() } });
+    expect(await withProse.lintProse()).toEqual([
+      { viewId: 'scatter', slot: 'title', rule: 'table', sentence: 'the "data" provider cannot list its columns and the def declares none, so nothing was judged against it — unknown-table' },
+    ]);
   });
 
   it('lintData() says it for a key it cannot judge, and for a relation\'s source column', async () => {
@@ -73,7 +84,20 @@ describe('a rejection with no `detail` still says something at every lint door',
 
   it('a LAYER\'s table is reached after the default table answered, and says it too', async () => {
     const dash = buildDashboard(layeredDef(), { providers: { nodes: bareRefuser() } });
-    await expect(dash.lint()).rejects.toThrow('lint: the "nodes" provider cannot list its columns — unknown-table');
+    // `nodes` declares its three columns and the layer binds exactly those, so the DECLARATION
+    // answers and there is nothing wrong — where this door used to throw over a table that had
+    // said what it is (`./buildDashboard.ts` · `columnsToJudge`)
+    expect(await dash.lint()).toEqual([]);
+    // …and with the declaration gone, the layer's bindings are the ones that went unjudged, each
+    // carrying the reason the rejection could give
+    const bare = buildDashboard({ ...layeredDef(), data: { ...layeredDef().data, nodes: { rows: NODES, key: 'disease' } } }, { providers: { nodes: bareRefuser() } });
+    const problems = await bare.lint();
+    expect(problems.map((p) => [p.rule, p.viewId, p.channel, p.field])).toEqual([
+      ['table', 'net~nodes', 'x', 'x'],
+      ['table', 'net~nodes', 'y', 'y'],
+      ['table', 'net~nodes', 'key', 'disease'],
+    ]);
+    for (const problem of problems) expect(problem.sentence).toBe('the "nodes" provider cannot list its columns and the def declares none, so nothing was judged against it — unknown-table');
   });
 });
 

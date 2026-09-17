@@ -195,6 +195,38 @@ describe('the refresh door: the second landing is judged too, and the rows in pl
   });
 });
 
+describe('a refused landing is a note and a refused read — and never a THROW out of a lint door', () => {
+  it('the table whose bytes were refused is the DEFAULT table: every lint door answers, and none throws', async () => {
+    // The defect this pins, which predates act-filled tables: `lint()` and `lintProse()` threw
+    // when the default table's provider could not list its columns, and a table whose landing
+    // guard 2 refused is exactly such a provider — so a def the validator had just accepted threw
+    // out of a door an author calls, losing every other table's report with it. That is the one
+    // thing this build door's law forbids (`./wasmBackend.ts`, law 3): a landing that failed is a
+    // SENTENCE and a REFUSED READ. The declaration is what the bindings are judged against
+    // instead (`./buildDashboard.ts` · `columnsToJudge`) — the same evidence guard 2 itself used.
+    const carrier = movingSource({ rows: PDB_ROWS, version: 'v1' });
+    const def = {
+      ...sourced(DECLARED),
+      actors: { grid: { actor: 'user', label: 'Grid' } },
+      encodings: [{ viewId: 'grid', chartKind: 'bar', channels: ['x', 'y'], initial: { x: 'cases' } }],
+      prose: [{ viewId: 'grid', slots: { caption: { text: 'Cases by state', author: { kind: 'agent' as const, model: 'm' }, levels: ['trend' as const], basis: { columns: ['cases'] } } } }],
+      defaultTable: 'cells',
+    } as unknown as DashboardDef;
+    const dash = await buildDashboardAsync(def, { sources: [carrier.adapter] });
+    expect(dash.notes).toEqual([`data["cells"]: ${REFUSAL}`]); // the note, unchanged
+    expect(await readOf(dash)).toEqual({ ok: false, reason: 'engine', engineReason: 'unknown-table', rejected: REFUSAL }); // the refused read, unchanged
+    // …and the two doors answer: the binding and the basis name columns the DEF declares, so
+    // there is nothing wrong to report about them
+    expect(await dash.lint()).toEqual([]);
+    expect(await dash.lintProse()).toEqual([]);
+    // …while a basis naming a column the declaration does NOT have is still caught, from the
+    // declaration alone
+    const wrong = { ...def, prose: [{ viewId: 'grid', slots: { caption: { text: 'x', author: { kind: 'agent' as const, model: 'm' }, levels: ['trend' as const], basis: { columns: ['mystery'] } } } }] } as unknown as DashboardDef;
+    const problems = await (await buildDashboardAsync(wrong, { sources: [movingSource({ rows: PDB_ROWS, version: 'v1' }).adapter] })).lintProse();
+    expect(problems.map((p) => p.sentence)).toEqual(['"grid".caption names a column that is not on this branch: "mystery"']);
+  });
+});
+
 describe('the verdict and the refusing provider, read directly', () => {
   it('a table with no source is not judged at all — the rule names the act that LANDS bytes, and inline is not one', () => {
     expect(notTheDeclaredTable('cells', { rows: CELLS, columns: DECLARED }, PDB_ROWS)).toBeUndefined();

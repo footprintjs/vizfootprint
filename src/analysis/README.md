@@ -22,6 +22,19 @@ const result: AnalysisResult = {
 };
 ```
 
+## The `table` channel: where an act's rows LAND
+
+Three of the four rails land in something that already exists — `columns` writes onto the table the act read, `geometry` and `scalar` stay inside the answer, where a chart and a caption read them. The `table` channel is the one that needs somewhere to PUT a table, and there are exactly two doors, which answer different questions. Neither is in this folder: an analysis produces rows, and where they land is the dashboard's to say.
+
+```ts
+readOutput: () => ({ ok: true, output: { as: 'table', name: 'ties', schema: { source: 'string', target: 'string' }, rows } });
+```
+
+- **MINTED** — the `aggregate` record. The library names the table, keys it by the one group column and mints its relation back to the parent from the grouping. Nothing is declared, and nothing CAN be: *a record that could name its own relation could name one nobody declared* ([`../data/README.md`](../data/README.md), "A derived TABLE belongs to the act that made it").
+- **DECLARED and FILLED** — `data: { edges: { filledBy: 'buildEdges', columns, key } }` ([`../def/README.md`](../def/README.md), "A table filled by an act"). The def names the table, its columns, its key, its absence vocabulary and its relations; the act supplies ROWS and nothing else. Any declared analysis whose channel is `table` can fill one, including one written for nobody in particular: the answer's own `name` is ignored, so an act does not have to know the declared table's name. The `schema` on the answer is not judged either — it is optional, so judging it would give two acts landing byte-identical rows two different verdicts; what IS judged is the rows' own columns against the declaration, by the guard a carrier's bytes are judged by.
+
+For an act that fills a declared table, `AnalysisDef.produces` is read at the DEF door, before anything is built — so an analysis on another channel is refused there rather than filling nothing quietly. An analysis fills at most one table, and an `aggregate` fills none: it mints its own.
+
 ## The formula: a derived column, as data
 
 ```ts

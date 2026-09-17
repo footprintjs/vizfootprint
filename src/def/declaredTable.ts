@@ -33,8 +33,16 @@
  * non-inline source outright, so a rule that fired on inline bytes would make
  * the two doors answer the same def differently.
  *
+ * THE OTHER DOOR THAT LANDS ROWS asks the same question with the same rule and
+ * says it in its own sentence: a table declared with no carrier and filled by
+ * an ACT (`./actFilled.ts`). Its rows did not come from the def, so the
+ * declaration is real evidence about them too — and a computed table is never
+ * the declared table by accident either. Only the OPENING of the refusal
+ * differs (`columnsDisagree`), because the repair does.
+ *
  * Customers: `./buildDashboard.ts` — the async build door (which lands a
- * carrier's rows) and the refresh door (which lands them again). The law a
+ * carrier's rows) and the refresh door (which lands them again) — and
+ * `../session/session.ts` · `writeFilledTable`, the act's landing. The law a
  * refusal here follows is `./wasmBackend.ts`'s law 3: a landing that failed is a
  * SENTENCE and a REFUSED READ, never a throw that loses the tables that did
  * land.
@@ -68,7 +76,34 @@ const quoted = (names: readonly string[]): string => names.map((name) => `"${nam
  * other counted note is (`./buildDashboard.ts` · `resolveEngine`).
  */
 export const notTheDeclaredTableRefusal = (table: string, format: SourceFormat, declared: readonly string[], arrived: readonly string[], rows: number): string =>
-  `the ${format} source landed ${rows.toLocaleString('en-US')} rows and none of the columns this table declares — declared ${quoted(declared)}, arrived ${quoted(arrived)}. A document is never a table by accident, so nothing vouches for these bytes: every read of "${table}" is refused in these words. Point the source at this table's own data, or declare the columns these bytes carry.`;
+  `${columnsDisagree(`the ${format} source`, declared, arrived, rows)}. A document is never a table by accident, so nothing vouches for these bytes: every read of "${table}" is refused in these words. Point the source at this table's own data, or declare the columns these bytes carry.`;
+
+/**
+ * THE EVIDENCE, shared by the two refusals below it: what landed, how much of
+ * it, what this table declares and what actually arrived — the order a reader
+ * needs them in. Both lists are printed WHOLE and neither is capped, because
+ * the lists ARE the evidence for a refusal about identity.
+ *
+ * `landedBy` is the phrase that opens the sentence, and it is the ONLY thing
+ * the two doors differ by: a carrier landed bytes, an act computed rows.
+ */
+const columnsDisagree = (landedBy: string, declared: readonly string[], arrived: readonly string[], rows: number): string =>
+  `${landedBy} landed ${rows.toLocaleString('en-US')} rows and none of the columns this table declares — declared ${quoted(declared)}, arrived ${quoted(arrived)}`;
+
+/**
+ * …and THE SAME VERDICT for a table an ACT fills (`./actFilled.ts`): a
+ * computed table is never the declared table by accident either.
+ *
+ * Its tail differs from the carrier's in every clause that would be a false
+ * sentence here — there is no document, there are no bytes to vouch for, and
+ * there is no source to re-point. And it says what IS true of the table
+ * afterwards: the rows are not landed, so the table is still unlanded and the
+ * read refusal a reader will hear is the one that names the act
+ * (`./actFilled.ts` · `unfilledTableRefusal`), not this one. This sentence is
+ * the ACT's answer — the session files it as the act's own gap.
+ */
+export const notTheFilledTableRefusal = (table: string, act: string, declared: readonly string[], arrived: readonly string[], rows: number): string =>
+  `${columnsDisagree(`the act "${act}"`, declared, arrived, rows)}. A computed table is never the declared table by accident, so these rows are not landed: "${table}" stays unlanded and every read of it is refused in the words that name the act. Land this table's own columns from "${act}", or declare the columns it computes.`;
 
 /**
  * IS THIS THE DECLARED TABLE? The sentence when it is not, `undefined` when
@@ -81,14 +116,25 @@ export const notTheDeclaredTableRefusal = (table: string, format: SourceFormat, 
  */
 export function notTheDeclaredTable(table: string, decl: DataSourceDef, rows: readonly Row[]): string | undefined {
   const source = decl.source;
-  // inline bytes are the def's own text — judged with the def, not against it (see the module doc)
-  if (source === undefined || source.via === 'inline') return undefined;
+  // WHICH DOOR IS ASKING, and therefore which sentence a refusal is said in. An
+  // ACT is the second door (`./actFilled.ts`): its rows arrived from a
+  // computation over another table, so the same evidence is real evidence — a
+  // def that names nine columns has said what this table is — and the rule
+  // below is the same rule. Inline bytes are the def's own text, judged WITH
+  // the def and not against it (see the module doc).
+  const refusal =
+    decl.filledBy !== undefined
+      ? (declared: readonly string[], arrived: readonly string[]) => notTheFilledTableRefusal(table, decl.filledBy!, declared, arrived, rows.length)
+      : source === undefined || source.via === 'inline'
+        ? undefined
+        : (declared: readonly string[], arrived: readonly string[]) => notTheDeclaredTableRefusal(table, source.format, declared, arrived, rows.length);
+  if (refusal === undefined) return undefined;
   const declared = declaredNamesOf(decl);
   if (declared.length === 0) return undefined;
   const arrived = columnNamesOf(rows);
   if (arrived.length === 0) return undefined;
   if (arrived.some((name) => declared.includes(name))) return undefined;
-  return notTheDeclaredTableRefusal(table, source.format, declared, arrived, rows.length);
+  return refusal(declared, arrived);
 }
 
 /**

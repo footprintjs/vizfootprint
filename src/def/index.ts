@@ -19,6 +19,10 @@ export { BUILTIN_ANALYSES, BuiltinAnalysisError, isBuiltinRecord, validateBuilti
 // every door that judges a table name reads (./README.md, "Layers", law 2).
 export { mintedColumnNames, mintedTables } from './builtinAnalyses.js';
 export type { MintedTable } from './builtinAnalyses.js';
+// …and the OTHER door: which DECLARED table an act FILLS, read off the same
+// declaration, with the sentence a read of one gets before the act runs
+// (./actFilled.ts; ./README.md, "Two doors for a computed table").
+export { actFilledTables, tableFilledBy, unfilledTableRefusal } from './actFilled.js';
 export type { BuiltinAnalysisDecl, BuiltinAnalysisName, GroupByDecl, CorrelationDecl, RegressionDecl, ClusteringDecl, FormulaDecl, LayoutDecl, BringOverDecl, DeriveDecl, AggregateDecl, RankDecl, BuiltinAnalysisContext } from './builtinAnalyses.js';
 // The DECLARATION a `derive` record carries, from the barrel that owns the
 // record. WHY here and not a subpath of its own: the grammar is consumed as ONE

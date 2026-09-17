@@ -77,14 +77,18 @@ describe('a declared stub engine is said out loud at the door', () => {
   });
 
   it('the note is what the READ will say, word for word — the author hears it early, not differently', async () => {
+    /** Every sentence a lint door reports, which is where the read-time refusal is quoted (never a throw: `../def/buildDashboard.ts` · `columnsToJudge`). */
+    const sentences = async (dash: { lint(): Promise<readonly { readonly sentence: string }[]> }): Promise<readonly string[]> => (await dash.lint()).map((p) => p.sentence);
     const stub = buildDashboard(makeDashboardDef({ engine: 'server' }));
-    await expect(stub.lint()).rejects.toThrow(stubEngineRefusal('server', 'data'));
+    const said = await sentences(stub);
+    expect(said.length).toBeGreaterThan(0);
+    for (const sentence of said) expect(sentence).toContain(stubEngineRefusal('server', 'data'));
     expect(stub.notes.some((n) => n.endsWith(stubEngineRefusal('server', 'data')))).toBe(true);
     // …and for the engine that RUNS, the same law applies to the failure and not to
     // the laziness: the sync note says which read will pay, and that read then says
     // what went wrong when it tried — the cause, quoted by both.
     const wasm = buildDashboard(makeDashboardDef({ engine: 'wasm' }), { openSqlConnection: refusingOpener });
-    await expect(wasm.lint()).rejects.toThrow(NO_DATABASE);
+    for (const sentence of await sentences(wasm)) expect(sentence).toContain(NO_DATABASE);
     const async = await buildDashboardAsync(makeDashboardDef({ engine: 'wasm' }), { openSqlConnection: refusingOpener });
     expect(async.notes[0]).toContain(NO_DATABASE);
   });
@@ -112,7 +116,12 @@ describe('the def door still accepts it — the refusal is about this VERSION, n
     // and the read-time refusal reaches the doors an author calls, carrying the same sentence
     const keyed: DashboardDef = { ...makeDashboardDef({ engine: 'server' }), data: { data: { rows: [], engine: 'server', key: 'id' } } };
     expect((await buildDashboard(keyed).lintData())[0]).toContain(stubEngineSentence('server'));
-    await expect(buildDashboard(makeDashboardDef({ engine: 'server' })).lintProse()).rejects.toThrow(stubEngineSentence('server'));
+    // …at the PROSE door too, as a row per record it could not judge — a def with no prose has
+    // nothing that went unjudged, so this one declares a slot to be told about
+    const prosed: DashboardDef = { ...makeDashboardDef({ engine: 'server' }), prose: [{ viewId: 'scatter', slots: { title: { text: 'Prices', author: { kind: 'human' } } } }] };
+    const rows = await buildDashboard(prosed).lintProse();
+    expect(rows.map((r) => [r.viewId, r.slot, r.rule])).toEqual([['scatter', 'title', 'table']]);
+    expect(rows[0]!.sentence).toContain(stubEngineSentence('server'));
   });
 
   it('a host that brings the engine makes the same def answer — which is why the validator may not refuse it', async () => {

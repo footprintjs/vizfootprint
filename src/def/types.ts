@@ -40,7 +40,7 @@ import type {
 } from '../analysis/index.js';
 import type { BuiltinAnalysisDecl } from './builtinAnalyses.js';
 import type { FdrStep, GammaSequence, HypothesisRecord } from '../fdr/index.js';
-import type { ColumnFacet, ColumnInfo, DataProvider, DerivedColumnStore, DerivedTable, DerivedTableStore, Engine, LandedColumns, Row } from '../data/index.js';
+import type { ColumnFacet, ColumnInfo, DataProvider, DerivedColumnStore, DerivedTable, DerivedTableStore, Engine, FilledTable, FilledTableStore, LandedColumns, Row } from '../data/index.js';
 
 // ── The dispatch verb vocabulary (SPEC §9; Q6 — the 7-verb set was INCOMPLETE:
 // changing a view's visual encoding is a state-changing transition too, not an
@@ -183,6 +183,25 @@ export interface DataSourceDef {
    * "replaced" and nothing is guessed (the no-row-key law).
    */
   readonly key?: string;
+  /**
+   * THE ACT THAT FILLS THIS TABLE — the fourth way rows arrive, and the only
+   * one with no carrier. Mutually exclusive with `rows`, `csv` and `source`:
+   * a table's rows come from one place (`./README.md`, "A table filled by an
+   * act").
+   *
+   * It names a declared analysis (`def.analyses`) whose channel is `table`, and
+   * the ONLY thing this table takes from it is ROWS. Everything else above —
+   * `columns`, `key`, `absence`, `grain`, `engine` — and every relation in
+   * `def.relations` that names it are declared and judged exactly as a sourced
+   * table's are, at the same door, by the same validator. Until the act is
+   * performed the table is UNLANDED and every read of it is refused in a
+   * sentence that names the act (`./actFilled.ts` · `unfilledTableRefusal`).
+   *
+   * Named `filledBy` and not `act`: an analysis record already names a table
+   * (`AggregateDecl.table` — the parent an act READS), so `act` on this side
+   * would be read two ways. `filledBy` can only mean the rows arrive.
+   */
+  readonly filledBy?: string;
 }
 
 /**
@@ -941,6 +960,21 @@ export interface DashboardRuntime {
    * that answered.
    */
   landDerivedTable(table: DerivedTable, rows: readonly Row[]): void;
+  /**
+   * Which DECLARED table names an act has filled, and at which commit
+   * (`src/data/filledTables.ts`). The derived registry's twin at the other
+   * door: a derived table's name, key and relation are MINTED from its record,
+   * an act-filled table's are DECLARED — so what is registered here is only
+   * where the rows went (`./README.md`, "Two doors for a computed table").
+   */
+  readonly filledTables: FilledTableStore;
+  /**
+   * Land one act-filled table: mint its provider under the act's own slot and
+   * register the act. The twin of {@link landDerivedTable}, and THE ONE DOOR
+   * for the same reason — a slot with no registry entry is a name that resolves
+   * to nothing.
+   */
+  landFilledTable(table: FilledTable, rows: readonly Row[]): void;
   /** Build notes a def should hear: e.g. which engine `engine: 'auto'` resolved to, and the row count it resolved on. */
   readonly notes: readonly string[];
   /** The declared row key per table (absent = positional rows, no delta). */

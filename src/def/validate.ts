@@ -14,6 +14,7 @@ import { validateAnalysisDef } from '../analysis/index.js';
 import { isBuiltinRecord, validateBuiltinAnalysis } from './builtinAnalyses.js';
 import { validateRelations } from './relations.js';
 import { mintedTables } from './builtinAnalyses.js';
+import { validateActFilled } from './actFilled.js';
 import { declaredLayerAddresses, layerLinkViewsOf, layerSurfacesOf, markerRefusal, ownRowsOf, validateFrame, validateLayers } from './layers.js';
 import { tableReachOf } from './tableReach.js';
 import { holdsLayerMarker } from './layerAddress.js';
@@ -667,8 +668,14 @@ export function validateDashboardDef(def: unknown): string[] {
       const hasRows = src.rows !== undefined;
       const hasCsv = src.csv !== undefined;
       const hasSource = src.source !== undefined;
-      if ([hasRows, hasCsv, hasSource].filter(Boolean).length > 1) problems.push(`data["${table}"] must set only one of rows, csv, source`);
-      if (!hasRows && !hasCsv && !hasSource) problems.push(`data["${table}"] must set rows, csv, or source`);
+      // …and the fourth way rows arrive, with no carrier at all: an ACT fills them
+      // (`./actFilled.ts`). It joins the ONE exclusivity sentence rather than getting
+      // a pairing rule of its own — a table's rows come from one place, and one owner
+      // says so. Its own laws (the act is declared, its channel is `table`, it fills
+      // at most one table) are judged by `validateActFilled` below.
+      const hasFilledBy = src.filledBy !== undefined;
+      if ([hasRows, hasCsv, hasSource, hasFilledBy].filter(Boolean).length > 1) problems.push(`data["${table}"] must set only one of rows, csv, source, filledBy`);
+      if (!hasRows && !hasCsv && !hasSource && !hasFilledBy) problems.push(`data["${table}"] must set rows, csv, source, or filledBy`);
       if (hasSource) {
         validateSourceDecl(src.source, `data["${table}"].source`, problems);
         // THE RULING (./README.md, "A source table and the wasm engine"): a source's
@@ -703,6 +710,13 @@ export function validateDashboardDef(def: unknown): string[] {
       if (Array.isArray(src.rows)) judgeAbsenceKept(src.rows, facetSourceOf(src), `data["${table}"]`, problems);
     }
   }
+
+  // …and the act-filled declarations, judged as a GROUP: whether an act is
+  // declared, what channel it lands and whether two tables are waiting on the
+  // same one are questions about the def as a whole, not about one entry, so
+  // they are asked once here rather than inside the loop above
+  // (`./actFilled.ts`, the ONE owner of this declaration's laws).
+  validateActFilled(def, problems);
 
   // ── resources (optional) — declared sources that are NOT tables ──
   if (def.resources !== undefined) {

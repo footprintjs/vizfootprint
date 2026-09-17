@@ -41,8 +41,17 @@ describe('the def door and the lint door', () => {
     const derivedElsewhere: DashboardDef = { ...makeDashboardDef(), prose: [{ viewId: 'cluster', slots: { howToRead: { author: { kind: 'derived' } } } }] };
     expect(() => buildDashboard(derivedElsewhere)).toThrow(/nothing to derive from/);
     expect(await buildDashboard(withProse()).lintProse()).toEqual([]);
+    // …and a table that will not describe itself is a SENTENCE at this door, never a throw that
+    // loses the rest of the report (`../def/buildDashboard.ts` · `columnsToJudge`): one row per
+    // record it was about to judge, each carrying the engine's own reason
     const stub: DashboardDef = { ...withProse(), data: { data: { rows: [], engine: 'wasm' } } };
-    await expect(buildDashboard(stub, { availableEngines: ['memory', 'wasm'], ...noSqlConnection }).lintProse()).rejects.toThrow(/cannot list its columns/);
+    const unjudged = await buildDashboard(stub, { availableEngines: ['memory', 'wasm'], ...noSqlConnection }).lintProse();
+    expect(unjudged.map((p) => [p.viewId, p.slot, p.rule])).toEqual([
+      ['scatter', 'title', 'table'],
+      ['scatter', 'caption', 'table'],
+      ['scatter', 'howToRead', 'table'],
+    ]);
+    for (const row of unjudged) expect(row.sentence).toContain('cannot list its columns');
   });
 });
 

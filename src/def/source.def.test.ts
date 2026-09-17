@@ -23,9 +23,9 @@ function withSource(source: DataSourceDef['source'], extra: Partial<DataSourceDe
 describe('the def door — data[t].source', () => {
   it('rows, csv and source are three ways to say the same thing; only one may be set, one must be', () => {
     const both = { ...makeDashboardDef(), data: { data: { rows: SAMPLE_ROWS, source: { format: 'rows', via: 'inline', at: SAMPLE_ROWS } } } } as unknown;
-    expect(validateDashboardDef(both)).toContain('data["data"] must set only one of rows, csv, source');
+    expect(validateDashboardDef(both)).toContain('data["data"] must set only one of rows, csv, source, filledBy');
     const none = { ...makeDashboardDef(), data: { data: {} } } as unknown;
-    expect(validateDashboardDef(none)).toContain('data["data"] must set rows, csv, or source');
+    expect(validateDashboardDef(none)).toContain('data["data"] must set rows, csv, source, or filledBy');
   });
   it('refuses a malformed source with the sentence for each bookmark', () => {
     const at = (source: unknown): string[] => validateDashboardDef({ ...makeDashboardDef(), data: { data: { source } } } as unknown);

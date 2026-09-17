@@ -42,7 +42,7 @@ describe('validateDashboardDef (R12 firewall)', () => {
 
   it('rejects data that sets both rows and csv', () => {
     const bad = { data: { t: { rows: [], csv: 'a,b' } }, actors: {} } as unknown;
-    expect(validateDashboardDef(bad)).toContain('data["t"] must set only one of rows, csv, source');
+    expect(validateDashboardDef(bad)).toContain('data["t"] must set only one of rows, csv, source, filledBy');
   });
 
   it('re-firewalls a raw AnalysisDef through L3 (kind:test without a statistic rejected)', () => {

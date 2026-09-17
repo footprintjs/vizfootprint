@@ -18,6 +18,7 @@ import {
   chooseEngine,
   DerivedColumnStore,
   DerivedTableStore,
+  FilledTableStore,
   isPairKind,
   isStubEngine,
   LandedColumns,
@@ -29,6 +30,7 @@ import {
   type DatasetStats,
   type Engine,
   type DerivedTable,
+  type FilledTable,
   type ResolvedEngine,
   type Row,
   type RowsInput,
@@ -39,6 +41,8 @@ import {
 import { wasmBackend, wasmBytesOf, wasmRowBytes, type WasmBackend } from './wasmBackend.js';
 // GUARD 2 of "a document is never a table by accident": the declaration a landing is judged against (./declaredTable.ts).
 import { notTheDeclaredTable, unlandedProvider } from './declaredTable.js';
+// The OTHER way a table's rows arrive: declared with no carrier, filled by an act (./actFilled.ts).
+import { unfilledTableRefusal, withdrawnTableRefusal } from './actFilled.js';
 import { createAlphaInvesting, createLordPlusPlus } from '../fdr/index.js';
 import { absenceByTable } from './builtinAnalyses.js';
 import { DashboardDefError, validateDashboardDef } from './validate.js';
@@ -47,6 +51,7 @@ import {
   DEFAULT_INTENTS,
   type CapabilityDecl,
   type DashboardDef,
+  type DataSourceDef,
   type DashboardRuntime,
   type DispatchVerb,
   type FdrStepper,
@@ -82,7 +87,7 @@ import { isRejection } from '../data/index.js';
 import { DEFAULT_RELATION_KIND } from './relations.js';
 import { decodeRows, inlineResource, inlineVersion, isResourceRefusal, isSourceRefusal, isUnchanged, openResource, openSource, resourceBytes, resourceInfoOf, SourceRefusal } from '../source/index.js';
 import type { RefreshDelta, ResourceDecl, ResourceInfo, ResourceSnapshot, SourceAdapter, SourceDecl, SourceInfo, SourceRefusalReason, SourceSnapshot } from '../source/index.js';
-import type { ColumnFacet } from '../data/index.js';
+import type { ColumnFacet, ColumnInfo } from '../data/index.js';
 import { deepFreeze } from '../detach/index.js';
 
 /** The offline dashboard handle. `createSession()` opens one live, stateful session. */
@@ -214,6 +219,14 @@ export type RefreshOutcome =
        * and still claim the version it was cut from.
        */
       readonly derivedLost?: readonly string[];
+      /**
+       * ACT-FILLED tables computed from the old rows, gone with them — the
+       * twin of `derivedLost` at the other door (`./actFilled.ts`). Reported by
+       * the names a person knows, and each is still DECLARED: it is simply
+       * UNLANDED again, refusing every read in the words that name the act to
+       * perform a second time.
+       */
+      readonly filledLost?: readonly string[];
     }
   | {
       readonly refused: true;
@@ -386,6 +399,10 @@ function judgeProviders(def: DashboardDef, supplied: BuildDashboardOptions['prov
     }
     if (def.data[table]!.source !== undefined) {
       problems.push(`providers["${table}"] brings its own rows, and data["${table}"] declares a source — a table's rows come from one place; drop one of them`);
+    } else if (def.data[table]!.filledBy !== undefined) {
+      // the same law one door along (`./actFilled.ts`): the act computes these rows, so a
+      // provider that brings its own is a second answer to "where do this table's rows come from"
+      problems.push(`providers["${table}"] brings its own rows, and data["${table}"] is filled by the act "${def.data[table]!.filledBy}" — a table's rows come from one place; drop one of them`);
     }
   }
   return problems;
@@ -649,6 +666,17 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
       notes.push(hostProviderNote(table, host.engine, source.engine ?? 'memory'));
       continue;
     }
+    if (source.filledBy !== undefined) {
+      // A TABLE WITH NO CARRIER (`./actFilled.ts`): there is nothing to decode, nothing to
+      // fetch and no engine to route — the rows arrive from the ACT, into a memory slot the
+      // act's own commit names (`../data/filledTables.ts`). What is installed here is the
+      // refusal a read gets until then: the ONE unlanded provider, saying which act it waits
+      // for. And no `sources` entry, for the reason a refused landing has none — nothing
+      // vouched for rows that have not come.
+      engines[table] = 'memory';
+      providers.set(table, unlandedProvider('memory', unfilledTableRefusal(table, source.filledBy)));
+      continue;
+    }
     if (source.source !== undefined) {
       // an inline source: decoded here, the same rows `rows:` would have carried
       const rows = decodeRows(source.source.format, source.source.at, source.source.options);
@@ -691,7 +719,7 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
       }
     });
   }
-  return assemble(def, options, providers, engines, sources, store, notes, journal, new DerivedColumnStore(), derivedTableSlots(providers), landedColumns, wasm);
+  return assemble(def, options, providers, engines, sources, store, notes, journal, new DerivedColumnStore(), derivedTableSlots(providers), filledTableSlots(providers), landedColumns, wasm);
 }
 
 /**
@@ -734,6 +762,17 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
       engines[table] = host.engine;
       providers.set(table, host);
       notes.push(hostProviderNote(table, host.engine, source.engine ?? 'memory'));
+      continue;
+    }
+    if (source.filledBy !== undefined) {
+      // A TABLE WITH NO CARRIER (`./actFilled.ts`): there is nothing to decode, nothing to
+      // fetch and no engine to route — the rows arrive from the ACT, into a memory slot the
+      // act's own commit names (`../data/filledTables.ts`). What is installed here is the
+      // refusal a read gets until then: the ONE unlanded provider, saying which act it waits
+      // for. And no `sources` entry, for the reason a refused landing has none — nothing
+      // vouched for rows that have not come.
+      engines[table] = 'memory';
+      providers.set(table, unlandedProvider('memory', unfilledTableRefusal(table, source.filledBy)));
       continue;
     }
     if (source.source !== undefined) {
@@ -798,6 +837,8 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
   const derived = new DerivedColumnStore();
   // …and the tables an aggregate cut from them, on the same reasoning one level out.
   const derivedTables = derivedTableSlots(providers);
+  // …and the DECLARED tables an act fills, on the same reasoning at the other door (./actFilled.ts).
+  const filled = filledTableSlots(providers);
   /**
    * Re-read ONE declared resource with the version held. A refused re-fetch
    * leaves yesterday's bytes exactly where they are — {@link landResource} is
@@ -847,6 +888,15 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
       if (decl === undefined) {
         // an unknown name is refused as such — never described as a table with inline rows
         out[table] = { refused: true, reason: 'no-source', message: noSuchName(table, def) };
+        continue;
+      }
+      if (decl.filledBy !== undefined) {
+        // A TABLE WITH NO CARRIER (`./actFilled.ts`). `refresh()` moves carriers, and there
+        // is none here: the rows come from an act, which is PERFORMED (`declareAnalysis`)
+        // and never re-read. Refused in the `no-source` reason the carrier-less table
+        // already answers in — the same shape, with the tail that is true of this one:
+        // "inline rows never move" would be a false sentence about a table with no rows.
+        out[table] = { refused: true, reason: 'no-source', message: `data["${table}"] declares no source — the act "${decl.filledBy}" fills it, and an act is performed, never refreshed` };
         continue;
       }
       if (decl.source === undefined || held === undefined) {
@@ -919,13 +969,19 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
           // record says which version of this parent it was cut from, and that
           // version no longer exists — so it is dropped rather than left
           // serving yesterday's rows under today's name.
-          const tablesLost = derivedTables.drop(table);
+          // …and every COMPUTED table that lived on those rows goes with them, whichever
+          // registry it lives in and however many generations down — one fixpoint over
+          // both, so the two lists are true by construction rather than by counting levels
+          // (`dropComputedFrom`). An act-filled table does not vanish with its rows: it is
+          // still DECLARED, so it is unlanded again and says at every read that they were
+          // withdrawn.
+          const { derivedLost: tablesLost, filledLost } = dropComputedFrom(derivedTables, filled, table);
           sources[table] = { ...held, version: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length };
           // the re-land is the second act that writes the registry (`../data/landedColumns.ts`): the NEW version
           // beside the schema the engine answered WITH the delta — no second `columns()` call, and the old list is
           // replaced whole, because the old rows are gone. `unchanged` and a refused re-land never reach this line.
           landedColumns.set(table, snap.version, landed.columns);
-          out[table] = { changed: true, from: held.version, to: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length, delta: landed.delta, ...(lost.length > 0 ? { materialisedLost: lost } : {}), ...(tablesLost.length > 0 ? { derivedLost: tablesLost } : {}) };
+          out[table] = { changed: true, from: held.version, to: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length, delta: landed.delta, ...(lost.length > 0 ? { materialisedLost: lost } : {}), ...(tablesLost.length > 0 ? { derivedLost: tablesLost } : {}), ...(filledLost.length > 0 ? { filledLost } : {}) };
         } finally {
           await handle.close();
         }
@@ -946,7 +1002,7 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
     queue = next.catch(() => undefined);
     return next;
   };
-  return assemble(def, options, providers, engines, sources, store, notes, journal, derived, derivedTables, landedColumns, wasm, refresh);
+  return assemble(def, options, providers, engines, sources, store, notes, journal, derived, derivedTables, filled, landedColumns, wasm, refresh);
 }
 
 /**
@@ -1231,6 +1287,155 @@ function derivedTableSlots(providers: Map<string, DataProvider>): DerivedTableSl
 }
 
 /**
+ * The twin of {@link DerivedTableSlots} at the other door: the slot an ACT
+ * fills a DECLARED table's rows into.
+ *
+ * Two things differ, both because the table is declared. Nothing is minted —
+ * the name, the key and the relations are the def's — so this owner holds only
+ * the provider and the registry entry. And a DROP does not remove a table: the
+ * declared name keeps the refusing provider it was built with, so the instant
+ * the slot goes the name resolves back to it and every read is refused in the
+ * words that name the act again (`./actFilled.ts` · `unfilledTableRefusal`).
+ * Unlanded is a state, not an error, and a dropped fill returns to it.
+ */
+interface FilledTableSlots {
+  /** The registry a session resolves an act-filled table NAME through, at its cursor. */
+  readonly store: FilledTableStore;
+  /** Land one: a fresh memory provider under the act's slot, then the entry. */
+  land(table: FilledTable, rows: readonly Row[]): void;
+  /**
+   * Drop every fill computed from one parent (and, by the store's own
+   * generations, from those in turn), answering the names, oldest first.
+   * `refreshed` is the table whose refresh set this off — the ORIGIN, which a
+   * grandchild's refusal names, because that is the event a reader needs.
+   */
+  drop(of: string, refreshed: string): readonly string[];
+}
+
+function filledTableSlots(providers: Map<string, DataProvider>): FilledTableSlots {
+  const store = new FilledTableStore();
+  return {
+    store,
+    land: (table, rows) => {
+      // A FRESH provider per act, and DETACHED on the way in — both for
+      // `derivedTableSlots`' reasons, word for word: two acts that fill one
+      // name are two sets of rows, and these row objects are also in the answer
+      // the act handed its caller.
+      providers.set(table.physical, memoryProvider(rows.map((row) => ({ ...row })), { tableName: table.physical }));
+      store.record(table);
+    },
+    drop: (of, refreshed) => {
+      const dropped = store.clear(of);
+      for (const table of dropped) {
+        providers.delete(table.physical);
+        // …AND THE DECLARED NAME'S REFUSAL IS REPLACED, which is the second half of the
+        // drop: the name resolves back to the provider the BUILD installed, and that one
+        // says "it has not landed" — true of this instant, and a reader could take it for
+        // the whole answer. The rows landed and were WITHDRAWN, and the repair is to
+        // perform the act again, so the sentence says so (`./actFilled.ts` ·
+        // `withdrawnTableRefusal`). Said dashboard-wide because the withdrawal is: every
+        // fill of that parent is gone, on every branch, and none can be recomputed from
+        // bytes that no longer exist. The two writers of this key are the build (the first
+        // sentence) and this line (every one after it).
+        providers.set(table.name, unlandedProvider('memory', withdrawnTableRefusal(table.name, table.analysisId, refreshed)));
+      }
+      return dropped.map((table) => table.name);
+    },
+  };
+}
+
+/**
+ * EVERY COMPUTED TABLE THAT DIES WITH ONE TABLE'S ROWS — a FIXPOINT over the
+ * two registries, and the door that holds both is the only place it can be
+ * computed.
+ *
+ * Each store is generational within itself, but a parent and a child can live
+ * in DIFFERENT stores — an aggregate cut from an act-filled table, a fill
+ * computed from an aggregate — so neither store can finish the job and a caller
+ * that walks one level finishes it wrongly. That was the defect: a fill
+ * computed from a fill, and a fill computed from a derived table, both survived
+ * the refresh that destroyed their parent and went on answering as landed.
+ *
+ * A worklist, not a level count: drop from both stores, and every NAME that
+ * falls is a parent to ask both stores about again, until nothing new falls. So
+ * `derivedLost` and `filledLost` are true BY CONSTRUCTION. It terminates
+ * because a store entry can be dropped only once and both stores are finite.
+ */
+function dropComputedFrom(derivedTables: DerivedTableSlots, filled: FilledTableSlots, of: string): { readonly derivedLost: readonly string[]; readonly filledLost: readonly string[] } {
+  const derivedLost: string[] = [];
+  const filledLost: string[] = [];
+  const parents = [of];
+  for (let at = 0; at < parents.length; at += 1) {
+    for (const name of derivedTables.drop(parents[at]!)) {
+      derivedLost.push(name);
+      parents.push(name);
+    }
+    for (const name of filled.drop(parents[at]!, of)) {
+      filledLost.push(name);
+      parents.push(name);
+    }
+  }
+  return { derivedLost, filledLost };
+}
+
+/**
+ * THE COLUMNS A LINT DOOR JUDGES AGAINST — the engine's when it can list them,
+ * the DECLARATION's when it cannot, and nothing at all when neither speaks.
+ *
+ * The three doors above (`lint`, `lintProse`, `lintLayers`) each used to THROW
+ * on a provider that could not list its columns, which breaks the law this
+ * build door keeps everywhere else (`./wasmBackend.ts`, law 3;
+ * `./declaredTable.ts`): **a landing that failed is a SENTENCE and a REFUSED
+ * READ, never a throw that loses the tables that did land.** It was reachable
+ * before act-filled tables existed — a SOURCE table whose guard-2 landing was
+ * refused, named as the `defaultTable`, threw out of `lint()` on a def the
+ * validator had just accepted — so the fix is here, once, for every table with
+ * an unlistable provider rather than a third skip for one kind of them.
+ *
+ * WHY the DECLARATION is the middle answer, and not a refusal: it is the same
+ * evidence guard 2 already judges a landing against. A def that names nine
+ * columns for a table has said what that table is, and this door's own
+ * neighbours already read a table's declared columns as `type: 'unknown'`
+ * facets when they belong to a table other than the default one. So a binding
+ * on a table whose rows have not arrived is judged against what the def
+ * promised — which is the only reason an act-filled table's layer bindings are
+ * judged at all, its `columns` being required at the def door
+ * (`./actFilled.ts`) exactly so that this answer always exists.
+ *
+ * `unjudgeable` is the last arm and it is NOT silence: nothing to judge is not
+ * "nothing wrong" (this door's own words), so the caller turns it into a
+ * problem row per subject it was about to judge. It is reached only by a table
+ * that declares no columns AND whose engine will not describe it — a stub
+ * engine, a wasm landing that never opened.
+ */
+async function columnsToJudge(table: string, provider: DataProvider, decl: DataSourceDef): Promise<{ readonly columns: readonly ColumnInfo[] } | { readonly unjudgeable: string }> {
+  const cols = await provider.columns(table);
+  if (!isRejection(cols)) return { columns: cols };
+  // the declared names, typed where the def types them — `'unknown'` is the honest
+  // answer the encoding door already declines to judge (`./builtinAnalyses.ts` · `mintedBy`)
+  const declared = Object.entries(decl.columns ?? {}).map(([name, column]) => ({ name, type: column.type ?? 'unknown' }) as ColumnInfo);
+  if (declared.length > 0) return { columns: declared };
+  return { unjudgeable: `the "${table}" provider cannot list its columns and the def declares none, so nothing was judged against it — ${cols.detail ?? cols.reason}` };
+}
+
+/**
+ * THE ROWS FOR WHAT WAS NOT JUDGED — one per declared binding at an address
+ * whose table would not describe itself, carrying the whole sentence.
+ *
+ * WHY one per BINDING and not one per door: every row in these lists names the
+ * subject it is about (a view, a channel, a field), and a door-level row would
+ * have to invent one — a table's name in a `viewId`, which is the category
+ * error this library refuses everywhere else. A def that binds nothing has
+ * nothing that was not judged, and says nothing.
+ *
+ * `severity: 'refused'` is the true one of the two: under the refuse policy a
+ * binding nobody could judge does not stand. `rule: 'table'` because what
+ * fired is about the TABLE, not about a channel requirement or a business rule.
+ */
+const unjudgedBindings = (viewId: string, initial: Readonly<Record<string, string>> | undefined, sentence: string): EncodingProblem[] =>
+  Object.entries(initial ?? {}).map(([channel, field]) => ({ rule: 'table', viewId, channel, field, sentence, severity: 'refused' as const }));
+
+/**
  * Everything after the providers exist — ONE assembly for both builders.
  *
  * `refresh` is passed IN rather than layered on afterwards. It used to be
@@ -1240,7 +1445,7 @@ function derivedTableSlots(providers: Map<string, DataProvider>): DerivedTableSl
  * never saw a refresh again. One object literal, built once, cannot go wrong
  * that way.
  */
-function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, store: ResourceStore, notes: readonly string[], journal: RefreshRecord[], derived: DerivedColumnStore, derivedTables: DerivedTableSlots, landedColumns: LandedColumns, wasm: WasmBackend, refresh?: Dashboard['refresh']): Dashboard {
+function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, store: ResourceStore, notes: readonly string[], journal: RefreshRecord[], derived: DerivedColumnStore, derivedTables: DerivedTableSlots, filled: FilledTableSlots, landedColumns: LandedColumns, wasm: WasmBackend, refresh?: Dashboard['refresh']): Dashboard {
   freezeDefinition(def);
   const saved: SavedStore = { list: [], minted: 0 }; // saved selections: logic beside the log, shared by every session (the counter rides the store: it outlives every session)
   const bookmarks: BookmarkStore = { list: [], minted: 0 }; // bookmarks: names on moments beside the log, shared by every session
@@ -1344,6 +1549,8 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     derivedTables: derivedTables.store,
     landedColumns, // written by the two doors above and the refresh door; read by the session's synchronous judges (`../session/session.ts` · `tableReachAt`)
     landDerivedTable: (table, rows) => derivedTables.land(table, rows),
+    filledTables: filled.store,
+    landFilledTable: (table, rows) => filled.land(table, rows),
     makeFdrStepper,
     fdrProcedure: def.fdr?.procedure ?? 'LORD++',
     fdrAlpha: def.fdr?.alpha ?? 0.05,
@@ -1416,16 +1623,30 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     // the ONE thing this build owns outside this process (./wasmBackend.ts, law 4)
     close: () => wasm.close(),
     lintProse: async () => {
-      const cols = await providers.get(defaultTable)!.columns(defaultTable);
-      if (isRejection(cols)) throw new Error(`lintProse: the "${defaultTable}" provider cannot list its columns — ${cols.detail ?? cols.reason}`);
-      const world = { columns: new Set(cols.map((c) => c.name)), analyses: new Set(analyses.keys()), surfaced: new Set([...views.values()].filter((v) => v.encoding !== undefined).map((v) => v.viewId)) };
+      const judged = await columnsToJudge(defaultTable, providers.get(defaultTable)!, def.data[defaultTable]!);
       const problems: ProseProblem[] = [];
+      if ('unjudgeable' in judged) {
+        // one row per RECORD, on the same reasoning `unjudgedBindings` is per binding: the
+        // subject is real, and a def with no prose has nothing that went unjudged
+        for (const [viewId, slots] of runtime.prose) for (const slot of Object.keys(slots)) problems.push({ viewId, slot, rule: 'table', sentence: judged.unjudgeable });
+        return problems;
+      }
+      const world = { columns: new Set(judged.columns.map((c) => c.name)), analyses: new Set(analyses.keys()), surfaced: new Set([...views.values()].filter((v) => v.encoding !== undefined).map((v) => v.viewId)) };
       for (const [viewId, slots] of runtime.prose) for (const [slot, record] of Object.entries(slots)) problems.push(...validateProseRecord(viewId, slot, record, world));
       return problems;
     },
     lintData: async () => {
       const out: string[] = [];
       for (const [table, key] of Object.entries(keys)) {
+        // A TABLE WITH NO CARRIER IS NOT LINTED HERE, and the reason is at the DEF DOOR:
+        // an act-filled table must declare its `columns` (`./actFilled.ts`), and a `key`
+        // is judged against declared columns there — so this question is already answered,
+        // with nothing deferred. That is what makes the skip correct rather than
+        // convenient: what this door exists for is a declaration judged against the REAL
+        // DATA, and judging a declaration against ITSELF is not a check. (The corrected
+        // reason: the arrived-columns guard does NOT own this question — it judges whether
+        // the rows are this table at all, never whether the key column arrived.)
+        if (def.data[table]!.filledBy !== undefined) continue;
         const cols = await providers.get(table)!.columns(table);
         if (isRejection(cols)) {
           out.push(`data["${table}"].key "${key}": the engine cannot list this table's columns — ${cols.detail ?? cols.reason}`);
@@ -1435,6 +1656,10 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
       }
       // law 2's other half: a source column the def door could not judge (its table declares no `columns`) is judged here, against the engine — every relation, the way every key is
       for (const [i, { from }] of relations.entries()) {
+        // the same skip for the same reason, one law along: `relations[].from.column` is
+        // judged at the def door against declared columns, and an act-filled table always
+        // declares them (`./relations.ts` · `judgeFrom` defers ONLY when a table declares none)
+        if (def.data[from.table]!.filledBy !== undefined) continue;
         const cols = await providers.get(from.table)!.columns(from.table);
         if (isRejection(cols)) {
           out.push(`relations[${i}].from.column "${from.column}": the engine cannot list this table's columns — ${cols.detail ?? cols.reason}`);
@@ -1446,9 +1671,19 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     },
     lintFrames: () => frameNotesOf(views),
     lint: async () => {
-      const cols = await providers.get(defaultTable)!.columns(defaultTable);
-      if (isRejection(cols)) throw new Error(`lint: the "${defaultTable}" provider cannot list its columns — ${cols.detail ?? cols.reason}`);
+      const judged = await columnsToJudge(defaultTable, providers.get(defaultTable)!, def.data[defaultTable]!);
       const surfaces = [...views.values()].flatMap((v) => (v.encoding !== undefined ? [v.encoding] : []));
+      // a `dashboard`-scope rule means anywhere on the page: every view's bindings and every layer's, so a
+      // never-together pair cannot hide across the frame/layer boundary (src/def/README.md, "Layers", law 5)
+      const page = pageBindings([...surfaces, ...[...views.values()].flatMap((v) => (v.layers ?? []).map((l) => layerSurfaceOf(v.viewId, l)))]);
+      if ('unjudgeable' in judged) {
+        // NOTHING TO JUDGE THE PAGE AGAINST, and nothing to judge is not "nothing wrong": a row
+        // per binding that went unjudged, never a throw — and the LAYERS are still judged, each
+        // against its own table, which may describe itself perfectly well. The throw this
+        // replaces lost them along with everything else.
+        return [...surfaces.flatMap((surface) => unjudgedBindings(surface.viewId, surface.initial, judged.unjudgeable)), ...(await lintLayers(views, providers, runtime, page))];
+      }
+      const cols = judged.columns;
       // the same union the build door judges: the default table's real columns, plus every
       // field a view binds or another table declares — typed by that table when it declares
       // it, `unknown` otherwise (a view may read another table; the session's single default
@@ -1472,9 +1707,6 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
           }
         }
       }
-      // a `dashboard`-scope rule means anywhere on the page: every view's bindings and every layer's, so a
-      // never-together pair cannot hide across the frame/layer boundary (src/def/README.md, "Layers", law 5)
-      const page = pageBindings([...surfaces, ...[...views.values()].flatMap((v) => (v.layers ?? []).map((l) => layerSurfaceOf(v.viewId, l)))]);
       const viewProblems = lintEncodings({
         views: surfaces,
         facets: [...runtime.encoding.facetsOf(defaultTable, cols), ...extra],
@@ -1521,9 +1753,17 @@ async function lintLayers(views: ReadonlyMap<string, ViewDecl>, providers: Reado
       // list; there are no ROWS to judge until the act lands, and inventing an empty table here would refuse
       // every binding on a chart that is perfectly well declared.
       if (provider === undefined) continue;
-      const cols = await provider.columns(layer.table);
-      if (isRejection(cols)) throw new Error(`lint: the "${layer.table}" provider cannot list its columns — ${cols.detail ?? cols.reason}`);
-      out.push(...lintEncodings({ views: [layerSurfaceOf(view.viewId, layer)], facets: runtime.encoding.facetsOf(layer.table, cols), page, rules: runtime.encoding.rules, ports: runtime.encoding.ports }));
+      const surface = layerSurfaceOf(view.viewId, layer);
+      // …and a layer whose table will not describe itself is judged against what the def DECLARES
+      // for it (`columnsToJudge`), never thrown out of. That is what judges a layer on a table with
+      // no carrier (`./actFilled.ts`, whose `columns` are required at the def door for exactly
+      // this), and it is the same answer for a source table whose landing was refused.
+      const judged = await columnsToJudge(layer.table, provider, runtime.def.data[layer.table]!);
+      if ('unjudgeable' in judged) {
+        out.push(...unjudgedBindings(surface.viewId, surface.initial, judged.unjudgeable));
+        continue;
+      }
+      out.push(...lintEncodings({ views: [surface], facets: runtime.encoding.facetsOf(layer.table, judged.columns), page, rules: runtime.encoding.rules, ports: runtime.encoding.ports }));
     }
   }
   return out;

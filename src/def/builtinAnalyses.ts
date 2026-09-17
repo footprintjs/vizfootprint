@@ -34,6 +34,7 @@ import {
   type AnalysisOutput,
   type BringOverJoin,
   type DataRow,
+  type OutputChannel,
 } from '../analysis/index.js';
 import { rankAnalysis, normalizeRankAnalysisOptions, type RankAnalysisOptions } from '../analysis/rank.js';
 import { aggregateAnalysis, deriveAnalysis, resultTypeOf, type DerivedColumnDecl, type Expr, type Measure } from '../derive/index.js';
@@ -288,6 +289,19 @@ interface BuiltinSpec {
   readonly required: Readonly<Record<string, OptionType>>;
   readonly optional: Readonly<Record<string, OptionType>>;
   /**
+   * WHICH CHANNEL the factory this record names produces — the one thing about
+   * a builtin a reader needs BEFORE anything is built (`./actFilled.ts`: only
+   * a `table`-channel act may fill a declared table, and the def door says so
+   * without running a factory).
+   *
+   * A second place the channel is written down, and therefore a second place it
+   * could drift: the factory itself declares it (`produces:` in
+   * `../analysis/*.ts`). The pin is a test, not a comment —
+   * `builtinAnalyses.test.ts` builds every name in {@link BUILTIN_ANALYSES}
+   * and compares its module's `def.produces` with this column.
+   */
+  readonly channel: OutputChannel;
+  /**
    * Anything about this builtin the type table cannot say. One builtin has
    * such a thing: a formula's `expression` must PARSE, and refusing it here —
    * with the same sentence the grammar would give — is what keeps a mistyped
@@ -302,17 +316,18 @@ interface BuiltinSpec {
  * validator accepts is a record the constructor can build.
  */
 const SPECS: Readonly<Record<BuiltinAnalysisName, BuiltinSpec>> = Object.freeze({
-  rank: { required: { schema: 'node', plan: 'node', operationId: 'string', resultRef: 'string' }, optional: { name: 'string', id: 'string' },
+  rank: { channel: 'table', required: { schema: 'node', plan: 'node', operationId: 'string', resultRef: 'string' }, optional: { name: 'string', id: 'string' },
     judge: (decl, where, problems) => {
       try { normalizeRankAnalysisOptions(decl as unknown as RankAnalysisOptions); }
       catch (error) { problems.push(`${where}: ${(error as Error).message}`); } // every refusal on this path is an Error (`../data/profile/validate.ts` · `invalid`, `../analysis/rank.ts`)
     },
   },
-  groupBy: { required: { by: 'string', measure: 'string' }, optional: { name: 'string', id: 'string' } },
-  correlation: { required: { x: 'string', y: 'string' }, optional: { id: 'string', branchId: 'string' } },
-  regression: { required: { x: 'string', y: 'string' }, optional: { layer: 'string', minPoints: 'count', id: 'string' } },
-  clustering: { required: { column: 'string', k: 'whole' }, optional: { table: 'string', outColumn: 'string', id: 'string' } },
+  groupBy: { channel: 'table', required: { by: 'string', measure: 'string' }, optional: { name: 'string', id: 'string' } },
+  correlation: { channel: 'scalar', required: { x: 'string', y: 'string' }, optional: { id: 'string', branchId: 'string' } },
+  regression: { channel: 'geometry', required: { x: 'string', y: 'string' }, optional: { layer: 'string', minPoints: 'count', id: 'string' } },
+  clustering: { channel: 'columns', required: { column: 'string', k: 'whole' }, optional: { table: 'string', outColumn: 'string', id: 'string' } },
   formula: {
+    channel: 'columns',
     required: { expression: 'string', name: 'string' },
     optional: { table: 'string', type: 'columnType', id: 'string' },
     judge: (decl, where, problems) => {
@@ -325,6 +340,7 @@ const SPECS: Readonly<Record<BuiltinAnalysisName, BuiltinSpec>> = Object.freeze(
     },
   },
   layout: {
+    channel: 'columns',
     required: { algo: 'algorithm' },
     optional: {
       table: 'string',
@@ -346,6 +362,7 @@ const SPECS: Readonly<Record<BuiltinAnalysisName, BuiltinSpec>> = Object.freeze(
     // table's columns at the session's door, where the columns are known.
     // `column` carries the whole declaration, `over` included: the group is part
     // of what a column IS, not a second option beside it.
+    channel: 'columns',
     required: { name: 'string', column: 'tree' },
     optional: { table: 'string', id: 'string' },
   },
@@ -354,10 +371,12 @@ const SPECS: Readonly<Record<BuiltinAnalysisName, BuiltinSpec>> = Object.freeze(
     // same reason: both are the def's to state. The measures and the filter are
     // checked for SHAPE here and judged against the parent's columns at the
     // session's door, where the columns are known.
+    channel: 'table',
     required: { name: 'string', ops: 'whole', groupBy: 'groupBy', measures: 'measures' },
     optional: { table: 'string', where: 'node', id: 'string' },
   },
   bringOver: {
+    channel: 'columns',
     required: { table: 'string', from: 'string', columns: 'names' },
     // No `joins` option: which ties are followed is read off the declared
     // relations, never typed in. A record that could name its own join could
@@ -625,6 +644,16 @@ export function mintedTables(def: unknown): ReadonlyMap<string, MintedTable> {
     if (minted !== undefined && !out.has(minted.name)) out.set(minted.name, minted.table);
   }
   return out;
+}
+
+/**
+ * THE CHANNEL a builtin record's factory produces — the def door's reader, so
+ * a table filled by an act can be judged against the act's channel before a
+ * single factory runs (`./actFilled.ts`). Read off the ONE spec table above,
+ * never from a second list.
+ */
+export function builtinChannel(name: BuiltinAnalysisName): OutputChannel {
+  return SPECS[name].channel;
 }
 
 /** A usable name in a raw record — the guard every list read here shares. */

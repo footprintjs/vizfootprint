@@ -55,12 +55,17 @@ import { judgeAnalysisReads, neighbourhoodEndpoints, relationEdgeId } from '../d
 import { walkNeighbourhood, walkRefusal } from './neighbourhood.js';
 import { isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
-import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type EvaluateResult, type DataProviderRejection, type MatchClause, type MatchValue, type NeighbourhoodClause, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
+import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, mintFilledTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type FilledTable, type EvaluateResult, type DataProviderRejection, type MatchClause, type MatchValue, type NeighbourhoodClause, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
 import { applyLinkOverrides, columnStanding, edgeId, impliedKinds, unmappedColumnWords, validateLinks, type LinkDecl, type ReachRelation } from '../links/index.js';
 
 import type { ActorMeta, CauseClause } from '../selection/index.js';
 import { absenceByTable, mintedTables, type AggregateDecl, type BuiltinAnalysisContext } from '../def/builtinAnalyses.js';
+// The OTHER door to a computed table: which DECLARED table an act fills, and the sentence a read
+// of one gets before the act runs (`../def/actFilled.ts` — the ONE owner of both).
+import { tableFilledBy } from '../def/actFilled.js';
+// GUARD 2, asked at the act's landing exactly as the carrier doors ask it (`../def/declaredTable.ts`).
+import { notTheDeclaredTable } from '../def/declaredTable.js';
 import { registerAnalysisSlot } from '../def/register.js';
 import { tableReachOf } from '../def/tableReach.js';
 import { copyValue, deepFreeze } from '../detach/index.js';
@@ -564,6 +569,7 @@ interface TravelRecord {
 const EMPTY_DERIVED: ReadonlyMap<string, DerivedColumn> = new Map();
 /** No derived table anywhere on this dashboard — the shared empty answer `derivedTablesAt` hands back. */
 const EMPTY_DERIVED_TABLES: ReadonlyMap<string, DerivedTable> = new Map();
+const EMPTY_FILLED_TABLES: ReadonlyMap<string, FilledTable> = new Map();
 
 /**
  * A read that did not answer: the sentence a gap quotes, and the engine's own
@@ -977,15 +983,22 @@ class InteractionSessionImpl implements InteractionSession {
    * Does this analysis leave anything OUTSIDE the log for a replay to rebuild?
    *
    * Two channels do. A COLUMN lands on the table it read. A TABLE lands beside
-   * it — and only when an aggregate declaration rides on the act, because the
-   * slot, the key and the relation back to the parent are all minted from that
-   * record and from nothing else. Everything else — a statistic, a fit, a
-   * geometry — is wholly inside its own answer, and re-running it would spend
-   * the walk's time to arrive back where the log already is.
+   * it — through either of the two doors a computed table has. Under an
+   * AGGREGATE declaration riding on the act, because the slot, the key and the
+   * relation back to the parent are all minted from that record and from
+   * nothing else. Or into a DECLARED table the def says this act fills
+   * (`../def/actFilled.ts`), where none of those are minted and the rows are
+   * the whole landing. Everything else — a statistic, a fit, a geometry — is
+   * wholly inside its own answer, and re-running it would spend the walk's time
+   * to arrive back where the log already is.
+   *
+   * The rows are on neither record, which is what makes both replayable at all:
+   * they are recomputed from the declaration over the parent as it stands.
    */
   private landsOutsideTheLog(analysis: RegisteredAnalysis): boolean {
     if (analysis.def.produces === 'columns') return true;
-    return analysis.def.produces === 'table' && this.aggregateOf(analysis) !== undefined;
+    if (analysis.def.produces !== 'table') return false;
+    return this.aggregateOf(analysis) !== undefined || tableFilledBy(this.runtime.def, analysis.id) !== undefined;
   }
 
   async replay(log: readonly CommitRecord[] | string): Promise<ReplayResult> {
@@ -1154,6 +1167,13 @@ class InteractionSessionImpl implements InteractionSession {
         slots = (await this.writeColumns(analysisId, output, run.snapshot, rec.id, 'replay')).slots;
       } else if (output.as === 'table' && act.aggregate !== undefined) {
         this.writeTable(analysisId, output, act.aggregate, act.table, rec.id, 'replay');
+      } else if (output.as === 'table' && tableFilledBy(this.runtime.def, analysisId) !== undefined) {
+        // …and the other door's table goes back into the DECLARED table the def says this act
+        // fills, at the replayed commit's own id — so the fill lands in the slot it had. The
+        // declaration is read from THIS dashboard's def and never from the log, for the reason a
+        // replayed `bringOver` follows this session's relations: which table an act fills is
+        // declared, not recorded.
+        this.writeFilledTable(analysisId, output, tableFilledBy(this.runtime.def, analysisId)!, act.table, rec.id, 'replay');
       } else {
         // The act was accepted as one that lands something, and it landed something
         // else — a module whose declared channel and its answer disagree. Named, not
@@ -1809,14 +1829,43 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /**
+   * The same resolution for the tables an act FILLS — a DECLARED table whose
+   * rows arrived from a computation (`../data/filledTables.ts`). The registry
+   * is the other one's twin, so the reading is the same reading: the fill
+   * visible on the branch whose act landed it, superseded by a later fill of
+   * that name on the branch, and absent everywhere else.
+   *
+   * WHY it is a SECOND map and not merged into the one above: what a DERIVED
+   * table is (its name, its key, its edge to its parent) is minted from the
+   * act's record, and what an act-FILLED table is, is declared. One map would
+   * be one shape holding both answers, and every reader of it would have to
+   * ask which kind it had before trusting a field.
+   */
+  private filledTablesAt(): ReadonlyMap<string, FilledTable> {
+    const entries = this.runtime.filledTables.all();
+    if (entries.length === 0) return EMPTY_FILLED_TABLES; // fast path: no act has filled a declared table
+    return resolveDerived(entries, this.branchPath(this._cursor).map((r) => r.id));
+  }
+
+  /**
    * The slot a table NAME reads from at the cursor: a derived table's own
-   * physical name, or the name itself. THE ONE translator — every read of a
-   * table goes through it, so a derived table is an ordinary table to every
-   * door above (`ask`, `columnsOf`, `viewQuery`), and no door has to know the
-   * grammar `src/data/derivedColumns.ts` owns.
+   * physical name, an act-filled table's, or the name itself. THE ONE
+   * translator — every read of a table goes through it, so a derived table is
+   * an ordinary table to every door above (`ask`, `columnsOf`, `viewQuery`),
+   * and no door has to know the grammar `src/data/derivedColumns.ts` owns.
+   *
+   * The two registries can never both answer for one name: a DERIVED table may
+   * not take a declared table's name (`writeTable` refuses it), and an
+   * act-FILLED table's name is always a declared one. So the order of the two
+   * lookups is a reading order, not a precedence.
+   *
+   * A name an act fills and has NOT filled on this branch resolves to itself —
+   * the declared name, whose provider refuses every read in the words that name
+   * the act (`../def/actFilled.ts` · `unfilledTableRefusal`). That is the whole
+   * cursor law for an act-filled table, and it falls out of this one line.
    */
   private physicalTableOf(table: string): string {
-    return this.derivedTablesAt().get(table)?.physical ?? table;
+    return this.derivedTablesAt().get(table)?.physical ?? this.filledTablesAt().get(table)?.physical ?? table;
   }
 
   /**
@@ -1949,7 +1998,7 @@ class InteractionSessionImpl implements InteractionSession {
 
   /** Every table visible at the cursor as the def and the acts state it — the Sources rows (`./tablesInfo.ts`), branch-scoped. */
   private effectiveTablesOf(): readonly TableInfo[] {
-    return tablesInfoOf(this.runtime, [...this.derivedTablesAt().values()]);
+    return tablesInfoOf(this.runtime, [...this.derivedTablesAt().values()], [...this.filledTablesAt().values()]);
   }
 
   /**
@@ -1996,7 +2045,9 @@ class InteractionSessionImpl implements InteractionSession {
    * Absent for a table nothing versions (inline rows never move).
    */
   private dataVersionOf(table: string): string | undefined {
-    return this.runtime.sources[table]?.version ?? this.derivedTablesAt().get(table)?.dataVersion;
+    // …and for an act-FILLED table, the version of the parent the act read: an act over THIS
+    // table stamps the version its rows came from, exactly as one over an aggregate does.
+    return this.runtime.sources[table]?.version ?? this.derivedTablesAt().get(table)?.dataVersion ?? this.filledTablesAt().get(table)?.dataVersion;
   }
 
   // ── ids ────────────────────────────────────────────────────────────────────
@@ -4601,6 +4652,49 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /**
+   * THE OTHER OWNER of a table write: land an act's rows in the DECLARED table
+   * the def says this act fills (`../def/actFilled.ts`). The twin of
+   * {@link writeTable}, and its two callers are the same two, for the same
+   * reason — `declareAnalysis` performs the act, `replay` re-performs one the
+   * log records.
+   *
+   * What it does NOT do is the whole difference between the two doors. Nothing
+   * is minted: no slot name from a grouping, no key, no relation. The key and
+   * the relations are in the def, judged there, and this door could not name
+   * one if it wanted to.
+   *
+   * Three things it does do:
+   *
+   *  1. the SLOT, from the commit that filled it, so two branches' fills are
+   *     two sets of rows (`../data/filledTables.ts`) — refused, as the derived
+   *     door refuses it, for a replayed id that carries the reserved marker;
+   *  2. the ARRIVED COLUMNS against the declaration, through the guard that
+   *     already answers this question for a carrier
+   *     (`../def/declaredTable.ts` · `notTheDeclaredTable`): zero overlap is
+   *     not this table, and the rows are not landed;
+   *  3. the PARENT'S DATA VERSION on the record, for the aggregate's reason —
+   *     a table computed from bytes that have since moved is dropped, not
+   *     served under today's name (`../def/buildDashboard.ts`, the refresh).
+   *
+   * The answer's own `name` is IGNORED, deliberately: the def says which table
+   * this act fills, and nothing about this table is inferred from what arrives.
+   * That is also what lets an analysis written for nobody in particular fill a
+   * table it has never heard of.
+   */
+  private writeFilledTable(analysisId: string, out: TableOutput, name: string, parent: string, commitId: string, op: 'declareAnalysis' | 'replay'): GapRow | undefined {
+    if (!canNameSlot(commitId)) {
+      return this.gapLedger.file('guard-failed', op, `analysis "${analysisId}" ran at commit "${commitId}", whose id cannot name a table slot — its rows were not landed`, name);
+    }
+    const notThisTable = notTheDeclaredTable(name, this.runtime.def.data[name]!, out.rows);
+    if (notThisTable !== undefined) {
+      return this.gapLedger.file(this.gapCodeFor(analysisId, 'invalid'), op, `data["${name}"]: ${notThisTable}`, name);
+    }
+    const version = this.dataVersionOf(parent);
+    this.runtime.landFilledTable(mintFilledTable({ name, analysisId, commitId, of: parent, ...(version === undefined ? {} : { dataVersion: version }) }), out.rows);
+    return undefined;
+  }
+
+  /**
    * The aggregate declaration an analysis carries, or nothing.
    *
    * WHY a table output lands only with one: the slot, the key, the relation and
@@ -4712,6 +4806,8 @@ class InteractionSessionImpl implements InteractionSession {
 
     /** The declaration a derived TABLE is minted from — present exactly for an aggregate ({@link aggregateOf}). */
     const aggregate = this.aggregateOf(analysis);
+    /** …and the DECLARED table this act fills, when the def says it fills one ({@link writeFilledTable}). */
+    const fills = tableFilledBy(this.runtime.def, id);
     let hypothesis: AnalysisCommit['hypothesis'];
     let fdrStep: FdrStep | undefined;
     const run = await analysis.run(input, {
@@ -4789,6 +4885,15 @@ class InteractionSessionImpl implements InteractionSession {
       // …and a table-channel output lands the same way, one level out: an
       // aggregate re-enters the data space as an ordinary, readable table.
       gap = this.writeTable(id, run.result.output, aggregate, table, record.id, 'declareAnalysis');
+    } else if (run.result.output.as === 'table' && fills !== undefined) {
+      // …or into the DECLARED table the def says this act fills, which re-enters
+      // nothing: it was already a table, with its own columns, key and relations.
+      // The aggregate is asked FIRST and keeps precedence — its record rides the
+      // commit and mints its own table, which is what a replay rebuilds from. A
+      // def can never reach this line with both (the def door refuses an
+      // aggregate in `filledBy`); a session-local override that registers one
+      // lands what its own record says, exactly as it always did.
+      gap = this.writeFilledTable(id, run.result.output, fills, table, record.id, 'declareAnalysis');
     }
 
     // ── L6 provenance capture (collect during the run, never post-process) ──────

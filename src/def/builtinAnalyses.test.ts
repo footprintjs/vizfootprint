@@ -8,9 +8,10 @@ import {
   validateBuiltinAnalysis,
   validateDashboardDef,
 } from './index.js';
+import { builtinChannel } from './builtinAnalyses.js';
 import { registerAnalysisSlot } from './register.js';
 import { groupByAnalysis } from '../analysis/index.js';
-import type { BuiltinAnalysisDecl, DashboardDef } from './index.js';
+import type { BuiltinAnalysisDecl, BuiltinAnalysisName, DashboardDef } from './index.js';
 
 const problemsOf = (decl: unknown): string[] => {
   const out: string[] = [];
@@ -409,5 +410,50 @@ describe('the aggregate record — a derived table, named as data', () => {
       { disease: 'Lyme', n: 2 },
       { disease: 'Zika', n: 1 },
     ]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * THE CHANNEL COLUMN, PINNED AGAINST THE FACTORIES (`./builtinAnalyses.ts` ·
+ * `SPECS[name].channel`, read through `builtinChannel`).
+ *
+ * The def door has to know which channel a builtin lands BEFORE anything is
+ * built — a table declared with no carrier may only be filled by a
+ * table-channel act (`./actFilled.ts`), and that judgement runs no factory and
+ * executes none of the def's functions. So the channel is written down twice:
+ * on the spec table here, and by the factory itself (`produces:` in
+ * `../analysis/*.ts`). Two places is two places that can drift, and this is the
+ * test that makes drift impossible: every builtin name is BUILT and its
+ * module's own `produces` is compared with the column. A `Record` over the
+ * closed name set, so the compiler refuses a name nobody added a record for.
+ */
+const schema = { source: { id: 'seed:nodes', version: 'basis1' }, table: 'data', grain: 'one row', columns: [
+  { name: 'disease', type: 'string' as const, role: 'identifier' as const, meaning: 'the disease' },
+  { name: 'cases', type: 'number' as const, role: 'measure' as const, meaning: 'the count' },
+] };
+const VALID: Record<BuiltinAnalysisName, BuiltinAnalysisDecl> = {
+  groupBy: { builtin: 'groupBy', by: 'disease', measure: 'cases' },
+  correlation: { builtin: 'correlation', x: 'cases', y: 'ytd' },
+  regression: { builtin: 'regression', x: 'cases', y: 'ytd' },
+  clustering: { builtin: 'clustering', column: 'cases', k: 2 },
+  formula: { builtin: 'formula', expression: 'cases / 1000', name: 'rate' },
+  layout: { builtin: 'layout', algo: 'stress' },
+  bringOver: { builtin: 'bringOver', table: 'edges', from: 'nodes', columns: ['x', 'y'] },
+  derive: { builtin: 'derive', name: 'rate', column: { ops: 1, kind: 'row', expr: { col: 'cases' } } },
+  aggregate: { builtin: 'aggregate', name: 'by_disease', ops: 1, groupBy: ['disease'], measures: [{ as: 'total', expr: { op: 'sum', args: [{ col: 'cases' }] } }] },
+  rank: { builtin: 'rank', schema, plan: { kind: 'rank', version: 1, ops: 1, source: schema.source, selectionRef: 'selection:current', keys: ['disease'], metric: 'cases', direction: 'desc', limit: 2, missing: 'exclude', ties: 'keys-ascending' }, operationId: 'op:rank', resultRef: 'result:rank' },
+};
+
+describe('which channel each builtin lands — the spec table and the factory, pinned to each other', () => {
+  for (const name of BUILTIN_ANALYSES) {
+    it(`${name}: the column and the factory's own \`produces\` agree`, () => {
+      expect(builtinChannel(name)).toBe(buildBuiltinAnalysis(VALID[name]).def.produces);
+    });
+  }
+
+  it('exactly three of the ten land a TABLE — groupBy, aggregate and rank', () => {
+    expect(BUILTIN_ANALYSES.filter((name) => builtinChannel(name) === 'table')).toEqual(['groupBy', 'aggregate', 'rank']);
   });
 });

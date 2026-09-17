@@ -142,14 +142,30 @@ describe('layers — the def door', () => {
     expect(problems[0]!.field).toBe('weight');
   });
 
-  it('lint() refuses a layer whose table cannot list its columns, in the same sentence as the default table', async () => {
-    // a stub engine on the EDGES table only: the default table lists its columns, the layer's cannot
+  it('a layer whose table cannot list its columns is judged against the DECLARATION — and said in a sentence when there is none', async () => {
+    // a stub engine on the EDGES table only: the default table lists its columns, the layer's cannot.
+    // It cannot list them because the connection never opens — the wasm engine itself answers fine
+    // where a DuckDB can be opened, which is not what this law is about.
     const def = makeNetworkDef();
     const stubbed: DashboardDef = { ...def, data: { ...def.data, edges: { ...def.data.edges!, engine: 'wasm' } } };
-    // …and it cannot list them because the connection never opens: the wasm engine itself
-    // answers fine where a DuckDB can be opened, which is not what this law is about
     const cannotOpen = { availableEngines: ['memory' as const, 'wasm' as const], openSqlConnection: () => Promise.reject(new Error('no database in this test')) };
-    await expect(buildDashboard(stubbed, cannotOpen).lint()).rejects.toThrow(/^lint: the "edges" provider cannot list its columns — /);
+    // THE DECLARATION IS THE EVIDENCE (`../def/buildDashboard.ts` · `columnsToJudge`): `edges`
+    // declares its three columns, and the edge layer binds one of them, so there is nothing wrong
+    // — where this door used to THROW, losing the whole report over a table that had said what it is.
+    expect(await buildDashboard(stubbed, cannotOpen).lint()).toEqual([]);
+    // …and a binding the declaration does NOT name is refused by name, exactly as it is on a table
+    // whose rows are there: same rule, same row (this is the question an act-filled table's layer
+    // asks too, `../def/actFilled.def.test.ts`)
+    const ghost: DashboardDef = { ...stubbed, encodings: [{ viewId: 'net', chartKind: 'network', channels: ['x', 'y'], layers: [nodesLayer, { ...edgesLayer, initial: { size: 'ghost' } }] }] };
+    expect((await buildDashboard(ghost, cannotOpen).lint()).map((p) => [p.rule, p.viewId, p.channel, p.field, p.severity])).toEqual([
+      ['column', layerAddress('net', 'edges'), 'size', 'ghost', 'refused'],
+    ]);
+    // …and when the table declares NOTHING, nothing was judged and the row says so — one per
+    // binding, carrying the engine's own reason, never a throw
+    const bare: DashboardDef = { ...stubbed, data: { ...stubbed.data, edges: { rows: [], engine: 'wasm' } } };
+    const unjudged = await buildDashboard(bare, cannotOpen).lint();
+    expect(unjudged.map((p) => [p.rule, p.viewId, p.channel, p.field, p.severity])).toEqual([['table', layerAddress('net', 'edges'), 'size', 'weight', 'refused']]);
+    expect(unjudged[0]!.sentence).toMatch(/^the "edges" provider cannot list its columns and the def declares none, so nothing was judged against it — /);
   });
 
   it('the surfaces the build door judges — one per well-formed layer on a declared table, under its address', () => {
