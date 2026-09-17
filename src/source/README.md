@@ -1,6 +1,6 @@
 # source — where a table's rows come from
 
-Three independent tags on a table, stated as data, and one small port. A **format** says what shape the bytes are (`rows`, `csv`, `json`); a **via** says how they travel (`inline`, `file`, `http`); **at** says where. The query port (`DataProvider`) is untouched: a source produces rows, the provider judges clauses over them.
+Three independent tags on a table, stated as data, and one small port — and the same three tags on a RESOURCE, which is a declared source that is not a table (its own section below). A **format** says what shape the bytes are (`rows`, `csv`, `json`); a **via** says how they travel (`inline`, `file`, `http`); **at** says where. The query port (`DataProvider`) is untouched: a source produces rows, the provider judges clauses over them.
 
 ```ts
 data: {
@@ -15,6 +15,8 @@ dashboard.sources.cells   // { format, via, at, version: 'mtime:…;size:…', r
 ## The port
 
 `SourceAdapter { via; open(decl, { table }) → SourceHandle }` and `SourceHandle { capabilities; snapshot() → { rows, version, retrievedAt }; close() }`. One file per carrier: `inline` ships in the barrel, `file` is its own module (`src/source/file.ts`, it needs node), `http` arrives with step 5. A carrier never learns a format: `decodeRows(format, payload)` is the one decoder.
+
+The port has a SECOND, optional door — `openResource(decl, { resource }) → ResourceHandle` — which is the same transport and the same version with the decode step skipped. It is the whole of "a resource is a declared source that is not a table" (its own section below).
 
 ## The laws
 
@@ -60,6 +62,34 @@ Narrow on purpose: a server may legitimately serve CSV as `text/csv`, `text/plai
 
 **Guard 2 — the door judges agreement with the DECLARATION.** A def that names columns for a table has said what that table is, so bytes carrying **none** of them are not a missing column — they are not this table. That judgement belongs to the act that lands a source, so it lives with the build and refresh doors ([`../def/README.md`](../def/README.md), "A landing is judged against the declaration"; `../def/declaredTable.ts` · `notTheDeclaredTable`), and it judges only bytes that ARRIVED: an inline payload is the def's own text, judged with the def.
 
+## A resource is a declared source that is not a table
+
+Some bytes are not rows and never will be. A protein structure file is what a 3D view DRAWS; a map's outline is geometry, not data. The source port's `format` says `rows | csv | json` — a structure is none of them — so two real desks fetched those bytes **by hand**, beside the session: the protein desk with its own `fetch`, the map renderer taking its GeoJSON as a factory option (`mapRenderer({ geo })`, "geometry is host data, not chart data"). In both, **the bytes were on no commit, in no `overview().sources`, carried no version, and were invisible to time travel.** Every number a later stage computed from that file was true *of those bytes*, and nothing recorded which bytes they were. Only the library can close that: a host cannot stamp a commit, fill `sources`, or make time travel honest.
+
+**THE LAW: a resource is a declared source that is not a table. It lands as bytes, it carries a version, the record says which version a commit was true of, and a renderer is offered it — but it is never rows, never decoded, and its bytes never ride a wire that a value may not ride.**
+
+```ts
+const def = {
+  data: { atoms: { rows } },
+  resources: { structure: { format: 'text', via: 'http', at: 'https://files.rcsb.org/download/1AY7.pdb' } },
+};
+const dashboard = await buildDashboardAsync(def, { sources: [httpSource()] });
+dashboard.resources.structure  // { format: 'text', via: 'http', at: '…', version: 'etag:"…"', retrievedAt, bytes: <the size that landed> }
+dashboard.resource('structure') // { format: 'text', body: '<the file>', version, retrievedAt }  ← in-process ONLY
+```
+
+- **Declared beside the data, not inside it.** `DashboardDef.resources` is `name → { format: 'bytes' | 'text', via, at?, options? }` — the same `via` vocabulary a table's source uses (`SOURCE_VIAS`), judged at the def door in the same shape and refused in the same words (`../def/validate.ts` · `validateResourceDecl`). A resource name that is also a table name is refused: **one namespace per question**, because a commit stamps table versions under `data` and resource versions under `resources`, and a name meaning both would let a reader ask the wrong one and still get an answer.
+- **Carried by the carriers we already have, with the decode step SKIPPED.** `SourceAdapter.openResource` is the second door on the same port (optional, so a carrier written before resources is still valid — a host that declares a resource on such a via is refused `no-adapter` by name). `decode.ts` is for tables: a resource has no columns to judge, so `decodeRows` never runs and **guard 2** (a landing judged against a table's declaration) cannot and must not apply. `bytes` answers a `Uint8Array`, `text` a string; both carry the carrier's own `version` and `retrievedAt` exactly as a table's snapshot does, from exactly the same code.
+- **`malformed` is the LOCATOR only.** The refusal vocabulary is one list (`SOURCE_REFUSALS`, shared), thrown as a `ResourceRefusal` — its own class, because `table` is a declared table's name everywhere else it is read and putting a resource's name there would be the very category error this law forbids. An HTTP error is `unavailable`, a size cap `too-large`, the caller's signal `cancelled`. Nothing is `malformed` for its CONTENT: nothing is decoded, so no body has a shape to contradict. **And guard 1 means nothing here** — it refuses a content type that CONTRADICTS a declared format, and no content type contradicts a declaration that asks for bytes: a structure file served as `text/html` is still those bytes.
+- **On the overview, as facts and never as values.** `overview().resources` is `name → { format, via, at, version, retrievedAt, bytes }` — `bytes` is the SIZE, which is the one thing a reader can be told about a body it may not be handed. The payload is not there, and there is no arm that could put it there. The key is **absent** when the def declares none, so a def without resources answers an overview byte-identical to one from before they existed.
+- **On the record, as a parallel map.** A commit carries `resources` (name → version) beside `data`, never folded into it: a reader that found a structure file's version under `data` would be entitled to think it could ask for its rows. Read back the same way — a commit true of a version the resource has since left is marked (`../../ui/src/adapter/sessionView.ts` · `resourcesMovedSince`, the twin of `movedSince`, over the one comparison `versionsLeft`). The stamp is EVERY declared resource's version, which is the honest narrowing: `stampData` can name the default table because a selection acts on a table, and nothing in this version binds a resource to a view — so the commit says what the dashboard HELD.
+- **Offered to a renderer on the handshake.** `HostHandshake.resources` (protocol 1.10) hands a third-party chart its geometry through the protocol instead of a factory option no commit can name. At MOUNT and deliberately NOT on `RenderState`: state is pushed on every update, bytes are fetched once. Host-side only — the bytes reach a host through `Dashboard.resource(name)`, which is a METHOD and not a field beside `resources` precisely because a resource's facts ride every wire this library has and its bytes ride none of them. A session's runtime holds the facts and not the body, so nothing a session serves can reach it.
+- **Refreshable by the same door.** `dashboard.refresh()` asks every table AND every declared resource; `refresh(['structure'])` asks one by name. The answers ride `RefreshResult.resources`, a map of its own — a resource has no rows and no delta, so folding it into `tables` would be a shape that promised both. An unchanged resource moves nothing; a changed one replaces the bytes a host hands out next; **a refused re-fetch leaves yesterday's bytes exactly where they are and says so** in the carrier's own reason (the table door's law, unchanged).
+
+**What a resource is NOT, and not in this version:** decoding one into a table (a structure is not a table — that is the point); a resource as an ANALYSIS input; a byte-range or streaming read; caching policy beyond the carrier's own conditional read. A renderer offered the bytes still paints what the ROWS say — computing a value out of a resource and drawing it as data would be an aggregation the host does not own and no commit records.
+
+One more thing it is not, because a reader will look for it: **`resources` has no row in the agent surface's parts table** (`../agent/surfaceParts.ts` · `SURFACE_PARTS`), so `whats_here { of: ['resources'] }` is refused by name. It rides an unnarrowed answer and it takes part in a `since` delta correctly — `narrowParts` walks the answer's own keys, not that table — but it cannot be ASKED for on its own, because every row of that table is a part the no-argument answer always carries, and this key is deliberately absent when a def declares no resource. Giving the table a notion of a part that may be absent is an agent-surface change with its own measured cost, not a line in this one.
+
 ## Provenance on the wire
 
 `overview().sources` carries each declared table's `SourceInfo` (format, via, locator, version, retrieval time, row count), so `whats_here` and a cockpit can say what the data is and when it was read.
@@ -74,6 +104,6 @@ Narrow on purpose: a server may legitimately serve CSV as `text/csv`, `text/plai
 
 ## Not yet
 
-The streaming carrier, and only that: `snapshot(options)` already takes an abort signal, and a delta channel gated by `live` arrives with it.
+The streaming carrier, and only that: `snapshot(options)` already takes an abort signal, and a delta channel gated by `live` arrives with it. (A resource's own four exclusions are listed with its law above, and they are exclusions by DESIGN rather than work outstanding — a resource decoded into a table would be the one thing the law forbids.)
 
 Everything else this list used to name has SHIPPED, and the section above is where each one now lives — the row key and its exact delta (`data[t].key`, `deltaByKey`), the version stamp every commit carries (`CommitRecord.data`, from the log's `stampData` hook), and the package `exports` map: `vizfootprint/source` and `vizfootprint/source/file` are real specifiers in `package.json`, so a host no longer reaches the file carrier by path. A "not yet" that outlives the work is worse than no list at all — it tells a reader to go build what is already under their hand — so `notYet.test.ts` pins this paragraph against the code that proves each one landed.

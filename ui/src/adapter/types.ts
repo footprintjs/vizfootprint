@@ -50,6 +50,12 @@ export interface CommitView {
   readonly dataMoved?: boolean;
   /** The tables that moved, each with the version the commit was true of and the version now. */
   readonly moved?: readonly { readonly table: string; readonly from: string; readonly to: string }[];
+  /** The RESOURCE versions this commit was true of (name → version), when the def declares resources. */
+  readonly resources?: Readonly<Record<string, string>>;
+  /** True when a resource this commit was true of has since moved — the same fact as `dataMoved`, about bytes the library never read as rows. */
+  readonly resourceMoved?: boolean;
+  /** The resources that moved, each with the version the commit was true of and the version now. */
+  readonly movedResources?: readonly { readonly resource: string; readonly from: string; readonly to: string }[];
   /** A short, safe label for a chip/dot — never a raw value dump. */
   readonly label: string;
   // ── derived per build (so components stay dumb) ──
@@ -300,6 +306,23 @@ export interface SourceInfoView {
   readonly version: string;
   readonly retrievedAt: string;
   readonly rows: number;
+}
+
+/**
+ * One declared RESOURCE as the overview carries it — a declared source that is
+ * NOT a table (`vizfootprint/source`): where its bytes came from, what the
+ * carrier vouched for, and how BIG they are. There is no `rows` and there is no
+ * body: the payload never crosses this wire, so a cockpit shows a size and a
+ * version and nothing it would have to decode.
+ */
+export interface ResourceInfoView {
+  readonly format: string;
+  readonly via: string;
+  readonly at?: string;
+  readonly version: string;
+  readonly retrievedAt: string;
+  /** How many bytes landed. */
+  readonly bytes: number;
 }
 
 /**
@@ -742,6 +765,8 @@ export interface SessionViewState {
   readonly saved: readonly SavedSelectionView[];
   /** Provenance per table: what each declared source vouched for (version, retrieval time, rows). Absent = an older server, or no declared source. */
   readonly sources?: Readonly<Record<string, SourceInfoView>>;
+  /** What each declared RESOURCE vouched for (name → facts, never a payload). Absent on an older wire, and when the def declares none. */
+  readonly resources?: Readonly<Record<string, ResourceInfoView>>;
   /** The prose plane's one non-view subject: the dashboard's own words at the cursor (its caption = the summary), with the proposals on the table for them. Absent on an older wire. */
   readonly dashboard?: DashboardWordsView;
   /** The notes on the dashboard (the Text tool): every `note:<id>` with words at the cursor, oldest first. Absent on an older wire. */

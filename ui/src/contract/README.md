@@ -957,6 +957,65 @@ ids lit, the seed's focus and clear affordance, the picture unchanged).
 
 ---
 
+## Law 9 — the bytes a plane cannot see ride the handshake, and nothing computes from them (protocol 1.10)
+
+A choropleth needs an outline. A 3D view needs a structure file. Neither is a
+row, and neither ever will be — so `mapRenderer({ geo })` took its GeoJSON as a
+**factory option** and a protein desk fetched its structure **by hand**, which
+meant the bytes were on no commit, in no `overview().sources`, carried no
+version and were invisible to time travel. Every number computed from that file
+was true *of those bytes*, and nothing recorded which bytes they were.
+
+The library closes it as a DECLARED RESOURCE — a declared source that is not a
+table, with a version, on the record (`vizfootprint/source`, "a resource is a
+declared source that is not a table") — and this protocol is how it reaches a
+renderer:
+
+```ts
+const structure = dashboard.resource('structure');   // { format: 'text', body, version, retrievedAt }
+bindRenderer(myStructureRenderer, el, {
+  viewId: 'structure3d',
+  callbacks,
+  resources: structure === undefined ? {} : { structure },   // HostHandshake.resources
+});
+```
+
+**At MOUNT, and deliberately not on the frame.** `RenderState` is pushed on
+every update and a resource is fetched once, so carrying megabytes of geometry
+on the state would pay for them again on every hover. A resource that MOVES (a
+refresh re-fetched it) is a new mount, which is the honest shape: the renderer
+that drew the old bytes never silently starts drawing the new ones under the
+same version.
+
+**No capability, and no guard** — Law 2 decides it, not a preference. A guard
+belongs where a host-driven act would otherwise vanish; a renderer that ignores
+an offered resource records nothing and hides nothing, and the missing geometry
+is visible on screen. So `bindRenderer` passes `resources` through untouched
+(`bind.ts` · `handshakeOf`) and a renderer that declares nothing about resources
+binds and draws byte-identically.
+
+**What a renderer may do with them is narrow, and the narrowness is the
+contract: bytes are for GEOMETRY THE PLANE CANNOT SEE** — a mesh, an outline, a
+structure. A renderer still paints what the ROWS say. Computing a value out of a
+resource and drawing it as data would be an aggregation the host does not own
+and no commit records — the same law `transforms` is refused under (Law 1's
+`transforms-not-owned`), and the reason a resource is never decoded anywhere in
+this library.
+
+`version` on the row is not decoration: it is the id of the exact bytes this
+mount drew, the same string a commit standing on them carries
+(`CommitRecord.resources`), which is what lets a receipt say WHICH structure
+file a number was true of. A 1.9 renderer never reads the key and a host that
+declares no resource hands over a byte-identical handshake; the
+`notInThisVersion` pins hold the version to the prose.
+
+The law's tests: `bind.test.ts` (offered as handed in, absent when none, a
+renderer that declares nothing about resources unaffected), `capabilities.test.tsx`
+(the version), `notInThisVersion.test.ts` (`resources` on the handshake and not
+on the frame).
+
+---
+
 ## Adding a capability — the checklist
 
 1. **Name the act.** Who performs it: the user (it rides `emit`), or the host
@@ -978,7 +1037,8 @@ ids lit, the seed's focus and clear affordance, the picture unchanged).
    (Law 6); 1.8 added `RenderLayer.selection` (Law 7); 1.9 added
    `SelectionClauseView.via` (Law 8), amended in the same unreleased train
    with `via.from` (the source's clause, so a travelled walk is still the
-   walk) — all optional, so every one of them stayed a minor.
+   walk); 1.10 added `HostHandshake.resources` (Law 9) — all optional, so
+   every one of them stayed a minor.
 
 ## One more habit: the derivation helpers ship in a set
 

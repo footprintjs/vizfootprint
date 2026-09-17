@@ -250,6 +250,21 @@ describe('3. parseCommitLog — the door back in', () => {
 
     expect(refuse([{ ...good(), data: 'v1' }])[0]).toContain('data, if present, must map table name to version string');
     expect(refuse([{ ...good(), data: { dresses: 3 } }])[0]).toContain('data, if present, must map table name to version string');
+
+    // …and the RESOURCE stamp beside it, judged the same way (a resource is not a table, so it is its own map)
+    expect(refuse([{ ...good(), resources: 'v1' }])[0]).toContain('resources, if present, must map resource name to version string');
+    expect(refuse([{ ...good(), resources: { structure: 3 } }])[0]).toContain('resources, if present, must map resource name to version string');
+  });
+
+  it('a well-formed resource stamp survives the door, and rides a replay verbatim', () => {
+    const stamped = { ...good(), resources: { structure: 'etag:"v1"' } };
+    const parsed = parseCommitLog([stamped]);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error('unreachable');
+    expect(parsed.records[0]!.resources).toEqual({ structure: 'etag:"v1"' });
+    // the rebuild COPIES it: the record never aliases what came off the wire
+    expect(parsed.records[0]!.resources).not.toBe(stamped.resources);
+    expect(Object.isFrozen(parsed.records[0]!.resources)).toBe(true);
   });
 
   it('refuses a bad field pair, and a cell commit that carries none', () => {

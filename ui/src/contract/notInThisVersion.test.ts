@@ -68,8 +68,16 @@ const holdsNarrowedMinor = (): boolean => (minorSpoken() ?? 0) >= 7 && /readonly
  */
 const holdsPerLayerMinor = (): boolean => (minorSpoken() ?? 0) >= 8 && /readonly selection\?: RenderSelection;/.test(read('types.ts'));
 
-/** The contract really speaks the CLAUSE-TRAVELS-A-RELATION minor (protocol 1.9): the version, and `via` on the clause view. */
-const holdsTravelledMinor = (): boolean => minorSpoken() === 9 && /readonly via\?: \{/.test(read('types.ts'));
+/**
+ * The contract really speaks a version AT OR PAST the clause-travels-a-relation
+ * minor (protocol 1.9), and `via` is on the clause view. 1.10 added the
+ * resources on the handshake, so — the `holdsPerLayerMinor` precedent again —
+ * the pin is "1.9 or later within the major", not "exactly 1.9".
+ */
+const holdsTravelledMinor = (): boolean => (minorSpoken() ?? 0) >= 9 && /readonly via\?: \{/.test(read('types.ts'));
+
+/** The contract really speaks the BYTES-ON-THE-HANDSHAKE minor (protocol 1.10): the version, and `resources` on the handshake — never on the frame. */
+const holdsResourceMinor = (): boolean => minorSpoken() === 10 && /readonly resources\?: Readonly<Record<string, RenderResource>>;/.test(read('types.ts'));
 
 /** The law that makes `via` true at the fold really ships: ONE picker of the consumer's travelled clause, beside `narrowedAt`. */
 const holdsTravelledAt = (): boolean => /function travelledAt\(/.test(read('selection.ts')) && /function narrowedAt\(/.test(read('selection.ts'));
@@ -172,6 +180,31 @@ describe('the clause-travels-a-relation law says only what is true (protocol 1.9
     expect(readme).toContain('`SelectionClauseView.via`');
     // the law, by its own sentence: the tier folds what the session travelled, and never joins
     expect(readme).toContain('The fold takes the session\'s travelled clause and never joins');
+  });
+});
+
+describe('the bytes-on-the-handshake law says only what is true (protocol 1.10)', () => {
+  it('the version the prose claims is the version the code speaks, and the field is on the HANDSHAKE', () => {
+    expect(holdsResourceMinor()).toBe(true);
+  });
+
+  it('the bytes are on the handshake and NOWHERE on the frame — state is pushed per update, a resource is fetched once', () => {
+    const types = read('types.ts');
+    // the key is declared inside HostHandshake…
+    const handshake = types.slice(types.indexOf('export interface HostHandshake {'));
+    expect(handshake.slice(0, handshake.indexOf('\n}')).includes('readonly resources?:')).toBe(true);
+    // …and RenderState has no resources of its own
+    const frame = types.slice(types.indexOf('export interface RenderState {'));
+    expect(frame.slice(0, frame.indexOf('\n}')).includes('resources')).toBe(false);
+  });
+
+  it('the README states the law by the field\'s name, and the checklist counts the minor', () => {
+    const readme = read('README.md').replace(/\s+/g, ' ');
+    expect(readme).toContain('protocol 1.10');
+    expect(readme).toContain('`HostHandshake.resources`');
+    // the law, by its own sentence: what a renderer may do with the bytes
+    expect(readme).toContain('bytes are for GEOMETRY THE PLANE CANNOT SEE');
+    expect(readme).toContain('1.10 added `HostHandshake.resources` (Law 9)');
   });
 });
 

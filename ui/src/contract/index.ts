@@ -6,6 +6,8 @@ export type {
   NavigateViewState,
   RendererCallbacks,
   HostHandshake,
+  // protocol 1.10: one declared RESOURCE's bytes as a renderer receives them — exported in the SAME change as the handshake key that carries it
+  RenderResource,
   RendererHello,
   RenderRow,
   RenderEncodings,

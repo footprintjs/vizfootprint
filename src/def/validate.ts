@@ -35,7 +35,7 @@ import { lintEncodings, pageBindings, resolveFacets, validateColumnDecls, valida
 import type { EncodingRules, EncodingSurface, FacetSource } from '../encoding/index.js';
 import type { ColumnInfo } from '../data/index.js';
 import { DASHBOARD_PROSE_ID, NOTE_PROSE_PREFIX, validateProseDecls } from '../prose/index.js';
-import { SOURCE_FORMATS, SOURCE_VIAS } from '../source/index.js';
+import { RESOURCE_FORMATS, SOURCE_FORMATS, SOURCE_VIAS } from '../source/index.js';
 import type { SourceRefusalReason } from '../source/index.js';
 
 /** Thrown when a def is structurally malformed. Carries every problem at once. */
@@ -72,6 +72,7 @@ const DEF_KEYS = new Set([
   'relations',
   'encodingRules',
   'prose',
+  'resources',
 ]);
 
 /** The exhaustive set of keys a `SeriesGrain` may carry (R12: stated facts only, nothing executable). */
@@ -197,6 +198,30 @@ function validateSourceDecl(raw: unknown, where: string, problems: string[]): vo
   }
   for (const key of Object.keys(raw)) if (!['format', 'via', 'at', 'options'].includes(key)) problems.push(`${where}.${key} is not a source key`);
   if (!(SOURCE_FORMATS as readonly unknown[]).includes(raw.format)) problems.push(`${where}.format must be one of ${SOURCE_FORMATS.join('|')}`);
+  if (!(SOURCE_VIAS as readonly unknown[]).includes(raw.via)) problems.push(`${where}.via must be one of ${SOURCE_VIAS.join('|')}`);
+  if (raw.via === 'inline' && raw.at === undefined) problems.push(`${where}.at must carry the payload when via is inline`);
+  if ((raw.via === 'file' || raw.via === 'http') && (typeof raw.at !== 'string' || raw.at.length === 0)) problems.push(`${where}.at must be a path or URL string when via is ${String(raw.via)}`);
+  if (raw.options !== undefined && !isObject(raw.options)) problems.push(`${where}.options, if present, must be an object`);
+}
+
+/**
+ * `resources[name]` — THE SAME SHAPE, one tag along: a resource declares which
+ * of the two landings it wants (`bytes` | `text`) instead of which row format,
+ * travels the SAME `via` vocabulary, and is judged here in the same words, so a
+ * reader who has read one refusal has read both.
+ *
+ * `via: 'inline'` differs in ONE way, and it is the format's doing: a `bytes`
+ * payload carried by the def itself is a `Uint8Array`, which is the only place a
+ * def holds one — refused here rather than coerced, because coercing would
+ * invent a payload the author did not write.
+ */
+function validateResourceDecl(raw: unknown, where: string, problems: string[]): void {
+  if (!isObject(raw)) {
+    problems.push(`${where} must be an object { format, via, at?, options? }`);
+    return;
+  }
+  for (const key of Object.keys(raw)) if (!['format', 'via', 'at', 'options'].includes(key)) problems.push(`${where}.${key} is not a resource key`);
+  if (!(RESOURCE_FORMATS as readonly unknown[]).includes(raw.format)) problems.push(`${where}.format must be one of ${RESOURCE_FORMATS.join('|')} — a resource lands as bytes, never as rows`);
   if (!(SOURCE_VIAS as readonly unknown[]).includes(raw.via)) problems.push(`${where}.via must be one of ${SOURCE_VIAS.join('|')}`);
   if (raw.via === 'inline' && raw.at === undefined) problems.push(`${where}.at must carry the payload when via is inline`);
   if ((raw.via === 'file' || raw.via === 'http') && (typeof raw.at !== 'string' || raw.at.length === 0)) problems.push(`${where}.at must be a path or URL string when via is ${String(raw.via)}`);
@@ -676,6 +701,31 @@ export function validateDashboardDef(def: unknown): string[] {
       if (src.absence !== undefined) validateAbsence(src.absence, `data["${table}"].absence`, problems, absenceFields, declaredColumns);
       if (src.columns !== undefined) validateColumnDecls(src.columns, `data["${table}"].columns`, problems, absenceFieldsOf(src));
       if (Array.isArray(src.rows)) judgeAbsenceKept(src.rows, facetSourceOf(src), `data["${table}"]`, problems);
+    }
+  }
+
+  // ── resources (optional) — declared sources that are NOT tables ──
+  if (def.resources !== undefined) {
+    if (!isObject(def.resources)) {
+      problems.push('resources, if present, must be an object mapping name -> { format, via, at?, options? }');
+    } else {
+      const tables = isObject(def.data) ? new Set(Object.keys(def.data)) : new Set<string>();
+      for (const [name, decl] of Object.entries(def.resources)) {
+        // the KEY first, for the reason an analysis id is judged first: this name is what a
+        // person looks for on the overview and in a commit's stamp, and the empty string is not a name
+        if (name.length === 0) {
+          problems.push('resources[""]: a resource name must be a non-empty string');
+          continue;
+        }
+        // ONE NAMESPACE PER QUESTION: a commit stamps table versions under `data` and resource
+        // versions under `resources`, and the overview carries them as two maps — a name meaning
+        // both would let a reader ask the wrong one and still get an answer
+        if (tables.has(name)) {
+          problems.push(`resources["${name}"] is also a declared table — one namespace per question: a resource is a declared source that is NOT a table, so it may not share a name with one`);
+          continue;
+        }
+        validateResourceDecl(decl, `resources["${name}"]`, problems);
+      }
     }
   }
 

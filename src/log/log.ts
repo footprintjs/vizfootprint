@@ -25,7 +25,8 @@
  *        or assign into the log's own array. (c) every appended record is
  *        DEEPLY frozen, so a caller holding a reference cannot rewrite the
  *        record — or its `cause`, its `value`, its `fields`, its
- *        `clientViewIds`, its `actorMeta` or its `data` — after the fact.
+ *        `clientViewIds`, its `actorMeta`, its `data` or its `resources` — after
+ *        the fact.
  *        A log coming back off the wire is re-judged by `parseCommitLog`.
  *  - R10 first-class `CommitRecord.correlationId` cross-tier join key.
  *  - R13 commit-on-intent — `commit()` is a single synchronous write; the
@@ -146,6 +147,17 @@ export interface CommitRecord {
    * silently re-answered.
    */
   readonly data?: Readonly<Record<string, string>>;
+  /**
+   * The RESOURCES this commit was true of: name → the version the dashboard
+   * held when it landed (absent when the def declares none).
+   *
+   * A PARALLEL MAP, never folded into `data`, because a resource is not a table
+   * (src/source/README.md): a reader that found a structure file's version
+   * under `data` would be entitled to think it could ask for its rows. Read
+   * back the same way `data` is — a version the resource has since left marks
+   * the commit as moved (`../../ui/src/adapter/sessionView.ts` · `movedSince`).
+   */
+  readonly resources?: Readonly<Record<string, string>>;
 }
 
 /** Input to author one commit. `cause` is validated before anything is built. */
@@ -165,6 +177,8 @@ export interface CommitInput {
   cause: Cause;
   /** The data versions this commit is true of; absent = ask the log's `stampData` hook, if any. */
   data?: Readonly<Record<string, string>>;
+  /** The resource versions this commit is true of; absent = ask the log's `stampResources` hook, if any. */
+  resources?: Readonly<Record<string, string>>;
   /** Defaults to [viewId] — a view excludes only its own clause. The log COPIES it: the record never aliases a caller's array. */
   clientViewIds?: readonly string[];
   ts?: number;
@@ -202,6 +216,8 @@ export class CauseSelectionSession {
   readonly #ids = new Set<string>();
   /** Set by the session: the data versions to stamp on every commit that names none (table → version). */
   stampData?: () => Readonly<Record<string, string>> | undefined;
+  /** The {@link stampData} twin for declared RESOURCES (name → version) — a separate hook because it is a separate map on the record. */
+  stampResources?: () => Readonly<Record<string, string>> | undefined;
   /**
    * Set by the session: what to do when pushing the clause onto the selection
    * port throws — see {@link commit}'s APPLY phase.
@@ -317,6 +333,7 @@ export class CauseSelectionSession {
     if (isRejection(clause)) throw new ClauseRejectedError(clause);
 
     const data = input.data ?? this.stampData?.();
+    const resourceVersions = input.resources ?? this.stampResources?.();
     const record: CommitRecord = {
       id: input.id,
       parent: input.parent,
@@ -340,6 +357,8 @@ export class CauseSelectionSession {
       cause,
       ts: input.ts ?? this.#records.length,
       ...(data !== undefined && Object.keys(data).length > 0 && { data: { ...data } }),
+      // absent when the def declares no resource, so a commit reads byte-identically to one written before resources existed
+      ...(resourceVersions !== undefined && Object.keys(resourceVersions).length > 0 && { resources: { ...resourceVersions } }),
     };
     // R8, enforced by construction: once a commit lands, it cannot be edited
     // in place. Only `commit()` ever grows `#records` (always via push, never
@@ -349,7 +368,7 @@ export class CauseSelectionSession {
     // The freeze is DEEP, not one level. A one-level `Object.freeze(record)`
     // leaves `record.cause` writable — and the cause is the whole point: the
     // record of WHY. Deep means the cause, the value, the field pair, the
-    // client ids, the actor meta and the data versions are all sealed.
+    // client ids, the actor meta and both version maps are all sealed.
     // `deepFreeze` walks plain objects and arrays only, so a `value` that is a
     // class instance is left as it stands (src/detach/README.md says so
     // plainly); every value this library itself commits is plain JSON.
@@ -394,6 +413,7 @@ export function serializeLog(records: readonly CommitRecord[]): string {
 const RECORD_KEYS = new Set([
   'id', 'parent', 'correlationId', 'viewId', 'actorMeta', 'kind', 'field',
   'value', 'fields', 'clientViewIds', 'predicateSQL', 'cause', 'ts', 'data',
+  'resources',
 ]);
 
 /**
@@ -492,6 +512,12 @@ function recordProblems(raw: unknown): string[] {
       problems.push('data, if present, must map table name to version string');
     }
   }
+  if ('resources' in raw) {
+    const resources = raw.resources;
+    if (!isPlainObject(resources) || !Object.values(resources).every((v) => typeof v === 'string')) {
+      problems.push('resources, if present, must map resource name to version string');
+    }
+  }
   return problems;
 }
 
@@ -514,6 +540,7 @@ function rebuildRecord(raw: Record<string, unknown>): CommitRecord {
     cause: validateCause(raw.cause), // already judged above; this returns the normalized copy
     ts: raw.ts as number,
     ...('data' in raw && { data: { ...(raw.data as Record<string, string>) } }),
+    ...('resources' in raw && { resources: { ...(raw.resources as Record<string, string>) } }),
   };
   return deepFreeze(record);
 }
@@ -644,6 +671,8 @@ export function replayInput(rec: CommitRecord): CommitInput {
     ...(rec.fields !== undefined && { fields: rec.fields }),
     // the data a commit was true of is provenance: it replays verbatim (commit() prefers an explicit `data` over the hook)
     ...(rec.data !== undefined && { data: rec.data }),
+    // …and the resources it was true of, on the same reasoning and through the same door
+    ...(rec.resources !== undefined && { resources: rec.resources }),
     clientViewIds: rec.clientViewIds,
     cause: markReplayed(rec.cause), // R2: additive replay marker
     ts: rec.ts,

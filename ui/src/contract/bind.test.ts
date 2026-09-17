@@ -180,6 +180,49 @@ describe('bindRenderer', () => {
     expect(gaps).toEqual([outcome.gap]);
   });
 
+  // ── protocol 1.10: the declared resources OFFERED on the handshake (Law 9) ──
+
+  it('an offered resource reaches the renderer AS HANDED IN — bytes and version, at mount, never on the frame', () => {
+    const { renderer, handshake } = fakeRenderer();
+    const structure = { format: 'text', body: 'HEADER    1AY7\nATOM      1  N', version: 'etag:"v1"', retrievedAt: '2026-09-17T00:00:00.000Z' } as const;
+    const res = bindRenderer(renderer, document.createElement('div'), { viewId: 'structure3d', callbacks: callbacks(), resources: { structure } });
+    if (!res.ok) throw new Error('bind failed');
+    // not copied: the snapshot is already the carrier's own answer
+    expect(handshake()!.resources!['structure']).toBe(structure);
+    expect(handshake()!.resources!['structure']!.version).toBe('etag:"v1"');
+    // …and NOT on the frame, which is pushed on every update
+    res.view.update(state());
+    expect('resources' in state()).toBe(false);
+  });
+
+  it('a renderer that declares nothing about resources is unaffected — and a host that offers none hands over a 1.9 handshake', () => {
+    // no capability to guard: a renderer that ignores an offer records nothing and hides nothing (Law 2)
+    const { renderer, handshake } = fakeRenderer();
+    const res = bindRenderer(renderer, document.createElement('div'), { viewId: 'v', callbacks: callbacks(), resources: { logo: { format: 'bytes', body: new Uint8Array([1]), version: 'v1', retrievedAt: 'now' } } });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error('bind failed');
+    expect(res.view.capabilities).toEqual(CAPS); // nothing was added to the hello
+    expect(res.view.update(state())).toEqual({ ok: true }); // and nothing is refused
+    expect(Object.keys(handshake()!)).toEqual(['protocolVersion', 'viewId', 'callbacks', 'resources']);
+    // a host that offers none: the key is absent, byte for byte
+    const plain = fakeRenderer();
+    bindRenderer(plain.renderer, document.createElement('div'), { viewId: 'v', callbacks: callbacks() });
+    expect('resources' in plain.handshake()!).toBe(false);
+  });
+
+  it('layers and resources ride the same handshake without touching each other', () => {
+    const { renderer, handshake } = fakeRenderer({ capabilities: { ...CAPS, canLayer: true } });
+    const res = bindRenderer(renderer, document.createElement('div'), {
+      viewId: 'frame',
+      callbacks: callbacks(),
+      layers: { layerIds: ['edges'], callbacksFor: () => callbacks() },
+      resources: { geo: { format: 'text', body: '{}', version: 'v1', retrievedAt: 'now' } },
+    });
+    expect(res.ok).toBe(true);
+    expect(Object.keys(handshake()!.layers!)).toEqual(['edges']);
+    expect(Object.keys(handshake()!.resources!)).toEqual(['geo']);
+  });
+
   // ── protocol 1.2: layer bundles on the handshake, and the layers-unsupported guard ──
 
   it('a plain bind carries NO layers key on the handshake, and a plain update answers ok (byte-identical to 1.1)', () => {

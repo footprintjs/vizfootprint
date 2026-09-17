@@ -21,6 +21,36 @@ const answer = (r: VizToolResult): Record<string, unknown> => r as Record<string
 const portOf = (def: DashboardDef = makeDashboardDef()): VizToolsPort => vizAsTools(buildDashboard(def).createSession({ as: 'agent' }), { as: 'agent' });
 const here = async (p: VizToolsPort, args?: Record<string, unknown>): Promise<Record<string, unknown>> => answer(await p.call('viz.whats_here', args));
 
+// ── the pin: a declared RESOURCE rides the answer, and is not a part a reader may ask for ──
+
+describe('a declared resource on the served answer', () => {
+  const withResource = (): DashboardDef => ({ ...makeDashboardDef(), resources: { structure: { format: 'text', via: 'inline', at: 'HEADER 1AY7' } } });
+
+  it('rides an unnarrowed answer as FACTS, and never as a payload', async () => {
+    const a = await here(portOf(withResource()));
+    expect(a['resources']).toMatchObject({ structure: { format: 'text', via: 'inline', bytes: 11 } });
+    expect(JSON.stringify(a)).not.toContain('HEADER 1AY7');
+  });
+
+  it('takes part in a `since` delta, because narrowing walks the ANSWER\'s keys and not the parts table', async () => {
+    const p = portOf(withResource());
+    const first = await here(p);
+    const delta = await here(p, { since: first['asOf'] });
+    // nothing moved, so it is listed as unchanged rather than resent — omitted, never denied
+    expect((delta['omitted'] as { part: string; reason: string }[]).find((o) => o.part === 'resources')).toEqual({ part: 'resources', reason: 'unchanged-since' });
+  });
+
+  it('but it may NOT be asked for by name — it has no row in the parts table, and the refusal says so (`../source/README.md`)', async () => {
+    const refused = await here(portOf(withResource()), { of: ['resources'] });
+    expect(refused['ok']).toBe(false);
+    expect(refused['detail']).toContain('"resources", which is not a part of this answer');
+    // …because every row of that table is a part the no-argument answer ALWAYS carries, and this key is
+    // absent when a def declares none — which is the byte-identity law it exists to keep
+    expect(SURFACE_PART_NAMES.has('resources')).toBe(false);
+    expect('resources' in (await here(portOf()))).toBe(false);
+  });
+});
+
 // ── the pin: no argument, no change ──────────────────────────────────────────
 
 describe('no argument, no change', () => {

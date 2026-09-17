@@ -64,6 +64,8 @@ import { absenceByTable, mintedTables, type AggregateDecl, type BuiltinAnalysisC
 import { registerAnalysisSlot } from '../def/register.js';
 import { tableReachOf } from '../def/tableReach.js';
 import { copyValue, deepFreeze } from '../detach/index.js';
+// the resource stamp's one fold: name → version, owned where the resource shapes are (`../source/resource.ts`)
+import { resourceVersionsOf } from '../source/index.js';
 import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RelationEdge, RestorableSaved, RestorableBookmark, RestoreResult, ViewDecl, ViewEncodingDecl, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
 import { describeRules, refuses, validateBindings } from '../encoding/index.js';
 import { ENCODING_KIND } from '../links/index.js';
@@ -798,6 +800,13 @@ class InteractionSessionImpl implements InteractionSession {
       const info = this.runtime.sources[this.defaultTable];
       return info === undefined ? undefined : { [this.defaultTable]: info.version };
     };
+    // …and EVERY declared resource's version, which is the honest narrowing here and not a
+    // wider one: `stampData` can name the default table because a selection acts on a table,
+    // and nothing in this version binds a resource to a view — a renderer is OFFERED the bytes
+    // on its mount handshake, and the library is never told which one it drew. So the commit
+    // says what the dashboard HELD, which is what a reader needs to know went stale. Narrowing
+    // it would take a declared binding, which is not in this version (src/source/README.md).
+    this.log.stampResources = () => resourceVersionsOf(this.runtime.resources);
     // The commit's one OUTBOUND step — pushing the clause onto the selection
     // port, which emits to whatever a host attached — must not be able to
     // fail an act that already landed. The log rethrows when nobody is
@@ -5681,6 +5690,10 @@ class InteractionSessionImpl implements InteractionSession {
       // still writing. `keys`, `engines` and the link graph beside it are
       // build-time constants and are frozen once, at build.
       sources: deepFreeze({ ...this.runtime.sources }),
+      // …and the declared RESOURCES the same way — FACTS (format, via, locator, version,
+      // retrieval time, SIZE) and never the payload. ABSENT when the def declares none, so a
+      // def without resources projects an overview byte-identical to one from before they existed
+      ...(Object.keys(this.runtime.resources).length > 0 ? { resources: deepFreeze({ ...this.runtime.resources }) } : {}),
       keys: this.runtime.keys,
       // the Sources tab's rows: every declared table as the def states it, and the data journal beside the log
       tables: this.effectiveTablesOf(),

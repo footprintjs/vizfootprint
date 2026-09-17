@@ -80,8 +80,8 @@ import { validateProseRecord } from '../prose/index.js';
 import type { ProseProblem } from '../prose/index.js';
 import { isRejection } from '../data/index.js';
 import { DEFAULT_RELATION_KIND } from './relations.js';
-import { decodeRows, inlineVersion, isSourceRefusal, isUnchanged, openSource, SourceRefusal } from '../source/index.js';
-import type { RefreshDelta, SourceAdapter, SourceDecl, SourceInfo, SourceRefusalReason, SourceSnapshot } from '../source/index.js';
+import { decodeRows, inlineResource, inlineVersion, isResourceRefusal, isSourceRefusal, isUnchanged, openResource, openSource, resourceBytes, resourceInfoOf, SourceRefusal } from '../source/index.js';
+import type { RefreshDelta, ResourceDecl, ResourceInfo, ResourceSnapshot, SourceAdapter, SourceDecl, SourceInfo, SourceRefusalReason, SourceSnapshot } from '../source/index.js';
 import type { ColumnFacet } from '../data/index.js';
 import { deepFreeze } from '../detach/index.js';
 
@@ -101,6 +101,28 @@ export interface Dashboard {
   /** What each declared source vouched for when it was read — the table's provenance. */
   readonly sources: Readonly<Record<string, SourceInfo>>;
   /**
+   * The same for each declared RESOURCE — a declared source that is not a table
+   * (see src/source/README.md). FACTS only: format, via, locator, version,
+   * retrieval time and the SIZE that landed. `{}` when the def declares none.
+   */
+  readonly resources: Readonly<Record<string, ResourceInfo>>;
+  /**
+   * THE BYTES of one declared resource, or `undefined` for a name this def does
+   * not declare. There is no third case: a resource whose landing was refused
+   * never gets past the build door at all (`readResource` raises it as the
+   * def's own error), unlike a table's guard-2 refusal, which becomes a note
+   * and an unlanded provider — a resource has no reads to refuse one by one.
+   *
+   * A METHOD, and not a field beside `resources`, because that is the whole
+   * law: a resource's facts ride every wire this library has, and its bytes
+   * ride none of them. A host reaches through this door in-process and hands
+   * what it got to a renderer on the mount handshake
+   * (`../../ui/src/contract/types.ts` · `HostHandshake.resources`); nothing a
+   * session serves can reach it, because the session's runtime holds the facts
+   * and not the body.
+   */
+  resource(name: string): ResourceSnapshot | undefined;
+  /**
    * Build notes a def should hear, in the order its tables were read: an `auto`
    * engine resolved to memory and why; a table routed to an engine this version
    * does not run, and what that table will say at its first read; a table a host
@@ -114,8 +136,16 @@ export interface Dashboard {
    * in place — every session sees the new rows on its next query — and reports
    * what changed, exactly when the table declares a row key. Columns an analysis
    * materialised on a replaced table are gone with the old rows: re-run it.
+   *
+   * A declared RESOURCE rides the same door, under the same law: named or
+   * unnamed it is re-read with the version held, an unchanged one moves
+   * nothing, a changed one replaces the bytes a host will hand out next, and a
+   * REFUSED re-fetch leaves yesterday's bytes exactly where they are and says
+   * so in the carrier's own reason. Its answers ride `RefreshResult.resources`,
+   * a map of its own — a resource has no rows and no delta, so folding it into
+   * `tables` would be a shape that promised both.
    */
-  refresh(tables?: readonly string[]): Promise<RefreshResult>;
+  refresh(names?: readonly string[]): Promise<RefreshResult>;
   /** The data journal: every refresh this dashboard ran, oldest first (see {@link RefreshRecord}). */
   journal(): readonly RefreshRecord[];
   /** The saved selections — saved logic beside the log (see {@link SavedSelection}); the session's doors write it. */
@@ -200,8 +230,27 @@ export type RefreshOutcome =
       readonly message: string;
     };
 
+/**
+ * One RESOURCE's answer to a refresh. Three arms, not four: bytes either moved
+ * or they did not, and there is no delta to report — a resource has no rows, so
+ * nothing about it is addressable (the row-key law has nothing to say here).
+ * `no-resource` is the one reason of its own: nothing to re-read under that
+ * name, or a landing this build already refused.
+ */
+export type ResourceRefreshOutcome =
+  | { readonly unchanged: true; readonly version: string }
+  | { readonly changed: true; readonly from: string; readonly to: string; readonly retrievedAt: string; readonly bytes: number }
+  | { readonly refused: true; readonly reason: SourceRefusalReason | 'no-resource'; readonly message: string };
+
 export interface RefreshResult {
   readonly tables: Readonly<Record<string, RefreshOutcome>>;
+  /**
+   * The declared RESOURCES this refresh asked. ABSENT when it asked none (a def
+   * that declares no resource, or a call that named only tables), so a result
+   * from a def without resources is byte-identical to one written before they
+   * existed.
+   */
+  readonly resources?: Readonly<Record<string, ResourceRefreshOutcome>>;
 }
 
 /**
@@ -213,9 +262,11 @@ export interface RefreshResult {
 export interface RefreshRecord {
   /** When the refresh ran (ISO). */
   readonly at: string;
-  /** The tables asked, in the order asked — every table when none was named. */
+  /** The names asked, in the order asked — every table AND every declared resource when none was named. */
   readonly asked: readonly string[];
   readonly tables: Readonly<Record<string, RefreshOutcome>>;
+  /** What each RESOURCE asked answered; absent when none was asked (see {@link RefreshResult.resources}). */
+  readonly resources?: Readonly<Record<string, ResourceRefreshOutcome>>;
 }
 
 /** The async builder's options: the source adapters the host brought (`inline` is always known). */
@@ -560,6 +611,11 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
     if (src.source.via !== 'inline') asyncOnly.push(`data["${table}"] declares a source via ${src.source.via} — build it with buildDashboardAsync`);
     else if (src.engine === 'wasm') asyncOnly.push(`data["${table}"] declares a source with engine "wasm" — a source's rows are landed in the SQL backend by an await; build it with buildDashboardAsync`);
   }
+  // …and the same for a declared RESOURCE: the inline one is already here (the payload
+  // is the def's own, so there is nothing to await), every other has to be fetched
+  for (const [name, decl] of Object.entries(def.resources ?? {})) {
+    if (decl.via !== 'inline') asyncOnly.push(`resources["${name}"] declares a resource via ${decl.via} — build it with buildDashboardAsync`);
+  }
   if (asyncOnly.length) throw new DashboardDefError(asyncOnly);
 
   const available = options.availableEngines ?? DEFAULT_AVAILABLE;
@@ -571,6 +627,16 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
   // ── resolve data → one provider per table (D24) ──
   const providers = new Map<string, DataProvider>();
   const engines: Record<string, Engine> = {};
+  // The declared RESOURCES, landed before a table: they need no engine and no
+  // connection, so a refused one throws before anything is opened. `resources`
+  // is the FACTS every reader gets; `bodies` is the payload, which only
+  // `Dashboard.resource` hands out (`../source/README.md`, the law).
+  const store = resourceStore();
+  for (const [name, decl] of Object.entries(def.resources ?? {})) {
+    const landed = inlineResource(decl); // the same landing the carrier wraps (`../source/inline.ts`)
+    if ('rejected' in landed) throw new DashboardDefError([`resources["${name}"]: ${landed.rejected}`]);
+    landResource(store, name, decl, landed);
+  }
   const lazy = new Set<string>(); // the wasm tables this door could not land: nothing to learn until a read pays for the landing
   for (const [table, source] of Object.entries(def.data)) {
     const host = options.providers?.[table];
@@ -625,7 +691,7 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
       }
     });
   }
-  return assemble(def, options, providers, engines, sources, notes, journal, new DerivedColumnStore(), derivedTableSlots(providers), landedColumns, wasm);
+  return assemble(def, options, providers, engines, sources, store, notes, journal, new DerivedColumnStore(), derivedTableSlots(providers), landedColumns, wasm);
 }
 
 /**
@@ -646,6 +712,14 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
   const wasm = wasmBackend(options.openSqlConnection);
   const providers = new Map<string, DataProvider>();
   const engines: Record<string, Engine> = {};
+  // The declared RESOURCES, read before a table: they need no engine and no
+  // connection, so a refused one raises the def's error before anything is
+  // opened. `resources` is the FACTS every reader gets; `bodies` is the
+  // payload, which only `Dashboard.resource` hands out.
+  const store = resourceStore();
+  for (const [name, decl] of Object.entries(def.resources ?? {})) {
+    landResource(store, name, decl, await readResource(decl, name, options.sources ?? []));
+  }
   // Table → the sentence its landing was refused in (`./declaredTable.ts`, guard 2).
   // The ONE thing the refresh door needs from this loop: a table with a source and no
   // `sources` entry is a refused landing, and it must be refused again in those words
@@ -724,18 +798,55 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
   const derived = new DerivedColumnStore();
   // …and the tables an aggregate cut from them, on the same reasoning one level out.
   const derivedTables = derivedTableSlots(providers);
+  /**
+   * Re-read ONE declared resource with the version held. A refused re-fetch
+   * leaves yesterday's bytes exactly where they are — {@link landResource} is
+   * called only on a landing that arrived — and says so in the carrier's own
+   * reason (the table door's law, unchanged).
+   *
+   * It is handed the {@link LandedResource} rather than a name to look up,
+   * which is why it has no "nothing landed" arm: the caller routes off the
+   * landed map, so a name that reaches here has both the declaration to
+   * re-open and the version to ask with.
+   */
+  const runResource = async (name: string, { decl, info }: LandedResource): Promise<ResourceRefreshOutcome> => {
+    try {
+      const handle = await openResource(decl, name, adapters);
+      try {
+        const snap = await handle.snapshot({ sinceVersion: info.version });
+        // a carrier that cannot answer conditionally but vouches for the same version moved nothing either
+        if (isUnchanged(snap) || snap.version === info.version) return { unchanged: true, version: snap.version };
+        landResource(store, name, decl, snap);
+        return { changed: true, from: info.version, to: snap.version, retrievedAt: snap.retrievedAt, bytes: resourceBytes(snap) };
+      } finally {
+        await handle.close();
+      }
+    } catch (e) {
+      return { refused: true, reason: isResourceRefusal(e) ? e.reason : 'no-resource', message: e instanceof Error ? e.message : String(e) };
+    }
+  };
   const run = async (which?: readonly string[]): Promise<RefreshResult> => {
-    // ONE answer per table asked: a name given twice fetches its carrier twice, and the second
+    // ONE answer per name asked: a name given twice fetches its carrier twice, and the second
     // pass reads the FIRST pass's own swap as "unchanged" — overwriting the change it just made
-    const asked = [...new Set(which ?? Object.keys(def.data))];
+    const asked = [...new Set(which ?? [...Object.keys(def.data), ...Object.keys(def.resources ?? {})])];
     const out: Record<string, RefreshOutcome> = {};
+    const outResources: Record<string, ResourceRefreshOutcome> = {};
     for (const table of asked) {
       // own keys only, the way `judgeProviders` reads the same map: `toString` is not a declared table
       const decl = Object.prototype.hasOwnProperty.call(def.data, table) ? def.data[table] : undefined;
       const held = Object.prototype.hasOwnProperty.call(sources, table) ? sources[table] : undefined;
+      // …and a RESOURCE before the table arms, because the two namespaces are disjoint by the
+      // def door's own refusal: a name that is a resource is never also a table. Routed off what
+      // LANDED rather than off the declaration — a refresh re-reads what landed, and a declared
+      // resource always landed — so the pair it needs arrives in one lookup.
+      const heldResource = store.landed.get(table);
+      if (heldResource !== undefined) {
+        outResources[table] = await runResource(table, heldResource);
+        continue;
+      }
       if (decl === undefined) {
         // an unknown name is refused as such — never described as a table with inline rows
-        out[table] = { refused: true, reason: 'no-source', message: `no table "${table}" is declared — the tables are ${Object.keys(def.data).join(', ')}` };
+        out[table] = { refused: true, reason: 'no-source', message: noSuchName(table, def) };
         continue;
       }
       if (decl.source === undefined || held === undefined) {
@@ -822,8 +933,9 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
         out[table] = { refused: true, reason: isSourceRefusal(e) ? e.reason : 'no-source', message: e instanceof Error ? e.message : String(e) };
       }
     }
-    journal.push(journalRecord(asked, out));
-    return { tables: out };
+    journal.push(journalRecord(asked, out, outResources));
+    // the key is absent when no resource was asked (see `RefreshResult.resources`)
+    return { tables: out, ...(Object.keys(outResources).length > 0 ? { resources: outResources } : {}) };
   };
   // refreshes run one after another: two overlapping ones would read each other's swap as a change of their own
   // `run` never rejects today (every table's failure is REPORTED in its outcome); the chain survives even if that changes
@@ -834,7 +946,7 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
     queue = next.catch(() => undefined);
     return next;
   };
-  return assemble(def, options, providers, engines, sources, notes, journal, derived, derivedTables, landedColumns, wasm, refresh);
+  return assemble(def, options, providers, engines, sources, store, notes, journal, derived, derivedTables, landedColumns, wasm, refresh);
 }
 
 /**
@@ -883,14 +995,17 @@ export const notReloadableMessage = (table: string, engine: string): string =>
   `data["${table}"] runs on the "${engine}" engine, which cannot re-land rows — close() this dashboard and build again to read the source afresh`;
 
 /** One journal record: its own copies of what it was handed, frozen — history is never editable through a result someone still holds. */
-function journalRecord(asked: readonly string[], tables: Readonly<Record<string, RefreshOutcome>>): RefreshRecord {
+function journalRecord(asked: readonly string[], tables: Readonly<Record<string, RefreshOutcome>>, resources: Readonly<Record<string, ResourceRefreshOutcome>> = {}): RefreshRecord {
   // A journal entry is finished the moment it is written, so it is FROZEN, not
   // copied — every level a caller can reach through the result it still holds:
   // the outcome, its delta, the lost list. (This used to be three hand-rolled
   // shallow freezes, which is the same law spelled out one level at a time.)
   const copied: Record<string, RefreshOutcome> = {};
   for (const [table, o] of Object.entries(tables)) copied[table] = { ...o };
-  return deepFreeze({ at: new Date().toISOString(), asked: [...asked], tables: copied });
+  const copiedResources: Record<string, ResourceRefreshOutcome> = {};
+  for (const [name, o] of Object.entries(resources)) copiedResources[name] = { ...o };
+  // the key is ABSENT when no resource was asked: an entry from a def without resources reads byte-identically to one written before they existed
+  return deepFreeze({ at: new Date().toISOString(), asked: [...asked], tables: copied, ...(Object.keys(copiedResources).length > 0 ? { resources: copiedResources } : {}) });
 }
 
 /** Open, snapshot, close — and turn what the carrier refused into a def problem. */
@@ -909,6 +1024,79 @@ async function readSource(decl: SourceDecl, table: string, adapters: readonly So
     // the carrier's typed reason rides the def error, so a host can tell a timeout from a malformed payload
     throw new DashboardDefError([`data["${table}"].source: ${e instanceof Error ? e.message : String(e)}`], isSourceRefusal(e) ? e.reason : undefined);
   }
+}
+
+/**
+ * A declared resource as a build HOLDS it: what to re-open it with, and what
+ * landed for it — held TOGETHER, which is the whole point. A declared resource
+ * always lands (either builder raises anything else), so pairing the two makes
+ * "a name to re-read with nothing landed for it" UNREPRESENTABLE instead of a
+ * branch nothing can reach: the refresh door routes off this map and is handed
+ * both, so `runResource` has no absent-landing arm to guard.
+ */
+interface LandedResource {
+  readonly decl: ResourceDecl;
+  readonly info: ResourceInfo;
+}
+
+/**
+ * Where a build keeps its declared resources: the pair per name, the FACTS
+ * record the runtime reads, and the BODIES only `Dashboard.resource` hands out.
+ * Three views of one landing, written at one place ({@link landResource}) so no
+ * caller can write one and forget another.
+ */
+interface ResourceStore {
+  readonly landed: Map<string, LandedResource>;
+  readonly info: Record<string, ResourceInfo>;
+  readonly bodies: Map<string, ResourceSnapshot>;
+}
+
+const resourceStore = (): ResourceStore => ({ landed: new Map(), info: {}, bodies: new Map() });
+
+/** THE ONE WRITE — both builders' first landing and the refresh door's re-landing go through here. */
+function landResource(store: ResourceStore, name: string, decl: ResourceDecl, snap: ResourceSnapshot): void {
+  const info = resourceInfoOf(decl, snap);
+  store.landed.set(name, { decl, info });
+  store.info[name] = info;
+  store.bodies.set(name, snap);
+}
+
+/**
+ * Read one declared RESOURCE, raising the carrier's refusal as the def's own
+ * problem — the {@link readSource} twin, with the two steps a resource does not
+ * have: no decode, and no landing judged against a declaration (there are no
+ * columns to disagree with).
+ *
+ * …and a third the TYPE takes away: a first read holds no version, so
+ * `ResourceHandle.snapshot`'s narrow overload answers a `ResourceSnapshot` and
+ * there is nothing here to guard against an "unchanged" this call cannot
+ * receive (`../source/types.ts` · `ResourceHandle`). The rows twin still
+ * carries that guard, because `SourceHandle.snapshot` has one signature.
+ */
+async function readResource(decl: ResourceDecl, name: string, adapters: readonly SourceAdapter[]): Promise<ResourceSnapshot> {
+  try {
+    const handle = await openResource(decl, name, adapters);
+    try {
+      return await handle.snapshot();
+    } finally {
+      await handle.close();
+    }
+  } catch (e) {
+    // the carrier's typed reason rides the def error, exactly as a table's does
+    throw new DashboardDefError([`resources["${name}"]: ${e instanceof Error ? e.message : String(e)}`], isResourceRefusal(e) ? e.reason : undefined);
+  }
+}
+
+/**
+ * The sentence a refresh refuses an undeclared name in — ONE owner, because
+ * both doors write it. It names the resources only when the def declares any,
+ * so a def without them reads byte-identically to one built before resources
+ * existed.
+ */
+function noSuchName(name: string, def: DashboardDef): string {
+  const tables = `the tables are ${Object.keys(def.data).join(', ')}`;
+  const resources = Object.keys(def.resources ?? {});
+  return resources.length === 0 ? `no table "${name}" is declared — ${tables}` : `no table or resource "${name}" is declared — ${tables}; the resources are ${resources.join(', ')}`;
 }
 
 /** The kinds a saved condition may name — the emission kinds themselves, projected (`../links/types.ts`), never a second list to keep in step. */
@@ -1052,7 +1240,7 @@ function derivedTableSlots(providers: Map<string, DataProvider>): DerivedTableSl
  * never saw a refresh again. One object literal, built once, cannot go wrong
  * that way.
  */
-function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, notes: readonly string[], journal: RefreshRecord[], derived: DerivedColumnStore, derivedTables: DerivedTableSlots, landedColumns: LandedColumns, wasm: WasmBackend, refresh?: Dashboard['refresh']): Dashboard {
+function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: Map<string, DataProvider>, engines: Record<string, Engine>, sources: Record<string, SourceInfo>, store: ResourceStore, notes: readonly string[], journal: RefreshRecord[], derived: DerivedColumnStore, derivedTables: DerivedTableSlots, landedColumns: LandedColumns, wasm: WasmBackend, refresh?: Dashboard['refresh']): Dashboard {
   freezeDefinition(def);
   const saved: SavedStore = { list: [], minted: 0 }; // saved selections: logic beside the log, shared by every session (the counter rides the store: it outlives every session)
   const bookmarks: BookmarkStore = { list: [], minted: 0 }; // bookmarks: names on moments beside the log, shared by every session
@@ -1143,6 +1331,8 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     },
     prose: new Map((def.prose ?? []).map((p) => [p.viewId, p.slots] as const)),
     sources,
+    // the FACTS only — the runtime is what every session holds, and a session serves an overview (`./types.ts` · `DashboardRuntime.resources`)
+    resources: store.info,
     notes,
     keys,
     relations,
@@ -1175,25 +1365,45 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     get sources() {
       return deepFreeze({ ...sources });
     },
+    // …and `resources` moves the same way, for the same reason: `refresh()` replaces an entry
+    get resources() {
+      return deepFreeze({ ...store.info });
+    },
+    // The ONE door to the bytes, and it is in-process: nothing here is copied,
+    // because the snapshot is already the carrier's own answer and a host hands
+    // it straight to a renderer. A name this def does not declare (or one whose
+    // landing was refused) answers `undefined` — never an empty body, which a
+    // renderer would draw as a structure with no atoms.
+    resource: (name) => store.bodies.get(name),
     notes,
     // a synchronous dashboard holds inline sources only, which never move; a table with no source has nothing to refresh —
     // the answer is still journaled, so the tab can say "asked at 14:02: unchanged" instead of nothing
     refresh: refresh ?? (async (which) => {
-      const asked = [...new Set(which ?? Object.keys(def.data))];
-      const result: RefreshResult = {
-        tables: Object.fromEntries(
-          asked.map((t) => [
+      const asked = [...new Set(which ?? [...Object.keys(def.data), ...Object.keys(def.resources ?? {})])];
+      // a synchronous dashboard holds INLINE resources only (every other via is refused at its door),
+      // and an inline payload is the def's own text: it answers unchanged, like an inline table.
+      // Routed off what LANDED, like the async door beside it, so the version arrives with the name
+      const askedResources = asked.flatMap((n) => {
+        const held = store.landed.get(n);
+        return held === undefined ? [] : [[n, { unchanged: true, version: held.info.version }] as const];
+      });
+      const outResources: Record<string, ResourceRefreshOutcome> = Object.fromEntries(askedResources);
+      const isResource = new Set(askedResources.map(([n]) => n));
+      const tables: Record<string, RefreshOutcome> = Object.fromEntries(
+        asked
+          .filter((t) => !isResource.has(t))
+          .map((t) => [
             t,
             // own keys only: `toString` is a member of every object, and no table anybody declared
             !Object.prototype.hasOwnProperty.call(def.data, t)
-              ? { refused: true, reason: 'no-source', message: `no table "${t}" is declared — the tables are ${Object.keys(def.data).join(', ')}` }
+              ? { refused: true, reason: 'no-source', message: noSuchName(t, def) }
               : Object.prototype.hasOwnProperty.call(sources, t)
                 ? { unchanged: true, version: sources[t]!.version }
                 : { refused: true, reason: 'no-source', message: `data["${t}"] declares no source — inline rows never move` },
           ]),
-        ),
-      };
-      journal.push(journalRecord(asked, result.tables));
+      );
+      const result: RefreshResult = { tables, ...(askedResources.length > 0 ? { resources: outResources } : {}) };
+      journal.push(journalRecord(asked, result.tables, outResources));
       return result;
     }),
     journal: () => Object.freeze([...journal]), // the entries are already frozen; the list is a fresh one each read

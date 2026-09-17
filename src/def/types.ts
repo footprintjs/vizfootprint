@@ -28,7 +28,7 @@ import type { RefreshRecord } from './buildDashboard.js';
 import type { EmissionKind, LinkDecl, LinkDefault, LinkGraph } from '../links/types.js';
 import type { ColumnDecl, EncodingPorts, EncodingRules } from '../encoding/types.js';
 import type { ProseDecl } from '../prose/types.js';
-import type { SourceDecl, SourceInfo } from '../source/types.js';
+import type { ResourceDecl, ResourceInfo, SourceDecl, SourceInfo } from '../source/types.js';
 import type { ActorMeta } from '../selection/index.js';
 import type {
   AnalysisDef,
@@ -624,6 +624,24 @@ export interface DashboardDef {
   readonly encodingRules?: EncodingRules;
   /** The prose plane: a view's words — title, caption, alt text, how to read it — as records with an author, a level of claim and a basis (see src/prose/README.md). */
   readonly prose?: readonly ProseDecl[];
+  /**
+   * The RESOURCES: declared sources that are not tables — a protein structure
+   * file, a map's geometry, a font — each landing as bytes with a version, and
+   * never as rows (see src/source/README.md, "A resource is a declared source
+   * that is not a table").
+   *
+   * DECLARED BESIDE THE DATA, not inside it, and for the reason that makes them
+   * a separate key at all: a `data` entry is a TABLE — something with columns,
+   * a row key, a grain, an absence vocabulary, a landing judged against its
+   * declaration — and a structure file has none of those. One namespace per
+   * question, so a resource name that is also a table name is refused at the
+   * door.
+   *
+   * ```ts
+   * resources: { structure: { format: 'text', via: 'http', at: 'https://files.rcsb.org/download/1AY7.pdb' } }
+   * ```
+   */
+  readonly resources?: Readonly<Record<string, ResourceDecl>>;
 }
 
 // ── The resolved runtime bundle `buildDashboard` produces for a session. ───────
@@ -870,6 +888,18 @@ export interface DashboardRuntime {
   readonly prose: ReadonlyMap<string, ProseDecl['slots']>;
   /** The data-source layer: what each declared source vouched for when it was read (absent for `rows` / `csv` tables). */
   readonly sources: Readonly<Record<string, SourceInfo>>;
+  /**
+   * The same, for the declared RESOURCES — FACTS only (format, via, locator,
+   * version, retrieval time, SIZE). The BYTES are deliberately not here: the
+   * runtime is what every session holds, and a session serves an overview, so a
+   * payload on it would be one cast away from a wire a value may not ride.
+   * `Dashboard.resource(name)` is the one door to the body, and it is
+   * in-process only (`./buildDashboard.ts` · `Dashboard.resource`).
+   *
+   * `{}` when the def declares none — the overview omits the key entirely in
+   * that case, so a def with no resources projects byte-identically.
+   */
+  readonly resources: Readonly<Record<string, ResourceInfo>>;
   /** The data journal: every refresh the dashboard ran, oldest first — a dashboard-level record beside the log, shared by every session. */
   readonly journal: readonly RefreshRecord[];
   /** The saved selections — saved LOGIC beside the log, never in it (see {@link SavedSelection}); shared by every session, like the journal. */

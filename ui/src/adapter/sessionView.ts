@@ -76,7 +76,7 @@ import {
   type ChartCellView,
   type LayoutChange,
   type LayoutView,
-  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProposalView, type SavedSelectionView, type SavedClauseView, type SourceInfoView, type DashboardWordsView, type NoteView, type TableView, type RefreshRecordView, type RefreshOutcomeView, type RefreshDeltaView, type LayoutPreset, type AggregatePick } from './types.js';
+  parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProposalView, type SavedSelectionView, type SavedClauseView, type SourceInfoView, type ResourceInfoView, type DashboardWordsView, type NoteView, type TableView, type RefreshRecordView, type RefreshOutcomeView, type RefreshDeltaView, type LayoutPreset, type AggregatePick } from './types.js';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { mapProseRefs } from './proseRefs.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
@@ -187,6 +187,8 @@ export interface RawPollState {
   readonly clearedSelections?: readonly unknown[];
   /** Provenance per table (what each declared source vouched for). */
   readonly sources?: unknown;
+  /** Provenance per declared RESOURCE (`overview.resources`) — facts, never a payload. */
+  readonly resources?: unknown;
   /** The dashboard's own words (`overview.dashboard`), if the wire carries them. */
   readonly dashboard?: unknown;
   /** The notes on the dashboard (`overview.notes`), if the wire carries them. */
@@ -244,6 +246,8 @@ export interface RawPollPaths {
 interface RawPollCommit {
   /** The data versions this commit was true of (table → version), when the tables declare sources. */
   readonly data?: Readonly<Record<string, string>>;
+  /** The resource versions it was true of (name → version), when the def declares resources. */
+  readonly resources?: Readonly<Record<string, string>>;
   readonly id: string;
   readonly parent: string | null;
   readonly viewId: string;
@@ -341,6 +345,8 @@ const DEFAULT_ENDPOINTS: PollEndpoints = {
 interface RawCommit {
   /** The data versions this commit was true of (table → version), when the tables declare sources. */
   readonly data?: Readonly<Record<string, string>>;
+  /** The resource versions it was true of (name → version), when the def declares resources. */
+  readonly resources?: Readonly<Record<string, string>>;
   id: string;
   parent: string | null;
   viewId: string;
@@ -397,6 +403,7 @@ interface StatePieces {
   selections: SelectionView[];
   cleared: readonly ClearedSelectionView[];
   sources?: Readonly<Record<string, SourceInfoView>>;
+  resources?: Readonly<Record<string, ResourceInfoView>>;
   dashboard?: DashboardWordsView;
   notes?: readonly NoteView[];
   filters?: Readonly<Record<string, unknown>>;
@@ -430,6 +437,7 @@ function finalize(p: StatePieces): SessionViewState {
   const active = activePath(p.rawCommits, p.head);
   const commits: CommitView[] = p.rawCommits.map((c) => ({
     ...movedSince(c.data, p.sources),
+    ...resourcesMovedSince(c.resources, p.resources),
     id: c.id,
     parent: c.parent,
     viewId: c.viewId,
@@ -443,6 +451,7 @@ function finalize(p: StatePieces): SessionViewState {
     replayedFrom: c.replayedFrom,
     revertOf: c.revertOf,
     ...(c.data !== undefined ? { data: c.data } : {}),
+    ...(c.resources !== undefined ? { resources: c.resources } : {}),
     conflicts: c.conflicts,
     label: commitLabel(c.field, c.viewId),
     family: familyOf({ viewId: c.viewId }),
@@ -464,6 +473,7 @@ function finalize(p: StatePieces): SessionViewState {
     selections: p.selections,
     cleared: p.cleared,
     ...(p.sources !== undefined ? { sources: p.sources } : {}),
+    ...(p.resources !== undefined ? { resources: p.resources } : {}),
     ...(p.dashboard !== undefined ? { dashboard: p.dashboard } : {}),
     ...(p.notes !== undefined ? { notes: p.notes } : {}),
     ...(p.filters !== undefined ? { filters: p.filters } : {}),
@@ -837,11 +847,32 @@ function mapDeclined(raw: unknown): DeclinedEdgeView[] {
   });
 }
 
+/**
+ * Which of the versions a commit was true of the dashboard has since LEFT — the
+ * one comparison both stamps make. A name the held map does not carry is not
+ * "moved": it is a name nothing vouches for now, and silence is not a change.
+ */
+function versionsLeft(stamp: Readonly<Record<string, string>>, held: Readonly<Record<string, { readonly version: string }>>): readonly { readonly name: string; readonly from: string; readonly to: string }[] {
+  return Object.entries(stamp).flatMap(([name, from]) => (held[name] !== undefined && held[name].version !== from ? [{ name, from, to: held[name].version }] : []));
+}
+
 /** A commit true of a data version the table has since left is marked, so a number it shows is not mistaken for reproducible. */
 function movedSince(data: Readonly<Record<string, string>> | undefined, sources: Readonly<Record<string, SourceInfoView>> | undefined): Pick<CommitView, 'dataMoved' | 'moved'> {
   if (data === undefined || sources === undefined) return {};
-  const moved = Object.entries(data).flatMap(([table, from]) => (sources[table] !== undefined && sources[table].version !== from ? [{ table, from, to: sources[table].version }] : []));
+  const moved = versionsLeft(data, sources).map(({ name, from, to }) => ({ table: name, from, to }));
   return { dataMoved: moved.length > 0, ...(moved.length > 0 ? { moved } : {}) };
+}
+
+/**
+ * …and the RESOURCE twin, on the same comparison and for the same reason: a
+ * commit standing on a structure file that has since been re-fetched is not
+ * reproducible, and saying so is the only honest thing a log can do about bytes
+ * it never read as rows.
+ */
+function resourcesMovedSince(resources: Readonly<Record<string, string>> | undefined, held: Readonly<Record<string, ResourceInfoView>> | undefined): Pick<CommitView, 'resourceMoved' | 'movedResources'> {
+  if (resources === undefined || held === undefined) return {};
+  const moved = versionsLeft(resources, held).map(({ name, from, to }) => ({ resource: name, from, to }));
+  return { resourceMoved: moved.length > 0, ...(moved.length > 0 ? { movedResources: moved } : {}) };
 }
 
 /**
@@ -868,6 +899,7 @@ function mapCommits(records: readonly RawPollCommit[]): RawCommit[] {
     replayedFrom: r.cause?.replayedFrom,
     revertOf: r.cause?.revertOf,
     ...stampOf(r.data),
+    ...resourceStampOf(r.resources),
     conflicts: r.cause?.conflicts,
   }));
 }
@@ -878,7 +910,13 @@ function stampOf(raw: unknown): { readonly data?: Readonly<Record<string, string
   return stamp === undefined ? {} : { data: stamp };
 }
 
-/** The stamp as the wire carries it: a table → version map of strings, or nothing. */
+/** …and the RESOURCE stamp the same way, off the same reader: one map shape, two keys on the record. */
+function resourceStampOf(raw: unknown): { readonly resources?: Readonly<Record<string, string>> } {
+  const stamp = mapStamp(raw);
+  return stamp === undefined ? {} : { resources: stamp };
+}
+
+/** A stamp as the wire carries it: a name → version map of strings, or nothing. Read by both stamps — the shape is one. */
 function mapStamp(raw: unknown): Readonly<Record<string, string>> | undefined {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
   const entries = Object.entries(raw as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string');
@@ -893,6 +931,17 @@ function mapSources(raw: unknown): Readonly<Record<string, SourceInfoView>> | un
     const o = v as Partial<SourceInfoView>;
     if (typeof o.format !== 'string' || typeof o.via !== 'string' || typeof o.version !== 'string' || typeof o.retrievedAt !== 'string' || typeof o.rows !== 'number') continue;
     out[table] = { format: o.format, via: o.via, ...(typeof o.at === 'string' ? { at: o.at } : {}), version: o.version, retrievedAt: o.retrievedAt, rows: o.rows };
+  }
+  return out;
+}
+/** …and the declared RESOURCES, by the `mapSources` rule: a malformed row is dropped alone, `bytes` where `rows` was, and no payload key to carry even if a wire tried. */
+function mapResources(raw: unknown): Readonly<Record<string, ResourceInfoView>> | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const out: Record<string, ResourceInfoView> = {};
+  for (const [name, v] of Object.entries(raw as Record<string, unknown>)) {
+    const o = v as Partial<ResourceInfoView>;
+    if (typeof o.format !== 'string' || typeof o.via !== 'string' || typeof o.version !== 'string' || typeof o.retrievedAt !== 'string' || typeof o.bytes !== 'number') continue;
+    out[name] = { format: o.format, via: o.via, ...(typeof o.at === 'string' ? { at: o.at } : {}), version: o.version, retrievedAt: o.retrievedAt, bytes: o.bytes };
   }
   return out;
 }
@@ -1217,6 +1266,7 @@ async function mapSession(session: SessionLike, defaultLayout?: LayoutPreset): P
     selections: mapSelections(overview.activeSelections),
     cleared: mapCleared(overview.clearedSelections),
     sources: mapSources(overview.sources),
+    resources: mapResources(overview.resources),
     links: mapLinks((overview as { links?: unknown }).links),
     rules: mapRules((overview as { rules?: unknown }).rules),
     effectiveEncodings: mapEncodingMap((overview as { effectiveEncodings?: unknown }).effectiveEncodings),
@@ -1263,6 +1313,7 @@ export function mapPollState(raw: RawPollState, defaultLayout?: LayoutPreset): S
     selections: mapSelections(raw.activeSelections),
     cleared: mapCleared(raw.clearedSelections),
     sources: mapSources(raw.sources),
+    resources: mapResources(raw.resources),
     links: mapLinks(raw.links),
     rules: mapRules(raw.rules),
     effectiveEncodings: mapEncodingMap(raw.effectiveEncodings),

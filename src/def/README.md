@@ -676,6 +676,38 @@ It says what a build CAN do, never what anybody DID: for that, its twin is [`../
 
 And two things stay hand-written, because no declaration holds them: **which gesture produces which verb**, and **which verbs a particular build leaves unwired**. A def declares the vocabulary; only the host knows which of it got a mouse. A demo that wants that table writes it by hand and labels it as hand-written.
 
+## Resources — the bytes a table cannot hold
+
+A `data` entry is a TABLE: something with columns, a row key, a grain, an absence vocabulary, and a landing judged against what it declared. A **protein structure file** has none of those, and neither does a map's geometry — they are the thing a view DRAWS, not data it reads. So they are declared beside the data, in their own namespace:
+
+```ts
+const def = {
+  data: { atoms: { rows: atomRows, key: 'atom_id' } },
+  actors: { structure3d: { actor: 'user' } },
+  // a declared source that is NOT a table: it lands as bytes, it carries a version
+  resources: {
+    structure: { format: 'text', via: 'http', at: 'https://files.rcsb.org/download/1AY7.pdb' },
+    logo:      { format: 'bytes', via: 'file', at: './assets/mark.png' },
+  },
+};
+const dashboard = await buildDashboardAsync(def, { sources: [httpSource(), fileSource] });
+
+dashboard.resources.structure   // FACTS: { format, via, at, version, retrievedAt, bytes: <the size that landed> }
+dashboard.resource('structure') // THE BYTES: { format: 'text', body: '<the file>', version, retrievedAt } — in-process only
+```
+
+This door judges a resource in the same shape it judges a table's `source` and refuses it in the same words (`./validate.ts` · `validateResourceDecl`, the twin of `validateSourceDecl`): a `format` outside `bytes|text`, a `via` outside `SOURCE_VIAS`, an `at` that is not a path or URL string for `file`/`http`, an unknown key. Three refusals are its own:
+
+| the def says | the door says |
+|---|---|
+| `resources: { atoms: … }` where `data.atoms` exists | *is also a declared table — one namespace per question: a resource is a declared source that is NOT a table, so it may not share a name with one* |
+| `resources: { '': … }` | *a resource name must be a non-empty string* |
+| `resources: { s: { format: 'csv', … } }` | *format must be one of bytes\|text — a resource lands as bytes, never as rows* |
+
+**Which door builds it.** `buildDashboard` (synchronous) lands an INLINE resource exactly as it lands an inline table's rows — the payload is the def's own, so there is nothing to await (`../source/inline.ts` · `inlineResource`, the one landing both doors make) — and refuses every other via with *build it with buildDashboardAsync*, the sentence a non-inline source already gets. `buildDashboardAsync` reads them FIRST, before a table: a resource needs no engine and no connection, so a refused one raises the def's error before anything is opened.
+
+**What the resources then do**, all of it in [`../source/README.md`](../source/README.md) under "a resource is a declared source that is not a table": they fill `overview().resources` as FACTS (a size, never a payload), a commit stamps the versions it was true of under its own `resources` key, `dashboard.refresh()` may move one, and `HostHandshake.resources` offers the bytes to a renderer. An inline `bytes` payload is the one place a def carries a `Uint8Array`, and — like a table's `rows` and its inline `source.at` — it is bulk data the author still owns: `freezeDefinition` walks plain objects and arrays only, so it is left exactly as it stands.
+
 ## Where the code lives
 
 | file | one job |

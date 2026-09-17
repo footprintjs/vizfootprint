@@ -8,17 +8,25 @@
 import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { decodeRows } from './decode.js';
-import { SourceRefusal } from './types.js';
-import type { SourceAdapter, SourceDecl } from './types.js';
+import { resourceSnapshotOf, resourceWhere, type ResourceBody } from './resource.js';
+import { ResourceRefusal, SourceRefusal } from './types.js';
+import type { ResourceDecl, ResourceSnapshot, SnapshotOptions, SourceAdapter, SourceDecl, SourceUnchanged } from './types.js';
 
 /** What the file system vouches for: modification time and size. */
 function versionOf(info: { readonly mtime: Date; readonly size: number }): string {
   return `mtime:${info.mtime.toISOString()};size:${String(info.size)}`;
 }
 
-function pathOf(at: unknown, table: string): string {
-  if (typeof at !== 'string' || at.length === 0) throw new SourceRefusal('malformed', `table "${table}" file source: \`at\` must be a path or a file URL`, table, 'file');
+/** The locator, resolved — a path as given, a `file:` URL turned into one. `undefined` when the declaration carries neither. */
+function resolvePath(at: unknown): string | undefined {
+  if (typeof at !== 'string' || at.length === 0) return undefined;
   return at.startsWith('file:') ? fileURLToPath(at) : at;
+}
+
+function pathOf(at: unknown, table: string): string {
+  const path = resolvePath(at);
+  if (path === undefined) throw new SourceRefusal('malformed', `table "${table}" file source: \`at\` must be a path or a file URL`, table, 'file');
+  return path;
 }
 
 export const fileSource: SourceAdapter = {
@@ -62,5 +70,41 @@ export const fileSource: SourceAdapter = {
       },
       close: async () => {},
     };
+  },
+  async openResource(decl: ResourceDecl, { resource }) {
+    const resolved = resolvePath(decl.at);
+    if (resolved === undefined) throw new ResourceRefusal('malformed', `${resourceWhere(resource, 'file')}: \`at\` must be a path or a file URL`, resource, 'file');
+    // named once, here, with the refusal already thrown: a HOISTED `snapshot` below cannot carry
+    // the narrowing (it could be called before the guard ran), so the narrow type is the declaration's
+    const path: string = resolved;
+    const where = resourceWhere(resource, 'file', path);
+    // the two signatures are `ResourceHandle.snapshot`'s own (`./types.js`): only a CONDITIONAL read may answer `unchanged`
+    async function snapshot(options?: SnapshotOptions & { readonly sinceVersion?: undefined }): Promise<ResourceSnapshot>;
+    async function snapshot(options: SnapshotOptions & { readonly sinceVersion: string }): Promise<ResourceSnapshot | SourceUnchanged>;
+    async function snapshot(options?: SnapshotOptions): Promise<ResourceSnapshot | SourceUnchanged> {
+      let landed: ResourceBody;
+      let info: Awaited<ReturnType<typeof stat>>;
+      try {
+        if (options?.sinceVersion !== undefined) {
+          // the same conditional read the rows get: the file system's own version decides without moving the bytes
+          const now = await stat(path);
+          const version = versionOf(now);
+          if (version === options.sinceVersion) return { unchanged: true, version };
+        }
+        const signal = options?.signal ? { signal: options.signal } : {};
+        // `readFile` with no encoding answers a Buffer, which IS a `Uint8Array` — passed
+        // through rather than copied: a structure file is exactly the size a second copy hurts at
+        landed = decl.format === 'bytes' ? { format: 'bytes', body: await readFile(path, signal) } : { format: 'text', body: await readFile(path, { encoding: 'utf8', ...signal }) };
+        info = await stat(path); // after the bytes, so the version never describes bytes that were not returned
+      } catch (e) {
+        if (options?.signal?.aborted) throw new ResourceRefusal('cancelled', `${where}: cancelled — the read was aborted`, resource, 'file');
+        /* v8 ignore next -- node's fs errors always carry a code; the message arm is for a foreign thrower — the SAME sentence and the same reason as the rows door above (`fileSource.open`), deliberately not a fourth way to say it */
+        const code = (e as { code?: string }).code ?? (e as Error).message;
+        throw new ResourceRefusal('unavailable', `${where}: unavailable — ${code}`, resource, 'file');
+      }
+      // …and NOTHING else: no decode, no columns to judge, no landing to compare with a declaration
+      return resourceSnapshotOf(landed, versionOf(info), new Date().toISOString());
+    }
+    return { capabilities: { live: false, pushdown: false }, snapshot, close: async () => {} };
   },
 };

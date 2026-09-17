@@ -41,6 +41,11 @@
  * hands the renderer a callback bundle per layer on the handshake. A
  * renderer never spells an address; it speaks through the bundle it was
  * given, and the commit lands where the bundle was bound.
+ *
+ * RESOURCES (1.10): a host that declared resources passes the bytes it took out
+ * of `Dashboard.resource(name)`, and they ride the handshake untouched. There
+ * is no guard for them, by the rule above: a renderer that ignores an offered
+ * resource records nothing and hides nothing.
  */
 
 import { layerAddress } from 'vizfootprint/def';
@@ -54,6 +59,7 @@ import {
   type Renderer,
   type RendererCallbacks,
   type RendererCapabilities,
+  type RenderResource,
   type RenderState,
 } from './types.js';
 
@@ -78,6 +84,18 @@ export interface BindOptions {
   readonly onGap?: (gap: ContractGap) => void;
   /** Protocol 1.2: the view's layers. Absent = a plain view; the handshake then carries no `layers` key at all. */
   readonly layers?: LayerBindings;
+  /**
+   * Protocol 1.10: the declared RESOURCES this host offers this view — the
+   * bytes a `Dashboard.resource(name)` handed it, keyed by the declared name.
+   * Absent = the handshake carries no `resources` key at all (a 1.9 host's,
+   * byte for byte).
+   *
+   * NO GUARD, on the stated rule (this file's header): a guard belongs where a
+   * host-driven act would otherwise vanish, and a renderer that ignores an
+   * offered resource records nothing and hides nothing — the geometry is simply
+   * not drawn, which is visible on screen.
+   */
+  readonly resources?: Readonly<Record<string, RenderResource>>;
 }
 
 /** The outcome of a host-driven `navigate` on a bound view. */
@@ -208,8 +226,16 @@ export function bindRenderer(renderer: Renderer, el: Element, options: BindOptio
  * bound — a plain view's handshake is byte-identical to a 1.1 host's.
  */
 function handshakeOf(hostVersion: string, options: BindOptions): HostHandshake {
-  const base = { protocolVersion: hostVersion, viewId: options.viewId, callbacks: options.callbacks };
-  return options.layers === undefined ? base : { ...base, layers: layerBundlesOf(options.viewId, options.layers) };
+  return {
+    protocolVersion: hostVersion,
+    viewId: options.viewId,
+    callbacks: options.callbacks,
+    ...(options.layers !== undefined ? { layers: layerBundlesOf(options.viewId, options.layers) } : {}),
+    // 1.10: OFFERED as the host handed them in — a resource's bytes are not copied here,
+    // because the snapshot is already the carrier's own answer and a copy of a structure
+    // file per mount is the most expensive possible way to say nothing new
+    ...(options.resources !== undefined ? { resources: options.resources } : {}),
+  };
 }
 
 /** One bundle per layer, keyed by layerId, each wired by the host to the minted address. */

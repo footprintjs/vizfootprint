@@ -10,7 +10,7 @@
  * input event; there is no such path.
  */
 
-import type { SourceInfo } from '../source/types.js';
+import type { ResourceInfo, SourceInfo } from '../source/types.js';
 import type { Actor, Cause } from '../cause/index.js';
 import type { EmissionKind, FieldMapping, LinkEdge, LinkGraph, LinkOnClear, LinkResponse, LinkKind, ChannelPair } from '../links/types.js';
 import type { ReachRelation } from '../links/reach.js';
@@ -1445,6 +1445,19 @@ export interface Overview {
   readonly asOf: string;
   /** Provenance: what each declared source vouched for when it was read (version, retrieval time, row count) — absent for a table declared inline as rows/csv. */
   readonly sources: Readonly<Record<string, SourceInfo>>;
+  /**
+   * The same provenance for each declared RESOURCE — a declared source that is
+   * NOT a table (`../source/README.md`): format, via, locator, version,
+   * retrieval time and the SIZE that landed.
+   *
+   * NEVER THE PAYLOAD, which is the law this key exists to keep: values never
+   * ride the overview, and a resource's bytes are not even a value — a host
+   * reaches them in-process (`Dashboard.resource`) and offers them to a
+   * renderer on the mount handshake. ABSENT when the def declares none, so a
+   * def without resources answers an overview byte-identical to one from
+   * before they existed.
+   */
+  readonly resources?: Readonly<Record<string, ResourceInfo>>;
   /** How many rows of the default table the live selection keeps — counted by the engine in one query, no row materialised; `null` when the engine could not answer (never a fake 0). */
   readonly selectedRowCount: number | null;
   /** The declared row key per table — with one a refresh's delta is exact; without, a refreshed table is replaced. */

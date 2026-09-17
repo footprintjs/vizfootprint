@@ -19,6 +19,10 @@
  *   handshake.layers (1.2)          ───▶ one callback BUNDLE per layer, each
  *                                        bound to the layer ADDRESS — the same
  *                                        four verbs, never a fifth
+ *   handshake.resources (1.10)      ───▶ the declared RESOURCES' bytes, with
+ *                                        the version each was vouched for —
+ *                                        geometry the plane cannot see, never
+ *                                        rows and never a computed value
  *
  * The four outbound callbacks are the ONLY way a renderer talks back. A
  * renderer never builds a clause (R3 — `emit` carries a plain DATA-space
@@ -113,9 +117,18 @@ import type { ResolvedChannel } from 'vizfootprint/def';
  * join at this tier (project, never re-derive). Optional, and absent whenever
  * the session did not say, so a 1.8 renderer ignores it and draws
  * byte-identically (pinned in `capabilities.test.tsx`); the minor stays
- * compatible.
+ * compatible. 1.10 ADDED `HostHandshake.resources` — THE BYTES A PLANE CANNOT
+ * SEE: a declared RESOURCE (a protein structure file, a map's geometry — a
+ * declared source that is NOT a table, `vizfootprint/source`) offered to the
+ * renderer at MOUNT, with the version the carrier vouched for, so a
+ * third-party chart receives its geometry through the protocol instead of a
+ * factory option no commit can name. It is on the HANDSHAKE and deliberately
+ * NOT on {@link RenderState}: state is pushed on every update and bytes are
+ * fetched once. Optional, absent when the host bound none, so a 1.9 renderer
+ * never reads it and a host that declares no resource hands over a
+ * byte-identical handshake; the minor stays compatible.
  */
-export const RENDERER_PROTOCOL_VERSION = '1.9';
+export const RENDERER_PROTOCOL_VERSION = '1.10';
 
 export type { ChartEmission };
 export type { ResolvedChannel };
@@ -277,6 +290,29 @@ export interface RendererCallbacks {
   navigate(viewState: NavigateViewState): void;
 }
 
+/**
+ * PROTOCOL 1.10 — one declared RESOURCE as a renderer receives it: the bytes as
+ * the declaration asked for them, and what the carrier vouched for.
+ *
+ * DISCRIMINATED on `format` so a renderer narrows `body` rather than testing
+ * it. `version` is not decoration: it is the id of the exact bytes this mount
+ * drew, the same string a commit standing on them carries
+ * (`CommitRecord.resources`), which is what lets a receipt say WHICH structure
+ * file a number was true of.
+ *
+ * WHAT A RENDERER MAY DO WITH IT IS NARROW, and the narrowness is the contract:
+ * bytes are for GEOMETRY THE PLANE CANNOT SEE — a mesh, an outline, a
+ * structure. A renderer still paints what the ROWS say; computing a value out
+ * of a resource and drawing it as data would be an aggregation the host does
+ * not own and no commit records (the same law `transforms` is refused under).
+ *
+ * The host maps the library's own `ResourceSnapshot` onto this shape — the
+ * protocol keeps its own, because it is versioned on its own.
+ */
+export type RenderResource =
+  | { readonly format: 'bytes'; readonly body: Uint8Array; readonly version: string; readonly retrievedAt: string }
+  | { readonly format: 'text'; readonly body: string; readonly version: string; readonly retrievedAt: string };
+
 /** What the host says at mount: the version it speaks, the view identity, the four callbacks. */
 export interface HostHandshake {
   readonly protocolVersion: string;
@@ -295,6 +331,24 @@ export interface HostHandshake {
    * by a renderer — the marker has one owner (`vizfootprint/def`'s `layerAddress`).
    */
   readonly layers?: Readonly<Record<string, RendererCallbacks>>;
+  /**
+   * Protocol 1.10: the declared RESOURCES this host OFFERS this view, keyed by
+   * the name the def declared — each {@link RenderResource} the bytes plus the
+   * version they were vouched for at.
+   *
+   * WHY AT MOUNT AND NOT ON THE FRAME: a resource is fetched once and a frame
+   * is pushed on every update, so carrying megabytes of geometry on the state
+   * would pay for them again on every hover. A resource that MOVES (a refresh
+   * re-fetched it) is a new mount, which is honest: the renderer that drew the
+   * old bytes never silently starts drawing the new ones under the same
+   * version.
+   *
+   * Absent when the host bound none — a 1.9 handshake, byte for byte. A
+   * renderer that declares nothing about resources is unaffected: there is no
+   * capability to guard, because nothing goes unrecorded when a renderer
+   * ignores an offer (the `hover` reasoning, `RendererCallbacks.hover`).
+   */
+  readonly resources?: Readonly<Record<string, RenderResource>>;
 }
 
 /**
