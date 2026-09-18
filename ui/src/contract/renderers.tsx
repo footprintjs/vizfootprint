@@ -70,7 +70,7 @@ import {
   type RenderSelection,
   type RenderState,
 } from './types.js';
-import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, type ResolvedChannel } from 'vizfootprint/def';
+import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsZeroGuide, zeroGuideKindRefusal, type ResolvedChannel } from 'vizfootprint/def';
 import { boundField } from '../charts/binding.js';
 import { bandOrder, epochOf, type ChartDomain, type AxisSide } from '../primitives/scales.js';
 import { VizFrame, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
@@ -1312,8 +1312,39 @@ function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
   }
   const line = colouredLineRefusal(framed);
   if (line !== null) return line;
+  const zero = zeroGuideRefusal(framed, frame);
+  if (zero !== null) return zero;
   return twoScalesRefusal(framed, frame);
 }
+
+/**
+ * LAW 12 AS THE FRAME REFUSES IT: a layer whose MARK draws no zero guide on the
+ * channel one was asked for. The sentence is the DEF DOOR's own
+ * (`zeroGuideKindRefusal`, `vizfootprint/def`) and the predicate is the door's
+ * own too (`drawsZeroGuide`), so a def the door accepts is never a frame the
+ * renderer refuses — the law 9 arrangement, for the same reason it exists
+ * there: `RenderState.frame` is a public shape a host may fold BY HAND,
+ * skipping `validateFrame` entirely, and a declaration silently dropped is
+ * worse than one refused.
+ *
+ * Only a channel the layer BINDS is judged: a guide folded for somebody else's
+ * column is no axis of this layer's (`layerDomain`'s law, read the other way
+ * round). The key rides on BOTH modes, because an independent channel's
+ * per-layer scale is an axis too.
+ */
+function zeroGuideRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | null {
+  for (const f of framed) {
+    for (const axis of AXES) {
+      const channel = AXIS_CHANNELS[f.kind][axis];
+      if (f.layer.encodings[channel] === undefined || frame?.[channel]?.zeroGuide !== true || drawsZeroGuide(f.kind, channel)) continue;
+      return zeroGuideKindRefusal(`layer "${f.layer.layerId}"`, f.kind, channel);
+    }
+  }
+  return null;
+}
+
+/** The two axes a frame has, in reading order — spelled once for the walks that ask about both. */
+const AXES: readonly ('x' | 'y')[] = Object.freeze(['x', 'y']);
 
 /**
  * TWO SCALES ON ONE FRAME ARE TWO CLAIMS, and the frame has two sides to make
@@ -1566,7 +1597,25 @@ function frameChartDomain(framed: readonly FramedLayer[], frame: Readonly<Record
   const on = (axis: 'x' | 'y'): SharedChannel | undefined => sharedAxis(framed, frame, axis)?.resolved;
   const x = spanOf(on('x'));
   const y = spanOf(on('y'));
-  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...(categories === undefined ? {} : { categories }) };
+  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...(categories === undefined ? {} : { categories }), ...zeroGuideAsk(frame, (axis) => axisChannels(framed, axis)) };
+}
+
+/**
+ * THE ZERO GUIDE ONE AXIS WAS ASKED FOR (law 12), as a `ChartDomain` fragment —
+ * read off `RenderState.frame` and PASSED THROUGH, never decided here. Whether
+ * zero is actually on the axis is the CHART's answer, against the domain it
+ * drew on (`zeroGuideFor`, `../primitives/zeroGuide.ts`, its one owner); a door
+ * that decided it here would be a second owner holding the wrong numbers, since
+ * a layer handed no span draws its own extent.
+ *
+ * It rides on BOTH modes, because an independent channel's per-layer scale is
+ * an axis too, and the whole key is ABSENT unless something asked — so a frame
+ * that declares none hands out the object it always did.
+ */
+function zeroGuideAsk(frame: Readonly<Record<string, ResolvedChannel>> | undefined, channelsOf: (axis: 'x' | 'y') => readonly string[]): Pick<ChartDomain, 'zeroGuide'> {
+  const asked = (axis: 'x' | 'y'): boolean => channelsOf(axis).some((channel) => frame?.[channel]?.zeroGuide === true);
+  const zeroGuide = { ...(asked('x') ? { x: true } : {}), ...(asked('y') ? { y: true } : {}) };
+  return Object.keys(zeroGuide).length === 0 ? {} : { zeroGuide };
 }
 
 /**
@@ -1588,7 +1637,10 @@ function layerDomain(f: FramedLayer, frame: Readonly<Record<string, ResolvedChan
   const x = spanOf(bound(channels.x));
   const y = spanOf(bound(channels.y));
   const boundCategories = bound(channels.x) === undefined ? undefined : categories;
-  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...(boundCategories === undefined ? {} : { categories: boundCategories }) };
+  // the zero guide ask reaches a layer for the channels it BINDS — the same law as the spans above, and
+  // on both modes, so an independent y still gets the guide its own scale was asked for
+  const zero = zeroGuideAsk(frame, (axis) => (f.layer.encodings[channels[axis]] === undefined ? [] : [channels[axis]]));
+  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...(boundCategories === undefined ? {} : { categories: boundCategories }), ...zero };
 }
 
 /**

@@ -23,7 +23,7 @@
  */
 import type { ColumnFacet } from '../data/types.js';
 import type { ColumnDecl, EncodingSurface } from '../encoding/index.js';
-import { MAGNITUDE_CHANNELS, ZERO_ANCHORED_KINDS, firstScaleTakenRefusal, mayTakeFirstScale, resolveFacet, zeroAnchorsChannel } from '../encoding/index.js';
+import { MAGNITUDE_CHANNELS, POSITIONAL_CHANNELS, ZERO_ANCHORED_KINDS, drawsZeroGuide, firstScaleTakenRefusal, mayTakeFirstScale, noZeroOnALogAxis, resolveFacet, zeroAnchorsChannel, zeroGuideKindRefusal } from '../encoding/index.js';
 import { ENCODING_KIND, type LinkView } from '../links/index.js';
 import type { MintedTable } from './builtinAnalyses.js';
 import { LAYER_MARKER, holdsLayerMarker, layerAddress } from './layerAddress.js';
@@ -144,15 +144,15 @@ function judgeSurface(at: string, layer: Record<string, unknown>, problems: stri
 
 // ── the frame: who may share a scale ──────────────────────────────────────────
 
-/** The keys a resolution may carry, per mode — anything else is refused by name (R12). An independent channel has no domain, no basis and no zero policy: there is nothing folded to apply them to; it keeps `transform` because its own scale is still an AXIS. */
-const SHARED_KEYS: readonly string[] = ['mode', 'domain', 'basis', 'guide', 'zero', 'transform'];
-const INDEPENDENT_KEYS: readonly string[] = ['mode', 'guide', 'transform'];
+/** The keys a resolution may carry, per mode — anything else is refused by name (R12). An independent channel has no domain, no basis and no zero policy: there is nothing folded to apply them to; it keeps `transform` and `zeroGuide` because its own scale is still an AXIS. */
+const SHARED_KEYS: readonly string[] = ['mode', 'domain', 'basis', 'guide', 'zero', 'transform', 'zeroGuide'];
+const INDEPENDENT_KEYS: readonly string[] = ['mode', 'guide', 'transform', 'zeroGuide'];
 /** …and on a view with no LAYERS: the axis keys, without the one that resolves layers (`mode`, refused by name below). */
 const AXIS_KEYS: readonly string[] = SHARED_KEYS.filter((key) => key !== 'mode');
 
 /** The two shapes a resolution entry may be, spelled once each — the layered one names the mode it requires, the layerless one the axis it is. */
-const RESOLUTION_SHAPE = '{ mode: "shared" | "independent", domain?, basis?, guide?, zero?, transform? }';
-const AXIS_SHAPE = '{ transform?: "linear" | "log", domain?, basis?, guide?, zero? }';
+const RESOLUTION_SHAPE = '{ mode: "shared" | "independent", domain?, basis?, guide?, zero?, transform?, zeroGuide? }';
+const AXIS_SHAPE = '{ transform?: "linear" | "log", domain?, basis?, guide?, zero?, zeroGuide? }';
 
 /** The one word a `transform` may be beyond the default — a logarithmic axis, base 10. */
 const LOG = 'log';
@@ -289,7 +289,7 @@ function judgeResolution(at: string, decl: unknown, layerless: boolean, viewId: 
   }
   if (independent) {
     if (decl.guide !== undefined && decl.guide !== 'per-layer') problems.push(`${at}.guide must be "per-layer" on an independent channel — there is no merged guide for scales that disagree`);
-    judgeTransform(at, decl, problems);
+    judgeAxisNature(at, decl, problems);
     return;
   }
   judgeAxisKeys(at, decl, problems);
@@ -302,12 +302,22 @@ function judgeAxisKeys(at: string, decl: Record<string, unknown>, problems: stri
   if (decl.basis !== undefined && decl.basis !== 'table' && decl.basis !== 'rows') problems.push(`${at}.basis, if present, must be "table" or "rows"`);
   if (decl.guide !== undefined && decl.guide !== 'merged' && decl.guide !== 'per-layer') problems.push(`${at}.guide, if present, must be "merged" or "per-layer"`);
   if (decl.zero !== undefined && typeof decl.zero !== 'boolean') problems.push(`${at}.zero, if present, must be a boolean`);
-  judgeTransform(at, decl, problems);
+  judgeAxisNature(at, decl, problems);
 }
 
-/** Law 11a: the transform is one of two words. An unknown one is a typo, and a typo that defaulted silently would draw a linear axis the author believes is logarithmic. */
-function judgeTransform(at: string, decl: Record<string, unknown>, problems: string[]): void {
+/**
+ * The two keys that say what the axis IS rather than how it is resolved — its
+ * CURVE (law 11a) and whether its ZERO is drawn (law 12) — judged for shape
+ * identically on every arm, because an independent channel's per-layer scales
+ * are axes too.
+ */
+function judgeAxisNature(at: string, decl: Record<string, unknown>, problems: string[]): void {
+  // Law 11a: the transform is one of two words. An unknown one is a typo, and a typo that defaulted
+  // silently would draw a linear axis the author believes is logarithmic.
   if (decl.transform !== undefined && decl.transform !== 'linear' && decl.transform !== LOG) problems.push(`${at}.transform, if present, must be "linear" or "log"`);
+  // Law 12: the guide is declared or it is not — `"true"` or `1` is a typo, and a truthy read would draw
+  // furniture the author never asked for in those words
+  if (decl.zeroGuide !== undefined && typeof decl.zeroGuide !== 'boolean') problems.push(`${at}.zeroGuide, if present, must be a boolean`);
 }
 
 /**
@@ -326,11 +336,44 @@ function resolutionOf(raw: Record<string, unknown>, channel: string, layerless: 
   return decl;
 }
 
-/** Laws 8–11 for one channel: who may take a scale of their own, who keeps one zero, which columns may share, and what a logarithm may be asked to place. */
+/** Laws 8–12 for one channel: who may take a scale of their own, who keeps one zero, which columns may share, what a logarithm may be asked to place, and who may be told to draw its zero. */
 function judgeChannelLaws(at: string, channel: string, resolution: Record<string, unknown>, binders: readonly FrameBinder[], data: unknown, minted: ReadonlyMap<string, MintedTable>, problems: string[]): void {
   if (MAGNITUDE_CHANNELS.has(channel)) judgeZeroAnchoredMarks(at, channel, resolution, binders, problems);
   if (resolution.transform === LOG) judgeLogarithm(at, channel, resolution, binders, data, minted, problems);
+  if (resolution.zeroGuide === true) judgeZeroGuide(at, channel, binders, problems);
   if (resolution.mode === 'shared') judgeSharedColumns(at, channel, binders, data, minted, problems);
+}
+
+/**
+ * LAW 12: ZERO IS A PLACE ON THE AXIS, AND A CHART MAY BE TOLD TO DRAW IT —
+ * what the door can judge about that telling, which is everything except the
+ * numbers.
+ *
+ *   a. THE CHANNEL IS AN AXIS. A guide is a line drawn across a plot, so it
+ *      needs an edge to be perpendicular to ({@link POSITIONAL_CHANNELS}). A
+ *      `size` or a `color` carries a magnitude with no axis to cross, and a
+ *      zero on a category list is nothing at all.
+ *   b. THE MARK DRAWS ONE, on this channel. `drawsZeroGuide` is the one owner
+ *      of that pair (a point on x and y, a line on y), and
+ *      {@link zeroGuideKindRefusal} the one owner of the words — the frame that
+ *      has to draw it refuses a hand-folded `RenderState.frame` in the SAME
+ *      sentence, so a def the door accepts is never a frame the renderer
+ *      refuses (the law 9 precedent).
+ *
+ * The one thing NOT judged here is whether zero lies inside the domain: no
+ * domain is typed by hand, so at declaration time the door is ignorant of it,
+ * and `refuse on evidence, never on ignorance` sends that refusal to the CHART,
+ * which holds the numbers it drew on. The logarithm's arm is law 11a's, said in
+ * the logarithm's own words ({@link noZeroOnALogAxis}).
+ */
+function judgeZeroGuide(at: string, channel: string, binders: readonly FrameBinder[], problems: string[]): void {
+  if (!POSITIONAL_CHANNELS.has(channel)) {
+    problems.push(`${at}: a zero guide is a line drawn across a plot, and "${channel}" is not a positional channel — declare it on x or y`);
+    return; // a channel that is no axis has no mark to ask about: one mistake, one sentence
+  }
+  for (const binder of binders.filter((b) => b.channels.includes(channel) && !drawsZeroGuide(b.chartKind, channel))) {
+    problems.push(`${at}: ${zeroGuideKindRefusal(binder.subject, binder.chartKind, channel)}`);
+  }
 }
 
 /**
@@ -406,7 +449,10 @@ function refuseOwnScale(at: string, channel: string, binder: FrameBinder, owners
  * meaning rather than data — the CELLS a logarithm cannot place are data, and
  * the fold excludes and counts those (`../encoding/frame.ts`).
  *
- *   a. `zero: true` — a logarithmic axis has no zero to reach for.
+ *   a. `zero: true` — a logarithmic axis has no zero to reach for — and
+ *      `zeroGuide: true` for the same reason, in the SAME words
+ *      (`noZeroOnALogAxis`, the one owner): a log axis has no zero at all, so
+ *      that is the answer there rather than a new sentence about a domain.
  *   b. a bound column that is not a number — a logarithm of a date or a
  *      category is nothing at all. Judged only where the def DECLARES the
  *      column's type (the `unit` precedent: refused on evidence, never on
@@ -418,7 +464,11 @@ function refuseOwnScale(at: string, channel: string, binder: FrameBinder, owners
  *      is a position and not an extent, stays legitimately logarithmic.
  */
 function judgeLogarithm(at: string, channel: string, resolution: Record<string, unknown>, binders: readonly FrameBinder[], data: unknown, minted: ReadonlyMap<string, MintedTable>, problems: string[]): void {
-  if (resolution.zero === true) problems.push(`${at}: a logarithmic axis has no zero — drop "zero", or draw this channel linearly`);
+  // ONE VOCABULARY FOR BOTH ZERO KEYS: `zero` asks a domain to REACH zero and `zeroGuide` asks for a line
+  // where the axis crosses it, and a logarithmic axis has neither — the sentence is the logarithm's own
+  // (`noZeroOnALogAxis`, its one owner, which the CHART says too), with the key each author has to drop
+  if (resolution.zero === true) problems.push(`${at}: ${noZeroOnALogAxis('zero')}`);
+  if (resolution.zeroGuide === true) problems.push(`${at}: ${noZeroOnALogAxis('zeroGuide')}`);
   for (const binder of binders.filter((b) => b.channels.includes(channel))) {
     if (zeroAnchorsChannel(binder.chartKind, channel)) {
       problems.push(`${at}: ${binder.subject} is a ${binder.chartKind} — its ${channel} extent IS the quantity, and on a logarithmic axis a bar four times as long is not four times the value; a POSITION channel of a bar, histogram or boxplot may still be logarithmic`);

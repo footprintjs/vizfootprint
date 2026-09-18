@@ -149,6 +149,43 @@ export interface ChartDomain {
    * four times the value.
    */
   readonly transform?: { readonly x?: ScaleKind; readonly y?: ScaleKind };
+  /**
+   * DRAW THE LINE WHERE THIS AXIS CROSSES ZERO (law 12) — the renderer's half
+   * of the library's `ChannelResolution.zeroGuide`, answered by
+   * {@link zeroGuideFor} (`./zeroGuide.ts`, the one owner of both the verdict
+   * and the words). Absent is the picture every chart drew before this key, so
+   * a chart with no zero guide is byte-identical to the one that existed before.
+   *
+   * ONE KEY PER CHANNEL, grouped the way `transform` is and for the same
+   * reason: it is the AXIS'S OWN NATURE and not a bound of it. It is the ASK
+   * and never the verdict — whether zero is actually ON the axis is decided
+   * where the numbers are, by the chart, against the domain it drew on (which
+   * is its OWN extent when no frame handed it one, and only the chart has
+   * that).
+   *
+   * NAMED FOR ZERO AND NOT FOR THE CENTRE: the middle of a domain is not zero
+   * unless the domain happens to be symmetric, and a line down the middle of an
+   * all-positive axis would be a quiet lie. DECLARED AND NOT AUTOMATIC: a guide
+   * that appeared by itself whenever a domain happened to include zero would
+   * draw the same view differently at two cursors with nothing in the record
+   * saying why.
+   *
+   * THE SAME LAW `x`/`y`/`categories`/`transform` already keep: a chart ignores
+   * the entry for a channel it has no axis for, and never invents one to fit
+   * the prop. Per chart, the channels that honour it — `VizScatter` x and y (a
+   * Ramachandran plot's φ and ψ are the figure that asked for it), `VizLine` y
+   * (its x is a run of dates or a band of categories, and neither has a zero),
+   * and `VizFrame` on each axis of the merged guide it draws. Every other chart
+   * draws NONE, and a def that asks one of them is refused BY NAME at the def
+   * door and by the frame (`drawsZeroGuide` / `zeroGuideKindRefusal`,
+   * `vizfootprint/def`) rather than quietly ignored.
+   *
+   * A COUNT AXIS (VizBar's and VizHistogram's y) and a box's whisker-to-whisker
+   * extent are read from a baseline that IS zero, so the line would be drawn
+   * over the axis that already says it — which is why those marks refuse the
+   * key instead of drawing furniture twice.
+   */
+  readonly zeroGuide?: { readonly x?: boolean; readonly y?: boolean };
 }
 
 /**

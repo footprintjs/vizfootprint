@@ -6,6 +6,7 @@
 export {
   MAGNITUDE_CHANNELS,
   CATEGORY_CHANNELS,
+  POSITIONAL_CHANNELS,
   CHANNEL_CLASSES,
   RULE_KINDS,
   RULE_SCOPES,
@@ -63,4 +64,7 @@ export { discreteCoercer, BUILTIN_COERCERS } from './coercers.js';
 // THE FRAME: the one place a declared `ChannelResolution` becomes an actual domain
 // (layers on one frame — the def declares, this folds; see ./frame.ts).
 export { frameDomains, frameLint, frameScaleOf, resolutionFor, zeroAnchorsChannel, zeroPolicyFor, mayTakeFirstScale, firstScaleTakenRefusal, FRAME_LAYER_LINT, ZERO_ANCHORED_KINDS } from './frame.js';
+// law 12 — zero is a place on the axis: which marks draw a guide there, the words for one that does not,
+// the logarithm's own vocabulary for a key that asked for a zero it has none of, and the closed-interval test
+export { drawsZeroGuide, zeroGuideKindRefusal, noZeroOnALogAxis, zeroOnAxis } from './frame.js';
 export type { ChannelValues, EffectiveResolution, FrameLayer, FrameNote, ResolvedChannel, ResolvedDomain } from './frame.js';

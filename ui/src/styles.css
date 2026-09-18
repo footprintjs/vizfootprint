@@ -38,6 +38,13 @@
   --vzf-ink-faint: #8a97a8;
   --vzf-line: #dbe2ec;
   --vzf-line-soft: #e9eef5;
+  /* ZERO IS A PLACE ON THE AXIS (law 12): the ink of the one line a chart draws where a signed
+     scale crosses zero (`.vzf-zero`, drawn by VizScatter, VizLine and VizFrame's merged guide).
+     Its OWN token, so a host can restyle the guide without touching the axis line or the ticks,
+     and never the MARK's colour — a zero guide is furniture, not data. Declared ONCE, off the
+     faint ink, so it follows each ground exactly as the ticks do and a dark override needs no
+     second entry (`var()` in a custom property resolves against the element's own cascade). */
+  --vzf-zero: var(--vzf-ink-faint);
 
   /* ── accents (mode-agnostic hue; only the tint recomputes) ─ */
   --vzf-brand: #7c5cff;
@@ -741,6 +748,24 @@
   fill: var(--vzf-scale-hue, var(--vzf-ink-faint));
   font-family: var(--vzf-font-mono);
   font-size: 10px;
+}
+/* ZERO IS A PLACE ON THE AXIS, AND IT IS DECLARED (law 12) — one line inside the plot where a
+   signed scale crosses zero, drawn by whoever draws that axis and carrying no tick and no label:
+   the labelled axes stay on the edges, where they are readable. Dashed, so it never reads as a
+   mark or as a second axis line, and on a token of its own (`--vzf-zero`) which deliberately does
+   NOT fall back to `--vzf-scale-hue`: a scale's hue names its marks, and this is furniture. */
+:where(.vzf) .vzf-zero {
+  stroke: var(--vzf-zero);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+/* …and the words for a zero guide the axis has no place for — the same faint mono the excluded
+   note wears, because it is the same kind of fact: something the chart was told to draw and could
+   not draw honestly, said in the picture rather than dropped in silence. */
+:where(.vzf) .vzf-zero-note {
+  fill: var(--vzf-ink-faint);
+  font-family: var(--vzf-font-mono);
+  font-size: 9px;
 }
 /* the words for what a transform (or an out-of-window date) could not place, IN THE PICTURE — the
    accessible name already carries this fact for a screen reader; a sighted reader meets it only here

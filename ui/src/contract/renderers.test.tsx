@@ -1569,3 +1569,74 @@ describe('layeredRenderer — a line on a BAND (band versus run is the x COLUMN�
     m.unmount();
   });
 });
+
+/**
+ * ZERO IS A PLACE ON THE AXIS (law 12) — the frame renderer's two jobs: PASS
+ * the ask through to the guide and to every layer that binds the channel, and
+ * REFUSE a mark that draws no zero guide in the same sentence the def door
+ * says. It decides nothing about zero itself: whether zero is ON the axis is the
+ * chart's answer, against the domain it drew on.
+ */
+describe('the frame renderer — zero is a place on the axis', () => {
+  const zeroOn = (channel: ResolvedChannel): ResolvedChannel => ({ ...channel, zeroGuide: true } as ResolvedChannel);
+
+  it('passes the ask to the MERGED guide, which draws one line for the stack on each axis it owns', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' } } }, ['a']);
+    m.update(framed([POINTS_LAYER], { x: zeroOn(SHARED('quantitative', [-100, 100])), y: zeroOn(SHARED('quantitative', [-10, 10])) }));
+    expect(el.querySelectorAll('.vzf-frame-guide line.vzf-zero')).toHaveLength(2);
+    // the LAYER draws none of its own: it draws no axis either, which is the same law (`guide: 'merged'`)
+    expect(el.querySelectorAll('.vzf-scatter line.vzf-zero')).toHaveLength(0);
+    expect(refusalOf(el)).toBe('');
+    m.unmount();
+  });
+
+  it('passes it to a LAYER that keeps its own scale — a per-layer guide, where the axis and its zero are the layer’s to draw', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' } } }, ['a']);
+    m.update(framed([POINTS_LAYER], { x: { ...SHARED('quantitative', [-100, 100]), guide: 'per-layer' } as ResolvedChannel, y: zeroOn(SHARED('quantitative', [-10, 10])) }));
+    expect(el.querySelectorAll('.vzf-frame-guide')).toHaveLength(0);
+    expect(el.querySelectorAll('.vzf-scatter line.vzf-zero')).toHaveLength(1);
+    m.unmount();
+  });
+
+  it('a channel a layer never BOUND carries no ask to it — a guide folded over somebody else’s column is no axis of this layer’s', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' } } }, ['a']);
+    // the layer binds x and y; the ask is on `category`, which it does not bind — nothing is drawn and
+    // nothing is refused, exactly as `layerDomain` puts no SPAN on an axis a layer never declared
+    m.update(framed([POINTS_LAYER], { category: zeroOn(SHARED('categorical', ['Casual'])), x: SHARED('quantitative', [-100, 100]) }));
+    expect(el.querySelectorAll('line.vzf-zero')).toHaveLength(0);
+    expect(refusalOf(el)).toBe('');
+    m.unmount();
+  });
+
+  it('A MARK THAT DRAWS NO ZERO GUIDE IS REFUSED BY NAME — the def door’s own sentence, said by the frame that has to draw it', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'bar' } } }, ['a']);
+    const bars: RenderLayer = { layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }], encodings: { category: 'shelf', y: 'count' } };
+    m.update(framed([bars], { category: SHARED('categorical', ['Casual']), y: zeroOn(SHARED('quantitative', [0, 10])) }));
+    expect(refusalOf(el)).toBe('layer "a" is a bar, and a bar draws no zero guide on y — a point draws one on x and y, a line on y; declare it there, or drop "zeroGuide"');
+    // …and on its x, which is its `category` channel: the refusal names the channel, because the answer is per pair
+    m.update(framed([bars], { category: zeroOn(SHARED('categorical', ['Casual'])), y: SHARED('quantitative', [0, 10]) }));
+    expect(refusalOf(el)).toBe('layer "a" is a bar, and a bar draws no zero guide on category — a point draws one on x and y, a line on y; declare it there, or drop "zeroGuide"');
+    // drop the key and the same stack draws
+    m.update(framed([bars], { category: SHARED('categorical', ['Casual']), y: SHARED('quantitative', [0, 10]) }));
+    expect(refusalOf(el)).toBe('');
+    m.unmount();
+  });
+
+  it('a LINE is refused on x and drawn on y — the same per-pair answer, on the mark that has one of each', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'line' } } }, ['a']);
+    const line: RenderLayer = { layerId: 'a', table: 'tb', rows: [{ date: '2026-01-01', value: -2 }, { date: '2026-01-08', value: 3 }], encodings: { x: 'date', y: 'value' } };
+    m.update(framed([line], { x: zeroOn(SHARED('temporal', ['2026-01-01', '2026-01-08'])), y: SHARED('quantitative', [-10, 10]) }));
+    expect(refusalOf(el)).toBe('layer "a" is a line, and a line draws no zero guide on x — a point draws one on x and y, a line on y; declare it there, or drop "zeroGuide"');
+    m.update(framed([line], { x: SHARED('temporal', ['2026-01-01', '2026-01-08']), y: zeroOn(SHARED('quantitative', [-10, 10])) }));
+    expect(refusalOf(el)).toBe('');
+    expect(el.querySelectorAll('.vzf-frame-guide line.vzf-zero')).toHaveLength(1);
+    m.unmount();
+  });
+
+  it('a frame asked for NO zero guide is byte-identical to the frame before the key existed', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' }, b: { kind: 'line' } } });
+    m.update(framed([POINTS_LAYER, LINE_LAYER], XY_FRAME));
+    expect(el.innerHTML).not.toContain('vzf-zero');
+    m.unmount();
+  });
+});

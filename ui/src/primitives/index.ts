@@ -56,6 +56,10 @@ export { logScale, logDomain, extentFor, scaleFor, placeable, padFor, logTicks, 
 // when that axis stands on the right, read by the chart (its plot) and by `VizFrame` (its margin union)
 export { padOnSide } from './scales.js';
 export type { LinearScale, ChartDomain, ScaleKind, ScaleBuilder, AxisSide } from './scales.js';
+// zero is a place on the axis (law 12): the ONE owner of whether a declared zero guide is drawn, and
+// of the words for one that cannot be — a consumer-built chart asks it exactly as `VizScatter` does
+export { zeroGuideFor, zeroGuideNotes } from './zeroGuide.js';
+export type { ZeroGuide, ZeroGuideAsk } from './zeroGuide.js';
 
 export { AxisLabel } from './AxisLabel.js';
 export type { AxisLabelProps } from './AxisLabel.js';

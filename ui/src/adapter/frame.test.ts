@@ -282,3 +282,41 @@ describe('frameFor — the axis\'s CURVE passes through, because this door has n
     expect(answer['y']).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [0, 10] });
   });
 });
+
+/**
+ * ZERO IS A PLACE ON THE AXIS (law 12), through the DOOR: the key is a
+ * DECLARATION the def owns and the fold echoes, so this door has nothing to do
+ * with it — the same arrangement `transform` has, for the same reason. What the
+ * test pins is that the declaration reaches `RenderState.frame`, survives being
+ * saved and read back, and is absent where nobody asked.
+ */
+describe('frameFor — a declared zero guide rides onto the state a renderer receives', () => {
+  it('carries the ask onto the resolved channel, on both modes, and survives a save', async () => {
+    const { session } = recording({ 'table:t': [{ v: -4 }, { v: 9 }] });
+    const answer = await frameFor(session, { viewId: 'trend', layers: [ONE], columns: COLUMNS, frame: { y: { mode: 'shared', basis: 'table', zeroGuide: true } } });
+    expect(answer['y']).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', zeroGuide: true, scale: 'quantitative', domain: [-4, 9] });
+    // A SAVED PICTURE RESTORES IT: the whole answer is plain data, so a picture written out and read back
+    // draws the same furniture — which is the point of declaring the guide instead of passing it as a prop
+    expect(JSON.parse(JSON.stringify(answer))).toEqual(answer);
+    const own = await frameFor(session, { viewId: 'trend', layers: [ONE], columns: COLUMNS, frame: { y: { mode: 'independent', zeroGuide: true } } });
+    expect(own['y']).toEqual({ mode: 'independent', guide: 'per-layer', zeroGuide: true });
+  });
+
+  it('…and a frame that asks for none carries no key at all — byte-identical to the answer before law 12', async () => {
+    const { session } = recording({ 'table:t': [{ v: -4 }, { v: 9 }] });
+    const answer = await frameFor(session, { viewId: 'trend', layers: [ONE], columns: COLUMNS, frame: { y: { mode: 'shared', basis: 'table' } } });
+    expect(answer['y']).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [-4, 9] });
+  });
+
+  it('the DEF DOOR guards this path: the bars-and-trend def cannot declare one on its y, because a bar draws none', async () => {
+    // END TO END, and the more useful pin: this fixture's y is bound by a BAR layer, whose extent is read
+    // from a baseline that IS zero — so the declaration never reaches the fold at all. The door refuses it
+    // by name, which is exactly what keeps a live frame from having to drop a declaration in silence.
+    await expect(liveFrame({ x: { mode: 'shared', basis: 'table' }, y: { mode: 'shared', zeroGuide: true } })).rejects.toThrow(
+      'encodings[0].frame.y: layer "bars" is a bar, and a bar draws no zero guide on y — a point draws one on x and y, a line on y; declare it there, or drop "zeroGuide"',
+    );
+    // …and the def it WOULD accept — the trend line alone on its own y — folds the guide through untouched
+    const { session } = recording({ 'table:t': [{ v: -4 }, { v: 9 }] });
+    expect(await frameFor(session, { viewId: 'trend', layers: [ONE], columns: COLUMNS, frame: { y: { mode: 'shared', zeroGuide: true } } })).toMatchObject({ y: { zeroGuide: true, domain: [-4, 9] } });
+  });
+});

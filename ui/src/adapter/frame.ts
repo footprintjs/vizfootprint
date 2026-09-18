@@ -143,7 +143,12 @@ const COLUMN_TYPES: readonly ColumnType[] = ['number', 'string', 'boolean', 'dat
  * code here at all. That is deliberate and worth stating: `transform` is a
  * DECLARATION the def already owns and `frameDomains` already echoes, and
  * `excluded` is a fact only the fold can count, since only it sees the cells.
- * A door that re-derived either would be a second owner of the axis. What this
+ * A door that re-derived either would be a second owner of the axis. `zeroGuide`
+ * (law 12 — zero is a place on the axis) rides through on exactly the same
+ * terms, for exactly the same reason: it is a DECLARATION the def owns and the
+ * fold echoes, and the one question left — is zero actually ON the axis — needs
+ * the domain that was DRAWN ON, which this door does not have either (a chart
+ * with no frame draws its own extent). The CHART answers that one. What this
  * door owns stays exactly what its header says: which rows to read, and which
  * cells are absences (dropped BEFORE the fold, which is why `excluded` counts
  * only what a logarithm cannot place and never a silence).

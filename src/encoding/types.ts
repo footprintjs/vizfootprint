@@ -51,6 +51,23 @@ export const MAGNITUDE_CHANNELS: ReadonlySet<string> = new Set([
 /** The channels that carry a CATEGORY — a hue, a shape, a panel, a row of a table. */
 export const CATEGORY_CHANNELS: ReadonlySet<string> = new Set(['color', 'shape', 'category', 'detail', 'facet', 'column', 'row', 'region']);
 
+/**
+ * THE CHANNELS THAT ARE AN AXIS — the two a plot has edges for, and so the two
+ * a GUIDE can be drawn across (`ChannelResolution.zeroGuide`, `./frame.ts`).
+ *
+ * A strict subset of {@link MAGNITUDE_CHANNELS}: `size`, `r`, `radius` and
+ * `theta` carry a magnitude but are read off the MARK rather than off an edge,
+ * so there is no line to draw across a plot for them and nothing a zero guide
+ * could mean. The four network endpoints are magnitudes on one spatial
+ * substrate and draw no axis at all.
+ *
+ * NOT a fifth {@link ChannelClass}: a class is the vocabulary a DEF may name in
+ * its own rules (`class: 'magnitude'`), and this is a fact the frame's laws read
+ * about the channels themselves. Adding it there would put a word in a def's
+ * rule language for a question no rule asks.
+ */
+export const POSITIONAL_CHANNELS: ReadonlySet<string> = new Set(['x', 'y']);
+
 export const CHANNEL_CLASSES: Readonly<Record<ChannelClass, ReadonlySet<string>>> = Object.freeze({
   magnitude: MAGNITUDE_CHANNELS,
   category: CATEGORY_CHANNELS,

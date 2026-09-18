@@ -101,8 +101,10 @@ export type ResolvedChannel =
       readonly guide: 'merged' | 'per-layer';
       /** WHICH SCALE A RENDERER MUST BUILD. Echoed from the declaration and absent unless one was declared, so a linear axis carries no key at all (`scaleFor`, `vizfootprint-ui/primitives/scales.ts`, is the one owner of the answer on the chart side). */
       readonly transform?: 'linear' | 'log';
+      /** WHETHER A LINE IS DRAWN WHERE THIS AXIS CROSSES ZERO. Echoed from the declaration, exactly as `transform` is, and absent unless one was declared — see {@link ChannelResolution.zeroGuide} for why the fold does not decide it. */
+      readonly zeroGuide?: boolean;
     } & ResolvedDomain)
-  | { readonly mode: 'independent'; readonly guide: 'per-layer'; readonly transform?: 'linear' | 'log' };
+  | { readonly mode: 'independent'; readonly guide: 'per-layer'; readonly transform?: 'linear' | 'log'; readonly zeroGuide?: boolean };
 
 // ── the defaults, spelled once ────────────────────────────────────────────────
 
@@ -210,6 +212,100 @@ export function firstScaleTakenRefusal(subject: string, chartKind: string, holde
   return `${subject} is a ${chartKind} with a y of its own, but ${holder} already takes the first scale — a ${chartKind} reads its extent from the LEFT baseline, so declare it first, or give the line the independent y`;
 }
 
+// ── zero is a place on the axis (law 12) ──────────────────────────────────────
+
+/**
+ * WHICH MARKS DRAW A ZERO GUIDE, AND ON WHICH CHANNELS — the one owner of that
+ * question, asked by the def door (`../def/layers.ts` · `judgeZeroGuide`) and
+ * by the frame that has to draw it (`vizfootprint-ui/contract/renderers.tsx` ·
+ * `zeroGuideRefusal`), so a def the door accepts is never a frame the renderer
+ * refuses.
+ *
+ * A POINT (a scatter, under both its names) draws one on either axis: φ against
+ * ψ is the figure that asked for this, and both angles are signed. A LINE draws
+ * one on y alone — its x is a run of dates or a band of categories, and neither
+ * has a zero (a date's epoch zero is 1970, which is an accident of the encoding
+ * and not a place a reader reads a sign from).
+ *
+ * Nobody else, and each for its own reason. A BAR, a HISTOGRAM's count and a
+ * BOXPLOT read their extent from a baseline that IS zero
+ * ({@link ZERO_ANCHORED_KINDS}) — a second line drawn over that baseline is
+ * furniture on top of furniture, saying nothing the axis does not already say.
+ * A HEATMAP's channels are two category lists and a ramp; a MAP has regions; a
+ * TABLE has rows; a NETWORK's x and y are one spatial substrate with one
+ * px-per-unit, where a line at zero marks nothing a reader can read.
+ *
+ * A Map rather than a record, so a `chartKind` of `"__proto__"` off a hand-
+ * written def answers no instead of reaching Object.prototype.
+ */
+const ZERO_GUIDE_CHANNELS: ReadonlyMap<string, readonly string[]> = new Map([
+  ['scatter', ['x', 'y']],
+  ['point', ['x', 'y']],
+  ['line', ['y']],
+]);
+
+/** DOES THIS MARK DRAW A ZERO GUIDE ON THIS CHANNEL? The predicate both twins of law 12 ask — see {@link ZERO_GUIDE_CHANNELS} for the list and the reasons. */
+export function drawsZeroGuide(chartKind: string, channel: string): boolean {
+  return (ZERO_GUIDE_CHANNELS.get(chartKind) ?? []).includes(channel);
+}
+
+/**
+ * THE WORDS FOR A MARK ASKED FOR A ZERO GUIDE IT DOES NOT DRAW — one sentence,
+ * one owner, said by the def door with its address in front of it and by the
+ * frame exactly as it stands (the {@link firstScaleTakenRefusal} precedent).
+ *
+ * It names the CHANNEL as well as the mark, because the answer is per pair: a
+ * line draws one on y and not on x, so "a line draws no zero guide" would be a
+ * false sentence for half of the refusals this covers.
+ *
+ * `subject` arrives already named the way each twin names a binder (`layer
+ * "phi-psi"`, `view "rama"`), and the refusal ends in the two ways out: declare
+ * it where it is drawn, or drop the key. It is a REFUSAL and not a silent drop
+ * on purpose: a picture that quietly ignores a declaration is a picture whose
+ * record says something it does not show.
+ */
+export function zeroGuideKindRefusal(subject: string, chartKind: string, channel: string): string {
+  return `${subject} is a ${chartKind}, and a ${chartKind} draws no zero guide on ${channel} — a point draws one on x and y, a line on y; declare it there, or drop "zeroGuide"`;
+}
+
+/**
+ * A LOGARITHMIC AXIS HAS NO ZERO — the clause, with the key it was asked of,
+ * and the ONE owner of those words. The def door says it of a declared `zero`
+ * (law 11a) and of a declared `zeroGuide` (law 12), and the CHART says it of a
+ * `zeroGuide` it was handed on a log axis
+ * (`vizfootprint-ui/primitives/zeroGuide.ts`) — three refusals, one vocabulary,
+ * which is what the packet asked for: a log axis has no zero at all, so the
+ * answer there is the sentence the logarithm already had and not a new one
+ * about a domain.
+ *
+ * The key is a parameter rather than two spellings because the two keys are two
+ * different asks — `zero` extends a domain to REACH zero, `zeroGuide` draws a
+ * line where the axis crosses it — and a reader must be told which one to drop.
+ */
+export function noZeroOnALogAxis(key: string): string {
+  return `a logarithmic axis has no zero — drop "${key}", or draw this channel linearly`;
+}
+
+/**
+ * IS ZERO A PLACE ON THIS AXIS? The one owner of that inequality, asked by the
+ * chart that has the domain it actually drew on
+ * (`vizfootprint-ui/primitives/zeroGuide.ts`).
+ *
+ * The domain is a CLOSED interval, so zero AT AN END is inside it and the guide
+ * is drawn — coincident with the axis line, which is exactly where zero is. The
+ * other reading would make the two zero keys contradict each other: `zero: true`
+ * extends an all-positive domain to `[0, hi]` precisely so the axis reaches
+ * zero, and a `zeroGuide` that then refused the end it was just given would be
+ * refusing the thing the sibling key arranged.
+ *
+ * Order-insensitive, because a hand-folded domain may arrive either way round
+ * (`domainOr` is the chart-side normaliser and it sorts, but this predicate is
+ * asked of pairs from both doors).
+ */
+export function zeroOnAxis(lo: number, hi: number): boolean {
+  return Math.min(lo, hi) <= 0 && Math.max(lo, hi) >= 0;
+}
+
 /** Past this many layers on one frame a reader cannot tell the marks apart — a LINT, never a refusal (a legitimate small-multiple of five exists). */
 export const FRAME_LAYER_LINT = 4;
 
@@ -224,18 +320,19 @@ export const FRAME_LAYER_LINT = 4;
  * only {@link zeroPolicyFor} can see them.
  */
 export type EffectiveResolution =
-  | { readonly mode: 'shared'; readonly domain: 'union'; readonly basis: 'table' | 'rows'; readonly guide: 'merged' | 'per-layer'; readonly zero?: boolean; readonly transform?: 'linear' | 'log' }
-  | { readonly mode: 'independent'; readonly guide: 'per-layer'; readonly transform?: 'linear' | 'log' };
+  | { readonly mode: 'shared'; readonly domain: 'union'; readonly basis: 'table' | 'rows'; readonly guide: 'merged' | 'per-layer'; readonly zero?: boolean; readonly transform?: 'linear' | 'log'; readonly zeroGuide?: boolean }
+  | { readonly mode: 'independent'; readonly guide: 'per-layer'; readonly transform?: 'linear' | 'log'; readonly zeroGuide?: boolean };
 
 export function resolutionFor(channel: string, frame?: Readonly<Record<string, ChannelResolution>>): EffectiveResolution {
   const declared = frame?.[channel];
   if (declared === undefined) return { mode: 'shared', domain: 'union', basis: 'table', guide: 'merged' };
-  // `transform` is the AXIS's own nature and rides on BOTH modes; like `zero` it stays absent where it was
-  // not declared, because 'linear' is what every scale already is and a key nobody typed is not a decision
-  const transform = declared.transform !== undefined ? { transform: declared.transform } : {};
+  // `transform` and `zeroGuide` are the AXIS's own nature and ride on BOTH modes; like `zero` they stay
+  // absent where they were not declared, because 'linear' is what every scale already is, a chart drew no
+  // zero line before either, and a key nobody typed is not a decision
+  const nature = { ...(declared.transform !== undefined ? { transform: declared.transform } : {}), ...(declared.zeroGuide !== undefined ? { zeroGuide: declared.zeroGuide } : {}) };
   // an independent channel has one guide and no domain by definition: each layer keeps its own scale
-  if (declared.mode === 'independent') return { mode: 'independent', guide: 'per-layer', ...transform };
-  return { mode: 'shared', domain: 'union', basis: declared.basis ?? 'table', guide: declared.guide ?? 'merged', ...(declared.zero !== undefined ? { zero: declared.zero } : {}), ...transform };
+  if (declared.mode === 'independent') return { mode: 'independent', guide: 'per-layer', ...nature };
+  return { mode: 'shared', domain: 'union', basis: declared.basis ?? 'table', guide: declared.guide ?? 'merged', ...(declared.zero !== undefined ? { zero: declared.zero } : {}), ...nature };
 }
 
 /**
@@ -335,11 +432,12 @@ export function frameDomains(layers: readonly FrameLayer[], frame?: Readonly<Rec
   const out: Record<string, ResolvedChannel> = {};
   for (const channel of channelsOfLayers(layers)) {
     const resolution = resolutionFor(channel, frame);
-    // the transform is the AXIS's own nature, so it rides BOTH modes: an independent channel folds no
-    // domain here, but each layer still builds a scale, and it must be the scale the def asked for
-    const transform = resolution.transform !== undefined ? { transform: resolution.transform } : {};
+    // the transform and the zero guide are the AXIS's own nature, so they ride BOTH modes: an independent
+    // channel folds no domain here, but each layer still builds a scale and draws its own furniture, and
+    // both must be what the def asked for
+    const nature = { ...(resolution.transform !== undefined ? { transform: resolution.transform } : {}), ...(resolution.zeroGuide !== undefined ? { zeroGuide: resolution.zeroGuide } : {}) };
     if (resolution.mode === 'independent') {
-      out[channel] = { mode: 'independent', guide: 'per-layer', ...transform };
+      out[channel] = { mode: 'independent', guide: 'per-layer', ...nature };
       continue;
     }
     const binding = layers.filter((layer) => layer.channels[channel] !== undefined);
@@ -350,7 +448,7 @@ export function frameDomains(layers: readonly FrameLayer[], frame?: Readonly<Rec
     const zero = zeroPolicyFor(binding.filter((layer) => zeroAnchorsChannel(layer.chartKind, channel)).map((layer) => layer.chartKind), resolution.zero, resolution.transform);
     const domain = foldDomain(binding, channel, scale, zero, resolution.transform);
     if (domain === undefined) continue; // every cell was absent or unreadable — an invented domain would be a drawn lie
-    out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...transform, ...domain };
+    out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...nature, ...domain };
   }
   return out;
 }

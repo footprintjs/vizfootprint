@@ -7,7 +7,7 @@
  * a refusal.
  */
 import { describe, it, expect } from 'vitest';
-import { frameDomains, frameLint, frameScaleOf, resolutionFor, zeroAnchorsChannel, zeroPolicyFor, mayTakeFirstScale, firstScaleTakenRefusal, FRAME_LAYER_LINT, ZERO_ANCHORED_KINDS, type FrameLayer } from './frame.js';
+import { frameDomains, frameLint, frameScaleOf, resolutionFor, zeroAnchorsChannel, zeroPolicyFor, mayTakeFirstScale, firstScaleTakenRefusal, FRAME_LAYER_LINT, ZERO_ANCHORED_KINDS, drawsZeroGuide, zeroOnAxis, zeroGuideKindRefusal, noZeroOnALogAxis, type FrameLayer } from './frame.js';
 import type { ChannelResolution } from '../def/types.js';
 
 /** One layer, spelled the short way: `layer('a', 'line', { y: ['number', [1, 2]] })`. */
@@ -333,5 +333,84 @@ describe('the LOGARITHMIC axis — the fold honours the transform, excludes what
     const axis = { y: { transform: 'log' } } as Readonly<Record<string, ChannelResolution>>;
     expect(resolutionFor('y', axis)).toEqual({ mode: 'shared', domain: 'union', basis: 'table', guide: 'merged', transform: 'log' });
     expect(frameDomains([layer('a', 'point', { y: ['number', [0, 1, 100]] })], axis)['y']).toMatchObject({ transform: 'log', domain: [1, 100], excluded: 1 });
+  });
+});
+
+/**
+ * LAW 12 ON THE FOLD SIDE — the fold ECHOES the ask and decides nothing, plus
+ * the two predicates and the two sentence owners that law 12 keeps here.
+ *
+ * WHY the fold does not decide: the domain it holds is not always the domain
+ * DRAWN — a chart with no frame draws its own padded extent — so the verdict
+ * lives with the chart (`zeroGuideFor`, `vizfootprint-ui/primitives/zeroGuide.ts`).
+ * What the fold owes is the key on the record, so a saved picture can name its
+ * own furniture.
+ */
+describe('zero is a place on the axis (law 12) — the fold echoes the ask, and decides nothing', () => {
+  it('rides onto a SHARED channel beside the domain, and is absent unless declared', () => {
+    const asked = { y: { mode: 'shared', zeroGuide: true } } as unknown as Readonly<Record<string, ChannelResolution>>;
+    expect(frameDomains([layer('a', 'point', { y: ['number', [-4, 9]] })], asked)['y']).toEqual({
+      mode: 'shared',
+      basis: 'table',
+      guide: 'merged',
+      zeroGuide: true,
+      scale: 'quantitative',
+      domain: [-4, 9],
+    });
+    // BYTE IDENTITY: no key at all where nothing asked, so a fold before law 12 and one after are one object
+    expect(frameDomains([layer('a', 'point', { y: ['number', [-4, 9]] })])['y']).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [-4, 9] });
+    // …and `false` is carried as itself: a def that said "no guide" out loud is not the same record as one that said nothing
+    const refusedByHand = { y: { mode: 'shared', zeroGuide: false } } as unknown as Readonly<Record<string, ChannelResolution>>;
+    expect(frameDomains([layer('a', 'point', { y: ['number', [-4, 9]] })], refusedByHand)['y']).toMatchObject({ zeroGuide: false });
+  });
+
+  it('the fold NEVER decides it — a domain that excludes zero still carries the ask, because the chart holds the numbers it drew on', () => {
+    const asked = { y: { mode: 'shared', zeroGuide: true } } as unknown as Readonly<Record<string, ChannelResolution>>;
+    expect(frameDomains([layer('a', 'point', { y: ['number', [12, 48]] })], asked)['y']).toMatchObject({ zeroGuide: true, domain: [12, 48] });
+  });
+
+  it('rides on an INDEPENDENT channel and on the LAYERLESS arm too — a per-layer scale is an axis, and so is a plain chart’s', () => {
+    const independent = { y: { mode: 'independent', zeroGuide: true } } as unknown as Readonly<Record<string, ChannelResolution>>;
+    expect(frameDomains([layer('a', 'point', { y: ['number', [-1, 1]] })], independent)['y']).toEqual({ mode: 'independent', guide: 'per-layer', zeroGuide: true });
+    expect(resolutionFor('y', independent)).toEqual({ mode: 'independent', guide: 'per-layer', zeroGuide: true });
+    const axis = { y: { zeroGuide: true, transform: 'linear' } } as Readonly<Record<string, ChannelResolution>>;
+    expect(resolutionFor('y', axis)).toEqual({ mode: 'shared', domain: 'union', basis: 'table', guide: 'merged', transform: 'linear', zeroGuide: true });
+    // an undeclared channel takes the Wickham default and carries neither axis key
+    expect(resolutionFor('x', axis)).toEqual({ mode: 'shared', domain: 'union', basis: 'table', guide: 'merged' });
+  });
+
+  it('WHICH MARKS draw one, and on which channel — the one owner both twins of law 12 ask', () => {
+    expect([drawsZeroGuide('point', 'x'), drawsZeroGuide('scatter', 'y'), drawsZeroGuide('line', 'y')]).toEqual([true, true, true]);
+    // a line's x is a run of dates or a band of categories: neither has a zero a sign is read from
+    expect(drawsZeroGuide('line', 'x')).toBe(false);
+    // the zero-anchored marks read their extent from a baseline that IS zero, so a guide over it says nothing new —
+    // which is why every kind named by ZERO_ANCHORED_KINDS draws none
+    for (const kind of ZERO_ANCHORED_KINDS) expect(drawsZeroGuide(kind, 'y'), kind).toBe(false);
+    // …and a kind nothing knows about answers no rather than reaching Object.prototype
+    expect([drawsZeroGuide('__proto__', 'y'), drawsZeroGuide('toString', 'x')]).toEqual([false, false]);
+  });
+
+  it('IS ZERO A PLACE ON THIS AXIS: the domain is a CLOSED interval, so zero at an END is inside it', () => {
+    expect(zeroOnAxis(-180, 180)).toBe(true);
+    expect(zeroOnAxis(12, 48)).toBe(false);
+    expect(zeroOnAxis(-48, -12)).toBe(false);
+    // THE END CASE, decided and pinned: an end AT zero is IN. The other reading would make the two zero keys
+    // contradict each other — `zero: true` extends an all-positive domain to [0, hi] precisely so the axis
+    // REACHES zero, and a guide that then refused the end it was handed would refuse its own sibling's work
+    expect([zeroOnAxis(0, 226), zeroOnAxis(-226, 0)]).toEqual([true, true]);
+    expect(zeroOnAxis(0, 0)).toBe(true);
+    // order-insensitive: a hand-folded domain may arrive either way round
+    expect([zeroOnAxis(180, -180), zeroOnAxis(48, 12)]).toEqual([true, false]);
+    // and it agrees with the fold's own zero policy by construction: a domain the policy extended reaches zero
+    const anchored = frameDomains([layer('a', 'bar', { y: ['number', [12, 48]] })])['y'] as { readonly domain: readonly [number, number] };
+    expect(zeroOnAxis(anchored.domain[0], anchored.domain[1])).toBe(true);
+  });
+
+  it('THE WORDS: one owner each — the kind refusal the def door and the frame both say, and the logarithm’s clause all three say', () => {
+    expect(zeroGuideKindRefusal('view "dist"', 'histogram', 'y')).toBe(
+      'view "dist" is a histogram, and a histogram draws no zero guide on y — a point draws one on x and y, a line on y; declare it there, or drop "zeroGuide"',
+    );
+    expect(noZeroOnALogAxis('zero')).toBe('a logarithmic axis has no zero — drop "zero", or draw this channel linearly');
+    expect(noZeroOnALogAxis('zeroGuide')).toBe('a logarithmic axis has no zero — drop "zeroGuide", or draw this channel linearly');
   });
 });

@@ -401,7 +401,13 @@ export interface ViewEncodingDecl {
    * radius needs it exactly as much as a stack does — so the frame is legal on
    * any view and the refusal narrows to the one key that needs layers: `mode`,
    * refused by name on a view with no layers (`shared` versus `independent` is
-   * meaningless with one layer), while `transform` and `zero` are legal there.
+   * meaningless with one layer), while `transform`, `zero` and `zeroGuide` are
+   * legal there.
+   * A ZERO GUIDE is declared here for the same reason: it is furniture of an
+   * AXIS, and the frame is where an axis is said (see
+   * {@link ChannelResolution.zeroGuide} — named for zero and not for the
+   * centre, and declared rather than automatic).
+   *
    * NO SECOND TYPE IS MINTED: a layerless frame entry is the same
    * {@link ChannelResolution}, judged with `mode` refused, and the view itself
    * is judged as its own one implicit layer (`./layers.ts`, `validateFrame`).
@@ -485,6 +491,46 @@ export type ChannelResolution =
        * refused at the door and never silently dropped.
        */
       readonly transform?: 'linear' | 'log';
+      /**
+       * ZERO IS A PLACE ON THE AXIS, AND A CHART MAY BE TOLD TO DRAW IT — one
+       * line inside the plot where this channel's scale crosses zero, so
+       * positive and negative read as two sides of an origin. Default: no line.
+       *
+       * NAMED FOR ZERO, NOT FOR THE CENTRE. The middle of a domain is not zero
+       * unless the domain happens to be symmetric: a backbone angle runs
+       * −180…180 and zero is the middle, a solvent-accessible area runs 0…226
+       * and zero is the edge. A key named for the centre would draw a line down
+       * the middle of an all-positive domain, where the middle means nothing —
+       * a quiet lie, drawn.
+       *
+       * DECLARED, NEVER AUTOMATIC, and the reason is a correctness argument
+       * rather than house style. A guide that appeared by itself whenever a
+       * folded domain happened to include zero would make the SAME VIEW DRAW
+       * DIFFERENTLY AT TWO CURSORS — absent before the data crossed zero,
+       * present after — with nothing in the record saying why. A picture that
+       * changes its own furniture for reasons the log does not carry is the one
+       * thing this library refuses to ship. (An automatic default was
+       * considered and refused: see `../encoding/README.md`.)
+       *
+       * IT IS THE AXIS'S OWN NATURE, like {@link transform}, so it is declared
+       * here — one owner per axis — and rides on both modes and on a layerless
+       * view. It is not a host PROP: a prop the record never sees is a picture
+       * whose provenance cannot name its own furniture.
+       *
+       * REFUSED AT THIS DOOR on a channel that is not positional, on a mark
+       * that does not draw one (`drawsZeroGuide` — a point on x and y, a line
+       * on y), and beside `transform: 'log'` in the logarithm's own words
+       * (`noZeroOnALogAxis`). The ONE thing the door cannot judge is whether
+       * zero is inside the domain, because no domain is typed by hand — the
+       * CHART holds the numbers it drew on and refuses there, in words, in the
+       * picture (`refuse on evidence, never on ignorance`).
+       *
+       * THE FOLD DOES NOT DECIDE IT. `frameDomains` echoes the key onto
+       * `ResolvedChannel` and nothing more, because the domain the fold holds is
+       * not always the domain drawn — a chart with no frame draws its own extent
+       * — and the one thing that always holds both is the chart.
+       */
+      readonly zeroGuide?: boolean;
     }
   | {
       readonly mode: 'independent';
@@ -492,6 +538,8 @@ export type ChannelResolution =
       readonly guide?: 'per-layer';
       /** Linear or logarithmic — each layer's own scale is still an AXIS, so it is said here too. Default `'linear'`. */
       readonly transform?: 'linear' | 'log';
+      /** A line where this channel crosses zero — each layer's own scale is still an AXIS, so it is said here too (see the shared arm). Default: no line. */
+      readonly zeroGuide?: boolean;
     }
   | {
       /**
@@ -513,6 +561,7 @@ export type ChannelResolution =
       readonly guide?: 'merged' | 'per-layer';
       readonly zero?: boolean;
       readonly transform?: 'linear' | 'log';
+      readonly zeroGuide?: boolean;
     };
 
 /**

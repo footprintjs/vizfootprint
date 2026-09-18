@@ -601,6 +601,7 @@ What each primitive is, and what contract behavior it guarantees:
 | `useKeepPredicate` / `dimClass` | Consume the clause-addressable selection as one memoized keep-predicate. | Self-exclusion ("dim under everyone's brush but my own") and dim-not-hide — a filtered-out mark dims, it never disappears. |
 | `selectedValue` | The controlled-prop rule for a chart's own outline. | An explicit `selected` prop wins; otherwise the outline derives from the session fold — never from private chart state. |
 | `<AxisLabel>` + `useReencodePicker` + `defaultCompat` | The interactive axis label and its two-mode dispatch. | In contract mode the HOST owns the picker (`reencodeRequest`); the built-in picker disables incompatible columns **with the reason**. |
+| `zeroGuideFor` + `zeroGuideNotes` | Zero is a place on the axis: whether a declared zero guide is drawn, and the words for one that cannot be. | The guide is **declared, never automatic** (a picture that changed its own furniture with the data would say nothing about why), it is **named for zero and not the centre**, and an axis with no zero on it is **refused in one sentence** — in the plot and in the accessible name — rather than clamped to an edge or silently dropped. |
 
 The selection derivation itself (`selectionForView`, `keepPredicate`,
 `brightPredicate`, `selfSelectedValue`, `selfSelectedInterval`,

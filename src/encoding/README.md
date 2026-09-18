@@ -253,6 +253,30 @@ Three things to know about `excluded`. It is **absent** unless something was exc
 
 `zeroPolicyFor` never anchors a logarithmic channel at zero — one predicate, asked once, so no caller has to remember it. The def door refuses a DECLARED `zero: true` beside `transform: 'log'`, so the only zero that can reach the fold with a log is one the MARKS implied — and those marks (a bar, a box) are refused a logarithmic axis on that very channel by law 11.
 
+## Zero is a place on the axis (`frame.ts`, law 12)
+
+**A chart may be TOLD to draw the line where a signed scale crosses zero**, so that positive and negative read as two sides of an origin instead of a cloud of marks in a box. It is one key on the same `ChannelResolution` the transform rides on — the axis has one owner, and this is the axis's own furniture:
+
+```ts
+// a Ramachandran plot: a backbone φ against ψ, each running −180…180, and the reading
+// is WHICH QUADRANT a residue falls in — the figure that asked for this
+frame: { x: { zeroGuide: true }, y: { zeroGuide: true } }
+// → { x: { mode: 'shared', basis: 'table', guide: 'merged', zeroGuide: true,
+//          scale: 'quantitative', domain: [-180, 180] }, y: … }
+```
+
+**Named for ZERO and not for the centre**, and this is not a spelling preference. The middle of a domain is not zero unless the domain happens to be symmetric: φ runs −180…180 and zero is the middle, a solvent-accessible area runs 0…226 and zero is the edge. A key named for the centre would draw a line down the middle of an all-positive domain, where the middle means nothing — a quiet lie, drawn, which is the kind of thing this library exists to refuse.
+
+**DECLARED, and an automatic default was considered and REFUSED.** The next reader will want to add one, so here is the argument against it: if the guide appeared by itself whenever a folded domain happened to include zero, then the **same view would draw differently at two cursors** — absent before the data crossed zero, present after — with nothing in the record saying why. A picture that changes its own furniture for reasons the log does not carry is exactly what this library forbids. `zeroGuide: false` is therefore legal and meaningful: it is a def saying out loud what it wants, which is a different record from a def that said nothing.
+
+**The fold echoes it and decides nothing.** `resolutionFor`/`frameDomains` put the key on `ResolvedChannel` beside `transform`, absent unless declared, on both modes and on the layerless arm. The verdict — is zero actually ON this axis — needs the domain that was DRAWN ON, and that is the fold's only when a frame handed one over: a standalone chart draws its own padded extent, and nothing upstream has those numbers. So the chart answers it, once, for every chart (`zeroGuideFor`, `vizfootprint-ui/primitives/zeroGuide.ts`), and an axis with no zero on it is REFUSED IN WORDS — in the plot and in the accessible name, quoting the axis it was asked of and the channel it was asked on — never clamped to an edge and never silently dropped.
+
+**Who draws it is already decided**, by `guide: 'merged' | 'per-layer'` and not by a second rule: the zero guide is that axis's furniture, so the frame draws one for the stack exactly where it draws the axis, and a per-layer channel is the layers' to draw (each gated on its own `axes` prop). A frame never unions two answers for one channel, because the span, the curve and this key all ride on the ONE `ChartDomain` object every layer receives by the same reference.
+
+Three things this file owns for the law. `drawsZeroGuide(chartKind, channel)` — WHICH marks draw one and where: a **point** (a scatter, under both its names) on x and y, a **line** on y alone (its x is a run of dates or a band of categories, and neither has a zero a sign is read from), and nothing else. `zeroGuideKindRefusal` — the words for a mark asked for one it does not draw, said by the def door with its address in front of it and by the frame exactly as it stands (the `firstScaleTakenRefusal` arrangement). `noZeroOnALogAxis(key)` — the logarithm's own clause, because a log axis has no zero at all: the answer there is the sentence the logarithm already had, with the key each author has to drop, and `zero`'s spelling of it is byte-identical to what it always said.
+
+**Not in this packet, and named so nobody looks for it**: the shaded density regions of a real Ramachandran plot — the favoured and allowed contours. Those are a REGION layer under a scatter, which a frame's layer kinds do not include, and they are **external published reference data** rather than anything computed from the structure in front of the reader — so they have to arrive as a declared and cited source with a version. That is its own packet, and it is the harder half. This one is the axis only.
+
 ## Not yet
 
 - **the build door refusing a view that leaves a REQUIRED channel unbound** — the second reader that would make `ChannelRequirement.optional` enforced rather than advisory. Queued deliberately and not built here: it may refuse definitions that build today, so it is its own packet

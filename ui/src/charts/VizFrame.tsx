@@ -64,6 +64,7 @@ import { PAD as POINT_PAD } from './VizScatter.js';
 import { PAD as HISTOGRAM_PAD } from './VizHistogram.js';
 import { PAD as BOXPLOT_PAD } from './VizBoxPlot.js';
 import { dayOf, ticks, scaleFor, logTicks, logTickLabel, bandWidth, bandCentre, padOnSide, type ChartDomain, type ScaleKind, type AxisSide } from '../primitives/scales.js';
+import { zeroGuideFor, zeroGuideNotes, type ZeroGuide } from '../primitives/zeroGuide.js';
 
 /** The mark kinds a frame can draw: the 2D charts, and exactly those (a map, a network, a heatmap and a table each own their own frame). */
 export type FrameChartKind = 'line' | 'bar' | 'point' | 'histogram' | 'boxplot';
@@ -301,15 +302,49 @@ function axisTicks(axis: FrameAxis, categories: readonly string[] | undefined, s
 }
 
 /**
+ * ZERO ON THE MERGED GUIDE — the pixel where one axis of the frame's OWN scale
+ * crosses zero, or the words for an axis with no zero on it, or nothing where
+ * none was asked for ({@link zeroGuideFor}, the one owner for every chart).
+ *
+ * WHO DRAWS IT IS ALREADY DECIDED, by the frame's existing law and not a second
+ * one: `guide: 'merged'` means ONE axis for the stack, drawn by the frame, and
+ * the zero guide is that axis's own furniture — so the frame draws it exactly
+ * where it draws the axis, and a `per-layer` channel is the LAYERS' to draw
+ * (each gated on its own `axes` prop). A frame never unions two answers for one
+ * channel, because the transform, the span and this key all ride on the ONE
+ * `domain` object every layer receives by the same reference.
+ *
+ * Only a QUANTITATIVE axis with a real span can carry one: a band of categories
+ * has no zero and a run of dates has no zero a sign is read from. A MARK that
+ * draws no zero guide at all is refused upstream in words, where every other
+ * frame refusal lives (`contract/renderers.tsx` · `stackRefusal`, law 12).
+ */
+function frameZero(axis: FrameAxis | undefined, span: readonly [number, number] | undefined, asked: boolean | undefined, from: number, to: number, channel: string, kind: ScaleKind | undefined): ZeroGuide | undefined {
+  if (axis === undefined || axis.scale !== 'quantitative' || span === undefined || !Number.isFinite(span[0]) || !Number.isFinite(span[1])) return undefined;
+  // `scaleFor` is the one owner of the logarithmic clamp, so building the placer is safe even for a
+  // span a logarithm cannot take — and `zeroGuideFor` refuses a log axis before it ever asks for 0
+  return zeroGuideFor({ channel, asked, domain: [span[0], span[1]], ...(kind === undefined ? {} : { transform: kind }), place: scaleFor(kind)(span[0], span[1], from, to) });
+}
+
+/** Both axes' zero guides, decided once: the frame draws them and its accessible label says what it could not draw. */
+function frameZeroes(frame: VizFrameProps, plot: FramePlotBox): { readonly x?: ZeroGuide; readonly y?: ZeroGuide } {
+  const domain = frame.domain ?? {};
+  const x = frameZero(frame.x, domain.x, domain.zeroGuide?.x, plot.left, plot.right, 'x', curveOf(frame.x, domain.transform?.x));
+  const y = frameZero(frame.y, domain.y, domain.zeroGuide?.y, plot.bottom, plot.top, 'y', curveOf(frame.y, domain.transform?.y));
+  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }) };
+}
+
+/**
  * The merged guide: one axis line and one set of ticks per axis the frame was
  * given, drawn in the frame's own margin. `floor` is where that margin ENDS —
  * the frame's bottom, or the top of the caption strip when the frame has words
  * — so the x label and a slanted tick's room are measured against the margin
  * and never run into the caption.
  */
-function FrameGuide(props: { readonly frame: VizFrameProps; readonly plot: FramePlotBox; readonly width: number; readonly height: number; readonly floor: number }): JSX.Element {
-  const { frame, plot, floor } = props;
+function FrameGuide(props: { readonly frame: VizFrameProps; readonly plot: FramePlotBox; readonly width: number; readonly height: number; readonly floor: number; readonly zeroes: { readonly x?: ZeroGuide; readonly y?: ZeroGuide } }): JSX.Element {
+  const { frame, plot, floor, zeroes } = props;
   const domain = frame.domain ?? {};
+  const zeroNotes = zeroGuideNotes(zeroes.x, zeroes.y);
   const room = Math.max(0, floor - plot.bottom - 12 - (frame.x?.label === undefined ? 0 : AXIS_LABEL_ROOM));
   // x runs left→right; y runs bottom→top (a value grows upwards), which is the only difference between them
   const xTicks = frame.x === undefined ? [] : axisTicks(frame.x, domain.categories, domain.x, plot.left, plot.right, room, curveOf(frame.x, domain.transform?.x));
@@ -318,6 +353,16 @@ function FrameGuide(props: { readonly frame: VizFrameProps; readonly plot: Frame
     <svg className="vzf-chart vzf-frame-guide" viewBox={`0 0 ${props.width} ${props.height}`} aria-hidden="true">
       {frame.x !== undefined && <line className="vzf-axis" x1={plot.left} y1={plot.bottom} x2={plot.right} y2={plot.bottom} />}
       {frame.y !== undefined && <line className="vzf-axis" x1={plot.left} y1={plot.top} x2={plot.left} y2={plot.bottom} />}
+      {/* the zero guides of the axes the FRAME draws — furniture inside the plot, no tick and no label */}
+      {zeroes.x !== undefined && 'at' in zeroes.x && <line className="vzf-zero" x1={zeroes.x.at} y1={plot.top} x2={zeroes.x.at} y2={plot.bottom} />}
+      {zeroes.y !== undefined && 'at' in zeroes.y && <line className="vzf-zero" x1={plot.left} y1={zeroes.y.at} x2={plot.right} y2={zeroes.y.at} />}
+      {/* …and the words for one it was asked for and has no place for; this svg is aria-hidden, so the
+          frame's own accessible label carries the same sentence for a reader who cannot see it */}
+      {zeroNotes.map((note, i) => (
+        <text key={`zn${i}`} className="vzf-zero-note" x={plot.left} y={plot.top - 6 + i * 11} textAnchor="start">
+          {note}
+        </text>
+      ))}
       {xTicks.map((tick) => (
         <g key={`x:${tick.text}:${tick.at}`}>
           <line className="vzf-axis" x1={tick.at} y1={plot.bottom} x2={tick.at} y2={plot.bottom + 4} />
@@ -423,16 +468,19 @@ export function VizFrame(props: VizFrameProps): JSX.Element {
   const plot = framePlotBox(pad, width, height);
   // the frame's own guide is drawn whenever it has one to draw: merged, or a two-or-more-layer stack whose x it draws once
   const frameGuide = guide === 'merged' || layers.length > 1;
+  // the zero guides of the axes THIS frame draws (law 12) — decided once, drawn in the guide and said in
+  // the label; a frame drawing no guide has no axis of its own, so it has no zero of its own either
+  const zeroes = frameGuide ? frameZeroes(props, plot) : {};
   const name = props.ariaLabel ?? `${String(layers.length)} layers on one frame`;
   return (
     <div
       className={`vzf-frame${props.className === undefined ? '' : ' ' + props.className}`}
       style={{ position: 'relative', width, height }}
       role="group"
-      aria-label={words === undefined ? name : `${name} — ${words}`}
+      aria-label={(words === undefined ? name : `${name} — ${words}`) + zeroGuideNotes(zeroes.x, zeroes.y).map((note) => ` — ${note}`).join('')}
       data-vzf="frame"
     >
-      {frameGuide ? <FrameGuide frame={props} plot={plot} width={width} height={height} floor={floor} /> : null}
+      {frameGuide ? <FrameGuide frame={props} plot={plot} width={width} height={height} floor={floor} zeroes={zeroes} /> : null}
       {layers.map((layer, i) => {
         const decided = guides[i]!;
         const box = frameLayerBox(layerPad(layer, decided), plot);

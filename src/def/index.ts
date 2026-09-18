@@ -42,6 +42,8 @@ export {
   MAGNITUDE_CHANNELS,
   RELATION_KINDS,
 } from './types.js';
+// the channels that ARE an axis — the two a zero guide can be drawn across (law 12)
+export { POSITIONAL_CHANNELS } from '../encoding/index.js';
 // Relations between tables — validated in `./relations.ts`, laws in ./README.md ("Relations").
 export { validateRelations, relationEdgeId, joinsTables, relationsFrom, judgeAnalysisReads, neighbourhoodEndpoints } from './relations.js';
 // Layers — a view over more than one table; `viewId~layerId` is the address an act on a layer lands under,
@@ -152,6 +154,12 @@ export {
   // law 9's own two: which marks may take a scale of their own here, and the words for one that may not
   mayTakeFirstScale,
   firstScaleTakenRefusal,
+  // law 12's own four: which marks draw a zero guide and where, the words for one that does not, the
+  // logarithm's own words for a zero it has none of, and the closed-interval test the CHART asks
+  drawsZeroGuide,
+  zeroGuideKindRefusal,
+  noZeroOnALogAxis,
+  zeroOnAxis,
   FRAME_LAYER_LINT,
   ZERO_ANCHORED_KINDS,
 } from '../encoding/index.js';

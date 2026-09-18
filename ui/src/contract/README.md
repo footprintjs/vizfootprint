@@ -307,6 +307,18 @@ category the frame's list does not name is APPENDED, never hidden, and a slot
 the layer has no row for stays EMPTY rather than becoming a bar of zero ("no
 rows here" and "none of them" are two different sentences).
 
+**A ZERO GUIDE rides on the same object** (`domain.zeroGuide`, law 12): a
+declared line where a signed scale crosses zero, PASSED THROUGH from
+`RenderState.frame` to the merged guide and to every layer that binds the
+channel, and decided by neither this renderer nor the fold — whether zero is on
+the axis at all is the CHART's answer, against the domain it actually drew on
+(`zeroGuideFor`, `primitives/zeroGuide.ts`). Who draws it is the frame's
+existing `guide` law and not a new one: merged means the frame draws the axis
+and its zero, per-layer leaves both to the layers. A layer whose MARK draws no
+zero guide on that channel is refused by name, in the def door's own sentence
+(`zeroGuideRefusal` · `zeroGuideKindRefusal`) — a hand-folded frame is a public
+shape, and a declaration silently dropped is worse than one refused.
+
 **A line on a band — band versus run is a property of the x COLUMN, not of the
 mark.** A line whose x is categorical is a band line: each point sits at its
 slot's centre, the segments between are connectors drawn in slot order, and
@@ -652,7 +664,11 @@ custom property (`scaleHueStyle`, `primitives/scaleHue.ts` — the only place
 `--vzf-scale-hue` is spelled) and each rule spends it on the property IT paints
 with (`.vzf-axis` on its stroke, `.vzf-tick` and `.vzf-axis-label` on their
 fill), which is also what leaves the axis label's hover cue to the brand — an
-affordance is about the click, not about the scale.
+affordance is about the click, not about the scale. The ZERO GUIDE has a token
+of its own beside those (`--vzf-zero`, spent by `.vzf-zero`, and
+`.vzf-zero-note` for the sentence) and deliberately does NOT fall back to
+`--vzf-scale-hue`: a scale's hue names its MARKS, and a zero guide is
+furniture.
 
 **The first-party layered chart has since shipped** (packet 4): `networkRenderer`
 — `<VizNetwork>` behind the bridge — is the ninth reference renderer and the

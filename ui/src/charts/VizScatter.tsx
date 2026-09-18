@@ -7,10 +7,16 @@
  * excluded by `keepPredicate`), never from a host-computed flat keep-predicate.
  * The regression overlay comes from `regression`. On brush it emits the R3
  * shape `{ rawValue, encoding }` in DATA space (never pixels) — the chart
- * NEVER builds a clause. Each axis label is an interactive affordance: with
- * `onReencodeRequest` it ASKS THE HOST (the contract's `reencodeRequest`
- * verb — the host owns the picker); otherwise it opens the built-in
- * {@link EncodingPicker} (the React convenience layer).
+ * NEVER builds a clause. On either axis it draws a ZERO GUIDE when it is told
+ * to (`ChartDomain.zeroGuide`, law 12) — one line where a signed scale crosses
+ * zero, so positive and negative read as two sides of an origin; a φ-against-ψ
+ * plot is the figure that asked for it, and an axis with no zero on it is
+ * refused in words rather than given a line at its edge.
+ *
+ * Each axis label is an interactive affordance: with `onReencodeRequest` it
+ * ASKS THE HOST (the contract's `reencodeRequest` verb — the host owns the
+ * picker); otherwise it opens the built-in {@link EncodingPicker} (the React
+ * convenience layer).
  *
  * Composed from the PUBLIC primitives (`../primitives`): scales +
  * `useHorizontalBrush`/`BrushOverlay` (the gesture machinery + completion
@@ -23,6 +29,7 @@ import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
 import { ticks, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
+import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
 import { scaleHueStyle } from '../primitives/scaleHue.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { useBrightPredicate, dimClass } from '../primitives/useSelection.js';
@@ -218,6 +225,16 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   const xTicks = xKind === 'log' ? logTicks(x.domain[0], x.domain[1], 5) : ticks(props.domain?.x === undefined ? xlo + 5 : xlo, props.domain?.x === undefined ? xhi - 5 : xhi, 4);
   const yTickVals = yKind === 'log' ? logTicks(y.domain[0], y.domain[1], 5) : props.domain?.y === undefined ? ticks(Math.ceil(ylo + 0.5), Math.floor(yhi - 0.5), 4) : ticks(ylo, yhi, 4);
 
+  // ZERO IS A PLACE ON THE AXIS (law 12): one line inside the plot where a signed scale crosses zero,
+  // drawn only when the chart was TOLD to — a Ramachandran plot's φ and ψ both ask for one. Gated on the
+  // same `drawX`/`drawY` as the axes themselves, because the guide is that axis's furniture: under a
+  // frame's merged guide the FRAME draws one for the stack (`guide: 'merged'`, its existing law) and a
+  // layer that draws no axis draws no zero line for it either. `zeroGuideFor` is the one owner of the
+  // verdict AND of the words for an axis with no zero on it (`../primitives/zeroGuide.ts`).
+  const zeroX = drawX ? zeroGuideFor({ channel: 'x', asked: props.domain?.zeroGuide?.x, domain: [xlo, xhi], ...(xKind === undefined ? {} : { transform: xKind }), place: x }) : undefined;
+  const zeroY = drawY ? zeroGuideFor({ channel: 'y', asked: props.domain?.zeroGuide?.y, domain: [ylo, yhi], ...(yKind === undefined ? {} : { transform: yKind }), place: y }) : undefined;
+  const zeroNotes = zeroGuideNotes(zeroX, zeroY);
+
   return (
     <>
       <svg
@@ -225,7 +242,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         className={`vzf-chart vzf-scatter${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={(props.ariaLabel ?? `scatter of ${yLabel} against ${xLabel}`) + excludedNote(excluded)}
+        aria-label={(props.ariaLabel ?? `scatter of ${yLabel} against ${xLabel}`) + excludedNote(excluded) + zeroNotes.map((note) => ` — ${note}`).join('')}
         {...handlers}
       >
         {/* axes frame — absent while the FRAME draws one merged guide for the stack; the x half absent
@@ -250,6 +267,12 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
             </text>
           </g>
         ))}
+        {/* the zero guides — furniture, UNDER the data and over the axis lines; each spans the plot box,
+            so an x guide runs floor-to-ceiling and a y guide edge-to-edge. It draws no tick and no label:
+            the labelled axes stay on the edges where they are readable (and where that consumer's own
+            reference image puts them), and this is one line at the scale's zero. */}
+        {zeroX !== undefined && 'at' in zeroX && <line className="vzf-zero" x1={zeroX.at} y1={pad.t} x2={zeroX.at} y2={height - pad.b} />}
+        {zeroY !== undefined && 'at' in zeroY && <line className="vzf-zero" x1={pad.l} y1={zeroY.at} x2={width - pad.r} y2={zeroY.at} />}
         {/* regression overlay — drawn only where the transform can place both of its ends: a
             least-squares line is a LINEAR statement, and an end with no position would draw at NaN */}
         {regression && placeable(xKind, regression.domain[0]) && placeable(xKind, regression.domain[1])
@@ -293,6 +316,15 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
             {excludedNote(excluded).replace(/^ — /, '')}
           </text>
         )}
+        {/* a zero guide this axis has no place for is REFUSED IN WORDS, here and in the accessible name
+            above — never clamped to an edge (that would draw zero where zero is not) and never silently
+            dropped (that would leave the declaration in the record with nothing in the picture answering
+            to it). The lines stack from the top margin down, left-aligned, opposite the excluded note. */}
+        {zeroNotes.map((note, i) => (
+          <text key={`zn${i}`} className="vzf-zero-note" x={pad.l} y={pad.t - 6 + i * 11} textAnchor="start">
+            {note}
+          </text>
+        ))}
       </svg>
       <EncodingPicker
         open={pickerChannel !== null}

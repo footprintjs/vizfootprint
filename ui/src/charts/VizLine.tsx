@@ -25,6 +25,13 @@
  * the same rail via one documented cast — the src/data seam (`IntervalClause`)
  * types and evaluates `[string, string]` correctly.
  *
+ * A ZERO GUIDE ON THE VALUE AXIS (`ChartDomain.zeroGuide.y`, law 12), when the
+ * chart is told to draw one: a difference, a log ratio or a z-score over time
+ * crosses zero and the SIGN is the reading. Its x takes none — a run of dates
+ * has no zero a sign is read from and a band of categories has none at all —
+ * which is the same channel the logarithm is honoured on here, for the same
+ * reason.
+ *
  * Axis labels open the {@link EncodingPicker}: x offers DATE-capable columns
  * AND category columns (a string or a boolean — the band arm below), y only
  * numeric ones — disabled-with-reason via {@link lineCompat}.
@@ -50,6 +57,7 @@ import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import { linearScale, extent, ticks, epochOf, dayOf, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, bandOrder, bandWidth, bandCentre, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
 import { TICK_ANGLE, fitTick } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
+import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
 import { scaleHueStyle } from '../primitives/scaleHue.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { useReencodePicker } from '../primitives/reencode.js';
@@ -528,6 +536,14 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // (the span the marks were actually placed on) rather than the raw pair
   const yTickVals = yKind === 'log' ? logTicks(y.domain[0], y.domain[1], 4) : ticks(vlo + yPad, vhi - yPad, 3);
 
+  // ZERO IS A PLACE ON THE AXIS (law 12), and on a line it is a place on the VALUE axis only: a difference,
+  // a log ratio or a z-score over time crosses zero and the sign is the reading. Its x does not take one —
+  // a run of dates has no zero a reader reads a sign from (an epoch's is 1970, an accident of the encoding)
+  // and a band of categories has no zero at all — which is the same channel list `transform` already keeps
+  // here, and the def door refuses a `zeroGuide` on a line's x by name (`drawsZeroGuide`).
+  const zeroY = drawY ? zeroGuideFor({ channel: 'y', asked: props.domain?.zeroGuide?.y, domain: [vlo, vhi], ...(yKind === undefined ? {} : { transform: yKind }), place: y }) : undefined;
+  const zeroNotes = zeroGuideNotes(zeroY);
+
   // one answer, read by path, dot and legend swatch alike: the series' colour where the chart is split, `markInk` where it is not
   const seriesColor = (name: string | undefined): string => (colorOf ? colorOf(name) : markInk);
   const showLegend = series.length >= 2;
@@ -539,13 +555,16 @@ export function VizLine(props: VizLineProps): JSX.Element {
         className={`vzf-chart vzf-line${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={(props.ariaLabel ?? `${yLabel} over ${xLabel}`) + excludedNote(excluded)}
+        aria-label={(props.ariaLabel ?? `${yLabel} over ${xLabel}`) + excludedNote(excluded) + zeroNotes.map((note) => ` — ${note}`).join('')}
         {...brushHandlers}
       >
         {/* axes frame — absent while the FRAME draws one merged guide for the stack; the x half absent
             while the frame draws x once and this chart draws only its own y (`axes: 'y'`) */}
         {drawX && <line className="vzf-axis" x1={pad.l} y1={bottom} x2={width - pad.r} y2={bottom} />}
         {drawY && <line className="vzf-axis" x1={yAxisX} y1={top} x2={yAxisX} y2={bottom} style={hueStyle} />}
+        {/* the zero guide — furniture, edge to edge across the plot, under the series and over the axis;
+            drawn by whoever draws this axis, so a layer under a merged guide draws none */}
+        {zeroY !== undefined && 'at' in zeroY && <line className="vzf-zero" x1={pad.l} y1={zeroY.at} x2={width - pad.r} y2={zeroY.at} />}
         {/* x ticks on a RUN — actual data dates; the edge labels anchor inward so they
             never clip at the plot edges or collide with each other */}
         {drawX && tickSpecs.map((d) => (
@@ -634,6 +653,13 @@ export function VizLine(props: VizLineProps): JSX.Element {
             {excludedNote(excluded).replace(/^ — /, '')}
           </text>
         )}
+        {/* a zero guide this value axis has no place for, REFUSED IN WORDS — bottom-LEFT, opposite the
+            excluded note, and in the accessible name above; never a line clamped to an edge */}
+        {zeroNotes.map((note, i) => (
+          <text key={`zn${i}`} className="vzf-zero-note" x={pad.l} y={bottom - 6 - i * 11} textAnchor="start">
+            {note}
+          </text>
+        ))}
       </svg>
       <EncodingPicker
         open={pickerChannel !== null}

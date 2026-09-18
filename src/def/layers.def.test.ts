@@ -8,9 +8,13 @@
 import { describe, it, expect } from 'vitest';
 import { buildDashboard, validateDashboardDef, layerAddress } from './index.js';
 import type { DashboardDef, LayerDecl } from './index.js';
+import type { Cause } from '../cause/index.js';
 import { layerSurfaceOf, layerSurfacesOf } from './layers.js';
 // law 9's own sentence for a bar that would take the SECOND scale — one owner, quoted by the frame's twin too
 import { firstScaleTakenRefusal } from '../encoding/index.js';
+// law 12's own: which marks draw a zero guide and where, the words for one that does not, the logarithm's
+// own words for a zero it has none of, and the channels that ARE an axis
+import { POSITIONAL_CHANNELS, drawsZeroGuide, noZeroOnALogAxis, zeroGuideKindRefusal } from '../encoding/index.js';
 import { mintedTables } from './builtinAnalyses.js';
 import { makeDashboardDef } from '../session/dashboard.fixture.js';
 import { edgesLayer, makeNetworkDef, nodesLayer } from './network.fixture.js';
@@ -278,7 +282,7 @@ describe('the frame — per channel, how its scale is resolved across the layers
 
   it('LAW 7: the layerless shape says what a layerless entry is, and its unknown keys are refused on the axis', () => {
     expect(plain('log')).toEqual(['encodings[0].frame, if present, must be an object mapping channel -> { transform?: "linear" | "log" }']);
-    expect(plain({ y: 'log' })).toEqual(['encodings[0].frame.y must be an object { transform?: "linear" | "log", domain?, basis?, guide?, zero? }']);
+    expect(plain({ y: 'log' })).toEqual(['encodings[0].frame.y must be an object { transform?: "linear" | "log", domain?, basis?, guide?, zero?, zeroGuide? }']);
     expect(plain({ y: { logged: true } })).toEqual(['encodings[0].frame.y: unknown key "logged" on an axis']);
     // no mode is needed at all — an entry with only axis keys is complete
     expect(plain({ y: {} })).toEqual([]);
@@ -288,7 +292,7 @@ describe('the frame — per channel, how its scale is resolved across the layers
 
   it('LAW 7: the shape — a mode from the two words, and only the keys that mode has', () => {
     expect(framed('shared')).toEqual(['encodings[0].frame, if present, must be an object mapping channel -> { mode: "shared" | "independent" }']);
-    expect(framed({ y: 'shared' })).toEqual(['encodings[0].frame.y must be an object { mode: "shared" | "independent", domain?, basis?, guide?, zero?, transform? }']);
+    expect(framed({ y: 'shared' })).toEqual(['encodings[0].frame.y must be an object { mode: "shared" | "independent", domain?, basis?, guide?, zero?, transform?, zeroGuide? }']);
     expect(framed({ y: {} })).toEqual(['encodings[0].frame.y.mode must be "shared" or "independent"']);
     expect(framed({ y: { mode: 'fixed' } })).toEqual(['encodings[0].frame.y.mode must be "shared" or "independent"']);
     expect(framed({ y: { mode: 'shared', zeroed: true } })).toEqual(['encodings[0].frame.y: unknown key "zeroed" on a shared channel']);
@@ -628,5 +632,156 @@ describe('layers — a layer may draw a table an ACT mints', () => {
     // `defaultTable` is the dashboard's ground, resolved before any act can have landed (../validate.ts) —
     // law 2 widened for a LAYER, deliberately not for this; the sentence a def author sees is unchanged
     expect(validateDashboardDef({ ...makeNetworkDef([nodesLayer, bars], acts), defaultTable: 'sizes_per_group' })).toEqual(['defaultTable "sizes_per_group" is not a declared data table']);
+  });
+});
+
+/**
+ * LAW 12 — ZERO IS A PLACE ON THE AXIS, AND A CHART MAY BE TOLD TO DRAW IT.
+ *
+ * Every refusal the DOOR can say, which is every one that needs no numbers: a
+ * channel that is not an axis, a mark that draws no guide on that channel, a
+ * logarithm asked for a zero it has none of, and the shape of the key itself.
+ * The one refusal that is NOT here is the domain excluding zero — no domain is
+ * typed by hand, so the door is ignorant of it and the CHART says it instead
+ * (`vizfootprint-ui/primitives/zeroGuide.ts`, pinned in `charts/zeroGuide.test.tsx`).
+ */
+describe('LAW 12 — zero is a place on the axis, and a chart may be TOLD to draw it', () => {
+  it('accepts a guide on x, on y and on BOTH — one declaration answered twice, on a layered view and on a plain one', () => {
+    expect(framed({ x: { mode: 'shared', zeroGuide: true } }, sharesX)).toEqual([]);
+    expect(framed({ y: { mode: 'shared', zeroGuide: true } }, sharesX)).toEqual([]);
+    expect(framed({ x: { mode: 'shared', zeroGuide: true }, y: { mode: 'shared', zeroGuide: true } }, sharesX)).toEqual([]);
+    // THE FIGURE THAT ASKED: a plain scatter of φ against ψ, both angles signed, both guides declared
+    expect(plain({ x: { zeroGuide: true }, y: { zeroGuide: true } })).toEqual([]);
+    // `false` is as legal as `true` — a def may say out loud that it wants none (and it is what absent means)
+    expect(plain({ y: { zeroGuide: false } })).toEqual([]);
+    // an INDEPENDENT channel's per-layer scale is an axis too, so the key rides there as `transform` does
+    expect(framed({ y: { mode: 'independent', zeroGuide: true } }, sharesX)).toEqual([]);
+  });
+
+  it('the key is a BOOLEAN on every arm — a truthy string would draw furniture nobody asked for in those words', () => {
+    expect(plain({ y: { zeroGuide: 'true' } })).toEqual(['encodings[0].frame.y.zeroGuide, if present, must be a boolean']);
+    expect(framed({ y: { mode: 'shared', zeroGuide: 1 } }, sharesX)).toEqual(['encodings[0].frame.y.zeroGuide, if present, must be a boolean']);
+    expect(framed({ y: { mode: 'independent', zeroGuide: 'yes' } }, sharesX)).toEqual(['encodings[0].frame.y.zeroGuide, if present, must be a boolean']);
+  });
+
+  it('a channel that is NOT POSITIONAL has no axis for a line to cross — and a magnitude is not an axis either', () => {
+    expect(plain({ color: { zeroGuide: true } }, { channels: ['x', 'y', 'color'] })).toEqual([
+      'encodings[0].frame.color: a zero guide is a line drawn across a plot, and "color" is not a positional channel — declare it on x or y',
+    ]);
+    // `size` carries a MAGNITUDE and still draws no axis: it is read off the mark, so there is no edge to cross
+    expect(plain({ size: { zeroGuide: true } }, { channels: ['x', 'y', 'size'] })).toEqual([
+      'encodings[0].frame.size: a zero guide is a line drawn across a plot, and "size" is not a positional channel — declare it on x or y',
+    ]);
+    // ONE mistake, ONE sentence: a channel that is no axis is never ALSO told which marks draw guides
+    expect(POSITIONAL_CHANNELS.has('x') && POSITIONAL_CHANNELS.has('y')).toBe(true);
+    expect([...POSITIONAL_CHANNELS]).toEqual(['x', 'y']);
+  });
+
+  it('a MARK that draws no zero guide on that channel is refused BY NAME — never accepted and ignored', () => {
+    // the three whose extent is read from a baseline that IS zero: a second line over it says nothing new
+    expect(framed({ y: { mode: 'shared', zeroGuide: true } }, [barLayer])).toEqual([
+      'encodings[0].frame.y: layer "counts" is a bar, and a bar draws no zero guide on y — a point draws one on x and y, a line on y; declare it there, or drop "zeroGuide"',
+    ]);
+    expect(framed({ y: { mode: 'shared', zeroGuide: true } }, [{ ...barLayer, chartKind: 'histogram' }])).toEqual([
+      'encodings[0].frame.y: layer "counts" is a histogram, and a histogram draws no zero guide on y — a point draws one on x and y, a line on y; declare it there, or drop "zeroGuide"',
+    ]);
+    expect(framed({ y: { mode: 'shared', zeroGuide: true } }, [{ ...barLayer, chartKind: 'boxplot' }])).toEqual([
+      'encodings[0].frame.y: layer "counts" is a boxplot, and a boxplot draws no zero guide on y — a point draws one on x and y, a line on y; declare it there, or drop "zeroGuide"',
+    ]);
+    // …and the answer is per PAIR, not per mark: a LINE draws one on y and none on x, because its x is a run
+    // of dates or a band of categories and neither has a zero a sign is read from
+    expect(plain({ x: { zeroGuide: true } }, { chartKind: 'line' })).toEqual([
+      'encodings[0].frame.x: view "net" is a line, and a line draws no zero guide on x — a point draws one on x and y, a line on y; declare it there, or drop "zeroGuide"',
+    ]);
+    expect(plain({ y: { zeroGuide: true } }, { chartKind: 'line' })).toEqual([]);
+    // every layer that binds the channel is named, so a stack gets one sentence per layer to fix
+    expect(framed({ y: { mode: 'shared', zeroGuide: true } }, [barLayer, { ...barLayer, layerId: 'top', chartKind: 'boxplot' }])).toHaveLength(2);
+    // a layer that does NOT bind the channel is not asked about: a guide folded for somebody else's column
+    // is no axis of its own (the `layerDomain` law, read the other way round)
+    expect(framed({ y: { mode: 'shared', zeroGuide: true } }, [{ ...barLayer, channels: ['x'] }, ...sharesX])).toEqual([]);
+  });
+
+  it('ONE OWNER for the predicate and for the words — the frame that has to draw it refuses in the same sentence', () => {
+    expect(zeroGuideKindRefusal('layer "counts"', 'bar', 'y')).toBe(
+      'layer "counts" is a bar, and a bar draws no zero guide on y — a point draws one on x and y, a line on y; declare it there, or drop "zeroGuide"',
+    );
+    // a point under both its names (VL calls a scatter a point) on either axis; a line on y alone
+    expect([drawsZeroGuide('point', 'x'), drawsZeroGuide('point', 'y'), drawsZeroGuide('scatter', 'x'), drawsZeroGuide('scatter', 'y')]).toEqual([true, true, true, true]);
+    expect([drawsZeroGuide('line', 'y'), drawsZeroGuide('line', 'x')]).toEqual([true, false]);
+    for (const kind of ['bar', 'histogram', 'boxplot', 'heatmap', 'map', 'network', 'table', '__proto__']) {
+      expect(drawsZeroGuide(kind, 'y'), kind).toBe(false);
+    }
+  });
+
+  it('a LOGARITHMIC axis has no zero at all — and that is the answer, in the logarithm’s own words rather than a new sentence', () => {
+    expect(plain({ y: { transform: 'log', zeroGuide: true } })).toEqual([
+      'encodings[0].frame.y: a logarithmic axis has no zero — drop "zeroGuide", or draw this channel linearly',
+    ]);
+    // the SIBLING key keeps its own sentence, byte for byte: `zero` extends a domain, `zeroGuide` draws a line
+    expect(plain({ y: { transform: 'log', zero: true } })).toEqual([
+      'encodings[0].frame.y: a logarithmic axis has no zero — drop "zero", or draw this channel linearly',
+    ]);
+    // both asked = one sentence each, because a reader drops one key at a time
+    expect(plain({ y: { transform: 'log', zero: true, zeroGuide: true } })).toEqual([
+      'encodings[0].frame.y: a logarithmic axis has no zero — drop "zero", or draw this channel linearly',
+      'encodings[0].frame.y: a logarithmic axis has no zero — drop "zeroGuide", or draw this channel linearly',
+    ]);
+    // one owner of the clause, quoted by the CHART too (which says it of a log axis it was handed)
+    expect(noZeroOnALogAxis('zeroGuide')).toBe('a logarithmic axis has no zero — drop "zeroGuide", or draw this channel linearly');
+    // `zeroGuide: false` beside a logarithm asks for nothing, so it is refused nothing
+    expect(plain({ y: { transform: 'log', zeroGuide: false } })).toEqual([]);
+  });
+
+  it('an unknown channel is still the unknown-channel refusal, and a misspelt key is still refused by name', () => {
+    expect(plain({ z: { zeroGuide: true } })).toEqual(['encodings[0].frame.z: unknown channel — the view binds x, y']);
+    expect(plain({ y: { zeroLine: true } })).toEqual(['encodings[0].frame.y: unknown key "zeroLine" on an axis']);
+    expect(framed({ y: { mode: 'shared', zeroLine: true } }, sharesX)).toEqual(['encodings[0].frame.y: unknown key "zeroLine" on a shared channel']);
+    expect(framed({ y: { mode: 'independent', zeroLine: true } }, sharesX)).toEqual(['encodings[0].frame.y: unknown key "zeroLine" on an independent channel']);
+  });
+
+  it('a def declaring no zero guide is byte-identical to one written before the key existed, and a declared one rides frozen onto the view', () => {
+    expect(JSON.stringify(buildDashboard(makeNetworkDef([...sharesX])).def)).not.toContain('zeroGuide');
+    const frame = { x: { mode: 'shared', zeroGuide: true }, y: { mode: 'shared', zeroGuide: true } } as const;
+    const dashboard = buildDashboard({ ...makeNetworkDef(), encodings: [{ viewId: 'net', chartKind: 'point', channels: ['x', 'y'], layers: [...sharesX], frame }] });
+    expect(dashboard.def.encodings![0]!.frame).toEqual(frame);
+    expect(Object.isFrozen(dashboard.def.encodings![0]!.frame)).toBe(true);
+  });
+});
+
+/**
+ * BYTE IDENTITY for law 12 — a def that declares no zero guide is the def it
+ * was before the key existed, everywhere a reader meets it: the overview, the
+ * commit, `why()`. And a def that DOES declare one adds exactly that one
+ * declaration and moves nothing else: the guide is a fact about the AXIS, not
+ * an act, so no commit and no `why()` row changes because of it.
+ */
+describe('a def declaring no zero guide is byte-identical to one written before law 12', () => {
+  const USER: Cause = { requestedBy: 'user', computedBy: 'user', intent: 'pick Formal' };
+
+  /** The shared fixture, optionally with a frame on its POINT view — plus one act, so there is a commit and a `why()` to compare. */
+  async function run(frame?: unknown): Promise<{ overview: unknown; record: unknown; why: unknown; view: unknown }> {
+    const base = makeDashboardDef();
+    const def = frame === undefined ? base : { ...base, encodings: base.encodings!.map((e) => (e.viewId === 'scatter' ? { ...e, frame } : e)) };
+    const dashboard = buildDashboard(def as never);
+    const session = dashboard.createSession();
+    await session.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: USER });
+    const overview = await session.overview();
+    return { overview, record: session.log.records[0]!, why: session.why({ kind: 'chart', viewId: 'scatter' }), view: dashboard.def.encodings!.find((e) => e.viewId === 'scatter') };
+  }
+
+  it('no trace of the key anywhere a reader meets the run', async () => {
+    const plain = await run();
+    for (const [what, value] of Object.entries(plain)) expect(JSON.stringify(value), what).not.toContain('zeroGuide');
+  });
+
+  it('declaring one adds exactly that declaration — the commit and why() do not move, because a guide is not an act', async () => {
+    const plain = await run();
+    const guided = await run({ x: { zeroGuide: true }, y: { zeroGuide: true } });
+    expect(JSON.stringify(guided.record)).toBe(JSON.stringify(plain.record));
+    expect(JSON.stringify(guided.why)).toBe(JSON.stringify(plain.why));
+    // the VIEW carries it, and nothing else about that view changed
+    const { frame, ...restOfView } = guided.view as Record<string, unknown>;
+    expect(frame).toEqual({ x: { zeroGuide: true }, y: { zeroGuide: true } });
+    expect(JSON.stringify(restOfView)).toBe(JSON.stringify(plain.view));
   });
 });
