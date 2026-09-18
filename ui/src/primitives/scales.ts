@@ -577,6 +577,52 @@ export function excludedNote(n: number): string {
   return ` — ${n} ${n === 1 ? 'value is' : 'values are'} not drawn: a logarithmic axis has no place for zero or a negative number`;
 }
 
+/** What {@link outsideNotes} is asked about one axis: its name for the sentence, the pair it was GIVEN, and the values it places. */
+export interface OutsideAsk {
+  /** The channel as a reader knows it (`'x'`, `'y'`) — it is quoted in the sentence. */
+  readonly channel: string;
+  /** `ChartDomain.x` / `.y` — the pair the chart was GIVEN, or nothing where it drew its own extent. */
+  readonly given: readonly [number, number] | undefined;
+  /** The values this axis places, as the chart holds them. A non-finite cell is an ABSENCE, not a value outside an extent, and is not counted. */
+  readonly values: readonly number[];
+}
+
+/**
+ * THE WORDS FOR A VALUE OUTSIDE THE AXIS IT WAS DECLARED ON — owned here beside
+ * {@link excludedNote} because the two are one register: a thing the chart was
+ * asked to draw and cannot show honestly, COUNTED AND SAID rather than dropped
+ * in silence.
+ *
+ * A DECLARED EXTENT SAYS WHAT THE QUANTITY CAN BE (`ChannelResolution.bounds`,
+ * `vizfootprint/def`) — a torsion angle is −180…180, a percentage 0…100, a
+ * probability 0…1. So a value outside it is not a drawing problem, it is a
+ * CLAIM problem: either the data is wrong or the declaration is, and the reader
+ * is the only person who can tell which. Nothing is hidden — the mark is still
+ * placed at its true position, the same law the band axis keeps — but a mark
+ * past the plot edge is invisible, so the count is the only thing that says it
+ * is there.
+ *
+ * ONLY FOR AN AXIS THE CHART WAS GIVEN, and only for a pair a linear scale can
+ * be read from ({@link domainOr}'s own guard, asked here so the two can never
+ * drift about which pair was actually drawn on): a chart drawing its OWN extent
+ * has nothing outside it by construction, and a frame's fold is a union over
+ * the layers' rows, so a count above zero means a DECLARATION.
+ *
+ * Bare sentences, in the order the axes were asked and empty for a chart with
+ * nothing outside — the caller appends them exactly as it appends the zero
+ * guide's (`zeroGuideNotes`, `./zeroGuide.ts`), so a chart with no declared
+ * extent is byte-identical to the one that existed before this key.
+ */
+export function outsideNotes(asks: readonly OutsideAsk[]): readonly string[] {
+  return asks.flatMap((ask) => {
+    if (ask.given === undefined || !ask.given.every((bound) => Number.isFinite(bound))) return [];
+    const [lo, hi] = domainOr(ask.given, ask.given);
+    const n = ask.values.filter((v) => Number.isFinite(v) && (v < lo || v > hi)).length;
+    if (n === 0) return [];
+    return [`${ask.channel} has ${n} ${n === 1 ? 'value' : 'values'} outside its declared bounds [${lo}, ${hi}] — bounds say what the quantity CAN be, so either they are wrong or this data is`];
+  });
+}
+
 // ── a mark a reader is meant to press must be REACHABLE (the pointer target) ──
 
 /**

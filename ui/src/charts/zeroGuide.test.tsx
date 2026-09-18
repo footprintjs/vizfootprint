@@ -18,10 +18,25 @@
  *   3. REFUSED, NEVER SHRUGGED OFF. An axis with no zero on it gets no line and
  *      one sentence, in the plot and in the accessible name, quoting the axis it
  *      was asked of and the channel it was asked on.
- *   4. DRAWN BY WHOEVER DRAWS THAT AXIS. `axes={false}` — a layer under a
- *      frame's merged guide — draws neither the axis nor its zero, and the FRAME
- *      draws both. That is `guide: 'merged'`, the frame's existing law, and not a
- *      second rule.
+ *   4. A TICK LABEL NEEDS ROOM; A LINE AT ZERO NEEDS ONE PIXEL. `axes={false}`
+ *      suppresses ticks and labels and NOT the guide, because that flag is a
+ *      DENSITY decision at the chart's door (no room for tick labels at
+ *      282×171) and not a claim that the chart has no axis. On a signed scale
+ *      the zero line is what the marks are read against — a dot above it and a
+ *      dot below it mean categorically different things — so dropping it
+ *      removes the ability to read the SIGN rather than some chrome.
+ *
+ *      THIS REVERSES THE RULE THIS FILE FIRST PINNED, which was "a layer that
+ *      draws no axis draws no zero line for it either". It was tidy and it was
+ *      wrong for the case that matters, measured on a real page: a pane at
+ *      282×171 with 181 dots, no ticks and no crosshair, so the reader lost the
+ *      only thing saying where the origin was at exactly the size where the
+ *      tick labels were unreadable anyway. Who ELSE might draw it is decided
+ *      where that is known — a frame drawing the merged guide does not ASK its
+ *      layers (`layerDomain`, `../contract/renderers.tsx`), so the stack still
+ *      gets exactly one line. What did NOT change: every refusal. A domain
+ *      without zero and a logarithmic axis are refused exactly as before, at
+ *      any density.
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -130,19 +145,27 @@ describe('VizScatter — the figure that asked: a guide on x, on y, and on both'
     expect(bare).not.toContain('vzf-zero');
   });
 
-  it('DRAWN BY WHOEVER DRAWS THAT AXIS — a layer under a frame’s merged guide draws neither, and says nothing', () => {
-    const merged = render(<VizScatter data={RAMA} domain={{ ...ANGLES, zeroGuide: { x: true, y: true } }} axes={false} />);
-    expect(guidesOf(merged.container)).toEqual([]);
-    expect(notesOf(merged.container)).toEqual([]);
+  it('A LINE AT ZERO NEEDS ONE PIXEL — `axes: false` suppresses the TICKS and the LABELS, never the guide', () => {
+    const dense = render(<VizScatter data={RAMA} domain={{ ...ANGLES, zeroGuide: { x: true, y: true } }} axes={false} />);
+    // both guides, at the same pixels the fully-labelled chart drew them at
+    expect(guidesOf(dense.container)).toEqual(['277/18/277/296', '52/157/502/157']);
+    // …and that is ALL the axis furniture: no axis line, no tick, no tick label, no axis label
+    expect(dense.container.querySelectorAll('line.vzf-axis')).toHaveLength(0);
+    expect(dense.container.querySelectorAll('text.vzf-tick')).toHaveLength(0);
+    expect(dense.container.querySelectorAll('.vzf-axis-label')).toHaveLength(0);
     cleanup();
-    // `axes: 'y'` — the two-scale frame: this layer's y is its OWN scale, so its zero is its own to draw,
-    // and the frame draws x's once
-    const ownY = render(<VizScatter data={RAMA} domain={{ ...ANGLES, zeroGuide: { x: true, y: true } }} axes="y" />);
-    expect(guidesOf(ownY.container)).toEqual(['52/157/502/157']);
+    // `axes: 'y'` — the same answer: what a chart draws its axes for has nothing to do with what it was
+    // asked to draw at zero
+    expect(guidesOf(render(<VizScatter data={RAMA} domain={{ ...ANGLES, zeroGuide: { x: true, y: true } }} axes="y" />).container)).toEqual(['277/18/277/296', '52/157/502/157']);
     cleanup();
-    // …and a refusal follows the same rule: the axis this chart does not draw says nothing here
-    const hidden = render(<VizScatter data={RAMA} domain={{ x: [12, 48], y: [12, 48], zeroGuide: { x: true, y: true } }} axes="y" />);
-    expect(notesOf(hidden.container).map((n) => n.slice(0, 1))).toEqual(['y']);
+    // AND THE TWO RULES ARE NOT ONE RULE: the guide survives the density flag, and it is STILL refused
+    // where zero is not on the axis — at that density, in the same words, on both axes
+    const hidden = render(<VizScatter data={RAMA} domain={{ x: [12, 48], y: [12, 48], zeroGuide: { x: true, y: true } }} axes={false} />);
+    expect(guidesOf(hidden.container)).toEqual([]);
+    expect(notesOf(hidden.container)).toEqual([
+      'x was asked for a zero guide, but its axis runs [12, 48] — zero is not a place on it, so there is no line to draw',
+      'y was asked for a zero guide, but its axis runs [12, 48] — zero is not a place on it, so there is no line to draw',
+    ]);
   });
 
   it('the guide is FURNITURE: its own class and its own token, never the mark’s ink', () => {
@@ -200,8 +223,11 @@ describe('VizLine — a signed value over time, and an x that has no zero', () =
     cleanup();
     expect(render(<VizLine data={POINTS} domain={{ y: [-10, 10], zeroGuide: { y: false } }} />).container.innerHTML).toBe(plain);
     cleanup();
-    // and the frame's merged guide takes it over, as with every other piece of axis furniture
-    expect(guidesOf(render(<VizLine data={POINTS} domain={{ y: [-10, 10], zeroGuide: { y: true } }} axes={false} />).container)).toEqual([]);
+    // …and `axes: false` is a DENSITY choice, so the guide survives it here exactly as it does on a
+    // scatter — the ticks and the labels are what that flag suppresses (law 4 above)
+    const dense = render(<VizLine data={POINTS} domain={{ y: [-10, 10], zeroGuide: { y: true } }} axes={false} />);
+    expect(guidesOf(dense.container)).toEqual(['52/157/502/157']);
+    expect(dense.container.querySelectorAll('text.vzf-tick')).toHaveLength(0);
   });
 });
 

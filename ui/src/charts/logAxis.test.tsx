@@ -239,3 +239,93 @@ describe('the two charts with no logarithmic axis at all', () => {
     expect(nameOf(withLog.container)).toBe(nameOf(plain.container));
   });
 });
+
+/**
+ * A DECLARED `'linear'` IS THE AXIS EVERY CHART ALREADY DREW — the law
+ * `ChartDomain.transform` states and the two charts that used to break it.
+ *
+ * `VizScatter` and `VizLine` gated their "what can this scale place" filter on
+ * the KEY's presence rather than on a logarithm, so a def that said `linear`
+ * out loud started dropping non-finite cells AND counting them into a sentence
+ * that names a logarithm — the wrong words for the wrong reason. The gate is on
+ * `'log'` now, so declaring the default is a no-op, which is what declaring a
+ * default has to be.
+ */
+describe('a declared `linear` changes nothing — the default, said out loud', () => {
+  const HOLEY = [
+    { id: 'a', x: 1, y: 1 },
+    { id: 'b', x: Number.NaN, y: 10 },
+    { id: 'c', x: 100, y: Number.NaN },
+  ];
+
+  it('VizScatter: the same marks and the same words as the chart with no transform key at all', () => {
+    const plain = render(<VizScatter data={HOLEY} domain={{ x: [1, 100], y: [1, 100] }} />);
+    const declared = render(<VizScatter data={HOLEY} domain={{ x: [1, 100], y: [1, 100], transform: { x: 'linear', y: 'linear' } }} />);
+    expect(marksOf(declared.container, 'circle.vzf-dot')).toEqual(marksOf(plain.container, 'circle.vzf-dot'));
+    expect(nameOf(declared.container)).toBe(nameOf(plain.container));
+    // …and no excluded count, because a linear scale excluded nothing — the sentence names a LOGARITHM
+    expect(nameOf(declared.container)).not.toContain('not drawn');
+    // one channel logarithmic is still the logarithm's own answer: the filter runs, and it is counted
+    cleanup();
+    const logged = render(<VizScatter data={HOLEY} domain={{ x: [1, 100], y: [1, 100], transform: { x: 'log' } }} />);
+    expect(nameOf(logged.container)).toContain('2 values are not drawn');
+    cleanup();
+    // …and on the OTHER channel alone, so neither arm of the gate is the only one that works
+    const loggedY = render(<VizScatter data={HOLEY} domain={{ x: [1, 100], y: [1, 100], transform: { y: 'log' } }} />);
+    expect(nameOf(loggedY.container)).toContain('2 values are not drawn');
+  });
+
+  it('VizLine: the same means and the same words as the chart with no transform key at all', () => {
+    const POINTS = [
+      { date: '2026-01-04', value: 1 },
+      { date: '2026-01-11', value: Number.NaN },
+      { date: '2026-01-18', value: 100 },
+    ];
+    const plain = render(<VizLine data={POINTS} domain={{ y: [1, 100] }} />);
+    const declared = render(<VizLine data={POINTS} domain={{ y: [1, 100], transform: { y: 'linear' } }} />);
+    expect(marksOf(declared.container, 'circle.vzf-dot')).toEqual(marksOf(plain.container, 'circle.vzf-dot'));
+    expect(nameOf(declared.container)).toBe(nameOf(plain.container));
+    expect(nameOf(declared.container)).not.toContain('not drawn');
+  });
+});
+
+/**
+ * A DECLARED EXTENT NEVER HIDES A VALUE (law 14) — the chart's half, in the two
+ * charts that print the logarithm's own count and therefore own this register
+ * too (`outsideNotes`, `../primitives/scales.ts`).
+ */
+describe('a value outside a declared extent is counted and SAID', () => {
+  const outsideOf = (c: Element): string[] => Array.from(c.querySelectorAll('text.vzf-outside-note')).map((t) => t.textContent ?? '');
+
+  it('VizScatter says it per axis, in the picture and in the accessible name, and still draws the mark', () => {
+    const rows = [{ id: 'a', x: 50, y: 50 }, { id: 'b', x: 140, y: -20 }];
+    const { container } = render(<VizScatter data={rows} domain={{ x: [0, 100], y: [0, 100] }} />);
+    expect(outsideOf(container)).toEqual([
+      'x has 1 value outside its declared bounds [0, 100] — bounds say what the quantity CAN be, so either they are wrong or this data is',
+      'y has 1 value outside its declared bounds [0, 100] — bounds say what the quantity CAN be, so either they are wrong or this data is',
+    ]);
+    expect(nameOf(container)).toContain(' — x has 1 value outside its declared bounds [0, 100] — bounds say what the quantity CAN be, so either they are wrong or this data is');
+    // NOTHING IS HIDDEN: both marks are drawn, at their true positions
+    expect(container.querySelectorAll('circle.vzf-dot')).toHaveLength(2);
+    cleanup();
+    // …and a chart whose rows are all inside says nothing, so a correct declaration is byte-identical
+    const inside = render(<VizScatter data={[{ id: 'a', x: 50, y: 50 }]} domain={{ x: [0, 100], y: [0, 100] }} />);
+    expect(outsideOf(inside.container)).toEqual([]);
+    expect(nameOf(inside.container)).toBe('scatter of y against x');
+  });
+
+  it('VizLine says it on its VALUE axis, beneath the zero guide’s own sentence when both are there', () => {
+    const POINTS = [{ date: '2026-01-04', value: 5 }, { date: '2026-01-11', value: 140 }];
+    const { container } = render(<VizLine data={POINTS} domain={{ y: [0, 100] }} />);
+    expect(outsideOf(container)).toEqual([
+      'y has 1 value outside its declared bounds [0, 100] — bounds say what the quantity CAN be, so either they are wrong or this data is',
+    ]);
+    // NOTHING IS HIDDEN: the path still runs through the point past the top edge
+    expect(container.querySelectorAll('path.vzf-line-path')).toHaveLength(1);
+    cleanup();
+    // both sentences, each on its own line: a guide that has no place AND a value that has no place on the axis
+    const both = render(<VizLine data={[{ date: '2026-01-04', value: 5 }, { date: '2026-01-11', value: 140 }]} domain={{ y: [1, 100], zeroGuide: { y: true } }} />);
+    expect(both.container.querySelectorAll('text.vzf-zero-note')).toHaveLength(1);
+    expect(outsideOf(both.container)).toHaveLength(1);
+  });
+});

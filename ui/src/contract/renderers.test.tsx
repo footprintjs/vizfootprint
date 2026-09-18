@@ -1610,6 +1610,23 @@ describe('the frame renderer — zero is a place on the axis', () => {
     m.unmount();
   });
 
+  it('a MERGED guide draws the stack’s zero and the layers are not even ASKED — one line on one pixel, not one per layer', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' }, b: { kind: 'point' } } }, ['a', 'b']);
+    const second: RenderLayer = { ...POINTS_LAYER, layerId: 'b' };
+    m.update(framed([POINTS_LAYER, second], { x: zeroOn(SHARED('quantitative', [-100, 100])), y: zeroOn(SHARED('quantitative', [-10, 10])) }));
+    // the frame's two, and NOT two per layer on top of them — the charts now draw the guide they are
+    // asked for whatever `axes` says, so "one line for the stack" is kept by not ASKING (`layerDomain`)
+    expect(el.querySelectorAll('.vzf-frame-guide line.vzf-zero')).toHaveLength(2);
+    expect(el.querySelectorAll('.vzf-scatter line.vzf-zero')).toHaveLength(0);
+    // …and no layer says the refusal twice either: an off-axis domain under a merged guide is the FRAME's
+    // sentence alone
+    m.update(framed([POINTS_LAYER, second], { x: zeroOn(SHARED('quantitative', [12, 48])), y: SHARED('quantitative', [0, 10]) }));
+    expect(Array.from(el.querySelectorAll('text.vzf-zero-note')).map((t) => t.textContent)).toEqual([
+      'x was asked for a zero guide, but its axis runs [12, 48] — zero is not a place on it, so there is no line to draw',
+    ]);
+    m.unmount();
+  });
+
   it('A MARK THAT DRAWS NO ZERO GUIDE IS REFUSED BY NAME — the def door’s own sentence, said by the frame that has to draw it', () => {
     const { el, m } = mountFrame({ layers: { a: { kind: 'bar' } } }, ['a']);
     const bars: RenderLayer = { layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }], encodings: { category: 'shelf', y: 'count' } };
@@ -1686,6 +1703,92 @@ describe('the frame renderer — a band is a range too (law 13)', () => {
     const bars: RenderLayer = { layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }], encodings: { category: 'shelf', y: 'count' } };
     m.update(framed([bars], { category: SHARED('categorical', ['Casual']), y: SHARED('quantitative', [0, 10]) }));
     expect(refusalOf(el)).toBe('');
+    m.unmount();
+  });
+});
+
+/**
+ * THE CURVE AND THE DECLARED EXTENT REACH THE PICTURE (protocol 1.6, law 14) —
+ * the frame renderer's other two pass-throughs, both of which it was missing.
+ *
+ * `frameChartDomain` and `layerDomain` folded a SPAN and a band order and handed
+ * over no curve and no declared extent, so a def that said "logarithmic" got a
+ * linear axis and a def that said "a torsion angle is −180…180" got whatever the
+ * rows happened to reach. Both are read off `RenderState.frame` and passed
+ * through; neither is decided here.
+ */
+describe('the frame renderer — a declared curve and a declared extent reach the marks', () => {
+  const LOG_X = { mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [1, 1000], transform: 'log' } as unknown as ResolvedChannel;
+  const tickTexts = (el: Element, within: string): string[] => Array.from(el.querySelectorAll(`${within} text.vzf-tick`)).map((t) => t.textContent ?? '');
+
+  it('a LOGARITHMIC channel draws a logarithmic MERGED guide — decades, where it used to draw an even linear run', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' } } }, ['a']);
+    m.update(framed([POINTS_LAYER], { x: LOG_X, y: SHARED('quantitative', [0, 10]) }));
+    // BEFORE: ['1', '334', '667', '1000'] — `ticks(1, 1000, 3)`, a linear axis under a logarithmic
+    // declaration, which is a false picture rather than a plain one
+    // (the two trailing entries are the axis LABELS, which wear the same class in the merged guide)
+    expect(tickTexts(el, '.vzf-frame-guide')).toEqual(['1', '10', '100', '1000', '0', '3.3', '6.7', '10', 'price', 'rating']);
+    // …and the Y axis the same way, because the curve rides per CHANNEL and neither axis is the special one
+    m.update(framed([POINTS_LAYER], { x: SHARED('quantitative', [0, 100]), y: { ...LOG_X, domain: [1, 100] } as ResolvedChannel }));
+    expect(tickTexts(el, '.vzf-frame-guide')).toEqual(['0', '33.3', '66.7', '100', '1', '10', '100', 'price', 'rating']);
+    m.unmount();
+  });
+
+  it('…and a logarithmic channel reaches the LAYER that binds it, when the layer draws its own axis', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' } } }, ['a']);
+    m.update(framed([POINTS_LAYER], { x: { ...LOG_X, guide: 'per-layer' } as ResolvedChannel }));
+    // the layer's own x axis, ticked at decades off the scale it was HANDED (`logTicks`), and its y on its
+    // own extent. BEFORE: ['1', '251', '501', '750', '1000'] for x — `ticks(1, 1000, 4)`, an even run
+    expect(tickTexts(el, '.vzf-scatter')).toEqual(['1', '10', '100', '1000', '2', '3.5', '5', '6.5', '8']);
+    m.unmount();
+  });
+
+  it('a DECLARED extent is the axis the guide is drawn on — what the quantity CAN be, not what these rows reach', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' } } }, ['a']);
+    const bounded = { ...SHARED('quantitative', [10, 90]), bounds: [0, 200] } as unknown as ResolvedChannel;
+    m.update(framed([POINTS_LAYER], { x: bounded, y: SHARED('quantitative', [0, 10]) }));
+    // the fold says these rows run 10…90; the declaration says the quantity runs 0…200, and the axis
+    // is what the quantity can be. BEFORE: ['10', '36.7', '63.3', '90'] — the fold's own union
+    expect(tickTexts(el, '.vzf-frame-guide').slice(0, 4)).toEqual(['0', '66.7', '133.3', '200']);
+    m.unmount();
+  });
+
+  it('…on x, on y, and on both — and it reaches the LAYER, so a mark and its tick cannot disagree', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' } } }, ['a']);
+    const bounds = (lo: number, hi: number, fold: readonly [number, number]): ResolvedChannel =>
+      ({ ...SHARED('quantitative', fold), guide: 'per-layer', bounds: [lo, hi] } as unknown as ResolvedChannel);
+    m.update(framed([POINTS_LAYER], { x: bounds(0, 200, [10, 90]) }));
+    expect(tickTexts(el, '.vzf-scatter').slice(0, 5)).toEqual(['0', '50', '100', '150', '200']);
+    // on y alone: the y ticks are the declared extent's and the x ticks are still this chart's OWN, because
+    // an extent declared on one axis says nothing about the other
+    m.update(framed([POINTS_LAYER], { y: bounds(0, 40, [2, 8]) }));
+    expect(tickTexts(el, '.vzf-scatter')).toEqual(['10', '30', '50', '70', '90', '0', '10', '20', '30', '40']);
+    m.update(framed([POINTS_LAYER], { x: bounds(0, 200, [10, 90]), y: bounds(0, 40, [2, 8]) }));
+    expect(tickTexts(el, '.vzf-scatter')).toEqual(['0', '50', '100', '150', '200', '0', '10', '20', '30', '40']);
+    m.unmount();
+  });
+
+  it('A VALUE OUTSIDE A DECLARED EXTENT IS COUNTED AND SAID, verbatim — never dropped and never refused', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' } } }, ['a']);
+    const narrow = { ...SHARED('quantitative', [10, 90]), guide: 'per-layer', bounds: [0, 50] } as unknown as ResolvedChannel;
+    m.update(framed([POINTS_LAYER], { x: narrow }));
+    expect(Array.from(el.querySelectorAll('text.vzf-outside-note')).map((t) => t.textContent)).toEqual([
+      'x has 1 value outside its declared bounds [0, 50] — bounds say what the quantity CAN be, so either they are wrong or this data is',
+    ]);
+    // and the mark is STILL DRAWN, at its true position — past the right edge of the plot, which is why
+    // the count is the only thing in the picture that says it is there
+    const dots = Array.from(el.querySelectorAll('.vzf-scatter circle.vzf-dot')).map((c) => Number(c.getAttribute('cx')));
+    expect(dots).toHaveLength(2);
+    expect(Math.max(...dots)).toBeGreaterThan(Number(el.querySelector('.vzf-scatter line.vzf-axis')!.getAttribute('x2')));
+    m.unmount();
+  });
+
+  it('a frame that declares NEITHER hands out the object it always did — no `transform` key, no `bounds` key', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'point' } } }, ['a']);
+    m.update(framed([POINTS_LAYER], XY_FRAME));
+    const withNeither = el.innerHTML;
+    m.update(framed([POINTS_LAYER], { x: SHARED('quantitative', [0, 100]), y: SHARED('quantitative', [0, 10]) }));
+    expect(el.innerHTML).toBe(withNeither);
     m.unmount();
   });
 });

@@ -414,3 +414,49 @@ describe('zero is a place on the axis (law 12) — the fold echoes the ask, and 
     expect(noZeroOnALogAxis('zeroGuide')).toBe('a logarithmic axis has no zero — drop "zeroGuide", or draw this channel linearly');
   });
 });
+
+/**
+ * LAW 14 ON THE FOLD SIDE — the fold ECHOES the declared extent and folds
+ * nothing. It sits BESIDE `domain` and never replaces it: `domain` is what this
+ * data reaches, `bounds` is what the quantity can reach, and a reader holding
+ * both can see a table covering a third of its own axis. Which of the two the
+ * PICTURE is drawn on is the chart's answer (`spanOf`,
+ * `vizfootprint-ui/contract/renderers.tsx`), where the pixels are.
+ */
+describe('what the quantity can be (law 14) — the fold echoes the declared extent, beside the fold', () => {
+  it('rides onto a SHARED channel beside the domain, and is absent unless declared', () => {
+    const declared = { y: { mode: 'shared', bounds: [-180, 180] } } as unknown as Readonly<Record<string, ChannelResolution>>;
+    expect(frameDomains([layer('a', 'point', { y: ['number', [-172, 107]] })], declared)['y']).toEqual({
+      mode: 'shared',
+      basis: 'table',
+      guide: 'merged',
+      bounds: [-180, 180],
+      scale: 'quantitative',
+      domain: [-172, 107],
+    });
+    // BYTE IDENTITY: no key at all where nothing declared one, so a fold before law 14 and one after are one object
+    expect(frameDomains([layer('a', 'point', { y: ['number', [-172, 107]] })])['y']).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [-172, 107] });
+  });
+
+  it('it is ECHOED and never folded — the rows never widen it, narrow it, or move it', () => {
+    const declared = { y: { mode: 'shared', bounds: [0, 100] } } as unknown as Readonly<Record<string, ChannelResolution>>;
+    // rows that run right past it: the pair on the record is still the declared one, to the byte
+    expect(frameDomains([layer('a', 'point', { y: ['number', [-40, 140]] })], declared)['y']).toMatchObject({ bounds: [0, 100], domain: [-40, 140] });
+    // …and rows that barely touch it do not shrink it either
+    expect(frameDomains([layer('a', 'point', { y: ['number', [49, 51]] })], declared)['y']).toMatchObject({ bounds: [0, 100], domain: [49, 51] });
+  });
+
+  it('`resolutionFor` carries it on the shared arm and on the LAYERLESS arm, and an undeclared channel carries none', () => {
+    const shared = { y: { mode: 'shared', bounds: [0, 1] } } as unknown as Readonly<Record<string, ChannelResolution>>;
+    expect(resolutionFor('y', shared)).toEqual({ mode: 'shared', domain: 'union', basis: 'table', guide: 'merged', bounds: [0, 1] });
+    // the layerless arm — the plain Ramachandran scatter, which is the figure that asked
+    const axis = { x: { bounds: [-180, 180], zeroGuide: true } } as Readonly<Record<string, ChannelResolution>>;
+    expect(resolutionFor('x', axis)).toEqual({ mode: 'shared', domain: 'union', basis: 'table', guide: 'merged', zeroGuide: true, bounds: [-180, 180] });
+    expect(resolutionFor('y', axis)).toEqual({ mode: 'shared', domain: 'union', basis: 'table', guide: 'merged' });
+  });
+
+  it('a channel with nothing foldable still gets NO ENTRY — an axis over no data is a different question', () => {
+    const declared = { y: { mode: 'shared', bounds: [0, 100] } } as unknown as Readonly<Record<string, ChannelResolution>>;
+    expect(frameDomains([layer('a', 'point', { y: ['number', []] })], declared)).toEqual({});
+  });
+});

@@ -401,8 +401,8 @@ export interface ViewEncodingDecl {
    * radius needs it exactly as much as a stack does — so the frame is legal on
    * any view and the refusal narrows to the one key that needs layers: `mode`,
    * refused by name on a view with no layers (`shared` versus `independent` is
-   * meaningless with one layer), while `transform`, `zero` and `zeroGuide` are
-   * legal there.
+   * meaningless with one layer), while `transform`, `zero`, `zeroGuide` and
+   * `bounds` are legal there.
    * A ZERO GUIDE is declared here for the same reason: it is furniture of an
    * AXIS, and the frame is where an axis is said (see
    * {@link ChannelResolution.zeroGuide} — named for zero and not for the
@@ -430,11 +430,16 @@ export interface ViewEncodingDecl {
  *   `histogram` or `boxplot`: a bar measured against a second axis is a lie
  *   about its own height.
  *
- * **No hand-typed domain exists in this type.** `domain: 'union'` is a WORD;
- * the numbers are folded from the rows by `frameDomains`
- * (`vizfootprint/def` — the door that re-exports the encoding plane,
- * PACKAGING.md, Law 1) at every update, so an axis can never disagree
+ * **`domain` IS A WORD AND NEVER NUMBERS.** `domain: 'union'` says how LAYERS
+ * combine their extents; the numbers it produces are folded from the rows by
+ * `frameDomains` (`vizfootprint/def` — the door that re-exports the encoding
+ * plane, PACKAGING.md, Law 1) at every update, so an axis can never disagree
  * with the data under it.
+ *
+ * The ONE numeric pair this type carries is {@link ChannelResolution.bounds},
+ * and it is the opposite idea rather than an exception to that one: a fact
+ * about what the QUANTITY can be (a torsion angle is −180…180 by definition),
+ * which no fold over rows can know and no fold may overwrite.
  *
  * ```ts
  * frame: {
@@ -531,6 +536,51 @@ export type ChannelResolution =
        * — and the one thing that always holds both is the chart.
        */
       readonly zeroGuide?: boolean;
+      /**
+       * WHAT THE QUANTITY CAN BE — the extent this axis is read on, declared
+       * rather than folded. `[-180, 180]` for a backbone torsion angle,
+       * `[0, 100]` for a percentage, `[0, 1]` for a probability, `[-1, 1]` for
+       * a correlation. Default: the fold's own union over the rows.
+       *
+       * IT IS A FACT ABOUT THE QUANTITY, NOT ABOUT THE ROWS, and that is the
+       * whole argument for declaring it. A torsion angle is −180…180 by
+       * definition; a Ramachandran plot whose axes run the extent of the
+       * residues that happen to be in the table draws a residue at 107° hard
+       * against the right edge, where it reads as the edge of torsion space
+       * when it is nowhere near it. The axis says what the quantity CAN be, the
+       * marks say what this entry HAPPENS to be, and conflating the two is the
+       * defect — so this is the one numeric pair a frame may carry, and it may
+       * never be folded from the data.
+       *
+       * WHY NOT `domain`: that word is taken, and for the opposite idea.
+       * `domain: 'union'` is a WORD naming how LAYERS combine their extents —
+       * a fold, never numbers (R1) — and this is the extent a QUANTITY is read
+       * on, which no fold may produce. Two ideas, two keys.
+       *
+       * WHY NOT `range`: taken twice already. The agent tool surface spells a
+       * filter's interval `range` (`../agent/vizAsTools.ts` — `range: null`
+       * clears it), which narrows the ROWS, and `linearScale` spells the PIXEL
+       * pair `range` (`vizfootprint-ui/primitives/scales.ts`), which is d3's
+       * meaning. A third meaning of one word, pointing the opposite way from
+       * the first, is how a vocabulary stops being readable.
+       *
+       * REFUSED AT THIS DOOR unless it is a pair of finite numbers with the low
+       * one first (a reversed pair is a typo and a flat one is not an extent),
+       * on a channel bound to a column that is not a number, on an
+       * `independent` channel (each layer keeps its own scale there, so there is
+       * no one axis for one claim — it is refused by name with the other keys
+       * an independent channel has no use for), and with a non-positive bound
+       * beside `transform: 'log'`, because a logarithm cannot be read from one.
+       *
+       * IT NEVER HIDES A VALUE. A cell outside the declared bounds is still
+       * drawn at its true position — nothing is dropped, the band axis's law —
+       * and it is COUNTED and SAID, in the picture and in the accessible name
+       * (`outsideNotes`, `vizfootprint-ui/primitives/scales.ts`, beside the
+       * sentence for what a logarithm could not place). A value outside means
+       * either the data is wrong or the claim is, and either way the reader is
+       * told.
+       */
+      readonly bounds?: readonly [number, number];
     }
   | {
       readonly mode: 'independent';
@@ -562,6 +612,8 @@ export type ChannelResolution =
       readonly zero?: boolean;
       readonly transform?: 'linear' | 'log';
       readonly zeroGuide?: boolean;
+      /** What the quantity CAN be, on a view with no layers — see the shared arm. A plain Ramachandran scatter is the figure that asked for it. */
+      readonly bounds?: readonly [number, number];
     };
 
 /**

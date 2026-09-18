@@ -144,15 +144,15 @@ function judgeSurface(at: string, layer: Record<string, unknown>, problems: stri
 
 // ── the frame: who may share a scale ──────────────────────────────────────────
 
-/** The keys a resolution may carry, per mode — anything else is refused by name (R12). An independent channel has no domain, no basis and no zero policy: there is nothing folded to apply them to; it keeps `transform` and `zeroGuide` because its own scale is still an AXIS. */
-const SHARED_KEYS: readonly string[] = ['mode', 'domain', 'basis', 'guide', 'zero', 'transform', 'zeroGuide'];
+/** The keys a resolution may carry, per mode — anything else is refused by name (R12). An independent channel has no domain, no basis, no zero policy and no bounds: there is nothing folded to apply them to, and no ONE axis for one claim about the quantity; it keeps `transform` and `zeroGuide` because its own scale is still an AXIS. */
+const SHARED_KEYS: readonly string[] = ['mode', 'domain', 'basis', 'guide', 'zero', 'transform', 'zeroGuide', 'bounds'];
 const INDEPENDENT_KEYS: readonly string[] = ['mode', 'guide', 'transform', 'zeroGuide'];
 /** …and on a view with no LAYERS: the axis keys, without the one that resolves layers (`mode`, refused by name below). */
 const AXIS_KEYS: readonly string[] = SHARED_KEYS.filter((key) => key !== 'mode');
 
 /** The two shapes a resolution entry may be, spelled once each — the layered one names the mode it requires, the layerless one the axis it is. */
-const RESOLUTION_SHAPE = '{ mode: "shared" | "independent", domain?, basis?, guide?, zero?, transform?, zeroGuide? }';
-const AXIS_SHAPE = '{ transform?: "linear" | "log", domain?, basis?, guide?, zero?, zeroGuide? }';
+const RESOLUTION_SHAPE = '{ mode: "shared" | "independent", domain?, basis?, guide?, zero?, transform?, zeroGuide?, bounds? }';
+const AXIS_SHAPE = '{ transform?: "linear" | "log", domain?, basis?, guide?, zero?, zeroGuide?, bounds? }';
 
 /** The one word a `transform` may be beyond the default — a logarithmic axis, base 10. */
 const LOG = 'log';
@@ -384,7 +384,17 @@ function judgeAxisKeys(at: string, decl: Record<string, unknown>, problems: stri
   if (decl.basis !== undefined && decl.basis !== 'table' && decl.basis !== 'rows') problems.push(`${at}.basis, if present, must be "table" or "rows"`);
   if (decl.guide !== undefined && decl.guide !== 'merged' && decl.guide !== 'per-layer') problems.push(`${at}.guide, if present, must be "merged" or "per-layer"`);
   if (decl.zero !== undefined && typeof decl.zero !== 'boolean') problems.push(`${at}.zero, if present, must be a boolean`);
+  // Law 14: the ONE numeric pair a frame carries, and the one shape it may be. A reversed pair is a typo
+  // and a flat one is not an extent, so neither is read as "what the quantity can be" — both are said here.
+  if (decl.bounds !== undefined && !isBoundsPair(decl.bounds)) problems.push(`${at}.bounds, if present, must be a pair of finite numbers with the low one first — what the QUANTITY can be, e.g. [-180, 180] for a torsion angle`);
   judgeAxisNature(at, decl, problems);
+}
+
+/** The ONE shape a declared extent may be: two finite numbers, low first — asked by the door before any law reads the pair, so one malformed pair is one sentence. */
+function isBoundsPair(value: unknown): value is readonly [number, number] {
+  if (!Array.isArray(value) || value.length !== 2) return false;
+  const [lo, hi] = value as readonly unknown[];
+  return typeof lo === 'number' && typeof hi === 'number' && Number.isFinite(lo) && Number.isFinite(hi) && lo < hi;
 }
 
 /**
@@ -423,7 +433,36 @@ function judgeChannelLaws(at: string, channel: string, resolution: Record<string
   if (MAGNITUDE_CHANNELS.has(channel)) judgeZeroAnchoredMarks(at, channel, resolution, binders, problems);
   if (resolution.transform === LOG) judgeLogarithm(at, channel, resolution, binders, data, minted, problems);
   if (resolution.zeroGuide === true) judgeZeroGuide(at, channel, binders, problems);
+  if (isBoundsPair(resolution.bounds)) judgeBounds(at, channel, resolution.bounds, resolution.transform, binders, data, minted, problems);
   if (resolution.mode === 'shared') judgeSharedColumns(at, channel, binders, data, minted, problems);
+}
+
+/**
+ * LAW 14: WHAT THE QUANTITY CAN BE — the two facts about a declared extent
+ * that the door can only learn from the COLUMNS and the CURVE. The shape is
+ * already known good ({@link isBoundsPair}, asked by the caller), so a
+ * malformed pair is refused once and never judged again through its laws — the
+ * arrangement every other law here keeps.
+ *
+ *   a. A NUMBER AXIS. Bounds ARE numbers, so the column has to be one: on a
+ *      date or a category they would be read as nothing at all, and a declared
+ *      fact that reaches no picture is the defect this law exists to close.
+ *   b. A LOGARITHM CANNOT BE READ FROM A NON-POSITIVE BOUND. The chart's
+ *      `scaleFor` lifts such a bound to keep its scale finite (`logDomain`, its
+ *      one owner), so a declared `[0, 100]` on a log axis would draw an axis
+ *      nobody asked for — refused here instead. Only the LOW bound can be the
+ *      offender, because the shape already put the low one first.
+ */
+function judgeBounds(at: string, channel: string, bounds: readonly [number, number], transform: unknown, binders: readonly FrameBinder[], data: unknown, minted: ReadonlyMap<string, MintedTable>, problems: string[]): void {
+  if (transform === LOG && bounds[0] <= 0) {
+    problems.push(`${at}.bounds: a logarithmic axis cannot be read from ${bounds[0]}, so [${bounds[0]}, ${bounds[1]}] is not an extent it can draw — declare bounds a logarithm can take, or drop transform "log"`);
+  }
+  for (const binder of binders.filter((b) => b.channels.includes(channel))) {
+    const field = binder.initial?.[channel];
+    if (field === undefined) continue;
+    const type = declaredFacet(data, binder.table, field, minted).type;
+    if (type !== 'unknown' && type !== 'number') problems.push(`${at}.bounds needs a number — ${binder.subject} binds ${channel} to "${field}", a ${type}`);
+  }
 }
 
 /**

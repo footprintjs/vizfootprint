@@ -72,7 +72,7 @@ import {
 } from './types.js';
 import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsIntervalBrush, drawsZeroGuide, intervalGestureRefusal, zeroGuideKindRefusal, type ResolvedChannel } from 'vizfootprint/def';
 import { boundField } from '../charts/binding.js';
-import { bandOrder, epochOf, type ChartDomain, type AxisSide } from '../primitives/scales.js';
+import { bandOrder, epochOf, type ChartDomain, type AxisSide, type ScaleKind } from '../primitives/scales.js';
 import { VizFrame, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
 import { VizScatter } from '../charts/VizScatter.js';
 import { VizLine } from '../charts/VizLine.js';
@@ -1600,7 +1600,13 @@ function sharedAxis(framed: readonly FramedLayer[], frame: Readonly<Record<strin
  */
 function spanOf(channel: SharedChannel | undefined): readonly [number, number] | undefined {
   if (channel === undefined) return undefined;
-  if (channel.scale === 'quantitative') return channel.domain;
+  // WHAT THE QUANTITY CAN BE WINS OVER WHAT THESE ROWS REACH (law 14,
+  // `ChannelResolution.bounds`): a torsion angle is −180…180 by definition, and an axis folded from the
+  // residues that happen to be in the table draws one at 107° hard against the right edge, where it reads
+  // as the edge of torsion space. The fold carries BOTH (`ResolvedChannel.bounds` beside `domain`), so
+  // nothing is lost by preferring one here — and only on a QUANTITATIVE axis, because bounds are numbers
+  // and the def door refuses them on a channel bound to anything else.
+  if (channel.scale === 'quantitative') return channel.bounds ?? channel.domain;
   if (channel.scale === 'categorical') return undefined;
   const lo = epochOf(channel.domain[0]);
   const hi = epochOf(channel.domain[1]);
@@ -1654,7 +1660,8 @@ function frameChartDomain(framed: readonly FramedLayer[], frame: Readonly<Record
   const on = (axis: 'x' | 'y'): SharedChannel | undefined => sharedAxis(framed, frame, axis)?.resolved;
   const x = spanOf(on('x'));
   const y = spanOf(on('y'));
-  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...(categories === undefined ? {} : { categories }), ...zeroGuideAsk(frame, (axis) => axisChannels(framed, axis)) };
+  const onAxis = (axis: 'x' | 'y'): readonly string[] => axisChannels(framed, axis);
+  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...(categories === undefined ? {} : { categories }), ...transformAsk(frame, onAxis), ...zeroGuideAsk(frame, onAxis) };
 }
 
 /**
@@ -1676,6 +1683,34 @@ function zeroGuideAsk(frame: Readonly<Record<string, ResolvedChannel>> | undefin
 }
 
 /**
+ * WHICH CURVE EACH AXIS IS DRAWN ON (protocol 1.6) — read off `RenderState.frame`
+ * and PASSED THROUGH, the twin of {@link zeroGuideAsk} and for the same reason:
+ * the curve is the axis's own nature, declared once
+ * (`ChannelResolution.transform`) and never folded, so there is nothing for this
+ * door to decide.
+ *
+ * WHY IT EXISTS, recorded because its absence was a defect: the frame handed
+ * every mark a span and no curve, so a def declaring a LOGARITHMIC channel got
+ * a LINEAR axis through the generic frame renderer — a drawn lie, and the one
+ * kind of picture change that is a fix rather than a regression. `VizFrame` was
+ * already reading `domain.transform` for its merged guide (`curveOf`); nothing
+ * was filling it.
+ *
+ * It rides on BOTH modes (an independent channel's per-layer scale is an axis
+ * too) and the whole key is ABSENT unless something declared one, so a frame
+ * that declares none hands out the object it always did. An axis bound on
+ * SEVERAL channels takes the first curve declared among them, in
+ * {@link axisChannels} order — one resolution per channel is the library's law,
+ * so two answers for one axis cannot be declared through the def door.
+ */
+function transformAsk(frame: Readonly<Record<string, ResolvedChannel>> | undefined, channelsOf: (axis: 'x' | 'y') => readonly string[]): Pick<ChartDomain, 'transform'> {
+  const curve = (axis: 'x' | 'y'): ScaleKind | undefined => channelsOf(axis).map((channel) => frame?.[channel]?.transform).find((kind) => kind !== undefined);
+  const [x, y] = [curve('x'), curve('y')];
+  const transform = { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }) };
+  return Object.keys(transform).length === 0 ? {} : { transform };
+}
+
+/**
  * The frame's scales AS ONE LAYER RECEIVES THEM — and only for the channels
  * THAT layer binds. The frame never puts a number on an axis a layer never
  * declared: a bar that binds no y keeps its own count ceiling, because a value
@@ -1684,7 +1719,7 @@ function zeroGuideAsk(frame: Readonly<Record<string, ResolvedChannel>> | undefin
  * never this layer's own narrower fold — so this layer's band count can never
  * outrun the guide's tick count.
  */
-function layerDomain(f: FramedLayer, frame: Readonly<Record<string, ResolvedChannel>> | undefined, categories: readonly string[] | undefined): ChartDomain {
+function layerDomain(f: FramedLayer, frame: Readonly<Record<string, ResolvedChannel>> | undefined, categories: readonly string[] | undefined, frameDraws: Readonly<Record<'x' | 'y', boolean>>): ChartDomain {
   const channels = AXIS_CHANNELS[f.kind];
   const bound = (channel: string): SharedChannel | undefined => {
     if (f.layer.encodings[channel] === undefined) return undefined; // this layer never declared that axis
@@ -1694,10 +1729,22 @@ function layerDomain(f: FramedLayer, frame: Readonly<Record<string, ResolvedChan
   const x = spanOf(bound(channels.x));
   const y = spanOf(bound(channels.y));
   const boundCategories = bound(channels.x) === undefined ? undefined : categories;
-  // the zero guide ask reaches a layer for the channels it BINDS — the same law as the spans above, and
-  // on both modes, so an independent y still gets the guide its own scale was asked for
-  const zero = zeroGuideAsk(frame, (axis) => (f.layer.encodings[channels[axis]] === undefined ? [] : [channels[axis]]));
-  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...(boundCategories === undefined ? {} : { categories: boundCategories }), ...zero };
+  // the curve reaches a layer for the channels it BINDS — the same law as the spans above, and on both
+  // modes, because an independent channel's per-layer scale is an axis too and still has to be the one the
+  // def asked for
+  const onBound = (axis: 'x' | 'y'): readonly string[] => (f.layer.encodings[channels[axis]] === undefined ? [] : [channels[axis]]);
+  // WHO IS ASKED FOR THE ZERO GUIDE, and this is the ONE place it is decided. The guide is an axis's own
+  // furniture, so it belongs to whoever draws that axis: where the frame draws the merged one it draws the
+  // zero line for the stack too (`frameZeroes`, `../charts/VizFrame.tsx`), and asking the layers as well
+  // would stack N identical lines — and N copies of the refusal sentence — on one pixel.
+  //
+  // WHY HERE AND NOT IN THE CHART'S `axes` FLAG, which is what used to carry it: `axes: false` is a
+  // DENSITY decision at the chart's door (no room for tick labels) as often as it is "the frame draws
+  // this one", and a chart cannot tell those apart. This door can: it is the one that decided which axes
+  // the frame draws. So the chart now draws the guide it was asked for whatever `axes` says, and the ask
+  // stops here for an axis that is not this layer's to draw.
+  const zero = zeroGuideAsk(frame, (axis) => (frameDraws[axis] ? [] : onBound(axis)));
+  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...(boundCategories === undefined ? {} : { categories: boundCategories }), ...transformAsk(frame, onBound), ...zero };
 }
 
 /**
@@ -1809,6 +1856,13 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
       if (refusal !== null) return frameRefusal(refusal);
       const x = frameAxisOf(framed, state.frame, 'x', options.xLabel);
       const y = frameAxisOf(framed, state.frame, 'y', options.yLabel);
+      const guide = frameGuide(state.frame);
+      // WHICH AXES THE FRAME DRAWS, spelled with the SAME two conditions `VizFrame` gates its own guide on
+      // — it has a guide to draw at all (merged, or a stack whose x it draws once) AND it was given that
+      // axis. The layers are then asked for exactly the furniture the frame is not drawing for them
+      // (`layerDomain`), so a zero guide is drawn once and by whoever draws its axis.
+      const hasOwnGuide = guide === 'merged' || framed.length > 1;
+      const frameDraws = { x: hasOwnGuide && x !== undefined, y: hasOwnGuide && y !== undefined };
       // the ONE band union every layer AND the merged guide draw off — see `fullBandOrder`
       const categories = fullBandOrder(framed, state.frame);
       // the words for two scales (law 3), or nothing — one owner, `twoScalesSentence`
@@ -1834,7 +1888,7 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
                 // ONLY what THIS layer binds — never the frame's whole fold (`draw.domain`), because
                 // an axis a layer never declared is not its axis: a bar that binds no y keeps its own
                 // count ceiling rather than taking somebody else's value span as its height
-                domain: layerDomain(f, state.frame, categories),
+                domain: layerDomain(f, state.frame, categories, frameDraws),
                 axes: draw.axes,
                 ...(draw.axisSide === undefined ? {} : { axisSide: draw.axisSide }),
                 // the ink of this layer's scale, when the frame decided there are two of them (law 4)
@@ -1842,7 +1896,7 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
               }),
           }))}
           domain={frameChartDomain(framed, state.frame, categories)}
-          guide={frameGuide(state.frame)}
+          guide={guide}
           {...(x === undefined ? {} : { x })}
           {...(y === undefined ? {} : { y })}
           {...(words === undefined ? {} : { words })}

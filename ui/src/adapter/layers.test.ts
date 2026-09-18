@@ -101,6 +101,71 @@ describe('ViewView.layers — projected, never derived', () => {
     // and a view the wire says nothing about carries no key at all
     expect('frame' in state.views.find((v) => v.viewId === 'plain')!).toBe(false);
   });
+
+  /**
+   * THE SECOND ARM: AN AXIS ALONE. A view with NO LAYERS may not carry `mode`
+   * — the def door refuses it there by name — so its whole frame declaration is
+   * the axis keys, and a mapper that kept only the mode arm dropped every one of
+   * them. The scar and the measurement are in `./README.md`.
+   */
+  it('keeps a LAYERLESS entry — no mode, one or more axis keys — and still drops one that declares nothing', () => {
+    const raw = {
+      records: [],
+      views: [
+        {
+          viewId: 'rama',
+          actor: 'user',
+          frame: {
+            x: { zeroGuide: true },
+            y: { transform: 'log', bounds: [1, 1000], domain: 'union', basis: 'rows', guide: 'merged', zero: false },
+            size: {}, // no mode and nothing of the axis's own: it resolves nothing and declares nothing
+            color: { legendary: true }, // …and nor does a key the axis does not have
+          },
+        },
+      ],
+      cursor: null,
+      head: null,
+    } as unknown as RawPollState;
+    expect(mapPollState(raw).views[0]!.frame).toEqual({
+      x: { zeroGuide: true },
+      y: { transform: 'log', bounds: [1, 1000], domain: 'union', basis: 'rows', guide: 'merged', zero: false },
+    });
+  });
+
+  it('EVERY axis key on its own reaches the reader — one at a time, so none of them can be the one that is dropped', () => {
+    const only = (decl: unknown): unknown =>
+      mapPollState({ records: [], views: [{ viewId: 'v', actor: 'user', frame: { x: decl } }], cursor: null, head: null } as unknown as RawPollState).views[0]!.frame;
+    for (const decl of [{ domain: 'union' }, { basis: 'table' }, { guide: 'per-layer' }, { zero: true }, { transform: 'log' }, { zeroGuide: true }, { bounds: [-180, 180] }]) {
+      expect(only(decl)).toEqual({ x: decl });
+    }
+  });
+
+  it('over a REAL layerless session the axis declaration reaches `getState().views[].frame` — the consumer s own measurement', async () => {
+    const dashboard = buildDashboard({
+      meta: { title: 'rama' },
+      data: { residues: { rows: [{ phi: -60, psi: -45 }, { phi: 55, psi: 45 }] } },
+      actors: { rama: { actor: 'user' } },
+      encodings: [{ viewId: 'rama', chartKind: 'scatter', channels: ['x', 'y'], initial: { x: 'phi', y: 'psi' }, frame: { x: { zeroGuide: true, bounds: [-180, 180] }, y: { zeroGuide: true, bounds: [-180, 180] } } }],
+      defaultTable: 'residues',
+    });
+    const view = createSessionView(sessionSource(dashboard.createSession({ as: 'user' })), { as: 'user' });
+    await view.refresh();
+    // …and it is the DECLARATION, byte for byte — words and the one declared pair, never the fold's numbers
+    expect(view.getState().views[0]!.frame).toEqual({
+      x: { zeroGuide: true, bounds: [-180, 180] },
+      y: { zeroGuide: true, bounds: [-180, 180] },
+    });
+  });
+
+  it('a LAYERED frame is byte-identical to what it projected before the second arm existed', () => {
+    const layered = { x: { mode: 'shared', basis: 'table', transform: 'log', zeroGuide: true, bounds: [1, 1000] }, color: { mode: 'independent', guide: 'per-layer' } };
+    const state = mapPollState({ records: [], views: [{ viewId: 'net', actor: 'user', frame: layered }], cursor: null, head: null } as unknown as RawPollState);
+    expect(state.views[0]!.frame).toEqual(layered);
+    // and a malformed mode is still dropped rather than read as an axis — `mode` was TYPED here, and a
+    // resolution nobody can read is not a declaration of anything
+    const bad = mapPollState({ records: [], views: [{ viewId: 'net', actor: 'user', frame: { y: { mode: 'fixed', zeroGuide: true } } }], cursor: null, head: null } as unknown as RawPollState);
+    expect(bad.views[0]!.frame).toEqual({});
+  });
 });
 
 describe('layerRowsFor — the one door for a layer\'s rows', () => {

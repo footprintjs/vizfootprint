@@ -79,7 +79,7 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { linearScale, extent, ticks, epochOf, dayOf, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
+import { linearScale, extent, ticks, epochOf, dayOf, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
 import { TICK_ANGLE, fitTick } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
@@ -477,9 +477,11 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // keeps for a channel a chart has no quantitative scale for.
   const yKind = props.domain?.transform?.y;
   // a mean the transform cannot place has NO position: it is left out of the picture AND out of the
-  // extent, and COUNTED (`excludedNote`). Guarded on a transform being declared, so a chart with
-  // none filters nothing and stays byte-identical to the one that existed before this key.
-  const placed = yKind === undefined ? series : series.map((s) => ({ ...s, points: s.points.filter((p) => placeable(yKind, p.mean)) }));
+  // extent, and COUNTED (`excludedNote`).
+  // GUARDED ON A LOGARITHM and not on the key's presence: `'linear'` is the axis this chart already drew
+  // (`ChartDomain.transform`'s own law), so a def that declares it out loud must filter nothing — and the
+  // sentence this count is said in names a logarithm, so nothing else may be counted into it.
+  const placed = yKind === 'log' ? series.map((s) => ({ ...s, points: s.points.filter((p) => placeable(yKind, p.mean)) })) : series;
   const allMeans = placed.flatMap((s) => s.points);
   const excluded = series.reduce((n, s) => n + s.points.length, 0) - allMeans.length;
   // the chart's own breathing room, which a LOGARITHMIC axis takes none of (`padFor`); `extentFor` is
@@ -626,8 +628,17 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // a run of dates has no zero a reader reads a sign from (an epoch's is 1970, an accident of the encoding)
   // and a band of categories has no zero at all — which is the same channel list `transform` already keeps
   // here, and the def door refuses a `zeroGuide` on a line's x by name (`drawsZeroGuide`).
-  const zeroY = drawY ? zeroGuideFor({ channel: 'y', asked: props.domain?.zeroGuide?.y, domain: [vlo, vhi], ...(yKind === undefined ? {} : { transform: yKind }), place: y }) : undefined;
+  //
+  // IT IS NOT GATED ON `drawY`, AND THE OLD RULE THAT GATED IT WAS WRONG — the argument is written out
+  // once, at `VizScatter`'s own guide: `axes: false` is a DENSITY decision (no room for tick labels), not
+  // "this chart has no axis", and a tick label needs room to be legible where a line at zero needs one
+  // pixel. Who ELSE might draw it is decided where that is known — a frame drawing the merged guide does
+  // not ASK its layers (`layerDomain`, `../contract/renderers.tsx`).
+  const zeroY = zeroGuideFor({ channel: 'y', asked: props.domain?.zeroGuide?.y, domain: [vlo, vhi], ...(yKind === undefined ? {} : { transform: yKind }), place: y });
   const zeroNotes = zeroGuideNotes(zeroY);
+  // …and the words for a mean outside the extent the value axis was DECLARED on (`outsideNotes`, the one
+  // owner) — counted off the means this chart PLACED, so one a logarithm already excluded is not said twice
+  const outside = outsideNotes([{ channel: 'y', given: props.domain?.y, values: allMeans.map((p) => p.mean) }]);
 
   // one answer, read by path, dot and legend swatch alike: the series' colour where the chart is split, `markInk` where it is not
   const seriesColor = (name: string | undefined): string => (colorOf ? colorOf(name) : markInk);
@@ -640,7 +651,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
         className={`vzf-chart vzf-line${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={(props.ariaLabel ?? `${yLabel} over ${xLabel}`) + excludedNote(excluded) + zeroNotes.map((note) => ` — ${note}`).join('') + crowded}
+        aria-label={(props.ariaLabel ?? `${yLabel} over ${xLabel}`) + excludedNote(excluded) + [...zeroNotes, ...outside].map((note) => ` — ${note}`).join('') + crowded}
         {...handlers}
       >
         {/* axes frame — absent while the FRAME draws one merged guide for the stack; the x half absent
@@ -751,6 +762,14 @@ export function VizLine(props: VizLineProps): JSX.Element {
             excluded note, and in the accessible name above; never a line clamped to an edge */}
         {zeroNotes.map((note, i) => (
           <text key={`zn${i}`} className="vzf-zero-note" x={pad.l} y={bottom - 6 - i * 11} textAnchor="start">
+            {note}
+          </text>
+        ))}
+        {/* …and a mean outside the extent the value axis was DECLARED on, in the same register and
+            continuing the same stack upwards: the point IS placed, at its true position, which at that
+            position is off the plot — so the count is the only thing that says it exists */}
+        {outside.map((note, i) => (
+          <text key={`on${i}`} className="vzf-outside-note" x={pad.l} y={bottom - 6 - (zeroNotes.length + i) * 11} textAnchor="start">
             {note}
           </text>
         ))}

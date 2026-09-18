@@ -5,7 +5,7 @@
  * their labels, the placeability predicate and the words for what was left out.
  */
 import { describe, it, expect } from 'vitest';
-import { linearScale, extent, logScale, logDomain, extentFor, scaleFor, placeable, logTicks, logTickLabel, excludedNote } from './scales.js';
+import { linearScale, extent, logScale, logDomain, extentFor, scaleFor, placeable, logTicks, logTickLabel, excludedNote, outsideNotes } from './scales.js';
 
 describe('logScale', () => {
   it('puts a decade at an equal pixel span and inverts back', () => {
@@ -165,5 +165,61 @@ describe('excludedNote', () => {
   it('names the count and the reason, with its own leading separator', () => {
     expect(excludedNote(1)).toBe(' — 1 value is not drawn: a logarithmic axis has no place for zero or a negative number');
     expect(excludedNote(700)).toContain('700 values are not drawn');
+  });
+});
+
+/**
+ * `outsideNotes` — the same register as `excludedNote`, for the other thing a
+ * chart is asked to draw and cannot show honestly: a value outside the extent
+ * its axis was DECLARED on (law 14). Counted and said, never dropped and never
+ * refused; the mark is still placed at its true position, which past the plot
+ * edge is invisible, and the count is the only thing that says it is there.
+ */
+describe('outsideNotes — a declared extent never hides a value', () => {
+  it('says NOTHING for an axis the chart was given none for — a chart on its own extent has nothing outside it', () => {
+    expect(outsideNotes([{ channel: 'x', given: undefined, values: [-1000, 1000] }])).toEqual([]);
+    expect(outsideNotes([])).toEqual([]);
+  });
+
+  it('says nothing for a pair a linear scale cannot be read from — the same guard `domainOr` keeps, so the two cannot drift', () => {
+    expect(outsideNotes([{ channel: 'x', given: [NaN, 100], values: [500] }])).toEqual([]);
+    expect(outsideNotes([{ channel: 'x', given: [0, Infinity], values: [500] }])).toEqual([]);
+  });
+
+  it('says nothing when every value is INSIDE, ends included — a closed interval, the reading law 12 already chose', () => {
+    expect(outsideNotes([{ channel: 'x', given: [0, 100], values: [0, 50, 100] }])).toEqual([]);
+  });
+
+  it('counts the ones BELOW and the ones ABOVE, and a non-finite cell is an ABSENCE rather than a value outside', () => {
+    expect(outsideNotes([{ channel: 'x', given: [0, 100], values: [-1] }])).toEqual([
+      'x has 1 value outside its declared bounds [0, 100] — bounds say what the quantity CAN be, so either they are wrong or this data is',
+    ]);
+    expect(outsideNotes([{ channel: 'x', given: [0, 100], values: [-1, 140, 101, 50] }])).toEqual([
+      'x has 3 values outside its declared bounds [0, 100] — bounds say what the quantity CAN be, so either they are wrong or this data is',
+    ]);
+    // a NaN is a cell the data says nothing about — a silence, which is a different fact and never summed in
+    expect(outsideNotes([{ channel: 'x', given: [0, 100], values: [NaN, Infinity, 50] }])).toEqual([]);
+  });
+
+  it('one sentence per axis, in the order asked — so a reader is told WHICH axis the claim is wrong on', () => {
+    expect(outsideNotes([
+      { channel: 'x', given: [-180, 180], values: [-200] },
+      { channel: 'y', given: [-180, 180], values: [0] },
+    ])).toEqual(['x has 1 value outside its declared bounds [-180, 180] — bounds say what the quantity CAN be, so either they are wrong or this data is']);
+    expect(outsideNotes([
+      { channel: 'x', given: [0, 1], values: [2] },
+      { channel: 'y', given: [0, 1], values: [-2, 3] },
+    ])).toEqual([
+      'x has 1 value outside its declared bounds [0, 1] — bounds say what the quantity CAN be, so either they are wrong or this data is',
+      'y has 2 values outside its declared bounds [0, 1] — bounds say what the quantity CAN be, so either they are wrong or this data is',
+    ]);
+  });
+
+  it('quotes the pair the chart actually DREW ON — `domainOr`, so the count and the quote can never disagree', () => {
+    // a flat pair is widened by one on each side before anything is placed, and that widened pair is
+    // the axis: 0 is inside it, and the sentence quotes what it was measured against
+    expect(outsideNotes([{ channel: 'y', given: [1, 1], values: [0, 3] }])).toEqual([
+      'y has 1 value outside its declared bounds [0, 2] — bounds say what the quantity CAN be, so either they are wrong or this data is',
+    ]);
   });
 });

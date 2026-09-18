@@ -27,7 +27,7 @@
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
-import { ticks, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
+import { ticks, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, outsideNotes, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
 import { scaleHueStyle } from '../primitives/scaleHue.js';
@@ -173,9 +173,12 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   // A VALUE THE TRANSFORM CANNOT PLACE HAS NO POSITION, so it is left out of the picture AND out of
   // the extent the axis is folded from (a 0 in a logarithmic column must not drag the low bound to a
   // value the axis cannot label) — and it is COUNTED, never silently dropped, the same law the
-  // library's fold keeps with `ResolvedDomain.excluded`. Guarded on a transform being declared at
-  // all, so a chart with none filters nothing and stays byte-identical to the one that existed before.
-  const drawable = props.domain?.transform === undefined ? data : data.filter((d) => placeable(xKind, d.x) && placeable(yKind, d.y));
+  // library's fold keeps with `ResolvedDomain.excluded`.
+  // GUARDED ON A LOGARITHM and not on the key's presence: `'linear'` is the axis every chart already
+  // drew (`ChartDomain.transform`'s own law), so a def that declares it out loud must filter nothing —
+  // and the sentence this count is said in names a logarithm, so nothing else may be counted into it.
+  const curved = xKind === 'log' || yKind === 'log';
+  const drawable = curved ? data.filter((d) => placeable(xKind, d.x) && placeable(yKind, d.y)) : data;
   const excluded = data.length - drawable.length;
   // the frame's domain when a frame gave one, this chart's own extent otherwise (../primitives/scales.ts)
   // the chart's own breathing room, which a LOGARITHMIC axis takes none of (`padFor`); `extentFor` is
@@ -226,14 +229,32 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   const yTickVals = yKind === 'log' ? logTicks(y.domain[0], y.domain[1], 5) : props.domain?.y === undefined ? ticks(Math.ceil(ylo + 0.5), Math.floor(yhi - 0.5), 4) : ticks(ylo, yhi, 4);
 
   // ZERO IS A PLACE ON THE AXIS (law 12): one line inside the plot where a signed scale crosses zero,
-  // drawn only when the chart was TOLD to — a Ramachandran plot's φ and ψ both ask for one. Gated on the
-  // same `drawX`/`drawY` as the axes themselves, because the guide is that axis's furniture: under a
-  // frame's merged guide the FRAME draws one for the stack (`guide: 'merged'`, its existing law) and a
-  // layer that draws no axis draws no zero line for it either. `zeroGuideFor` is the one owner of the
-  // verdict AND of the words for an axis with no zero on it (`../primitives/zeroGuide.ts`).
-  const zeroX = drawX ? zeroGuideFor({ channel: 'x', asked: props.domain?.zeroGuide?.x, domain: [xlo, xhi], ...(xKind === undefined ? {} : { transform: xKind }), place: x }) : undefined;
-  const zeroY = drawY ? zeroGuideFor({ channel: 'y', asked: props.domain?.zeroGuide?.y, domain: [ylo, yhi], ...(yKind === undefined ? {} : { transform: yKind }), place: y }) : undefined;
+  // drawn whenever the chart was TOLD to — a Ramachandran plot's φ and ψ both ask for one.
+  //
+  // IT IS NOT GATED ON `drawX`/`drawY`, AND THE OLD RULE THAT GATED IT WAS WRONG. That rule read "a
+  // layer that draws no axis draws no zero line for it either", which is tidy and which I ruled; what
+  // it missed is what `axes: false` actually MEANS at this door. A host turns the axes off as a DENSITY
+  // decision — no room for tick labels at 282×171 — not to say the chart has no axis. Measured on a real
+  // page, the rule cost the reader the origin of a signed scale at exactly the size where the tick
+  // labels were already unreadable: 181 dots, no ticks, no crosshair. A tick label needs room to be
+  // legible; A LINE AT ZERO NEEDS ONE PIXEL. And on a signed scale that line is not chrome — a dot above
+  // it and a dot below it mean categorically different things, so dropping it removes the ability to
+  // read the SIGN, not some furniture.
+  //
+  // WHO ELSE MIGHT DRAW IT is therefore decided where that is known, and it is not here: a frame that
+  // draws the merged guide does not ASK its layers (`layerDomain`, `../contract/renderers.tsx`), so the
+  // stack still gets exactly one line. `zeroGuideFor` is the one owner of the verdict AND of the words
+  // for an axis with no zero on it (`../primitives/zeroGuide.ts`) — this changes WHEN a guide is drawn,
+  // never WHETHER it is honest.
+  const zeroX = zeroGuideFor({ channel: 'x', asked: props.domain?.zeroGuide?.x, domain: [xlo, xhi], ...(xKind === undefined ? {} : { transform: xKind }), place: x });
+  const zeroY = zeroGuideFor({ channel: 'y', asked: props.domain?.zeroGuide?.y, domain: [ylo, yhi], ...(yKind === undefined ? {} : { transform: yKind }), place: y });
   const zeroNotes = zeroGuideNotes(zeroX, zeroY);
+  // …and the words for a value outside the extent the axis was DECLARED on (`outsideNotes`, the one owner)
+  // — counted off the marks this chart DREW, so a cell a logarithm already excluded is not said twice
+  const outside = outsideNotes([
+    { channel: 'x', given: props.domain?.x, values: drawable.map((d) => d.x) },
+    { channel: 'y', given: props.domain?.y, values: drawable.map((d) => d.y) },
+  ]);
 
   return (
     <>
@@ -242,7 +263,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         className={`vzf-chart vzf-scatter${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={(props.ariaLabel ?? `scatter of ${yLabel} against ${xLabel}`) + excludedNote(excluded) + zeroNotes.map((note) => ` — ${note}`).join('')}
+        aria-label={(props.ariaLabel ?? `scatter of ${yLabel} against ${xLabel}`) + excludedNote(excluded) + [...zeroNotes, ...outside].map((note) => ` — ${note}`).join('')}
         {...handlers}
       >
         {/* axes frame — absent while the FRAME draws one merged guide for the stack; the x half absent
@@ -322,6 +343,14 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
             to it). The lines stack from the top margin down, left-aligned, opposite the excluded note. */}
         {zeroNotes.map((note, i) => (
           <text key={`zn${i}`} className="vzf-zero-note" x={pad.l} y={pad.t - 6 + i * 11} textAnchor="start">
+            {note}
+          </text>
+        ))}
+        {/* …and a value outside the extent the axis was DECLARED on, in the same register and continuing the
+            same stack: the mark IS drawn, at its true position, which at that position is off the plot — so
+            the count is the only thing in the picture that says it exists (`outsideNotes`). */}
+        {outside.map((note, i) => (
+          <text key={`on${i}`} className="vzf-outside-note" x={pad.l} y={pad.t - 6 + (zeroNotes.length + i) * 11} textAnchor="start">
             {note}
           </text>
         ))}

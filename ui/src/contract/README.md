@@ -364,7 +364,18 @@ function the charts use on their own rows; and a `categorical` domain rides on
 (`bandOrder`), because a bar has no quantitative x to scale. A value outside the
 domain is DRAWN, at its true position: a domain says what the axis means, and a
 row past it is a data fact, not an overflow — seeing a layer run off the frame
-is the point of sharing one. The band spelling of that law is the same: a
+is the point of sharing one. **A DECLARED extent is the one case that also gets
+WORDS** (`ResolvedChannel.bounds`, law 14: what the quantity CAN be, which
+`spanOf` prefers over the fold's own union when a def declared one). A folded
+domain is a union over the rows, so nothing can be outside it; a declared one
+can be wrong, and a mark past the plot edge is invisible rather than merely
+off-centre. So the chart COUNTS what falls outside and says it, in the picture
+and in the accessible name, in the register the logarithm's exclusions already
+use: `x has 3 values outside its declared bounds [0, 100] — bounds say what the
+quantity CAN be, so either they are wrong or this data is` (`outsideNotes`,
+`primitives/scales.ts`, beside `excludedNote`; honoured by `VizScatter` on both
+axes and by `VizLine` on its value axis). Still drawn, still at its true
+position — counted, never hidden, and never refused. The band spelling of that law is the same: a
 category the frame's list does not name is APPENDED, never hidden, and a slot
 the layer has no row for stays EMPTY rather than becoming a bar of zero ("no
 rows here" and "none of them" are two different sentences).
@@ -380,6 +391,26 @@ and its zero, per-layer leaves both to the layers. A layer whose MARK draws no
 zero guide on that channel is refused by name, in the def door's own sentence
 (`zeroGuideRefusal` · `zeroGuideKindRefusal`) — a hand-folded frame is a public
 shape, and a declaration silently dropped is worse than one refused.
+
+**WHERE "one line for the stack" IS ENFORCED, and the rule it replaced.** It
+used to ride the CHART's `axes` prop: a layer under a merged guide is handed
+`axes={false}`, and the charts read that as "draw no zero line either". The rule
+was tidy and it was wrong, because `axes: false` is as often a **density**
+decision at a chart's own door — no room for tick labels — as it is "the frame
+draws this one", and a chart cannot tell those apart. **This door can**, because
+it is the door that decided which axes the frame draws: `layerDomain` does not
+ASK a layer for a guide the frame is drawing (`frameDraws`, the same two
+conditions `VizFrame` gates its own guide on — it has a guide to draw at all,
+merged or a stack whose x it draws once, AND it was given that axis). So the
+stack still gets exactly one line, and the charts now draw the guide they were
+asked for whatever `axes` says: **ticks and labels are what that flag
+suppresses**, because a tick label needs room to be legible and a line at zero
+needs one pixel. On a signed scale that line is what the marks are read
+against — a dot above it and a dot below it mean categorically different
+things — so dropping it removed the ability to read the SIGN. Measured before
+the change: a backbone-angle pane at 282×171, 181 dots, no ticks, no crosshair.
+Every refusal is untouched: a domain without zero and a logarithmic axis are
+refused exactly as before, at any density.
 
 **A line on a band — band versus run is a property of the x COLUMN, not of the
 mark.** A line whose x is categorical is a band line: each point sits at its
@@ -509,6 +540,20 @@ ignores `domain.x` there. A logarithmic axis also takes no additive padding
 (`padFor`): breathing room is a difference, and adding one to a logarithmic
 domain does not widen it but breaks it — the decade ticks are its breathing
 room.
+
+**AND THE GENERIC FRAME RENDERER HAS TO PASS IT THROUGH, which for three
+releases it did not.** `layeredRenderer` folded a span and a band order for each
+layer and handed over NO curve, so a def declaring a logarithmic channel got a
+LINEAR axis through the frame — `VizFrame · curveOf` was already reading
+`domain.transform` for its merged guide and nothing was filling it. It is the
+same one-line shape the zero guide's ask has (`transformAsk`, the twin of
+`zeroGuideAsk`): read off `RenderState.frame`, passed through, decided nowhere,
+absent unless something declared a curve — so a frame that declares none hands
+out the object it always did, and a log axis drawn linearly (which no test can
+have been pinning on purpose, because it is a false picture) is now the axis the
+def asked for. An axis bound on several channels takes the first curve declared
+among them, in `axisChannels` order; one resolution per channel is the library's
+law, so two answers for one axis cannot be declared.
 
 Not in this version: a symlog or a power transform (a log is the one the
 figures asked for), a per-layer transform on a shared channel (one resolution

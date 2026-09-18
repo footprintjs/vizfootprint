@@ -571,11 +571,40 @@ function mapInitial(raw: unknown): { readonly initial: ViewEncoding } | undefine
   return { initial: Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter(([, f]) => typeof f === 'string')) as ViewEncoding };
 }
 /**
- * The frame as the wire serves it — per channel, a resolution is kept only when
- * it names one of the two MODES; anything else is dropped rather than defaulted.
- * WHY dropped and not defaulted to shared: a channel with no entry ALREADY
- * means shared/union/table/merged, so dropping a malformed one lands on the
- * library's own default instead of inventing a second one here.
+ * THE KEYS THAT DESCRIBE AN AXIS rather than the layers over it — the reader's
+ * copy of the def door's `AXIS_KEYS` (`src/def/layers.ts`), and the list that
+ * decides whether a mode-less entry is a DECLARATION or noise.
+ *
+ * It is a list here and not a call into the def door because this mapper reads
+ * a WIRE: whatever arrives has already been judged (or was never judged at all,
+ * on a hand-built payload), and the mapper's whole job is to keep the shapes it
+ * recognises without re-running a validator over them.
+ */
+const FRAME_AXIS_KEYS: readonly string[] = ['domain', 'basis', 'guide', 'zero', 'transform', 'zeroGuide', 'bounds'];
+
+/**
+ * The frame as the wire serves it — per channel, ONE of the two shapes the
+ * declaration has, and nothing else.
+ *
+ *   1. A RESOLUTION, naming one of the two modes (`shared` / `independent`):
+ *      how a channel's scale is resolved across the view's LAYERS.
+ *   2. AN AXIS ALONE, with no mode at all and at least one
+ *      {@link FRAME_AXIS_KEYS}: what a LAYERLESS view declares, because the def
+ *      door refuses `mode` by name where there are no layers to resolve
+ *      (`src/def/layers.ts` · `judgeResolution`). `transform`, `zeroGuide` and
+ *      `bounds` are legal there, and this is the arm that carries them.
+ *
+ * WHY THE SECOND ARM EXISTS, recorded because its absence was a defect for
+ * three releases: keeping only the mode arm dropped EVERY layerless frame, so a
+ * session serving `{"x":{"zeroGuide":true}}` handed the reader `{}` and the
+ * consumer had to read its own def to learn what its own record already said —
+ * "a prop the record never sees", which is the one thing this library refuses.
+ *
+ * WHY ANYTHING ELSE IS DROPPED AND NOT DEFAULTED: a channel with no entry
+ * ALREADY means shared/union/table/merged, so dropping a malformed one lands on
+ * the library's own default instead of inventing a second one here. An entry
+ * with no mode and no axis key resolves nothing and declares nothing — it is
+ * that same silence, spelled with an empty object.
  */
 function mapFrame(raw: unknown): Readonly<Record<string, ChannelResolution>> {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
@@ -583,7 +612,12 @@ function mapFrame(raw: unknown): Readonly<Record<string, ChannelResolution>> {
   for (const [channel, decl] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof decl !== 'object' || decl === null) continue;
     const mode = (decl as { mode?: unknown }).mode;
-    if (mode === 'shared' || mode === 'independent') out[channel] = decl as ChannelResolution;
+    if (mode === 'shared' || mode === 'independent') {
+      out[channel] = decl as ChannelResolution;
+      continue;
+    }
+    // the axis alone: no mode, and something of the axis's own to say
+    if (mode === undefined && FRAME_AXIS_KEYS.some((key) => key in decl)) out[channel] = decl as ChannelResolution;
   }
   return out;
 }

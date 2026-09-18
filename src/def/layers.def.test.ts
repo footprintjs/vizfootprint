@@ -282,7 +282,7 @@ describe('the frame — per channel, how its scale is resolved across the layers
 
   it('LAW 7: the layerless shape says what a layerless entry is, and its unknown keys are refused on the axis', () => {
     expect(plain('log')).toEqual(['encodings[0].frame, if present, must be an object mapping channel -> { transform?: "linear" | "log" }']);
-    expect(plain({ y: 'log' })).toEqual(['encodings[0].frame.y must be an object { transform?: "linear" | "log", domain?, basis?, guide?, zero?, zeroGuide? }']);
+    expect(plain({ y: 'log' })).toEqual(['encodings[0].frame.y must be an object { transform?: "linear" | "log", domain?, basis?, guide?, zero?, zeroGuide?, bounds? }']);
     expect(plain({ y: { logged: true } })).toEqual(['encodings[0].frame.y: unknown key "logged" on an axis']);
     // no mode is needed at all — an entry with only axis keys is complete
     expect(plain({ y: {} })).toEqual([]);
@@ -292,7 +292,7 @@ describe('the frame — per channel, how its scale is resolved across the layers
 
   it('LAW 7: the shape — a mode from the two words, and only the keys that mode has', () => {
     expect(framed('shared')).toEqual(['encodings[0].frame, if present, must be an object mapping channel -> { mode: "shared" | "independent" }']);
-    expect(framed({ y: 'shared' })).toEqual(['encodings[0].frame.y must be an object { mode: "shared" | "independent", domain?, basis?, guide?, zero?, transform?, zeroGuide? }']);
+    expect(framed({ y: 'shared' })).toEqual(['encodings[0].frame.y must be an object { mode: "shared" | "independent", domain?, basis?, guide?, zero?, transform?, zeroGuide?, bounds? }']);
     expect(framed({ y: {} })).toEqual(['encodings[0].frame.y.mode must be "shared" or "independent"']);
     expect(framed({ y: { mode: 'fixed' } })).toEqual(['encodings[0].frame.y.mode must be "shared" or "independent"']);
     expect(framed({ y: { mode: 'shared', zeroed: true } })).toEqual(['encodings[0].frame.y: unknown key "zeroed" on a shared channel']);
@@ -749,6 +749,88 @@ describe('LAW 12 — zero is a place on the axis, and a chart may be TOLD to dra
 });
 
 /**
+ * LAW 14 — WHAT THE QUANTITY CAN BE. The one numeric pair a frame carries, and
+ * every refusal the door can say about it: the shape (a pair of finite numbers,
+ * low first), the column (bounds are numbers, so the axis has to be one), the
+ * curve (a logarithm cannot be read from a non-positive bound), and the mode
+ * (an independent channel has no ONE axis for one claim).
+ *
+ * The one refusal that is NOT here is a value outside the declared pair — which
+ * cells those are is DATA, so the CHART counts them and says so
+ * (`outsideNotes`, pinned in `vizfootprint-ui`), exactly as the logarithm's
+ * excluded cells are counted and never refused.
+ */
+describe('LAW 14 — what the quantity can be: a numeric extent CAN be declared', () => {
+  it('accepts a declared extent on x, on y and on BOTH — on a plain view and on a layered one', () => {
+    // THE FIGURE THAT ASKED: a torsion angle is −180…180 by definition, whatever residues are in the table
+    expect(plain({ x: { bounds: [-180, 180] } })).toEqual([]);
+    expect(plain({ y: { bounds: [-180, 180] } })).toEqual([]);
+    expect(plain({ x: { bounds: [-180, 180] }, y: { bounds: [-180, 180] } })).toEqual([]);
+    // the other quantities that have one by definition
+    for (const pair of [[0, 100], [0, 1], [-1, 1], [-0.5, 0.5]]) expect(plain({ y: { bounds: pair } })).toEqual([]);
+    expect(framed({ size: { mode: 'shared', bounds: [0, 100] } })).toEqual([]);
+    // and it sits beside the axis's other declared facts without arguing with any of them
+    expect(plain({ y: { bounds: [1, 1000], transform: 'log', zeroGuide: false, basis: 'rows', domain: 'union', guide: 'merged' } })).toEqual([]);
+  });
+
+  it('the SHAPE is a pair of finite numbers with the low one first — a reversed pair is a typo and a flat one is not an extent', () => {
+    const shape = 'encodings[0].frame.y.bounds, if present, must be a pair of finite numbers with the low one first — what the QUANTITY can be, e.g. [-180, 180] for a torsion angle';
+    for (const bad of [[180, -180], [0, 0], [1], [1, 2, 3], [], [0, Infinity], [NaN, 1], ['0', '100'], [null, 1], 180, '[-180, 180]', {}, { lo: 0, hi: 1 }, true]) {
+      expect(plain({ y: { bounds: bad } }), JSON.stringify(bad) ?? 'undefined').toEqual([shape]);
+    }
+    // the layered arms say the same thing at their own address
+    expect(framed({ size: { mode: 'shared', bounds: [9, 1] } })).toEqual([
+      'encodings[0].frame.size.bounds, if present, must be a pair of finite numbers with the low one first — what the QUANTITY can be, e.g. [-180, 180] for a torsion angle',
+    ]);
+    // ONE mistake, ONE sentence: a malformed pair is never ALSO judged through the laws that read it
+    expect(framed({ x: { mode: 'shared', bounds: [9, 1], transform: 'log' } }, sharesX, facts({ size: { type: 'date' } }, {}))).toHaveLength(2); // the shape, and the logarithm's own column law
+  });
+
+  it('BOUNDS ARE NUMBERS, so the axis has to be one — judged where the def declares the column, never on ignorance', () => {
+    // both columns declared a DATE, so law 10's shared-column check has nothing to disagree about: one law per test
+    expect(framed({ x: { mode: 'shared', bounds: [0, 100] } }, sharesX, facts({ size: { type: 'date' } }, { weight: { type: 'date' } }))).toEqual([
+      'encodings[0].frame.x.bounds needs a number — layer "a" binds x to "size", a date',
+      'encodings[0].frame.x.bounds needs a number — layer "b" binds x to "weight", a date',
+    ]);
+    // a number passes; a column the def says nothing about is not held to the law (the `unit` precedent)
+    expect(framed({ x: { mode: 'shared', bounds: [0, 100] } }, sharesX, facts({ size: { type: 'number' } }, { weight: { type: 'number' } }))).toEqual([]);
+    expect(framed({ x: { mode: 'shared', bounds: [0, 100] } }, sharesX)).toEqual([]);
+    // the layerless view reads its column off the DEFAULT table, and names itself
+    expect(plain({ x: { bounds: [0, 100] } }, { initial: { x: 'size' } }, facts({ size: { type: 'date', role: 'measure' } }, {}))).toEqual([
+      'encodings[0].frame.x.bounds needs a number — view "net" binds x to "size", a date',
+    ]);
+  });
+
+  it('A LOGARITHM CANNOT BE READ FROM A NON-POSITIVE BOUND — refused here, because the chart would LIFT it instead', () => {
+    expect(plain({ y: { bounds: [0, 100], transform: 'log' } })).toEqual([
+      'encodings[0].frame.y.bounds: a logarithmic axis cannot be read from 0, so [0, 100] is not an extent it can draw — declare bounds a logarithm can take, or drop transform "log"',
+    ]);
+    expect(plain({ y: { bounds: [-180, 180], transform: 'log' } })).toEqual([
+      'encodings[0].frame.y.bounds: a logarithmic axis cannot be read from -180, so [-180, 180] is not an extent it can draw — declare bounds a logarithm can take, or drop transform "log"',
+    ]);
+    // only the LOW bound can be the offender, because the shape already put the low one first
+    expect(plain({ y: { bounds: [0.001, 1000], transform: 'log' } })).toEqual([]);
+    // …and a linear axis takes a zero or a negative bound happily: that is most of what bounds are for
+    expect(plain({ y: { bounds: [0, 100], transform: 'linear' } })).toEqual([]);
+    expect(plain({ y: { bounds: [-180, 180] } })).toEqual([]);
+  });
+
+  it('an INDEPENDENT channel is refused BY NAME — each layer keeps its own scale, so there is no one axis for one claim', () => {
+    expect(framed({ color: { mode: 'independent', bounds: [0, 1] } })).toEqual(['encodings[0].frame.color: unknown key "bounds" on an independent channel']);
+    // and a misspelling is still a misspelling, on every arm
+    expect(plain({ y: { bound: [0, 1] } })).toEqual(['encodings[0].frame.y: unknown key "bound" on an axis']);
+    expect(framed({ size: { mode: 'shared', range: [0, 1] } })).toEqual(['encodings[0].frame.size: unknown key "range" on a shared channel']);
+  });
+
+  it('the declared pair rides on the view’s encoding, frozen at build — on a view with NO layers', () => {
+    const frame = { x: { bounds: [-180, 180] }, y: { bounds: [-180, 180] } } as const;
+    const dashboard = buildDashboard({ ...makeNetworkDef(), encodings: [{ viewId: 'net', chartKind: 'point', channels: ['x', 'y'], frame }] });
+    expect(dashboard.def.encodings![0]!.frame).toEqual(frame);
+    expect(Object.isFrozen(dashboard.def.encodings![0]!.frame!['x'])).toBe(true);
+  });
+});
+
+/**
  * BYTE IDENTITY for law 12 — a def that declares no zero guide is the def it
  * was before the key existed, everywhere a reader meets it: the overview, the
  * commit, `why()`. And a def that DOES declare one adds exactly that one
@@ -772,6 +854,26 @@ describe('a def declaring no zero guide is byte-identical to one written before 
   it('no trace of the key anywhere a reader meets the run', async () => {
     const plain = await run();
     for (const [what, value] of Object.entries(plain)) expect(JSON.stringify(value), what).not.toContain('zeroGuide');
+  });
+
+  it('…and NONE of the four axis facts leaves a trace where none was declared — law 14 rides the same rail', async () => {
+    const plain = await run();
+    for (const key of ['zeroGuide', 'bounds']) {
+      for (const [what, value] of Object.entries(plain)) expect(JSON.stringify(value), `${key} in ${what}`).not.toContain(key);
+    }
+    // `transform` is checked against the VIEW alone: the word is already in the overview for a different
+    // reason (an analysis whose KIND is a transform), and a substring test cannot tell the two apart
+    expect(JSON.stringify(plain.view)).not.toContain('transform');
+  });
+
+  it('declaring a numeric extent adds exactly that declaration — an axis is not an act, so no commit and no why() moves', async () => {
+    const plain = await run();
+    const bounded = await run({ x: { bounds: [-180, 180] }, y: { bounds: [-180, 180] } });
+    expect(JSON.stringify(bounded.record)).toBe(JSON.stringify(plain.record));
+    expect(JSON.stringify(bounded.why)).toBe(JSON.stringify(plain.why));
+    const { frame, ...restOfView } = bounded.view as Record<string, unknown>;
+    expect(frame).toEqual({ x: { bounds: [-180, 180] }, y: { bounds: [-180, 180] } });
+    expect(JSON.stringify(restOfView)).toBe(JSON.stringify(plain.view));
   });
 
   it('declaring one adds exactly that declaration — the commit and why() do not move, because a guide is not an act', async () => {

@@ -325,6 +325,30 @@ port cannot ask N questions as one, so a refresh landing between two reads
 folds one frame over two table versions until the next update. It is written at
 `frameFor`, next to the `version` every answer already carries.
 
+**And the projection has to keep BOTH shapes a frame entry has — the scar.**
+`mapFrame` kept a channel only when it named one of the two MODES, which is a
+perfectly good reading of a LAYERED view and drops **every layerless one**: a
+view with no layers may not carry `mode` at all (the def door refuses it there
+by name — `shared` versus `independent` is a question about layers, and there
+are none), so its whole declaration is the axis keys alone. Measured by the
+consumer: the session served `{"x":{"zeroGuide":true},"y":{"zeroGuide":true}}`
+on its own `overview()`, `createSessionView(...).getState().views[rama].frame`
+was `{}`, and the consumer had to read its own def to learn what its own record
+already said. That is "a prop the record never sees" arriving through the
+reader's door instead of the writer's — the same defect, one layer over.
+
+So the mapper keeps **two arms**: a resolution naming one of the two modes, or
+**an axis alone** — no mode, and at least one of `domain`, `basis`, `guide`,
+`zero`, `transform`, `zeroGuide`, `bounds` (`FRAME_AXIS_KEYS`, the reader's copy
+of the def door's own list). Anything else is still dropped rather than
+defaulted, for the reason it always was: a channel with no entry ALREADY means
+shared/union/table/merged, so dropping a malformed one lands on the library's
+own default instead of inventing a second one here — and an entry with no mode
+and no axis key resolves nothing and declares nothing, which is that same
+silence spelled with an empty object. Law 1, read strictly: a declaration the
+library serves is PROJECTED, and a projection that drops a shape is a
+re-derivation with extra steps.
+
 ### Law 1 again: the map's REFUSALS are part of the map
 
 `src/links` records every default edge the reach law declined, each with its

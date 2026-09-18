@@ -76,6 +76,11 @@ export { logScale, logDomain, extentFor, scaleFor, placeable, padFor, logTicks, 
 // when that axis stands on the right, read by the chart (its plot) and by `VizFrame` (its margin union)
 export { padOnSide } from './scales.js';
 export type { LinearScale, ChartDomain, ScaleKind, ScaleBuilder, AxisSide } from './scales.js';
+// what the quantity can be (law 14): the words for a value outside the extent an axis was DECLARED on —
+// beside `excludedNote` because it is the same register, and exported for the same reason it is (a
+// consumer-built chart handed a declared pair owes its reader the same count)
+export { outsideNotes } from './scales.js';
+export type { OutsideAsk } from './scales.js';
 // zero is a place on the axis (law 12): the ONE owner of whether a declared zero guide is drawn, and
 // of the words for one that cannot be — a consumer-built chart asks it exactly as `VizScatter` does
 export { zeroGuideFor, zeroGuideNotes } from './zeroGuide.js';

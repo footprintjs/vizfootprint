@@ -103,6 +103,16 @@ export type ResolvedChannel =
       readonly transform?: 'linear' | 'log';
       /** WHETHER A LINE IS DRAWN WHERE THIS AXIS CROSSES ZERO. Echoed from the declaration, exactly as `transform` is, and absent unless one was declared — see {@link ChannelResolution.zeroGuide} for why the fold does not decide it. */
       readonly zeroGuide?: boolean;
+      /**
+       * WHAT THE QUANTITY CAN BE — the declared extent this axis is read on
+       * ({@link ChannelResolution.bounds}), echoed and NEVER folded. It sits
+       * beside `domain` rather than replacing it because the two are different
+       * claims: `domain` is what this data reaches, `bounds` is what the
+       * quantity can reach, and a reader that has both can see a table covering
+       * a third of its own axis. The CHART prefers it when it draws (`spanOf`,
+       * `vizfootprint-ui/contract/renderers.tsx`).
+       */
+      readonly bounds?: readonly [number, number];
     } & ResolvedDomain)
   | { readonly mode: 'independent'; readonly guide: 'per-layer'; readonly transform?: 'linear' | 'log'; readonly zeroGuide?: boolean };
 
@@ -383,7 +393,7 @@ export const FRAME_LAYER_LINT = 4;
  * only {@link zeroPolicyFor} can see them.
  */
 export type EffectiveResolution =
-  | { readonly mode: 'shared'; readonly domain: 'union'; readonly basis: 'table' | 'rows'; readonly guide: 'merged' | 'per-layer'; readonly zero?: boolean; readonly transform?: 'linear' | 'log'; readonly zeroGuide?: boolean }
+  | { readonly mode: 'shared'; readonly domain: 'union'; readonly basis: 'table' | 'rows'; readonly guide: 'merged' | 'per-layer'; readonly zero?: boolean; readonly transform?: 'linear' | 'log'; readonly zeroGuide?: boolean; readonly bounds?: readonly [number, number] }
   | { readonly mode: 'independent'; readonly guide: 'per-layer'; readonly transform?: 'linear' | 'log'; readonly zeroGuide?: boolean };
 
 export function resolutionFor(channel: string, frame?: Readonly<Record<string, ChannelResolution>>): EffectiveResolution {
@@ -395,7 +405,10 @@ export function resolutionFor(channel: string, frame?: Readonly<Record<string, C
   const nature = { ...(declared.transform !== undefined ? { transform: declared.transform } : {}), ...(declared.zeroGuide !== undefined ? { zeroGuide: declared.zeroGuide } : {}) };
   // an independent channel has one guide and no domain by definition: each layer keeps its own scale
   if (declared.mode === 'independent') return { mode: 'independent', guide: 'per-layer', ...nature };
-  return { mode: 'shared', domain: 'union', basis: declared.basis ?? 'table', guide: declared.guide ?? 'merged', ...(declared.zero !== undefined ? { zero: declared.zero } : {}), ...nature };
+  // `bounds` is the axis's own nature too, but it rides the SHARED arm alone: an independent channel gives
+  // every layer its own scale, so there is no one axis for one claim about the quantity (the def door
+  // refuses it there by name, with the other keys an independent channel has no use for)
+  return { mode: 'shared', domain: 'union', basis: declared.basis ?? 'table', guide: declared.guide ?? 'merged', ...(declared.zero !== undefined ? { zero: declared.zero } : {}), ...nature, ...(declared.bounds !== undefined ? { bounds: declared.bounds } : {}) };
 }
 
 /**
@@ -511,7 +524,7 @@ export function frameDomains(layers: readonly FrameLayer[], frame?: Readonly<Rec
     const zero = zeroPolicyFor(binding.filter((layer) => zeroAnchorsChannel(layer.chartKind, channel)).map((layer) => layer.chartKind), resolution.zero, resolution.transform);
     const domain = foldDomain(binding, channel, scale, zero, resolution.transform);
     if (domain === undefined) continue; // every cell was absent or unreadable — an invented domain would be a drawn lie
-    out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...nature, ...domain };
+    out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...nature, ...(resolution.bounds !== undefined ? { bounds: resolution.bounds } : {}), ...domain };
   }
   return out;
 }

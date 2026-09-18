@@ -767,6 +767,14 @@
   font-family: var(--vzf-font-mono);
   font-size: 9px;
 }
+/* …and the words for a value outside the extent the axis was DECLARED on (`outsideNotes`) — the same
+   faint mono for the third time, because it is the third spelling of one fact: the chart was given a
+   claim it cannot show honestly, and says so instead of letting the mark vanish past the edge. */
+:where(.vzf) .vzf-outside-note {
+  fill: var(--vzf-ink-faint);
+  font-family: var(--vzf-font-mono);
+  font-size: 9px;
+}
 /* the words for what a transform (or an out-of-window date) could not place, IN THE PICTURE — the
    accessible name already carries this fact for a screen reader; a sighted reader meets it only here
    (protocol 1.6, `excludedNote`) */
