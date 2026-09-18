@@ -23,6 +23,9 @@ beforeAll(() => {
 });
 
 import { VizLine, lineCompat } from './VizLine.js';
+import { VizBar } from './VizBar.js';
+import { noSlotsCoveredNote } from '../primitives/scales.js';
+import { selectionForView } from '../contract/selection.js';
 import type { ColumnView } from '../adapter/types.js';
 
 afterEach(cleanup);
@@ -488,15 +491,16 @@ describe('VizLine — a line on a BAND (band versus run is the x column’s, nev
     expect(log.container.querySelectorAll('path.vzf-line-path')).toHaveLength(0);
   });
 
-  it('a band draws NO brush (an interval has no meaning on a band) and ignores the time window (a band has no between to window)', () => {
-    const onEmit = vi.fn();
-    const { container } = render(<VizLine data={BAND} width={520} onEmit={onEmit} xDomain={['2026-01-01', null]} />);
+  it('a band ignores the time window (a band has no between to window) and DOES draw the drag rectangle (law 13)', () => {
+    const { container } = render(<VizLine data={BAND} width={520} xDomain={['2026-01-01', null]} />);
     const svg = container.querySelector('svg.vzf-line')!;
     fireEvent.pointerDown(svg, { clientX: 0, pointerId: 1 });
     fireEvent.pointerMove(svg, { clientX: 520, pointerId: 1 });
-    expect(container.querySelector('rect.vzf-brush')).toBeNull();
+    // THE DEFECT THIS PACKET CAME FROM: the protein desk's 185-slot line had no brush element of any
+    // kind (`vzf-chart-frame · vzf-chart vzf-line · vzf-axis · … · vzf-axis-caret` and nothing else),
+    // so a reader dragging across it saw nothing move and 185 dots before and after
+    expect(container.querySelector('rect.vzf-brush')).not.toBeNull();
     fireEvent.pointerUp(svg, { clientX: 520, pointerId: 1 });
-    expect(onEmit).not.toHaveBeenCalled();
     // every point drawn — the window filtered nothing
     expect(container.querySelectorAll('circle.vzf-line-dot')).toHaveLength(3);
   });
@@ -665,5 +669,186 @@ describe('VizLine — the ink of its scale (one edge of a two-scale frame)', () 
     // …and the axis is still the scale's: the hue says WHICH EDGE these series are read against
     const axisLine = [...container.querySelectorAll('line.vzf-axis')].find((l) => l.getAttribute('x1') === l.getAttribute('x2'))!;
     expect(axisLine.getAttribute('style')).toBe(`--vzf-scale-hue: ${HUE};`);
+  });
+});
+
+/**
+ * A BAND IS A RANGE TOO (law 13) — the BAND BRUSH.
+ *
+ * THE MEASURED DEFECT: the protein desk's biggest chart could not be selected
+ * at all. Driven in a browser, its element classes were `vzf-chart-frame ·
+ * vzf-chart vzf-line · vzf-axis · vzf-tick · vzf-line-series · vzf-line-path ·
+ * vzf-line-dot · vzf-line-legend · vzf-axis-group · vzf-axis-affordance ·
+ * vzf-axis-hit · vzf-axis-label · vzf-axis-caret` — NO brush element of any
+ * kind — and a drag left every count unchanged: 185 dots before, 185 after.
+ * Its x is a band because two chains share one residue-number axis, so a slot
+ * holds a residue of each, and this chart's own words were "a band line draws
+ * no brush".
+ *
+ * The law: a drag selects THE SLOTS WHOSE POINTS IT CROSSES (`slotsCovered`,
+ * the one owner), in the BAND's order, landed as the MATCH `VizBar`'s own drag
+ * over the same band lands (`matchEmission`, the one owner of the words).
+ */
+describe('VizLine — a band is a range too: the band brush (law 13)', () => {
+  const PLOT_L = 52;
+  const PLOT_R = 18;
+  /** The centre of slot `index` of `count`, at this width — the SAME arithmetic the dots are drawn by. */
+  const centre = (index: number, count: number, width = 520): number => PLOT_L + ((width - PLOT_L - PLOT_R) / count) * index + (width - PLOT_L - PLOT_R) / count / 2;
+  const BAND3 = [
+    { category: 'Formal', value: 4 },
+    { category: 'Casual', value: 2 },
+    { category: 'Party', value: 9 },
+  ];
+  /** Drag across the chart's own svg, `from` → `to`, and hand back what it emitted. */
+  const drag = (container: HTMLElement, from: number, to: number, selector = 'svg.vzf-line'): void => {
+    const svg = container.querySelector(selector)!;
+    fireEvent.pointerDown(svg, { clientX: from, pointerId: 1 });
+    fireEvent.pointerMove(svg, { clientX: to, pointerId: 1 });
+    fireEvent.pointerUp(svg, { clientX: to, pointerId: 1 });
+  };
+
+  it('THE SLOTS COVERED: a drag lands the match over every slot whose point it crossed, and nothing else', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={BAND3} width={520} dateField="shelf" onEmit={onEmit} />);
+    // slots at 127 / 277 / 427 — a drag from 100 to 300 crosses the first two
+    drag(container, 100, 300);
+    expect(onEmit).toHaveBeenCalledTimes(1);
+    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: { values: ['Formal', 'Casual'] }, encoding: { kind: 'match', field: 'shelf' } });
+  });
+
+  it('ONE SLOT: a drag that starts and ends inside one slot selects that slot — the edges are SLOTS, not pixels', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={BAND3} width={520} dateField="shelf" onEmit={onEmit} />);
+    // 270 → 285 never leaves the middle slot (202..352) and crosses its point at 277
+    drag(container, 270, 285);
+    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: { values: ['Casual'] }, encoding: { kind: 'match', field: 'shelf' } });
+  });
+
+  it('NOTHING COVERED: a drag that crosses no point selects nothing and SAYS SO — never an empty keep-list', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={BAND3} width={520} dateField="shelf" onEmit={onEmit} />);
+    // 300 → 400 sits between the second point (277) and the third (427): it crosses neither
+    drag(container, 300, 400);
+    expect(onEmit).not.toHaveBeenCalled();
+    // the brush cleared (the primitive's own "never fabricate" arm) …
+    expect(container.querySelector('rect.vzf-brush')).toBeNull();
+    // … and the reader is told, in the library's one polite live region — never silence
+    expect(document.querySelector('.vzf-live-region')!.textContent!.trim()).toBe(noSlotsCoveredNote());
+    expect(noSlotsCoveredNote()).toBe('a drag selects the slots whose points it crosses — this one crossed none, so nothing was selected');
+  });
+
+  it('ORDER IS THE BAND’S: a right-to-left drag and a left-to-right one over the same slots are ONE selection', () => {
+    const leftToRight = vi.fn();
+    const rightToLeft = vi.fn();
+    const a = render(<VizLine data={BAND3} width={520} dateField="shelf" onEmit={leftToRight} />);
+    drag(a.container, 100, 460);
+    cleanup();
+    const b = render(<VizLine data={BAND3} width={520} dateField="shelf" onEmit={rightToLeft} />);
+    drag(b.container, 460, 100);
+    expect(rightToLeft.mock.calls[0]![0]).toEqual(leftToRight.mock.calls[0]![0]);
+    // and it is the band's own order, not the pointer's
+    expect(leftToRight.mock.calls[0]![0].rawValue).toEqual({ values: ['Formal', 'Casual', 'Party'] });
+  });
+
+  it('THE SAME CLAUSE AS THE BAR’S over the same band — byte-identical, so two charts on one band cannot drift', () => {
+    const fromLine = vi.fn();
+    const line = render(<VizLine data={BAND3} width={520} dateField="shelf" onEmit={fromLine} />);
+    drag(line.container, 100, 300);
+    cleanup();
+    // the bar's own drag-run over the same three slots: press the first bar, release over the second
+    const fromBar = vi.fn();
+    const bar = render(<VizBar data={BAND3.map((d) => ({ category: d.category, count: d.value }))} field="shelf" width={520} onEmit={fromBar} />);
+    const bars = bar.container.querySelectorAll('rect.vzf-barrect');
+    fireEvent.pointerDown(bars[0]!, { clientX: 100, pointerId: 1 });
+    fireEvent.pointerMove(bar.container.querySelector('svg.vzf-bar')!, { clientX: 300, pointerId: 1 });
+    fireEvent.pointerUp(bar.container.querySelector('svg.vzf-bar')!, { clientX: 300, pointerId: 1 });
+    expect(JSON.stringify(fromBar.mock.calls[0]![0])).toBe(JSON.stringify(fromLine.mock.calls[0]![0]));
+  });
+
+  it('THE ROUND TRIP: what the chart emits, the read door accepts, and the chart draws in the SAME slots', () => {
+    const onEmit = vi.fn();
+    const { container, rerender } = render(<VizLine data={BAND3} width={520} dateField="shelf" onEmit={onEmit} />);
+    drag(container, 100, 300);
+    const emission = onEmit.mock.calls[0]![0] as { rawValue: unknown; encoding: { kind: string; field: string } };
+    // the session's fold of that emission, read back through the contract's OWN door
+    const selection = selectionForView([{ viewId: 'line', field: emission.encoding.field, kind: 'match', value: emission.rawValue }], 'line');
+    rerender(<VizLine viewId="line" data={BAND3} width={520} dateField="shelf" selection={selection} onEmit={onEmit} />);
+    const outlined = [...container.querySelectorAll('circle.vzf-line-dot.vzf-selected')].map((d) => Number(d.getAttribute('cx')));
+    expect(outlined).toEqual([centre(0, 3), centre(1, 3)]);
+    // the third slot's point is untouched
+    expect(container.querySelectorAll('circle.vzf-line-dot')).toHaveLength(3);
+  });
+
+  it('A BAND OF ONE SLOT: the whole plot is one slot, and a drag anywhere across it selects it', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={[{ category: 'only', value: 1 }]} width={520} dateField="shelf" onEmit={onEmit} />);
+    drag(container, 60, 490);
+    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: { values: ['only'] }, encoding: { kind: 'match', field: 'shelf' } });
+  });
+
+  it('THE DESK’S OWN CASE — 185 slots in 940px, about 5px each — is hittable: a drag over one slot selects one', () => {
+    const onEmit = vi.fn();
+    const names = Array.from({ length: 185 }, (_, i) => `r${String(i + 1)}`);
+    const data = names.map((category, i) => ({ category, value: i }));
+    const { container } = render(<VizLine data={data} width={940} dateField="residue" onEmit={onEmit} />);
+    const slot = (940 - PLOT_L - PLOT_R) / 185; // ≈ 4.7 viewBox units
+    expect(slot).toBeLessThan(5);
+    // a 5px drag centred on slot 100's point crosses that one point and no other
+    const at = centre(100, 185, 940);
+    drag(container, at - 2, at + 2);
+    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: { values: ['r101'] }, encoding: { kind: 'match', field: 'residue' } });
+    // …and a wider drag lands the run it crossed, in the band's order, nothing missing at either end
+    onEmit.mockClear();
+    drag(container, centre(10, 185, 940), centre(19, 185, 940));
+    expect((onEmit.mock.calls[0]![0] as { rawValue: { values: string[] } }).rawValue.values).toEqual(names.slice(10, 20));
+  });
+
+  it('A BAND WHOSE SLOTS ARE NARROWER THAN A PIXEL still answers honestly — the slots the drag crossed, however many', () => {
+    const onEmit = vi.fn();
+    const data = Array.from({ length: 300 }, (_, i) => ({ category: `c${String(i)}`, value: i }));
+    const { container } = render(<VizLine data={data} width={200} dateField="c" onEmit={onEmit} />);
+    // 130 units over 300 slots is 0.433 each: a 10-unit drag crosses 23 of them, and the answer names all 23
+    drag(container, 100, 110);
+    const values = (onEmit.mock.calls[0]![0] as { rawValue: { values: string[] } }).rawValue.values;
+    expect(values).toHaveLength(23);
+    expect(values[0]).toBe('c111');
+    expect(values[22]).toBe('c133');
+  });
+
+  it('a sub-4px release on a band RELEASES the match — a cleared interval would name a clause this x cannot hold', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={BAND3} width={520} dateField="shelf" onEmit={onEmit} />);
+    drag(container, 200, 202);
+    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: null, encoding: { kind: 'match', field: 'shelf' } });
+  });
+
+  it('a drag inside an EXCLUDE set keeps its polarity — `VizBar` · `endRun`’s own law, through the same clause', () => {
+    const onEmit = vi.fn();
+    const selection = selectionForView([{ viewId: 'line', field: 'shelf', kind: 'match', value: { values: ['Party'], exclude: true } }], 'line');
+    const { container } = render(<VizLine viewId="line" data={BAND3} width={520} dateField="shelf" selection={selection} onEmit={onEmit} />);
+    drag(container, 100, 300);
+    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: { values: ['Formal', 'Casual'], exclude: true }, encoding: { kind: 'match', field: 'shelf' } });
+    // an excluded slot's point wears the exclude class, never the keep one
+    expect(container.querySelectorAll('circle.vzf-line-dot.vzf-excluded')).toHaveLength(1);
+  });
+
+  it('BYTE IDENTITY: a continuous-x line’s brush is unchanged in every respect, and its dots take no outline from a selection', () => {
+    const onEmit = vi.fn();
+    const dated = [
+      { date: '2026-04-01', value: 1 },
+      { date: '2026-04-08', value: 2 },
+      { date: '2026-04-15', value: 3 },
+    ];
+    const bare = render(<VizLine data={dated} width={520} onEmit={onEmit} />);
+    const withoutSelection = bare.container.innerHTML; // idle, before any gesture
+    drag(bare.container, 100, 400);
+    // still the SNAPPED ISO interval, on the date field, exactly as before law 13
+    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: ['2026-04-01', '2026-04-15'], encoding: { kind: 'interval', field: 'date' } });
+    cleanup();
+    // …and a run handed a SELECTION draws the same markup: a dated line's own clause is an interval,
+    // which names no point to outline (`markClass` is a band's, and a run reads nothing from the prop)
+    const selection = selectionForView([{ viewId: 'line', field: 'date', kind: 'match', value: { values: ['2026-04-01'] } }], 'line');
+    const withIt = render(<VizLine viewId="line" data={dated} width={520} selection={selection} onEmit={vi.fn()} />);
+    expect(withIt.container.innerHTML).toBe(withoutSelection);
   });
 });

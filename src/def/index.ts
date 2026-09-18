@@ -160,6 +160,9 @@ export {
   zeroGuideKindRefusal,
   noZeroOnALogAxis,
   zeroOnAxis,
+  // law 13's own two: does this mark draw an interval brush on an x of this scale kind, and the words for one that does not
+  drawsIntervalBrush,
+  intervalGestureRefusal,
   FRAME_LAYER_LINT,
   ZERO_ANCHORED_KINDS,
 } from '../encoding/index.js';

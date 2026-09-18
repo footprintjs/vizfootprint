@@ -921,6 +921,19 @@
 :where(.vzf) .vzf-line-dot {
   transition: opacity 0.15s ease;
 }
+/* A BAND IS A RANGE TOO (law 13): a band line's own clause is a MATCH over slots, so the points in
+   those slots wear the outline every selected mark wears — and the dashed one for an exclude set.
+   The node-link's `.vzf-dot` pair is the precedent; a DATED line has no point to outline (its own
+   clause is an interval), so these only ever land on a band. */
+:where(.vzf) .vzf-line-dot.vzf-selected {
+  stroke: var(--vzf-ink);
+  stroke-width: 2;
+}
+:where(.vzf) .vzf-line-dot.vzf-excluded {
+  stroke: var(--vzf-ink);
+  stroke-width: 2;
+  stroke-dasharray: 2 2;
+}
 
 /* ── VizMap (choropleth) ───────────────────────────────────── */
 :where(.vzf) .vzf-region {

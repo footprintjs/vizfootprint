@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { linearScale, extent, ticks } from './scales.js';
+import { linearScale, extent, ticks, slotsCovered } from './scales.js';
 
 describe('linearScale', () => {
   it('maps domain to range and inverts back', () => {
@@ -49,5 +49,39 @@ describe('extent', () => {
 describe('ticks', () => {
   it('produces n+1 evenly-spaced values across [lo, hi]', () => {
     expect(ticks(0, 10, 5)).toEqual([0, 2, 4, 6, 8, 10]);
+  });
+});
+
+/**
+ * `slotsCovered` — the ONE owner of "which slots does this pixel range cover"
+ * (law 13, the band brush). A slot is covered when its CENTRE is in the range,
+ * because the centre is where the mark stands.
+ */
+describe('slotsCovered', () => {
+  // 3 slots over [0, 300]: width 100, centres at 50 / 150 / 250
+  it('covers a slot when the range crosses its centre, and no slot when it crosses none', () => {
+    expect(slotsCovered(0, 300, 3, 40, 160)).toEqual([0, 1]);
+    expect(slotsCovered(0, 300, 3, 0, 300)).toEqual([0, 1, 2]);
+    // between two centres: nothing is covered, and an empty answer is an ANSWER
+    expect(slotsCovered(0, 300, 3, 160, 240)).toEqual([]);
+  });
+
+  it('is CLOSED at both ends — a range that ends exactly on a centre covers that slot', () => {
+    expect(slotsCovered(0, 300, 3, 50, 150)).toEqual([0, 1]);
+    expect(slotsCovered(0, 300, 3, 250, 260)).toEqual([2]);
+  });
+
+  it('is order-insensitive: a right-to-left range is the same set, in the BAND’s order', () => {
+    expect(slotsCovered(0, 300, 3, 260, 40)).toEqual([0, 1, 2]);
+    expect(slotsCovered(0, 300, 3, 160, 40)).toEqual(slotsCovered(0, 300, 3, 40, 160));
+  });
+
+  it('an EMPTY band has no slot to cover, whatever the range', () => {
+    expect(slotsCovered(0, 300, 0, 0, 300)).toEqual([]);
+  });
+
+  it('slots narrower than a pixel are still slots — the answer names every one the range crossed', () => {
+    // 1000 slots over [0, 300] is 0.3 each: a 3-unit range crosses 10 of them
+    expect(slotsCovered(0, 300, 1000, 100, 103)).toHaveLength(10);
   });
 });

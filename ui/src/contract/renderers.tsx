@@ -70,7 +70,7 @@ import {
   type RenderSelection,
   type RenderState,
 } from './types.js';
-import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsZeroGuide, zeroGuideKindRefusal, type ResolvedChannel } from 'vizfootprint/def';
+import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsIntervalBrush, drawsZeroGuide, intervalGestureRefusal, zeroGuideKindRefusal, type ResolvedChannel } from 'vizfootprint/def';
 import { boundField } from '../charts/binding.js';
 import { bandOrder, epochOf, type ChartDomain, type AxisSide } from '../primitives/scales.js';
 import { VizFrame, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
@@ -252,6 +252,14 @@ export interface LineRendererOptions {
  * crossfiltered (and decimated if it chooses); with one row per (date,
  * series) the chart's per-date mean is the identity — it never re-aggregates
  * host-prepared data.
+ *
+ * TWO KINDS, ONE DRAG (law 13): band versus run is a property of the x COLUMN
+ * and the hello is fixed at MOUNT, before any state — so a line honestly
+ * declares BOTH the `interval` its drag lands over a run of dates and the
+ * `match` the same drag lands over a band of categories (`VizLine`'s band
+ * brush, `slotsCovered`). Which one a given state delivers is the state's
+ * answer, and `runConformance`'s `declared-delivered` step is where a plan
+ * says which kinds the state it builds can deliver.
  */
 export function lineRenderer(options: LineRendererOptions = {}): Renderer {
   return reactRenderer({
@@ -261,7 +269,7 @@ export function lineRenderer(options: LineRendererOptions = {}): Renderer {
       canHighlight: false,
       canReencode: true,
       canPanZoom: false,
-      emissionKinds: ['interval'],
+      emissionKinds: ['interval', 'match'],
     },
     render(state, handshake) {
       return lineMark(viewDraw(state, handshake), options);
@@ -305,6 +313,7 @@ function lineMark(d: MarkDraw, options: LineRendererOptions): JSX.Element {
       data={data}
       dateField={dateField}
       valueField={valueField}
+      selection={d.selection}
       colorOf={options.colorOf}
       width={d.width}
       height={d.height}
@@ -1226,7 +1235,8 @@ function runXWords(f: FramedLayer, frame: Readonly<Record<string, ResolvedChanne
  * as in `barRenderer`.
  */
 const MARK_CAPABILITIES: Readonly<Record<FrameChartKind, { readonly brush: boolean; readonly point: boolean; readonly highlight: boolean; readonly kinds: readonly EmissionKind[] }>> = Object.freeze({
-  line: { brush: true, point: false, highlight: false, kinds: ['interval'] },
+  // a line's drag lands an interval over a run and a MATCH over a band (law 13) — both, because the frame's own x may be either
+  line: { brush: true, point: false, highlight: false, kinds: ['interval', 'match'] },
   point: { brush: true, point: false, highlight: true, kinds: ['interval'] },
   bar: { brush: false, point: true, highlight: false, kinds: ['point', 'match'] },
   histogram: { brush: true, point: false, highlight: false, kinds: ['interval'] },
@@ -1314,7 +1324,49 @@ function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
   if (line !== null) return line;
   const zero = zeroGuideRefusal(framed, frame);
   if (zero !== null) return zero;
+  const interval = intervalBrushRefusal(framed, frame);
+  if (interval !== null) return interval;
   return twoScalesRefusal(framed, frame);
+}
+
+/**
+ * LAW 13 AS THE FRAME REFUSES IT: a layer whose MARK declares it emits an
+ * `interval` and draws no brush on the scale kind the frame folded for its x.
+ * The sentence is the DEF DOOR's own (`intervalGestureRefusal`,
+ * `vizfootprint/def`) and the predicate is the door's own too
+ * (`drawsIntervalBrush`), so a def the door accepts is never a gesture the
+ * renderer refuses — the law 9 and 12 arrangement, for the same reason it
+ * exists there: `RenderState.frame` is a public shape a host may fold BY HAND,
+ * skipping `validateFrame` entirely, and a gesture silently missing is worse
+ * than one refused.
+ *
+ * AND THE FRAME IS THE ONE THAT KNOWS. The def door judges this only where the
+ * DECLARATION settles the scale kind (a declared column type); here the fold
+ * has already happened, so the scale kind is a FACT and not an inference.
+ *
+ * WHAT IT REFUSES IS A MARK THE STATE LEAVES MUTE — one whose declared
+ * `interval` this x cannot carry and which declares no OTHER kind, so the
+ * drag a reader is invited to make lands nothing at all. A LINE is the mark
+ * that made law 13 necessary and it is never refused here: it declares the
+ * `match` its band brush lands beside the `interval` its run brush does, and
+ * is a complete picture on either x. So what this catches is a HISTOGRAM
+ * whose bins were folded as CATEGORIES — `interval` and nothing else, over an
+ * axis with no between. (A point on a band is refused two sentences earlier,
+ * on stronger grounds: it draws no band at all.)
+ */
+function intervalBrushRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | null {
+  for (const f of framed) {
+    const kinds = MARK_CAPABILITIES[f.kind].kinds;
+    if (!kinds.includes('interval')) continue;
+    const x = xBinding(f, frame);
+    // no column bound to x, or a channel this frame folded nothing for: no scale kind, no evidence
+    if (x?.scale === undefined) continue;
+    if (drawsIntervalBrush(f.kind, x.scale)) continue;
+    // …and a mark with a SECOND kind still has a voice on this x — the line's band brush lands its match
+    if (kinds.some((kind) => kind !== 'interval')) continue;
+    return intervalGestureRefusal(`layer "${f.layer.layerId}"`, f.kind, x.scale, x.column);
+  }
+  return null;
 }
 
 /**

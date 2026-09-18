@@ -15,7 +15,8 @@ import { isBuiltinRecord, validateBuiltinAnalysis } from './builtinAnalyses.js';
 import { validateRelations } from './relations.js';
 import { mintedTables } from './builtinAnalyses.js';
 import { validateActFilled } from './actFilled.js';
-import { declaredLayerAddresses, layerLinkViewsOf, layerSurfacesOf, markerRefusal, ownRowsOf, validateFrame, validateLayers } from './layers.js';
+import { declaredLayerAddresses, layerLinkViewsOf, layerSurfacesOf, markerRefusal, ownRowsOf, validateDeclaredGestures, validateFrame, validateLayers } from './layers.js';
+import type { DeclaredVoice } from './layers.js';
 import { tableReachOf } from './tableReach.js';
 import { holdsLayerMarker } from './layerAddress.js';
 import { EMISSION_KINDS, validateLinks, voiceOf, type EmissionKind } from '../links/index.js';
@@ -874,6 +875,18 @@ export function validateDashboardDef(def: unknown): string[] {
   // judges a table name or a field against a table's columns, so the two can never disagree (./README.md,
   // "Layers", law 2). An aggregate declares the table it lands and its whole column list; nothing new is declared.
   const minted = mintedTables(def);
+  // LAW 13's evidence: the DECLARED voice per view, with the ADDRESS an author fixes it at. Read off
+  // `capabilities[]` — already refused for shape above, so a malformed entry contributes nothing — and
+  // keyed by view, because the gesture law is judged where the MARKS are declared (just below) and the
+  // sentence has to name the capability key instead.
+  const declaredVoiceAt = new Map<string, DeclaredVoice>();
+  if (Array.isArray(def.capabilities)) {
+    def.capabilities.forEach((cap, i) => {
+      if (!isObject(cap) || typeof cap.viewId !== 'string' || typeof cap.canProbe !== 'boolean') return;
+      const encodings = Array.isArray(cap.encodings) && cap.encodings.every((e) => ENCODINGS.has(e as string)) ? (cap.encodings as string[]) : undefined;
+      declaredVoiceAt.set(cap.viewId, { at: `capabilities[${i}].encodings`, canProbe: cap.canProbe, ...(encodings !== undefined ? { encodings } : {}) });
+    });
+  }
   if (def.encodings !== undefined) {
     if (!Array.isArray(def.encodings)) {
       problems.push('encodings, if present, must be an array of ViewEncodingDecl');
@@ -909,6 +922,10 @@ export function validateDashboardDef(def: unknown): string[] {
         // (src/def/layers.ts, "the frame"): legal on ANY view, since a transform is not a resolution. A view with
         // no layers is judged as its own one implicit layer, which is what this last argument carries.
         validateFrame(enc.frame, `encodings[${i}]`, encViewId, enc.layers, def.data, { chartKind: enc.chartKind, channels: enc.channels, initial: enc.initial, table: defaultTableName }, problems, minted);
+        // law 13 — a band is a range too: a DECLARED `interval` gesture the mark for this view will not
+        // draw, judged against the scale kind the def itself settles for that mark's x (./layers.ts ·
+        // `validateDeclaredGestures`, which says in its own words what this door cannot know)
+        validateDeclaredGestures(encViewId, enc.layers, def.data, { chartKind: enc.chartKind, channels: enc.channels, initial: enc.initial, table: defaultTableName }, declaredVoiceAt.get(encViewId), problems, minted);
       });
     }
   }

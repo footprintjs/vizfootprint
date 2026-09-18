@@ -48,6 +48,10 @@ export { linearScale, extent, ticks, epochOf, dayOf, rampStep, SEQ_RAMP_STEPS } 
 // (`domainOr` for a run of numbers, `bandOrder` for a band's slots — and `bandWidth`/`bandStart`/`bandCentre`,
 // the ONE slot geometry every mark on a band places itself by)
 export { bandOrder, bandWidth, bandStart, bandCentre, domainOr } from './scales.js';
+// a band is a range too (law 13): the ONE owner of "which slots does this pixel range cover" — a
+// consumer-built band chart brushes its slots by asking it, and says `noSlotsCoveredNote` when a drag
+// crossed no mark at all
+export { slotsCovered, noSlotsCoveredNote } from './scales.js';
 // the logarithmic axis (protocol 1.6): `scaleFor` is the ONE owner of which builder a channel gets,
 // and the rest are what a host drawing its own guide over a logarithmic channel needs — the ticks,
 // their labels, the placeability predicate and the words for what a transform could not place

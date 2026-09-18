@@ -39,10 +39,23 @@
  *                             ONE commit whose viewId is the layer address
  *                             (`viewId~layerId`); a renderer not declaring it
  *                             skips the arm honestly
- *  11. navigate             — a canPanZoom renderer's navigate is recorded and
+ *  11. declared-delivered   — law 13: every emission kind the renderer DECLARED
+ *                             and this state can deliver was actually
+ *                             delivered by one of the gestures above. The
+ *                             hello is fixed at MOUNT, before any state, so a
+ *                             mark whose drag lands a different clause on a
+ *                             different scale (a line: an `interval` over a
+ *                             run of dates, a `match` over a band of
+ *                             categories) honestly declares BOTH — and the
+ *                             PLAN says which of them the state it builds can
+ *                             deliver (`stateKinds`; default: all of them).
+ *                             What this cannot see is a kind NO state ever
+ *                             delivers: one run is one state, so that takes a
+ *                             second run over the other one
+ *  12. navigate             — a canPanZoom renderer's navigate is recorded and
  *                             NON-FILTERING; a non-capable one lands the typed
  *                             `navigate-unsupported` gap and records nothing
- *  12. unmount              — the mount is left clean
+ *  13. unmount              — the mount is left clean
  *
  * Steps run in order and STOP at the first failure (later steps depend on
  * earlier ones); the report carries every step's outcome in plain words.
@@ -57,6 +70,7 @@ import { selectionForView, selfSelectedNeighbourhood } from './selection.js';
 import {
   RENDERER_PROTOCOL_VERSION,
   isEmissionKind,
+  type EmissionKind,
   protocolMajor,
   type ChartEmission,
   type ContractGap,
@@ -80,6 +94,7 @@ export type ConformanceStepName =
   | 'match'
   | 'neighbourhood'
   | 'layers'
+  | 'declared-delivered'
   | 'navigate'
   | 'unmount';
 
@@ -162,6 +177,20 @@ export interface ConformancePlan {
   readonly navigateState?: NavigateViewState;
   /** The actor expected on the landed commit's cause. Default `'user'` (the store's default principal). */
   readonly expectedActor?: string;
+  /**
+   * LAW 13: which of the renderer's DECLARED emission kinds the state this
+   * plan builds can deliver. A renderer's hello is fixed at mount, before any
+   * state, so a mark whose x may be a run or a band declares the kinds of
+   * BOTH (`lineRenderer`: `interval` + `match`) and a single state delivers
+   * one of them. Naming them here is the HOST saying which picture this run
+   * is; `declared-delivered` then holds the renderer to exactly those, and to
+   * every one of them.
+   *
+   * Default: every kind the renderer declared — the strict reading, which is
+   * what a mark with one gesture should be held to. A kind named here that the
+   * renderer never declared is ignored: the declaration is the renderer's.
+   */
+  readonly stateKinds?: readonly EmissionKind[];
 }
 
 /** A step's typed failure — carries the plain-words reason into the report. */
@@ -232,6 +261,22 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
     // timer turns let that work land before the kit inspects the DOM
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+
+  /**
+   * LAW 13 — WHETHER A STATE-SENSITIVE ARM RUNS, and the honest sentence when
+   * it does not. Two reasons not to run one, and a reader has to be able to
+   * tell them apart: the renderer never DECLARED the kind (the sentence every
+   * one of these arms has always said), or it declared it and the PLAN says
+   * this state does not deliver it — a mark whose x may be a run or a band
+   * declares the kinds of both and one state is one of them. With no
+   * `stateKinds` the second arm cannot fire, so every skip reads exactly as
+   * it always did.
+   */
+  const skipReason = (kind: EmissionKind, arm: string): string | null => {
+    if (!bound!.capabilities.emissionKinds.includes(kind)) return `the renderer declares no ${kind} emissions — the ${arm} arm is honestly skipped`;
+    if (plan.stateKinds !== undefined && !plan.stateKinds.includes(kind)) return `the renderer declares ${kind}, and this state does not deliver it — the ${arm} arm is honestly skipped`;
+    return null;
   };
 
   // populated by 'handshake'; every later step runs after it (stop-on-failure)
@@ -376,9 +421,8 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
         // D30 (protocol 1.1): the compound-cell arm — exercised only by
         // renderers that DECLARE the cell emission kind; everyone else skips
         // honestly (the declared-capability rule, not a silent pass).
-        if (!bound!.capabilities.emissionKinds.includes('cell')) {
-          return 'the renderer declares no cell emissions — the cell arm is honestly skipped';
-        }
+        const skipped = skipReason('cell', 'cell');
+        if (skipped !== null) return skipped;
         if (!plan.cellGesture) {
           throw new StepFailed('the renderer declares the cell emission kind but the plan provides no cellGesture to drive');
         }
@@ -420,9 +464,8 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
         // SET-1: the many-values arm — exercised only by renderers that DECLARE
         // the match emission kind; everyone else skips honestly (the
         // declared-capability rule, not a silent pass).
-        if (!bound!.capabilities.emissionKinds.includes('match')) {
-          return 'the renderer declares no match emissions — the match arm is honestly skipped';
-        }
+        const skipped = skipReason('match', 'match');
+        if (skipped !== null) return skipped;
         if (!plan.matchGesture) {
           throw new StepFailed('the renderer declares the match emission kind but the plan provides no matchGesture to drive');
         }
@@ -460,9 +503,8 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
         // protocol 1.3: the WALK arm — exercised only by renderers that DECLARE
         // the neighbourhood emission kind; everyone else skips honestly (the
         // declared-capability rule, not a silent pass).
-        if (!bound!.capabilities.emissionKinds.includes('neighbourhood')) {
-          return 'the renderer declares no neighbourhood emissions — the walk arm is honestly skipped';
-        }
+        const skipped = skipReason('neighbourhood', 'walk');
+        if (skipped !== null) return skipped;
         if (!plan.neighbourhoodGesture) {
           throw new StepFailed('the renderer declares the neighbourhood emission kind but the plan provides no neighbourhoodGesture to drive');
         }
@@ -552,6 +594,33 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
           descriptor === 'second-bundle · layer-address',
           `both layers drawn; the gesture on "${layersPlan.layerIds[1]}" spoke through its bundle and landed ONE commit under ${second}`,
           `the layers arm misbehaved: ${descriptor}`,
+        );
+      },
+    },
+    {
+      name: 'declared-delivered',
+      run() {
+        // LAW 13: the reverse of `gesture-emits`. That step holds every
+        // emission to the DECLARED kinds; this one holds every declared kind
+        // to a gesture that delivered it — a renderer that declares an
+        // encoding it will not deliver for the state it was handed is a
+        // dashboard promising a drag that does nothing (capability law 1,
+        // broken at the hello instead of at the def).
+        const declared = bound!.capabilities.emissionKinds;
+        // the kinds THIS state can deliver: the plan's list narrowed to what the renderer
+        // DECLARED (the declaration is the renderer's), or every declared kind where the plan named none
+        const narrowing = plan.stateKinds;
+        // ONE narrowing, asked through the ONE function the three state-sensitive arms ask (`skipReason`):
+        // a kind those arms would honestly skip is a kind this state does not deliver, and holding the
+        // renderer to it here would contradict the arm that just let it go
+        const expected = declared.filter((kind) => skipReason(kind, 'declared-delivered') === null);
+        const delivered = new Set(emissions.map((e) => e.encoding.kind));
+        const missing = expected.filter((kind) => !delivered.has(kind));
+        const narrowed = narrowing === undefined ? '' : ` (of ${declared.join('+')}, this state delivers ${expected.join('+') || 'none'})`;
+        return check(
+          missing.length === 0,
+          `every declared kind this state can deliver was delivered: ${expected.join('+') || 'none'}${narrowed}`,
+          `the renderer declares ${missing.join('+')} and no gesture delivered ${missing.length === 1 ? 'it' : 'them'} for this state${narrowed} — declare only what this mount delivers, or name this state's kinds in the plan`,
         );
       },
     },

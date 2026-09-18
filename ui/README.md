@@ -221,6 +221,48 @@ The chart takes RAW rows and draws the **mean of the value column per date**
 a small legend). The mean, not the sum: under a crossfilter the number of rows
 per date changes, and a sum would confuse "fewer rows" with "smaller values".
 
+### A band is a range too — the BAND BRUSH
+
+A line whose x is a **band** of categories brushes its band. Drag across the
+slots and the chart selects **the slots whose points the drag crossed**, landing
+them as a `match` on the x field — the very clause a bar chart's own drag over
+one band lands, so two charts standing on one band cannot mean two different
+things. What differs from a run is only the CLAUSE: an interval has no meaning
+on a band, because the string interval predicate compares lexicographically and
+not in slot order.
+
+This existed because of a defect measured on a real page. The protein desk's
+biggest chart — 185 residues, its x a band because two chains share one
+residue-number axis so a slot holds a residue of each — could not be selected
+at all: its DOM held **no brush element of any kind** and a drag left every
+count unchanged, 185 dots before and 185 after, while the dashboard's own
+definition declared that the view emits an interval. The chart said why in its
+own words: *a band line draws no brush*.
+
+Four rules, and each of them is a test:
+
+- **The edges are SLOTS, not pixels.** A slot is covered when the drag crosses
+  its POINT — the slot centre, which is exactly where the mark stands
+  (`slotsCovered`, the one owner of "which slots does this pixel range cover",
+  beside `bandCentre` in `primitives/scales.ts`). Selecting a slot whose mark
+  the drag never reached would claim a category the reader did not touch.
+- **Order is the BAND's own** (`bandOrder`), never the pixel order of the drag —
+  so a right-to-left drag and a left-to-right one over the same slots are one
+  selection.
+- **A drag that crosses no point selects nothing and SAYS SO** — announced
+  politely through the library's one live region, never an empty keep-list
+  (which would match nothing). A sub-4px release is the brush's tap arm, which
+  on a band RELEASES the match.
+- **It round-trips.** The match comes back through the read door and the chart
+  outlines the same slots' points (`selection`, read on a band only — a dated
+  line's own clause is an interval, which names no point to outline, so a
+  continuous-x line is byte-identical with or without the prop).
+
+A def that declares a view emits an `interval` when its mark draws no interval
+brush on that view's own scale kind is refused by name at the def door
+(`src/def/README.md`, law 13), and the frame renderer refuses the same shape
+from a hand-folded state in the same sentence.
+
 Both axis labels are pickers, and they are honest about what fits: the **x
 picker offers a date or a category** (a line on a band connects slot centres
 and claims nothing between them) and the **y picker only numeric ones** — an

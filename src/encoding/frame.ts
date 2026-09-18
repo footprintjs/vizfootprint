@@ -306,6 +306,69 @@ export function zeroOnAxis(lo: number, hi: number): boolean {
   return Math.min(lo, hi) <= 0 && Math.max(lo, hi) >= 0;
 }
 
+// ── a band is a range too (law 13) ───────────────────────────────────────────
+
+/**
+ * THE MARKS THAT DRAW A HORIZONTAL INTERVAL BRUSH — one drag, one `interval`
+ * emission over the x channel. A SCATTER (a point, under both its names), a
+ * LINE and a HISTOGRAM: the three that hand `useHorizontalBrush` a `snap`
+ * (`vizfootprint-ui/primitives/brush.tsx`).
+ *
+ * Nobody else, and each for its own reason. A BAR's x is a band by
+ * construction — one slot per category — so its drag is a run of slots and
+ * lands a MATCH (`VizBar` · `endRun`), never an interval. A BOX PLOT's is the
+ * same band with no drag at all; a HEATMAP's gesture is the compound cell; a
+ * MAP has regions, a TABLE rows, a NETWORK a walk.
+ *
+ * A Map rather than a record, so a `chartKind` of `"__proto__"` off a hand-
+ * written def answers no instead of reaching Object.prototype — the
+ * {@link ZERO_GUIDE_CHANNELS} precedent.
+ */
+const INTERVAL_BRUSH_KINDS: ReadonlySet<string> = new Set(['scatter', 'point', 'line', 'histogram']);
+
+/**
+ * DOES THIS MARK DRAW AN INTERVAL BRUSH ON AN X OF THIS SCALE KIND? The
+ * predicate both twins of law 13 ask — the def door
+ * (`../def/layers.ts` · `validateDeclaredGestures`) and the frame that has to
+ * draw it (`vizfootprint-ui/contract/renderers.tsx` · `intervalBrushRefusal`)
+ * — so a def this door accepts is never a gesture the renderer refuses (the
+ * law 9 and 12 arrangement).
+ *
+ * TWO WAYS TO ANSWER NO, and the answer is per PAIR because of the second.
+ * A mark that draws no brush at all ({@link INTERVAL_BRUSH_KINDS}) never draws
+ * one. And a CATEGORICAL x is a band: a band has no BETWEEN for an interval to
+ * name — the string interval predicate compares lexicographically and not in
+ * slot order — so a drag across its slots is a RUN of them, which is the match
+ * language every band already speaks (`matchEmission`). That is why a LINE, a
+ * mark whose x may be either, brushes an interval on a run of dates and a
+ * MATCH over a band of categories.
+ *
+ * The scale kind is the FOLD's answer ({@link frameScaleOf} is its one owner),
+ * which is why it is a parameter and never re-derived here.
+ */
+export function drawsIntervalBrush(chartKind: string, scale: ResolvedDomain['scale']): boolean {
+  return INTERVAL_BRUSH_KINDS.has(chartKind) && scale !== 'categorical';
+}
+
+/**
+ * THE WORDS FOR A DECLARED `interval` A MARK WILL NOT DRAW — one owner, said
+ * by the def door with its address in front of it and by the frame exactly as
+ * it stands ({@link zeroGuideKindRefusal}'s arrangement).
+ *
+ * TWO ARMS IN ONE FUNCTION, chosen by the evidence, because the two mistakes
+ * have two different repairs (`../def/layers.ts` · `refuseOwnScale` is the
+ * precedent): a mark whose x is a BAND does have a drag gesture and it lands a
+ * `match`, so the repair is to declare THAT; a mark that draws no brush at all
+ * has no drag to declare, so the repair is to drop the key. Naming the COLUMN
+ * matters on the first arm — a field is a band because of its DATA, and the
+ * author has to be able to see which column made it one.
+ */
+export function intervalGestureRefusal(subject: string, chartKind: string, scale: ResolvedDomain['scale'], column: string): string {
+  return scale === 'categorical'
+    ? `${subject} declares it emits an interval, but its x is the category column "${column}" — a band has no between for an interval, so a drag across a ${chartKind}'s slots is a RUN of them; declare encodings: ["match"], or bind x to a date or a number`
+    : `${subject} declares it emits an interval, but a ${chartKind} draws no interval brush at all — declare the kinds its own gestures emit, or drop "interval"`;
+}
+
 /** Past this many layers on one frame a reader cannot tell the marks apart — a LINT, never a refusal (a legitimate small-multiple of five exists). */
 export const FRAME_LAYER_LINT = 4;
 

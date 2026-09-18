@@ -65,6 +65,55 @@ The pinning test (`capabilities.test.tsx`) asserts both halves of each
 declaration together — the flag AND what the mount does when a host pushes a
 live highlight clause. They fail together on purpose.
 
+### The kinds are a promise too, and `runConformance` now holds them to it
+
+`emissionKinds` is the same promise about the same mount, and it used to be
+checked in one direction only: `gesture-emits` holds every EMISSION to the
+declared kinds, and nothing held a declared KIND to a gesture that delivers it.
+So a renderer could declare `interval`, be handed a state it draws no brush for,
+and pass the whole kit. That is exactly what happened on a real page: a line
+chart whose x was a band of 185 residues drew **no brush element of any kind**
+and a drag left every count unchanged, while its hello — and the dashboard's own
+definition — said the view emits an interval.
+
+Step 11, **`declared-delivered`**, closes it: every emission kind the renderer
+declared and this state can deliver must have been delivered by one of the
+gestures above it, and the ones that were not are named.
+
+The hard part, and it is the reason the step takes a plan field rather than
+being a bare assertion: **a hello is fixed at MOUNT, before any state**, and a
+mark's gesture may land a different clause on a different scale. A line brushes
+an `interval` over a run of dates and lands a `match` over a band of categories
+(law 13, `../../../src/def/README.md`), so it honestly declares both — and one
+state is one of them. `ConformancePlan.stateKinds` is the HOST saying which
+picture this run is; the three state-sensitive arms (`cell`, `match`,
+`neighbourhood`) read the same narrowing through one function, so an arm that
+honestly skips a kind and a delivery check that demands it can never contradict
+each other. With no `stateKinds` every skip sentence reads exactly as it always
+did, and every declared kind is demanded.
+
+```ts
+// a RUN state: the line delivers the interval, and says it does not deliver the band's match
+await runConformance({ renderer: lineRenderer(), …, stateKinds: ['interval'] });
+//   match:              the renderer declares match, and this state does not deliver it — the match arm is honestly skipped
+//   declared-delivered: every declared kind this state can deliver was delivered: interval (of interval+match, this state delivers interval)
+
+// the hostile shape, caught by name
+//   declared-delivered: the renderer declares interval and no gesture delivered it for this state
+//                       — declare only what this mount delivers, or name this state's kinds in the plan
+```
+
+**What it still cannot check.** One run is ONE state, so the kit cannot see a
+kind that NO state ever delivers — a renderer declaring `interval` and never
+brushing anything anywhere passes every single-state run whose plan narrows it
+away. Holding that would mean the kit enumerating a renderer's possible states,
+which it cannot do: the states are the host's. What it can do, and what the
+first-party suite does, is run the SAME renderer twice — once over a run and
+once over a band — and the two runs together are the claim. It also cannot judge
+whether a plan's `stateKinds` is honest about the state it built; that is the
+host's own declaration, and the kit is host-side CI rather than a referee
+between a host and itself.
+
 ## Law 2 — a capability exists so a HOST can refuse out loud; a channel that records nothing needs no flag
 
 It is tempting to add a flag per verb for symmetry. Don't. A capability earns

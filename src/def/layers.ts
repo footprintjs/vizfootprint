@@ -23,7 +23,7 @@
  */
 import type { ColumnFacet } from '../data/types.js';
 import type { ColumnDecl, EncodingSurface } from '../encoding/index.js';
-import { MAGNITUDE_CHANNELS, POSITIONAL_CHANNELS, ZERO_ANCHORED_KINDS, drawsZeroGuide, firstScaleTakenRefusal, mayTakeFirstScale, noZeroOnALogAxis, resolveFacet, zeroAnchorsChannel, zeroGuideKindRefusal } from '../encoding/index.js';
+import { MAGNITUDE_CHANNELS, POSITIONAL_CHANNELS, ZERO_ANCHORED_KINDS, drawsIntervalBrush, drawsZeroGuide, firstScaleTakenRefusal, frameScaleOf, intervalGestureRefusal, mayTakeFirstScale, noZeroOnALogAxis, resolveFacet, zeroAnchorsChannel, zeroGuideKindRefusal } from '../encoding/index.js';
 import { ENCODING_KIND, type LinkView } from '../links/index.js';
 import type { MintedTable } from './builtinAnalyses.js';
 import { LAYER_MARKER, holdsLayerMarker, layerAddress } from './layerAddress.js';
@@ -191,7 +191,7 @@ export function validateFrame(raw: unknown, where: string, viewId: string, layer
   // a view that declared layers is judged against THEM (even if every one was refused on its own line); a view
   // with none is judged against ITSELF — one implicit layer, which is what makes `transform` legal on a plain chart
   const declared = Array.isArray(layersRaw) && layersRaw.length > 0;
-  const binders = declared ? layersRaw.map(wellFormedLayer).filter((layer): layer is LayerDecl => layer !== undefined).map(binderOfLayer) : [binderOfView(viewId, view)];
+  const binders = bindersOf(viewId, layersRaw, view);
   const layerless = !declared;
   if (!isObject(raw)) {
     problems.push(`${where}.frame, if present, must be an object mapping channel -> ${layerless ? '{ transform?: "linear" | "log" }' : '{ mode: "shared" | "independent" }'}`);
@@ -212,6 +212,88 @@ export function validateFrame(raw: unknown, where: string, viewId: string, layer
     if (resolution === undefined) continue; // refused on its own line above; not refused again through its laws
     judgeChannelLaws(`${where}.frame.${channel}`, channel, resolution, binders, data, minted, problems);
   }
+}
+
+/**
+ * WHO A MARK LAW IS JUDGED AGAINST — the declared layers, or the view as its
+ * own one implicit layer. ONE expression, asked by {@link validateFrame} and
+ * by {@link validateDeclaredGestures}, so the frame's laws and the gesture law
+ * can never disagree about which marks a view draws.
+ */
+function bindersOf(viewId: string, layersRaw: unknown, view: FrameView): readonly FrameBinder[] {
+  return Array.isArray(layersRaw) && layersRaw.length > 0
+    ? layersRaw.map(wellFormedLayer).filter((layer): layer is LayerDecl => layer !== undefined).map(binderOfLayer)
+    : [binderOfView(viewId, view)];
+}
+
+/**
+ * THE CHANNEL AN INTERVAL BRUSH RUNS ALONG. The brush this library draws is
+ * HORIZONTAL (`useHorizontalBrush`, `vizfootprint-ui/primitives/brush.tsx`),
+ * and every mark that draws one puts its x on `x` — a scatter's, a line's and
+ * a histogram's bins alike. A bar's own axis may be declared under another
+ * name, and a bar draws no brush, so there is nothing here that has to know
+ * the second spelling.
+ */
+const BRUSH_CHANNEL = 'x';
+
+/**
+ * LAW 13: A BAND IS A RANGE TOO, AND A DECLARED GESTURE THE RENDERER WILL NOT
+ * DRAW IS REFUSED AT THE DOOR — what the door can judge about a declared
+ * `interval`, which is everything the DECLARATION settles.
+ *
+ * WHAT THIS DOOR CAN REFUSE: a view (or a layer) whose mark draws no interval
+ * brush on the scale kind its own x column is DECLARED to have. Two ways to
+ * fail one predicate (`drawsIntervalBrush`, the one owner, which the frame
+ * that has to draw it asks too): a mark that draws no brush at all, and a
+ * CATEGORICAL x — a band, whose drag is a run of slots and lands a `match`.
+ *
+ * WHAT THIS DOOR CANNOT REFUSE: whether the x column IS categorical, wherever
+ * the def does not say so. A field is a band because of its DATA, and a
+ * declared table's types are the PROVIDER's — so a column the def never typed
+ * answers `unknown`, {@link frameScaleOf} answers nothing for it, and this
+ * door declines. That is law 11b's own discipline (`judgeLogarithm`, the
+ * `unit` precedent): refused on evidence, never on ignorance. The rest lives
+ * where the evidence is — the CHART, which knows what it actually drew, and
+ * which on a band delivers the gesture it can (`VizLine`'s band brush) rather
+ * than a silence; and the session's probe guard, which meets the emitted kind
+ * against the declared voice and says so in a sentence.
+ *
+ * A view that declares no capability, or one that cannot be probed at all, is
+ * not judged: the first has the assumed voice (nothing was claimed in these
+ * words) and the second emits nothing, so its `encodings` name no gesture.
+ */
+export function validateDeclaredGestures(
+  viewId: string,
+  layersRaw: unknown,
+  data: unknown,
+  view: FrameView,
+  voice: DeclaredVoice | undefined,
+  problems: string[],
+  minted: ReadonlyMap<string, MintedTable> = NOTHING_MINTED,
+): void {
+  if (voice === undefined || !voice.canProbe || voice.encodings?.includes('interval') !== true) return;
+  for (const binder of bindersOf(viewId, layersRaw, view)) {
+    const field = binder.initial?.[BRUSH_CHANNEL];
+    if (field === undefined) continue; // nothing bound to x: no column, no evidence
+    const scale = frameScaleOf(declaredFacet(data, binder.table, field, minted).type);
+    // the def typed nothing for it — the one thing this door cannot know (see the header)
+    if (scale === undefined || drawsIntervalBrush(binder.chartKind, scale)) continue;
+    problems.push(`${voice.at}: ${intervalGestureRefusal(binder.subject, binder.chartKind, scale, field)}`);
+  }
+}
+
+/**
+ * A VIEW'S DECLARED VOICE, with the address an author fixes it at. The
+ * refusal's address is the `capabilities[]` entry and not the encoding
+ * surface, because the declaration that is wrong is the capability's — the
+ * marks and the bindings are a legitimate picture.
+ */
+export interface DeclaredVoice {
+  /** `capabilities[i].encodings` — the key the refusal tells the author to change. */
+  readonly at: string;
+  readonly canProbe: boolean;
+  /** The kinds as DECLARED, never the implied list: the refusal names the word the author wrote. */
+  readonly encodings?: readonly string[];
 }
 
 /**

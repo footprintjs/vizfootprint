@@ -272,6 +272,61 @@ export function bandCentre(from: number, width: number, index: number): number {
   return bandStart(from, width, index) + width / 2;
 }
 
+/**
+ * WHICH SLOTS A PIXEL RANGE COVERS — the ONE owner of that question, and the
+ * band's half of the drag gesture (`VizLine`'s band brush, handed to
+ * `useHorizontalBrush` through its `select` arm).
+ *
+ * A SLOT IS COVERED WHEN ITS CENTRE IS IN THE RANGE, because the centre is
+ * where the mark stands ({@link bandCentre} — a line's point, a bar's tick,
+ * the frame's merged tick). A slot whose mark the drag never reached would be
+ * a category the reader did not touch, and a band's edges are SLOTS and not
+ * pixels: which pixel a drag stopped on inside a slot says nothing, and only
+ * whether it got past the mark does.
+ *
+ * THE ANSWER IS IN THE BAND'S OWN ORDER, ascending by slot index, whichever
+ * way the drag ran — so a right-to-left drag and a left-to-right one over the
+ * same slots are the same selection. The order is the band's
+ * ({@link bandOrder}) and never the pixel order of a pointer.
+ *
+ * EMPTY IS AN ANSWER: a drag that covers no slot's centre covers NO slot, and
+ * its caller says so ({@link noSlotsCoveredNote}) rather than emitting a
+ * clause over an empty list — an empty keep-list matches nothing
+ * (`matchEmission`'s own law).
+ *
+ * WHY THIS IS NOT `VizBar`'s arithmetic: a bar asks a different question —
+ * which BARS did the pointer press and release on (`VizBar` · `bandAt`, one
+ * pixel to the slot it is inside, clamped into the band) — and the run between
+ * two marks the reader actually pressed is the honest answer there. This is
+ * the question a BRUSH asks: which marks does this span reach. The two
+ * questions share their CLAUSE (`matchEmission` over the slot names, the one
+ * owner of those words), which is what keeps two charts over one band from
+ * meaning two different things.
+ */
+export function slotsCovered(from: number, to: number, count: number, aPx: number, bPx: number): readonly number[] {
+  const width = bandWidth(from, to, count);
+  const lo = Math.min(aPx, bPx);
+  const hi = Math.max(aPx, bPx);
+  const covered: number[] = [];
+  for (let index = 0; index < count; index++) {
+    const centre = bandCentre(from, width, index);
+    if (centre >= lo && centre <= hi) covered.push(index);
+  }
+  return covered;
+}
+
+/**
+ * THE WORDS FOR A DRAG THAT COVERED NO SLOT — the band brush's own sentence,
+ * owned here beside {@link slotsCovered} exactly as {@link excludedNote} owns
+ * the words for what a transform could not place. Said out loud by the chart
+ * (`announce`, the library's one polite live region), because a gesture that
+ * selected nothing is news a sighted reader sees and a screen-reader user
+ * would otherwise meet as silence.
+ */
+export function noSlotsCoveredNote(): string {
+  return 'a drag selects the slots whose points it crosses — this one crossed none, so nothing was selected';
+}
+
 // ── which side a y axis stands on — the second axis of a frame ────────────────
 
 /** Where a chart's y axis stands: the left edge (every chart's default), or the right — the SECOND axis of a two-scale frame (`VizFrame`, law 1). */

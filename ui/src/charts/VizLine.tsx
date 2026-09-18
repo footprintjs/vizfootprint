@@ -48,18 +48,36 @@
  * points (a line does not invent a value for an empty slot). The axis is the
  * band's labels, fitted the way a bar chart fits its own (`fitTick`). Ticks,
  * padding and the logarithm are y's business only; a band has none of them.
- * The time brush and the navigate window are a run's: an interval has no
- * meaning on a band, so a band line draws no brush.
+ * The navigate window is a run's: a band has no between to window.
+ *
+ * A BAND IS A RANGE TOO (law 13) — the BAND BRUSH. Dragging across slots is a
+ * meaningful gesture and this chart draws it, on a band exactly as on a run;
+ * only the CLAUSE differs, because an interval has no meaning on a band (the
+ * string interval predicate compares lexicographically, not in slot order). A
+ * drag selects THE SLOTS WHOSE POINTS IT CROSSES — `slotsCovered`
+ * (`../primitives/scales.ts`, the one owner of that question, which reads the
+ * same `bandCentre` the points are drawn at) — and lands them as the MATCH a
+ * band already speaks (`matchEmission`), which is the very clause `VizBar`'s
+ * own drag over one band lands, so two charts over one band cannot mean two
+ * different things. The order is the BAND'S (`bandOrder`), so a right-to-left
+ * drag and a left-to-right one over the same slots are one selection. A drag
+ * that crosses no point selects nothing and SAYS SO (`noSlotsCoveredNote`,
+ * announced) rather than emitting an empty keep-list, and a sub-4px release is
+ * the brush's tap arm, which on a band releases the match.
  */
 import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
-import { linearScale, extent, ticks, epochOf, dayOf, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, bandOrder, bandWidth, bandCentre, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
+import type { RenderSelection } from '../contract/types.js';
+import { linearScale, extent, ticks, epochOf, dayOf, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, bandOrder, bandWidth, bandCentre, slotsCovered, noSlotsCoveredNote, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
 import { TICK_ANGLE, fitTick } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
 import { scaleHueStyle } from '../primitives/scaleHue.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
+import { matchEmission } from '../primitives/pointSelect.js';
+import { markClass, selectedSet } from '../primitives/useSelection.js';
+import { announce } from '../primitives/announce.js';
 import { useReencodePicker } from '../primitives/reencode.js';
 import { boundField } from './binding.js';
 import { EncodingPicker } from './EncodingPicker.js';
@@ -121,6 +139,19 @@ export interface VizLineProps {
    * named on the axis and emitted on a gesture alike.
    */
   readonly encoding?: ViewEncoding;
+  /**
+   * The clause-addressable crossfilter selection (RP-1) — read for ONE thing:
+   * on a BAND, which slots this view's own clause holds, outlined on their
+   * points (`selectedSet`/`markClass`, `VizBar`'s own two). That closes the
+   * band brush's round trip: the match a drag emits comes back through the
+   * read door and the chart draws it in the SAME slots it selected.
+   *
+   * A RUN reads nothing from it: a dated line's own clause is an INTERVAL, and
+   * an interval names no point to outline — the brush overlay is what a run
+   * shows of its own selection. So a continuous-x line is byte-identical with
+   * or without this prop.
+   */
+  readonly selection?: RenderSelection;
   /**
    * Columns the x picker may treat as date-capable even when their REPORTED
    * type is not `'date'` (providers type ISO-8601 strings as `'string'` —
@@ -479,6 +510,22 @@ export function VizLine(props: VizLineProps): JSX.Element {
     return best;
   };
 
+  // THE VIEW'S OWN SET — read for the band's outlines and for the POLARITY a band drag keeps (`VizBar` ·
+  // `endRun` passes the same `set.exclude`: a drag inside an exclude-set removes from it, it never flips).
+  // With no `selection` it is the empty keep-set, so `markClass` returns '' and a run is untouched.
+  const set = selectedSet(undefined, props.selection);
+  // A BAND DRAG IS A RUN OF SLOTS, NOT AN INTERVAL (law 13): the slots whose POINTS the drag crossed
+  // (`slotsCovered`, the one owner), named in the BAND's order, landed as the match `VizBar` lands over the
+  // same band. No slot crossed ⇒ NOTHING, said out loud — never an empty keep-list, which matches nothing.
+  const selectSlots = (names: readonly string[], loPx: number, hiPx: number): ChartEmission | null => {
+    const covered = slotsCovered(pad.l, width - pad.r, names.length, loPx, hiPx);
+    if (covered.length === 0) {
+      announce(noSlotsCoveredNote());
+      return null;
+    }
+    return matchEmission(dateField, covered.map((at) => names[at]!), set.exclude);
+  };
+
   // drag→interval on time — the brush primitive's completion discipline (a
   // sub-4px release clears); snap-to-data = the nearest DISTINCT data date per
   // endpoint, so the emitted bounds are actual column values (or nothing).
@@ -497,12 +544,12 @@ export function VizLine(props: VizLineProps): JSX.Element {
       // types + evaluates [string, string] — the documented cast, nowhere else.
       return [lo.key, hi.key] as unknown as [number, number];
     },
+    // the two BAND arms, absent on a run so a dated line is byte-identical to the chart before law 13: the
+    // drag lands its slots, and the sub-4px release releases the MATCH (a cleared interval would name a
+    // clause this x cannot hold — the brush's default tap arm is the run's)
+    ...(band === undefined ? {} : { select: (loPx: number, hiPx: number) => selectSlots(band, loPx, hiPx), onTap: (): void => onEmit?.(matchEmission(dateField, null)) }),
     onEmit,
   });
-  // A BAND LINE DRAWS NO BRUSH: an interval has no meaning on a band (the string interval predicate compares
-  // lexicographically, not in slot order), and a run of crossed slots is `VizBar`'s match law — a kind this
-  // chart does not claim. So the handlers and the overlay ride only on a run of dates.
-  const brushHandlers = band === undefined ? handlers : {};
 
   const { pickerChannel, openPicker, closePicker } = useReencodePicker(onReencodeRequest);
 
@@ -556,7 +603,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
         viewBox={`0 0 ${width} ${height}`}
         role="img"
         aria-label={(props.ariaLabel ?? `${yLabel} over ${xLabel}`) + excludedNote(excluded) + zeroNotes.map((note) => ` — ${note}`).join('')}
-        {...brushHandlers}
+        {...handlers}
       >
         {/* axes frame — absent while the FRAME draws one merged guide for the stack; the x half absent
             while the frame draws x once and this chart draws only its own y (`axes: 'y'`) */}
@@ -620,7 +667,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
                 />
               ))}
             {s.points.map((p) => (
-              <circle key={p.key} className="vzf-line-dot" cx={xOf(p.at)} cy={y(p.mean)} r={3.5} fill={seriesColor(s.name)}>
+              <circle key={p.key} className={`vzf-line-dot${band === undefined ? '' : markClass(p.key, set)}`} cx={xOf(p.at)} cy={y(p.mean)} r={3.5} fill={seriesColor(s.name)}>
                 <title>{`${nameOf(p.key)}${s.name ? ' · ' + s.name : ''} · mean ${yLabel} ${Math.round(p.mean * 100) / 100} (${p.n} row${p.n === 1 ? '' : 's'})`}</title>
               </circle>
             ))}
@@ -639,8 +686,9 @@ export function VizLine(props: VizLineProps): JSX.Element {
             ))}
           </g>
         )}
-        {/* brush — a run's; a band draws none (see `brushHandlers`) */}
-        {band === undefined && <BrushOverlay brush={brush} y={top} height={height - top - pad.b} />}
+        {/* the live drag rectangle — the SAME overlay on a run and on a band (law 13): what differs is the
+            clause the release lands, never whether a reader can see the drag they are making */}
+        <BrushOverlay brush={brush} y={top} height={height - top - pad.b} />
         {/* interactive axis labels — the re-encode affordance rides the guide, so the frame owns both or neither;
             the y label faces its edge: rotated to read upward on the left, downward on the right */}
         {drawX && <AxisLabel x={(pad.l + width - pad.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />}

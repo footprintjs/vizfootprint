@@ -906,7 +906,8 @@ describe('layeredRenderer — the capabilities are the marks it was told to draw
     const bars = layeredRenderer({ layers: { a: { kind: 'bar' }, b: { kind: 'bar' } } }).mount(document.createElement('div'), { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks() });
     expect(bars.hello.capabilities).toMatchObject({ canBrush: false, canPointSelect: true, canLayer: true, emissionKinds: ['point', 'match'] });
     const mixed = layeredRenderer({ layers: { a: { kind: 'point' }, b: { kind: 'line' } } }).mount(document.createElement('div'), { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks() });
-    expect(mixed.hello.capabilities).toMatchObject({ canBrush: true, canPointSelect: false, canHighlight: true, emissionKinds: ['interval'] });
+    // law 13: a LINE in the stack adds the `match` its band brush lands beside the `interval` its run brush does
+    expect(mixed.hello.capabilities).toMatchObject({ canBrush: true, canPointSelect: false, canHighlight: true, emissionKinds: ['interval', 'match'] });
     // a bar's highlight is a promise about the SPEC: it can only draw the share the host aggregated
     expect(bars.hello.capabilities.canHighlight).toBe(false);
     const bright = layeredRenderer({ layers: { a: { kind: 'bar', highlightCountField: 'bright' } } }).mount(document.createElement('div'), { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks() });
@@ -1637,6 +1638,53 @@ describe('the frame renderer — zero is a place on the axis', () => {
     const { el, m } = mountFrame({ layers: { a: { kind: 'point' }, b: { kind: 'line' } } });
     m.update(framed([POINTS_LAYER, LINE_LAYER], XY_FRAME));
     expect(el.innerHTML).not.toContain('vzf-zero');
+    m.unmount();
+  });
+});
+
+/**
+ * A BAND IS A RANGE TOO (law 13) — the frame renderer's half: a mark THE STATE
+ * LEAVES MUTE is refused by name, in the sentence the def door says with an
+ * address in front of it. The predicate is the door's own too
+ * (`drawsIntervalBrush`), so a def the door accepts is never a gesture the
+ * renderer refuses.
+ */
+describe('the frame renderer — a band is a range too (law 13)', () => {
+  const HIST_LAYER: RenderLayer = { layerId: 'a', table: 'bins', rows: [{ shelf: 'Casual', count: 4 }, { shelf: 'Formal', count: 2 }], encodings: { x: 'shelf', y: 'count' } };
+
+  it('A MARK THE STATE LEAVES MUTE IS REFUSED BY NAME — a histogram whose bins were folded as CATEGORIES', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'histogram' } } }, ['a']);
+    m.update(framed([HIST_LAYER], { x: SHARED('categorical', ['Casual', 'Formal']), y: SHARED('quantitative', [0, 10]) }));
+    expect(refusalOf(el)).toBe('layer "a" declares it emits an interval, but its x is the category column "shelf" — a band has no between for an interval, so a drag across a histogram\'s slots is a RUN of them; declare encodings: ["match"], or bind x to a date or a number');
+    // the same stack over a NUMBER x is the histogram it always was — drawn, no sentence
+    m.update(framed([{ ...HIST_LAYER, rows: [{ x0: 0, x1: 10, count: 4 }], encodings: { x: 'x0', y: 'count' } }], { x: SHARED('quantitative', [0, 10]), y: SHARED('quantitative', [0, 10]) }));
+    expect(refusalOf(el)).toBe('');
+    m.unmount();
+  });
+
+  it('A LINE ON A BAND IS NEVER REFUSED — it declares the `match` its band brush lands, so the state leaves it a voice', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'line' } } }, ['a']);
+    const line: RenderLayer = { layerId: 'a', table: 'trend', rows: [{ shelf: 'Casual', v: 1 }, { shelf: 'Formal', v: 2 }], encodings: { x: 'shelf', y: 'v' } };
+    m.update(framed([line], { x: SHARED('categorical', ['Casual', 'Formal']), y: SHARED('quantitative', [0, 10]) }));
+    expect(refusalOf(el)).toBe('');
+    // …and it drew the band: one point per slot, and the drag rectangle's own hook is live on it
+    expect(el.querySelectorAll('circle.vzf-line-dot')).toHaveLength(2);
+    m.unmount();
+  });
+
+  it('a channel the frame folded NOTHING for carries no evidence — no scale kind, no refusal (the zero guide\'s own law)', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'histogram' } } }, ['a']);
+    // x is left to the layers: there is no folded scale kind, so the frame declines to judge the gesture
+    m.update(framed([HIST_LAYER], { x: { mode: 'independent', guide: 'per-layer' } as ResolvedChannel, y: SHARED('quantitative', [0, 10]) }));
+    expect(refusalOf(el)).toBe('');
+    m.unmount();
+  });
+
+  it('a mark that declares NO interval is not judged at all — a bar\'s drag was always a match', () => {
+    const { el, m } = mountFrame({ layers: { a: { kind: 'bar' } } }, ['a']);
+    const bars: RenderLayer = { layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }], encodings: { category: 'shelf', y: 'count' } };
+    m.update(framed([bars], { category: SHARED('categorical', ['Casual']), y: SHARED('quantitative', [0, 10]) }));
+    expect(refusalOf(el)).toBe('');
     m.unmount();
   });
 });

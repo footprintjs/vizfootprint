@@ -13,6 +13,12 @@
  *   - snap-to-data honesty: `snap` returning `null` means there is nothing
  *     real to snap to — the brush clears and NO emission fires (an interval
  *     is never fabricated);
+ *   - A BAND IS A RANGE TOO (law 13): a scale whose span is not an interval
+ *     passes `select` instead, and the chart maps the same clamped range to
+ *     its own emission — `VizLine`'s band brush lands the MATCH a drag across
+ *     slots means (`slotsCovered` + `matchEmission`, the two owners of which
+ *     slots and which words). It shares the completion discipline byte for
+ *     byte: `null` is the same nothing a `null` snap is;
  *   - pointer capture, CSS-scale correction (viewBox units vs on-screen
  *     pixels), plot-bounds clamping, and the axis-label guard (a click on a
  *     `.vzf-axis-group` opens the encoding picker and must never start —
@@ -48,6 +54,22 @@ export interface HorizontalBrushOptions {
    */
   snap(loPx: number, hiPx: number): [number, number] | null;
   /**
+   * THE SECOND COMPLETION ARM — what a completed drag selects on a scale whose
+   * span is NOT an interval, and the whole of "a band is a range too" (law 13).
+   * A band has no BETWEEN: a drag across its slots is a RUN of them, which is
+   * the match language every band already speaks, so the chart maps the
+   * clamped pixel range to its own emission through the primitives that own
+   * those words (`slotsCovered` for which slots, `matchEmission` for the
+   * clause — the hook still builds no clause and still never sees a pixel it
+   * did not clamp itself).
+   *
+   * Given, it WINS over {@link HorizontalBrushOptions.snap}: one drag, one
+   * answer. `null` means the drag selected nothing real — the brush clears and
+   * NO emission fires, exactly as a `null` from `snap` does (never fabricate).
+   * Absent, every byte of this hook's behaviour is the one it always had.
+   */
+  select?(loPx: number, hiPx: number): ChartEmission | null;
+  /**
    * A sub-4px release (a click, not a drag). Default: emit the CLEARED
    * interval `{ rawValue: null }` — the scatter/line discipline. A chart
    * with its own tap gesture (the histogram's click-a-bucket) overrides it.
@@ -72,8 +94,13 @@ export interface HorizontalBrush {
   readonly handlers: BrushHandlers;
 }
 
+/** A snapped range as the R3 interval emission — or the same NOTHING a `null` snap has always meant. */
+function intervalOf(rawValue: [number, number] | null, field: string): ChartEmission | null {
+  return rawValue === null ? null : { rawValue, encoding: { kind: 'interval', field } };
+}
+
 export function useHorizontalBrush(options: HorizontalBrushOptions): HorizontalBrush {
-  const { plotLeft, plotRight, width, field, snap, onTap, onEmit } = options;
+  const { plotLeft, plotRight, width, field, snap, select, onTap, onEmit } = options;
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<{ x0: number } | null>(null);
   const [brush, setBrush] = useState<BrushGeometry | null>(null);
@@ -117,13 +144,17 @@ export function useHorizontalBrush(options: HorizontalBrushOptions): HorizontalB
       else onEmit?.({ rawValue: null, encoding: { kind: 'interval', field } });
       return;
     }
-    const rawValue = snap(Math.min(drag.x0, px), Math.max(drag.x0, px));
-    if (rawValue === null) {
-      // nothing to snap to — never fabricate an interval
+    const lo = Math.min(drag.x0, px);
+    const hi = Math.max(drag.x0, px);
+    // ONE completion, two arms: the interval this hook has always snapped, or — on a scale whose span is
+    // not an interval — whatever the chart's own `select` makes of the same clamped range (law 13)
+    const emission = select === undefined ? intervalOf(snap(lo, hi), field) : select(lo, hi);
+    if (emission === null) {
+      // nothing to snap to, or no slot covered — never fabricate a selection
       setBrush(null);
       return;
     }
-    onEmit?.({ rawValue, encoding: { kind: 'interval', field } });
+    onEmit?.(emission);
   };
 
   return {

@@ -63,6 +63,7 @@ import {
   type RenderState,
 } from './types.js';
 import type { GeoFeatureCollection } from '../charts/VizMap.js';
+import type { ResolvedChannel } from 'vizfootprint/def';
 import { buildNetworkFixture, EDGES, WALKABLE, edgesLayer, nodesLayer } from '../adapter/network.fixture.js';
 import { layeredRenderer, networkState, networkLayers, clickMark, clickWalk, type LayeredRendererOptions } from './layered.fixture.js';
 
@@ -194,12 +195,37 @@ function stateFor(viewId: string, st: SessionViewState): RenderState {
   return { rows: ROWS, encodings: st.encodings[viewId] ?? {}, selection, hover: null, theme: THEME, size: SIZE };
 }
 
+/**
+ * A BAND state for the `line` view: the HOST folded its x as CATEGORIES, so
+ * the line stands on slots and its drag is the band brush (law 13). The same
+ * real session, the same real view — only the picture the host shapes differs,
+ * which is exactly the point: band versus run is the x COLUMN's, never a prop.
+ */
+function bandLineState(st: SessionViewState): RenderState {
+  const selection = selectionForView(st.selections, 'line');
+  const keep = keepPredicate(selection);
+  return {
+    rows: ROWS.filter(keep),
+    encodings: { x: 'category', y: 'price' },
+    selection,
+    hover: null,
+    theme: THEME,
+    size: SIZE,
+    frame: { x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'categorical', domain: [...CATS] } as ResolvedChannel },
+  };
+}
+
 function brushGesture(selector: string) {
+  return brushGesture2(selector, 100, 300);
+}
+
+/** The same drag with its endpoints named — a band's slots are 150 apart, so which pixels matter. */
+function brushGesture2(selector: string, from: number, to: number) {
   return (el: HTMLElement): void => {
     const svg = el.querySelector(selector)!;
-    fireEvent.pointerDown(svg, { clientX: 100, pointerId: 1 });
-    fireEvent.pointerMove(svg, { clientX: 300, pointerId: 1 });
-    fireEvent.pointerUp(svg, { clientX: 300, pointerId: 1 });
+    fireEvent.pointerDown(svg, { clientX: from, pointerId: 1 });
+    fireEvent.pointerMove(svg, { clientX: to, pointerId: 1 });
+    fireEvent.pointerUp(svg, { clientX: to, pointerId: 1 });
   };
 }
 
@@ -235,7 +261,9 @@ describe('conformance — all eight first-party charts pass (the reference claim
       },
     });
     expect(report.ok, explain(report)).toBe(true);
-    expect(report.steps).toHaveLength(13);
+    expect(report.steps).toHaveLength(14);
+    // law 13: one declared kind, one gesture, delivered — the reverse of `gesture-emits`
+    expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: interval');
     // a renderer with no cell declaration skips the D30 arm honestly
     expect(report.steps.find((s) => s.step === 'cell')!.detail).toContain('honestly skipped');
     // …and one with no neighbourhood declaration skips the 1.3 walk arm the same way
@@ -248,13 +276,48 @@ describe('conformance — all eight first-party charts pass (the reference claim
     expect(report.gaps.map((g) => g.code)).toEqual(['navigate-unsupported']);
   });
 
-  it('VizLine (date-interval brush)', async () => {
-    const report = await runFor(lineRenderer(), 'line', { gesture: brushGesture('svg.vzf-line') });
+  it('VizLine (date-interval brush) — a RUN state delivers the interval, and says it does not deliver the band\u2019s match', async () => {
+    // law 13: a line declares BOTH kinds at mount (its x may be a run or a band) and this state is a
+    // RUN — so the plan names what this picture delivers, and the match arm skips honestly instead of
+    // demanding a gesture no dated line has
+    const report = await runFor(lineRenderer(), 'line', { gesture: brushGesture('svg.vzf-line'), stateKinds: ['interval'] });
     expect(report.ok, explain(report)).toBe(true);
     const [emission] = report.emissions;
     expect(emission!.encoding).toEqual({ kind: 'interval', field: 'date' });
     const range = emission!.rawValue as unknown as [string, string];
     expect(range[0] < range[1]).toBe(true); // ISO bounds, snapped to real data dates
+    expect(report.steps.find((s) => s.step === 'match')!.detail).toBe('the renderer declares match, and this state does not deliver it — the match arm is honestly skipped');
+    expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: interval (of interval+match, this state delivers interval)');
+  });
+
+  it('VizLine over a BAND — the whole loop closes on the gesture the chart used to refuse (law 13, the measured defect)', async () => {
+    // THE DEFECT: on the protein desk this exact chart drew NO brush element and a drag changed nothing
+    // (185 dots before, 185 after) while the def declared the view emits an interval. Now the drag
+    // selects the slots it crossed and lands the MATCH a band speaks — through the REAL session, read
+    // back through the REAL door, and drawn again by the chart in the same slots.
+    const { view } = await buildFixture();
+    const report = await runConformance({
+      renderer: lineRenderer(),
+      viewId: 'line',
+      el: mountEl(),
+      view,
+      buildState: bandLineState,
+      // slots at 127 / 277 / 427 over the 520-wide plot: this drag crosses the middle point alone
+      gesture: brushGesture2('svg.vzf-line', 250, 300),
+      // …and the many-values gesture crosses two of them
+      matchGesture: brushGesture2('svg.vzf-line', 100, 300),
+      stateKinds: ['match'],
+      verifyUpdate: (el) => el.querySelector('circle.vzf-line-dot.vzf-selected') !== null,
+    });
+    expect(report.ok, explain(report)).toBe(true);
+    // the frame's band order is CATS = Casual · Formal · Party, so the slots sit at 127 · 277 · 427
+    expect(report.emissions).toEqual([
+      { rawValue: { values: ['Formal'] }, encoding: { kind: 'match', field: 'category' } },
+      { rawValue: { values: ['Casual', 'Formal'] }, encoding: { kind: 'match', field: 'category' } },
+    ]);
+    expect(report.steps.find((s) => s.step === 'match')!.detail).toContain('ONE match commit over 2 values');
+    // the interval this state cannot deliver is NAMED, not silently forgiven
+    expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: match (of interval+match, this state delivers match)');
   });
 
   it('VizBar (point select on the category)', async () => {
@@ -552,12 +615,60 @@ describe('conformance — hostile renderers are caught at the exact step', () =>
     await expectFailAt(report, 'crossfilter-returns', 'renderer-static');
   });
 
+  it('LAW 13 — a renderer that DECLARES a kind no gesture delivered for this state fails declared-delivered, by name', async () => {
+    // the shape of the measured defect: a hello that promises a drag the state it was handed cannot
+    // answer. `gesture-emits` cannot see it — that step holds emissions to the declared kinds, and a
+    // point IS declared; this one holds every declared kind to a gesture that delivered it.
+    const report = await runFor(
+      stubRenderer({ capabilities: { emissionKinds: ['point', 'interval'] }, emission: point('price', 100) }),
+      'zoomy',
+      { gesture: clickProbe },
+    );
+    const last = report.steps[report.steps.length - 1]!;
+    expect([last.step, last.ok]).toEqual(['declared-delivered', false]);
+    expect(last.detail).toBe('the renderer declares interval and no gesture delivered it for this state — declare only what this mount delivers, or name this state\'s kinds in the plan');
+    // every earlier step passed: the kit used to call this renderer conformant
+    expect(report.steps.slice(0, -1).every((step) => step.ok), explain(report)).toBe(true);
+  });
+
+  it('LAW 13 — the same renderer PASSES once the plan says which kinds this state delivers, and the detail says which', async () => {
+    const report = await runFor(
+      stubRenderer({ capabilities: { emissionKinds: ['point', 'interval'] }, emission: point('price', 100) }),
+      'zoomy',
+      { gesture: clickProbe, stateKinds: ['point'] },
+    );
+    expect(report.ok, explain(report)).toBe(true);
+    expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: point (of point+interval, this state delivers point)');
+  });
+
+  it('LAW 13 — a plan naming a kind the renderer never declared is ignored: the declaration is the RENDERER\u2019s', async () => {
+    const report = await runFor(
+      stubRenderer({ capabilities: { emissionKinds: ['point'] }, emission: point('price', 100) }),
+      'zoomy',
+      { gesture: clickProbe, stateKinds: ['point', 'cell'] },
+    );
+    expect(report.ok, explain(report)).toBe(true);
+    // no cell arm was demanded, and the delivery check names only what the hello claimed
+    expect(report.steps.find((s) => s.step === 'cell')!.detail).toBe('the renderer declares no cell emissions — the cell arm is honestly skipped');
+    expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: point (of point, this state delivers point)');
+  });
+
+  it('LAW 13 — a MUTE state is named too: a renderer whose every declared kind this state cannot deliver delivers none', async () => {
+    const report = await runFor(
+      stubRenderer({ capabilities: { emissionKinds: ['point', 'match'] }, emission: point('price', 100) }),
+      'zoomy',
+      { gesture: clickProbe, stateKinds: [] },
+    );
+    expect(report.ok, explain(report)).toBe(true);
+    expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: none (of point+match, this state delivers none)');
+  });
+
   it('a dirty unmount fails the final step', async () => {
     const report = await runFor(stubRenderer({ emission: point('price', 100), dirtyUnmount: true }), 'dirty', {
       gesture: clickProbe,
     });
     await expectFailAt(report, 'unmount', 'left');
-    expect(report.steps.filter((s) => s.ok)).toHaveLength(12); // everything else passed (incl. the honest cell + match + neighbourhood + layers skips)
+    expect(report.steps.filter((s) => s.ok)).toHaveLength(13); // everything else passed (incl. the honest cell + match + neighbourhood + layers skips, and law 13's delivery check)
   });
 
   it('a renderer DECLARING the cell kind but given no cellGesture fails the cell arm honestly', async () => {
@@ -598,6 +709,24 @@ describe('conformance — hostile renderers are caught at the exact step', () =>
   it('a match gesture that emits a NON-match emission fails the match arm', async () => {
     const report = await runFor(stubRenderer({ ...MATCH_CAPS }), 'static', { gesture: clickProbe, verifyUpdate: () => true, matchGesture: clickProbe });
     await expectFailAt(report, 'match', 'no match emission');
+  });
+
+  it('LAW 13 — TWO undelivered kinds are named together, plural and all', async () => {
+    // a hello claiming three kinds whose every gesture lands the same match: the `match` arm passes,
+    // and the delivery check names BOTH kinds nothing delivered, in one sentence
+    const twoValues = (values: readonly string[]): ChartEmission => ({ rawValue: { values }, encoding: { kind: 'match', field: 'category' } });
+    const report = await runFor(
+      stubRenderer({
+        capabilities: { emissionKinds: ['point', 'interval', 'match'] },
+        emission: twoValues(['Casual', 'Formal']),
+        matchEmissions: [twoValues(['Casual', 'Party'])],
+      }),
+      'static',
+      { gesture: clickProbe, verifyUpdate: () => true, matchGesture: clickMatchProbe },
+    );
+    const last = report.steps[report.steps.length - 1]!;
+    expect([last.step, last.ok]).toEqual(['declared-delivered', false]);
+    expect(last.detail).toBe('the renderer declares point+interval and no gesture delivered them for this state — declare only what this mount delivers, or name this state\'s kinds in the plan');
   });
 
   it('a match the session REFUSES (a ghost field) lands zero commits — one gesture is exactly ONE', async () => {
@@ -707,7 +836,7 @@ describe('conformance — the layers arm (one frame, two tables, a gesture on th
   it('a canLayer renderer passes: both layers drawn, the nodes gesture spoke through the nodes bundle and landed ONE commit under net~nodes', async () => {
     const report = await runNet({});
     expect(report.ok, explain(report)).toBe(true);
-    expect(report.steps).toHaveLength(13);
+    expect(report.steps).toHaveLength(14);
     const layers = report.steps.find((s) => s.step === 'layers')!;
     expect(layers.detail).toBe('both layers drawn; the gesture on "nodes" spoke through its bundle and landed ONE commit under net~nodes');
     // the view's own gesture (step 5) then the layer's — the second through the nodes bundle
@@ -1102,7 +1231,7 @@ describe('conformance — the walk arm (one gesture on a node, one commit, the i
   it('a renderer declaring the walk passes: ONE commit under the EDGES address, the seed inside the set it recorded', async () => {
     const report = await runWalk({ walk: { field: 'source', seed: 'flu' } });
     expect(report.ok, explain(report)).toBe(true);
-    expect(report.steps).toHaveLength(13);
+    expect(report.steps).toHaveLength(14);
     expect(report.steps.find((s) => s.step === 'neighbourhood')!.detail).toBe(
       'the walk gesture landed ONE commit under net~edges: the seed and the 1 node(s) it touches, and its clause is addressable',
     );
