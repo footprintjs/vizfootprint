@@ -92,11 +92,24 @@ honestly skips a kind and a delivery check that demands it can never contradict
 each other. With no `stateKinds` every skip sentence reads exactly as it always
 did, and every declared kind is demanded.
 
+A **third** kind joined the line for the same reason, and the reason is worth
+reading twice: a *reachability* fix changed a gesture, and the declaration had
+to move with it. A band line's TAP used to release the match; it now **selects
+the slot under the pointer** (the reachability law — `../../README.md`, "A mark
+you are meant to press must be REACHABLE"), landing the `point` the bar's own
+click lands, because at 185 slots in 940px a drag was the only gesture that
+could reach a slot at all. So `lineRenderer` declares `interval + match +
+point` and `canPointSelect: true`, and a band state narrows to whichever of
+them its gesture delivers. **A gesture that changes what a mark emits changes
+what its renderer must declare** — a hit area does not (a transparent target
+over a bar emits the bar's own clause and adds no kind, which is why nothing in
+this file moved for it), but a tap that means something new does.
+
 ```ts
 // a RUN state: the line delivers the interval, and says it does not deliver the band's match
 await runConformance({ renderer: lineRenderer(), …, stateKinds: ['interval'] });
 //   match:              the renderer declares match, and this state does not deliver it — the match arm is honestly skipped
-//   declared-delivered: every declared kind this state can deliver was delivered: interval (of interval+match, this state delivers interval)
+//   declared-delivered: every declared kind this state can deliver was delivered: interval (of interval+match+point, this state delivers interval)
 
 // the hostile shape, caught by name
 //   declared-delivered: the renderer declares interval and no gesture delivered it for this state

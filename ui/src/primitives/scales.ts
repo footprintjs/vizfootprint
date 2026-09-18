@@ -316,6 +316,32 @@ export function slotsCovered(from: number, to: number, count: number, aPx: numbe
 }
 
 /**
+ * WHICH SLOT ONE PIXEL IS INSIDE — the ONE owner of that question, and the
+ * other half of a band's pointer arithmetic ({@link slotsCovered} answers it
+ * for a RANGE). A press is a point, not a span: the slot it lands in is the
+ * one whose territory holds it, and a press outside the band clamps to the
+ * nearest end slot, because a pointer that fell in the axis margin still
+ * pressed the chart and the nearest slot is the only honest answer.
+ *
+ * ASKED BY BOTH CHARTS THAT STAND ON A BAND, which is why it is here and not
+ * in either of them: `VizBar` · `bandAt` (one pixel to the bar its drag-run
+ * ends on) and `VizLine`'s band TAP (one pixel to the slot a click selects).
+ * The two used to be one arithmetic spelled once and quoted in a comment;
+ * they are one function now, so a bar's slot and a line's slot cannot drift.
+ *
+ * THE SLOTS TILE THE AXIS, which is the whole reason a press can be answered
+ * at all when the marks are 5px apart — and also the reason a pointer TARGET
+ * may never be wider than one ({@link pointerTargetWidth}): overlapping
+ * targets would make a press land on a neighbour.
+ *
+ * `count === 0` answers `-1` — no slot, because there is no band. Its caller
+ * reads that as "nothing was pressed" rather than as slot 0.
+ */
+export function slotAt(from: number, to: number, count: number, px: number): number {
+  return Math.min(count - 1, Math.max(0, Math.floor((px - from) / bandWidth(from, to, count))));
+}
+
+/**
  * THE WORDS FOR A DRAG THAT COVERED NO SLOT — the band brush's own sentence,
  * owned here beside {@link slotsCovered} exactly as {@link excludedNote} owns
  * the words for what a transform could not place. Said out loud by the chart
@@ -549,4 +575,77 @@ export function logTickLabel(v: number): string {
 export function excludedNote(n: number): string {
   if (!(n > 0)) return '';
   return ` — ${n} ${n === 1 ? 'value is' : 'values are'} not drawn: a logarithmic axis has no place for zero or a negative number`;
+}
+
+// ── a mark a reader is meant to press must be REACHABLE (the pointer target) ──
+
+/**
+ * THE SMALLEST PRESSABLE TARGET, and the number is NOT ours: **24**. Its
+ * source is WCAG 2.2 Success Criterion 2.5.8 *Target Size (Minimum)*, Level AA,
+ * a W3C Recommendation (<https://www.w3.org/TR/WCAG22/#target-size-minimum>),
+ * which puts the floor of a pointer target at 24 by 24 CSS pixels. The enhanced
+ * criterion (2.5.5, Level AAA) asks 44, and the platform guidelines sit near
+ * it (Apple 44pt, Material 48dp); AA is the floor a library may impose on
+ * every host's picture, and a host that wants the enhanced one widens its pane.
+ *
+ * IN VIEWBOX UNITS, which is the honest way to say it here: a chart draws in
+ * its own viewBox and CSS scales the result. Under `<ChartFrame>` — how every
+ * first-party chart is sized, viewBox == the measured CSS box — one unit IS
+ * one CSS pixel and the floor is literally the criterion's. A host that scales
+ * a chart's svg down is scaling the targets with it, which is the host's own
+ * floor to keep (`ui/README.md`, "what this does not promise").
+ *
+ * THE MEASURED DEFECT it exists for: 185 bars across a 940px pane, about 5px
+ * each, and a browser driver refused to click one — the target was not a
+ * target at all.
+ */
+export const MIN_POINTER_TARGET = 24;
+
+/**
+ * HOW WIDE A MARK'S POINTER TARGET MAY BE on a band of this slot width: the
+ * minimum, or the SLOT when the slot is narrower.
+ *
+ * A HIT AREA IS NOT A MARK — widen the target, never the drawing: a bar whose
+ * width lied about its category would be worse than a bar that is hard to
+ * press. So the target is a transparent surface OVER the mark and the mark
+ * keeps the geometry the data gave it.
+ *
+ * AND WHEN THE TARGETS WOULD OVERLAP THEY CANNOT ALL BE HONOURED. At 185 slots
+ * in 940px the minimum is five times the slot, and targets that overlapped
+ * would make a press land on a NEIGHBOUR — a click that selects the wrong
+ * residue is worse than a click that misses. The slots TILE the axis
+ * ({@link bandStart}), so bounding the target by the slot is exactly the
+ * bound that keeps them disjoint, and what the chart owes the reader then is
+ * to SAY SO ({@link crowdedMarksNote}) rather than to promise a reach it does
+ * not have.
+ *
+ * Never negative: {@link bandWidth}, the one owner of a slot's width, clamps
+ * at zero before this ever sees it.
+ */
+export function pointerTargetWidth(slot: number): number {
+  return Math.min(MIN_POINTER_TARGET, slot);
+}
+
+/**
+ * THE WORDS FOR MARKS TOO CLOSE TOGETHER TO PRESS ONE AT A TIME — said out
+ * loud in the picture and in the accessible name, exactly as {@link
+ * excludedNote} says what a transform could not place, and owned here beside
+ * it for the same reason: it is the same kind of fact (something the reader
+ * can see is there but cannot fully get at), and one owner means two charts
+ * cannot word it two ways.
+ *
+ * DERIVED FROM THE MEASURED SLOT, never from the row count: the reader's
+ * problem is pixels, and the same 185 marks in a 3000px pane have no problem
+ * at all. Returned WITH its leading separator and EMPTY when the slots are
+ * wide enough, so a chart appends it in one expression and an uncrowded chart
+ * is byte-identical to the one that existed before this key.
+ *
+ * THE BOUNDARY, decided and pinned: a slot of EXACTLY {@link
+ * MIN_POINTER_TARGET} is not crowded. The minimum is honoured there in full —
+ * `pointerTargetWidth(24)` is 24 — so there is nothing to confess, and the
+ * predicate is `slot < MIN_POINTER_TARGET` rather than `<=`.
+ */
+export function crowdedMarksNote(slot: number): string {
+  if (!(slot < MIN_POINTER_TARGET)) return '';
+  return ` — the marks are closer together than a pointer can separate: each slot is ${String(Math.round(slot * 10) / 10)}px wide where a pointer target needs ${String(MIN_POINTER_TARGET)}px, so a press may land on a neighbouring mark`;
 }

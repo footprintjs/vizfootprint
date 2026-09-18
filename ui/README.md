@@ -252,7 +252,9 @@ Four rules, and each of them is a test:
 - **A drag that crosses no point selects nothing and SAYS SO** — announced
   politely through the library's one live region, never an empty keep-list
   (which would match nothing). A sub-4px release is the brush's tap arm, which
-  on a band RELEASES the match.
+  on a band **selects the slot under the pointer** — see the next section; it
+  used to release the match, which left a 5px slot reachable by nothing but a
+  drag.
 - **It round-trips.** The match comes back through the read door and the chart
   outlines the same slots' points (`selection`, read on a band only — a dated
   line's own clause is an interval, which names no point to outline, so a
@@ -277,6 +279,102 @@ their literal names. The frame's merged time axis still spells the default,
 so a host's format does not yet reach a layered line.
 
 ![the time series](gallery/screenshots/gallery-line.png)
+
+## A mark you are meant to press must be REACHABLE
+
+This one is also a defect measured on a real page, and it is the plainest kind
+there is: **a reader could not hit anything.** The cross-chain bar chart drew
+**185 bars across a 940px pane — about 5px each** — and a browser driver refused
+to click one, reporting the target as not stable. The library offered a host
+nothing at all: no minimum mark width, no hit area, no band floor. `bandWidth`
+clamps at zero and divides by `max(1, count)`, so a slot just kept getting
+smaller until nobody could press it. A host could widen the pane or aggregate
+upstream, and nothing else.
+
+Three parts. The third is the one that keeps it honest.
+
+### A tap on a band selects its slot
+
+A band line's short click now **selects the slot under the pointer** instead of
+releasing the match. It lands the clause a bar chart's own click lands
+(`clickEmission` against the view's live set, byte for byte — the same reason
+the band brush lands the bar's `match`), so a 5px slot is reachable with one
+click, with no geometry change and no new prop.
+
+**The release is still reachable**, in the place every other chart in this
+library puts it: **click the selected mark again and it clears.** That is
+`clickEmission`'s own click-again-clears arm — the same gesture that releases a
+bar's category and a histogram's bucket — so there is no second release gesture
+to learn.
+
+### A target is never smaller than a finger
+
+**A hit area is not a mark.** Widen the *target*, never the drawing: a bar whose
+width lied about its category would be worse than a bar that is hard to press.
+So each pressable bar carries a **transparent pointer target over its whole slot
+column** (`.vzf-mark-hit`, full plot height) and the bar itself is drawn exactly
+as the data says. That fixes both halves of the reach problem at once — a 5px
+slot and a bar of 2 in a chart of 900, which is 0.6px of drawn height.
+
+The minimum is **`MIN_POINTER_TARGET` = 24** (`primitives/scales.ts`), and the
+number is not ours: it is **WCAG 2.2 Success Criterion 2.5.8 _Target Size
+(Minimum)_, Level AA** — a W3C Recommendation that puts the floor of a pointer
+target at 24 by 24 CSS pixels. (The enhanced criterion, 2.5.5 at Level AAA, asks
+44, and the platform guidelines sit near it: Apple 44pt, Material 48dp. AA is
+the floor a library may impose on every host's picture; a host that wants the
+enhanced one widens its pane.) It is measured in **viewBox units**, which under
+`<ChartFrame>` — how every first-party chart is sized, viewBox == the measured
+CSS box — is literally one CSS pixel each.
+
+It is the third such column in the library and the first with a floor: a
+histogram bucket (`.vzf-hist-hit`) and a box plot's category (`.vzf-box-hit`)
+already carry full-height transparent hit columns, and those two take the
+**whole** band — they are the mark's territory, and they carry the `role` and
+the keyboard because a bucket and a box never had one of their own. A bar
+already **is** the accessible button, so its target is `aria-hidden` and adds
+no second button per category: one mark, one button, and the target is a
+pointer affordance only.
+
+### …and when the targets would overlap, they cannot all be honoured
+
+At 185 slots in 940px a 24px target is **five times the slot**. Silently
+overlapping targets would make a press land on a **neighbour**, and a click that
+selects the wrong residue is worse than a click that misses. So:
+
+- the target is **`min(the minimum, the slot)`** (`pointerTargetWidth`) — the
+  slots tile the axis, so bounding by the slot is exactly the bound that keeps
+  every target disjoint;
+- and when the slot is under the minimum the chart **says the marks are closer
+  together than a pointer can separate** (`crowdedMarksNote`), in the picture
+  and in its accessible name, in the same register it says a value is not drawn
+  (`.vzf-crowded-note` beside `.vzf-excluded-note`). One sentence, **derived
+  from the measured slot width** and not from the row count — the same 185 marks
+  in a 3000px pane have no problem at all — and absent when the slots are wide
+  enough:
+
+> the marks are closer together than a pointer can separate: each slot is 4.8px
+> wide where a pointer target needs 24px, so a press may land on a neighbouring
+> mark
+
+The boundary is decided and pinned: a slot of **exactly 24** is not crowded (the
+minimum is honoured there in full, so there is nothing to confess).
+
+A band line needs no target rect of its own: its hit surface is the svg-level
+brush, whose slots **tile** the plot, so the slot *is* the target and two
+targets can never overlap. It carries the same sentence for the same reason —
+what a 5px slot cannot promise is *which* slot a press lands in.
+
+### What this does NOT promise
+
+- **It makes a mark reachable, not legible.** A pane may still be far too small
+  to read; that is the host's own floor to keep, and a host that wants one
+  should keep it (the protein workbench's `AXIS_ROOM`, folded from this
+  library's own `framePad`, is what one looks like).
+- **Nothing here aggregates.** If 185 slots are too many to press one at a time,
+  that is the host's decision about what its picture is *about* — the library
+  will not thin a band behind its back.
+- **A host that scales a chart's svg down scales the targets with it.** The
+  minimum is in viewBox units, and CSS has the last word on how big those are.
 
 ## VizMap — click a region
 
@@ -644,6 +742,8 @@ What each primitive is, and what contract behavior it guarantees:
 | `selectedValue` | The controlled-prop rule for a chart's own outline. | An explicit `selected` prop wins; otherwise the outline derives from the session fold — never from private chart state. |
 | `<AxisLabel>` + `useReencodePicker` + `defaultCompat` | The interactive axis label and its two-mode dispatch. | In contract mode the HOST owns the picker (`reencodeRequest`); the built-in picker disables incompatible columns **with the reason**. |
 | `zeroGuideFor` + `zeroGuideNotes` | Zero is a place on the axis: whether a declared zero guide is drawn, and the words for one that cannot be. | The guide is **declared, never automatic** (a picture that changed its own furniture with the data would say nothing about why), it is **named for zero and not the centre**, and an axis with no zero on it is **refused in one sentence** — in the plot and in the accessible name — rather than clamped to an edge or silently dropped. |
+| `bandWidth` / `bandStart` / `bandCentre` / `slotsCovered` / `slotAt` | The one slot geometry every mark on a band places itself by — plus which slots a drag's pixel RANGE covers, and which slot ONE pixel is inside. | A bar's slot and a line's point for one category sit at **one x by construction**, and a press and a drag over one band can never answer in two different slot orders. |
+| `MIN_POINTER_TARGET` + `pointerTargetWidth` + `crowdedMarksNote` | A mark you are meant to press must be reachable: the WCAG 2.2 AA floor of 24, the target width that honours it **or the slot when the slot is narrower**, and the words for marks a pointer cannot separate. | A hit area is **not a mark** — widen the target, never the drawing. Targets are bounded by the slot so a press can never land on a **neighbour**, and a chart that cannot honour the floor **says so** in the picture and in its accessible name instead of promising a reach it does not have. |
 
 The selection derivation itself (`selectionForView`, `keepPredicate`,
 `brightPredicate`, `selfSelectedValue`, `selfSelectedInterval`,

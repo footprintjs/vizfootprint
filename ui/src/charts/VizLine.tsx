@@ -62,20 +62,30 @@
  * different things. The order is the BAND'S (`bandOrder`), so a right-to-left
  * drag and a left-to-right one over the same slots are one selection. A drag
  * that crosses no point selects nothing and SAYS SO (`noSlotsCoveredNote`,
- * announced) rather than emitting an empty keep-list, and a sub-4px release is
- * the brush's tap arm, which on a band releases the match.
+ * announced) rather than emitting an empty keep-list.
+ *
+ * A MARK A READER IS MEANT TO PRESS MUST BE REACHABLE — the sub-4px release (the
+ * brush's TAP arm) SELECTS THE SLOT UNDER THE POINTER on a band (`tapSlot`),
+ * landing the clause `VizBar`'s own click lands (`clickEmission` against this
+ * view's live set). It used to release the match, which left a 5px slot
+ * reachable by nothing but a drag; the release now lives where every other
+ * chart puts it — click the selected slot AGAIN and it clears. No geometry
+ * moved for it: a band line's hit surface is the svg-level brush, whose slots
+ * TILE the plot, so the slot IS the target and two targets can never overlap.
+ * What a narrow slot cannot promise is WHICH slot a press lands in, and that
+ * the chart says out loud (`crowdedMarksNote`) instead of pretending.
  */
 import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { linearScale, extent, ticks, epochOf, dayOf, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, bandOrder, bandWidth, bandCentre, slotsCovered, noSlotsCoveredNote, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
+import { linearScale, extent, ticks, epochOf, dayOf, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
 import { TICK_ANGLE, fitTick } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
 import { scaleHueStyle } from '../primitives/scaleHue.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
-import { matchEmission } from '../primitives/pointSelect.js';
+import { matchEmission, clickEmission } from '../primitives/pointSelect.js';
 import { markClass, selectedSet } from '../primitives/useSelection.js';
 import { announce } from '../primitives/announce.js';
 import { useReencodePicker } from '../primitives/reencode.js';
@@ -454,6 +464,14 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // a bar's slot and this line's point for one category are ONE x by construction. `at` is the slot index there.
   const slot = band === undefined ? 0 : bandWidth(pad.l, width - pad.r, band.length);
   const xOf = (at: number): number => (band === undefined ? x(at) : bandCentre(pad.l, slot, at));
+  // MARKS CLOSER TOGETHER THAN A POINTER CAN SEPARATE, said out loud. A tap reaches every slot however
+  // narrow it is (`tapSlot` below), but WHICH slot a press lands in is the slot's own width: at 185
+  // residues in a 940px pane that is under 5px, and a press a few pixels off lands on a NEIGHBOUR. So the
+  // chart confesses it (`crowdedMarksNote`, ../primitives/scales.ts — the one owner of the words and of
+  // the WCAG floor they name), in its accessible name and in the picture, in the same register it says a
+  // value is not drawn. A RUN takes none: its x is a continuum with no slots to crowd, and its own gesture
+  // is the interval brush — so a dated line is byte-identical to the chart before this packet.
+  const crowded = band === undefined ? '' : crowdedMarksNote(slot);
   // WHICH CURVE THE VALUE AXIS IS DRAWN ON. Only y: this chart's x is a DATE (epoch milliseconds)
   // and a date has no logarithm, so `transform.x` is ignored here — the same law ChartDomain already
   // keeps for a channel a chart has no quantitative scale for.
@@ -526,6 +544,25 @@ export function VizLine(props: VizLineProps): JSX.Element {
     return matchEmission(dateField, covered.map((at) => names[at]!), set.exclude);
   };
 
+  // A TAP ON A BAND SELECTS ITS SLOT. It used to RELEASE the match, which left a 5px slot reachable by
+  // nothing but a drag — the measured defect: 185 residues across a 940px pane, and a browser driver
+  // refused to click one as unstable. So a tap now lands the slot the pointer is inside (`slotAt`, the one
+  // owner of that question — `VizBar` · `bandAt` asks it for the same pixel, so a bar's slot and this
+  // line's slot can never be two different slots), spelled as the clause the BAR's own click lands
+  // (`clickEmission` against this view's live set, byte for byte) — so two charts over one band cannot
+  // mean two different things on the same gesture, and an exclude-set keeps its polarity here exactly as
+  // it does under the drag. THE RELEASE IS STILL REACHABLE, in the place every other chart puts it:
+  // clicking the SELECTED slot again clears it (`clickEmission` → `togglePointEmission`, the
+  // click-again-clears arm `VizBar`'s click and the histogram's click-a-bucket-again both ride).
+  const tapSlot = (names: readonly string[], px: number): void => {
+    const at = slotAt(pad.l, width - pad.r, names.length, px);
+    // NO SLOT AT ALL — a band a frame declared with no categories and no point to name one. Nothing was
+    // pressed and there is nothing to release, so nothing is emitted: the same NOTHING an uncovered drag
+    // lands, and never a fabricated clause.
+    if (at < 0) return;
+    onEmit?.(clickEmission(dateField, names[at]!, set));
+  };
+
   // drag→interval on time — the brush primitive's completion discipline (a
   // sub-4px release clears); snap-to-data = the nearest DISTINCT data date per
   // endpoint, so the emitted bounds are actual column values (or nothing).
@@ -545,9 +582,10 @@ export function VizLine(props: VizLineProps): JSX.Element {
       return [lo.key, hi.key] as unknown as [number, number];
     },
     // the two BAND arms, absent on a run so a dated line is byte-identical to the chart before law 13: the
-    // drag lands its slots, and the sub-4px release releases the MATCH (a cleared interval would name a
-    // clause this x cannot hold — the brush's default tap arm is the run's)
-    ...(band === undefined ? {} : { select: (loPx: number, hiPx: number) => selectSlots(band, loPx, hiPx), onTap: (): void => onEmit?.(matchEmission(dateField, null)) }),
+    // drag lands its slots, and the sub-4px release SELECTS THE SLOT UNDER THE POINTER (`tapSlot` — the
+    // reachability law; the brush's default tap arm is the run's cleared interval, a clause this x cannot
+    // hold at all)
+    ...(band === undefined ? {} : { select: (loPx: number, hiPx: number) => selectSlots(band, loPx, hiPx), onTap: (px: number): void => tapSlot(band, px) }),
     onEmit,
   });
 
@@ -602,7 +640,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
         className={`vzf-chart vzf-line${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={(props.ariaLabel ?? `${yLabel} over ${xLabel}`) + excludedNote(excluded) + zeroNotes.map((note) => ` — ${note}`).join('')}
+        aria-label={(props.ariaLabel ?? `${yLabel} over ${xLabel}`) + excludedNote(excluded) + zeroNotes.map((note) => ` — ${note}`).join('') + crowded}
         {...handlers}
       >
         {/* axes frame — absent while the FRAME draws one merged guide for the stack; the x half absent
@@ -699,6 +737,14 @@ export function VizLine(props: VizLineProps): JSX.Element {
         {excluded > 0 && (
           <text className="vzf-excluded-note" x={width - pad.r} y={bottom - 6} textAnchor="end">
             {excludedNote(excluded).replace(/^ — /, '')}
+          </text>
+        )}
+        {/* the words for marks a pointer cannot separate — bottom-right beside the excluded note, one
+            line above it when both are there (they are two different facts about the same picture and
+            neither may cover the other), and in the accessible name above */}
+        {crowded !== '' && (
+          <text className="vzf-crowded-note" x={width - pad.r} y={bottom - 6 - (excluded > 0 ? 11 : 0)} textAnchor="end">
+            {crowded.replace(/^ — /, '')}
           </text>
         )}
         {/* a zero guide this value axis has no place for, REFUSED IN WORDS — bottom-LEFT, opposite the

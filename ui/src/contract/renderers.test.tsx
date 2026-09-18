@@ -906,8 +906,9 @@ describe('layeredRenderer — the capabilities are the marks it was told to draw
     const bars = layeredRenderer({ layers: { a: { kind: 'bar' }, b: { kind: 'bar' } } }).mount(document.createElement('div'), { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks() });
     expect(bars.hello.capabilities).toMatchObject({ canBrush: false, canPointSelect: true, canLayer: true, emissionKinds: ['point', 'match'] });
     const mixed = layeredRenderer({ layers: { a: { kind: 'point' }, b: { kind: 'line' } } }).mount(document.createElement('div'), { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks() });
-    // law 13: a LINE in the stack adds the `match` its band brush lands beside the `interval` its run brush does
-    expect(mixed.hello.capabilities).toMatchObject({ canBrush: true, canPointSelect: false, canHighlight: true, emissionKinds: ['interval', 'match'] });
+    // law 13: a LINE in the stack adds the `match` its band brush lands beside the `interval` its run brush
+    // does — and the reachability law adds the `point` its band TAP lands, which is a point-select too
+    expect(mixed.hello.capabilities).toMatchObject({ canBrush: true, canPointSelect: true, canHighlight: true, emissionKinds: ['interval', 'match', 'point'] });
     // a bar's highlight is a promise about the SPEC: it can only draw the share the host aggregated
     expect(bars.hello.capabilities.canHighlight).toBe(false);
     const bright = layeredRenderer({ layers: { a: { kind: 'bar', highlightCountField: 'bright' } } }).mount(document.createElement('div'), { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks() });

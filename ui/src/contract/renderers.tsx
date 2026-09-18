@@ -253,23 +253,27 @@ export interface LineRendererOptions {
  * series) the chart's per-date mean is the identity — it never re-aggregates
  * host-prepared data.
  *
- * TWO KINDS, ONE DRAG (law 13): band versus run is a property of the x COLUMN
- * and the hello is fixed at MOUNT, before any state — so a line honestly
- * declares BOTH the `interval` its drag lands over a run of dates and the
- * `match` the same drag lands over a band of categories (`VizLine`'s band
- * brush, `slotsCovered`). Which one a given state delivers is the state's
- * answer, and `runConformance`'s `declared-delivered` step is where a plan
- * says which kinds the state it builds can deliver.
+ * THREE KINDS, TWO GESTURES (law 13, and the reachability law after it): band
+ * versus run is a property of the x COLUMN and the hello is fixed at MOUNT,
+ * before any state — so a line honestly declares ALL of the `interval` its
+ * drag lands over a run of dates, the `match` the same drag lands over a band
+ * of categories (`VizLine`'s band brush, `slotsCovered`), and the `point` its
+ * TAP lands on a band, which is how a 5px slot is reachable with one click
+ * (`VizLine` · `tapSlot`, the bar's own `clickEmission`). `canPointSelect` says
+ * the same thing about the same mount, and for the same reason it cannot be
+ * per-state: a band state delivers it and a run state does not. Which kinds a
+ * given state delivers is the state's answer, and `runConformance`'s
+ * `declared-delivered` step is where a plan says which ones its state can.
  */
 export function lineRenderer(options: LineRendererOptions = {}): Renderer {
   return reactRenderer({
     capabilities: {
       canBrush: true,
-      canPointSelect: false,
+      canPointSelect: true, // on a BAND: a tap selects the slot under the pointer (the reachability law)
       canHighlight: false,
       canReencode: true,
       canPanZoom: false,
-      emissionKinds: ['interval', 'match'],
+      emissionKinds: ['interval', 'match', 'point'],
     },
     render(state, handshake) {
       return lineMark(viewDraw(state, handshake), options);
@@ -1235,8 +1239,9 @@ function runXWords(f: FramedLayer, frame: Readonly<Record<string, ResolvedChanne
  * as in `barRenderer`.
  */
 const MARK_CAPABILITIES: Readonly<Record<FrameChartKind, { readonly brush: boolean; readonly point: boolean; readonly highlight: boolean; readonly kinds: readonly EmissionKind[] }>> = Object.freeze({
-  // a line's drag lands an interval over a run and a MATCH over a band (law 13) — both, because the frame's own x may be either
-  line: { brush: true, point: false, highlight: false, kinds: ['interval', 'match'] },
+  // a line's drag lands an interval over a run and a MATCH over a band (law 13), and its TAP on a band
+  // lands the POINT that makes a 5px slot reachable — all three, because the frame's own x may be either
+  line: { brush: true, point: true, highlight: false, kinds: ['interval', 'match', 'point'] },
   point: { brush: true, point: false, highlight: true, kinds: ['interval'] },
   bar: { brush: false, point: true, highlight: false, kinds: ['point', 'match'] },
   histogram: { brush: true, point: false, highlight: false, kinds: ['interval'] },

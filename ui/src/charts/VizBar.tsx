@@ -9,6 +9,16 @@
  * `onReencodeRequest` asks the HOST (contract mode); otherwise it opens the
  * built-in {@link EncodingPicker} for the categorical channel.
  *
+ * A MARK A READER IS MEANT TO PRESS MUST BE REACHABLE. The drawn bar is a poor
+ * target — 185 categories in a 940px pane make it ~5px wide, and a bar of 2 in
+ * a chart of 200 is ~3px tall — so each bar carries a TRANSPARENT POINTER
+ * TARGET over its whole slot column (`pointerTargetWidth`, the WCAG 2.2 AA
+ * floor of 24, or the SLOT when the slot is narrower) and the bar itself is
+ * drawn exactly as the data says: a hit area is not a mark. Bounded by the
+ * slot because overlapping targets would land a press on a NEIGHBOUR, and
+ * when the slot is under the floor the chart says so (`crowdedMarksNote`) in
+ * the picture and in its accessible name.
+ *
  * ON A FRAME it draws the guide it is told to (`axes`): both its own, none at
  * all while the frame draws one merged guide — or, with `axes="y"`, its COUNT
  * axis alone on the LEFT edge, from zero, in the hue the frame handed it. That
@@ -23,7 +33,7 @@ import type { RenderSelection } from '../contract/types.js';
 import { useRef } from 'react';
 import { TICK_ANGLE, VALUE_CHAR_PX, fitTick, fitsBand } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
-import { bandOrder, bandWidth, bandStart, bandCentre, domainOr, ticks, type ChartDomain } from '../primitives/scales.js';
+import { bandOrder, bandWidth, bandStart, bandCentre, domainOr, ticks, slotAt, pointerTargetWidth, crowdedMarksNote, type ChartDomain } from '../primitives/scales.js';
 import { scaleHueStyle } from '../primitives/scaleHue.js';
 import { clickEmission, matchEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
 import { inSet, markClass, selectedSet } from '../primitives/useSelection.js';
@@ -212,6 +222,18 @@ export function VizBar(props: VizBarProps): JSX.Element {
   const countY = (value: number): number => axisY - (value / max) * plot;
   // value labels are all-or-nothing: omitting only the wide ones would keep the small numbers and drop the large
   const showValues = data.every((d) => fitsBand(String(d.count), band, VALUE_CHAR_PX));
+  // A MARK A READER IS MEANT TO PRESS MUST BE REACHABLE. A bar IS pressable, and the drawn rect is a
+  // terrible target: 185 categories in a 940px pane make it ~5px wide, and a bar of 2 in a chart of 200
+  // is ~3px tall. So each bar gets a TRANSPARENT POINTER TARGET over its whole slot column — full plot
+  // height, `pointerTargetWidth` wide (../primitives/scales.ts, the one owner of that number and of the
+  // WCAG floor behind it) — and THE BAR ITSELF IS DRAWN EXACTLY AS THE DATA SAYS: a hit area is not a
+  // mark, and a bar whose width lied about its category would be worse than a bar that is hard to press.
+  // Bounded by the SLOT, because targets that overlapped would land a press on a NEIGHBOUR; and when the
+  // slot is under the floor this chart SAYS SO (`crowdedMarksNote`, in the picture and in its accessible
+  // name) instead of promising a reach it does not have. Empty when the slots are wide enough, so a chart
+  // whose marks already clear the floor is byte-identical to the one before this packet.
+  const hitWidth = pointerTargetWidth(band);
+  const crowded = crowdedMarksNote(band);
 
   // plain click: read against the view's own set (a member of an exclude-set leaves it; the single
   // kept value clears; anything else selects a point); shift/⌘/ctrl-click: toggle in the SET — SET-1
@@ -223,7 +245,10 @@ export function VizBar(props: VizBarProps): JSX.Element {
     const box = svgRef.current?.getBoundingClientRect();
     const sx = box !== undefined && box.width > 0 ? (e.clientX - box.left) * (width / box.width) : e.clientX;
     if (!Number.isFinite(sx)) return -1;
-    return Math.min(bands.length - 1, Math.max(0, Math.floor((sx - PAD.l) / band)));
+    // WHICH SLOT ONE PIXEL IS INSIDE is `slotAt`'s question, not this chart's (../primitives/scales.ts,
+    // the one owner) — `VizLine`'s band tap asks the very same one, so a bar's slot and a line's slot
+    // for one pixel can never be two different slots
+    return slotAt(PAD.l, width - PAD.r, bands.length, sx);
   };
   const beginRun = (category: string): void => {
     run.current = { start: category, end: category };
@@ -263,7 +288,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
         viewBox={`0 0 ${width} ${height}`}
         ref={svgRef}
         role="group"
-        aria-label={props.ariaLabel ?? `count by ${label}`}
+        aria-label={(props.ariaLabel ?? `count by ${label}`) + crowded}
         onPointerMove={moveRun}
         onPointerUp={endRun}
         onPointerCancel={cancelRun}
@@ -294,6 +319,34 @@ export function VizBar(props: VizBarProps): JSX.Element {
           const tick = fitTick(category, band, tickRoom, tx);
           return (
             <g key={category}>
+              {/* THE POINTER TARGET — transparent, over the mark's whole slot column, and UNDER the marks
+                  so the drawn bar keeps its own hover and its own tooltip (and a browser driver's click on
+                  the bar is never intercepted by a sibling it cannot see). It carries the same two gestures
+                  the bar does, so a press anywhere in the column lands that bar's selection and a drag-run
+                  may start from the empty air above a 3px bar. Never for an EMPTY band: no mark, no target.
+
+                  The library's own precedent, and this one's ONE difference from it: `.vzf-box-hit` and
+                  `.vzf-hist-hit` are full-height transparent columns too, and they carry the `role`,
+                  the `aria-label` and the keyboard — because a box and a histogram bucket never had one.
+                  A BAR already IS the accessible button (role, aria-pressed, aria-label, Enter/Space), so
+                  this target is `aria-hidden` and adds no second button per category: one mark, one button,
+                  and the target is a pointer affordance only. It is also bounded (`pointerTargetWidth`)
+                  where those two take the whole band, so it swallows as little of a stacked frame's canvas
+                  as the reachability law allows (the pointer law at `.vzf-frame-over`, styles.css). */}
+              {d === undefined ? null : (
+                <rect
+                  className="vzf-mark-hit"
+                  x={tx - hitWidth / 2}
+                  y={PAD.t}
+                  width={hitWidth}
+                  height={plot}
+                  aria-hidden="true"
+                  onClick={(e) => emit(category, e.shiftKey || e.metaKey || e.ctrlKey)}
+                  onPointerDown={() => beginRun(category)}
+                >
+                  <title>{`click to select ${category}`}</title>
+                </rect>
+              )}
               {d !== undefined && highlight !== undefined && (() => {
                 const hl = highlight.find((h) => h.category === category)?.count ?? 0;
                 const hh = (Math.min(hl, d.count) / max) * plot;
@@ -340,6 +393,14 @@ export function VizBar(props: VizBarProps): JSX.Element {
             </g>
           );
         })}
+        {/* the words for marks a pointer cannot separate, IN THE PICTURE — the accessible name above
+            already carries the fact for a screen reader, and a sighted reader meets it only here. The
+            same register, and the same corner, the excluded note wears on this library's other charts. */}
+        {crowded !== '' && (
+          <text className="vzf-crowded-note" x={width - PAD.r} y={axisY - 6} textAnchor="end">
+            {crowded.replace(/^ — /, '')}
+          </text>
+        )}
         {drawX && <AxisLabel x={width / 2} y={height - 8} text={label} channel="category" onOpen={openPicker} />}
       </svg>
       <EncodingPicker

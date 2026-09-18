@@ -815,11 +815,13 @@ describe('VizLine — a band is a range too: the band brush (law 13)', () => {
     expect(values[22]).toBe('c133');
   });
 
-  it('a sub-4px release on a band RELEASES the match — a cleared interval would name a clause this x cannot hold', () => {
+  it('a sub-4px release on a band SELECTS THE SLOT under the pointer — it used to release the match, which left a 5px slot reachable by nothing but a drag (see reachableMarks.test.tsx for the whole law)', () => {
     const onEmit = vi.fn();
     const { container } = render(<VizLine data={BAND3} width={520} dateField="shelf" onEmit={onEmit} />);
+    // the release pixel decides: 202 is the middle slot's left edge (slots of 150 from 52), so the tap
+    // lands 'Casual' — the clause `VizBar`'s own click lands, and no longer the cleared match
     drag(container, 200, 202);
-    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: null, encoding: { kind: 'match', field: 'shelf' } });
+    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: 'Casual', encoding: { kind: 'point', field: 'shelf' } });
   });
 
   it('a drag inside an EXCLUDE set keeps its polarity — `VizBar` · `endRun`’s own law, through the same clause', () => {

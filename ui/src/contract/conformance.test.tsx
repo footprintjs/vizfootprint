@@ -287,7 +287,7 @@ describe('conformance — all eight first-party charts pass (the reference claim
     const range = emission!.rawValue as unknown as [string, string];
     expect(range[0] < range[1]).toBe(true); // ISO bounds, snapped to real data dates
     expect(report.steps.find((s) => s.step === 'match')!.detail).toBe('the renderer declares match, and this state does not deliver it — the match arm is honestly skipped');
-    expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: interval (of interval+match, this state delivers interval)');
+    expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: interval (of interval+match+point, this state delivers interval)');
   });
 
   it('VizLine over a BAND — the whole loop closes on the gesture the chart used to refuse (law 13, the measured defect)', async () => {
@@ -317,7 +317,31 @@ describe('conformance — all eight first-party charts pass (the reference claim
     ]);
     expect(report.steps.find((s) => s.step === 'match')!.detail).toContain('ONE match commit over 2 values');
     // the interval this state cannot deliver is NAMED, not silently forgiven
-    expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: match (of interval+match, this state delivers match)');
+    expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: match (of interval+match+point, this state delivers match)');
+  });
+
+  it('VizLine over a BAND — a TAP lands the slot under the pointer, through the whole contract (the reachability law)', async () => {
+    // THE MEASURED DEFECT this closes: 185 residues across a 940px pane, about 5px each, and a browser
+    // driver refused to click one. A drag was the only gesture that reached a slot; a TAP released the
+    // match instead of selecting anything. It now lands the POINT the bar's own click lands — declared at
+    // the hello beside the interval and the match, and delivered here by the state that has slots.
+    const { view } = await buildFixture();
+    const report = await runConformance({
+      renderer: lineRenderer(),
+      viewId: 'line',
+      el: mountEl(),
+      view,
+      buildState: bandLineState,
+      // a press and release on one pixel: the brush's sub-4px TAP arm, inside the middle slot (202..352)
+      gesture: brushGesture2('svg.vzf-line', 300, 300),
+      stateKinds: ['point'],
+      verifyUpdate: (el) => el.querySelector('circle.vzf-line-dot') !== null,
+    });
+    expect(report.ok, explain(report)).toBe(true);
+    expect(report.emissions).toEqual([{ rawValue: 'Formal', encoding: { kind: 'point', field: 'category' } }]);
+    // the two kinds this state does not deliver on this gesture are NAMED, not silently forgiven
+    expect(report.steps.find((s) => s.step === 'match')!.detail).toBe('the renderer declares match, and this state does not deliver it — the match arm is honestly skipped');
+    expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: point (of interval+match+point, this state delivers point)');
   });
 
   it('VizBar (point select on the category)', async () => {

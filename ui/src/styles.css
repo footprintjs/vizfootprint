@@ -775,6 +775,14 @@
   font-family: var(--vzf-font-mono);
   font-size: 9px;
 }
+/* …and the words for marks closer together than a pointer can separate (`crowdedMarksNote`) — the same
+   faint mono, because it is the same kind of fact: something the picture cannot honestly promise, said
+   out loud rather than left for the reader to discover by missing */
+:where(.vzf) .vzf-crowded-note {
+  fill: var(--vzf-ink-faint);
+  font-family: var(--vzf-font-mono);
+  font-size: 9px;
+}
 :where(.vzf) .vzf-dot {
   transition: opacity 0.15s ease;
 }
@@ -856,8 +864,11 @@
    canvas. Every layer ABOVE it takes the pointer only where it actually drew
    something, so a click on blank canvas falls through to the marks below
    instead of being swallowed by whichever layer happens to be on top. An
-   invisible hit column is a mark too (a box plot's), which is the one place
-   this rule can still cover a layer beneath it. */
+   invisible hit column is a mark too — a box plot's (`.vzf-box-hit`), a
+   histogram bucket's (`.vzf-hist-hit`) and a bar's pointer target
+   (`.vzf-mark-hit`, bounded to `pointerTargetWidth` so it swallows as little
+   of the canvas as the reachability law allows) — which is the one place this
+   rule can still cover a layer beneath it. */
 :where(.vzf) .vzf-frame-layer.vzf-frame-over {
   pointer-events: none;
 }
@@ -889,6 +900,17 @@
   fill: var(--vzf-ink-soft);
   font-family: var(--vzf-font-mono);
   font-size: 11px;
+  /* furniture, not a mark: the value label stands INSIDE its bar's pointer target, and a press on the
+     number is a press on the bar (`.vzf-mark-hit`) rather than a press on nothing */
+  pointer-events: none;
+}
+/* A HIT AREA IS NOT A MARK (`pointerTargetWidth`): a transparent target over a pressable mark's whole
+   slot column, so a 5px-wide, 3px-tall bar can be pressed at all. It carries the cursor because it is
+   where the press actually lands; the MARK keeps the geometry the data gave it, and the target is drawn
+   UNDER the mark so the drawing keeps its own hover, its own tooltip and its own outline. */
+:where(.vzf) .vzf-mark-hit {
+  fill: transparent;
+  cursor: pointer;
 }
 :where(.vzf) .vzf-regline {
   stroke: var(--vzf-brand-deep);

@@ -30,6 +30,16 @@
  *                             `selectedSet`/`inSet`/`markClass` (SET-1: the
  *                             view's own set and the outline it earns),
  *                             `dimClass` (dim, never hide).
+ *   • the band's slots      — `bandWidth`/`bandStart`/`bandCentre` (the ONE
+ *                             slot geometry), `slotsCovered` (which slots a
+ *                             drag's range covers) and `slotAt` (which slot
+ *                             one pixel is inside).
+ *   • the pointer target    — `MIN_POINTER_TARGET`/`pointerTargetWidth`: a
+ *                             mark a reader is meant to press must be
+ *                             REACHABLE, and a hit area is not a mark (widen
+ *                             the target, never the drawing) — bounded by the
+ *                             slot so a press cannot land on a neighbour, with
+ *                             `crowdedMarksNote` for the case it cannot honour.
  *   • `announce`            — the ONE polite live region: tell a screen-reader
  *                             user about a change nothing focused reports
  *                             (a re-encode), silently for sighted users.
@@ -52,6 +62,12 @@ export { bandOrder, bandWidth, bandStart, bandCentre, domainOr } from './scales.
 // consumer-built band chart brushes its slots by asking it, and says `noSlotsCoveredNote` when a drag
 // crossed no mark at all
 export { slotsCovered, noSlotsCoveredNote } from './scales.js';
+// A MARK A READER IS MEANT TO PRESS MUST BE REACHABLE: `slotAt` is the ONE owner of "which slot is
+// this ONE pixel inside" (a tap; `slotsCovered` is its range twin), `pointerTargetWidth` of how wide
+// a transparent target over a mark may be (the WCAG floor, or the slot when the slot is narrower —
+// overlapping targets would land a press on a neighbour), and `crowdedMarksNote` of the words a chart
+// owes the reader when it cannot honour that floor
+export { slotAt, pointerTargetWidth, crowdedMarksNote, MIN_POINTER_TARGET } from './scales.js';
 // the logarithmic axis (protocol 1.6): `scaleFor` is the ONE owner of which builder a channel gets,
 // and the rest are what a host drawing its own guide over a logarithmic channel needs — the ticks,
 // their labels, the placeability predicate and the words for what a transform could not place
