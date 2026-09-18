@@ -782,14 +782,24 @@
   fill: var(--vzf-ink-faint);
   font-family: var(--vzf-font-mono);
   font-size: 9px;
+  /* A NOTE MAY NOT EAT THE GESTURE IT DESCRIBES. Both of these are `<text>` drawn
+     INSIDE the plot, so without this they sit over the marks and take the press:
+     `elementFromPoint` at a mark's own centre answers the note, and a click lands
+     nothing at all. `.vzf-barval` already carries this for the same reason, and
+     its comment says so — these two were the sites that did not. Measured on a
+     real page by a consumer: a press on a bar left 185 marks at 185 and opened no
+     clear control, while the same press on `.vzf-mark-hit` landed it. */
+  pointer-events: none;
 }
 /* …and the words for marks closer together than a pointer can separate (`crowdedMarksNote`) — the same
    faint mono, because it is the same kind of fact: something the picture cannot honestly promise, said
-   out loud rather than left for the reader to discover by missing */
+   out loud rather than left for the reader to discover by missing. It needs the rule above MOST of the
+   three: it is the sentence telling a reader their press may miss, and it was itself blocking the press. */
 :where(.vzf) .vzf-crowded-note {
   fill: var(--vzf-ink-faint);
   font-family: var(--vzf-font-mono);
   font-size: 9px;
+  pointer-events: none;
 }
 :where(.vzf) .vzf-dot {
   transition: opacity 0.15s ease;

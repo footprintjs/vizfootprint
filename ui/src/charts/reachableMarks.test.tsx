@@ -216,6 +216,21 @@ describe('a target is never smaller than a finger, and a hit area is NOT a mark 
     expect(css).toContain('.vzf-box-hit {');
   });
 
+  it('A NOTE MAY NOT EAT THE GESTURE IT DESCRIBES — every in-plot <text> lets the press through', () => {
+    // Shipped broken and found by a consumer driving a real page: the crowded-marks note is drawn
+    // INSIDE the plot, so without `pointer-events: none` it sat over the marks and took the press.
+    // `elementFromPoint` at a bar's own centre answered `text.vzf-crowded-note`, and a click on the
+    // drawn bar left 185 marks at 185 and opened no clear control, while the same press on
+    // `.vzf-mark-hit` landed it. The sentence telling a reader their press may miss was itself the
+    // reason it missed. `.vzf-barval` already carried the rule and its comment said why; these two did
+    // not, and the excluded note had the same exposure for as long as it has existed.
+    const css = readFileSync(process.cwd().endsWith('/ui') ? 'src/styles.css' : 'ui/src/styles.css', 'utf8');
+    for (const cls of ['vzf-crowded-note', 'vzf-excluded-note', 'vzf-barval']) {
+      const rule = new RegExp(`\\.${cls} \\{[^}]*pointer-events: none;`).exec(css);
+      expect(rule, `.${cls} is drawn inside the plot and must let a press through`).not.toBeNull();
+    }
+  });
+
   it('THE TARGET IS THE WHOLE SLOT COLUMN — full plot height, centred on the slot, so a sub-pixel bar is pressable', () => {
     const plot = 340 - BAR.t - BAR.b;
     const { container } = render(<VizBar data={BAND3} field="shelf" width={360} height={340} />);
