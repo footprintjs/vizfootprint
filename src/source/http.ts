@@ -24,12 +24,24 @@
  * For a resource that second thing is NOTHING, and that is the honest answer:
  * guard 1 refuses a content type that CONTRADICTS a declared format, and no
  * content type contradicts a declaration that asks for bytes.
+ *
+ * AND A RESOURCE'S BYTES MAY ARRIVE PROGRESSIVELY. A resource read that carries
+ * an `onProgress` observer is read through the response's own stream
+ * ({@link readProgressively}) — chunk by chunk, on THIS thread: reported as it
+ * arrives, capped as it arrives, cut off mid-stream when the caller's signal
+ * says so, and **landed only when it is whole**. A read that carries no
+ * observer is the read this carrier always made, byte for byte
+ * ({@link readWhole}): one act, `res.body` never touched. Two strategies behind
+ * one door, chosen by whether the host asked to be told — which is why a host
+ * that asks nothing cannot be surprised by anything.
  */
 import { decodeRows } from './decode.js';
 import { fnv1a } from './hash.js';
-import { resourceHash, resourceSnapshotOf, resourceWhere, type ResourceBody } from './resource.js';
+import { declaredLength, reportProgress, tooLargeMidStream, tooLargeOnArrival, totalOf } from './progress.js';
+import type { DeclaredLength, ResourceProgressObserver } from './progress.js';
+import { resourceBytes, resourceHash, resourceSnapshotOf, resourceWhere, type ResourceBody } from './resource.js';
 import { ResourceRefusal, SourceRefusal, isResourceRefusal, isSourceRefusal } from './types.js';
-import type { ResourceDecl, ResourceSnapshot, SnapshotOptions, SourceAdapter, SourceDecl, SourceFormat, SourceRefusalReason, SourceSnapshot, SourceUnchanged } from './types.js';
+import type { ResourceDecl, ResourceFormat, ResourceSnapshot, ResourceSnapshotOptions, SnapshotOptions, SourceAdapter, SourceDecl, SourceFormat, SourceRefusalReason, SourceSnapshot, SourceUnchanged } from './types.js';
 
 export interface HttpSourceOptions {
   /** The fetch to use (a host may pass a wrapped one); default = the global fetch, read at call time. */
@@ -39,8 +51,11 @@ export interface HttpSourceOptions {
   /** Headers sent with every request (an Accept, an Authorization the host owns). */
   readonly headers?: Readonly<Record<string, string>>;
   /**
-   * A body beyond this many bytes is a `too-large` refusal — by Content-Length, the one real guard, before any
-   * byte is read; when the server declares nothing, a diagnostic on what arrived (UTF-16 units, after the read). Default 64 MiB.
+   * A body beyond this many bytes is a `too-large` refusal — by Content-Length before any byte is read
+   * (the one guard that costs nothing, and the only one a declaration of OTHER bytes can honestly serve:
+   * see `./progress.ts`), and then by what actually arrived, in the unit the landing is judged in. A
+   * PROGRESSIVE resource read asks that second guard chunk by chunk, so a body over the cap stops instead
+   * of finishing; the verdict is the same either way. Default 64 MiB.
    */
   readonly maxBytes?: number;
 }
@@ -133,6 +148,13 @@ function conditionalOf(since: string | undefined): Record<string, string> {
  * connection that dies mid-body is `disconnected` and not an unhandled reject.
  * `beforeBody` is the last thing the HEADERS may refuse (guard 1 for a table;
  * nothing for a resource) and runs before a byte of the body is read.
+ *
+ * `readBody` is handed `abort` as well as the response: a reader that refuses a
+ * body it is still receiving (a progressive read over the cap, a cancelled one)
+ * must be able to CUT THE TRANSFER OFF, and the request's own controller is the
+ * only thing that can. It is never called for an error that is not our own
+ * refusal — the diagnosis below reads that controller, so aborting on a
+ * transport fault would rename `disconnected` as `timeout`.
  */
 async function fetchAnswer<T>(args: {
   readonly at: string;
@@ -142,7 +164,7 @@ async function fetchAnswer<T>(args: {
   readonly opts: SnapshotOptions | undefined;
   readonly refuse: Refuse;
   readonly beforeBody: (res: Response) => string | undefined;
-  readonly readBody: (res: Response) => Promise<T>;
+  readonly readBody: (res: Response, abort: () => void) => Promise<T>;
 }): Promise<{ readonly res: Response; readonly body: T } | SourceUnchanged> {
   const { at, options, timeoutMs, maxBytes, opts, refuse, beforeBody, readBody } = args;
   // a missing runtime fetch is a missing carrier, not a network fault
@@ -169,10 +191,16 @@ async function fetchAnswer<T>(args: {
       await drain(res);
       throw refuse('unavailable', `unavailable (${String(res.status)})`);
     }
-    const declared = Number(res.headers.get('content-length') ?? '');
-    if (Number.isFinite(declared) && declared > maxBytes) {
+    // THE ONE REAL GUARD BEFORE THE BYTES MOVE, and it stays as it was for a
+    // declaration this reader cannot fully trust (`./progress.ts` — a gzipped
+    // body's declaration counts compressed bytes): over the cap COMPRESSED is
+    // over the cap decoded too, so refusing on it can only ever be right. What
+    // such a declaration cannot do is ADMIT a body safely, which is why the cap
+    // is asked again of what arrives — chunk by chunk on a progressive read.
+    const declared = declaredLength(res.headers);
+    if (declared.kind !== 'none' && declared.bytes > maxBytes) {
       await drain(res);
-      throw refuse('too-large', `too-large — the server declares ${String(declared)} bytes, the cap is ${String(maxBytes)}`);
+      throw refuse('too-large', `too-large — the server declares ${String(declared.bytes)} bytes, the cap is ${String(maxBytes)}`);
     }
     // the last thing the HEADERS can settle, before a byte of the body is read
     const refusedByHeaders = beforeBody(res);
@@ -180,7 +208,7 @@ async function fetchAnswer<T>(args: {
       await drain(res);
       throw refuse('malformed', refusedByHeaders);
     }
-    return { res, body: await readBody(res) };
+    return { res, body: await readBody(res, () => controller.abort()) };
   } catch (e) {
     if (isOurRefusal(e)) throw e;
     if (opts?.signal?.aborted) throw refuse('cancelled', 'cancelled — the request was aborted');
@@ -212,10 +240,158 @@ function versionOfBody(args: {
   const { res, size, unit, hash, maxBytes, refuse } = args;
   // the place answered without data — the zero-becomes-absence class, refused by name
   if (size === 0) throw refuse('unavailable', `unavailable (${String(res.status)} with an empty body)`);
-  if (size > maxBytes) throw refuse('too-large', `too-large — ${String(size)} ${unit} arrived (the server declared no length), the cap is ${String(maxBytes)}`);
+  // THE LAST WORD ON THE CAP, for either strategy: a progressive read stops the
+  // transfer at this same threshold in this same unit, so its early refusal only
+  // ever spares the wire — the verdict is decided here, once, for both.
+  if (size > maxBytes) throw refuse('too-large', tooLargeOnArrival(size, unit, declaredLength(res.headers), maxBytes));
   const etag = res.headers.get('etag');
   const lastModified = res.headers.get('last-modified');
   return etag !== null ? `etag:${etag.trim()}` : lastModified !== null ? `last-modified:${lastModified}` : `hash:${hash()}`;
+}
+
+/**
+ * The unit the CAP is judged in, per landing — real bytes for `bytes`, UTF-16
+ * units for `text` (the same diagnostic the table door quotes, for the same
+ * reason). One owner, because two readers ask it: the whole-body read's
+ * {@link versionOfBody} and the progressive read's own early check.
+ */
+const unitOf = (format: ResourceFormat): string => (format === 'bytes' ? 'bytes' : 'UTF-16 units');
+
+/** THE READ THIS CARRIER ALWAYS MADE: the whole body in one act, and `res.body` never touched. */
+const readWhole = async (res: Response, format: ResourceFormat): Promise<ResourceBody> =>
+  format === 'bytes' ? { format: 'bytes', body: new Uint8Array(await res.arrayBuffer()) } : { format: 'text', body: await res.text() };
+
+/**
+ * A body accumulating chunk by chunk, in the two shapes a declaration can ask
+ * for. `size` is what has landed in the unit the CAP is judged in
+ * ({@link unitOf}) — which is not the byte count a progress report carries, and
+ * deliberately so: one number answers "how far along is the transfer", the other
+ * answers "is this body too big for the declared cap", and a text body makes
+ * them different numbers.
+ */
+interface BodySink {
+  push(chunk: Uint8Array): void;
+  size(): number;
+  done(): ResourceBody;
+}
+
+/** Bytes: the chunks kept as they came, joined once at the end — the one copy a `Uint8Array` landing needs. */
+function bytesSink(): BodySink {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  return {
+    push: (chunk) => {
+      chunks.push(chunk);
+      size += chunk.byteLength;
+    },
+    size: () => size,
+    done: () => {
+      const body = new Uint8Array(size);
+      let at = 0;
+      for (const chunk of chunks) {
+        body.set(chunk, at);
+        at += chunk.byteLength;
+      }
+      return { format: 'bytes', body };
+    },
+  };
+}
+
+/**
+ * Text: decoded AS IT ARRIVES, which is the half of this that keeps a frame
+ * free — a 169 MB `res.text()` is one uninterruptible decode, and a 64 KiB
+ * chunk's is microseconds.
+ *
+ * `new TextDecoder()` is exactly what `Response.text()` does (UTF-8, and the
+ * default `ignoreBOM: false` strips a leading BOM), so the two strategies land
+ * the same string; `{ stream: true }` is what carries a multi-byte character
+ * split across a chunk boundary, and the final flush is what closes a truncated
+ * one.
+ */
+function textSink(): BodySink {
+  const decoder = new TextDecoder();
+  const pieces: string[] = [];
+  let size = 0;
+  return {
+    push: (chunk) => {
+      const piece = decoder.decode(chunk, { stream: true });
+      pieces.push(piece);
+      size += piece.length;
+    },
+    size: () => size,
+    done: () => ({ format: 'text', body: pieces.join('') + decoder.decode() }),
+  };
+}
+
+/**
+ * THE PROGRESSIVE READ — and the law it keeps: **bytes may arrive
+ * progressively, and a resource is not LANDED until it is whole.**
+ *
+ * Reports what has arrived as it arrives, asks the cap of what has arrived,
+ * honours the caller's signal MID-STREAM (not only before the first byte), and
+ * answers a {@link ResourceBody} only when the body ended whole. Every refusal
+ * path returns no body at all, so no caller — and no act anywhere above this —
+ * can reach a partial one: the accumulated chunks are dropped with this frame.
+ *
+ * WHERE IT RUNS, and why there is no worker: accumulating bytes is not work — a
+ * chunk is pushed onto a list and counted — and a worker would add a transfer
+ * of every chunk plus a message hop for every report, while the bytes still
+ * have to end up in this heap to be handed to a renderer. The one real cost,
+ * decoding text, is done incrementally here, which is precisely what a worker
+ * would have been for.
+ */
+async function readProgressively(args: {
+  readonly stream: ReadableStream<Uint8Array>;
+  readonly format: ResourceFormat;
+  readonly resource: string;
+  readonly declared: DeclaredLength;
+  readonly onProgress: ResourceProgressObserver;
+  readonly signal: AbortSignal | undefined;
+  readonly maxBytes: number;
+  readonly refuse: Refuse;
+  readonly abort: () => void;
+}): Promise<ResourceBody> {
+  const { stream, format, resource, declared, onProgress, signal, maxBytes, refuse, abort } = args;
+  const sink = format === 'bytes' ? bytesSink() : textSink();
+  const total = totalOf(declared);
+  // "unknown total" is the ABSENCE of the key, never a zero (`./progress.ts`)
+  const totalFragment = total === undefined ? {} : { total };
+  let bytes = 0;
+  const reader = stream.getReader();
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      // the caller's signal, honoured between chunks: a real fetch errors the
+      // reader when the controller aborts, but a host's own stream need not
+      if (signal?.aborted) throw refuse('cancelled', 'cancelled — the request was aborted');
+      bytes += next.value.byteLength;
+      sink.push(next.value);
+      // the cap, asked of what has ARRIVED — so a body over it stops here instead of
+      // finishing. `versionOfBody` asks the same threshold in the same unit of whatever
+      // reaches it, which is why the two strategies cannot disagree on the VERDICT; the
+      // count differs, and this sentence says that it stopped so the number is never read
+      // as the body's size
+      if (sink.size() > maxBytes) throw refuse('too-large', tooLargeMidStream(sink.size(), unitOf(format), declared, maxBytes));
+      reportProgress(onProgress, { resource, bytes, ...totalFragment });
+    }
+    // WHOLE OR NOTHING. A stream that ends CLEANLY short of a total this reader
+    // can trust delivered a partial body, and a partial resource is never a
+    // shorter answer — so it is refused by name and nothing moves. With no
+    // trustworthy total there is nothing to compare and this reader claims
+    // nothing: a truncated body then arrives as the transport's own error
+    // (chunked framing, the runtime's own check), which is `disconnected` too.
+    if (total !== undefined && bytes < total) {
+      throw refuse('disconnected', `disconnected — the body ended after ${String(bytes)} bytes of the ${String(total)} the server declared; a resource is not landed until it is whole, so nothing moved`);
+    }
+    return sink.done();
+  } catch (e) {
+    // OUR refusal means the transfer is still alive and we chose to stop: cut it
+    // off, or a 169 MB body keeps arriving for a read nobody will be answered.
+    // A transport fault has already ended it, and aborting there would rename it.
+    if (isOurRefusal(e)) abort();
+    throw e;
+  }
 }
 
 export function httpSource(options: HttpSourceOptions = {}): SourceAdapter {
@@ -271,9 +447,9 @@ export function httpSource(options: HttpSourceOptions = {}): SourceAdapter {
       const where = resourceWhere(resource, 'http', at);
       const refuse: Refuse = (reason, detail) => new ResourceRefusal(reason, `${where}: ${detail}`, resource, 'http');
       // the two signatures are `ResourceHandle.snapshot`'s own (`./types.js`): only a CONDITIONAL read may answer `unchanged`
-      async function snapshot(opts?: SnapshotOptions & { readonly sinceVersion?: undefined }): Promise<ResourceSnapshot>;
-      async function snapshot(opts: SnapshotOptions & { readonly sinceVersion: string }): Promise<ResourceSnapshot | SourceUnchanged>;
-      async function snapshot(opts?: SnapshotOptions): Promise<ResourceSnapshot | SourceUnchanged> {
+      async function snapshot(opts?: ResourceSnapshotOptions & { readonly sinceVersion?: undefined }): Promise<ResourceSnapshot>;
+      async function snapshot(opts: ResourceSnapshotOptions & { readonly sinceVersion: string }): Promise<ResourceSnapshot | SourceUnchanged>;
+      async function snapshot(opts?: ResourceSnapshotOptions): Promise<ResourceSnapshot | SourceUnchanged> {
         const answer = await fetchAnswer<ResourceBody>({
           at,
           options,
@@ -285,13 +461,28 @@ export function httpSource(options: HttpSourceOptions = {}): SourceAdapter {
           // CONTRADICTS a declared format, and a declaration that asks for bytes is
           // contradicted by none — a structure file served as text/html is still those bytes
           beforeBody: () => undefined,
-          readBody: async (res) => (decl.format === 'bytes' ? { format: 'bytes', body: new Uint8Array(await res.arrayBuffer()) } : { format: 'text', body: await res.text() }),
+          readBody: async (res, abort) => {
+            const onProgress = opts?.onProgress;
+            // NO OBSERVER: the read this carrier always made, byte for byte
+            if (onProgress === undefined) return readWhole(res, decl.format);
+            const declared = declaredLength(res.headers);
+            if (res.body === null) {
+              // A response with no readable stream — a host's own `fetch`, a runtime
+              // without them. It cannot be reported progressively, and the one report it
+              // CAN honestly make is the arrival, made once the bytes are here.
+              const whole = await readWhole(res, decl.format);
+              const total = totalOf(declared);
+              reportProgress(onProgress, { resource, bytes: resourceBytes(whole), ...(total === undefined ? {} : { total }) });
+              return whole;
+            }
+            return readProgressively({ stream: res.body, format: decl.format, resource, declared, onProgress, signal: opts?.signal, maxBytes, refuse, abort });
+          },
         });
         if ('unchanged' in answer) return answer;
         const landed = answer.body;
         // `bytes` counts real bytes; `text` counts UTF-16 units, the same diagnostic the
         // table door quotes for the same reason (the one real cap is Content-Length, before the read)
-        const version = versionOfBody({ res: answer.res, size: landed.body.length, unit: landed.format === 'bytes' ? 'bytes' : 'UTF-16 units', hash: () => resourceHash(landed), maxBytes, refuse });
+        const version = versionOfBody({ res: answer.res, size: landed.body.length, unit: unitOf(landed.format), hash: () => resourceHash(landed), maxBytes, refuse });
         if (opts?.sinceVersion !== undefined && opts.sinceVersion === version) return { unchanged: true, version };
         // …and no decode: there are no columns to judge, so the bytes land as they arrived
         return resourceSnapshotOf(landed, version, new Date().toISOString());

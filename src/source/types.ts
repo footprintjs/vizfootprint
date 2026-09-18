@@ -12,6 +12,7 @@
  * with the decode step skipped.
  */
 import type { Row } from '../data/types.js';
+import type { ResourceProgressObserver } from './progress.js';
 
 /** What shape the bytes are. */
 export const SOURCE_FORMATS = ['rows', 'csv', 'json'] as const;
@@ -180,9 +181,43 @@ export type ResourceSnapshot =
  */
 export interface ResourceHandle {
   readonly capabilities: SourceCapabilities;
-  snapshot(options?: SnapshotOptions & { readonly sinceVersion?: undefined }): Promise<ResourceSnapshot>;
-  snapshot(options: SnapshotOptions & { readonly sinceVersion: string }): Promise<ResourceSnapshot | SourceUnchanged>;
+  snapshot(options?: ResourceSnapshotOptions & { readonly sinceVersion?: undefined }): Promise<ResourceSnapshot>;
+  snapshot(options: ResourceSnapshotOptions & { readonly sinceVersion: string }): Promise<ResourceSnapshot | SourceUnchanged>;
   close(): Promise<void>;
+}
+
+/**
+ * What a RESOURCE read may be asked beyond what a table's may ({@link SnapshotOptions}):
+ * **tell me how it is going.**
+ *
+ * BYTES MAY ARRIVE PROGRESSIVELY, AND A RESOURCE IS NOT LANDED UNTIL IT IS
+ * WHOLE. A host that passes `onProgress` is told what has arrived as it
+ * arrives; it is never handed a partial body, because a partially arrived
+ * resource is not a shorter version of the answer — half a protein alignment is
+ * the first N sequences in file order, a biased subset, and a number computed
+ * from it would be wrong in a way no reader could see. So a read that does not
+ * finish lands NO version, is refused by name, and leaves the previous bytes
+ * standing (../source/README.md, the law).
+ *
+ * Passing NEITHER `onProgress` NOR `signal` is byte-identical to a read written
+ * before either existed: the carrier takes the whole body in one act, exactly
+ * as it always did.
+ *
+ * It is an option on the RESOURCE read and not on {@link SnapshotOptions},
+ * because a table's rows are a different act with a different honesty: rows
+ * land in an engine and a partial landing is already covered by the row-key
+ * law, so streaming for table sources is its own packet and not a promise this
+ * one makes.
+ */
+export interface ResourceSnapshotOptions extends SnapshotOptions {
+  /**
+   * Told as bytes arrive — a REPORT, never a record (`./progress.ts`): it
+   * reaches no commit, nothing computes from it, and an observer that throws
+   * cannot change the read's outcome. A REQUEST rather than a guarantee: a
+   * carrier reports what its transport can honestly say, and one that hands back
+   * a whole body reports once or not at all.
+   */
+  readonly onProgress?: ResourceProgressObserver;
 }
 
 /**
@@ -200,6 +235,27 @@ export interface ResourceInfo {
   readonly retrievedAt: string;
   /** How many BYTES landed — the size, never the payload. */
   readonly bytes: number;
+  /**
+   * THE RESOURCE'S STATE, and the smallest honest vocabulary for it:
+   * `'arriving'` while a read for this resource is in flight, and **ABSENT when
+   * the bytes above are simply held** — a reader asking for provenance while a
+   * 169 MB body is on the wire deserves to learn that it is arriving rather
+   * than to see a row that looks settled.
+   *
+   * Every OTHER field on this row still describes the bytes that are HELD —
+   * yesterday's, when a re-read is in flight — which is the honesty: a
+   * partially arrived resource lands no version, so there is nothing newer to
+   * describe. Unlike a progress report this IS a fact, which is why it rides
+   * the overview at all.
+   *
+   * Two words and not three: there is no `'refused'`, because a refused
+   * re-fetch leaves the held bytes standing and is REPORTED where a refusal
+   * belongs (`RefreshResult.resources`, the journal) rather than smuggled onto
+   * a provenance row that would then need something to clear it; and no
+   * `'absent'`, because a dashboard does not exist until every declared
+   * resource has landed, so no reader can ask about one that has not.
+   */
+  readonly state?: 'arriving';
 }
 
 /** A source's refusal: a sentence a program can branch on. */

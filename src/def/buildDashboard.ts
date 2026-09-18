@@ -86,7 +86,7 @@ import type { ProseProblem } from '../prose/index.js';
 import { isRejection } from '../data/index.js';
 import { DEFAULT_RELATION_KIND } from './relations.js';
 import { decodeRows, inlineResource, inlineVersion, isResourceRefusal, isSourceRefusal, isUnchanged, openResource, openSource, resourceBytes, resourceInfoOf, SourceRefusal } from '../source/index.js';
-import type { RefreshDelta, ResourceDecl, ResourceInfo, ResourceSnapshot, SourceAdapter, SourceDecl, SourceInfo, SourceRefusalReason, SourceSnapshot } from '../source/index.js';
+import type { RefreshDelta, ResourceDecl, ResourceInfo, ResourceProgressObserver, ResourceSnapshot, ResourceSnapshotOptions, SourceAdapter, SourceDecl, SourceInfo, SourceRefusalReason, SourceSnapshot } from '../source/index.js';
 import type { ColumnFacet, ColumnInfo } from '../data/index.js';
 import { deepFreeze } from '../detach/index.js';
 
@@ -149,8 +149,12 @@ export interface Dashboard {
    * so in the carrier's own reason. Its answers ride `RefreshResult.resources`,
    * a map of its own — a resource has no rows and no delta, so folding it into
    * `tables` would be a shape that promised both.
+   *
+   * `options` is how a host is TOLD and how it CUTS OFF (see
+   * {@link RefreshOptions}); a call that passes none behaves exactly as a call
+   * written before it existed.
    */
-  refresh(names?: readonly string[]): Promise<RefreshResult>;
+  refresh(names?: readonly string[], options?: RefreshOptions): Promise<RefreshResult>;
   /** The data journal: every refresh this dashboard ran, oldest first (see {@link RefreshRecord}). */
   journal(): readonly RefreshRecord[];
   /** The saved selections — saved logic beside the log (see {@link SavedSelection}); the session's doors write it. */
@@ -255,6 +259,38 @@ export type ResourceRefreshOutcome =
   | { readonly changed: true; readonly from: string; readonly to: string; readonly retrievedAt: string; readonly bytes: number }
   | { readonly refused: true; readonly reason: SourceRefusalReason | 'no-resource'; readonly message: string };
 
+/**
+ * What a host may say when it asks for a refresh: **tell me how it is going**,
+ * and **stop**.
+ *
+ * Both are for the case the resources packet deferred and this one answers — a
+ * body large enough that a reader deserves to be told (the measured one: 169 MB,
+ * still arriving after 60 s). Passing neither is byte-identical to a refresh
+ * written before this type existed: no report is made and no signal is passed
+ * to any carrier.
+ */
+export interface RefreshOptions {
+  /**
+   * Told as each declared RESOURCE's bytes arrive — a REPORT and never a record
+   * (`../source/progress.ts`): nothing on it reaches the journal, the commit or
+   * an answer, and an observer that throws cannot change what the refresh
+   * reports. The progress names its own resource, so one observer serves them
+   * all.
+   *
+   * A SYNCHRONOUS dashboard makes no report at all, and that is the truth rather
+   * than a gap: it holds inline resources only, and an inline payload is the
+   * def's own text — it never arrives over anything.
+   */
+  readonly onResourceProgress?: ResourceProgressObserver;
+  /**
+   * Cut this refresh off. A read in flight is refused `cancelled` by its
+   * carrier, and **what is held stands**: a resource keeps yesterday's bytes and
+   * its version, a table keeps its rows. A partially arrived resource lands no
+   * version — that is the law, not a policy of this door (`../source/README.md`).
+   */
+  readonly signal?: AbortSignal;
+}
+
 export interface RefreshResult {
   readonly tables: Readonly<Record<string, RefreshOutcome>>;
   /**
@@ -285,6 +321,21 @@ export interface RefreshRecord {
 /** The async builder's options: the source adapters the host brought (`inline` is always known). */
 export interface BuildDashboardAsyncOptions extends BuildDashboardOptions {
   readonly sources?: readonly SourceAdapter[];
+  /**
+   * Told as each declared RESOURCE's bytes arrive, while this build reads them
+   * — the same report the refresh door takes ({@link RefreshOptions}), and the
+   * one this packet's measured case needs: a dashboard whose structure file is
+   * 169 MB is a dashboard a reader waits for, and a wait with no word is
+   * indistinguishable from a hang.
+   *
+   * There is deliberately no `signal` beside it. A build that is cut off has
+   * nothing to keep — no half-built dashboard is ever answered — and this door
+   * carries no signal for TABLES either, so one for resources alone would
+   * promise a cancellation the rest of the build does not honour. Cancellation
+   * lives where something is standing to be kept: the carrier port
+   * (`ResourceSnapshotOptions.signal`) and `refresh`.
+   */
+  readonly onResourceProgress?: ResourceProgressObserver;
 }
 
 /** What a host brings to a build that the def cannot carry: the engines it has, the encoding plane's ports, and its own providers. */
@@ -746,7 +797,7 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
   // payload, which only `Dashboard.resource` hands out.
   const store = resourceStore();
   for (const [name, decl] of Object.entries(def.resources ?? {})) {
-    landResource(store, name, decl, await readResource(decl, name, options.sources ?? []));
+    landResource(store, name, decl, await readResource(decl, name, options.sources ?? [], options.onResourceProgress));
   }
   // Table → the sentence its landing was refused in (`./declaredTable.ts`, guard 2).
   // The ONE thing the refresh door needs from this loop: a table with a source and no
@@ -850,11 +901,21 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
    * landed map, so a name that reaches here has both the declaration to
    * re-open and the version to ask with.
    */
-  const runResource = async (name: string, { decl, info }: LandedResource): Promise<ResourceRefreshOutcome> => {
+  const runResource = async (name: string, { decl, info }: LandedResource, opts: RefreshOptions): Promise<ResourceRefreshOutcome> => {
+    // …and the one thing a reader deserves while it runs: that these bytes are moving
+    // (`markArriving`). Written around the whole read — the open included — and taken
+    // back however it ends, so no refusal can leave the word standing.
+    const settled = markArriving(store, name);
     try {
       const handle = await openResource(decl, name, adapters);
       try {
-        const snap = await handle.snapshot({ sinceVersion: info.version });
+        const read: ResourceSnapshotOptions & { readonly sinceVersion: string } = {
+          sinceVersion: info.version,
+          // absent unless the host asked: a carrier sees the same options object it always did
+          ...(opts.onResourceProgress !== undefined ? { onProgress: opts.onResourceProgress } : {}),
+          ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+        };
+        const snap = await handle.snapshot(read);
         // a carrier that cannot answer conditionally but vouches for the same version moved nothing either
         if (isUnchanged(snap) || snap.version === info.version) return { unchanged: true, version: snap.version };
         landResource(store, name, decl, snap);
@@ -864,9 +925,11 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
       }
     } catch (e) {
       return { refused: true, reason: isResourceRefusal(e) ? e.reason : 'no-resource', message: e instanceof Error ? e.message : String(e) };
+    } finally {
+      settled();
     }
   };
-  const run = async (which?: readonly string[]): Promise<RefreshResult> => {
+  const run = async (which?: readonly string[], opts: RefreshOptions = {}): Promise<RefreshResult> => {
     // ONE answer per name asked: a name given twice fetches its carrier twice, and the second
     // pass reads the FIRST pass's own swap as "unchanged" — overwriting the change it just made
     const asked = [...new Set(which ?? [...Object.keys(def.data), ...Object.keys(def.resources ?? {})])];
@@ -882,7 +945,7 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
       // resource always landed — so the pair it needs arrives in one lookup.
       const heldResource = store.landed.get(table);
       if (heldResource !== undefined) {
-        outResources[table] = await runResource(table, heldResource);
+        outResources[table] = await runResource(table, heldResource, opts);
         continue;
       }
       if (decl === undefined) {
@@ -929,7 +992,10 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
       try {
         const handle = await openSource(decl.source, table, adapters);
         try {
-          const snap = await handle.snapshot({ sinceVersion: held.version });
+          // the signal a host passed to `refresh` reaches a TABLE's carrier too: one word
+          // for "stop this refresh", and a cancelled read leaves the rows in place, exactly
+          // as a cancelled resource read leaves its bytes (absent unless the host asked)
+          const snap = await handle.snapshot({ sinceVersion: held.version, ...(opts.signal !== undefined ? { signal: opts.signal } : {}) });
           // a carrier that cannot answer conditionally but vouches for the same version moved nothing either
           if (isUnchanged(snap) || snap.version === held.version) {
             out[table] = { unchanged: true, version: snap.version };
@@ -996,8 +1062,8 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
   // refreshes run one after another: two overlapping ones would read each other's swap as a change of their own
   // `run` never rejects today (every table's failure is REPORTED in its outcome); the chain survives even if that changes
   let queue: Promise<unknown> = Promise.resolve();
-  const refresh = (which?: readonly string[]): Promise<RefreshResult> => {
-    const next = queue.then(() => run(which));
+  const refresh = (which?: readonly string[], opts?: RefreshOptions): Promise<RefreshResult> => {
+    const next = queue.then(() => run(which, opts));
     /* v8 ignore next -- the settle-on-rejection arm guards an invariant no test can break */
     queue = next.catch(() => undefined);
     return next;
@@ -1118,6 +1184,34 @@ function landResource(store: ResourceStore, name: string, decl: ResourceDecl, sn
 }
 
 /**
+ * SAY THAT BYTES ARE ARRIVING, and hand back the act that stops saying it.
+ *
+ * The facts record is what every session's overview reads (`./types.ts` ·
+ * `DashboardRuntime.resources`), so a word written here reaches a reader while
+ * a 169 MB body is still on the wire — the difference between a row that looks
+ * settled and one that says it is moving. Everything else on the row is
+ * untouched, because everything else is still true: those ARE the bytes this
+ * dashboard holds, and they stay held whether or not the read arrives.
+ *
+ * The ending act takes whatever is held THEN — the new landing if it arrived,
+ * the old one if it did not — and drops the word, which restores the row to the
+ * shape it has when nothing is in flight, key for key.
+ */
+function markArriving(store: ResourceStore, name: string): () => void {
+  const held = store.info[name]!;
+  store.info[name] = { ...held, state: 'arriving' };
+  return () => {
+    const now = store.info[name]!;
+    // a landing that ARRIVED already replaced the row with a fresh one that has no word on it
+    // (`landResource`); anything else left ours standing, so ours is the one to take back
+    if ('state' in now) {
+      const { state: _arriving, ...settled } = now;
+      store.info[name] = settled;
+    }
+  };
+}
+
+/**
  * Read one declared RESOURCE, raising the carrier's refusal as the def's own
  * problem — the {@link readSource} twin, with the two steps a resource does not
  * have: no decode, and no landing judged against a declaration (there are no
@@ -1129,11 +1223,12 @@ function landResource(store: ResourceStore, name: string, decl: ResourceDecl, sn
  * receive (`../source/types.ts` · `ResourceHandle`). The rows twin still
  * carries that guard, because `SourceHandle.snapshot` has one signature.
  */
-async function readResource(decl: ResourceDecl, name: string, adapters: readonly SourceAdapter[]): Promise<ResourceSnapshot> {
+async function readResource(decl: ResourceDecl, name: string, adapters: readonly SourceAdapter[], onProgress?: ResourceProgressObserver): Promise<ResourceSnapshot> {
   try {
     const handle = await openResource(decl, name, adapters);
     try {
-      return await handle.snapshot();
+      // with no observer the read is asked for exactly as it always was — no options object at all
+      return onProgress === undefined ? await handle.snapshot() : await handle.snapshot({ onProgress });
     } finally {
       await handle.close();
     }
@@ -1584,7 +1679,9 @@ function assemble(def: DashboardDef, options: BuildDashboardOptions, providers: 
     resource: (name) => store.bodies.get(name),
     notes,
     // a synchronous dashboard holds inline sources only, which never move; a table with no source has nothing to refresh —
-    // the answer is still journaled, so the tab can say "asked at 14:02: unchanged" instead of nothing
+    // the answer is still journaled, so the tab can say "asked at 14:02: unchanged" instead of nothing.
+    // It takes no `RefreshOptions` on purpose: an inline payload is the def's own text, so there is
+    // nothing arriving to report and nothing in flight to cut off (see {@link RefreshOptions}).
     refresh: refresh ?? (async (which) => {
       const asked = [...new Set(which ?? [...Object.keys(def.data), ...Object.keys(def.resources ?? {})])];
       // a synchronous dashboard holds INLINE resources only (every other via is refused at its door),

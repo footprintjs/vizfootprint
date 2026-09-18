@@ -5,7 +5,7 @@
  */
 
 export { buildDashboard, buildDashboardAsync } from './buildDashboard.js';
-export type { Dashboard, BuildDashboardOptions, BuildDashboardAsyncOptions, RefreshOutcome, RefreshResult, RefreshRecord } from './buildDashboard.js';
+export type { Dashboard, BuildDashboardOptions, BuildDashboardAsyncOptions, RefreshOptions, RefreshOutcome, RefreshResult, RefreshRecord } from './buildDashboard.js';
 export { validateDashboardDef, parseDashboardDef, DashboardDefError, dispatchVerbs } from './validate.js';
 // WHAT THIS BUILD CAN DO, read off the build — the feature card a gallery filters
 // on, so a demo's tags can never drift from the demo. See ./README.md.

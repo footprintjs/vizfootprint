@@ -1018,6 +1018,13 @@ export interface DashboardRuntime {
    *
    * `{}` when the def declares none — the overview omits the key entirely in
    * that case, so a def with no resources projects byte-identically.
+   *
+   * It MOVES: `refresh()` replaces an entry, and while a re-read is in flight
+   * the entry says so (`ResourceInfo.state === 'arriving'`, the one state word
+   * — every other field still describes the bytes that are HELD, because a
+   * partially arrived resource lands no version). A session reads it at the
+   * moment it answers, which is what lets an overview taken during a 169 MB
+   * fetch say the bytes are moving instead of looking settled.
    */
   readonly resources: Readonly<Record<string, ResourceInfo>>;
   /** The data journal: every refresh the dashboard ran, oldest first — a dashboard-level record beside the log, shared by every session. */

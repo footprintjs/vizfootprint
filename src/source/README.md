@@ -16,7 +16,7 @@ dashboard.sources.cells   // { format, via, at, version: 'mtime:…;size:…', r
 
 `SourceAdapter { via; open(decl, { table }) → SourceHandle }` and `SourceHandle { capabilities; snapshot() → { rows, version, retrievedAt }; close() }`. One file per carrier: `inline` ships in the barrel, `file` is its own module (`src/source/file.ts`, it needs node), `http` arrives with step 5. A carrier never learns a format: `decodeRows(format, payload)` is the one decoder.
 
-The port has a SECOND, optional door — `openResource(decl, { resource }) → ResourceHandle` — which is the same transport and the same version with the decode step skipped. It is the whole of "a resource is a declared source that is not a table" (its own section below).
+The port has a SECOND, optional door — `openResource(decl, { resource }) → ResourceHandle` — which is the same transport and the same version with the decode step skipped. Its read takes one option a table's does not (`ResourceSnapshotOptions.onProgress`: tell me how it is going), because its body may be 169 MB. It is the whole of "a resource is a declared source that is not a table" (its own section below).
 
 ## The laws
 
@@ -35,7 +35,7 @@ Every way a source can fail has one name from a closed vocabulary, `SOURCE_REFUS
 
 ## The http carrier
 
-`httpSource({ fetch?, timeoutMs?, headers?, maxBytes? })` (its own module, `src/source/http.ts`) fetches `at` with the caller's abort signal and its own timeout over headers AND body; a 2xx with an empty body is `unavailable` (the place answered without data); the version is the server's ETag as sent (a weak `W/` stays weak), else Last-Modified, else a hash of the bytes; it declares `{ live: false, pushdown: false }`.
+`httpSource({ fetch?, timeoutMs?, headers?, maxBytes? })` (its own module, `src/source/http.ts`) fetches `at` with the caller's abort signal and its own timeout over headers AND body; a RESOURCE read that carries an `onProgress` observer is read through the response's own stream instead, reported as it arrives and landed only when it is whole ("Bytes may arrive progressively", below); a 2xx with an empty body is `unavailable` (the place answered without data); the version is the server's ETag as sent (a weak `W/` stays weak), else Last-Modified, else a hash of the bytes; it declares `{ live: false, pushdown: false }`.
 
 ## A document is never a table by accident
 
@@ -86,9 +86,82 @@ dashboard.resource('structure') // { format: 'text', body: '<the file>', version
 - **Offered to a renderer on the handshake.** `HostHandshake.resources` (protocol 1.10) hands a third-party chart its geometry through the protocol instead of a factory option no commit can name. At MOUNT and deliberately NOT on `RenderState`: state is pushed on every update, bytes are fetched once. Host-side only — the bytes reach a host through `Dashboard.resource(name)`, which is a METHOD and not a field beside `resources` precisely because a resource's facts ride every wire this library has and its bytes ride none of them. A session's runtime holds the facts and not the body, so nothing a session serves can reach it.
 - **Refreshable by the same door.** `dashboard.refresh()` asks every table AND every declared resource; `refresh(['structure'])` asks one by name. The answers ride `RefreshResult.resources`, a map of its own — a resource has no rows and no delta, so folding it into `tables` would be a shape that promised both. An unchanged resource moves nothing; a changed one replaces the bytes a host hands out next; **a refused re-fetch leaves yesterday's bytes exactly where they are and says so** in the carrier's own reason (the table door's law, unchanged).
 
-**What a resource is NOT, and not in this version:** decoding one into a table (a structure is not a table — that is the point); a resource as an ANALYSIS input; a byte-range or streaming read; caching policy beyond the carrier's own conditional read. A renderer offered the bytes still paints what the ROWS say — computing a value out of a resource and drawing it as data would be an aggregation the host does not own and no commit records.
+**What a resource is NOT, and not in this version:** decoding one into a table (a structure is not a table — that is the point); a resource as an ANALYSIS input; a byte-range or resumable read; caching policy beyond the carrier's own conditional read; and the progressive USE of a partial one, which the next section forbids outright. (Its bytes may now ARRIVE progressively — that is the section below.) A renderer offered the bytes still paints what the ROWS say — computing a value out of a resource and drawing it as data would be an aggregation the host does not own and no commit records.
 
 One more thing it is not, because a reader will look for it: **`resources` has no row in the agent surface's parts table** (`../agent/surfaceParts.ts` · `SURFACE_PARTS`), so `whats_here { of: ['resources'] }` is refused by name. It rides an unnarrowed answer and it takes part in a `since` delta correctly — `narrowParts` walks the answer's own keys, not that table — but it cannot be ASKED for on its own, because every row of that table is a part the no-argument answer always carries, and this key is deliberately absent when a def declares no resource. Giving the table a notion of a part that may be absent is an agent-surface change with its own measured cost, not a line in this one.
+
+## Bytes may arrive progressively — and a resource is not landed until it is whole
+
+A curated protein-family alignment, measured live:
+
+```
+PF00545 seed      27,581 bytes     283 sequences
+PF00545 full   2,943,028 bytes   3,982 sequences
+PF00005 seed       8,980 bytes                  ← a huge family whose SEED is smaller than ours
+PF00005 full 168,891,129 bytes                  ← and it had NOT finished after 60 seconds
+```
+
+A 169 MB body read the way a resource was read before this section blocks until it is done: one `res.text()`, one frame that never comes back. The worker-and-chunk machinery this library already has (`../data/duckdbConnection.ts`) lands **rows** into the wasm engine — a resource is bytes that are not a table, which is the tier that never got it.
+
+**THE LAW: bytes may arrive progressively, and a host may be told how it is going. A resource is not LANDED until it is whole, and no act may read a partial one.**
+
+```ts
+const dashboard = await buildDashboardAsync(def, {
+  sources: [httpSource()],
+  onResourceProgress: (p) => show(p.resource, p.bytes, progressFraction(p)),   // fraction may be undefined: unknown total
+});
+await dashboard.refresh(['structure'], { onResourceProgress, signal: stop.signal });
+```
+
+### The first half is plumbing; the second half is the honesty
+
+A Stockholm alignment half-arrived is **not a shallower alignment**. It is the first N sequences in file order — a biased subset, ordered by whatever the curator's file happened to list first — and a conservation score computed from it would be wrong *in a way no reader could see*: it would carry a version, a size and a retrieval time, and look exactly like an answer. So partial bytes are **never** readable, never a shorter version of the answer, and never land a version:
+
+- a read that does not finish lands **nothing** — `landResource` is reached only by a landing that arrived (`../def/buildDashboard.ts`), so `dashboard.resource(name)` still hands out yesterday's bytes and `overview().resources` still names yesterday's version;
+- it is refused **by name**, from the same closed vocabulary: `cancelled` (the caller's signal, honoured mid-stream), `disconnected` (the body ended before it was whole), `too-large` (the cap, asked of what arrives);
+- and the accumulated chunks are dropped with the frame that held them, so there is no door to reach them through — not a partial snapshot, not a partial body, not a size.
+
+A stream that ends **cleanly** short of a total the reader can trust is that refusal in its plainest form (`./http.ts` · `readProgressively`):
+
+```
+disconnected: resource "structure" http source https://…/PF00005.full: disconnected — the body ended
+  after 1024 bytes of the 2048 the server declared; a resource is not landed until it is whole, so nothing moved
+```
+
+…and where there is **no** trustworthy total there is nothing to compare, so the reader claims nothing: a truncated body then arrives as the transport's own fault, which is `disconnected` too. The law is enforced where it can be proved and stated where it cannot.
+
+### Progress is a REPORT, not a record
+
+`ResourceProgress { resource, bytes, total? }` says how a fetch is going. It is transient, it reaches no commit, it rides no wire a session serves, it is not evidence, and **nothing computes from it** (`./progress.ts`). An observer that throws is swallowed — nothing about the read may turn on a report — and reports already made are not retracted when a read is refused: each said what had arrived, which was true when it was said. A visible act that claims nothing.
+
+**What the overview carries is different, and IS a fact: the resource's STATE.** `ResourceInfo.state === 'arriving'` while a read for it is in flight, and the key is **absent** when the bytes are simply held. Every other field on that row still describes the bytes the dashboard HOLDS — yesterday's, during a re-read — which is the honesty: a partially arrived resource lands no version, so there is nothing newer to describe. Two words and not four: no `'refused'` (a refused re-fetch is reported in `RefreshResult.resources` and the journal, where a refusal belongs, and would otherwise need something to clear it) and no `'absent'` (a dashboard does not exist until every declared resource has landed, so no reader can ask about one that has not). The payload stays off the overview exactly as before — at every point in a fetch, `JSON.stringify(overview())` carries a size and a state word and no bytes.
+
+### The trap, measured: do NOT compute a percentage from `content-length`
+
+That 169 MB response came back `content-encoding: gzip`. So `content-length` was the **compressed** size while the bytes a reader accumulates are **decoded** — pinned here against a real server and a real gzip frame, as `content-length: 183` while 37,000 bytes arrive (`./resourceProgress.test.ts`). A percentage from that pair races past 100%; `content-length` may also be absent entirely (a chunked response) or simply wrong.
+
+So **bytes-so-far is reported always**, because that is a fact the reader holds, and a **total only when the declaration counts the bytes being counted** — `declaredLength` answers `total` (a run of digits, and nothing recoding the body), `other-bytes` (a real count, of other bytes: a `content-encoding` or a `transfer-encoding`) or `none` (absent, or not a count). The last two are both "unknown total", which is **a first-class answer and never a zero**: the `total` key is absent and `progressFraction` returns `undefined`. A spinner that admits it does not know beats a bar that lies, and `progressFraction` is the ONE owner of that division so no host writes `bytes / total` over a pair that does not compare — it also clamps at 1, because with a trusted total more bytes than declared means the server declared wrongly.
+
+**A pre-existing bug this found, and fixed** (`./progress.ts` · `tooLargeOnArrival`): the same pair feeds the `too-large` guard, and the arrival check's sentence said *"(the server declared no length)"* whenever arrival exceeded the cap — **including when the server had declared one**, which is exactly the gzip case: the compressed declaration passes the pre-read guard, and the arrival check is the one that fires. The tail now tells the truth in each of the three cases, and the words for a server that declared nothing are unchanged:
+
+```
+too-large — 37000 UTF-16 units arrived (the server declared 183 bytes, but the body arrived
+  content-encoding: gzip — that count is not these bytes), the cap is 1000
+```
+
+The pre-read guard itself is unchanged and stays: over the cap compressed is over the cap decoded too, so refusing on a declaration can only ever be right. What such a declaration cannot do is *admit* a body safely — which is why the cap is asked again of what arrives, chunk by chunk, so a body over it **stops** instead of finishing.
+
+### Where the read runs, and why there is no worker
+
+On **this thread**, through the response's own `ReadableStream`. Accumulating bytes is not work — a chunk is pushed onto a list and counted — and a worker would add a transfer of every chunk plus a message hop for every report, while the bytes still have to end up in this heap to be handed to a renderer. The one real cost, decoding **text**, is done incrementally here (`./http.ts` · `textSink`, a `TextDecoder` with `{ stream: true }`), which is precisely what a worker would have been for: the thing that blocks a frame is one 169 MB decode, not a thousand 64 KiB ones.
+
+### Two strategies behind one door
+
+A host asks for a resource the same way it always did, and may add an observer and a signal (`ResourceSnapshotOptions`). A read that carries **no observer** is the read this carrier always made — the whole body in one act, `res.body` never touched — and that is a pinned test, not a hope. A read that carries one goes through the stream. The verdicts cannot diverge: the cap's last word is taken over whatever reaches `versionOfBody`, in the same unit (`bytes` for a `bytes` landing, UTF-16 units for `text`), so the progressive read's early refusal only ever spares the wire, and it says that it *stopped there* rather than quoting a count that could be read as the body's size.
+
+`onProgress` is a REQUEST, not a guarantee. Only the **http** carrier reports today: `file` reads through node's `readFile`, which hands back a whole body, and an `inline` payload is the def's own text — it never arrives over anything. Silence is not a stall. A streamed file read is a carrier change and not a port change, because the port is already asked.
+
+**Not in this packet, deliberately:** a byte-range or resumable read (a resumed transfer needs a range request and a way to vouch that the two halves are the same body); caching beyond the carrier's own conditional read; the progressive USE of a partial resource, which the law above forbids; and streaming for **table** sources, which land rows into an engine and have their own path and their own honesty (the row key).
 
 ## A table with no carrier — what the overview says, and what it does not
 
@@ -126,6 +199,6 @@ Three consequences that belong here rather than in the def folder:
 
 ## Not yet
 
-The streaming carrier, and only that: `snapshot(options)` already takes an abort signal, and a delta channel gated by `live` arrives with it. (A resource's own four exclusions are listed with its law above, and they are exclusions by DESIGN rather than work outstanding — a resource decoded into a table would be the one thing the law forbids.)
+The streaming carrier for a TABLE's rows, and only that: `snapshot(options)` already takes an abort signal, and a delta channel gated by `live` arrives with it. (A RESOURCE's bytes already arrive progressively — its own section above, with the law that a partial one is never landed. Its remaining exclusions are listed there, and they are exclusions by DESIGN rather than work outstanding — a resource decoded into a table would be the one thing the law forbids.)
 
 Everything else this list used to name has SHIPPED, and the section above is where each one now lives — the row key and its exact delta (`data[t].key`, `deltaByKey`), the version stamp every commit carries (`CommitRecord.data`, from the log's `stampData` hook), and the package `exports` map: `vizfootprint/source` and `vizfootprint/source/file` are real specifiers in `package.json`, so a host no longer reaches the file carrier by path. A "not yet" that outlives the work is worse than no list at all — it tells a reader to go build what is already under their hand — so `notYet.test.ts` pins this paragraph against the code that proves each one landed.

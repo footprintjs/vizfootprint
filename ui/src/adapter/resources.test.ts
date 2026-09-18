@@ -29,6 +29,21 @@ describe('mapPollState — the declared resources', () => {
     expect(mapPollState({ records: [], resources: 'nope' }).resources).toBeUndefined();
   });
 
+  it('carries the ONE state word when the wire says it, and never invents it', () => {
+    // bytes on the wire right now: the facts beside the word are the ones the dashboard HOLDS
+    const arriving = mapPollState({
+      records: [],
+      resources: {
+        structure: { format: 'text', via: 'http', at: 'https://x/1ay7.pdb', version: 'etag:"v1"', retrievedAt: '2026-09-17T00:00:00.000Z', bytes: 171236, state: 'arriving' },
+        logo: { format: 'bytes', via: 'inline', version: 'v1', retrievedAt: 'now', bytes: 2 },
+        nonsense: { format: 'text', via: 'http', version: 'v1', retrievedAt: 'now', bytes: 1, state: 'landed' },
+      },
+    } as RawPollState);
+    expect(arriving.resources!.structure!.state).toBe('arriving');
+    expect('state' in arriving.resources!.logo!).toBe(false); // absent = simply held
+    expect('state' in arriving.resources!.nonsense!).toBe(false); // a word this vocabulary does not have is not carried
+  });
+
   it('there is no payload key to carry, even when a wire tries to send one', () => {
     const state = mapPollState({
       records: [],

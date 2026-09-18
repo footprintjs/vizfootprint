@@ -1478,6 +1478,12 @@ export interface Overview {
    * renderer on the mount handshake. ABSENT when the def declares none, so a
    * def without resources answers an overview byte-identical to one from
    * before they existed.
+   *
+   * …and `state: 'arriving'` on an entry whose bytes are on the wire right now
+   * (`ResourceInfo.state`): the facts beside it are the bytes this dashboard
+   * HOLDS, which is what a reader needs while a large body is arriving — the
+   * word is a fact about the resource, unlike a progress report, which is
+   * transient and rides no wire a session serves.
    */
   readonly resources?: Readonly<Record<string, ResourceInfo>>;
   /** How many rows of the default table the live selection keeps — counted by the engine in one query, no row materialised; `null` when the engine could not answer (never a fake 0). */

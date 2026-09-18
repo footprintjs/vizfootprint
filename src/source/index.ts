@@ -15,7 +15,10 @@
  * reached a carrier that was written, tested and compiled.
  */
 export { SOURCE_FORMATS, SOURCE_VIAS, SOURCE_REFUSALS, CAPABILITY_REFUSALS, RESOURCE_FORMATS, SourceRefusal, ResourceRefusal, isSourceRefusal, isResourceRefusal, isUnchanged } from './types.js';
-export type { SourceFormat, SourceVia, SourceRefusalReason, SourceDecl, SourceCapabilities, SnapshotOptions, SourceSnapshot, SourceUnchanged, SourceHandle, SourceAdapter, SourceInfo, SourceRejection, ResourceFormat, ResourceDecl, ResourceSnapshot, ResourceHandle, ResourceInfo } from './types.js';
+export type { SourceFormat, SourceVia, SourceRefusalReason, SourceDecl, SourceCapabilities, SnapshotOptions, SourceSnapshot, SourceUnchanged, SourceHandle, SourceAdapter, SourceInfo, SourceRejection, ResourceFormat, ResourceDecl, ResourceSnapshot, ResourceSnapshotOptions, ResourceHandle, ResourceInfo } from './types.js';
+// bytes may arrive PROGRESSIVELY: the report a host may ask for, and the one honest way to turn it into a fraction (./progress.ts)
+export { progressFraction } from './progress.js';
+export type { ResourceProgress, ResourceProgressObserver } from './progress.js';
 // the resource shapes' own helpers: what a body's SIZE is, what identifies it, and the facts row a reader gets instead of the payload (./resource.ts)
 export { utf8Bytes, resourceBytes, resourceHash, resourceInfoOf, resourceSnapshotOf, resourceVersionsOf, resourceWhere } from './resource.js';
 export type { ResourceBody } from './resource.js';

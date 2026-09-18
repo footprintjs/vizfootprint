@@ -323,6 +323,14 @@ export interface ResourceInfoView {
   readonly retrievedAt: string;
   /** How many bytes landed. */
   readonly bytes: number;
+  /**
+   * `'arriving'` while this resource's bytes are on the wire — absent when they
+   * are simply held. The fields above always describe the bytes the dashboard
+   * HOLDS (yesterday's, during a re-read), because a partially arrived resource
+   * lands no version: a cockpit says "arriving" beside the size it has, never a
+   * size it is guessing at.
+   */
+  readonly state?: 'arriving';
 }
 
 /**

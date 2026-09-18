@@ -975,7 +975,9 @@ function mapResources(raw: unknown): Readonly<Record<string, ResourceInfoView>> 
   for (const [name, v] of Object.entries(raw as Record<string, unknown>)) {
     const o = v as Partial<ResourceInfoView>;
     if (typeof o.format !== 'string' || typeof o.via !== 'string' || typeof o.version !== 'string' || typeof o.retrievedAt !== 'string' || typeof o.bytes !== 'number') continue;
-    out[name] = { format: o.format, via: o.via, ...(typeof o.at === 'string' ? { at: o.at } : {}), version: o.version, retrievedAt: o.retrievedAt, bytes: o.bytes };
+    // …and the one state word, carried when the wire says it and never invented: a row with no
+    // `state` is a resource that is simply held (`ResourceInfoView.state`)
+    out[name] = { format: o.format, via: o.via, ...(typeof o.at === 'string' ? { at: o.at } : {}), version: o.version, retrievedAt: o.retrievedAt, bytes: o.bytes, ...(o.state === 'arriving' ? { state: o.state } : {}) };
   }
   return out;
 }
