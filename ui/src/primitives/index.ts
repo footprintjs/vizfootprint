@@ -62,6 +62,11 @@ export { bandOrder, bandWidth, bandStart, bandCentre, domainOr } from './scales.
 // consumer-built band chart brushes its slots by asking it, and says `noSlotsCoveredNote` when a drag
 // crossed no mark at all
 export { slotsCovered, noSlotsCoveredNote } from './scales.js';
+// …and the RUN's twin of it (`VizLine`'s numeric brush): `valuesCovered` answers which data values a
+// numeric span reached, in DATA space so the caller's own scale is the only thing that inverts a pixel,
+// with `noValuesCoveredNote` for the span that reached none — an interval no row can answer is the
+// empty keep-list one layer along, and a run refuses that shape exactly as a band does
+export { valuesCovered, noValuesCoveredNote } from './scales.js';
 // A MARK A READER IS MEANT TO PRESS MUST BE REACHABLE: `slotAt` is the ONE owner of "which slot is
 // this ONE pixel inside" (a tap; `slotsCovered` is its range twin), `pointerTargetWidth` of how wide
 // a transparent target over a mark may be (the WCAG floor, or the slot when the slot is narrower —

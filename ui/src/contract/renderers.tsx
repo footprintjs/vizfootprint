@@ -256,8 +256,9 @@ export interface LineRendererOptions {
  * THREE KINDS, TWO GESTURES (law 13, and the reachability law after it): band
  * versus run is a property of the x COLUMN and the hello is fixed at MOUNT,
  * before any state — so a line honestly declares ALL of the `interval` its
- * drag lands over a run of dates, the `match` the same drag lands over a band
- * of categories (`VizLine`'s band brush, `slotsCovered`), and the `point` its
+ * drag lands over a run of DATES (as ISO strings) or a run of NUMBERS (as
+ * numbers — one kind, each arm addressing its own axis), the `match` the same
+ * drag lands over a band of categories (`VizLine`'s band brush, `slotsCovered`), and the `point` its
  * TAP lands on a band, which is how a 5px slot is reachable with one click
  * (`VizLine` · `tapSlot`, the bar's own `clickEmission`). `canPointSelect` says
  * the same thing about the same mount, and for the same reason it cannot be
@@ -282,8 +283,8 @@ export function lineRenderer(options: LineRendererOptions = {}): Renderer {
 }
 
 /**
- * One layer (or one view) of a line. Its points carry a CATEGORY when the x
- * column was folded as one — `domain.categories` when a multi-layer FRAME
+ * One layer (or one view) of a line. Its points carry a NUMBER when the x
+ * column holds one, a CATEGORY when the x column was folded as one — `domain.categories` when a multi-layer FRAME
  * merged a band order for the stack (`layerDomain` gives it exactly when the
  * column this layer binds to x was folded as categorical), or `d.frame`'s own
  * resolution of the `x` channel for a PLAIN view with no stack to merge one
@@ -292,7 +293,21 @@ export function lineRenderer(options: LineRendererOptions = {}): Renderer {
  * and a DATE otherwise: band versus run is the x column's, read off the fold,
  * never off a prop of the mark.
  *
- * THE BUG THIS SECOND ARM FIXES: `viewDraw` builds no band order of its own
+ * THE THIRD ARM, AND THE DEFECT IT CLOSES (162 marks before a drag and 162
+ * after, the refusal ledger climbing once per drag): every non-band row used
+ * to become `{ date: String(value) }`, so a NUMBER reached the chart as a
+ * date-shaped string — `Date.parse('107')` answers the year 0107 and
+ * `Date.parse('13')` answers nothing at all — and the interval the drag landed
+ * carried date-shaped strings a numeric column can never answer. A number on x
+ * is now passed AS A NUMBER (`VizLine`'s `NumericLinePoint`) and the chart's
+ * own one owner of "what kind is this axis" (`xKindOf`) does the deciding.
+ * TWO READINGS OF THE EVIDENCE, in this order: the FOLD's answer when the host
+ * folded one for the channel (`sharedOn(d.frame, 'x')?.scale`, whose one owner
+ * is `frameScaleOf` — so a numeric column arriving as text is still a numeric
+ * axis), and the row's OWN value type when it did not. This renderer decides
+ * nothing about the axis; it hands the chart each row's quantity faithfully.
+ *
+ * THE BUG THE SECOND ARM FIXED: `viewDraw` builds no band order of its own
  * to merge (there is no stack), so a layerless view's `domain.categories` was
  * ALWAYS undefined — a line over a category the door had just accepted built
  * DATED points regardless, `Date.parse` could not place "flu" or "TX", and
@@ -305,9 +320,23 @@ function lineMark(d: MarkDraw, options: LineRendererOptions): JSX.Element {
   const dateField = boundField(d.encodings, 'x', 'date');
   const valueField = boundField(d.encodings, 'y', 'value');
   const seriesField = d.encodings['color'];
-  const onBand = d.domain.categories !== undefined || sharedOn(d.frame, 'x')?.scale === 'categorical';
+  const scale = sharedOn(d.frame, 'x')?.scale;
+  const onBand = d.domain.categories !== undefined || scale === 'categorical';
+  // a NUMBER on x is a numeric run: the fold's own answer where the host folded one, the row's own
+  // value type where it did not — read per ROW, so the chart's `xKindOf` stays the only thing that
+  // decides which axis a mixed bag lands on
+  const onNumber = (v: unknown): boolean => scale === 'quantitative' || typeof v === 'number';
+  // …and the number itself, or NaN for a cell holding nothing a number can be read from. NOT `num`,
+  // which answers 0: a position is not a magnitude, and an unplaceable x drawn AT ZERO is a value the
+  // row does not have. NaN is what the chart SKIPS (`runPositionOf`, its own never-guess law).
+  const xNumber = (v: unknown): number => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : Number.NaN);
+  const xOf = (r: RenderRow): { category: string } | { at: number } | { date: string } => {
+    const v = r[dateField];
+    if (onBand) return { category: String(v) };
+    return onNumber(v) ? { at: xNumber(v) } : { date: String(v) };
+  };
   const data = d.rows.map((r) => ({
-    ...(onBand ? { category: String(r[dateField]) } : { date: String(r[dateField]) }),
+    ...xOf(r),
     value: num(r[valueField]),
     series: seriesField !== undefined ? String(r[seriesField]) : undefined,
   }));

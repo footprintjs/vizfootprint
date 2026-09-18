@@ -1,6 +1,12 @@
 /**
- * `<VizLine>` — a responsive SVG time series (mean of a numeric column per
- * date, optionally split into coloured series) with a horizontal TIME BRUSH.
+ * `<VizLine>` — a responsive SVG series (mean of a numeric column per x
+ * bucket, optionally split into coloured series) with a horizontal BRUSH.
+ *
+ * THREE KINDS OF X, AND THE KIND DECIDES THE CLAUSE (see `xKindOf`, the one
+ * owner of "which x am I on"): a RUN OF DATES emits an interval of ISO dates,
+ * a RUN OF NUMBERS emits an interval of NUMBERS, and a BAND emits the match
+ * its slots speak. An interval addresses the axis it was drawn on or the
+ * gesture is decoration.
  * Controlled like its siblings: the consumer passes the (already
  * crossfiltered) raw points and the chart renders them — its own line
  * recomputes under other views' selections because the CONSUMER recomputes
@@ -14,7 +20,51 @@
  * bucket is the data's own date granularity — the chart never invents a
  * coarser bucketing.
  *
- * BRUSH → EMISSION (design call): dates are ISO-8601 STRINGS and the brush
+ * A RUN OVER NUMBERS EMITS NUMBERS — the numeric arm, and the defect that
+ * bought it. On a consumer's page two line charts invited a drag over a
+ * residue-number axis. The brush DREW, the gesture FIRED, and nothing
+ * happened: 162 marks before the drag and 162 after, with the session's own
+ * refusal ledger climbing once per drag (3 at boot, 4 after one). The cause
+ * was HERE: this chart positioned every run through `epochOf` — date
+ * semantics — and snapped each endpoint to the nearest distinct data DATE, so
+ * a numeric axis was handed a clause of date-shaped STRINGS, which a numeric
+ * column cannot answer.
+ *
+ * THE EARLIER RECORDED CAUSE WAS WRONG, twice: two briefs before this one said
+ * the x was a BAND and the band brush was built on that reading. The band arm
+ * below earns its place (it shipped law 13's door and the `declared-delivered`
+ * conformance step) but it never addressed this, and it is recorded here
+ * because a wrong recorded cause is worse than none — the next reader builds
+ * on it. What a numbers axis was actually doing before this arm, measured over
+ * residues 1…241 through `Date.parse`: 1–12 landed in the twelve months of
+ * 2001, 13–31 were UNPARSEABLE and silently dropped (19 residues gone from the
+ * picture), 32–68 became 2032–2068, 69–99 became 1969–1999 and 100–241 became
+ * the years 0100–0241 — four blocks in the wrong order, so residue 107 was
+ * drawn to the LEFT of residue 99. The line a reader was reading was not the
+ * data's shape at all.
+ *
+ * Its three rules, each of them a test. THE BOUNDS ARE THE AXIS'S, NOT THE
+ * MARKS': a numeric drag emits the span the pointer COVERED — `[x.invert(lo),
+ * x.invert(hi)]`, never snapped to a mark and never rounded. The date arm
+ * snaps because its rail is STRINGS (an invented ISO string can be a format
+ * the column never uses, and lexicographic order then disagrees with
+ * chronology); numbers have no such hazard — the interval predicate compares
+ * numerically — and a declared `bounds` lets a reader drag where no mark sits,
+ * where snapping would move the clause to a distant mark, or collapse both
+ * ends onto ONE mark: a clause the reader did not make. ORDER IS THE AXIS'S:
+ * the bounds come back ascending whichever way the pointer went. EMPTY IS AN
+ * ANSWER: a span that covers no data value emits NOTHING and says so
+ * (`valuesCovered` + `noValuesCoveredNote`, the band arm's own shape, its own
+ * words). A TAP clears, exactly as on a run of dates — the brush primitive's
+ * default arm, untouched: a band's tap selects a SLOT because a slot is a
+ * tiled target a drag alone could barely reach, and a run has no tiles, so the
+ * nearest-mark guess would be the very clause the bounds rule refuses.
+ *
+ * AND IT ROUND-TRIPS: the numeric interval comes back through the read door
+ * and this chart outlines the points inside it (`selfSelectedInterval`, the
+ * one owner — the histogram's own law for the same clause).
+ *
+ * BRUSH → EMISSION on a run of DATES (design call): dates are ISO-8601 STRINGS and the brush
  * emits `{ rawValue: [startISO, endISO], encoding: { kind: 'interval', field } }`
  * with bounds SNAPPED to the data's own date values (nearest distinct date per
  * endpoint) — the emitted strings are actual column values, so the string
@@ -79,13 +129,14 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { linearScale, extent, ticks, epochOf, dayOf, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
+import { linearScale, extent, ticks, epochOf, dayOf, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
 import { TICK_ANGLE, fitTick } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
 import { scaleHueStyle } from '../primitives/scaleHue.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { matchEmission, clickEmission } from '../primitives/pointSelect.js';
+import { selfSelectedInterval } from '../contract/selection.js';
 import { markClass, selectedSet } from '../primitives/useSelection.js';
 import { announce } from '../primitives/announce.js';
 import { useReencodePicker } from '../primitives/reencode.js';
@@ -116,8 +167,26 @@ export interface BandLinePoint {
   readonly series?: string;
 }
 
-/** One point of the line, on a date or on a category — discriminated on which it carries, never by a prop. */
-export type LinePoint = DatedLinePoint | BandLinePoint;
+/**
+ * A point on a RUN OF NUMBERS: positioned at its own value on a linear axis.
+ * WHY a third arm of one shape rather than a third component, and why `at`
+ * rather than a second meaning for `date`: run-of-numbers versus run-of-dates
+ * versus band is a property of the x COLUMN, and the honest way to carry that
+ * is for the point to say which quantity it holds. A date that is really a
+ * number cannot be told apart from a year (`Date.parse('107')` answers 0107
+ * and `Date.parse('13')` answers nothing at all), so the two runs cannot share
+ * one key.
+ */
+export interface NumericLinePoint {
+  /** Where this point sits on the axis — the x column's own number. */
+  readonly at: number;
+  readonly value: number;
+  /** Optional series split (coloured via `colorOf`). */
+  readonly series?: string;
+}
+
+/** One point of the line, on a date, on a number or in a category — discriminated on which it carries, never by a prop. */
+export type LinePoint = DatedLinePoint | BandLinePoint | NumericLinePoint;
 
 export interface VizLineProps {
   /** The chart's accessible name — the prose plane's `altShort` lands here; absent = the chart names itself from its bindings. */
@@ -150,16 +219,25 @@ export interface VizLineProps {
    */
   readonly encoding?: ViewEncoding;
   /**
-   * The clause-addressable crossfilter selection (RP-1) — read for ONE thing:
-   * on a BAND, which slots this view's own clause holds, outlined on their
-   * points (`selectedSet`/`markClass`, `VizBar`'s own two). That closes the
-   * band brush's round trip: the match a drag emits comes back through the
-   * read door and the chart draws it in the SAME slots it selected.
+   * The clause-addressable crossfilter selection (RP-1) — read for the view's
+   * OWN live clause, in the one form the x it stands on can draw:
    *
-   * A RUN reads nothing from it: a dated line's own clause is an INTERVAL, and
-   * an interval names no point to outline — the brush overlay is what a run
-   * shows of its own selection. So a continuous-x line is byte-identical with
-   * or without this prop.
+   *   - on a BAND, which slots its match/point holds, outlined on their points
+   *     (`selectedSet`/`markClass`, `VizBar`'s own two);
+   *   - on a RUN OF NUMBERS, which points its own INTERVAL contains
+   *     (`selfSelectedInterval`, the one owner — the histogram's own law for
+   *     the same clause).
+   *
+   * Either way it closes the brush's round trip: the clause a drag emits comes
+   * back through the read door and the chart draws it over the SAME range it
+   * selected.
+   *
+   * A RUN OF DATES reads nothing from it and is byte-identical with or without
+   * the prop. Not because a date interval is unreadable — it is the same
+   * clause one type along — but because that arm is PINNED byte-identical
+   * (`VizLine.test.tsx`, the date-arm identity test): giving it the outline is
+   * a change to a picture nothing asked to change. Recorded as owed, not as
+   * law.
    */
   readonly selection?: RenderSelection;
   /**
@@ -237,23 +315,23 @@ export interface VizLineProps {
 
 /**
  * The line chart's channel/column compatibility: x takes a DATE-capable
- * column (reported type `'date'`, or vouched for via `dateFields`) OR a
- * CATEGORY column (`'string'`/`'boolean'`) — the door widened
- * (`CHART_REQUIREMENTS.line.x`, `src/encoding/requirements.ts`) and this
- * chart draws the band `lineMark` builds for one (the discriminated
- * `LinePoint` union below), so the veto widens with it. A plain NUMBER stays
- * refused: this chart has no numeric-run arm — every x it draws is a date
- * (`Date.parse`) or a band, never a linear number line — so a column the
- * session's door admits (a line's x also takes a number) can still be one
- * this CHART cannot draw, and says so. y takes only numeric ones — each
- * refusal names its reason (honest affordance). Other channels (color …)
- * fall through to {@link defaultCompat}.
+ * column (reported type `'date'`, or vouched for via `dateFields`), a CATEGORY
+ * column (`'string'`/`'boolean'`) or a NUMBER — the three x kinds this chart
+ * draws ({@link xKindOf}), which is exactly what the session's own door admits
+ * (`CHART_REQUIREMENTS.line.x`, `src/encoding/requirements.ts`), so the two no
+ * longer disagree. The number used to be REFUSED here, and that refusal was
+ * honest while it stood: the chart had no numeric-run arm and every x it drew
+ * was a date or a band. It has one now, so the veto goes — a picker that greys
+ * a column the chart can draw is the same lie in the other direction.
+ *
+ * y takes only numeric ones — each refusal names its reason (honest
+ * affordance). Other channels (color …) fall through to {@link defaultCompat}.
  */
 export function lineCompat(dateFields: readonly string[] = []) {
   return (channel: string, column: ColumnView): Compatibility => {
     if (channel === 'x') {
-      if (column.type === 'date' || column.type === 'string' || column.type === 'boolean' || dateFields.includes(column.field)) return { ok: true };
-      return { ok: false, reason: `the x of a line needs a date or a category column — "${column.field}" is ${column.type}` };
+      if (column.type === 'date' || column.type === 'string' || column.type === 'boolean' || column.type === 'number' || dateFields.includes(column.field)) return { ok: true };
+      return { ok: false, reason: `the x of a line needs a date, a number or a category column — "${column.field}" is ${column.type}` };
     }
     if (channel === 'y') {
       if (column.type === 'number') return { ok: true };
@@ -268,9 +346,64 @@ function isBandPoint(p: LinePoint): p is BandLinePoint {
   return 'category' in p;
 }
 
-/** The x KEY a point is bucketed under: its category on a band, its ISO date on a run. */
+/** …and a point on a run of NUMBERS carries the number it sits at — the third arm of the same discriminant. */
+function isNumericPoint(p: LinePoint): p is NumericLinePoint {
+  return 'at' in p;
+}
+
+/** The x KEY a point is bucketed under: its category on a band, its number's own text on a numeric run, its ISO date on a run of dates. */
 function keyOf(p: LinePoint): string {
-  return isBandPoint(p) ? p.category : p.date;
+  if (isBandPoint(p)) return p.category;
+  return isNumericPoint(p) ? String(p.at) : p.date;
+}
+
+/**
+ * WHERE A POINT SITS ON A RUN, or null when this axis cannot place it: the
+ * EPOCH of its date, or the number itself. One owner, asked by the navigate
+ * window and by the run's geometry alike, so the two can never disagree about
+ * which points exist — and the reason the two runs are ONE arm with two
+ * readers rather than two geometries.
+ */
+function runPositionOf(p: LinePoint): number | null {
+  if (!isNumericPoint(p)) return epochOf(keyOf(p));
+  return Number.isFinite(p.at) ? p.at : null;
+}
+
+/** WHICH X THIS CHART IS ON — three answers, one owner. */
+type XKind = 'band' | 'numbers' | 'dates';
+
+/**
+ * THE ONE OWNER OF "WHAT KIND IS THIS AXIS" for this chart's own positioning,
+ * and it reads only what the chart was HANDED — the band order a frame merged
+ * (or a point carrying a category, through {@link bandOf}) and then the points
+ * themselves. Never a prop: the x column's type is a fact the definition and
+ * the fold already carry (`frameScaleOf`, `src/encoding/frame.ts`), and a prop
+ * would be a second owner that could disagree with them (`ui/src/contract/README.md`
+ * records that refusal by name).
+ *
+ * A BAND WINS, because a band is an order a frame declared and the points'
+ * own quantity cannot outvote it — a number handed to a band becomes a slot
+ * named by its number, exactly as a date does. Otherwise ONE numeric point
+ * makes the axis numbers, which is `bandOf`'s own `some` discipline: a mixed
+ * bag has to land on one axis, and the run that can place a number is the
+ * only one that can place it honestly.
+ */
+function xKindOf(band: readonly string[] | undefined, data: readonly LinePoint[]): XKind {
+  if (band !== undefined) return 'band';
+  return data.some(isNumericPoint) ? 'numbers' : 'dates';
+}
+
+/**
+ * Is a position inside the view's own live interval? An OPEN side claims
+ * everything on it; a bound that is not this axis's own quantity claims
+ * NOTHING — the read door's no-cross-type-coercion law (`../contract/selection.ts`
+ * · `intervalPredicate`), asked here so a string interval landed by someone
+ * else cannot outline a numeric point it could never keep.
+ */
+function inSpan(span: readonly [number | string | null, number | string | null], at: number): boolean {
+  const [lo, hi] = span;
+  if (typeof lo === 'string' || typeof hi === 'string') return false;
+  return (lo === null || at >= lo) && (hi === null || at <= hi);
 }
 
 /**
@@ -341,13 +474,19 @@ function seriesOf(data: readonly LinePoint[], positions: readonly XPosition[]): 
   }));
 }
 
-/** A RUN's geometry: every distinct parseable date, chronological, and the series over exactly those points (an unparseable date cannot be positioned — skipped, never guessed). */
-function datedGeometry(data: readonly LinePoint[]): { series: SeriesGeom[]; positions: XPosition[] } {
-  const dated = data.filter((p) => epochOf(keyOf(p)) !== null);
-  const epochs = new Map<string, number>();
-  for (const p of dated) epochs.set(keyOf(p), epochOf(keyOf(p))!);
-  const positions = [...epochs.entries()].map(([key, at]) => ({ key, at })).sort((a, b) => a.at - b.at);
-  return { series: seriesOf(dated, positions), positions };
+/**
+ * A RUN's geometry — dates or numbers, ONE arm: every distinct POSITIONABLE x
+ * in the axis's own order, and the series over exactly those points. A value
+ * the axis cannot place is skipped and never guessed (an unparseable date, a
+ * number that is not finite) — which is the date arm's own law, now asked
+ * through {@link runPositionOf} so a numeric run keeps it for free.
+ */
+function runGeometry(data: readonly LinePoint[]): { series: SeriesGeom[]; positions: XPosition[] } {
+  const placed = data.filter((p) => runPositionOf(p) !== null);
+  const ats = new Map<string, number>();
+  for (const p of placed) ats.set(keyOf(p), runPositionOf(p)!);
+  const positions = [...ats.entries()].map(([key, at]) => ({ key, at })).sort((a, b) => a.at - b.at);
+  return { series: seriesOf(placed, positions), positions };
 }
 
 /** A BAND's geometry: one position per slot, in the band's order, and the series over those slots. */
@@ -438,20 +577,27 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // the fold already carry, and a prop would be a second owner that could disagree with them.
   const givenBand = props.domain?.categories;
   const band = useMemo(() => bandOf(givenBand, data), [givenBand, data]);
+  // …and WHICH x that makes this: a band, a run of numbers or a run of dates (`xKindOf`, the one owner
+  // — every branch below reads this one answer and none of them re-derives it)
+  const kind = useMemo(() => xKindOf(band, data), [band, data]);
   const xDomain = props.xDomain;
   // the navigate window: keep only the points inside it — drawn extent follows the window, the data stays whole.
   // A TIME window, so a band (no between to window) keeps every point.
   const scoped = useMemo(() => {
     if (xDomain === undefined || band !== undefined) return data;
-    const bound = (b: string | number | null): number | null => (b === null ? null : typeof b === 'number' ? b : epochOf(b));
+    // A BOUND IS READ IN THE AXIS'S OWN QUANTITY — an epoch on a run of dates, the number itself on a
+    // run of numbers — and a bound this axis cannot read leaves that side OPEN, which is the date arm's
+    // own law (an unparseable ISO string has always answered `null` here) rather than a guess.
+    const bound = (b: string | number | null): number | null =>
+      kind === 'numbers' ? (Number.isFinite(b) ? (b as number) : null) : b === null ? null : typeof b === 'number' ? b : epochOf(b);
     const lo = bound(xDomain[0]);
     const hi = bound(xDomain[1]);
     return data.filter((p) => {
-      const e = epochOf(keyOf(p));
-      return e !== null && (lo === null || e >= lo) && (hi === null || e <= hi);
+      const at = runPositionOf(p);
+      return at !== null && (lo === null || at >= lo) && (hi === null || at <= hi);
     });
-  }, [data, xDomain, band]);
-  const { series, positions } = useMemo(() => (band === undefined ? datedGeometry(scoped) : bandGeometry(scoped, band)), [scoped, band]);
+  }, [data, xDomain, band, kind]);
+  const { series, positions } = useMemo(() => (band === undefined ? runGeometry(scoped) : bandGeometry(scoped, band)), [scoped, band]);
   const compat = useMemo(() => lineCompat(dateFields ?? [dateField]), [dateFields, dateField]);
 
   // THE MARGIN THIS INSTANCE DRAWS INSIDE: `PAD` with its y-axis room on the side the axis stands
@@ -520,6 +666,23 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const bottom = height - padB;
   const y = scaleFor(yKind)(vlo, vhi, bottom, top);
 
+  /**
+   * A DRAG OVER A RUN OF NUMBERS: the span the pointer covered, in the axis's own quantity — the
+   * inverted pixels themselves, never snapped to a mark and never rounded (the header's argument: a
+   * snap or an outward round claims a value the reader did not drag over). `null` when the span covers
+   * no data value at all, which is the brush primitive's own NOTHING — the brush clears, no emission
+   * fires, and the reader is told out loud rather than meeting silence or a clause no row can answer.
+   */
+  const numericSpan = (loPx: number, hiPx: number): [number, number] | null => {
+    const lo = x.invert(loPx);
+    const hi = x.invert(hiPx);
+    if (valuesCovered(positions.map((d) => d.at), lo, hi).length === 0) {
+      announce(noValuesCoveredNote());
+      return null;
+    }
+    return [lo, hi];
+  };
+
   /** The distinct data date NEAREST an epoch (positions are chronological on a run, monotone in their argument). */
   const snapToDate = (epoch: number): XPosition | null => {
     if (positions.length === 0) return null;
@@ -534,6 +697,18 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // `endRun` passes the same `set.exclude`: a drag inside an exclude-set removes from it, it never flips).
   // With no `selection` it is the empty keep-set, so `markClass` returns '' and a run is untouched.
   const set = selectedSet(undefined, props.selection);
+  // …AND THE RUN'S OWN LIVE INTERVAL, which closes the numeric arm's round trip: the clause a numeric
+  // drag emitted comes back through the read door and the points inside it wear the outline
+  // (`selfSelectedInterval`, the ONE owner of "what interval does this view itself hold" — the very
+  // function `VizHistogram` reads for the same clause). A run of DATES asks for none, which is what
+  // keeps that arm byte-identical with or without the prop.
+  const ownSpan = kind === 'numbers' && props.selection !== undefined ? selfSelectedInterval(props.selection) : null;
+  /** The outline a point earns from the view's OWN clause: its slot on a band, its place in the interval on a numeric run, nothing on a run of dates. */
+  const outlineOf = (p: SeriesPoint): string => {
+    if (band !== undefined) return markClass(p.key, set);
+    if (ownSpan === null) return '';
+    return inSpan(ownSpan, p.at) ? ' vzf-selected' : '';
+  };
   // A BAND DRAG IS A RUN OF SLOTS, NOT AN INTERVAL (law 13): the slots whose POINTS the drag crossed
   // (`slotsCovered`, the one owner), named in the BAND's order, landed as the match `VizBar` lands over the
   // same band. No slot crossed ⇒ NOTHING, said out loud — never an empty keep-list, which matches nothing.
@@ -565,15 +740,19 @@ export function VizLine(props: VizLineProps): JSX.Element {
     onEmit?.(clickEmission(dateField, names[at]!, set));
   };
 
-  // drag→interval on time — the brush primitive's completion discipline (a
-  // sub-4px release clears); snap-to-data = the nearest DISTINCT data date per
-  // endpoint, so the emitted bounds are actual column values (or nothing).
+  // drag→interval on the run — the brush primitive's completion discipline (a
+  // sub-4px release clears, on BOTH runs: a run has no tiled target for a tap
+  // to land in, so the nearest-mark guess is the clause the reader did not
+  // make). WHICH interval is the axis's: the span covered on a run of NUMBERS
+  // (`numericSpan`), and on a run of dates snap-to-data = the nearest DISTINCT
+  // data date per endpoint, so the emitted bounds are actual column values (or
+  // nothing). One `snap` slot, the kind picks the arm.
   const { svgRef, brush, handlers } = useHorizontalBrush({
     plotLeft: pad.l,
     plotRight: width - pad.r,
     width,
     field: dateField,
-    snap: (loPx, hiPx) => {
+    snap: kind === 'numbers' ? numericSpan : (loPx, hiPx) => {
       const lo = snapToDate(x.invert(loPx));
       const hi = snapToDate(x.invert(hiPx));
       // no dated rows at all — nothing to snap to; never fabricate an interval
@@ -593,10 +772,10 @@ export function VizLine(props: VizLineProps): JSX.Element {
 
   const { pickerChannel, openPicker, closePicker } = useReencodePicker(onReencodeRequest);
 
-  // ≤3 tick dates: first (start-anchored), last (end-anchored), and the middle
-  // date ONLY when its label physically fits between the edge labels — data
-  // dates land where they land, so the middle can crowd an edge under uneven
-  // gaps. Date labels are ~10 mono chars ≈ 62 viewBox units.
+  // ≤3 ticks on a RUN (either kind): first (start-anchored), last (end-anchored), and the middle
+  // position ONLY when its label physically fits between the edge labels — data values land where they
+  // land, so the middle can crowd an edge under uneven gaps. Date labels are ~10 mono chars ≈ 62
+  // viewBox units, which a number's own text never exceeds, so the fit test is conservative for it.
   const TICK_LABEL_W = 62;
   const tickSpecs: { key: string; at: number; anchor: 'start' | 'middle' | 'end' }[] = [];
   if (band === undefined && positions.length > 0) {
@@ -614,8 +793,12 @@ export function VizLine(props: VizLineProps): JSX.Element {
   }
   // the gap law (`segmentsOf`): on a run every consecutive pair connects; on a band only ADJACENT slots do
   const adjacent = band === undefined ? (): boolean => true : (a: SeriesPoint, b: SeriesPoint): boolean => b.at === a.at + 1;
-  /** What a point is called in its tooltip: its day on a run, its category on a band. */
-  const nameOf = (key: string): string => (band === undefined ? formatDate(key) : key);
+  /**
+   * What a point is called in its tick and its tooltip: its day on a run of dates, and its own literal
+   * text on a band or a run of numbers. `formatDate` is a DATE formatter and never sees a number — a
+   * number spelled by a date formatter is a lie about what the axis holds.
+   */
+  const nameOf = (key: string): string => (kind === 'dates' ? formatDate(key) : key);
   // the chart's OWN y extent is padded by 0.5, so its ticks step inside that padding; a frame's
   // domain carries no padding of ours, so its ticks span exactly what the axis claims
   const yPad = props.domain?.y === undefined ? 0.5 : 0;
@@ -667,7 +850,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
           <g key={`xt${d.key}`}>
             <line className="vzf-axis" x1={x(d.at)} y1={bottom} x2={x(d.at)} y2={bottom + 4} />
             <text className="vzf-tick" x={x(d.at)} y={bottom + 16} textAnchor={d.anchor}>
-              {formatDate(d.key)}
+              {nameOf(d.key)}
             </text>
           </g>
         ))}
@@ -716,7 +899,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
                 />
               ))}
             {s.points.map((p) => (
-              <circle key={p.key} className={`vzf-line-dot${band === undefined ? '' : markClass(p.key, set)}`} cx={xOf(p.at)} cy={y(p.mean)} r={3.5} fill={seriesColor(s.name)}>
+              <circle key={p.key} className={`vzf-line-dot${outlineOf(p)}`} cx={xOf(p.at)} cy={y(p.mean)} r={3.5} fill={seriesColor(s.name)}>
                 <title>{`${nameOf(p.key)}${s.name ? ' · ' + s.name : ''} · mean ${yLabel} ${Math.round(p.mean * 100) / 100} (${p.n} row${p.n === 1 ? '' : 's'})`}</title>
               </circle>
             ))}

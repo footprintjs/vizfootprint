@@ -102,17 +102,41 @@ function barData(rows: readonly Row[], field: string, keep: (row: Row) => boolea
 }
 
 /** `y` summed per bucket of `x`, over the rows in view. A row whose y is not a number is not a zero — it is not a point. */
+/**
+ * One point per bucket of `x`, summing `y` — AND THE BUCKET KEEPS ITS OWN
+ * QUANTITY. A number stays a number (`NumericLinePoint`, so the chart draws a
+ * run of numbers and its drag emits an interval of NUMBERS); everything else
+ * keys by its text, as it always did.
+ *
+ * WHY: this used to hand `{ date: bucketKey(value) }` for every x, so a made
+ * line over a NUMBER column — which this wizard's own door admits — drew its
+ * buckets as calendar years through `Date.parse` (residue 13 could not be
+ * parsed at all, residue 107 landed in 0107) and its drag landed date-shaped
+ * strings a numeric column can never answer. The same defect the library's own
+ * line carried (`vizfootprint-ui/README.md`, "A run over numbers emits
+ * numbers"), in the one consumer path inside this repo.
+ *
+ * The ORDER goes with the quantity: numbers ascend numerically (10 after 9, not
+ * before it — which is what a lexicographic sort of their text said), and text
+ * buckets keep the lexicographic order that reads chronologically for an ISO
+ * instant.
+ */
 function lineData(rows: readonly Row[], x: string, y: string, keep: (row: Row) => boolean): readonly LinePoint[] {
-  const sums = new Map<string, number>();
+  const sums = new Map<string, { readonly bucket: unknown; value: number }>();
   for (const row of rows) {
     const bucket = row[x];
     const value = row[y];
     if (bucket === null || bucket === undefined || typeof value !== 'number' || !Number.isFinite(value)) continue;
     if (!keep(row)) continue;
     const key = bucketKey(bucket);
-    sums.set(key, (sums.get(key) ?? 0) + value);
+    const held = sums.get(key);
+    if (held === undefined) sums.set(key, { bucket, value });
+    else held.value += value;
   }
-  return [...sums.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([date, value]) => ({ date, value }));
+  const ordered = [...sums.values()].sort((a, b) =>
+    typeof a.bucket === 'number' && typeof b.bucket === 'number' ? a.bucket - b.bucket : bucketKey(a.bucket) < bucketKey(b.bucket) ? -1 : 1,
+  );
+  return ordered.map(({ bucket, value }): LinePoint => (typeof bucket === 'number' ? { at: bucket, value } : { date: bucketKey(bucket), value }));
 }
 
 /** The tallest `cap` bars, and how many there were — a truncation this desk SAYS rather than performs quietly. */

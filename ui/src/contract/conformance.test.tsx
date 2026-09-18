@@ -215,6 +215,23 @@ function bandLineState(st: SessionViewState): RenderState {
   };
 }
 
+/**
+ * A NUMERIC-RUN state for the `line` view: the HOST bound its x to `rating`, a
+ * NUMBER column, so the line stands on a run of numbers and its drag emits an
+ * interval of NUMBERS. The same real session, the same real view — only the
+ * picture the host shapes differs, which is the whole point: the axis kind is
+ * the x COLUMN's, never a prop.
+ *
+ * THE STATE NO PLAN EVER BUILT, which is why `declared-delivered` never saw
+ * the defect it was written to catch: one run is one state, and every line run
+ * in this file until now was a date or a band.
+ */
+function numericLineState(st: SessionViewState): RenderState {
+  const selection = selectionForView(st.selections, 'line');
+  const keep = keepPredicate(selection);
+  return { rows: ROWS.filter(keep), encodings: { x: 'rating', y: 'price' }, selection, hover: null, theme: THEME, size: SIZE };
+}
+
 function brushGesture(selector: string) {
   return brushGesture2(selector, 100, 300);
 }
@@ -342,6 +359,49 @@ describe('conformance — all eight first-party charts pass (the reference claim
     // the two kinds this state does not deliver on this gesture are NAMED, not silently forgiven
     expect(report.steps.find((s) => s.step === 'match')!.detail).toBe('the renderer declares match, and this state does not deliver it — the match arm is honestly skipped');
     expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: point (of interval+match+point, this state delivers point)');
+  });
+
+  it('VizLine over a RUN OF NUMBERS — the whole loop closes on the clause the session used to throw away (the measured defect)', async () => {
+    // THE DEFECT: the reader dragged, the brush DREW, the gesture FIRED, and nothing happened — 162
+    // marks before and 162 after, the refusal ledger up by one per drag — because the chart
+    // positioned every run through `Date.parse` and emitted date-shaped STRINGS for an axis holding
+    // NUMBERS. Two earlier briefs blamed a band x; the cause was the line's own date semantics.
+    const { view } = await buildFixture();
+    const report = await runConformance({
+      renderer: lineRenderer(),
+      viewId: 'line',
+      el: mountEl(),
+      view,
+      buildState: numericLineState,
+      // ratings 1…5 over the 520-wide plot (52…502, 112.5 units each): 100 → 300 inverts to
+      // 1.4267 → 3.2044 and covers the marks at 2 and 3
+      gesture: brushGesture('svg.vzf-line'),
+      stateKinds: ['interval'],
+      // THE ROUND TRIP, IN THE PICTURE: the clause came back through the read door and the chart
+      // outlines the points inside it — its own live selection, in the range it selected
+      verifyUpdate: (el) => el.querySelector('circle.vzf-line-dot.vzf-selected') !== null,
+    });
+    expect(report.ok, explain(report)).toBe(true);
+    const [emission] = report.emissions;
+    expect(emission!.encoding).toEqual({ kind: 'interval', field: 'rating' });
+    const range = emission!.rawValue as [number, number];
+    expect(typeof range[0]).toBe('number');
+    expect(typeof range[1]).toBe('number');
+    expect(range[0]).toBeCloseTo(1.4267, 3);
+    expect(range[1]).toBeCloseTo(3.2044, 3);
+    // …AND THE SESSION ACCEPTED IT: the landed clause is this interval, on this field, as an interval
+    // commit — not a gap. Asserting the ACCEPTED CLAUSE, never merely that something was emitted.
+    const commits = view.getState().commits;
+    const landed = commits[commits.length - 1]!;
+    expect([landed.viewId, landed.kind, landed.field]).toEqual(['line', 'interval', 'rating']);
+    expect(landed.value).toEqual(range);
+    // the SESSION's own ledger stayed empty — no refusal, which is the other half of the defect's
+    // shape: today's session takes an unaddressable interval silently, so a clause of the wrong
+    // quantity costs a reader their gesture and nothing anywhere says so (see the FINDING in the
+    // report, and `declared-delivered`'s own arm below, which is where that fence now lives)
+    expect(view.getState().gaps.map((g) => g.code)).toEqual([]);
+    expect(report.gaps.map((g) => g.code)).toEqual(['navigate-unsupported']); // the ONE honest CONTRACT gap of a non-pan/zoom renderer
+    expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: interval (of interval+match+point, this state delivers interval)');
   });
 
   it('VizBar (point select on the category)', async () => {
@@ -685,6 +745,40 @@ describe('conformance — hostile renderers are caught at the exact step', () =>
     );
     expect(report.ok, explain(report)).toBe(true);
     expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: none (of point+match, this state delivers none)');
+  });
+
+  it('THE CHECK THAT SHOULD HAVE CAUGHT IT — a delivered interval that cannot ADDRESS its own axis fails declared-delivered, by name', async () => {
+    // The lie one layer in from law 13: the renderer drew a brush, fired a gesture, and delivered the
+    // DECLARED kind — carrying bounds no row of that column can ever be compared with. A kind label
+    // cannot lie about a value, so the kind check passed it; the session took the clause, matched
+    // nothing with it and said nothing (the measured 162 → 162). This is the arm that says it.
+    const report = await runFor(
+      stubRenderer({
+        capabilities: { emissionKinds: ['interval'] },
+        emission: { rawValue: ['100', '300'] as unknown as [number, number], encoding: { kind: 'interval', field: 'price' } },
+      }),
+      'zoomy',
+      { gesture: clickProbe, stateKinds: ['interval'] },
+    );
+    const last = report.steps[report.steps.length - 1]!;
+    expect([last.step, last.ok]).toEqual(['declared-delivered', false]);
+    expect(last.detail).toBe('view "zoomy" delivered the interval ["100","300"] on "price", whose scale is quantitative — numeric bounds address that axis, so no row can answer the clause; an interval addresses the axis it was drawn on');
+    // every earlier step passed: the kit used to call this renderer conformant, and the session
+    // LANDED the clause without a murmur — which is exactly why the fence had to go here
+    expect(report.steps.slice(0, -1).every((step) => step.ok), explain(report)).toBe(true);
+  });
+
+  it('…and the SAME renderer passes once its bounds are the axis\u2019s own quantity', async () => {
+    const report = await runFor(
+      stubRenderer({
+        capabilities: { emissionKinds: ['interval'] },
+        emission: { rawValue: [100, 300], encoding: { kind: 'interval', field: 'price' } },
+      }),
+      'zoomy',
+      { gesture: clickProbe, stateKinds: ['interval'] },
+    );
+    expect(report.ok, explain(report)).toBe(true);
+    expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: interval (of interval, this state delivers interval)');
   });
 
   it('a dirty unmount fails the final step', async () => {

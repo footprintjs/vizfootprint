@@ -207,19 +207,87 @@ rows, flagged. `adoptPath` is the one that answers back: an
 refusal's `reason` — never a success it did not have. In Present mode every
 lifecycle action is paused.
 
-## VizLine — brush a time range
+## VizLine — brush a range
 
-Drag horizontally across the line chart and you select a TIME RANGE: the chart
-emits the range as two ISO dates (`['2026-04-01', '2026-06-17']`) on its date
-field, the session lands one filter commit, and every other chart narrows to
-the rows inside that window. A short click clears the range. The emitted
-bounds are snapped to dates that actually exist in the data, so the filter
-never names a day the data does not have.
+**Three kinds of x, and the kind decides the clause.** A line's x may be a run
+of dates, a run of numbers or a band of categories, and *an interval addresses
+the axis it was drawn on* — a drag over dates emits dates, a drag over numbers
+emits numbers, and a drag over a band emits its slots. The kind is read off
+what the chart was handed (`xKindOf` in `charts/VizLine.tsx`, the one owner):
+the band order a frame merged, else the quantity the points carry. Never a
+prop — the x column's type is a fact the definition and the fold already carry.
+
+| x | the drag lands | the bounds are |
+|---|---|---|
+| a run of **dates** | `interval` of two ISO dates `['2026-04-01', '2026-06-17']` | snapped to dates that exist in the data |
+| a run of **numbers** | `interval` of two numbers `[104, 116]` | the span the pointer covered, un-snapped |
+| a **band** | `match` over the slots the drag crossed | the slots' own names |
+
+Drag horizontally across a dated line and you select a TIME RANGE: the chart
+emits the range as two ISO dates on its date field, the session lands one
+filter commit, and every other chart narrows to the rows inside that window. A
+short click clears the range. The emitted bounds are snapped to dates that
+actually exist in the data, so the filter never names a day the data does not
+have.
 
 The chart takes RAW rows and draws the **mean of the value column per date**
 (per series, when a series field is set — one coloured line per category, with
 a small legend). The mean, not the sum: under a crossfilter the number of rows
 per date changes, and a sum would confuse "fewer rows" with "smaller values".
+
+### A run over numbers emits numbers — the NUMERIC BRUSH
+
+This one is a defect measured on a real page by a reader who tried to use it.
+Two line charts over a **residue-number** axis invited a drag. The reader
+dragged. The brush **drew**. The gesture **fired**. And nothing happened: **162
+marks before the drag and 162 after**, with the session's own refusal ledger
+climbing **once per drag** (3 refusals at boot, 4 after one). Both views
+declared `encodings: ['interval']` and both captions invited the drag — the
+gesture simply could not land.
+
+The cause was in this chart. It positioned **every** run through `epochOf` —
+date semantics — and snapped each endpoint to the nearest distinct data
+**date**, so a numeric axis was handed an interval of date-shaped **strings**,
+which a numeric column can never answer. What that did to the picture, measured
+over residues 1…241: residues 1–12 landed in the twelve months of 2001,
+**13–31 could not be parsed at all and were silently dropped** (19 residues
+gone), 32–68 became 2032–2068, 69–99 became 1969–1999 and 100–241 became the
+years 0100–0241 — four blocks in the wrong order, so **residue 107 was drawn to
+the left of residue 99**. The line a reader was reading was not the data's
+shape.
+
+**The cause recorded in this README before today was wrong, twice: two earlier
+briefs said the x was a band.** It is written down because a wrong recorded
+cause is worse than none — the next reader builds on it. The band brush in the
+next section earns its place (it shipped law 13's door and the
+`declared-delivered` conformance step) but it never addressed this.
+
+Three rules, and each of them is a test:
+
+- **The bounds are the AXIS's, not the marks'.** A numeric drag emits the span
+  the pointer covered — the inverted pixels themselves, never snapped to a mark
+  and never rounded. The date arm snaps because its rail is STRINGS: an
+  invented ISO string can be a format the column never uses, and lexicographic
+  order then disagrees with chronology. Numbers have no such hazard (the
+  interval predicate compares numerically), and a numeric axis with a declared
+  domain can be dragged **where no mark sits** — where a snap would move the
+  clause to a distant mark, or collapse both ends onto one. That is a clause the
+  reader did not make.
+- **Order is the axis's**, so a right-to-left drag and a left-to-right one over
+  the same span are one selection.
+- **Empty is an answer.** A span that covers no data value emits **nothing** and
+  says so — announced politely through the library's one live region
+  (`valuesCovered` + `noValuesCoveredNote` in `primitives/scales.ts`, the band
+  arm's own shape with a run's own words), never a clause no row can answer. A
+  **tap** clears, exactly as on a run of dates: a band's tap selects a slot
+  because a slot is a tiled target, and a run has no tiles, so a nearest-mark
+  guess would be the very clause the first rule refuses.
+
+**It round-trips.** The numeric interval comes back through the read door and
+the chart outlines the points inside it (`selfSelectedInterval` — the one owner,
+the same function `VizHistogram` reads for the same clause). A run of **dates**
+reads nothing from `selection` and is byte-identical with or without the prop:
+that is pinned, not principled, and the outline is recorded as owed there.
 
 ### A band is a range too — the BAND BRUSH
 
@@ -231,13 +299,18 @@ things. What differs from a run is only the CLAUSE: an interval has no meaning
 on a band, because the string interval predicate compares lexicographically and
 not in slot order.
 
-This existed because of a defect measured on a real page. The protein desk's
-biggest chart — 185 residues, its x a band because two chains share one
-residue-number axis so a slot holds a residue of each — could not be selected
-at all: its DOM held **no brush element of any kind** and a drag left every
-count unchanged, 185 dots before and 185 after, while the dashboard's own
-definition declared that the view emits an interval. The chart said why in its
-own words: *a band line draws no brush*.
+This existed because a band line drew **no brush element of any kind**: its DOM
+held none, so a drag across its slots left every count unchanged while the
+dashboard's own definition declared that the view emits an interval. The chart
+said why in its own words: *a band line draws no brush*.
+
+**The measurement that used to be quoted here belonged to a different defect.**
+The protein desk's chart whose drag did nothing was not standing on a band — its
+x held **numbers**, and the previous section is the fix for it. This section's
+law is still right (a band's drag is a run of slots, and it now draws), but the
+evidence for it was another chart's. Recorded rather than quietly deleted,
+because the wrong cause was recorded twice and a reader who met it once should
+be able to see it corrected.
 
 Four rules, and each of them is a test:
 
@@ -256,9 +329,9 @@ Four rules, and each of them is a test:
   used to release the match, which left a 5px slot reachable by nothing but a
   drag.
 - **It round-trips.** The match comes back through the read door and the chart
-  outlines the same slots' points (`selection`, read on a band only — a dated
-  line's own clause is an interval, which names no point to outline, so a
-  continuous-x line is byte-identical with or without the prop).
+  outlines the same slots' points (`selection`, read on a band as a match and on
+  a run of numbers as an interval — a run of DATES reads nothing, so a dated
+  line is byte-identical with or without the prop).
 
 A def that declares a view emits an `interval` when its mark draws no interval
 brush on that view's own scale kind is refused by name at the def door
@@ -266,10 +339,13 @@ brush on that view's own scale kind is refused by name at the def door
 from a hand-folded state in the same sentence.
 
 Both axis labels are pickers, and they are honest about what fits: the **x
-picker offers a date or a category** (a line on a band connects slot centres
-and claims nothing between them) and the **y picker only numeric ones** — an
-incompatible column is disabled with the reason written on it, exactly like
-the scatter's pickers.
+picker offers a date, a number or a category** — the three x kinds this chart
+draws, which is exactly what the session's own door admits, so the two no
+longer disagree — and the **y picker only numeric ones**. An incompatible
+column is disabled with the reason written on it, exactly like the scatter's
+pickers. The number used to be greyed *by this chart*, and that veto was honest
+only while the chart had no numeric run: a picker that greys a column the chart
+can draw is the same capability lie in the other direction.
 
 The dated tick labels and the point tooltips can be spelled in the host's own
 time format: `<VizLine formatDate={(iso) => …}>`. Formatting is words only —
@@ -956,7 +1032,7 @@ hand-bound run over a real two-table session that proves the loop closes.
 | `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION` (1.5 — 1.1 added the `cell` kind; 1.2 added layers: `RenderState.layers`, `canLayer`, per-layer callback bundles, the `layers-unsupported` gap, and the address helpers re-exported from `vizfootprint/def`; 1.3 added the `neighbourhood` kind; 1.4 added WHICH walk on a neighbourhood emission; 1.5 added `RenderState.frame`, the layers' shared scales folded by the host), `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`brightPredicate`/`selfSelectedValue`/`selfSelectedInterval`/`selfSelectedSet`/`selfSelectedCell`, the ten reference renderers (`networkRenderer` the first to declare `canLayer`, `layeredRenderer` the generic frame over the 2D marks), `runConformance` (the cell and layers arms), and the capability-honesty law in `src/contract/README.md` |
 | `primitives/` | the chart-building tier (see above): `<ChartFrame>`, scales + date handling, `<AxisLabel>`/`useReencodePicker`/`defaultCompat`, `useHorizontalBrush`/`<BrushOverlay>`, `pointEmission`/`togglePointEmission`/`keyActivates`, `useKeepPredicate`/`selectedValue`/`dimClass` — compose a chart from these and it is born contract-conformant |
 | `layout/` | `<VizCockpit>` (the flagship — and only — single-screen shell) + `<VizModal>` (the one modal system) + `<VizPanel>`/`<VizCard>` |
-| `charts/` | `<VizScatter>`, `<VizBar>` (category ticks slant and clip to their band when they would collide; values that would collide are omitted — the full label rides a `<title>`), `<VizLine>` (time series, date brush), `<VizMap>` (SVG choropleth, region click; `coordinates="planar"` for shapes already projected to a screen plane, e.g. us-atlas), `<VizTable>` (sortable rows, click-to-select), `<VizHistogram>` (host-computed buckets, edge-snapped brush), `<VizHeatmap>` (host-computed 2-D cells, one-click compound cell selection — D30), `<VizBoxPlot>` (host-summarized quartiles/whiskers/outliers, click-to-select a category), `<VizNetwork>` (a node-link: TWO tables on one frame — nodes over the layout act's positions, links over `bringOver`'s endpoints — sharing ONE pair of scales computed over the union of both; hover brightens a neighbourhood and records nothing) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |
+| `charts/` | `<VizScatter>`, `<VizBar>` (category ticks slant and clip to their band when they would collide; values that would collide are omitted — the full label rides a `<title>`), `<VizLine>` (a run of dates, a run of numbers or a band — the drag emits the clause its own axis can answer), `<VizMap>` (SVG choropleth, region click; `coordinates="planar"` for shapes already projected to a screen plane, e.g. us-atlas), `<VizTable>` (sortable rows, click-to-select), `<VizHistogram>` (host-computed buckets, edge-snapped brush), `<VizHeatmap>` (host-computed 2-D cells, one-click compound cell selection — D30), `<VizBoxPlot>` (host-summarized quartiles/whiskers/outliers, click-to-select a category), `<VizNetwork>` (a node-link: TWO tables on one frame — nodes over the layout act's positions, links over `bringOver`'s endpoints — sharing ONE pair of scales computed over the union of both; hover brightens a neighbourhood and records nothing) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |
 | `time/` | `<TimeTravelBar>` with `explore` (full commit timeline + fork-safe ⟵/⟶ step rules, `compact` for the cockpit) and `present` (bookmark-ONLY traversal, acting disabled, `onReadOnlyChange` up to the shell) + `<BookmarkModal>` + `<BranchMap>` |
 | `panels/` | `<CommitLog>` (cause badges, click-to-seek, off-branch dimming), `<FdrLedger>` (two truths + the verbatim honesty line), `<GapsPanel>`, `<ReadinessPanel>` — cockpit hosts these inside report modals, unchanged |
 | `story/` | `vizfootprint-ui/story` — `toStory(state)`, one lineage of a session as a [storydeck](https://github.com/footprintjs/storydeck) post, plus `storyDroppedNote` (what a section cited and the story could not show). Pure data, no React |

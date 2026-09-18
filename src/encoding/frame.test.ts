@@ -7,7 +7,7 @@
  * a refusal.
  */
 import { describe, it, expect } from 'vitest';
-import { frameDomains, frameLint, frameScaleOf, resolutionFor, zeroAnchorsChannel, zeroPolicyFor, mayTakeFirstScale, firstScaleTakenRefusal, FRAME_LAYER_LINT, ZERO_ANCHORED_KINDS, drawsZeroGuide, zeroOnAxis, zeroGuideKindRefusal, noZeroOnALogAxis, type FrameLayer } from './frame.js';
+import { frameDomains, frameLint, frameScaleOf, resolutionFor, zeroAnchorsChannel, zeroPolicyFor, mayTakeFirstScale, firstScaleTakenRefusal, FRAME_LAYER_LINT, ZERO_ANCHORED_KINDS, drawsZeroGuide, zeroOnAxis, zeroGuideKindRefusal, noZeroOnALogAxis, intervalAddresses, unaddressableIntervalRefusal, type FrameLayer } from './frame.js';
 import type { ChannelResolution } from '../def/types.js';
 
 /** One layer, spelled the short way: `layer('a', 'line', { y: ['number', [1, 2]] })`. */
@@ -458,5 +458,62 @@ describe('what the quantity can be (law 14) — the fold echoes the declared ext
   it('a channel with nothing foldable still gets NO ENTRY — an axis over no data is a different question', () => {
     const declared = { y: { mode: 'shared', bounds: [0, 100] } } as unknown as Readonly<Record<string, ChannelResolution>>;
     expect(frameDomains([layer('a', 'point', { y: ['number', []] })], declared)).toEqual({});
+  });
+});
+
+/**
+ * LAW 13 AT THE VALUE — `intervalAddresses` / `unaddressableIntervalRefusal`:
+ * whether a clause a gesture actually DELIVERED can address the axis it names.
+ * `drawsIntervalBrush` judges a DECLARATION and a declaration carries no
+ * values, so this is the layer it could not reach — the one a line over a
+ * residue-number axis fell through while it emitted `["107", "241"]`.
+ */
+describe('intervalAddresses — an interval addresses the axis it was drawn on', () => {
+  it('a QUANTITATIVE axis is addressed by numbers and by nothing else', () => {
+    expect(intervalAddresses('quantitative', [107, 241])).toBe(true);
+    // THE DEFECT, in one assertion: the date-shaped strings a line used to emit for a numeric axis
+    expect(intervalAddresses('quantitative', ['107', '241'])).toBe(false);
+    expect(intervalAddresses('quantitative', ['2026-01-01', '2026-12-31'])).toBe(false);
+  });
+
+  it('a CATEGORICAL axis is addressed by strings, a TEMPORAL one by either spelling of a date the library carries', () => {
+    expect(intervalAddresses('categorical', ['a', 'z'])).toBe(true);
+    expect(intervalAddresses('categorical', [1, 9])).toBe(false);
+    // ISO strings (what a fold emits) AND epochs — a temporal axis refuses neither, because it can answer both
+    expect(intervalAddresses('temporal', ['2026-01-01', '2026-12-31'])).toBe(true);
+    expect(intervalAddresses('temporal', [1767225600000, 1798761600000])).toBe(true);
+  });
+
+  it('AN OPEN SIDE names no kind, and a CLEARED interval addresses everything', () => {
+    expect(intervalAddresses('quantitative', [null, 241])).toBe(true);
+    expect(intervalAddresses('quantitative', [107, null])).toBe(true);
+    expect(intervalAddresses('quantitative', [null, null])).toBe(true);
+    expect(intervalAddresses('quantitative', null)).toBe(true);
+    // …and an open side beside a bound of the WRONG kind is still refused: the bound is the evidence
+    expect(intervalAddresses('quantitative', [null, '241'])).toBe(false);
+  });
+
+  it('REFUSED ON EVIDENCE, NEVER ON IGNORANCE: a scale nothing could be folded from judges nothing', () => {
+    // `frameScaleOf('unknown')` is the one producer of this input — a provider that typed nothing
+    expect(frameScaleOf('unknown')).toBeUndefined();
+    expect(intervalAddresses(undefined, ['107', '241'])).toBe(true);
+    expect(intervalAddresses(undefined, [107, 241])).toBe(true);
+  });
+
+  it('a shape that is not a pair at all is another door’s business, never this one’s', () => {
+    expect(intervalAddresses('quantitative', 'nonsense')).toBe(true);
+    expect(intervalAddresses('quantitative', undefined)).toBe(true);
+  });
+
+  it('the refusal QUOTES the bounds, and reads with an address in front of it or exactly as it stands', () => {
+    // the door's form — a subject with an address, the `intervalGestureRefusal` arrangement
+    expect(unaddressableIntervalRefusal('view "surface"', 'resnum', 'quantitative', ['107', '241'])).toBe(
+      'view "surface" delivered the interval ["107","241"] on "resnum", whose scale is quantitative — numeric bounds address that axis, so no row can answer the clause; an interval addresses the axis it was drawn on',
+    );
+    // …and the renderer's form, with no address to give
+    expect(unaddressableIntervalRefusal('a line', 'shelf', 'categorical', [1, 9])).toBe(
+      'a line delivered the interval [1,9] on "shelf", whose scale is categorical — string bounds address that axis, so no row can answer the clause; an interval addresses the axis it was drawn on',
+    );
+    expect(unaddressableIntervalRefusal('a line', 'day', 'temporal', [true, false])).toContain('ISO-string (or epoch) bounds address that axis');
   });
 });

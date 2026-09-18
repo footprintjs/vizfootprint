@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { linearScale, extent, ticks, slotsCovered } from './scales.js';
+import { linearScale, extent, ticks, slotsCovered, valuesCovered, noValuesCoveredNote, noSlotsCoveredNote } from './scales.js';
 
 describe('linearScale', () => {
   it('maps domain to range and inverts back', () => {
@@ -83,5 +83,38 @@ describe('slotsCovered', () => {
   it('slots narrower than a pixel are still slots — the answer names every one the range crossed', () => {
     // 1000 slots over [0, 300] is 0.3 each: a 3-unit range crosses 10 of them
     expect(slotsCovered(0, 300, 1000, 100, 103)).toHaveLength(10);
+  });
+});
+
+/**
+ * `valuesCovered` — {@link slotsCovered}'s twin for a RUN OF NUMBERS (the
+ * numeric brush), asked in DATA space. Same three laws: closed at both ends,
+ * order-free in its bounds, and an EMPTY answer is an answer.
+ */
+describe('valuesCovered', () => {
+  const RESIDUES = [101, 104, 107, 112, 241];
+
+  it('names the values inside the span, in the order it was GIVEN (the axis\u2019s, never the pointer\u2019s)', () => {
+    expect(valuesCovered(RESIDUES, 103, 113)).toEqual([104, 107, 112]);
+    expect(valuesCovered(RESIDUES, 0, 1000)).toEqual(RESIDUES);
+  });
+
+  it('is CLOSED at both ends — a span that ends exactly on a value covers it', () => {
+    expect(valuesCovered(RESIDUES, 104, 107)).toEqual([104, 107]);
+    expect(valuesCovered(RESIDUES, 241, 241)).toEqual([241]);
+  });
+
+  it('is order-insensitive: a right-to-left span is the same answer', () => {
+    expect(valuesCovered(RESIDUES, 113, 103)).toEqual(valuesCovered(RESIDUES, 103, 113));
+  });
+
+  it('a span over no value at all answers NOTHING — and that is the answer a chart says out loud', () => {
+    expect(valuesCovered(RESIDUES, 113, 240)).toEqual([]);
+    expect(valuesCovered([], 0, 1)).toEqual([]);
+  });
+
+  it('the words for it are a RUN\u2019s, not a band\u2019s — one owner each, and neither borrows the other\u2019s vocabulary', () => {
+    expect(noValuesCoveredNote()).toBe('a drag selects the values its span covers — this one covered none, so nothing was selected');
+    expect(noValuesCoveredNote()).not.toBe(noSlotsCoveredNote());
   });
 });

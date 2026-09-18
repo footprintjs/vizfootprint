@@ -171,6 +171,62 @@ describe('lineRenderer — a layerless line over a category (packet V, the block
   });
 });
 
+describe('lineRenderer — a line over NUMBERS (the third arm, and the defect it closes)', () => {
+  const QUANTITATIVE_X: Readonly<Record<string, ResolvedChannel>> = {
+    x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [10, 250] },
+  };
+  const RESIDUES: RenderRow[] = [
+    { resnum: 13, rmsf: 1 },
+    { resnum: 31, rmsf: 2 },
+    { resnum: 107, rmsf: 3 },
+    { resnum: 241, rmsf: 4 },
+  ];
+
+  // THE DEFECT: every non-band row became `{ date: String(value) }`, so a number reached the chart
+  // as a date-shaped string. `Date.parse('13')` and `Date.parse('31')` answer NOTHING, so those two
+  // residues were dropped in silence; residue 107 became the year 0107 and landed to the LEFT of a
+  // residue 99 — and the drag landed date-shaped strings on a numeric column. Two earlier briefs
+  // blamed a BAND x; the cause was here, in this one `String(…)`.
+  it('passes a numeric x AS A NUMBER: every row is drawn, and in the axis\u2019s own order', () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const m = lineRenderer().mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks() });
+    m.update(state(RESIDUES, { x: 'resnum', y: 'rmsf' }));
+    // all four residues drawn — the old arm drew two (`Date.parse` could place neither 13 nor 31)
+    expect(el.querySelectorAll('.vzf-line-dot')).toHaveLength(4);
+    expect(Number.isNaN(Date.parse('13'))).toBe(true);
+    expect(Number.isNaN(Date.parse('31'))).toBe(true);
+    // …and they sit in the residue number's own order (`conformance.test.tsx` drives the DRAG through
+    // the whole loop — a real session, the landed clause asserted)
+    const cx = [...el.querySelectorAll('.vzf-line-dot')].map((d) => Number(d.getAttribute('cx')));
+    expect([...cx].sort((a, b) => a - b)).toEqual(cx);
+    m.unmount();
+  });
+
+  it('the FOLD wins over the value’s runtime type: a quantitative channel makes a numeric run even where the rows carry text', () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const m = lineRenderer().mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks() });
+    m.update({ ...state([{ resnum: '13', rmsf: 1 }, { resnum: '31', rmsf: 2 }, { resnum: null, rmsf: 3 }], { x: 'resnum', y: 'rmsf' }), frame: QUANTITATIVE_X });
+    // the two numbers are drawn (as dates neither string could be placed at all) — and the row
+    // holding nothing a number can be read from is SKIPPED, never drawn at zero
+    expect(el.querySelectorAll('.vzf-line-dot')).toHaveLength(2);
+    m.unmount();
+  });
+
+  it('a CATEGORICAL fold still wins over a numeric value — a declared band is a band, and its slots are named by their numbers', () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const m = lineRenderer().mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks() });
+    m.update({
+      ...state(RESIDUES, { x: 'resnum', y: 'rmsf' }),
+      frame: { x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'categorical', domain: ['13', '31', '107', '241'] } as ResolvedChannel },
+    });
+    expect(el.textContent).toContain('107');
+    m.unmount();
+  });
+});
+
 describe('barRenderer', () => {
   it('reads the category from the encoding and the count from a custom countField; non-numbers count 0', () => {
     const r = barRenderer({ countField: 'n' });

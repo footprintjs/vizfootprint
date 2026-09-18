@@ -379,6 +379,67 @@ export function intervalGestureRefusal(subject: string, chartKind: string, scale
     : `${subject} declares it emits an interval, but a ${chartKind} draws no interval brush at all — declare the kinds its own gestures emit, or drop "interval"`;
 }
 
+/**
+ * WHAT KIND OF BOUND ADDRESSES AN AXIS OF EACH SCALE KIND — the rule and the
+ * words in ONE table, so the judgement ({@link intervalAddresses}) and the
+ * sentence ({@link unaddressableIntervalRefusal}) can never drift apart.
+ *
+ * It is not a taste: it is the interval evaluator's own no-cross-type-coercion
+ * law read backwards (`../data/predicate.ts` · `resolveIntervalSQL`'s memory
+ * twin, and `vizfootprint-ui/contract/selection.ts` · `intervalPredicate`,
+ * which returns FALSE for every row whose value is not the same kind as the
+ * bounds). A QUANTITATIVE axis holds numbers, so only numeric bounds can ever
+ * keep a row; a CATEGORICAL axis holds strings; a TEMPORAL one is addressed by
+ * either spelling of a date the library carries — the ISO string a fold emits
+ * (`frameDomains`) or an epoch — so it accepts both and refuses nothing it
+ * might have been able to answer.
+ */
+const INTERVAL_BOUND_KINDS: ReadonlyMap<ResolvedDomain['scale'], { readonly kinds: readonly string[]; readonly words: string }> = new Map([
+  ['quantitative', { kinds: ['number'], words: 'numeric' }],
+  ['temporal', { kinds: ['string', 'number'], words: 'ISO-string (or epoch)' }],
+  ['categorical', { kinds: ['string'], words: 'string' }],
+]);
+
+/**
+ * CAN AN INTERVAL OF THESE BOUNDS ADDRESS AN AXIS OF THIS SCALE KIND? The
+ * value-level twin of {@link drawsIntervalBrush}, and the layer of law 13 that
+ * one could not reach: that predicate judges what a mark DECLARES against the
+ * scale it stands on, and a declaration carries no values. This one judges a
+ * clause a gesture actually DELIVERED — the lie a renderer can still tell
+ * after the def door has passed it, which is that it drew a brush whose
+ * clause names its axis in the wrong quantity.
+ *
+ * THE DEFECT IT WAS WRITTEN FOR, measured on a real page: a line over a
+ * residue-number axis emitted `["107", "241"]` — date-shaped strings, because
+ * the chart positioned every run through `Date.parse` — and the session took
+ * it, matched no row with it and said nothing (162 marks before the drag and
+ * 162 after). Asked here, that clause is refused BY NAME.
+ *
+ * REFUSED ON EVIDENCE, NEVER ON IGNORANCE (law 11b's discipline, the `unit`
+ * precedent): a scale nothing could be folded from ({@link frameScaleOf}
+ * answers `undefined` for `'unknown'`) is not judged, and neither is a CLEARED
+ * interval (`null` — the one spelling of cleared) or an OPEN side, which names
+ * no kind at all. The only answer it ever gives is "these bounds, on this
+ * axis, can keep no row".
+ */
+export function intervalAddresses(scale: ResolvedDomain['scale'] | undefined, bounds: unknown): boolean {
+  if (scale === undefined) return true;
+  // a cleared interval, and any shape that is not a pair at all — another door's business, never this one's
+  if (!Array.isArray(bounds)) return true;
+  const kinds = INTERVAL_BOUND_KINDS.get(scale)!.kinds;
+  return (bounds as readonly unknown[]).every((side) => side === null || side === undefined || kinds.includes(typeof side));
+}
+
+/**
+ * THE WORDS FOR A DELIVERED INTERVAL THAT CANNOT ADDRESS ITS OWN AXIS — one
+ * owner, {@link intervalGestureRefusal}'s value-level sibling, and it QUOTES
+ * the bounds because the bounds are the evidence: an author who is told only
+ * "wrong kind" goes looking in the definition, where nothing is wrong.
+ */
+export function unaddressableIntervalRefusal(subject: string, column: string, scale: ResolvedDomain['scale'], bounds: unknown): string {
+  return `${subject} delivered the interval ${JSON.stringify(bounds)} on "${column}", whose scale is ${scale} — ${INTERVAL_BOUND_KINDS.get(scale)!.words} bounds address that axis, so no row can answer the clause; an interval addresses the axis it was drawn on`;
+}
+
 /** Past this many layers on one frame a reader cannot tell the marks apart — a LINT, never a refusal (a legitimate small-multiple of five exists). */
 export const FRAME_LAYER_LINT = 4;
 

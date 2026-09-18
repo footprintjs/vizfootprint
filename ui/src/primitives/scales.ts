@@ -353,6 +353,42 @@ export function noSlotsCoveredNote(): string {
   return 'a drag selects the slots whose points it crosses — this one crossed none, so nothing was selected';
 }
 
+/**
+ * THE VALUES A NUMERIC SPAN COVERS — {@link slotsCovered}'s twin for a RUN of
+ * numbers, and the one owner of that question, asked in DATA space so the
+ * caller's own scale stays the only thing that inverts a pixel (`VizLine`'s
+ * numeric brush inverts through its `linearScale` and asks this).
+ *
+ * WHY A RUN NEEDS ONE AT ALL, when the clause it lands is the span itself: a
+ * drag that covers no value is not a selection — an interval nothing can
+ * answer is the empty keep-list one layer along, and the band arm already
+ * refuses that shape ({@link noSlotsCoveredNote}). So the chart asks what the
+ * span reached before it emits, and says {@link noValuesCoveredNote} when the
+ * answer is nothing.
+ *
+ * INCLUSIVE at both ends, and ORDER-FREE in its bounds, exactly as
+ * {@link slotsCovered} is: a right-to-left drag and a left-to-right one over
+ * one span are one selection. The answer keeps the order it was GIVEN — the
+ * caller's positions are the axis's own order, never the pointer's.
+ */
+export function valuesCovered(values: readonly number[], a: number, b: number): readonly number[] {
+  const lo = Math.min(a, b);
+  const hi = Math.max(a, b);
+  return values.filter((v) => v >= lo && v <= hi);
+}
+
+/**
+ * THE WORDS FOR A DRAG OVER A RUN THAT COVERED NO VALUE — the numeric brush's
+ * own sentence, owned here beside {@link noSlotsCoveredNote} for the reason
+ * that one is: a gesture that selected nothing is news, and one owner means
+ * two charts cannot word it two ways. Its own words, not the band's: a run has
+ * no slots, and a reader told about slots on an axis of numbers would go
+ * looking for something that is not there.
+ */
+export function noValuesCoveredNote(): string {
+  return 'a drag selects the values its span covers — this one covered none, so nothing was selected';
+}
+
 // ── which side a y axis stands on — the second axis of a frame ────────────────
 
 /** Where a chart's y axis stands: the left edge (every chart's default), or the right — the SECOND axis of a two-scale frame (`VizFrame`, law 1). */

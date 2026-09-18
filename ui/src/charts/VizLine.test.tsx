@@ -24,7 +24,7 @@ beforeAll(() => {
 
 import { VizLine, lineCompat } from './VizLine.js';
 import { VizBar } from './VizBar.js';
-import { noSlotsCoveredNote } from '../primitives/scales.js';
+import { noSlotsCoveredNote, noValuesCoveredNote } from '../primitives/scales.js';
 import { selectionForView } from '../contract/selection.js';
 import type { ColumnView } from '../adapter/types.js';
 
@@ -48,15 +48,17 @@ const DATA = [
 ];
 
 describe('lineCompat — the x/y channel restrictions', () => {
-  // this chart has no numeric-run arm (every x it draws is a date or a band, never a linear
-  // number line), so a plain number stays refused even though the door's session admits it
-  it('x accepts a reported date column, refuses a NUMBER WITH the reason (this chart draws no numeric run)', () => {
+  // THE NUMBER IS ACCEPTED NOW, and this test used to assert the opposite. The veto was honest while
+  // it stood — the chart had no numeric-run arm — and it is gone because the chart HAS one: a picker
+  // that greys a column the chart draws is the same capability lie in the other direction.
+  it('x accepts a reported date column AND a number (the numeric run arm) — a type it cannot draw is still refused WITH the reason', () => {
     const compat = lineCompat();
     expect(compat('x', { field: 'shipped', type: 'date' }).ok).toBe(true);
-    const bad = compat('x', { field: 'price', type: 'number' });
+    expect(compat('x', { field: 'resnum', type: 'number' }).ok).toBe(true);
+    const bad = compat('x', { field: 'blob', type: 'unknown' });
     expect(bad.ok).toBe(false);
-    expect(bad.reason).toContain('needs a date or a category column');
-    expect(bad.reason).toContain('"price" is number');
+    expect(bad.reason).toContain('needs a date, a number or a category column');
+    expect(bad.reason).toContain('"blob" is unknown');
   });
 
   it('x also accepts a column vouched for via dateFields (ISO strings report as "string")', () => {
@@ -306,7 +308,7 @@ describe('VizLine — the time brush', () => {
 });
 
 describe('VizLine — the encoding picker', () => {
-  it('the x-axis picker enables date-capable AND category columns, refusing only the number (the current dateField is vouched for by default)', () => {
+  it('the x-axis picker enables date-capable, category AND numeric columns — the three x kinds this chart draws (the current dateField is vouched for by default)', () => {
     const onReencode = vi.fn();
     render(<VizLine data={DATA} dateField="date" valueField="price" columns={COLS} onReencode={onReencode} />);
     fireEvent.click(screen.getByRole('button', { name: /Encode the x axis/ }));
@@ -316,42 +318,41 @@ describe('VizLine — the encoding picker', () => {
     expect((within(dialog).getByRole('button', { name: /shipped/ }) as HTMLButtonElement).disabled).toBe(false);
     // 'category' (a string, the widened door) is offered now — this chart draws it as a band
     expect((within(dialog).getByRole('button', { name: /^category/ }) as HTMLButtonElement).disabled).toBe(false);
-    const price = within(dialog).getByRole('button', { name: /price/ }) as HTMLButtonElement;
-    expect(price.disabled).toBe(true);
-    expect(price.getAttribute('title')).toContain('needs a date or a category column');
+    // 'price' (a number) is offered too now — this chart draws it as a RUN OF NUMBERS, and the veto
+    // that used to grey it was honest only while the chart had no such arm
+    expect((within(dialog).getByRole('button', { name: /price/ }) as HTMLButtonElement).disabled).toBe(false);
     // picking the enabled date column fires the UI-0 verb
     fireEvent.click(within(dialog).getByRole('button', { name: /shipped/ }));
     expect(onReencode).toHaveBeenCalledWith('line', 'x', 'shipped');
   });
 
-  // REGRESSION (defect 1): the session's encoding plane admits a number, a date, a
-  // string or a boolean on a line's x (`CHART_REQUIREMENTS.line.x`), but this chart
-  // has no numeric-run arm — every x it positions is a date (`Date.parse`) or a
-  // band — so a numeric column would be drawn as calendar years (week 12 ⇒ Dec
-  // 2001) and every value it cannot parse would be dropped in silence. When the
-  // host passes `fits`, the chart's own rule must still be
-  // able to veto, and say so.
-  it('vetoes a NUMERIC x column the session would allow, and says who refused', () => {
+  // REGRESSION (defect 1): the chart's OWN rule must be able to veto a column the session's encoding
+  // plane admits, and say who refused. The column it vetoes used to be the NUMBER — honest while this
+  // chart had no numeric run — and the case is not gone with that arm: a column whose type nothing can
+  // fold (a provider that typed it `unknown`) is a column this chart cannot position, on any of its
+  // three x kinds, and a picker that offered it would promise a picture it cannot draw.
+  it('vetoes an x column the session would allow but this chart cannot position, and says who refused', () => {
     const onReencode = vi.fn();
+    const cols: ColumnView[] = [...COLS, { field: 'blob', type: 'unknown' }];
     render(
       <VizLine
         data={DATA}
         dateField="date"
         valueField="price"
-        columns={COLS}
+        columns={cols}
         // the session judged every column fine for a continuous x
-        fits={{ x: COLS.map((c) => ({ field: c.field, ok: c.type !== 'category' })) }}
+        fits={{ x: cols.map((c) => ({ field: c.field, ok: true })) }}
         onReencode={onReencode}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: /Encode the x axis/ }));
     const dialog = screen.getByRole('dialog');
-    const price = within(dialog).getByRole('button', { name: /price/ }) as HTMLButtonElement;
-    expect(price.disabled, 'a number on a Date.parse axis is refused by the chart').toBe(true);
-    expect(price.getAttribute('data-veto')).toBe('chart');
-    expect(price.textContent).toContain('the x of a line needs a date or a category column');
+    const blob = within(dialog).getByRole('button', { name: /blob/ }) as HTMLButtonElement;
+    expect(blob.disabled, 'a column no scale can be folded from is refused by the chart').toBe(true);
+    expect(blob.getAttribute('data-veto')).toBe('chart');
+    expect(blob.textContent).toContain('the x of a line needs a date, a number or a category column');
     expect(within(dialog).getByText(/greyed by this chart, not by the session/)).toBeTruthy();
-    // the date columns the chart CAN draw are still offered and still land the verb
+    // the columns the chart CAN draw are still offered and still land the verb
     fireEvent.click(within(dialog).getByRole('button', { name: /shipped/ }));
     expect(onReencode).toHaveBeenCalledWith('line', 'x', 'shipped');
   });
@@ -852,5 +853,202 @@ describe('VizLine — a band is a range too: the band brush (law 13)', () => {
     const selection = selectionForView([{ viewId: 'line', field: 'date', kind: 'match', value: { values: ['2026-04-01'] } }], 'line');
     const withIt = render(<VizLine viewId="line" data={dated} width={520} selection={selection} onEmit={vi.fn()} />);
     expect(withIt.container.innerHTML).toBe(withoutSelection);
+  });
+});
+
+describe('VizLine — a run over NUMBERS emits numbers: the numeric brush', () => {
+  /**
+   * THE DEFECT, measured on a real page: two line charts over a residue-number axis invited a drag.
+   * The brush DREW, the gesture FIRED, and nothing happened — 162 marks before the drag and 162
+   * after, the session's refusal ledger climbing once per drag. The chart positioned every run
+   * through `epochOf` and snapped each endpoint to the nearest data DATE, so a numeric column was
+   * handed date-shaped STRINGS it can never answer.
+   *
+   * TWO EARLIER BRIEFS SAID THE CAUSE WAS A BAND X. It was not, and the band brush built on that
+   * reading (`describe` above) never addressed this. Recorded here because a wrong recorded cause is
+   * worse than none.
+   */
+  const PLOT_L = 52;
+  const PLOT_R = 18;
+  /** 5 residues, 10 apart: the plot spans [100, 140] over 52…502, so one unit is 11.25 viewBox units. */
+  const RESNUM = [100, 110, 120, 130, 140].map((at) => ({ at, value: at / 10 }));
+  /** The pixel a value sits at on that axis — the SAME arithmetic the dots are drawn by. */
+  const at520 = (v: number): number => PLOT_L + ((520 - PLOT_L - PLOT_R) / 40) * (v - 100);
+  const drag = (container: HTMLElement, from: number, to: number): void => {
+    const svg = container.querySelector('svg.vzf-line')!;
+    fireEvent.pointerDown(svg, { clientX: from, pointerId: 1 });
+    fireEvent.pointerMove(svg, { clientX: to, pointerId: 1 });
+    fireEvent.pointerUp(svg, { clientX: to, pointerId: 1 });
+  };
+
+  it('THE BOUNDS ARE THE AXIS’S, NOT THE MARKS’: the emitted interval is the span the pointer covered, in numbers, un-snapped', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={RESNUM} width={520} dateField="resnum" onEmit={onEmit} />);
+    // 97 → 232 inverts to exactly 104 → 116: NEITHER is a data value, and that is the point — the
+    // date arm snaps because its rail is strings, and a number needs no such protection
+    drag(container, 97, 232);
+    expect(onEmit).toHaveBeenCalledTimes(1);
+    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: [104, 116], encoding: { kind: 'interval', field: 'resnum' } });
+    // the bounds are NUMBERS, not the strings a date rail carries — the whole defect in one assertion
+    const [lo, hi] = onEmit.mock.calls[0]![0].rawValue as [unknown, unknown];
+    expect(typeof lo).toBe('number');
+    expect(typeof hi).toBe('number');
+  });
+
+  it('ONE VALUE COVERED is a selection: the span that reached exactly one mark still emits its own span', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={RESNUM} width={520} dateField="resnum" onEmit={onEmit} />);
+    // 160 → 170 sits around the mark at 110 (164.5) and reaches no other
+    drag(container, 160, 170);
+    const [lo, hi] = onEmit.mock.calls[0]![0].rawValue as [number, number];
+    expect(lo).toBeLessThan(110);
+    expect(hi).toBeGreaterThan(110);
+    expect(hi).toBeLessThan(120);
+  });
+
+  it('EMPTY IS AN ANSWER: a span that covers no value emits NOTHING and says so — never a clause no row can answer', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={RESNUM} width={520} dateField="resnum" onEmit={onEmit} />);
+    // 170 → 270 lies between the marks at 110 (164.5) and 120 (277)
+    drag(container, 170, 270);
+    expect(onEmit).not.toHaveBeenCalled();
+    expect(container.querySelector('rect.vzf-brush')).toBeNull();
+    // …and the reader is told, in the library's one polite live region — the band arm's SHAPE, a run's own WORDS
+    expect(document.querySelector('.vzf-live-region')!.textContent!.trim()).toBe(noValuesCoveredNote());
+    expect(noValuesCoveredNote()).toBe('a drag selects the values its span covers — this one covered none, so nothing was selected');
+  });
+
+  it('ORDER IS THE AXIS’S: a right-to-left drag and a left-to-right one over the same span are ONE selection', () => {
+    const leftToRight = vi.fn();
+    const rightToLeft = vi.fn();
+    const a = render(<VizLine data={RESNUM} width={520} dateField="resnum" onEmit={leftToRight} />);
+    drag(a.container, 97, 232);
+    cleanup();
+    const b = render(<VizLine data={RESNUM} width={520} dateField="resnum" onEmit={rightToLeft} />);
+    drag(b.container, 232, 97);
+    expect(rightToLeft.mock.calls[0]![0]).toEqual(leftToRight.mock.calls[0]![0]);
+    expect(rightToLeft.mock.calls[0]![0].rawValue).toEqual([104, 116]);
+  });
+
+  it('THE ROUND TRIP: what the chart emits, the read door accepts, and the chart draws as its OWN live selection in the same range', () => {
+    const onEmit = vi.fn();
+    const { container, rerender } = render(<VizLine viewId="line" data={RESNUM} width={520} dateField="resnum" onEmit={onEmit} />);
+    drag(container, 97, 232);
+    const emission = onEmit.mock.calls[0]![0] as { rawValue: unknown; encoding: { kind: string; field: string } };
+    // the session's fold of that emission, read back through the contract's OWN door
+    const selection = selectionForView([{ viewId: 'line', field: emission.encoding.field, kind: 'interval', value: emission.rawValue }], 'line');
+    rerender(<VizLine viewId="line" data={RESNUM} width={520} dateField="resnum" selection={selection} onEmit={onEmit} />);
+    const outlined = [...container.querySelectorAll('circle.vzf-line-dot.vzf-selected')].map((d) => Number(d.getAttribute('cx')));
+    // the one mark inside [104, 116] is the one at 110 — drawn where it has always been drawn
+    expect(outlined).toEqual([at520(110)]);
+    expect(container.querySelectorAll('circle.vzf-line-dot')).toHaveLength(5);
+  });
+
+  it('AN OPEN SIDE claims everything on it, and a STRING bound claims nothing (no cross-type coercion, the read door’s own law)', () => {
+    const open = selectionForView([{ viewId: 'line', field: 'resnum', kind: 'interval', value: [null, 115] }], 'line');
+    const a = render(<VizLine viewId="line" data={RESNUM} width={520} dateField="resnum" selection={open} onEmit={vi.fn()} />);
+    expect(a.container.querySelectorAll('circle.vzf-line-dot.vzf-selected')).toHaveLength(2); // 100 and 110
+    cleanup();
+    // an ISO interval landed on a NUMERIC axis outlines nothing: no row of it could be kept either
+    const crossType = selectionForView([{ viewId: 'line', field: 'resnum', kind: 'interval', value: ['2026-01-01', '2026-12-31'] }], 'line');
+    const b = render(<VizLine viewId="line" data={RESNUM} width={520} dateField="resnum" selection={crossType} onEmit={vi.fn()} />);
+    expect(b.container.querySelectorAll('circle.vzf-line-dot.vzf-selected')).toHaveLength(0);
+  });
+
+  it('A TAP CLEARS, exactly as on a run of dates — a run has no tiled slot for a press to land in', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={RESNUM} width={520} dateField="resnum" onEmit={onEmit} />);
+    const svg = container.querySelector('svg.vzf-line')!;
+    fireEvent.pointerDown(svg, { clientX: 200, pointerId: 1 });
+    fireEvent.pointerUp(svg, { clientX: 201, pointerId: 1 });
+    expect(onEmit).toHaveBeenCalledWith({ rawValue: null, encoding: { kind: 'interval', field: 'resnum' } });
+    expect(container.querySelector('rect.vzf-brush')).toBeNull();
+  });
+
+  it('A DECLARED AXIS is the one the bounds come from — a drag reads the frame’s domain, not the marks’ extent', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={RESNUM} width={520} dateField="resnum" domain={{ x: [0, 1000] }} onEmit={onEmit} />);
+    // on [0, 1000] over 52…502 one unit is 0.45: 97 → 322 inverts to exactly 100 → 600
+    drag(container, 97, 322);
+    expect(onEmit.mock.calls[0]![0].rawValue).toEqual([100, 600]);
+  });
+
+  it('A DECLARED AXIS DRAGGED BEYOND EVERY MARK emits nothing and says so — a clause that silently moved to a distant mark is a clause the reader did not make', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={RESNUM} width={520} dateField="resnum" domain={{ x: [0, 1000] }} onEmit={onEmit} />);
+    // every mark sits below 140 ⇒ below pixel 115; this drag lives out at 551…773 on the axis
+    drag(container, 300, 400);
+    expect(onEmit).not.toHaveBeenCalled();
+    expect(document.querySelector('.vzf-live-region')!.textContent!.trim()).toBe(noValuesCoveredNote());
+  });
+
+  it('THE REGRESSION THAT STARTED THIS: residue-shaped numbers are DRAWN, in order, and land a numeric clause', () => {
+    // what the old date arm did to these six residues, pinned so nobody rebuilds it: two of them
+    // cannot be parsed at all (silently dropped), and the rest are re-ordered into calendar years
+    expect(Number.isNaN(Date.parse('13'))).toBe(true);
+    expect(Number.isNaN(Date.parse('31'))).toBe(true);
+    expect(Date.parse('107')).toBeLessThan(Date.parse('99')); // residue 107 was drawn LEFT of residue 99
+    const onEmit = vi.fn();
+    const residues = [1, 13, 31, 99, 107, 241];
+    const data = residues.map((at) => ({ at, value: at }));
+    const { container } = render(<VizLine data={data} width={520} dateField="resnum" onEmit={onEmit} />);
+    // every residue is drawn — none dropped (the old arm drew four of the six) …
+    const cx = [...container.querySelectorAll('circle.vzf-line-dot')].map((d) => Number(d.getAttribute('cx')));
+    expect(cx).toHaveLength(6);
+    // … and in the AXIS's order, ascending in the residue number
+    expect([...cx].sort((a, b) => a - b)).toEqual(cx);
+    drag(container, 100, 400);
+    const [lo, hi] = onEmit.mock.calls[0]![0].rawValue as [number, number];
+    expect(typeof lo).toBe('number');
+    expect(lo).toBeGreaterThan(1);
+    expect(hi).toBeLessThan(241);
+  });
+
+  it('A NUMBER THE AXIS CANNOT PLACE is skipped and never guessed — the date arm’s own law, through one reader', () => {
+    const { container } = render(<VizLine data={[{ at: 100, value: 1 }, { at: Number.NaN, value: 2 }, { at: Number.POSITIVE_INFINITY, value: 3 }, { at: 120, value: 4 }]} width={520} dateField="resnum" onEmit={vi.fn()} />);
+    expect(container.querySelectorAll('circle.vzf-line-dot')).toHaveLength(2);
+  });
+
+  it('THE NAVIGATE WINDOW is read in the axis’s own quantity, and a bound it cannot read leaves that side OPEN', () => {
+    const inside = render(<VizLine data={RESNUM} width={520} dateField="resnum" xDomain={[110, 130]} onEmit={vi.fn()} />);
+    expect(inside.container.querySelectorAll('circle.vzf-line-dot')).toHaveLength(3);
+    cleanup();
+    // an ISO string is not this axis's quantity: that side is open, exactly as an unparseable date has always been
+    const open = render(<VizLine data={RESNUM} width={520} dateField="resnum" xDomain={['2026-01-01', 120]} onEmit={vi.fn()} />);
+    expect(open.container.querySelectorAll('circle.vzf-line-dot')).toHaveLength(3);
+  });
+
+  it('A NUMBER HANDED A BAND ORDER is a SLOT named by its number — a declared band outvotes the points’ own quantity', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={RESNUM} width={520} dateField="resnum" domain={{ categories: ['100', '110', '120', '130', '140'] }} onEmit={onEmit} />);
+    // the band's tick labels are the numbers' own text, and a drag lands the MATCH a band speaks
+    expect([...container.querySelectorAll('text.vzf-tick')].map((t) => t.textContent)).toContain('110');
+    drag(container, 100, 300);
+    expect(onEmit.mock.calls[0]![0].encoding.kind).toBe('match');
+  });
+
+  it('BYTE IDENTITY, THE DATE ARM: a run of dates handed its OWN live interval draws exactly the markup it draws with none — the read-back is the numeric arm’s alone', () => {
+    const dated = [
+      { date: '2026-04-01', value: 1 },
+      { date: '2026-04-08', value: 2 },
+      { date: '2026-04-15', value: 3 },
+    ];
+    const bare = render(<VizLine viewId="line" data={dated} width={520} onEmit={vi.fn()} />);
+    const withoutSelection = bare.container.innerHTML;
+    cleanup();
+    const own = selectionForView([{ viewId: 'line', field: 'date', kind: 'interval', value: ['2026-04-01', '2026-04-08'] }], 'line');
+    const withIt = render(<VizLine viewId="line" data={dated} width={520} selection={own} onEmit={vi.fn()} />);
+    expect(withIt.container.innerHTML).toBe(withoutSelection);
+  });
+
+  it('BYTE IDENTITY, THE BAND ARM: an INTERVAL landed on a band’s field outlines nothing — a band reads its match, and the numeric read-back cannot leak into it', () => {
+    const band = [
+      { category: 'Formal', value: 4 },
+      { category: 'Casual', value: 2 },
+    ];
+    const asInterval = selectionForView([{ viewId: 'line', field: 'shelf', kind: 'interval', value: [0, 10] }], 'line');
+    const { container } = render(<VizLine viewId="line" data={band} width={520} dateField="shelf" selection={asInterval} onEmit={vi.fn()} />);
+    expect(container.querySelectorAll('circle.vzf-line-dot.vzf-selected')).toHaveLength(0);
+    expect(container.querySelectorAll('circle.vzf-line-dot')).toHaveLength(2);
   });
 });

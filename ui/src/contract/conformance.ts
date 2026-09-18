@@ -49,7 +49,15 @@
  *                             categories) honestly declares BOTH — and the
  *                             PLAN says which of them the state it builds can
  *                             deliver (`stateKinds`; default: all of them).
- *                             What this cannot see is a kind NO state ever
+ *                             AND — the second half, added after a kind-label
+ *                             check missed a capability lie one layer in — the
+ *                             clause each delivered interval carries must be
+ *                             able to ADDRESS the axis it names
+ *                             (`intervalAddresses`, `vizfootprint/def`): a
+ *                             renderer that emits date-shaped strings for a
+ *                             numeric column delivered the declared KIND and
+ *                             nothing that column can ever answer. What this
+ *                             still cannot see is a kind NO state ever
  *                             delivers: one run is one state, so that takes a
  *                             second run over the other one
  *  12. navigate             — a canPanZoom renderer's navigate is recorded and
@@ -64,7 +72,9 @@
  * asserted.
  */
 
-import { layerAddress } from 'vizfootprint/def';
+import { frameScaleOf, intervalAddresses, unaddressableIntervalRefusal, layerAddress, type ResolvedDomain } from 'vizfootprint/def';
+import type { ColumnType } from 'vizfootprint/data';
+import type { IntervalEncoding } from 'vizfootprint/selection';
 import { bindRenderer, type BoundRenderer } from './bind.js';
 import { selectionForView, selfSelectedNeighbourhood } from './selection.js';
 import {
@@ -205,6 +215,36 @@ function check(cond: boolean, okDetail: string, failDetail: string): string {
 /** A plain-words descriptor fragment (single shared branch point). */
 function flag(cond: boolean, yes: string, no: string): string {
   return cond ? yes : no;
+}
+
+/** The interval emissions among a batch — narrowed honestly (the `kind` discriminant sits one property down, so nothing narrows without a guard). */
+function isInterval(e: ChartEmission): e is Extract<ChartEmission, { readonly encoding: IntervalEncoding }> {
+  return e.encoding.kind === 'interval';
+}
+
+/**
+ * EVERY SCALE KIND THE SESSION'S OWN SCHEMA FOLDS A FIELD TO — one entry per
+ * table that declares it, and an EMPTY list for a field nothing here types.
+ * `frameScaleOf` is the ONE owner of the type→scale fold and it is asked,
+ * never re-derived.
+ *
+ * A LIST rather than one answer, and no "which table" guess: nothing is
+ * refused unless every spelling of the field refuses it, so a field nothing
+ * types (an empty list) and a type nothing can be folded from (`'unknown'` ⇒
+ * `undefined`, which {@link intervalAddresses} passes) both end in the same
+ * place — refused on evidence, never on ignorance (law 11b's discipline, the
+ * `unit` precedent). It is also the shape with no arm nothing can reach.
+ *
+ * WHY THE KIT CAN ASK THIS AT ALL, when a renderer cannot: the contract hands
+ * a renderer rows and a folded frame and never a typed column list, so the
+ * step's own evidence is kind labels. The kit is not the renderer — it holds
+ * the live `SessionView` the loop runs on, and that state carries the schema.
+ */
+function scalesOfField(st: SessionViewState, field: string): readonly (ResolvedDomain['scale'] | undefined)[] {
+  return Object.values(st.columns)
+    .flat()
+    .filter((c) => c.field === field)
+    .map((c) => frameScaleOf(c.type as ColumnType));
 }
 
 export async function runConformance(plan: ConformancePlan): Promise<ConformanceReport> {
@@ -616,6 +656,21 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
         const expected = declared.filter((kind) => skipReason(kind, 'declared-delivered') === null);
         const delivered = new Set(emissions.map((e) => e.encoding.kind));
         const missing = expected.filter((kind) => !delivered.has(kind));
+        // AND THE CLAUSE HAS TO ADDRESS ITS OWN AXIS. A kind label cannot lie about a value, which is
+        // why this step used to pass a renderer that drew a brush, fired a gesture, and handed the
+        // session a clause no row of that column could ever answer (the measured defect: 162 marks
+        // before the drag, 162 after). The column's scale is the session's own (`scaleOfField`), and
+        // the verdict and the words have one owner in the library (`intervalAddresses` /
+        // `unaddressableIntervalRefusal`) so the def door's law and this one cannot drift.
+        const st = view.getState();
+        const unaddressable = emissions
+          .filter(isInterval)
+          .flatMap((e) => scalesOfField(st, e.encoding.field).map((scale) => ({ e, scale })))
+          .find(({ e, scale }) => !intervalAddresses(scale, e.rawValue));
+        if (unaddressable !== undefined) {
+          // `scale` is defined here by construction: `intervalAddresses` answers TRUE for an unfolded one
+          throw new StepFailed(unaddressableIntervalRefusal(`view "${genericAddress}"`, unaddressable.e.encoding.field, unaddressable.scale!, unaddressable.e.rawValue));
+        }
         const narrowed = narrowing === undefined ? '' : ` (of ${declared.join('+')}, this state delivers ${expected.join('+') || 'none'})`;
         return check(
           missing.length === 0,

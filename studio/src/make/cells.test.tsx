@@ -148,6 +148,35 @@ describe('the cells, drawn', () => {
     expect(ticks.join(' ')).toMatch(/2026-01/);
   });
 
+  it('a NUMERIC bucket stays a number: the points ascend numerically, not by their text', async () => {
+    // THE DEFECT this closes, the same one the library's own line carried: every bucket became
+    // `{ date: String(value) }`, so a made line over a NUMBER column — which this wizard's own door
+    // admits — drew its buckets through `Date.parse` (9 and 10 unparseable, 107 landing in the year
+    // 0107) and sorted them by their TEXT, which puts 10 before 9.
+    const csv = 'region,resnum,sales\nNorth,10,10\nNorth,9,20\nNorth,107,30\n';
+    const def = assembleDef(
+      salesDraft({
+        csv,
+        columns: [
+          { name: 'region', type: 'string', role: 'dimension' },
+          { name: 'resnum', type: 'number', role: 'dimension' },
+          { name: 'sales', type: 'number', role: 'measure' },
+        ],
+        absence: null,
+        views: [{ id: 'residues', label: 'Residues', chartKind: 'line', bindings: { x: 'resnum', y: 'sales' } }],
+      }),
+    );
+    const desk = mount(def);
+    await desk.view.refresh();
+    // all three buckets are drawn (as dates, `Date.parse` could place none of 9, 10) …
+    await waitFor(() => {
+      expect(document.querySelectorAll('circle.vzf-line-dot')).toHaveLength(3);
+    });
+    // … and they sit in the residue number's own order, left to right
+    const cx = [...document.querySelectorAll('circle.vzf-line-dot')].map((d) => Number(d.getAttribute('cx')));
+    expect([...cx].sort((a, b) => a - b)).toEqual(cx);
+  });
+
   it('the verbs a gesture is recorded under cover every emission kind there is', () => {
     expect(Object.keys(GESTURE_WORDS).sort()).toEqual(['cell', 'interval', 'match', 'neighbourhood', 'point']);
     expect(intentFor('the bar', { viewId: 'b', encoding: { kind: 'interval', field: 'x' }, rawValue: null } as never)).toBe('brush the bar');

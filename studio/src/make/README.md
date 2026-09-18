@@ -74,9 +74,14 @@ Four things about that offer, and none of them are this package's ideas:
   worth reading (`MAKE_PROPOSALS`) — plus one requirement of its own where a
   made chart is NARROWER than the library's (`MAKE_ENCODING_RULES`): the
   library's line takes a category on x, because its frame renderer draws a band
-  line, and a made line sums into dated points only, so the wizard's line says
-  *a number or a date* through `encodingRules.channels`, the def's seam above
-  the built-in. The one constant rides the offer, the picker and the made
+  line, and a made line draws no band, so the wizard's line says *a number or a
+  date* through `encodingRules.channels`, the def's seam above the built-in. It
+  DRAWS both of those honestly: a made line's buckets keep their own quantity —
+  a number stays a number, so the chart stands on a run of numbers and its drag
+  emits an interval of numbers (`lineData`; the justification recorded here used
+  to say *dated points only*, which was true of the code and was the same defect
+  the library's own line carried — see `vizfootprint-ui/README.md`, "A run over
+  numbers emits numbers"). The one constant rides the offer, the picker and the made
   definition alike, so the three doors cannot disagree about it.
 - **Nothing is chosen.** No offer is selected, pre-taken or defaulted; pressing
   Next with none taken is the ordinary *this dashboard has no charts yet*.
@@ -202,7 +207,8 @@ chart it cannot keep is worse than not offering it. A developer writing their
 own `charts` callback has the whole vocabulary; see [`../desk/`](../desk/).
 
 A made bar counts the rows in view per value of its category; a made line sums
-its y per bucket of its x; a made table prints the rows. Each says when it
+its y per bucket of its x (and a NUMERIC bucket stays a number: the points
+ascend numerically, and 10 comes after 9 rather than before it); a made table prints the rows. Each says when it
 stopped drawing (`the 40 tallest of 312`, `the first 200 of 90,300`) rather than
 truncating quietly, and a missing value is a silence in all three — never a bar
 called "null", never a point at zero.

@@ -442,12 +442,14 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('vizfootprint-ui ga
   }, 30_000);
 
   it("the line's axis pickers are honestly restricted; picking a numeric column re-encodes y", async () => {
-    // x: a date or a category — a plain NUMERIC column is disabled WITH the reason (a line has no numeric-run arm)
+    // x: a date, a NUMBER or a category — the three x kinds this chart draws. `price` used to be
+    // disabled here with a reason ("a line has no numeric-run arm"), and that veto was honest only
+    // while that was true: the chart draws a run of numbers now, and a picker that greys a column
+    // the chart can draw is the same capability lie in the other direction.
     await page.locator('svg.vzf-line [data-axis-channel="x"]').click();
     await page.waitForSelector('[data-vzf-modal="encoding-picker"] [role="dialog"]');
     const priceOpt = page.locator('[data-vzf-modal="encoding-picker"] [data-field="price"]');
-    expect(await priceOpt.isDisabled()).toBe(true);
-    expect((await priceOpt.getAttribute('title')) ?? '').toContain('needs a date or a category column');
+    expect(await priceOpt.isDisabled()).toBe(false);
     const dateOpt = page.locator('[data-vzf-modal="encoding-picker"] [data-field="date"]');
     expect(await dateOpt.isDisabled()).toBe(false); // vouched for by the chart itself
     await page.keyboard.press('Escape');

@@ -69,4 +69,8 @@ export { frameDomains, frameLint, frameScaleOf, resolutionFor, zeroAnchorsChanne
 export { drawsZeroGuide, zeroGuideKindRefusal, noZeroOnALogAxis, zeroOnAxis } from './frame.js';
 // a band is a range too (law 13): the ONE predicate both twins ask about a declared interval gesture, and the ONE sentence they both say
 export { drawsIntervalBrush, intervalGestureRefusal } from './frame.js';
+// …and law 13 one layer in, at the VALUE: whether a clause a gesture actually delivered can address the
+// axis it names, and the words for one that cannot (the conformance kit's own fence — a def declares
+// no values, so the door above cannot ask this)
+export { intervalAddresses, unaddressableIntervalRefusal } from './frame.js';
 export type { ChannelValues, EffectiveResolution, FrameLayer, FrameNote, ResolvedChannel, ResolvedDomain } from './frame.js';

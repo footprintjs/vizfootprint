@@ -72,9 +72,9 @@ checked in one direction only: `gesture-emits` holds every EMISSION to the
 declared kinds, and nothing held a declared KIND to a gesture that delivers it.
 So a renderer could declare `interval`, be handed a state it draws no brush for,
 and pass the whole kit. That is exactly what happened on a real page: a line
-chart whose x was a band of 185 residues drew **no brush element of any kind**
-and a drag left every count unchanged, while its hello — and the dashboard's own
-definition — said the view emits an interval.
+chart standing on a band drew **no brush element of any kind** and a drag left
+every count unchanged, while its hello — and the dashboard's own definition —
+said the view emits an interval.
 
 Step 11, **`declared-delivered`**, closes it: every emission kind the renderer
 declared and this state can deliver must have been delivered by one of the
@@ -91,6 +91,41 @@ picture this run is; the three state-sensitive arms (`cell`, `match`,
 honestly skips a kind and a delivery check that demands it can never contradict
 each other. With no `stateKinds` every skip sentence reads exactly as it always
 did, and every declared kind is demanded.
+
+### …and the kind label was not enough: a DELIVERED clause must be able to ADDRESS its axis
+
+The step above compares **kind labels**, and a kind label cannot lie about a
+value. So it passed the next capability lie one layer in, and a reader found it
+before CI did: a line over a residue-number axis **drew** the brush, **fired**
+the gesture, delivered the DECLARED kind — and handed the session
+`["107", "241"]`, date-shaped strings for a numeric column. 162 marks before the
+drag, 162 after. The session took the clause, matched no row with it and filed
+**no gap at all**.
+
+So the step gained a second half: every delivered `interval` must be able to
+address the axis it names — `intervalAddresses` / `unaddressableIntervalRefusal`
+(`vizfootprint/def`, beside law 13's `drawsIntervalBrush`, which judges a
+DECLARATION and therefore never sees a value). The column's scale is the
+**session's own** (`frameScaleOf` over `SessionViewState.columns` — the kit
+holds the live `SessionView`, which is why it can ask what a renderer cannot:
+the contract hands a renderer rows and a folded frame, never a typed column
+list). Refused on evidence, never on ignorance: a field nothing here types, a
+type nothing can be folded from, a cleared interval and an open side all pass.
+
+```
+declared-delivered: view "surface" delivered the interval ["107","241"] on "resnum", whose scale is
+                    quantitative — numeric bounds address that axis, so no row can answer the clause;
+                    an interval addresses the axis it was drawn on
+```
+
+**And the harder half of that lesson, which no predicate fixes.** Even with the
+new arm, the kit only ever sees the states a PLAN builds — and no plan had ever
+built a line over NUMBERS. One run is one state (below), so the defect was
+invisible for the same reason step 11's own caveat describes. The fence that
+actually catches this class is **two things together**: the addressability
+check, and a plan per x kind. The first-party suite now runs `lineRenderer`
+three times — a run of dates, a run of numbers, a band — and the three runs
+together are the claim.
 
 A **third** kind joined the line for the same reason, and the reason is worth
 reading twice: a *reachability* fix changed a gesture, and the declaration had
@@ -121,8 +156,8 @@ kind that NO state ever delivers — a renderer declaring `interval` and never
 brushing anything anywhere passes every single-state run whose plan narrows it
 away. Holding that would mean the kit enumerating a renderer's possible states,
 which it cannot do: the states are the host's. What it can do, and what the
-first-party suite does, is run the SAME renderer twice — once over a run and
-once over a band — and the two runs together are the claim. It also cannot judge
+first-party suite does, is run the SAME renderer once per x kind — a run of
+dates, a run of numbers and a band — and those runs together are the claim. It also cannot judge
 whether a plan's `stateKinds` is honest about the state it built; that is the
 host's own declaration, and the kit is host-side CI rather than a referee
 between a host and itself.
@@ -425,6 +460,10 @@ is the one owner of "a string or a boolean folds as categorical"), never a prop
 on the mark. Refused, with the reason: an `xKind` prop on `VizLine` to force
 the band — the x column's type is a fact the definition and the fold already
 carry, and a prop would be a second owner that could disagree with them. The
+line's THIRD x, a run of NUMBERS, is read the same way and for the same reason
+(`VizLine` · `xKindOf`): the fold's `quantitative` where a host folded one, and
+otherwise the quantity each row's own cell holds — the renderer decides no axis,
+it hands the chart each row's value faithfully. The
 frame hands a band line the band order exactly as it hands a
 bar (`domain.categories`), and the two place a slot through ONE geometry
 (`bandWidth`/`bandCentre`, `primitives/scales.ts`), so a bar's slot and the

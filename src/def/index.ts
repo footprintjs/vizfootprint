@@ -163,6 +163,11 @@ export {
   // law 13's own two: does this mark draw an interval brush on an x of this scale kind, and the words for one that does not
   drawsIntervalBrush,
   intervalGestureRefusal,
+  // …and law 13 AT THE VALUE: whether a clause a gesture DELIVERED can address the axis it names, and
+  // the words for one that cannot. The door above judges a declaration and a declaration carries no
+  // values, so this pair is asked where the clause is — the conformance kit (`declared-delivered`)
+  intervalAddresses,
+  unaddressableIntervalRefusal,
   FRAME_LAYER_LINT,
   ZERO_ANCHORED_KINDS,
 } from '../encoding/index.js';
