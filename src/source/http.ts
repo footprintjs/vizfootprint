@@ -34,14 +34,26 @@
  * ({@link readWhole}): one act, `res.body` never touched. Two strategies behind
  * one door, chosen by whether the host asked to be told — which is why a host
  * that asks nothing cannot be surprised by anything.
+ *
+ * AND A COMPUTATION MAY ATTACH TO THEM WITHOUT LANDING THEM. The resource
+ * handle's second door (`./types.ts` · `ResourceHandle.fold`) runs declared
+ * folds over that same stream — `head`, `incremental`, `whole`
+ * (`./fold/README.md`) — and asks the declarations the one question a host
+ * never answers: must these bytes be HELD? With a `whole` fold they land
+ * exactly as `snapshot` lands them. With none, the body goes through
+ * {@link countingSink} and never becomes a buffer, so its SIZE stops being a
+ * limit: the cap of a body nobody holds is {@link NO_CAP}.
  */
 import { decodeRows } from './decode.js';
-import { fnv1a } from './hash.js';
+import { declareFolds, residencyOf } from './fold/declare.js';
+import { reportAnswer } from './fold/run.js';
+import type { DeclaredFold, FoldAnswer, FoldTap } from './fold/types.js';
+import { fnv1a, fnv1aFold } from './hash.js';
 import { declaredLength, reportProgress, tooLargeMidStream, tooLargeOnArrival, totalOf } from './progress.js';
 import type { DeclaredLength, ResourceProgressObserver } from './progress.js';
 import { resourceBytes, resourceHash, resourceSnapshotOf, resourceWhere, type ResourceBody } from './resource.js';
 import { ResourceRefusal, SourceRefusal, isResourceRefusal, isSourceRefusal } from './types.js';
-import type { ResourceDecl, ResourceFormat, ResourceSnapshot, ResourceSnapshotOptions, SnapshotOptions, SourceAdapter, SourceDecl, SourceFormat, SourceRefusalReason, SourceSnapshot, SourceUnchanged } from './types.js';
+import type { ResourceDecl, ResourceFoldOptions, ResourceFoldResult, ResourceFormat, ResourceSnapshot, ResourceSnapshotOptions, SnapshotOptions, SourceAdapter, SourceDecl, SourceFormat, SourceRefusalReason, SourceSnapshot, SourceUnchanged } from './types.js';
 
 export interface HttpSourceOptions {
   /** The fetch to use (a host may pass a wrapped one); default = the global fetch, read at call time. */
@@ -156,7 +168,7 @@ function conditionalOf(since: string | undefined): Record<string, string> {
  * refusal — the diagnosis below reads that controller, so aborting on a
  * transport fault would rename `disconnected` as `timeout`.
  */
-async function fetchAnswer<T>(args: {
+interface FetchArgs<T> {
   readonly at: string;
   readonly options: HttpSourceOptions;
   readonly timeoutMs: number;
@@ -165,7 +177,12 @@ async function fetchAnswer<T>(args: {
   readonly refuse: Refuse;
   readonly beforeBody: (res: Response) => string | undefined;
   readonly readBody: (res: Response, abort: () => void) => Promise<T>;
-}): Promise<{ readonly res: Response; readonly body: T } | SourceUnchanged> {
+}
+
+/** What the answer is, per caller: a read that holds NO version cannot be told `unchanged` — there is nothing for a server to compare — so the narrow signature says so and no caller guards against an answer it cannot receive. The same two-signature shape `ResourceHandle.snapshot` uses, for the same reason (`./types.ts`). */
+async function fetchAnswer<T>(args: FetchArgs<T> & { readonly opts: (SnapshotOptions & { readonly sinceVersion?: undefined }) | undefined }): Promise<{ readonly res: Response; readonly body: T }>;
+async function fetchAnswer<T>(args: FetchArgs<T>): Promise<{ readonly res: Response; readonly body: T } | SourceUnchanged>;
+async function fetchAnswer<T>(args: FetchArgs<T>): Promise<{ readonly res: Response; readonly body: T } | SourceUnchanged> {
   const { at, options, timeoutMs, maxBytes, opts, refuse, beforeBody, readBody } = args;
   // a missing runtime fetch is a missing carrier, not a network fault
   const doFetch = options.fetch ?? globalThis.fetch;
@@ -258,8 +275,8 @@ function versionOfBody(args: {
 const unitOf = (format: ResourceFormat): string => (format === 'bytes' ? 'bytes' : 'UTF-16 units');
 
 /** THE READ THIS CARRIER ALWAYS MADE: the whole body in one act, and `res.body` never touched. */
-const readWhole = async (res: Response, format: ResourceFormat): Promise<ResourceBody> =>
-  format === 'bytes' ? { format: 'bytes', body: new Uint8Array(await res.arrayBuffer()) } : { format: 'text', body: await res.text() };
+const readWhole = async (res: Response, format: ResourceFormat): Promise<Landing> =>
+  landingOf(format === 'bytes' ? { format: 'bytes', body: new Uint8Array(await res.arrayBuffer()) } : { format: 'text', body: await res.text() });
 
 /**
  * A body accumulating chunk by chunk, in the two shapes a declaration can ask
@@ -269,14 +286,41 @@ const readWhole = async (res: Response, format: ResourceFormat): Promise<Resourc
  * answers "is this body too big for the declared cap", and a text body makes
  * them different numbers.
  */
-interface BodySink {
+interface BodySink<S extends Counted> {
   push(chunk: Uint8Array): void;
   size(): number;
-  done(): ResourceBody;
+  done(): S;
 }
 
+/**
+ * What a sink hands back when the body ended: the counts a read is judged by
+ * and the identity it can vouch for — and NOT a body, because a sink that
+ * retained nothing has none to give (residency is derived: `./fold/README.md`).
+ *
+ * Both counts are ASKED rather than carried, so a read that does not need one
+ * never pays for it: `bytes` is a UTF-8 count over a text body, and `hash` is
+ * the fallback a server that vouches for nothing forces — computed after the
+ * bytes moved, which is why the conditional read saves the decode.
+ */
+interface Counted {
+  /** What landed, in the unit the CAP is judged in ({@link unitOf}). */
+  readonly size: number;
+  /** How many real bytes went past. */
+  bytes(): number;
+  /** The content hash, the one way this sink can take it. */
+  hash(): string;
+}
+
+/** …and what a sink that RETAINED the body hands back: the same, plus the body. */
+interface Landing extends Counted {
+  readonly landed: ResourceBody;
+}
+
+/** A body that is kept, with the two counts and the hash taken from it — the one place a landing's numbers are spelled. */
+const landingOf = (landed: ResourceBody): Landing => ({ size: landed.body.length, bytes: () => resourceBytes(landed), hash: () => resourceHash(landed), landed });
+
 /** Bytes: the chunks kept as they came, joined once at the end — the one copy a `Uint8Array` landing needs. */
-function bytesSink(): BodySink {
+function bytesSink(): BodySink<Landing> {
   const chunks: Uint8Array[] = [];
   let size = 0;
   return {
@@ -292,7 +336,7 @@ function bytesSink(): BodySink {
         body.set(chunk, at);
         at += chunk.byteLength;
       }
-      return { format: 'bytes', body };
+      return landingOf({ format: 'bytes', body });
     },
   };
 }
@@ -308,7 +352,7 @@ function bytesSink(): BodySink {
  * split across a chunk boundary, and the final flush is what closes a truncated
  * one.
  */
-function textSink(): BodySink {
+function textSink(): BodySink<Landing> {
   const decoder = new TextDecoder();
   const pieces: string[] = [];
   let size = 0;
@@ -319,9 +363,86 @@ function textSink(): BodySink {
       size += piece.length;
     },
     size: () => size,
-    done: () => ({ format: 'text', body: pieces.join('') + decoder.decode() }),
+    done: () => landingOf({ format: 'text', body: pieces.join('') + decoder.decode() }),
   };
 }
+
+/** The sink a LANDING needs, per format — the pair chosen in one place, so the two readers that land bytes cannot choose differently. */
+const sinkFor = (format: ResourceFormat): BodySink<Landing> => (format === 'bytes' ? bytesSink() : textSink());
+
+/**
+ * THE SINK THAT RETAINS NOTHING — the derived-residency half of this carrier,
+ * and the whole memory argument in one function.
+ *
+ * It counts what goes past and folds the hash as it goes (`./hash.ts` ·
+ * `fnv1aFold`: the whole-body hash IS this fold run to the end), so a 169 MB
+ * body nobody declared they need whole still lands an honest version, an
+ * honest size and a byte-identical digest — and never a 169 MB buffer. A text
+ * body is still DECODED chunk by chunk, because the unit its cap and its hash
+ * are judged in is UTF-16 units of the decoded string; the pieces are counted
+ * and dropped rather than joined.
+ */
+function countingSink(format: ResourceFormat): BodySink<Counted> {
+  const hash = fnv1aFold();
+  const decoder = format === 'text' ? new TextDecoder() : undefined;
+  let size = 0;
+  let bytes = 0;
+  return {
+    push: (chunk) => {
+      bytes += chunk.byteLength;
+      if (decoder === undefined) {
+        hash.bytes(chunk);
+        size += chunk.byteLength;
+        return;
+      }
+      const piece = decoder.decode(chunk, { stream: true });
+      hash.text(piece);
+      size += piece.length;
+    },
+    size: () => size,
+    done: () => {
+      // the flush that closes a multi-byte character cut by the last chunk — '' for a byte body
+      const tail = decoder?.decode() ?? '';
+      hash.text(tail);
+      return { size: size + tail.length, bytes: () => bytes, hash: () => hash.digest() };
+    },
+  };
+}
+
+/** The folds a read is driving, and where their answers go — ABSENT when the read declared none, which is every read written before folds existed. */
+interface Folding {
+  readonly tap: FoldTap;
+  answer(answer: FoldAnswer): void;
+}
+
+/** Hand over the answers a step made honest, in declaration order. */
+const deliver = (folding: Folding, answers: readonly FoldAnswer[]): void => {
+  for (const answer of answers) folding.answer(answer);
+};
+
+/**
+ * The end of a WHOLE body, for the folds: the answers the end makes honest, or
+ * the refusal a declared head the body never delivered earns — the one place a
+ * resource's BYTES can be `malformed`, and it is the declaration's own doing
+ * (`./types.ts` · `SOURCE_REFUSALS`).
+ */
+function finishFolding(folding: Folding, arrived: number, refuse: Refuse): void {
+  const end = folding.tap.end(arrived);
+  if ('refused' in end) throw refuse('malformed', end.refused);
+  deliver(folding, end.answers);
+}
+
+/** The total a report may carry, as a fragment — "unknown total" is the ABSENCE of the key, never a zero (`./progress.ts`). */
+function totalFragmentOf(declared: DeclaredLength): { readonly total?: number } {
+  const total = totalOf(declared);
+  return total === undefined ? {} : { total };
+}
+
+/** Nobody asked to be told — the one observer for both channels, so a door that reports optionally has no arm that reports nothing. */
+const NOTHING_TOLD = (): undefined => undefined;
+
+/** The cap of a body nobody holds. The byte cap is this library's RETENTION budget, so a read that retains nothing has none to spend — one number rather than a second code path. */
+const NO_CAP = Number.POSITIVE_INFINITY;
 
 /**
  * THE PROGRESSIVE READ — and the law it keeps: **bytes may arrive
@@ -340,7 +461,7 @@ function textSink(): BodySink {
  * decoding text, is done incrementally here, which is precisely what a worker
  * would have been for.
  */
-async function readProgressively(args: {
+async function readProgressively<S extends Counted>(args: {
   readonly stream: ReadableStream<Uint8Array>;
   readonly format: ResourceFormat;
   readonly resource: string;
@@ -350,12 +471,19 @@ async function readProgressively(args: {
   readonly maxBytes: number;
   readonly refuse: Refuse;
   readonly abort: () => void;
-}): Promise<ResourceBody> {
-  const { stream, format, resource, declared, onProgress, signal, maxBytes, refuse, abort } = args;
-  const sink = format === 'bytes' ? bytesSink() : textSink();
+  /**
+   * WHAT THIS READ DOES WITH THE BYTES, handed in rather than decided here —
+   * because that is where residency lives now: a landing sink keeps them
+   * ({@link sinkFor}), a counting one does not ({@link countingSink}), and the
+   * loop below cannot tell the difference.
+   */
+  readonly sink: BodySink<S>;
+  /** The declared folds, or `undefined` for a read that declared none — which is every read written before folds existed. */
+  readonly folding: Folding | undefined;
+}): Promise<S> {
+  const { stream, format, resource, declared, onProgress, signal, maxBytes, refuse, abort, sink, folding } = args;
   const total = totalOf(declared);
-  // "unknown total" is the ABSENCE of the key, never a zero (`./progress.ts`)
-  const totalFragment = total === undefined ? {} : { total };
+  const totalFragment = totalFragmentOf(declared);
   let bytes = 0;
   const reader = stream.getReader();
   try {
@@ -373,6 +501,10 @@ async function readProgressively(args: {
       // count differs, and this sentence says that it stopped so the number is never read
       // as the body's size
       if (sink.size() > maxBytes) throw refuse('too-large', tooLargeMidStream(sink.size(), unitOf(format), declared, maxBytes));
+      // AN ANSWER REACHES THE HOST AS SOON AS IT IS COMPUTED — before the report that closes
+      // the chunk, because a declared value is what a screen is waiting for and the report is
+      // only how far along the wire is
+      if (folding !== undefined) deliver(folding, folding.tap.push(next.value, bytes));
       reportProgress(onProgress, { resource, bytes, ...totalFragment });
     }
     // WHOLE OR NOTHING. A stream that ends CLEANLY short of a total this reader
@@ -384,6 +516,9 @@ async function readProgressively(args: {
     if (total !== undefined && bytes < total) {
       throw refuse('disconnected', `disconnected — the body ended after ${String(bytes)} bytes of the ${String(total)} the server declared; a resource is not landed until it is whole, so nothing moved`);
     }
+    // AFTER the law above, never before it: a `whole` fold's answer is honest only over a
+    // body that arrived, and a declared head the body never delivered is refused here
+    if (folding !== undefined) finishFolding(folding, bytes, refuse);
     return sink.done();
   } catch (e) {
     // OUR refusal means the transfer is still alive and we chose to stop: cut it
@@ -392,6 +527,33 @@ async function readProgressively(args: {
     if (isOurRefusal(e)) abort();
     throw e;
   }
+}
+
+/**
+ * The folds over a body the transport handed back WHOLE — the one chunk it is.
+ *
+ * It drives the same tap, the same sink and the same delivery as the
+ * progressive read, so a head fold still sees one contiguous head and a
+ * declared head the body could not satisfy is still refused; what it cannot do
+ * is stream anything through, which is a fact about the transport and not about
+ * the declarations.
+ */
+async function foldWhole<S extends Counted>(args: {
+  readonly res: Response;
+  readonly resource: string;
+  readonly declared: DeclaredLength;
+  readonly sink: BodySink<S>;
+  readonly folding: Folding;
+  readonly onProgress: ResourceProgressObserver;
+  readonly refuse: Refuse;
+}): Promise<S> {
+  const chunk = new Uint8Array(await args.res.arrayBuffer());
+  args.sink.push(chunk);
+  deliver(args.folding, args.folding.tap.push(chunk, chunk.byteLength));
+  finishFolding(args.folding, chunk.byteLength, args.refuse);
+  // the one report it can honestly make: the arrival, made once the bytes are here
+  reportProgress(args.onProgress, { resource: args.resource, bytes: chunk.byteLength, ...totalFragmentOf(args.declared) });
+  return args.sink.done();
 }
 
 export function httpSource(options: HttpSourceOptions = {}): SourceAdapter {
@@ -450,7 +612,7 @@ export function httpSource(options: HttpSourceOptions = {}): SourceAdapter {
       async function snapshot(opts?: ResourceSnapshotOptions & { readonly sinceVersion?: undefined }): Promise<ResourceSnapshot>;
       async function snapshot(opts: ResourceSnapshotOptions & { readonly sinceVersion: string }): Promise<ResourceSnapshot | SourceUnchanged>;
       async function snapshot(opts?: ResourceSnapshotOptions): Promise<ResourceSnapshot | SourceUnchanged> {
-        const answer = await fetchAnswer<ResourceBody>({
+        const answer = await fetchAnswer<Landing>({
           at,
           options,
           timeoutMs,
@@ -471,23 +633,74 @@ export function httpSource(options: HttpSourceOptions = {}): SourceAdapter {
               // without them. It cannot be reported progressively, and the one report it
               // CAN honestly make is the arrival, made once the bytes are here.
               const whole = await readWhole(res, decl.format);
-              const total = totalOf(declared);
-              reportProgress(onProgress, { resource, bytes: resourceBytes(whole), ...(total === undefined ? {} : { total }) });
+              reportProgress(onProgress, { resource, bytes: whole.bytes(), ...totalFragmentOf(declared) });
               return whole;
             }
-            return readProgressively({ stream: res.body, format: decl.format, resource, declared, onProgress, signal: opts?.signal, maxBytes, refuse, abort });
+            return readProgressively({ stream: res.body, format: decl.format, resource, declared, onProgress, signal: opts?.signal, maxBytes, refuse, abort, sink: sinkFor(decl.format), folding: undefined });
           },
         });
         if ('unchanged' in answer) return answer;
-        const landed = answer.body;
+        const sunk = answer.body;
         // `bytes` counts real bytes; `text` counts UTF-16 units, the same diagnostic the
         // table door quotes for the same reason (the one real cap is Content-Length, before the read)
-        const version = versionOfBody({ res: answer.res, size: landed.body.length, unit: unitOf(landed.format), hash: () => resourceHash(landed), maxBytes, refuse });
+        const version = versionOfBody({ res: answer.res, size: sunk.size, unit: unitOf(sunk.landed.format), hash: sunk.hash, maxBytes, refuse });
         if (opts?.sinceVersion !== undefined && opts.sinceVersion === version) return { unchanged: true, version };
         // …and no decode: there are no columns to judge, so the bytes land as they arrived
-        return resourceSnapshotOf(landed, version, new Date().toISOString());
+        return resourceSnapshotOf(sunk.landed, version, new Date().toISOString());
       }
-      return { capabilities: { live: false, pushdown: false }, snapshot, close: async () => {} };
+
+      /**
+       * THE SECOND DOOR — declared computations over the same stream, and
+       * RESIDENCY DERIVED from where they attached rather than asked for.
+       *
+       * Everything the progressive read does still happens: the report, the
+       * caller's signal honoured mid-stream, whole-or-nothing. What the
+       * declarations change is what the bytes are FOR — and, when none of them
+       * attached at `whole`, whether they are kept at all.
+       */
+      async function fold(folds: readonly DeclaredFold[], opts: ResourceFoldOptions = {}): Promise<ResourceFoldResult> {
+        // judged BEFORE a byte moves: a declaration that is not one is the author's mistake, not the server's
+        const declared = declareFolds(resource, folds);
+        if ('rejected' in declared) throw refuse('malformed', declared.rejected);
+        const residency = residencyOf(folds);
+        const onProgress = opts.onProgress ?? NOTHING_TOLD;
+        const onFoldValue = opts.onFoldValue ?? NOTHING_TOLD;
+        // the RESULT carries every answer whatever the host's observer does with it, including throw
+        const answers: Record<string, unknown> = {};
+        const folding: Folding = {
+          tap: declared.tap,
+          answer: (answer) => {
+            answers[answer.fold] = answer.value;
+            reportAnswer(onFoldValue, answer);
+          },
+        };
+        // …and the cap goes with the retention it was a budget for
+        const cap = residency === 'retained' ? maxBytes : NO_CAP;
+        const sink: BodySink<Landing | Counted> = residency === 'retained' ? sinkFor(decl.format) : countingSink(decl.format);
+        const answer = await fetchAnswer<Landing | Counted>({
+          at,
+          options,
+          timeoutMs,
+          maxBytes: cap,
+          opts,
+          refuse,
+          beforeBody: () => undefined,
+          readBody: async (res, abort) => {
+            const length = declaredLength(res.headers);
+            // A response with no readable stream cannot be folded THROUGH: this transport
+            // hands back a whole body, so the folds see it as the one chunk it is — the same
+            // answers, and the memory the declarations hoped to save is the transport's to give.
+            if (res.body === null) return foldWhole({ res, resource, declared: length, sink, folding, onProgress, refuse });
+            return readProgressively({ stream: res.body, format: decl.format, resource, declared: length, onProgress, signal: opts.signal, maxBytes: cap, refuse, abort, sink, folding });
+          },
+        });
+        const sunk = answer.body;
+        const version = versionOfBody({ res: answer.res, size: sunk.size, unit: unitOf(decl.format), hash: sunk.hash, maxBytes: cap, refuse });
+        const retrievedAt = new Date().toISOString();
+        // the body rides the answer EXACTLY when a fold declared it needs it whole, and there is no other door to it
+        return { answers, residency, bytes: sunk.bytes(), version, retrievedAt, ...('landed' in sunk ? { landed: resourceSnapshotOf(sunk.landed, version, retrievedAt) } : {}) };
+      }
+      return { capabilities: { live: false, pushdown: false }, snapshot, fold, close: async () => {} };
     },
   };
 }

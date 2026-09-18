@@ -1,6 +1,6 @@
 # Data arrival: how a source that takes time stays honest
 
-A proposal. Nothing here is built except the first step, which is in flight.
+A proposal. **Steps 1 and 3 are BUILT** — progressive arrival (`src/source/README.md`, "Bytes may arrive progressively") and attachment points (`src/source/fold/README.md`, "a computation declares where it may attach"). Steps 2 and 4 are not.
 
 ## The measurement that forced it
 
@@ -63,7 +63,9 @@ Report **bytes so far** always, because that is a fact you hold. Report a total 
 
 The same pair feeds the existing `too-large` guard, which may therefore be comparing a compressed declaration against decoded bytes — refusing a body that fits, or admitting one that does not. Worth checking before anything is built on it.
 
-## 3 · Metadata: a computation declares WHERE it may attach
+## 3 · Metadata: a computation declares WHERE it may attach — BUILT
+
+> Landed as `src/source/fold/` (the port, the three positions as strategies, the declaration door, the conformance falsifier) and the resource handle's second door, `fold(folds, options)`. The law, an example per position, the automate/declare line and what the falsifier cannot catch are in [`src/source/fold/README.md`](../../src/source/fold/README.md). Three things the section below under-specified, and how they were settled: a `head` fold declares its bound **in the type** (`at: 'head'` without `headBytes` does not compile) and is REFUSED rather than answered when the body cannot satisfy it; residency is reported on the READ (`ResourceFoldResult.residency`) and never on `ResourceInfo`, because it is a fact about a read's declarations rather than about the resource; and the byte cap goes with the retention it was a budget for, which is what makes "the size stops being a limit" true rather than merely said.
 
 `whole` and `progressive` are not opposites. Some computations can run on a prefix even when the answer cannot.
 
@@ -116,5 +118,5 @@ Also out: byte-range and resumable reads; caching beyond the carrier's own condi
 
 1. **Progressive `whole`** — in flight. Bytes arrive with status; nothing reads them until complete.
 2. **`growing`, with the extent on the record.** The highest-value step: it turns "we showed you a partial answer" from a lie into a stated claim, and it reuses refresh, delta and version.
-3. **Attachment points** — `head`, `incremental`, `whole` — with the conformance check that falsifies a wrong monotone claim.
+3. **Attachment points** — `head`, `incremental`, `whole` — with the conformance check that falsifies a wrong monotone claim. **BUILT** (`src/source/fold/`), out of order: it needed only the progressive read beneath it, while step 2 needs the extent on the record. What it proved out of the bargain is that the memory argument is the real one — a body no declared fold needs whole is never held, and is not capped either.
 4. **`live`, landing by an act.** Last, and only once the stamp is proven, because it is the one that can break the cursor if rushed.

@@ -18,6 +18,8 @@ dashboard.sources.cells   // { format, via, at, version: 'mtime:…;size:…', r
 
 The port has a SECOND, optional door — `openResource(decl, { resource }) → ResourceHandle` — which is the same transport and the same version with the decode step skipped. Its read takes one option a table's does not (`ResourceSnapshotOptions.onProgress`: tell me how it is going), because its body may be 169 MB. It is the whole of "a resource is a declared source that is not a table" (its own section below).
 
+A resource handle has a second door of its own — `fold(folds, options) → ResourceFoldResult` — for the computations that can run on a PREFIX even when the answer cannot, and for the resource that then never has to be held at all. That is its own layer, with its own folder and its own README: [`./fold/README.md`](./fold/README.md), "a computation declares where it may attach".
+
 ## The laws
 
 - **A def with a non-inline source is built with `buildDashboardAsync`**; the synchronous builder refuses it with a sentence rather than pretending.
@@ -162,6 +164,19 @@ A host asks for a resource the same way it always did, and may add an observer a
 `onProgress` is a REQUEST, not a guarantee. Only the **http** carrier reports today: `file` reads through node's `readFile`, which hands back a whole body, and an `inline` payload is the def's own text — it never arrives over anything. Silence is not a stall. A streamed file read is a carrier change and not a port change, because the port is already asked.
 
 **Not in this packet, deliberately:** a byte-range or resumable read (a resumed transfer needs a range request and a way to vouch that the two halves are the same body); caching beyond the carrier's own conditional read; the progressive USE of a partial resource, which the law above forbids; and streaming for **table** sources, which land rows into an engine and have their own path and their own honesty (the row key).
+
+## A computation declares where it may attach — and a resource nobody needs whole is never held
+
+`whole` and `progressive` are not opposites: the alignment above carries its accession and its depth in the first couple of hundred bytes, while the per-column score needs all 169 MB. So a computation declares WHERE it attaches — `head` (a declared number of leading bytes), `incremental` (a growing prefix, monotone facts only), `whole` (everything) — and **residency is then DERIVED from those declarations rather than asked for**: a body no declared fold needs whole streams through, folded chunk by chunk, and stops having a size limit.
+
+```ts
+const out = await handle.fold!([accession, seenSoFar], { onFoldValue: (a) => show(a.fold, a.value, a.bytes) });
+out.answers;     // { accession: 'PF00545.26', sequences: 3982 }
+out.residency;   // 'streamed' — no `whole` fold, so the 169 MB body was never a buffer
+out.version;     // the same version those bytes would have landed under
+```
+
+The law above is untouched — a `whole` fold still gets whole bytes, a landing still lands whole, a body that ended short is still refused by name — and **values still never ride the overview**: a fold answer reaches the host that asked for it and never `overview().resources`, which carries facts and a state word and no payload. The whole layer, with an example per position, the automate/declare line, why purity makes it portable and the check that falsifies a false monotone claim, is in [`./fold/README.md`](./fold/README.md).
 
 ## A table with no carrier — what the overview says, and what it does not
 

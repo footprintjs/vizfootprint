@@ -13,6 +13,7 @@
  */
 import type { Row } from '../data/types.js';
 import type { ResourceProgressObserver } from './progress.js';
+import type { DeclaredFold, FoldAnswerObserver, Residency } from './fold/types.js';
 
 /** What shape the bytes are. */
 export const SOURCE_FORMATS = ['rows', 'csv', 'json'] as const;
@@ -183,7 +184,76 @@ export interface ResourceHandle {
   readonly capabilities: SourceCapabilities;
   snapshot(options?: ResourceSnapshotOptions & { readonly sinceVersion?: undefined }): Promise<ResourceSnapshot>;
   snapshot(options: ResourceSnapshotOptions & { readonly sinceVersion: string }): Promise<ResourceSnapshot | SourceUnchanged>;
+  /**
+   * THE SECOND DOOR: **attach declared computations to the bytes as they
+   * arrive** instead of landing them (`./fold/README.md`). `snapshot` lands a
+   * body; `fold` runs folds over one, and whether the body is HELD at all is
+   * derived from where those folds attached — `whole` present, it lands exactly
+   * as `snapshot` lands it; none, and the body streams through and is never a
+   * buffer.
+   *
+   * OPTIONAL for the reason `SourceAdapter.openResource` is: a carrier written
+   * before folds existed is still a valid handle, and a host that asks one for
+   * a fold is refused `no-adapter` by name (`./open.ts` · `foldResource`)
+   * rather than handed a whole body it did not ask for. Only a carrier whose
+   * transport can hand over PARTS has anything to declare here: the `file`
+   * carrier reads through `readFile` and an `inline` payload is the def's own
+   * text, so both would be claiming a residency win they cannot deliver.
+   */
+  fold?(folds: readonly DeclaredFold[], options?: ResourceFoldOptions): Promise<ResourceFoldResult>;
   close(): Promise<void>;
+}
+
+/**
+ * What a FOLD read may be asked. It is deliberately NOT
+ * {@link ResourceSnapshotOptions}: there is no `sinceVersion`, because a
+ * conditional read's honest answer is "unchanged, and no bytes moved", and a
+ * fold read exists to move bytes past a computation. A cursor over versions it
+ * already folded is its own packet.
+ */
+export interface ResourceFoldOptions {
+  /** Cut the transfer off. Honoured mid-stream, exactly as a progressive read honours it. */
+  readonly signal?: AbortSignal;
+  /** How the transfer is going — the same report, from the same place (`./progress.ts`). */
+  readonly onProgress?: ResourceProgressObserver;
+  /**
+   * An answer AS SOON AS IT IS COMPUTED, so a screen can say "PF00545.26 ·
+   * 3,982 sequences · reading…" in the first second. The same values ride
+   * {@link ResourceFoldResult.answers} at the end, so a host that ignores this
+   * loses nothing; an observer that throws changes nothing either
+   * (`./fold/run.ts` · `reportAnswer`).
+   */
+  readonly onFoldValue?: FoldAnswerObserver;
+}
+
+/**
+ * What a fold read answers: what the folds said, what the read did with the
+ * bytes, and the same provenance a landing carries.
+ *
+ * **WHERE RESIDENCY IS REPORTED, and why here.** It is a fact about a READ and
+ * its declarations, not about the resource — the same resource folded twice may
+ * be resident once and not the other time — so it rides the read's own answer
+ * and never `ResourceInfo`, which is the record. And the answers ride here and
+ * never the overview: values never ride the overview (`./README.md`).
+ */
+export interface ResourceFoldResult {
+  /** name → the last answer that fold gave, which for an `incremental` fold is the one over the whole body. */
+  readonly answers: Readonly<Record<string, unknown>>;
+  /** DERIVED from the declarations, never asked for: `retained` when some fold attached at `whole`, else `streamed`. */
+  readonly residency: Residency;
+  /** How many bytes went past — the SIZE, which is the one thing a reader can be told about a body it may not be handed. */
+  readonly bytes: number;
+  /** What the carrier vouches for, and byte-identical to the version the same bytes land under: the hash is folded, not re-taken (`./hash.ts`). */
+  readonly version: string;
+  /** ISO 8601. */
+  readonly retrievedAt: string;
+  /**
+   * The body — present EXACTLY when `residency` is `retained`, and then
+   * byte-identical to what `snapshot()` lands. Absent when the read streamed:
+   * there is no door to bytes nobody declared they need whole, which is the
+   * point rather than an omission.
+   */
+  readonly landed?: ResourceSnapshot;
 }
 
 /**
@@ -275,6 +345,12 @@ export interface ResourceInfo {
  * the LOCATOR only (an `at` that is not a URL, an inline payload that is not the
  * declared shape), never the payload, because nothing is decoded and a body has
  * no shape to contradict.
+ *
+ * …UNLESS A COMPUTATION DECLARED ONE. A fold read is the one place a resource's
+ * BYTES can be `malformed`, and both halves are the declaration's own doing: a
+ * declaration that is not one (a nameless fold, a `head` with no bound) and a
+ * declared head the body could not satisfy (`./fold/README.md`). The narrowing
+ * above still holds for a landing, which decodes nothing.
  */
 export const SOURCE_REFUSALS = ['no-adapter', 'malformed', 'unavailable', 'unauthorized', 'disconnected', 'timeout', 'cancelled', 'too-large', 'no-live', 'no-pushdown'] as const;
 export type SourceRefusalReason = (typeof SOURCE_REFUSALS)[number];

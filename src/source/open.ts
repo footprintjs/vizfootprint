@@ -2,7 +2,8 @@
 import { inlineSource } from './inline.js';
 import { resourceWhere } from './resource.js';
 import { ResourceRefusal, SourceRefusal } from './types.js';
-import type { ResourceDecl, ResourceHandle, SourceAdapter, SourceDecl, SourceHandle } from './types.js';
+import type { DeclaredFold } from './fold/types.js';
+import type { ResourceDecl, ResourceFoldOptions, ResourceFoldResult, ResourceHandle, SourceAdapter, SourceDecl, SourceHandle } from './types.js';
 
 export async function openSource(decl: SourceDecl, table: string, adapters: readonly SourceAdapter[] = []): Promise<SourceHandle> {
   const adapter = decl.via === 'inline' ? inlineSource : adapters.find((a) => a.via === decl.via);
@@ -32,4 +33,42 @@ export async function openResource(decl: ResourceDecl, resource: string, adapter
     throw new ResourceRefusal('no-adapter', `${where}: the ${decl.via} adapter this host passed carries tables only — it declares no \`openResource\`, and a resource is never read as rows`, resource, decl.via);
   }
   return adapter.openResource(decl, { resource });
+}
+
+/**
+ * …and the door for a read that FOLDS instead of landing: the same adapters,
+ * the same `via` vocabulary, asked for computations over the bytes rather than
+ * the bytes (`./fold/README.md`).
+ *
+ * A THIRD way to have no carrier, and it is a different fact from the other
+ * two: the host passed a carrier for this via, and it carries resources, and
+ * its transport hands back a whole body — so it has no `fold` to offer and says
+ * that rather than quietly landing 169 MB nobody asked for.
+ *
+ * The handle is closed on the way out however the read went, exactly as the
+ * build door closes the one it opened (`../def/buildDashboard.ts` ·
+ * `readResource`).
+ */
+export async function foldResource(
+  decl: ResourceDecl,
+  resource: string,
+  folds: readonly DeclaredFold[],
+  adapters: readonly SourceAdapter[] = [],
+  options: ResourceFoldOptions = {},
+): Promise<ResourceFoldResult> {
+  const handle = await openResource(decl, resource, adapters);
+  const fold = handle.fold;
+  if (fold === undefined) {
+    throw new ResourceRefusal(
+      'no-adapter',
+      `${resourceWhere(resource, decl.via)}: the ${decl.via} adapter this host passed hands back a body it already holds whole — it declares no \`fold\`, and a fold attaches to bytes as they arrive`,
+      resource,
+      decl.via,
+    );
+  }
+  try {
+    return await fold.call(handle, folds, options);
+  } finally {
+    await handle.close();
+  }
 }
