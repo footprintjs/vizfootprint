@@ -95,6 +95,107 @@ describe('setSheetArrangement \u2014 the other three props POST the same shape, 
   });
 });
 
+describe('setLayoutNote — the GENERIC door: a scope nobody here declared, in the host’s own words', () => {
+  function fakePost(answer: Record<string, unknown> = { ok: true }) {
+    const calls: { url: string; body?: Record<string, unknown> }[] = [];
+    const impl = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined });
+      if (!init || init.method !== 'POST') return { ok: true, json: async () => BASE } as unknown as Response;
+      return { ok: true, json: async () => answer } as unknown as Response;
+    });
+    return { impl: impl as unknown as typeof fetch, calls };
+  }
+
+  it('lands ONE navigate under `layout:${scope}` carrying the HOST’S words, and answers that it landed', async () => {
+    const { impl, calls } = fakePost();
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    const out = await view.setLayoutNote({ scope: 'protein-desk', prop: 'panes', value: 'surface,contacts', words: 'moved the contacts beside the surface' });
+    expect(out).toEqual({ ok: true });
+    expect(calls.filter((c) => c.url === '/api/dispatch').map((c) => c.body)).toEqual([
+      // the words are the HOST's — nothing composed a machine sentence for a vocabulary it does not know
+      { verb: 'navigate', viewId: 'layout:protein-desk', field: 'panes', value: 'surface,contacts', intent: 'moved the contacts beside the surface' },
+    ]);
+    view.dispose();
+  });
+
+  it('HANDS BACK THE REFUSAL the session gave, verbatim — a host never has to re-read the fold to learn its act did not land', async () => {
+    const { impl } = fakePost({ ok: false, gap: { detail: 'a layout navigate needs a scope — use "layout:dashboard", not bare "layout:"' } });
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    expect(await view.setLayoutNote({ scope: '', prop: 'panes', value: 'a', words: 'rearranged the desk' })).toEqual({
+      ok: false,
+      sentence: 'a layout navigate needs a scope — use "layout:dashboard", not bare "layout:"',
+    });
+    view.dispose();
+  });
+
+  it('REFUSES A NOTE WITH NO WORDS at the door, and nothing is dispatched — the one thing the session cannot see', async () => {
+    const { impl, calls } = fakePost();
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    const out = await view.setLayoutNote({ scope: 'protein-desk', prop: 'panes', value: 'a,b', words: '   ' });
+    expect(out.ok).toBe(false);
+    expect(out.ok === false && out.sentence).toBe('a layout note needs the words that say what it did — a rail is the only account a reader has of an act, and this door will not write them for you');
+    expect(calls.filter((c) => c.url === '/api/dispatch')).toHaveLength(0);
+    view.dispose();
+  });
+});
+
+describe('setLayoutNote — a REAL session answers the door in its own words', () => {
+  async function liveNoteView() {
+    const { buildDashboard } = await import('vizfootprint/agent');
+    const dashboard = buildDashboard({
+      meta: { title: 'ui layout note integration' },
+      data: { data: { rows: [{ id: 'a', price: 20 }] } },
+      actors: { scatter: { actor: 'user', label: 'Scatter' } },
+      defaultTable: 'data',
+    });
+    return createSessionView(sessionSource(dashboard.createSession({ as: 'user' })), { as: 'user' });
+  }
+
+  it('a scope nobody named, a prop nobody named, and a value the session will not carry each come back with the SESSION’s sentence', async () => {
+    const view = await liveNoteView();
+    await view.refresh();
+    const bare = await view.setLayoutNote({ scope: '', prop: 'panes', value: 'a', words: 'rearranged the desk' });
+    expect(bare.ok === false && bare.sentence).toContain('needs a scope');
+    const noProp = await view.setLayoutNote({ scope: 'desk', prop: '   ', value: 'a', words: 'rearranged the desk' });
+    expect(noProp.ok === false && noProp.sentence).toContain('needs a field');
+    const tooLong = await view.setLayoutNote({ scope: 'desk', prop: 'panes', value: 'x'.repeat(501), words: 'rearranged the desk' });
+    expect(tooLong.ok === false && tooLong.sentence).toContain('too long');
+    // and nothing landed for any of the three
+    expect(view.getState().commits).toHaveLength(0);
+    view.dispose();
+  });
+
+  it('a scope this library never heard of lands, folds and reads back — which is the whole point of the door', async () => {
+    const view = await liveNoteView();
+    await view.refresh();
+    expect(await view.setLayoutNote({ scope: 'protein-desk', prop: 'panes', value: 'surface,contacts', words: 'moved the contacts beside the surface' })).toEqual({ ok: true });
+    const s = view.getState();
+    expect(s.layouts?.['protein-desk']).toEqual({ panes: 'surface,contacts' });
+    expect(s.commits[0]!.intent).toBe('moved the contacts beside the surface');
+    // INERT, and said out loud: a desk's arrangement moved no row's standing
+    expect(s.selections).toEqual([]);
+    view.dispose();
+  });
+
+  it('A FILTER DOOR REFUSES A LAYOUT NOTE AT THE TYPE LEVEL, and at run time', async () => {
+    const view = await liveNoteView();
+    await view.refresh();
+    // @ts-expect-error a `layout:${scope}` identity is `never` at a filter door (src/branches/fold.ts · DataViewId)
+    await view.emit('layout:dashboard', { rawValue: 1, encoding: { kind: 'point', field: 'price' } });
+    // @ts-expect-error the same law at the clear door
+    await view.clear('layout:dashboard');
+    // …and the run-time half, for an id no type could have seen: nothing landed
+    const built = ['layout', 'dashboard'].join(':');
+    await view.emit(built, { rawValue: 1, encoding: { kind: 'point', field: 'price' } });
+    expect(view.getState().commits).toHaveLength(0);
+    expect(view.getState().selections).toEqual([]);
+    view.dispose();
+  });
+});
+
 describe('setLayout — poll source POSTs navigate dispatches with plain-words intents', () => {
   function fakeFetch() {
     const calls: { url: string; body?: Record<string, unknown> }[] = [];
@@ -117,6 +218,29 @@ describe('setLayout — poll source POSTs navigate dispatches with plain-words i
       { verb: 'navigate', viewId: LAYOUT_DASHBOARD_VIEW_ID, field: 'focus', value: 'scatter', intent: 'layout = focus on scatter' },
       { verb: 'navigate', viewId: LAYOUT_DASHBOARD_VIEW_ID, field: 'order', value: 'bar,scatter', intent: 'layout order: bar, scatter' },
     ]);
+    view.dispose();
+  });
+
+  it('BYTE IDENTITY: an order of ids holding no separator posts exactly the bytes it always posted', async () => {
+    const { impl, calls } = fakeFetch();
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    await view.setLayout({ order: ['bar', 'scatter', 'map'] });
+    expect(calls.filter((c) => c.url === '/api/dispatch').map((c) => c.body)).toEqual([
+      { verb: 'navigate', viewId: LAYOUT_DASHBOARD_VIEW_ID, field: 'order', value: 'bar,scatter,map', intent: 'layout order: bar, scatter, map' },
+    ]);
+    view.dispose();
+  });
+
+  it('and an id that HOLDS the separator now round-trips, where the joined list made it two cells', async () => {
+    const { impl, calls } = fakeFetch();
+    const view = createSessionView(pollingSource({ fetchImpl: impl }));
+    await view.refresh();
+    await view.setLayout({ order: ['a,b', 'map'] });
+    const body = calls.filter((c) => c.url === '/api/dispatch').map((c) => c.body)[0]!;
+    expect(body['value']).toBe('["a,b","map"]');
+    // …and the cockpit's own reader gets its two cells back, with their names intact
+    expect(parseLayout({ order: String(body['value']) }).order).toEqual(['a,b', 'map']);
     view.dispose();
   });
 

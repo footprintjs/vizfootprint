@@ -55,6 +55,8 @@ export type {
   SessionViewState,
   CommitView,
   ViewView,
+  ViewSilenceView,
+  LayoutNote,
   LayerView,
   ColumnView,
   SelectionView,

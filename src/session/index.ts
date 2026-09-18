@@ -45,6 +45,7 @@ export type {
   ApplySavedResult,
   BookmarkResult,
   ViewInfo,
+  ViewSilence,
   LayerInfo,
   EffectiveEncoding,
   SelectionInfo,

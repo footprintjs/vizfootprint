@@ -9,6 +9,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent, cleanup } from '@testing-library/react';
 import { VizCockpit, orderCharts, reorderIds, type CockpitChart } from './VizCockpit.js';
 import type { LayoutView } from '../adapter/types.js';
+import { homeSaid } from './arrangement.js';
 
 // jsdom ships no PointerEvent — polyfill it as a MouseEvent subclass so the
 // drag handle's pointer listeners fire (mirrors charts.test.tsx's polyfill).
@@ -129,19 +130,64 @@ describe('the focus preset — one hero + a live thumbnail rail', () => {
     const charts = CHARTS.map((c, i) => ({ ...c, caption: `cap-${c.id}` }));
     const { container } = render(<VizCockpit charts={charts} layout={flow({ preset: 'focus', focusId: 'bar' })} onLayoutChange={vi.fn()} />);
     const band = container.querySelector('[data-vzf="cockpit-charts"]') as HTMLElement;
-    expect(band.style.gridTemplateColumns).toBe('repeat(3, minmax(0, 1fr))');
+    // ONE HOME PER CELL, including the lifted one: four columns for four cells,
+    // which is the stated price of the slot law (`./arrangement.ts`)
+    expect(band.style.gridTemplateColumns).toBe('repeat(4, minmax(0, 1fr))');
     expect(band.style.gridTemplateRows).toBe('minmax(0, 1fr) minmax(84px, 16%)');
     const hero = container.querySelector('[data-chart="bar"]') as HTMLElement;
     expect(hero.getAttribute('data-focused')).toBe('true');
     expect(hero.classList.contains('vzf-focused')).toBe(true);
     expect(hero.style.gridColumn).toBe('1 / -1');
     expect(hero.querySelector('.vzf-thumb-overlay')).toBeNull(); // the hero is fully interactive
-    // thumbs: everyone else, row 2, sequential columns, an overlay each (still LIVE cells)
+    // thumbs: everyone else, row 2, each in ITS OWN HOME — `bar` is third in the
+    // recorded order, so the cells after it keep columns 4 and stay put; they do
+    // NOT slide up into the gap, which is the whole law
     const thumbs = Array.from(container.querySelectorAll('.vzf-cockpit-cell.vzf-thumb')) as HTMLElement[];
     expect(thumbs.map((t) => t.getAttribute('data-chart'))).toEqual(['scatter', 'line', 'map']);
     expect(thumbs.map((t) => t.style.gridRow)).toEqual(['2', '2', '2']);
-    expect(thumbs.map((t) => t.style.gridColumn)).toEqual(['1', '2', '3']);
+    expect(thumbs.map((t) => t.style.gridColumn)).toEqual(['1', '2', '4']);
     for (const t of thumbs) expect(t.querySelector('[data-vzf="focus-thumb"]')).not.toBeNull();
+    // and the lifted cell's HOME is drawn, in its own slot, saying whose it is
+    const home = container.querySelector('[data-vzf="cell-home"]') as HTMLElement;
+    expect(home.getAttribute('data-home')).toBe('bar');
+    expect(home.style.gridColumn).toBe('3');
+    expect(home.style.gridRow).toBe('2');
+    expect(home.textContent).toBe(homeSaid('bar'));
+  });
+
+  /**
+   * THE DEFECT THIS LAW FIXED, MEASURED ON THE PACKAGED COCKPIT.
+   *
+   * BEFORE (the rail was re-derived by SKIPPING the focused cell, so every cell
+   * after it shifted one column): with these five cells, moving the focus from
+   * the first to the last moved FIVE of the five; `a → d` four, `a → c` three,
+   * adjacent pairs two — `|i − j| + 1` cells, a mean of 3.0 of 5 over the ten
+   * pairs. AFTER: exactly two, every pair, which is this test.
+   */
+  it('A FOCUS CHANGE MOVES EXACTLY TWO CELLS — every pair, on the rendered grid', () => {
+    const five = ['a', 'b', 'c', 'd', 'e'].map((id) => cell(id));
+    const placesAt = (focusId: string): Record<string, string> => {
+      const { container } = render(<VizCockpit charts={five} layout={flow({ preset: 'focus', focusId })} onLayoutChange={vi.fn()} />);
+      const out: Record<string, string> = {};
+      for (const el of Array.from(container.querySelectorAll('[data-chart]')) as HTMLElement[]) {
+        out[el.getAttribute('data-chart')!] = `${el.style.gridRow}/${el.style.gridColumn}`;
+      }
+      cleanup();
+      return out;
+    };
+    const ids = five.map((c) => c.id);
+    for (const from of ids) {
+      for (const to of ids) {
+        if (from === to) continue;
+        const a = placesAt(from);
+        const b = placesAt(to);
+        const moved = ids.filter((id) => a[id] !== b[id]);
+        expect(moved.sort(), `focus ${from} → ${to} moved ${moved.join(', ')}`).toEqual([from, to].sort());
+      }
+    }
+    // and every unlifted cell sits in the home its ORDER gave it, whoever is lifted
+    expect(placesAt('c')).toEqual({ a: '2/1', b: '2/2', c: '1/1 / -1', d: '2/4', e: '2/5' });
+    expect(placesAt('a')).toEqual({ a: '1/1 / -1', b: '2/2', c: '2/3', d: '2/4', e: '2/5' });
   });
 
   it('clicking a thumbnail swaps focus through onLayoutChange (never local state)', () => {

@@ -819,6 +819,18 @@ export function validateDashboardDef(def: unknown): string[] {
         if (cap.fields !== undefined && (!Array.isArray(cap.fields) || cap.fields.some((f) => typeof f !== 'string'))) {
           problems.push(`capabilities[${i}].fields must be an array of strings`);
         }
+        if (cap.silentBecause !== undefined) {
+          // WHY BOTH GUARDS: the words are ECHOED to a reader (`ViewInfo.silent.words`),
+          // so a blank one would put an empty explanation on a screen; and a reason for
+          // being outside the grammar, declared on a view that CAN probe, is a
+          // contradiction the def should hear about at build rather than a sentence
+          // nothing would ever serve.
+          if (typeof cap.silentBecause !== 'string' || cap.silentBecause.trim().length === 0) {
+            problems.push(`capabilities[${i}].silentBecause, if present, must be a non-empty string`);
+          } else if (cap.canProbe === true) {
+            problems.push(`capabilities[${i}].silentBecause explains being outside the selection grammar — it belongs beside canProbe: false, and this view declares canProbe: true`);
+          }
+        }
       });
     }
   }

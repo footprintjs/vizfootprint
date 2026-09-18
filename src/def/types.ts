@@ -653,6 +653,29 @@ export interface CapabilityDecl {
   readonly encodings?: readonly EmissionKind[];
   /** Which data fields it encodes (informational; drives readiness hints). */
   readonly fields?: readonly string[];
+  /**
+   * WHY THIS VIEW IS OUTSIDE THE SELECTION GRAMMAR, in the def's own words —
+   * declarable only beside `canProbe: false`, which is the whole of what it
+   * explains.
+   *
+   * THE DEFECT IT ANSWERS, measured by a consumer desk: a pane whose rows are
+   * not in the data space at all was saying *"the selection elsewhere cannot be
+   * judged here"* — which is the sentence for a clause that SET OUT and could
+   * not be judged, and reads exactly like a fault. The truth is the opposite:
+   * no clause can ever be ABOUT that view, and the def declared exactly that.
+   * The library knew it (`canProbe: false` ⇒ an empty voice, `voiceOf`) and did
+   * not SAY it, so every host rebuilt the sentence from two booleans and wrote
+   * its own words for a fact the declaration already held.
+   *
+   * It is echoed VERBATIM to a reader's side (`ViewInfo.silent.words`), the
+   * `label` / `chartKind` precedent: the library never authors prose for a
+   * screen, it carries the author's.
+   *
+   * Optional beside a `canProbe: false` that says nothing: the TYPED fact
+   * crosses either way, so a renderer can tell *no clause can reach me* from
+   * *a clause reached me and I could not judge it* without these words.
+   */
+  readonly silentBecause?: string;
 }
 
 /** L4 defaults for the session's online-FDR stepper. `gamma` is a developer-authored sequence (optional). */

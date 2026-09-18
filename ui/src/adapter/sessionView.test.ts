@@ -66,6 +66,20 @@ describe('mapPollState — normalization + derivations', () => {
     // no top-level encodings in the payload → derived from views[].encodings
     expect(s.encodings['scatter']).toEqual({ x: 'price', y: 'rating' });
   });
+  it('carries WHY a view is outside the grammar — the typed reason, and the declaration’s own words only when they are words', () => {
+    const viewer = (raw: unknown) =>
+      mapPollState({ ...RAW, views: [{ viewId: 'viewer', actor: 'user', canProbe: false, selectionKinds: [], silent: raw }] } as RawPollState).views[0]!;
+    expect(viewer({ reason: 'declared', words: 'the camera is the viewer’s own' }).silent).toEqual({ reason: 'declared', words: 'the camera is the viewer’s own' });
+    // the typed reason alone, when the def wrote none
+    expect(viewer({ reason: 'declared' }).silent).toEqual({ reason: 'declared' });
+    expect(viewer({ reason: 'declared', words: '' }).silent).toEqual({ reason: 'declared' });
+    expect(viewer({ reason: 'declared', words: 7 }).silent).toEqual({ reason: 'declared' });
+    // a half-read row is DROPPED, never repaired: this sentence goes on a screen beside a count
+    for (const bad of [undefined, null, 'declared', { reason: 'guessed' }, {}]) expect(viewer(bad).silent).toBeUndefined();
+    // and a view with a voice has no silence at all (the older wire, and every ordinary view)
+    expect(mapPollState(RAW).views[0]!.silent).toBeUndefined();
+  });
+
   it('carries columns, gaps, readiness, branches, bookmarks', () => {
     expect(s.columns['data']!.map((c) => c.field)).toEqual(['price', 'category']);
     expect(s.columns['data']!.map((c) => c.role)).toEqual(['measure', undefined]);

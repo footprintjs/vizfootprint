@@ -57,6 +57,7 @@ import {
   type SessionViewState,
   type CommitView,
   type ViewView,
+  type ViewSilenceView,
   type LayerView,
   type ColumnView,
   type SelectionView,
@@ -75,8 +76,13 @@ import {
   type ViewEncoding,
   type ChartCellView,
   type LayoutChange,
+  type LayoutNote,
   type LayoutView,
   parseLayout, type FitView, type RuleLineView, type EffectiveEncodingView, type LinkEdgeView, type ProseStatusView, type ProposalView, type SavedSelectionView, type SavedClauseView, type SourceInfoView, type ResourceInfoView, type DashboardWordsView, type NoteView, type TableView, type RefreshRecordView, type RefreshOutcomeView, type RefreshDeltaView, type LayoutPreset, type AggregatePick } from './types.js';
+// the cockpit's arrangement: the `layout:` namespace, its scope, its prop and its ONE codec
+import { COCKPIT_LAYOUT_SCOPE, COCKPIT_ORDER_PROP, layoutViewId, cellOrderToLayoutValue } from '../layout/arrangement.js';
+// the inert namespace as a TYPE (type-only, like every other src import here)
+import type { DataViewId } from 'vizfootprint/branches';
 import { mapCompareResult, type RawCompareResult } from './compareView.js';
 import { mapProseRefs } from './proseRefs.js';
 import { activePath, pathToRoot, stepBackTarget, stepForwardTarget } from './stepNav.js';
@@ -525,6 +531,8 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       /** The frame (1.5): `views[].frame` serialized — per channel, the declared resolution. Absent on a view that declares none. */
       frame?: unknown;
       canProbe?: boolean;
+      /** Why no clause can be about this view (`views[].silent` serialized). Absent on a view with a voice, and on an older wire. */
+      silent?: unknown;
       mounted?: boolean;
     };
     return {
@@ -535,6 +543,7 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
       ...(o.frame !== undefined ? { frame: mapFrame(o.frame) } : {}),
       selectionKinds: o.selectionKinds ?? [],
       canProbe: o.canProbe ?? true,
+      ...(mapSilence(o.silent) !== undefined ? { silent: mapSilence(o.silent)! } : {}),
       mounted: o.mounted ?? true,
       encoding: o.encodings ?? {},
       ...(o.fits !== undefined ? { fits: mapFits(o.fits) } : {}),
@@ -544,6 +553,21 @@ function mapViews(views: readonly unknown[] | undefined): ViewView[] {
     };
   });
 }
+/**
+ * WHY A VIEW IS OUTSIDE THE GRAMMAR, as the wire serves it — kept only with the
+ * one fact it claims, and its words only when they are words.
+ *
+ * A malformed row is DROPPED rather than repaired: *no clause can be about this
+ * view* is a statement a renderer will put on a screen beside a count, and a
+ * half-read one would say it without the reason that makes it true.
+ */
+function mapSilence(raw: unknown): ViewSilenceView | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const x = raw as { reason?: unknown; words?: unknown };
+  if (x.reason !== 'declared') return undefined;
+  return { reason: 'declared', ...(typeof x.words === 'string' && x.words.length > 0 ? { words: x.words } : {}) };
+}
+
 /** A view's layers as the wire serves them — a row is kept only with its four declared facts (id, table, kind, channels); anything malformed is dropped, never invented. */
 function mapLayers(raw: unknown): readonly LayerView[] {
   if (!Array.isArray(raw)) return [];
@@ -1221,7 +1245,7 @@ function mapGaps(gaps: readonly unknown[] | undefined): GapView[] {
  * both) — the adapter states it locally so a POLL consumer never needs a src
  * value import, matching the HONESTY_LINE precedent.
  */
-export const LAYOUT_DASHBOARD_VIEW_ID = 'layout:dashboard';
+export const LAYOUT_DASHBOARD_VIEW_ID = layoutViewId(COCKPIT_LAYOUT_SCOPE);
 
 /** Normalize agent-authored charts (RP-3). A pre-RP-3 source has none — render the empty case. */
 function mapCharts(charts: readonly RawChart[] | undefined): ChartCellView[] {
@@ -1433,13 +1457,21 @@ export interface SessionView {
   subscribe(listener: () => void): () => void;
   refresh(): Promise<void>;
   /** Turn a chart's R3 emission into a filter/select commit (charts never build clauses). */
-  emit(viewId: string, emission: ChartEmission, intent?: string): Promise<void>;
+  /**
+   * A LAYOUT NOTE CANNOT REACH THIS DOOR, and now it cannot be written either:
+   * `DataViewId` resolves a `layout:${scope}` identity to `never`, so
+   * `view.emit('layout:dashboard', …)` is a COMPILE error and not only a typed
+   * gap at run time. The type is `src/branches/fold.ts`'s, beside the `keyOf`
+   * law that makes inertness true, so the two cannot drift. A viewId known only
+   * as `string` still passes — see the type's own note.
+   */
+  emit<Id extends string>(viewId: Id & DataViewId<Id>, emission: ChartEmission, intent?: string): Promise<void>;
   /**
    * SET-1: clear one view's live selection KIND-FAITHFULLY — a cleared point /
    * interval / cell / match commit of that view, a real act with a cause,
    * never a silent reset. No-op when the view holds no live clause.
    */
-  clear(viewId: string, intent?: string): Promise<void>;
+  clear<Id extends string>(viewId: Id & DataViewId<Id>, intent?: string): Promise<void>;
   /** Clear every live selection, one commit each — the log stays honest about what was cleared. */
   clearAll(intent?: string): Promise<void>;
   /**
@@ -1482,6 +1514,36 @@ export interface SessionView {
    * ("layout = focus on scatter"). Works over both sources.
    */
   setLayout(change: LayoutChange): Promise<void>;
+  /**
+   * LY-1, THE GENERIC DOOR: one layout note — a (scope, prop, value) triple
+   * with the HOST'S OWN WORDS — under `layout:${scope}`.
+   *
+   * `setLayout` serves the cockpit's three props and `setSheetArrangement` a
+   * sheet's four; a third-party scope had neither, which is why a worked
+   * consumer rode the cockpit's `order` for a desk of its own. This is the door
+   * that scope needed, and the other two are wrappers over it rather than
+   * rivals to it.
+   *
+   * Three things it gets right that `setLayout` does not:
+   *
+   * - **The host owns the words.** `LayoutNote.words` is what the commit rail
+   *   shows. Nothing composes a machine sentence for a vocabulary it does not
+   *   know.
+   * - **It hands back its refusal.** `Promise<DescribeOutcome>`, so a host
+   *   learns that its arrangement did not land WITHOUT re-reading the fold.
+   *   The sentence is the session's own (a bare scope, a blank prop, a value it
+   *   will not carry) — this door re-words none of them, and judges only the
+   *   one thing the session cannot see: that the act has words at all.
+   * - **The note is INERT by construction**, exactly as the other two are: a
+   *   `layout:` commit never enters `activeFilters` and never reaches
+   *   `foldDiff` (`src/branches/fold.ts` · `LAYOUT_VIEW_PREFIX`), so no row's
+   *   standing can change because a reader rearranged a desk.
+   *
+   * A host with a LIST value should spend `cellOrderToLayoutValue` /
+   * `cellOrderFromLayoutValue` rather than joining its own — one grammar per prop
+   * is the whole reason this door exists in this shape.
+   */
+  setLayoutNote(note: LayoutNote): Promise<DescribeOutcome>;
   /**
    * LY-1, in a SHEET's own scope: land the order a grid is in, under
    * `layout:sheet:<viewId>`.
@@ -1920,19 +1982,35 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       await dispatch({ verb: 'navigate', viewId, cause: cause(intent) }, { verb: 'navigate', viewId, intent });
     },
 
+    async setLayoutNote(note) {
+      // THE ONE THING THIS DOOR JUDGES, and it is the one the session cannot:
+      // the words ride the CAUSE, which the session takes as given, so a blank
+      // sentence would land an act whose only account is a value. Refused
+      // before anything is dispatched — nothing lands.
+      if (note.words.trim().length === 0) {
+        return { ok: false, sentence: 'a layout note needs the words that say what it did — a rail is the only account a reader has of an act, and this door will not write them for you' };
+      }
+      // Everything else is the SESSION's to answer (a bare scope, a blank prop,
+      // a value it will not carry) and its own sentence comes back on the
+      // refused arm — never re-worded here, and never a second judge.
+      return dispatch(
+        { verb: 'navigate', viewId: layoutViewId(note.scope), field: note.prop, value: note.value, cause: cause(note.words) },
+        { verb: 'navigate', viewId: layoutViewId(note.scope), field: note.prop, value: note.value, intent: note.words },
+      );
+    },
+
     async setLayout(change) {
       // One commit per provided prop (usually exactly one gesture = one prop),
-      // each with the plain words the commit log will show.
-      const notes: { field: string; value: string; intent: string }[] = [];
-      if (change.preset !== undefined) notes.push({ field: 'preset', value: change.preset, intent: `layout = ${change.preset}` });
-      if (change.focusId !== undefined) notes.push({ field: 'focus', value: change.focusId, intent: `layout = focus on ${change.focusId}` });
-      if (change.order !== undefined) notes.push({ field: 'order', value: change.order.join(','), intent: `layout order: ${change.order.join(', ')}` });
-      for (const n of notes) {
-        await dispatch(
-          { verb: 'navigate', viewId: LAYOUT_DASHBOARD_VIEW_ID, field: n.field, value: n.value, cause: cause(n.intent) },
-          { verb: 'navigate', viewId: LAYOUT_DASHBOARD_VIEW_ID, field: n.field, value: n.value, intent: n.intent },
-        );
-      }
+      // each with the plain words the commit log will show — and each through
+      // the generic door above, so there is ONE place a layout note is landed.
+      const notes: { prop: string; value: string; words: string }[] = [];
+      if (change.preset !== undefined) notes.push({ prop: 'preset', value: change.preset, words: `layout = ${change.preset}` });
+      if (change.focusId !== undefined) notes.push({ prop: 'focus', value: change.focusId, words: `layout = focus on ${change.focusId}` });
+      // the cell order rides the cockpit's ONE codec (`../layout/arrangement.ts`):
+      // byte-identical to the joined string for every id that holds no separator,
+      // JSON for the ones that do — which used to come back as two cells
+      if (change.order !== undefined) notes.push({ prop: COCKPIT_ORDER_PROP, value: cellOrderToLayoutValue(change.order), words: `layout order: ${change.order.join(', ')}` });
+      for (const n of notes) await view.setLayoutNote({ scope: COCKPIT_LAYOUT_SCOPE, ...n });
     },
 
     async setSheetArrangement(viewId, prop, next) {

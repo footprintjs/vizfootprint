@@ -60,6 +60,37 @@ export const CHART_VIEW_PREFIX = 'chart:';
  */
 export const LAYOUT_VIEW_PREFIX = 'layout:';
 /**
+ * A LAYOUT NOTE'S IDENTITY, as a TYPE — `layout:${scope}`.
+ *
+ * Inertness is real at run time (`keyOf` returns null for this namespace, so a
+ * layout note never enters `activeFilters` and never reaches `foldDiff`), but
+ * until now it was a property of the fold that a host had to KNOW about. This
+ * makes it CHECKABLE: a shape a filter door cannot accept.
+ */
+export type LayoutViewId = `${typeof LAYOUT_VIEW_PREFIX}${string}`;
+/**
+ * AN IDENTITY A FILTER DOOR MAY TAKE — every view id except a layout note's,
+ * which resolves to `never` and is a compile error at the call.
+ *
+ * WHY IT LIVES HERE and not beside the doors that spend it: the runtime law is
+ * `keyOf`'s, six lines down, and one owner is the only way the two cannot
+ * drift — a namespace added to the inert list there is a namespace this type
+ * must learn about, and a reader who changes one sees the other.
+ *
+ * WHAT IT DOES NOT CLAIM: a viewId that is only known to be `string` still
+ * passes (`string` does not extend `layout:${string}`), because refusing every
+ * runtime-built id would be a false refusal and would make honest hosts cast.
+ * The type catches what it can see — a literal, a template literal type, a
+ * union holding one — and the RUN-TIME refusal (the `layout:` namespace is
+ * reserved, so no view can be declared under it and a probe there is a typed
+ * `needs-view` gap) is what catches the rest. Both are asserted together in
+ * `fold.test.ts`.
+ *
+ * Spend it as `Id & DataViewId<Id>` on a generic parameter, so `Id` still
+ * infers from the argument.
+ */
+export type DataViewId<Id extends string> = Id extends LayoutViewId ? never : Id;
+/**
  * The prose plane: a `describe` commit lands under `prose:${viewId}` with
  * `field` = the slot and `value` = the record (or null = back to the def's
  * own words). A keyed namespace like `link:` — last-wins per (view, slot) —

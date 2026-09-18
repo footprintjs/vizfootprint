@@ -71,6 +71,44 @@ segmented control in the top strip (keyboard accessible — arrow keys walk it):
 - **Focus** — one maximized chart over a rail of small live thumbnails.
   Clicking a thumbnail swaps it into the hero spot.
 
+### A cell has a HOME, and a focus change moves exactly two of them
+
+**Every cell has a home slot and never leaves it. The focus is a LIFT, not a
+reshuffle: the focused cell is drawn large in the hero, and its home stays
+where it is and says so.**
+
+The obvious alternative — a **transposition**, putting the focused cell in slot
+0 by swapping it with whatever is there — is provably wrong. From `[P0, P1,
+P2]`, focusing `P1` draws `[P1, P0, P2]` and focusing `P2` draws `[P2, P1,
+P0]`: that is a **three-cycle**, and `P0`, which nobody touched, has moved. The
+reason is structural — *which cell was focused* is history, and a pure function
+of (recorded order, focused cell) cannot know it; the escapes are component
+state (a visible act that records nothing) or a commit per focus change (which
+makes the focus an act and gives one question two owners).
+
+The cockpit had a third model until now, and it was worse than either. The rail
+was re-derived by SKIPPING the focused cell, so every cell after it shifted one
+column. **Measured on the packaged cockpit with five cells: moving the focus
+from the first to the last moved all five, and a focus change moved `|i − j| +
+1` cells — a mean of 3.0 of 5 over the ten pairs. It is exactly 2 now, for every
+pair** (`ui/src/layout/arrangement.ts` · `cockpitSlots`; pinned by
+`VizCockpit.layout.test.tsx` on the rendered grid and by `arrangement.test.ts`
+as algebra, including the three-cycle the rejected model produces).
+
+**The price, stated:** the rail needs one home per cell *including the lifted
+one*, so it has one more box than there are pictures to draw and the homes
+beside it are narrower — five cells give five rail columns where there were
+four, each 20% of the band instead of 25%. That is the cost of a reader's
+spatial memory of their own dashboard. The trade was made first on a worked
+consumer desk (`vizfootprint-demo` · `web/src/workbench/README.md`), which is
+where this law and its proof come from.
+
+The cell order itself rides **one codec** (`cellOrderToLayoutValue` /
+`cellOrderFromLayoutValue`): the joined string every older trace holds whenever it
+survives its own round trip, JSON when it would not — so a chart id containing a
+comma round-trips instead of coming back as two cells, and every value without
+one lands the bytes it always landed.
+
 You can also **drag any chart by its grip** (the ⠿ that appears on hover) onto
 another chart to reorder the cells. On phones (≤700px) the swipe carousel IS
 the layout, so the switcher and grips hide.

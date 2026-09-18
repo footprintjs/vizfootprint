@@ -72,6 +72,42 @@ describe('LY-1 — the layout navigate lands a recorded, non-filtering commit', 
     expect(diff.ok && diff.changed.length === 0 && diff.onlyA.length === 0 && diff.onlyB.length === 0).toBe(true);
   });
 
+  /**
+   * THE LAW THAT MAKES THE WHOLE TIER SAFE, said out loud: *after any layout
+   * act, no row's standing changes anywhere.* If rearranging cells could move a
+   * number, that is catastrophic — so it is a test over the ROWS THEMSELVES and
+   * not only over their count.
+   */
+  it('AFTER A LAYOUT ACT, EVERY ROW’S STANDING IS UNCHANGED — the rows, not the tally', async () => {
+    const s = freshSession();
+    const before = await s.selectedRows();
+    for (const [field, value] of [['preset', 'focus'], ['focus', 'scatter'], ['order', 'bar,scatter']] as const) {
+      const res = await s.dispatch({ verb: 'navigate', viewId: LAYOUT, field, value, cause: cause('user') });
+      expect(res.ok).toBe(true);
+      const now = await s.selectedRows();
+      expect(now, `a layout ${field} act moved a row`).toEqual(before);
+      // and nothing is in force anywhere: no clause, no key, no diff
+      expect((await s.overview()).activeSelections).toMatchObject([]);
+      expect(keyOf(res.ok ? res.commit! : s.log.records[0]!)).toBeNull();
+    }
+  });
+
+  /**
+   * A FILTER DOOR REFUSES A LAYOUT IDENTITY AT RUN TIME. The compile-time twin
+   * is `DataViewId` (`../branches/fold.ts`), asserted where a filter door is
+   * actually called (`ui/src/adapter/layoutView.test.ts`); this is the half a
+   * type cannot cover — a viewId built at run time.
+   */
+  it('a SELECT aimed at a layout identity is refused — the namespace is reserved, so no view can be declared there', async () => {
+    const s = freshSession();
+    const before = s.log.records.length;
+    const res = await s.dispatch({ verb: 'select', viewId: LAYOUT, field: 'region', value: 'north', cause: cause('user') });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.rejection.code).toBe('needs-view');
+    expect(s.log.records.length).toBe(before);
+  });
+
   it('a second actor lands on the SAME layout source without a registry conflict (constant meta)', async () => {
     const s = freshSession();
     const first = await s.dispatch({ verb: 'navigate', viewId: LAYOUT, field: 'preset', value: 'grid', cause: cause('user') });

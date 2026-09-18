@@ -30,8 +30,8 @@
  * story page that came back with three columns unstuck from the left edge
  * would be showing a different sheet than the one a person left.
  *
- * WHY THE VALUE IS JSON, and not a joined string like the cockpit's `order`:
- * this folder already ruled on it one file over. `httpSheetData` sends
+ * WHY THE VALUE IS JSON, and not a joined string like the cockpit's `order`
+ * USED TO BE: this folder already ruled on it one file over. `httpSheetData` sends
  * `columns` and `sort` as JSON because "a column may be called `a,b`; a joined
  * list could not carry it" — the same hazard, already decided, so this follows
  * that ruling rather than inventing a second grammar. JSON also round-trips
@@ -41,6 +41,17 @@
  * The plain words a person reads on the rail ride the cause's INTENT, exactly
  * as `setLayout`'s do ("layout order: a, b") — the value is for the machine,
  * the intent is for the reader.
+ *
+ * AND THE COCKPIT NOW FOLLOWS THE RULING THIS FILE MADE. It stayed a joined
+ * string, so a consumer riding `layout:dashboard.order` had to REFUSE a cell
+ * name carrying the separator at its own door rather than lay a second codec
+ * over the same prop. `../layout/arrangement.ts` · `cellOrderToLayoutValue`
+ * answers it with the same grammar plus one constraint this file never had —
+ * that prop has already landed joined strings on real traces, and a recorded
+ * act is never rewritten — so it writes the joined form whenever it survives
+ * its own round trip and JSON when it would not. One codec, two arms, every
+ * older trace still readable. THIS file needs no such arm: its four props were
+ * born JSON.
  *
  * FIRST CUSTOMERS: `<Sheet>` (which no longer holds an arrangement of its
  * own), `SessionView.setSheetArrangement` (the act), and any host reading the

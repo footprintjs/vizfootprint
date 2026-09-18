@@ -43,6 +43,8 @@ export {
   LINK_VIEW_PREFIX, ENCODING_SET_FIELD, isEncodingSet, encodingSetOf, keysOf,
   BOOKMARK_VIEW_PREFIX,
 } from './fold.js';
+// the inert namespace as a TYPE: a layout note is a shape a filter door cannot take
+export type { LayoutViewId, DataViewId } from './fold.js';
 export { planBringOver, planUndo } from './plans.js';
 // WHAT SOMEBODY ACTUALLY DID, read off the trace — the feature card a gallery
 // filters on, beside the def's. It never claims more than the log holds; see

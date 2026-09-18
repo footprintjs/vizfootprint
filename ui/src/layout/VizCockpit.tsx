@@ -51,6 +51,7 @@ import type { LayoutChange, LayoutPreset, LayoutView } from '../adapter/types.js
 import { ChartFrame, type ChartSize } from '../primitives/ChartFrame.js';
 import { VizModal } from './VizModal.js';
 import { useLayoutMorph } from './layoutMorph.js';
+import { cockpitSlots, homeSaid } from './arrangement.js';
 
 /** One chart cell — rendered at its measured size so it fills its share of the middle band. */
 export interface CockpitChart {
@@ -198,9 +199,12 @@ function bandStyle(preset: LayoutPreset, charts: readonly CockpitChart[]): CSSPr
     };
   }
   if (preset === 'focus' && n > 1) {
-    // one maximized row + a compact thumbnail rail (bounded so it can never squeeze the hero)
+    // one maximized row + a rail of HOMES (bounded so it can never squeeze the
+    // hero). `n` columns and not `n - 1`: every cell has a home, INCLUDING the
+    // lifted one, whose home shows a marker instead of a picture. That is the
+    // stated price of the slot law — see `./arrangement.ts`.
     return {
-      gridTemplateColumns: `repeat(${n - 1}, minmax(0, 1fr))`,
+      gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`,
       gridTemplateRows: 'minmax(0, 1fr) minmax(84px, 16%)',
     };
   }
@@ -258,6 +262,8 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
         ? layout.focusId
         : charts[0]!.id
       : null;
+  // WHERE EVERY CELL LIVES — homes first, the lift second (`./arrangement.ts`)
+  const slots = cockpitSlots(charts.map((c) => c.id), focusedId);
   const canArrange = layout !== undefined && props.onLayoutChange !== undefined && !readOnly;
 
   const stripRef = useRef<HTMLDivElement | null>(null);
@@ -518,10 +524,18 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
     setPage(index);
   };
 
-  /** Explicit grid placement for the focus preset (hero row 1 spans all; thumbs line row 2). */
-  const cellStyle = (id: string, thumbIndex: number): CSSProperties | undefined => {
+  /**
+   * Explicit grid placement for the focus preset: the hero spans row 1, and
+   * every other cell sits in ITS OWN HOME on row 2.
+   *
+   * The home is `slots.homes[id]` — a pure function of the recorded ORDER, with
+   * the focus nowhere in it. That is the whole of the law (`./arrangement.ts`):
+   * the rail used to be re-derived by skipping the focused cell, so every cell
+   * after it shifted a column and a focus change moved up to all of them.
+   */
+  const cellStyle = (id: string): CSSProperties | undefined => {
     if (preset !== 'focus' || charts.length <= 1) return undefined;
-    return id === focusedId ? { gridRow: '1', gridColumn: '1 / -1' } : { gridRow: '2', gridColumn: `${thumbIndex + 1}` };
+    return id === slots.focus ? { gridRow: '1', gridColumn: '1 / -1' } : { gridRow: '2', gridColumn: `${slots.homes[id]!}` };
   };
 
   /**
@@ -555,7 +569,6 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
     e.stopPropagation();
   };
 
-  let thumbCursor = 0;
   return (
     <div className={`vzf vzf-cockpit-root${showing ? ' vzf-slideshow' : ''}${props.className ? ' ' + props.className : ''}`} style={style} data-theme={themeAttr(theme)} data-slideshow={showing ? 'true' : undefined}>
       <div className={`vzf-cockpit${readOnly ? ' vzf-readonly' : ''}`} data-vzf="cockpit" data-readonly={readOnly ? 'true' : 'false'}>
@@ -647,7 +660,7 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
           {charts.map((c) => {
             const isFocused = focusedId === c.id;
             const isThumb = focusedId !== null && !isFocused;
-            const placement = cellStyle(c.id, isThumb ? thumbCursor++ : 0);
+            const placement = cellStyle(c.id);
             return (
               <section
                 key={c.id}
@@ -705,6 +718,20 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
               </section>
             );
           })}
+          {slots.markerAt !== null && preset === 'focus' && charts.length > 1 && (
+            // THE LIFTED CELL'S HOME — a marker, not an empty box and not a ghost
+            // of the picture: the statement that this slot is where that cell
+            // LIVES, which is the fact that makes the arrangement read as
+            // furniture rather than as a shuffle.
+            <div
+              className="vzf-cell-home"
+              data-vzf="cell-home"
+              data-home={slots.focus}
+              style={{ gridRow: '2', gridColumn: `${slots.markerAt}` }}
+            >
+              {homeSaid(slots.focus!)}
+            </div>
+          )}
         </div>
 
         {charts.length > 1 && (

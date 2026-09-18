@@ -15,6 +15,8 @@
 import type { Actor } from 'vizfootprint/cause';
 // the frame's DECLARATION shape — the library's own, never a twin (the frame door folds it)
 import type { ChannelResolution } from 'vizfootprint/def';
+// the cockpit's arrangement codec — ONE owner of what `layout:dashboard.order` carries
+import { cellOrderFromLayoutValue } from '../layout/arrangement.js';
 
 export type { Actor };
 
@@ -107,6 +109,26 @@ export interface LayerView {
   readonly label?: string;
 }
 
+/**
+ * WHY A VIEW IS OUTSIDE THE SELECTION GRAMMAR (src/session `ViewSilence`, as
+ * the wire serves it).
+ *
+ * WHAT CROSSES, and the argument: the TYPED reason always, the declaration's
+ * OWN words only when it wrote any. The derivation is the library's law — what
+ * *outside the grammar* means is not a host's to decide, and a host deriving it
+ * from `canProbe` plus an empty `selectionKinds` was re-deriving one fact from
+ * its own two symptoms. The SENTENCE is the host's, or the def author's: the
+ * library carries words, it does not author them for a reader's screen (the
+ * `label` / `chartKind` precedent, and the ActorMeta question answered the same
+ * way).
+ */
+export interface ViewSilenceView {
+  /** What put it outside the grammar. One case today: the def (or the mounted adapter) declared `canProbe: false`. */
+  readonly reason: 'declared';
+  /** The declaration's own words (`CapabilityDecl.silentBecause`), echoed verbatim — absent when it wrote none. */
+  readonly words?: string;
+}
+
 /** A view (chart) the session exposes, with its clause-kind capabilities. */
 export interface ViewView {
   readonly viewId: string;
@@ -125,6 +147,18 @@ export interface ViewView {
   /** Which point/interval/cell/match SELECTION kinds this view can emit (R3 capability). */
   readonly selectionKinds: readonly ('point' | 'interval' | 'cell' | 'match' | 'neighbourhood')[];
   readonly canProbe: boolean;
+  /**
+   * WHY NO CLAUSE CAN BE ABOUT THIS VIEW — present exactly when it declares it
+   * cannot probe, absent otherwise (and absent on an older wire).
+   *
+   * THE DISTINCTION IT HANDS A RENDERER WITHOUT INFERENCE: *no clause can reach
+   * me* (this key) against *a clause reached me and I could not judge it* (a
+   * crossfilter's own reason). A consumer with a view deliberately outside the
+   * grammar had to rebuild that sentence from two booleans, and the two read
+   * the same way on a screen while meaning opposite things — one is a
+   * declaration, the other a fault.
+   */
+  readonly silent?: ViewSilenceView;
   readonly mounted: boolean;
   /** The current channel→field visual-encoding map at the cursor (the `reencode` fold; UI-0). */
   readonly encoding: Readonly<Record<string, string>>;
@@ -651,6 +685,48 @@ export interface LayoutChange {
   readonly focusId?: string;
 }
 
+/**
+ * ONE LAYOUT NOTE, for a scope this library never heard of — the generic door
+ * (`SessionView.setLayoutNote`).
+ *
+ * WHY IT EXISTS: `setLayout` takes three fixed props on the cockpit's scope and
+ * `setSheetArrangement` takes four on a sheet's, so a THIRD-PARTY scope — a
+ * desk with panes of its own — had no door at all. The worked consumer rode the
+ * cockpit's `order` because a cell permutation is honestly what it had
+ * (`vizfootprint-demo` · `web/src/workbench/README.md`), and a desk with a
+ * SECOND arrangement prop would have had nowhere to go.
+ *
+ * Three fixed props is not a vocabulary; a (scope, prop, value) triple is.
+ */
+export interface LayoutNote {
+  /** The scope segment of the identity: the note lands under `layout:${scope}` (LY-1). */
+  readonly scope: string;
+  /** Which arrangement prop this act is about — last-wins per (scope, prop). */
+  readonly prop: string;
+  /**
+   * The value, as the commit will carry it: a plain string, which is what a
+   * layout note IS at the session tier.
+   *
+   * WHY NOT a typed union with a codec per shape: that is
+   * `../sheet/arrangement.ts`'s job for the props IT owns, and a host's scope
+   * has props this library cannot know the shape of. A host with a LIST is not
+   * left to invent a grammar either — `../layout/arrangement.ts` ·
+   * `cellOrderToLayoutValue` / `cellOrderFromLayoutValue` is exported for exactly that,
+   * and it is the same codec the cockpit's own order rides.
+   */
+  readonly value: string;
+  /**
+   * THE HOST'S OWN WORDS for what this act did — what the commit rail shows.
+   *
+   * NOT optional, and that is the finding this door exists to answer:
+   * `setLayout` composes its sentence internally, so a rail reads a machine
+   * list (`layout order: a, b, c`) where the sheet's acts read *"moved region
+   * first"*. A host must be able to say what its own act did, in its own
+   * vocabulary, or the only account a reader has of the act is a value.
+   */
+  readonly words: string;
+}
+
 /** The render-safe default arrangement (no layout note landed yet). */
 export function defaultLayout(preset: LayoutPreset = 'flow'): LayoutView {
   return { preset, order: [], focusId: null };
@@ -664,8 +740,11 @@ export function defaultLayout(preset: LayoutPreset = 'flow'): LayoutView {
  */
 export function parseLayout(raw: Readonly<Record<string, string>> | undefined, fallback: LayoutPreset = 'flow'): LayoutView {
   const preset: LayoutPreset = raw?.['preset'] === 'grid' || raw?.['preset'] === 'focus' || raw?.['preset'] === 'flow' ? raw['preset'] : fallback;
-  const orderRaw = raw?.['order'];
-  const order = orderRaw !== undefined ? orderRaw.split(',').map((s) => s.trim()).filter((s) => s.length > 0) : [];
+  // ONE codec for this prop, and it is `../layout/arrangement.ts`'s — the joined
+  // form every older trace holds, and the JSON form a cell id carrying the
+  // separator now round-trips through. A second reader here is exactly the drift
+  // that made a consumer refuse such a name at its own door.
+  const order = cellOrderFromLayoutValue(raw?.['order']);
   const focusRaw = raw?.['focus'];
   const focusId = focusRaw !== undefined && focusRaw.length > 0 ? focusRaw : null;
   return { preset, order, focusId };

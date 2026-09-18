@@ -166,6 +166,7 @@ import type {
   ApplySavedResult,
   BookmarkResult,
   TableInfo,
+  ViewSilence,
 } from './types.js';
 
 /**
@@ -3185,7 +3186,7 @@ class InteractionSessionImpl implements InteractionSession {
   // ── capability resolution (R14 / R3) ─────────────────────────────────────────
   private probeCapability(
     viewId: string,
-  ): { canProbe: boolean; encodings?: readonly EmissionKind[] } | undefined {
+  ): { canProbe: boolean; encodings?: readonly EmissionKind[]; silentBecause?: string } | undefined {
     const adapter = this.adapters.get(viewId);
     if (adapter) return adapter.capabilities;
     const view = this.placeOf(viewId)?.view; // a layer answers with its view's capability — the frame's voice is the layers' voice
@@ -3193,9 +3194,25 @@ class InteractionSessionImpl implements InteractionSession {
       return {
         canProbe: view.capability.canProbe,
         ...(view.capability.encodings ? { encodings: view.capability.encodings } : {}),
+        // the def's OWN words for being outside the grammar, carried un-reworded
+        ...(view.capability.silentBecause !== undefined ? { silentBecause: view.capability.silentBecause } : {}),
       };
     }
     return undefined;
+  }
+
+  /**
+   * WHY NO CLAUSE CAN BE ABOUT THIS VIEW, or nothing when one can.
+   *
+   * ONE owner of the derivation, so a host never makes it: a declared
+   * `canProbe: false` IS an empty voice (`voiceOf` returns no kinds for it), so
+   * the two facts a host used to read — no probe, no selection kinds — are one
+   * fact, and this is where it is named. The words are the declaration's,
+   * echoed only when it wrote any.
+   */
+  private silenceOf(cap: { canProbe: boolean; silentBecause?: string } | undefined): ViewSilence | undefined {
+    if (cap === undefined || cap.canProbe) return undefined;
+    return { reason: 'declared', ...(cap.silentBecause !== undefined ? { words: cap.silentBecause } : {}) };
   }
 
   /**
@@ -5662,6 +5679,8 @@ class InteractionSessionImpl implements InteractionSession {
         // the same voice the act door and the offers use — never a second answer to "what can this view emit"
         selectionKinds: voiceOf(cap).filter((k): k is EmissionKind => k !== ENCODING_KIND),
         canProbe: cap?.canProbe ?? true,
+        // OMIT-NEVER-DENY: the library knows a view is outside the grammar, so it SAYS so
+        ...(this.silenceOf(cap) !== undefined ? { silent: this.silenceOf(cap)! } : {}),
         mounted: this.adapters.has(view.viewId),
         // The `reencode` fold (SPEC Q6 8th verb), branch-scoped at the cursor —
         // empty for a view with no declared encoding surface.

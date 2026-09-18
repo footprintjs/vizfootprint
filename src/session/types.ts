@@ -793,6 +793,40 @@ export interface AdapterCapabilities {
   readonly encodings?: readonly EmissionKind[];
   /** Which data fields it encodes (informational). */
   readonly fields?: readonly string[];
+  /**
+   * WHY this view is outside the selection grammar, in the adapter's own
+   * words — the mount-time twin of {@link CapabilityDecl.silentBecause}, and
+   * declarable only beside `canProbe: false` for the same reason.
+   */
+  readonly silentBecause?: string;
+}
+
+/**
+ * WHY NO CLAUSE CAN BE ABOUT THIS VIEW — served whenever a view declares it
+ * cannot probe, and absent for every view that has any voice at all.
+ *
+ * THE DISTINCTION IT MAKES AVAILABLE WITHOUT INFERENCE: *no clause can reach
+ * me* (this key is present) against *a clause reached me and I could not judge
+ * it* (this key is absent and the crossfilter has a reason of its own). A host
+ * reading only `canProbe` / `selectionKinds` had to rebuild that sentence from
+ * two booleans and word it itself, and the two sentences read the same way on a
+ * screen while meaning opposite things — one is a declaration, the other a
+ * fault.
+ */
+export interface ViewSilence {
+  /**
+   * WHAT PUT IT OUTSIDE THE GRAMMAR. One case today — the DEF (or the mounted
+   * adapter) declared `canProbe: false`, so this view emits no selection and
+   * can be probed by none. It is spelled as a discriminant rather than a
+   * boolean so a second cause can arrive without a second key.
+   */
+  readonly reason: 'declared';
+  /**
+   * The declaration's OWN words, echoed verbatim — absent when it wrote none.
+   * The library carries the author's sentence and never authors one for a
+   * reader's screen (the `label` precedent).
+   */
+  readonly words?: string;
 }
 
 /**
@@ -842,6 +876,12 @@ export interface ViewInfo {
    */
   readonly selectionKinds: readonly EmissionKind[];
   readonly canProbe: boolean;
+  /**
+   * WHY no clause can be about this view — present exactly when it declares it
+   * cannot probe, absent otherwise. See {@link ViewSilence}: the library knew
+   * this and did not say it, so every host reworded it off `canProbe`.
+   */
+  readonly silent?: ViewSilence;
   readonly mounted: boolean;
   /**
    * The current CHANNEL→field visual-encoding map at the cursor (the
