@@ -11,7 +11,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent, cleanup } from '@testing-library/react';
 import { VizBoxPlot, type BoxPlotDatum } from './VizBoxPlot.js';
-import { selectionForView } from '../contract/selection.js';
+import { selectionForView, clausePredicate } from '../contract/selection.js';
+import { ambiguousSlotNote } from '../primitives/slotValues.js';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, SelectionView } from '../adapter/types.js';
 
@@ -237,5 +238,56 @@ describe('the accessible name (the prose plane\'s altShort)', () => {
   it('takes ariaLabel over its own construction line', () => {
     const { container } = renderBoxPlot({ ariaLabel: 'Cases by report state' });
     expect(container.querySelector('[role="group"]')!.getAttribute('aria-label')).toBe('Cases by report state'); // a group: its marks are buttons, and must stay reachable
+  });
+});
+
+describe('A SLOT IS A NAME FOR A VALUE — a band of boxes over a column that is not text', () => {
+  /**
+   * The box plot stands on the same band a bar and a band line do, and it lands its clause through
+   * the same one owner (`../primitives/slotValues.ts` · `slotPress`), so a box, a bar and a line over
+   * one slot cannot mean three things. The defect is the one measured on the line: a clause spelled
+   * from the labels lands on the record and keeps no row.
+   */
+  const NUMBERS: BoxPlotDatum[] = [
+    { category: '1', cell: 1, q1: 20, median: 30, q3: 45, whiskerLo: 10, whiskerHi: 60, outliers: [], count: 12 },
+    { category: '2', cell: 2, q1: 40, median: 55, q3: 70, whiskerLo: 25, whiskerHi: 90, outliers: [], count: 8 },
+  ];
+
+  it('a click lands the slot\'s own value, and the ROWS narrow to it', () => {
+    const onEmit = vi.fn<(e: ChartEmission) => void>();
+    const { container } = render(<VizBoxPlot viewId="boxplot" data={NUMBERS} xField="resnum" yField="price" onEmit={onEmit} />);
+    fireEvent.click(container.querySelector('[data-box="2"]')!);
+    expect(onEmit).toHaveBeenCalledWith({ rawValue: 2, encoding: { kind: 'point', field: 'resnum' } });
+    expect([{ resnum: 1 }, { resnum: 2 }].filter(clausePredicate('point', 'resnum', 2))).toEqual([{ resnum: 2 }]);
+    expect([{ resnum: 1 }, { resnum: 2 }].filter(clausePredicate('point', 'resnum', '2'))).toEqual([]);
+  });
+
+  it('click-again-clears still reads the live selection by NAME, so the outline and the release are unchanged', () => {
+    const onEmit = vi.fn<(e: ChartEmission) => void>();
+    const selection = selectionForView([{ viewId: 'boxplot', field: 'resnum', kind: 'point', value: 2 }], 'boxplot');
+    const { container } = render(<VizBoxPlot viewId="boxplot" data={NUMBERS} xField="resnum" yField="price" selection={selection} onEmit={onEmit} />);
+    fireEvent.click(container.querySelector('[data-box="2"]')!);
+    expect(onEmit).toHaveBeenCalledWith({ rawValue: null, encoding: { kind: 'point', field: 'resnum' } });
+  });
+
+  it('a slot naming TWO values is refused by name — a host that broke the one-summary-per-category contract gets a sentence, never a clause keeping half the box', () => {
+    const onEmit = vi.fn<(e: ChartEmission) => void>();
+    const mixed: BoxPlotDatum[] = [NUMBERS[0]!, { ...NUMBERS[0]!, cell: '1' }];
+    const { container } = render(<VizBoxPlot viewId="boxplot" data={mixed} xField="resnum" yField="price" onEmit={onEmit} />);
+    fireEvent.click(container.querySelector('[data-box="1"]')!);
+    expect(onEmit).not.toHaveBeenCalled();
+    expect(document.querySelector('.vzf-live-region')!.textContent!.trim()).toBe(ambiguousSlotNote('1', [1, '1']));
+  });
+
+  it('BYTE IDENTITY: a band of boxes over a STRING column is untouched, cells or no cells', () => {
+    const withCell = vi.fn<(e: ChartEmission) => void>();
+    const a = render(<VizBoxPlot viewId="boxplot" data={BOXES.map((d) => ({ ...d, cell: d.category }))} xField="category" yField="price" onEmit={withCell} />);
+    fireEvent.click(a.container.querySelector('[data-box="Casual"]')!);
+    cleanup();
+    const withoutCell = vi.fn<(e: ChartEmission) => void>();
+    const b = render(<VizBoxPlot viewId="boxplot" data={BOXES} xField="category" yField="price" onEmit={withoutCell} />);
+    fireEvent.click(b.container.querySelector('[data-box="Casual"]')!);
+    expect(JSON.stringify(withCell.mock.calls[0]![0])).toBe(JSON.stringify(withoutCell.mock.calls[0]![0]));
+    expect(withCell.mock.calls[0]![0]).toEqual({ rawValue: 'Casual', encoding: { kind: 'point', field: 'category' } });
   });
 });

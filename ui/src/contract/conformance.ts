@@ -72,9 +72,7 @@
  * asserted.
  */
 
-import { frameScaleOf, intervalAddresses, unaddressableIntervalRefusal, layerAddress, type ResolvedDomain } from 'vizfootprint/def';
-import type { ColumnType } from 'vizfootprint/data';
-import type { IntervalEncoding } from 'vizfootprint/selection';
+import { layerAddress } from 'vizfootprint/def';
 import { bindRenderer, type BoundRenderer } from './bind.js';
 import { selectionForView, selfSelectedNeighbourhood } from './selection.js';
 import {
@@ -217,36 +215,6 @@ function flag(cond: boolean, yes: string, no: string): string {
   return cond ? yes : no;
 }
 
-/** The interval emissions among a batch — narrowed honestly (the `kind` discriminant sits one property down, so nothing narrows without a guard). */
-function isInterval(e: ChartEmission): e is Extract<ChartEmission, { readonly encoding: IntervalEncoding }> {
-  return e.encoding.kind === 'interval';
-}
-
-/**
- * EVERY SCALE KIND THE SESSION'S OWN SCHEMA FOLDS A FIELD TO — one entry per
- * table that declares it, and an EMPTY list for a field nothing here types.
- * `frameScaleOf` is the ONE owner of the type→scale fold and it is asked,
- * never re-derived.
- *
- * A LIST rather than one answer, and no "which table" guess: nothing is
- * refused unless every spelling of the field refuses it, so a field nothing
- * types (an empty list) and a type nothing can be folded from (`'unknown'` ⇒
- * `undefined`, which {@link intervalAddresses} passes) both end in the same
- * place — refused on evidence, never on ignorance (law 11b's discipline, the
- * `unit` precedent). It is also the shape with no arm nothing can reach.
- *
- * WHY THE KIT CAN ASK THIS AT ALL, when a renderer cannot: the contract hands
- * a renderer rows and a folded frame and never a typed column list, so the
- * step's own evidence is kind labels. The kit is not the renderer — it holds
- * the live `SessionView` the loop runs on, and that state carries the schema.
- */
-function scalesOfField(st: SessionViewState, field: string): readonly (ResolvedDomain['scale'] | undefined)[] {
-  return Object.values(st.columns)
-    .flat()
-    .filter((c) => c.field === field)
-    .map((c) => frameScaleOf(c.type as ColumnType));
-}
-
 export async function runConformance(plan: ConformancePlan): Promise<ConformanceReport> {
   const { renderer, viewId, el, view } = plan;
   // THE FRAME IS ITS LAYERS: the generic arm's own address, read off the MAP —
@@ -323,6 +291,8 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
   let bound: BoundRenderer | undefined;
   let htmlBeforeGesture = '';
   let commitsBefore = 0;
+  /** How many SESSION gaps stood before the base gesture — so `commit-lands` can quote the refusal it caused, and only that one. */
+  let gapsBefore = 0;
 
   const steps: { name: ConformanceStepName; run(): Promise<string> | string }[] = [
     {
@@ -401,6 +371,7 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
       async run() {
         htmlBeforeGesture = el.innerHTML;
         commitsBefore = view.getState().commits.length;
+        gapsBefore = view.getState().gaps.length;
         await plan.gesture(el);
         await settle();
         const kinds = flag(
@@ -424,7 +395,16 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
       run() {
         const st = view.getState();
         if (st.commits.length <= commitsBefore) {
-          throw new StepFailed('the emission never landed a commit in the session log');
+          // WHY IT DID NOT LAND, in the session's own words. The door refuses a gesture for reasons a
+          // renderer author has to be able to read — a capability it did not declare, a column that is
+          // not there, and (this packet) a clause whose values cannot address the column they name.
+          // Quoting the newest gap turns "nothing happened" into the diagnosis, which is the whole
+          // reason the value-level fence could move out of `declared-delivered` and into the door.
+          // Folded over the LIST rather than branched on a maybe-gap: "the newest gap this gesture
+          // caused, if it caused one" is one expression that way, and an emission the session neither
+          // committed nor refused needs no arm of its own to say nothing about.
+          const why = st.gaps.slice(gapsBefore).slice(-1).map((gap) => ` — the session refused it (${gap.code}): ${gap.detail}`).join('');
+          throw new StepFailed(`the emission never landed a commit in the session log${why}`);
         }
         const landed = st.commits[st.commits.length - 1]!;
         const origin = `${landed.viewId} · ${landed.actor} · ${String(landed.intent)}`;
@@ -656,21 +636,27 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
         const expected = declared.filter((kind) => skipReason(kind, 'declared-delivered') === null);
         const delivered = new Set(emissions.map((e) => e.encoding.kind));
         const missing = expected.filter((kind) => !delivered.has(kind));
-        // AND THE CLAUSE HAS TO ADDRESS ITS OWN AXIS. A kind label cannot lie about a value, which is
-        // why this step used to pass a renderer that drew a brush, fired a gesture, and handed the
-        // session a clause no row of that column could ever answer (the measured defect: 162 marks
-        // before the drag, 162 after). The column's scale is the session's own (`scaleOfField`), and
-        // the verdict and the words have one owner in the library (`intervalAddresses` /
-        // `unaddressableIntervalRefusal`) so the def door's law and this one cannot drift.
-        const st = view.getState();
-        const unaddressable = emissions
-          .filter(isInterval)
-          .flatMap((e) => scalesOfField(st, e.encoding.field).map((scale) => ({ e, scale })))
-          .find(({ e, scale }) => !intervalAddresses(scale, e.rawValue));
-        if (unaddressable !== undefined) {
-          // `scale` is defined here by construction: `intervalAddresses` answers TRUE for an unfolded one
-          throw new StepFailed(unaddressableIntervalRefusal(`view "${genericAddress}"`, unaddressable.e.encoding.field, unaddressable.scale!, unaddressable.e.rawValue));
-        }
+        // THIS STEP IS ABOUT KIND LABELS, and it stays about kind labels — which is the honest limit of
+        // what a kind check can know. A kind label cannot lie about a VALUE: the defect that bought
+        // the previous packet declared an interval, drew a brush, fired a gesture and delivered an
+        // interval, every word true, while handing over `["107","241"]` for a numeric column; the
+        // second defect wore a match and did the same with `["63","64"]`. That packet put a
+        // value-level arm HERE, reading the session's schema through `intervalAddresses`, because the
+        // SESSION took such a clause silently and there was nowhere better.
+        //
+        // IT MOVED TO THE DOOR (this packet), and the arm is gone rather than doubled: the session's
+        // probe door now refuses an unaddressable point, match or interval by name
+        // (`unaddressableClause` / `unaddressableValueRefusal`, `vizfootprint/def`), and the door runs
+        // BEFORE this step — so such a gesture lands no commit and fails `commit-lands`, quoting the
+        // door's own sentence. Two fences for one law could only drift, and a check that can no longer
+        // fail is a check nobody is running. The door's is also the stronger one: it fires for every
+        // clause anybody dispatches, not only for one inside a conformance run.
+        //
+        // AND THE PLAN IS STILL THE HALF THAT MATTERS: the kit only sees the states a PLAN builds, so
+        // `lineRenderer` runs FOUR times in the first-party suite now — over dates, over numbers, over
+        // a band of strings and over a BAND DRAWN ON A NUMBER COLUMN, the state no plan had ever built
+        // and the one this defect lived in. That plan is what turns "the fence exists" into "the fence
+        // ran" — it fails at `commit-lands` the moment a band goes back to emitting its labels.
         const narrowed = narrowing === undefined ? '' : ` (of ${declared.join('+')}, this state delivers ${expected.join('+') || 'none'})`;
         return check(
           missing.length === 0,

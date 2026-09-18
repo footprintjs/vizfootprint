@@ -7,7 +7,7 @@
  * a refusal.
  */
 import { describe, it, expect } from 'vitest';
-import { frameDomains, frameLint, frameScaleOf, resolutionFor, zeroAnchorsChannel, zeroPolicyFor, mayTakeFirstScale, firstScaleTakenRefusal, FRAME_LAYER_LINT, ZERO_ANCHORED_KINDS, drawsZeroGuide, zeroOnAxis, zeroGuideKindRefusal, noZeroOnALogAxis, intervalAddresses, unaddressableIntervalRefusal, type FrameLayer } from './frame.js';
+import { frameDomains, frameLint, frameScaleOf, resolutionFor, zeroAnchorsChannel, zeroPolicyFor, mayTakeFirstScale, firstScaleTakenRefusal, FRAME_LAYER_LINT, ZERO_ANCHORED_KINDS, drawsZeroGuide, zeroOnAxis, zeroGuideKindRefusal, noZeroOnALogAxis, intervalAddresses, unaddressableIntervalRefusal, valueAddresses, unaddressableClause, unaddressableValueRefusal, type FrameLayer } from './frame.js';
 import type { ChannelResolution } from '../def/types.js';
 
 /** One layer, spelled the short way: `layer('a', 'line', { y: ['number', [1, 2]] })`. */
@@ -515,5 +515,110 @@ describe('intervalAddresses — an interval addresses the axis it was drawn on',
       'a line delivered the interval [1,9] on "shelf", whose scale is categorical — string bounds address that axis, so no row can answer the clause; an interval addresses the axis it was drawn on',
     );
     expect(unaddressableIntervalRefusal('a line', 'day', 'temporal', [true, false])).toContain('ISO-string (or epoch) bounds address that axis');
+  });
+});
+
+/**
+ * LAW 13 AT THE VALUE, THE POINT/MATCH HALF — `valueAddresses` /
+ * `unaddressableClause` / `unaddressableValueRefusal`. `intervalAddresses`
+ * above shipped for the interval a drag over a RUN lands; this is the same law
+ * one gesture over, for the set a drag over a BAND lands and the point a press
+ * on one lands.
+ *
+ * THE DEFECT IT WAS WRITTEN FOR, measured: a band drawn over a column of
+ * numbers emitted `matchEmission(field, ["1","2"])`, the session took it, the
+ * commit went on the record (4 → 5, the refusal ledger unchanged at 3) and the
+ * clause matched NOTHING (185 marks in force → 0). A landed clause that kept
+ * nothing is worse than a refusal and worse than the dead gesture before it,
+ * because the record now claims the question was answered.
+ */
+describe('valueAddresses — a selection addresses the column it was drawn on', () => {
+  it('a QUANTITATIVE column is addressed by numbers and by nothing else — THE DEFECT, in one assertion', () => {
+    expect(valueAddresses('quantitative', 63)).toBe(true);
+    expect(valueAddresses('quantitative', '63')).toBe(false);
+    expect(valueAddresses('quantitative', true)).toBe(false);
+  });
+
+  it('a TEMPORAL column keeps the DELIBERATE cross-type read — either spelling of a date the library carries', () => {
+    expect(valueAddresses('temporal', '2026-01-01')).toBe(true);
+    expect(valueAddresses('temporal', 1767225600000)).toBe(true);
+    expect(valueAddresses('temporal', true)).toBe(false);
+  });
+
+  it('a CATEGORICAL column is NOT JUDGED, and that is evidence rather than timidity: its own fold NAMES every cell it meets, so a column reported as text may honestly hold numbers', () => {
+    // `frameDomains`'s own note: "a number on a category channel becomes the category \"7\"" — so a
+    // string column can hold 7, and a clause of 7 on it keeps rows. The chart tier lands exactly that.
+    expect(frameDomains([layer('a', 'bar', { x: ['string', [1, 'b']] })])['x']).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', scale: 'categorical', domain: ['1', 'b'] });
+    expect(valueAddresses('categorical', 1)).toBe(true);
+    expect(valueAddresses('categorical', 'b')).toBe(true);
+    expect(valueAddresses('categorical', true)).toBe(true);
+  });
+
+  it('REFUSED ON EVIDENCE, NEVER ON IGNORANCE: an unfoldable scale, the clause tier\'s own two absences, and anything no `typeof` can place', () => {
+    expect(frameScaleOf('unknown')).toBeUndefined();
+    expect(valueAddresses(undefined, '63')).toBe(true);
+    // `null` is a real IS NULL and `undefined` CLEARS — the clause tier's vocabulary, never a quantity
+    expect(valueAddresses('quantitative', null)).toBe(true);
+    expect(valueAddresses('quantitative', undefined)).toBe(true);
+    // a Date addresses a date column (`isoOf` reads one), and nothing here can say what else an object is
+    expect(valueAddresses('temporal', new Date('2026-01-01'))).toBe(true);
+    expect(valueAddresses('quantitative', { n: 1 })).toBe(true);
+    expect(valueAddresses('quantitative', () => 1)).toBe(true);
+    expect(valueAddresses('quantitative', Symbol('x'))).toBe(true);
+  });
+});
+
+describe('unaddressableClause — ONE fan-out over the three single-column kinds, with the evidence riding back', () => {
+  it('a POINT hands back the value its column cannot answer', () => {
+    expect(unaddressableClause('point', '63', 'quantitative')).toEqual({ delivered: '63' });
+    expect(unaddressableClause('point', 63, 'quantitative')).toBeNull();
+  });
+
+  it('a MATCH is judged STRICTLY — every member must address the column, `intervalAddresses`\'s own `every` read across a list', () => {
+    expect(unaddressableClause('match', { values: ['1', '2'] }, 'quantitative')).toEqual({ delivered: ['1', '2'] });
+    expect(unaddressableClause('match', { values: [1, 2] }, 'quantitative')).toBeNull();
+    // a set that silently lost half its members is the same lie in a smaller costume, and a commit has
+    // nowhere to record the loss
+    expect(unaddressableClause('match', { values: [1, '2'] }, 'quantitative')).toEqual({ delivered: [1, '2'] });
+    // polarity rides the value and changes nothing about which quantity addresses the column
+    expect(unaddressableClause('match', { values: ['1'], exclude: true }, 'quantitative')).toEqual({ delivered: ['1'] });
+  });
+
+  it('a CLEARED clause, an EMPTY list and a body this version cannot read are other doors\' business', () => {
+    expect(unaddressableClause('match', null, 'quantitative')).toBeNull();
+    // keep matches nothing and exclude excludes nothing, both by the match evaluator's own rule
+    expect(unaddressableClause('match', { values: [] }, 'quantitative')).toBeNull();
+    expect(unaddressableClause('match', { nope: 1 }, 'quantitative')).toBeNull();
+    expect(unaddressableClause('match', 'nonsense', 'quantitative')).toBeNull();
+    expect(unaddressableClause('point', null, 'quantitative')).toBeNull();
+  });
+
+  it('the INTERVAL arm is `intervalAddresses` verbatim — the law grew a tier, the tier it had did not move', () => {
+    expect(unaddressableClause('interval', ['107', '241'], 'quantitative')).toEqual({ delivered: ['107', '241'] });
+    expect(unaddressableClause('interval', [107, 241], 'quantitative')).toBeNull();
+    expect(unaddressableClause('interval', ['2026-01-01', '2026-12-31'], 'temporal')).toBeNull();
+    // a band has no BETWEEN, which is a different ground entirely from the value tier's
+    expect(unaddressableClause('interval', [1, 9], 'categorical')).toEqual({ delivered: [1, 9] });
+  });
+});
+
+describe('unaddressableValueRefusal — one sentence for three kinds, quoting what was handed over', () => {
+  it('the door\'s form for a MATCH, with an address in front of it', () => {
+    expect(unaddressableValueRefusal('view "conservation"', 'resnum', 'match', 'quantitative', ['1', '2'])).toBe(
+      'view "conservation" delivered the match ["1","2"] on "resnum", whose scale is quantitative — numeric values address that column, so no row can answer the clause; a selection addresses the column it was drawn on',
+    );
+  });
+
+  it('the renderer\'s form for a POINT, with no address to give', () => {
+    expect(unaddressableValueRefusal('a bar', 'resnum', 'point', 'quantitative', '63')).toBe(
+      'a bar delivered the point "63" on "resnum", whose scale is quantitative — numeric values address that column, so no row can answer the clause; a selection addresses the column it was drawn on',
+    );
+    expect(unaddressableValueRefusal('a bar', 'day', 'point', 'temporal', true)).toContain('ISO-string (or epoch) values address that column');
+  });
+
+  it('and the INTERVAL arm is the SHIPPED sentence, byte for byte', () => {
+    expect(unaddressableValueRefusal('view "surface"', 'resnum', 'interval', 'quantitative', ['107', '241'])).toBe(
+      unaddressableIntervalRefusal('view "surface"', 'resnum', 'quantitative', ['107', '241']),
+    );
   });
 });

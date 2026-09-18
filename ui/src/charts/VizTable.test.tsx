@@ -10,7 +10,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
 import { VizTable, type TableRow } from './VizTable.js';
-import { selectionForView } from '../contract/selection.js';
+import { selectionForView, clausePredicate } from '../contract/selection.js';
 
 afterEach(cleanup);
 
@@ -254,5 +254,57 @@ describe('the accessible name (the prose plane\'s altShort)', () => {
   it('takes ariaLabel over its own construction line', () => {
     const { container } = render(<VizTable data={ROWS} columns={COLUMNS} ariaLabel="Cases by report state" />);
     expect(container.querySelector('table')!.getAttribute('aria-label')).toBe('Cases by report state');
+  });
+});
+
+describe('VizTable — A ROW KEY IS A NAME FOR A VALUE TOO', () => {
+  /**
+   * Not a band, the same lie: the id a table draws, keys and outlines its rows by is
+   * `String(row[idField])`, and the CLAUSE used to carry that spelling — so a table over a numeric id
+   * column landed `7` as `"7"` against cells holding `7`, a commit on the record that keeps no row.
+   * It holds its own row, so the value was always right there; it reads it through the same owner
+   * every band chart asks (`../primitives/slotValues.ts` · `slotValue`).
+   */
+  const NUMERIC_IDS: TableRow[] = [
+    { resnum: 1, category: 'Casual' },
+    { resnum: 2, category: 'Formal' },
+  ];
+
+  it('a row click lands the key CELL, not its spelling — and the rows narrow to it', () => {
+    const onEmit = vi.fn();
+    render(<VizTable viewId="table" data={NUMERIC_IDS} columns={['category']} idField="resnum" onEmit={onEmit} />);
+    fireEvent.click(screen.getByRole('row', { name: /row 2/ }));
+    expect(onEmit).toHaveBeenCalledWith({ rawValue: 2, encoding: { kind: 'point', field: 'resnum' } });
+    expect(NUMERIC_IDS.filter(clausePredicate('point', 'resnum', 2))).toEqual([{ resnum: 2, category: 'Formal' }]);
+    expect(NUMERIC_IDS.filter(clausePredicate('point', 'resnum', '2'))).toEqual([]);
+  });
+
+  it('the keyboard spelling of the same act lands the same clause, and a shift-click keeps the set TYPED', () => {
+    const onEmit = vi.fn();
+    render(<VizTable viewId="table" data={NUMERIC_IDS} columns={['category']} idField="resnum" onEmit={onEmit} />);
+    fireEvent.keyDown(screen.getByRole('row', { name: /row 1/ }), { key: 'Enter' });
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: 1, encoding: { kind: 'point', field: 'resnum' } });
+    fireEvent.click(screen.getByRole('row', { name: /row 2/ }), { shiftKey: true });
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: { values: [2] }, encoding: { kind: 'match', field: 'resnum' } });
+  });
+
+  it('the OUTLINE still reads by name, so a landed typed clause dims and outlines exactly as before', () => {
+    const point = selectionForView([{ viewId: 'table', field: 'resnum', kind: 'point', value: 2 }], 'table');
+    const { container } = render(<VizTable viewId="table" data={NUMERIC_IDS} columns={['category']} idField="resnum" selection={point} />);
+    expect(container.querySelectorAll('tr.vzf-selected')).toHaveLength(1);
+  });
+
+  it('an ABSENT key cell keeps its own spelling — a `null` point clause is IS NULL and an `undefined` one CLEARS, and a row click gestured for neither', () => {
+    const onEmit = vi.fn();
+    render(<VizTable viewId="table" data={[{ resnum: null, category: 'Casual' }]} columns={['category']} idField="resnum" onEmit={onEmit} />);
+    fireEvent.click(screen.getByRole('row', { name: /row null/ }));
+    expect(onEmit).toHaveBeenCalledWith({ rawValue: 'null', encoding: { kind: 'point', field: 'resnum' } });
+  });
+
+  it('BYTE IDENTITY: a table over a STRING id column is untouched', () => {
+    const onEmit = vi.fn();
+    render(<VizTable viewId="table" data={ROWS} columns={COLUMNS} idField="id" onEmit={onEmit} />);
+    fireEvent.click(screen.getByRole('row', { name: /row d02/ }));
+    expect(onEmit).toHaveBeenCalledWith({ rawValue: 'd02', encoding: { kind: 'point', field: 'id' } });
   });
 });

@@ -232,6 +232,38 @@ function numericLineState(st: SessionViewState): RenderState {
   return { rows: ROWS.filter(keep), encodings: { x: 'rating', y: 'price' }, selection, hover: null, theme: THEME, size: SIZE };
 }
 
+/** The distinct ratings, as a band's labels are drawn — `String(cell)`, first-seen order. */
+const RATING_SLOTS = [...new Set(ROWS.map((r) => String(r['rating'])))];
+
+/**
+ * A BAND DRAWN ON A NUMBER COLUMN — THE FOURTH PLAN, and the state no plan had
+ * ever built. The host bound x to `rating` (a NUMBER column the session types
+ * as one) and folded it as CATEGORIES, which is what a host does when it wants
+ * slots rather than a continuum — one tick per residue, one mark per slot. The
+ * line therefore takes its BAND arms and its drag lands a MATCH.
+ *
+ * WHY THIS PLAN IS THE HALF THAT MATTERS: the whole defect lives here and
+ * nowhere else. The chart draws its slots from `String(cell)` and used to spell
+ * its clause from the same labels — `["2","3"]` for a column of numbers — so
+ * the gesture reached the record, LANDED A COMMIT and kept nothing. It now
+ * lands the ROWS' own values, and the session's door refuses the other spelling
+ * by name, so this plan fails at `commit-lands` the moment a band goes back to
+ * emitting its labels.
+ */
+function numericBandLineState(st: SessionViewState): RenderState {
+  const selection = selectionForView(st.selections, 'line');
+  const keep = keepPredicate(selection);
+  return {
+    rows: ROWS.filter(keep),
+    encodings: { x: 'rating', y: 'price' },
+    selection,
+    hover: null,
+    theme: THEME,
+    size: SIZE,
+    frame: { x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'categorical', domain: RATING_SLOTS } as ResolvedChannel },
+  };
+}
+
 function brushGesture(selector: string) {
   return brushGesture2(selector, 100, 300);
 }
@@ -402,6 +434,46 @@ describe('conformance — all eight first-party charts pass (the reference claim
     expect(view.getState().gaps.map((g) => g.code)).toEqual([]);
     expect(report.gaps.map((g) => g.code)).toEqual(['navigate-unsupported']); // the ONE honest CONTRACT gap of a non-pan/zoom renderer
     expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: interval (of interval+match+point, this state delivers interval)');
+  });
+
+  it('VizLine over a BAND DRAWN ON A NUMBER COLUMN — A SLOT IS A NAME FOR A VALUE, proven through the whole loop (the measured defect of this packet)', async () => {
+    // THE DEFECT: the drag reached the record and LANDED A COMMIT — 4 before, 5 after, the refusal
+    // panel unchanged at 3 — and matched NOTHING: 185 marks in force went to 0 and a companion bar
+    // chart's 372 rects to 2. The clause carried the slots' SPELLINGS against a column of numbers.
+    // Here the same gesture runs through the REAL session and the ACCEPTED clause is asserted off the
+    // session's own log, with THE ROW COUNT IT NARROWED TO — because a landed commit that kept
+    // nothing is precisely the bug, and a test that stops at "ok" proves nothing.
+    const { view } = await buildFixture();
+    const report = await runConformance({
+      renderer: lineRenderer(),
+      viewId: 'line',
+      el: mountEl(),
+      view,
+      buildState: numericBandLineState,
+      // five slots of 90 over the 520-wide plot (52…502): centres at 97 · 187 · 277 · 367 · 457
+      gesture: brushGesture2('svg.vzf-line', 150, 300),
+      matchGesture: brushGesture2('svg.vzf-line', 100, 300),
+      stateKinds: ['match'],
+      verifyUpdate: (el) => el.querySelector('circle.vzf-line-dot.vzf-selected') !== null,
+    });
+    expect(report.ok, explain(report)).toBe(true);
+    // NUMBERS, not their spelling — the band's labels are `String(cell)` and the clause carries the cell
+    expect(report.emissions).toEqual([
+      { rawValue: { values: [2, 3] }, encoding: { kind: 'match', field: 'rating' } },
+      { rawValue: { values: [2, 3] }, encoding: { kind: 'match', field: 'rating' } },
+    ]);
+    // …AND THE SESSION ACCEPTED IT: the landed clause is this match, on this field, with no gap filed
+    const commits = view.getState().commits;
+    const landed = commits[commits.length - 1]!;
+    expect([landed.viewId, landed.kind, landed.field]).toEqual(['line', 'match', 'rating']);
+    expect(landed.value).toEqual({ values: [2, 3] });
+    expect(view.getState().gaps.map((g) => g.code)).toEqual([]);
+    // …AND IT NARROWED THE ROWS: the crossfilter keeps exactly the rows of those two slots, which is
+    // the assertion the old clause could never have passed (it kept none)
+    const kept = ROWS.filter(keepPredicate(selectionForView(view.getState().selections, 'other')));
+    expect(kept.map((r) => r['rating'])).toEqual(ROWS.filter((r) => r['rating'] === 2 || r['rating'] === 3).map((r) => r['rating']));
+    expect(kept).toHaveLength(5);
+    expect(report.gaps.map((g) => g.code)).toEqual(['navigate-unsupported']);
   });
 
   it('VizBar (point select on the category)', async () => {
@@ -747,11 +819,13 @@ describe('conformance — hostile renderers are caught at the exact step', () =>
     expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: none (of point+match, this state delivers none)');
   });
 
-  it('THE CHECK THAT SHOULD HAVE CAUGHT IT — a delivered interval that cannot ADDRESS its own axis fails declared-delivered, by name', async () => {
+  it('THE FENCE THAT SHOULD HAVE CAUGHT IT, and where it lives NOW — a delivered clause that cannot ADDRESS its own column is refused BY THE SESSION, and the kit fails at commit-lands quoting the door’s own sentence', async () => {
     // The lie one layer in from law 13: the renderer drew a brush, fired a gesture, and delivered the
     // DECLARED kind — carrying bounds no row of that column can ever be compared with. A kind label
-    // cannot lie about a value, so the kind check passed it; the session took the clause, matched
-    // nothing with it and said nothing (the measured 162 → 162). This is the arm that says it.
+    // cannot lie about a value, so the kind check passed it; the session TOOK the clause, matched
+    // nothing with it and said nothing (the measured 162 → 162). The previous packet put a check in
+    // `declared-delivered` because the door was silent. THE DOOR SPEAKS NOW, and it runs first — so
+    // the clause lands nothing and the kit reports why, in the session's words. One fence, not two.
     const report = await runFor(
       stubRenderer({
         capabilities: { emissionKinds: ['interval'] },
@@ -761,11 +835,63 @@ describe('conformance — hostile renderers are caught at the exact step', () =>
       { gesture: clickProbe, stateKinds: ['interval'] },
     );
     const last = report.steps[report.steps.length - 1]!;
-    expect([last.step, last.ok]).toEqual(['declared-delivered', false]);
-    expect(last.detail).toBe('view "zoomy" delivered the interval ["100","300"] on "price", whose scale is quantitative — numeric bounds address that axis, so no row can answer the clause; an interval addresses the axis it was drawn on');
+    expect([last.step, last.ok]).toEqual(['commit-lands', false]);
+    expect(last.detail).toBe(
+      'the emission never landed a commit in the session log — the session refused it (unaddressable-value): view "zoomy" delivered the interval ["100","300"] on "price", whose scale is quantitative — numeric bounds address that axis, so no row can answer the clause; an interval addresses the axis it was drawn on',
+    );
     // every earlier step passed: the kit used to call this renderer conformant, and the session
-    // LANDED the clause without a murmur — which is exactly why the fence had to go here
+    // LANDED the clause without a murmur — which is exactly why a fence had to exist at all
     expect(report.steps.slice(0, -1).every((step) => step.ok), explain(report)).toBe(true);
+  });
+
+  it('…and the same is true one gesture over: a MATCH of spellings on a column of numbers — the defect THIS packet was written for', async () => {
+    // a band drawn over a column of numbers, emitting the SET of its slots' labels: the gesture used
+    // to reach the record and land a commit that kept nothing (4 commits → 5, 185 marks in force → 0)
+    const report = await runFor(
+      stubRenderer({
+        capabilities: { emissionKinds: ['match'] },
+        emission: { rawValue: { values: ['100', '120'] }, encoding: { kind: 'match', field: 'price' } },
+      }),
+      'zoomy',
+      { gesture: clickProbe, stateKinds: ['match'], matchGesture: clickMatchProbe },
+    );
+    const last = report.steps[report.steps.length - 1]!;
+    expect([last.step, last.ok]).toEqual(['commit-lands', false]);
+    expect(last.detail).toContain('(unaddressable-value): view "zoomy" delivered the match ["100","120"] on "price", whose scale is quantitative — numeric values address that column');
+    expect(last.detail).toContain('a selection addresses the column it was drawn on');
+  });
+
+  it('…and a POINT of a spelling, which is what a TAP on such a band lands', async () => {
+    const report = await runFor(
+      stubRenderer({
+        capabilities: { emissionKinds: ['point'] },
+        emission: { rawValue: '100', encoding: { kind: 'point', field: 'price' } },
+      }),
+      'zoomy',
+      { gesture: clickProbe },
+    );
+    const last = report.steps[report.steps.length - 1]!;
+    expect([last.step, last.ok]).toEqual(['commit-lands', false]);
+    expect(last.detail).toContain('delivered the point "100" on "price"');
+  });
+
+  it('…and the SAME renderers pass once their values are the column’s own quantity', async () => {
+    const asMatch = await runFor(
+      stubRenderer({
+        capabilities: { emissionKinds: ['match'] },
+        emission: { rawValue: { values: [100, 120] }, encoding: { kind: 'match', field: 'price' } },
+        matchEmissions: [{ rawValue: { values: [100, 120] }, encoding: { kind: 'match', field: 'price' } }],
+      }),
+      'zoomy',
+      { gesture: clickProbe, stateKinds: ['match'], matchGesture: clickMatchProbe },
+    );
+    expect(asMatch.ok, explain(asMatch)).toBe(true);
+    const asPoint = await runFor(
+      stubRenderer({ capabilities: { emissionKinds: ['point'] }, emission: { rawValue: 100, encoding: { kind: 'point', field: 'price' } } }),
+      'zoomy',
+      { gesture: clickProbe },
+    );
+    expect(asPoint.ok, explain(asPoint)).toBe(true);
   });
 
   it('…and the SAME renderer passes once its bounds are the axis\u2019s own quantity', async () => {

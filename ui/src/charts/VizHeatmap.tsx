@@ -44,6 +44,8 @@ import { selfSelectedCell } from '../contract/selection.js';
 import { epochOf, dayOf, rampStep, SEQ_RAMP_STEPS, domainOr, scaleFor, placeable, excludedNote, type ChartDomain } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { keyActivates } from '../primitives/pointSelect.js';
+import { slotPress } from '../primitives/slotValues.js';
+import { announce } from '../primitives/announce.js';
 import { useReencodePicker } from '../primitives/reencode.js';
 import { boundField } from './binding.js';
 import { defaultCompat, type Compatibility } from '../primitives/compat.js';
@@ -58,6 +60,16 @@ export interface HeatmapCellDatum {
   /** The category row this cell belongs to. */
   readonly y: string;
   readonly count: number;
+  /**
+   * THE ROW'S CELL AS THE DATA HOLDS IT, when the label is not it — `true`
+   * under the row `"true"`, `63` under the row `"63"`. The y side of this
+   * chart's cell clause is a BAND exactly as a bar's axis is, so it takes the
+   * `BarDatum.cell` law through the same one owner
+   * (`../primitives/slotValues.ts`); the x side never needed one, because
+   * bucket EDGES already ride here as the numbers or ISO strings they are.
+   * Absent = the label IS the value.
+   */
+  readonly yCell?: number | string | boolean;
 }
 
 export interface VizHeatmapProps {
@@ -232,10 +244,22 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
   const counts = new Map(data.map((c) => [`${c.x0}|${c.y}`, c.count]));
   const max = Math.max(0, ...data.map((c) => c.count));
 
+  // WHAT EACH ROW LABEL STANDS FOR — the y side of this chart's cell is a BAND, so the value it
+  // addresses is the one the ROWS hold under that label and never the label itself (`slotPress` →
+  // `slotValues`, the one owner the bar's click and the band line's tap ask). Folded ONCE per row
+  // label, because both readers below need it: the outline (a landed cell holds the typed value, so a
+  // comparison against the label would never match its own clause) and the gesture. A row a press
+  // cannot address — the labels name several values — is answered with the owner's own sentence.
+  const ySlotRows = data.map((c) => ({ name: c.y, cell: c.yCell }));
+  const pressedY = new Map(rows.map((y) => [y, slotPress(y, ySlotRows)] as const));
   // the view's OWN live cell, from the addressable fold — outline + toggle
   const own = selection ? selfSelectedCell(selection) : null;
-  const isSelected = (c: ColumnGeom, y: string): boolean =>
-    own !== null && JSON.stringify(own.values) === JSON.stringify([[c.x0, c.x1], y]);
+  // every row label in `rows` came from `data`, so the fold above has an answer for each one
+  const isSelected = (c: ColumnGeom, y: string): boolean => {
+    const press = pressedY.get(y)!;
+    if (own === null || 'note' in press) return false;
+    return JSON.stringify(own.values) === JSON.stringify([[c.x0, c.x1], press.value]);
+  };
 
   const emitCell = (c: ColumnGeom, y: string): void => {
     if (isSelected(c, y)) {
@@ -243,7 +267,12 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
       onEmit?.({ rawValue: null, encoding: { kind: 'cell', fields: [xField, yField] } });
       return;
     }
-    onEmit?.({ rawValue: [edgePair(c.x0, c.x1), y], encoding: { kind: 'cell', fields: [xField, yField] } });
+    const press = pressedY.get(y)!;
+    if ('note' in press) {
+      announce(press.note);
+      return;
+    }
+    onEmit?.({ rawValue: [edgePair(c.x0, c.x1), press.value], encoding: { kind: 'cell', fields: [xField, yField] } });
   };
 
   const { pickerChannel, openPicker, closePicker } = useReencodePicker(onReencodeRequest);

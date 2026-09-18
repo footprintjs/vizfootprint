@@ -34,6 +34,12 @@
  *                             slot geometry), `slotsCovered` (which slots a
  *                             drag's range covers) and `slotAt` (which slot
  *                             one pixel is inside).
+ *   • the slot's VALUE      — `slotValue`/`slotValues`/`slotPress`: a slot is a
+ *                             NAME for a value and a clause carries the value,
+ *                             so a band over anything but a string column
+ *                             selects what its ROWS hold and never the labels
+ *                             it is drawn with (a name with no row is skipped,
+ *                             never guessed — `noSlotValuesNote`).
  *   • the pointer target    — `MIN_POINTER_TARGET`/`pointerTargetWidth`: a
  *                             mark a reader is meant to press must be
  *                             REACHABLE, and a hit area is not a mark (widen
@@ -73,6 +79,14 @@ export { valuesCovered, noValuesCoveredNote } from './scales.js';
 // overlapping targets would land a press on a neighbour), and `crowdedMarksNote` of the words a chart
 // owes the reader when it cannot honour that floor
 export { slotAt, pointerTargetWidth, crowdedMarksNote, MIN_POINTER_TARGET } from './scales.js';
+// A SLOT IS A NAME FOR A VALUE, AND A CLAUSE CARRIES THE VALUE: `slotValues` is the ONE owner of what
+// the slots a gesture reached actually STAND FOR (the geometry owners above answer WHICH slots), and
+// `slotPress` is the same judgement asked for one slot. A consumer-built band chart over anything but
+// a string column needs them for the reason the first-party ones did — a band's labels are
+// `String(cell)` and the rows still hold the column's own values, so a clause spelled from the labels
+// lands on the record and keeps nothing
+export { slotValue, slotValues, slotPress, noSlotValuesNote, ambiguousSlotNote } from './slotValues.js';
+export type { SlotRow } from './slotValues.js';
 // the logarithmic axis (protocol 1.6): `scaleFor` is the ONE owner of which builder a channel gets,
 // and the rest are what a host drawing its own guide over a logarithmic channel needs — the ticks,
 // their labels, the placeability predicate and the words for what a transform could not place

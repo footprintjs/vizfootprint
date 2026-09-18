@@ -73,4 +73,10 @@ export { drawsIntervalBrush, intervalGestureRefusal } from './frame.js';
 // axis it names, and the words for one that cannot (the conformance kit's own fence — a def declares
 // no values, so the door above cannot ask this)
 export { intervalAddresses, unaddressableIntervalRefusal } from './frame.js';
-export type { ChannelValues, EffectiveResolution, FrameLayer, FrameNote, ResolvedChannel, ResolvedDomain } from './frame.js';
+// …and the same law for the kinds that carry VALUES rather than bounds — a point and a match. One
+// fan-out over the three single-column kinds (`unaddressableClause`) with the evidence riding back, one
+// sentence for all three (`unaddressableValueRefusal`, the interval arm verbatim), and the per-value
+// predicate under both (`valueAddresses`). Asked by the SESSION's probe door and by the conformance
+// kit, so a clause that can keep no row is refused by name instead of landing a commit that kept nothing
+export { valueAddresses, unaddressableClause, unaddressableValueRefusal } from './frame.js';
+export type { AddressedClauseKind, ChannelValues, EffectiveResolution, FrameLayer, FrameNote, ResolvedChannel, ResolvedDomain } from './frame.js';

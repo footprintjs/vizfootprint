@@ -285,6 +285,56 @@ it drops are **reported, never vanished** (omit, never deny):
   lacks: nothing is narrowed on that ignorance, and the door refuses the read by
   name instead.
 
+### A clause whose VALUES cannot address its column is refused, not landed
+
+**A sentence in the wrong quantity is not a claim about these rows either**, and
+it is worse than the one above: the column IS there, the view DOES declare the
+kind, and the act LANDS. A commit goes on the record saying a question was
+answered, and no row can answer it.
+
+Measured, end to end: a reader dragged across a line drawn as a **band** over a
+column of numbers. A band's slots are named by the TEXT of the values (a band
+axis is drawn from `String(cell)` all the way down), so the drag emitted a
+`match` of **strings** against a column of **numbers**. The record went from 4
+commits to **5**, the refused-requests panel stayed at **3**, and 185 marks in
+force became **0** — every picture on the desk emptied. **A landed clause that
+kept nothing is worse than a refusal, and worse than the dead gesture it
+replaced, because the record now claims the question was answered.**
+
+The probe door (`doProbe`) already read the column list and used it only for the
+NAME. It now reads the TYPE too, as step 3c, for all three single-column kinds:
+
+```ts
+await s.dispatch({ verb: 'select', viewId: 'scatter', field: 'price', values: ['100', '120'], cause });
+// { ok: false, rejection: { code: 'unaddressable-value', op: 'select', target: 'price', detail:
+//   'view "scatter" delivered the match ["100","120"] on "price", whose scale is quantitative —
+//    numeric values address that column, so no row can answer the clause; a selection addresses
+//    the column it was drawn on' } }
+// → no commit, no live selection, every row still kept
+```
+
+- **The judgement and the sentence have ONE owner**, and it is not this file:
+  `unaddressableClause` / `unaddressableValueRefusal` (`../encoding/frame.ts`,
+  beside law 13's own predicates — `../def/README.md`). The rule is the interval
+  evaluator's own no-cross-type-coercion law read backwards, and the INTERVAL
+  arm's sentence is the one that already shipped, byte for byte.
+- **Its own gap code**, for the reason `derive-invalid`, `result-too-large` and
+  `needs-act` have theirs: nothing about the view's capability, the declaration
+  or the column is wrong, so an agent told `guard-failed` would re-read a
+  definition that is entirely correct. The repair is in the VALUES it sent, and
+  the sentence quotes them so it can see which.
+- **A MATCH is judged strictly** — every member must address the column, which
+  is the interval arm's own `every` read across a list. A set that silently lost
+  half its members is the same lie in a smaller costume, and a commit has
+  nowhere to record the loss.
+- **Refused on evidence, never on ignorance.** A cleared clause, an empty
+  keep-list, an open interval side, a column typed `unknown`, and a **date
+  column read by ISO strings or by an epoch** (the library's own deliberate
+  cross-type read) all pass untouched. So does a column folded as CATEGORIES:
+  that fold names every cell it is given, so a column reported as text may
+  honestly hold numbers, and refusing a value against that declaration would
+  refuse clauses that keep rows.
+
 **An aim that misses is not an accident (review finding, fixed).** A `mapping`
 is the author *naming* the landing column, unlike the crossfilter default,
 which never names anything — so a mapping onto a column the table lacks is a

@@ -49,6 +49,8 @@ import type { RenderSelection } from '../contract/types.js';
 import { linearScale, extent, ticks, epochOf, dayOf, domainOr, bandWidth, bandCentre, type ChartDomain } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { togglePointEmission, keyActivates } from '../primitives/pointSelect.js';
+import { slotPress } from '../primitives/slotValues.js';
+import { announce } from '../primitives/announce.js';
 import { selectedValue } from '../primitives/useSelection.js';
 import { useReencodePicker } from '../primitives/reencode.js';
 import { boundField } from './binding.js';
@@ -58,6 +60,13 @@ import { EncodingPicker } from './EncodingPicker.js';
 /** One HOST-computed box-plot summary for a category (`src/data`'s `boxSummary` is the canonical source). */
 export interface BoxPlotDatum {
   readonly category: string;
+  /**
+   * THE CATEGORY CELL AS THE ROW HOLDS IT, when the label is not it — the
+   * `BarDatum.cell` law on the band this chart stands on, through the same one
+   * owner (`../primitives/slotValues.ts`), so a box and a bar over one slot
+   * cannot land two different clauses. Absent = the label IS the value.
+   */
+  readonly cell?: unknown;
   readonly q1: number | string;
   readonly median: number | string;
   readonly q3: number | string;
@@ -278,10 +287,20 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
   const selected = selectedValue(props.selected, selection);
 
   const emit = (category: string): void => {
+    // WHAT IS LANDED IS THE SLOT'S VALUE, not its label (`slotPress` → `slotValues`, the one owner the
+    // bar's click and the band line's tap ask for the same pixel) — a box over a column of numbers
+    // selects `63`, and a clause spelled from the label would land on the record and keep nothing. A
+    // slot the rows name no value for, and one naming SEVERAL (a point addresses one), land nothing and
+    // say why. On a band of strings the label IS the value and nothing moves.
+    const pressed = slotPress(category, data.map((d) => ({ name: d.category, cell: d.cell })));
+    if ('note' in pressed) {
+      announce(pressed.note);
+      return;
+    }
     // clicking the selected category again CLEARS the point selection — the
     // togglePointEmission primitive (rawValue undefined = the cleared state of
     // src/data's three-way point split; null would mean "match SQL NULL")
-    onEmit?.(togglePointEmission(xField, category, selected));
+    onEmit?.(togglePointEmission(xField, pressed.value, selected));
   };
 
   const { pickerChannel, openPicker, closePicker } = useReencodePicker(onReencodeRequest);

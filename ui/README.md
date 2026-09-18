@@ -338,6 +338,98 @@ brush on that view's own scale kind is refused by name at the def door
 (`src/def/README.md`, law 13), and the frame renderer refuses the same shape
 from a hand-folded state in the same sentence.
 
+### A slot is a NAME for a value — what a band's gesture actually carries
+
+**A slot is a name for a value, and a clause carries the value.** A selection
+addresses the column it was drawn on, so its values are of that column's own
+type: the previous section said this for a run — *a run over numbers emits
+numbers* — and this is the same law one gesture over. **A set selected on a
+band emits the band's own column values, not their spelling.**
+
+This was the next defect the same reader found, on the same page, the morning
+after the numeric brush shipped — and it was **worse than the dead gesture it
+replaced**. Measured on a fresh production build, one drag across a line drawn
+as a band over a column of numbers:
+
+| | before the drag | after |
+|---|---|---|
+| commits on the record | 4 | **5 — the clause LANDS** |
+| refused requests | 3 | **3 — nothing was refused** |
+| residues in force | 185 | **0** |
+
+Every picture on the desk emptied: the companion run went 185 marks to 0, the
+bar chart 372 rects to 2. **A landed clause that kept nothing is worse than a
+refusal, and worse than the original dead gesture, because the record now
+claims the question was answered.**
+
+The cause: a band's slots are named by the **text** of the values — a band axis
+is drawn from `String(cell)` all the way down, at the fold
+(`frameDomains`'s categorical arm names every cell it is given) and again at
+the renderer. So the drag emitted a set of **strings** against a column holding
+**numbers**, and the library is right not to match them (`clauseFromWire.test.ts`
+pins *string bounds never match numeric cells*; the memory engine's membership
+set is exact, so `"1"` is a member of no list holding `1`).
+
+Nothing about this was specific to that page. **Any** band drawn over a
+non-string column had it: a boolean column needs no disagreement anywhere to
+hit it, since its labels are `"true"`/`"false"` and its cells are `true`/`false`.
+A consumer could not fix it either — it does not own the emission, and it has
+no way to see that the clause it landed was unanswerable.
+
+**Two tiers, and the first is what makes the reader's drag work.**
+
+**Tier 1 — the chart.** One owner for *what value does this slot name stand
+for*: `slotValues` / `slotPress` / `slotValue`
+(`primitives/slotValues.ts`), beside the slot GEOMETRY owners that answer
+*which* slots (`slotsCovered` / `slotAt`). It is one function and not a copy
+per chart for the reason the pixel question has one owner: two charts over one
+band may not mean two different things on the same gesture. The value comes
+from the **rows**, by the field the band was built on — each mark hands its
+chart the cell beside the label (`BandLinePoint.cell`, `BarDatum.cell`,
+`BoxPlotDatum.cell`, `HeatmapCellDatum.yCell`; a table row key reads
+`slotValue` directly). Its laws, each a test:
+
+- **A name band is untouched.** When every row's value IS its own name — every
+  band over a string column, the common case — the answer is the names
+  themselves, **including a slot no row reaches**. That is the bar's own law (*a
+  drag across a slot this layer has no row for still means those categories*),
+  kept rather than repealed: on a name band there is nothing to guess, because
+  the name is the value. Every string band on the desk is byte-identical, and
+  that is pinned per chart.
+- **On a value band, a name with no row is SKIPPED, never guessed** — the
+  never-guess law the numeric run already carried. A band is an order a FRAME
+  declared, and a frame's declared domain is not the rows, so a band can name a
+  category these rows do not hold; inventing a value for it (the number 9? the
+  string `"9"`?) would be a clause the reader did not make.
+- **Every name skipped ⇒ NOTHING, said out loud** (`noSlotValuesNote`,
+  announced) — never an empty keep-list, which matches nothing at all and is the
+  sharpest failure available here.
+- **A slot naming two values is answered with both.** A column holding `1` and
+  `"1"` draws ONE mark in the slot `"1"` — one bar of count 2, one box over both
+  rows — so the clause that keeps what the reader pressed is the SET of both,
+  and a drag (a match is already a set) takes them. A **press** lands one value
+  and cannot say it, so it lands **nothing** and says why, naming the slot, its
+  values and the gesture that can take them (`ambiguousSlotNote`). Half the
+  mark the reader pressed is the same lie in a smaller costume.
+
+**Tier 2 — the door, which is what stops the next one being silent.** The
+session's probe door now refuses a point, a match or an interval whose values
+cannot address the column they name, under a code of its own
+(`unaddressable-value`) and with the column, the kind and what it was handed
+quoted back. It used to accept them: the finding the numeric-brush packet
+recorded and deliberately did not take. The judgement and the sentence live in
+one place (`src/encoding/README.md`, beside law 13), and the rule is the
+interval evaluator's own no-cross-type-coercion law read backwards. It refuses
+on **evidence, never on ignorance** — a categorical column is not judged at
+all, because the library's own fold names every cell it meets, so a column
+reported as text may honestly hold numbers.
+
+Every chart that lands a clause off a band goes through the one owner: the band
+line's drag and tap, the bar's click and drag-run, the box plot's click, and the
+heatmap's **y** side (its x side never needed it — bucket edges already travel
+as the numbers or ISO strings they are). A table row key is not a slot on a band
+and had the identical lie, so it reads the same owner's atom.
+
 Both axis labels are pickers, and they are honest about what fits: the **x
 picker offers a date, a number or a category** — the three x kinds this chart
 draws, which is exactly what the session's own door admits, so the two no
@@ -820,6 +912,7 @@ What each primitive is, and what contract behavior it guarantees:
 | `zeroGuideFor` + `zeroGuideNotes` | Zero is a place on the axis: whether a declared zero guide is drawn, and the words for one that cannot be. | The guide is **declared, never automatic** (a picture that changed its own furniture with the data would say nothing about why), it is **named for zero and not the centre**, and an axis with no zero on it is **refused in one sentence** — in the plot and in the accessible name — rather than clamped to an edge or silently dropped. |
 | `outsideNotes` | What the quantity CAN be: the words for a value outside the extent an axis was DECLARED on (`ChannelResolution.bounds`, law 14). | A declared extent **never hides a value** — the mark is still placed at its true position, which past the plot edge is invisible, so the count is the only thing that says it is there. Said per axis, in the picture and in the accessible name, in the same register as `excludedNote`: a value outside means either the data is wrong or the claim is, and the reader is the only one who can tell. Only for an extent the chart was GIVEN; a chart on its own extent has nothing outside it. |
 | `bandWidth` / `bandStart` / `bandCentre` / `slotsCovered` / `slotAt` | The one slot geometry every mark on a band places itself by — plus which slots a drag's pixel RANGE covers, and which slot ONE pixel is inside. | A bar's slot and a line's point for one category sit at **one x by construction**, and a press and a drag over one band can never answer in two different slot orders. |
+| `slotValues` / `slotPress` / `slotValue` | What the slots a gesture reached actually STAND FOR — the value the ROWS hold under each label, the geometry owners above answering only *which* slots. | **A slot is a name for a value and a clause carries the value**: a band over anything but a string column selects what its rows hold, never the `String(cell)` its axis is drawn with. A name with no row is skipped, never guessed; all names skipped lands NOTHING and says so; a string band is byte-identical. |
 | `MIN_POINTER_TARGET` + `pointerTargetWidth` + `crowdedMarksNote` | A mark you are meant to press must be reachable: the WCAG 2.2 AA floor of 24, the target width that honours it **or the slot when the slot is narrower**, and the words for marks a pointer cannot separate. | A hit area is **not a mark** — widen the target, never the drawing. Targets are bounded by the slot so a press can never land on a **neighbour**, and a chart that cannot honour the floor **says so** in the picture and in its accessible name instead of promising a reach it does not have. |
 
 The selection derivation itself (`selectionForView`, `keepPredicate`,

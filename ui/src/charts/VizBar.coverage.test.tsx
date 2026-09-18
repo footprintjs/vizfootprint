@@ -3,7 +3,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 import { VizBar, PAD } from './VizBar.js';
 import type { ColumnView } from '../adapter/types.js';
-import { selectionForView } from '../contract/selection.js';
+import { selectionForView, clausePredicate } from '../contract/selection.js';
+import { ambiguousSlotNote } from '../primitives/slotValues.js';
 
 afterEach(cleanup);
 
@@ -352,5 +353,106 @@ describe('VizBar — the ink of its scale (the left edge of a two-scale frame)',
     expect([...container.querySelectorAll('rect.vzf-barrect')].map((r) => r.getAttribute('fill'))).toEqual(['#111111', '#222222', '#222222']);
     const axis = [...container.querySelectorAll('line.vzf-axis')].find((l) => l.getAttribute('x1') === l.getAttribute('x2'))!;
     expect(axis.getAttribute('style')).toBe(`--vzf-scale-hue: ${HUE};`);
+  });
+});
+
+describe('VizBar — A SLOT IS A NAME FOR A VALUE: a band over a column that is not text', () => {
+  /**
+   * The bar is the named twin of the band line's gestures: `slotPress`/`slotValues` are the ONE owner
+   * both ask, so one pixel over one band cannot mean two things. The defect is the same one measured
+   * on the line — a clause spelled from the labels lands on the record and keeps no row.
+   */
+  const NUMBERS = [
+    { category: '1', cell: 1, count: 4 },
+    { category: '2', cell: 2, count: 9 },
+    { category: '3', cell: 3, count: 2 },
+  ];
+  const ROWS = [{ resnum: 1 }, { resnum: 2 }, { resnum: 3 }];
+  /** Move the pointer into band `i` of `count` — the file's own positioned-move helper, in viewBox units. */
+  const mover = (svg: Element, count: number, width = 360) => (i: number) => {
+    const ev = new window.MouseEvent('pointermove', { clientX: PAD.l + (i + 0.5) * ((width - PAD.l - PAD.r) / count), bubbles: true });
+    Object.defineProperty(ev, 'pointerId', { value: 1 });
+    fireEvent(svg, ev);
+  };
+
+  it('A CLICK lands the slot\'s own value — a number, not its spelling — and the ROWS narrow to it', () => {
+    const onEmit = vi.fn();
+    render(<VizBar data={NUMBERS} field="resnum" onEmit={onEmit} />);
+    fireEvent.click(screen.getByRole('button', { name: /select 2/ }));
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: 2, encoding: { kind: 'point', field: 'resnum' } });
+    const keeps = clausePredicate('point', 'resnum', 2);
+    expect(ROWS.filter(keeps)).toEqual([{ resnum: 2 }]);
+    // …and the clause the chart used to land keeps NOTHING, which is the defect in one line
+    expect(ROWS.filter(clausePredicate('point', 'resnum', '2'))).toEqual([]);
+  });
+
+  it('A SHIFT-CLICK keeps the set TYPED as it grows — the value added is the column\'s own', () => {
+    const onEmit = vi.fn();
+    render(<VizBar viewId="bar" data={NUMBERS} field="resnum" selection={selectionForView([{ viewId: 'bar', field: 'resnum', kind: 'point', value: 1 }], 'bar')} onEmit={onEmit} />);
+    fireEvent.click(screen.getByRole('button', { name: /select 2/ }), { shiftKey: true });
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: { values: [1, 2] }, encoding: { kind: 'match', field: 'resnum' } });
+  });
+
+  it('A DRAG-RUN lands the run\'s own values, and it is BYTE-IDENTICAL to what the band line lands for the same slots', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizBar viewId="bar" data={NUMBERS} field="resnum" onEmit={onEmit} width={360} />);
+    const svg = container.querySelector('svg')!;
+    const move = mover(svg, 3);
+    fireEvent.pointerDown(screen.getAllByRole('button', { name: /^select / })[0]!);
+    move(1);
+    fireEvent.pointerUp(svg);
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: { values: [1, 2] }, encoding: { kind: 'match', field: 'resnum' } });
+    const keeps = clausePredicate('match', 'resnum', { values: [1, 2] });
+    expect(ROWS.filter(keeps)).toHaveLength(2);
+  });
+
+  it('A SLOT THIS LAYER HAS NO ROW FOR IS NOT PRESSABLE AT ALL, which is why the click has no nothing-named arm: no mark, no target (the pointer-target law). A DRAG can still ride over one — and it is skipped rather than guessed at', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizBar viewId="bar" data={NUMBERS} field="resnum" domain={{ categories: ['1', '2', '9', '3'] }} onEmit={onEmit} width={360} />);
+    expect(screen.queryByRole('button', { name: /select 9/ })).toBeNull();
+    const svg = container.querySelector('svg')!;
+    const move = mover(svg, 4);
+    fireEvent.pointerDown(screen.getAllByRole('button', { name: /^select / })[0]!);
+    move(3); // across all four declared slots, "9" among them
+    fireEvent.pointerUp(svg);
+    expect(onEmit).toHaveBeenLastCalledWith({ rawValue: { values: [1, 2, 3] }, encoding: { kind: 'match', field: 'resnum' } });
+  });
+
+  it('A SLOT NAMING TWO VALUES is refused by name — the honest answer when a host breaks the one-row-per-category contract, instead of a clause keeping half the bar it drew', () => {
+    // `BarDatum` is host-AGGREGATED (one row per category), so this is a contract the host broke; the
+    // chart says which slot and which values rather than picking one of them
+    const mixed = [
+      { category: '1', cell: 1, count: 4 },
+      { category: '1', cell: '1', count: 2 },
+      { category: '2', cell: 2, count: 9 },
+    ];
+    const onEmit = vi.fn();
+    render(<VizBar viewId="bar" data={mixed} field="resnum" onEmit={onEmit} width={360} />);
+    fireEvent.click(screen.getAllByRole('button', { name: /^select 1/ })[0]!);
+    expect(onEmit).not.toHaveBeenCalled();
+    expect(document.querySelector('.vzf-live-region')!.textContent!.trim()).toBe(ambiguousSlotNote('1', [1, '1']));
+  });
+
+  it('BYTE IDENTITY: a band over a STRING column is untouched, cells or no cells — including the EMPTY slot a drag rides over', () => {
+    const withCell = vi.fn();
+    render(<VizBar data={data.map((d) => ({ ...d, cell: d.category }))} field="category" onEmit={withCell} />);
+    fireEvent.click(screen.getByRole('button', { name: /select Formal/ }));
+    cleanup();
+    const withoutCell = vi.fn();
+    render(<VizBar data={data} field="category" onEmit={withoutCell} />);
+    fireEvent.click(screen.getByRole('button', { name: /select Formal/ }));
+    expect(JSON.stringify(withCell.mock.calls[0]![0])).toBe(JSON.stringify(withoutCell.mock.calls[0]![0]));
+    expect(withCell.mock.calls[0]![0]).toEqual({ rawValue: 'Formal', encoding: { kind: 'point', field: 'category' } });
+    cleanup();
+    // `endRun`'s own law, kept: a drag across a slot this layer has no row for still means that
+    // category, because on a name band the name IS the value and there is nothing to guess
+    const declared = vi.fn();
+    const { container } = render(<VizBar viewId="bar" data={data} field="category" domain={{ categories: ['Casual', 'Smart', 'Formal', 'Party'] }} onEmit={declared} width={360} />);
+    const svg = container.querySelector('svg')!;
+    const move = mover(svg, 4);
+    fireEvent.pointerDown(screen.getAllByRole('button', { name: /^select / })[0]!);
+    move(2);
+    fireEvent.pointerUp(svg);
+    expect(declared).toHaveBeenLastCalledWith({ rawValue: { values: ['Casual', 'Smart', 'Formal'] }, encoding: { kind: 'match', field: 'category' } });
   });
 });

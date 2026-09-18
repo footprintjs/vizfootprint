@@ -12,7 +12,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent, cleanup } from '@testing-library/react';
 import { VizHeatmap, type HeatmapCellDatum } from './VizHeatmap.js';
-import { selectionForView } from '../contract/selection.js';
+import { selectionForView, clausePredicate } from '../contract/selection.js';
+import { ambiguousSlotNote } from '../primitives/slotValues.js';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, SelectionView } from '../adapter/types.js';
 
@@ -239,5 +240,69 @@ describe('the accessible name (the prose plane\'s altShort)', () => {
   it('takes ariaLabel over its own construction line', () => {
     const { container } = renderHeatmap({ ariaLabel: 'Cases by report state' });
     expect(container.querySelector('[role="group"]')!.getAttribute('aria-label')).toBe('Cases by report state'); // a group: its marks are buttons, and must stay reachable
+  });
+});
+
+describe('A SLOT IS A NAME FOR A VALUE — the y side of a cell is a BAND', () => {
+  /**
+   * The x side of a cell already travels honestly: bucket EDGES ride as the numbers or ISO strings
+   * they are. The y side is a band label, `String(cell)` like every other band's, and its clause used
+   * to carry the label — so a heatmap whose rows are a boolean column landed `"true"` against cells
+   * holding `true`: a commit on the record that keeps no row. The value comes from the rows now,
+   * through the one owner every band chart asks (`../primitives/slotValues.ts`).
+   */
+  const BOOLEAN_ROWS: HeatmapCellDatum[] = [
+    { x0: 0, x1: 50, y: 'true', yCell: true, count: 4 },
+    { x0: 50, x1: 100, y: 'true', yCell: true, count: 2 },
+    { x0: 0, x1: 50, y: 'false', yCell: false, count: 1 },
+    { x0: 50, x1: 100, y: 'false', yCell: false, count: 9 },
+  ];
+  const ROWS = [{ price: 10, inStock: true }, { price: 70, inStock: false }];
+
+  it('a cell click lands the ROW\'s own value on the y side, and the rows narrow to that pair', () => {
+    const onEmit = vi.fn<(e: ChartEmission) => void>();
+    const { container } = render(<VizHeatmap viewId="heatmap" data={BOOLEAN_ROWS} xField="price" yField="inStock" onEmit={onEmit} />);
+    fireEvent.click(container.querySelector('[data-cell="0|true"]')!);
+    expect(onEmit).toHaveBeenCalledWith({ rawValue: [[0, 50], true], encoding: { kind: 'cell', fields: ['price', 'inStock'] } });
+    const keeps = clausePredicate('cell', 'price × inStock', [[0, 50], true], ['price', 'inStock']);
+    expect(ROWS.filter(keeps)).toEqual([{ price: 10, inStock: true }]);
+    // the clause it used to land keeps NOTHING
+    expect(ROWS.filter(clausePredicate('cell', 'price × inStock', [[0, 50], 'true'], ['price', 'inStock']))).toEqual([]);
+  });
+
+  it('the OUTLINE and the click-again release read the same value — a landed cell holds the row\'s own, so a comparison against the label would never match the chart\'s own clause', () => {
+    const onEmit = vi.fn<(e: ChartEmission) => void>();
+    const selection = selectionForView([{ viewId: 'heatmap', field: 'price × inStock', kind: 'cell', value: [[0, 50], true], fields: ['price', 'inStock'] }], 'heatmap');
+    const { container } = render(<VizHeatmap viewId="heatmap" data={BOOLEAN_ROWS} xField="price" yField="inStock" selection={selection} onEmit={onEmit} />);
+    expect(container.querySelectorAll('rect.vzf-heatcell.vzf-selected')).toHaveLength(1);
+    fireEvent.click(container.querySelector('[data-cell="0|true"]')!);
+    expect(onEmit).toHaveBeenCalledWith({ rawValue: null, encoding: { kind: 'cell', fields: ['price', 'inStock'] } });
+  });
+
+  it('a row label naming TWO values is refused by name, and nothing it draws is ever outlined — a cell clause holds one value per side', () => {
+    const onEmit = vi.fn<(e: ChartEmission) => void>();
+    const mixed: HeatmapCellDatum[] = [
+      { x0: 0, x1: 50, y: '1', yCell: 1, count: 4 },
+      { x0: 50, x1: 100, y: '1', yCell: '1', count: 2 },
+    ];
+    // a live cell is held, so the outline reader has to judge the label too — and it declines
+    const selection = selectionForView([{ viewId: 'heatmap', field: 'price × resnum', kind: 'cell', value: [[0, 50], 1], fields: ['price', 'resnum'] }], 'heatmap');
+    const { container } = render(<VizHeatmap viewId="heatmap" data={mixed} xField="price" yField="resnum" selection={selection} onEmit={onEmit} />);
+    expect(container.querySelectorAll('rect.vzf-heatcell.vzf-selected')).toHaveLength(0);
+    fireEvent.click(container.querySelector('[data-cell="0|1"]')!);
+    expect(onEmit).not.toHaveBeenCalled();
+    expect(document.querySelector('.vzf-live-region')!.textContent!.trim()).toBe(ambiguousSlotNote('1', [1, '1']));
+  });
+
+  it('BYTE IDENTITY: a heatmap whose rows are a STRING column is untouched, cells or no cells', () => {
+    const withCell = vi.fn<(e: ChartEmission) => void>();
+    const a = render(<VizHeatmap viewId="heatmap" data={CELLS.map((c) => ({ ...c, yCell: c.y }))} xField="price" yField="category" onEmit={withCell} />);
+    fireEvent.click(a.container.querySelector('[data-cell="0|Casual"]')!);
+    cleanup();
+    const withoutCell = vi.fn<(e: ChartEmission) => void>();
+    const b = render(<VizHeatmap viewId="heatmap" data={CELLS} xField="price" yField="category" onEmit={withoutCell} />);
+    fireEvent.click(b.container.querySelector('[data-cell="0|Casual"]')!);
+    expect(JSON.stringify(withCell.mock.calls[0]![0])).toBe(JSON.stringify(withoutCell.mock.calls[0]![0]));
+    expect(withCell.mock.calls[0]![0]).toEqual({ rawValue: [[0, 50], 'Casual'], encoding: { kind: 'cell', fields: ['price', 'category'] } });
   });
 });

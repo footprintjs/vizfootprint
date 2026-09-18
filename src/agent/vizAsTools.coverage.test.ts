@@ -23,6 +23,23 @@ function freshPort() {
   return vizAsTools(buildDashboard(makeDashboardDef()).createSession());
 }
 
+/**
+ * A port over a table with an ISO-STRING DATE column beside the numbers — what a date filter is
+ * actually aimed at.
+ *
+ * WHY IT EXISTS (and why the two ISO-range tests below stopped using `price`): the session's probe
+ * door now refuses a clause whose values cannot address the column they name (`unaddressable-value`,
+ * `../encoding/frame.ts` · `unaddressableClause`), and ISO strings on a column of NUMBERS is exactly
+ * that — no row could ever have answered it. The subject of those tests is the TOOL SURFACE
+ * accepting an ISO pair and recording it verbatim, which they now say about a column an ISO pair can
+ * address. The memory engine types an ISO-string column as `string`, so it is judged as CATEGORIES
+ * and this door declines it — refused on evidence, never on ignorance.
+ */
+function datedPort() {
+  const rows = SAMPLE_ROWS.map((r, i) => ({ ...r, shipped: `2026-05-${String((i % 28) + 1).padStart(2, '0')}` }));
+  return vizAsTools(buildDashboard(makeDashboardDef({ rows })).createSession());
+}
+
 describe('viz.why — object-form target coercion (coerceWhyTarget)', () => {
   it('{ column } coerces to a column target — identical to the string form', async () => {
     const port = freshPort();
@@ -237,16 +254,16 @@ describe('viz.dispatch — filter FILTER-1: half-open ranges and ISO date ranges
   });
 
   it('an ISO date range [string, string] is accepted — the agent can now date-filter', async () => {
-    const port = freshPort();
-    const res = await port.call('viz.dispatch', { verb: 'filter', viewId: 'scatter', field: 'price', range: ['2026-05-01', '2026-05-31'] });
+    const port = datedPort();
+    const res = await port.call('viz.dispatch', { verb: 'filter', viewId: 'scatter', field: 'shipped', range: ['2026-05-01', '2026-05-31'] });
     expect(get(res, 'ok')).toBe(true);
     const commit = get(res, 'commit') as { value: unknown };
     expect(commit.value).toEqual(['2026-05-01', '2026-05-31']);
   });
 
   it('an ISO date half-open range [string, null] is accepted (date + open-ended compose)', async () => {
-    const port = freshPort();
-    const res = await port.call('viz.dispatch', { verb: 'filter', viewId: 'scatter', field: 'price', range: ['2026-05-01', null] });
+    const port = datedPort();
+    const res = await port.call('viz.dispatch', { verb: 'filter', viewId: 'scatter', field: 'shipped', range: ['2026-05-01', null] });
     expect(get(res, 'ok')).toBe(true);
     const commit = get(res, 'commit') as { value: unknown };
     expect(commit.value).toEqual(['2026-05-01', null]);

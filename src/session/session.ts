@@ -73,6 +73,9 @@ import { copyValue, deepFreeze } from '../detach/index.js';
 import { resourceVersionsOf } from '../source/index.js';
 import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RelationEdge, RestorableSaved, RestorableBookmark, RestoreResult, ViewDecl, ViewEncodingDecl, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
 import { describeRules, refuses, validateBindings } from '../encoding/index.js';
+// law 13 AT THE VALUE: whether a clause this door is about to LAND can address the column it names,
+// and the words for one that cannot — the judgement and the sentence have one owner in `../encoding/frame.ts`
+import { frameScaleOf, unaddressableClause, unaddressableValueRefusal } from '../encoding/index.js';
 import { ENCODING_KIND } from '../links/index.js';
 import { DASHBOARD_PROSE_ID, NOTE_PROSE_PREFIX, isNoteSubject, PROPOSAL_LANE, PROSE_SLOTS, fillProse, PROSE_SENTENCES, proseRefuses, proseStatus, validateProseRecord } from '../prose/index.js';
 import type { ProseProposal, ProseRecord, ProseSlot, ProseStatus, ProposalStatus, ProseWorld } from '../prose/index.js';
@@ -3453,8 +3456,29 @@ class InteractionSessionImpl implements InteractionSession {
     if ('rejected' in cols) {
       return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, cols.rejected, field));
     }
-    if (!cols.some((c) => c.name === field)) {
+    const column = cols.find((c) => c.name === field);
+    if (column === undefined) {
       return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${field}" in table "${table}"`, field));
+    }
+    // 3c. …AND THE VALUES MUST BE ABLE TO ADDRESS IT. A clause of the wrong quantity keeps no row, and
+    //     until this step it LANDED: a drag across a band drawn over a column of numbers emitted a set
+    //     of SPELLINGS, the door took it, the commit went on the record and every picture emptied — 4
+    //     commits before the drag and 5 after, the refusal ledger unchanged, 185 marks in force and
+    //     then 0. A landed clause that kept nothing is worse than a refusal AND worse than the dead
+    //     gesture it replaced, because the record now claims the question was answered. So it is
+    //     refused BY NAME, under a code an agent can branch on, with the column and what it was
+    //     handed (`unaddressableClause` / `unaddressableValueRefusal`, `../encoding/frame.ts` — the
+    //     value-level tier of law 13, whose own interval sentence this quotes verbatim). The scale is
+    //     the column's own through `frameScaleOf`, never re-derived; a type nothing folds from, and a
+    //     column folded as CATEGORIES (whose fold names every cell it meets, so a column reported as
+    //     text may honestly hold numbers), are not judged at all — refused on evidence, never on
+    //     ignorance. The chart tier lands the column's own values now (`slotValues`,
+    //     `vizfootprint-ui/primitives`), so this fence is what the NEXT one meets.
+    const scale = frameScaleOf(column.type);
+    const unaddressable = unaddressableClause(kind, value, scale);
+    if (unaddressable !== null) {
+      // `scale` is defined here by construction: `unaddressableClause` answers null for an unfolded one
+      return this.reject(verb, intent, this.gapLedger.file('unaddressable-value', verb, unaddressableValueRefusal(`view "${viewId}"`, field, kind, scale!, unaddressable.delivered), field));
     }
     // 3b. the clause TRAVELS the relations its edges carry, BEFORE the commit is written (`travelFor`): an engine
     //     read, like step 3's, that cannot fail the act — a refusal is filed beside it. Nothing to travel for a clear.

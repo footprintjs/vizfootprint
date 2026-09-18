@@ -440,6 +440,118 @@ export function unaddressableIntervalRefusal(subject: string, column: string, sc
   return `${subject} delivered the interval ${JSON.stringify(bounds)} on "${column}", whose scale is ${scale} — ${INTERVAL_BOUND_KINDS.get(scale)!.words} bounds address that axis, so no row can answer the clause; an interval addresses the axis it was drawn on`;
 }
 
+/**
+ * THE THREE KINDS A SINGLE-COLUMN CLAUSE COMES IN, as this law judges them —
+ * the point, the interval and the match. A CELL and a NEIGHBOURHOOD name two
+ * columns and are judged (when they are) at their own doors; this vocabulary
+ * is deliberately the one `InteractionSession`'s `doProbe` already fans out on,
+ * so the door and the conformance kit ask ONE function rather than each
+ * reading a match's list out of its wire body in its own words.
+ */
+export type AddressedClauseKind = 'point' | 'interval' | 'match';
+
+/**
+ * WHICH SCALE KINDS A VALUE-LEVEL CLAUSE IS JUDGED ON AT ALL, and the whole
+ * reason `categorical` is absent — which is EVIDENCE, not timidity.
+ *
+ * A QUANTITATIVE or TEMPORAL fold corroborates its own declaration: it reads
+ * only the cells it can read as that kind and SKIPS the rest ({@link
+ * quantitative} drops a non-number, {@link temporal} drops an unreadable
+ * date), so a column folded as one is a column whose cells really are of that
+ * kind, and a value of another kind can keep no row. A CATEGORICAL fold is the
+ * asymmetric one: it NAMES every cell it is given (`String(cell)` — see
+ * {@link frameDomains}'s own note, "a number on a category channel becomes the
+ * category `"7"`"), so a column declared `string` is a column the library
+ * itself says may hold numbers, booleans or anything else. Judging a value
+ * against THAT declaration would refuse clauses that keep rows — a band over a
+ * column of numbers reported as text is exactly the shape this packet fixed on
+ * the chart side, and it now lands NUMBERS honestly.
+ *
+ * So the same law reads differently at the two tiers: an INTERVAL over a
+ * categorical axis is refused by {@link intervalAddresses} on a different
+ * ground entirely (a band has no BETWEEN — law 13's `drawsIntervalBrush`),
+ * while a point or a match over one is a gesture a band genuinely speaks and
+ * this door has no evidence against.
+ */
+const VALUE_ADDRESSED_SCALES: ReadonlySet<ResolvedDomain['scale']> = new Set<ResolvedDomain['scale']>(['quantitative', 'temporal']);
+
+/**
+ * CAN ONE VALUE ADDRESS A COLUMN FOLDED AS THIS SCALE KIND? {@link
+ * intervalAddresses}'s sibling for the kinds that carry VALUES rather than
+ * bounds — a point and each member of a match — reading the same
+ * {@link INTERVAL_BOUND_KINDS} table, so "what addresses a quantitative axis"
+ * is answered in ONE place for every clause shape.
+ *
+ * REFUSED ON EVIDENCE, NEVER ON IGNORANCE, and there are three ways to have
+ * none: a scale nothing could be folded from ({@link frameScaleOf} answers
+ * `undefined` for `'unknown'`), a scale this law does not judge
+ * ({@link VALUE_ADDRESSED_SCALES} — the categorical fold names every cell it
+ * meets), and a value that names no kind at all (`null` is a real IS NULL and
+ * `undefined` CLEARS — both are the clause tier's own vocabulary, never a
+ * quantity). A non-primitive is not judged either: a `Date` addresses a date
+ * column (`isoOf` reads one), and nothing here can say what else an object
+ * might be.
+ */
+export function valueAddresses(scale: ResolvedDomain['scale'] | undefined, value: unknown): boolean {
+  if (scale === undefined || !VALUE_ADDRESSED_SCALES.has(scale)) return true;
+  if (value === null || value === undefined) return true;
+  const kind = typeof value;
+  if (kind === 'object' || kind === 'function' || kind === 'symbol') return true;
+  return INTERVAL_BOUND_KINDS.get(scale)!.kinds.includes(kind);
+}
+
+/**
+ * WHAT A DELIVERED CLAUSE HANDED OVER THAT ITS COLUMN CANNOT ANSWER, or
+ * `null` when the column can answer it — the ONE fan-out over the three
+ * single-column kinds, so the session's probe door and the renderer
+ * contract's `declared-delivered` step judge one thing in one way.
+ *
+ * It takes the WIRE value (a point's value, an interval's bounds, a match's
+ * `{ values, exclude }` body) because that is what both callers hold: the door
+ * is handed it by `dispatch`, and a `ChartEmission`'s `rawValue` IS it. A body
+ * that is not the declared shape is not judged — reading a wire this version
+ * cannot read as a refusal would refuse on ignorance, and `clauseFromWire`
+ * already has the standing answer for it (cleared, which keeps every row).
+ *
+ * A MATCH IS JUDGED STRICTLY — every member must address the column, which is
+ * {@link intervalAddresses}'s own `every` over an interval's two sides, read
+ * across a list. A set that silently lost half its members is the same lie in
+ * a smaller costume, and a clause has nowhere to record the loss (the library's
+ * "exclude and count, never silently drop" needs somewhere to put the count,
+ * and a commit has none). An EMPTY list is another door's business: keep
+ * matches nothing and exclude excludes nothing, both by the match evaluator's
+ * own rule, and neither is a value that failed to address anything.
+ *
+ * The evidence rides back rather than a bare `false` because the SENTENCE
+ * quotes it ({@link unaddressableValueRefusal}): an author told only "wrong
+ * kind" goes looking in the definition, where nothing is wrong.
+ */
+export function unaddressableClause(kind: AddressedClauseKind, value: unknown, scale: ResolvedDomain['scale'] | undefined): { readonly delivered: unknown } | null {
+  if (kind === 'interval') return intervalAddresses(scale, value) ? null : { delivered: value };
+  if (kind === 'point') return valueAddresses(scale, value) ? null : { delivered: value };
+  // a match's list and polarity ride INSIDE the value (`MatchValueBody`); a body with no list is not a list to judge
+  const values = value === null || typeof value !== 'object' ? undefined : (value as { readonly values?: unknown }).values;
+  if (!Array.isArray(values) || values.length === 0) return null;
+  return (values as readonly unknown[]).every((one) => valueAddresses(scale, one)) ? null : { delivered: values };
+}
+
+/**
+ * THE WORDS FOR A DELIVERED CLAUSE THAT CANNOT ADDRESS ITS OWN COLUMN — one
+ * owner for all three kinds, and the INTERVAL arm is
+ * {@link unaddressableIntervalRefusal} verbatim rather than a second phrasing
+ * of it: that sentence shipped, the renderer contract quotes it, and a law
+ * that grew a tier is not a reason to re-word the tier it already had.
+ *
+ * The point and the match get their own closing clause — *a selection
+ * addresses the column it was drawn on* — because that is the law one gesture
+ * over from the interval's, and a reader told about "the axis it was drawn on"
+ * for a click on a bar would go looking for an axis nobody dragged along.
+ */
+export function unaddressableValueRefusal(subject: string, column: string, kind: AddressedClauseKind, scale: ResolvedDomain['scale'], delivered: unknown): string {
+  if (kind === 'interval') return unaddressableIntervalRefusal(subject, column, scale, delivered);
+  return `${subject} delivered the ${kind} ${JSON.stringify(delivered)} on "${column}", whose scale is ${scale} — ${INTERVAL_BOUND_KINDS.get(scale)!.words} values address that column, so no row can answer the clause; a selection addresses the column it was drawn on`;
+}
+
 /** Past this many layers on one frame a reader cannot tell the marks apart — a LINT, never a refusal (a legitimate small-multiple of five exists). */
 export const FRAME_LAYER_LINT = 4;
 

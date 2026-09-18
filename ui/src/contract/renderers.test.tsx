@@ -5,8 +5,26 @@
  * encoding fallbacks, colour hooks, series splits, theme tokens on the mount
  * wrapper.
  */
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll, vi } from 'vitest';
 import { fireEvent } from '@testing-library/dom';
+// a POINTER gesture on a React-rendered chart needs the act()-wrapping spelling: the brush keeps its
+// drag in React state, so a pointerup fired outside act() reads a `null` brush and nothing completes
+import { fireEvent as actFireEvent } from '@testing-library/react';
+
+// jsdom ships no PointerEvent — polyfill it as a MouseEvent subclass so the brush handlers receive
+// clientX/pointerId (the conformance.test.tsx pattern; a brush handed no position says nothing)
+beforeAll(() => {
+  if (typeof window.PointerEvent === 'undefined') {
+    class PE extends MouseEvent {
+      pointerId: number;
+      constructor(type: string, params: PointerEventInit = {}) {
+        super(type, params);
+        this.pointerId = params.pointerId ?? 1;
+      }
+    }
+    (window as unknown as { PointerEvent: typeof PE }).PointerEvent = PE;
+  }
+});
 import {
   reactRenderer,
   scatterRenderer,
@@ -224,6 +242,89 @@ describe('lineRenderer — a line over NUMBERS (the third arm, and the defect it
     });
     expect(el.textContent).toContain('107');
     m.unmount();
+  });
+});
+
+describe('the renderers carry the SLOT’S OWN CELL beside its label — a band’s labels are display text, and a clause carries the value', () => {
+  /**
+   * The renderer is where the value used to die: `{ category: String(v) }` threw the row's own cell
+   * away before the chart ever saw it, so a band over a column of numbers could only ever spell its
+   * clause from the labels — a commit on the record that keeps no row. Each mark now hands its chart
+   * the cell beside the label (`BandLinePoint.cell` / `BarDatum.cell` / `BoxPlotDatum.cell` /
+   * `HeatmapCellDatum.yCell`), and the ONE owner of what a slot names reads it
+   * (`../primitives/slotValues.ts`). These tests drive the GESTURE through each bound renderer, so
+   * they fail if any of those four lines is dropped.
+   */
+  const NUMERIC_BAND: Readonly<Record<string, ResolvedChannel>> = {
+    x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'categorical', domain: ['13', '31'] },
+  };
+  const mountedWith = (renderer: Renderer): { el: HTMLElement; m: MountedRenderer; emit: ReturnType<typeof vi.fn> } => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const emit = vi.fn();
+    const m = renderer.mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: { emit, hover: vi.fn(), reencodeRequest: vi.fn(), navigate: vi.fn() } });
+    return { el, m, emit };
+  };
+
+  it('a BAND LINE over a number column taps the number — not `"31"`', () => {
+    const { el, m, emit } = mountedWith(lineRenderer());
+    m.update({ ...state([{ resnum: 13, rmsf: 1 }, { resnum: 31, rmsf: 2 }], { x: 'resnum', y: 'rmsf' }), frame: NUMERIC_BAND });
+    const svg = el.querySelector('svg.vzf-line')!;
+    // a sub-4px release in the SECOND slot of two (the plot is 400 wide: slots split at 226)
+    actFireEvent.pointerDown(svg, { clientX: 300, pointerId: 1 });
+    actFireEvent.pointerMove(svg, { clientX: 301, pointerId: 1 });
+    actFireEvent.pointerUp(svg, { clientX: 301, pointerId: 1 });
+    expect(emit).toHaveBeenCalledWith({ rawValue: 31, encoding: { kind: 'point', field: 'resnum' } });
+    m.unmount();
+  });
+
+  it('a BAR over a number column clicks the number', () => {
+    const { el, m, emit } = mountedWith(barRenderer({ countField: 'n' }));
+    m.update(state([{ resnum: 13, n: 2 }, { resnum: 31, n: 5 }], { category: 'resnum' }));
+    actFireEvent.click(el.querySelectorAll('rect.vzf-mark-hit')[1]!);
+    expect(emit).toHaveBeenCalledWith({ rawValue: 31, encoding: { kind: 'point', field: 'resnum' } });
+    m.unmount();
+  });
+
+  it('a BOX PLOT over a number column clicks the number', () => {
+    const { el, m, emit } = mountedWith(boxPlotRenderer({ categoryField: 'resnum' }));
+    m.update(state([{ resnum: 13, q1: 1, median: 2, q3: 3, whiskerLo: 0, whiskerHi: 4, outliers: [], count: 2 }], { x: 'resnum', y: 'rmsf' }));
+    actFireEvent.click(el.querySelector('[data-box="13"]')!);
+    expect(emit).toHaveBeenCalledWith({ rawValue: 13, encoding: { kind: 'point', field: 'resnum' } });
+    m.unmount();
+  });
+
+  it('a HEATMAP whose ROWS are a boolean column lands `true` on the y side of its cell', () => {
+    const { el, m, emit } = mountedWith(heatmapRenderer({ yRowField: 'inStock' }));
+    m.update(state([{ x0: 0, x1: 50, inStock: true, count: 3 }], { x: 'price', y: 'inStock' }));
+    actFireEvent.click(el.querySelector('[data-cell="0|true"]')!);
+    expect(emit).toHaveBeenCalledWith({ rawValue: [[0, 50], true], encoding: { kind: 'cell', fields: ['price', 'inStock'] } });
+    m.unmount();
+  });
+
+  it('a row CELL nothing a clause can carry leaves the LABEL standing — a `null` point clause is IS NULL and an `undefined` one CLEARS, and a cell click gestured for neither', () => {
+    const { el, m, emit } = mountedWith(heatmapRenderer({ yRowField: 'inStock' }));
+    m.update(state([{ x0: 0, x1: 50, inStock: null, count: 3 }], { x: 'price', y: 'inStock' }));
+    actFireEvent.click(el.querySelector('[data-cell="0|null"]')!);
+    expect(emit).toHaveBeenCalledWith({ rawValue: [[0, 50], 'null'], encoding: { kind: 'cell', fields: ['price', 'inStock'] } });
+    m.unmount();
+  });
+
+  it('BYTE IDENTITY: over a STRING column every one of them lands exactly what it always did', () => {
+    const line = mountedWith(lineRenderer());
+    line.m.update({ ...state([{ area: 'TX', value: 3 }, { area: 'CA', value: 5 }], { x: 'area', y: 'value' }), frame: { x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'categorical', domain: ['TX', 'CA'] } as ResolvedChannel } });
+    const svg = line.el.querySelector('svg.vzf-line')!;
+    actFireEvent.pointerDown(svg, { clientX: 300, pointerId: 1 });
+    actFireEvent.pointerMove(svg, { clientX: 301, pointerId: 1 });
+    actFireEvent.pointerUp(svg, { clientX: 301, pointerId: 1 });
+    expect(line.emit).toHaveBeenCalledWith({ rawValue: 'CA', encoding: { kind: 'point', field: 'area' } });
+    line.m.unmount();
+
+    const bar = mountedWith(barRenderer({ countField: 'n' }));
+    bar.m.update(state([{ kind: 'A', n: 7 }], { category: 'kind' }));
+    actFireEvent.click(bar.el.querySelector('rect.vzf-mark-hit')!);
+    expect(bar.emit).toHaveBeenCalledWith({ rawValue: 'A', encoding: { kind: 'point', field: 'kind' } });
+    bar.m.unmount();
   });
 });
 

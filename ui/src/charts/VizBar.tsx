@@ -36,6 +36,8 @@ import { AxisLabel } from '../primitives/AxisLabel.js';
 import { bandOrder, bandWidth, bandStart, bandCentre, domainOr, ticks, slotAt, pointerTargetWidth, crowdedMarksNote, type ChartDomain } from '../primitives/scales.js';
 import { scaleHueStyle } from '../primitives/scaleHue.js';
 import { clickEmission, matchEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
+import { slotValues, slotPress } from '../primitives/slotValues.js';
+import { announce } from '../primitives/announce.js';
 import { inSet, markClass, selectedSet } from '../primitives/useSelection.js';
 import { useReencodePicker } from '../primitives/reencode.js';
 import { boundField } from './binding.js';
@@ -44,6 +46,17 @@ import { EncodingPicker } from './EncodingPicker.js';
 export interface BarDatum {
   readonly category: string;
   readonly count: number;
+  /**
+   * THE CATEGORY CELL AS THE ROW HOLDS IT, when the label is not it — `true`
+   * under the slot `"true"`, `63` under the slot `"63"`. A band's labels are
+   * `String(cell)` all the way down and a clause carries the COLUMN's own
+   * value, so this is what a click and a drag-run land
+   * (`../primitives/slotValues.ts`, the one owner, shared with `VizLine`'s band
+   * arms so one pixel over one band cannot mean two things). Absent = the
+   * label IS the value, which is every band over a string column and keeps
+   * that band byte-identical.
+   */
+  readonly cell?: unknown;
 }
 
 export interface VizBarProps {
@@ -205,6 +218,11 @@ export function VizBar(props: VizBarProps): JSX.Element {
   // NOTHING — so two bar layers on one frame put "Casual" over the same slot, and a category this layer
   // has no row for stays an EMPTY band instead of a bar claiming zero.
   const bands = bandOrder(props.domain?.categories, data.map((d) => d.category)).map((category) => ({ category, datum: data.find((d) => d.category === category) }));
+  // WHAT THIS CHART'S SLOTS STAND FOR — its own rows as the one owner of that question reads them
+  // (`../primitives/slotValues.ts`): the label a slot is drawn with, and the CELL the row holds there.
+  // This chart's rows are already one per slot, so there is nothing to fold — the `cell` is simply
+  // carried through, and a datum without one says "the label is the value".
+  const slotRows = data.map((d) => ({ name: d.category, cell: d.cell }));
   // the slot geometry is `bandWidth`/`bandStart`/`bandCentre` (../primitives/scales.ts), the ONE owner shared with
   // the line's band points and the frame's merged ticks — so one category is one x on every mark that stands on it
   const band = bandWidth(PAD.l, width - PAD.r, bands.length);
@@ -236,9 +254,18 @@ export function VizBar(props: VizBarProps): JSX.Element {
   const crowded = crowdedMarksNote(band);
 
   // plain click: read against the view's own set (a member of an exclude-set leaves it; the single
-  // kept value clears; anything else selects a point); shift/⌘/ctrl-click: toggle in the SET — SET-1
+  // kept value clears; anything else selects a point); shift/⌘/ctrl-click: toggle in the SET — SET-1.
+  // WHAT IS LANDED IS THE SLOT'S VALUE, not its label (`slotPress` → `slotValues`, the one owner —
+  // this bar's click and `VizLine`'s band tap ask the same function for the same pixel). A slot the
+  // rows name no value for, and a slot naming SEVERAL (a point addresses one), land nothing and say
+  // why; on a band of strings the label IS the value and nothing moves.
   const emit = (category: string, additive: boolean): void => {
-    onEmit?.(additive ? toggleInSetEmission(field, category, set) : clickEmission(field, category, set));
+    const pressed = slotPress(category, slotRows);
+    if ('note' in pressed) {
+      announce(pressed.note);
+      return;
+    }
+    onEmit?.(additive ? toggleInSetEmission(field, pressed.value, set) : clickEmission(field, pressed.value, set));
   };
   /** The band index under a pointer event, from its x over the svg (viewBox units; identity when unmeasured); -1 for an event without a position. */
   const bandAt = (e: { clientX: number }): number => {
@@ -273,9 +300,20 @@ export function VizBar(props: VizBarProps): JSX.Element {
     const b = bands.findIndex((slot) => slot.category === r.end);
     if (a < 0 || b < 0) return; // the data changed under the drag — nothing honest to select
     const [lo, hi] = a < b ? [a, b] : [b, a];
-    // the RUN is the bands the pointer crossed, empty ones included: a drag across a slot this layer has
-    // no row for still means "these categories", and dropping it would emit a set the reader did not draw
-    onEmit?.(matchEmission(field, bands.slice(lo, hi + 1).map((slot) => slot.category), set.exclude));
+    // the RUN is the bands the pointer crossed, and WHAT IT LANDS IS WHAT THEY STAND FOR (`slotValues`,
+    // the one owner — the very function `VizLine`'s band drag asks, so two charts over one band cannot
+    // mean two different things). On a band of STRINGS the names are the values and the empty slots ride
+    // along exactly as they always did: a drag across a slot this layer has no row for still means
+    // "these categories", and dropping it would emit a set the reader did not draw. On a band whose
+    // labels are NOT its values there is nothing to put in an empty slot — inventing one would be a
+    // clause the reader did not make — so it is skipped, and a run of only such slots lands NOTHING
+    // and says so rather than an empty keep-list.
+    // NOTHING TO SAY FOR AN EMPTY ANSWER, because there cannot be one: a run always STARTS on a drawn
+    // bar (`beginRun` hangs off the mark and its target, and an empty band gets neither — see the
+    // pointer-target comment below), so the slice always holds a row and always names at least one
+    // value. The band line's drag is the one that needs the guard: a BRUSH can sweep a span of purely
+    // empty slots, and it says so (`noSlotValuesNote`).
+    onEmit?.(matchEmission(field, slotValues(bands.slice(lo, hi + 1).map((slot) => slot.category), slotRows), set.exclude));
   };
   const cancelRun = (): void => {
     run.current = null;

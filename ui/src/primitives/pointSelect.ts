@@ -33,9 +33,19 @@ export function pointEmission(field: string, value: unknown): ChartEmission {
 /**
  * Click-again-clears: emitting the currently selected value yields the
  * CLEARED point (`rawValue: null`); anything else selects it.
+ *
+ * THE VALUE IS TYPED AND THE COMPARISON IS BY NAME, which is not a widening
+ * for convenience — it is the two tiers this library already has. A clause
+ * carries the COLUMN's own value (a band over a boolean column selects `true`,
+ * `../primitives/slotValues.ts` · `slotValues`), while what a chart knows
+ * about the live selection is its SPELLING: `selfSelectedValue` answers
+ * `String(own.value)` and `markClass`/`inSet` compare by `String(v)`, because
+ * a set an agent landed keeps its own types. So the emitted value stays typed
+ * and the click-again test reads the name — byte-identical for every string
+ * value, which is every caller this function had before.
  */
-export function togglePointEmission(field: string, value: string, selected: string | null): ChartEmission {
-  return selected === value
+export function togglePointEmission(field: string, value: unknown, selected: string | null): ChartEmission {
+  return selected === String(value)
     ? { rawValue: null, encoding: { kind: 'point', field } }
     : { rawValue: value, encoding: { kind: 'point', field } };
 }
@@ -50,10 +60,14 @@ export function matchEmission(field: string, values: readonly unknown[] | null, 
  * see `selfSelectedSet`), keeping its polarity. Removing the last value
  * emits the CLEARED match (`rawValue: null`).
  */
-export function toggleInSetEmission(field: string, value: string, current: { readonly values: readonly unknown[]; readonly exclude: boolean }): ChartEmission {
-  // the set stays TYPED (an agent may have landed numbers): membership is by string, the survivors keep their type
-  const has = current.values.some((v) => String(v) === value);
-  const next = has ? current.values.filter((v) => String(v) !== value) : [...current.values, value];
+export function toggleInSetEmission(field: string, value: unknown, current: { readonly values: readonly unknown[]; readonly exclude: boolean }): ChartEmission {
+  // the set stays TYPED (an agent may have landed numbers, and a band over a non-string column lands
+  // them too — `../primitives/slotValues.ts`): membership is by NAME, the survivors keep their type,
+  // and the value ADDED keeps its own. Byte-identical for a string value, which is every band of
+  // categories and every row key that is one.
+  const name = String(value);
+  const has = current.values.some((v) => String(v) === name);
+  const next = has ? current.values.filter((v) => String(v) !== name) : [...current.values, value];
   return matchEmission(field, next.length === 0 ? null : next, current.exclude);
 }
 
@@ -63,10 +77,11 @@ export function toggleInSetEmission(field: string, value: string, current: { rea
  * that reads as "select" — the chip flips polarity); on the single kept
  * value it clears; anywhere else it selects that one value (a point).
  */
-export function clickEmission(field: string, value: string, current: { readonly values: readonly unknown[]; readonly exclude: boolean }): ChartEmission {
-  const member = current.values.some((v) => String(v) === value);
+export function clickEmission(field: string, value: unknown, current: { readonly values: readonly unknown[]; readonly exclude: boolean }): ChartEmission {
+  const name = String(value);
+  const member = current.values.some((v) => String(v) === name);
   if (current.exclude && member) return toggleInSetEmission(field, value, current);
-  const single = current.values.length === 1 && !current.exclude && member ? value : null;
+  const single = current.values.length === 1 && !current.exclude && member ? name : null;
   return togglePointEmission(field, value, single);
 }
 

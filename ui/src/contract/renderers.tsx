@@ -330,9 +330,14 @@ function lineMark(d: MarkDraw, options: LineRendererOptions): JSX.Element {
   // which answers 0: a position is not a magnitude, and an unplaceable x drawn AT ZERO is a value the
   // row does not have. NaN is what the chart SKIPS (`runPositionOf`, its own never-guess law).
   const xNumber = (v: unknown): number => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : Number.NaN);
-  const xOf = (r: RenderRow): { category: string } | { at: number } | { date: string } => {
+  const xOf = (r: RenderRow): { category: string; cell: unknown } | { at: number } | { date: string } => {
     const v = r[dateField];
-    if (onBand) return { category: String(v) };
+    // A BAND'S LABEL IS `String(cell)` AND THE CLAUSE CARRIES THE CELL, so the row's own value rides
+    // BESIDE the label it is drawn under (`VizLine`'s `BandLinePoint.cell` → `slotValues`, the one
+    // owner): a band over a boolean column selects `true`, a band over a column of numbers selects
+    // `63`. A band over a STRING column hands a cell identical to its label, which is what makes that
+    // band byte-identical to the chart before the value ever travelled.
+    if (onBand) return { category: String(v), cell: v };
     return onNumber(v) ? { at: xNumber(v) } : { date: String(v) };
   };
   const data = d.rows.map((r) => ({
@@ -414,7 +419,9 @@ function barMark(d: MarkDraw, options: BarRendererOptions): JSX.Element {
   const highlightField = options.highlightCountField;
   const field = boundField(d.encodings, 'category', 'category');
   const countField = options.countField ?? 'count';
-  const data = d.rows.map((r) => ({ category: String(r[field]), count: num(r[countField]) }));
+  // the row's own category CELL rides beside the label it is drawn under — the clause carries the
+  // value, not the spelling (`BarDatum.cell` → `../primitives/slotValues.ts`, the one owner)
+  const data = d.rows.map((r) => ({ category: String(r[field]), cell: r[field], count: num(r[countField]) }));
   // The overlay rides only while the host is actually sending the share.
   // A frame whose rows carry no such number means no highlight edge is
   // live, and an overlay of zeros would draw a claim of its own ("none of
@@ -514,6 +521,17 @@ function edge(v: unknown): number | string {
 }
 
 /**
+ * A ROW-LABEL CELL as the y side of a cell clause can carry it — `CellSide`'s
+ * point arm (`vizfootprint/data`), which is a scalar. Anything else offers
+ * NOTHING rather than a fabricated 0 the way {@link edge} must (an edge is a
+ * position and has to exist; a clause value does not, and the label then
+ * stands as the value — `../primitives/slotValues.ts` · `slotValue`).
+ */
+function rowCell(v: unknown): number | string | boolean | undefined {
+  return typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean' ? v : undefined;
+}
+
+/**
  * Bucket-snapping interval brush on x (a bar click = that bucket's interval;
  * click-again clears) · axis re-encode requests. Rows arrive host-BINNED:
  * one row per bucket carrying its edges and count (`src/data`'s
@@ -606,6 +624,10 @@ export function heatmapRenderer(options: HeatmapRendererOptions = {}): Renderer 
         x0: edge(r[x0Field]),
         x1: edge(r[x1Field]),
         y: String(r[yRowField]),
+        // the y side of a cell clause is a BAND, so the row's own cell rides beside the label it is
+        // drawn under (`HeatmapCellDatum.yCell` — the `BarDatum.cell` law; the x side never needed one
+        // because bucket EDGES already travel as the numbers or ISO strings they are)
+        yCell: rowCell(r[yRowField]),
         count: num(r[countField]),
       }));
       return (
@@ -676,6 +698,9 @@ function boxPlotMark(d: MarkDraw, options: BoxPlotRendererOptions): JSX.Element 
   const countLabel = options.countLabel;
   const data = d.rows.map((r) => ({
     category: String(r[categoryField]),
+    // the clause carries the CELL, not the label (`BoxPlotDatum.cell` — the `BarDatum.cell` law on the
+    // band this mark stands on, through the same one owner)
+    cell: r[categoryField],
     q1: stat(r['q1']),
     median: stat(r['median']),
     q3: stat(r['q3']),

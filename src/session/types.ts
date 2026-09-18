@@ -91,6 +91,33 @@ export const GAP_CODES = [
    */
   'result-too-large',
   /**
+   * A SELECTION WHOSE VALUES CANNOT ADDRESS THE COLUMN THEY NAME: a point, a
+   * match or an interval handed a quantity the column does not hold — string
+   * spellings against a column of numbers, most often, because a band axis is
+   * drawn from `String(cell)` and a clause spelled off the labels keeps no
+   * row. The column exists, the view declares the kind, and the act would
+   * LAND: a commit on the record claiming a question was answered that in
+   * truth matched nothing. That is worse than a refusal and worse than a dead
+   * gesture, so it is refused — `valueAddresses` / `unaddressableClause`
+   * (`../encoding/frame.ts`) are the judgement and the sentence, the value-level
+   * tier of law 13.
+   *
+   * It is its own code and not `guard-failed` because an agent has to be able
+   * to branch on one, and this is the sharpest case of that argument yet:
+   * nothing about the view's capability, the declaration or the column is
+   * wrong, so an agent reading `guard-failed` would re-read the definition and
+   * find a definition that is entirely correct. The repair is in the VALUES it
+   * sent — send the column's own quantity — and the sentence quotes what it
+   * sent so it can see which. The same argument that gives `derive-invalid`,
+   * `result-too-large` and `needs-act` codes of their own.
+   *
+   * REFUSED ON EVIDENCE, NEVER ON IGNORANCE: only a column folded as
+   * quantitative or temporal is judged, because the categorical fold NAMES
+   * every cell it meets (`frameDomains`) and a column reported as text may
+   * honestly hold numbers.
+   */
+  'unaddressable-value',
+  /**
    * A view's TABLE IS NOT HERE YET: it is one a declared act mints (an
    * aggregate's landed table), and that act has not landed on this path.
    *

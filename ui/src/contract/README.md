@@ -102,30 +102,72 @@ the gesture, delivered the DECLARED kind — and handed the session
 drag, 162 after. The session took the clause, matched no row with it and filed
 **no gap at all**.
 
-So the step gained a second half: every delivered `interval` must be able to
-address the axis it names — `intervalAddresses` / `unaddressableIntervalRefusal`
+So the step gained a second half: every delivered `interval` had to be able to
+address the axis it named — `intervalAddresses` / `unaddressableIntervalRefusal`
 (`vizfootprint/def`, beside law 13's `drawsIntervalBrush`, which judges a
-DECLARATION and therefore never sees a value). The column's scale is the
-**session's own** (`frameScaleOf` over `SessionViewState.columns` — the kit
-holds the live `SessionView`, which is why it can ask what a renderer cannot:
-the contract hands a renderer rows and a folded frame, never a typed column
-list). Refused on evidence, never on ignorance: a field nothing here types, a
-type nothing can be folded from, a cleared interval and an open side all pass.
+DECLARATION and therefore never sees a value). The kit could ask what a
+renderer cannot, because it holds the live `SessionView` and that state carries
+the schema: the contract hands a renderer rows and a folded frame, never a
+typed column list.
+
+### …and then the fence moved to the DOOR, and this step went back to kind labels
+
+**The next defect wore a `match`, and it was worse than the one before it.** A
+line drawn as a band over a column of numbers declared `match`, drew a brush,
+fired a gesture and delivered a match — every word true — while handing over
+`["63","64"]` for that column. Measured on a real page: the record went from 4
+commits to **5** with the refusal ledger unchanged at 3, and 185 marks in force
+became **0**. *A landed clause that kept nothing is worse than a refusal, and
+worse than the dead gesture it replaced, because the record now claims the
+question was answered.*
+
+The reason the interval arm had lived HERE was that the **session took such a
+clause silently** — there was nowhere better. That is no longer true: the
+session's probe door refuses an unaddressable point, match or interval by name,
+under its own gap code, quoting the column, the kind and what it was handed
+(`unaddressableClause` / `unaddressableValueRefusal`, `vizfootprint/def`; the
+interval sentence is unchanged, byte for byte). **So the arm is gone from this
+step rather than doubled**, and three things follow:
+
+- **`declared-delivered` is about KIND LABELS again**, which is the honest limit
+  of what a kind check can know.
+- **The door runs BEFORE this step.** Such a gesture lands no commit, so the
+  run fails at **`commit-lands`** — which now quotes the session's newest gap
+  verbatim, turning *nothing happened* into the diagnosis. That step earns its
+  keep for every refusal, not only this one: a capability the view never
+  declared and a column that is not there read the same way now.
+- **Two fences for one law could only drift**, and a check that can no longer
+  fail is a check nobody is running. The door's is also the stronger one: it
+  fires for every clause anybody dispatches, not only inside a conformance run.
 
 ```
-declared-delivered: view "surface" delivered the interval ["107","241"] on "resnum", whose scale is
-                    quantitative — numeric bounds address that axis, so no row can answer the clause;
-                    an interval addresses the axis it was drawn on
+commit-lands: the emission never landed a commit in the session log — the session refused it
+              (unaddressable-value): view "surface" delivered the interval ["107","241"] on "resnum",
+              whose scale is quantitative — numeric bounds address that axis, so no row can answer the
+              clause; an interval addresses the axis it was drawn on
 ```
+
+**And what neither fence can catch, named rather than implied.** A band exists
+because its column folded CATEGORICAL, and the categorical fold names every
+cell it is given — so a column reported as text may honestly hold numbers, and
+the door declines to judge a value against that declaration. For a band over a
+`string` or `boolean` column the only fence is the CHART tier: one owner for
+what a slot's name stands for (`slotValues`, `../primitives/slotValues.ts`) and
+the tests that pin it per chart.
 
 **And the harder half of that lesson, which no predicate fixes.** Even with the
 new arm, the kit only ever sees the states a PLAN builds — and no plan had ever
 built a line over NUMBERS. One run is one state (below), so the defect was
 invisible for the same reason step 11's own caveat describes. The fence that
-actually catches this class is **two things together**: the addressability
-check, and a plan per x kind. The first-party suite now runs `lineRenderer`
-three times — a run of dates, a run of numbers, a band — and the three runs
-together are the claim.
+actually catches this class is **two things together**: the refusal, and a plan
+per x kind. The first-party suite now runs `lineRenderer` **four** times — a run
+of dates, a run of numbers, a band of strings, and a **band drawn on a NUMBER
+column** — and the four runs together are the claim. That fourth plan is the
+state the second defect lived in and the one no plan had ever built; it asserts
+the ACCEPTED clause off the session's own log **and the row count it narrowed
+to**, because a landed commit that kept nothing is precisely the bug and a test
+that stops at "ok" proves nothing. If only one half of the fence survives, keep
+the plan: it is what turns "the fence exists" into "the fence ran".
 
 A **third** kind joined the line for the same reason, and the reason is worth
 reading twice: a *reachability* fix changed a gesture, and the declaration had

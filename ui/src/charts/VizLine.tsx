@@ -136,6 +136,7 @@ import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
 import { scaleHueStyle } from '../primitives/scaleHue.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { matchEmission, clickEmission } from '../primitives/pointSelect.js';
+import { slotValues, slotPress, noSlotValuesNote, type SlotRow } from '../primitives/slotValues.js';
 import { selfSelectedInterval } from '../contract/selection.js';
 import { markClass, selectedSet } from '../primitives/useSelection.js';
 import { announce } from '../primitives/announce.js';
@@ -162,6 +163,15 @@ export interface DatedLinePoint {
 export interface BandLinePoint {
   /** The category whose slot this point sits in (the band's label). */
   readonly category: string;
+  /**
+   * THE X CELL AS THE ROW HOLDS IT, when the label is not it — `true` under
+   * the slot `"true"`, `63` under the slot `"63"`. A band's labels are
+   * `String(cell)` all the way down, and a clause carries the COLUMN's own
+   * value, so this is what the drag and the tap land (`../primitives/slotValues.ts`,
+   * the one owner). Absent = the label IS the value, which is every band over
+   * a string column and keeps that band byte-identical.
+   */
+  readonly cell?: unknown;
   readonly value: number;
   /** Optional series split (coloured via `colorOf`). */
   readonly series?: string;
@@ -355,6 +365,20 @@ function isNumericPoint(p: LinePoint): p is NumericLinePoint {
 function keyOf(p: LinePoint): string {
   if (isBandPoint(p)) return p.category;
   return isNumericPoint(p) ? String(p.at) : p.date;
+}
+
+/**
+ * ONE POINT AS THE SLOT OWNER READS IT — its key (the slot it is drawn under)
+ * and the CELL its column holds there, handed to `slotValues`/`slotPress`
+ * (`../primitives/slotValues.ts`, the one owner of what a slot's name stands
+ * for). A dated point offers no cell because its ISO string IS its value; a
+ * NUMERIC point handed to a band offers `at` — which is the whole first-party
+ * shape of this defect, since `xKindOf` lets a band win over the points' own
+ * quantity and `keyOf` then names that slot `String(p.at)`.
+ */
+function slotRowOf(p: LinePoint): SlotRow {
+  if (isBandPoint(p)) return { name: p.category, cell: p.cell };
+  return isNumericPoint(p) ? { name: String(p.at), cell: p.at } : { name: p.date };
 }
 
 /**
@@ -580,6 +604,10 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // …and WHICH x that makes this: a band, a run of numbers or a run of dates (`xKindOf`, the one owner
   // — every branch below reads this one answer and none of them re-derives it)
   const kind = useMemo(() => xKindOf(band, data), [band, data]);
+  // WHAT THIS CHART'S SLOTS STAND FOR — its own rows as the one owner of that question reads them
+  // (`slotRowOf` → `slotValues`/`slotPress`), folded once per data change and asked by BOTH band
+  // gestures below, so a drag and a tap over one slot can never name two different values.
+  const slotRows = useMemo(() => data.map(slotRowOf), [data]);
   const xDomain = props.xDomain;
   // the navigate window: keep only the points inside it — drawn extent follows the window, the data stays whole.
   // A TIME window, so a band (no between to window) keeps every point.
@@ -718,7 +746,17 @@ export function VizLine(props: VizLineProps): JSX.Element {
       announce(noSlotsCoveredNote());
       return null;
     }
-    return matchEmission(dateField, covered.map((at) => names[at]!), set.exclude);
+    // …AND A SLOT IS A NAME FOR A VALUE, so the clause carries what the ROWS hold under those slots
+    // and never the labels they are drawn with (`slotValues`, the one owner — a band over a column of
+    // numbers selects `63`, not `"63"`). On a band of strings the names ARE the values and nothing
+    // moves. Every covered slot skipped ⇒ NOTHING, said out loud in the owner's own words: the rows
+    // name no value there, and an empty keep-list would match everything's opposite — nothing at all.
+    const values = slotValues(covered.map((at) => names[at]!), slotRows);
+    if (values.length === 0) {
+      announce(noSlotValuesNote());
+      return null;
+    }
+    return matchEmission(dateField, values, set.exclude);
   };
 
   // A TAP ON A BAND SELECTS ITS SLOT. It used to RELEASE the match, which left a 5px slot reachable by
@@ -737,7 +775,16 @@ export function VizLine(props: VizLineProps): JSX.Element {
     // pressed and there is nothing to release, so nothing is emitted: the same NOTHING an uncovered drag
     // lands, and never a fabricated clause.
     if (at < 0) return;
-    onEmit?.(clickEmission(dateField, names[at]!, set));
+    // WHAT THAT SLOT STANDS FOR is the drag's own question asked for one slot (`slotPress` — literally
+    // `slotValues` over a one-name list, so a press and a drag cannot read one band two ways). A slot
+    // the rows name no value for, and a slot naming SEVERAL (a point addresses one), land nothing and
+    // say why — never a clause spelled from the label, which is the defect this whole arm exists for.
+    const pressed = slotPress(names[at]!, slotRows);
+    if ('note' in pressed) {
+      announce(pressed.note);
+      return;
+    }
+    onEmit?.(clickEmission(dateField, pressed.value, set));
   };
 
   // drag→interval on the run — the brush primitive's completion discipline (a

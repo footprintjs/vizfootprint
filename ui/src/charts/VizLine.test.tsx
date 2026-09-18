@@ -25,7 +25,8 @@ beforeAll(() => {
 import { VizLine, lineCompat } from './VizLine.js';
 import { VizBar } from './VizBar.js';
 import { noSlotsCoveredNote, noValuesCoveredNote } from '../primitives/scales.js';
-import { selectionForView } from '../contract/selection.js';
+import { noSlotValuesNote, ambiguousSlotNote } from '../primitives/slotValues.js';
+import { selectionForView, clausePredicate } from '../contract/selection.js';
 import type { ColumnView } from '../adapter/types.js';
 
 afterEach(cleanup);
@@ -1050,5 +1051,183 @@ describe('VizLine — a run over NUMBERS emits numbers: the numeric brush', () =
     const { container } = render(<VizLine viewId="line" data={band} width={520} dateField="shelf" selection={asInterval} onEmit={vi.fn()} />);
     expect(container.querySelectorAll('circle.vzf-line-dot.vzf-selected')).toHaveLength(0);
     expect(container.querySelectorAll('circle.vzf-line-dot')).toHaveLength(2);
+  });
+});
+
+describe('VizLine — A SLOT IS A NAME FOR A VALUE: a band drawn over a column that is not text', () => {
+  const PLOT_L = 52;
+  const PLOT_R = 18;
+  const centre = (index: number, count: number, width = 520): number => PLOT_L + ((width - PLOT_L - PLOT_R) / count) * index + (width - PLOT_L - PLOT_R) / count / 2;
+  const drag = (container: HTMLElement, from: number, to: number): void => {
+    const svg = container.querySelector('svg.vzf-line')!;
+    fireEvent.pointerDown(svg, { clientX: from, pointerId: 1 });
+    fireEvent.pointerMove(svg, { clientX: to, pointerId: 1 });
+    fireEvent.pointerUp(svg, { clientX: to, pointerId: 1 });
+  };
+
+  /**
+   * THE DEFECT, measured end to end on a real page. A reader dragged across a line drawn as a BAND
+   * over a column of NUMBERS: the gesture reached the record and LANDED A COMMIT — 4 commits before
+   * the drag and 5 after, the session's refused-requests panel unchanged at 3 — and it matched
+   * NOTHING (185 marks in force before, 0 after; the companion bar chart 372 rects to 2). The clause
+   * carried the slots' SPELLINGS (`["1","2"]`) against a column holding numbers, and the library is
+   * right not to match them. A landed clause that kept nothing is worse than a refusal AND worse than
+   * the dead gesture it replaced, because the record now claims the question was answered.
+   *
+   * A band's slots are named by `String(cell)` all the way down; the ROWS still hold the column's own
+   * values, and the clause carries THOSE (`../primitives/slotValues.ts`, the one owner).
+   */
+  const NUMBERS = [
+    { category: '1', cell: 1, value: 4 },
+    { category: '2', cell: 2, value: 2 },
+    { category: '3', cell: 3, value: 9 },
+  ];
+  /** The rows behind that band, as a provider holds them — `resnum` is a column of NUMBERS. */
+  const ROWS = [{ resnum: 1, v: 4 }, { resnum: 2, v: 2 }, { resnum: 3, v: 9 }];
+
+  it('THE DRAG lands the slots\' own VALUES — numbers, not their spelling', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={NUMBERS} width={520} dateField="resnum" onEmit={onEmit} />);
+    drag(container, 100, 300);
+    expect(onEmit).toHaveBeenCalledTimes(1);
+    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: { values: [1, 2] }, encoding: { kind: 'match', field: 'resnum' } });
+  });
+
+  it('THE TAP lands the slot\'s own value too — one owner, so a press and a drag cannot read one band two ways', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizLine data={NUMBERS} width={520} dateField="resnum" onEmit={onEmit} />);
+    drag(container, 200, 202); // a sub-4px release inside the middle slot
+    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: 2, encoding: { kind: 'point', field: 'resnum' } });
+  });
+
+  it('THE SAME CLAUSE AS THE BAR\'S for the same pixel, on a band of NUMBERS — byte-identical, tap and drag alike, because both ask the one owner', () => {
+    const bars = NUMBERS.map((d) => ({ category: d.category, cell: d.cell, count: d.value }));
+    // the TAP: the line's sub-4px release inside the middle slot …
+    const fromLine = vi.fn();
+    const line = render(<VizLine data={NUMBERS} width={520} dateField="resnum" onEmit={fromLine} />);
+    drag(line.container, 300, 301);
+    cleanup();
+    // … and the BAR's own click on the bar that stands in that slot
+    const fromBar = vi.fn();
+    const bar = render(<VizBar data={bars} field="resnum" width={520} onEmit={fromBar} />);
+    fireEvent.click(bar.container.querySelectorAll('rect.vzf-mark-hit')[1]!);
+    expect(JSON.stringify(fromBar.mock.calls[0]![0])).toBe(JSON.stringify(fromLine.mock.calls[0]![0]));
+    cleanup();
+    // the DRAG: the line's brush across two slots, and the bar's drag-run over the same two
+    const dragLine = vi.fn();
+    const line2 = render(<VizLine data={NUMBERS} width={520} dateField="resnum" onEmit={dragLine} />);
+    drag(line2.container, 100, 300);
+    cleanup();
+    const dragBar = vi.fn();
+    const bar2 = render(<VizBar data={bars} field="resnum" width={520} onEmit={dragBar} />);
+    const svg = bar2.container.querySelector('svg.vzf-bar')!;
+    fireEvent.pointerDown(bar2.container.querySelectorAll('rect.vzf-barrect')[0]!, { clientX: 100, pointerId: 1 });
+    fireEvent.pointerMove(svg, { clientX: 300, pointerId: 1 });
+    fireEvent.pointerUp(svg, { clientX: 300, pointerId: 1 });
+    expect(JSON.stringify(dragBar.mock.calls[0]![0])).toBe(JSON.stringify(dragLine.mock.calls[0]![0]));
+  });
+
+  it('THE ROUND TRIP, and the ROW COUNT is the assertion: the emission goes through the real read door, the rows narrow to exactly the covered slots, and the chart outlines them', () => {
+    const onEmit = vi.fn();
+    const { container, rerender } = render(<VizLine data={NUMBERS} width={520} dateField="resnum" onEmit={onEmit} />);
+    // before: every row is kept
+    expect(ROWS.length).toBe(3);
+    drag(container, 100, 300);
+    const emission = onEmit.mock.calls[0]![0] as { rawValue: unknown; encoding: { kind: 'match'; field: string } };
+    // THE ROWS THE LANDED CLAUSE ACTUALLY KEEPS — the library's own reading of the wire, compiled by
+    // the contract tier. A test that stopped at "something was emitted" is how this survived.
+    const keeps = clausePredicate('match', emission.encoding.field, emission.rawValue);
+    expect(ROWS.filter(keeps).map((r) => r.resnum)).toEqual([1, 2]);
+    // …and the chart outlines the same two slots off the fold of that very clause
+    const selection = selectionForView([{ viewId: 'line', field: emission.encoding.field, kind: 'match', value: emission.rawValue }], 'line');
+    rerender(<VizLine viewId="line" data={NUMBERS} width={520} dateField="resnum" selection={selection} onEmit={onEmit} />);
+    const outlined = [...container.querySelectorAll('circle.vzf-line-dot.vzf-selected')].map((d) => Number(d.getAttribute('cx')));
+    expect(outlined).toEqual([centre(0, 3), centre(1, 3)]);
+  });
+
+  it('WHAT THE DEFECT USED TO LAND kept nothing, and that is the whole packet in one assertion', () => {
+    // the clause the chart emitted before this packet: the slots' spelling
+    const spelled = clausePredicate('match', 'resnum', { values: ['1', '2'] });
+    expect(ROWS.filter(spelled)).toEqual([]); // a commit on the record, 0 rows kept
+    const valued = clausePredicate('match', 'resnum', { values: [1, 2] });
+    expect(ROWS.filter(valued)).toHaveLength(2);
+  });
+
+  it('A BOOLEAN column is the same law with no declaration disagreeing anywhere — `true`, never `"true"`', () => {
+    const onEmit = vi.fn();
+    const data = [{ category: 'true', cell: true, value: 3 }, { category: 'false', cell: false, value: 1 }];
+    const { container } = render(<VizLine data={data} width={520} dateField="inStock" onEmit={onEmit} />);
+    drag(container, 60, 300);
+    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: { values: [true] }, encoding: { kind: 'match', field: 'inStock' } });
+    const keeps = clausePredicate('match', 'inStock', { values: [true] });
+    expect([{ inStock: true }, { inStock: false }].filter(keeps)).toEqual([{ inStock: true }]);
+  });
+
+  it('A NAME THE ROWS DO NOT REACH IS SKIPPED, never guessed — a frame may declare a category these rows do not hold', () => {
+    const onEmit = vi.fn();
+    // the frame declares four slots; the rows reach three of them
+    const { container } = render(<VizLine data={NUMBERS} width={520} dateField="resnum" domain={{ categories: ['1', '2', '9', '3'] }} onEmit={onEmit} />);
+    drag(container, 60, 460); // across all four slots — and "9" is a slot no row reaches
+    const values = (onEmit.mock.calls[0]![0] as { rawValue: { values: unknown[] } }).rawValue.values;
+    // the three the rows DO reach, in the band's order; "9" contributes nothing, because inventing a
+    // value for it (the number 9? the string "9"?) would be a clause the reader did not make
+    expect(values).toEqual([1, 2, 3]);
+  });
+
+  it('EVERY NAME SKIPPED ⇒ NOTHING, said out loud — never an empty keep-list, which is the sharpest failure there is', () => {
+    const onEmit = vi.fn();
+    // four declared slots, and the rows reach only the first; the drag crosses the last two
+    const data = [{ category: '1', cell: 1, value: 4 }];
+    const { container } = render(<VizLine data={data} width={520} dateField="resnum" domain={{ categories: ['1', '7', '8', '9'] }} onEmit={onEmit} />);
+    drag(container, 300, 460);
+    expect(onEmit).not.toHaveBeenCalled();
+    expect(document.querySelector('.vzf-live-region')!.textContent!.trim()).toBe(noSlotValuesNote());
+  });
+
+  it('A SLOT NAMING TWO VALUES: the drag takes both (a match is a set), the PRESS refuses it by name and points at the gesture that can', () => {
+    const mixed = [
+      { category: '1', cell: 1, value: 4 },
+      { category: '1', cell: '1', value: 6 },
+      { category: '2', cell: 2, value: 2 },
+    ];
+    const onEmit = vi.fn();
+    const a = render(<VizLine data={mixed} width={520} dateField="resnum" onEmit={onEmit} />);
+    drag(a.container, 60, 200); // the first slot of two
+    expect(onEmit.mock.calls[0]![0]).toEqual({ rawValue: { values: [1, '1'] }, encoding: { kind: 'match', field: 'resnum' } });
+    // both rows the slot drew are kept — the mark the reader dragged over was one mark over two rows
+    const keeps = clausePredicate('match', 'resnum', { values: [1, '1'] });
+    expect([{ resnum: 1 }, { resnum: '1' }, { resnum: 2 }].filter(keeps)).toHaveLength(2);
+    cleanup();
+    // …and a PRESS lands nothing: a point addresses ONE value, and half the mark is the same lie smaller
+    const pressed = vi.fn();
+    const b = render(<VizLine data={mixed} width={520} dateField="resnum" onEmit={pressed} />);
+    drag(b.container, 100, 102);
+    expect(pressed).not.toHaveBeenCalled();
+    expect(document.querySelector('.vzf-live-region')!.textContent!.trim()).toBe(ambiguousSlotNote('1', [1, '1']));
+  });
+
+  it('BYTE IDENTITY: a band over a STRING column is untouched — drag, tap and the empty slots a drag rides over', () => {
+    const strings = [
+      { category: 'Formal', cell: 'Formal', value: 4 },
+      { category: 'Casual', cell: 'Casual', value: 2 },
+      { category: 'Party', cell: 'Party', value: 9 },
+    ];
+    const withCell = vi.fn();
+    const a = render(<VizLine data={strings} width={520} dateField="shelf" onEmit={withCell} />);
+    drag(a.container, 100, 300);
+    cleanup();
+    // …the same chart, given no cells at all (a host that never heard of them)
+    const withoutCell = vi.fn();
+    const b = render(<VizLine data={strings.map(({ category, value }) => ({ category, value }))} width={520} dateField="shelf" onEmit={withoutCell} />);
+    drag(b.container, 100, 300);
+    expect(JSON.stringify(withCell.mock.calls[0]![0])).toBe(JSON.stringify(withoutCell.mock.calls[0]![0]));
+    expect(withCell.mock.calls[0]![0]).toEqual({ rawValue: { values: ['Formal', 'Casual'] }, encoding: { kind: 'match', field: 'shelf' } });
+    cleanup();
+    // …and a slot the frame declared that no row reaches STILL rides along on a name band (`VizBar` ·
+    // `endRun`'s own law): on a name band there is nothing to guess, because the name IS the value
+    const declared = vi.fn();
+    const c = render(<VizLine data={strings} width={520} dateField="shelf" domain={{ categories: ['Formal', 'Smart', 'Casual', 'Party'] }} onEmit={declared} />);
+    drag(c.container, 60, 300); // four slots of 112.5: the centres at 108 and 221 are crossed
+    expect((declared.mock.calls[0]![0] as { rawValue: { values: unknown[] } }).rawValue.values).toEqual(['Formal', 'Smart']);
   });
 });

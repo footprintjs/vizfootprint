@@ -48,6 +48,7 @@ import type { KeyboardEvent } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { RenderSelection } from '../contract/types.js';
 import { clickEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
+import { slotValue } from '../primitives/slotValues.js';
 import { useBrightPredicate, selectedSet, inSet, markClass, dimClass } from '../primitives/useSelection.js';
 
 /** One row of table data — arbitrary fields, keyed by column name. */
@@ -145,15 +146,22 @@ export function VizTable(props: VizTableProps): JSX.Element {
     }
   };
 
-  const emit = (id: string, additive: boolean): void => {
+  const emit = (id: string, key: unknown, additive: boolean): void => {
+    // A ROW KEY IS A NAME FOR A VALUE TOO. The id this chart draws, outlines and keys its rows by is
+    // `String(row[idField])` — display text — while the row still holds what the column holds, so a
+    // table over a numeric id column used to land `"7"` against cells holding `7`: a commit on the
+    // record that keeps no row. The clause carries the CELL (`slotValue`, the one owner — the same
+    // line every band chart's slot asks, so this gesture and a bar's cannot read one column two ways),
+    // and only the name where the cell could be no clause value at all.
+    const value = slotValue(id, key);
     // plain click: click-again-clears (VizMap's gesture); shift/⌘/ctrl-click toggles the row in the view's own SET (SET-1)
-    const emission: ChartEmission = additive ? toggleInSetEmission(idField, id, set) : clickEmission(idField, id, set);
+    const emission: ChartEmission = additive ? toggleInSetEmission(idField, value, set) : clickEmission(idField, value, set);
     onEmit?.(emission);
   };
-  const onRowKey = (e: KeyboardEvent<HTMLTableRowElement>, id: string): void => {
+  const onRowKey = (e: KeyboardEvent<HTMLTableRowElement>, id: string, key: unknown): void => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      emit(id, e.shiftKey || e.metaKey || e.ctrlKey);
+      emit(id, key, e.shiftKey || e.metaKey || e.ctrlKey);
     }
   };
 
@@ -208,7 +216,10 @@ export function VizTable(props: VizTableProps): JSX.Element {
               </thead>
               <tbody>
                 {sorted.map((row) => {
-                  const id = String(row[idField]);
+                  // the row's own key cell, and the NAME the chart draws it under (`String`) — the outline,
+                  // the react key and the accessible label all read the name; only the CLAUSE reads the cell
+                  const key = row[idField];
+                  const id = String(key);
                   const isSelected = inSet(id, set);
                   const isKept = keep ? keep(row) : true;
                   return (
@@ -218,8 +229,8 @@ export function VizTable(props: VizTableProps): JSX.Element {
                       tabIndex={0}
                       aria-selected={isSelected && !set.exclude}
                       aria-label={`row ${id}${isSelected ? (set.exclude ? ' excluded' : ' selected') : ''}`}
-                      onClick={(e) => emit(id, e.shiftKey || e.metaKey || e.ctrlKey)}
-                      onKeyDown={(e) => onRowKey(e, id)}
+                      onClick={(e) => emit(id, key, e.shiftKey || e.metaKey || e.ctrlKey)}
+                      onKeyDown={(e) => onRowKey(e, id, key)}
                     >
                       {columns.map((field) => {
                         const value = row[field];

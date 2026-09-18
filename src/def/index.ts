@@ -168,6 +168,11 @@ export {
   // values, so this pair is asked where the clause is — the conformance kit (`declared-delivered`)
   intervalAddresses,
   unaddressableIntervalRefusal,
+  // …and the POINT/MATCH half of it: one fan-out over the three single-column kinds with the evidence
+  // riding back, one sentence for all three, and the per-value predicate under both
+  valueAddresses,
+  unaddressableClause,
+  unaddressableValueRefusal,
   FRAME_LAYER_LINT,
   ZERO_ANCHORED_KINDS,
 } from '../encoding/index.js';
@@ -205,6 +210,7 @@ export type {
   GraphReading,
   GraphReadingKind,
   GraphReadingRule,
+  AddressedClauseKind,
   ChannelValues,
   EffectiveResolution,
   FrameLayer,
