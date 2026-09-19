@@ -219,8 +219,8 @@ export type {
 } from '../encoding/index.js';
 
 // The data-source layer (owned by src/source; the file carrier is its own module, src/source/file.ts).
-export { SOURCE_FORMATS, SOURCE_VIAS, SOURCE_REFUSALS, CAPABILITY_REFUSALS, SourceRefusal, isSourceRefusal, isUnchanged, deltaByKey, decodeRows, inlineSource, inlineVersion, openSource } from '../source/index.js';
-export type { SourceFormat, SourceVia, SourceRefusalReason, SourceUnchanged, RefreshDelta, SourceDecl, SourceCapabilities, SnapshotOptions, SourceSnapshot, SourceHandle, SourceAdapter, SourceInfo, SourceRejection } from '../source/index.js';
+export { SOURCE_FORMATS, SOURCE_VIAS, SOURCE_ARRIVALS, SOURCE_REFUSALS, CAPABILITY_REFUSALS, SourceRefusal, isSourceRefusal, isUnchanged, deltaByKey, decodeRows, inlineSource, inlineVersion, openSource } from '../source/index.js';
+export type { SourceFormat, SourceVia, SourceArrival, SourceRefusalReason, SourceUnchanged, RefreshDelta, SourceDecl, SourceCapabilities, SnapshotOptions, SourceSnapshot, SourceHandle, SourceAdapter, SourceInfo, SourceRejection } from '../source/index.js';
 export type { RestorableSaved, RestorableBookmark, RestoreResult, SavedClause, SavedSelection, SavedStore, Bookmark, BookmarkStore, CommitIdStore } from './types.js';
 
 // The builtin online-FDR stepper (owned by `../fdr`, which is a barrel and not a

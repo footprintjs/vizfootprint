@@ -347,6 +347,13 @@ describe('every failure is a typed refusal that quotes what it saw', () => {
     expect(connection.asked).toEqual([describeSQL]); // the schema, and nothing more
   });
 
+  it('an EXTENT is refused in words rather than dropped: a bound this engine ignored would answer over every row it holds and call the number the prefix\'s', async () => {
+    const connection = fake();
+    const rejection = await refused(over(connection), TABLE, null, { extent: 100 });
+    expect(rejection).toEqual({ reason: 'not-implemented', detail: 'table "cases" was asked for the first 100 rows in source order, and the wasm engine cannot bound a read to an extent — a growing source\'s table declares engine "memory"' });
+    expect(connection.asked).toEqual([describeSQL]); // nothing was run
+  });
+
   it('a projection naming a column the table does not have is refused BEFORE any statement runs — the same law the memory engine keeps', async () => {
     const connection = fake();
     const rejection = await refused(over(connection), TABLE, null, { columns: ['disease', 'nope'] });

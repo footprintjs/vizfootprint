@@ -23,10 +23,52 @@ export type SourceFormat = (typeof SOURCE_FORMATS)[number];
 export const SOURCE_VIAS = ['inline', 'file', 'http'] as const;
 export type SourceVia = (typeof SOURCE_VIAS)[number];
 
+/**
+ * HOW THE DATA ARRIVES, and the ONE question that separates the kinds:
+ *
+ * > **Is a partial answer a usable answer?**
+ *
+ * `whole` — it is NOT an answer. Half a protein alignment is the first N
+ * sequences *in file order*, a biased subset a conservation score would be
+ * silently wrong over. A number over it says which VERSION, as today.
+ *
+ * `growing` — it IS an answer, over a prefix. The first thousand rows of a time
+ * series are a real picture **if the number says it is over a thousand**. A
+ * number over it says which **extent** ({@link SourceInfo.extent}), and the
+ * commit records the extent it was true of (`../log/log.ts` ·
+ * `CommitRecord.extents`, and {@link SourceInfo.arrival} for where the extent
+ * of the LATEST reading is read off).
+ *
+ * TWO WORDS AND NOT THREE. `live` — a feed, where the partial answer is the
+ * only answer there is and a number says *as of when* — is named in
+ * `docs/proposals/data-arrival.md` §1 and is deliberately NOT in this
+ * vocabulary: the cursor depends on the record being immutable, so a feed must
+ * accumulate OUTSIDE the record and land by an act at a declared moment, and a
+ * word here that every door refused would be a promise this version does not
+ * keep. The union is open to a third entry; the implementation is its own
+ * packet, last in that document's Order for a stated reason.
+ *
+ * ABSENT MEANS `whole`, and a def that declares nothing behaves byte-identically
+ * to one written before this tag existed — no extent is taken, no commit carries
+ * one, no read is bounded.
+ */
+export const SOURCE_ARRIVALS = ['whole', 'growing'] as const;
+export type SourceArrival = (typeof SOURCE_ARRIVALS)[number];
+
 /** A table's source, as a def states it. Inert data (R12): echoed, never executed. */
 export interface SourceDecl {
   readonly format: SourceFormat;
   readonly via: SourceVia;
+  /**
+   * Whether a partial reading of this source is a usable answer — see
+   * {@link SOURCE_ARRIVALS}. Absent is `whole`.
+   *
+   * A `growing` source is HELD TO ITS DECLARATION: a re-read whose rows do not
+   * EXTEND the reading already landed is refused `not-growing` by name
+   * (`../def/buildDashboard.ts` · `notGrowing`), never quietly accepted — the
+   * same answer a monotone fold's claim gets, falsified rather than trusted.
+   */
+  readonly arrival?: SourceArrival;
   /** Where: the inline payload itself (`via: 'inline'`), or a path / URL string. */
   readonly at?: unknown;
   /** Per-carrier options, echoed to the adapter (a CSV delimiter, a JSON path). */
@@ -110,7 +152,27 @@ export interface SourceInfo {
   readonly at?: string;
   readonly version: string;
   readonly retrievedAt: string;
+  /**
+   * How many rows the LAST READING held — and, when {@link arrival} is
+   * `'growing'`, the EXTENT of that reading.
+   *
+   * WHY THE SAME NUMBER ANSWERS BOTH, and why the extent is still a new thing:
+   * this count is a fact about **the last read**, which is what a provenance
+   * row is for. The extent on a COMMIT (`../log/log.ts` ·
+   * `CommitRecord.extents`) is a fact about **what a number was true of**, and
+   * the two diverge the moment a second reading lands — this row moves to the
+   * new count, the commit keeps the old one. A second field here would be two
+   * names for one number and would go stale at exactly the same moment.
+   */
   readonly rows: number;
+  /**
+   * `'growing'` when the def declared it — **ABSENT when the source is whole**,
+   * which is what a source that declares nothing is (the `state?: 'arriving'`
+   * precedent on {@link ResourceInfo}: a word that is only ever one word is
+   * carried only when it is true). It is what tells a reader that `rows` above
+   * is an EXTENT rather than a total.
+   */
+  readonly arrival?: 'growing';
 }
 
 // ── resources: a declared source that is NOT a table ─────────────────────────

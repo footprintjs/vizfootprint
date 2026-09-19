@@ -257,14 +257,23 @@ function sortKey(sort: readonly SortSpec[]): string {
 /** How many sort permutations one table keeps unless the options say otherwise: the few sorts a person flips between, least recently used evicted. Each holds 4 bytes per row. */
 export const SORT_CACHE_PER_TABLE = 8;
 
-/** The matches in `order` (or source order): every one counted, only the first `need` collected — a window never allocates the whole match list. */
-function collectMatches(store: TableStore, clauses: readonly PredicateClause[], order: Int32Array | undefined, need: number | undefined): { readonly indices: number[]; readonly count: number } {
+/**
+ * The matches in `order` (or source order): every one counted, only the first
+ * `need` collected — a window never allocates the whole match list.
+ *
+ * `extent` bounds which rows are JUDGED, by their own SOURCE position — so a
+ * sorted read over an extent judges the same rows as an unsorted one and only
+ * hands them back in another order (`./types.ts` · `EvaluateOptions.extent`).
+ * That is why the test is on `i` and not on `k`.
+ */
+function collectMatches(store: TableStore, clauses: readonly PredicateClause[], order: Int32Array | undefined, need: number | undefined, extent?: number): { readonly indices: number[]; readonly count: number } {
   const n = storeRowCount(store);
   const indices: number[] = [];
   let count = 0;
   const fields = [...new Set(clauses.flatMap((c) => clauseFields(c)))];
   for (let k = 0; k < n; k++) {
     const i = order === undefined ? k : order[k]!;
+    if (extent !== undefined && i >= extent) continue;
     const probe: Row = {};
     for (const f of fields) probe[f] = fieldAt(store, f, i);
     if (!clauses.every((c) => matchesClause(probe, c))) continue;
@@ -427,7 +436,7 @@ export function memoryProvider(
 
       const sql = resolvePredicateSQL(clauses);
       // the window and the sort are judged the same way in both modes — a malformed one is refused, never clamped into something the caller did not ask
-      const badWindow = badWindowValue('offset', evalOptions.offset) ?? badWindowValue('limit', evalOptions.limit);
+      const badWindow = badWindowValue('offset', evalOptions.offset) ?? badWindowValue('limit', evalOptions.limit) ?? badWindowValue('extent', evalOptions.extent);
       if (badWindow !== undefined) return reject('memory', 'evaluate', 'bad-window', badWindow);
       const sort = evalOptions.sort ?? [];
       const missingSort = sort.map((k) => k.field).find((f) => !names.includes(f));
@@ -435,12 +444,12 @@ export function memoryProvider(
         return reject('memory', 'evaluate', 'unknown-column', `table "${table}" has no column "${missingSort}" to sort by`);
       }
       if (evalOptions.mode === 'count') {
-        return { sql, count: collectMatches(store, clauses, undefined, 0).count };
+        return { sql, count: collectMatches(store, clauses, undefined, 0, evalOptions.extent).count };
       }
       const order = sort.length > 0 ? permutationFor(table, store, sort) : undefined;
       const offset = evalOptions.offset ?? 0;
       const need = evalOptions.limit !== undefined ? offset + evalOptions.limit : undefined; // collect only what the window can show; count everything
-      const { indices, count } = collectMatches(store, clauses, order, need);
+      const { indices, count } = collectMatches(store, clauses, order, need, evalOptions.extent);
       const start = Math.min(offset, count);
       const windowed = indices.slice(start, evalOptions.limit !== undefined ? start + evalOptions.limit : undefined);
       const rows = windowed.map((i) => rowAt(store, i, evalOptions.columns));

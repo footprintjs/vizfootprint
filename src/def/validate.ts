@@ -37,7 +37,7 @@ import { lintEncodings, pageBindings, resolveFacets, validateColumnDecls, valida
 import type { EncodingRules, EncodingSurface, FacetSource } from '../encoding/index.js';
 import type { ColumnInfo } from '../data/index.js';
 import { DASHBOARD_PROSE_ID, NOTE_PROSE_PREFIX, validateProseDecls } from '../prose/index.js';
-import { RESOURCE_FORMATS, SOURCE_FORMATS, SOURCE_VIAS } from '../source/index.js';
+import { RESOURCE_FORMATS, SOURCE_ARRIVALS, SOURCE_FORMATS, SOURCE_VIAS } from '../source/index.js';
 import type { SourceRefusalReason } from '../source/index.js';
 
 /** Thrown when a def is structurally malformed. Carries every problem at once. */
@@ -198,9 +198,15 @@ function validateSourceDecl(raw: unknown, where: string, problems: string[]): vo
     problems.push(`${where} must be an object { format, via, at?, options? }`);
     return;
   }
-  for (const key of Object.keys(raw)) if (!['format', 'via', 'at', 'options'].includes(key)) problems.push(`${where}.${key} is not a source key`);
+  for (const key of Object.keys(raw)) if (!['format', 'via', 'at', 'options', 'arrival'].includes(key)) problems.push(`${where}.${key} is not a source key`);
   if (!(SOURCE_FORMATS as readonly unknown[]).includes(raw.format)) problems.push(`${where}.format must be one of ${SOURCE_FORMATS.join('|')}`);
   if (!(SOURCE_VIAS as readonly unknown[]).includes(raw.via)) problems.push(`${where}.via must be one of ${SOURCE_VIAS.join('|')}`);
+  // …and the fourth tag, which is not a transport detail: whether a PARTIAL reading of
+  // this source is a usable answer (`../source/types.ts` · SOURCE_ARRIVALS). Absent is
+  // `whole`, so a def written before the tag existed is judged exactly as it was.
+  if (raw.arrival !== undefined && !(SOURCE_ARRIVALS as readonly unknown[]).includes(raw.arrival)) {
+    problems.push(`${where}.arrival must be one of ${SOURCE_ARRIVALS.join('|')} — is a partial answer a usable answer?`);
+  }
   if (raw.via === 'inline' && raw.at === undefined) problems.push(`${where}.at must carry the payload when via is inline`);
   if ((raw.via === 'file' || raw.via === 'http') && (typeof raw.at !== 'string' || raw.at.length === 0)) problems.push(`${where}.at must be a path or URL string when via is ${String(raw.via)}`);
   if (raw.options !== undefined && !isObject(raw.options)) problems.push(`${where}.options, if present, must be an object`);
@@ -688,6 +694,23 @@ export function validateDashboardDef(def: unknown): string[] {
         // bytes that nothing loads.
         if (src.engine !== undefined && src.engine !== 'memory' && src.engine !== 'wasm') {
           problems.push(`data["${table}"] sets engine "${String(src.engine)}" with a source; a source's rows are loaded into the engine that reads them, so a source table declares "memory" (materialised in this process) or "wasm" (landed in the SQL backend by buildDashboardAsync) — or no engine at all`);
+        }
+        // TWO THINGS A `growing` SOURCE OWES, judged here because both are facts about the
+        // TABLE rather than about the source tags, and both are what make the extent honest.
+        if (isObject(src.source) && src.source.arrival === 'growing') {
+          // ONE: a row key. "The delta is always added" is exactly the claim a key is needed
+          // to CHECK — without one a re-read is `replaced` and nothing can be told apart
+          // (`../data/delta.ts`), so the declaration could never be falsified.
+          if (src.key === undefined) {
+            problems.push(`data["${table}"].source.arrival is "growing", so data["${table}"].key must name the row identity column — without one a re-reading is "replaced" and nothing could tell an added row from a changed one`);
+          }
+          // TWO: the memory engine. A number read behind the cursor is read over the extent
+          // the commit named, and only the memory engine can bound a read to it today
+          // (`../data/types.ts` · EvaluateOptions.extent); the wasm engine refuses the bound
+          // in words rather than answering over every row it holds.
+          if (src.engine !== undefined && src.engine !== 'memory') {
+            problems.push(`data["${table}"].source.arrival is "growing" on engine "${String(src.engine)}"; a number behind the cursor is read over the extent its commit named, and only the memory engine can bound a read to an extent — declare "memory", or no engine at all`);
+          }
         }
       }
       if (src.key !== undefined) {

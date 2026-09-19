@@ -1,6 +1,6 @@
 # source — where a table's rows come from
 
-Three independent tags on a table, stated as data, and one small port — and the same three tags on a RESOURCE, which is a declared source that is not a table (its own section below). A **format** says what shape the bytes are (`rows`, `csv`, `json`); a **via** says how they travel (`inline`, `file`, `http`); **at** says where. The query port (`DataProvider`) is untouched: a source produces rows, the provider judges clauses over them.
+Three independent tags on a table, stated as data, and one small port — and the same three tags on a RESOURCE, which is a declared source that is not a table (its own section below). A **format** says what shape the bytes are (`rows`, `csv`, `json`); a **via** says how they travel (`inline`, `file`, `http`); **at** says where. The query port (`DataProvider`) is untouched: a source produces rows, the provider judges clauses over them. A table's source carries one more, optional, tag — **arrival**, whether a partial reading of it is a usable answer — with its own section below.
 
 ```ts
 data: {
@@ -30,6 +30,49 @@ A resource handle has a second door of its own — `fold(folds, options) → Res
 - **A refusal names the table**: every carrier sentence starts with `table "<name>"`, and the async builder raises it as a `DashboardDefError` — the same shape the sync door uses.
 - **A source table runs where its rows are landed** — in memory (the default), or on the wasm engine when it says so (`buildDashboardAsync` lands the carrier's rows in the SQL backend); any other `engine` beside a `source` is refused at the def door rather than silently overridden.
 - **`engine: 'auto'` resolves to memory with a note** until a measured bench exists; the placeholder thresholds are not a capacity claim.
+
+## How the data ARRIVES — three kinds, and the one question that separates them
+
+A fourth tag on a source, and it is not a transport detail:
+
+> **Is a partial answer a usable answer?**
+
+| declared kind | a partial answer is | what a number over it must say |
+|---|---|---|
+| `whole` (the default) | **not an answer** | which VERSION — as today, unchanged |
+| `growing` | **an answer over a prefix** | which **EXTENT** |
+| `live` | the only answer there is | *as of when* — **not built**, see below |
+
+**Half a protein alignment is worthless.** It is the first N sequences *in file order* — a biased subset, and a conservation score computed from it would be wrong in a way no reader could see. **The first thousand rows of a time series ARE a real picture** — *if the number says it is over a thousand.* That difference is the whole of this tag, and it is the reason arrival is DECLARED rather than sniffed from a transport: a source may not be vague about whether its partial state is usable.
+
+```ts
+data: {
+  hourly: { source: { format: 'csv', via: 'http', at: '…', arrival: 'growing' }, key: 'hour_key' },
+}
+dashboard.sources.hourly   // { …, rows: 20_000, arrival: 'growing' }  ← `rows` is this reading's EXTENT
+```
+
+### The law
+
+**A number over a growing source states the extent it was computed over, and a commit records the extent it was true of.** That is what turns *"we showed you a partial answer"* from a lie into a stated claim. A caption reading *1,234 cases* over a growing source, with no extent beside it, is the defect — not the partial read.
+
+### What an extent IS, and why it is a new thing even though `SourceInfo.rows` already held the number
+
+An extent is a **row count**, and it is the same integer the provenance row already carries. What is new is *which question it answers*. `SourceInfo.rows` is a fact about **the last read**; `CommitRecord.extents[table]` is a fact about **what a number was true of** — and the two diverge the moment a second reading lands: the source row moves to the new count, the commit keeps the old one. A second field on the source row would be two names for one number, going stale at exactly the same moment; a parallel map on the commit is a second fact, and it is what makes the paragraph below possible.
+
+### Time travel then does the right thing for nothing
+
+Step the cursor back and you see the number over the prefix that existed *then* — which is correct, and was impossible before the stamp existed. **The law is: at the head you read what has landed; behind it you read the extent the commit named.** The head is where the present is, and a growing source exists so that rows arriving there are seen; behind it the cursor is a position in the record, and the record says how many rows there were. It costs nothing when nothing grows — no commit carries an extent, so no read is ever bounded (`../session/session.ts` · `extentHere`, `../data/types.ts` · `EvaluateOptions.extent`).
+
+### The constraint that dictates all of it
+
+**A growing source may never mutate a landed table in place** — the cursor depends on the record being immutable. What makes an in-place re-landing safe HERE, and only here, is that a growing reading only ever APPENDS: the prefix that was landed is still the prefix, so an earlier extent still names exactly the rows it named. That is a claim, so it is falsified rather than trusted (`../def/growing.ts`): a re-reading that removes a row, changes one, or puts the landed rows in another order is refused **`not-growing`** by name, with the rows in place untouched — the same shape guard 2 gives bytes that are not the declared table. One key and one digest per landed row is all that is held between readings.
+
+Two more things the declaration owes, both judged at the def door: a **row key** (without one a re-reading is `replaced` and nothing could tell an added row from a changed one, so the claim could never be checked), and the **memory engine** (only it can bound a read to an extent today; the wasm engine refuses the bound in words rather than answering over every row it holds).
+
+### `live` is named here and is NOT built
+
+A feed is never complete, so its number says *as of when* rather than *over what* — and because the cursor depends on the record being immutable, a feed must accumulate **outside** the record and land by an act at a declared moment. That is its own packet (`docs/proposals/data-arrival.md`, step 4, last in the Order for that reason). `SOURCE_ARRIVALS` is two words, not three: a word every door refused would be a promise this version does not keep.
 
 ## Refusals, typed
 
@@ -214,6 +257,6 @@ Three consequences that belong here rather than in the def folder:
 
 ## Not yet
 
-The streaming carrier for a TABLE's rows, and only that: `snapshot(options)` already takes an abort signal, and a delta channel gated by `live` arrives with it. (A RESOURCE's bytes already arrive progressively — its own section above, with the law that a partial one is never landed. Its remaining exclusions are listed there, and they are exclusions by DESIGN rather than work outstanding — a resource decoded into a table would be the one thing the law forbids.)
+The streaming carrier for a TABLE's rows, and only that: `snapshot(options)` already takes an abort signal, and a delta channel gated by `live` arrives with it — together with the `live` ARRIVAL kind, which is the same thing declared: a feed accumulating outside the record and landing by an act at a declared moment ("How the data ARRIVES", above). Two more pieces of `growing` are outstanding and are named where they live: the wasm engine cannot bound a read to an extent (it refuses one in words), and no first-party consumer declares `growing` yet. (A RESOURCE's bytes already arrive progressively — its own section above, with the law that a partial one is never landed. Its remaining exclusions are listed there, and they are exclusions by DESIGN rather than work outstanding — a resource decoded into a table would be the one thing the law forbids.)
 
 Everything else this list used to name has SHIPPED, and the section above is where each one now lives — the row key and its exact delta (`data[t].key`, `deltaByKey`), the version stamp every commit carries (`CommitRecord.data`, from the log's `stampData` hook), and the package `exports` map: `vizfootprint/source` and `vizfootprint/source/file` are real specifiers in `package.json`, so a host no longer reaches the file carrier by path. A "not yet" that outlives the work is worse than no list at all — it tells a reader to go build what is already under their hand — so `notYet.test.ts` pins this paragraph against the code that proves each one landed.

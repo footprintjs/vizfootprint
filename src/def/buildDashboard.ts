@@ -86,6 +86,7 @@ import type { ProseProblem } from '../prose/index.js';
 import { isRejection } from '../data/index.js';
 import { DEFAULT_RELATION_KIND } from './relations.js';
 import { decodeRows, inlineResource, inlineVersion, isResourceRefusal, isSourceRefusal, isUnchanged, openResource, openSource, resourceBytes, resourceInfoOf, SourceRefusal } from '../source/index.js';
+import { notGrowing, prefixOf, type LandedPrefix } from './growing.js';
 import type { RefreshDelta, ResourceDecl, ResourceInfo, ResourceProgressObserver, ResourceSnapshot, ResourceSnapshotOptions, SourceAdapter, SourceDecl, SourceInfo, SourceRefusalReason, SourceSnapshot } from '../source/index.js';
 import type { ColumnFacet, ColumnInfo } from '../data/index.js';
 import { deepFreeze } from '../detach/index.js';
@@ -241,9 +242,13 @@ export type RefreshOutcome =
        * at all — a stub — or its backend refused the act, in the engine's own
        * words; see `refresh`), or `not-the-declared-table` (the source answered,
        * and what it answered carries none of the columns this table declares —
-       * `./declaredTable.ts`; the rows in place are untouched).
+       * `./declaredTable.ts`; the rows in place are untouched), or `not-growing`
+       * (the table declares `arrival: 'growing'` and this reading did not EXTEND
+       * the one already landed — a row removed, changed, or no longer where it
+       * was; `./growing.ts`. The rows in place are untouched here too, and the
+       * declaration is what was false, not the data).
        */
-      readonly reason: SourceRefusalReason | 'no-source' | 'not-reloadable' | 'not-the-declared-table';
+      readonly reason: SourceRefusalReason | 'no-source' | 'not-reloadable' | 'not-the-declared-table' | 'not-growing';
       readonly message: string;
     };
 
@@ -734,7 +739,7 @@ export function buildDashboard(def: DashboardDef, options: BuildDashboardOptions
       if ('rejected' in rows) throw new DashboardDefError([`data["${table}"].source: ${rows.rejected}`]);
       engines[table] = 'memory';
       providers.set(table, memoryProvider(rows, { tableName: table, ...(source.layout ? { layout: source.layout } : {}) }));
-      sources[table] = { format: source.source.format, via: 'inline', version: inlineVersion(source.source.at), retrievedAt: new Date().toISOString(), rows: rows.length };
+      sources[table] = { format: source.source.format, via: 'inline', version: inlineVersion(source.source.at), retrievedAt: new Date().toISOString(), rows: rows.length, ...(source.source.arrival === 'growing' ? { arrival: 'growing' as const } : {}) };
       continue;
     }
     const engine = resolveEngine(source.engine, () => statsOf(source), available, table, notes);
@@ -804,6 +809,11 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
   // `sources` entry is a refused landing, and it must be refused again in those words
   // rather than described as a table that declares no source.
   const refusedLanding = new Map<string, string>();
+  // Table → what its last landing left behind, for the tables that declared
+  // `arrival: 'growing'` (`./growing.ts`). Present is the whole test: a table in
+  // this map is one the refresh door holds to its declaration, and one whose
+  // extent a commit records.
+  const growingPrefixes = new Map<string, readonly LandedPrefix[]>();
   for (const [table, source] of Object.entries(def.data)) {
     const host = options.providers?.[table];
     if (host !== undefined) {
@@ -860,7 +870,13 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
         version: snap.version,
         retrievedAt: snap.retrievedAt,
         rows: snap.rows.length,
+        // …and the EXTENT tag, carried only when it is true: `rows` above is this
+        // reading's extent rather than a total (`../source/types.ts` · SourceInfo.arrival)
+        ...(source.source.arrival === 'growing' ? { arrival: 'growing' as const } : {}),
       };
+      // the FIRST extent, and what the second reading is judged against (the def door
+      // has already made `key` present on a growing table — `./validate.ts`)
+      if (source.source.arrival === 'growing') growingPrefixes.set(table, prefixOf(snap.rows, source.key!));
       continue;
     }
     const engine = resolveEngine(source.engine, () => statsOf(source), available, table, notes);
@@ -1010,6 +1026,22 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
             out[table] = { refused: true, reason: 'not-the-declared-table', message: `data["${table}"]: ${notThisTable}` };
             continue;
           }
+          // GUARD 3, AND ONLY FOR A TABLE THAT DECLARED IT (`./growing.ts`): does this
+          // reading EXTEND the one already landed? Judged in the same place and the same
+          // shape as guard 2, and for the same reason — a declaration falsified here leaves
+          // the rows in place, where one falsified after the reland would have already
+          // destroyed the prefix every earlier commit's extent names. The def door has
+          // already made the key present and the engine memory (`./validate.ts`).
+          const heldPrefix = growingPrefixes.get(table);
+          let arrivedPrefix: readonly LandedPrefix[] | undefined;
+          if (heldPrefix !== undefined) {
+            arrivedPrefix = prefixOf(snap.rows, decl.key!);
+            const broke = notGrowing(table, heldPrefix, arrivedPrefix);
+            if (broke !== undefined) {
+              out[table] = { refused: true, reason: 'not-growing', message: broke };
+              continue;
+            }
+          }
           // the names the OLD rows carried, read before they go: the engine answers the new schema with the delta
           const oldCols = await provider.columns(table);
           const landed = await provider.replaceRows(table, snap.rows, decl.key !== undefined ? { key: decl.key } : {});
@@ -1047,6 +1079,9 @@ export async function buildDashboardAsync(def: DashboardDef, options: BuildDashb
           // beside the schema the engine answered WITH the delta — no second `columns()` call, and the old list is
           // replaced whole, because the old rows are gone. `unchanged` and a refused re-land never reach this line.
           landedColumns.set(table, snap.version, landed.columns);
+          // the new prefix is held only once the rows really moved — a reland the engine
+          // refused leaves the door judging the next reading against what is still landed
+          if (arrivedPrefix !== undefined) growingPrefixes.set(table, arrivedPrefix);
           out[table] = { changed: true, from: held.version, to: snap.version, retrievedAt: snap.retrievedAt, rows: snap.rows.length, delta: landed.delta, ...(lost.length > 0 ? { materialisedLost: lost } : {}), ...(tablesLost.length > 0 ? { derivedLost: tablesLost } : {}), ...(filledLost.length > 0 ? { filledLost } : {}) };
         } finally {
           await handle.close();

@@ -1,6 +1,6 @@
 # Data arrival: how a source that takes time stays honest
 
-A proposal. **Steps 1 and 3 are BUILT** — progressive arrival (`src/source/README.md`, "Bytes may arrive progressively") and attachment points (`src/source/fold/README.md`, "a computation declares where it may attach"). Steps 2 and 4 are not.
+A proposal. **Steps 1, 2 and 3 are BUILT** — progressive arrival (`src/source/README.md`, "Bytes may arrive progressively"), the `growing` arrival kind with the extent on the record (`src/source/README.md`, "How the data ARRIVES"; `src/source/growing.test.ts`), and attachment points (`src/source/fold/README.md`, "a computation declares where it may attach"). **Step 4 (`live`) is not, and is deliberately not** — see the Order.
 
 ## The measurement that forced it
 
@@ -19,7 +19,9 @@ The worker and chunked-landing machinery this library does have (`src/data/duckd
 
 So the immediate need is a progressive read. The proposal is about what has to be true for one to be honest.
 
-## 1 · Different types of data, and the one question that separates them
+## 1 · Different types of data, and the one question that separates them — BUILT
+
+> Landed as `SourceDecl.arrival` over the vocabulary `SOURCE_ARRIVALS` (`src/source/types.ts`), judged at the def door (`src/def/validate.ts` · `validateSourceDecl`). The vocabulary is TWO words, `whole` and `growing`: `live` is named in the table below and is not a word any door accepts, because a word every door refused would be a promise the library does not keep. Absent is `whole`, and a def that declares nothing is byte-identical to one written before the tag existed.
 
 "Add streaming" looks like one feature and is three. The axis is not the transport. It is:
 
@@ -35,12 +37,16 @@ Half a Stockholm alignment is worthless — it is the first N sequences **in fil
 
 This is a **declaration**, not a transport detail, for the same reason everything else here is declared: a source may not be vague about whether its partial state is usable.
 
-## 2 · Progressive handling, and why the record already nearly does it
+## 2 · Progressive handling, and why the record already nearly does it — the `growing` half is BUILT
+
+> Landed as: the extent on the commit (`src/log/log.ts` · `CommitRecord.extents`, stamped through the log's `stampExtents` hook from `src/session/session.ts`), the extent on an answer (`src/agent/basis.ts` · `AnswerBasis.extents`, `extentsOf`), the read bound that makes time travel right (`src/data/types.ts` · `EvaluateOptions.extent`, honoured by the memory engine, refused in words by the wasm one; `src/session/session.ts` · `extentHere`), and the falsifier that holds a `growing` declaration to its claim (`src/def/growing.ts` · `notGrowing`, refusing `not-growing` at the refresh door). The law in one line: **at the head you read what has landed; behind it you read the extent the commit named.**
+>
+> **What of this section remains.** (a) `live` — the whole third row, below, and step 4 of the Order. (b) The wasm engine cannot bound a read to an extent, so a `growing` table declares `memory`; the row-order column that engine already keeps is the shape a bound would be built on, and what it owes first is a pin that the load order really is source order after a RELAND. (c) The `growing` extent is stamped for the DEFAULT table only, exactly as the version stamp is and for the same reason — a selection acts on a table — so a second growing table's extent is on the source row but not on a commit. (d) **No first-party consumer declares `growing` yet**, which is the one that matters most: a capability is not delivered until a consumer path reaches it.
 
 The library's claim is that a number says which bytes it came from. Arrival extends the stamp rather than replacing it:
 
 - `whole` → one version. Unchanged.
-- `growing` → a version **plus an extent**, and a commit records the extent it was true of. Time travel then does the right thing for nothing: step back and you see the number over the prefix that existed *then*, which is correct and is currently impossible.
+- `growing` → a version **plus an extent**, and a commit records the extent it was true of. Time travel then does the right thing for nothing: step back and you see the number over the prefix that existed *then*, which is correct and, before this step, was impossible. (It is now what `src/source/growing.test.ts` asserts directly: land at one extent, land again at a larger one, seek back, read the number of the FIRST.)
 - `live` → a version **is** a moment, and the commit records it.
 
 A `growing` source is close to the refresh machinery that already exists, with the delta always "added" and the extent on the record. `SourceInfo` already carries `version`, `retrievedAt` and a row count; a refresh already reports a keyed delta; a commit already names the version it was true of.
@@ -117,6 +123,6 @@ Also out: byte-range and resumable reads; caching beyond the carrier's own condi
 ## Order
 
 1. **Progressive `whole`** — in flight. Bytes arrive with status; nothing reads them until complete.
-2. **`growing`, with the extent on the record.** The highest-value step: it turns "we showed you a partial answer" from a lie into a stated claim, and it reuses refresh, delta and version.
+2. **`growing`, with the extent on the record.** **BUILT** — see §1 and §2 above. It turned "we showed you a partial answer" from a lie into a stated claim, and it did reuse refresh, delta and version: the extent JOINED the stamp rather than replacing it, and the one genuinely new piece is a bound on which rows a read judges at all.
 3. **Attachment points** — `head`, `incremental`, `whole` — with the conformance check that falsifies a wrong monotone claim. **BUILT** (`src/source/fold/`), out of order: it needed only the progressive read beneath it, while step 2 needs the extent on the record. What it proved out of the bargain is that the memory argument is the real one — a body no declared fold needs whole is never held, and is not capped either.
 4. **`live`, landing by an act.** Last, and only once the stamp is proven, because it is the one that can break the cursor if rushed.

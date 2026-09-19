@@ -817,6 +817,16 @@ class InteractionSessionImpl implements InteractionSession {
     // says what the dashboard HELD, which is what a reader needs to know went stale. Narrowing
     // it would take a declared binding, which is not in this version (src/source/README.md).
     this.log.stampResources = () => resourceVersionsOf(this.runtime.resources);
+    // …and the EXTENT the commit was true of, when the default table's source declared
+    // `arrival: 'growing'` (`../source/types.ts` · SOURCE_ARRIVALS). Narrowed to the same
+    // one table `stampData` names, for the same reason — a selection acts on a table. The
+    // number is that source's row count AT THIS MOMENT; the source row moves to the next
+    // count when a second reading lands, and this stamp does not, which is the whole point
+    // of recording it (`../log/log.ts` · CommitRecord.extents).
+    this.log.stampExtents = () => {
+      const info = this.runtime.sources[this.defaultTable];
+      return info?.arrival === 'growing' ? { [this.defaultTable]: info.rows } : undefined;
+    };
     // The commit's one OUTBOUND step — pushing the clause onto the selection
     // port, which emits to whatever a host attached — must not be able to
     // fail an act that already landed. The log rethrows when nobody is
@@ -1615,6 +1625,41 @@ class InteractionSessionImpl implements InteractionSession {
    * session-authored log always target declared views (doProbe guard), so the
    * fold's selection entries are exactly the active filters at that tip.
    */
+  /**
+   * THE EXTENT ON THE RECORD at one commit: how many rows `table`'s `growing`
+   * source had accumulated when that commit landed (`../log/log.ts` ·
+   * `CommitRecord.extents`), or `undefined` when nothing there names one — which
+   * is every commit of every def that declared no arrival.
+   */
+  private extentStampedAt(table: string, at: string): number | undefined {
+    // `at` has already been resolved against THIS log by both callers (`rowsAtTip` runs
+    // after `foldDiff` proved the tips exist; `extentHere` reads the cursor), so there is
+    // a record — and a commit made when nothing grew simply names no extent
+    const record = this.log.records.find((r) => r.id === at)!;
+    return record.extents?.[table];
+  }
+
+  /**
+   * …and what a read AT THE CURSOR is bounded by.
+   *
+   * **THE LAW: at the head you read what has landed; behind it you read the
+   * extent the commit named.** The head is where the present is, and a growing
+   * source's whole purpose is that rows arriving there are seen. Behind it the
+   * cursor is a position in the record, and the record says how many rows there
+   * were — so stepping back shows the number over the prefix that existed THEN,
+   * which is correct and was impossible before the stamp existed. It costs
+   * nothing when nothing grows: no commit carries an extent, so no read is ever
+   * bounded.
+   *
+   * It is the same law `neighbourhood.ts` already states one axis along — a read
+   * at a cursor answers about THAT cursor — extended from which CLAUSES were
+   * folded to which ROWS had arrived.
+   */
+  private extentHere(table: string): number | undefined {
+    const at = this._cursor;
+    return at === null || at === this._head ? undefined : this.extentStampedAt(table, at);
+  }
+
   private async rowsAtTip(tip: string): Promise<number | null> {
     const clauses: PredicateClause[] = [];
     for (const entry of foldStateAt(this.log.records, tip).values()) {
@@ -1631,7 +1676,10 @@ class InteractionSessionImpl implements InteractionSession {
               probeClause(entry.clause.kind, entry.clause.field, entry.clause.value),
       );
     }
-    return this.selectedCount(this.defaultTable, clauses);
+    // a read AT a named commit, so it is bounded by THAT commit's extent rather than the
+    // cursor's — `compare` puts two recorded moments beside each other, and each of them
+    // answers over the rows that had arrived when it was recorded
+    return this.selectedCount(this.defaultTable, clauses, this.extentStampedAt(this.defaultTable, tip));
   }
 
   async compare(aRef: string, bRef: string): Promise<CompareResult> {
@@ -2120,11 +2168,16 @@ class InteractionSessionImpl implements InteractionSession {
     // the shared store too, and the row door must drop it rather than hand it out as a column
     const physical = this.physicalTableOf(table); // a derived table answers under its act's own slot
     const slots = this.derivedSlotsOf(table);
-    if (slots.size === 0) return provider.evaluate(physical, clauses.length === 0 ? null : clauses, options);
+    // THE EXTENT THIS READ IS ANSWERED OVER (`extentHere`). A caller that named one itself
+    // — the read at a commit, `rowsAtTip` — keeps it; everything else is bounded by where
+    // the cursor stands, which is `undefined` unless something declared it grows.
+    const extent = options.extent ?? this.extentHere(table);
+    const bounded: EvaluateOptions = extent === undefined ? options : { ...options, extent };
+    if (slots.size === 0) return provider.evaluate(physical, clauses.length === 0 ? null : clauses, bounded);
     const here = this.derivedAt(table);
     const slot = (field: string): string => here.get(field)?.physical ?? field;
     const asked: EvaluateOptions = {
-      ...options,
+      ...bounded,
       ...(options.columns !== undefined ? { columns: options.columns.map(slot) } : {}),
       ...(options.sort !== undefined ? { sort: options.sort.map((k) => ({ ...k, field: slot(k.field) })) } : {}),
     };
@@ -3102,10 +3155,10 @@ class InteractionSessionImpl implements InteractionSession {
    */
 
   /** How many rows the live selection keeps — the engine counts; no row is materialised. */
-  private async selectedCount(table: string, clauses: readonly PredicateClause[]): Promise<number | null> {
+  private async selectedCount(table: string, clauses: readonly PredicateClause[], extent?: number): Promise<number | null> {
     const provider = this.providerOf(table);
     if (!provider) return null;
-    const res = await this.ask(table, provider, clauses, { mode: 'count' });
+    const res = await this.ask(table, provider, clauses, { mode: 'count', ...(extent !== undefined ? { extent } : {}) });
     return isRejection(res) ? null : res.count;
   }
 

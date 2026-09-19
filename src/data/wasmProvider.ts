@@ -545,6 +545,19 @@ export function wasmProvider(options: WasmProviderOptions = {}): DataProvider {
       const unreadable = (evalOptions.columns ?? []).find((column) => !readable.includes(column));
       if (unreadable !== undefined) return reject('wasm', 'evaluate', 'unknown-column', `${unknownColumnSentence(table, unreadable)} to return`);
 
+      // THE EXTENT, REFUSED IN WORDS RATHER THAN IGNORED (`./types.ts` ·
+      // `EvaluateOptions.extent`). A bound this engine dropped would answer over
+      // every row it holds and call the number the prefix's — the one failure a
+      // growing source exists to make impossible. The row-order column this
+      // engine already keeps is the shape a future bound would be built on, and
+      // it is not built here: what it would owe is a pin that the load order
+      // really is source order after a RELAND, which is its own measurement. So
+      // a `growing` source is a memory-engine table at the def door
+      // (`../def/validate.ts`), and this is the second lock on the same law.
+      if (evalOptions.extent !== undefined) {
+        return reject('wasm', 'evaluate', 'not-implemented', `table "${table}" was asked for the first ${evalOptions.extent} rows in source order, and the wasm engine cannot bound a read to an extent — a growing source's table declares engine "memory"`);
+      }
+
       // The DESCRIPTOR — what the result reports, byte-identical to the memory engine's for the same clause.
       const sql = resolvePredicateSQL(clauses);
       let statement: string;

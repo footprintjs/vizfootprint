@@ -116,6 +116,12 @@ falsifyMonotone({ fold: labelsSeen, chunks, grew: isPrefixOf }); // an answer th
 
 Two properties. **The bytes, not their framing** — for every position: a fold that answers one thing over three chunks and another over the same bytes in one was never an answer about the bytes, and this is the failure real folds actually have. **The monotone claim** — for `incremental` only: its answer over each growing prefix must be one later bytes could have added to, under an order the author may declare (`grew`; the default is the strictest honest reading, so a fold whose answer genuinely grows says so rather than being assumed).
 
+### Two monotone claims composed: an `incremental` fold over a `growing` source
+
+They are the same idea one level apart, and they compose exactly. A `growing` source claims **the ROWS only ever extend** (`../README.md`, "How the data ARRIVES"); an `incremental` fold claims **the ANSWER only ever extends** over the bytes it has seen. Put one on the other and the second claim survives the first — a count of sequences seen so far over a body that only ever grows is still a count of sequences seen so far — which is why a growing source's extent and a fold's position never have to know about each other.
+
+What does NOT compose is the other direction, and it is worth saying because the symmetry invites it: a `whole` fold over a `growing` source is honest only about the extent it ran on, so its answer is a number like any other and states the extent it was computed over. The falsifier below and `notGrowing` (`../../def/growing.ts`) are the same move at two levels — a declaration checked rather than trusted — and neither can stand in for the other: this one runs a fold over prefixes of one body, that one judges one reading against the last.
+
 **What it cannot catch**, stated because a check whose limits are unstated gets trusted past them: it is a spot check over the chunks it was given, not a proof over every body; a fold can be monotone and still wrong; a `head` bound that is too small for a *different* file passes here; and an author who declares `grew: () => true` has falsified nothing. The first-party suite runs it over its own folds so a false claim fails in CI rather than on somebody's screen.
 
 ## Where a head answer goes, and the one place it may not

@@ -158,6 +158,29 @@ export interface CommitRecord {
    * the commit as moved (`../../ui/src/adapter/sessionView.ts` · `movedSince`).
    */
   readonly resources?: Readonly<Record<string, string>>;
+  /**
+   * The EXTENT this commit was true of: table → how many rows its `growing`
+   * source had accumulated when the commit landed (absent when no table the
+   * stamp names declares `arrival: 'growing'` — which is every def written
+   * before the tag existed, so a `whole` log is byte-identical).
+   *
+   * THE LAW THIS FIELD IS: **a number over a growing source states the extent
+   * it was computed over, and a commit records the extent it was true of.**
+   * That is what turns "we showed you a partial answer" from a lie into a
+   * stated claim — a caption reading *1,234 cases* over a growing source with
+   * no extent beside it is the defect, not the partial read.
+   *
+   * A THIRD PARALLEL MAP, never folded into {@link data}, for the reason
+   * {@link resources} is not: `data` maps a table to a VERSION STRING a carrier
+   * vouched for, and an extent is a COUNT of rows — a reader narrowing one map
+   * would have to test the type of its values to find out which question it had
+   * asked. And it is not a second field on the source row either: the row moves
+   * to the new count when a second reading lands, and this one must not.
+   *
+   * Read back by `../session/session.ts` · `extentAt`, which bounds a read
+   * behind the cursor to the prefix that existed then.
+   */
+  readonly extents?: Readonly<Record<string, number>>;
 }
 
 /** Input to author one commit. `cause` is validated before anything is built. */
@@ -179,6 +202,8 @@ export interface CommitInput {
   data?: Readonly<Record<string, string>>;
   /** The resource versions this commit is true of; absent = ask the log's `stampResources` hook, if any. */
   resources?: Readonly<Record<string, string>>;
+  /** The extents this commit is true of (table → row count); absent = ask the log's `stampExtents` hook, if any. */
+  extents?: Readonly<Record<string, number>>;
   /** Defaults to [viewId] — a view excludes only its own clause. The log COPIES it: the record never aliases a caller's array. */
   clientViewIds?: readonly string[];
   ts?: number;
@@ -218,6 +243,8 @@ export class CauseSelectionSession {
   stampData?: () => Readonly<Record<string, string>> | undefined;
   /** The {@link stampData} twin for declared RESOURCES (name → version) — a separate hook because it is a separate map on the record. */
   stampResources?: () => Readonly<Record<string, string>> | undefined;
+  /** The {@link stampData} twin for a GROWING source's EXTENT (table → row count) — a separate hook for the reason it is a separate map ({@link CommitRecord.extents}). */
+  stampExtents?: () => Readonly<Record<string, number>> | undefined;
   /**
    * Set by the session: what to do when pushing the clause onto the selection
    * port throws — see {@link commit}'s APPLY phase.
@@ -334,6 +361,7 @@ export class CauseSelectionSession {
 
     const data = input.data ?? this.stampData?.();
     const resourceVersions = input.resources ?? this.stampResources?.();
+    const extents = input.extents ?? this.stampExtents?.();
     const record: CommitRecord = {
       id: input.id,
       parent: input.parent,
@@ -359,6 +387,8 @@ export class CauseSelectionSession {
       ...(data !== undefined && Object.keys(data).length > 0 && { data: { ...data } }),
       // absent when the def declares no resource, so a commit reads byte-identically to one written before resources existed
       ...(resourceVersions !== undefined && Object.keys(resourceVersions).length > 0 && { resources: { ...resourceVersions } }),
+      // …and absent when no table declares `arrival: 'growing'`, on the same rule and for the same reason: a whole source has no extent, and inventing one would be the commit claiming what its source never declared
+      ...(extents !== undefined && Object.keys(extents).length > 0 && { extents: { ...extents } }),
     };
     // R8, enforced by construction: once a commit lands, it cannot be edited
     // in place. Only `commit()` ever grows `#records` (always via push, never
@@ -413,7 +443,7 @@ export function serializeLog(records: readonly CommitRecord[]): string {
 const RECORD_KEYS = new Set([
   'id', 'parent', 'correlationId', 'viewId', 'actorMeta', 'kind', 'field',
   'value', 'fields', 'clientViewIds', 'predicateSQL', 'cause', 'ts', 'data',
-  'resources',
+  'resources', 'extents',
 ]);
 
 /**
@@ -518,6 +548,13 @@ function recordProblems(raw: unknown): string[] {
       problems.push('resources, if present, must map resource name to version string');
     }
   }
+  if ('extents' in raw) {
+    const extents = raw.extents;
+    // a whole number at or above zero: an extent is a COUNT of rows, and a fraction or a negative one would bound a read to nothing anyone could have read
+    if (!isPlainObject(extents) || !Object.values(extents).every((v) => typeof v === 'number' && Number.isInteger(v) && v >= 0)) {
+      problems.push('extents, if present, must map table name to a whole row count at or above zero');
+    }
+  }
   return problems;
 }
 
@@ -541,6 +578,7 @@ function rebuildRecord(raw: Record<string, unknown>): CommitRecord {
     ts: raw.ts as number,
     ...('data' in raw && { data: { ...(raw.data as Record<string, string>) } }),
     ...('resources' in raw && { resources: { ...(raw.resources as Record<string, string>) } }),
+    ...('extents' in raw && { extents: { ...(raw.extents as Record<string, number>) } }),
   };
   return deepFreeze(record);
 }
@@ -673,6 +711,8 @@ export function replayInput(rec: CommitRecord): CommitInput {
     ...(rec.data !== undefined && { data: rec.data }),
     // …and the resources it was true of, on the same reasoning and through the same door
     ...(rec.resources !== undefined && { resources: rec.resources }),
+    // …and the extent it was true of, which is provenance in exactly the same sense
+    ...(rec.extents !== undefined && { extents: rec.extents }),
     clientViewIds: rec.clientViewIds,
     cause: markReplayed(rec.cause), // R2: additive replay marker
     ts: rec.ts,

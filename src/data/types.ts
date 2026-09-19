@@ -451,6 +451,30 @@ export interface EvaluateOptions {
   readonly offset?: number;
   /** Rows mode only: also return each returned row's index in the table's source order (`EvaluateResult.indices`) — what a positional row identity is made of. */
   readonly indices?: boolean;
+  /**
+   * THE EXTENT: judge only the first `extent` rows **in the table's SOURCE
+   * ORDER**, in both modes. This is what a number over a `growing` source is
+   * read with behind the cursor — the prefix that existed when the commit
+   * landed (`../source/types.ts` · SOURCE_ARRIVALS).
+   *
+   * WHY IT IS NOT `limit`. `limit` and `offset` are a WINDOW over the rows that
+   * MATCHED, and they are rows-mode only; an extent is a bound on WHICH ROWS
+   * ARE JUDGED AT ALL, and the count it produces is the honest one. Asking for
+   * "the first 1,000 matches" and "the matches among the first 1,000 rows" are
+   * two different questions, and a source that grows makes only the second one
+   * reproducible.
+   *
+   * WHY SOURCE ORDER SURVIVES A `sort`: the bound is on the row's own position,
+   * so a sorted read over an extent answers the same SET of rows in a different
+   * order — which is the only reading that agrees with the unsorted count.
+   *
+   * A negative or fractional extent is `bad-window`, in the same sentence
+   * `offset` and `limit` are refused in. An engine that cannot honour it
+   * refuses `not-implemented` rather than answering over every row it holds
+   * (`wasmProvider.ts`), which is why a `growing` source is a memory-engine
+   * table at the def door.
+   */
+  readonly extent?: number;
 }
 
 /** One sort key: a column, a direction, and where absent values (null, undefined, NaN) go — last unless said otherwise. */
