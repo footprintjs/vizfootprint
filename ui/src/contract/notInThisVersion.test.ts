@@ -77,7 +77,41 @@ const holdsPerLayerMinor = (): boolean => (minorSpoken() ?? 0) >= 8 && /readonly
 const holdsTravelledMinor = (): boolean => (minorSpoken() ?? 0) >= 9 && /readonly via\?: \{/.test(read('types.ts'));
 
 /** The contract really speaks the BYTES-ON-THE-HANDSHAKE minor (protocol 1.10): the version, and `resources` on the handshake — never on the frame. */
-const holdsResourceMinor = (): boolean => minorSpoken() === 10 && /readonly resources\?: Readonly<Record<string, RenderResource>>;/.test(read('types.ts'));
+/**
+ * The contract really speaks a version AT OR PAST the bytes-on-the-handshake
+ * minor (protocol 1.10), and `resources` is on the handshake. 1.11 added the
+ * second inbound call, so — the `holdsPerLayerMinor` precedent again — the pin
+ * is "1.10 or later within the major", not "exactly 1.10": the resource law
+ * stays true across the minors that follow it.
+ */
+const holdsResourceMinor = (): boolean => (minorSpoken() ?? 0) >= 10 && /readonly resources\?: Readonly<Record<string, RenderResource>>;/.test(read('types.ts'));
+
+/**
+ * The contract really speaks the BRING-ROWS-INTO-VIEW minor (protocol 1.11):
+ * the version, the second INBOUND call on the mounted renderer, the capability
+ * that guards it, and both typed gaps. Exact, because it is the newest minor —
+ * the next one relaxes it to `>=` the way every minor before it was relaxed.
+ */
+const holdsFramingMinor = (): boolean =>
+  minorSpoken() === 11 &&
+  /bringIntoView\?\(keys: readonly string\[\]\): void;/.test(read('types.ts')) &&
+  /readonly canBringIntoView\?: boolean;/.test(read('types.ts')) &&
+  /'bring-into-view-unsupported'/.test(read('types.ts')) &&
+  /'bring-into-view-undelivered'/.test(read('types.ts'));
+
+/**
+ * The framing ask really RECORDS NOTHING, read off the code rather than
+ * promised in prose: `bind.ts`'s `navigate` reaches the outbound rail
+ * (`options.callbacks.navigate`) and `bringIntoView` reaches only the
+ * renderer's own method. A future edit that wires a callback into the framing
+ * branch — the exact mistake that would put two owners on one fact — shows up
+ * here as a second `options.callbacks.` inside `bind.ts`.
+ */
+const framingRecordsNothing = (): boolean => {
+  const bind = read('bind.ts');
+  const body = bind.slice(bind.indexOf('      bringIntoView(keys) {'));
+  return /bringIntoView\(keys\) \{/.test(bind) && !body.slice(0, body.indexOf('\n      unmount:')).includes('options.callbacks.');
+};
 
 /** The law that makes `via` true at the fold really ships: ONE picker of the consumer's travelled clause, beside `narrowedAt`. */
 const holdsTravelledAt = (): boolean => /function travelledAt\(/.test(read('selection.ts')) && /function narrowedAt\(/.test(read('selection.ts'));
@@ -205,6 +239,33 @@ describe('the bytes-on-the-handshake law says only what is true (protocol 1.10)'
     // the law, by its own sentence: what a renderer may do with the bytes
     expect(readme).toContain('bytes are for GEOMETRY THE PLANE CANNOT SEE');
     expect(readme).toContain('1.10 added `HostHandshake.resources` (Law 9)');
+  });
+});
+
+describe('the bring-rows-into-view law says only what is true (protocol 1.11)', () => {
+  it('the version the prose claims is the version the code speaks, and the call, the flag and both gaps are on the contract', () => {
+    expect(holdsFramingMinor()).toBe(true);
+  });
+
+  it('the no-commit law is true IN THE CODE: the framing branch reaches no outbound callback, where navigate reaches the rail', () => {
+    expect(framingRecordsNothing()).toBe(true);
+    // …and the rail really is where navigate goes — otherwise the check above proves nothing
+    expect(read('bind.ts')).toContain('options.callbacks.navigate(viewState);');
+  });
+
+  it('the README states the law VERBATIM, names the call, and the checklist counts the minor', () => {
+    const readme = read('README.md').replace(/\s+/g, ' ');
+    expect(readme).toContain('protocol 1.11');
+    expect(readme).toContain('`bringIntoView`');
+    // the law, word for word — the sentence this packet exists to get right
+    expect(readme).toContain('A camera move a READER makes is an ACT. A camera move a CLAUSE causes is a CONSEQUENCE. Only the first reaches the record.');
+    // the same sentence in the CODE, read with the comment's asterisks stripped
+    // and its wrapping collapsed — one law, one spelling, in both places
+    const types = read('types.ts').replace(/^\s*\*/gm, '').replace(/\s+/g, ' ');
+    expect(types).toContain('A camera move a READER makes is an ACT. A camera move a CLAUSE causes is a CONSEQUENCE. Only the first reaches the record.');
+    // and what conformance ADMITS it cannot see, said rather than implied
+    expect(readme).toContain('cannot verify that the camera moved');
+    expect(readme).toContain('1.11 added the second INBOUND call');
   });
 });
 

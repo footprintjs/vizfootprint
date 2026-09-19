@@ -36,7 +36,7 @@ function state(): RenderState {
 }
 
 /** A minimal honest renderer for the guard tests — records its lifecycle. */
-function fakeRenderer(overrides: { protocolVersion?: string; transforms?: readonly string[]; capabilities?: RendererCapabilities } = {}) {
+function fakeRenderer(overrides: { protocolVersion?: string; transforms?: readonly string[]; capabilities?: RendererCapabilities; framed?: (readonly string[])[] } = {}) {
   const log: string[] = [];
   let seenHandshake: HostHandshake | null = null;
   const renderer: Renderer = {
@@ -49,6 +49,17 @@ function fakeRenderer(overrides: { protocolVersion?: string; transforms?: readon
           capabilities: overrides.capabilities ?? CAPS,
           ...(overrides.transforms !== undefined ? { transforms: overrides.transforms } : {}),
         },
+        // 1.11: present ONLY when the test hands it a log to write into — a
+        // renderer that says nothing about framing must not grow the method,
+        // which is what makes the byte-identical claim testable
+        ...(overrides.framed !== undefined
+          ? {
+              bringIntoView: (keys: readonly string[]) => {
+                log.push(`bringIntoView(${keys.join(',')})`);
+                overrides.framed!.push(keys);
+              },
+            }
+          : {}),
         update: (s) => {
           void s;
           log.push('update');
@@ -178,6 +189,100 @@ describe('bindRenderer', () => {
     expect(outcome.gap.target).toBe('bar');
     expect(cbs.navigate).not.toHaveBeenCalled();
     expect(gaps).toEqual([outcome.gap]);
+  });
+
+  // ── protocol 1.11: bringing rows into view (Law 10) ─────────────────────────
+
+  it('a canBringIntoView view carries the ask to the renderer with the rows the host named — and speaks NOT ONE outbound verb doing it', () => {
+    const framed: (readonly string[])[] = [];
+    const { renderer, log } = fakeRenderer({ capabilities: { ...CAPS, canBringIntoView: true }, framed });
+    const cbs = callbacks();
+    const gaps: ContractGap[] = [];
+    const res = bindRenderer(renderer, document.createElement('div'), { viewId: 'structure3d', callbacks: cbs, onGap: (g) => gaps.push(g) });
+    if (!res.ok) throw new Error('bind failed');
+    const outcome = res.view.bringIntoView(['A:57', 'A:102']);
+    expect(outcome.ok).toBe(true);
+    expect(framed).toEqual([['A:57', 'A:102']]);
+    // THE LAW: a camera move a CLAUSE caused is a consequence, and a consequence
+    // records nothing. `navigate` is the recording rail and it was not touched;
+    // neither was any other verb, so there is nothing anywhere for a second
+    // owner of this fact to have been written into.
+    expect(cbs.navigate).not.toHaveBeenCalled();
+    expect(cbs.emit).not.toHaveBeenCalled();
+    expect(cbs.hover).not.toHaveBeenCalled();
+    expect(cbs.reencodeRequest).not.toHaveBeenCalled();
+    expect(gaps).toEqual([]);
+    expect(log).toEqual(['mount', 'bringIntoView(A:57,A:102)']);
+  });
+
+  it('asked TWICE for the same rows it asks twice — a reader who orbited away and asks again is asking to be brought back', () => {
+    const framed: (readonly string[])[] = [];
+    const { renderer } = fakeRenderer({ capabilities: { ...CAPS, canBringIntoView: true }, framed });
+    const res = bindRenderer(renderer, document.createElement('div'), { viewId: 'structure3d', callbacks: callbacks() });
+    if (!res.ok) throw new Error('bind failed');
+    res.view.bringIntoView(['A:57']);
+    res.view.bringIntoView(['A:57']);
+    // the guard suppresses NOTHING: this is the behaviour a one-shot field on
+    // RenderState could not have delivered, and the reason framing is a call
+    expect(framed).toEqual([['A:57'], ['A:57']]);
+  });
+
+  it('the EMPTY ask and an ask for rows this view does not hold both reach the renderer verbatim — two different sentences, and the guard conflates neither', () => {
+    const framed: (readonly string[])[] = [];
+    const { renderer } = fakeRenderer({ capabilities: { ...CAPS, canBringIntoView: true }, framed });
+    const res = bindRenderer(renderer, document.createElement('div'), { viewId: 'structure3d', callbacks: callbacks() });
+    if (!res.ok) throw new Error('bind failed');
+    // `[]` = return to the whole (a cleared selection); an unheld key = leave the
+    // camera where it is. The guard carries both and decides neither — which of
+    // its rows a renderer holds is the renderer's own knowledge
+    expect([res.view.bringIntoView([]).ok, res.view.bringIntoView(['no-such-row']).ok]).toEqual([true, true]);
+    expect(framed).toEqual([[], ['no-such-row']]);
+  });
+
+  it('a view that declares no canBringIntoView is REFUSED BY NAME and the renderer is never asked, even when it has the method', () => {
+    const framed: (readonly string[])[] = [];
+    const { renderer } = fakeRenderer({ framed }); // canBringIntoView absent — the flag is the promise, not the ability
+    const cbs = callbacks();
+    const gaps: ContractGap[] = [];
+    const res = bindRenderer(renderer, document.createElement('div'), { viewId: 'scatter', callbacks: cbs, onGap: (g) => gaps.push(g) });
+    if (!res.ok) throw new Error('bind failed');
+    const outcome = res.view.bringIntoView(['A:57']);
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error('unreachable');
+    expect(outcome.gap.code).toBe('bring-into-view-unsupported');
+    expect(outcome.gap.op).toBe('bringIntoView');
+    expect(outcome.gap.target).toBe('scatter');
+    expect(outcome.gap.detail).toContain('declares no canBringIntoView');
+    expect(framed).toEqual([]); // nothing was carried
+    expect(gaps).toEqual([outcome.gap]); // and a silent no-op would have left this empty
+    expect(cbs.navigate).not.toHaveBeenCalled();
+  });
+
+  it('a view that DECLARES canBringIntoView and ships no method files the capability lie by its own name (Law 1)', () => {
+    const { renderer } = fakeRenderer({ capabilities: { ...CAPS, canBringIntoView: true } }); // no `framed` ⇒ no method
+    const gaps: ContractGap[] = [];
+    const res = bindRenderer(renderer, document.createElement('div'), { viewId: 'liar', callbacks: callbacks(), onGap: (g) => gaps.push(g) });
+    // NOT a bind refusal: a mis-declared camera nicety makes ONE act wrong, where
+    // a version mismatch or an unowned transform makes every frame wrong
+    if (!res.ok) throw new Error('bind failed');
+    const outcome = res.view.bringIntoView(['A:57']);
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error('unreachable');
+    // a DIFFERENT code from the unsupported one, because the diagnosis is the opposite
+    expect(outcome.gap.code).toBe('bring-into-view-undelivered');
+    expect(outcome.gap.detail).toContain('declared and not delivered');
+    expect(gaps.map((g) => g.code)).toEqual(['bring-into-view-undelivered']);
+  });
+
+  it('a renderer that says nothing about framing is unaffected: no flag on its hello, no method on its mount, and update/navigate answer exactly as before', () => {
+    const { renderer, log } = fakeRenderer();
+    const res = bindRenderer(renderer, document.createElement('div'), { viewId: 'plain', callbacks: callbacks() });
+    if (!res.ok) throw new Error('bind failed');
+    expect('canBringIntoView' in res.view.capabilities).toBe(false);
+    expect(res.view.update(state()).ok).toBe(true);
+    expect(res.view.navigate({ x: [0, 1] }).ok).toBe(false); // canPanZoom: false, as it always was
+    res.view.unmount();
+    expect(log).toEqual(['mount', 'update', 'unmount']); // 1.11 added nothing to its lifecycle
   });
 
   // ── protocol 1.10: the declared resources OFFERED on the handshake (Law 9) ──

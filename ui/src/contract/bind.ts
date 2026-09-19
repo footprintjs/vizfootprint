@@ -16,9 +16,10 @@
  * Every gap is BOTH returned to the caller and offered to `onGap` (so an app
  * can surface contract gaps beside the session's own in `<GapsPanel>`).
  *
- * WHY `canPanZoom` AND `canLayer` ARE THE ONLY CAPABILITIES GUARDED HERE. A
- * guard belongs where the HOST drives an act that would otherwise vanish:
- * `navigate` is the one verb a host can push INTO a view, so a non-capable
+ * WHY `canPanZoom`, `canLayer` AND `canBringIntoView` ARE THE ONLY CAPABILITIES
+ * GUARDED HERE. A guard belongs where the HOST drives an act that would
+ * otherwise vanish: `navigate` is the one verb a host can push INTO a view,
+ * so a non-capable
  * view has to refuse out loud or the request is lost with no trace. The
  * rest need no guard, and adding one would be theatre: `canBrush` /
  * `canPointSelect` describe gestures the USER makes, and those ride `emit`,
@@ -30,9 +31,18 @@
  * draw them would otherwise get ONE table drawn and no word about the
  * other — absence that is NOT visible, because the frame looks complete.
  * So `update` refuses the whole frame with a typed `layers-unsupported` gap
- * rather than draw half of it. The flags remain declarations a host READS,
- * and exactly two of them are enforced. A new capability earns a guard here
- * only if a host-driven request could otherwise go unrecorded, or a pushed
+ * rather than draw half of it. `canBringIntoView` (protocol 1.11) is the
+ * third, and it is the `canLayer` reason applied to an ACT rather than to a
+ * frame: a host asks a 3D view to bring the selected residue where the reader
+ * can see it, the view cannot, and the rows are still recoloured — so the
+ * dashboard looks complete while the reader hunts a mark behind the molecule.
+ * That absence is not visible either, so the ask is refused BY NAME
+ * (`bring-into-view-unsupported`), and a renderer that declared the capability
+ * and wired no method is named separately (`bring-into-view-undelivered`) —
+ * the opposite diagnosis deserves its own word. The flags remain declarations
+ * a host READS, and exactly three of them are enforced. A new capability
+ * earns a guard here only if a host-driven request could otherwise go
+ * unrecorded, or a pushed
  * frame could be drawn as a lie — see this folder's README.md.
  *
  * LAYER BUNDLES (1.2): a host that binds layers passes their ids and ONE
@@ -104,6 +114,18 @@ export type NavigateOutcome = { readonly ok: true } | { readonly ok: false; read
 /** The outcome of a host push: drawn, or refused with the typed gap (1.2 — a layered frame at a renderer that cannot layer). */
 export type UpdateOutcome = { readonly ok: true } | { readonly ok: false; readonly gap: ContractGap };
 
+/**
+ * PROTOCOL 1.11 — the outcome of a host-driven framing ask.
+ *
+ * `{ ok: true }` says THE CALL REACHED THE RENDERER and it did not throw. It
+ * does NOT say the camera moved: nothing on this side of the boundary can see a
+ * camera, and a renderer asked for rows it does not hold is REQUIRED not to move
+ * (see {@link MountedRenderer.bringIntoView}). Saying less than it knows is the
+ * point — an outcome that implied a camera move would be the same class of lie
+ * a capability flag is.
+ */
+export type BringIntoViewOutcome = { readonly ok: true } | { readonly ok: false; readonly gap: ContractGap };
+
 /** A successfully bound renderer — the host's handle on the view. */
 export interface BoundRenderer {
   readonly viewId: string;
@@ -130,6 +152,23 @@ export interface BoundRenderer {
    * files a typed gap and nothing is recorded.
    */
   navigate(viewState: NavigateViewState): NavigateOutcome;
+  /**
+   * PROTOCOL 1.11 — HOST-driven framing: bring these rows where the reader can
+   * see them. An EVENT, so it is a call and not a field on the frame; the whole
+   * argument is on {@link MountedRenderer.bringIntoView}, together with what `[]`
+   * means, what unknown keys mean, and what a renderer does when asked twice.
+   *
+   * IT RECORDS NOTHING, and the proof is structural rather than a promise: this
+   * method reaches no outbound callback. `navigate` beside it calls
+   * `options.callbacks.navigate` — that is the recording rail, and a reader's own
+   * orbit belongs on it. A framing caused by a clause does not, because the
+   * clause is already on the record.
+   *
+   * Guarded twice, both by Law 1: a view that declares no `canBringIntoView`
+   * files `bring-into-view-unsupported`, and one that declares it while
+   * shipping no method files `bring-into-view-undelivered`.
+   */
+  bringIntoView(keys: readonly string[]): BringIntoViewOutcome;
   unmount(): void;
 }
 
@@ -212,6 +251,44 @@ export function bindRenderer(renderer: Renderer, el: Element, options: BindOptio
           };
         }
         options.callbacks.navigate(viewState);
+        return { ok: true };
+      },
+      bringIntoView(keys) {
+        // 1.11, guard one: the host asked for something this renderer never
+        // promised. A silent no-op was the alternative and is refused on this
+        // file's own rule — the absence is NOT visible, because the rows were
+        // still recoloured and the frame looks complete, so the reader is left
+        // hunting a mark behind the molecule with nothing saying why. The
+        // `canLayer` reason, applied to an act instead of a frame.
+        if (capabilities.canBringIntoView !== true) {
+          return {
+            ok: false,
+            gap: file({
+              code: 'bring-into-view-unsupported',
+              op: 'bringIntoView',
+              detail: `view "${options.viewId}" declares no canBringIntoView — the request to bring ${keys.length} row(s) into view was not carried`,
+              target: options.viewId,
+            }),
+          };
+        }
+        // guard two: it DECLARED the capability and wired nothing. Law 1 — a
+        // flag nothing honours is worse than a missing one, so the lie is named
+        // here rather than swallowed by an optional-call shrug
+        if (typeof mounted.bringIntoView !== 'function') {
+          return {
+            ok: false,
+            gap: file({
+              code: 'bring-into-view-undelivered',
+              op: 'bringIntoView',
+              detail: `view "${options.viewId}" declares canBringIntoView: true and its mount ships no bringIntoView method — the capability was declared and not delivered`,
+              target: options.viewId,
+            }),
+          };
+        }
+        // NOTHING IS RECORDED HERE, and there is nothing to record WITH: no
+        // outbound callback is reachable from this branch. The clause that
+        // caused this framing is already on the trace.
+        mounted.bringIntoView(keys);
         return { ok: true };
       },
       unmount: () => mounted.unmount(),

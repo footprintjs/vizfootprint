@@ -63,7 +63,27 @@
  *  12. navigate             — a canPanZoom renderer's navigate is recorded and
  *                             NON-FILTERING; a non-capable one lands the typed
  *                             `navigate-unsupported` gap and records nothing
- *  13. unmount              — the mount is left clean
+ *  13. bring-into-view      — protocol 1.11: a renderer DECLARING
+ *                             `canBringIntoView` is asked to frame the plan's
+ *                             rows, asked AGAIN for the same rows, asked with
+ *                             the EMPTY set and asked for a row it does not
+ *                             hold — none may throw or be refused, and NONE of
+ *                             them may land a commit, move the fold, file a gap
+ *                             or speak an outbound verb (the law: a camera move
+ *                             a clause causes records nothing). A renderer
+ *                             declaring nothing is asked once and must be
+ *                             refused with the typed
+ *                             `bring-into-view-unsupported` gap, never silently
+ *                             no-oped. WHAT THIS ARM CANNOT SEE, said plainly
+ *                             rather than implied: whether the camera actually
+ *                             moved. Nothing at this boundary can — a camera is
+ *                             inside somebody else's scene. It sees that the
+ *                             call ARRIVED, that the renderer did not throw,
+ *                             that a declared capability is really wired (the
+ *                             `bring-into-view-undelivered` guard catches a
+ *                             hello promising a method its mount never shipped)
+ *                             and that nothing was recorded
+ *  14. unmount              — the mount is left clean
  *
  * Steps run in order and STOP at the first failure (later steps depend on
  * earlier ones); the report carries every step's outcome in plain words.
@@ -104,6 +124,7 @@ export type ConformanceStepName =
   | 'layers'
   | 'declared-delivered'
   | 'navigate'
+  | 'bring-into-view'
   | 'unmount';
 
 export interface ConformanceStep {
@@ -199,6 +220,15 @@ export interface ConformancePlan {
    * renderer never declared is ignored: the declaration is the renderer's.
    */
   readonly stateKinds?: readonly EmissionKind[];
+  /**
+   * PROTOCOL 1.11: the rows the `bring-into-view` arm asks for. REQUIRED when
+   * the renderer declares `canBringIntoView`; ignored otherwise — the
+   * `cellGesture` precedent, and for the same reason: the kit holds rows it
+   * cannot name a key column in, so only the host knows which ids THIS view
+   * holds. Name ids this view really holds; the arm then adds the empty ask and
+   * an ask for an id nothing holds, both of which every renderer must survive.
+   */
+  readonly bringIntoViewKeys?: readonly string[];
 }
 
 /** A step's typed failure — carries the plain-words reason into the report. */
@@ -703,6 +733,87 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
           descriptor === 'refused · typed-gap-filed · nothing-recorded',
           'a host-driven navigate on this non-capable view landed the typed navigate-unsupported gap and recorded nothing',
           `navigate on a canPanZoom:false view misbehaved: ${descriptor}`,
+        );
+      },
+    },
+    {
+      name: 'bring-into-view',
+      async run() {
+        // PROTOCOL 1.11 — the framing arm. WHAT IT CAN SEE, and the admission
+        // that goes with it: this harness has no camera. It cannot verify that
+        // a residue came to the front, and nothing at this boundary can — a
+        // camera lives inside somebody else's WebGL scene. What it CAN falsify
+        // is everything on this side of the call: that a declared capability is
+        // actually wired (the `bring-into-view-undelivered` guard turns "the
+        // renderer promised and shipped nothing" into a typed refusal), that
+        // the ask REACHED the renderer without throwing, that the empty ask and
+        // an ask for rows nothing holds are both survivable, that a
+        // non-declaring renderer is refused BY NAME rather than silently
+        // no-oped — and THE LAW: that none of it lands a commit, moves the
+        // fold, files a session gap, or speaks one of the four outbound verbs.
+        // A reader of the report should take "ok" to mean exactly that list and
+        // not one word more.
+        const spokenBefore = [emissions.length, hovers.length, reencodeRequests.length, navigations.length].join('/');
+        const st0 = view.getState();
+        const selectionsBefore = JSON.stringify(st0.selections);
+        const commitsBefore = st0.commits.length;
+        const sessionGapsBefore = st0.gaps.length;
+        const contractGapsBefore = gaps.length;
+
+        if (bound!.capabilities.canBringIntoView !== true) {
+          const outcome = bound!.bringIntoView(plan.bringIntoViewKeys ?? []);
+          const newCodes = gaps.slice(contractGapsBefore).map((g) => g.code);
+          const descriptor = [
+            flag(!outcome.ok, 'refused', 'accepted'),
+            flag(newCodes.includes('bring-into-view-unsupported'), 'typed-gap-filed', `gaps: ${newCodes.join(',')}`),
+          ].join(' · ');
+          return check(
+            descriptor === 'refused · typed-gap-filed',
+            'the renderer declares no canBringIntoView — a host ask landed the typed bring-into-view-unsupported gap and never reached the renderer',
+            `bringIntoView on a canBringIntoView:false view misbehaved: ${descriptor}`,
+          );
+        }
+
+        const keys = plan.bringIntoViewKeys;
+        if (keys === undefined) {
+          throw new StepFailed('the renderer declares canBringIntoView but the plan names no bringIntoViewKeys to ask for');
+        }
+        // FOUR asks, and the last two are the DECISIONS this protocol made
+        // rather than defaults: `[]` is "return to the whole", and a key nothing
+        // holds must leave the camera where it is. Neither may throw, and the
+        // renderer that frames the named rows must also frame them AGAIN when
+        // asked again — so the named ask is driven twice, which is the one
+        // behaviour a one-shot field could not have delivered.
+        const asks: readonly (readonly [string, readonly string[]])[] = [
+          ['named', keys],
+          ['asked-again', keys],
+          ['empty', []],
+          ['unheld', ['__vzf-conformance-no-such-row__']],
+        ];
+        // STOPS AT THE FIRST REFUSAL, the way the kit's own step loop does: a
+        // guard that turned the named ask down turns the other three down for
+        // the same reason, and four copies of one gap in the report is noise a
+        // reader has to see past to find the diagnosis
+        const refused: string[] = [];
+        for (const [label, k] of asks) {
+          if (bound!.bringIntoView(k).ok) continue;
+          refused.push(label);
+          break;
+        }
+        await settle();
+        const st = view.getState();
+        const descriptor = [
+          flag(refused.length === 0, 'all-carried', `refused: ${refused.join(',')}`),
+          flag(st.commits.length === commitsBefore, 'no-commit', `committed ${String(st.commits.length - commitsBefore)}`),
+          flag(JSON.stringify(st.selections) === selectionsBefore, 'no-fold-change', 'FOLD MOVED'),
+          flag(st.gaps.length === sessionGapsBefore, 'no-session-gap', 'session-gap-filed'),
+          flag(gaps.length === contractGapsBefore, 'no-contract-gap', `gaps: ${gaps.slice(contractGapsBefore).map((g) => g.code).join(',')}`),
+          flag([emissions.length, hovers.length, reencodeRequests.length, navigations.length].join('/') === spokenBefore, 'silent-rail', 'AN OUTBOUND VERB SPOKE'),
+        ].join(' · ');
+        return check(
+          descriptor === 'all-carried · no-commit · no-fold-change · no-session-gap · no-contract-gap · silent-rail',
+          `the framing ask reached the renderer for ${String(keys.length)} named row(s), again for the same rows, for the empty set and for a row it does not hold — and recorded NOTHING (the harness cannot see a camera; it can see that no commit, no fold change and no outbound verb followed)`,
+          `the bring-into-view arm misbehaved: ${descriptor}`,
         );
       },
     },

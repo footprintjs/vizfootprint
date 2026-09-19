@@ -310,7 +310,7 @@ describe('conformance — all eight first-party charts pass (the reference claim
       },
     });
     expect(report.ok, explain(report)).toBe(true);
-    expect(report.steps).toHaveLength(14);
+    expect(report.steps).toHaveLength(15);
     // law 13: one declared kind, one gesture, delivered — the reverse of `gesture-emits`
     expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: interval');
     // a renderer with no cell declaration skips the D30 arm honestly
@@ -322,7 +322,9 @@ describe('conformance — all eight first-party charts pass (the reference claim
     expect(report.emissions[0]!.encoding.kind).toBe('interval');
     expect(report.reencodeRequests).toEqual(['y']); // the host owns the picker — the request was surfaced, not swallowed
     // the five are canPanZoom:false — the ONLY contract gap is the navigate one, typed
-    expect(report.gaps.map((g) => g.code)).toEqual(['navigate-unsupported']);
+    // the TWO honest contract gaps of a renderer that declares neither camera capability: the
+    // host-driven navigate, and the 1.11 framing ask — each refused BY NAME rather than no-oped
+    expect(report.gaps.map((g) => g.code)).toEqual(['navigate-unsupported', 'bring-into-view-unsupported']);
   });
 
   it('VizLine (date-interval brush) — a RUN state delivers the interval, and says it does not deliver the band\u2019s match', async () => {
@@ -432,7 +434,7 @@ describe('conformance — all eight first-party charts pass (the reference claim
     // quantity costs a reader their gesture and nothing anywhere says so (see the FINDING in the
     // report, and `declared-delivered`'s own arm below, which is where that fence now lives)
     expect(view.getState().gaps.map((g) => g.code)).toEqual([]);
-    expect(report.gaps.map((g) => g.code)).toEqual(['navigate-unsupported']); // the ONE honest CONTRACT gap of a non-pan/zoom renderer
+    expect(report.gaps.map((g) => g.code)).toEqual(['navigate-unsupported', 'bring-into-view-unsupported']); // the two honest CONTRACT gaps of a renderer that declares neither camera capability
     expect(report.steps.find((s) => s.step === 'declared-delivered')!.detail).toBe('every declared kind this state can deliver was delivered: interval (of interval+match+point, this state delivers interval)');
   });
 
@@ -473,7 +475,7 @@ describe('conformance — all eight first-party charts pass (the reference claim
     const kept = ROWS.filter(keepPredicate(selectionForView(view.getState().selections, 'other')));
     expect(kept.map((r) => r['rating'])).toEqual(ROWS.filter((r) => r['rating'] === 2 || r['rating'] === 3).map((r) => r['rating']));
     expect(kept).toHaveLength(5);
-    expect(report.gaps.map((g) => g.code)).toEqual(['navigate-unsupported']);
+    expect(report.gaps.map((g) => g.code)).toEqual(['navigate-unsupported', 'bring-into-view-unsupported']);
   });
 
   it('VizBar (point select on the category)', async () => {
@@ -591,6 +593,15 @@ interface StubOptions {
   /** What its `button.match` click emits (SET-1) — several, to simulate a refused match shadowed by a stray point. */
   readonly matchEmissions?: readonly ChartEmission[];
   readonly dirtyUnmount?: boolean;
+  /**
+   * Protocol 1.11: `'wired'` declares `canBringIntoView` AND ships the method;
+   * `'lying'` declares the flag and ships nothing — the capability lie the
+   * conformance arm exists to falsify. Absent = a 1.10 renderer, which says
+   * nothing about framing and is asked nothing.
+   */
+  readonly framing?: 'wired' | 'lying';
+  /** Where a `'wired'` renderer records what it was asked to frame. */
+  readonly framed?: (readonly string[])[];
 }
 
 /** A minimal hand-rolled renderer — pure DOM, no framework (the contract is framework-agnostic). */
@@ -602,6 +613,7 @@ function stubRenderer(options: StubOptions = {}): Renderer {
     canReencode: false,
     canPanZoom: false,
     emissionKinds: ['point'],
+    ...(options.framing !== undefined ? { canBringIntoView: true } : {}),
     ...options.capabilities,
   };
   return {
@@ -651,6 +663,17 @@ function stubRenderer(options: StubOptions = {}): Renderer {
             host.querySelector('span')!.textContent = `rows ${state.rows.length} · clauses ${state.selection.clauses.size}`;
           }
         },
+        // a 'lying' renderer declares the flag and never grows this method
+        ...(options.framing === 'wired'
+          ? {
+              bringIntoView: (keys: readonly string[]) => {
+                options.framed?.push(keys);
+                // a real one would move a camera here; this one writes a word,
+                // which is the most a jsdom harness can honestly observe
+                host.setAttribute('data-framed', keys.join(','));
+              },
+            }
+          : {}),
         unmount() {
           if (!options.dirtyUnmount) host.textContent = '';
         },
@@ -671,10 +694,84 @@ describe('conformance — the synthetic canPanZoom renderer (framework-agnostic,
       { gesture: clickProbe, navigateState: { x: [10, 20], y: ['2026-05-01', '2026-06-01'] } },
     );
     expect(report.ok, explain(report)).toBe(true);
-    expect(report.gaps).toEqual([]); // navigate was capable — no gap anywhere
+    // navigate was capable — so the navigate arm files nothing. The 1.11 framing ask is
+    // still refused by name: this renderer declares no canBringIntoView, and the two camera
+    // capabilities are separate promises (a viewport a reader pans is not a set of rows a
+    // clause asks for)
+    expect(report.gaps.map((g) => g.code)).toEqual(['bring-into-view-unsupported']);
     const nav = report.steps.find((s) => s.step === 'navigate')!;
     expect(nav.detail).toContain('non-filtering');
     expect(report.hovers).toEqual([['probe'], null]); // hover recorded, never committed
+  });
+});
+
+// ── the framing arm (protocol 1.11): what it proves, and what it admits ───────
+
+describe('conformance — the bring-rows-into-view arm, on a REAL session', () => {
+  const point: ChartEmission = { rawValue: 120, encoding: { kind: 'point', field: 'price' } };
+
+  it('a renderer that DECLARES and DELIVERS passes: the named rows, the same rows again, the empty set and a row it does not hold — and NOT ONE COMMIT LANDS', async () => {
+    const framed: (readonly string[])[] = [];
+    const { view } = await buildFixture();
+    const commitsBefore = view.getState().commits.length;
+    const selectionsBefore = JSON.stringify(view.getState().selections);
+    const report = await runConformance({
+      renderer: stubRenderer({ framing: 'wired', framed, emission: point }),
+      viewId: 'zoomy',
+      el: mountEl(),
+      view,
+      buildState: (st) => stateFor('zoomy', st),
+      gesture: clickProbe,
+      bringIntoViewKeys: ['d01', 'd02'],
+    });
+    expect(report.ok, explain(report)).toBe(true);
+    const arm = report.steps.find((s) => s.step === 'bring-into-view')!;
+    expect(arm.ok).toBe(true);
+    expect(arm.detail).toContain('recorded NOTHING');
+    // the four asks arrived verbatim: the host's rows, the REPEAT (no suppression),
+    // the empty set, and a row this view does not hold — three distinct sentences
+    expect(framed).toEqual([['d01', 'd02'], ['d01', 'd02'], [], ['__vzf-conformance-no-such-row__']]);
+    // THE LAW, ON A REAL SESSION: the gesture earlier in the run landed its one
+    // commit and the fold moved for it; the four framing asks that followed
+    // landed none and moved nothing. A camera move a clause causes is a
+    // consequence — the clause is already on the record, and a second owner of
+    // that fact would replay a camera move nobody decided at the cursor.
+    const st = view.getState();
+    expect(st.commits.length).toBe(commitsBefore + 1); // the GESTURE's commit, and only it
+    expect(JSON.stringify(st.selections)).not.toBe(selectionsBefore); // the gesture moved the fold…
+    expect(report.emissions).toHaveLength(1); // …and framing added no second emission
+    // a declared-and-delivered framing capability files NO gap of its own; the one
+    // gap in the run is the navigate arm's, from the canPanZoom:false this stub
+    // still declares — the two camera capabilities are separate promises
+    expect(report.gaps.map((g) => g.code)).toEqual(['navigate-unsupported']);
+  });
+
+  it('a renderer that DECLARES and DELIVERS NOTHING is caught by the arm — the capability lie, named', async () => {
+    const report = await runFor(stubRenderer({ framing: 'lying', emission: point }), 'zoomy', { gesture: clickProbe, bringIntoViewKeys: ['d01'] });
+    // this is the half a camera-less harness CAN falsify, and it is the half
+    // that matters: the hello promised a call its mount never shipped
+    const last = report.steps[report.steps.length - 1]!;
+    expect(report.ok).toBe(false);
+    expect(last.step, explain(report)).toBe('bring-into-view');
+    expect(last.detail).toContain('refused: named');
+    // ONE undelivered gap, not four: the arm stops at the first refusal, so the
+    // report names the diagnosis once
+    expect(report.gaps.map((g) => g.code)).toEqual(['navigate-unsupported', 'bring-into-view-undelivered']);
+  });
+
+  it('a renderer declaring the capability with no keys in the plan fails the arm rather than passing on an ask nobody made', async () => {
+    const report = await runFor(stubRenderer({ framing: 'wired', emission: point }), 'zoomy', { gesture: clickProbe });
+    const last = report.steps[report.steps.length - 1]!;
+    expect(report.ok).toBe(false);
+    expect(last.step, explain(report)).toBe('bring-into-view');
+    expect(last.detail).toContain('names no bringIntoViewKeys');
+  });
+
+  it('a renderer declaring NOTHING is asked once and refused by name — the honest skip is a typed gap, not a silent pass', async () => {
+    const report = await runFor(stubRenderer({ emission: point }), 'zoomy', { gesture: clickProbe });
+    expect(report.ok, explain(report)).toBe(true);
+    expect(report.steps.find((s) => s.step === 'bring-into-view')!.detail).toContain('typed bring-into-view-unsupported gap');
+    expect(report.gaps.map((g) => g.code)).toEqual(['navigate-unsupported', 'bring-into-view-unsupported']);
   });
 });
 
@@ -912,7 +1009,7 @@ describe('conformance — hostile renderers are caught at the exact step', () =>
       gesture: clickProbe,
     });
     await expectFailAt(report, 'unmount', 'left');
-    expect(report.steps.filter((s) => s.ok)).toHaveLength(13); // everything else passed (incl. the honest cell + match + neighbourhood + layers skips, and law 13's delivery check)
+    expect(report.steps.filter((s) => s.ok)).toHaveLength(14); // everything else passed (incl. the honest cell + match + neighbourhood + layers skips, law 13's delivery check, and the 1.11 framing refusal)
   });
 
   it('a renderer DECLARING the cell kind but given no cellGesture fails the cell arm honestly', async () => {
@@ -1080,7 +1177,7 @@ describe('conformance — the layers arm (one frame, two tables, a gesture on th
   it('a canLayer renderer passes: both layers drawn, the nodes gesture spoke through the nodes bundle and landed ONE commit under net~nodes', async () => {
     const report = await runNet({});
     expect(report.ok, explain(report)).toBe(true);
-    expect(report.steps).toHaveLength(14);
+    expect(report.steps).toHaveLength(15);
     const layers = report.steps.find((s) => s.step === 'layers')!;
     expect(layers.detail).toBe('both layers drawn; the gesture on "nodes" spoke through its bundle and landed ONE commit under net~nodes');
     // the view's own gesture (step 5) then the layer's — the second through the nodes bundle
@@ -1475,7 +1572,7 @@ describe('conformance — the walk arm (one gesture on a node, one commit, the i
   it('a renderer declaring the walk passes: ONE commit under the EDGES address, the seed inside the set it recorded', async () => {
     const report = await runWalk({ walk: { field: 'source', seed: 'flu' } });
     expect(report.ok, explain(report)).toBe(true);
-    expect(report.steps).toHaveLength(14);
+    expect(report.steps).toHaveLength(15);
     expect(report.steps.find((s) => s.step === 'neighbourhood')!.detail).toBe(
       'the walk gesture landed ONE commit under net~edges: the seed and the 1 node(s) it touches, and its clause is addressable',
     );

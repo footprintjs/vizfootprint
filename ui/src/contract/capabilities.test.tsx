@@ -135,8 +135,8 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
     { layerId: 'nodes', table: 'nodes', rows: [{ id: 'flu', group: 'viral' }, { id: 'cold', group: 'viral' }], encodings: { color: 'group' } },
   ] as const;
 
-  it('the protocol this build speaks is 1.10 — the bytes-on-the-handshake minor', () => {
-    expect(RENDERER_PROTOCOL_VERSION).toBe('1.10');
+  it('the protocol this build speaks is 1.11 — the bring-rows-into-view minor', () => {
+    expect(RENDERER_PROTOCOL_VERSION).toBe('1.11');
   });
 
   it('declares TRUE — and a layered frame pushed through the bind draws BOTH layers, each under its own table', () => {
@@ -507,6 +507,94 @@ describe('no renderer declares a rearrange capability (the flag nothing honoured
     expect(cbs.navigate).not.toHaveBeenCalled();
     expect(cbs.reencodeRequest).not.toHaveBeenCalled();
     m.unmount();
+  });
+});
+
+// ── framing — the second INBOUND call, and the nine that do not take it ───────
+
+describe('bringing rows into view is a promise about the BOUND renderer (protocol 1.11)', () => {
+  const factories: readonly (readonly [string, Renderer])[] = [
+    ['scatter', scatterRenderer()],
+    ['line', lineRenderer()],
+    ['bar', barRenderer()],
+    ['map', mapRenderer({ geo: { type: 'FeatureCollection', features: [] } })],
+    ['table', tableRenderer({ columns: ['id'] })],
+    ['histogram', histogramRenderer()],
+    ['heatmap', heatmapRenderer()],
+    ['boxplot', boxPlotRenderer()],
+    ['network', networkRenderer()],
+  ];
+
+  it('not one of the nine declares canBringIntoView, and not one grows a bringIntoView method — a 2D chart draws every row it has', () => {
+    for (const [name, renderer] of factories) {
+      const { m } = mounted(renderer);
+      expect(`${name}: ${String('canBringIntoView' in m.hello.capabilities)}`).toBe(`${name}: false`);
+      expect(`${name}: ${String('bringIntoView' in m)}`).toBe(`${name}: false`);
+      m.unmount();
+    }
+  });
+
+  it('…and a host asking any of the nine is refused BY NAME, with the mount untouched — never a silent nothing', () => {
+    for (const [name, renderer] of factories) {
+      const el = document.createElement('div');
+      document.body.appendChild(el);
+      const res = bindRenderer(renderer, el, { viewId: name, callbacks: callbacks() });
+      if (!res.ok) throw new Error(`${name}: bind failed`);
+      res.view.update(state([{ id: 'a', x: 1, y: 2 }]));
+      const drawnBefore = el.innerHTML;
+      const outcome = res.view.bringIntoView(['a']);
+      expect(`${name}: ${outcome.ok ? 'carried' : outcome.gap.code}`).toBe(`${name}: bring-into-view-unsupported`);
+      expect(`${name}: ${String(el.innerHTML === drawnBefore)}`).toBe(`${name}: true`);
+      res.view.unmount();
+    }
+  });
+
+  it('a 1.10 renderer is byte-identical under 1.11: the same frame draws the same bytes whether or not the host ever asks to frame rows', () => {
+    const rows = [{ id: 'a', x: 1, y: 2 }, { id: 'b', x: 3, y: 4 }];
+    const draw = (ask: boolean): string => {
+      const el = document.createElement('div');
+      document.body.appendChild(el);
+      const res = bindRenderer(scatterRenderer(), el, { viewId: 'scatter', callbacks: callbacks() });
+      if (!res.ok) throw new Error('bind failed');
+      res.view.update(state(rows));
+      if (ask) res.view.bringIntoView(['b']); // refused — and a refusal must not repaint
+      res.view.update(state(rows));
+      const html = el.innerHTML;
+      res.view.unmount();
+      return html;
+    };
+    expect(draw(true)).toBe(draw(false));
+  });
+
+  it('a renderer that DECLARES it delivers it: the ask arrives with the host\'s rows, again on a repeat, and no outbound verb is spoken', () => {
+    const framed: (readonly string[])[] = [];
+    const framer: Renderer = {
+      mount(el) {
+        (el as HTMLElement).textContent = 'structure';
+        return {
+          hello: {
+            protocolVersion: RENDERER_PROTOCOL_VERSION,
+            capabilities: { canBrush: false, canPointSelect: true, canHighlight: true, canReencode: false, canPanZoom: false, emissionKinds: ['point'], canBringIntoView: true },
+          },
+          update: () => {},
+          bringIntoView: (keys) => framed.push(keys),
+          unmount: () => { (el as HTMLElement).textContent = ''; },
+        };
+      },
+    };
+    const cbs = callbacks();
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const res = bindRenderer(framer, el, { viewId: 'structure3d', callbacks: cbs });
+    if (!res.ok) throw new Error('bind failed');
+    expect([res.view.bringIntoView(['A:57']).ok, res.view.bringIntoView(['A:57']).ok, res.view.bringIntoView([]).ok]).toEqual([true, true, true]);
+    expect(framed).toEqual([['A:57'], ['A:57'], []]);
+    // the declaration and the behaviour, failing together — and the law beside
+    // them: a framing caused by a clause reaches no recording rail
+    expect(res.view.capabilities.canBringIntoView).toBe(true);
+    expect(cbs.navigate).not.toHaveBeenCalled();
+    expect(cbs.emit).not.toHaveBeenCalled();
+    res.view.unmount();
   });
 });
 

@@ -1218,6 +1218,140 @@ renderer that declares nothing about resources unaffected), `capabilities.test.t
 (the version), `notInThisVersion.test.ts` (`resources` on the handshake and not
 on the frame).
 
+## Law 10 — a camera a clause moved records nothing (protocol 1.11)
+
+A protein desk's whole point is that the molecule is the reference and the
+charts are evidence about it. A reader selects a residue in the scatter and the
+3D view **recolours** it — and on a 185-residue structure that residue is
+routinely *behind the molecule*, so the mark is drawn and nobody sees it. Mol\*
+can obviously frame a residue. **The contract could not ask.** `update(state)`
+was the only inbound call, and `canPanZoom` points the other way: it declares
+that a renderer RECORDS its own camera moves as a `navigate`. There was no
+inbound direction at all.
+
+Protocol 1.11 adds one:
+
+```ts
+const bound = bindRenderer(molstarRenderer({ structure }), el, { viewId: 'structure3d', callbacks });
+// …a clause on another view now names residue A:57
+bound.view.bringIntoView(['A:57']);
+// { ok: true }  — the ask reached the renderer. NOT "the camera moved".
+```
+
+### The law, and it is the part to get right
+
+> **A camera move a READER makes is an ACT. A camera move a CLAUSE causes is a CONSEQUENCE. Only the first reaches the record.**
+
+A reader orbiting the molecule with the mouse is a visible act, and a renderer
+that records it declares `canPanZoom` and speaks `navigate` — unchanged, and
+still the only camera verb on the recording rail. A framing caused by a
+selection is **derived** from a clause that is already on the trace. Recording
+it again would put **two owners on one fact**, and it would be worse than
+redundant at a cursor: stepping the trace back would replay a camera move
+*nobody ever decided*, and the reader would watch the view swing for a reason
+the log cannot explain.
+
+So `bringIntoView` lands **no commit, ever**, and the proof is structural
+rather than a promise — the branch in `bind.ts` reaches no outbound callback,
+where `navigate` beside it reaches `options.callbacks.navigate`. There is
+nothing there for a second owner to be written into, and
+`notInThisVersion.test.ts` fails the moment a callback appears inside it.
+
+### Framing is an EVENT, not a state
+
+A field on `RenderState` was the obvious shape and is the wrong one. State is
+pushed on **every** frame, so the camera would jump on every re-render: a hover
+in the chart beside this one repaints, the field is still set, and the reader is
+yanked back mid-orbit. The only cure would be per-renderer bookkeeping
+comparing this frame's field to the last one.
+
+A **one-shot field** (a nonce the renderer consumes) buys that bookkeeping back
+and adds a worse problem twice over. The host cannot tell whether the ask
+arrived — a renderer that silently never consumed it looks exactly like one that
+framed. And a consumed token makes the *second* ask do nothing, which is the one
+case that matters most:
+
+**Asked twice for the same rows, a renderer frames again.** It must not suppress
+the repeat. A reader who has orbited away and asks again for the residue they
+still have selected is asking to be brought back, and the rows being identical
+is precisely *why* they are asking.
+
+### Which rows — and the two cases that are decisions, not defaults
+
+`keys` are row ids: the vocabulary `RendererCallbacks.hover` and
+`RenderState.hover` already speak. A second spelling for "which rows" would be a
+second thing to keep in sync.
+
+- **`[]` means RETURN TO THE WHOLE.** A cleared selection leaves the camera
+  parked on a row nobody has selected any more, which is the picture asserting a
+  selection that no longer exists; the honest answer is the same one `update`
+  gives when it repaints every row as kept. A host that means *don't move*
+  simply **does not call** — not calling and calling with nothing are different
+  sentences, and the protocol keeps them apart.
+- **Keys this renderer does not hold**: frame the ones it does, and if it holds
+  **none** of them, **do not move the camera**. Emphatically not the same as the
+  empty ask — a camera parked on nothing is worse than a camera that stayed put,
+  and collapsing the two would let one mistyped id silently reset a reader's
+  view. The host owns the rows (the transform-ownership rule), so it already
+  knows which keys this view holds; asking with keys it does not is the *host's*
+  error, and the renderer's duty is only to not make it visible.
+
+### Asking a renderer that cannot frame: refused by name
+
+A safe no-op was the alternative, and Law 2 rejects it. A guard belongs where an
+absence would otherwise be **silent** — and this absence is not visible, because
+the rows *were* still recoloured and the frame looks complete. The reader is
+left hunting a mark behind the molecule with nothing saying why. That is the
+`canLayer` reasoning applied to an act instead of to a frame, and it matches
+what this library does everywhere else: it refuses a declared gesture a renderer
+will not draw, and it makes an unaddressable clause a named refusal rather than
+a silent nothing.
+
+```ts
+bindRenderer(scatterRenderer(), el, { viewId: 'scatter', callbacks }).view.bringIntoView(['a']);
+// { ok: false, gap: { code: 'bring-into-view-unsupported', op: 'bringIntoView',
+//   detail: 'view "scatter" declares no canBringIntoView — the request to bring 1 row(s) into view was not carried' } }
+```
+
+A **second** code exists because the opposite mistake deserves its own word: a
+renderer that declares `canBringIntoView: true` and ships no `bringIntoView`
+method lands `bring-into-view-undelivered` — the capability lie of Law 1, named.
+Neither refuses the *bind*: a mis-declared camera nicety makes one act wrong,
+where a version mismatch or an unowned transform makes every frame wrong.
+
+### What conformance falsifies, and what it admits it cannot
+
+The kit's `bring-into-view` arm asks a declaring renderer four times — the
+plan's rows, the **same rows again**, the empty set, and a row it does not hold
+— and then checks that no commit landed, the fold did not move, no session gap
+was filed and not one of the four outbound verbs spoke. A renderer declaring
+nothing is asked once and must come back refused by name.
+
+**It cannot verify that the camera moved.** Nothing at this boundary can — a
+camera lives inside somebody else's WebGL scene, and a harness that claimed
+otherwise would be making exactly the kind of promise this folder exists to
+refuse. What it *can* prove is: the call arrived, the renderer did not throw, a
+declared capability is really wired (the `undelivered` guard catches a hello
+promising a method its mount never shipped), all four ask-shapes are survivable,
+and **nothing was recorded**. A reader of the report should take a green
+`bring-into-view` to mean exactly that list and not one word more.
+
+**Every renderer that does not declare it is byte-identical.** None of the nine
+first-party charts declares `canBringIntoView`, none grows a `bringIntoView`
+method, and asking any of them files the typed gap and leaves the mount's bytes
+untouched (`capabilities.test.tsx`: the nine helloes, the nine refusals, and the
+same frame drawn with and without a framing ask). A 1.10 renderer binds, draws
+and is asked byte-identically, because it is never asked at all.
+
+The law's tests: `bind.test.ts` (the ask carried with the host's rows and not
+one outbound verb spoken; the repeat; the empty and unheld asks verbatim; both
+typed gaps; a 1.10 renderer's lifecycle unchanged), `capabilities.test.tsx` (the
+nine, and a declaring renderer's two halves failing together),
+`conformance.test.tsx` (the arm on a REAL session — **the no-commit law pinned
+where commits actually land** — plus the undelivered lie caught),
+`notInThisVersion.test.ts` (the version, the call, the flag, both gaps, and the
+structural no-commit check over `bind.ts`).
+
 ---
 
 ## Adding a capability — the checklist
@@ -1241,8 +1375,15 @@ on the frame).
    (Law 6); 1.8 added `RenderLayer.selection` (Law 7); 1.9 added
    `SelectionClauseView.via` (Law 8), amended in the same unreleased train
    with `via.from` (the source's clause, so a travelled walk is still the
-   walk); 1.10 added `HostHandshake.resources` (Law 9) — all optional, so
-   every one of them stayed a minor.
+   walk); 1.10 added `HostHandshake.resources` (Law 9); 1.11 added the second
+   INBOUND call, `MountedRenderer.bringIntoView`, with `canBringIntoView` and
+   its two typed gaps (Law 10) — all optional, so every one of them stayed a
+   minor. **An inbound call is a minor where an outbound verb is a major, and
+   that is not a double standard**: "exactly four verbs" is a stated law about
+   the renderer's *voice*, so a fifth changes what a renderer **is**, while an
+   optional inbound call changes only what a renderer may be **asked** — one
+   that declares nothing is never asked, and a host that never asks changes
+   nothing.
 
 ## One more habit: the derivation helpers ship in a set
 

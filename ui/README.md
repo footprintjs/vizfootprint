@@ -817,7 +817,7 @@ await view.reencodeSet('scatter', { x: 'rating', y: 'price' }, 'swap axes');
 Any charting stack — the five first-party charts, a canvas renderer, a
 wrapped external library — can join the coordinated, cause-tagged dashboard
 by implementing ONE small surface. The protocol is framework-agnostic and
-versioned (`RENDERER_PROTOCOL_VERSION`, currently `1.5`). The laws it is
+versioned (`RENDERER_PROTOCOL_VERSION`, currently `1.11`). The laws it is
 reviewed against — what a capability flag may claim, and why — are written up
 in `src/contract/README.md`.
 
@@ -825,7 +825,8 @@ in `src/contract/README.md`.
 handshake carries the protocol version the host speaks, the `viewId`, and the
 four callbacks. The renderer answers with a hello: the version IT speaks, its
 honest capabilities (`canBrush`, `canPointSelect`, `canHighlight`,
-`canReencode`, `canPanZoom`, and which `emissionKinds` it produces), and any
+`canReencode`, `canPanZoom`, `canLayer`, `canBringIntoView`, and which
+`emissionKinds` it produces), and any
 internal data transforms it declares. **A flag is `true` only when the BOUND
 renderer delivers that behaviour through the contract** — not when the chart
 underneath could deliver it if a host wired it by hand; `barRenderer` computes
@@ -845,6 +846,39 @@ silent no-op:
 crossfiltered/decimated/aggregated by the host), `encodings` (the
 channel→field fold at the cursor), the **clause-addressable `selection`**,
 ephemeral `hover` keys, `theme` tokens, and the measured `size`.
+
+**Inbound: `bringIntoView(keys)` (protocol 1.11).** The protocol's *second*
+inbound call, and the first since `update`. A host that has just recoloured the
+rows a clause names can now ask the view to bring them where the reader can see
+them — the call a 3D structure needed, because on a 185-residue molecule the
+marked residue is routinely behind the rest. Both the method
+(`MountedRenderer.bringIntoView`) and the `canBringIntoView` flag that guards it
+are optional, so a 1.10 renderer is never asked and binds byte-identically.
+
+Three things about it, each a decision rather than a default:
+
+- **It is an EVENT, not a state.** A field on `RenderState` would jump the
+  camera on every re-render and a reader could not orbit without being yanked
+  back; a one-shot field would leave the host unable to tell whether the ask
+  arrived, and would make the *second* ask for the same rows do nothing. Asked
+  twice for the same rows, a renderer frames again — that repeat is exactly
+  what a reader who orbited away is asking for.
+- **It records NOTHING, ever.** A camera move a READER makes is an act and
+  rides `navigate` onto the trace, as it always did. A camera move a CLAUSE
+  causes is a consequence: the clause is already on the record, so recording
+  the framing too would be two owners of one fact, and stepping the cursor back
+  would replay a camera move nobody decided. The branch reaches no outbound
+  callback at all.
+- **`[]` means return to the whole**, and keys this view does not hold mean
+  *leave the camera where it is* — two different sentences, deliberately not
+  collapsed. A host that means "don't move" simply does not call.
+
+Asking a view that declares no `canBringIntoView` files a typed
+`bring-into-view-unsupported` gap rather than a silent no-op (the absence would
+not be visible: the rows were still recoloured, so the frame looks complete). A
+renderer that declares the flag and ships no method files
+`bring-into-view-undelivered` — the capability lie, named. Neither refuses the
+bind. The full argument is Law 10 in `src/contract/README.md`.
 
 **Layers (protocol 1.2).** One frame may hold several tables — a node-link
 draws edges under nodes, each its own table. A view declares `layers` in the
@@ -920,7 +954,13 @@ real scripted session and walks the full loop in order — version-guard,
 transform-ownership, handshake, renders, gesture-emits, commit-lands (origin
 in the cause), crossfilter-returns (the view's own clause addressable + a
 visible re-render), navigate (recorded + non-filtering, or the typed gap),
-unmount — and reports every step in plain words. All eight first-party
+bring-into-view (1.11 — the named rows, the same rows again, the empty set and
+a row the view does not hold, none of which may land a commit, move the fold or
+speak an outbound verb; or the typed refusal for a renderer that declares
+nothing), unmount — and reports every step in plain words. The framing arm says
+plainly what it cannot see: no harness at this boundary can verify that a
+camera moved, so a green step means the call arrived, the renderer did not
+throw, a declared capability really is wired, and nothing was recorded. All eight first-party
 charts pass it in CI; a bestiary of hostile renderers proves the kit catches
 each violation at the exact step.
 
@@ -1160,7 +1200,7 @@ hand-bound run over a real two-table session that proves the loop closes.
 |---|---|
 | `tokens/` | design tokens + theme engine — scoped CSS variables on the `.vzf` root (never `:root`), light+dark via `prefers-color-scheme` with a `data-theme` override that wins both ways |
 | `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods incl. `navigate`; **every door that lands an act answers `DescribeOutcome`** — see “A door hands back what the session said”) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView`; `ViewView.layers` projected from the overview and `layerRowsFor(session, address)` — the one door for a layer's rows (1.2) |
-| `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION` (1.5 — 1.1 added the `cell` kind; 1.2 added layers: `RenderState.layers`, `canLayer`, per-layer callback bundles, the `layers-unsupported` gap, and the address helpers re-exported from `vizfootprint/def`; 1.3 added the `neighbourhood` kind; 1.4 added WHICH walk on a neighbourhood emission; 1.5 added `RenderState.frame`, the layers' shared scales folded by the host), `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`brightPredicate`/`selfSelectedValue`/`selfSelectedInterval`/`selfSelectedSet`/`selfSelectedCell`, the ten reference renderers (`networkRenderer` the first to declare `canLayer`, `layeredRenderer` the generic frame over the 2D marks), `runConformance` (the cell and layers arms), and the capability-honesty law in `src/contract/README.md` |
+| `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION` (1.11 — 1.1 added the `cell` kind; 1.2 added layers: `RenderState.layers`, `canLayer`, per-layer callback bundles, the `layers-unsupported` gap, and the address helpers re-exported from `vizfootprint/def`; 1.3 added the `neighbourhood` kind; 1.4 added WHICH walk on a neighbourhood emission; 1.5 added `RenderState.frame`, the layers' shared scales folded by the host; 1.6 the logarithmic axis on it; 1.7 `SelectionClauseView.narrowed`; 1.8 `RenderLayer.selection`; 1.9 `SelectionClauseView.via`; 1.10 `HostHandshake.resources`; 1.11 the SECOND INBOUND CALL — `bringIntoView(keys)` with `canBringIntoView` and its two typed gaps, the framing that records nothing), `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`brightPredicate`/`selfSelectedValue`/`selfSelectedInterval`/`selfSelectedSet`/`selfSelectedCell`, the ten reference renderers (`networkRenderer` the first to declare `canLayer`, `layeredRenderer` the generic frame over the 2D marks), `runConformance` (the cell and layers arms), and the capability-honesty law in `src/contract/README.md` |
 | `primitives/` | the chart-building tier (see above): `<ChartFrame>`, scales + date handling, `<AxisLabel>`/`useReencodePicker`/`defaultCompat`, `useHorizontalBrush`/`<BrushOverlay>`, `pointEmission`/`togglePointEmission`/`keyActivates`, `useKeepPredicate`/`selectedValue`/`dimClass` — compose a chart from these and it is born contract-conformant |
 | `layout/` | `<VizCockpit>` (the flagship — and only — single-screen shell) + `<VizModal>` (the one modal system) + `<VizPanel>`/`<VizCard>` |
 | `charts/` | `<VizScatter>`, `<VizBar>` (category ticks slant and clip to their band when they would collide; values that would collide are omitted — the full label rides a `<title>`), `<VizLine>` (a run of dates, a run of numbers or a band — the drag emits the clause its own axis can answer), `<VizMap>` (SVG choropleth, region click; `coordinates="planar"` for shapes already projected to a screen plane, e.g. us-atlas), `<VizTable>` (sortable rows, click-to-select), `<VizHistogram>` (host-computed buckets, edge-snapped brush), `<VizHeatmap>` (host-computed 2-D cells, one-click compound cell selection — D30), `<VizBoxPlot>` (host-summarized quartiles/whiskers/outliers, click-to-select a category), `<VizNetwork>` (a node-link: TWO tables on one frame — nodes over the layout act's positions, links over `bringOver`'s endpoints — sharing ONE pair of scales computed over the union of both; hover brightens a neighbourhood and records nothing) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |

@@ -61,7 +61,10 @@ export {
 export type { SelfSelectedCell, SelfSelectedSet, SelfSelectedNeighbourhood } from './selection.js';
 
 export { bindRenderer } from './bind.js';
-export type { BindOptions, BindResult, BoundRenderer, NavigateOutcome, UpdateOutcome, LayerBindings } from './bind.js';
+// protocol 1.11: the framing ask's outcome — exported in the SAME change as the
+// call that answers it, the habit this folder's README calls "the derivation
+// helpers ship in a set"
+export type { BindOptions, BindResult, BoundRenderer, NavigateOutcome, UpdateOutcome, BringIntoViewOutcome, LayerBindings } from './bind.js';
 
 export {
   reactRenderer,

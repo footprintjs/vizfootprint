@@ -14,6 +14,10 @@
  *                                        transforms → typed gap, NO bind
  *   update(RenderState)            ───▶ rows + encodings + clause-addressable
  *                                        selection + hover + theme + size
+ *   bringIntoView(keys) (1.11)     ───▶ an EVENT, not a state: bring these rows
+ *                                        where the reader can see them. Records
+ *                                        NOTHING — the clause that caused it is
+ *                                        already on the record
  *   (outbound, exactly FOUR verbs) ◀─── emit · hover · reencodeRequest ·
  *                                        navigate
  *   handshake.layers (1.2)          ───▶ one callback BUNDLE per layer, each
@@ -126,9 +130,17 @@ import type { ResolvedChannel } from 'vizfootprint/def';
  * NOT on {@link RenderState}: state is pushed on every update and bytes are
  * fetched once. Optional, absent when the host bound none, so a 1.9 renderer
  * never reads it and a host that declares no resource hands over a
- * byte-identical handshake; the minor stays compatible.
+ * byte-identical handshake; the minor stays compatible. 1.11 ADDED THE SECOND
+ * INBOUND CALL — {@link MountedRenderer.bringIntoView}, the `canBringIntoView`
+ * capability that guards it, and the two typed gaps it can land. Until it, the
+ * protocol had NO inbound direction beyond the frame: a host could recolour a
+ * residue a reader had selected and had no way to bring it where the reader
+ * could see it, so on a 185-residue structure the marked residue was routinely
+ * behind the molecule. Both the method and the flag are optional and a renderer
+ * that declares neither is never asked, so a 1.10 renderer binds, draws and is
+ * asked byte-identically; the minor stays compatible.
  */
-export const RENDERER_PROTOCOL_VERSION = '1.10';
+export const RENDERER_PROTOCOL_VERSION = '1.11';
 
 export type { ChartEmission };
 export type { ResolvedChannel };
@@ -248,6 +260,35 @@ export interface RendererCapabilities {
    * table and let the viewer believe it was two.
    */
   readonly canLayer?: boolean;
+  /**
+   * PROTOCOL 1.11: can bring a NAMED SET OF ROWS where the reader can see them
+   * — {@link MountedRenderer.bringIntoView}. A 3D structure hides most of
+   * itself: a host recolours the residue a reader selected in a chart beside
+   * it, and on a 185-residue molecule that residue is routinely BEHIND the
+   * rest, so the mark is drawn and nobody sees it. This is the call that asks.
+   *
+   * THE LAW THIS FLAG IS READ UNDER — and it is the part to get right:
+   *
+   *   A camera move a READER makes is an ACT. A camera move a CLAUSE causes is
+   *   a CONSEQUENCE. Only the first reaches the record.
+   *
+   * A reader orbiting the molecule is a visible act and records through
+   * `navigate` exactly as it always did ({@link RendererCallbacks.navigate}).
+   * A framing caused by a selection is DERIVED from a clause that is already on
+   * the record — recording it again would be TWO OWNERS OF ONE FACT, and
+   * stepping the cursor back would replay a camera move nobody ever decided.
+   * So `bringIntoView` lands NO commit, ever: it touches none of the four
+   * outbound verbs, and there is structurally nothing for it to call.
+   *
+   * Optional so a 1.10 hello stays valid; absent reads as `false`. GUARDED at
+   * `bindRenderer`: a host asking a view that does not declare it lands the
+   * typed `bring-into-view-unsupported` gap, and one that declares it while
+   * shipping no `bringIntoView` method lands `bring-into-view-undelivered` —
+   * the capability lie, named (Law 1). Neither is a bind refusal: a
+   * mis-declared camera nicety makes ONE act wrong, where a version mismatch or
+   * an unowned transform makes every frame wrong.
+   */
+  readonly canBringIntoView?: boolean;
 }
 
 /**
@@ -592,6 +633,58 @@ export interface MountedRenderer {
   readonly hello: RendererHello;
   /** Draw (or redraw) under the given state. Must be safe to call repeatedly. */
   update(state: RenderState): void;
+  /**
+   * PROTOCOL 1.11 — BRING THESE ROWS WHERE THE READER CAN SEE THEM. The
+   * protocol's SECOND inbound call, and the first since `update`.
+   *
+   * FRAMING IS AN EVENT, NOT A STATE, and that is the whole shape argument. A
+   * field on {@link RenderState} was the obvious place and is the wrong one:
+   * state is pushed on every frame, so the camera would jump on every
+   * re-render — a hover in a chart beside this one would yank a reader back
+   * mid-orbit, and the only cure would be per-renderer bookkeeping comparing
+   * this frame's field to the last. A ONE-SHOT field (a nonce the renderer
+   * consumes) buys that bookkeeping back and adds a worse problem: the host
+   * cannot tell whether the ask ARRIVED, so a renderer that silently never
+   * consumed it looks exactly like one that framed. A call arrives, answers,
+   * and needs no memory on either side.
+   *
+   * ASKED TWICE FOR THE SAME ROWS, A RENDERER FRAMES AGAIN. It must NOT
+   * suppress the repeat as a no-op: a reader who has orbited away and asks
+   * again for the residue they still have selected is asking to be brought
+   * back, and the rows being the same is exactly why. (This is also the second
+   * count against the one-shot field: a consumed token makes the second ask
+   * do nothing, which is the one case that matters most.)
+   *
+   * WHICH ROWS. `keys` are row ids, the same vocabulary
+   * {@link RendererCallbacks.hover} and {@link RenderState.hover} already speak
+   * — a second spelling for "which rows" is a second thing to keep in sync.
+   * Two cases are DECISIONS, not defaults, and they are deliberately different:
+   *
+   *   - `[]` — EMPTY MEANS RETURN TO THE WHOLE. A cleared selection leaves the
+   *     camera parked on a row nobody selected any more, which is the picture
+   *     asserting a selection that no longer exists; the honest answer is the
+   *     same one `update` gives when it repaints every row as kept. A host that
+   *     means "do not move" simply does not call — not calling and calling with
+   *     nothing are different sentences, and the protocol keeps them apart.
+   *   - KEYS THIS RENDERER DOES NOT HOLD — frame the ones it does; if it holds
+   *     NONE of them, DO NOT MOVE THE CAMERA. It is emphatically not the empty
+   *     ask: a camera parked on nothing is worse than a camera that stayed put,
+   *     and collapsing the two would let one mistyped id silently reset a
+   *     reader's view. The host owns the rows (the transform-ownership rule), so
+   *     it already knows which keys this view holds — asking with keys it does
+   *     not is the host's error, and the renderer's duty is only to not make it
+   *     visible.
+   *
+   * IT RECORDS NOTHING, EVER — see `canBringIntoView` for the law. A renderer
+   * implementing this must not reach for `callbacks.navigate` inside it: a
+   * reader's orbit is an act and records, a clause's framing is a consequence
+   * and does not, and a renderer that records both puts a camera move on the
+   * trace that nobody decided.
+   *
+   * Optional: a renderer that declares no `canBringIntoView` is never asked
+   * (`bindRenderer` refuses first), so 1.10 renderers are untouched.
+   */
+  bringIntoView?(keys: readonly string[]): void;
   /** Tear down everything mount created. */
   unmount(): void;
 }
@@ -609,7 +702,17 @@ export type ContractGapKind =
   | 'transforms-not-owned'
   | 'navigate-unsupported'
   /** 1.2: a host pushed `RenderState.layers` at a renderer that declares no `canLayer` — the frame was not drawn. */
-  | 'layers-unsupported';
+  | 'layers-unsupported'
+  /** 1.11: a host asked a renderer that declares no `canBringIntoView` to frame rows — the camera was not moved. */
+  | 'bring-into-view-unsupported'
+  /**
+   * 1.11: a renderer DECLARED `canBringIntoView` and its mount ships no
+   * `bringIntoView` method — the capability lie, named rather than swallowed
+   * (Law 1). Distinct from `bring-into-view-unsupported` because the diagnosis
+   * is the opposite: there the host asked something the renderer never promised,
+   * here the renderer promised something it never wired.
+   */
+  | 'bring-into-view-undelivered';
 
 /**
  * One unmet contract request. Shape-compatible with the adapter's `GapView`
@@ -618,7 +721,7 @@ export type ContractGapKind =
  */
 export interface ContractGap {
   readonly code: ContractGapKind;
-  readonly op: 'bind' | 'navigate' | 'update';
+  readonly op: 'bind' | 'navigate' | 'update' | 'bringIntoView';
   /** Human-facing detail. INERT — never parsed, never dispatched on. */
   readonly detail: string;
   /** The viewId the request named. */
