@@ -230,6 +230,8 @@ pattern is what you are meant to recognise, not the individual fix:
 | the demo's story capture, stamping `by: 'user'` and `new Date()` onto every bookmark it carried — and printing a note on the page saying it vouched for neither | `bookmarkViews()` served the id, the label and the moment and dropped the store's CREATION stamp, which is exactly what `restoreBookmarks` requires | `by` and `madeAt` on `BookmarkView`, at both ends. The consumer stopped stamping, and the page's front matter has nothing to confess — the note was the honest report of a door that had not been finished, not a fix for it |
 | a story stage about to ask `state.commits` "does this session hold that commit?" before every seek | `SessionView.seek` returned `Promise<void>`: the session's own `SeekResult` — judged before anything moved, with its sentence — was read and dropped on the floor here | `seek` ANSWERS now, over both sources, with the same `{ ok } \| { ok, sentence }` every other gesture speaks. The consumer stopped judging and started printing what the session said |
 
+| every OTHER door over the same dispatch — `emit`, `clear`, `clearAll`, `link`, `setPolarity`, `reencode`, `reencodeSet`, `propose`, `acceptProposal`, `declineProposal`, `navigate`, `setLayout`, `setSheetArrangement`, `setSheetSort`, `analyze`, and the three cursor steps over `seek` | each returned `Promise<void>` over a dispatch that had ALREADY produced the answer — `seek` and `setLayoutNote` were widened one at a time, which left seventeen more places to word the same answer differently | **one widening, one shape**: all eighteen answer the same `DescribeOutcome`, so a caller reads a refusal identically at every one of them (`doorOutcomes.test.ts` is the table) |
+
 The last row is worth reading as the general shape, because the helper had not
 been written yet: the consumer was about to re-derive *reachability* from the
 commit list, and the library already knew the answer and was throwing it away.
@@ -237,6 +239,17 @@ commit list, and the library already knew the answer and was throwing it away.
 the next consumer will compute that answer again, less well, somewhere the
 library's tests cannot see it. The fix is never a check on the consumer's side;
 it is the door saying what it did.
+
+**And the fix is taken ONCE.** `seek` was widened for one consumer, then
+`setLayoutNote` for another, and each time seventeen sibling doors kept
+discarding the same answer — so the next consumer wrote the next workaround. A
+door-by-door fix is also a chance to word one answer several ways: eighteen
+doors each inventing their own success shape is the drift, not the cure. Every
+door that lands an act now answers `DescribeOutcome` and nothing else, and the
+list of doors that deliberately answer `void` — `refresh`, `bookmark` and the
+eight path / trail actions, all of them over endpoints that read nothing back —
+is written beside them in `sessionView.ts`, because *why a door stays silent* is
+the part a reader cannot recover from the type.
 
 **How to tell you are about to break this law.** You are in a consumer, about
 to write a function whose body encodes a rule the library states in prose — a

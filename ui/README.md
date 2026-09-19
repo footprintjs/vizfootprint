@@ -1159,7 +1159,7 @@ hand-bound run over a real two-table session that proves the loop closes.
 | module | job |
 |---|---|
 | `tokens/` | design tokens + theme engine — scoped CSS variables on the `.vzf` root (never `:root`), light+dark via `prefers-color-scheme` with a `data-theme` override that wins both ways |
-| `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods incl. `navigate`) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView`; `ViewView.layers` projected from the overview and `layerRowsFor(session, address)` — the one door for a layer's rows (1.2) |
+| `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods incl. `navigate`; **every door that lands an act answers `DescribeOutcome`** — see “A door hands back what the session said”) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView`; `ViewView.layers` projected from the overview and `layerRowsFor(session, address)` — the one door for a layer's rows (1.2) |
 | `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION` (1.5 — 1.1 added the `cell` kind; 1.2 added layers: `RenderState.layers`, `canLayer`, per-layer callback bundles, the `layers-unsupported` gap, and the address helpers re-exported from `vizfootprint/def`; 1.3 added the `neighbourhood` kind; 1.4 added WHICH walk on a neighbourhood emission; 1.5 added `RenderState.frame`, the layers' shared scales folded by the host), `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`brightPredicate`/`selfSelectedValue`/`selfSelectedInterval`/`selfSelectedSet`/`selfSelectedCell`, the ten reference renderers (`networkRenderer` the first to declare `canLayer`, `layeredRenderer` the generic frame over the 2D marks), `runConformance` (the cell and layers arms), and the capability-honesty law in `src/contract/README.md` |
 | `primitives/` | the chart-building tier (see above): `<ChartFrame>`, scales + date handling, `<AxisLabel>`/`useReencodePicker`/`defaultCompat`, `useHorizontalBrush`/`<BrushOverlay>`, `pointEmission`/`togglePointEmission`/`keyActivates`, `useKeepPredicate`/`selectedValue`/`dimClass` — compose a chart from these and it is born contract-conformant |
 | `layout/` | `<VizCockpit>` (the flagship — and only — single-screen shell) + `<VizModal>` (the one modal system) + `<VizPanel>`/`<VizCard>` |
@@ -1206,6 +1206,44 @@ function App() {
   );
 }
 ```
+
+## A door hands back what the session said
+
+**Every `SessionView` door that lands an act answers with the same
+`DescribeOutcome`** — `{ ok: true }`, or `{ ok: false, sentence }` carrying the
+session's own words — so a host reads a refusal the same way at all of them and
+never re-reads the fold to learn its act did not land.
+
+```tsx
+const done = await view.setLayoutNote({ scope: 'protein-desk', prop: 'panes', value: 'surface,contacts', words: 'moved the contacts beside the surface' });
+if (!done.ok) setNote(done.sentence);   // the SESSION's sentence, not one written here
+
+// the same two lines at every other door
+const cleared = await view.clear('scatter');
+const stepped = await view.stepBack();          // what `seek` said, one call out
+const encoded = await view.reencode('scatter', 'x', 'price');
+```
+
+The answer is ignorable — `void view.emit(…)` compiles exactly as it always
+did — so nothing has to read it. `applySaved` is the one door with a wider
+shape, and its type says why: an apply is honest PER CONDITION, so its `ok:
+true` arm carries the half that did not land.
+
+`ok: true` means *the session refused nothing*, which is also the answer when a
+door had nothing to ask of it: `clear` on a view holding no clause, `stepBack`
+at the start of the log, `clearAll` with nothing selected. Those no-ops are each
+door's own documented contract, not a claim that a commit exists. A batch
+(`clearAll`, `setLayout`) still lands every part of itself and answers with the
+FIRST refusal.
+
+**The doors that answer nothing, and why.** `refresh` is a read, not an act.
+`bookmark` and the eight path / trail actions (`switchPath`, `renamePath`,
+`newPathAt`, `bringOver`, `undo`, `archivePath`, `restorePath`,
+`discardFromHere`) POST to their own endpoints, whose contract is
+fire-and-reconcile: nothing comes back off the wire to hand on, and a refusal is
+served as a typed gap in the next snapshot. Giving them an outcome means
+changing that wire — a different packet — and inventing one here would be a
+claim the session never made.
 
 ## CSS scoping — and its honest limit
 

@@ -246,7 +246,7 @@ describe('the sheet, wired', () => {
     const { view } = openLibrary();
     await view.refresh();
     const emitted: unknown[] = [];
-    const spy = { ...view, emit: (viewId: string, e: unknown, intent?: string) => { emitted.push([viewId, e, intent]); return Promise.resolve(); } };
+    const spy = { ...view, emit: (viewId: string, e: unknown, intent?: string) => { emitted.push([viewId, e, intent]); return Promise.resolve({ ok: true as const }); } };
     render(<DataPanel data={{ table: 'books', sheet: () => port() }} state={view.getState()} view={spy as typeof view} readOnly={false} />);
     fireEvent.click(screen.getByRole('tab', { name: /Sheet/ }));
     const row = await waitFor(() => {

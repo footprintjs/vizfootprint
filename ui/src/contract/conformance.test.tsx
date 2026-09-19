@@ -1347,7 +1347,7 @@ describe.each(NET_HOSTS)('conformance — the node-link under %s, and the one th
       reencodeRequest: () => undefined,
       navigate: () => undefined,
     });
-    const pending: Promise<void>[] = [];
+    const pending: Promise<unknown>[] = [];
     for (const layerId of ['edges', 'nodes']) bundles.set(layerAddress('net', layerId), callbacksFor(layerAddress('net', layerId)));
     const res = bindRenderer(networkRenderer(), el, {
       viewId: 'net',
@@ -1386,7 +1386,7 @@ describe.each(NET_HOSTS)('conformance — the node-link under %s, and the one th
   it('the three readings the fold owes the frame — the OUTLINE is the layer\'s own clause, the DIM is another view\'s, and click-again CLEARS', async () => {
     const view = await buildNetSession();
     const el = mountEl();
-    const pending: Promise<void>[] = [];
+    const pending: Promise<unknown>[] = [];
     const callbacksFor = (address: string): RendererCallbacks => ({
       emit: (emission) => {
         pending.push(view.emit(address, emission, `a click on ${address}`));

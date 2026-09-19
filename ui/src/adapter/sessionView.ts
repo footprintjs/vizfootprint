@@ -1435,6 +1435,19 @@ export interface LinkEdit {
 export type DescribeOutcome = { readonly ok: true } | { readonly ok: false; readonly sentence: string };
 
 /**
+ * THE ANSWER A DOOR GIVES WHEN NOTHING WAS REFUSED.
+ *
+ * `ok: true` on a gesture means exactly one thing — *the session refused
+ * nothing* — and that is true both when an act landed and when a door had
+ * nothing to ask of it (a `clear` on a view holding no clause, a `stepBack` at
+ * the start of the log). Those no-ops are each door's own documented contract,
+ * not a claim about a commit, and a third arm for them would be a second shape
+ * for one question. The FALSE arm is the only one that ever carries a sentence,
+ * and the sentence is always the session's own.
+ */
+const NOTHING_REFUSED: DescribeOutcome = { ok: true };
+
+/**
  * What applying a saved picture did. `ok: true` may STILL carry refusals — an
  * apply is honest per condition, and a picture that half-lands says which half
  * did not and why. A surface that shows only the failure arm hides that.
@@ -1452,9 +1465,29 @@ export type ApplySavedOutcome =
     }
   | { readonly ok: false; readonly sentence: string };
 
+/**
+ * A DOOR HANDS BACK WHAT THE SESSION SAID.
+ *
+ * Every door that LANDS AN ACT answers with {@link DescribeOutcome} — the one
+ * shape for "did it land, and what did it say" — so a host reads a refusal the
+ * same way at every one of them and never re-reads the fold to find out
+ * (`../adapter/README.md`, law 3: a door that discards its own answer is a door
+ * that has not been finished). `applySaved` is the single exception and the
+ * type says why: an apply is honest PER CONDITION, so its true arm carries the
+ * half that did not land.
+ *
+ * The doors that still answer `void` are the ones the session gives no answer
+ * for, and each says so beside itself: `refresh` is a read, and `bookmark` and
+ * the path / trail actions are fire-and-reconcile over their own endpoints,
+ * which answer nothing at all on a polled source (a refusal arrives as a typed
+ * gap in the next snapshot). Widening those is a WIRE change, not a return
+ * type, and inventing an answer for them would be a claim the session never
+ * made.
+ */
 export interface SessionView {
   getState(): SessionViewState;
   subscribe(listener: () => void): () => void;
+  /** Re-read the source. A READ, not an act — there is no gesture here for the session to refuse. */
   refresh(): Promise<void>;
   /** Turn a chart's R3 emission into a filter/select commit (charts never build clauses). */
   /**
@@ -1465,46 +1498,51 @@ export interface SessionView {
    * law that makes inertness true, so the two cannot drift. A viewId known only
    * as `string` still passes — see the type's own note.
    */
-  emit<Id extends string>(viewId: Id & DataViewId<Id>, emission: ChartEmission, intent?: string): Promise<void>;
+  emit<Id extends string>(viewId: Id & DataViewId<Id>, emission: ChartEmission, intent?: string): Promise<DescribeOutcome>;
   /**
    * SET-1: clear one view's live selection KIND-FAITHFULLY — a cleared point /
    * interval / cell / match commit of that view, a real act with a cause,
    * never a silent reset. No-op when the view holds no live clause.
    */
-  clear<Id extends string>(viewId: Id & DataViewId<Id>, intent?: string): Promise<void>;
-  /** Clear every live selection, one commit each — the log stays honest about what was cleared. */
-  clearAll(intent?: string): Promise<void>;
+  clear<Id extends string>(viewId: Id & DataViewId<Id>, intent?: string): Promise<DescribeOutcome>;
+  /**
+   * Clear every live selection, one commit each — the log stays honest about
+   * what was cleared. Every one is still cleared whatever any of them answers;
+   * the answer is the FIRST refusal, because a batch has one answer and a
+   * second shape for "which of them" would be a second way to read a refusal.
+   */
+  clearAll(intent?: string): Promise<DescribeOutcome>;
   /**
    * Layer 4: edit ONE edge of the link graph as a commit — what `target` does
    * with `source`'s `kind` emission; `response: null` un-declares the edit so
    * the def's rule shows through. The matrix editor's one door.
    */
-  link(edge: LinkEdit, intent?: string): Promise<void>;
+  link(edge: LinkEdit, intent?: string): Promise<DescribeOutcome>;
   /**
    * SET-1: flip a view's live point/match between KEEP and EXCLUDE (a point
    * becomes a one-value set). An interval or a cell has no polarity — no-op.
    */
-  setPolarity(viewId: string, exclude: boolean, intent?: string): Promise<void>;
+  setPolarity(viewId: string, exclude: boolean, intent?: string): Promise<DescribeOutcome>;
   /** UI-0: rebind a view's visual channel to a field. */
-  reencode(viewId: string, channel: string, field: string): Promise<void>;
+  reencode(viewId: string, channel: string, field: string): Promise<DescribeOutcome>;
   /** Encoding plane: rebind SEVERAL channels in one act — a swap is `{ x: <the y field>, y: <the x field> }` and lands as ONE commit. */
-  reencodeSet(viewId: string, bindings: Readonly<Record<string, string>>, intent?: string): Promise<void>;
+  reencodeSet(viewId: string, bindings: Readonly<Record<string, string>>, intent?: string): Promise<DescribeOutcome>;
   /** The prose plane: set one of a view's words as a record (the person as author unless the record says otherwise); null = back to the def's own words. */
   /** Land a prose record (null = back to the declaration). The answer says whether it landed — a refusal carries the session's sentence, so the words are never lost to a silent no. */
   describe(viewId: string, slot: ProseStatusView['slot'], record: Readonly<Record<string, unknown>> | null, intent?: string): Promise<DescribeOutcome>;
   /** The prose plane: PROPOSE words for a slot — they land in its proposal lane for a person to accept, never as the live words. */
-  propose(viewId: string, slot: ProseStatusView['slot'], record: Readonly<Record<string, unknown>>, intent?: string): Promise<void>;
+  propose(viewId: string, slot: ProseStatusView['slot'], record: Readonly<Record<string, unknown>>, intent?: string): Promise<DescribeOutcome>;
   /** Accept the open proposal (by its commit id): its words land on the slot, marked as accepted from it. */
-  acceptProposal(viewId: string, slot: ProseStatusView['slot'], proposal: string, intent?: string): Promise<void>;
+  acceptProposal(viewId: string, slot: ProseStatusView['slot'], proposal: string, intent?: string): Promise<DescribeOutcome>;
   /** Decline the open proposal with a reason that stays on the record. */
-  declineProposal(viewId: string, slot: ProseStatusView['slot'], proposal: string, reason: string, intent?: string): Promise<void>;
+  declineProposal(viewId: string, slot: ProseStatusView['slot'], proposal: string, reason: string, intent?: string): Promise<DescribeOutcome>;
   /**
    * RP-1: record a pan/zoom view state through the `navigate` dispatch verb.
    * Deliberately NON-filtering — a viewport is not a data claim; the view
    * state rides the cause's intent as INERT data. A navigate against an
    * undeclared view files a typed `needs-view` gap at the session tier.
    */
-  navigate(viewId: string, viewState?: NavigateViewState): Promise<void>;
+  navigate(viewId: string, viewState?: NavigateViewState): Promise<DescribeOutcome>;
   /**
    * LY-1: set the cockpit arrangement — preset (Flow / Grid / Focus), cell
    * order, or the focused chart. Wraps the SAME `navigate` dispatch verb under
@@ -1512,8 +1550,11 @@ export interface SessionView {
    * session fold carries it, so time-travel and path switches restore it).
    * Each provided prop lands ONE commit with a plain-words intent
    * ("layout = focus on scatter"). Works over both sources.
+   *
+   * Every provided prop is still landed whatever any of them answers; the
+   * answer is the FIRST refusal, as `clearAll`'s is.
    */
-  setLayout(change: LayoutChange): Promise<void>;
+  setLayout(change: LayoutChange): Promise<DescribeOutcome>;
   /**
    * LY-1, THE GENERIC DOOR: one layout note — a (scope, prop, value) triple
    * with the HOST'S OWN WORDS — under `layout:${scope}`.
@@ -1559,7 +1600,7 @@ export interface SessionView {
    * `<Sheet sort=…>`; nothing here is judged, and a value the session refuses
    * (too long, say) files its own typed gap in the session's words.
    */
-  setSheetSort(viewId: string, sort: readonly SortSpec[] | undefined): Promise<void>;
+  setSheetSort(viewId: string, sort: readonly SortSpec[] | undefined): Promise<DescribeOutcome>;
   /**
    * LY-1, THE WHOLE SHEET ARRANGEMENT: one act, one prop — `sort`, `hidden`,
    * `order` or `frozen` — under `layout:sheet:<viewId>`.
@@ -1577,8 +1618,8 @@ export interface SessionView {
    * `sheetFrozenOf` over `state.layouts` and hand them to `<Sheet>`; nothing here
    * is judged, and a value the session refuses files its own typed gap.
    */
-  setSheetArrangement<P extends SheetArrangementProp>(viewId: string, prop: P, value: SheetArrangementValues[P]): Promise<void>;
-  analyze(analysisId: string, intent?: string): Promise<void>;
+  setSheetArrangement<P extends SheetArrangementProp>(viewId: string, prop: P, value: SheetArrangementValues[P]): Promise<DescribeOutcome>;
+  analyze(analysisId: string, intent?: string): Promise<DescribeOutcome>;
   /**
    * ADD A DERIVED COLUMN: a formula over the columns this table already has,
    * landed as an ACT — never an edit of the rows.
@@ -1624,8 +1665,17 @@ export interface SessionView {
    * thing to keep in step (README, law 1).
    */
   seek(commitId: string): Promise<DescribeOutcome>;
-  stepBack(): Promise<void>;
-  stepForward(): Promise<void>;
+  /** One step back over `seek`, and it hands back what `seek` said. No earlier step to stand on = nothing asked, nothing refused. */
+  stepBack(): Promise<DescribeOutcome>;
+  /** One step forward over `seek`, and it hands back what `seek` said. No later step = nothing asked, nothing refused. */
+  stepForward(): Promise<DescribeOutcome>;
+  /**
+   * Name this moment. Answers NOTHING, deliberately: this is the one act with
+   * its own endpoint on a polled source (`endpoints.bookmark`), and that
+   * endpoint's contract is fire-and-reconcile — no body comes back to read, so
+   * there is no session sentence to hand on. Giving it one would mean changing
+   * the wire, which is a different packet.
+   */
   bookmark(label: string): Promise<void>;
   // ── saved selections: saved LOGIC in the library's store (never a commit somebody named) ──
   /**
@@ -1644,8 +1694,17 @@ export interface SessionView {
    * nothing, and says why.
    */
   applySaved(savedId: string, opts?: { readonly mode?: 'replace' | 'layer' }): Promise<ApplySavedOutcome>;
-  returnToNow(): Promise<void>;
+  /** Back to the tip over `seek`, and it hands back what `seek` said. Already at the tip = nothing asked, nothing refused. */
+  returnToNow(): Promise<DescribeOutcome>;
   // ── named paths (BR-2 over BR-1) — state rides `state.paths` ──
+  // These SIX and the three trail actions below answer `void` on purpose. None
+  // of them rides the `dispatch` helper: in-process they call the session's own
+  // BR-1/TL-1 methods, and on a polled source they POST to `endpoints.paths` /
+  // `endpoints.bringOver` / `endpoints.undo`, whose contract is
+  // fire-and-reconcile — nothing is read back off the wire, so a refusal is
+  // served as a typed gap in the next snapshot instead. Handing back an outcome
+  // here would have to invent one for the polled half, which is a claim the
+  // session never made; the honest fix is the endpoint, in its own packet.
   /** Switch to a named path: jump to its tip and make it the active line of work. */
   switchPath(name: string): Promise<void>;
   /** Rename a path (a rejected rename files a typed gap; the next refresh shows it). */
@@ -1813,11 +1872,10 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
         const fields = emission.encoding.fields;
         const values = emission.rawValue as CellValues;
         const label = intent ?? `cell ${fields[0]} × ${fields[1]}`;
-        await dispatch(
+        return dispatch(
           { verb: 'select', viewId, fields, values, cause: cause(label) },
           { verb: 'select', viewId, fields, values, intent: label },
         );
-        return;
       }
       const label = intent ?? `${emission.encoding.kind} ${emission.encoding.field}`;
       if (emission.encoding.kind === 'neighbourhood') {
@@ -1833,11 +1891,10 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
         // which slot belongs to which). An absent `walk` is the one-hop ego walk, so a 1.3
         // renderer's emission lands the byte-identical act it always did.
         const walk = emission.encoding.walk === undefined ? {} : { walk: emission.encoding.walk };
-        await dispatch(
+        return dispatch(
           { verb: 'select', viewId, field, seed, ...walk, cause: cause(label) },
           { verb: 'select', viewId, field, seed, ...walk, intent: label },
         );
-        return;
       }
       if (emission.encoding.kind === 'match') {
         // SET-1: the match rides the SELECT verb's values form — one gesture, ONE commit; null clears
@@ -1845,23 +1902,22 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
         const field = emission.encoding.field;
         const values = body === null ? null : body.values;
         const polarity = body?.exclude === true ? { exclude: true } : {};
-        await dispatch(
+        return dispatch(
           { verb: 'select', viewId, field, values, ...polarity, cause: cause(label) },
           { verb: 'select', viewId, field, values, ...polarity, intent: label },
         );
-        return;
       }
       if (emission.encoding.kind === 'interval') {
         // the discriminant sits on `encoding.kind` (nested), so `rawValue` does
         // not auto-narrow — assert the interval payload the guard guarantees
         const range = emission.rawValue as readonly [number, number] | null;
-        await dispatch(
+        return dispatch(
           { verb: 'filter', viewId, field: emission.encoding.field, range, cause: cause(label) },
           { verb: 'filter', viewId, field: emission.encoding.field, range, intent: label },
         );
       } else {
         const value = emission.rawValue;
-        await dispatch(
+        return dispatch(
           { verb: 'select', viewId, field: emission.encoding.field, value, cause: cause(label) },
           { verb: 'select', viewId, field: emission.encoding.field, value, intent: label },
         );
@@ -1870,30 +1926,40 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
 
     async clear(viewId, intent) {
       const own = state.selections.find((s) => s.viewId === viewId);
-      if (own === undefined) return;
+      // no live clause on that view: the documented no-op. Nothing was asked of
+      // the session, so nothing was refused — see NOTHING_REFUSED.
+      if (own === undefined) return NOTHING_REFUSED;
       const label = intent ?? `clear ${viewId}`;
       if (own.kind === 'cell') {
         const fields = own.fields as readonly [string, string];
-        await dispatch({ verb: 'select', viewId, fields, values: null, cause: cause(label) }, { verb: 'select', viewId, fields, values: null, intent: label });
+        return dispatch({ verb: 'select', viewId, fields, values: null, cause: cause(label) }, { verb: 'select', viewId, fields, values: null, intent: label });
       } else if (own.kind === 'neighbourhood') {
         // the library's own rule (src/session/wire.ts, `clearAction`): a walk clears by naming
         // its FIRST endpoint with a null seed — either end re-resolves the same pair, and a
         // clear reads no rows, so there is nothing to walk
         const fields = own.fields as readonly [string, string];
-        await dispatch({ verb: 'select', viewId, field: fields[0], seed: null, cause: cause(label) }, { verb: 'select', viewId, field: fields[0], seed: null, intent: label });
+        return dispatch({ verb: 'select', viewId, field: fields[0], seed: null, cause: cause(label) }, { verb: 'select', viewId, field: fields[0], seed: null, intent: label });
       } else if (own.kind === 'interval') {
-        await dispatch({ verb: 'filter', viewId, field: own.field, range: null, cause: cause(label) }, { verb: 'filter', viewId, field: own.field, range: null, intent: label });
+        return dispatch({ verb: 'filter', viewId, field: own.field, range: null, cause: cause(label) }, { verb: 'filter', viewId, field: own.field, range: null, intent: label });
       } else if (own.kind === 'match') {
-        await dispatch({ verb: 'select', viewId, field: own.field, values: null, cause: cause(label) }, { verb: 'select', viewId, field: own.field, values: null, intent: label });
+        return dispatch({ verb: 'select', viewId, field: own.field, values: null, cause: cause(label) }, { verb: 'select', viewId, field: own.field, values: null, intent: label });
       } else {
         // a point clears with `null`, exactly like every other kind — one spelling, and the only one
         // that survives the wire this same call serializes over (src/session/README.md, beside law 6)
-        await dispatch({ verb: 'select', viewId, field: own.field, value: null, cause: cause(label) }, { verb: 'select', viewId, field: own.field, value: null, intent: label });
+        return dispatch({ verb: 'select', viewId, field: own.field, value: null, cause: cause(label) }, { verb: 'select', viewId, field: own.field, value: null, intent: label });
       }
     },
 
     async clearAll(intent) {
-      for (const s of [...state.selections]) await view.clear(s.viewId, intent ?? 'clear all');
+      // EVERY selection is still cleared, whatever any one of them answers —
+      // this is a return type and not a new rule. The answer is the FIRST
+      // refusal; a shape saying WHICH of them would be a second way to read one.
+      let answer: DescribeOutcome = NOTHING_REFUSED;
+      for (const s of [...state.selections]) {
+        const one = await view.clear(s.viewId, intent ?? 'clear all');
+        if (!one.ok && answer.ok) answer = one;
+      }
+      return answer;
     },
 
     async link(edge, intent) {
@@ -1909,18 +1975,19 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
         ...(edge.onClear !== undefined ? { onClear: edge.onClear } : {}),
         ...(edge.fold !== undefined ? { fold: edge.fold } : {}),
       };
-      await dispatch({ ...body, cause: cause(label) }, { ...body, intent: label });
+      return dispatch({ ...body, cause: cause(label) }, { ...body, intent: label });
     },
 
     async setPolarity(viewId, exclude, intent) {
       const own = state.selections.find((s) => s.viewId === viewId);
       // no live point or match on that view → nothing to flip (an interval, a cell, an unknown view, or a
       // cleared clause — which is `null` whatever the kind: one spelling, src/session/README.md beside law 6)
-      if (own === undefined || own.value === null || (own.kind !== 'point' && own.kind !== 'match')) return;
+      // the documented no-op: nothing was asked of the session, so nothing was refused
+      if (own === undefined || own.value === null || (own.kind !== 'point' && own.kind !== 'match')) return NOTHING_REFUSED;
       const values: readonly unknown[] = own.kind === 'point' ? [own.value] : (own.value as { readonly values: readonly unknown[] }).values;
       const label = intent ?? `${exclude ? 'exclude' : 'keep'} ${own.field}`;
       const polarity = exclude ? { exclude: true } : {};
-      await dispatch(
+      return dispatch(
         { verb: 'select', viewId, field: own.field, values, ...polarity, cause: cause(label) },
         { verb: 'select', viewId, field: own.field, values, ...polarity, intent: label },
       );
@@ -1930,7 +1997,7 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       // UI-0 (fe6e5b5): reencode is the 8th dispatch verb — it rides the SAME
       // dispatch path as every other act (there is no session.reencode method).
       const intent = `reencode ${viewId}.${channel} → ${field}`;
-      await dispatch(
+      return dispatch(
         { verb: 'reencode', viewId, channel, field, cause: cause(intent) },
         { verb: 'reencode', viewId, channel, field, intent },
       );
@@ -1945,25 +2012,25 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
     async propose(viewId, slot, record, intentWord) {
       const intent = intentWord ?? `propose ${viewId}.${slot}`;
       const body = { verb: 'describe' as const, viewId, slot, record, proposal: true };
-      await dispatch({ ...body, record: record as never, cause: cause(intent) }, { ...body, intent });
+      return dispatch({ ...body, record: record as never, cause: cause(intent) }, { ...body, intent });
     },
 
     async acceptProposal(viewId, slot, proposal, intentWord) {
       const intent = intentWord ?? `accept the proposal for ${viewId}.${slot}`;
       const body = { verb: 'describe' as const, viewId, slot, record: null, accept: proposal };
-      await dispatch({ ...body, cause: cause(intent) }, { ...body, intent });
+      return dispatch({ ...body, cause: cause(intent) }, { ...body, intent });
     },
 
     async declineProposal(viewId, slot, proposal, reason, intentWord) {
       const intent = intentWord ?? `decline the proposal for ${viewId}.${slot}`;
       const body = { verb: 'describe' as const, viewId, slot, record: null, decline: { proposal, reason } };
-      await dispatch({ ...body, cause: cause(intent) }, { ...body, intent });
+      return dispatch({ ...body, cause: cause(intent) }, { ...body, intent });
     },
 
     async reencodeSet(viewId, bindings, intentWord) {
       // encoding plane: several channels in ONE act — judged as a whole, one commit (a swap never lands twice)
       const intent = intentWord ?? `reencode ${viewId} ${Object.entries(bindings).map(([c, f]) => `${c} → ${f}`).join(', ')}`;
-      await dispatch(
+      return dispatch(
         { verb: 'reencode', viewId, bindings, cause: cause(intent) },
         { verb: 'reencode', viewId, bindings, intent },
       );
@@ -1979,7 +2046,7 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
             .join(' ')
         : '';
       const intent = `navigate ${viewId}${described}`;
-      await dispatch({ verb: 'navigate', viewId, cause: cause(intent) }, { verb: 'navigate', viewId, intent });
+      return dispatch({ verb: 'navigate', viewId, cause: cause(intent) }, { verb: 'navigate', viewId, intent });
     },
 
     async setLayoutNote(note) {
@@ -2010,7 +2077,14 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       // byte-identical to the joined string for every id that holds no separator,
       // JSON for the ones that do — which used to come back as two cells
       if (change.order !== undefined) notes.push({ prop: COCKPIT_ORDER_PROP, value: cellOrderToLayoutValue(change.order), words: `layout order: ${change.order.join(', ')}` });
-      for (const n of notes) await view.setLayoutNote({ scope: COCKPIT_LAYOUT_SCOPE, ...n });
+      // every prop is still landed whatever any one of them answers; the answer
+      // is the FIRST refusal, exactly as clearAll's is.
+      let answer: DescribeOutcome = NOTHING_REFUSED;
+      for (const n of notes) {
+        const one = await view.setLayoutNote({ scope: COCKPIT_LAYOUT_SCOPE, ...n });
+        if (!one.ok && answer.ok) answer = one;
+      }
+      return answer;
     },
 
     async setSheetArrangement(viewId, prop, next) {
@@ -2023,7 +2097,7 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       // from the caller: "hid cases" and "showed cases" are the same act with the
       // sign reversed, and only the trace can say which one this is.
       const intent = arrangementWords(viewId, prop, sheetArrangementOf(state.layouts, viewId, prop), next);
-      await dispatch(
+      return dispatch(
         { verb: 'navigate', viewId: layoutViewId, field: prop, value, cause: cause(intent) },
         { verb: 'navigate', viewId: layoutViewId, field: prop, value, intent },
       );
@@ -2032,11 +2106,11 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
     // the sort's own door, kept because it was public before the other three
     // existed — a wrapper, so there is exactly one act and one sentence writer
     async setSheetSort(viewId, sort) {
-      await view.setSheetArrangement(viewId, SHEET_SORT_PROP, sort);
+      return view.setSheetArrangement(viewId, SHEET_SORT_PROP, sort);
     },
 
     async analyze(analysisId, intent) {
-      await dispatch({ verb: 'analyze', analysisId, cause: cause(intent ?? `analyze ${analysisId}`) }, { verb: 'analyze', analysisId, intent: intent ?? `analyze ${analysisId}` });
+      return dispatch({ verb: 'analyze', analysisId, cause: cause(intent ?? `analyze ${analysisId}`) }, { verb: 'analyze', analysisId, intent: intent ?? `analyze ${analysisId}` });
     },
 
     async addColumn(name, expression, opts) {
@@ -2079,13 +2153,17 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
       return outcome;
     },
 
+    // BOTH hand back what `seek` said. The step used to drop it, which left a
+    // consumer that wanted to know whether the cursor had moved asking
+    // `state.commits` the reachability question the session had already
+    // answered — the same shape `seek` itself was widened for.
     async stepBack() {
       const target = stepBackTarget(state.commits, state.cursor);
-      if (target) await view.seek(target);
+      return target ? view.seek(target) : NOTHING_REFUSED;
     },
     async stepForward() {
       const target = stepForwardTarget(state.commits, state.cursor, state.head);
-      if (target) await view.seek(target);
+      return target ? view.seek(target) : NOTHING_REFUSED;
     },
 
     async saveSelection(name, what = { live: 'all' }) {
@@ -2134,7 +2212,7 @@ export function createSessionView(source: SessionViewSource, options: SessionVie
     },
 
     async returnToNow() {
-      if (state.head) await view.seek(state.head);
+      return state.head ? view.seek(state.head) : NOTHING_REFUSED;
     },
 
     // ── named paths (BR-2): sessionSource calls the BR-1 methods directly; the

@@ -236,7 +236,9 @@ export async function runConformance(plan: ConformancePlan): Promise<Conformance
   const reencodeRequests: string[] = [];
   const hovers: (readonly string[] | null)[] = [];
   const navigations: NavigateViewState[] = [];
-  const pending: Promise<void>[] = [];
+  // a bucket of gestures to SETTLE — what each answers is the caller's to read
+  // (the doors hand back `DescribeOutcome` now), never this harness's to judge.
+  const pending: Promise<unknown>[] = [];
   /** 1.2: which ADDRESS each layer emission was spoken through — the bundle that spoke is the proof of which layer gestured. */
   const layerEmissions: { readonly address: string; readonly emission: ChartEmission }[] = [];
 
