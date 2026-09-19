@@ -35,6 +35,74 @@ readOutput: () => ({ ok: true, output: { as: 'table', name: 'ties', schema: { so
 
 For an act that fills a declared table, `AnalysisDef.produces` is read at the DEF door, before anything is built — so an analysis on another channel is refused there rather than filling nothing quietly. An analysis fills at most one table, and an `aggregate` fills none: it mints its own.
 
+## The `columns` channel: an act declares what it LANDS
+
+A declared table's column says what it IS — a role, a scale, a label, a unit ([`../def/README.md`](../def/README.md), "What a column is"). An act's landed column used to say only its `type`, so its role and its scale were read off that type downstream. For most columns that reading is right: a distance, a score and an area are magnitudes, and `scaleOfType('number')` says `continuous`, which is true.
+
+**A rank is not a magnitude.** Rank 6 is not six times rank 1 — it is a PLACE — and it lands as an integer like any other. So a column of ranks was read `continuous`, and every channel that takes a column with distinct values refused it *by name*:
+
+```
+a residue is coloured by looking its value up in a palette, so the structure view's colour takes
+a column with distinct values (hotspot_rank is not one)
+```
+
+The two repairs available were both wrong in the same way: a hand-written `ColumnDecl` in the DEFINITION, about a column the definition does not own, or a widened house rule that would let a real magnitude onto a palette. That declaration was written three times in two days, in three consumers, and each time it was the *def* saying what the *act* knew.
+
+So an act says it:
+
+```ts
+readOutput: () => ({
+  ok: true,
+  output: {
+    as: 'columns',
+    table: 'residues',
+    columns: {
+      // rank 6 is not six times rank 1 — a PLACE, so a bucket, which is also what lets a
+      // palette channel take it
+      hotspot_rank: { type: 'int', role: 'dimension', scale: 'discrete', label: 'the place a model gave this residue among the hot spots it ranked' },
+      // says nothing, and is read exactly as it always was: number → continuous
+      interface_separation: { type: 'float' },
+    },
+  },
+});
+```
+
+`type` stays required and is unchanged — the shape vocabulary (`OutputColumnType`) is not this question, and it is deliberately **not a facet**: the values have landed and the store has read them, so what a chart sees is the store's type. The four words that DO travel are `ColumnMeaning` (`../data/types.ts`), which is the same vocabulary a def states, by construction rather than by agreement — `ColumnDecl` and `OutputColumn` are both that interface plus a `type` field, and `type` is the one place they differ, because a def states a `ColumnType` and may omit it while an act states its own finer one and must.
+
+**Everything but `type` is optional and ABSENT rather than defaulted.** An act that says nothing has claimed nothing, and is read exactly as it was before this existed — no registry row changes, no facet changes. A default here would be the library guessing, which is the thing the declaration exists to stop. And nothing new is inferred in either direction: a role is never derived from a type.
+
+### One column, one owner
+
+A def can declare a column an act also lands — that is precisely what the three consumers did. One of them must own it, and the answer is a rule rather than a merge:
+
+**The act owns a column it lands.** When an act declares any of the four words, that declaration is the WHOLE declaration for that column: the def's `columns` entry for that name is not read for a role, a scale, a label, a unit or a type. You cannot take the role from the act and the label from the def. When the act says nothing, there is nothing to own and the def's entry applies exactly as it always did.
+
+Why the act. A def's `columns` map is what the caller states about the table's OWN columns — the map. A landed column is the TRACE: it exists only because an act made it, at a commit, on a branch ([`../data/README.md`](../data/README.md)). The landing door already rules the mirror half of this — *a computed column may not take a declared column's name*, because the map is not the trace's to edit — and this is the same law facing the other way. It is also the only rule that can be right per landing: two acts on two branches land one logical name with two meanings, and a def has one entry for that name, so a def that won would govern a branch it never saw.
+
+And two authorities over one name is **refused by name**, at the same door, before a value moves — not resolved silently, because a declaration nothing reads is one waiting to be believed:
+
+```
+analysis "hotspots" lands column "hotspot_rank" on table "residues" declares what it lands, and
+the definition declares "hotspot_rank" too — a column has ONE owner and the act owns the one it
+lands, so this column was not written. Delete the definition's entry for "hotspot_rank", or take
+the declaration off the act.
+```
+
+That column alone does not land; the act's other columns still get their turn, and the gap carries the analysis's own taxonomy (`derive-invalid` for a declared column, `guard-failed` otherwise). A declaration the vocabulary does not admit is refused at the same door and in the same shape:
+
+```
+analysis "hotspots" lands column "hotspot_rank" on table "residues" declares scale "ordinal" — a
+scale is one of discrete, continuous
+```
+
+### Where it is read
+
+The act's word is stored beside the act that said it (`DerivedColumn.landed`, `../data/derivedColumns.ts`) and travels with the column out of the one door that can say which act a logical name is at this cursor (`../session/session.ts` · `effectiveColumnsOf`). Every reader downstream — the rebind judge, `whats_here`, the prose basis — keeps the signature it had, because a `ColumnInfo` is a `ResolvedColumn` that says nothing.
+
+### What this is NOT
+
+It is not the aggregate's capability generalised, and the difference is worth naming. An aggregate already declares what it will land — `mintedTables` (`../def/builtinAnalyses.ts`) computes the NAMES and TYPES of the table its act mints, from its own `groupBy` and `measures`, and the def door judges a binding against them before the act runs. But it declares **types only**: `declaredFacet` (`../def/layers.ts`) says so out loud — *it carries no `ColumnDecl` — no role, no scale, no unit — because there is none to carry*. That sentence is now false only in the sense that there is somewhere for one to come from; the aggregate still declares none, and this packet did not give it one. When it does, it uses `ColumnMeaning`, which is why that type lives in the data layer rather than in this folder.
+
 ## The formula: a derived column, as data
 
 ```ts

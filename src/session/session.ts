@@ -55,7 +55,7 @@ import { judgeAnalysisReads, neighbourhoodEndpoints, relationEdgeId } from '../d
 import { walkNeighbourhood, walkRefusal } from './neighbourhood.js';
 import { isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
-import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, mintFilledTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type FilledTable, type EvaluateResult, type DataProviderRejection, type MatchClause, type MatchValue, type NeighbourhoodClause, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
+import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, mintFilledTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type ResolvedColumn, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type FilledTable, type EvaluateResult, type DataProviderRejection, type MatchClause, type MatchValue, type NeighbourhoodClause, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
 import { applyLinkOverrides, columnStanding, edgeId, impliedKinds, unmappedColumnWords, validateLinks, type LinkDecl, type ReachRelation } from '../links/index.js';
 
@@ -72,7 +72,7 @@ import { copyValue, deepFreeze } from '../detach/index.js';
 // the resource stamp's one fold: name → version, owned where the resource shapes are (`../source/resource.ts`)
 import { resourceVersionsOf } from '../source/index.js';
 import type { AnalysisSlot, DashboardRuntime, DispatchVerb, FdrStepper, RegisteredAnalysis, RelationEdge, RestorableSaved, RestorableBookmark, RestoreResult, ViewDecl, ViewEncodingDecl, SavedClause, SavedSelection, Bookmark } from '../def/types.js';
-import { describeRules, refuses, validateBindings } from '../encoding/index.js';
+import { describeRules, landedColumnProblems, landedMeaning, refuses, validateBindings } from '../encoding/index.js';
 // law 13 AT THE VALUE: whether a clause this door is about to LAND can address the column it names,
 // and the words for one that cannot — the judgement and the sentence have one owner in `../encoding/frame.ts`
 import { frameScaleOf, unaddressableClause, unaddressableValueRefusal } from '../encoding/index.js';
@@ -2261,20 +2261,25 @@ class InteractionSessionImpl implements InteractionSession {
    * A store column the registry does not know is DECLARED source data, and is
    * visible on every branch: the map does not move with the walker.
    */
-  private async effectiveColumnsOf(table: string): Promise<readonly ColumnInfo[] | ReadRefusal> {
+  private async effectiveColumnsOf(table: string): Promise<readonly ResolvedColumn[] | ReadRefusal> {
     const cols = await this.columnsOf(table);
     if ('rejected' in cols) return cols;
     const slots = this.derivedSlotsOf(table);
     if (slots.size === 0) return cols; // fast path: nothing derived on this table
-    const here = new Map([...this.derivedAt(table).values()].map((d) => [d.physical, d.name] as const));
-    const out: ColumnInfo[] = [];
+    // physical → the whole registry row, not just its logical name: the row also carries WHAT THE
+    // ACT SAID it was landing, and this is the one door that can say which act a logical name is
+    // at this cursor (`../data/derivedColumns.ts` · `DerivedColumn.landed`).
+    const here = new Map([...this.derivedAt(table).values()].map((d) => [d.physical, d] as const));
+    const out: ResolvedColumn[] = [];
     for (const c of cols) {
       if (!slots.has(c.name)) {
         out.push(c); // declared source data
         continue;
       }
-      const logical = here.get(c.name);
-      if (logical !== undefined) out.push({ name: logical, type: c.type }); // derived, and on this branch
+      const derived = here.get(c.name);
+      // derived, and on this branch — carrying the act's own declaration when it made one, so the
+      // encoding plane reads a rank as the rank's OWN author declared it and not as its type
+      if (derived !== undefined) out.push({ name: derived.name, type: c.type, ...(derived.landed !== undefined ? { landed: derived.landed } : {}) });
     }
     return out;
   }
@@ -3835,7 +3840,7 @@ class InteractionSessionImpl implements InteractionSession {
    * surface, channels it declares, columns visible on this branch. Returns the
    * branch-scoped columns (the validator's facets come from them) or the gap.
    */
-  private async reencodeGuards(viewId: string, pairs: readonly (readonly [string, string])[]): Promise<{ readonly cols: readonly ColumnInfo[] } | { readonly gap: GapRow }> {
+  private async reencodeGuards(viewId: string, pairs: readonly (readonly [string, string])[]): Promise<{ readonly cols: readonly ResolvedColumn[] } | { readonly gap: GapRow }> {
     // 1. the view must be declared (R14: needs-view).
     if (!this.holdsView(viewId)) {
       return { gap: this.gapLedger.file('needs-view', 'reencode', `no declared view "${viewId}"`, viewId) };
@@ -4024,7 +4029,7 @@ class InteractionSessionImpl implements InteractionSession {
    * the refusal's sentence, so a writer is told "it is on another branch"
    * rather than the untrue "the log does not hold it".
    */
-  private proseWorld(cols: readonly ColumnInfo[], mode: 'set' | 'proposal'): ProseWorld & { readonly mode: 'set' | 'proposal' } {
+  private proseWorld(cols: readonly ResolvedColumn[], mode: 'set' | 'proposal'): ProseWorld & { readonly mode: 'set' | 'proposal' } {
     // the ids come straight off the stores: `bookmarks()` / `saved()` would sort and copy every
     // record on EVERY describe and every proposal, and the answer is the same set of ids.
     // The names ride along for the refusal sentence — one pass, no copies.
@@ -4347,7 +4352,7 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** One view's would-be bindings judged by the plane's validator, with the default table's facets. */
-  private judgeBindings(viewId: string, bindings: Bindings, changed: readonly string[], cols: readonly ColumnInfo[]) {
+  private judgeBindings(viewId: string, bindings: Bindings, changed: readonly string[], cols: readonly ResolvedColumn[]) {
     const { rules, ports } = this.runtime.encoding;
     const facets = this.runtime.encoding.facetsOf(this.defaultTable, cols);
     return validateBindings({
@@ -4641,7 +4646,20 @@ class InteractionSessionImpl implements InteractionSession {
       // be written over them — refusing is the only honest direction
       gap = this.gapLedger.file(this.gapCodeFor(analysisId, 'source'), op, `analysis "${analysisId}" produced columns, but table "${out.table}" could not say which columns are its own: ${declared.rejected}`, out.table);
     } else {
+      // What the def says about the columns of the table being landed on — the OTHER speaker, read
+      // once for the whole output. Undefined for a table with no `columns` map, and for a derived
+      // table (there is no def entry to contradict).
+      const defColumns = this.runtime.def.data[out.table]?.columns;
       for (const name of Object.keys(out.columns)) {
+        // THE ACT'S OWN DECLARATION, judged before a value moves — the vocabulary it used, and
+        // whether the def also claims this column. One owner per column and the act owns the one
+        // it lands (`../encoding/facets.ts` · `meaningOf`), so two speakers is refused exactly as
+        // the collision below is: named, filed, and this column alone does not land.
+        const problems = landedColumnProblems(out.columns[name], `analysis "${analysisId}" lands column "${name}" on table "${out.table}"`, name, defColumns?.[name]);
+        if (problems.length > 0) {
+          gap = this.gapLedger.file(this.gapCodeFor(analysisId, 'invalid'), op, problems.join(' '), name);
+          continue;
+        }
         const values = snapshot?.sharedState[name];
         if (!Array.isArray(values)) {
           gap = this.gapLedger.file('guard-failed', op, `analysis "${analysisId}" produced no values for column "${name}"`, name);
@@ -4681,7 +4699,11 @@ class InteractionSessionImpl implements InteractionSession {
           // The slot is the act's; the NAME is what everything else speaks. Registered against the
           // table SLOT the values went into, never the logical name: a later act that re-cuts that
           // name is a different table, and this column is not one of its columns.
-          this.runtime.derived.record({ table: this.physicalTableOf(out.table), name, physical: slot, commitId });
+          // …and WHAT THE ACT SAID IT WAS, beside the act that said it. Absent when the act said
+          // nothing beyond its type, so a registry row for every act written before an act could
+          // speak is byte-for-byte the row it always was (`../data/derivedColumns.ts`).
+          const landed = landedMeaning(out.columns[name]!);
+          this.runtime.derived.record({ table: this.physicalTableOf(out.table), name, physical: slot, commitId, ...(landed !== undefined ? { landed } : {}) });
           slots.set(name, slot);
           materialized.push(name);
         }

@@ -72,6 +72,7 @@ export type {
   AnalysisKind,
   AnalysisOutput,
   ColumnsOutput,
+  OutputColumn,
   GeometryOutput,
   ScalarOutput,
   TableOutput,

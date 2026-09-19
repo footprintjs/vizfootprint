@@ -65,6 +65,69 @@ export type ColumnRole = 'identifier' | 'dimension' | 'measure' | 'absence';
 export type ColumnScale = 'discrete' | 'continuous';
 
 /**
+ * WHAT A COLUMN MEANS — a role, a scale, a label, a unit. The ONE vocabulary
+ * for that question; only the SPEAKER differs.
+ *
+ * A def states it about the table's own columns (`ColumnDecl`,
+ * `../encoding/types.ts`). An ACT states it about a column it lands
+ * (`OutputColumn`, `../analysis/types.ts`). Both are this interface plus a
+ * `type` field, and the `type` field is the one thing they cannot share: a def
+ * states a {@link ColumnType} and may omit it, while an act states its own
+ * finer one ({@link import('../analysis/types.js').OutputColumnType} — `int`
+ * apart from `float`) and must. Everything a chart reads is here, said once,
+ * so a landed column and a declared one cannot end up with two vocabularies
+ * for one question.
+ *
+ * EVERY FIELD IS OPTIONAL AND ABSENT RATHER THAN DEFAULTED. A speaker that
+ * says nothing has claimed nothing — the encoding plane falls back to what it
+ * always did (`../encoding/facets.ts` · `facetOf`), which is the only
+ * inference in the vocabulary and is about the SCALE alone. A role is never
+ * guessed from a type, in either direction and by either speaker.
+ */
+export interface ColumnMeaning {
+  /** What the column IS: an identifier, a dimension, a measure. Never guessed. */
+  readonly role?: ColumnRole;
+  /**
+   * Whether its values are buckets or magnitudes.
+   *
+   * THE FIELD THIS WHOLE VOCABULARY EXISTS FOR, on the act's side: a rank is
+   * an integer and is NOT a magnitude — rank 6 is not six times rank 1 — so a
+   * column of ranks left to `scaleOfType` is read as `continuous` and refused
+   * by every channel that takes distinct values. See `../analysis/README.md`.
+   */
+  readonly scale?: ColumnScale;
+  /** A display label, echoed verbatim (never parsed). */
+  readonly label?: string;
+  /**
+   * The UNIT the values are in ('mg/dL', 'cases', 'USD'), echoed verbatim and
+   * never parsed or converted. It exists so a shared scale can be refused (see
+   * {@link ColumnFacet.unit}).
+   */
+  readonly unit?: string;
+}
+
+/**
+ * One column as the SESSION resolved it at the cursor: the store's reading
+ * ({@link ColumnInfo}), plus what the ACT that landed it said it lands, when
+ * an act landed it and said anything.
+ *
+ * WHY the declaration rides on the column rather than arriving beside it: the
+ * one door that can answer "which act's column is this?" is the cursor
+ * resolution itself (`../session/session.ts` · `effectiveColumnsOf`) — a
+ * logical name is one act's on this branch and another act's on the next, and
+ * a def has one entry for the name. So the act's word travels WITH the column
+ * it is about, and every reader downstream keeps the signature it had.
+ *
+ * A declared SOURCE column never carries `landed`: nothing landed it. A
+ * `ColumnInfo` is a `ResolvedColumn` that says nothing, which is why every
+ * existing caller of `resolveFacets` is unchanged.
+ */
+export interface ResolvedColumn extends ColumnInfo {
+  /** What the act that landed this column declared about it. Absent for a source column, and for an act that said nothing. */
+  readonly landed?: ColumnMeaning;
+}
+
+/**
  * One column as the encoding plane sees it: the provider's type plus what the
  * def declared about it. The wire shape `whats_here` serves per column.
  */

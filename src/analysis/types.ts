@@ -16,7 +16,7 @@
  */
 
 import type { RuntimeSnapshot } from 'footprintjs';
-import type { ColumnInfo, DataProviderRejection, Row } from '../data/types.js';
+import type { ColumnInfo, ColumnMeaning, DataProviderRejection, Row } from '../data/types.js';
 import type { HypothesisRecord } from '../fdr/index.js';
 
 /**
@@ -46,12 +46,50 @@ export type AnalysisKind = (typeof ANALYSIS_KINDS)[number];
  */
 export type OutputColumnType = 'int' | 'float' | 'string' | 'boolean' | 'date' | 'unknown';
 
+/**
+ * ONE COLUMN AN ACT LANDS, as the act declares it — its type, and what it
+ * MEANS ({@link ColumnMeaning}: a role, a scale, a label, a unit).
+ *
+ * ── WHY AN ACT SPEAKS AT ALL ───────────────────────────────────────────────
+ * A declared table's column says what it IS; a landed column used to say only
+ * its type, so its role and its scale were inferred downstream from that type
+ * — and the inference is wrong for the commonest interesting case. A RANK is
+ * an integer and is not a magnitude (rank 6 is not six times rank 1), so
+ * `scaleOfType` reads it `continuous` and every channel that takes distinct
+ * values refuses it BY NAME. The only repairs available were a hand-written
+ * `ColumnDecl` in the def, about a column the def does not own, or a widened
+ * house rule. See `./README.md`.
+ *
+ * ── THE SHAPE ──────────────────────────────────────────────────────────────
+ * `type` STAYS REQUIRED and is unchanged — the shape vocabulary
+ * ({@link OutputColumnType}) is not this field's question, and every act
+ * written before this existed is still exactly this type. Everything else is
+ * optional and ABSENT rather than defaulted: an act that says nothing has
+ * claimed nothing and is read exactly as it was, because a default would be
+ * the library guessing, which is the thing the declaration exists to stop.
+ *
+ * NOT A SECOND VOCABULARY: the four words are {@link ColumnMeaning}'s, which
+ * is also what a def states (`ColumnDecl`, `../encoding/types.ts`). The `type`
+ * field is the only place the two differ, and it differs because it must — a
+ * def states a data-layer `ColumnType` and may omit it; an act states its own
+ * finer one (`int` apart from `float`) and always has.
+ *
+ * `type` IS NOT A FACET. The value of `type` here never becomes the column's
+ * charted type: the values landed, the store read them, and that reading is
+ * what the encoding plane sees. Only the four {@link ColumnMeaning} words
+ * travel.
+ */
+export interface OutputColumn extends ColumnMeaning {
+  /** What the column it wrote is DECLARED as ({@link OutputColumnType}). */
+  readonly type: OutputColumnType;
+}
+
 /** A materialized column set (e.g. adds `cluster_id : int`). Re-enters as a predicate. */
 export interface ColumnsOutput {
   readonly as: 'columns';
   readonly table: string;
-  /** What each column it wrote is DECLARED as ({@link OutputColumnType}). */
-  readonly columns: Record<string, { readonly type: OutputColumnType }>;
+  /** What each column it wrote is, as the act declares it ({@link OutputColumn}). */
+  readonly columns: Record<string, OutputColumn>;
 }
 /**
  * A fitted LINE layer — today's only geometry: slope + intercept over a domain.

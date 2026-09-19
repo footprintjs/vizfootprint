@@ -13,7 +13,7 @@
  *   - a POLICY — what happens to an act that breaks a rule (refuse, or coerce
  *     through a named adapter) and how wide `never-together` reaches.
  */
-import type { ColumnFacet, ColumnRole, ColumnScale, ColumnType } from '../data/types.js';
+import type { ColumnFacet, ColumnMeaning, ColumnRole, ColumnScale, ColumnType } from '../data/types.js';
 
 // ── Channel classes ──────────────────────────────────────────────────────────
 
@@ -245,16 +245,28 @@ export type Bindings = Readonly<Record<string, string>>;
 
 // ── What a def may state about one column (`DataSourceDef.columns[field]`) ──
 
-export interface ColumnDecl {
+/**
+ * The DEF's half of the one column vocabulary ({@link ColumnMeaning}): a role,
+ * a scale, a label, a unit — plus a type it may omit.
+ *
+ * Its twin is `OutputColumn` (`../analysis/types.ts`), which an ACT says about
+ * a column it lands. The two are the same four words by construction rather
+ * than by agreement, and they differ only in `type` for the reason
+ * {@link ColumnMeaning} gives.
+ */
+export interface ColumnDecl extends ColumnMeaning {
   /** What the column IS, when the provider's inferred type is not the truth (an ISO-string column that is a date). */
   readonly type?: ColumnType;
-  readonly role?: ColumnRole;
-  readonly scale?: ColumnScale;
-  /** A display label, echoed verbatim. */
-  readonly label?: string;
-  /** The unit the values are in ('cases', 'mg/dL'), echoed verbatim — read by the frame's shared-scale law (see {@link ColumnFacet.unit}). */
-  readonly unit?: string;
 }
+
+/**
+ * The four words of the one column vocabulary, as a VALUE — typed
+ * `keyof ColumnMeaning` so a word added to the interface and not to this list
+ * does not compile. Read by both shape judges (`./shape.ts`): the def's, which
+ * allows these plus `type`, and the ACT's, which allows the same five and asks
+ * whether the act said any of these four at all.
+ */
+export const COLUMN_MEANING_KEYS: readonly (keyof ColumnMeaning)[] = ['role', 'scale', 'label', 'unit'];
 
 export const COLUMN_ROLES: readonly ColumnRole[] = ['identifier', 'dimension', 'measure', 'absence'];
 export const COLUMN_SCALES: readonly ColumnScale[] = ['discrete', 'continuous'];

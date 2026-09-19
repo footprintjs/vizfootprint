@@ -40,7 +40,7 @@ import type {
 } from '../analysis/index.js';
 import type { BuiltinAnalysisDecl } from './builtinAnalyses.js';
 import type { FdrStep, GammaSequence, HypothesisRecord } from '../fdr/index.js';
-import type { ColumnFacet, ColumnInfo, DataProvider, DerivedColumnStore, DerivedTable, DerivedTableStore, Engine, FilledTable, FilledTableStore, LandedColumns, Row } from '../data/index.js';
+import type { ColumnFacet, ColumnInfo, DataProvider, DerivedColumnStore, DerivedTable, DerivedTableStore, Engine, FilledTable, FilledTableStore, LandedColumns, ResolvedColumn, Row } from '../data/index.js';
 
 // ── The dispatch verb vocabulary (SPEC §9; Q6 — the 7-verb set was INCOMPLETE:
 // changing a view's visual encoding is a state-changing transition too, not an
@@ -1122,8 +1122,16 @@ export interface DashboardRuntime {
 export interface EncodingRuntime {
   readonly rules: EncodingRules;
   readonly ports: EncodingPorts;
-  /** The provider's columns of `table` as facets: type + declared role/scale/label + the absence vocabulary. */
-  facetsOf(table: string, cols: readonly ColumnInfo[]): ColumnFacet[];
+  /**
+   * The provider's columns of `table` as facets: type + declared role/scale/label + the absence
+   * vocabulary.
+   *
+   * `ResolvedColumn` and not `ColumnInfo` because a column an ACT landed arrives carrying what
+   * that act declared about it (`../data/types.ts` · `ResolvedColumn.landed`), and the act owns
+   * the meaning of the column it lands. A plain `ColumnInfo` is a `ResolvedColumn` that says
+   * nothing, so every caller that hands over a provider's own columns is unchanged.
+   */
+  facetsOf(table: string, cols: readonly ResolvedColumn[]): ColumnFacet[];
 }
 
 // Re-exports the def layer commonly hands onward.

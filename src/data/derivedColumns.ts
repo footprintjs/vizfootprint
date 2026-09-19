@@ -24,7 +24,7 @@
  */
 
 import { isPairClause } from './types.js';
-import type { PredicateClause, Row } from './types.js';
+import type { ColumnMeaning, PredicateClause, Row } from './types.js';
 
 /**
  * The marker between a derived column's logical name and the act that made it.
@@ -84,6 +84,19 @@ export interface DerivedColumn {
   readonly physical: string;
   /** The commit that created it — the whole reason the two names differ. */
   readonly commitId: string;
+  /**
+   * WHAT THE ACT SAID IT WAS LANDING — a role, a scale, a label, a unit
+   * ({@link ColumnMeaning}), taken from the act's own output
+   * (`OutputColumn`, `../analysis/types.ts`) at the landing door.
+   *
+   * Absent when the act declared nothing beyond its type, which is every act
+   * written before an act could speak. Kept HERE, beside the commit, and not
+   * on the def, because it is a fact about THIS landing: the same logical name
+   * landed by a second act on a second branch is a second row with its own
+   * word, and the cursor resolution is what tells them apart
+   * ({@link resolveDerived}).
+   */
+  readonly landed?: ColumnMeaning;
 }
 
 /**

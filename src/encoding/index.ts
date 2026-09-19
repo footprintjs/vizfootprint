@@ -12,6 +12,7 @@ export {
   RULE_SCOPES,
   COLUMN_ROLES,
   COLUMN_SCALES,
+  COLUMN_MEANING_KEYS,
 } from './types.js';
 export type {
   ChannelClass,
@@ -40,11 +41,11 @@ export { SENTENCES, fill, listOf } from './sentences.js';
 // function that reads them, so a consumer can show a person the whole set
 export { GRAPH_READING_RULES, DEFAULT_GRAPH_READING, CHART_KIND_FOR_READING, DENSE_AT, BIG_AT, densityOf, graphReadingFor } from './graphReading.js';
 export type { GraphFact, GraphQuestion, GraphReading, GraphReadingKind, GraphReadingRule } from './graphReading.js';
-export { resolveFacets, resolveFacet, scaleOfType } from './facets.js';
+export { resolveFacets, resolveFacet, scaleOfType, landedMeaning } from './facets.js';
 export type { FacetSource } from './facets.js';
 export { BUILTIN_RULES, validateBindings, requirementFailure, refuses, ruleId } from './validate.js';
 export type { ValidateInput } from './validate.js';
-export { validateColumnDecls, validateEncodingRulesShape } from './shape.js';
+export { landedColumnProblems, validateColumnDecls, validateEncodingRulesShape } from './shape.js';
 export { fitsFor, acceptsOf } from './fits.js';
 export type { FitsInput } from './fits.js';
 // The same answer one step earlier — before a dashboard exists to ask.
